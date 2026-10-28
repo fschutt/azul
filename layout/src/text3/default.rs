@@ -830,6 +830,218 @@ fn source_spans(infos: &[gpos::Info], text: &str) -> Vec<(usize, usize)> {
     spans
 }
 
+/// How far one glyph moves the pen and where it is drawn from the pen.
+///
+/// Pixels, with y pointing up.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct GlyphPlacement {
+    advance: f32,
+    offset_x: f32,
+    offset_y: f32,
+}
+
+/// Where GPOS puts each glyph, also the ones it attaches to other glyphs:
+/// marks on their base or on another mark, overprinting marks and cursive
+/// joins.
+///
+/// `advances` are the glyphs' own pen advances and `kernings` what the pen
+/// moves on top of them, both in pixels, and `scale` turns font units into
+/// pixels. An offset counts from where the pen stands at the glyph while the
+/// glyphs are drawn in visual order, which for a right-to-left run is `infos`
+/// backwards: a mark that follows its base in `infos` is drawn before it.
+#[allow(clippy::cast_precision_loss)] // GPOS distances are font units, far inside f32's exact range
+fn resolve_placements(
+    infos: &[gpos::Info],
+    advances: &[f32],
+    kernings: &[f32],
+    scale: f32,
+    direction: BidiDirection,
+) -> Vec<GlyphPlacement> {
+    let units = |value: i16| f32::from(value) * scale;
+    let mut placed: Vec<GlyphPlacement> = infos
+        .iter()
+        .zip(advances)
+        .map(|(info, &advance)| {
+            let (offset_x, offset_y) = match info.placement {
+                gpos::Placement::Distance(x, y) => (x as f32 * scale, y as f32 * scale),
+                // The mark's anchor onto its base's, counted from the base's
+                // origin, which `attach_marks` adds once the bases are placed.
+                gpos::Placement::MarkAnchor(_, base_anchor, mark_anchor) => (
+                    units(base_anchor.x) - units(mark_anchor.x),
+                    units(base_anchor.y) - units(mark_anchor.y),
+                ),
+                gpos::Placement::None
+                | gpos::Placement::MarkOverprint(_)
+                | gpos::Placement::CursiveAnchor(..) => (0.0, 0.0),
+            };
+            GlyphPlacement {
+                advance,
+                offset_x,
+                offset_y,
+            }
+        })
+        .collect();
+    join_cursive(infos, &mut placed, scale, direction);
+    attach_marks(infos, &mut placed, kernings, direction);
+    placed
+}
+
+/// Joins the glyphs a cursive attachment links, the exit anchor of one onto
+/// the entry anchor of the next.
+///
+/// Along the line the advances between the two anchors change so the pen goes
+/// from the exit straight to the entry. Across the line one glyph of the pair
+/// moves: with the lookup's right-to-left flag the first one, so a chain hangs
+/// from its last glyph, without it the second one. A glyph that moves takes
+/// along every glyph that hangs from it.
+fn join_cursive(
+    infos: &[gpos::Info],
+    placed: &mut [GlyphPlacement],
+    scale: f32,
+    direction: BidiDirection,
+) {
+    let units = |value: i16| f32::from(value) * scale;
+    // The glyph each glyph hangs from across the line.
+    let mut parents: Vec<Option<usize>> = vec![None; placed.len()];
+    let mut joined = false;
+    for (first, info) in infos.iter().enumerate().take(placed.len()) {
+        let gpos::Placement::CursiveAnchor(second, right_to_left, entry, exit) = info.placement
+        else {
+            continue;
+        };
+        if second <= first || second >= placed.len() {
+            continue;
+        }
+        joined = true;
+        if direction.is_rtl() {
+            let shift = units(exit.x) + placed[first].offset_x;
+            placed[first].advance -= shift;
+            placed[first].offset_x -= shift;
+            placed[second].advance = units(entry.x) + placed[second].offset_x;
+        } else {
+            placed[first].advance = units(exit.x) + placed[first].offset_x;
+            let shift = units(entry.x) + placed[second].offset_x;
+            placed[second].advance -= shift;
+            placed[second].offset_x -= shift;
+        }
+        let (child, hangs_from, rise) = if right_to_left {
+            (first, second, units(entry.y) - units(exit.y))
+        } else {
+            (second, first, units(exit.y) - units(entry.y))
+        };
+        reverse_cursive_chain(&mut parents, placed, child, hangs_from);
+        parents[child] = Some(hangs_from);
+        placed[child].offset_y = rise;
+    }
+    if joined {
+        settle_cursive_chains(&parents, placed);
+    }
+}
+
+/// Turns the chain `child` already hangs from around before `child` hangs
+/// from `new_parent`, so the glyphs it hung from hang from it instead.
+fn reverse_cursive_chain(
+    parents: &mut [Option<usize>],
+    placed: &mut [GlyphPlacement],
+    child: usize,
+    new_parent: usize,
+) {
+    if parents[child].is_none() {
+        return;
+    }
+    // The old chain upwards from `child`, up to its top or to `new_parent`.
+    let mut chain = vec![child];
+    let mut node = child;
+    while let Some(above) = parents[node].take() {
+        if above == new_parent {
+            break;
+        }
+        chain.push(above);
+        node = above;
+    }
+    // Each glyph now hangs from the one that hung from it, by the opposite
+    // of that glyph's rise; the top of the old chain goes first, while the
+    // rises below it are still the old ones.
+    for pair in chain.windows(2).rev() {
+        let (below, above) = (pair[0], pair[1]);
+        parents[above] = Some(below);
+        placed[above].offset_y = -placed[below].offset_y;
+    }
+}
+
+/// Adds to each glyph that hangs from another the offset across the line of
+/// the one it hangs from, down each chain from the glyph it hangs from last.
+fn settle_cursive_chains(parents: &[Option<usize>], placed: &mut [GlyphPlacement]) {
+    let mut settled = vec![false; placed.len()];
+    let mut path = Vec::new();
+    for start in 0..placed.len() {
+        // Climb to a glyph whose offset is final: a settled one or one that
+        // hangs from nothing. The length check stops a chain that loops.
+        let mut node = start;
+        while !settled[node] {
+            path.push(node);
+            match parents[node] {
+                Some(above) if path.len() <= placed.len() => node = above,
+                _ => break,
+            }
+        }
+        // Then settle the glyphs on the way back down.
+        while let Some(below) = path.pop() {
+            if let Some(above) = parents[below] {
+                if settled[above] {
+                    placed[below].offset_y += placed[above].offset_y;
+                }
+            }
+            settled[below] = true;
+        }
+    }
+}
+
+/// Puts each mark at its base's origin plus the offset its anchors give it,
+/// and an overprinting mark onto its base with no advance of its own.
+///
+/// A base comes before its mark in `infos`, so it is placed by the time its
+/// mark is, also when the base is a mark itself. Left to right the pen has
+/// passed the base and the glyphs between them when it reaches the mark;
+/// right to left it reaches the mark first and still has the mark and the
+/// glyphs between them to pass before the base.
+fn attach_marks(
+    infos: &[gpos::Info],
+    placed: &mut [GlyphPlacement],
+    kernings: &[f32],
+    direction: BidiDirection,
+) {
+    /// How far the pen moves over `glyphs`.
+    fn pen_moves(
+        placed: &[GlyphPlacement],
+        kernings: &[f32],
+        glyphs: impl Iterator<Item = usize>,
+    ) -> f32 {
+        glyphs
+            .map(|index| placed[index].advance + kernings.get(index).copied().unwrap_or(0.0))
+            .sum()
+    }
+    for (mark, info) in infos.iter().enumerate().take(placed.len()) {
+        match info.placement {
+            gpos::Placement::MarkAnchor(base, ..) if base < mark => {
+                let pen_to_base = if direction.is_rtl() {
+                    pen_moves(placed, kernings, base + 1..=mark)
+                } else {
+                    -pen_moves(placed, kernings, base..mark)
+                };
+                placed[mark].offset_x += placed[base].offset_x + pen_to_base;
+                placed[mark].offset_y += placed[base].offset_y;
+            }
+            gpos::Placement::MarkOverprint(base) if base < mark => {
+                placed[mark].advance = 0.0;
+                placed[mark].offset_x = placed[base].offset_x;
+                placed[mark].offset_y = placed[base].offset_y;
+            }
+            _ => {}
+        }
+    }
+}
+
 /// Internal shaping implementation - the single source of truth for text shaping.
 /// Both `FontRef` and `ParsedFont` use this function.
 #[allow(
@@ -986,17 +1198,9 @@ fn shape_text_internal(
     let bidi_level = BidiLevel::new(u8::from(direction.is_rtl()));
 
     let spans = source_spans(&infos, text);
-    let mut shaped_glyphs = Vec::new();
-    for (info, &(byte_index, byte_len)) in infos.iter().zip(&spans) {
-        let cluster = byte_index as u32;
-        let source_char = info
-            .glyph
-            .unicodes
-            .first()
-            .copied()
-            .or_else(|| text.get(byte_index..).and_then(|s| s.chars().next()))
-            .unwrap_or('\u{FFFD}');
-
+    // Each glyph's own advance, before GPOS attaches glyphs to each other.
+    let mut advances = Vec::with_capacity(infos.len());
+    for (info, &(_, byte_len)) in infos.iter().zip(&spans) {
         let base_advance = parsed_font.get_horizontal_advance(info.glyph.glyph_index);
         // Layout uses LINEAR (design-space) advances, like Chrome/Blink and
         // CoreText: with sub-pixel text positioning the rasterizer places
@@ -1036,21 +1240,30 @@ fn shape_text_internal(
         // Tracking goes on every glyph that starts a piece of the text and
         // has an advance of its own - not on a zero-width mark, nor on a
         // multiple-substitution duplicate (HarfBuzz tracks per grapheme).
-        let advance = if byte_len > 0 && base_advance > 0 {
+        advances.push(if byte_len > 0 && base_advance > 0 {
             advance + tracking
         } else {
             advance
-        };
-        let kerning = f32::from(info.kerning) * scale_factor;
+        });
+    }
+    let kernings: Vec<f32> = infos
+        .iter()
+        .map(|info| f32::from(info.kerning) * scale_factor)
+        .collect();
+    let placements = resolve_placements(&infos, &advances, &kernings, scale_factor, direction);
 
-        let (offset_x_units, offset_y_units) =
-            if let gpos::Placement::Distance(x, y) = info.placement {
-                (x, y)
-            } else {
-                (0, 0)
-            };
-        let offset_x = offset_x_units as f32 * scale_factor;
-        let offset_y = offset_y_units as f32 * scale_factor;
+    let mut shaped_glyphs = Vec::with_capacity(infos.len());
+    for (((info, &(byte_index, byte_len)), placement), &kerning) in
+        infos.iter().zip(&spans).zip(&placements).zip(&kernings)
+    {
+        let cluster = byte_index as u32;
+        let source_char = info
+            .glyph
+            .unicodes
+            .first()
+            .copied()
+            .or_else(|| text.get(byte_index..).and_then(|s| s.chars().next()))
+            .unwrap_or('\u{FFFD}');
 
         let vert = parsed_font.get_vertical_metrics(info.glyph.glyph_index);
         let glyph = Glyph {
@@ -1064,11 +1277,11 @@ fn shape_text_internal(
             logical_byte_len: byte_len,
             content_index: 0,
             cluster,
-            advance,
+            advance: placement.advance,
             kerning,
             offset: Point {
-                x: offset_x,
-                y: offset_y,
+                x: placement.offset_x,
+                y: placement.offset_y,
             },
             vertical_advance: vert.as_ref().map_or(0.0, |v| v.advance * font_size),
             vertical_origin_y: vert.as_ref().map_or(0.0, |v| v.origin_y * font_size),
@@ -2542,5 +2755,165 @@ mod autotest_generated {
         // shallow_clone shares the same underlying face
         let cloned = font_ref.shallow_clone();
         assert_eq!(cloned.get_hash(), font_ref.get_hash());
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::float_cmp)] // the placements are sums of small whole numbers, exact in f32
+mod gpos_attachments {
+    use allsorts::{gpos, gsub, layout::Anchor};
+
+    use super::{resolve_placements, GlyphPlacement};
+    use crate::text3::cache::BidiDirection;
+
+    /// `count` plain glyphs, as the shaper hands them to positioning.
+    fn infos(count: u16) -> Vec<gpos::Info> {
+        let glyphs = (1..=count)
+            .map(|glyph_index| gsub::RawGlyph {
+                unicodes: tinyvec::tiny_vec![[char; 1] => 'a'],
+                glyph_index,
+                liga_component_pos: 0,
+                glyph_origin: gsub::GlyphOrigin::Char('a'),
+                flags: gsub::RawGlyphFlags::empty(),
+                extra_data: (),
+                variation: None,
+            })
+            .collect();
+        gpos::Info::init_from_glyphs(None, glyphs)
+    }
+
+    const fn anchor(x: i16, y: i16) -> Anchor {
+        Anchor { x, y }
+    }
+
+    /// The placements at one pixel per font unit, with no kerning.
+    fn place(
+        infos: &[gpos::Info],
+        advances: &[f32],
+        direction: BidiDirection,
+    ) -> Vec<GlyphPlacement> {
+        resolve_placements(infos, advances, &vec![0.0; advances.len()], 1.0, direction)
+    }
+
+    fn offsets(placed: &[GlyphPlacement]) -> Vec<(f32, f32)> {
+        placed.iter().map(|p| (p.offset_x, p.offset_y)).collect()
+    }
+
+    fn advances(placed: &[GlyphPlacement]) -> Vec<f32> {
+        placed.iter().map(|p| p.advance).collect()
+    }
+
+    #[test]
+    fn a_mark_left_to_right_steps_back_over_its_base() {
+        // The pen has passed the 500-unit base when it reaches the mark.
+        let mut infos = infos(2);
+        infos[1].placement = gpos::Placement::MarkAnchor(0, anchor(300, 700), anchor(50, 0));
+        let placed = place(&infos, &[500.0, 0.0], BidiDirection::Ltr);
+        assert_eq!(
+            offsets(&placed)[1],
+            (250.0 - 500.0, 700.0),
+            "the mark's anchor should land on the base's, 500 units back"
+        );
+    }
+
+    #[test]
+    fn a_mark_right_to_left_lands_on_its_base_without_stepping_back() {
+        // Drawn right to left the mark comes first, at the base's pen position.
+        let mut infos = infos(2);
+        infos[1].placement = gpos::Placement::MarkAnchor(0, anchor(300, 700), anchor(50, 0));
+        let placed = place(&infos, &[500.0, 0.0], BidiDirection::Rtl);
+        assert_eq!(
+            offsets(&placed)[1],
+            (250.0, 700.0),
+            "the mark's anchor should land on the base's"
+        );
+    }
+
+    #[test]
+    fn a_mark_on_a_mark_adds_the_offset_of_the_mark_below_it() {
+        // Noto Sans Arabic's "بِ": the dot hangs on the beh, the kasra on the dot.
+        let mut infos = infos(3);
+        infos[1].placement = gpos::Placement::MarkAnchor(0, anchor(486, -25), anchor(76, -2));
+        infos[2].placement = gpos::Placement::MarkAnchor(1, anchor(76, -188), anchor(142, 0));
+        let placed = place(&infos, &[993.0, 0.0, 0.0], BidiDirection::Rtl);
+        assert_eq!(
+            offsets(&placed),
+            [(0.0, 0.0), (410.0, -23.0), (344.0, -211.0)],
+            "the kasra should hang from the dot where the dot itself hangs"
+        );
+    }
+
+    #[test]
+    fn an_overprinting_mark_takes_its_bases_offset_and_gives_up_its_advance() {
+        let mut infos = infos(2);
+        infos[0].placement = gpos::Placement::Distance(10, 20);
+        infos[1].placement = gpos::Placement::MarkOverprint(0);
+        let placed = place(&infos, &[500.0, 300.0], BidiDirection::Ltr);
+        assert_eq!(offsets(&placed)[1], (10.0, 20.0), "the mark should move with its base");
+        assert_eq!(advances(&placed)[1], 0.0, "the mark should not move the pen");
+    }
+
+    #[test]
+    fn a_right_to_left_cursive_chain_hangs_from_its_last_glyph() {
+        // Three glyphs joined exit to entry under a right-to-left lookup:
+        // each glyph moves onto the next one, the last stays on the baseline,
+        // so the first carries both rises. Drawn right to left (glyph 2 at
+        // pen 0, glyph 1 at 380, glyph 0 at 760) every exit then meets the
+        // entry it joins: (380, 50) and (760, 50).
+        let mut infos = infos(3);
+        infos[0].placement =
+            gpos::Placement::CursiveAnchor(1, true, anchor(400, 100), anchor(0, 130));
+        infos[1].placement =
+            gpos::Placement::CursiveAnchor(2, true, anchor(380, 50), anchor(20, 100));
+        let placed = place(&infos, &[500.0, 400.0, 380.0], BidiDirection::Rtl);
+        assert_eq!(
+            offsets(&placed),
+            [(0.0, -80.0), (-20.0, -50.0), (0.0, 0.0)],
+            "each glyph should rise onto the entry of the one after it"
+        );
+        assert_eq!(
+            advances(&placed),
+            [500.0, 380.0, 380.0],
+            "the pen should go from each entry straight to the exit it joins"
+        );
+    }
+
+    #[test]
+    fn a_left_to_right_cursive_chain_hangs_from_its_first_glyph() {
+        // The same chain left to right without the right-to-left flag: each
+        // glyph moves onto the one before it. Drawn at pens 0, 480 and 860,
+        // every entry meets the exit it joins: (480, 130) and (860, 130).
+        let mut infos = infos(3);
+        infos[0].placement =
+            gpos::Placement::CursiveAnchor(1, false, anchor(10, 100), anchor(480, 130));
+        infos[1].placement =
+            gpos::Placement::CursiveAnchor(2, false, anchor(0, 50), anchor(390, 100));
+        let placed = place(&infos, &[500.0, 400.0, 380.0], BidiDirection::Ltr);
+        assert_eq!(
+            offsets(&placed),
+            [(0.0, 0.0), (-10.0, 30.0), (0.0, 80.0)],
+            "each glyph should rise onto the exit of the one before it"
+        );
+        assert_eq!(
+            advances(&placed),
+            [480.0, 380.0, 380.0],
+            "the pen should go from each exit straight to the entry it joins"
+        );
+    }
+
+    #[test]
+    fn a_mark_on_a_cursively_joined_letter_moves_with_the_letter() {
+        // Glyph 0 joins glyph 2 (the join skips the mark between them) and
+        // goes 30 units down; its mark goes down with it.
+        let mut infos = infos(3);
+        infos[0].placement =
+            gpos::Placement::CursiveAnchor(2, true, anchor(400, 100), anchor(0, 130));
+        infos[1].placement = gpos::Placement::MarkAnchor(0, anchor(250, 600), anchor(50, 0));
+        let placed = place(&infos, &[500.0, 0.0, 400.0], BidiDirection::Rtl);
+        assert_eq!(
+            offsets(&placed)[1],
+            (200.0, 570.0),
+            "the mark should sit on its letter after the letter moved"
+        );
     }
 }

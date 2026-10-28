@@ -1737,6 +1737,17 @@ pub(super) fn shape_text_correctly<T: ParsedFontTrait>(
         });
     }
 
+    // Every pen loop draws a cluster's glyphs one after the other, and a
+    // glyph's offset counts from where the pen stands at it in visual order.
+    // A right-to-left line puts its clusters right to left, so the glyphs
+    // inside one go right to left as well: a mark the shaper put after its
+    // base is drawn before it, at the base's origin.
+    if direction.is_rtl() {
+        for cluster in &mut clusters {
+            cluster.glyphs.reverse();
+        }
+    }
+
     Ok(clusters)
 }
 
