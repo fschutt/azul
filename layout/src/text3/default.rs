@@ -799,6 +799,37 @@ const fn to_opentype_lang_tag(lang: hyphenation::Language) -> u32 {
     u32::from_be_bytes(tag_bytes)
 }
 
+/// The piece of `text` each shaped glyph stands for, as `(start, len)` in bytes.
+///
+/// The shaper does not carry source offsets, so they are rebuilt by walking the
+/// text in logical order while each glyph consumes the characters it was
+/// shaped from (a ligature carries all of its components). A glyph that a
+/// one-to-many substitution split off its letter carries a copy of the
+/// letter's characters but consumes none: it belongs to the letter it came
+/// from, which the shaper keeps right before it, in a right-to-left run too.
+/// A glyph without characters consumes nothing and belongs to the character
+/// it stands in front of.
+fn source_spans(infos: &[gpos::Info], text: &str) -> Vec<(usize, usize)> {
+    let mut spans = Vec::with_capacity(infos.len());
+    let mut cursor = 0usize;
+    // Where the last glyph that consumed text starts.
+    let mut last_start = None;
+    for info in infos {
+        let len: usize = info.glyph.unicodes.iter().map(|c| c.len_utf8()).sum();
+        let start = cursor.min(text.len());
+        if info.glyph.multi_subst_dup() {
+            spans.push((last_start.unwrap_or(start), 0));
+        } else if len == 0 {
+            spans.push((start, 0));
+        } else {
+            cursor = (cursor + len).min(text.len());
+            last_start = Some(start);
+            spans.push((start, len));
+        }
+    }
+    spans
+}
+
 /// Internal shaping implementation - the single source of truth for text shaping.
 /// Both `FontRef` and `ParsedFont` use this function.
 #[allow(
@@ -954,24 +985,9 @@ fn shape_text_internal(
     let style_arc = Arc::new(style.clone());
     let bidi_level = BidiLevel::new(u8::from(direction.is_rtl()));
 
+    let spans = source_spans(&infos, text);
     let mut shaped_glyphs = Vec::new();
-    // Reconstruct source byte spans by walking the source text in logical order,
-    // consuming each glyph's `unicodes`. This replaces the removed liga_component_pos
-    // byte-offset overload. A ligature glyph carries ALL of its component chars in
-    // `unicodes`, so its span covers every merged component (fixing the ligature
-    // logical_byte_len that previously reported only the first component's length).
-    // Multiple-substitution duplicates (MULTI_SUBST_DUP) and unicode-less inserted
-    // glyphs share the current cursor position and do not advance it.
-    let mut byte_cursor = 0usize;
-    for info in &infos {
-        let uni_len: usize = info.glyph.unicodes.iter().map(|c| c.len_utf8()).sum();
-        let (byte_index, byte_len) = if info.glyph.multi_subst_dup() || uni_len == 0 {
-            (byte_cursor.min(text.len()), 0)
-        } else {
-            let start = byte_cursor.min(text.len());
-            byte_cursor = (byte_cursor + uni_len).min(text.len());
-            (start, uni_len)
-        };
+    for (info, &(byte_index, byte_len)) in infos.iter().zip(&spans) {
         let cluster = byte_index as u32;
         let source_char = info
             .glyph
