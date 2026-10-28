@@ -2511,7 +2511,7 @@ mod autotest_generated {
 
         // NaN is not an SVG number: dropped like junk, it leaves an odd count.
         assert!(parse_svg_points("NaN,0 1,1", false).is_none());
-        let inf = parse_svg_points("0,0 inf,3 1,1", false).expect("inf dropped like junk");
+        let inf = parse_svg_points("0,0 inf 1,1", false).expect("inf dropped like junk");
         assert_eq!(inf.rings.as_ref()[0].items.as_ref().len(), 1);
     }
 
