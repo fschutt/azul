@@ -808,19 +808,38 @@ const fn to_opentype_lang_tag(lang: hyphenation::Language) -> u32 {
 /// letter's characters but consumes none: it belongs to the letter it came
 /// from, which the shaper keeps right before it, in a right-to-left run too.
 /// A glyph without characters consumes nothing and belongs to the character
-/// it stands in front of.
+/// it stands in front of. So does a dotted circle the shaper inserted to carry
+/// a broken syllable (see [`inserted_dotted_circle`]), except when the shaper
+/// moved the vowel sign it carries in front of it: then it belongs to that.
 fn source_spans(infos: &[gpos::Info], text: &str) -> Vec<(usize, usize)> {
     let mut spans = Vec::with_capacity(infos.len());
     let mut cursor = 0usize;
     // Where the last glyph that consumed text starts.
-    let mut last_start = None;
+    let mut last_start: Option<usize> = None;
     for info in infos {
-        let len: usize = info.glyph.unicodes.iter().map(|c| c.len_utf8()).sum();
         let start = cursor.min(text.len());
+        let rest = text.get(start..).unwrap_or("");
+        let consumed_before = last_start.and_then(|s| text.get(s..start)).unwrap_or("");
+        let inserted = inserted_dotted_circle(&info.glyph.unicodes, rest, consumed_before);
+        let len: usize = info
+            .glyph
+            .unicodes
+            .iter()
+            .skip(usize::from(inserted))
+            .map(|c| c.len_utf8())
+            .sum();
         if info.glyph.multi_subst_dup() {
             spans.push((last_start.unwrap_or(start), 0));
         } else if len == 0 {
-            spans.push((start, 0));
+            let at = match last_start {
+                Some(before)
+                    if inserted && !rest.chars().next().is_some_and(continues_a_character) =>
+                {
+                    before
+                }
+                _ => start,
+            };
+            spans.push((at, 0));
         } else {
             cursor = (cursor + len).min(text.len());
             last_start = Some(start);
@@ -828,6 +847,30 @@ fn source_spans(infos: &[gpos::Info], text: &str) -> Vec<(usize, usize)> {
         }
     }
     spans
+}
+
+/// Whether a glyph's first character is a dotted circle (U+25CC) the shaper
+/// inserted to carry a vowel sign or mark that has no base, rather than one
+/// of the text.
+///
+/// The text has no dotted circle where the glyph is then: not at the cursor
+/// (`rest`), and not in what the glyph before consumed (`consumed_before`),
+/// which is where the text's own dotted circle went when the shaper moved a
+/// vowel sign drawn before its base in front of it.
+fn inserted_dotted_circle(unicodes: &[char], rest: &str, consumed_before: &str) -> bool {
+    unicodes.first() == Some(&allsorts::DOTTED_CIRCLE)
+        && !rest.starts_with(allsorts::DOTTED_CIRCLE)
+        && !consumed_before.contains(allsorts::DOTTED_CIRCLE)
+}
+
+/// Whether `ch` continues the character before it instead of starting one of
+/// its own, as a combining mark or a vowel sign does, by the grapheme rules.
+fn continues_a_character(ch: char) -> bool {
+    use unicode_segmentation::UnicodeSegmentation;
+    let mut pair = String::with_capacity(8);
+    pair.push('a');
+    pair.push(ch);
+    pair.graphemes(true).nth(1).is_none()
 }
 
 /// How far one glyph moves the pen and where it is drawn from the pen.

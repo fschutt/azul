@@ -92,6 +92,29 @@ fn a_dotted_circle_after_a_moved_vowel_sign_belongs_to_it() {
 }
 
 #[test]
+fn a_dotted_circle_of_the_text_is_still_text() {
+    // "◌िक" writes the i sign on a dotted circle of its own, so nothing is
+    // inserted; the shaper still draws the i sign first. Every byte of the
+    // text belongs to a glyph, the dotted circle's three included, and ka
+    // keeps its cluster 6.
+    let text = "◌िक";
+    let glyphs = shape(text);
+    let bytes: usize = glyphs.iter().map(|g| g.logical_byte_len).sum();
+    assert_eq!(
+        bytes,
+        text.len(),
+        "the glyphs should stand for all {} bytes of the text: {:?}",
+        text.len(),
+        spans(&glyphs)
+    );
+    assert!(
+        spans(&glyphs).contains(&('◌', 3, 3)) && spans(&glyphs).contains(&('क', 6, 3)),
+        "the text's dotted circle should take its 3 bytes and ka its cluster 6: {:?}",
+        spans(&glyphs)
+    );
+}
+
+#[test]
 fn the_consonant_after_a_broken_syllable_is_drawn() {
     // Laid out as a line, a cluster past the end of the text was dropped:
     // "ाक" lost its ka.
