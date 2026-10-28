@@ -500,7 +500,8 @@ pub struct ChatRoom {
     /// goes into the outbox any more).
     peers_only: bool,
     /// Messages written here not handed to the peers yet: sealed for them as soon as a key for
-    /// the current members is held ([`ChatRoom::peer_records`]).
+    /// the current members is held ([`ChatRoom::peer_records`]). Once the peers alone carry the
+    /// chat, a message waiting here is what makes this device ask for that key.
     peer_out: VecDeque<Outgoing>,
     /// The newest time of an unnumbered message read here: a peer's record is unread until the
     /// chat is read, as a numbered one is until `read_seq`.
@@ -594,8 +595,18 @@ impl ChatRoom {
     /// messages, else to the peers (sealed for them once a key for the members is held).
     #[must_use]
     pub fn is_sending(&self, message: &RoomMessage) -> bool {
-        let queue = if self.peers_only { &self.peer_out } else { &self.outbox };
-        message.mine && queue.iter().any(|o| o.id == message.id)
+        message.mine && self.on_its_way().iter().any(|o| o.id == message.id)
+    }
+
+    /// This device's messages that have not left it yet, in the queue that carries them now: the
+    /// outbox while the service carries messages, else the one for the peers. What waits here
+    /// needs a key for the members as listed now before it can be sealed.
+    fn on_its_way(&self) -> &VecDeque<Outgoing> {
+        if self.peers_only {
+            &self.peer_out
+        } else {
+            &self.outbox
+        }
     }
 
     /// The room's link: with its invite secret in the fragment when this device holds it.
@@ -833,7 +844,7 @@ impl ChatRoom {
     }
 
     /// This device's messages sealed for the peers, each once, as soon as a key for the current
-    /// members is held (the meet Worker gets them too, from the outbox).
+    /// members is held (while the service carries messages it gets them too, from the outbox).
     pub fn peer_records(&mut self, me: &Identity) -> Vec<ChatRecord> {
         let Some(key) = self.usable_key(me.device()).map(|k| k.key.clone()) else {
             return Vec::new();
@@ -963,8 +974,11 @@ impl ChatRoom {
             }
             self.admit_queue.pop_front();
         }
-        let wants_key =
-            self.rotate || (!self.outbox.is_empty() && self.usable_key(me.device()).is_none());
+        // The rotation rule: a message about to be sealed needs a key for the members as listed
+        // now. Once the peers alone carry the chat the outbox stays empty, so the messages
+        // waiting for the peers are the ones that ask for it.
+        let wants_key = self.rotate
+            || (!self.on_its_way().is_empty() && self.usable_key(me.device()).is_none());
         if wants_key {
             let fresh = self
                 .members_read_at
