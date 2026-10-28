@@ -587,6 +587,32 @@ jobs:
       - name: Check azul-layout with every consumer's feature set
         run: ./scripts/check_layout_features.sh
 
+  no_std_check:
+    # azul-css and azul-core without their `std` feature, built for a bare-metal
+    # target that has no std at all: a crate in their dependency graph that
+    # links std fails the build here, not in a user's firmware. A 64-bit target,
+    # because the ids of fonts, images and windows are 64-bit atomics, which
+    # 32-bit microcontrollers (thumbv7em) do not have.
+    needs: [supply_chain_preflight]
+    name: no_std check (azul-css, azul-core)
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
+        with:
+          toolchain: 1.91.0
+          targets: aarch64-unknown-none
+
+      - name: Check azul-css and azul-core without std
+        run: |
+          cargo check -p azul-css --no-default-features --target aarch64-unknown-none
+          cargo check -p azul-core --no-default-features --target aarch64-unknown-none
+
   autofix_check:
     # Validates api.json drift using autofix.
     name: Autofix + normalize (api.json drift)
