@@ -9,7 +9,9 @@
 //! text they stand in.
 //!
 //! The page is `body > div[contenteditable] > div.p > text`, with
-//! `.p::before` and `.p::after` rules.
+//! `.p::before` and `.p::after` rules, or the paragraph holds a `span.s`
+//! between two texts, with `.s::before` and `.s::after` rules: a span's
+//! generated content stands inside the paragraph's text, around the span's.
 
 use azul_core::{
     dom::{Dom, DomId, DomNodeId, NodeId},
@@ -29,19 +31,41 @@ use crate::{
     an_edit_re_wraps_its_paragraph_as_a_fresh_layout_does::{text_of, PARAGRAPH},
 };
 
-/// The paragraph's generated content.
-const CSS: &str = ".p::before { content: \"X\"; } .p::after { content: \"Y\"; }";
+/// The generated content of the paragraph and of the span.
+const CSS: &str = ".p::before { content: \"X\"; } .p::after { content: \"Y\"; } \
+                   .s::before { content: \"[\"; } .s::after { content: \"]\"; }";
 
 /// A window that has laid out the page with `text` in the paragraph once.
 fn window(text: &str) -> LayoutWindow {
-    let mut dom = Dom::create_body().with_css("margin: 0px;").with_child(
-        Dom::create_div().with_contenteditable(true).with_child(
-            Dom::create_div()
-                .with_class("p".into())
-                .with_css("width: 300px; font-size: 20px;")
-                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(text)),
-        ),
-    );
+    window_of(
+        Dom::create_div()
+            .with_class("p".into())
+            .with_css("width: 300px; font-size: 20px;")
+            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(text)),
+    )
+}
+
+/// A window that has laid out the page with `before`, a `span.s` holding
+/// `inside` and `after` in the paragraph once.
+fn span_window(before: &str, inside: &str, after: &str) -> LayoutWindow {
+    window_of(
+        Dom::create_div()
+            .with_css("width: 300px; font-size: 20px;")
+            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(before))
+            .with_child(
+                Dom::create_span()
+                    .with_class("s".into())
+                    .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(inside)),
+            )
+            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(after)),
+    )
+}
+
+/// A window that has laid out `paragraph` in the editable page once.
+fn window_of(paragraph: Dom) -> LayoutWindow {
+    let mut dom = Dom::create_body()
+        .with_css("margin: 0px;")
+        .with_child(Dom::create_div().with_contenteditable(true).with_child(paragraph));
     let styled_dom = StyledDom::create(&mut dom, Css::from_string(CSS.into()));
     let mut lw = LayoutWindow::new(FcFontCache::build()).expect("a layout window");
     let mut ws = FullWindowState::default();
@@ -84,10 +108,17 @@ const fn caret(run: u32, at: u32, affinity: CursorAffinity) -> TextCursor {
 /// Asserts that the edited window `lw` lays its paragraph out as a fresh
 /// window of `edited` does.
 fn assert_laid_out_as_fresh(lw: &LayoutWindow, edited: &str) {
-    let fresh = items_of(&window(edited));
+    assert_laid_out_as(lw, &window(edited));
+}
+
+/// Asserts that the edited window `lw` lays its paragraph out as the fresh
+/// window `fresh` does, and that both lay generated content out.
+fn assert_laid_out_as(lw: &LayoutWindow, fresh: &LayoutWindow) {
+    let fresh = items_of(fresh);
     assert!(
-        fresh.first().is_some_and(|item| item.1 == "X") && fresh.last().is_some_and(|i| i.1 == "Y"),
-        "harness: the generated text is laid out around the paragraph's: {fresh:?}"
+        fresh.iter().any(|item| ["X", "["].contains(&item.1.as_str()))
+            && fresh.iter().any(|item| ["Y", "]"].contains(&item.1.as_str())),
+        "harness: the generated text is laid out with the paragraph's: {fresh:?}"
     );
     let got = items_of(lw);
     assert!(
@@ -117,4 +148,27 @@ fn typing_at_the_end_of_the_text_goes_into_it() {
         "a caret behind the generated run types into the text it stands in"
     );
     assert_laid_out_as_fresh(&lw, "abc");
+}
+
+#[test]
+fn typing_in_front_of_a_span_keeps_its_before_and_after() {
+    let mut lw = span_window("ab", "cd", "ef");
+    // The paragraph has no generated content of its own: run 0 is "ab".
+    type_at(&mut lw, caret(0, 0, CursorAffinity::Leading), "z");
+    assert_eq!(text_of(&lw), "zabcdef", "the letter goes in front of the text");
+    assert_laid_out_as(&lw, &span_window("zab", "cd", "ef"));
+}
+
+#[test]
+fn typing_behind_a_span_goes_into_the_text_behind_it() {
+    let mut lw = span_window("ab", "cd", "ef");
+    // "ab", the span's "[", "cd", "]", then "ef": the text behind the span
+    // is run 4 to every caret.
+    type_at(&mut lw, caret(4, 0, CursorAffinity::Leading), "z");
+    assert_eq!(
+        text_of(&lw),
+        "abcdzef",
+        "a caret behind the span's generated runs types into the text it stands in"
+    );
+    assert_laid_out_as(&lw, &span_window("ab", "cd", "zef"));
 }
