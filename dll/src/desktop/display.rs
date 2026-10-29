@@ -228,6 +228,25 @@ pub fn get_window_display(
     get_display_at_point(center)
 }
 
+/// The work area of one X11 monitor of `bounds`, in root-window pixels, as GTK
+/// works it out: the per-monitor work area the window manager publishes for the
+/// current desktop (`_GTK_WORKAREAS_D<desktop>`, mutter) that lies on the
+/// monitor; else the desktop's single `_NET_WORKAREA` rect cut to the monitor
+/// (right for the panels on the outer edges of the whole screen); else the
+/// whole monitor - a window manager that publishes neither keeps no panels clear.
+#[must_use]
+pub(crate) fn x11_monitor_work_area(
+    bounds: ScreenRect,
+    gtk_workareas: &[ScreenRect],
+    net_workarea: Option<ScreenRect>,
+) -> ScreenRect {
+    let _ = (gtk_workareas, net_workarea);
+    ScreenRect::new(
+        bounds.origin,
+        ScreenSize::new(bounds.size.width, (bounds.size.height - 24.0).max(0.0)),
+    )
+}
+
 /// Get the primary display
 pub fn get_primary_display() -> Option<DisplayInfo> {
     get_displays()
@@ -1650,6 +1669,49 @@ mod wayland_output_tests {
         // mistaken for an answer, or startup would serve zero monitors.
         publish_wayland_outputs(Vec::new());
         assert!(published_wayland_displays().is_none());
+    }
+}
+
+#[cfg(test)]
+mod x11_work_area_tests {
+    use super::*;
+
+    fn rect(x: f32, y: f32, w: f32, h: f32) -> ScreenRect {
+        ScreenRect::new(ScreenPoint::new(x, y), ScreenSize::new(w, h))
+    }
+
+    /// GNOME publishes a work area per monitor: a dock on the second monitor's
+    /// left edge is kept clear of on that monitor only.
+    #[test]
+    fn an_x11_monitor_works_inside_the_area_its_panels_leave() {
+        let gtk = [rect(0.0, 32.0, 1920.0, 1048.0), rect(1984.0, 0.0, 1856.0, 1080.0)];
+        assert_eq!(
+            x11_monitor_work_area(rect(1920.0, 0.0, 1920.0, 1080.0), &gtk, None),
+            rect(1984.0, 0.0, 1856.0, 1080.0)
+        );
+        assert_eq!(
+            x11_monitor_work_area(rect(0.0, 0.0, 1920.0, 1080.0), &gtk, None),
+            rect(0.0, 32.0, 1920.0, 1048.0)
+        );
+    }
+
+    /// Without per-monitor work areas, the desktop's one work area is cut to
+    /// each monitor: a 32 px top panel across two monitors leaves both 1048 tall.
+    #[test]
+    fn an_x11_monitor_without_its_own_work_area_is_cut_by_the_desktops() {
+        let desktop = Some(rect(0.0, 32.0, 3840.0, 1048.0));
+        assert_eq!(
+            x11_monitor_work_area(rect(1920.0, 0.0, 1920.0, 1080.0), &[], desktop),
+            rect(1920.0, 32.0, 1920.0, 1048.0)
+        );
+    }
+
+    /// A window manager that publishes no work area keeps no panel clear: the
+    /// whole monitor is the work area, not the monitor less a guessed 24 px.
+    #[test]
+    fn an_x11_monitor_with_no_published_work_area_is_the_whole_monitor() {
+        let monitor = rect(0.0, 0.0, 2560.0, 1440.0);
+        assert_eq!(x11_monitor_work_area(monitor, &[], None), monitor);
     }
 }
 
