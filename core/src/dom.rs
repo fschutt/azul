@@ -2924,6 +2924,23 @@ fn node_type_with_ruled_text(node_type: NodeType) -> NodeType {
     ruled.map_or(node_type, |text| NodeType::Text(BoxOrStatic::heap(text)))
 }
 
+/// `info`, the texts a screen reader speaks (the name, the value, the description) with their
+/// characters as the input rule has them.
+fn accessibility_info_with_ruled_text(mut info: AccessibilityInfo) -> AccessibilityInfo {
+    for text in [
+        &mut info.accessibility_name,
+        &mut info.accessibility_value,
+        &mut info.description,
+    ] {
+        if let OptionString::Some(text) = text {
+            if let Some(ruled) = azul_css::input_chars::normalized_az_string(text) {
+                *text = ruled;
+            }
+        }
+    }
+    info
+}
+
 impl NodeData {
     /// Creates a new `NodeData` instance from a given `NodeType`.
     #[inline]
@@ -3752,9 +3769,15 @@ impl NodeData {
     pub const fn is_contenteditable(&self) -> bool {
         self.flags.is_contenteditable()
     }
+    /// Sets what assistive technology is told about the node.
+    ///
+    /// The texts it speaks hold their characters as the input rule has them
+    /// (`azul_css::input_chars`), as every text a node is given does.
     #[inline]
     pub fn set_accessibility_info(&mut self, accessibility_info: AccessibilityInfo) {
-        self.accessibility = Some(Box::new(accessibility_info));
+        self.accessibility = Some(Box::new(accessibility_info_with_ruled_text(
+            accessibility_info,
+        )));
     }
 
     /// Marks this node as an anonymous box (generated for table layout).
