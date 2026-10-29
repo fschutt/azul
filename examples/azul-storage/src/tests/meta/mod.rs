@@ -144,3 +144,24 @@ pub(crate) fn every_bucket() -> Vec<TestBucket> {
         },
     ]
 }
+
+/// Every key the drive index writes is an index key as the contract names them (the one prefix
+/// the nodes and the apps agree on); the drive's other objects are not.
+#[test]
+fn every_key_of_the_drive_index_is_an_index_key_of_the_contract() {
+    use crate::meta::keys;
+    assert_eq!(keys::ROOT, azlin_contract::INDEX_PREFIX);
+    for key in [
+        keys::MANIFEST.to_string(),
+        keys::log(7, "00112233445566778899aabbccddeeff"),
+        keys::pack("ab12"),
+        keys::idx("ab12"),
+        keys::checkpoint(7, "00112233445566778899aabbccddeeff"),
+        keys::lease("maintenance"),
+    ] {
+        assert!(azlin_contract::is_index_key(&key), "{key}");
+    }
+    for key in [".azlin/keys/recovery.key", "data/ab/ab12", ".azlin/drop/x"] {
+        assert!(!azlin_contract::is_index_key(key), "{key}");
+    }
+}

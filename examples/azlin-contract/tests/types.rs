@@ -412,8 +412,8 @@ mod period {
 
 mod read_only_and_map {
     use azlin_contract::{
-        is_service_metadata, map_epoch, AzlinError, BucketOp, DriveAccess, ReadOnlyWhy,
-        MAP_HEADER, MOVED_HEADER,
+        index_put_shrinks, is_index_key, is_service_metadata, map_epoch, AzlinError, BucketOp,
+        DriveAccess, ReadOnlyWhy, INDEX_PREFIX, MAP_HEADER, MOVED_HEADER,
     };
 
     /// What `access` takes: (reads, writes, deletes, links).
@@ -424,6 +424,67 @@ mod read_only_and_map {
             access.permits(BucketOp::Delete),
             access.permits(BucketOp::Link),
         )
+    }
+
+    /// An encrypted drive's index objects are the keys under one prefix, so the nodes and the
+    /// apps agree which PutObject is an index change.
+    #[test]
+    fn the_index_objects_are_the_keys_under_the_index_prefix() {
+        assert_eq!(INDEX_PREFIX, ".azlin/meta/");
+        for key in [
+            ".azlin/meta/manifest",
+            ".azlin/meta/log/0000000000000007-00112233445566778899aabbccddeeff",
+            ".azlin/meta/wal/ab12.pack",
+            ".azlin/meta/wal/ab12.idx",
+            ".azlin/meta/checkpoints/0000000000000007-00112233445566778899aabbccddeeff",
+            ".azlin/meta/leases/maintenance",
+        ] {
+            assert!(is_index_key(key), "{key}");
+        }
+        for key in [
+            ".azlin/meta/",
+            ".azlin/keys/recovery.key",
+            ".azlin/metadata",
+            "data/ab/ab12",
+            "photos/.azlin/meta/manifest",
+        ] {
+            assert!(!is_index_key(key), "{key}");
+        }
+    }
+
+    /// The backend cannot read an encrypted drive's index, so a frozen drive (unpaid, the
+    /// operator's hold, a move) takes its owner's index changes only as long as they do not
+    /// grow it: a PutObject of an index object no larger than the object it replaces. Entries
+    /// can be removed (a delete), stored data cannot grow (an upload, a new index object).
+    #[test]
+    fn a_frozen_drive_takes_an_index_shrink_and_refuses_an_index_growth() {
+        assert!(index_put_shrinks(Some(500), 500));
+        assert!(index_put_shrinks(Some(500), 120));
+        assert!(!index_put_shrinks(Some(500), 501), "a larger object grows the index");
+        assert!(!index_put_shrinks(None, 10), "a new index object grows the index");
+        let manifest = ".azlin/meta/manifest";
+        for why in [ReadOnlyWhy::Unpaid, ReadOnlyWhy::Operator, ReadOnlyWhy::Moving] {
+            let frozen = DriveAccess::ReadOnly(why);
+            assert!(frozen.permits(BucketOp::IndexShrink), "{why:?}");
+            assert!(frozen.takes_put(manifest, Some(500), 480), "{why:?}: a shrink");
+            assert!(!frozen.takes_put(manifest, Some(500), 520), "{why:?}: a growth");
+            assert!(!frozen.takes_put(".azlin/meta/wal/ab.pack", None, 64), "{why:?}: a new object");
+            assert!(!frozen.takes_put("data/ab/ab12", Some(500), 10), "{why:?}: no index key");
+        }
+        for access in [
+            DriveAccess::ReadOnly(ReadOnlyWhy::LockdownPending),
+            DriveAccess::ReadOnly(ReadOnlyWhy::Unknown),
+            DriveAccess::ReadOnly(ReadOnlyWhy::Archived),
+            DriveAccess::Banned,
+            DriveAccess::Closed,
+        ] {
+            assert!(!access.permits(BucketOp::IndexShrink), "{access:?}");
+            assert!(!access.takes_put(manifest, Some(500), 10), "{access:?}");
+        }
+        let writable = DriveAccess::Writable;
+        assert!(writable.permits(BucketOp::IndexShrink));
+        assert!(writable.takes_put(manifest, Some(10), 500), "a writable drive takes any put");
+        assert!(writable.takes_put("data/ab/ab12", None, 500));
     }
 
     /// One table says what each state of a drive takes, for the nodes and the apps alike: a
