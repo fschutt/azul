@@ -351,7 +351,6 @@ azmail-route-smtp = Über einen SMTP-Server
 azmail-route-provider-sign-in = Über den Server meines Anbieters (anmelden)
 azmail-route-direct-delivery = Direkte Zustellung
 azmail-route-provider-signed-in = Über den Server meines Anbieters, angemeldet
-azmail-route-tls-starttls = { ", " }STARTTLS
 azmail-route-tls-required = { ", " }STARTTLS erforderlich
 azmail-route-dkim-signed = { $route }, DKIM-signiert ({ $domain })
 azmail-dkim-bad-selector = Der Selektor „{ $selector }“ kann kein DNS-Name sein: Buchstaben, Ziffern und -, höchstens 63.

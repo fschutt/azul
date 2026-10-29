@@ -205,6 +205,36 @@ pub fn app_trust_roots() -> TrustRoots {
     TrustRoots::public_roots()
 }
 
+/// How a mail client's connection (SMTP, IMAP) is encrypted: the one policy every mail client
+/// of the framework and its apps connects by (the crash reporter's mail, AzMail's sending). TLS
+/// is required unless the account explicitly opts out: a server that offers no STARTTLS, or a
+/// handshake that fails, gets nothing, so nobody on the path can downgrade a connection to
+/// plaintext by hiding the server's offer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[cfg_attr(feature = "serde-json", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde-json", serde(rename_all = "lowercase"))]
+pub enum MailTls {
+    /// STARTTLS that must succeed, or TLS from the first byte where the port is a TLS port
+    /// (465). The default. A setting written as `opportunistic` (the default of before, which
+    /// went on in plaintext when the server offered no STARTTLS) reads as this.
+    #[default]
+    #[cfg_attr(feature = "serde-json", serde(alias = "opportunistic"))]
+    Required,
+    /// TLS from the first byte on any port.
+    Implicit,
+    /// No encryption: the explicit opt-out of an account whose server speaks no TLS (a legacy
+    /// server, a test server on this computer).
+    Off,
+}
+
+impl MailTls {
+    /// Whether the connection may go on without encryption: only when the account opted out.
+    #[must_use]
+    pub const fn allows_plaintext(self) -> bool {
+        matches!(self, Self::Off)
+    }
+}
+
 #[cfg(all(feature = "tls-roots", not(target_arch = "wasm32")))]
 pub use self::roots::{pem_certificate, RootCertificate};
 

@@ -91,7 +91,7 @@ pub fn submission_security(
         )),
         TlsPolicy::Implicit => Ok(SubmitSecurity::ImplicitTls),
         _ if port == account::SMTPS_PORT => Ok(SubmitSecurity::ImplicitTls),
-        TlsPolicy::Opportunistic | TlsPolicy::Required => Ok(SubmitSecurity::StartTls),
+        TlsPolicy::Required => Ok(SubmitSecurity::StartTls),
     }
 }
 
@@ -425,19 +425,7 @@ mod tests {
     fn the_connection_is_implicit_tls_on_465_starttls_elsewhere_and_plain_only_to_this_computer() {
         use SubmitSecurity::*;
         let cases = [
-            (
-                "smtp.gmail.com",
-                465,
-                TlsPolicy::Opportunistic,
-                Ok(ImplicitTls),
-            ),
             ("smtp.gmail.com", 465, TlsPolicy::Required, Ok(ImplicitTls)),
-            (
-                "smtp.office365.com",
-                587,
-                TlsPolicy::Opportunistic,
-                Ok(StartTls),
-            ),
             ("smtp.office365.com", 587, TlsPolicy::Required, Ok(StartTls)),
             (
                 "smtp.example.org",

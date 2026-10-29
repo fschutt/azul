@@ -101,22 +101,10 @@ pub enum SendRoute {
     Submission,
 }
 
-/// STARTTLS.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum TlsPolicy {
-    /// Encrypt when the server offers it (certificate verified; a failed handshake is retried
-    /// without TLS).
-    #[default]
-    Opportunistic,
-    /// Never send over an unencrypted connection: a server without STARTTLS is skipped.
-    Required,
-    /// Never ask for STARTTLS (a test server without TLS).
-    Off,
-    /// TLS from the first byte on any port (submission; port 465 is always so). The routes
-    /// through micromail, which speaks STARTTLS only, take it as `Required`.
-    Implicit,
-}
+/// How a sending connection is encrypted: azul-core's one policy of every mail client (TLS
+/// required by default, `off` the explicit opt-out). The routes through micromail, which speaks
+/// STARTTLS only, take `implicit` as required STARTTLS.
+pub use azul_core::tls::MailTls as TlsPolicy;
 
 /// DKIM signing: the key's public half is published at `<selector>._domainkey.<domain>`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -136,7 +124,7 @@ pub struct DkimSettings {
     pub public_key: String,
 }
 
-/// How AzMail sends for one account. `Default` is direct delivery with opportunistic TLS, no
+/// How AzMail sends for one account. `Default` is direct delivery with TLS required, no
 /// DKIM. Stored as `sending.json` in the account's folder ([`SendSettings::load`] /
 /// [`SendSettings::save`]); the runtime-only DKIM key is never stored.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -1068,12 +1056,12 @@ fn micromail_config(
     relay: Option<(&str, u16)>,
 ) -> Result<micromail::Config, String> {
     let mut config = micromail::Config::new(helo_name(settings, from));
-    config = match settings.tls {
-        TlsPolicy::Opportunistic => config.use_tls(true),
-        // micromail speaks STARTTLS only: implicit TLS (submission's) asks for encryption all
-        // the same.
-        TlsPolicy::Required | TlsPolicy::Implicit => config.use_tls(true).require_tls(true),
-        TlsPolicy::Off => config.use_tls(false),
+    // micromail speaks STARTTLS only: it must succeed (implicit TLS, submission's, asks for
+    // encryption all the same), unless the account opted out.
+    config = if settings.tls.allows_plaintext() {
+        config.use_tls(false)
+    } else {
+        config.use_tls(true).require_tls(true)
     };
     config = match relay {
         Some((host, port)) => config.relay(host, port),

@@ -6,8 +6,8 @@
 //! panic hook persists a self-contained JSON crash dump per crash
 //! ([`super::queue::PingKind::Crash`]); this module drains those dumps into
 //! one email — the dump as a `.json` attachment, an optional USER MESSAGE as
-//! the body — over SMTP via `micromail` (EHLO, STARTTLS when the MX offers
-//! it, MAIL/RCPT/DATA, nothing more).
+//! the body — over SMTP via `micromail` (EHLO, STARTTLS that must succeed
+//! unless the config opts out, MAIL/RCPT/DATA, nothing more).
 //!
 //! This is MANUAL by design: sending mail from a panic hook would block a
 //! dying process on the network, and mailing without the user seeing the
@@ -19,6 +19,8 @@
 //! own dialog can still call [`send_crash_reports`] directly.
 
 use std::path::PathBuf;
+
+use azul_core::tls::MailTls;
 
 use super::queue::PingKind;
 
@@ -34,8 +36,9 @@ pub struct CrashMailConfig {
     pub helo_domain: String,
     /// SMTP ports to try, in order. Default `[25, 587, 2525]`.
     pub ports: Vec<u16>,
-    /// Upgrade to TLS via STARTTLS when the server offers it.
-    pub use_tls: bool,
+    /// How the connection is encrypted: STARTTLS that must succeed (the default), or the
+    /// explicit opt-out for a server that speaks no TLS.
+    pub tls: MailTls,
     /// Subject prefix; the app name + version are appended per mail.
     pub subject_prefix: String,
     /// The certificate authorities STARTTLS trusts: the app's set (default).
@@ -56,7 +59,7 @@ impl CrashMailConfig {
             from: from.into(),
             helo_domain: helo_domain.into(),
             ports: vec![25, 587, 2525],
-            use_tls: true,
+            tls: MailTls::Required,
             subject_prefix: "[crash]".to_owned(),
             trust_roots: crate::http::TrustRoots::app_default(),
         }
@@ -76,10 +79,11 @@ impl CrashMailConfig {
         self
     }
 
-    /// Disables the STARTTLS upgrade (local sinks, test rigs).
+    /// Sets how the connection is encrypted: [`MailTls::Off`] is the opt-out for a server that
+    /// speaks no TLS (local sinks, test rigs).
     #[must_use]
-    pub const fn with_tls(mut self, use_tls: bool) -> Self {
-        self.use_tls = use_tls;
+    pub const fn with_tls(mut self, tls: MailTls) -> Self {
+        self.tls = tls;
         self
     }
 }
@@ -279,14 +283,16 @@ pub fn send_attachments(
         )
         .build();
 
-    let mut mail_config = micromail::Config::new(config.helo_domain.clone())
-        .ports(config.ports.clone())
-        .use_tls(config.use_tls);
-    if config.use_tls {
+    let mail_config =
+        micromail::Config::new(config.helo_domain.clone()).ports(config.ports.clone());
+    let mail_config = if config.tls.allows_plaintext() {
+        mail_config.use_tls(false)
+    } else {
+        // micromail speaks STARTTLS: it must succeed, or the mail is not sent.
         let tls = crate::http::rustls_client_config(&config.trust_roots)
             .map_err(|why| format!("crash mail failed: {why}"))?;
-        mail_config = mail_config.tls_config(tls);
-    }
+        mail_config.use_tls(true).require_tls(true).tls_config(tls)
+    };
     let mut mailer = micromail::Mailer::new(mail_config);
     let outcomes = mailer.send_raw(
         &config.from,

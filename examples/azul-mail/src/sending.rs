@@ -5,8 +5,8 @@
 //! secret in it. This module is only what the settings page shows and edits: the route (direct
 //! delivery to each receiver's mail server - the default -, one SMTP server `host:port`, or -
 //! optional - the account's own outgoing server, signed in: [`ROUTE_CHOICES`]) and STARTTLS
-//! (`TlsPolicy`: on - opportunistic, or required when the file says so - or off, for a test
-//! server on this computer without TLS), and client-side DKIM ([`SendingForm::apply_dkim`]:
+//! (`TlsPolicy`: on - required: a server without it gets nothing - or off, for a server that
+//! speaks no TLS), and client-side DKIM ([`SendingForm::apply_dkim`]:
 //! on or off, the signing domain, the selector, the public half of the key `crate::dkim`
 //! made). Everything else in the settings (the EHLO name, a test CA, the direct port, the
 //! policy override, a key file named by hand) is kept as it is when the form is applied.
@@ -49,7 +49,6 @@ pub fn describe(settings: &SendSettings) -> String {
         SendRoute::Submission => t("azmail-route-provider-signed-in"),
         SendRoute::Smtp { host, port } => {
             let tls = match settings.tls {
-                TlsPolicy::Opportunistic => t("azmail-route-tls-starttls"),
                 TlsPolicy::Required => t("azmail-route-tls-required"),
                 TlsPolicy::Implicit => String::from(", TLS"),
                 TlsPolicy::Off => String::new(),
@@ -187,10 +186,10 @@ impl SendingForm {
         let mut applied = settings.clone();
         applied.tls = match (self.starttls, settings.tls) {
             (false, _) => TlsPolicy::Off,
-            // Ticked: STARTTLS when offered, or still required when the file said so.
-            (true, TlsPolicy::Off) => TlsPolicy::Opportunistic,
+            // Ticked: STARTTLS, required.
+            (true, TlsPolicy::Off) => TlsPolicy::Required,
             // TLS from the first byte is submission's: the other routes speak STARTTLS.
-            (true, TlsPolicy::Implicit) if !self.submission => TlsPolicy::Opportunistic,
+            (true, TlsPolicy::Implicit) if !self.submission => TlsPolicy::Required,
             (true, kept) => kept,
         };
         if self.submission {
@@ -270,7 +269,7 @@ mod tests {
         };
         assert_eq!(
             ticked.apply(&SendSettings::default()),
-            Ok(smtp("localhost", 2525, TlsPolicy::Opportunistic))
+            Ok(smtp("localhost", 2525, TlsPolicy::Required))
         );
         let required = smtp("smtp.example.org", 587, TlsPolicy::Required);
         assert_eq!(describe(&required), "SMTP smtp.example.org:587, STARTTLS required");
@@ -278,10 +277,6 @@ mod tests {
             SendingForm::from_settings(&required).apply(&required),
             Ok(required.clone()),
             "a ticked box keeps STARTTLS required"
-        );
-        assert_eq!(
-            describe(&smtp("smtp.example.org", 587, TlsPolicy::Opportunistic)),
-            "SMTP smtp.example.org:587, STARTTLS"
         );
     }
 
@@ -503,11 +498,11 @@ mod tests {
         assert_eq!(form.apply(&implicit).unwrap().tls, TlsPolicy::Implicit);
         let mut direct = form.clone();
         direct.choose_route(0);
-        assert_eq!(direct.apply(&implicit).unwrap().tls, TlsPolicy::Opportunistic);
+        assert_eq!(direct.apply(&implicit).unwrap().tls, TlsPolicy::Required);
         let mut relay = form;
         relay.choose_route(1);
         relay.host = String::from("relay.example.org");
-        assert_eq!(relay.apply(&implicit).unwrap().tls, TlsPolicy::Opportunistic);
+        assert_eq!(relay.apply(&implicit).unwrap().tls, TlsPolicy::Required);
         assert_eq!(
             describe(&SendSettings {
                 dkim: signing_settings().dkim,
@@ -529,7 +524,7 @@ mod tests {
         assert!(refused.contains("encrypt"), "{refused}");
         assert_eq!(check_submission(&plain, "127.0.0.1", 2525), Ok(()));
         let encrypted = SendSettings {
-            tls: TlsPolicy::Opportunistic,
+            tls: TlsPolicy::Required,
             ..plain.clone()
         };
         assert_eq!(check_submission(&encrypted, "smtp.example.org", 587), Ok(()));

@@ -6,7 +6,7 @@
 //!     [--cc <addr>]... [--bcc <addr>]... [--subject <text>] [--text <text>] [--html <html>]
 //!     [--attach <file>[=<mime type>]]... [--in-reply-to <id>] [--reference <id>]...
 //!     [--smtp <host:port> | --direct | --submission] [--password-env <VAR>]
-//!     [--direct-port <port>] [--tls opportunistic|required|off|implicit]
+//!     [--direct-port <port>] [--tls required|off|implicit]
 //!     [--ca <pem file>] [--helo <name>] [--ignore-policy]
 //!     [--dkim-domain <d> --dkim-selector <s> --dkim-key <pem file>] [--save-settings]
 //!     [--dkim-generate <pem file>] [--port25-probe <host:port>]...
@@ -43,7 +43,7 @@ fn usage(why: &str) -> ! {
         "usage: azmail-send --data <dir> --account <id> --from <addr> --to <addr> [--cc ..] \
          [--bcc ..] [--subject ..] [--text ..] [--html ..] [--attach file[=mime]] \
          [--in-reply-to id] [--reference id] [--smtp host:port | --direct | --submission] \
-         [--password-env VAR] [--direct-port n] [--tls opportunistic|required|off|implicit] \
+         [--password-env VAR] [--direct-port n] [--tls required|off|implicit] \
          [--ca pem] [--helo name] [--ignore-policy] \
          [--dkim-domain d --dkim-selector s --dkim-key pem] [--save-settings] | --retry [--force]"
     );
@@ -145,13 +145,14 @@ fn main() {
             }
             "--tls" => {
                 tls = Some(match value("--tls").as_str() {
-                    "opportunistic" => TlsPolicy::Opportunistic,
                     "required" => TlsPolicy::Required,
                     "off" => TlsPolicy::Off,
                     "implicit" => TlsPolicy::Implicit,
-                    other => usage(&format!(
-                        "--tls {other}: opportunistic, required, off or implicit"
-                    )),
+                    "opportunistic" => usage(
+                        "--tls opportunistic is gone: TLS is required unless --tls off says \
+                         the server speaks none",
+                    ),
+                    other => usage(&format!("--tls {other}: required, off or implicit")),
                 })
             }
             "--ca" => ca = Some(PathBuf::from(value("--ca"))),

@@ -34,6 +34,9 @@ mail-parser = { version = "0.11", features = ["full_encoding"] }
 # Sending (send.rs): the MIME builder, DKIM signing and the SMTP client of direct delivery and the
 # relay; STARTTLS with the pure-Rust provider below.
 micromail = { version = "0.2.1", default-features = false, features = ["tls-rustcrypto", "dkim", "signing"] }
+# The one connection policy every mail client of the tree uses (`azul_core::tls::MailTls`, the
+# sending settings' `tls`): no std, only its serde form.
+azul-core = { path = "../../core", default-features = false, features = ["serde-json"] }
 # The DKIM key's public half (dkim.rs).
 rsa = { version = "0.9", features = ["pem"] }
 base64 = "0.22"
