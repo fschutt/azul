@@ -14496,6 +14496,7 @@ mod child_window_tests {
             content,
             None,
             false,
+            None,
         )
     }
 

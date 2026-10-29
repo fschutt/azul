@@ -2362,11 +2362,19 @@ pub(crate) fn reconcile_transient_windows(
             .get_focused_node()
             .copied()
             .map(|n| (n, layout_window.focus_manager.focus_is_visible));
-        // The room on the screen, asked once a pass and only when a popup is measured.
-        let mut room_on_screen = None;
+        // The screens around this window in its logical px, read once a pass and
+        // only when a popup is measured; each popup gets the room of the screen
+        // its anchor is on.
+        let window = layout_window.screen_mapping;
+        let mut screens = None;
         let diff = manager.reconcile(&wanted, |content_dom, placement| {
-            let room = *room_on_screen
-                .get_or_insert_with(|| super::transient::popup_room(current_window_state));
+            let screens =
+                screens.get_or_insert_with(|| super::transient::screens_seen_from(window));
+            let room = super::transient::popup_room(
+                current_window_state.size.dimensions,
+                screens,
+                placement.anchor_rect,
+            );
             // A window with a title bar has that much less room for its content.
             let titled = layout_window
                 .layout_results

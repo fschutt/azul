@@ -69,7 +69,7 @@ use azul_core::{
     },
 };
 use azul_layout::{
-    placement::{screen_for_anchor, FloatingPlacement, ScreenRects},
+    placement::{screen_for_anchor, FloatingPlacement, ScreenPoint, ScreenRects, WindowToScreen},
     thread::Thread,
     transient::{OpenTransientWindow, TransientPlacement},
     window::LayoutWindow,
@@ -92,6 +92,11 @@ pub struct TransientWindowData {
     /// parent's coordinates: what a Wayland compositor's positioner is handed,
     /// and what `origin` is resolved from everywhere else.
     pub floating: FloatingPlacement,
+    /// How many of the backend's screen units (the unit `WindowPosition`
+    /// carries) one logical px of the parent is: what turns `origin` and a
+    /// tear-off drag into window positions. 1 where the parent has no screen
+    /// mapping.
+    pub screen_scale: f32,
     /// What the parent measured the content at; the popup window's size.
     pub content_size: LogicalSize,
     /// The extracted subtree the popup lays out. Replaced by the parent on
@@ -418,18 +423,23 @@ pub fn popup_create_options(
     content: Dom,
     cursor: Option<LogicalPosition>,
     focus_visible: bool,
+    window: Option<WindowToScreen>,
 ) -> (WindowCreateOptions, RefAny) {
     let size = open.content_size;
     let floating = open.placement.floating(cursor);
-    let origin = open
-        .placement
-        .resolve_within(size, cursor, placement_bounds(parent, floating.anchor));
+    let origin = open.placement.resolve_within(
+        size,
+        cursor,
+        placement_bounds(window, parent.size.dimensions, floating.anchor),
+    );
+    let screen_scale = window.map_or(1.0, |w| w.scale);
 
     let mailbox = RefAny::new(TransientWindowData {
         parent_window_id,
         content_dom: open.content_dom,
         placement: open.placement,
         floating,
+        screen_scale,
         content_size: size,
         content,
         generation: 0,
@@ -450,8 +460,12 @@ pub fn popup_create_options(
 
     // Titled as its parent until the caller knows better: a popup is part
     // of the window that opened it (the sync titles it by its node).
-    let mut window_state =
-        popup_window_state(parent.title.as_str(), "azul-transient", size, origin);
+    let mut window_state = popup_window_state(
+        parent.title.as_str(),
+        "azul-transient",
+        size,
+        relative_position(origin, screen_scale),
+    );
     window_state.size.dpi = parent.size.dpi;
     window_state.mode = parent.mode;
     // `material="transparent"` (or a clip mask on the node): the frame
@@ -497,17 +511,20 @@ pub fn toplevel_create_options(
     content: Dom,
     title: &str,
     focus_visible: bool,
+    window: Option<WindowToScreen>,
 ) -> (WindowCreateOptions, RefAny) {
     let size = open.content_size;
     let origin = open
         .torn
         .unwrap_or_else(|| open.placement.resolve(size, None));
+    let screen_scale = window.map_or(1.0, |w| w.scale);
 
     let mailbox = RefAny::new(TransientWindowData {
         parent_window_id,
         content_dom: open.content_dom,
         placement: open.placement,
         floating: open.placement.floating(None),
+        screen_scale,
         content_size: size,
         content,
         generation: 0,
@@ -534,7 +551,12 @@ pub fn toplevel_create_options(
     // Menu window type — given per-pixel alpha by every backend, so a
     // Transparent panel keeps its real rounded corners instead of a black
     // rectangle. A `Normal` toplevel at an absolute position got neither.
-    let mut window_state = popup_window_state(title, "azul-transient-torn", size, origin);
+    let mut window_state = popup_window_state(
+        title,
+        "azul-transient-torn",
+        size,
+        relative_position(origin, screen_scale),
+    );
     window_state.size.dpi = parent.size.dpi;
     window_state.mode = parent.mode;
     window_state.flags.background_material = open.placement.material;
@@ -565,11 +587,16 @@ pub fn toplevel_create_options(
     (options, mailbox)
 }
 
-/// Where a popup of `parent` anchored at `anchor` (parent coordinates) may go:
-/// the work area of the screen the anchor is on (a popup is its own window and
-/// may hang out of a short parent, but not off the screen). See [`popup_bounds`].
-fn placement_bounds(parent: &FullWindowState, anchor: LogicalRect) -> LogicalRect {
-    popup_bounds(&screens_around(parent), parent.size.dimensions, anchor)
+/// Where a popup anchored at `anchor` (parent coordinates) may go, for a parent
+/// of `parent_size` that `window` maps onto the screen: the work area of the
+/// screen the anchor is on (a popup is its own window and may hang out of a
+/// short parent, but not off the screen). See [`popup_bounds`].
+fn placement_bounds(
+    window: Option<WindowToScreen>,
+    parent_size: LogicalSize,
+    anchor: LogicalRect,
+) -> LogicalRect {
+    popup_bounds(&screens_seen_from(window), parent_size, anchor)
 }
 
 /// Where a popup anchored at `anchor` may go, given every screen in the
@@ -590,20 +617,28 @@ fn popup_bounds(
 /// How far a popup stays off the edges of the screen's work area.
 const POPUP_SCREEN_MARGIN: f32 = 8.0;
 
-/// The most room a popup of `parent` may take: the work area of the
-/// parent's screen less a margin on every side, so a popover too big for
-/// the screen comes up at the screen's size and scrolls (the placement then
-/// keeps it on the screen). Without a screen to go by - Wayland, which never
-/// tells, or a layout pass off the main thread - the width is the parent's
-/// (what a popup was always measured against there) and the height is not
-/// limited; the compositor's positioner keeps the popup on screen there.
-pub fn popup_room(parent: &FullWindowState) -> LogicalSize {
-    match screen_work_area(parent) {
+/// The most room a popup anchored at `anchor` may take, for a parent of
+/// `parent_size` among `screens` (both in the parent's logical px): the work
+/// area of the screen the ANCHOR is on less a margin on every side, so a
+/// popover too big for the screen comes up at the screen's size and scrolls
+/// (the placement then keeps it on the screen). Without a screen to go by -
+/// Wayland, which never tells, or a layout pass off the main thread - the width
+/// is the parent's (what a popup was always measured against there) and the
+/// height is not limited; the compositor's positioner keeps the popup on
+/// screen there.
+#[must_use]
+pub fn popup_room(
+    parent_size: LogicalSize,
+    screens: &[ScreenRects],
+    anchor: LogicalRect,
+) -> LogicalSize {
+    let _ = anchor;
+    match screen_for_anchor(LogicalRect::new(LogicalPosition::zero(), parent_size), screens) {
         Some(wa) => LogicalSize::new(
             (wa.size.width - 2.0 * POPUP_SCREEN_MARGIN).max(1.0),
             (wa.size.height - 2.0 * POPUP_SCREEN_MARGIN).max(1.0),
         ),
-        None => LogicalSize::new(parent.size.dimensions.width, f32::INFINITY),
+        None => LogicalSize::new(parent_size.width, f32::INFINITY),
     }
 }
 
@@ -621,32 +656,15 @@ pub fn content_room(room: LogicalSize, titled: bool) -> LogicalSize {
     }
 }
 
-/// The work area of the screen `parent` is on, in the parent's own
-/// coordinates; `None` when the parent's screen position is unknown.
-fn screen_work_area(parent: &FullWindowState) -> Option<LogicalRect> {
-    screen_for_anchor(
-        LogicalRect::new(LogicalPosition::zero(), parent.size.dimensions),
-        &screens_around(parent),
-    )
-}
-
-/// Every screen, in `parent`'s own coordinates; none when the parent's screen
-/// position is unknown.
-fn screens_around(parent: &FullWindowState) -> Vec<ScreenRects> {
-    let WindowPosition::Initialized(pos) = parent.position else {
-        return Vec::new();
-    };
-    // macOS enumerates screens through AppKit, main thread only; a layout
-    // pass off it (headless tests) keeps the parent-rect bound.
-    #[cfg(target_os = "macos")]
-    if objc2_foundation::MainThreadMarker::new().is_none() {
-        return Vec::new();
-    }
-    azul_layout::placement::WindowToScreen::new(
-        azul_layout::placement::ScreenPoint::of_window_position(pos),
-        1.0,
-    )
-    .screens(&crate::desktop::display::desktop_screens())
+/// Every screen, in the logical px of the window `window` maps onto the
+/// screen; none without a mapping (Wayland, headless). Off the main thread on
+/// macOS the screen list is empty, so a layout pass there keeps the
+/// parent-rect bound.
+#[must_use]
+pub fn screens_seen_from(window: Option<WindowToScreen>) -> Vec<ScreenRects> {
+    window.map_or_else(Vec::new, |window| {
+        window.screens(&crate::desktop::display::desktop_screens())
+    })
 }
 
 /// The window state every popup window starts from — a transient window
@@ -655,15 +673,16 @@ fn screens_around(parent: &FullWindowState) -> Vec<ScreenRects> {
 /// always-on-top and parent-owned (X11 adds override-redirect +
 /// `_NET_WM_WINDOW_TYPE_POPUP_MENU`, Wayland turns it into an `xdg_popup`),
 /// no decorations, not resizable, and positioned RELATIVE TO THE PARENT's
-/// content origin (`origin`, top-down logical px) — the one model that works
-/// where absolute screen coordinates do not exist (Wayland) and is
+/// content origin (`position`, a `RelativeToParentWindow` offset in the
+/// backend's screen units, see [`relative_position`]) — the one model that
+/// works where absolute screen coordinates do not exist (Wayland) and is
 /// re-resolved against the parent's live origin everywhere else.
 #[must_use]
 pub fn popup_window_state(
     title: &str,
     window_id: &str,
     size: LogicalSize,
-    origin: LogicalPosition,
+    position: WindowPosition,
 ) -> FullWindowState {
     let mut window_state = FullWindowState::default();
     window_state.flags.window_type = WindowType::Menu;
@@ -674,13 +693,7 @@ pub fn popup_window_state(
     window_state.title = title.into();
     window_state.window_id = window_id.into();
     window_state.size.dimensions = size;
-    #[allow(clippy::cast_possible_truncation)] // whole logical pixels
-    {
-        window_state.position = WindowPosition::RelativeToParentWindow(PhysicalPosition::new(
-            origin.x.round() as i32,
-            origin.y.round() as i32,
-        ));
-    }
+    window_state.position = position;
     {
         use azul_core::window::{AzStringPair, StringPairVec};
         let lin = &mut window_state.platform_specific_options.linux_options;
@@ -791,6 +804,7 @@ pub fn sync_parent(
     parent_window_id: u64,
     parent_state: &FullWindowState,
     lw: &mut LayoutWindow,
+    window: Option<WindowToScreen>,
 ) -> SyncOutcome {
     let mut out = SyncOutcome::default();
 
@@ -948,6 +962,7 @@ pub fn sync_parent(
                         content,
                         &title,
                         focus_visible,
+                        window,
                     )
                 } else {
                     popup_create_options(
@@ -957,6 +972,7 @@ pub fn sync_parent(
                         content,
                         cursor,
                         focus_visible,
+                        window,
                     )
                 };
                 options.window_state.title = title.as_str().into();
@@ -1025,7 +1041,11 @@ pub fn sync_parent(
                         Some(w.placement.resolve_within(
                             w.content_size,
                             cursor,
-                            placement_bounds(parent_state, floating.anchor),
+                            placement_bounds(
+                                window,
+                                parent_state.size.dimensions,
+                                floating.anchor,
+                            ),
                         ))
                     };
                     write(m, |d| {
@@ -1105,7 +1125,8 @@ pub enum PopupAction {
     /// window to match (`origin` in parent coordinates, `None` for a torn
     /// toplevel, which stays where the user put it).
     Place {
-        origin: Option<LogicalPosition>,
+        /// The window position, in the backend's screen units.
+        position: Option<WindowPosition>,
         size: LogicalSize,
     },
 }
@@ -1117,7 +1138,7 @@ pub fn poll_popup(state: &FullWindowState) -> PopupAction {
     let Some(m) = mailbox_of(state) else {
         return PopupAction::Nothing;
     };
-    let Some((closed, generation, origin, size, torn, dragging, following)) = read(&m, |d| {
+    let Some((closed, generation, origin, size, torn, dragging, following, scale)) = read(&m, |d| {
         (
             d.closed,
             d.generation,
@@ -1128,6 +1149,7 @@ pub fn poll_popup(state: &FullWindowState) -> PopupAction {
             d.torn || d.placement.anchor == TransientAnchor::Dialog,
             d.drag.is_some(),
             d.following,
+            d.screen_scale,
         )
     }) else {
         return PopupAction::Nothing;
@@ -1146,20 +1168,21 @@ pub fn poll_popup(state: &FullWindowState) -> PopupAction {
     // the user put it, but during the parent-driven tear the parent IS the
     // one putting it, one frame at a time).
     if following {
-        if state.position != relative_position(origin) {
+        let position = relative_position(origin, scale);
+        if state.position != position {
             return PopupAction::Place {
-                origin: Some(origin),
+                position: Some(position),
                 size,
             };
         }
         return PopupAction::Nothing;
     }
-    let want_pos = (!torn).then(|| relative_position(origin));
+    let want_pos = (!torn).then(|| relative_position(origin, scale));
     let pos_differs = want_pos.is_some_and(|p| state.position != p);
     let size_differs = state.size.dimensions != size;
     if pos_differs || size_differs {
         PopupAction::Place {
-            origin: (!torn).then_some(origin),
+            position: want_pos,
             size,
         }
     } else {
@@ -1213,15 +1236,16 @@ pub fn release_proxy(mailbox: &RefAny) -> bool {
     write(mailbox, |d| d.following = false)
 }
 
-/// `origin` (parent logical coordinates) as the `WindowPosition` a popup
-/// carries - whole pixels, relative to the parent's content origin.
+/// The `RelativeToParentWindow` position of a popup whose top-left is `origin`
+/// in its parent's logical px: the offset from the parent's content origin in
+/// the backend's screen units, `screen_scale` of them per logical px (the
+/// parent's DPI scale on Windows and X11, 1 on macOS and where there is no
+/// screen mapping).
 #[must_use]
-pub fn relative_position(origin: LogicalPosition) -> WindowPosition {
-    #[allow(clippy::cast_possible_truncation)] // whole logical pixels
-    WindowPosition::RelativeToParentWindow(PhysicalPosition::new(
-        origin.x.round() as i32,
-        origin.y.round() as i32,
-    ))
+pub fn relative_position(origin: LogicalPosition, screen_scale: f32) -> WindowPosition {
+    let _ = screen_scale;
+    let window = WindowToScreen::new(ScreenPoint::new(0.0, 0.0), 1.0);
+    WindowPosition::RelativeToParentWindow(window.offset_from_content(window.point(origin)))
 }
 
 /// Is a tear-off drag running in this window?
@@ -1271,7 +1295,8 @@ pub fn tear_drag_begin(state: &FullWindowState, press: Option<LogicalPosition>) 
 #[must_use]
 pub fn tear_drag_move(state: &FullWindowState, window_follows: bool) -> Option<WindowPosition> {
     let m = mailbox_of(state)?;
-    let (drag, origin, torn) = read(&m, |d| (d.drag, d.origin, d.torn))?;
+    let (drag, origin, torn, screen_scale) =
+        read(&m, |d| (d.drag, d.origin, d.torn, d.screen_scale))?;
     let drag = drag?;
     let cursor = state.mouse_state.cursor_position.get_position()?;
     let dx = cursor.x - drag.press_local.x;
@@ -1285,19 +1310,22 @@ pub fn tear_drag_move(state: &FullWindowState, window_follows: bool) -> Option<W
         LogicalPosition::new(drag.origin_at_press.x + dx, drag.origin_at_press.y + dy)
     };
     write(&m, |d| d.origin = new_origin);
+    // The pointer moved in logical px; the window is moved in screen units.
+    let _ = screen_scale;
+    let (dx_screen, dy_screen) = (dx, dy);
     #[allow(clippy::cast_possible_truncation)] // whole pixels
     let position = if torn {
         match state.position {
             WindowPosition::Initialized(p) => WindowPosition::Initialized(PhysicalPosition::new(
-                p.x + dx.round() as i32,
-                p.y + dy.round() as i32,
+                p.x + dx_screen.round() as i32,
+                p.y + dy_screen.round() as i32,
             )),
             // No screen coordinates (Wayland): a torn toplevel cannot be
             // moved by its content; the compositor's own move does that.
             other => other,
         }
     } else {
-        relative_position(new_origin)
+        relative_position(new_origin, screen_scale)
     };
     Some(position)
 }
@@ -1765,7 +1793,7 @@ mod tests {
         light_desktop.mode = azul_css::system::DarkLightMode::Light;
         let w = open_window(0);
         let (mut opts, _mailbox) =
-            popup_create_options(0xABCD, &parent, &w, Dom::create_div(), None, false);
+            popup_create_options(0xABCD, &parent, &w, Dom::create_div(), None, false, None);
         as_dialog_window(&mut opts.window_state, "Save changes?");
         assert_eq!(opts.mode, OptionDarkLightMode::Some(DarkLightMode::Dark));
         super::super::resolve_initial_background_color(&mut opts, &light_desktop);
@@ -1828,7 +1856,7 @@ mod tests {
         let decorations = |anchor: TransientAnchor, titlebar: Option<bool>| {
             let styled = page(titlebar);
             let titled = transient_has_titlebar(&styled, NodeId::new(1), anchor);
-            let mut st = popup_window_state("AzDrive", "azul-transient", LogicalSize::new(200.0, 100.0), LogicalPosition::zero());
+            let mut st = popup_window_state("AzDrive", "azul-transient", LogicalSize::new(200.0, 100.0), relative_position(LogicalPosition::zero(), 1.0));
             style_transient_window(&mut st, anchor, titled, "Add drive");
             st.flags.decorations
         };
@@ -1853,7 +1881,7 @@ mod tests {
         let parent = FullWindowState::default();
         let w = open_window(0);
         let (opts, mailbox) =
-            popup_create_options(0xABCD, &parent, &w, Dom::create_div(), None, false);
+            popup_create_options(0xABCD, &parent, &w, Dom::create_div(), None, false, None);
         assert_eq!(opts.parent_window_id, 0xABCD);
         assert!(
             !opts.size_to_content,
@@ -1930,6 +1958,7 @@ mod tests {
                 Dom::create_div(),
                 None,
                 false,
+                None,
             );
             opts.window_state
         };
@@ -2076,6 +2105,80 @@ mod tests {
         );
     }
 
+    /// A popup's position is an offset in the backend's SCREEN units from the
+    /// parent's content origin. From a parent at twice the DPI the popup
+    /// below its swatch at (48, 72) logical is 96, 144 pixels in; written
+    /// as 48, 72 it opened halfway between the window's corner and its swatch.
+    #[test]
+    fn a_popup_on_a_scaled_window_is_offset_in_screen_pixels() {
+        let parent = FullWindowState::default();
+        let w = open_window(0);
+        let window = WindowToScreen::new(ScreenPoint::new(500.0, 300.0), 2.0);
+        let (opts, _) =
+            popup_create_options(0xABCD, &parent, &w, Dom::create_div(), None, false, Some(window));
+        assert_eq!(
+            opts.window_state.position,
+            WindowPosition::RelativeToParentWindow(PhysicalPosition::new(96, 144))
+        );
+        assert_eq!(
+            opts.window_state.size.dimensions,
+            LogicalSize::new(240.0, 160.0),
+            "the size stays logical: the backend scales it like any window's"
+        );
+    }
+
+    /// A popover is measured against the screen its anchor is on: for a window
+    /// spanning a tall monitor and a short one, a swatch on the short one gets
+    /// the short one's height as its room.
+    #[test]
+    fn a_popover_is_measured_against_the_screen_its_anchor_is_on() {
+        let screen = |x: f32, height: f32| ScreenRects {
+            bounds: LogicalRect::new(LogicalPosition::new(x, -100.0), LogicalSize::new(1920.0, height)),
+            work_area: LogicalRect::new(
+                LogicalPosition::new(x, -100.0),
+                LogicalSize::new(1920.0, height),
+            ),
+        };
+        let (tall, short) = (screen(-1000.0, 1440.0), screen(920.0, 900.0));
+        let swatch = LogicalRect::new(LogicalPosition::new(950.0, 500.0), LogicalSize::new(40.0, 20.0));
+        let room = popup_room(LogicalSize::new(1000.0, 600.0), &[tall, short], swatch);
+        assert_eq!(room.height, 900.0 - 2.0 * POPUP_SCREEN_MARGIN);
+    }
+
+    /// A torn-off window follows the pointer in screen units: on a parent at
+    /// twice the DPI a 20 x 10 logical drag moves it 40 x 20 pixels.
+    #[test]
+    fn a_torn_window_on_a_scaled_screen_follows_the_pointer() {
+        let w = OpenTransientWindow {
+            torn: Some(LogicalPosition::new(0.0, 0.0)),
+            ..open_window(0)
+        };
+        let window = WindowToScreen::new(ScreenPoint::new(0.0, 0.0), 2.0);
+        let (opts, mailbox) = toplevel_create_options(
+            1,
+            &FullWindowState::default(),
+            &w,
+            Dom::create_div(),
+            "Palette",
+            false,
+            Some(window),
+        );
+        assert!(write(&mailbox, |d| {
+            d.drag = Some(TearDrag {
+                press_local: LogicalPosition::new(10.0, 10.0),
+                origin_at_press: LogicalPosition::new(0.0, 0.0),
+            });
+        }));
+        let mut state = opts.window_state;
+        state.position = WindowPosition::Initialized(PhysicalPosition::new(100, 100));
+        state.mouse_state.cursor_position =
+            azul_core::window::CursorPosition::InWindow(LogicalPosition::new(30.0, 20.0));
+        assert_eq!(
+            tear_drag_move(&state, true),
+            Some(WindowPosition::Initialized(PhysicalPosition::new(140, 120)))
+        );
+    }
+
     #[test]
     fn the_mailbox_carries_both_directions() {
         let w = open_window(0);
@@ -2086,6 +2189,7 @@ mod tests {
             Dom::create_div(),
             None,
             false,
+            None,
         );
         assert_eq!(poll_popup(&opts.window_state), PopupAction::Nothing);
         assert!(post_dismissed(&opts.window_state));

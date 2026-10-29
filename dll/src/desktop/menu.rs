@@ -444,9 +444,12 @@ pub fn show_menu(
         "Menu",
         "azul-menu",
         frame.size,
-        LogicalPosition::new(
-            menu_pos.x - parent_window_position.x,
-            menu_pos.y - parent_window_position.y,
+        crate::desktop::shell2::common::transient::relative_position(
+            LogicalPosition::new(
+                menu_pos.x - parent_window_position.x,
+                menu_pos.y - parent_window_position.y,
+            ),
+            1.0,
         ),
     );
     window_state.layout_callback = LayoutCallback {

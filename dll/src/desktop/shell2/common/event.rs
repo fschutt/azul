@@ -5473,7 +5473,7 @@ pub trait PlatformWindow {
         };
         // What the next layout pass measures its popups' room against.
         lw.screen_mapping = mapping;
-        let outcome = super::transient::sync_parent(parent_id, &parent_state, lw);
+        let outcome = super::transient::sync_parent(parent_id, &parent_state, lw, mapping);
         for options in outcome.create {
             self.queue_window_create(options);
         }
@@ -5600,7 +5600,7 @@ pub trait PlatformWindow {
     /// and resize to the placement the parent last wrote (the anchor moved,
     /// the content re-measured) - a torn-off toplevel only resizes.
     fn poll_transient_mailbox(&mut self) {
-        use super::transient::{poll_popup, proxy_is_following, relative_position, PopupAction};
+        use super::transient::{poll_popup, proxy_is_following, PopupAction};
         // A drag proxy (a torn panel the parent is dragging) must let the mouse
         // through to the parent that owns the gesture; a settled window takes
         // its own clicks again.
@@ -5614,11 +5614,11 @@ pub trait PlatformWindow {
                 self.blur_focus_before_close();
                 let _ = self.request_window_close("transient.closed_by_parent");
             }
-            PopupAction::Place { origin, size } => {
+            PopupAction::Place { position, size } => {
                 self.get_common_mut()
                     .update_window_state(WindowStateSource::App, |ws| {
-                        if let Some(o) = origin {
-                            ws.position = relative_position(o);
+                        if let Some(p) = position {
+                            ws.position = p;
                         }
                         ws.size.dimensions = size;
                     });
