@@ -13,15 +13,11 @@ use std::{
 use azul_core::{
     dom::{DomId, DomNodeId, NodeId},
     geom::{LogicalPosition, LogicalRect},
-    hit_test::{
-        DocumentId, PipelineId, TAG_TYPE_CURSOR, TAG_TYPE_DOM_NODE, TAG_TYPE_SCROLLBAR,
-        TAG_TYPE_SCROLL_CONTAINER,
-    },
+    hit_test::{DocumentId, PipelineId, TAG_TYPE_SCROLLBAR, TAG_TYPE_SCROLL_CONTAINER},
     resources::{
         AddImage, ImageData as AzImageData, ImageDirtyRect, ImageKey, ImageRef, SyntheticItalics,
         UpdateImage,
     },
-    spaces::{BorderBoxLocal, ContentInset},
     window::{CursorPosition, DebugState},
 };
 use azul_layout::{
@@ -577,123 +573,6 @@ pub fn translate_world_point(
     pos: azul_core::geom::PhysicalPosition<f32>,
 ) -> webrender::api::units::WorldPoint {
     webrender::api::units::WorldPoint::new(pos.x, pos.y)
-}
-
-/// The content inset (`padding-left + border-left`, `padding-top +
-/// border-top`) of a DOM node, or [`ContentInset::ZERO`] if it cannot be
-/// resolved.
-///
-/// This is the term that separates WebRender's `point_relative_to_item`
-/// (border-box-relative, because azul pushes a scroll container's hit rect
-/// before its scroll frame) from the space `HitTestItem::point_relative_to_item`
-/// documents. Both hit-test hosts apply it, from the same
-/// `LayoutTree::content_inset`, so headless E2E and production can no longer
-/// disagree about where inside a padded node the pointer landed.
-fn content_inset_for(
-    layout_results: &BTreeMap<
-        DomId,
-        DomLayoutResult,
-    >,
-    dom_id: DomId,
-    node_id: NodeId,
-) -> ContentInset {
-    layout_results
-        .get(&dom_id)
-        .and_then(|lr| {
-            let idx = *lr.layout_tree.dom_to_layout.get(&node_id)?.first()?;
-            Some(lr.layout_tree.content_inset(idx))
-        })
-        .unwrap_or(ContentInset::ZERO)
-}
-
-/// Translate WebRender hit test to azul-core FullHitTest
-/// This converts the raw hit-test result from WebRender to our internal representation
-///
-/// NOTE: This is a partial implementation that handles basic hit testing.
-/// Full implementation would need to:
-/// - Convert WebRender item tags to (DomId, NodeId) pairs
-/// - Handle VirtualView hits
-/// - Extract scrollable nodes from hit results
-/// - Properly calculate point_relative_to_item coordinates
-pub fn translate_hit_test_result(
-    wr_result: webrender::api::HitTestResult,
-    _focused_node: Option<DomNodeId>,
-    layout_results: &BTreeMap<
-        DomId,
-        DomLayoutResult,
-    >,
-) -> FullHitTest {
-    use alloc::collections::BTreeMap;
-
-    use azul_core::{
-        dom::{DomId, NodeId},
-        geom::LogicalPosition,
-        hit_test::{FullHitTest, HitTest, HitTestItem},
-    };
-
-    let mut hovered_nodes: BTreeMap<DomId, HitTest> = BTreeMap::new();
-
-    for (depth, item) in wr_result.items.into_iter().enumerate() {
-        // Tag encoding: (tag_value, tag_type)
-        // For DOM nodes, we encode: (dom_id << 32) | node_id
-        let (tag_value, _tag_type) = item.tag;
-
-        let dom_id_value = ((tag_value >> 32) & 0xFFFFFFFF) as usize;
-        let node_id_value = (tag_value & 0xFFFFFFFF) as usize;
-
-        let dom_id = DomId {
-            inner: dom_id_value,
-        };
-        let node_id = NodeId::new(node_id_value);
-
-        // WebRender changed: point_in_viewport is now point_relative_to_item
-        let point_in_viewport =
-            LogicalPosition::new(item.point_relative_to_item.x, item.point_relative_to_item.y);
-
-        // WebRender reports the point relative to the hit RECT, which azul
-        // pushes BEFORE the scroll frame — i.e. BORDER-box-local. Step it in
-        // by the node's content inset so this matches the ONE space
-        // `HitTestItem::point_relative_to_item` documents (and that the CPU
-        // hit tester in `headless::convert_cpu_hit_test_to_full` emits).
-        let border_box_local = BorderBoxLocal::new(LogicalPosition::new(
-            item.point_relative_to_item.x,
-            item.point_relative_to_item.y,
-        ));
-        let point_relative_to_item = border_box_local.to_content_box_local(content_inset_for(
-            layout_results,
-            dom_id,
-            node_id,
-        ));
-
-        let is_focusable = if let Some(lr) = layout_results.get(&dom_id) {
-            let container = lr.styled_dom.node_data.as_container();
-            container
-                .get(node_id)
-                .and_then(|nd| nd.get_tab_index())
-                .is_some()
-        } else {
-            false
-        };
-
-        let hit_test_item = HitTestItem {
-            point_in_viewport,
-            point_relative_to_item,
-            is_focusable,
-            is_virtual_view_hit: None,
-            hit_depth: depth as u32,
-        };
-
-        hovered_nodes
-            .entry(dom_id)
-            .or_insert_with(HitTest::empty)
-            .regular_hit_test_nodes
-            .insert(node_id, hit_test_item);
-    }
-
-    FullHitTest {
-        hovered_nodes,
-        focused_node: _focused_node.into(),
-    }
 }
 
 /// Translate ScrollbarHitId to WebRender ItemTag
