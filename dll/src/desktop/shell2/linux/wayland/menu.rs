@@ -1,96 +1,19 @@
-//! Wayland menu handling via popup windows
+//! Wayland menus: the menu window every backend opens, as an `xdg_popup`.
 //!
-//! This module provides menu popup functionality for Wayland. It returns
-//! `WindowCreateOptions` for a generic popup window; xdg_popup integration
-//! is pending.
-//!
-//! Architecture:
-//! - Menu data (Menu struct) is passed as RefAny to the layout callback
-//! - Events are handled through normal Azul callback system
-//! - Rendering goes through the standard menu_renderer / WebRender pipeline
+//! A Wayland menu is the same window-drawn menu as everywhere else
+//! (`desktop::menu::show_menu`, its `MenuWindowData` carrying the menu and the
+//! rule it is placed by), opened without screen coordinates: the compositor's
+//! positioner places it from that rule (`WaylandWindow::open_menu_popup`), and
+//! a submenu opens on its menu's surface (`open_menu_on_popup`). This module
+//! only adds what is Wayland's own: the popup size the positioner and the
+//! buffer must agree on, and the estimate a menu is created at.
 
 use azul_core::{
-    callbacks::{LayoutCallback, LayoutCallbackInfo},
-    geom::{LogicalRect, LogicalSize},
+    geom::{LogicalPosition, LogicalRect, LogicalSize},
     menu::Menu,
-    refany::RefAny,
 };
 use azul_css::system::SystemStyle;
 use azul_layout::window_state::WindowCreateOptions;
-
-use azul_core::geom::LogicalPosition;
-use azul_layout::placement::FloatingPlacement;
-
-use super::{super::super::common::debug_server::LogCategory, WaylandWindow};
-use crate::log_error;
-
-/// Data passed to the menu layout callback
-#[derive(Debug, Clone)]
-pub(crate) struct MenuLayoutData {
-    /// Menu structure to render
-    pub menu: Menu,
-    /// System style for native look
-    pub system_style: SystemStyle,
-    /// Trigger rectangle in parent-surface-relative logical coordinates.
-    /// Stored here so the future xdg_popup positioner can anchor the popup
-    /// to the trigger node on the parent surface — Wayland clients cannot
-    /// address absolute screen coordinates, so positioning must happen via
-    /// the compositor with this rect.
-    pub trigger_rect: LogicalRect,
-    /// How the popup is placed against the parent surface: the rule every
-    /// window-drawn menu is placed by (`crate::desktop::menu::menu_placement`),
-    /// which the compositor's positioner is handed. A menu bar item and a
-    /// dropdown open BELOW their trigger with the left edges aligned, a context
-    /// menu at the pointer, a submenu beside its item.
-    pub placement: FloatingPlacement,
-    /// The mailbox of the window that opened the menu: an item picked in the popup runs
-    /// there (`crate::desktop::menu::MenuPicks`).
-    pub picks: crate::desktop::menu::MenuPicks,
-}
-
-/// Where a popup's surface lies on its parent surface, both in logical px: the
-/// position the compositor reported in the popup's `xdg_popup.configure`. A Wayland
-/// menu is anchored on the PARENT surface, so what a popup knows in its own
-/// coordinates reaches the parent's through this - the popup's coordinates mean
-/// nothing there.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct PopupOnParent {
-    /// The popup's top-left on the parent surface.
-    pub origin: LogicalPosition,
-}
-
-impl PopupOnParent {
-    /// A point of the popup's surface, on the parent surface.
-    #[must_use]
-    pub const fn point(&self, point: LogicalPosition) -> LogicalPosition {
-        LogicalPosition::new(self.origin.x + point.x, self.origin.y + point.y)
-    }
-
-    /// A box of the popup's surface, on the parent surface.
-    #[must_use]
-    pub const fn rect(&self, rect: LogicalRect) -> LogicalRect {
-        LogicalRect::new(self.point(rect.origin), rect.size)
-    }
-}
-
-/// The rule a menu opened at `position` (parent-surface coordinates) for
-/// `anchor` is placed by: the menu's own `MenuPopupPosition`, with a real
-/// trigger rect meaning "for this control" and none - or the zero-sized
-/// cursor point of a context menu - "at the pointer".
-#[must_use]
-pub fn menu_popup_placement(
-    menu: &Menu,
-    position: LogicalPosition,
-    anchor: Option<LogicalRect>,
-) -> FloatingPlacement {
-    let trigger = anchor.filter(|rect| rect.size.width > 0.0 || rect.size.height > 0.0);
-    crate::desktop::menu::menu_placement(
-        crate::desktop::menu::resolve_position_strategy(menu.position, trigger.is_some()),
-        Some(position),
-        trigger,
-        position,
-    )
-}
 
 /// The popup size as the positioner and the buffer must both see it.
 ///
@@ -104,100 +27,6 @@ pub fn popup_size_px(size: LogicalSize) -> LogicalSize {
     LogicalSize::new(size.width.max(1.0).ceil(), size.height.max(1.0).ceil())
 }
 
-/// Layout callback for menu popup windows
-///
-/// This callback uses menu_renderer to create a StyledDom from the Menu structure.
-/// It's called by Azul's normal layout system, so rendering happens through the
-/// standard WebRender pipeline.
-extern "C" fn menu_layout_callback(_data: RefAny, info: LayoutCallbackInfo) -> azul_core::dom::Dom {
-    // The menu's `MenuLayoutData` is carried in the layout callback's `ctx`
-    // (see `create_menu_popup_options`), NOT in `data`: `data` is the SHARED
-    // APP data, common to every window, so downcasting it to MenuLayoutData
-    // always failed - every Wayland menu popup opened as a blank surface
-    // (KDE session, 2026-08-29). Same fix the unified menu system's
-    // `menu_layout_callback` carries; read the per-window payload via
-    // `info.get_ctx()`.
-    let menu_refany = match info.get_ctx().into_option() {
-        Some(r) => r,
-        None => {
-            log_error!(
-                LogCategory::Layout,
-                "[Menu Layout] menu window has no ctx (MenuLayoutData)"
-            );
-            return azul_core::dom::Dom::create_body();
-        }
-    };
-    let mut probe = menu_refany.clone();
-    let Some(menu_data) = probe.downcast_ref::<MenuLayoutData>() else {
-        log_error!(
-            LogCategory::Layout,
-            "[Menu Layout] ctx is not MenuLayoutData"
-        );
-        return azul_core::dom::Dom::create_body();
-    };
-
-    // Use menu_renderer to create Dom with deferred CSS
-    crate::desktop::menu_renderer::create_menu_dom_with_css(
-        &menu_data.menu,
-        &menu_data.system_style,
-        menu_refany.clone(), // Pass the menu-window RefAny for item callbacks
-        &menu_data.picks,
-    )
-}
-
-/// Create a menu popup window using Wayland's xdg_popup protocol
-///
-/// This creates a proper Wayland popup with compositor-managed positioning.
-/// The menu is rendered through the normal layout/rendering pipeline.
-///
-/// # Arguments
-/// * `picks` - The mailbox of the window the items picked in the menu run in
-/// * `menu` - Menu structure to display
-/// * `system_style` - System style for native look
-/// * `trigger_rect` - Rectangle where menu was triggered (logical coords, relative to parent)
-/// * `placement` - The rule the menu is placed by (`menu_popup_placement`)
-/// * `menu_size` - Size of menu window (logical coords)
-///
-/// # Returns
-/// * `WindowCreateOptions` - Window options for creating the popup
-pub fn create_menu_popup_options(
-    picks: crate::desktop::menu::MenuPicks,
-    menu: &Menu,
-    system_style: &SystemStyle,
-    trigger_rect: LogicalRect,
-    placement: FloatingPlacement,
-    menu_size: LogicalSize,
-) -> WindowCreateOptions {
-    let menu_data = MenuLayoutData {
-        menu: menu.clone(),
-        system_style: system_style.clone(),
-        trigger_rect,
-        placement,
-        picks,
-    };
-
-    let menu_data_refany = RefAny::new(menu_data);
-
-    let mut options = WindowCreateOptions::default();
-    options.window_state.size.dimensions = menu_size;
-    options.window_state.title = "Menu".to_string().into();
-
-    options.window_state.layout_callback = LayoutCallback {
-        cb: menu_layout_callback,
-        ctx: azul_core::refany::OptionRefAny::Some(menu_data_refany),
-    };
-
-    // Measured before the popup is created (see `measure_popup_content`);
-    // `menu_size` is only the estimate the measurement falls back to.
-    options.size_to_content = true;
-    options.window_state.flags.window_type = azul_core::window::WindowType::Menu;
-    options.window_state.flags.decorations = azul_core::window::WindowDecorations::None;
-    options.window_state.flags.is_always_on_top = true;
-    options.window_state.flags.is_resizable = false;
-
-    options
-}
-
 /// The create options of a menu opened at `position` for `anchor` (both in the
 /// logical px of the surface it opens on), whose items run in the window with
 /// the `picks` mailbox.
@@ -209,14 +38,18 @@ pub fn menu_options(
     position: LogicalPosition,
     anchor: Option<LogicalRect>,
 ) -> WindowCreateOptions {
-    let trigger_rect = anchor.unwrap_or_else(|| LogicalRect::new(position, LogicalSize::zero()));
-    create_menu_popup_options(
+    // The one menu model of every backend: the window-drawn menu window,
+    // its rule carried in its `MenuWindowData`. Without screen coordinates
+    // the compositor places it from that rule (`open_menu_popup`), and the
+    // shared submenu code finds the menu it opens from there.
+    crate::desktop::menu::show_menu(
+        menu.clone(),
+        system_style.clone(),
+        None,
+        anchor,
+        Some(position),
+        None,
         picks,
-        menu,
-        system_style,
-        trigger_rect,
-        menu_popup_placement(menu, position, anchor),
-        calculate_menu_size(menu, system_style),
     )
 }
 
@@ -246,6 +79,22 @@ mod tests {
         Separator,
     }
 
+    /// The rule a Wayland menu opened at `position` for `anchor` is placed by.
+    fn placement(
+        menu: &Menu,
+        position: LogicalPosition,
+        anchor: Option<LogicalRect>,
+    ) -> azul_layout::placement::FloatingPlacement {
+        let opts = menu_options(
+            crate::desktop::menu::MenuPicks::default(),
+            menu,
+            &alloc::sync::Arc::new(defaults::kde_breeze_light()),
+            position,
+            anchor,
+        );
+        crate::desktop::menu::menu_placement_of(&opts).expect("a menu window")
+    }
+
     fn menu_of(entries: &[Entry]) -> Menu {
         Menu {
             items: entries
@@ -272,14 +121,14 @@ mod tests {
 
         let menu = menu_of(&[Entry::Item]);
         let swatch = LogicalRect::new(LogicalPosition::new(50.0, 396.0), LogicalSize::new(14.0, 14.0));
-        let below = menu_popup_placement(&menu, swatch.origin, Some(swatch));
+        let below = placement(&menu, swatch.origin, Some(swatch));
         assert_eq!(below.anchor, swatch);
         assert_eq!((below.x.anchor, below.x.grow), (AxisEnd::Start, AxisEnd::End));
         assert_eq!((below.y.anchor, below.y.grow), (AxisEnd::End, AxisEnd::End));
 
         let cursor = LogicalRect::new(LogicalPosition::new(50.0, 396.0), LogicalSize::zero());
         for anchor in [Some(cursor), None] {
-            let at = menu_popup_placement(&menu, cursor.origin, anchor);
+            let at = placement(&menu, cursor.origin, anchor);
             assert_eq!(at.anchor, cursor, "at the pointer");
             assert_eq!((at.x.anchor, at.x.grow), (AxisEnd::End, AxisEnd::End));
             assert_eq!((at.y.anchor, at.y.grow), (AxisEnd::End, AxisEnd::End));
@@ -297,7 +146,7 @@ mod tests {
         let mut submenu = menu_of(&[Entry::Item]);
         submenu.position = azul_core::menu::MenuPopupPosition::RightOfHitRect;
         let item = LogicalRect::new(LogicalPosition::new(0.0, 94.0), LogicalSize::new(160.0, 22.0));
-        let beside = menu_popup_placement(&submenu, item.origin, Some(item));
+        let beside = placement(&submenu, item.origin, Some(item));
         assert_eq!(
             (beside.x.anchor, beside.x.grow),
             (AxisEnd::End, AxisEnd::End),
@@ -310,22 +159,15 @@ mod tests {
         );
     }
 
-    /// A menu opened from inside a popup - a context menu in a dropdown - is
-    /// anchored at its item on the PARENT surface, where the compositor put the
-    /// popup, not at the item's popup coordinates read as the parent's (its
-    /// corner, for a popup at the parent's top-left).
+    /// A menu opened from inside a popup - a context menu in a dropdown - opens
+    /// ON that popup (`opens_on_its_opener`), so it is anchored at its item in
+    /// the popup's own coordinates, never at those coordinates read as the
+    /// parent's (the parent's corner, for a popup at its top-left).
     #[test]
-    fn a_menu_opened_in_a_popup_is_anchored_at_its_item_on_the_parent() {
-        let popup = PopupOnParent {
-            origin: LogicalPosition::new(120.0, 80.0),
-        };
+    fn a_menu_opened_in_a_popup_is_anchored_at_its_item_on_that_popup() {
         let item = LogicalRect::new(LogicalPosition::new(0.0, 40.0), LogicalSize::new(160.0, 22.0));
         let menu = menu_of(&[Entry::Item]);
-        let placement = menu_popup_placement(&menu, popup.point(item.origin), Some(popup.rect(item)));
-        assert_eq!(
-            placement.anchor,
-            LogicalRect::new(LogicalPosition::new(120.0, 120.0), LogicalSize::new(160.0, 22.0))
-        );
+        assert_eq!(placement(&menu, item.origin, Some(item)).anchor, item);
     }
 
     /// A Wayland menu is the same menu window every backend opens, carrying the

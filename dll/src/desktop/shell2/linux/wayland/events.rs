@@ -3770,10 +3770,7 @@ pub(super) extern "C" fn pointer_enter_handler(
         // Which SURFACE this seat entered (9b-ii-a-iii): the popup's or the
         // window's - resolved here, where the raw `wl_surface` is in hand,
         // exactly as it is for the primary below.
-        let seat_over_popup = window
-            .active_popup
-            .as_ref()
-            .map_or(false, |p| !surface.is_null() && p.surface == surface);
+        let seat_over_popup = window.is_popup_surface(surface);
         window.handle_seat_pointer_enter(
             seat_id,
             serial,
@@ -3789,10 +3786,10 @@ pub(super) extern "C" fn pointer_enter_handler(
     // parent) here — comparing the raw `wl_surface` — and pass a bool, so the
     // public `handle_pointer_enter` signature stays free of FFI pointer types.
     // (This child module can read the popup's private `surface` field.)
-    let over_popup = window
-        .active_popup
-        .as_ref()
-        .map_or(false, |p| !surface.is_null() && p.surface == surface);
+    let over_popup = window.is_popup_surface(surface);
+    // Which popup of the chain (a menu and the submenus opened on it): the
+    // motion and buttons that follow without a surface go to it.
+    window.pointer_popup_surface = if over_popup { surface as usize } else { 0 };
     window.handle_pointer_enter(serial, x, y, over_popup);
 }
 
@@ -3998,7 +3995,7 @@ extern "C" fn keyboard_enter_handler(
         use crate::desktop::shell2::common::transient::{
             keyboard_focus_surface, KeyboardFocusSurface,
         };
-        let popup_surface = window.active_popup.as_ref().map(|p| p.surface as usize);
+        let popup_surface = window.is_popup_surface(surface).then_some(surface as usize);
         if keyboard_focus_surface(surface as usize, window.surface as usize, popup_surface)
             == KeyboardFocusSurface::Popup
         {
@@ -4050,12 +4047,20 @@ extern "C" fn keyboard_leave_handler(
         use crate::desktop::shell2::common::transient::{
             keyboard_focus_surface, KeyboardFocusSurface,
         };
-        let popup_surface = window.active_popup.as_ref().map(|p| p.surface as usize);
+        let popup_surface = window.is_popup_surface(surface).then_some(surface as usize);
         if keyboard_focus_surface(surface as usize, window.surface as usize, popup_surface)
             == KeyboardFocusSurface::Popup
         {
-            if let Some(popup) = window.active_popup.as_mut() {
-                popup.keyboard_left();
+            // A menu that opened a submenu hands the keyboard to it: that is
+            // not the user going elsewhere. Only the topmost popup losing the
+            // keyboard is the chain's focus loss.
+            let is_topmost = window
+                .topmost_popup_mut()
+                .is_some_and(|top| top.surface == surface);
+            if is_topmost {
+                if let Some(popup) = window.popup_with_surface_mut(surface) {
+                    popup.keyboard_left();
+                }
             }
             window.drive_active_popup();
             return;

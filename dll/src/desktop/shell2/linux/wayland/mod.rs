@@ -930,6 +930,8 @@ pub struct WaylandWindow {
     /// Wayland clients cannot position their own toplevels, so menus are
     /// anchored to the trigger rect on the parent via xdg_positioner and grab
     /// the seat for click-outside dismiss. Driven by `drive_active_popup()`.
+    /// The menus opened on it (its submenus) hang off it as its `child`
+    /// chain, each nested on the surface of the one before.
     pub active_popup: Option<Box<WaylandPopup>>,
 
     /// Whether the most recent `wl_pointer.enter` targeted the active popup's
@@ -938,6 +940,9 @@ pub struct WaylandWindow {
     /// — set from the surface carried by `enter` — to forward subsequent
     /// motion/button events (which carry no surface) to the popup's layout.
     pub pointer_over_popup: bool,
+    /// The surface of the popup the pointer is over, of the chain of open
+    /// popups (`active_popup` and the menus opened on it); 0 for none.
+    pub pointer_popup_surface: usize,
 
     // GNOME native menu V2 with dlopen
     pub gnome_menu: Option<super::gnome_menu::GnomeMenuManager>,
@@ -971,6 +976,9 @@ pub enum WaylandEvent {
 /// - Automatic grab support
 /// - Automatic dismissal on outside clicks
 pub struct WaylandPopup {
+    /// The menu opened ON this popup (a submenu, a context menu inside it),
+    /// nested on its surface; it closes before this popup does.
+    pub child: Option<Box<WaylandPopup>>,
     wayland: Rc<Wayland>,
     xkb: Rc<Xkb>,
     display: *mut defines::wl_display,
@@ -1630,7 +1638,7 @@ impl PlatformWindow for WaylandWindow {
     /// whatever that asked for (an Enter that picked an option closes it).
     fn deliver_forwarded_keys(&mut self) {
         use crate::desktop::shell2::common::event::PlatformWindow as _;
-        if let Some(popup) = self.active_popup.as_mut() {
+        if let Some(popup) = self.topmost_popup_mut() {
             if crate::desktop::shell2::common::transient::has_forwarded_keys(
                 popup.common.current_window_state(),
             ) {
@@ -1813,9 +1821,11 @@ impl PlatformWindow for WaylandWindow {
                 }
             }
         }
-        // The nested xdg_popup is not a registered window; repaint it too.
-        if let Some(p) = self.active_popup.as_mut() {
-            p.request_repaint();
+        // The nested xdg_popups are not registered windows; repaint them too.
+        for depth in 0..self.popup_surfaces().len() {
+            if let Some(p) = self.popup_at_depth_mut(depth) {
+                p.request_repaint();
+            }
         }
     }
 
@@ -1858,9 +1868,11 @@ impl PlatformWindow for WaylandWindow {
         // The nested xdg_popup is not a registered window, and it is OWNED by
         // this one (whose callback is on the stack): it only takes the
         // light / dark and a rebuild request, no pass from in here.
-        if let Some(p) = self.active_popup.as_mut() {
-            if p.adopt_app_mode_deferred() {
-                p.request_repaint();
+        for depth in 0..self.popup_surfaces().len() {
+            if let Some(p) = self.popup_at_depth_mut(depth) {
+                if p.adopt_app_mode_deferred() {
+                    p.request_repaint();
+                }
             }
         }
     }
@@ -1954,12 +1966,10 @@ impl PlatformWindow for WaylandWindow {
 impl WaylandWindow {
     /// Show a fallback window-based menu at the given position.
     ///
-    /// Wayland clients have no notion of absolute screen coordinates, so this
-    /// path uses `menu::create_menu_popup_options` (parent-relative) instead of
-    /// the absolute-coords `desktop::menu::show_menu` used on X11/Win/macOS.
-    /// The trigger rectangle is collapsed to a zero-size rect anchored at the
-    /// requested position; once xdg_popup wiring lands the positioner will
-    /// anchor against this rect on the parent surface.
+    /// The same menu window every backend opens (`desktop::menu::show_menu`,
+    /// through `menu::menu_options`), opened without screen coordinates: a
+    /// Wayland client has none, so the compositor's positioner places the
+    /// `xdg_popup` against the control (or the pointer) on this surface.
     fn show_fallback_menu(
         &mut self,
         menu: &azul_core::menu::Menu,
@@ -1969,19 +1979,12 @@ impl WaylandWindow {
         // A real anchor rect is what an xdg_popup positioner wants: the
         // compositor flips and slides against the CONTROL, not against a
         // zero-sized point, and the menu can be sized to match it.
-        let trigger_rect = anchor.unwrap_or_else(|| {
-            azul_core::geom::LogicalRect::new(position, azul_core::geom::LogicalSize::zero())
-        });
-        let placement = self::menu::menu_popup_placement(menu, position, anchor);
-        let menu_size = self::menu::calculate_menu_size(menu, &self.common.system_style);
-
-        let menu_options = self::menu::create_menu_popup_options(
+        let menu_options = self::menu::menu_options(
             self.common.menu_picks.clone(),
             menu,
             &self.common.system_style,
-            trigger_rect,
-            placement,
-            menu_size,
+            position,
+            anchor,
         );
 
         log_debug!(
@@ -2000,34 +2003,32 @@ impl WaylandWindow {
     /// mispositioned, event-capturing `xdg_toplevel`. Replaces any open menu.
     ///
     /// The trigger/anchor rect was stashed in the menu layout callback's RefAny
-    /// (`menu::MenuLayoutData::trigger_rect`), in parent-surface-relative
+    /// (`desktop::menu::MenuWindowData`), in parent-surface-relative
     /// coordinates — Wayland clients cannot address absolute screen coordinates,
     /// so the compositor positions the popup from this rect.
     pub fn open_menu_popup(&mut self, options: WindowCreateOptions) -> Result<(), String> {
         // A new menu replaces any currently-open one.
         self.dismiss_active_popup();
 
-        // The placement: a menu stashes its rule in `MenuLayoutData`; a
-        // `<transient-window>` carries its rule in the shared mailbox
-        // (`common::transient::TransientWindowData::floating`). Both are
-        // parent-surface-relative, which is all a Wayland client can say; the
-        // compositor's positioner does the placing, by the same rule every other
-        // backend places by (`xdg_positioner_rules`).
-        let placement = match &options.window_state.layout_callback.ctx {
-            azul_core::refany::OptionRefAny::Some(refany) => {
-                let mut r = refany.clone();
-                let menu = r
-                    .downcast_ref::<self::menu::MenuLayoutData>()
-                    .map(|d| d.placement);
-                let mut r2 = refany.clone();
-                let transient = r2
-                    .downcast_ref::<crate::desktop::shell2::common::transient::TransientWindowData>(
-                    )
-                    .map(|d| d.floating);
-                menu.or(transient)
-            }
-            azul_core::refany::OptionRefAny::None => None,
-        }
+        // The placement: a menu carries its rule in its `MenuWindowData` (the
+        // one menu model of every backend); a `<transient-window>` carries its
+        // rule in the shared mailbox (`common::transient::TransientWindowData::
+        // floating`). Both are parent-surface-relative, which is all a Wayland
+        // client can say; the compositor's positioner does the placing, by the
+        // same rule every other backend places by (`xdg_positioner_rules`).
+        let placement = crate::desktop::menu::menu_placement_of(&options)
+            .or_else(|| match &options.window_state.layout_callback.ctx {
+                azul_core::refany::OptionRefAny::Some(refany) => {
+                    let mut r = refany.clone();
+                    let transient = r
+                        .downcast_ref::<
+                            crate::desktop::shell2::common::transient::TransientWindowData,
+                        >()
+                        .map(|d| d.floating);
+                    transient
+                }
+                azul_core::refany::OptionRefAny::None => None,
+            })
         .unwrap_or_else(|| {
             azul_layout::placement::FloatingPlacement::at_point(
                 azul_core::geom::LogicalPosition::zero(),
@@ -2051,7 +2052,7 @@ impl WaylandWindow {
             popup_size.width,
             popup_size.height
         );
-        let popup = WaylandPopup::new(self, &placement, popup_size, options)?;
+        let popup = WaylandPopup::new(self, &placement, popup_size, options, self.xdg_surface)?;
         self.active_popup = Some(Box::new(popup));
         crate::plog_info!("[wayland-popup] xdg_popup created + grab requested, awaiting configure");
 
@@ -2108,36 +2109,150 @@ impl WaylandWindow {
     /// dismissed it (click-outside / popup_done), otherwise render it once the
     /// compositor has configured it.
     pub fn drive_active_popup(&mut self) {
-        let dismissed = match self.active_popup.as_ref() {
-            // The compositor dismissed it, it closed itself (Escape, focus
-            // loss, a menu item's `close_requested`), or the parent's engine
-            // told it to close through the mailbox (the app set `open=false`,
-            // a press in the parent).
-            Some(p) => {
-                p.is_dismissed()
-                    || !p.is_open
-                    || p.close_requested()
-                    || crate::desktop::shell2::common::transient::poll_popup(
-                        p.common.current_window_state(),
-                    ) == crate::desktop::shell2::common::transient::PopupAction::Close
-            }
-            None => return,
-        };
-        if dismissed {
+        // Any popup of the chain closing ends it: the compositor dismissed it,
+        // it closed itself (Escape, focus loss, a menu item's
+        // `close_requested`), or the parent's engine told it to close through
+        // the mailbox (the app set `open=false`, a press in the parent). A
+        // pick in a submenu closes the menu it came from too, as on every
+        // backend.
+        if self.active_popup.is_none() {
+            return;
+        }
+        let mut closes = false;
+        let mut popup = self.active_popup.as_deref();
+        while let Some(p) = popup {
+            closes |= p.is_dismissed()
+                || !p.is_open
+                || p.close_requested()
+                || crate::desktop::shell2::common::transient::poll_popup(
+                    p.common.current_window_state(),
+                ) == crate::desktop::shell2::common::transient::PopupAction::Close;
+            popup = p.child.as_deref();
+        }
+        if closes {
             self.dismiss_active_popup();
             return;
         }
-        // Windows a callback inside the popup asked for (a submenu, a nested
-        // popup) are the parent's to create — they replace the active popup.
-        let nested: Vec<WindowCreateOptions> = self
-            .active_popup
-            .as_mut()
-            .map(|p| core::mem::take(&mut p.pending_window_creates))
-            .unwrap_or_default();
-        self.pending_window_creates.extend(nested);
-        if let Some(popup) = self.active_popup.as_mut() {
-            popup.render_if_ready();
+        // Windows a callback inside a popup asked for: a menu opens ON that
+        // popup (a submenu beside its item, a context menu in a popover), so
+        // the menu it came from stays open; anything else is the parent's to
+        // create, replacing the active popup.
+        for depth in 0..self.popup_surfaces().len() {
+            let Some(opener) = self.popup_at_depth_mut(depth) else {
+                break;
+            };
+            let creates = core::mem::take(&mut opener.pending_window_creates);
+            let on_surface = opener.xdg_surface;
+            for options in creates {
+                if opens_on_its_opener(&options) {
+                    if let Err(e) = self.open_menu_on_popup(depth, on_surface, options) {
+                        log_error!(
+                            LogCategory::Window,
+                            "[Wayland] Failed to open a menu on its popup: {}",
+                            e
+                        );
+                    }
+                } else {
+                    self.pending_window_creates.push(options);
+                }
+            }
         }
+        for depth in 0..self.popup_surfaces().len() {
+            if let Some(popup) = self.popup_at_depth_mut(depth) {
+                popup.render_if_ready();
+            }
+        }
+    }
+
+    /// Open the menu `options` ON the popup `depth` deep in the chain, nested
+    /// on its surface `on_surface`: anchored at its item in that popup's own
+    /// coordinates, placed by the compositor's positioner. It replaces the menu
+    /// that popup had open (another item's submenu).
+    fn open_menu_on_popup(
+        &mut self,
+        depth: usize,
+        on_surface: *mut defines::xdg_surface,
+        options: WindowCreateOptions,
+    ) -> Result<(), String> {
+        let placement = crate::desktop::menu::menu_placement_of(&options)
+            .ok_or_else(|| "not a menu".to_string())?;
+        let popup_size = self::menu::popup_size_px(options.window_state.size.dimensions);
+        let mut options = options;
+        options.window_state.size.dimensions = popup_size;
+        let menu = WaylandPopup::new(self, &placement, popup_size, options, on_surface)?;
+        if let Some(opener) = self.popup_at_depth_mut(depth) {
+            if let Some(mut previous) = opener.child.replace(Box::new(menu)) {
+                previous.close();
+            }
+        }
+        unsafe {
+            (self.wayland.wl_display_flush)(self.display);
+        }
+        Ok(())
+    }
+
+    /// The surfaces of the open popups, outermost first: the active popup and
+    /// the menus opened on it, each on the surface of the one before.
+    fn popup_surfaces(&self) -> Vec<usize> {
+        let mut surfaces = Vec::new();
+        let mut popup = self.active_popup.as_deref();
+        while let Some(p) = popup {
+            surfaces.push(p.surface as usize);
+            popup = p.child.as_deref();
+        }
+        surfaces
+    }
+
+    /// The popup `depth` menus deep in the chain (0: the active popup).
+    fn popup_at_depth_mut(&mut self, depth: usize) -> Option<&mut WaylandPopup> {
+        let mut popup = self.active_popup.as_deref_mut()?;
+        for _ in 0..depth {
+            popup = popup.child.as_deref_mut()?;
+        }
+        Some(popup)
+    }
+
+    /// Whether `surface` is one of the open popups'.
+    pub(super) fn is_popup_surface(&self, surface: *mut defines::wl_surface) -> bool {
+        !surface.is_null() && self.popup_surfaces().contains(&(surface as usize))
+    }
+
+    /// The topmost popup: the last menu opened, which holds the keyboard.
+    fn topmost_popup(&self) -> Option<&WaylandPopup> {
+        let mut popup = self.active_popup.as_deref()?;
+        while let Some(child) = popup.child.as_deref() {
+            popup = child;
+        }
+        Some(popup)
+    }
+
+    /// [`Self::topmost_popup`], to hand it input.
+    pub(super) fn topmost_popup_mut(&mut self) -> Option<&mut WaylandPopup> {
+        let depth = self.popup_surfaces().len().checked_sub(1)?;
+        self.popup_at_depth_mut(depth)
+    }
+
+    /// The popup with `surface`, of the open ones.
+    pub(super) fn popup_with_surface_mut(
+        &mut self,
+        surface: *mut defines::wl_surface,
+    ) -> Option<&mut WaylandPopup> {
+        let depth = self
+            .popup_surfaces()
+            .iter()
+            .position(|&s| s == surface as usize)?;
+        self.popup_at_depth_mut(depth)
+    }
+
+    /// The popup pointer input goes to: the one the pointer entered, else the
+    /// topmost.
+    fn input_popup_mut(&mut self) -> Option<&mut WaylandPopup> {
+        let surfaces = self.popup_surfaces();
+        let depth = surfaces
+            .iter()
+            .position(|&s| s == self.pointer_popup_surface)
+            .or_else(|| surfaces.len().checked_sub(1))?;
+        self.popup_at_depth_mut(depth)
     }
 
     pub fn new(
@@ -2382,6 +2497,7 @@ impl WaylandWindow {
             pending_window_creates: Vec::new(),
             active_popup: None,
             pointer_over_popup: false,
+            pointer_popup_surface: 0,
             gnome_menu: None, // Will be initialized if GNOME menus are enabled
             resources: resources.clone(),
             dynamic_selector_context: {
@@ -3804,7 +3920,7 @@ impl WaylandWindow {
         // pipeline, which forwards the list's navigation keys through the
         // mailbox (`common::transient::parent_key_route`) and replays them in
         // the popup (`deliver_forwarded_keys`).
-        let popup_holds_keyboard = self.active_popup.as_ref().is_some_and(|p| {
+        let popup_holds_keyboard = self.topmost_popup().is_some_and(|p| {
             crate::desktop::shell2::common::transient::popup_takes_focus(
                 p.common.current_window_state(),
             )
@@ -3834,7 +3950,7 @@ impl WaylandWindow {
             } else {
                 None
             };
-            if let Some(popup) = self.active_popup.as_mut() {
+            if let Some(popup) = self.topmost_popup_mut() {
                 popup.key_event(key, virtual_keycode, is_pressed, text.as_deref());
             }
             // The popup may have asked to close (Escape): service it now.
@@ -4609,7 +4725,7 @@ impl WaylandWindow {
         // popup (just tracks the popup-relative cursor for a later click/Return)
         // and don't touch the parent's hover/hit-test state.
         if self.pointer_over_popup && self.active_popup.is_some() {
-            if let Some(popup) = self.active_popup.as_mut() {
+            if let Some(popup) = self.input_popup_mut() {
                 popup.pointer_motion(logical_pos);
             }
             return;
@@ -4696,7 +4812,7 @@ impl WaylandWindow {
                 button,
                 state
             );
-            if let Some(popup) = self.active_popup.as_mut() {
+            if let Some(popup) = self.input_popup_mut() {
                 popup.pointer_button(button, state);
             }
             return;
@@ -5194,7 +5310,7 @@ impl WaylandWindow {
         if self.pointer_over_popup && self.active_popup.is_some() {
             let is_trackpad = axis_source_is_trackpad(self.current_axis_source);
             let (dx, dy) = axis_frame_delta(is_trackpad, (raw_x, raw_y), (disc_x, disc_y));
-            if let Some(popup) = self.active_popup.as_mut() {
+            if let Some(popup) = self.input_popup_mut() {
                 popup.pointer_axis(dx, dy, is_trackpad);
             }
             return;
@@ -5505,7 +5621,7 @@ impl WaylandWindow {
         if self.pointer_over_popup && self.active_popup.is_some() {
             let is_trackpad = axis_source_is_trackpad(axis_source);
             let (dx, dy) = axis_frame_delta(is_trackpad, (raw_x, raw_y), (disc_x, disc_y));
-            if let Some(popup) = self.active_popup.as_mut() {
+            if let Some(popup) = self.input_popup_mut() {
                 popup.pointer_axis(dx, dy, is_trackpad);
             }
             return;
@@ -5599,7 +5715,7 @@ impl WaylandWindow {
                 x,
                 y
             );
-            if let Some(popup) = self.active_popup.as_mut() {
+            if let Some(popup) = self.input_popup_mut() {
                 popup.pointer_enter(logical_pos);
             }
             return;
@@ -6290,9 +6406,10 @@ impl WaylandWindow {
         // tell the popup, clear the routing flag; the parent is not out-of-window.
         if self.pointer_over_popup {
             self.pointer_over_popup = false;
-            if let Some(popup) = self.active_popup.as_mut() {
+            if let Some(popup) = self.input_popup_mut() {
                 popup.pointer_leave();
             }
+            self.pointer_popup_surface = 0;
             return;
         }
 
@@ -6357,7 +6474,7 @@ impl WaylandWindow {
         // used to be a single bool and so only ever the primary's.
         if over_popup && self.active_popup.is_some() {
             self.seat_over_popup.insert(seat_id);
-            if let Some(popup) = self.active_popup.as_mut() {
+            if let Some(popup) = self.input_popup_mut() {
                 popup.pointer_enter(pos);
             }
             return;
@@ -6400,7 +6517,7 @@ impl WaylandWindow {
 
     pub(super) fn handle_seat_pointer_leave(&mut self, seat_id: u64) {
         if self.seat_over_popup.remove(&seat_id) {
-            if let Some(popup) = self.active_popup.as_mut() {
+            if let Some(popup) = self.input_popup_mut() {
                 popup.pointer_leave();
             }
             return;
@@ -6427,7 +6544,7 @@ impl WaylandWindow {
         use crate::desktop::shell2::common::event::PlatformWindow;
         let pos = LogicalPosition::new(x as f32, y as f32);
         if self.seat_over_popup.contains(&seat_id) && self.active_popup.is_some() {
-            if let Some(popup) = self.active_popup.as_mut() {
+            if let Some(popup) = self.input_popup_mut() {
                 popup.pointer_motion(pos);
             }
             return;
@@ -6448,7 +6565,7 @@ impl WaylandWindow {
     pub(super) fn handle_seat_pointer_button(&mut self, seat_id: u64, button: u32, state: u32) {
         use crate::desktop::shell2::common::event::{apply_pointer_button_state, PlatformWindow};
         if self.seat_over_popup.contains(&seat_id) && self.active_popup.is_some() {
-            if let Some(popup) = self.active_popup.as_mut() {
+            if let Some(popup) = self.input_popup_mut() {
                 popup.pointer_button(button, state);
             }
             return;
@@ -6680,7 +6797,7 @@ impl WaylandWindow {
     /// This is part of the unified multi-window menu system (Shell2 V2).
     /// Wayland clients can't address absolute screen coordinates, so the
     /// popup is anchored relative to the parent surface via
-    /// `menu::create_menu_popup_options`. The cursor position is recorded as
+    /// `menu::menu_options`. The cursor position is recorded as
     /// a zero-sized trigger rect; the eventual xdg_popup positioner will
     /// anchor against it.
     fn show_window_based_context_menu(
@@ -6688,20 +6805,14 @@ impl WaylandWindow {
         menu: &azul_core::menu::Menu,
         position: LogicalPosition,
     ) {
-        let trigger_rect =
-            azul_core::geom::LogicalRect::new(position, azul_core::geom::LogicalSize::zero());
-        let menu_size = self::menu::calculate_menu_size(menu, &self.common.system_style);
         // At the pointer, by the menu's own rule (a context menu flips to the
         // pointer's left or above it at the screen's edge).
-        let placement = self::menu::menu_popup_placement(menu, position, None);
-
-        let menu_options = self::menu::create_menu_popup_options(
+        let menu_options = self::menu::menu_options(
             self.common.menu_picks.clone(),
             menu,
             &self.common.system_style,
-            trigger_rect,
-            placement,
-            menu_size,
+            position,
+            None,
         );
 
         log_debug!(
@@ -9759,6 +9870,7 @@ impl WaylandPopup {
         placement: &azul_layout::placement::FloatingPlacement,
         popup_size: azul_core::geom::LogicalSize,
         options: WindowCreateOptions,
+        on_surface: *mut defines::xdg_surface,
     ) -> Result<Self, String> {
         use crate::desktop::shell2::linux::wayland::defines::*;
 
@@ -9885,7 +9997,7 @@ impl WaylandPopup {
         let xdg_popup = unsafe {
             (wayland.xdg_surface_get_popup)(
                 xdg_surface,
-                parent.xdg_surface, // Parent xdg_surface
+                on_surface, // the window's, or the popup's this menu opens on
                 positioner,
             )
         };
@@ -9907,7 +10019,6 @@ impl WaylandPopup {
             xdg_popup,
             configured: std::cell::Cell::new(false),
             dismissed: std::cell::Cell::new(false),
-            origin_on_parent: std::cell::Cell::new((0, 0)),
         });
         let listener_context_ptr = Box::into_raw(listener_context);
 
@@ -9987,6 +10098,7 @@ impl WaylandPopup {
             viewport: None,
             rendered: false,
             needs_repaint: false,
+            child: None,
             #[cfg(feature = "cpurender")]
             cpu_backend: crate::desktop::shell2::headless::CpuBackend::new(),
         })
@@ -9994,6 +10106,11 @@ impl WaylandPopup {
 
     /// Close the popup window
     pub fn close(&mut self) {
+        // A menu opened on this popup goes first: xdg-shell destroys popups
+        // topmost first.
+        if let Some(mut child) = self.child.take() {
+            child.close();
+        }
         if self.is_open {
             unsafe {
                 // The viewport must go before its wl_surface (protocol).
@@ -10023,19 +10140,6 @@ impl WaylandPopup {
             }
 
             self.is_open = false;
-        }
-    }
-
-    /// Where the compositor put this popup on its parent surface.
-    #[allow(clippy::cast_precision_loss)] // logical px
-    fn on_parent(&self) -> self::menu::PopupOnParent {
-        let (x, y) = if self.listener_context.is_null() {
-            (0, 0)
-        } else {
-            unsafe { (*self.listener_context).origin_on_parent.get() }
-        };
-        self::menu::PopupOnParent {
-            origin: LogicalPosition::new(x as f32, y as f32),
         }
     }
 
@@ -10719,27 +10823,17 @@ impl PlatformWindow for WaylandPopup {
         position: LogicalPosition,
         anchor: Option<azul_core::geom::LogicalRect>,
     ) {
-        // A context menu opened from inside a popup: build the menu popup
-        // the parent builds and let the parent drain it. It is anchored on
-        // the PARENT surface, so the pointer and the item move by where the
-        // compositor put this popup there. It replaces this popup, so the
-        // item picked in it runs in the parent: this popup's mailbox IS the
-        // parent's (`WaylandPopup::new`).
-        let on_parent = self.on_parent();
-        let position = on_parent.point(position);
-        let anchor = anchor.map(|rect| on_parent.rect(rect));
-        let trigger = anchor.unwrap_or_else(|| {
-            azul_core::geom::LogicalRect::new(position, azul_core::geom::LogicalSize::zero())
-        });
-        let placement = self::menu::menu_popup_placement(menu, position, anchor);
-        let size = self::menu::calculate_menu_size(menu, &self.resources.system_style);
-        let options = self::menu::create_menu_popup_options(
+        // A context menu opened from inside a popup opens ON it, anchored at
+        // the pointer or item in this popup's own coordinates; the parent
+        // drains it and nests it on this popup's surface. The item picked in
+        // it runs in the parent: this popup's mailbox IS the parent's
+        // (`WaylandPopup::new`).
+        let options = self::menu::menu_options(
             self.common.menu_picks.clone(),
             menu,
             &self.resources.system_style,
-            trigger,
-            placement,
-            size,
+            position,
+            anchor,
         );
         self.pending_window_creates.push(options);
     }
@@ -10777,8 +10871,7 @@ impl Drop for WaylandPopup {
 /// surface - a menu (a submenu, a context menu inside a popover) - instead of
 /// replacing it as the parent's one active popup.
 fn opens_on_its_opener(options: &WindowCreateOptions) -> bool {
-    let _ = options;
-    false
+    crate::desktop::menu::menu_placement_of(options).is_some()
 }
 
 /// The `xdg_positioner` form of a placement rule: which point of the anchor
@@ -10898,9 +10991,6 @@ struct PopupListenerContext {
     /// Set by the xdg_popup popup_done callback (click-outside / compositor
     /// dismiss). The parent drops the popup on its next loop iteration.
     dismissed: std::cell::Cell<bool>,
-    /// Where the compositor put the popup on the parent surface (its
-    /// xdg_popup configure), logical px.
-    origin_on_parent: std::cell::Cell<(i32, i32)>,
 }
 
 /// xdg_surface configure callback for popup
@@ -12020,13 +12110,8 @@ extern "C" fn popup_configure(
         width,
         height
     );
-    // The compositor placed the popup at (x, y) on the parent surface: what a
-    // menu opened from inside it is anchored by.
-    unsafe {
-        (*(data as *const PopupListenerContext))
-            .origin_on_parent
-            .set((x, y));
-    }
+    // Compositor has positioned the popup
+    // We could resize the popup here if needed
 }
 
 /// xdg_popup done callback - popup was dismissed by compositor

@@ -39,7 +39,7 @@ use crate::{
 /// A native menu runs an item's callback in the window that opened it (macOS
 /// `handle_menu_action`, Win32 `WM_COMMAND`, both through
 /// `PlatformWindow::invoke_menu_callback`): its DOM, its window state, its timers and threads.
-/// A window-drawn menu ([`show_menu`], Wayland's `create_menu_popup_options`, the headless
+/// A window-drawn menu ([`show_menu`], on Wayland as an `xdg_popup`, the headless
 /// menus) is a window of its own, which closes as the item is picked - running the callback
 /// THERE set a text in a field the menu does not have, the menu's title, and timers and threads
 /// that died with it (AzDrive's Saved searches, 2026-10-10).
