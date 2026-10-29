@@ -13532,6 +13532,10 @@ mod tests {
     // (`tests/context_menu_rebuild.rs`).
     mod context_menu_rebuild;
 
+    // A context menu's item counts into the model a rebuild's merge kept
+    // (`tests/dataset_merge_repoint.rs`).
+    mod dataset_merge_repoint;
+
     // --- Video tiles: a new frame is an image CONTENT update ---------------
     //
     // A camera / decoder frame reaches its tile as `ChangeNodeImage` (the
