@@ -250,9 +250,24 @@ pub struct ScreenRects {
 /// the gap between two monitors). `None` when no screen is known.
 #[must_use]
 pub fn screen_for_anchor(anchor: LogicalRect, screens: &[ScreenRects]) -> Option<LogicalRect> {
-    let _ = anchor;
-    screens.first().map(|screen| screen.work_area)
-
+    let point = LogicalPosition::new(
+        anchor.origin.x + anchor.size.width / 2.0,
+        anchor.origin.y + anchor.size.height / 2.0,
+    );
+    let distance = |bounds: &LogicalRect| {
+        let dx = gap_to_span(point.x, bounds.origin.x, bounds.origin.x + bounds.size.width);
+        let dy = gap_to_span(point.y, bounds.origin.y, bounds.origin.y + bounds.size.height);
+        dx.hypot(dy)
+    };
+    screens
+        .iter()
+        .find(|screen| screen.bounds.contains(point))
+        .or_else(|| {
+            screens
+                .iter()
+                .min_by(|a, b| distance(&a.bounds).total_cmp(&distance(&b.bounds)))
+        })
+        .map(|screen| screen.work_area)
 }
 
 /// Where a floating surface of `size` goes on `screen` (a work area, from
@@ -270,9 +285,23 @@ pub const fn floating_frame(
     size: LogicalSize,
     screen: LogicalRect,
 ) -> LogicalRect {
-    let _ = screen;
-    LogicalRect::new(placement.preferred_origin(size), size)
-
+    let (x, width) = place_on_axis(
+        placement.x,
+        placement.anchor.origin.x,
+        placement.anchor.size.width,
+        size.width,
+        screen.origin.x,
+        screen.size.width,
+    );
+    let (y, height) = place_on_axis(
+        placement.y,
+        placement.anchor.origin.y,
+        placement.anchor.size.height,
+        size.height,
+        screen.origin.y,
+        screen.size.height,
+    );
+    LogicalRect::new(LogicalPosition::new(x, y), LogicalSize::new(width, height))
 }
 
 /// The widest a tooltip's text runs before it wraps, in logical px: about fifty
@@ -284,9 +313,17 @@ pub const TOOLTIP_MAX_WIDTH: f32 = 360.0;
 /// too narrow for that, so the tooltip always fits beside itself.
 #[must_use]
 pub const fn tooltip_text_width(screen_width: f32, padding: f32) -> f32 {
-    let _ = (screen_width, padding);
-    TOOLTIP_MAX_WIDTH
-
+    let room = screen_width - padding - padding;
+    let width = if room < TOOLTIP_MAX_WIDTH {
+        room
+    } else {
+        TOOLTIP_MAX_WIDTH
+    };
+    if width > 1.0 {
+        width
+    } else {
+        1.0
+    }
 }
 
 /// How far `point` lies outside the span `start..end`, zero inside it.
