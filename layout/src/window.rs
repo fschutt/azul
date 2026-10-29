@@ -23289,11 +23289,6 @@ impl LayoutWindow {
 
         use crate::managers::text_input::TextInputSource;
 
-        // Typed and composed text holds its characters as the input rule has them, as every
-        // text that comes in does: the edit, its callbacks and the shaper see it so.
-        let ruled = azul_css::input_chars::normalize_input_text(text_input);
-        let text_input: &str = &ruled;
-
         let mut affected_nodes = BTreeMap::new();
 
         if text_input.is_empty() {
@@ -23413,13 +23408,21 @@ impl LayoutWindow {
     /// simply skips it rather than clearing the queue behind the loop's back.
     fn apply_one_text_changeset(
         &mut self,
-        changeset: PendingTextEdit,
+        mut changeset: PendingTextEdit,
         seat_id: u64,
     ) -> TextChangesetResult {
         use crate::{
             managers::changeset::{TextOpInsertText, TextOperation},
             text3::edit::{edit_text, TextEdit},
         };
+
+        // Whatever recorded it (a keystroke, an input method, assistive technology, an app's
+        // callback), the text lands holding its characters as the input rule has them, as
+        // every text that comes in does.
+        if let Some(ruled) = azul_css::input_chars::normalized_az_string(&changeset.inserted_text)
+        {
+            changeset.inserted_text = ruled;
+        }
 
         // A non-primary seat's edit (9b-ii-a-i-d-ii) is applied at THAT
         // seat's caret - never at the primary's, which may sit in another
@@ -26327,13 +26330,12 @@ impl LayoutWindow {
     ) -> Vec<DomNodeId> {
         use crate::managers::text_input::TextInputSource;
 
-        // Convert TextEditType to string; what assistive technology sets holds its characters
-        // as the input rule has them, as typed text does.
-        let text_input = azul_css::input_chars::normalize_input_string(match edit_type {
+        // Convert TextEditType to string
+        let text_input = match edit_type {
             TextEditType::ReplaceSelection(text) => text.clone(),
             TextEditType::SetValue(text) => text.clone(),
             TextEditType::SetNumericValue(value) => value.to_string(),
-        });
+        };
 
         // Get the OLD text before any changes
         let old_inline_content = self.get_text_before_textinput(dom_id, node_id);
