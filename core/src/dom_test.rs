@@ -2641,4 +2641,23 @@ mod input_rule_tests {
             .collect();
         assert_eq!(texts, vec![RULED; 5]);
     }
+
+    #[test]
+    fn the_texts_assistive_technology_speaks_hold_their_text_as_the_input_rule_has_it() {
+        let mut node = NodeData::create_div();
+        node.set_accessibility_info(AccessibilityInfo {
+            accessibility_name: OptionString::Some(RAW.into()),
+            accessibility_value: OptionString::Some(RAW.into()),
+            description: OptionString::Some(RAW.into()),
+            ..AccessibilityInfo::default()
+        });
+        let info = node.get_accessibility_info().expect("the node has its info");
+        for text in [
+            &info.accessibility_name,
+            &info.accessibility_value,
+            &info.description,
+        ] {
+            assert_eq!(text.as_option().map(AzString::as_str), Some(RULED));
+        }
+    }
 }
