@@ -25170,6 +25170,15 @@ impl LayoutWindow {
             new_inline_content = solver3::svg::scaled_content(&new_inline_content, scale);
         }
 
+        // A shrink-to-fit box (an inline-block, an absolutely positioned box,
+        // an SVG text) is as wide as its content: the edited content sizes it
+        // as a fresh layout sizes it, before its lines are broken.
+        if let Some(width) =
+            self.shrink_to_fit_content_width(dom_id, ifc_layout_index, &new_inline_content)
+        {
+            constraints.available_width = crate::text3::cache::AvailableSpace::Definite(width);
+        }
+
         // 3. Re-run the inline layout pipeline, from the shaping on, through
         // the same functions as the solver's `layout_ifc`: the edited
         // paragraph is laid out as a full layout lays it out, only its content
@@ -26121,6 +26130,67 @@ impl LayoutWindow {
             }
             Err(_e) => {}
         }
+    }
+
+    /// The content-box width a fresh layout gives the box of the inline
+    /// formatting context at `ifc_layout_index` when its box is sized from
+    /// its content (`solver3::sizing::shrink_to_fit_containing_block`) and
+    /// that content is `content`: its intrinsic sizes measured as the
+    /// intrinsic pass measures them (`measure_ifc_intrinsic_sizes`), through
+    /// the one `calculate_used_size_for_node`. `None` for a box whose width
+    /// its formatting context gives it.
+    fn shrink_to_fit_content_width(
+        &mut self,
+        dom_id: DomId,
+        ifc_layout_index: usize,
+        content: &[InlineContent],
+    ) -> Option<f32> {
+        let layout_result = self.layout_results.get(&dom_id)?;
+        let tree = &layout_result.layout_tree;
+        let styled_dom = &layout_result.styled_dom;
+        let containing_block = solver3::sizing::shrink_to_fit_containing_block(
+            styled_dom,
+            tree,
+            ifc_layout_index,
+            &layout_result.calculated_positions,
+            layout_result.viewport,
+        )?;
+        let node = tree.get(LayoutNodeId::new(ifc_layout_index))?;
+        let measure = solver3::sizing::ifc_measure_constraints(
+            styled_dom,
+            tree,
+            ifc_layout_index,
+            layout_result.viewport.size,
+        );
+        let loaded_fonts = self.font_manager.get_loaded_fonts();
+        let intrinsic = solver3::sizing::measure_ifc_intrinsic_sizes(
+            &mut self.text_cache,
+            content,
+            &[],
+            &measure,
+            self.font_manager.get_font_chain_cache(),
+            &self.font_manager.fc_cache,
+            &loaded_fonts,
+            &mut None,
+        );
+        let edges = node.box_props.unpack();
+        let size = solver3::sizing::calculate_used_size_for_node(
+            styled_dom,
+            node.dom_node_id,
+            &containing_block,
+            intrinsic,
+            &edges,
+            &layout_result.viewport.size,
+        )
+        .ok()?;
+        Some(
+            (size.width
+                - edges.padding.left
+                - edges.padding.right
+                - edges.border.left
+                - edges.border.right)
+                .max(0.0),
+        )
     }
 
     /// The edited inline formatting context laid out again as the solver's
