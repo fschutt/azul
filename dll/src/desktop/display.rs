@@ -8,10 +8,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-use azul_core::{
-    geom::{LogicalPosition, LogicalRect, LogicalSize},
-    window::{Monitor, MonitorId, MonitorVec, VideoMode, VideoModeVec},
-};
+use azul_core::window::{Monitor, MonitorId, MonitorVec, VideoMode, VideoModeVec};
+use azul_layout::placement::{DesktopScreen, ScreenPoint, ScreenRect, ScreenSize};
 use azul_css::{
     props::basic::{LayoutPoint, LayoutRect, LayoutSize},
     AzString, OptionString,
@@ -24,10 +22,11 @@ use crate::{desktop::shell2::common::debug_server::LogCategory, log_debug};
 pub struct DisplayInfo {
     /// Display name (e.g., "\\.\DISPLAY1" on Windows, ":0.0" on X11)
     pub name: String,
-    /// Physical bounds of the display in screen coordinates
-    pub bounds: LogicalRect,
-    /// Work area (bounds minus taskbars/panels)
-    pub work_area: LogicalRect,
+    /// Bounds of the display on the desktop, in screen units (physical px on
+    /// Windows and X11, points on macOS)
+    pub bounds: ScreenRect,
+    /// Work area (bounds minus taskbars/panels), in screen units
+    pub work_area: ScreenRect,
     /// DPI scale factor
     pub scale_factor: f32,
     /// Whether this is the primary display
@@ -184,13 +183,13 @@ pub fn refresh_monitors() -> MonitorVec {
     get_monitors()
 }
 
-/// Every display's bounds and work area, in the form a floating surface (tooltip,
-/// menu, popover) is placed against (`azul_layout::placement`), in the coordinates
-/// of [`get_displays`].
-pub fn screen_rects() -> Vec<azul_layout::placement::ScreenRects> {
+/// Every display's bounds and work area in screen units, the form a floating
+/// surface (tooltip, menu, popover) is placed against once its window's
+/// `WindowToScreen` has brought them into the window's own space.
+pub fn desktop_screens() -> Vec<DesktopScreen> {
     get_displays()
         .into_iter()
-        .map(|display| azul_layout::placement::ScreenRects {
+        .map(|display| DesktopScreen {
             bounds: display.bounds,
             work_area: display.work_area,
         })
@@ -200,7 +199,7 @@ pub fn screen_rects() -> Vec<azul_layout::placement::ScreenRects> {
 /// Get the display containing the given point
 ///
 /// Returns None if the point is not on any display.
-pub fn get_display_at_point(point: LogicalPosition) -> Option<DisplayInfo> {
+pub fn get_display_at_point(point: ScreenPoint) -> Option<DisplayInfo> {
     get_displays()
         .into_iter()
         .find(|display| display.bounds.contains(point))
@@ -217,11 +216,11 @@ pub fn get_display_at_point(point: LogicalPosition) -> Option<DisplayInfo> {
 /// - **macOS**: Uses NSScreen.screens and window frame
 /// - **X11/Wayland**: Uses window position to find containing display
 pub fn get_window_display(
-    window_position: LogicalPosition,
-    window_size: LogicalSize,
+    window_position: ScreenPoint,
+    window_size: ScreenSize,
 ) -> Option<DisplayInfo> {
     // Calculate window center
-    let center = LogicalPosition::new(
+    let center = ScreenPoint::new(
         window_position.x + window_size.width / 2.0,
         window_position.y + window_size.height / 2.0,
     );
@@ -317,9 +316,9 @@ mod windows {
 
             // Extract monitor bounds
             let rc_monitor = &monitor_info.rcMonitor;
-            let bounds = LogicalRect::new(
-                LogicalPosition::new(rc_monitor.left as f32, rc_monitor.top as f32),
-                LogicalSize::new(
+            let bounds = ScreenRect::new(
+                ScreenPoint::new(rc_monitor.left as f32, rc_monitor.top as f32),
+                ScreenSize::new(
                     (rc_monitor.right - rc_monitor.left) as f32,
                     (rc_monitor.bottom - rc_monitor.top) as f32,
                 ),
@@ -327,9 +326,9 @@ mod windows {
 
             // Extract work area (bounds minus taskbar)
             let rc_work = &monitor_info.rcWork;
-            let work_area = LogicalRect::new(
-                LogicalPosition::new(rc_work.left as f32, rc_work.top as f32),
-                LogicalSize::new(
+            let work_area = ScreenRect::new(
+                ScreenPoint::new(rc_work.left as f32, rc_work.top as f32),
+                ScreenSize::new(
                     (rc_work.right - rc_work.left) as f32,
                     (rc_work.bottom - rc_work.top) as f32,
                 ),
@@ -458,13 +457,13 @@ mod windows {
     fn fallback_displays() -> Vec<DisplayInfo> {
         vec![DisplayInfo {
             name: "Primary Monitor".to_string(),
-            bounds: LogicalRect::new(
-                LogicalPosition::zero(),
-                LogicalSize::new(1920.0, 1080.0),
+            bounds: ScreenRect::new(
+                ScreenPoint::new(0.0, 0.0),
+                ScreenSize::new(1920.0, 1080.0),
             ),
-            work_area: LogicalRect::new(
-                LogicalPosition::zero(),
-                LogicalSize::new(1920.0, 1040.0),
+            work_area: ScreenRect::new(
+                ScreenPoint::new(0.0, 0.0),
+                ScreenSize::new(1920.0, 1040.0),
             ),
             scale_factor: 1.0,
             is_primary: true,
@@ -521,22 +520,22 @@ mod macos {
 
             // macOS uses flipped coordinates (origin at bottom-left)
             // Convert to top-left origin
-            let bounds = LogicalRect::new(
-                LogicalPosition::new(
+            let bounds = ScreenRect::new(
+                ScreenPoint::new(
                     frame.origin.x as f32,
                     primary_screen_height - frame.origin.y as f32 - frame.size.height as f32,
                 ),
-                LogicalSize::new(frame.size.width as f32, frame.size.height as f32),
+                ScreenSize::new(frame.size.width as f32, frame.size.height as f32),
             );
 
-            let work_area = LogicalRect::new(
-                LogicalPosition::new(
+            let work_area = ScreenRect::new(
+                ScreenPoint::new(
                     visible_frame.origin.x as f32,
                     primary_screen_height
                         - visible_frame.origin.y as f32
                         - visible_frame.size.height as f32,
                 ),
-                LogicalSize::new(
+                ScreenSize::new(
                     visible_frame.size.width as f32,
                     visible_frame.size.height as f32,
                 ),
@@ -758,15 +757,15 @@ mod linux {
                         continue;
                     }
 
-                    let bounds = LogicalRect::new(
-                        LogicalPosition::new(crtc_info.x as f32, crtc_info.y as f32),
-                        LogicalSize::new(crtc_info.width as f32, crtc_info.height as f32),
+                    let bounds = ScreenRect::new(
+                        ScreenPoint::new(crtc_info.x as f32, crtc_info.y as f32),
+                        ScreenSize::new(crtc_info.width as f32, crtc_info.height as f32),
                     );
 
                     // Approximate work area (subtract 24px for panel)
-                    let work_area = LogicalRect::new(
-                        LogicalPosition::new(crtc_info.x as f32, crtc_info.y as f32),
-                        LogicalSize::new(
+                    let work_area = ScreenRect::new(
+                        ScreenPoint::new(crtc_info.x as f32, crtc_info.y as f32),
+                        ScreenSize::new(
                             crtc_info.width as f32,
                             (crtc_info.height as f32 - FALLBACK_PANEL_HEIGHT).max(0.0),
                         ),
@@ -868,15 +867,15 @@ mod linux {
 
                 (xlib.XCloseDisplay)(display);
 
-                let bounds = LogicalRect::new(
-                    LogicalPosition::zero(),
-                    LogicalSize::new(width_px as f32, height_px as f32),
+                let bounds = ScreenRect::new(
+                    ScreenPoint::new(0.0, 0.0),
+                    ScreenSize::new(width_px as f32, height_px as f32),
                 );
 
                 // Approximate work area by subtracting common panel height (24px)
-                let work_area = LogicalRect::new(
-                    LogicalPosition::zero(),
-                    LogicalSize::new(
+                let work_area = ScreenRect::new(
+                    ScreenPoint::new(0.0, 0.0),
+                    ScreenSize::new(
                         width_px as f32,
                         (height_px as f32 - FALLBACK_PANEL_HEIGHT).max(0.0),
                     ),
@@ -899,11 +898,11 @@ mod linux {
 
         fn fallback_display() -> Vec<DisplayInfo> {
             let bounds =
-                LogicalRect::new(LogicalPosition::zero(), LogicalSize::new(1920.0, 1080.0));
+                ScreenRect::new(ScreenPoint::new(0.0, 0.0), ScreenSize::new(1920.0, 1080.0));
 
-            let work_area = LogicalRect::new(
-                LogicalPosition::zero(),
-                LogicalSize::new(1920.0, 1080.0 - FALLBACK_PANEL_HEIGHT),
+            let work_area = ScreenRect::new(
+                ScreenPoint::new(0.0, 0.0),
+                ScreenSize::new(1920.0, 1080.0 - FALLBACK_PANEL_HEIGHT),
             );
 
             vec![DisplayInfo {
@@ -1065,14 +1064,14 @@ mod linux {
                 (1920, 1080)
             };
 
-            let bounds = LogicalRect::new(
-                LogicalPosition::zero(),
-                LogicalSize::new(width as f32, height as f32),
+            let bounds = ScreenRect::new(
+                ScreenPoint::new(0.0, 0.0),
+                ScreenSize::new(width as f32, height as f32),
             );
 
-            let work_area = LogicalRect::new(
-                LogicalPosition::zero(),
-                LogicalSize::new(
+            let work_area = ScreenRect::new(
+                ScreenPoint::new(0.0, 0.0),
+                ScreenSize::new(
                     width as f32,
                     (height as f32 - FALLBACK_PANEL_HEIGHT).max(0.0),
                 ),
@@ -1132,13 +1131,13 @@ mod linux {
                     .filter(|o| o.active)
                     .map(|o| DisplayInfo {
                         name: o.name.clone(),
-                        bounds: LogicalRect::new(
-                            LogicalPosition::new(o.rect.x, o.rect.y),
-                            LogicalSize::new(o.rect.width, o.rect.height),
+                        bounds: ScreenRect::new(
+                            ScreenPoint::new(o.rect.x, o.rect.y),
+                            ScreenSize::new(o.rect.width, o.rect.height),
                         ),
-                        work_area: LogicalRect::new(
-                            LogicalPosition::new(o.rect.x, o.rect.y),
-                            LogicalSize::new(
+                        work_area: ScreenRect::new(
+                            ScreenPoint::new(o.rect.x, o.rect.y),
+                            ScreenSize::new(
                                 o.rect.width,
                                 (o.rect.height - FALLBACK_PANEL_HEIGHT).max(0.0),
                             ),
@@ -1207,13 +1206,13 @@ mod linux {
                     .into_iter()
                     .map(|o| DisplayInfo {
                         name: o.name.clone(),
-                        bounds: LogicalRect::new(
-                            LogicalPosition::new(o.x, o.y),
-                            LogicalSize::new(o.width, o.height),
+                        bounds: ScreenRect::new(
+                            ScreenPoint::new(o.x, o.y),
+                            ScreenSize::new(o.width, o.height),
                         ),
-                        work_area: LogicalRect::new(
-                            LogicalPosition::new(o.x, o.y),
-                            LogicalSize::new(o.width, (o.height - FALLBACK_PANEL_HEIGHT).max(0.0)),
+                        work_area: ScreenRect::new(
+                            ScreenPoint::new(o.x, o.y),
+                            ScreenSize::new(o.width, (o.height - FALLBACK_PANEL_HEIGHT).max(0.0)),
                         ),
                         scale_factor: o.scale,
                         is_primary: o.focused,
@@ -1287,13 +1286,13 @@ mod linux {
                     .filter(|o| o.enabled)
                     .map(|o| DisplayInfo {
                         name: o.name.clone(),
-                        bounds: LogicalRect::new(
-                            LogicalPosition::new(o.geometry.x, o.geometry.y),
-                            LogicalSize::new(o.geometry.width, o.geometry.height),
+                        bounds: ScreenRect::new(
+                            ScreenPoint::new(o.geometry.x, o.geometry.y),
+                            ScreenSize::new(o.geometry.width, o.geometry.height),
                         ),
-                        work_area: LogicalRect::new(
-                            LogicalPosition::new(o.geometry.x, o.geometry.y),
-                            LogicalSize::new(
+                        work_area: ScreenRect::new(
+                            ScreenPoint::new(o.geometry.x, o.geometry.y),
+                            ScreenSize::new(
                                 o.geometry.width,
                                 (o.geometry.height - FALLBACK_PANEL_HEIGHT).max(0.0),
                             ),
@@ -1411,13 +1410,13 @@ mod linux {
                         if width > 0.0 && height > 0.0 {
                             displays.push(DisplayInfo {
                                 name,
-                                bounds: LogicalRect::new(
-                                    LogicalPosition::new(x, y),
-                                    LogicalSize::new(width, height),
+                                bounds: ScreenRect::new(
+                                    ScreenPoint::new(x, y),
+                                    ScreenSize::new(width, height),
                                 ),
-                                work_area: LogicalRect::new(
-                                    LogicalPosition::new(x, y),
-                                    LogicalSize::new(
+                                work_area: ScreenRect::new(
+                                    ScreenPoint::new(x, y),
+                                    ScreenSize::new(
                                         width,
                                         (height - FALLBACK_PANEL_HEIGHT).max(0.0),
                                     ),
@@ -1488,9 +1487,9 @@ static WAYLAND_OUTPUTS: Mutex<Option<Vec<WaylandOutput>>> = Mutex::new(None);
 #[cfg(all(target_os = "linux", not(target_arch = "wasm32")))]
 fn wayland_output_to_display(out: &WaylandOutput, is_primary: bool) -> DisplayInfo {
     let scale = if out.scale > 0 { out.scale } else { 1 };
-    let bounds = LogicalRect::new(
-        LogicalPosition::new(out.x as f32, out.y as f32),
-        LogicalSize::new(out.width as f32, out.height as f32),
+    let bounds = ScreenRect::new(
+        ScreenPoint::new(out.x as f32, out.y as f32),
+        ScreenSize::new(out.width as f32, out.height as f32),
     );
     let name = if out.name.is_empty() {
         alloc::format!("{} {}", out.make, out.model)
@@ -1702,7 +1701,7 @@ mod tests {
 
         // Test point in the middle of the first display
         let first = &displays[0];
-        let center = LogicalPosition::new(
+        let center = ScreenPoint::new(
             first.bounds.origin.x + first.bounds.size.width / 2.0,
             first.bounds.origin.y + first.bounds.size.height / 2.0,
         );

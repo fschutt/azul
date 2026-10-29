@@ -1405,6 +1405,8 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         last_laid_out_mode: _,
         system_animations_override: _,
         monitors: _,
+        // Two numbers.
+        screen_mapping: _,
         input_interpreter: _,
         post_filter: _,
         custom_e2e_op: _,
@@ -2346,6 +2348,11 @@ pub struct LayoutWindow {
     /// layer on monitor topology changes. Arc<Mutex> allows zero-cost sharing
     /// across all `CallbackInfoRefData` without cloning the Vec each time.
     pub monitors: Arc<std::sync::Mutex<MonitorVec>>,
+    /// How this window's logical content space lies on the screen, as its shell
+    /// last reported it: what the floating surfaces opened from it are measured
+    /// and placed against. `None` where the shell knows no screen coordinates
+    /// (Wayland, headless).
+    pub screen_mapping: Option<crate::placement::WindowToScreen>,
     /// XOR of all `tier2b.font_family_hash` values from the last resolved DOM.
     /// Used to skip font chain resolution on frames where the font requirements
     /// haven't changed (e.g. scroll-only frames).
@@ -2949,6 +2956,7 @@ impl LayoutWindow {
             last_laid_out_frame: azul_core::window::WindowFrame::Normal,
             last_laid_out_mode: DarkLightMode::Light,
             monitors: Arc::new(std::sync::Mutex::new(MonitorVec::from_const_slice(&[]))),
+            screen_mapping: None,
             font_stacks_hash: 0,
             preedit_shaped_node: None,
             seat_preedit_shaped: BTreeMap::new(),
@@ -28883,6 +28891,7 @@ impl LayoutWindow {
             last_laid_out_frame: _,
             last_laid_out_mode: _,
             monitors: _,
+            screen_mapping: _,
             font_stacks_hash: _,
             preedit_shaped_node: _,
             seat_preedit_shaped: _,

@@ -21,12 +21,14 @@ use azul_core::{
 };
 use azul_css::system::SystemStyle;
 use azul_layout::{
-    placement::{floating_frame, screen_for_anchor, AxisRule, FloatingPlacement, ScreenRects},
+    placement::{
+        floating_frame, screen_for_anchor, AxisRule, FloatingPlacement, ScreenPoint, ScreenRects,
+    },
     window_state::WindowCreateOptions,
 };
 
 use crate::{
-    desktop::{display::screen_rects, shell2::common::debug_server::LogCategory},
+    desktop::{display::desktop_screens, shell2::common::debug_server::LogCategory},
     log_debug,
 };
 
@@ -283,6 +285,12 @@ pub(crate) fn menu_placement_on_screen(
 #[must_use]
 pub(crate) fn menu_frame(placement: &FloatingPlacement, size: LogicalSize) -> LogicalRect {
     frame_among(placement, size, &screen_rects())
+}
+
+/// The screens, their numbers taken as they are.
+fn screen_rects() -> Vec<ScreenRects> {
+    azul_layout::placement::WindowToScreen::new(ScreenPoint::new(0.0, 0.0), 1.0)
+        .screens(&desktop_screens())
 }
 
 /// [`menu_frame`] against an explicit list of screens.

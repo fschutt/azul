@@ -164,7 +164,7 @@ impl TooltipWindow {
 
         // The compositor keeps the popup on the screen; the text only has to
         // wrap at the tooltip width and stay within an output's height.
-        let max_height = crate::desktop::display::screen_rects()
+        let max_height = crate::desktop::display::desktop_screens()
             .iter()
             .map(|screen| screen.work_area.size.height)
             .fold(0.0_f32, f32::max);

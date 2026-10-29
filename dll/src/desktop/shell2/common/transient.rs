@@ -642,24 +642,11 @@ fn screens_around(parent: &FullWindowState) -> Vec<ScreenRects> {
     if objc2_foundation::MainThreadMarker::new().is_none() {
         return Vec::new();
     }
-    #[allow(clippy::cast_precision_loss)] // screen coordinates
-    let parent_origin = LogicalPosition::new(pos.x as f32, pos.y as f32);
-    let local = |rect: LogicalRect| {
-        LogicalRect::new(
-            LogicalPosition::new(
-                rect.origin.x - parent_origin.x,
-                rect.origin.y - parent_origin.y,
-            ),
-            rect.size,
-        )
-    };
-    crate::desktop::display::screen_rects()
-        .into_iter()
-        .map(|screen| ScreenRects {
-            bounds: local(screen.bounds),
-            work_area: local(screen.work_area),
-        })
-        .collect()
+    azul_layout::placement::WindowToScreen::new(
+        azul_layout::placement::ScreenPoint::of_window_position(pos),
+        1.0,
+    )
+    .screens(&crate::desktop::display::desktop_screens())
 }
 
 /// The window state every popup window starts from — a transient window

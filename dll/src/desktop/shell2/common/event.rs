@@ -5467,9 +5467,12 @@ pub trait PlatformWindow {
     fn sync_transient_windows(&mut self) {
         let parent_id = self.registry_window_id();
         let parent_state = self.get_current_window_state().clone();
+        let mapping = self.window_to_screen();
         let Some(lw) = self.get_layout_window_mut() else {
             return;
         };
+        // What the next layout pass measures its popups' room against.
+        lw.screen_mapping = mapping;
         let outcome = super::transient::sync_parent(parent_id, &parent_state, lw);
         for options in outcome.create {
             self.queue_window_create(options);
@@ -6015,6 +6018,17 @@ pub trait PlatformWindow {
     /// - **X11**: Unmap the tooltip window
     /// - **Wayland**: Destroy the tooltip surface
     fn hide_tooltip_from_callback(&mut self);
+
+    /// How this window's logical content space lies on the screen: the top-left
+    /// of its content area in screen units (physical px on Windows and X11, points
+    /// on macOS) and the screen units per logical px. Everything that places a
+    /// floating surface opened from this window - a menu, a popover, a tooltip -
+    /// brings the screens into the window's space and its result back out through
+    /// this. `None` where the backend knows no screen coordinates (Wayland, which
+    /// places popups itself, headless, mobile).
+    fn window_to_screen(&self) -> Option<azul_layout::placement::WindowToScreen> {
+        None
+    }
 
     /// Handle a request to begin an interactive window move.
     ///

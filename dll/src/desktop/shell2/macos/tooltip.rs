@@ -14,7 +14,7 @@
 
 use azul_core::geom::{LogicalRect, LogicalSize};
 use azul_layout::placement::{
-    floating_frame, screen_for_anchor, tooltip_text_width, FloatingPlacement,
+    floating_frame, screen_for_anchor, tooltip_text_width, FloatingPlacement, WindowToScreen,
 };
 use objc2::rc::Retained;
 use objc2_app_kit::{
@@ -95,18 +95,26 @@ impl TooltipWindow {
         }
     }
 
-    /// Show the tooltip with `text` for `anchor`, a box in GLOBAL top-down
-    /// points (y = 0 at the top of the primary screen) - the caller
-    /// (`MacOSWindow::show_tooltip`) converts from window coordinates. If the
-    /// tooltip is already visible, its text and place are updated.
-    pub(super) fn show(&mut self, text: &str, anchor: LogicalRect) -> Result<(), String> {
-        let screen = screen_for_anchor(anchor, &crate::desktop::display::screen_rects());
+    /// Show the tooltip with `text` for `anchor`, the box it explains in the
+    /// logical coordinates of the window that `window` maps onto the screen. If
+    /// the tooltip is already visible, its text and place are updated.
+    pub(super) fn show(
+        &mut self,
+        text: &str,
+        anchor: LogicalRect,
+        window: WindowToScreen,
+    ) -> Result<(), String> {
+        let screens = window.screens(&crate::desktop::display::desktop_screens());
+        let screen = screen_for_anchor(anchor, &screens);
+        // One point per logical px: the text field's points are the window's px.
         let size = self.measure(text, screen);
         let placement = FloatingPlacement::tooltip(anchor);
         let frame = match screen {
             Some(work_area) => floating_frame(&placement, size, work_area),
             None => LogicalRect::new(placement.preferred_origin(size), size),
         };
+        // The frame on the screen, in global top-down points.
+        let frame = window.rect(frame);
         let (width, height) = (f64::from(frame.size.width), f64::from(frame.size.height));
 
         // The text fills the panel less its insets; the panel's content view

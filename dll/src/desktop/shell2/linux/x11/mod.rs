@@ -5924,8 +5924,8 @@ impl X11Window {
                 }
 
                 if position_changed && !size_changed {
-                    use azul_core::geom::LogicalPosition;
-                    let window_center = LogicalPosition::new(
+                    // Root-window pixels: the screen unit the monitors are listed in.
+                    let window_center = azul_layout::placement::ScreenPoint::new(
                         abs_x as f32 + new_width as f32 / 2.0,
                         abs_y as f32 + new_height as f32 / 2.0,
                     );
@@ -8562,31 +8562,15 @@ impl PlatformWindow for X11Window {
     // Tooltip Methods (X11 Implementation)
 
     fn show_tooltip_from_callback(&mut self, text: &str, anchor: azul_core::geom::LogicalRect) {
-        // The anchor in physical root-window pixels, the space the monitors
-        // (XRandR) are listed in: the window's position is physical px,
-        // `anchor` is window-logical.
-        let window_pos = match self.common.current_window_state().position {
-            azul_core::window::WindowPosition::Initialized(pos) => (pos.x, pos.y),
-            _ => (0, 0),
-        };
-        let scale = self.hidpi();
-        #[allow(clippy::cast_precision_loss)] // screen pixels
-        let anchor_px = azul_core::geom::LogicalRect::new(
-            azul_core::geom::LogicalPosition::new(
-                window_pos.0 as f32 + anchor.origin.x * scale,
-                window_pos.1 as f32 + anchor.origin.y * scale,
-            ),
-            azul_core::geom::LogicalSize::new(
-                anchor.size.width * scale,
-                anchor.size.height * scale,
-            ),
-        );
-
-        self.show_tooltip(text, anchor_px);
+        self.show_tooltip(text, anchor);
     }
 
     fn hide_tooltip_from_callback(&mut self) {
         self.hide_tooltip();
+    }
+
+    fn window_to_screen(&self) -> Option<azul_layout::placement::WindowToScreen> {
+        Some(self.screen_mapping())
     }
 
     fn sync_window_state(&mut self) {
@@ -8775,9 +8759,20 @@ impl X11Window {
 
 // Private helper methods for X11Window
 impl X11Window {
-    /// Show a tooltip with `text` for `anchor_px`, the box it explains in
-    /// physical root-window pixels (X11 implementation)
-    fn show_tooltip(&mut self, text: &str, anchor_px: azul_core::geom::LogicalRect) {
+    /// How this window's content lies on the screen: its top-left in root
+    /// window (physical) pixels, the unit XRandR lists monitors in, and the
+    /// window's DPI scale.
+    pub(crate) fn screen_mapping(&self) -> azul_layout::placement::WindowToScreen {
+        let (x, y) = self.root_origin_physical();
+        azul_layout::placement::WindowToScreen::new(
+            azul_layout::placement::ScreenPoint::new(x, y),
+            self.hidpi(),
+        )
+    }
+
+    /// Show a tooltip with `text` for `anchor`, the box it explains in this
+    /// window's logical coordinates (X11 implementation)
+    fn show_tooltip(&mut self, text: &str, anchor: azul_core::geom::LogicalRect) {
         // Create tooltip window if needed
         if self.tooltip.is_none() {
             match tooltip::TooltipWindow::new(
@@ -8800,9 +8795,9 @@ impl X11Window {
         }
 
         // Show tooltip
-        let scale = self.hidpi();
+        let mapping = self.screen_mapping();
         if let Some(tooltip) = self.tooltip.as_mut() {
-            if let Err(e) = tooltip.show(text, anchor_px, scale) {
+            if let Err(e) = tooltip.show(text, anchor, mapping) {
                 log_error!(LogCategory::Window, "[X11] Failed to show tooltip: {}", e);
             }
         }

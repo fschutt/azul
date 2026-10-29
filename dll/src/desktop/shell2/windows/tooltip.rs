@@ -16,12 +16,10 @@
 
 use std::ptr;
 
-use azul_core::{
-    geom::{LogicalPosition, LogicalRect, LogicalSize},
-    resources::DpiScaleFactor,
-};
+use azul_core::geom::LogicalRect;
 use azul_layout::placement::{
-    floating_frame, screen_for_anchor, tooltip_text_width, FloatingPlacement,
+    floating_frame, screen_for_anchor, tooltip_text_width, FloatingPlacement, ScreenSize,
+    WindowToScreen,
 };
 
 use super::dlopen::{Win32Libraries, HWND, LPARAM};
@@ -137,8 +135,8 @@ impl TooltipWindow {
     }
 
     /// Show the tooltip with `text` for `anchor`, the box it explains in the
-    /// parent's client area (logical px). If the tooltip is already visible,
-    /// its text and place are updated.
+    /// parent's client area (logical px), which `window` maps onto the screen.
+    /// If the tooltip is already visible, its text and place are updated.
     #[allow(
         clippy::cast_possible_truncation,
         clippy::cast_precision_loss,
@@ -148,29 +146,19 @@ impl TooltipWindow {
         &mut self,
         text: &str,
         anchor: LogicalRect,
-        dpi_factor: DpiScaleFactor,
+        window: WindowToScreen,
     ) -> Result<(), String> {
-        let scale = dpi_factor.inner.get();
-
-        // The anchor in physical SCREEN pixels, the space the monitors are
-        // listed in: TTM_TRACKPOSITION takes screen coordinates, `anchor` is
-        // client-area logical.
-        let mut origin = super::dlopen::POINT {
-            x: (anchor.origin.x * scale).round() as i32,
-            y: (anchor.origin.y * scale).round() as i32,
-        };
-        unsafe {
-            (self.win32.user32.ClientToScreen)(self.hwnd_parent, &mut origin);
-        }
-        let anchor_px = LogicalRect::new(
-            LogicalPosition::new(origin.x as f32, origin.y as f32),
-            LogicalSize::new(anchor.size.width * scale, anchor.size.height * scale),
-        );
-        let screen = screen_for_anchor(anchor_px, &crate::desktop::display::screen_rects());
+        // The screens in the window's logical px, where the tooltip is placed.
+        let screens = window.screens(&crate::desktop::display::desktop_screens());
+        let screen = screen_for_anchor(anchor, &screens);
 
         // Wrap at the tooltip width at this DPI, or the monitor's if narrower.
-        let screen_width = screen.map_or(f32::INFINITY, |s| s.size.width / scale);
-        let max_width = (tooltip_text_width(screen_width, 0.0) * scale).round() as LPARAM;
+        let screen_width = screen.map_or(f32::INFINITY, |s| s.size.width);
+        let max_width = window.size(azul_core::geom::LogicalSize::new(
+            tooltip_text_width(screen_width, 0.0),
+            0.0,
+        ));
+        let max_width = max_width.width.round() as LPARAM;
         unsafe {
             (self.win32.user32.SendMessageW)(self.hwnd_tooltip, TTM_SETMAXTIPWIDTH, 0, max_width);
         }
@@ -234,14 +222,19 @@ impl TooltipWindow {
                 &mut ti as *mut TOOLINFOW as LPARAM,
             )
         } as usize;
-        let size = LogicalSize::new((bubble & 0xFFFF) as f32, ((bubble >> 16) & 0xFFFF) as f32);
+        let size = window.window_size(ScreenSize::new(
+            (bubble & 0xFFFF) as f32,
+            ((bubble >> 16) & 0xFFFF) as f32,
+        ));
 
-        let placement = FloatingPlacement::tooltip(anchor_px);
+        let placement = FloatingPlacement::tooltip(anchor);
         let frame = match screen {
             Some(work_area) => floating_frame(&placement, size, work_area),
             None => LogicalRect::new(placement.preferred_origin(size), size),
         };
-        let (x, y) = (frame.origin.x.round() as i32, frame.origin.y.round() as i32);
+        // TTM_TRACKPOSITION takes physical screen coordinates.
+        let origin = window.point(frame.origin);
+        let (x, y) = (origin.x.round() as i32, origin.y.round() as i32);
 
         // Set tooltip position (screen coordinates, a signed word each)
         let pos_param = ((y as u32) << 16) | (x as u32 & 0xFFFF);

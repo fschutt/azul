@@ -5362,6 +5362,10 @@ impl PlatformWindow for MacOSWindow {
         }
     }
 
+    fn window_to_screen(&self) -> Option<azul_layout::placement::WindowToScreen> {
+        Some(self.screen_mapping())
+    }
+
     /// AppKit runs a menu item from its key equivalent before the key reaches
     /// the view — the shared dispatch must not run the MENU BAR's items a
     /// second time. Context menus are still dispatched by the shared path.
@@ -8529,10 +8533,26 @@ impl MacOSWindow {
         self.set_application_menu(&menu);
     }
 
+    /// How this window's content lies on the screen: the top-left of its
+    /// content area in global top-down points (y = 0 at the top of the PRIMARY
+    /// screen), the space AppKit's screens are listed in, at one point per
+    /// logical px.
+    #[allow(clippy::cast_possible_truncation)] // screen points
+    pub(crate) fn screen_mapping(&self) -> azul_layout::placement::WindowToScreen {
+        let content = unsafe { self.window.contentRectForFrameRect(self.window.frame()) };
+        let primary_h = primary_screen_height().unwrap_or(0.0);
+        azul_layout::placement::WindowToScreen::new(
+            azul_layout::placement::ScreenPoint::new(
+                content.origin.x as f32,
+                (primary_h - content.origin.y - content.size.height) as f32,
+            ),
+            1.0,
+        )
+    }
+
     /// Show a tooltip with `text` for `anchor`, the box it explains in this
     /// window's logical coordinates (top-left origin). The tooltip panel is
     /// created on first use.
-    #[allow(clippy::cast_possible_truncation)] // screen points
     pub fn show_tooltip(
         &mut self,
         text: &str,
@@ -8542,41 +8562,9 @@ impl MacOSWindow {
         if self.tooltip.is_none() {
             self.tooltip = Some(tooltip::TooltipWindow::new(self.mtm)?);
         }
-
-        // The tooltip panel is a separate NSPanel placed in GLOBAL coordinates,
-        // so convert the box: window-local top-down -> window bottom-up ->
-        // screen bottom-up (convertRectToScreen) -> global top-down against the
-        // PRIMARY screen's height, the space the screens are listed in.
-        let global_anchor = {
-            let content_h = self
-                .window
-                .contentView()
-                .map(|cv| cv.bounds().size.height)
-                .unwrap_or(0.0);
-            let (width, height) = (
-                f64::from(anchor.size.width),
-                f64::from(anchor.size.height),
-            );
-            let window_rect = NSRect::new(
-                NSPoint::new(
-                    f64::from(anchor.origin.x),
-                    content_h - f64::from(anchor.origin.y) - height,
-                ),
-                NSSize::new(width, height),
-            );
-            let screen_rect = self.window.convertRectToScreen(window_rect);
-            let primary_h = primary_screen_height().unwrap_or(0.0);
-            azul_core::geom::LogicalRect::new(
-                azul_core::geom::LogicalPosition::new(
-                    screen_rect.origin.x as f32,
-                    (primary_h - screen_rect.origin.y - screen_rect.size.height) as f32,
-                ),
-                anchor.size,
-            )
-        };
-
+        let mapping = self.screen_mapping();
         if let Some(ref mut tooltip) = self.tooltip {
-            tooltip.show(text, global_anchor)?;
+            tooltip.show(text, anchor, mapping)?;
         }
 
         Ok(())

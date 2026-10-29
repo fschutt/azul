@@ -8,7 +8,7 @@
 //! The window is exactly the measured text's size and is placed by the rule every
 //! floating surface follows (`azul_layout::placement`): below its anchor, above it
 //! where there is no room, inside the work area of the monitor (XRandR) the anchor
-//! is on - all in physical root-window pixels.
+//! is on - placed in the parent's logical px and put on the root in physical ones.
 //!
 //! Architecture:
 //! - TooltipWindow: Wrapper around X11 Window with override-redirect
@@ -23,7 +23,8 @@ use std::{
 use azul_core::geom::{LogicalRect, LogicalSize};
 use azul_css::props::basic::ColorU;
 use azul_layout::placement::{
-    floating_frame, screen_for_anchor, tooltip_text_width, FloatingPlacement,
+    floating_frame, screen_for_anchor, tooltip_text_width, FloatingPlacement, ScreenSize,
+    WindowToScreen,
 };
 use rust_fontconfig::FcFontCache;
 
@@ -131,22 +132,28 @@ impl TooltipWindow {
         }
     }
 
-    /// Show the tooltip with `text` for `anchor`, the box it explains in
-    /// physical root-window pixels, at `dpi` (the parent window's scale). If
-    /// the tooltip is already visible, its text and place are updated.
+    /// Show the tooltip with `text` for `anchor`, the box it explains in the
+    /// logical coordinates of the window `window` maps onto the root. If the
+    /// tooltip is already visible, its text and place are updated.
     #[allow(
         clippy::cast_possible_truncation,
         clippy::cast_precision_loss,
         clippy::cast_sign_loss
     )] // screen pixels
-    pub fn show(&mut self, text: &str, anchor: LogicalRect, dpi: f32) -> Result<(), String> {
-        let screen = screen_for_anchor(anchor, &crate::desktop::display::screen_rects());
+    pub fn show(
+        &mut self,
+        text: &str,
+        anchor: LogicalRect,
+        window: WindowToScreen,
+    ) -> Result<(), String> {
+        let screens = window.screens(&crate::desktop::display::desktop_screens());
+        let screen = screen_for_anchor(anchor, &screens);
+        let dpi = window.scale;
 
         // The text wraps at the tooltip width (less on a narrow monitor) and
-        // grows at most to the monitor's height; both limits are logical.
-        let (screen_width, screen_height) = screen.map_or((f32::INFINITY, f32::INFINITY), |s| {
-            (s.size.width / dpi, s.size.height / dpi)
-        });
+        // grows at most to the monitor's height.
+        let (screen_width, screen_height) = screen
+            .map_or((f32::INFINITY, f32::INFINITY), |s| (s.size.width, s.size.height));
         let max_text = LogicalSize::new(
             tooltip_text_width(screen_width, TOOLTIP_PADDING_PX),
             (screen_height - TOOLTIP_PADDING_PX - TOOLTIP_PADDING_PX).max(1.0),
@@ -164,12 +171,14 @@ impl TooltipWindow {
         .ok_or_else(|| "no font to draw the tooltip's text with".to_string())?;
 
         let (width, height) = (pixmap.width(), pixmap.height());
-        let size = LogicalSize::new(width as f32, height as f32);
+        let size = window.window_size(ScreenSize::new(width as f32, height as f32));
         let placement = FloatingPlacement::tooltip(anchor);
         let frame = match screen {
             Some(work_area) => floating_frame(&placement, size, work_area),
             None => LogicalRect::new(placement.preferred_origin(size), size),
         };
+        // The frame on the root, in physical pixels.
+        let frame = window.rect(frame);
         let shown_height = (frame.size.height.round() as u32).clamp(1, height.max(1));
 
         // RGBA rows to the BGRA of a 24/32-bit TrueColor visual.

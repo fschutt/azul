@@ -7407,6 +7407,21 @@ impl Win32Window {
         unsafe { self.dpi.hwnd_dpi(self.hwnd as _) }
     }
 
+    /// How this window's client area lies on the screen: its top-left in
+    /// physical screen pixels (`ClientToScreen`), the unit monitors and
+    /// `SetWindowPos` use, and the window's DPI scale.
+    #[allow(clippy::cast_precision_loss)] // screen pixels and a DPI
+    pub(crate) fn screen_mapping(&self) -> azul_layout::placement::WindowToScreen {
+        let mut origin = dlopen::POINT { x: 0, y: 0 };
+        unsafe {
+            (self.win32.user32.ClientToScreen)(self.hwnd, &mut origin);
+        }
+        azul_layout::placement::WindowToScreen::new(
+            azul_layout::placement::ScreenPoint::new(origin.x as f32, origin.y as f32),
+            self.get_window_dpi() as f32 / 96.0,
+        )
+    }
+
     /// Show a tooltip with `text` for `anchor`, the box it explains in the
     /// client area's logical coordinates. The tooltip control is created on
     /// first use.
@@ -7420,10 +7435,9 @@ impl Win32Window {
             self.tooltip = Some(tooltip::TooltipWindow::new(self.hwnd, self.win32.clone())?);
         }
 
-        let dpi_factor = DpiScaleFactor::new(self.get_window_dpi() as f32 / 96.0);
-
+        let mapping = self.screen_mapping();
         if let Some(ref mut tooltip) = self.tooltip {
-            tooltip.show(text, anchor, dpi_factor)?;
+            tooltip.show(text, anchor, mapping)?;
         }
 
         Ok(())
@@ -7851,6 +7865,10 @@ impl PlatformWindow for Win32Window {
         if let Err(e) = self.hide_tooltip() {
             log_error!(LogCategory::Window, "Failed to hide tooltip: {}", e);
         }
+    }
+
+    fn window_to_screen(&self) -> Option<azul_layout::placement::WindowToScreen> {
+        Some(self.screen_mapping())
     }
 
     fn sync_window_state(&mut self) {
