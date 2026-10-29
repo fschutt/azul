@@ -28,6 +28,9 @@
 //! - [`EncryptedDrive::write_from`] streams: one segment of plaintext in memory, the object
 //!   put together in a spool (memory up to 8 MiB, then a temporary file of ciphertext only,
 //!   because the header is written last) and handed to the inner drive's `put_from`.
+//! - A local file ([`Drive::put_file`]) is encrypted once beside its bucket's resume state and
+//!   goes up as the bucket's resumable upload of that copy: a cut upload resumes at its next
+//!   part (`encrypted_upload`).
 //! - A drive that packs ([`EncryptedDrive::with_packing`]) puts small files into shared AZL1
 //!   objects instead, each file read back with one ranged GET ([`crate::packing`]).
 
@@ -475,7 +478,7 @@ impl Drive for AutoEncrypted {
     fn put_from(&self, key: &str, body: &mut dyn Read) -> Result<u64, DriveError> {
         self.writable()?.put_from(key, body)
     }
-    // A plain drive's file uploads resume (a bucket's parts); an encrypted one streams.
+    // A file's upload resumes, plain (the bucket's parts) or encrypted (its copy's parts).
     fn put_file(
         &self,
         key: &str,
@@ -1087,7 +1090,7 @@ impl<D: Drive> EncryptedDrive<D> {
 
     /// Names the new object in the index (when `expect` holds); takes the object back out of
     /// the bucket when the index refuses, and deletes what the index released.
-    fn bind(
+    pub(crate) fn bind(
         &self,
         path: &str,
         summary: ObjectSummary,
@@ -1917,6 +1920,62 @@ impl<D: Drive> Drive for EncryptedDrive<D> {
 
     fn put_from(&self, key: &str, body: &mut dyn Read) -> Result<u64, DriveError> {
         self.write_from(key, body, Expect::Any).map(|info| info.size)
+    }
+
+    /// A local file's upload that a cut does not start over: encrypted once beside the
+    /// bucket's resume state, then the bucket's resumable upload of it (`encrypted_upload`);
+    /// streamed as [`Drive::put_from`] when the bucket resumes
+    /// no uploads, or the file is one a packing drive packs.
+    fn put_file(
+        &self,
+        key: &str,
+        path: &std::path::Path,
+        progress: &(dyn Fn(u64) + Sync),
+    ) -> Result<u64, DriveError> {
+        match self.put_file_resumable(key, path, None, progress)? {
+            Some(crate::encrypted_upload::Spooled::Sent(written)) => Ok(written),
+            Some(crate::encrypted_upload::Spooled::Changed) => Err(DriveError::Io(format!(
+                "{} changed while it was uploaded",
+                path.display()
+            ))),
+            None => {
+                let mut file = File::open(path)?;
+                let mut reader = crate::transfer::ProgressReader::new(&mut file, progress);
+                self.put_from(key, &mut reader)
+            }
+        }
+    }
+
+    /// [`Drive::put_file`] of a file that must be the one `check` describes (a sync's): resumed
+    /// the same way, or streamed and hashed as it is read.
+    fn put_file_checked(
+        &self,
+        key: &str,
+        path: &std::path::Path,
+        check: &crate::checked::FileCheck,
+        progress: &(dyn Fn(u64) + Sync),
+    ) -> Result<crate::checked::CheckedUpload, DriveError> {
+        use crate::checked::{open_checked, CheckedUpload, HashCheck};
+        match self.put_file_resumable(key, path, Some(check), progress)? {
+            Some(crate::encrypted_upload::Spooled::Sent(written)) => {
+                return Ok(CheckedUpload::Sent(written));
+            }
+            Some(crate::encrypted_upload::Spooled::Changed) => return Ok(CheckedUpload::Changed),
+            None => {}
+        }
+        let Some(file) = open_checked(path, check)? else {
+            return Ok(CheckedUpload::Changed);
+        };
+        let mut hashed = HashCheck::new(file, &check.blake3);
+        let sent = {
+            let mut reader = crate::transfer::ProgressReader::new(&mut hashed, progress);
+            self.put_from(key, &mut reader)
+        };
+        match sent {
+            Ok(written) => Ok(CheckedUpload::Sent(written)),
+            Err(_) if hashed.changed() => Ok(CheckedUpload::Changed),
+            Err(e) => Err(e),
+        }
     }
 
     /// Conditional on the index entry, whatever the inner drive supports: absent, or still

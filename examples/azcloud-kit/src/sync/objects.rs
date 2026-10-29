@@ -236,6 +236,10 @@ impl Drive for ObjectCache {
         self.inner.local_path(key)
     }
 
+    fn resume_folder(&self) -> Option<PathBuf> {
+        self.inner.resume_folder()
+    }
+
     fn metadata(&self, key: &str) -> Result<Vec<(String, String)>, DriveError> {
         self.inner.metadata(key)
     }

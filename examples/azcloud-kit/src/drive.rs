@@ -716,6 +716,10 @@ impl Drive for AzlinDrive {
     fn local_path(&self, _key: &str) -> Option<PathBuf> {
         None
     }
+    /// The app's resume folder: the bucket this drive opens keeps its uploads' state there.
+    fn resume_folder(&self) -> Option<PathBuf> {
+        azul_storage::multipart::resume_folder()
+    }
     fn metadata(&self, key: &str) -> Result<Vec<(String, String)>, DriveError> {
         self.with_bucket(|b| b.metadata(key))
     }

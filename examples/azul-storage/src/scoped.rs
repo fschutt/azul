@@ -171,6 +171,10 @@ impl<D: Drive> Drive for ScopedDrive<D> {
         self.inner.local_path(&self.full_name(key).ok()?)
     }
 
+    fn resume_folder(&self) -> Option<PathBuf> {
+        self.inner.resume_folder()
+    }
+
     fn metadata(&self, key: &str) -> Result<Vec<(String, String)>, DriveError> {
         self.inner.metadata(&self.full_key(key)?)
     }

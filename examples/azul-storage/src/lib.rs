@@ -121,6 +121,9 @@ pub mod encrypted;
 pub use encrypted::{
     open_encrypted, AutoEncrypted, EncryptedDrive, IndexProvider, MemoryIndex, NameIndex,
 };
+/// An encrypted file's upload that a cut resumes at its next part.
+#[cfg(feature = "encryption")]
+pub(crate) mod encrypted_upload;
 /// A plaintext drive's files moved into its encrypted namespace, resumably.
 #[cfg(feature = "encryption")]
 pub mod migrate;
@@ -700,6 +703,13 @@ pub trait Drive: Send + Sync {
         None
     }
 
+    /// The folder on this computer where the drive keeps what its cut uploads resume from (a
+    /// bucket's multipart state); an encrypted drive keeps a file's encrypted copy there too,
+    /// until its upload completes. `None` (the default): its uploads do not resume.
+    fn resume_folder(&self) -> Option<PathBuf> {
+        None
+    }
+
     /// What the backend knows about the object beyond [`Drive::head`], as
     /// `(name, value)` pairs to show: an S3 object's Content-Type, storage class,
     /// encryption and user metadata; a local file's location. Empty by default.
@@ -885,6 +895,9 @@ macro_rules! forward_drive {
             }
             fn local_path(&self, key: &str) -> Option<PathBuf> {
                 (**self).local_path(key)
+            }
+            fn resume_folder(&self) -> Option<PathBuf> {
+                (**self).resume_folder()
             }
             fn metadata(&self, key: &str) -> Result<Vec<(String, String)>, DriveError> {
                 (**self).metadata(key)

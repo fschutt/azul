@@ -425,6 +425,10 @@ impl Drive for RetryingDrive {
         self.inner.local_path(key)
     }
 
+    fn resume_folder(&self) -> Option<std::path::PathBuf> {
+        self.inner.resume_folder()
+    }
+
     fn metadata(&self, key: &str) -> Result<Vec<(String, String)>, DriveError> {
         self.call(|| self.inner.metadata(key))
     }

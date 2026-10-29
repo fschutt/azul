@@ -1419,6 +1419,11 @@ impl S3Drive {
 }
 
 impl Drive for S3Drive {
+    /// Its own resume folder, else the app's ([`crate::multipart::set_resume_folder`]).
+    fn resume_folder(&self) -> Option<PathBuf> {
+        self.resume_dir()
+    }
+
     fn list(&self, request: &ListRequest) -> Result<ListPage, DriveError> {
         let mut query = vec![
             (String::from("list-type"), String::from("2")),
