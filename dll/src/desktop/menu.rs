@@ -284,8 +284,7 @@ pub(crate) fn menu_placement(
 /// opener's content origin, in screen units.
 #[must_use]
 pub(crate) fn menu_offset(opener: WindowToScreen, origin: LogicalPosition) -> WindowPosition {
-    let unscaled = WindowToScreen::new(opener.content_origin, 1.0);
-    WindowPosition::RelativeToParentWindow(unscaled.offset_from_content(unscaled.point(origin)))
+    WindowPosition::RelativeToParentWindow(opener.offset_from_content(opener.point(origin)))
 }
 
 /// The screens with their numbers taken as they are, for a menu placed in desktop
