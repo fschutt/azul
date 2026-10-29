@@ -25,7 +25,8 @@ use azul_core::{
 
 use super::{
     cache::{
-        BidiDirection, ClusterFlags, LayoutFontMetrics, LoadedFonts, ParsedFontTrait, Point,
+        BidiDirection, BidiLevel, ClusterFlags, LayoutFontMetrics, LoadedFonts, ParsedFontTrait,
+        Point,
         PositionedItem, ShapedItem, StyleProperties, UnifiedLayout,
     },
     glyphs::{PdfGlyphRun, PdfPositionedGlyph, PositionedGlyph, SimpleGlyphRun},
@@ -91,6 +92,8 @@ pub struct DenseRun {
     /// dense run, both for the PDF walker's run predicate and for RTL
     /// border-fragment assignment.
     pub direction: BidiDirection,
+    /// The clusters' bidi embedding level, uniform per run like `direction`.
+    pub bidi_level: BidiLevel,
     /// The item's own solved block-axis position (`PositionedItem.position.y`),
     /// amortised per run because the builder splits on it.
     ///
@@ -299,6 +302,7 @@ impl DenseText {
                         || r.source_run != c.source_cluster_id.source_run
                         || r.source_node != source_node
                         || r.direction != c.direction
+                        || r.bidi_level != c.bidi_level
                         // The item's own y is amortised on the run, so a
                         // change in it MUST open a new run — otherwise the
                         // run's y would silently describe only its first
@@ -341,6 +345,7 @@ impl DenseText {
                     item_linear: true,
                     script,
                     direction: c.direction,
+                    bidi_level: c.bidi_level,
                     y: position.y,
                 });
             } else {
@@ -823,6 +828,7 @@ impl DenseText {
                         flags: ClusterFlags(f & ClusterFlags::CLASSIFY_MASK),
                         advance: c.advance,
                         direction: run.direction,
+                        bidi_level: run.bidi_level,
                         style: run.style.clone(),
                         marker_position_outside: (f & ClusterFlags::DENSE_MARKER_SOME != 0)
                             .then_some(f & ClusterFlags::DENSE_MARKER_OUTSIDE != 0),

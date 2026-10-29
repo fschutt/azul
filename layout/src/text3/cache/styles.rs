@@ -770,6 +770,8 @@ pub enum FontVariantEastAsian {
     Ruby,
 }
 
+/// A bidi embedding level (UAX 9): even levels run left to right, odd ones
+/// right to left.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct BidiLevel(u8);
 
@@ -778,9 +780,27 @@ impl BidiLevel {
     pub const fn new(level: u8) -> Self {
         Self(level)
     }
+    /// The level of a paragraph that runs in `direction`: 0 or 1.
+    #[must_use]
+    pub const fn paragraph(direction: BidiDirection) -> Self {
+        if direction.is_rtl() {
+            Self(1)
+        } else {
+            Self(0)
+        }
+    }
     #[must_use]
     pub const fn is_rtl(&self) -> bool {
         self.0 % 2 == 1
+    }
+    /// The direction text at this level runs in.
+    #[must_use]
+    pub const fn direction(&self) -> BidiDirection {
+        if self.is_rtl() {
+            BidiDirection::Rtl
+        } else {
+            BidiDirection::Ltr
+        }
     }
     #[must_use]
     pub const fn level(&self) -> u8 {

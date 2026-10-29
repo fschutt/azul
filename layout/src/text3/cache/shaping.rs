@@ -422,7 +422,7 @@ pub(super) fn measure_run_advance<T: ParsedFontTrait>(
                 text,
                 script,
                 language,
-                BidiDirection::Ltr,
+                BidiLevel::paragraph(BidiDirection::Ltr),
                 style,
                 source,
                 None,
@@ -571,7 +571,7 @@ pub(super) fn shape_with_font_fallback<T: ParsedFontTrait>(
     text: &str,
     script: Script,
     language: Language,
-    direction: BidiDirection,
+    bidi_level: BidiLevel,
     style: &Arc<StyleProperties>,
     source_index: ContentIndex,
     source_node_id: Option<NodeId>,
@@ -652,7 +652,7 @@ pub(super) fn shape_with_font_fallback<T: ParsedFontTrait>(
                 text,
                 script,
                 language,
-                direction,
+                bidi_level,
                 font,
                 style,
                 source_index,
@@ -663,7 +663,7 @@ pub(super) fn shape_with_font_fallback<T: ParsedFontTrait>(
             &text[*seg_start..*seg_end],
             script,
             language,
-            direction,
+            bidi_level,
             font,
             style,
             source_index,
@@ -703,7 +703,7 @@ pub(super) fn shape_with_font_fallback<T: ParsedFontTrait>(
             segment_text,
             script,
             language,
-            direction,
+            bidi_level,
             font,
             style,
             source_index,
@@ -849,11 +849,6 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                         )));
                     }
 
-                    let direction = if bidi_level.is_rtl() {
-                        BidiDirection::Rtl
-                    } else {
-                        BidiDirection::Ltr
-                    };
                     let language = script_to_language(script, &merged_text);
 
                     // Shape the merged text using the first item's font (layout is identical
@@ -864,7 +859,7 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                                 &merged_text,
                                 script,
                                 language,
-                                direction,
+                                bidi_level,
                                 font_ref,
                                 style,
                                 *source,
@@ -884,7 +879,7 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                                     &merged_text,
                                     script,
                                     language,
-                                    direction,
+                                    bidi_level,
                                     style,
                                     *source,
                                     *source_node_id,
@@ -946,12 +941,6 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                 // ── SINGLE ITEM PATH (no coalescing) ──
                 _total_runs += 1;
                 _shape_calls += 1;
-                let direction = if item.bidi_level.is_rtl() {
-                    BidiDirection::Rtl
-                } else {
-                    BidiDirection::Ltr
-                };
-
                 let language = script_to_language(item.script, &item.text);
 
                 // Shape text using either FontRef directly or fontconfig-resolved font
@@ -972,7 +961,7 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                                 &item.text,
                                 item.script,
                                 language,
-                                direction,
+                                item.bidi_level,
                                 font_ref,
                                 style,
                                 *source,
@@ -1014,7 +1003,7 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                                 &item.text,
                                 item.script,
                                 language,
-                                direction,
+                                item.bidi_level,
                                 style,
                                 *source,
                                 *source_node_id,
@@ -1524,7 +1513,7 @@ pub(super) fn shape_text_with_caps<T: ParsedFontTrait>(
     text: &str,
     script: Script,
     language: Language,
-    direction: BidiDirection,
+    bidi_level: BidiLevel,
     font: &T,
     style: &Arc<StyleProperties>,
     source_index: ContentIndex,
@@ -1535,7 +1524,7 @@ pub(super) fn shape_text_with_caps<T: ParsedFontTrait>(
             text,
             script,
             language,
-            direction,
+            bidi_level,
             font,
             style,
             source_index,
@@ -1554,7 +1543,7 @@ pub(super) fn shape_text_with_caps<T: ParsedFontTrait>(
                 &capitals,
                 script,
                 language,
-                direction,
+                bidi_level,
                 font,
                 &small,
                 source_index,
@@ -1565,7 +1554,7 @@ pub(super) fn shape_text_with_caps<T: ParsedFontTrait>(
                 piece,
                 script,
                 language,
-                direction,
+                bidi_level,
                 font,
                 style,
                 source_index,
@@ -1586,7 +1575,7 @@ pub(super) fn shape_text_correctly<T: ParsedFontTrait>(
     text: &str,
     script: Script,
     language: Language,
-    direction: BidiDirection,
+    bidi_level: BidiLevel,
     font: &T, // Changed from &Arc<T>
     style: &Arc<StyleProperties>,
     source_index: ContentIndex,
@@ -1595,6 +1584,7 @@ pub(super) fn shape_text_correctly<T: ParsedFontTrait>(
     unsafe {
         crate::az_mark(0x60864_u32, 0xC0DE_0864_u32);
     } // [g123] shape_text_correctly ENTERED
+    let direction = bidi_level.direction();
     let glyphs = font.shape_text(text, script, language, direction, style.as_ref())?;
     unsafe {
         crate::az_mark(0x60868_u32, (glyphs.len() as u32) | 0x8000_0000_u32);
@@ -1670,6 +1660,7 @@ pub(super) fn shape_text_correctly<T: ParsedFontTrait>(
                     .collect(),
                 advance,
                 direction,
+                bidi_level,
                 style: style.clone(),
                 marker_position_outside: None,
                 is_first_fragment: true,
@@ -1730,6 +1721,7 @@ pub(super) fn shape_text_correctly<T: ParsedFontTrait>(
                 .collect(),
             advance,
             direction,
+            bidi_level,
             style: style.clone(),
             marker_position_outside: None,
             is_first_fragment: true,

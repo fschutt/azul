@@ -861,6 +861,7 @@ mod autotest_generated {
             glyphs: glyphs.into_iter().collect(),
             advance: 0.0,
             direction: BidiDirection::Ltr,
+            bidi_level: crate::text3::cache::BidiLevel::paragraph(BidiDirection::Ltr),
             style: st.clone(),
             marker_position_outside: None,
             is_first_fragment: true,
@@ -1896,6 +1897,7 @@ mod autotest_generated {
         let st = style();
         let mut beh = cluster("ب", vec![glyph(2, 0.0, &st), glyph(1, 10.0, &st)], &st);
         beh.direction = BidiDirection::Rtl;
+        beh.bidi_level = crate::text3::cache::BidiLevel::new(1);
         let l = layout(vec![at(item(beh), 0.0, 0.0, 0)]);
         for texts in pdf_glyph_texts(&l) {
             assert_eq!(
@@ -2002,6 +2004,7 @@ mod autotest_generated {
         let ltr = cluster("a", vec![glyph(1, 10.0, &st)], &st);
         let mut rtl = cluster("\u{05D0}", vec![glyph(2, 10.0, &st)], &st);
         rtl.direction = BidiDirection::Rtl;
+        rtl.bidi_level = crate::text3::cache::BidiLevel::new(1);
 
         let l = layout(vec![
             at(item(ltr), 0.0, 0.0, 0),

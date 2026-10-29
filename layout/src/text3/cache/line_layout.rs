@@ -1517,7 +1517,9 @@ pub(super) fn hyphen_after<T: ParsedFontTrait>(
             vertical_offset: Point::default(),
         }],
         advance: hyphen_advance,
-        direction: BidiDirection::Ltr,
+        // The hyphen ends the word it breaks and is reordered with it.
+        direction: cluster.direction,
+        bidi_level: cluster.bidi_level,
         style: cluster.style.clone(),
         marker_position_outside: None,
         is_first_fragment: true,

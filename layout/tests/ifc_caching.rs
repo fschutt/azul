@@ -638,6 +638,7 @@ fn test_ifc_layout_replace_preserves_metrics_structure() {
         glyphs: smallvec::smallvec![],
         advance: 10.0,
         direction: azul_layout::text3::cache::BidiDirection::Ltr,
+        bidi_level: azul_layout::text3::cache::BidiLevel::paragraph(azul_layout::text3::cache::BidiDirection::Ltr),
         style: Default::default(),
         marker_position_outside: None,
         is_first_fragment: true,

@@ -60,6 +60,7 @@ pub(crate) struct CompactSegment {
     font_metrics: LayoutFontMetrics,
     script: Script,
     direction: BidiDirection,
+    bidi_level: BidiLevel,
     source_run: u32,
     source_node: Option<NodeId>,
     /// The segment's `source_content_index.item_index` VERBATIM: at the
@@ -149,6 +150,7 @@ impl CompactShapedEntry {
                     && seg.font_hash == font_hash
                     && seg.script == script
                     && seg.direction == c.direction
+                    && seg.bidi_level == c.bidi_level
                     && seg.source_run == c.source_cluster_id.source_run
                     && seg.source_node == c.source_node_id
                     && seg.item_index == item_index
@@ -168,6 +170,7 @@ impl CompactShapedEntry {
                     font_metrics,
                     script,
                     direction: c.direction,
+                    bidi_level: c.bidi_level,
                     source_run: c.source_cluster_id.source_run,
                     source_node: c.source_node_id,
                     item_index,
@@ -319,6 +322,7 @@ impl CompactShapedEntry {
                 flags: c.flags,
                 advance: c.advance,
                 direction: seg.direction,
+                bidi_level: seg.bidi_level,
                 style: seg.style.clone(),
                 marker_position_outside: None,
                 is_first_fragment: true,

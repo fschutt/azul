@@ -290,6 +290,7 @@ pub fn justify_kashida_and_rebuild<T: ParsedFontTrait>(
             glyphs: smallvec![kashida_glyph],
             advance: kashida_advance,
             direction: BidiDirection::Ltr,
+            bidi_level: BidiLevel::paragraph(BidiDirection::Ltr),
             style,
             marker_position_outside: None,
             is_first_fragment: true,

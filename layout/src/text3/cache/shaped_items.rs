@@ -408,6 +408,11 @@ pub struct ShapedCluster {
     pub advance: f32,
     /// The direction of this cluster, inherited from its `VisualItem`.
     pub direction: BidiDirection,
+    /// The bidi embedding level the paragraph's bidi analysis resolved for
+    /// this cluster's text, which a line's visual order is made from (UAX 9
+    /// rule L2); `direction` is its parity. A cluster made outside shaping
+    /// (a hyphen) takes the level of the text it stands with.
+    pub bidi_level: BidiLevel,
     /// Font style of this cluster
     pub style: Arc<StyleProperties>,
     /// If this cluster is a list marker: whether it should be positioned outside

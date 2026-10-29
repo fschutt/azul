@@ -5862,6 +5862,7 @@ mod autotest_generated {
                 glyphs: glyphs.into_iter().collect(),
                 advance: 6.0,
                 direction: BidiDirection::Ltr,
+                bidi_level: crate::text3::cache::BidiLevel::paragraph(BidiDirection::Ltr),
                 style: Arc::new(StyleProperties::default()),
                 marker_position_outside: None,
                 is_first_fragment: true,

@@ -17898,6 +17898,7 @@ mod dense_scroll_extent_tests {
             glyphs: smallvec::smallvec![glyph],
             advance: 10.0,
             direction: BidiDirection::Ltr,
+            bidi_level: crate::text3::cache::BidiLevel::paragraph(BidiDirection::Ltr),
             style: Arc::new(StyleProperties {
                 font_size_px: 16.0,
                 ..StyleProperties::default()

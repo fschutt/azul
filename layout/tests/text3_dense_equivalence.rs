@@ -1023,6 +1023,7 @@ fn dense_positioned_cluster_reads_the_baseline_not_the_top() {
         y: 40.0,
         script: azul_layout::text3::script::Script::Latin,
         direction: BidiDirection::Ltr,
+        bidi_level: azul_layout::text3::cache::BidiLevel::paragraph(BidiDirection::Ltr),
     });
     d.lines.push(LineRecord {
         clusters: (0, 1),
@@ -1224,6 +1225,7 @@ fn ligature_cluster_records_its_full_byte_length() {
         flags: ClusterFlags(0),
         advance: 10.0,
         direction: BidiDirection::Ltr,
+        bidi_level: azul_layout::text3::cache::BidiLevel::paragraph(BidiDirection::Ltr),
         style: style.clone(),
         marker_position_outside: None,
         is_first_fragment: false,
