@@ -21,6 +21,7 @@ use azul::{
     url::Url,
     vec::StyledTextRunVec,
 };
+use azcloud_kit::azlin_contract::BucketOp;
 use azul_appkit::l10n::{label, t, Phrase, Text};
 use azul_storage::{
     azul_transport::AzulTransport,
@@ -278,8 +279,9 @@ pub(crate) fn open_menu_below(info: &mut CallbackInfo, items: Vec<MenuItem>) {
 /// Why `action` cannot run now, or `None` when it can (the ribbon greys the
 /// control and says why).
 pub(crate) fn why_not(s: &DriveState, action: &Action) -> Option<String> {
-    // A banned drive takes nothing new, a closed one opens nothing (ban contract v1).
-    if let Some(reason) = crate::ban::refuses(s, action) {
+    // What the drive's state does not take (a ban, a freeze, a lockdown, a lock): the contract's
+    // table says it, the state's words say why.
+    if let Some(reason) = crate::access::refuses(s, action) {
         return Some(reason);
     }
     // Another app's file picker changes nothing and goes nowhere else: it picks (a new folder
@@ -2113,15 +2115,16 @@ pub(crate) fn enqueue_routed(
     s: &mut DriveState,
     transfer: crate::sync_jobs::Transfer,
 ) {
-    // Nothing goes into a banned drive (an upload, a paste, a drop), nothing moves out of it.
-    let banned = crate::ban::refuses_writes_to(s, &transfer.target.0).or_else(|| {
+    // Nothing goes into a drive that takes no writes (an upload, a paste, a drop), nothing moves
+    // out of one that takes no deletes.
+    let refused = crate::access::refuses_op(s, &transfer.target.0, BucketOp::Write).or_else(|| {
         transfer
             .kind
             .removes_source()
-            .then(|| crate::ban::refuses_writes_to(s, &transfer.source.0))
+            .then(|| crate::access::refuses_op(s, &transfer.source.0, BucketOp::Delete))
             .flatten()
     });
-    if let Some(why) = banned {
+    if let Some(why) = refused {
         s.warn(why);
         return;
     }

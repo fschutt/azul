@@ -1724,7 +1724,8 @@ impl Drive for S3Drive {
     }
 
     /// One HEAD: the headers that describe the object (not the request), by
-    /// readable names; `x-amz-meta-<name>` as `<name>`.
+    /// readable names; `x-amz-meta-<name>` as `<name>`, but for the service's own names
+    /// (`x-amz-meta-azlin-...`, a moved object's marker), which are no metadata of the file.
     fn metadata(&self, key: &str) -> Result<Vec<(String, String)>, DriveError> {
         let reply = self.object_call(
             Method::Head,
@@ -1752,6 +1753,7 @@ impl Drive for S3Drive {
                 "x-amz-server-side-encryption" => "Encryption".to_string(),
                 "x-amz-version-id" => "Version".to_string(),
                 "x-amz-website-redirect-location" => "Redirect".to_string(),
+                other if azlin_contract::is_service_metadata(other) => continue,
                 other => match other.strip_prefix("x-amz-meta-") {
                     Some(user) if !user.is_empty() => user.to_string(),
                     _ => continue,

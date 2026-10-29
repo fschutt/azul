@@ -66,6 +66,9 @@ pub enum AzlinError {
     /// its files are in offline storage. Its owner gets it back by proving it is theirs and
     /// paying; restoring it can take some days.
     DriveArchived,
+    /// A node refuses a write: the drive's files are being moved. Its owner's deletes go on;
+    /// other writes wait until the move is done.
+    ReadOnlyMoving,
     /// A code this build does not know: a newer service sent it. Never sent.
     #[serde(other)]
     Unknown,
@@ -73,7 +76,7 @@ pub enum AzlinError {
 
 impl AzlinError {
     /// Every code a service sends ([`AzlinError::Unknown`] is not one).
-    pub const ALL: [AzlinError; 25] = [
+    pub const ALL: [AzlinError; 26] = [
         AzlinError::Unavailable,
         AzlinError::Maintenance,
         AzlinError::QuotaExceeded,
@@ -99,6 +102,7 @@ impl AzlinError {
         AzlinError::ReadOnlyLockdown,
         AzlinError::ReadOnlyOperator,
         AzlinError::DriveArchived,
+        AzlinError::ReadOnlyMoving,
     ];
 
     /// The code as the wire writes it (`quota_exceeded`).
@@ -130,6 +134,7 @@ impl AzlinError {
             AzlinError::ReadOnlyLockdown => "read_only_lockdown",
             AzlinError::ReadOnlyOperator => "read_only_operator",
             AzlinError::DriveArchived => "drive_archived",
+            AzlinError::ReadOnlyMoving => "read_only_moving",
             AzlinError::Unknown => "unknown",
         }
     }
@@ -178,6 +183,7 @@ impl AzlinError {
             AzlinError::ReadOnlyLockdown => (403, "AccessDenied"),
             AzlinError::ReadOnlyOperator => (403, "AccessDenied"),
             AzlinError::DriveArchived => (403, "AccessDenied"),
+            AzlinError::ReadOnlyMoving => (403, "AccessDenied"),
             AzlinError::Unknown => (500, "InternalError"),
         }
     }

@@ -14,7 +14,7 @@
 
 use std::{path::PathBuf, sync::Arc};
 
-use azcloud_kit::Ban;
+use azcloud_kit::{azlin_contract::DriveAccess, Ban};
 use azul::{
     callbacks::ButtonOnClickCallbackType,
     dialog::{FileDialog, FileOpenResult},
@@ -42,44 +42,27 @@ pub(crate) use azcloud_kit::token::{banner_text, closed_text};
 // closed drive says (when, and why): the kit's phrases, which AzMail says too.
 pub(crate) use azcloud_kit::token::{ban_reason_arg, banner_phrase, closed_phrase};
 
-/// Why `action` cannot run on a drive under `ban` at `now`: what writes, during the grace
-/// period; what writes or reads, once it is closed.
+/// Why `action` cannot run on a drive under `ban` at `now`: the contract's table for a banned
+/// drive (reads only) or a closed one (nothing), in the ban's words.
 #[must_use]
 pub(crate) fn refusal(action: &Action, ban: &Ban, now: u64) -> Option<String> {
-    let writes = matches!(
-        action,
-        Action::NewFolder
-            | Action::NewItemMenu
-            | Action::NewTextDocument
-            | Action::NewEmptyFile
-            | Action::Paste
-            | Action::Cut
-            | Action::Rename
-            | Action::Delete
-            | Action::DeletePermanently
-            | Action::DeleteMenu
-            | Action::MoveToMenu
-            | Action::Upload
-            | Action::Zip
-            | Action::Share
-            | Action::Undo
-    );
-    let reads = matches!(
-        action,
-        Action::Download
-            | Action::Copy
-            | Action::CopyToMenu
-            | Action::Open
-            | Action::OpenMenu
-            | Action::Edit
-            | Action::Print
-            | Action::Email
-    );
+    let access = if ban.is_closed(now) {
+        DriveAccess::Closed
+    } else {
+        DriveAccess::Banned
+    };
+    let op = crate::access::op_of(action)?;
+    (!access.permits(op)).then(|| refused_words(ban, now))
+}
+
+/// What a banned drive says of a request it does not take: why it is banned, or, once it is
+/// closed, when and why it was closed.
+#[must_use]
+pub(crate) fn refused_words(ban: &Ban, now: u64) -> String {
     if ban.is_closed(now) {
-        return (writes || reads)
-            .then(|| azul_appkit::l10n::t_phrase(&closed_phrase(ban.until, &ban.reason)));
+        return azul_appkit::l10n::t_phrase(&closed_phrase(ban.until, &ban.reason));
     }
-    writes.then(|| t_args("azdrive-ban-refused", &[("reason", ban_reason_arg(&ban.reason))]))
+    t_args("azdrive-ban-refused", &[("reason", ban_reason_arg(&ban.reason))])
 }
 
 /// The status line of a banned drive's sync.
@@ -125,19 +108,6 @@ pub(crate) fn ban_of<'s>(s: &'s DriveState, drive_id: &str) -> Option<&'s Ban> {
     let index = s.slot_index(drive_id)?;
     let (azlin_id, _) = s.slots[index].entry.azlin()?;
     s.bans.get(azlin_id)
-}
-
-/// Why `action` cannot run on the drive in view, if it is banned.
-#[must_use]
-pub(crate) fn refuses(s: &DriveState, action: &Action) -> Option<String> {
-    let drive_id = s.current_drive_id()?;
-    refusal(action, ban_of(s, &drive_id)?, now_secs())
-}
-
-/// Why nothing may be written into drive `drive_id`, if it is banned.
-#[must_use]
-pub(crate) fn refuses_writes_to(s: &DriveState, drive_id: &str) -> Option<String> {
-    refusal(&Action::Upload, ban_of(s, drive_id)?, now_secs())
 }
 
 /// The sync's status line of drive `drive_id`, if it is banned (its uploads are paused).

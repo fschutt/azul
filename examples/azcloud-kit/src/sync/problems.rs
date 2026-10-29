@@ -262,6 +262,7 @@ pub fn code_of_error(error: &CloudError) -> Code {
                 azul_storage::AzlinError::ReadOnlyUnpaid
                 | azul_storage::AzlinError::ReadOnlyLockdown
                 | azul_storage::AzlinError::ReadOnlyOperator
+                | azul_storage::AzlinError::ReadOnlyMoving
                 | azul_storage::AzlinError::DriveBanned
                 | azul_storage::AzlinError::DriveArchived,
             ) => return Code::ReadOnly,

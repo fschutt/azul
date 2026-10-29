@@ -294,6 +294,8 @@ impl From<AzlinError> for Code {
             AzlinError::BadChallenge => Code::BadChallenge,
             AzlinError::ReadOnlyLockdown => Code::ReadOnlyLockdown,
             AzlinError::ReadOnlyOperator => Code::ReadOnlyOperator,
+            // A move is the operator's hold too: read-only for now, said in the same words.
+            AzlinError::ReadOnlyMoving => Code::ReadOnlyOperator,
             AzlinError::DriveArchived => Code::DriveArchived,
         }
     }

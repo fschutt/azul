@@ -138,6 +138,12 @@ azdrive-why-open-folder = Open a folder of a drive first.
 azdrive-why-open-and-select = Open a folder and select items first.
 azdrive-why-select = Select one or more items first.
 azdrive-why-pin-folder = Open a folder to pin it to Quick access.
+azdrive-why-unpaid = This drive is read-only until it is paid: its files can still be read, copied and deleted.
+azdrive-why-frozen = Azlin Storage made this drive read-only for now: its files can still be read, copied and deleted.
+azdrive-why-frozen-unknown = This drive is read-only for now: its files can still be read and copied.
+azdrive-why-lockdown = This drive takes no changes while the lockdown with its recovery code is pending.
+azdrive-why-archived = This drive is locked: prove that it is yours and pay to get it back.
+azdrive-why-banned = This drive is banned: its files can only be read and copied.
 azdrive-why-nothing-to-paste = Nothing to paste: copy or cut something first.
 azdrive-why-rename-one = Select exactly one item to rename.
 azdrive-why-one-folder = Select one folder to open it in a new tab.
@@ -559,6 +565,7 @@ azdrive-sync-status-mass-delete = Waiting for you: { $count ->
        *[other] { $count } files
     } would be deleted
 azdrive-sync-status-read-only = Read-only
+azdrive-sync-status-lockdown = Paused: the lockdown with the recovery code is pending
 azdrive-sync-status-syncing = Syncing…
 azdrive-sync-status-syncing-files = Syncing { $count ->
         [one] one file

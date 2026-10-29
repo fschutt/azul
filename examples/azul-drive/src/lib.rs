@@ -184,6 +184,8 @@ mod tree_leaves_tests;
 mod notices_tests;
 #[cfg(test)]
 mod options_cancel_tests;
+/// What a drive's state takes (the contract's table): the window's refusals, the sync's passes.
+mod access;
 /// A banned Azlin drive (ban contract v1): the banner, the refusals, Copy everything, closed.
 mod ban;
 #[cfg(test)]
@@ -1269,6 +1271,8 @@ pub(crate) struct DriveState {
     pub cash_looks: periods::Schedule,
     /// The banned Azlin drives (ban contract v1), by their Azlin id: why, until when.
     pub bans: HashMap<String, azcloud_kit::Ban>,
+    /// What each Azlin drive takes, by its Azlin id, as the last look at it said.
+    pub(crate) access: access::Seen,
     /// The repository of the folder in view (the address row's chip) and the quick switcher.
     pub git: ui_git::GitView,
     /// The command bar at the folder view's foot: its line, history and output.
@@ -3979,6 +3983,7 @@ pub fn start() {
         cash_waits: Vec::new(),
         cash_looks: periods::Schedule::default(),
         bans: HashMap::new(),
+        access: access::Seen::new(),
         git: ui_git::GitView::default(),
         command_bar: ui_command_bar::CommandBar::default(),
         archives: HashMap::new(),

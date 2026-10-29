@@ -998,8 +998,9 @@ fn work_of(info: &mut CallbackInfo, s: &mut DriveState, drive_id: &str) -> Optio
 
 /// A pass of synced drive `drive_id` now - or, while one runs, right after it.
 pub(crate) fn request_pass(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, drive_id: &str) {
-    // A banned drive takes no uploads: its sync pauses, the status line says why.
-    if crate::ban::ban_of(s, drive_id).is_some() {
+    // A drive that takes neither writes nor deletes (a ban, a pending lockdown, a lock): its
+    // sync rests, the status line says why.
+    if !crate::access::takes_passes(s, drive_id) {
         sync_view::say_status(s, drive_id);
         return;
     }

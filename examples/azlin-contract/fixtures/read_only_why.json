@@ -14,5 +14,9 @@
   {
     "why": "archived",
     "code": "drive_archived"
+  },
+  {
+    "why": "moving",
+    "code": "read_only_moving"
   }
 ]

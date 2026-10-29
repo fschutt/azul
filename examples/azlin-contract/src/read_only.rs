@@ -1,5 +1,7 @@
 //! Why a bucket takes no writes (or, once it is locked, nothing at all), and what a node answers
-//! for each reason; the cluster map's epoch the requests name.
+//! for each reason; what each state of a drive takes ([`DriveAccess::permits`], the one table
+//! the nodes and the apps read); the service's own object metadata; the cluster map's epoch the
+//! requests name.
 
 use serde::{Deserialize, Serialize};
 
@@ -16,12 +18,15 @@ pub enum ReadOnlyWhy {
     Unpaid,
     /// Someone used the recovery code: the drive is frozen until the lockdown's notice ends.
     LockdownPending,
-    /// The operator froze it (a move between blocks, `azctl bucket set`).
+    /// The operator froze it (`azctl bucket set`).
     Operator,
     /// Unpaid past its read-only time: the drive is locked. Nothing is read or written any
     /// more, its files are moved to offline storage, and only its owner who proves it and pays
     /// gets it back ([`crate::ArchiveWire`]).
     Archived,
+    /// Its files are being moved (between blocks, to other disks): its owner's deletes go on,
+    /// other writes wait until the move is done.
+    Moving,
     /// A reason this build does not know: a newer service wrote it. Never written.
     #[serde(other)]
     Unknown,
@@ -29,11 +34,12 @@ pub enum ReadOnlyWhy {
 
 impl ReadOnlyWhy {
     /// Every reason a service writes ([`ReadOnlyWhy::Unknown`] is not one).
-    pub const ALL: [ReadOnlyWhy; 4] = [
+    pub const ALL: [ReadOnlyWhy; 5] = [
         ReadOnlyWhy::Unpaid,
         ReadOnlyWhy::LockdownPending,
         ReadOnlyWhy::Operator,
         ReadOnlyWhy::Archived,
+        ReadOnlyWhy::Moving,
     ];
 
     /// The reason as the wire and the bucket row write it.
@@ -44,6 +50,7 @@ impl ReadOnlyWhy {
             ReadOnlyWhy::LockdownPending => "lockdown_pending",
             ReadOnlyWhy::Operator => "operator",
             ReadOnlyWhy::Archived => "archived",
+            ReadOnlyWhy::Moving => "moving",
             ReadOnlyWhy::Unknown => "unknown",
         }
     }
@@ -71,6 +78,7 @@ impl ReadOnlyWhy {
             ReadOnlyWhy::LockdownPending => AzlinError::ReadOnlyLockdown,
             ReadOnlyWhy::Operator | ReadOnlyWhy::Unknown => AzlinError::ReadOnlyOperator,
             ReadOnlyWhy::Archived => AzlinError::DriveArchived,
+            ReadOnlyWhy::Moving => AzlinError::ReadOnlyMoving,
         }
     }
 
@@ -80,6 +88,79 @@ impl ReadOnlyWhy {
     pub fn blocks_reads(self) -> bool {
         self == ReadOnlyWhy::Archived
     }
+}
+
+/// What a request does to a drive's bucket, as the states of a drive tell requests apart.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum BucketOp {
+    /// GetObject, HeadObject, a listing.
+    Read,
+    /// PutObject, CopyObject, a multipart upload's create, parts and complete.
+    Write,
+    /// The owner's DeleteObject, DeleteObjects and a multipart upload's abort.
+    Delete,
+    /// A presigned link that lets someone else read.
+    Link,
+}
+
+/// A drive's state as its bucket sees it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum DriveAccess {
+    /// Paid and in good standing.
+    Writable,
+    /// It takes no writes, for this reason.
+    ReadOnly(ReadOnlyWhy),
+    /// Banned, within its grace: its files can be read and copied, nothing else.
+    Banned,
+    /// Banned past its grace: nothing at all.
+    Closed,
+}
+
+impl DriveAccess {
+    /// Whether a drive in this state takes `op`. This is the one table of it: the nodes refuse
+    /// by it, and the apps' windows and syncs offer and send by it. A freeze keeps the owner's
+    /// deletes (an unpaid drive, the operator's hold, a move), a pending lockdown takes no
+    /// change, and a reason this build does not know is taken as reads only.
+    #[must_use]
+    pub const fn permits(self, op: BucketOp) -> bool {
+        // (reads, writes, deletes, links)
+        let (read, write, delete, link) = match self {
+            DriveAccess::Writable => (true, true, true, true),
+            DriveAccess::ReadOnly(
+                ReadOnlyWhy::Unpaid | ReadOnlyWhy::Operator | ReadOnlyWhy::Moving,
+            ) => (true, false, true, true),
+            DriveAccess::ReadOnly(ReadOnlyWhy::LockdownPending | ReadOnlyWhy::Unknown) => {
+                (true, false, false, true)
+            }
+            DriveAccess::ReadOnly(ReadOnlyWhy::Archived) | DriveAccess::Closed => {
+                (false, false, false, false)
+            }
+            DriveAccess::Banned => (true, false, false, false),
+        };
+        match op {
+            BucketOp::Read => read,
+            BucketOp::Write => write,
+            BucketOp::Delete => delete,
+            BucketOp::Link => link,
+        }
+    }
+}
+
+/// The user metadata names the service keeps for itself (`x-amz-meta-azlin-...`): never a
+/// file's own metadata, never shown or synced as one.
+pub const SERVICE_METADATA_PREFIX: &str = "x-amz-meta-azlin-";
+
+/// The marker a node puts on an object it moved, on GET and HEAD.
+pub const MOVED_HEADER: &str = "x-amz-meta-azlin-moved";
+
+/// Whether the header `name` is the service's own metadata ([`SERVICE_METADATA_PREFIX`]), in
+/// any letter case.
+#[must_use]
+pub fn is_service_metadata(name: &str) -> bool {
+    name.len() >= SERVICE_METADATA_PREFIX.len()
+        && name
+            .get(..SERVICE_METADATA_PREFIX.len())
+            .is_some_and(|start| start.eq_ignore_ascii_case(SERVICE_METADATA_PREFIX))
 }
 
 /// The header a client names the epoch of the cluster map it knows in (`x-azlin-map: 7`), and

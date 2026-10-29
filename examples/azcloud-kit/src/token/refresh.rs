@@ -46,13 +46,34 @@ impl DriveStatus {
     }
 
     /// Whether the drive takes no writes because a payment is due (not a recovery's freeze, an
-    /// operator's, a ban).
+    /// operator's, a move's, a ban).
     #[must_use]
     pub fn payment_due(&self) -> bool {
-        self.read_only
-            && self.ban.is_none()
-            && self.archive.is_none()
-            && matches!(self.read_only_why, None | Some(azlin_contract::ReadOnlyWhy::Unpaid))
+        // the ban's grace does not matter here: a banned drive is never a payment due
+        self.access(0) == azlin_contract::DriveAccess::ReadOnly(azlin_contract::ReadOnlyWhy::Unpaid)
+    }
+
+    /// The drive's state in the contract's table at `now` (seconds since 1970): what it takes is
+    /// [`azlin_contract::DriveAccess::permits`]. A lock comes first, then a ban (closed once its
+    /// grace is over), then the reason it takes no writes - a server of before names none, and
+    /// then read-only was a payment due.
+    #[must_use]
+    pub fn access(&self, now: u64) -> azlin_contract::DriveAccess {
+        use azlin_contract::{DriveAccess, ReadOnlyWhy};
+        if self.archive.is_some() {
+            return DriveAccess::ReadOnly(ReadOnlyWhy::Archived);
+        }
+        if let Some(ban) = &self.ban {
+            return if ban.is_closed(now) {
+                DriveAccess::Closed
+            } else {
+                DriveAccess::Banned
+            };
+        }
+        if self.read_only {
+            return DriveAccess::ReadOnly(self.read_only_why.unwrap_or(ReadOnlyWhy::Unpaid));
+        }
+        DriveAccess::Writable
     }
 }
 

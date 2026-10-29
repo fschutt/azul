@@ -17,8 +17,9 @@
 //! - [`RefreshRefusal`]: how the token server refuses a refresh, and whether the token was spent.
 //! - A paid checkout's period tokens: their [`IssueSchedule`] (one instalment a month,
 //!   [`INSTALMENT_SECS`]), the [`IssueAnswer`] and the [`IssueRefusal`]s, final or not.
-//! - [`ReadOnlyWhy`]: why a drive takes no writes, each reason with its node code; the cluster
-//!   map's epoch in [`MAP_HEADER`].
+//! - [`ReadOnlyWhy`]: why a drive takes no writes, each reason with its node code; what each
+//!   state of a drive takes ([`DriveAccess::permits`]); the service's own object metadata
+//!   ([`MOVED_HEADER`]); the cluster map's epoch in [`MAP_HEADER`].
 //! - A locked drive ([`ArchiveWire`]): unpaid past its read-only time, its files in one offline
 //!   copy ([`unpaid_promise`]); its owner gets it back with a signed [`ArchiveProof`] of an [`ArchiveChallenge`]
 //!   (its [`archive_statement`])
@@ -61,7 +62,10 @@ pub use idempotency::{
     IdempotencyKey, IdempotentScope, ALREADY_ANSWERED, IDEMPOTENCY_HEADER, IDEMPOTENCY_REQUIRED,
 };
 pub use period::{IssueAnswer, IssueRefusal, IssueSchedule, INSTALMENT_SECS};
-pub use read_only::{map_epoch, ReadOnlyWhy, MAP_HEADER};
+pub use read_only::{
+    is_service_metadata, map_epoch, BucketOp, DriveAccess, ReadOnlyWhy, MAP_HEADER, MOVED_HEADER,
+    SERVICE_METADATA_PREFIX,
+};
 pub use refresh::{BanWire, RefreshRefusal};
 pub use renewal::{
     expiry, GrantKind, GrantWire, RedeemAnswer, RedeemRefusal, RenewalSignup, CHANGE_AHEAD_SECS,

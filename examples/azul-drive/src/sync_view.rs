@@ -650,6 +650,10 @@ pub(crate) fn drive_status(s: &DriveState, drive_id: &str) -> Option<Text> {
     if let Some(said) = crate::archive::sync_status(s, drive_id) {
         return Some(Text::from(said));
     }
+    // Another state that takes neither writes nor deletes (a pending lockdown).
+    if let Some(said) = crate::access::sync_status(s, drive_id) {
+        return Some(Text::from(said));
+    }
     // Its keys wait for the user's Unlock: no pass reads them.
     if crate::unlock::waits_for_user(s, drive_id) {
         return Some(Text::key(crate::unlock::WAIT_STATUS));

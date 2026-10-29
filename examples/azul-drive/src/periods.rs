@@ -257,6 +257,8 @@ pub(crate) fn periods_redeemed(
             lockdown_seen(info, s, &drive_id, status.lockdown_pending_until);
             // A ban (ban contract v1): the banner and the refusals, or none any more.
             crate::ban::seen(s, &drive_id, status.ban.clone());
+            // What the drive takes now, for the window's refusals and the sync's passes.
+            crate::access::seen(s, &drive_id, status);
             // Unpaid or locked: the bar with what happens when, the locked page, or back.
             crate::archive::seen(info, s, &drive_id, status);
             // A synced drive's status line says "Read-only (payment due)" by this word: only

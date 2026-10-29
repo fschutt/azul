@@ -136,6 +136,12 @@ azdrive-why-open-folder = Öffne zuerst einen Ordner eines Laufwerks.
 azdrive-why-open-and-select = Öffne zuerst einen Ordner und wähle Elemente aus.
 azdrive-why-select = Wähle zuerst ein oder mehrere Elemente aus.
 azdrive-why-pin-folder = Öffne einen Ordner, um ihn an den Schnellzugriff anzuheften.
+azdrive-why-unpaid = Dieses Laufwerk ist schreibgeschützt, bis es bezahlt ist: Seine Dateien lassen sich weiter lesen, kopieren und löschen.
+azdrive-why-frozen = Azlin Storage hat dieses Laufwerk vorübergehend schreibgeschützt: Seine Dateien lassen sich weiter lesen, kopieren und löschen.
+azdrive-why-frozen-unknown = Dieses Laufwerk ist vorübergehend schreibgeschützt: Seine Dateien lassen sich weiter lesen und kopieren.
+azdrive-why-lockdown = Dieses Laufwerk nimmt keine Änderungen an, solange die Sperrung mit seinem Wiederherstellungscode aussteht.
+azdrive-why-archived = Dieses Laufwerk ist gesperrt: Weise nach, dass es dir gehört, und bezahle es, um es zurückzubekommen.
+azdrive-why-banned = Dieses Laufwerk ist gesperrt: Seine Dateien lassen sich nur noch lesen und kopieren.
 azdrive-why-nothing-to-paste = Nichts zum Einfügen: Kopiere oder schneide zuerst etwas aus.
 azdrive-why-rename-one = Wähle genau ein Element zum Umbenennen aus.
 azdrive-why-one-folder = Wähle einen Ordner, um ihn in einem neuen Tab zu öffnen.
@@ -557,6 +563,7 @@ azdrive-sync-status-mass-delete = Wartet auf dich: { $count ->
        *[other] { $count } Dateien würden
     } gelöscht
 azdrive-sync-status-read-only = Schreibgeschützt
+azdrive-sync-status-lockdown = Pausiert: Die Sperrung mit dem Wiederherstellungscode steht aus
 azdrive-sync-status-syncing = Wird synchronisiert…
 azdrive-sync-status-syncing-files = { $count ->
         [one] Eine Datei wird
