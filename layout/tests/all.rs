@@ -1369,3 +1369,5 @@ mod a_line_beside_a_hole_breaks_on_each_side_of_it;
 mod a_floats_shape_outside_shapes_the_text_beside_it;
 #[path = "a_shape_margin_grows_the_float_area.rs"]
 mod a_shape_margin_grows_the_float_area;
+#[path = "a_text_column_keeps_off_the_exclusions_in_it.rs"]
+mod a_text_column_keeps_off_the_exclusions_in_it;
