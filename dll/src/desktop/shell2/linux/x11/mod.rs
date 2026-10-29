@@ -8708,7 +8708,7 @@ impl X11Window {
         let mut menu_options = crate::desktop::menu::show_menu(
             menu.clone(),
             self.common.system_style.clone(),
-            self.screen_mapping(),
+            Some(self.screen_mapping()),
             anchor,         // The node the menu was opened for (drives min-width)
             Some(position), // Position for menu
             None,           // No parent menu

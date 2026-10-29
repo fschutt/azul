@@ -1614,7 +1614,7 @@ impl MacOSWindow {
         let menu_options = crate::desktop::menu::show_menu(
             menu.clone(),
             self.common.system_style.clone(),
-            self.screen_mapping(),
+            Some(self.screen_mapping()),
             None,           // No trigger rect for context menus (they spawn at cursor)
             Some(position), // Cursor position for menu positioning
             None,           // No parent menu

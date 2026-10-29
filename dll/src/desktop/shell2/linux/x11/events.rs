@@ -1593,7 +1593,7 @@ impl X11Window {
         let mut menu_options = crate::desktop::menu::show_menu(
             menu.clone(),
             self.resources.system_style.clone(),
-            self.screen_mapping(),
+            Some(self.screen_mapping()),
             None,           // No trigger rect for context menus
             Some(position), // Cursor position
             None,                  // No parent menu

@@ -151,26 +151,30 @@ extern "C" fn submenu_hover_callback(mut data: RefAny, mut info: CallbackInfo) -
 
     // The submenu opens from THIS menu window: `item_rect` is in its logical
     // px, its content starts at its own position on the screen, and it lies on
-    // the screen at the scale of the window that opened the chain.
-    let scale = parent_menu_data.opener.scale;
-    let opener = match info.get_current_window_state().position {
-        WindowPosition::Initialized(pos) => azul_layout::placement::WindowToScreen::new(
-            azul_layout::placement::ScreenPoint::of_window_position(pos),
-            scale,
-        ),
-        #[allow(clippy::cast_precision_loss)] // screen units
-        WindowPosition::RelativeToParentWindow(offset) => {
-            let origin = parent_menu_data.opener.content_origin;
-            azul_layout::placement::WindowToScreen::new(
-                azul_layout::placement::ScreenPoint::new(
-                    origin.x + offset.x as f32,
-                    origin.y + offset.y as f32,
-                ),
+    // the screen at the scale of the window that opened the chain. Without a
+    // screen (Wayland) there is nothing to map: the submenu opens on the menu's
+    // surface, where the compositor places it against the item.
+    let opener = parent_menu_data.opener.map(|chain_opener| {
+        let scale = chain_opener.scale;
+        match info.get_current_window_state().position {
+            WindowPosition::Initialized(pos) => azul_layout::placement::WindowToScreen::new(
+                azul_layout::placement::ScreenPoint::of_window_position(pos),
                 scale,
-            )
+            ),
+            #[allow(clippy::cast_precision_loss)] // screen units
+            WindowPosition::RelativeToParentWindow(offset) => {
+                let origin = chain_opener.content_origin;
+                azul_layout::placement::WindowToScreen::new(
+                    azul_layout::placement::ScreenPoint::new(
+                        origin.x + offset.x as f32,
+                        origin.y + offset.y as f32,
+                    ),
+                    scale,
+                )
+            }
+            WindowPosition::Uninitialized => chain_opener,
         }
-        WindowPosition::Uninitialized => parent_menu_data.opener,
-    };
+    });
 
     // Create submenu using the menu item's children
     let submenu = Menu {
@@ -1436,10 +1440,10 @@ mod menu_metrics_tests {
         RefAny::new(MenuWindowData {
             menu: menu_of(vec![]),
             system_style: Arc::new(defaults::kde_breeze_light()),
-            opener: azul_layout::placement::WindowToScreen::new(
+            opener: Some(azul_layout::placement::WindowToScreen::new(
                 azul_layout::placement::ScreenPoint::new(0.0, 0.0),
                 1.0,
-            ),
+            )),
             trigger_rect: None,
             cursor_position: None,
             parent_menu_id: None,
