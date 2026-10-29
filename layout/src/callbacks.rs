@@ -9953,6 +9953,11 @@ mod autotest_generated {
                 position.y,
                 cursor.y
             );
+            assert_eq!(
+                anchor.origin, cursor,
+                "the box the tooltip must not cover starts at the pointer, so a tooltip with no \
+                 room below flips above the pointer, not above the point below it"
+            );
         });
     }
 

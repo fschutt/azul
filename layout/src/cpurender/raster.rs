@@ -6952,6 +6952,28 @@ pub fn render_pages(
     Ok(picture)
 }
 
+/// Where `text` breaks into lines no wider than `max_width`, given the advance of
+/// each character: the byte range of every line. Lines break at spaces, which the
+/// break swallows, and at newlines; a word longer than a whole line breaks between its
+/// characters. Text that is not a tooltip's is laid out by `text3`; a tooltip's text is
+/// drawn by the shells that have no text drawing of their own (Wayland, X11), and this
+/// is the one place its lines are broken.
+#[must_use]
+pub fn wrap_text_lines(
+    text: &str,
+    max_width: f32,
+    advance: impl Fn(char) -> f32,
+) -> Vec<core::ops::Range<usize>> {
+    let _ = (max_width, &advance);
+    let mut lines = Vec::new();
+    let mut offset = 0;
+    for paragraph in text.split('\n') {
+        lines.push(offset..offset + paragraph.len());
+        offset += paragraph.len() + 1;
+    }
+    lines
+}
+
 /// Render a short single-line string into a freshly allocated [`AzulPixmap`].
 ///
 /// Shapes + rasterizes the glyphs (e.g. a tooltip label) through the same CPU
@@ -7090,6 +7112,52 @@ pub fn render_text_run_to_pixmap(
     render_display_list(&dl, &mut pixmap, dpi_factor, &rr, &fm, &mut gc).ok()?;
 
     Some(pixmap)
+}
+
+#[cfg(test)]
+mod wrap_tests {
+    use super::wrap_text_lines;
+
+    /// Every character ten wide, spaces too.
+    fn ten(_: char) -> f32 {
+        10.0
+    }
+
+    fn lines_of(text: &str, max_width: f32) -> Vec<&str> {
+        wrap_text_lines(text, max_width, ten)
+            .into_iter()
+            .map(|range| &text[range])
+            .collect()
+    }
+
+    /// A tooltip longer than its maximum width wraps at spaces into lines no
+    /// wider than it, instead of running on in one line that is cut off.
+    #[test]
+    fn a_long_tooltip_wraps_at_its_maximum_width() {
+        let lines = lines_of("Select a file to move it", 100.0);
+        assert_eq!(lines, vec!["Select a", "file to", "move it"]);
+        assert!(
+            lines.iter().all(|line| line.chars().count() as f32 * 10.0 <= 100.0),
+            "no line is wider than the maximum: {lines:?}"
+        );
+    }
+
+    #[test]
+    fn a_word_longer_than_a_line_breaks_between_its_characters() {
+        assert_eq!(lines_of("abcdefghijkl", 50.0), vec!["abcde", "fghij", "kl"]);
+        assert_eq!(lines_of("go abcdefghijkl", 50.0), vec!["go", "abcde", "fghij", "kl"]);
+    }
+
+    #[test]
+    fn newlines_break_lines_and_short_text_stays_on_one() {
+        assert_eq!(lines_of("Open\r\nSave", 1000.0), vec!["Open", "Save"]);
+        assert_eq!(lines_of("Save", 1000.0), vec!["Save"]);
+        assert_eq!(lines_of("", 1000.0), vec![""], "empty text is one empty line");
+        assert_eq!(
+            lines_of("no limit at all", f32::INFINITY),
+            vec!["no limit at all"]
+        );
+    }
 }
 
 // ============================================================================
