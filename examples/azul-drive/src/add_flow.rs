@@ -1365,14 +1365,14 @@ pub(crate) fn surface_answered(
     app: &RefAny,
     s: &mut DriveState,
     serial: u64,
-    result: Result<azul_pay::Surface, String>,
+    result: Result<azul_pay::Surface, Text>,
 ) {
     if dialog_of(s, serial).is_none() {
         return;
     }
     let event = match result {
         Ok(surface) => Event::Switched(surface),
-        Err(why) => Event::SwitchFailed(l10n::t_label(&why)),
+        Err(why) => Event::SwitchFailed(l10n::t_text(&why)),
     };
     let _ = pay(info, app, s, event);
 }
@@ -1451,7 +1451,7 @@ pub(crate) fn checkout_started(
     app: &RefAny,
     s: &mut DriveState,
     serial: u64,
-    result: Result<Started, String>,
+    result: Result<Started, Text>,
 ) {
     let keyring = s.keyring.clone();
     if dialog_of(s, serial).is_none() {
@@ -1491,7 +1491,7 @@ pub(crate) fn checkout_started(
                     (None, None) => Event::CreateFailed(t("azdrive-add-no-surface")),
                 }
             }
-            Err(why) => Event::CreateFailed(l10n::t_label(&why)),
+            Err(why) => Event::CreateFailed(l10n::t_text(&why)),
         };
         let _ = pay(info, app, s, event);
         return;
@@ -1502,7 +1502,7 @@ pub(crate) fn checkout_started(
             d.step = BuyStep::Idle;
             d.notice = t_args(
                 "azdrive-add-pay-not-prepared",
-                &[("why", Arg::from(l10n::t_label(&why)))],
+                &[("why", Arg::from(l10n::t_text(&why)))],
             );
             return;
         }
@@ -1617,7 +1617,7 @@ pub(crate) fn bought(
     app: &RefAny,
     s: &mut DriveState,
     serial: u64,
-    result: Result<BoughtDrive, String>,
+    result: Result<BoughtDrive, Text>,
 ) {
     let token_url = s.token.url.clone().unwrap_or_default();
     let file_path = s.drives_file.clone();
@@ -1630,9 +1630,9 @@ pub(crate) fn bought(
         Err(why) => {
             if let Some(d) = dialog_of(s, serial) {
                 d.step = BuyStep::Idle;
-                d.notice = l10n::t_label(&why);
+                d.notice = l10n::t_text(&why);
             } else {
-                s.error(Phrase::new("azdrive-add-not-made").arg("why", l10n::t_label(&why)));
+                s.error(Phrase::new("azdrive-add-not-made").arg("why", l10n::t_text(&why)));
             }
             return;
         }

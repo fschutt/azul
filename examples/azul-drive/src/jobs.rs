@@ -682,12 +682,12 @@ pub(crate) enum Outcome {
     /// A development server's test drive (or why there is none).
     Bought {
         serial: u64,
-        result: Result<BoughtDrive, String>,
+        result: Result<BoughtDrive, Text>,
     },
     /// A checkout, on the keyring's list of unfinished checkouts (or why there is none).
     CheckoutStarted {
         serial: u64,
-        result: Result<Started, String>,
+        result: Result<Started, Text>,
     },
     /// Buy storage's payment options for the order `asked`: the offer's text (`None`: the
     /// token server has none).
@@ -699,7 +699,7 @@ pub(crate) enum Outcome {
     /// The checkout's next surface, checked (or why there is none).
     Surface {
         serial: u64,
-        result: Result<azul_pay::Surface, String>,
+        result: Result<azul_pay::Surface, Text>,
     },
     /// What the abandon of a checkout found.
     Abandoned {
@@ -2365,9 +2365,9 @@ fn start_checkout(
     keyring: &SharedKeyring,
     via: Option<&PayVia>,
     renew: Option<&RenewJob>,
-) -> Result<Started, String> {
+) -> Result<Started, Text> {
     let transport = AzulTransport::new(USER_AGENT);
-    let server = TokenServer::new(token_url, &transport).map_err(|e| e.to_string())?;
+    let server = TokenServer::new(token_url, &transport).map_err(|e| token_error_text(&e))?;
     // A renewal names the drive's price lock; without one (or with one the token server no
     // longer takes) it buys period tokens only, at today's price - the price the dialog shows.
     let lock = renew
@@ -2385,10 +2385,11 @@ fn start_checkout(
         Err(e) if lock.is_some() && lock_refused(&e) => {
             let (claim, checkout, answer) =
                 checkout_for(&server, tier, months, method, via, order_of(renew, None))
-                    .map_err(|e| e.to_string())?;
+                    .map_err(|e| token_error_text(&e))?;
             (claim, checkout, answer, None)
         }
-        Err(e) => return Err(e.to_string()),
+        // In the table's words: a busy token server says when the next try is.
+        Err(e) => return Err(token_error_text(&e)),
         Ok((claim, checkout, answer)) => (claim, checkout, answer, lock.map(|l| l.checkout_id)),
     };
     let mut kept = PendingCheckout::new(&checkout.checkout_id, &claim, tier, server.base(), name);
@@ -2399,6 +2400,7 @@ fn start_checkout(
         kept.renews = renews.unwrap_or_default();
     }
     finish_start(&server, keyring, tier, months, via, checkout, answer, kept)
+        .map_err(|why| crate::l10n::said(&why))
 }
 
 /// What a checkout buys: a new drive, or for a Renew order the drive's next months under
@@ -2534,23 +2536,25 @@ fn pick_up(keyring: &SharedKeyring, checkout: &PendingCheckout) -> Result<(), St
     pending::add(keyring, checkout).map_err(|e| e.to_string())
 }
 
-/// The checkout `checkout_id` on the surface `kind`, checked for `choice`.
+/// The checkout `checkout_id` on the surface `kind`, checked for `choice`. A refusal is said in
+/// the table's words (a method without that surface says so, a busy token server when to try
+/// again), never as the server's sentence.
 fn switch_surface(
     token_url: &str,
     checkout_id: &str,
     kind: SurfaceKind,
     choice: &Choice,
     look: &Look,
-) -> Result<azul_pay::Surface, String> {
+) -> Result<azul_pay::Surface, Text> {
     let transport = AzulTransport::new(USER_AGENT);
-    let server = TokenServer::new(token_url, &transport).map_err(|e| e.to_string())?;
+    let server = TokenServer::new(token_url, &transport).map_err(|e| token_error_text(&e))?;
     let answer = server
         .checkout_surface(checkout_id, kind.as_str())
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| token_error_text(&e))?;
     let surface = answer
         .get("surface")
-        .ok_or_else(|| String::from("azdrive-pay-err-no-surface"))?;
-    azul_pay::Surface::parse(surface, choice, look).map_err(|e| e.to_string())
+        .ok_or_else(|| Text::key("azdrive-pay-err-no-surface"))?;
+    azul_pay::Surface::parse(surface, choice, look).map_err(|e| Text::plain(e.to_string()))
 }
 
 /// The checkout `checkout_id` abandoned at the token server: off the keyring's list only when
@@ -3275,9 +3279,9 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
                 .and_then(|server| server.create_dev_drive(&name, &tier))
                 .map_err(|e| {
                     if e.is_checkout_only() {
-                        String::from("azdrive-add-checkout-only")
+                        Text::key("azdrive-add-checkout-only")
                     } else {
-                        e.to_string()
+                        token_error_text(&e)
                     }
                 })
                 // The session into the keyring under the drive's lock before anything uses it,
@@ -3661,7 +3665,7 @@ fn redeem_voucher(
                 },
                 None => Outcome::Bought {
                     serial,
-                    result: Err(e.to_string()),
+                    result: Err(token_error_text(&e)),
                 },
             }
         }
@@ -3702,8 +3706,8 @@ fn redeem_voucher(
                 },
             })
         }
-        Ok(VoucherRedeemed::Extended { .. }) => Err(String::from("azdrive-add-days-not-drive")),
-        Err(e) => Err(e.to_string()),
+        Ok(VoucherRedeemed::Extended { .. }) => Err(Text::key("azdrive-add-days-not-drive")),
+        Err(e) => Err(token_error_text(&e)),
     };
     Outcome::Bought { serial, result }
 }
