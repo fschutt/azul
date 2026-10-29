@@ -1370,7 +1370,7 @@ pub(crate) fn dialog_parts(dialog: &SyncDialog, s: &DriveState, app: &RefAny) ->
                         )
                         .with_child(restore_button(
                             app,
-                            Some(&item.key),
+                            Some(item.key.as_str()),
                             "azdrive-sync-trash-restore",
                             ids::sync_trash_restore(row),
                         )),
