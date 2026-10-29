@@ -115,17 +115,13 @@ fn a_signup_makes_the_drive_encrypted_before_anything_uses_it() {
     let dir = TempDir::new("azcloud-enc-signup");
     let state = StateDir::open(dir.path()).unwrap();
     let keys = MemoryKeyring::new();
-    let (account, code) = Account::signup(
-        &state,
-        TOKEN,
-        transports,
-        "100GB",
-        "Ann's drive",
-        None,
-        &keys,
-        cheap(),
-    )
-    .unwrap();
+    let made = crate::encryption::NewKeys {
+        keyring: &keys,
+        s3_endpoint: None,
+        kdf: cheap(),
+    };
+    let (account, code) =
+        Account::signup(&state, TOKEN, transports, "100GB", "Ann's drive", made).unwrap();
     assert!(s3.keys().iter().any(|k| k == ".azlin/keys/recovery.key"));
     assert_eq!(account.encryption_status(&keys).unwrap(), (true, true));
     assert!(!code.to_text().is_empty());

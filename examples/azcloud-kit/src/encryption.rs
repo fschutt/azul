@@ -51,7 +51,44 @@ use crate::{
     failover::{Failover, Node},
 };
 
+/// Where a new drive's keys go as it is made ([`Account::signup`]).
+pub struct NewKeys<'k> {
+    /// This device's keyring: the drive key and the device's member key.
+    pub keyring: &'k dyn KeyringStore,
+    /// The S3 endpoint its bucket is reached at (a configured `--s3-url`); `None`: the drive's
+    /// own.
+    pub s3_endpoint: Option<&'k str>,
+    /// The recovery code's key derivation.
+    pub kdf: RecoveryKdf,
+}
+
 impl Account {
+    /// Signs up for a drive of `tier` at the token server `token_url` (`POST /v1/drives`;
+    /// development servers), keeps it in `state`, and encrypts it before anything else can
+    /// touch it: a new drive key and recovery code, the recovery wrap and this device's member
+    /// wrap into its bucket, the keys into the keyring ([`Account::setup_encryption`]). Every
+    /// drive is encrypted as it is made. Returns the account and the recovery code, which is
+    /// stored nowhere: this is the one moment it can be shown.
+    ///
+    /// # Errors
+    ///
+    /// The token server's refusal, no answer, a file that cannot be written, the bucket's or
+    /// the keyring's refusal. A drive made whose keys could not be set up stays in `state`, and
+    /// takes no file until it is encrypted.
+    pub fn signup(
+        state: &crate::state::StateDir,
+        token_url: &str,
+        transports: crate::drive::TransportFactory,
+        tier: &str,
+        name: &str,
+        keys: NewKeys<'_>,
+    ) -> CloudResult<(Account, RecoveryCode)> {
+        let account = Account::sign_up_at_token_server(state, token_url, transports, tier, name)?
+            .with_s3_endpoint(keys.s3_endpoint);
+        let code = account.setup_encryption(keys.keyring, keys.kdf)?;
+        Ok((account, code))
+    }
+
     /// The drive's bucket as a plain S3 drive with the current credentials (no refresh: call
     /// [`Account::ensure_fresh`] first) - what the keys live in, below the encryption. Its
     /// requests go through the same failover as the drive's files: the nodes of the last

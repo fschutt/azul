@@ -435,13 +435,37 @@ impl std::fmt::Debug for Account {
 }
 
 impl Account {
-    /// Signs up for a drive of `tier` at the token server `token_url`
-    /// (`POST /v1/drives`; development servers) and keeps it in `state`.
+    /// Every drive is encrypted as it is made, and a build of the kit without encryption can
+    /// make no encrypted drive: it makes none, and asks no token server for one. (With the
+    /// feature `encryption` the sign-up sets up the drive's keys as it makes it.)
+    ///
+    /// # Errors
+    ///
+    /// Always: this build cannot encrypt a drive.
+    #[cfg(not(feature = "encryption"))]
+    pub fn signup(
+        _state: &StateDir,
+        _token_url: &str,
+        _transports: TransportFactory,
+        _tier: &str,
+        _name: &str,
+    ) -> CloudResult<Account> {
+        fail!(
+            "every Azlin drive is encrypted as it is made, and this build of azcloud-kit has no \
+             encryption (the feature `encryption`): it makes no drive"
+        )
+    }
+
+    /// The token server's half of a sign-up: a drive of `tier` at the token server `token_url`
+    /// (`POST /v1/drives`; development servers), kept in `state`, nothing in its bucket yet.
+    /// Only the sign-up that encrypts the drive at once hands it out (and the kit's tests of a
+    /// plain account).
     ///
     /// # Errors
     ///
     /// The server's refusal, no answer, or a file that cannot be written.
-    pub fn signup(
+    #[cfg(any(test, feature = "encryption"))]
+    pub(crate) fn sign_up_at_token_server(
         state: &StateDir,
         token_url: &str,
         transports: TransportFactory,

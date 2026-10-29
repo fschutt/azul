@@ -41,11 +41,10 @@ usage: azcloud [flags] <command> [arguments]
 commands:
   config                         the effective endpoints and folders, and where each value came
                                  from (a flag, the environment, the config file, a built-in default)
-  signup [--tier T] [--name N] [--recovery-out F] [--plaintext]
+  signup [--tier T] [--name N] [--recovery-out F]
                                  a new drive at the token server (dev servers: POST /v1/drives),
                                  encrypted as it is made: its RECOVERY CODE shows once (or goes
-                                 into F, readable by you only); --plaintext makes one like the
-                                 drives made before encryption (tests of those)
+                                 into F, readable by you only)
   invite [--member M] [--out F]  a join code for another device (a member token family of its own;
                                  it holds a secret: --out writes it to a file only you can read)
   join <code> | --code-file F | -   this device joins the drive of a code (- reads stdin)
@@ -159,7 +158,6 @@ const SWITCHES: &[&str] = &[
     "--allow-burst",
     "--azlin",
     "--yes",
-    "--plaintext",
     "--help",
     "-h",
     "--no-refresh",
@@ -190,6 +188,12 @@ impl Args {
             if arg == "--" {
                 only_positional = true;
                 continue;
+            }
+            // Every drive is encrypted as it is made: there is no plaintext one to ask for.
+            if arg == "--plaintext" {
+                return Err(String::from(
+                    "--plaintext is gone: every drive is encrypted as it is made",
+                ));
             }
             let (name, inline) = match arg.split_once('=') {
                 Some((name, value)) if name.starts_with("--") => {
@@ -369,13 +373,6 @@ fn cmd_config(settings: &Settings) -> Result<Output> {
     Ok((value, text))
 }
 
-/// Whether `signup` makes the new drive encrypted: always ("we always encrypt"), but for
-/// `--plaintext` - a drive like the ones made before encryption, for tests of those.
-#[cfg(feature = "encryption")]
-fn signup_encrypts(args: &Args) -> bool {
-    !args.on("--plaintext")
-}
-
 /// A new recovery code for the user, shown once: into the file `out` (readable by the user
 /// only) when there is one, else into the JSON and the text.
 #[cfg(feature = "encryption")]
@@ -416,18 +413,20 @@ fn cmd_signup(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
     let name = args.value("--name").unwrap_or("Azlin Storage");
     let token_url = settings.token_url()?;
     let token_source = settings.endpoints.get(Endpoint::Token).source.label();
-    let account = Account::signup(&state, token_url, net.transports.clone(), tier, name)?;
-    // "We always encrypt": the keys are made as the drive is (they reach the bucket where this
-    // run's S3 endpoint says).
+    // Encrypted as it is made: the keys reach the bucket where this run's S3 endpoint says. A
+    // build without encryption makes no drive (the kit refuses, saying why).
     #[cfg(feature = "encryption")]
-    let account = account.with_s3_endpoint(settings.endpoints.url(Endpoint::S3));
-    #[cfg(feature = "encryption")]
-    let recovery = if signup_encrypts(args) {
-        let kdf = azul_storage::crypto::keys::RecoveryKdf::fresh()?;
-        Some(account.setup_encryption(&state.secrets(), kdf)?)
-    } else {
-        None
+    let (account, recovery) = {
+        let secrets = state.secrets();
+        let keys = azcloud_kit::encryption::NewKeys {
+            keyring: &secrets,
+            s3_endpoint: settings.endpoints.url(Endpoint::S3),
+            kdf: azul_storage::crypto::keys::RecoveryKdf::fresh()?,
+        };
+        Account::signup(&state, token_url, net.transports.clone(), tier, name, keys)?
     };
+    #[cfg(not(feature = "encryption"))]
+    let account = Account::signup(&state, token_url, net.transports.clone(), tier, name)?;
     let r = account.record();
     #[allow(unused_mut)]
     let mut value = json!({
@@ -452,14 +451,9 @@ fn cmd_signup(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
     );
     #[cfg(feature = "encryption")]
     {
-        value["encrypted"] = json!(recovery.is_some());
-        match &recovery {
-            Some(code) => {
-                text.push_str("The drive is encrypted on this device.\n");
-                give_recovery_code(code, args.path("--recovery-out"), &mut value, &mut text)?;
-            }
-            None => text.push_str("The drive is NOT encrypted (--plaintext).\n"),
-        }
+        value["encrypted"] = json!(true);
+        text.push_str("The drive is encrypted on this device.\n");
+        give_recovery_code(&recovery, args.path("--recovery-out"), &mut value, &mut text)?;
     }
     Ok((value, text))
 }

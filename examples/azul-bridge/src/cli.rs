@@ -8,11 +8,10 @@
 //!        The settings (bridge.json) and, the first time, the bridge's password - printed once
 //!        (`AZUL_BRIDGE_PASSWORD <password>`), then kept in the secret store.
 //!   password   A new password, printed once; the old one stops working.
-//!   signup [--name NAME] [--tier TIER] [--plaintext]
+//!   signup [--name NAME] [--tier TIER]
 //!        A development drive of the bridge's own (development token servers only), encrypted as
 //!        it is made: its recovery code is printed once (`AZUL_BRIDGE_RECOVERY_CODE <code>`), the
-//!        keys kept in the secret store. `--plaintext` makes a drive like the ones made before
-//!        encryption (tests of those).
+//!        keys kept in the secret store.
 //!   join --code-file FILE
 //!        Joins a drive with a code from `azcloud invite` (a token family of the bridge's own).
 //!   serve [--imap-port N] [--smtp-port N] [--dav-port N] [--pim-port N] [--folder DIR | --memory]
@@ -94,21 +93,12 @@ pub struct Options {
     pub keyring: Option<String>,
     /// `autostart`'s `enable` / `disable` / `status`.
     pub action: Option<String>,
-    /// `signup --plaintext`: a drive like the ones made before encryption (tests of those).
-    pub plaintext: bool,
-}
-
-/// Whether `signup` makes the new drive encrypted: always ("we always encrypt"), but for
-/// `--plaintext`.
-#[must_use]
-pub fn signup_encrypts(options: &Options) -> bool {
-    !options.plaintext
 }
 
 /// The usage text.
 pub const USAGE: &str = "usage: azul-bridge [--state-dir DIR] [--token-url URL] [--s3-url URL] [--keyring os|file] \
      <init --address ADDR [--account ID] [--alias ADDR]... [--sending FILE] [--imap-port N] \
-     [--smtp-port N] [--dav-port N] [--pim-port N] | password | signup [--name NAME] [--tier TIER] [--plaintext] | \
+     [--smtp-port N] [--dav-port N] [--pim-port N] | password | signup [--name NAME] [--tier TIER] | \
      join --code-file FILE | autostart enable|disable|status | serve [--imap-port N] [--smtp-port N] [--dav-port N] \
      [--pim-port N] [--folder DIR | --memory] [--calendar-folder DIR] [--idle-poll SECS] | status>";
 
@@ -150,7 +140,12 @@ pub fn parse_args(args: &[String]) -> Result<Options, String> {
             "--folder" => options.folder = Some(PathBuf::from(value(&mut i, arg)?)),
             "--calendar-folder" => options.calendar_folder = Some(PathBuf::from(value(&mut i, arg)?)),
             "--memory" => options.memory = true,
-            "--plaintext" => options.plaintext = true,
+            // Every drive is encrypted as it is made: there is no plaintext one to ask for.
+            "--plaintext" => {
+                return Err(String::from(
+                    "--plaintext is gone: every drive is encrypted as it is made",
+                ))
+            }
             "--keyring" => options.keyring = Some(value(&mut i, arg)?),
             "--idle-poll" => {
                 let text = value(&mut i, arg)?;
@@ -345,20 +340,29 @@ pub fn run(options: &Options) -> Result<(), String> {
                 .unwrap_or_else(|| azcloud_kit::token::DEFAULT_TIER.to_string());
             let name = options.name.clone().unwrap_or_else(|| String::from("Azlin Bridge"));
             let transports = transports(&root_certs(options)?);
-            let account = Account::signup(&state_dir, &token_url, transports, &tier, &name)
-                .map_err(|e| e.to_string())?;
-            say(&format!("AZUL_BRIDGE_DRIVE {}", account.record().id));
-            // "We always encrypt": the keys as the drive is made (into the bucket at this run's
-            // S3 endpoint, the drive key and the bridge's member key into its secret store).
+            // Encrypted as it is made: the keys go into the bucket at this run's S3 endpoint,
+            // the drive key and the bridge's member key into its secret store. A build without
+            // encryption makes no drive (the kit refuses, saying why).
             #[cfg(feature = "encryption")]
-            if signup_encrypts(options) {
-                let account = account.with_s3_endpoint(endpoints(options).1.as_deref());
-                let kdf = azul_storage::crypto::keys::RecoveryKdf::fresh()
-                    .map_err(|e| e.to_string())?;
-                let code = account
-                    .setup_encryption(&*secrets, kdf)
-                    .map_err(|e| e.to_string())?;
+            {
+                let s3_url = endpoints(options).1;
+                let keys = azcloud_kit::encryption::NewKeys {
+                    keyring: &*secrets,
+                    s3_endpoint: s3_url.as_deref(),
+                    kdf: azul_storage::crypto::keys::RecoveryKdf::fresh()
+                        .map_err(|e| e.to_string())?,
+                };
+                let (account, code) =
+                    Account::signup(&state_dir, &token_url, transports, &tier, &name, keys)
+                        .map_err(|e| e.to_string())?;
+                say(&format!("AZUL_BRIDGE_DRIVE {}", account.record().id));
                 say(&format!("AZUL_BRIDGE_RECOVERY_CODE {}", code.to_text().as_str()));
+            }
+            #[cfg(not(feature = "encryption"))]
+            {
+                let account = Account::signup(&state_dir, &token_url, transports, &tier, &name)
+                    .map_err(|e| e.to_string())?;
+                say(&format!("AZUL_BRIDGE_DRIVE {}", account.record().id));
             }
             Ok(())
         }
