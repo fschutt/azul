@@ -11,8 +11,8 @@ use crate::time::{Deadline, DeadlineKind, Rfc3339};
 /// After its period ends a drive stays writable this long, then it turns read-only.
 pub const WRITABLE_GRACE_SECS: i64 = 14 * 86_400;
 /// A read-only drive is kept this long for its files to be copied. Then it is locked: nothing
-/// is read or written, its files are moved to offline storage, and paying again brings it back
-/// after some days ([`crate::ArchiveWire`]). Nothing is deleted.
+/// is read or written, its files are moved to one offline copy, and paying again brings them
+/// back after some days ([`crate::ArchiveWire`], [`crate::unpaid_promise`]).
 pub const READ_ONLY_SECS: i64 = 90 * 86_400;
 /// The reminders before each deadline of [`expiry`], in days.
 pub const REMIND_BEFORE_DAYS: [i64; 3] = [30, 7, 1];

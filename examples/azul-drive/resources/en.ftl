@@ -1466,8 +1466,8 @@ azdrive-ban-copy-folder = Azlin drive
 azdrive-ban-copy-everything = Copy everything to this computer…
 azdrive-ban-copy-title = Copy everything to this computer
 azdrive-ban-copy-not-opened = The drive could not be opened to copy its files.
-azdrive-archive-grace = "{ $drive }" was paid until { $paid }. It stays writable until { $read_only }, then it is read-only. On { $locked } it is locked: its files are moved to offline storage and come back only after payment, which can take some days. Renew it to keep it as it is.
-azdrive-archive-read-only = "{ $drive }" is read-only since { $read_only } because it is unpaid: its files can still be read and copied. On { $locked } it is locked: its files are moved to offline storage and come back only after payment, which can take some days. Renew it now, or keep a copy of your files on this computer.
+azdrive-archive-grace = "{ $drive }" was paid until { $paid }. It stays writable until { $read_only }, then it is read-only. On { $locked } it is locked: its files are moved to one offline copy and come back only after payment, which can take some days. Renew it to keep it as it is.
+azdrive-archive-read-only = "{ $drive }" is read-only since { $read_only } because it is unpaid: its files can still be read and copied. On { $locked } it is locked: its files are moved to one offline copy and come back only after payment, which can take some days. Renew it now, or keep a copy of your files on this computer.
 azdrive-archive-rescue-running = AzDrive is copying this drive's files to { $folder }: { $copied } of { $total } so far.
 azdrive-archive-rescue-done = Every file of this drive is copied to { $folder }.
 azdrive-archive-rescue-missing = { $missing ->
@@ -1476,7 +1476,7 @@ azdrive-archive-rescue-missing = { $missing ->
     } not copied to { $folder } yet ({ $names }). AzDrive tries again at its next look.
 azdrive-archive-rescue-no-space = This computer has too little free space to copy the drive: { $needed } needed, { $free } free. Free some space, or copy it elsewhere with "Copy everything to this computer".
 azdrive-archive-open-copy = Open the copy
-azdrive-archive-locked = "{ $drive }" was locked on { $locked } because it stayed unpaid for 104 days after { $paid }. Its files were moved to offline storage; nothing was deleted. To get it back, prove that it is yours and pay for the time it was kept for you ({ $months ->
+azdrive-archive-locked = "{ $drive }" was locked on { $locked } because it stayed unpaid since { $paid }: its files were moved to one offline copy. To get it back, prove that it is yours and pay for the time it was kept for you ({ $months ->
         [one] 1 month
        *[other] { $months } months
     }). Restoring it can take some days. Files you copied to this computer stay where they are.
@@ -1484,7 +1484,7 @@ azdrive-archive-locked-proven = "{ $drive }" is proven to be yours. It was locke
         [one] 1 month
        *[other] { $months } months
     } to get it back. Restoring it can take some days.
-azdrive-archive-restore-pending = Your payment arrived: "{ $drive }" is being brought back from offline storage. This can take some days; AzDrive opens it as soon as it is back.
+azdrive-archive-restore-pending = Your payment arrived: "{ $drive }" is being brought back from its offline copy. This can take some days; AzDrive opens it as soon as it is back.
 azdrive-archive-back = "{ $drive }" is back. Its files are where you left them.
 azdrive-archive-get-back = Get my drive back
 azdrive-archive-pay = Pay to get it back
@@ -1499,8 +1499,9 @@ azdrive-archive-not-paid = The payment for "{ $drive }" has not arrived yet: onc
 azdrive-archive-other-tier = This payment is for another size than "{ $drive }": a locked drive comes back in its own size; change it once the drive is back.
 azdrive-archive-code-title = Get "{ $name }" back
 azdrive-archive-code-why = This drive was locked because it stayed unpaid. Azlin keeps no name or address of anyone, so only the drive's recovery code proves that it is yours. Type it, then pay to get the drive back.
-azdrive-archive-sync-locked = Locked since { $locked }: its files are in offline storage, the ones here stay
-azdrive-archive-sync-restoring = Coming back from offline storage
+azdrive-archive-sync-locked = Locked since { $locked }: its files are in one offline copy, the ones here stay
+azdrive-archive-sync-restoring = Coming back from its offline copy
+azdrive-unpaid-promise = { $grace } days after the paid period ends, the drive becomes read-only. { $read_only } days after that (day { $lock }), it is locked and its files are moved to one offline copy. Paying restores them.
 azdrive-usage-available = { $about ->
         [yes] about { $size } available
        *[no] { $size } available
@@ -1682,7 +1683,7 @@ azdrive-add-tier-closed = { $tier } is sold out for now.
 azdrive-renew = Renew
 azdrive-renew-period-end = "{ $drive }" is paid until { $at }. Renew it to keep writing to it after that.
 azdrive-renew-read-only = "{ $drive }" turns read-only on { $at } unless it is renewed. Its files stay readable.
-azdrive-renew-closing = "{ $drive }" is locked on { $at } unless it is renewed: its files are then moved to offline storage and come back only after payment, which can take some days. Copy what you need, or renew it now.
+azdrive-renew-closing = "{ $drive }" is locked on { $at } unless it is renewed: its files are then moved to one offline copy and come back only after payment, which can take some days. Copy what you need, or renew it now.
 azdrive-months-renewed = { $months ->
         [one] 1 month was
        *[other] { $months } months were

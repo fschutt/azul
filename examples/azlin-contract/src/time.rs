@@ -190,8 +190,8 @@ pub enum DeadlineKind {
     /// The paid period ends: the drive turns read-only after it.
     PeriodEnd,
     /// The read-only time of an unpaid drive ends: it is locked then - nothing is read or
-    /// written any more - and its files are moved to offline storage. Nothing is deleted:
-    /// paying again brings the drive back to its owner, which can take some days.
+    /// written any more - and its files are moved to one offline copy. Paying again brings the
+    /// drive back to its owner, which can take some days.
     ReadOnlyEnd,
     /// A paid drive can be picked up until then.
     ClaimWindow,

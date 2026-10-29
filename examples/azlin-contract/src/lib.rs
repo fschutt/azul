@@ -19,8 +19,8 @@
 //!   [`INSTALMENT_SECS`]), the [`IssueAnswer`] and the [`IssueRefusal`]s, final or not.
 //! - [`ReadOnlyWhy`]: why a drive takes no writes, each reason with its node code; the cluster
 //!   map's epoch in [`MAP_HEADER`].
-//! - A locked drive ([`ArchiveWire`]): unpaid past its read-only time, its files in offline
-//!   storage; its owner gets it back with a signed [`ArchiveProof`] of an [`ArchiveChallenge`]
+//! - A locked drive ([`ArchiveWire`]): unpaid past its read-only time, its files in one offline
+//!   copy ([`unpaid_promise`]); its owner gets it back with a signed [`ArchiveProof`] of an [`ArchiveChallenge`]
 //!   (its [`archive_statement`])
 //!   and by paying the three months it was kept for them ([`RESTORE_OWED_SECS`]).
 //!
@@ -42,10 +42,10 @@ mod time;
 
 pub use archive::{
     archive_statement, device_key_statement, months_owed, paid_through, pay_through,
-    period_after_restore, ArchiveChallenge, ArchiveProof, ArchiveRefusal, ArchiveState,
-    ArchiveWire, DeviceKeyAnswer, DeviceKeyRegistration, ARCHIVE_CHALLENGE_SECS,
-    ARCHIVE_KEEP_SECS, ARCHIVE_STATEMENT_FORMAT, DEVICE_KEY_STATEMENT_FORMAT, LOCK_AFTER_SECS,
-    RESTORE_OWED_SECS,
+    period_after_restore, unpaid_promise, ArchiveChallenge, ArchiveProof, ArchiveRefusal,
+    ArchiveState, ArchiveWire, DeviceKeyAnswer, DeviceKeyRegistration, UnpaidDays,
+    ARCHIVE_CHALLENGE_SECS, ARCHIVE_STATEMENT_FORMAT, DEVICE_KEY_STATEMENT_FORMAT,
+    LOCK_AFTER_SECS, RESTORE_OWED_SECS, UNPAID_DAYS,
 };
 pub use checkout::{
     AbandonAnswer, AbandonWire, CheckoutAnswer, CheckoutRefusal, CheckoutStatusWire, DeclineWire,

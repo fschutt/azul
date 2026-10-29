@@ -301,6 +301,8 @@ pub const BAN_COPY: AzString = AzString::from_const_str("__azdrive_ban_copy");
 pub const BAN_CLOSED: AzString = AzString::from_const_str("__azdrive_ban_closed");
 pub const ARCHIVE_BAR: AzString = AzString::from_const_str("__azdrive_archive_bar");
 pub const ARCHIVE_TEXT: AzString = AzString::from_const_str("__azdrive_archive_text");
+/// The promise under it: what happens to an unpaid drive, by the contract's days.
+pub const ARCHIVE_PROMISE: AzString = AzString::from_const_str("__azdrive_archive_promise");
 pub const ARCHIVE_RESCUE: AzString = AzString::from_const_str("__azdrive_archive_rescue");
 pub const ARCHIVE_RENEW: AzString = AzString::from_const_str("__azdrive_archive_renew");
 pub const ARCHIVE_OPEN_COPY: AzString = AzString::from_const_str("__azdrive_archive_open_copy");

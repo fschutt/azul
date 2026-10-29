@@ -1,9 +1,9 @@
 //! An unpaid Azlin drive's last months in AzDrive, and its way back.
 //!
-//! After its paid period an Azlin drive stays writable for 14 days, then it is read-only for 90.
-//! Then it is locked: nothing is read or written any more, and its files move to offline
-//! storage until its owner proves the drive is theirs and pays. AzDrive says each step before it
-//! comes:
+//! After its paid period an Azlin drive stays writable, then it is read-only, then it is locked:
+//! nothing is read or written any more, and its files move to one offline copy until its owner
+//! proves the drive is theirs and pays (the contract's promise, [`promise_phrase`], with its
+//! days). AzDrive says each step before it comes:
 //! - while it is unpaid, a bar over the drive says exactly what happens when (the reminders 30,
 //!   7 and 1 days before each step are renewals.rs's);
 //! - while it is read-only, AzDrive copies every file of the drive to this computer, into
@@ -27,7 +27,8 @@ use std::{
 
 use azcloud_kit::{
     azlin_contract::{
-        months_owed, ArchiveState, ArchiveWire, LOCK_AFTER_SECS, WRITABLE_GRACE_SECS,
+        months_owed, ArchiveState, ArchiveWire, LOCK_AFTER_SECS, UNPAID_DAYS,
+        WRITABLE_GRACE_SECS,
     },
     DriveStatus, ProofAnswer, SharedKeyring, TokenError, TokenServer,
 };
@@ -127,6 +128,18 @@ fn day_of(at: u64) -> String {
 pub(crate) fn months_needed(wire: &ArchiveWire, period_until: Option<u64>) -> u32 {
     let until = period_until.and_then(|p| i64::try_from(p).ok()).unwrap_or(0);
     months_owed(until, wire.pay_through.unix())
+}
+
+/// The promise to an unpaid drive's owner (the contract's [`unpaid_promise`] in the window's
+/// language), its days from the contract.
+///
+/// [`unpaid_promise`]: azcloud_kit::azlin_contract::unpaid_promise
+#[must_use]
+pub(crate) fn promise_phrase() -> Phrase {
+    Phrase::new("azdrive-unpaid-promise")
+        .arg("grace", UNPAID_DAYS.grace)
+        .arg("read_only", UNPAID_DAYS.read_only)
+        .arg("lock", UNPAID_DAYS.lock)
 }
 
 /// What the bar over an unpaid drive `drive` says of `stage`: what happens when.
@@ -267,6 +280,11 @@ pub(crate) fn banner(s: &DriveState, app: &RefAny) -> Option<Dom> {
         .with_child(
             Dom::create_span_with_text(AzString::from(t_phrase(&stage_phrase(&name, stage))))
                 .with_id(ids::ARCHIVE_TEXT),
+        )
+        .with_child(
+            Dom::create_span_with_text(AzString::from(t_phrase(&promise_phrase())))
+                .with_id(ids::ARCHIVE_PROMISE)
+                .with_css("font-size: 12px; margin-top: 2px;"),
         );
     let rescue = s.rescues.get(&azlin_id);
     if let Some(phrase) = rescue.and_then(rescue_phrase) {
@@ -354,7 +372,12 @@ pub(crate) fn locked_view(s: &DriveState, app: &RefAny) -> Option<Dom> {
         )
         .with_child(
             Dom::create_span_with_text(AzString::from(t_phrase(&stage_phrase(&name, stage))))
-                .with_css("max-width: 560px; margin-bottom: 16px;"),
+                .with_css("max-width: 560px; margin-bottom: 8px;"),
+        )
+        .with_child(
+            Dom::create_span_with_text(AzString::from(t_phrase(&promise_phrase())))
+                .with_id(ids::ARCHIVE_PROMISE)
+                .with_css("max-width: 560px; margin-bottom: 16px; font-size: 12px;"),
         );
     if wire.state != ArchiveState::RestorePending {
         let mut row = Dom::create_div().with_css("display: flex; flex-direction: row;");

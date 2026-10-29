@@ -2,9 +2,9 @@
 //!
 //! An unpaid drive stays writable for [`crate::WRITABLE_GRACE_SECS`] after its period, then
 //! read-only for [`crate::READ_ONLY_SECS`]. After that it is locked: nothing is read or written
-//! any more, and an operator moves its files to offline storage (disks kept in a drawer, not
-//! the live servers). Nothing is deleted: the files stay there for [`ARCHIVE_KEEP_SECS`] at the
-//! least, and only a person reviews an archive after that.
+//! any more, and an operator moves its files to one offline copy (disks kept in a drawer, not
+//! the live servers). Paying restores them. That is the whole promise ([`unpaid_promise`]): no
+//! time of keeping the offline copy is promised.
 //!
 //! Its owner gets the drive back in two steps, in either order:
 //! - **Proof**: the drive holds no name or address of anyone, so the only way to know the
@@ -38,9 +38,40 @@ pub const LOCK_AFTER_SECS: i64 = WRITABLE_GRACE_SECS + READ_ONLY_SECS;
 /// [`crate::INSTALMENT_SECS`]) for the time it was kept for them unpaid.
 pub const RESTORE_OWED_SECS: i64 = 3 * crate::period::INSTALMENT_SECS;
 
-/// How long an archive is kept at the least: ten years. No age deletes an archive; after this
-/// an operator looks at it.
-pub const ARCHIVE_KEEP_SECS: i64 = 10 * 365 * 86_400;
+/// The unpaid timeline in whole days: writable for `grace` days after the paid period, then
+/// read-only for `read_only` days, locked on day `lock`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UnpaidDays {
+    pub grace: i64,
+    pub read_only: i64,
+    pub lock: i64,
+}
+
+/// [`UnpaidDays`] of the contract's constants (14, 90, 104).
+pub const UNPAID_DAYS: UnpaidDays = UnpaidDays {
+    grace: WRITABLE_GRACE_SECS / 86_400,
+    read_only: READ_ONLY_SECS / 86_400,
+    lock: LOCK_AFTER_SECS / 86_400,
+};
+
+/// The promise to an unpaid drive's owner, in the words every text that states it uses (the
+/// services' documents, the apps' messages), its days from the constants: "14 days after the
+/// paid period ends, the drive becomes read-only. 90 days after that (day 104), it is locked
+/// and its files are moved to one offline copy. Paying restores them." It names no time of
+/// keeping that copy.
+#[must_use]
+pub fn unpaid_promise() -> String {
+    let UnpaidDays {
+        grace,
+        read_only,
+        lock,
+    } = UNPAID_DAYS;
+    format!(
+        "{grace} days after the paid period ends, the drive becomes read-only. {read_only} days \
+         after that (day {lock}), it is locked and its files are moved to one offline copy. \
+         Paying restores them."
+    )
+}
 
 /// How long a challenge of [`ArchiveChallenge`] can be answered.
 pub const ARCHIVE_CHALLENGE_SECS: i64 = 300;
