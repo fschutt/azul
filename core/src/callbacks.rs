@@ -2278,6 +2278,18 @@ impl CoreCallbackData {
     }
 }
 
+impl crate::refany::RefAnyHolder for CoreCallbackData {
+    fn for_each_refany(&mut self, visit: &mut dyn FnMut(&mut RefAny)) {
+        visit(&mut self.refany);
+    }
+}
+
+impl crate::refany::RefAnyHolder for CoreImageCallback {
+    fn for_each_refany(&mut self, visit: &mut dyn FnMut(&mut RefAny)) {
+        visit(&mut self.refany);
+    }
+}
+
 impl_option!(
     CoreCallbackData,
     OptionCoreCallbackData,

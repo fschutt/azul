@@ -1705,6 +1705,109 @@ impl Drop for RefAny {
     }
 }
 
+/// Something that holds `RefAny`s a rebuild's dataset merge may leave behind.
+///
+/// A widget builds its dataset, its handlers' data, its views' data and its
+/// menus' data from clones of one `RefAny`. A rebuild that merges the fresh
+/// build's dataset with the one the window holds keeps one allocation and
+/// drops the other, and every clone of the dropped one has to point at the
+/// kept one ([`Repointing`]), or what holds it writes into a copy the app
+/// never reads. Every holder implements this, so one walk reaches them all.
+/// A binding's own callable (a callback's `ctx`) is no holder: it is never a
+/// node's data.
+pub trait RefAnyHolder {
+    /// Hands every `RefAny` it holds to `visit`, those of the holders in it
+    /// included.
+    fn for_each_refany(&mut self, visit: &mut dyn FnMut(&mut RefAny));
+}
+
+impl RefAnyHolder for RefAny {
+    fn for_each_refany(&mut self, visit: &mut dyn FnMut(&mut RefAny)) {
+        visit(self);
+    }
+}
+
+impl RefAnyHolder for OptionRefAny {
+    fn for_each_refany(&mut self, visit: &mut dyn FnMut(&mut RefAny)) {
+        if let Self::Some(refany) = self {
+            visit(refany);
+        }
+    }
+}
+
+/// The allocations a rebuild's dataset merges dropped, each with the dataset
+/// that took its place.
+///
+/// It keeps a clone of every dropped one: an allocation freed while the walk
+/// still compares against it could come back as the address of another
+/// `RefAny`, which would then be taken for a clone of it.
+#[derive(Debug, Default, Clone)]
+pub struct Repointing {
+    replaced: alloc::vec::Vec<(RefAny, RefAny)>,
+}
+
+impl Repointing {
+    /// Every clone of `dropped` is to point at `kept`: nothing to do when
+    /// the two share their allocation.
+    pub fn replace(&mut self, dropped: &RefAny, kept: &RefAny) {
+        let at = dropped.sharing_info.ptr;
+        if at == kept.sharing_info.ptr || self.dropped_at(at).is_some() {
+            return;
+        }
+        self.replaced.push((dropped.clone(), kept.clone()));
+    }
+
+    /// Whether no merge dropped an allocation.
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        self.replaced.is_empty()
+    }
+
+    /// Adds the allocations `other` replaced.
+    pub fn extend(&mut self, other: Self) {
+        for (dropped, kept) in other.replaced {
+            self.replace(&dropped, &kept);
+        }
+    }
+
+    /// Points every `RefAny` `holder` holds that is a clone of a dropped
+    /// allocation at the dataset that took its place.
+    pub fn repoint<H: RefAnyHolder + ?Sized>(&self, holder: &mut H) {
+        if self.replaced.is_empty() {
+            return;
+        }
+        holder.for_each_refany(&mut |refany| {
+            if let Some(kept) = self.kept_for(refany.sharing_info.ptr) {
+                *refany = kept.clone();
+            }
+        });
+    }
+
+    /// What replaced the dropped allocation at `at`, if one was.
+    fn dropped_at(&self, at: *const RefCountInner) -> Option<&RefAny> {
+        self.replaced
+            .iter()
+            .find(|(dropped, _)| dropped.sharing_info.ptr == at)
+            .map(|(_, kept)| kept)
+    }
+
+    /// What finally replaced the allocation at `at`: a dataset a later merge
+    /// of the same rebuild dropped in turn leads on to the one that replaced
+    /// it.
+    fn kept_for(&self, at: *const RefCountInner) -> Option<&RefAny> {
+        let mut kept = self.dropped_at(at)?;
+        // At most one step per merge, so merges that drop each other's
+        // datasets in a circle cannot loop.
+        for _ in 0..self.replaced.len() {
+            let Some(next) = self.dropped_at(kept.sharing_info.ptr) else {
+                break;
+            };
+            kept = next;
+        }
+        Some(kept)
+    }
+}
+
 #[cfg(test)]
 #[path = "refany_test.rs"]
 mod refany_test;

@@ -13536,6 +13536,10 @@ mod tests {
     // (`tests/dataset_merge_repoint.rs`).
     mod dataset_merge_repoint;
 
+    // Every holder of a node's data is re-pointed by a rebuild's merge
+    // (`tests/every_holder_of_a_nodes_data_is_repointed.rs`).
+    mod every_holder_of_a_nodes_data_is_repointed;
+
     // --- Video tiles: a new frame is an image CONTENT update ---------------
     //
     // A camera / decoder frame reaches its tile as `ChangeNodeImage` (the

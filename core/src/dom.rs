@@ -1374,6 +1374,22 @@ pub struct VirtualViewNode {
     pub refany: RefAny,
 }
 
+impl crate::refany::RefAnyHolder for VirtualViewNode {
+    fn for_each_refany(&mut self, visit: &mut dyn FnMut(&mut RefAny)) {
+        visit(&mut self.refany);
+    }
+}
+
+/// A node holds its `RefAny`s in its fields, each reached through its row of
+/// the table of a node's fields (`crate::layout_inputs::NodeField`).
+impl crate::refany::RefAnyHolder for NodeData {
+    fn for_each_refany(&mut self, visit: &mut dyn FnMut(&mut RefAny)) {
+        for field in crate::layout_inputs::NodeField::ALL {
+            field.for_each_refany(self, visit);
+        }
+    }
+}
+
 /// An enum that holds either a CSS ID or a class name as a string.
 #[repr(C, u8)]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -1872,6 +1888,11 @@ impl NodeData {
     pub(crate) fn extra_fields_mut(&mut self) -> &mut NodeDataExt {
         self.extra
             .get_or_insert_with(|| Box::new(NodeDataExt::default()))
+    }
+
+    /// The node's rarely used fields to change, `None` when it has none.
+    pub(crate) fn existing_extra_fields_mut(&mut self) -> Option<&mut NodeDataExt> {
+        self.extra.as_deref_mut()
     }
 }
 /// The double-drop guard. `NodeData` owns two `Box`es (`accessibility`,

@@ -25,6 +25,7 @@ use azul_css::AzString;
 use crate::{
     dom::{AttributeType, NodeData, NodeDataExt, NodeType, SvgNodeData, TabIndex},
     hash::DefaultHasher,
+    refany::{RefAny, RefAnyHolder},
     resources::DecodedImage,
 };
 
@@ -819,6 +820,87 @@ impl NodeField {
             | Self::Attributes
             | Self::SvgData
             | Self::Key
+            | Self::L10nKey
+            | Self::PartOfParent => {}
+        }
+    }
+
+    /// Hands every `RefAny` the field of `node` holds to `visit`: the data of
+    /// its handlers, of an image's callback and of a view, its dataset, its
+    /// menus' items' data, its presence animations' data. The rest holds
+    /// none, or only a binding's own callable (a merge callback's), which is
+    /// never a node's data.
+    pub fn for_each_refany(self, node: &mut NodeData, visit: &mut dyn FnMut(&mut RefAny)) {
+        match self {
+            Self::NodeType => {
+                // An image's callback is shared by the clones of its image:
+                // a new data makes a new image.
+                let Some(callback) = image_callback(node) else {
+                    return;
+                };
+                let (function, mut data) = (callback.callback.clone(), callback.refany.clone());
+                let before = data.sharing_info.ptr;
+                visit(&mut data);
+                if data.sharing_info.ptr != before {
+                    node.node_type = NodeType::Image(azul_css::css::BoxOrStatic::heap(
+                        crate::resources::ImageRef::callback(function, data),
+                    ));
+                }
+            }
+            Self::Callbacks => {
+                for callback in node.callbacks.as_mut() {
+                    callback.for_each_refany(visit);
+                }
+            }
+            Self::VirtualView => {
+                if let Some(view) = node
+                    .existing_extra_fields_mut()
+                    .and_then(|extra| extra.virtual_view.as_mut())
+                {
+                    view.for_each_refany(visit);
+                }
+            }
+            Self::Dataset => {
+                if let Some(dataset) = node
+                    .existing_extra_fields_mut()
+                    .and_then(|extra| extra.dataset.as_mut())
+                {
+                    visit(dataset);
+                }
+            }
+            Self::MenuBar => {
+                if let Some(menu) = node
+                    .existing_extra_fields_mut()
+                    .and_then(|extra| extra.menu_bar.as_mut())
+                {
+                    menu.for_each_refany(visit);
+                }
+            }
+            Self::ContextMenu => {
+                if let Some(menu) = node
+                    .existing_extra_fields_mut()
+                    .and_then(|extra| extra.context_menu.as_mut())
+                {
+                    menu.for_each_refany(visit);
+                }
+            }
+            Self::AnimationCallbacks => {
+                if let Some(extra) = node.existing_extra_fields_mut() {
+                    for function in &mut extra.animation_callbacks {
+                        function.for_each_refany(visit);
+                    }
+                }
+            }
+            Self::Style
+            | Self::Flags
+            | Self::Accessibility
+            | Self::FluentArgs
+            | Self::Attributes
+            | Self::SvgData
+            | Self::Key
+            | Self::Marker
+            | Self::DatasetMergeCallback
+            | Self::ComponentOrigin
             | Self::L10nKey
             | Self::PartOfParent => {}
         }

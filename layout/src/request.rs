@@ -99,11 +99,24 @@ impl core::fmt::Debug for PendingRequest {
 
 #[cfg(feature = "std")]
 mod queue {
+    use azul_core::refany::{RefAny, RefAnyHolder};
+
     use super::{CompletedRequest, PendingRequest};
 
     pub(super) struct RequestQueue {
         pub completed: Vec<CompletedRequest>,
         pub pending: Vec<PendingRequest>,
+    }
+
+    impl RefAnyHolder for RequestQueue {
+        fn for_each_refany(&mut self, visit: &mut dyn FnMut(&mut RefAny)) {
+            for request in &mut self.completed {
+                request.for_each_refany(visit);
+            }
+            for request in &mut self.pending {
+                request.for_each_refany(visit);
+            }
+        }
     }
 
     /// The runtime's queue: ONE for the process (the module doc says why).
@@ -146,6 +159,61 @@ mod queue {
     pub(super) fn with_queue<R>(f: impl FnOnce(&mut RequestQueue) -> R) -> R {
         REQUEST_QUEUE.with(|queue| f(&mut queue.borrow_mut()))
     }
+}
+
+impl azul_core::refany::RefAnyHolder for CompletedRequest {
+    fn for_each_refany(&mut self, visit: &mut dyn FnMut(&mut RefAny)) {
+        visit(&mut self.data);
+        visit(&mut self.result);
+    }
+}
+
+impl azul_core::refany::RefAnyHolder for PendingRequest {
+    fn for_each_refany(&mut self, visit: &mut dyn FnMut(&mut RefAny)) {
+        visit(&mut self.data);
+    }
+}
+
+/// Re-points a holder that lives outside any window, such as the
+/// subscriptions of an open database.
+pub type HolderWalk = fn(&azul_core::refany::Repointing);
+
+/// The walks registered with [`register_holder_walk`].
+#[cfg(feature = "std")]
+static HOLDER_WALKS: std::sync::Mutex<Vec<HolderWalk>> = std::sync::Mutex::new(Vec::new());
+
+/// Has every later re-pointing also run `walk`. Register a walk once: one
+/// registered twice runs twice.
+pub fn register_holder_walk(walk: HolderWalk) {
+    #[cfg(feature = "std")]
+    HOLDER_WALKS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .push(walk);
+    #[cfg(not(feature = "std"))]
+    let _ = walk;
+}
+
+/// Re-points what the runtime holds outside any window: the data of every
+/// request still waiting for its callback, and every registered holder.
+///
+/// A handler often hands a clone of its node's dataset to a request; when a
+/// rebuild merges that dataset away, the callback must still deliver into the
+/// one the app keeps.
+pub fn repoint_held_outside_windows(repointing: &azul_core::refany::Repointing) {
+    #[cfg(feature = "std")]
+    {
+        queue::with_queue(|queue| repointing.repoint(queue));
+        let walks = HOLDER_WALKS
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
+        for walk in walks {
+            walk(repointing);
+        }
+    }
+    #[cfg(not(feature = "std"))]
+    let _ = repointing;
 }
 
 /// Registers a request whose result is already known and returns its id.

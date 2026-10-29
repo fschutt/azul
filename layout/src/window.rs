@@ -37,7 +37,7 @@ use azul_core::{
     gl::OptionGlContextPtr,
     gpu::{GpuScrollbarOpacityEvent, GpuValueCache},
     hit_test::{DocumentId, ScrollPosition, ScrollbarHitId},
-    refany::{OptionRefAny, RefAny},
+    refany::{OptionRefAny, RefAny, RefAnyHolder, Repointing},
     resources::{
         BackgroundSlot, Epoch, FontKey, GlTextureCache, IdNamespace, ImageCache, ImageMask,
         ImageRef, ImageRefHash, OpacityKey, RendererResources, UpdateImageType,
@@ -999,6 +999,12 @@ pub struct DomLayoutResult {
     /// Mapping from scroll IDs to DOM `NodeIds` for hit testing
     /// This allows us to map `WebRender` scroll IDs back to DOM nodes
     pub scroll_id_to_node_id: HashMap<u64, NodeId>,
+}
+
+impl RefAnyHolder for DomLayoutResult {
+    fn for_each_refany(&mut self, visit: &mut dyn FnMut(&mut RefAny)) {
+        self.styled_dom.for_each_refany(visit);
+    }
 }
 
 /// Whether `result` - a view's document, laid out for its box - lays out the
@@ -2405,6 +2411,41 @@ pub struct LayoutWindow {
     /// Initialized from system language at startup, can be overridden
     #[cfg(feature = "icu")]
     pub icu_localizer: IcuLocalizerHandle,
+}
+
+/// What a window keeps that can hold a clone of a node's data: its laid-out
+/// trees, the trees still leaving, the animation tracks, the timers and
+/// threads its handlers started, the unmount handlers waiting to run and the
+/// nodes its views were last invoked for.
+impl RefAnyHolder for LayoutWindow {
+    fn for_each_refany(&mut self, visit: &mut dyn FnMut(&mut RefAny)) {
+        let results = self.layout_results.values_mut();
+        for result in results.chain(self.retired_child_results.values_mut()) {
+            result.for_each_refany(visit);
+        }
+        for (nodes, _) in self.previous_child_arenas.values_mut() {
+            for node in nodes {
+                node.for_each_refany(visit);
+            }
+        }
+        for zombie in &mut self.zombies {
+            zombie.for_each_refany(visit);
+        }
+        let views = self.view_tracks.values_mut().flat_map(BTreeMap::values_mut);
+        for track in self.live_tracks.values_mut().chain(views) {
+            track.for_each_refany(visit);
+        }
+        for timer in self.timers.values_mut().chain(self.unarmed_blink_timer.as_mut()) {
+            timer.for_each_refany(visit);
+        }
+        for thread in self.threads.values_mut() {
+            thread.for_each_refany(visit);
+        }
+        for (callback, _) in &mut self.pending_unmount_invocations {
+            callback.for_each_refany(visit);
+        }
+        self.virtual_view_manager.for_each_refany(visit);
+    }
 }
 
 /// One DOM's part of a focus move (`LayoutWindow::focus_change_per_dom`):
@@ -12171,6 +12212,22 @@ impl LayoutWindow {
         Some(child_dom_id)
     }
 
+    /// Points every clone of a dataset a rebuild's merge dropped at the one it
+    /// kept, wherever this window or the runtime holds it.
+    ///
+    /// A merge keeps one of two allocations: the fresh build's handlers then
+    /// hold the dropped one if the old dataset was kept, and the timers,
+    /// threads and requests started from the old tree hold it if the fresh
+    /// one was. Either way their writes would land where the app no longer
+    /// looks.
+    pub fn repoint_merged_datasets(&mut self, repointing: &Repointing) {
+        if repointing.is_empty() {
+            return;
+        }
+        repointing.repoint(self);
+        crate::request::repoint_held_outside_windows(repointing);
+    }
+
     /// Takes back the child result of the view whose child is `child`, when
     /// its callback built the DOM it built last (`fresh` equals the stored
     /// fingerprints on both tiers): the live result (a re-render within one
@@ -12192,11 +12249,11 @@ impl LayoutWindow {
             return false;
         }
         let shaped = |r: &DomLayoutResult| r.styled_dom.node_data.as_ref().len() == fresh.structure.len();
-        if let Some(live) = self.layout_results.get_mut(&child) {
+        let repointing = if let Some(live) = self.layout_results.get_mut(&child) {
             if !shaped(live) {
                 return false;
             }
-            azul_core::diff::adopt_fresh_payloads(live.styled_dom.node_data.as_mut(), transfers);
+            azul_core::diff::adopt_fresh_payloads(live.styled_dom.node_data.as_mut(), transfers)
         } else {
             let Some(mut retired) = self.retired_child_results.remove(&child) else {
                 return false;
@@ -12205,11 +12262,14 @@ impl LayoutWindow {
                 self.retired_child_results.insert(child, retired);
                 return false;
             }
-            azul_core::diff::adopt_fresh_payloads(retired.styled_dom.node_data.as_mut(), transfers);
+            let nodes = retired.styled_dom.node_data.as_mut();
+            let repointing = azul_core::diff::adopt_fresh_payloads(nodes, transfers);
             self.layout_results.insert(child, retired);
-        }
+            repointing
+        };
         // Nothing to reconcile against: the arena is the one it was.
         self.previous_child_arenas.remove(&child);
+        self.repoint_merged_datasets(&repointing);
         true
     }
 
@@ -16574,7 +16634,7 @@ impl LayoutWindow {
                     Some((m.old_node_id.index(), ds.clone()))
                 })
                 .collect();
-            azul_core::diff::transfer_states(
+            let repointing = azul_core::diff::transfer_states(
                 &mut old_node_data,
                 styled_dom.node_data.as_mut(),
                 &diff.node_moves,
@@ -16587,6 +16647,12 @@ impl LayoutWindow {
                     nd.set_dataset(OptionRefAny::Some(ds));
                 }
             }
+            // The old tree's handlers still run (an unmount's, a lost
+            // focus's), so they too hold what the merge kept.
+            for node in &mut old_node_data {
+                repointing.repoint(node);
+            }
+            self.repoint_merged_datasets(&repointing);
 
             if let Some(old) = self.layout_results.get(&dom_id) {
                 styled_dom.migrate_user_overrides_from(
@@ -33971,6 +34037,17 @@ pub struct Zombie {
     pub snapshot: core::cell::OnceCell<(u32, crate::cpurender::AzulPixmap)>,
 }
 
+/// A departing tree keeps its nodes' data until its exit animations settle,
+/// and its tracks keep their native functions' data.
+impl RefAnyHolder for Zombie {
+    fn for_each_refany(&mut self, visit: &mut dyn FnMut(&mut RefAny)) {
+        self.retained.for_each_refany(visit);
+        for track in self.tracks.values_mut() {
+            track.for_each_refany(visit);
+        }
+    }
+}
+
 impl Zombie {
     /// True once every exit it is waiting on has settled, i.e. it may be
     /// dropped. Checked against the live manager rather than a private timer so
@@ -34073,6 +34150,22 @@ pub struct AnimTrack {
     /// spinner scrolled back into view shows the right phase at once.
     /// `None` while the driver runs. See `LayoutWindow::park_culled_tracks`.
     pub parked_at: Option<Instant>,
+}
+
+/// A native animation function runs with its own data, which may be a clone
+/// of the node's dataset.
+impl RefAnyHolder for TrackSource {
+    fn for_each_refany(&mut self, visit: &mut dyn FnMut(&mut RefAny)) {
+        if let Self::Native { data, .. } = self {
+            visit(data);
+        }
+    }
+}
+
+impl RefAnyHolder for AnimTrack {
+    fn for_each_refany(&mut self, visit: &mut dyn FnMut(&mut RefAny)) {
+        self.source.for_each_refany(visit);
+    }
 }
 
 impl AnimTrack {
@@ -34453,6 +34546,12 @@ pub fn reverse_out_track(current: &TrackSample, out: &AnimTrack) -> AnimTrack {
 pub struct LiveTrack {
     pub node: NodeId,
     pub track: AnimTrack,
+}
+
+impl RefAnyHolder for LiveTrack {
+    fn for_each_refany(&mut self, visit: &mut dyn FnMut(&mut RefAny)) {
+        self.track.for_each_refany(visit);
+    }
 }
 
 #[cfg(feature = "cpurender")]

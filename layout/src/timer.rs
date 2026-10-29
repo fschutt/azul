@@ -141,6 +141,14 @@ pub struct Timer {
     pub callback: TimerCallback,
 }
 
+/// A timer started from a node's handler runs with that handler's data,
+/// often a clone of the node's dataset.
+impl azul_core::refany::RefAnyHolder for Timer {
+    fn for_each_refany(&mut self, visit: &mut dyn FnMut(&mut RefAny)) {
+        visit(&mut self.refany);
+    }
+}
+
 impl Timer {
     pub fn create<C: Into<TimerCallback>>(
         refany: RefAny,

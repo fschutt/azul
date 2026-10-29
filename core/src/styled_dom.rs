@@ -77,7 +77,7 @@ use crate::{
     },
     menu::Menu,
     prop_cache::{CssPropertyCache, CssPropertyCachePtr},
-    refany::RefAny,
+    refany::{RefAny, RefAnyHolder},
     resources::{Au, ImageCache, ImageRef, ImmediateFontId, RendererResources},
     style::{
         construct_html_cascade_tree, matches_html_element, rule_ends_with, CascadeInfo,
@@ -1087,6 +1087,14 @@ impl Default for StyledDom {
             nodes_with_datasets: Vec::new().into(),
             css_property_cache: CssPropertyCachePtr::new(CssPropertyCache::empty(1)),
             dom_id: DomId::ROOT_ID,
+        }
+    }
+}
+
+impl RefAnyHolder for StyledDom {
+    fn for_each_refany(&mut self, visit: &mut dyn FnMut(&mut RefAny)) {
+        for node in self.node_data.as_mut() {
+            node.for_each_refany(visit);
         }
     }
 }

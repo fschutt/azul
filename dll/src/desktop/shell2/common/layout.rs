@@ -765,7 +765,9 @@ pub fn regenerate_layout(
         // handlers got the fresh one rendered a state nothing wrote any
         // more), and the datasets merged as the full path merges them (an
         // identical rebuild must not reset a slider's drag).
-        azul_core::diff::adopt_fresh_payloads(retained.node_data.as_mut(), &transfers);
+        let repointing =
+            azul_core::diff::adopt_fresh_payloads(retained.node_data.as_mut(), &transfers);
+        layout_window.repoint_merged_datasets(&repointing);
 
         // Re-derive hover/focus/active flags from the managers. A state
         // delta concurrent with this RefreshDom must not be lost — but it

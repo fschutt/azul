@@ -38,7 +38,7 @@ use azul_core::{
         DbMergeCallback, DbRows, DbRowsResult, DbScope, DbSyncState, DbSyncStatus,
         DbSyncStatusResult, DbValue, DbValueResult, DbValueVec, OptionDbScope, OptionDbValue,
     },
-    refany::RefAny,
+    refany::{RefAny, RefAnyHolder, Repointing},
     task::RequestId,
 };
 use azul_css::{
@@ -102,6 +102,60 @@ struct DbState {
 /// syncs (`DbAutoSync`). Entries are weak: a dropped handle disappears on
 /// the next tick.
 static OPEN_DBS: Mutex<Vec<std::sync::Weak<Inner>>> = Mutex::new(Vec::new());
+
+/// Registers [`repoint_open_dbs`] with the runtime once, on the first open.
+static REPOINT_OPEN_DBS: std::sync::Once = std::sync::Once::new();
+
+impl RefAnyHolder for Subscription {
+    fn for_each_refany(&mut self, visit: &mut dyn FnMut(&mut RefAny)) {
+        visit(&mut self.data);
+    }
+}
+
+impl RefAnyHolder for StatusSubscription {
+    fn for_each_refany(&mut self, visit: &mut dyn FnMut(&mut RefAny)) {
+        visit(&mut self.data);
+    }
+}
+
+impl RefAnyHolder for MergeHook {
+    fn for_each_refany(&mut self, visit: &mut dyn FnMut(&mut RefAny)) {
+        visit(&mut self.data);
+    }
+}
+
+/// A handler often subscribes with a clone of its node's dataset.
+impl RefAnyHolder for DbState {
+    fn for_each_refany(&mut self, visit: &mut dyn FnMut(&mut RefAny)) {
+        for subscription in &mut self.subscriptions {
+            subscription.for_each_refany(visit);
+        }
+        for subscription in &mut self.status_subscriptions {
+            subscription.for_each_refany(visit);
+        }
+        for hook in &mut self.merge_hooks {
+            hook.for_each_refany(visit);
+        }
+    }
+}
+
+/// Points the data of every open store's subscriptions at what a rebuild's
+/// dataset merge kept, so a change is still delivered where the app looks.
+fn repoint_open_dbs(repointing: &Repointing) {
+    let live: Vec<Arc<Inner>> = OPEN_DBS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .iter()
+        .filter_map(std::sync::Weak::upgrade)
+        .collect();
+    for inner in live {
+        let mut state = inner
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        repointing.repoint(&mut *state);
+    }
+}
 
 /// Milliseconds of a `Duration` (ticks count as milliseconds on targets
 /// without a system clock).
@@ -366,6 +420,7 @@ impl Db {
 
     /// The synchronous half of [`Self::open`] (Rust-internal).
     pub fn open_blocking(config: DbConfig) -> Result<Db, DbError> {
+        REPOINT_OPEN_DBS.call_once(|| request::register_holder_walk(repoint_open_dbs));
         #[cfg(not(az_db_engine))]
         {
             announce_db_stub("Db::open");

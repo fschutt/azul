@@ -1503,9 +1503,10 @@ pub fn transfer_states(
     old_node_data: &mut [NodeData],
     new_node_data: &mut [NodeData],
     node_moves: &[NodeMove],
-) {
+) -> crate::refany::Repointing {
     use crate::refany::OptionRefAny;
 
+    let mut replaced = crate::refany::Repointing::default();
     for movement in node_moves {
         let old_idx = movement.old_node_id.index();
         let new_idx = movement.new_node_id.index();
@@ -1550,7 +1551,11 @@ pub fn transfer_states(
                 // empty clone (blank/grey tiles) while the live data sat in the
                 // dataset, and pan/zoom mutated yet a third copy. Identity = the
                 // shared `RefCountInner` pointer (`sharing_info.ptr`).
-                let orphan_alloc = new_data.sharing_info.ptr as usize;
+                let orphan = new_data.clone();
+                // The one before goes too when the merge keeps the fresh one:
+                // what still holds it (a timer, a thread started from the
+                // node) has to follow.
+                let held = old_data.clone();
 
                 // 3. EXECUTE THE MERGE CALLBACK
                 // The callback receives both datasets and returns the merged result
@@ -1601,7 +1606,11 @@ pub fn transfer_states(
                 // only re-pointed a VirtualView ON the merge node itself — the
                 // MapWidget puts its VirtualView in a CHILD and its pan/zoom
                 // callbacks on the parent, which that case missed.)
-                repoint_orphaned_refanys(new_node_data, orphan_alloc, &merged);
+                let mut merge = crate::refany::Repointing::default();
+                merge.replace(&orphan, &merged);
+                merge.replace(&held, &merged);
+                repoint_orphaned_refanys(new_node_data, &merge);
+                replaced.extend(merge);
             }
             (new_ds, old_ds) => {
                 // One or both datasets missing - restore what we had
@@ -1614,38 +1623,22 @@ pub fn transfer_states(
             }
         }
     }
+    replaced
 }
 
-/// Re-point every `RefAny` across `node_data` that is a clone of the
-/// allocation `orphan_alloc` (a dataset the merge discarded) at `merged`.
+/// Points every `RefAny` across `node_data` that is a clone of an allocation
+/// a merge dropped at the dataset that took its place (`replaced`).
 ///
-/// The whole widget then reads ONE state: `VirtualView` content refanys,
-/// event callback refanys and datasets cloned from the same source. The
-/// `MapWidget` puts its `VirtualView` in a CHILD and its pan/zoom callbacks
-/// on the parent, which is why this scans the whole arena and not just the
-/// merge node.
-fn repoint_orphaned_refanys(node_data: &mut [NodeData], orphan_alloc: usize, merged: &RefAny) {
-    use crate::refany::OptionRefAny;
-    if merged.sharing_info.ptr as usize == orphan_alloc {
-        return; // the merge kept the fresh allocation: nothing is orphaned
-    }
-    for nd in node_data.iter_mut() {
-        if let Some(vv) = nd.get_virtual_view_node() {
-            if vv.refany.sharing_info.ptr as usize == orphan_alloc {
-                vv.refany = merged.clone();
-            }
-        }
-        for cb in nd.callbacks.as_mut().iter_mut() {
-            if cb.refany.sharing_info.ptr as usize == orphan_alloc {
-                cb.refany = merged.clone();
-            }
-        }
-        let ds_is_orphan = nd
-            .get_dataset()
-            .is_some_and(|ds| ds.sharing_info.ptr as usize == orphan_alloc);
-        if ds_is_orphan {
-            nd.set_dataset(OptionRefAny::Some(merged.clone()));
-        }
+/// The whole widget then reads ONE state: whatever holds a clone, the walk
+/// reaches it through its node (`RefAnyHolder for NodeData`, the rows of the
+/// table of a node's fields): the handlers' data, an image's and a view's,
+/// the datasets, the menus' items, the presence animations. The `MapWidget`
+/// puts its `VirtualView` in a CHILD and its pan/zoom callbacks on the
+/// parent, which is why this scans the whole arena and not just the merge
+/// node.
+fn repoint_orphaned_refanys(node_data: &mut [NodeData], replaced: &crate::refany::Repointing) {
+    for node in node_data.iter_mut() {
+        replaced.repoint(node);
     }
 }
 
@@ -1667,8 +1660,12 @@ fn repoint_orphaned_refanys(node_data: &mut [NodeData], orphan_alloc: usize, mer
 /// retained DOM that was a clone of the fresh dataset at the result. Call it
 /// AFTER the fresh callbacks have been installed on `node_data`, once per
 /// fresh dataset, with `idx` the node's flattened index.
-pub fn merge_fresh_dataset(node_data: &mut [NodeData], idx: usize, fresh: RefAny) {
-    merge_fresh_datasets(node_data, alloc::vec![(idx, fresh)]);
+pub fn merge_fresh_dataset(
+    node_data: &mut [NodeData],
+    idx: usize,
+    fresh: RefAny,
+) -> crate::refany::Repointing {
+    merge_fresh_datasets(node_data, alloc::vec![(idx, fresh)])
 }
 
 /// [`merge_fresh_dataset`] for a whole build at once - what the pre-cascade
@@ -1684,8 +1681,13 @@ pub fn merge_fresh_dataset(node_data: &mut [NodeData], idx: usize, fresh: RefAny
 /// value into a copy nobody read. So, like [`transfer_states`]: install
 /// EVERY fresh dataset first, then run each merge callback and re-point the
 /// whole arena at its result.
-pub fn merge_fresh_datasets(node_data: &mut [NodeData], fresh: Vec<(usize, RefAny)>) {
+pub fn merge_fresh_datasets(
+    node_data: &mut [NodeData],
+    fresh: Vec<(usize, RefAny)>,
+) -> crate::refany::Repointing {
     use crate::refany::OptionRefAny;
+
+    let mut replaced = crate::refany::Repointing::default();
     // 1. Every fresh dataset goes in; what each node held is kept for its
     //    merge callback.
     let mut merges: Vec<(usize, usize, RefAny)> = Vec::new();
@@ -1718,10 +1720,16 @@ pub fn merge_fresh_datasets(node_data: &mut [NodeData], fresh: Vec<(usize, RefAn
             nd.set_dataset(OptionRefAny::Some(current));
             continue;
         }
+        let (fresh, held) = (current.clone(), old.clone());
         let merged_state = merge_callback.invoke(current, old);
         nd.set_dataset(OptionRefAny::Some(merged_state.clone()));
-        repoint_orphaned_refanys(node_data, fresh_alloc, &merged_state);
+        let mut merge = crate::refany::Repointing::default();
+        merge.replace(&fresh, &merged_state);
+        merge.replace(&held, &merged_state);
+        repoint_orphaned_refanys(node_data, &merge);
+        replaced.extend(merge);
     }
+    replaced
 }
 
 /// Puts a fresh build's payloads onto the retained arena of a DOM whose
@@ -1733,7 +1741,10 @@ pub fn merge_fresh_datasets(node_data: &mut [NodeData], fresh: Vec<(usize, RefAn
 /// datasets, merged as the full path's `transfer_states` merges them. The
 /// handlers and the views go in before the datasets, so a widget whose
 /// handlers and view share one `RefAny` stays one allocation.
-pub fn adopt_fresh_payloads(node_data: &mut [NodeData], transfers: &PreCascadeTransfers) {
+pub fn adopt_fresh_payloads(
+    node_data: &mut [NodeData],
+    transfers: &PreCascadeTransfers,
+) -> crate::refany::Repointing {
     use crate::layout_inputs::NodeField;
 
     for (idx, values) in &transfers.nodes {
@@ -1750,7 +1761,7 @@ pub fn adopt_fresh_payloads(node_data: &mut [NodeData], transfers: &PreCascadeTr
         .iter()
         .filter_map(|(idx, values)| Some((*idx, values.get_dataset()?.clone())))
         .collect();
-    merge_fresh_datasets(node_data, datasets);
+    merge_fresh_datasets(node_data, datasets)
 }
 
 /// Puts the values the table of a node's fields says are carried

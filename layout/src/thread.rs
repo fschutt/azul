@@ -537,6 +537,30 @@ impl Drop for Thread {
     }
 }
 
+/// A thread started from a node's handler writes its results back into that
+/// handler's data, often a clone of the node's dataset. The worker's own
+/// data went into the thread and is out of reach.
+impl azul_core::refany::RefAnyHolder for Thread {
+    fn for_each_refany(&mut self, visit: &mut dyn FnMut(&mut RefAny)) {
+        #[cfg(feature = "std")]
+        {
+            let mut inner = self
+                .ptr
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            visit(&mut inner.writeback_data);
+        }
+        #[cfg(not(feature = "std"))]
+        let _ = visit;
+    }
+}
+
+impl azul_core::refany::RefAnyHolder for ThreadInner {
+    fn for_each_refany(&mut self, visit: &mut dyn FnMut(&mut RefAny)) {
+        visit(&mut self.writeback_data);
+    }
+}
+
 impl Thread {
     #[cfg(feature = "std")]
     #[must_use]

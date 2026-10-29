@@ -19,7 +19,7 @@ use azul_css::AzString;
 
 use crate::{
     callbacks::{CoreCallback, CoreCallbackType},
-    refany::RefAny,
+    refany::{RefAny, RefAnyHolder},
     resources::ImageRef,
     window::{
         ContextMenuMouseButton, KeyboardState, OptionVirtualKeyCodeCombo, VirtualKeyCode,
@@ -493,6 +493,51 @@ impl_option!(
     copy = false,
     [Debug, Clone, PartialEq, PartialOrd, Hash, Eq, Ord]
 );
+
+impl RefAnyHolder for CoreMenuCallback {
+    fn for_each_refany(&mut self, visit: &mut dyn FnMut(&mut RefAny)) {
+        visit(&mut self.refany);
+    }
+}
+
+impl RefAnyHolder for StringMenuItem {
+    fn for_each_refany(&mut self, visit: &mut dyn FnMut(&mut RefAny)) {
+        if let OptionCoreMenuCallback::Some(callback) = &mut self.callback {
+            callback.for_each_refany(visit);
+        }
+        for_each_item_refany(&mut self.children, visit);
+    }
+}
+
+impl RefAnyHolder for MenuItem {
+    fn for_each_refany(&mut self, visit: &mut dyn FnMut(&mut RefAny)) {
+        match self {
+            Self::String(item) => item.for_each_refany(visit),
+            Self::Separator | Self::BreakLine => {}
+        }
+    }
+}
+
+impl RefAnyHolder for Menu {
+    fn for_each_refany(&mut self, visit: &mut dyn FnMut(&mut RefAny)) {
+        for_each_item_refany(&mut self.items, visit);
+    }
+}
+
+/// Hands the `RefAny`s of every item of `items` to `visit`. The items are
+/// taken out and put back (moved when the menu owns them, copied when they
+/// are a static list), so nothing static is written.
+fn for_each_item_refany(items: &mut MenuItemVec, visit: &mut dyn FnMut(&mut RefAny)) {
+    if items.as_ref().is_empty() {
+        return;
+    }
+    let mut owned = core::mem::replace(items, MenuItemVec::from_const_slice(&[]))
+        .into_library_owned_vec();
+    for item in &mut owned {
+        item.for_each_refany(visit);
+    }
+    *items = owned.into();
+}
 
 #[cfg(test)]
 #[path = "menu_test.rs"]

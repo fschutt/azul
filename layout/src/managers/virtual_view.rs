@@ -10,6 +10,7 @@ use azul_core::{
     callbacks::{EdgeType, VirtualViewCallbackReason},
     dom::{DomId, NodeId},
     geom::{LogicalPosition, LogicalRect, LogicalSize},
+    refany::{RefAny, RefAnyHolder},
 };
 
 use crate::managers::scroll_state::ScrollManager;
@@ -190,6 +191,24 @@ struct EdgeFlags {
     left: bool,
     /// Near right edge
     right: bool,
+}
+
+/// A view remembers the host node it was last invoked for, its data
+/// included, to tell whether the host still carries exactly that node.
+impl RefAnyHolder for VirtualViewManager {
+    fn for_each_refany(&mut self, visit: &mut dyn FnMut(&mut RefAny)) {
+        for state in self.states.values_mut() {
+            state.for_each_refany(visit);
+        }
+    }
+}
+
+impl RefAnyHolder for VirtualViewState {
+    fn for_each_refany(&mut self, visit: &mut dyn FnMut(&mut RefAny)) {
+        if let Some(node) = self.invoked_for.as_mut() {
+            node.for_each_refany(visit);
+        }
+    }
 }
 
 impl VirtualViewManager {

@@ -776,6 +776,12 @@ pub struct AnimationFunction {
     pub data: RefAny,
 }
 
+impl crate::refany::RefAnyHolder for AnimationFunction {
+    fn for_each_refany(&mut self, visit: &mut dyn FnMut(&mut RefAny)) {
+        visit(&mut self.data);
+    }
+}
+
 /// Configuration of the SYSTEM-driven animations: physics-based scrolling
 /// and the caret / selection tweens. Lives on [`AppConfig`] so a platform or
 /// application can tune the feel without rebuilding azul.
