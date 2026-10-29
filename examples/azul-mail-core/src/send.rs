@@ -2061,7 +2061,7 @@ mod tests {
     fn the_settings_default_to_direct_delivery_and_round_trip_through_json() {
         let settings = SendSettings::default();
         assert_eq!(settings.route, SendRoute::Direct);
-        assert_eq!(settings.tls, TlsPolicy::Opportunistic);
+        assert_eq!(settings.tls, TlsPolicy::Required, "TLS is required by default");
         assert_eq!(settings.direct_port(), 25);
         let smtp = SendSettings {
             route: SendRoute::Smtp {
@@ -3238,6 +3238,42 @@ mod tests {
     }
 
     // ---- the real client against a sink on this computer ----
+
+    /// Every mail client of the tree connects by the one policy of azul-core: the crash
+    /// reporter's mail and AzMail's sending alike.
+    #[test]
+    fn the_sending_policy_is_the_one_every_mail_client_connects_by() {
+        let policy: azul_core::tls::MailTls = TlsPolicy::Required;
+        assert_eq!(policy, azul_core::tls::MailTls::default());
+        // a file written when STARTTLS was opportunistic by default asks for TLS now
+        let old: SendSettings = serde_json::from_str(r#"{"tls": "opportunistic"}"#).unwrap();
+        assert_eq!(old.tls, TlsPolicy::Required);
+    }
+
+    /// TLS is required by default: a server that offers no STARTTLS gets no mail in
+    /// plaintext, the mail stays in the outbox. Only an account that opts out (`off`) sends
+    /// without encryption.
+    #[test]
+    fn a_mail_is_never_sent_in_plaintext_to_a_server_without_starttls() {
+        let dir = TempDir::new("send");
+        let (port, rx) = crate::testutil::spawn_smtp_sink(crate::testutil::SinkScript::default());
+        let settings = SendSettings {
+            route: SendRoute::Smtp {
+                host: "127.0.0.1".to_string(),
+                port,
+            },
+            ..SendSettings::default()
+        };
+        let status = send_mail(&dir.folder(), ACCOUNT, &settings, &mail());
+        assert!(!matches!(status, SendStatus::Sent { .. }), "{status:?}");
+        if let Ok(session) = rx.recv_timeout(std::time::Duration::from_secs(30)) {
+            assert!(
+                !session.commands.iter().any(|c| c.starts_with("MAIL FROM")),
+                "no mail went out in plaintext: {:?}",
+                session.commands
+            );
+        }
+    }
 
     #[test]
     fn send_mail_delivers_through_a_local_smtp_server_and_files_the_mail_in_sent() {

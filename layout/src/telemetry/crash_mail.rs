@@ -360,6 +360,8 @@ mod smtp_sink_tests {
         time::Duration,
     };
 
+    use azul_core::tls::MailTls;
+
     use super::{send_attachments, CrashMailConfig};
 
     /// What one SMTP session delivered to the sink.
@@ -458,11 +460,16 @@ mod smtp_sink_tests {
         session
     }
 
-    /// The contact `config_from_report_address` would build (STARTTLS on by
+    /// The contact `config_from_report_address` would build (TLS required by
     /// default), pointed at the sink.
     fn contact(port: u16) -> CrashMailConfig {
         CrashMailConfig::new("crashes@localhost", "crash-reporter@localhost", "localhost")
             .with_ports(vec![port])
+    }
+
+    /// The same contact for a sink that speaks no TLS: the test rig's explicit opt-out.
+    fn plaintext_contact(port: u16) -> CrashMailConfig {
+        contact(port).with_tls(MailTls::Off)
     }
 
     fn dump() -> Vec<(String, Vec<u8>)> {
@@ -497,6 +504,20 @@ mod smtp_sink_tests {
         }
     }
 
+    /// TLS is required by default: STARTTLS that must succeed. A server that
+    /// offers none (or a downgrade that strips it) gets no crash report in
+    /// plaintext; the dump stays for a retry.
+    #[test]
+    fn a_crash_mail_is_never_sent_in_plaintext_to_a_server_without_starttls() {
+        assert_eq!(contact(0).tls, MailTls::Required, "TLS is required by default");
+        let (port, rx) = spawn_sink(false);
+        let sent = send_attachments(&contact(port), "it crashed", &dump());
+        assert!(sent.is_err(), "a server without STARTTLS gets nothing: {sent:?}");
+        if let Ok(session) = rx.recv_timeout(std::time::Duration::from_secs(30)) {
+            assert!(session.message.is_none(), "no message went out in plaintext");
+        }
+    }
+
     /// Without `MIME-Version: 1.0` (RFC 2045 section 4) a mail client may show the
     /// multipart body as raw text instead of a message with a `.json`
     /// attachment. micromail 0.1's `Mail::format` wrote From, To, Subject,
@@ -504,7 +525,8 @@ mod smtp_sink_tests {
     #[test]
     fn a_crash_mail_declares_mime_version_1_0() {
         let (port, rx) = spawn_sink(false);
-        send_attachments(&contact(port), "it crashed", &dump()).expect("the sink accepts the mail");
+        send_attachments(&plaintext_contact(port), "it crashed", &dump())
+            .expect("the sink accepts the mail");
         let message = session_of(&rx)
             .message
             .expect("the sink received a message");
@@ -526,7 +548,8 @@ mod smtp_sink_tests {
     fn a_user_message_line_that_starts_with_a_dot_arrives_intact() {
         let (port, rx) = spawn_sink(false);
         let user_message = "steps:\r\n.config/azul was missing\r\nthen it crashed";
-        send_attachments(&contact(port), user_message, &dump()).expect("the sink accepts the mail");
+        send_attachments(&plaintext_contact(port), user_message, &dump())
+            .expect("the sink accepts the mail");
         let message = session_of(&rx)
             .message
             .expect("the sink received a message");
@@ -542,7 +565,7 @@ mod smtp_sink_tests {
     #[test]
     fn a_crash_mail_carries_the_message_and_the_dump_as_an_attachment() {
         let (port, rx) = spawn_sink(false);
-        send_attachments(&contact(port), "it crashed while I scrolled", &dump())
+        send_attachments(&plaintext_contact(port), "it crashed while I scrolled", &dump())
             .expect("the sink accepts the mail");
         let message = session_of(&rx)
             .message
@@ -567,7 +590,7 @@ mod smtp_sink_tests {
             ("report.txt".to_owned(), b"what happened".to_vec()),
             ("screenshot.png".to_owned(), vec![0x89, b'P', b'N', b'G']),
         ];
-        send_attachments(&contact(port), "see attached", &attachments)
+        send_attachments(&plaintext_contact(port), "see attached", &attachments)
             .expect("the sink accepts the mail");
         let message = session_of(&rx)
             .message
@@ -585,7 +608,7 @@ mod smtp_sink_tests {
     fn a_multi_line_user_message_goes_out_with_crlf_line_ends() {
         let (port, rx) = spawn_sink(false);
         send_attachments(
-            &contact(port),
+            &plaintext_contact(port),
             "first line\nsecond line\nthird line",
             &dump(),
         )

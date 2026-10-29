@@ -811,7 +811,7 @@ fn register_crash_contact(args: &Args) {
         "crash-reporter@azul-demo.invalid",
         "azul-demo.invalid",
     )
-    .with_tls(false);
+    .with_tls(azul_core::tls::MailTls::Off);
     if let Some(port) = args.mail_port {
         config = config.with_ports(vec![port]);
     }
