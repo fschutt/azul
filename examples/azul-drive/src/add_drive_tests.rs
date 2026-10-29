@@ -836,3 +836,29 @@ fn a_country_azlin_does_not_sell_to_is_said_in_the_windows_words_and_not_offered
     };
     assert!(crate::jobs::buyer_refused(&busy).is_none(), "asked again with Try again");
 }
+
+/// Every drive is encrypted as it is made: a build of AzDrive that cannot encrypt starts no
+/// purchase, test drive, voucher or claim (no payment is taken for a drive it would leave
+/// plain), and says why; connecting a data source of the user's own goes on.
+#[test]
+fn a_build_that_cannot_encrypt_makes_no_azlin_drive_and_says_why() {
+    use crate::add_flow::{refuses_making, AddEvent};
+    crate::l10n::in_english();
+    for event in [
+        AddEvent::ChooseBuy,
+        AddEvent::Buy,
+        AddEvent::CreateTestDrive,
+        AddEvent::VoucherPage,
+        AddEvent::RedeemVoucher,
+        AddEvent::ClaimCodePage,
+        AddEvent::PickUp,
+        AddEvent::PayCash,
+    ] {
+        let said = refuses_making(&event, false).unwrap_or_else(|| panic!("{event:?} runs"));
+        assert!(said.contains("encrypt"), "{said}");
+        assert_eq!(refuses_making(&event, true), None, "{event:?}");
+    }
+    for event in [AddEvent::ChooseConnect, AddEvent::Back, AddEvent::Cancel, AddEvent::Save] {
+        assert_eq!(refuses_making(&event, false), None, "{event:?}");
+    }
+}
