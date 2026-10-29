@@ -1101,6 +1101,46 @@ struct EditedIfc {
     child_map: HashMap<crate::text3::cache::ContentIndex, usize>,
 }
 
+/// Where generated content stands in its box's inline content: in front of
+/// the box's own content (a `::marker`, a `::before`) or behind it (an
+/// `::after`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GeneratedSide {
+    Front,
+    Back,
+}
+
+/// Which side of its box's own content `item`, an item of an inline
+/// formatting context's content, was generated on, when the layout
+/// collected it from generated content: a `::marker` item, or the text or
+/// the box of a `::marker`, `::before` or `::after` node.
+fn generated_side(styled_dom: &StyledDom, item: &InlineContent) -> Option<GeneratedSide> {
+    let side_of = |node: NodeId| match styled_dom
+        .node_data
+        .as_container()
+        .get(node)
+        .map(azul_core::dom::NodeData::get_node_type)
+    {
+        Some(NodeType::Marker | NodeType::Before) => Some(GeneratedSide::Front),
+        Some(NodeType::After) => Some(GeneratedSide::Back),
+        _ => None,
+    };
+    let node = match item {
+        InlineContent::Marker { .. } => return Some(GeneratedSide::Front),
+        InlineContent::Text(run) => run.source_node_id?,
+        other => atomic_item_node(other)?,
+    };
+    // A text run's node is the text node the generated node holds.
+    side_of(node).or_else(|| {
+        let parent = styled_dom
+            .node_hierarchy
+            .as_container()
+            .get(node)?
+            .parent_id()?;
+        side_of(parent)
+    })
+}
+
 /// The DOM node an atomic inline item of an inline formatting context's
 /// content stands for: the inline-block, image or empty inline box with
 /// edges its layout collected it from.
@@ -4432,30 +4472,80 @@ impl LayoutWindow {
         })
     }
 
-    /// The generated items `solver3::fc` put IN FRONT of an IFC's own content
-    /// (today exactly a list item's `::marker`), as the IFC root's cached
-    /// collection (`LayoutNodeWarm::inline_content_cache`) holds them.
-    fn generated_ifc_prefix(&self, dom_id: DomId, layout_index: usize) -> Vec<InlineContent> {
-        self.layout_results
-            .get(&dom_id)
-            .and_then(|lr| lr.layout_tree.warm(LayoutNodeId::new(layout_index)))
-            .and_then(|w| w.inline_content_cache.as_deref())
-            .map(|cache| {
-                cache
-                    .content
-                    .iter()
-                    .take_while(|item| matches!(item, InlineContent::Marker { .. }))
-                    .cloned()
-                    .collect()
-            })
-            .unwrap_or_default()
+    /// The generated items `solver3::fc` put around an IFC's own content, as
+    /// the IFC root's cached collection (`LayoutNodeWarm::inline_content_cache`)
+    /// holds them: in front of it a list item's `::marker` and the `::before`
+    /// of its element, behind it the element's `::after`.
+    ///
+    /// The edit model holds the document's text alone, and these go back
+    /// around it ([`Self::with_generated_ifc_content`]). `None` when the IFC
+    /// has no collection.
+    fn generated_ifc_content(
+        &self,
+        dom_id: DomId,
+        layout_index: usize,
+    ) -> Option<(Vec<InlineContent>, Vec<InlineContent>)> {
+        let layout_result = self.layout_results.get(&dom_id)?;
+        let collected = layout_result
+            .layout_tree
+            .warm(LayoutNodeId::new(layout_index))
+            .and_then(|w| w.inline_content_cache.as_deref())?;
+        let styled_dom = &layout_result.styled_dom;
+        let front: Vec<InlineContent> = collected
+            .content
+            .iter()
+            .take_while(|item| generated_side(styled_dom, item) == Some(GeneratedSide::Front))
+            .cloned()
+            .collect();
+        let mut back: Vec<InlineContent> = collected.content[front.len()..]
+            .iter()
+            .rev()
+            .take_while(|item| generated_side(styled_dom, item) == Some(GeneratedSide::Back))
+            .cloned()
+            .collect();
+        back.reverse();
+        Some((front, back))
+    }
+
+    /// `text`, the edit model's content of the IFC at `layout_index`, with
+    /// the generated items its layout puts around it
+    /// ([`Self::generated_ifc_content`]) in front of it and behind it, in
+    /// place of any it holds.
+    fn with_generated_ifc_content(
+        &self,
+        dom_id: DomId,
+        layout_index: usize,
+        text: Vec<InlineContent>,
+    ) -> Vec<InlineContent> {
+        let (Some(layout_result), Some((front, back))) = (
+            self.layout_results.get(&dom_id),
+            self.generated_ifc_content(dom_id, layout_index),
+        ) else {
+            return text;
+        };
+        let styled_dom = &layout_result.styled_dom;
+        let own_front = text
+            .iter()
+            .take_while(|item| generated_side(styled_dom, item) == Some(GeneratedSide::Front))
+            .count();
+        let own_back = text[own_front..]
+            .iter()
+            .rev()
+            .take_while(|item| generated_side(styled_dom, item) == Some(GeneratedSide::Back))
+            .count();
+        let end = text.len() - own_back;
+        front
+            .into_iter()
+            .chain(text.into_iter().take(end).skip(own_front))
+            .chain(back)
+            .collect()
     }
 
     /// The content a caret in `node_id`'s block indexes
     /// ([`BlockContent`](crate::block_content::BlockContent)): the edit model
     /// (`get_text_before_textinput`, the DOM's text alone) behind the prefix
-    /// the layout numbers first - a list item's `::marker`, which makes its
-    /// text run 1 to every caret.
+    /// the layout numbers first - a list item's `::marker` or the element's
+    /// `::before`, which makes its text run 1 to every caret.
     ///
     /// Edits splice the items and store only the text (overlay, undo, the
     /// app's sync API get the text); [`Self::reshape_text_node`] shapes the
@@ -4478,7 +4568,8 @@ impl LayoutWindow {
         }
         let mut content = self
             .ifc_layout_index_for_edit(dom_id, node_id)
-            .map(|idx| self.generated_ifc_prefix(dom_id, idx))
+            .and_then(|idx| self.generated_ifc_content(dom_id, idx))
+            .map(|(front, _)| front)
             .unwrap_or_default();
         let generated = content.len();
         content.extend(text);
@@ -24328,10 +24419,18 @@ impl LayoutWindow {
             let is_walled_off = node_data
                 .get(child_id.index())
                 .is_some_and(Self::is_walled_off_editable_subtree);
-            // A text node is never an atomic inline: only elements are looked up.
+            // A text node is never an atomic inline: only elements are looked
+            // up. Generated content (`::marker`, `::before`, `::after`) is no
+            // document text: its items go back around the edited text
+            // (`with_generated_ifc_content`).
             let atomic = node_data
                 .get(child_id.index())
-                .filter(|data| !matches!(data.get_node_type(), NodeType::Text(_)))
+                .filter(|data| {
+                    !matches!(
+                        data.get_node_type(),
+                        NodeType::Text(_) | NodeType::Marker | NodeType::Before | NodeType::After
+                    )
+                })
                 .and_then(|_| self.collected_atomic_item(dom_id, child_id));
 
             if let Some(item) = atomic {
@@ -24808,23 +24907,14 @@ impl LayoutWindow {
             }
         };
 
-        // The edit model's text has no `::marker`; the layout's content, and
-        // every caret it mints, starts with it. Put it back in front, or a
-        // keystroke in a list item erased its bullet and renumbered its carets.
-        let mut new_inline_content = if matches!(
-            new_inline_content.first(),
-            Some(InlineContent::Marker { .. })
-        ) {
-            new_inline_content
-        } else {
-            let mut with_prefix = self.generated_ifc_prefix(dom_id, ifc_layout_index);
-            if with_prefix.is_empty() {
-                new_inline_content
-            } else {
-                with_prefix.extend(new_inline_content);
-                with_prefix
-            }
-        };
+        // The edit model's text has no generated content; the layout's
+        // content, and every caret it mints, has it around the text: a list
+        // item's `::marker` and a `::before` in front, an `::after` behind.
+        // Put the IFC's own back, or a keystroke in a list item erased its
+        // bullet, one in a paragraph its `::before` and `::after`, and the
+        // carets behind them were renumbered.
+        let mut new_inline_content =
+            self.with_generated_ifc_content(dom_id, ifc_layout_index, new_inline_content);
 
         // 2b. Refresh available_width from the containing block's used_size.
         //
