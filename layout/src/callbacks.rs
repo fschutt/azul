@@ -3784,17 +3784,16 @@ impl CallbackInfo {
     /// # Arguments
     /// * `text` - The tooltip text to display
     pub fn show_tooltip(&mut self, text: AzString) {
-        // Below the pointer, as the platforms' own tooltips open: a tooltip
-        // window under the pointer takes it from the control it explains,
-        // which then hears MouseLeave, hides the tooltip and shows it again.
+        // Below the pointer, as the platforms' own tooltips open: the box the
+        // tooltip must not cover is the pointer's hot spot and the cursor
+        // image under it. A tooltip window under the pointer takes it from the
+        // control it explains, which then hears MouseLeave, hides the tooltip
+        // and shows it again; with no room below it opens above the pointer.
         let anchor = self
             .get_cursor_relative_to_viewport()
             .into_option()
             .map_or_else(LogicalRect::zero, |cursor| {
-                LogicalRect::new(
-                    LogicalPosition::new(cursor.x, cursor.y + TOOLTIP_BELOW_POINTER),
-                    LogicalSize::zero(),
-                )
+                LogicalRect::new(cursor, LogicalSize::new(0.0, TOOLTIP_BELOW_POINTER))
             });
         self.push_change(CallbackChange::ShowTooltip { text, anchor });
     }

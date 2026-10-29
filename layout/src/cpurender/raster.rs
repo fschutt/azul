@@ -6964,14 +6964,61 @@ pub fn wrap_text_lines(
     max_width: f32,
     advance: impl Fn(char) -> f32,
 ) -> Vec<core::ops::Range<usize>> {
-    let _ = (max_width, &advance);
     let mut lines = Vec::new();
     let mut offset = 0;
     for paragraph in text.split('\n') {
-        lines.push(offset..offset + paragraph.len());
+        let line = paragraph.strip_suffix('\r').unwrap_or(paragraph);
+        wrap_paragraph(line, offset, max_width, &advance, &mut lines);
         offset += paragraph.len() + 1;
     }
     lines
+}
+
+/// One newline-free paragraph of [`wrap_text_lines`], starting at byte `offset`.
+fn wrap_paragraph(
+    paragraph: &str,
+    offset: usize,
+    max_width: f32,
+    advance: &impl Fn(char) -> f32,
+    lines: &mut Vec<core::ops::Range<usize>>,
+) {
+    let width_of = |range: core::ops::Range<usize>| -> f32 {
+        paragraph[range].chars().map(advance).sum()
+    };
+    let trimmed_end =
+        |start: usize, end: usize| start + paragraph[start..end].trim_end_matches(' ').len();
+    let mut start = 0;
+    let mut width = 0.0;
+    let mut last_space = None;
+    for (i, c) in paragraph.char_indices() {
+        let w = advance(c);
+        if c == ' ' {
+            last_space = Some(i);
+            width += w;
+            continue;
+        }
+        if width + w > max_width && i > start {
+            match last_space {
+                // A space with text before it on this line: break there.
+                Some(space) if !paragraph[start..space].trim_end_matches(' ').is_empty() => {
+                    lines.push(offset + start..offset + trimmed_end(start, space));
+                    start = space + 1;
+                    while start < i && paragraph[start..].starts_with(' ') {
+                        start += 1;
+                    }
+                }
+                // One word fills the line: break it before this character.
+                _ => {
+                    lines.push(offset + start..offset + trimmed_end(start, i));
+                    start = i;
+                }
+            }
+            last_space = None;
+            width = width_of(start..i);
+        }
+        width += w;
+    }
+    lines.push(offset + start..offset + trimmed_end(start, paragraph.len()));
 }
 
 /// Render a short single-line string into a freshly allocated [`AzulPixmap`].
@@ -6993,12 +7040,6 @@ pub fn wrap_text_lines(
 /// degenerate metrics — callers should fall back gracefully (no tooltip text).
 #[cfg(all(feature = "std", feature = "text_layout", feature = "font_loading"))]
 #[must_use]
-// bounded pixel-dimension casts; explicit a*b+c kept (see render_box_shadow)
-#[allow(
-    clippy::suboptimal_flops,
-    clippy::cast_possible_truncation,
-    clippy::cast_sign_loss
-)]
 pub fn render_text_run_to_pixmap(
     fc_cache: &rust_fontconfig::FcFontCache,
     text: &str,
@@ -7007,6 +7048,43 @@ pub fn render_text_run_to_pixmap(
     bg_color: ColorU,
     padding_px: f32,
     dpi_factor: f32,
+) -> Option<AzulPixmap> {
+    render_wrapped_text_to_pixmap(
+        fc_cache,
+        text,
+        font_size_px,
+        text_color,
+        bg_color,
+        padding_px,
+        dpi_factor,
+        LogicalSize::new(f32::INFINITY, f32::INFINITY),
+    )
+}
+
+/// [`render_text_run_to_pixmap`] for text that wraps - a tooltip's: its lines
+/// break where they would run wider than `max_text_size.width`
+/// ([`wrap_text_lines`]), and lines that would make the text taller than
+/// `max_text_size.height` are left out. Both limits are the TEXT's, padding not
+/// counted. The pixmap is as wide as the widest line and as tall as the lines,
+/// plus the padding on every side - the size the tooltip's surface is shown at.
+#[cfg(all(feature = "std", feature = "text_layout", feature = "font_loading"))]
+#[must_use]
+// bounded pixel-dimension casts; explicit a*b+c kept (see render_box_shadow)
+#[allow(
+    clippy::suboptimal_flops,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_precision_loss
+)]
+pub fn render_wrapped_text_to_pixmap(
+    fc_cache: &rust_fontconfig::FcFontCache,
+    text: &str,
+    font_size_px: f32,
+    text_color: ColorU,
+    bg_color: ColorU,
+    padding_px: f32,
+    dpi_factor: f32,
+    max_text_size: LogicalSize,
 ) -> Option<AzulPixmap> {
     use azul_core::resources::{FontKey, IdNamespace};
     use rust_fontconfig::{FcPattern, OwnedFontSource};
@@ -7052,34 +7130,49 @@ pub fn render_text_run_to_pixmap(
     fm.insert_font(rust_fontconfig::FontId::new(), font_ref);
     let font_hash = FontHash::from_hash(hash);
 
-    // 3. Shape the string (simple per-char advances; tooltips are short, single-line and unstyled,
-    //    so the full bidi/complex shaper isn't reachable here — same simplification as the
-    //    pagination header path).
+    // 3. Break the text into lines and shape each (simple per-char advances; tooltips are short
+    //    and unstyled, so the full bidi/complex shaper isn't reachable here — same simplification
+    //    as the pagination header path).
     let ascent = parsed.font_metrics.ascent * scale;
     let descent = parsed.font_metrics.descent * scale; // typically negative
-    let baseline_y = padding_px + ascent;
-    let mut pen_x = padding_px;
-    let mut glyphs = Vec::new();
-    for c in text.chars() {
+    let line_height = ascent - descent;
+    let advance_of = |c: char| {
         let gid = parsed.lookup_glyph_index(c as u32).unwrap_or(0);
-        let advance = f32::from(parsed.get_horizontal_advance(gid)) * scale;
-        glyphs.push(GlyphInstance {
-            index: u32::from(gid),
-            point: LogicalPosition {
-                x: pen_x,
-                y: baseline_y,
-            },
-            size: LogicalSize {
-                width: advance,
-                height: font_size_px,
-            },
-        });
-        pen_x += advance;
+        f32::from(parsed.get_horizontal_advance(gid)) * scale
+    };
+    let mut lines = wrap_text_lines(text, max_text_size.width, advance_of);
+    // Lines past the height limit are left out; the first always stays.
+    if line_height > 0.0 && max_text_size.height.is_finite() {
+        let fitting = (max_text_size.height / line_height).floor().max(1.0) as usize;
+        lines.truncate(fitting);
+    }
+    let mut glyphs = Vec::new();
+    let mut text_width: f32 = 0.0;
+    for (row, line) in lines.iter().enumerate() {
+        let baseline_y = padding_px + ascent + row as f32 * line_height;
+        let mut pen_x = padding_px;
+        for c in text[line.clone()].chars() {
+            let gid = parsed.lookup_glyph_index(c as u32).unwrap_or(0);
+            let advance = f32::from(parsed.get_horizontal_advance(gid)) * scale;
+            glyphs.push(GlyphInstance {
+                index: u32::from(gid),
+                point: LogicalPosition {
+                    x: pen_x,
+                    y: baseline_y,
+                },
+                size: LogicalSize {
+                    width: advance,
+                    height: font_size_px,
+                },
+            });
+            pen_x += advance;
+        }
+        text_width = text_width.max(pen_x - padding_px);
     }
 
-    // 4. Size the pixmap to the shaped run (logical units; device pixels via dpi).
-    let logical_w = (pen_x + padding_px).max(1.0);
-    let logical_h = (ascent - descent + padding_px * 2.0).max(1.0);
+    // 4. Size the pixmap to the shaped lines (logical units; device pixels via dpi).
+    let logical_w = (text_width + padding_px * 2.0).max(1.0);
+    let logical_h = (line_height * lines.len().max(1) as f32 + padding_px * 2.0).max(1.0);
     let w = ((logical_w * dpi_factor).ceil() as u32).max(1);
     let h = ((logical_h * dpi_factor).ceil() as u32).max(1);
 

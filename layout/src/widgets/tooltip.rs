@@ -365,11 +365,11 @@ struct TooltipText(
     AzString,
 );
 
-/// How far below its anchor the tooltip window opens, in logical px.
+/// How far from its anchor the tooltip window opens, in logical px.
 const TIP_GAP: f32 = 4.0;
 
 /// Pointer entered the wrapper: open the tooltip window under the anchor
-/// with the tip's text.
+/// (above it where the screen has no room below) with the tip's text.
 extern "C" fn on_tooltip_enter(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some(text) = data.downcast_ref::<TooltipText>().map(|t| t.0.clone()) else {
         return Update::DoNothing;
@@ -378,11 +378,16 @@ extern "C" fn on_tooltip_enter(mut data: RefAny, mut info: CallbackInfo) -> Upda
         return Update::DoNothing;
     }
     match info.get_hit_node_rect() {
-        Some(rect) => info.show_tooltip_at(
+        // The anchor grown by the gap on both sides, so the gap holds whichever
+        // side of the anchor the tooltip opens on.
+        Some(rect) => info.show_tooltip_for(
             text,
-            azul_core::geom::LogicalPosition::new(
-                rect.origin.x,
-                rect.origin.y + rect.size.height + TIP_GAP,
+            azul_core::geom::LogicalRect::new(
+                azul_core::geom::LogicalPosition::new(rect.origin.x, rect.origin.y - TIP_GAP),
+                azul_core::geom::LogicalSize::new(
+                    rect.size.width,
+                    rect.size.height + TIP_GAP + TIP_GAP,
+                ),
             ),
         ),
         None => info.show_tooltip(text),
