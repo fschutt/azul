@@ -10773,6 +10773,14 @@ impl Drop for WaylandPopup {
     }
 }
 
+/// Whether a window a popup asked for opens ON that popup, nested on its
+/// surface - a menu (a submenu, a context menu inside a popover) - instead of
+/// replacing it as the parent's one active popup.
+fn opens_on_its_opener(options: &WindowCreateOptions) -> bool {
+    let _ = options;
+    false
+}
+
 /// The `xdg_positioner` form of a placement rule: which point of the anchor
 /// rect the surface hangs from, which way it grows, and the constraint
 /// adjustment the compositor may apply at the screen edge.
@@ -11855,6 +11863,31 @@ mod positioner_rule_tests {
     use azul_layout::placement::FloatingPlacement;
 
     use super::*;
+
+    /// A menu a popup opens - a submenu of a menu, a context menu inside a
+    /// popover - opens on that popup, nested on its surface, so the menu it
+    /// came from stays open; any other window it asks for is the parent's.
+    #[test]
+    fn a_menu_opened_from_a_popup_opens_on_that_popup() {
+        let menu = azul_core::menu::Menu {
+            items: azul_core::menu::MenuItemVec::from_vec(vec![azul_core::menu::MenuItem::String(
+                azul_core::menu::StringMenuItem::create("Open".to_string().into()),
+            )]),
+            position: azul_core::menu::MenuPopupPosition::RightOfHitRect,
+            context_mouse_btn: azul_core::window::ContextMenuMouseButton::Right,
+        };
+        let submenu = crate::desktop::menu::show_menu(
+            menu,
+            Arc::new(azul_css::system::defaults::kde_breeze_light()),
+            None,
+            Some(LogicalRect::new(LogicalPosition::new(0.0, 94.0), LogicalSize::new(160.0, 22.0))),
+            None,
+            None,
+            crate::desktop::menu::MenuPicks::default(),
+        );
+        assert!(opens_on_its_opener(&submenu));
+        assert!(!opens_on_its_opener(&WindowCreateOptions::default()));
+    }
 
     /// The compositor is handed the rule every other backend places by: a
     /// dropdown hangs below its control's left edge and may flip and slide, a

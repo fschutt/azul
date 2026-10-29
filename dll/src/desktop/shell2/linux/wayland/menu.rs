@@ -198,6 +198,28 @@ pub fn create_menu_popup_options(
     options
 }
 
+/// The create options of a menu opened at `position` for `anchor` (both in the
+/// logical px of the surface it opens on), whose items run in the window with
+/// the `picks` mailbox.
+#[must_use]
+pub fn menu_options(
+    picks: crate::desktop::menu::MenuPicks,
+    menu: &Menu,
+    system_style: &alloc::sync::Arc<SystemStyle>,
+    position: LogicalPosition,
+    anchor: Option<LogicalRect>,
+) -> WindowCreateOptions {
+    let trigger_rect = anchor.unwrap_or_else(|| LogicalRect::new(position, LogicalSize::zero()));
+    create_menu_popup_options(
+        picks,
+        menu,
+        system_style,
+        trigger_rect,
+        menu_popup_placement(menu, position, anchor),
+        calculate_menu_size(menu, system_style),
+    )
+}
+
 /// The size the menu popup surface is created at.
 ///
 /// Every number comes from the live `SystemStyle` (see
@@ -304,6 +326,25 @@ mod tests {
             placement.anchor,
             LogicalRect::new(LogicalPosition::new(120.0, 120.0), LogicalSize::new(160.0, 22.0))
         );
+    }
+
+    /// A Wayland menu is the same menu window every backend opens, carrying the
+    /// same menu model: the submenu code finds its menu there, and the menu's
+    /// rule anchors it at the item it was opened for. A Wayland-only menu data
+    /// type left every Wayland submenu unopened.
+    #[test]
+    fn a_wayland_menu_carries_the_menu_model_its_submenus_open_from() {
+        let item = LogicalRect::new(LogicalPosition::new(0.0, 94.0), LogicalSize::new(160.0, 22.0));
+        let opts = menu_options(
+            crate::desktop::menu::MenuPicks::default(),
+            &menu_of(&[Entry::Item]),
+            &alloc::sync::Arc::new(defaults::kde_breeze_light()),
+            item.origin,
+            Some(item),
+        );
+        let placement = crate::desktop::menu::menu_placement_of(&opts)
+            .expect("the menu window carries the one menu model");
+        assert_eq!(placement.anchor, item, "anchored at the item it was opened for");
     }
 
     /// The size the positioner is told and the buffer that is attached must
