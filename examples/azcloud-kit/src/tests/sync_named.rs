@@ -9,6 +9,7 @@ use std::{
     fs,
     path::{Path, PathBuf},
     sync::Arc,
+    time::{Duration, UNIX_EPOCH},
 };
 
 use azul_storage::{
@@ -24,6 +25,7 @@ use crate::sync::{
     drive_store::DriveStore,
     fetch_file,
     local::{hash_bytes, path_of},
+    problems::Code,
     remote::index_key,
     sync_folder, sync_to, Conditional, LocalRoot, RemoteStore, RunHooks, SyncOptions, SyncReport,
     Target,
@@ -332,6 +334,141 @@ fn a_cloud_only_file_of_a_drive_synced_by_name_comes_down_when_opened() {
     let again = b.sync(&*drive);
     assert_eq!((again.files_up, again.files_down), (0, 0), "{}", again.summary());
     assert!(again.cloud_only.is_empty());
+}
+
+/// Forgets everything the device kept of its pairing (a re-login, a lost state folder): its
+/// folder stays as it is.
+fn lose_state(device: &Device) {
+    for entry in fs::read_dir(device.state.path()).unwrap().flatten() {
+        if entry.file_type().unwrap().is_dir() {
+            fs::remove_dir_all(entry.path()).unwrap();
+        } else {
+            fs::remove_file(entry.path()).unwrap();
+        }
+    }
+}
+
+/// A file one device deleted is no new file to a device that lost its state and still holds
+/// it (D5): the drive keeps the delete, the copy stays here and is not sent again.
+#[test]
+fn a_file_deleted_on_the_drive_is_not_sent_again_by_a_device_that_lost_its_state() {
+    let s3 = FakeS3::new();
+    let drive = NamesHashes(s3_drive(&s3));
+    let a = Device::new("dev-a-tomb");
+    let b = Device::new("dev-b-tomb");
+    a.write("keep.txt", b"kept");
+    a.write("gone.txt", b"deleted on a");
+    a.sync(&drive);
+    b.sync(&drive);
+    fs::remove_file(path_of(a.folder.path(), "gone.txt")).unwrap();
+    let sent = a.sync(&drive);
+    assert_eq!(sent.deleted_there, 1, "{}", sent.summary());
+    lose_state(&b);
+    let got = b.sync(&drive);
+    assert!(s3.read("Documents/gone.txt").is_none(), "{}", got.summary());
+    assert_eq!(b.read("gone.txt").as_deref(), Some(&b"deleted on a"[..]), "kept here");
+    assert!(
+        got.problems
+            .iter()
+            .any(|p| p.code == Code::DeletedElsewhereKept && p.key == "gone.txt"),
+        "{:?}",
+        got.problems
+    );
+    let again = a.sync(&drive);
+    assert_eq!(again.files_down, 0, "{}", again.summary());
+    assert!(a.read("gone.txt").is_none());
+}
+
+/// The time a file was last changed comes back with it from a drive synced by name, to the
+/// nanosecond, and is no change for the next run.
+#[test]
+fn a_files_modification_time_travels_through_a_drive_synced_by_name() {
+    let s3 = FakeS3::new();
+    let drive = s3_drive(&s3);
+    let a = Device::new("dev-a-time");
+    let b = Device::new("dev-b-time");
+    a.write("photo.jpg", b"taken long ago");
+    let taken = UNIX_EPOCH + Duration::new(1_600_000_000, 123_456_789);
+    fs::File::options()
+        .write(true)
+        .open(path_of(a.folder.path(), "photo.jpg"))
+        .unwrap()
+        .set_modified(taken)
+        .unwrap();
+    a.sync(&*drive);
+    b.sync(&*drive);
+    let got = fs::metadata(path_of(b.folder.path(), "photo.jpg"))
+        .unwrap()
+        .modified()
+        .unwrap();
+    assert_eq!(got, taken);
+    let again = b.sync(&*drive);
+    assert_eq!((again.files_up, again.files_down), (0, 0), "{}", again.summary());
+    let back = a.sync(&*drive);
+    assert_eq!((back.files_up, back.files_down), (0, 0), "{}", back.summary());
+}
+
+/// The executable bit is part of a file's content on a drive synced by name too.
+#[cfg(unix)]
+#[test]
+fn the_executable_bit_travels_through_a_drive_synced_by_name() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let s3 = FakeS3::new();
+    let drive = s3_drive(&s3);
+    let a = Device::new("dev-a-exec");
+    let b = Device::new("dev-b-exec");
+    a.write("run.sh", b"#!/bin/sh\necho hi\n");
+    a.write("plain.txt", b"not a program");
+    let script = path_of(a.folder.path(), "run.sh");
+    fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+    a.sync(&*drive);
+    b.sync(&*drive);
+    let mode = |device: &Device, key: &str| {
+        fs::metadata(path_of(device.folder.path(), key))
+            .unwrap()
+            .permissions()
+            .mode()
+    };
+    assert_ne!(mode(&b, "run.sh") & 0o100, 0, "{:o}", mode(&b, "run.sh"));
+    assert_eq!(mode(&b, "plain.txt") & 0o111, 0, "{:o}", mode(&b, "plain.txt"));
+    let again = b.sync(&*drive);
+    assert_eq!((again.files_up, again.files_down), (0, 0), "{}", again.summary());
+    // The bit taken away on a reaches b as a change of the file.
+    fs::set_permissions(&script, fs::Permissions::from_mode(0o644)).unwrap();
+    let sent = a.sync(&*drive);
+    assert_eq!(sent.files_up, 1, "{}", sent.summary());
+    b.sync(&*drive);
+    assert_eq!(mode(&b, "run.sh") & 0o111, 0, "{:o}", mode(&b, "run.sh"));
+}
+
+/// A mass delete the user confirmed on one device travels with its deletes: another device
+/// applies it (into its trash) without asking its own user again (D1).
+#[test]
+fn a_mass_delete_confirmed_on_one_device_is_not_asked_again_on_another() {
+    let s3 = FakeS3::new();
+    let drive = s3_drive(&s3);
+    let a = Device::new("dev-a-mass");
+    let b = Device::new("dev-b-mass");
+    for i in 0..12 {
+        a.write(&format!("docs/{i}.txt"), format!("doc {i}").as_bytes());
+    }
+    a.sync(&*drive);
+    b.sync(&*drive);
+    fs::remove_dir_all(path_of(a.folder.path(), "docs")).unwrap();
+    let mut confirmed = a.opts();
+    confirmed.allow_mass_delete = true;
+    let hooks = RunHooks::default();
+    let sent = sync_to(Target::Named(&*drive), &a.root(), &a.index(), &confirmed, &hooks).unwrap();
+    assert_eq!(sent.deleted_there, 12, "{}", sent.summary());
+    let hooks = RunHooks {
+        hold_mass_delete: true,
+        ..RunHooks::default()
+    };
+    let got = b.run(&*drive, &hooks);
+    assert!(got.mass_delete.is_none(), "{}", got.summary());
+    assert_eq!(got.deleted_here, 12, "{}", got.summary());
+    assert!(b.tree().is_empty(), "{:?}", b.tree().keys().collect::<Vec<_>>());
 }
 
 // ==== A drive as the plain sync's store ====
