@@ -260,6 +260,8 @@ mod recovery;
 /// Trusted contacts: the owner's shares, a contact's side, the recovery with two shares.
 #[cfg(feature = "encryption")]
 mod recovery_contacts;
+/// The window's one dialog: what opens, waits and closes it.
+mod popup_slot;
 #[cfg(all(test, feature = "encryption"))]
 mod popup_slot_tests;
 /// A drive's several recovery keys: the kit's lookup on a computer that never had the drive,
@@ -983,6 +985,29 @@ impl Popup {
         }
         true
     }
+
+    /// Whether it shows something only this once (a recovery code, a join code, the shares
+    /// made for trusted contacts): the app neither replaces nor closes it, only its user does
+    /// ([`popup_slot::PopupSlot`]).
+    pub(crate) fn must_be_seen(&self) -> bool {
+        #[cfg(feature = "encryption")]
+        if let Popup::Encryption(dialog) = self {
+            return dialog.must_be_seen();
+        }
+        false
+    }
+
+    /// Whether it only reports work under way (an encryption's progress, the transfer queue
+    /// that opened by itself): it gives way to that work's answer and never waits for another
+    /// dialog.
+    pub(crate) fn reports_progress(&self) -> bool {
+        match self {
+            Popup::Transfers { auto } => *auto,
+            #[cfg(feature = "encryption")]
+            Popup::Encryption(dialog) => dialog.reports_progress(),
+            _ => false,
+        }
+    }
 }
 
 /// The source list: which sections are open, which drives and folders show their folders,
@@ -1143,10 +1168,6 @@ pub(crate) struct DriveState {
     /// An Azlin drive's space, by its Azlin id: the quota counts stored bytes
     /// ([`usage_view`]).
     pub usage: HashMap<String, usage_view::DriveUsage>,
-    /// Recovery sheets of new drives made while another dialog was open (a paid drive that
-    /// arrived in the background): each shows when no dialog is.
-    #[cfg(feature = "encryption")]
-    pub pending_sheets: Vec<encryption::Sheet>,
     pub message: Option<Message>,
     /// The notices shown as toasts at the window's foot: each leaves by itself after a few
     /// seconds, or with its close button (`ui_view::on_toast_dismissed`).
@@ -1154,7 +1175,9 @@ pub(crate) struct DriveState {
     /// The request of a `--pick` run (None in a normal run): the picker strip shows, the
     /// filter thins the folder view, and the answer ends the run.
     pub picker: Option<picker::Picker>,
-    pub popup: Option<Popup>,
+    /// The window's one dialog and the dialogs waiting for it (a new drive's recovery sheet
+    /// made while another dialog was open waits there too).
+    pub(crate) popup: popup_slot::PopupSlot,
     pub popups_opened: u64,
     pub keyring_waiting: Option<KeyringOp>,
     pub keyring_queue: VecDeque<(KeyringOp, KeyringCall)>,
@@ -3256,11 +3279,11 @@ pub(crate) extern "C" fn on_job_done(
             result,
         } => add_flow::joined(&mut info, &handle, s, serial, &code, result),
     }
-    let popups = s.popups_opened;
-    #[cfg(feature = "encryption")]
-    encryption::show_pending_sheet(s);
+    // A dialog that waited for the one before it (a new drive's recovery sheet, an answer that
+    // came while a dialog that must be seen showed).
+    let shown = s.popup.show_waiting();
     closing::after_job(&mut info, s);
-    if refresh || s.popups_opened != popups {
+    if refresh || shown {
         Update::RefreshDom
     } else {
         Update::DoNothing
@@ -3280,9 +3303,8 @@ pub(crate) fn with_state(
         return Update::DoNothing;
     };
     f(info, &app, &mut *guard);
-    // A new drive's recovery sheet that waited for another dialog to close.
-    #[cfg(feature = "encryption")]
-    encryption::show_pending_sheet(&mut *guard);
+    // A dialog that waited for the one the user just closed.
+    guard.popup.show_waiting();
     Update::RefreshDom
 }
 
@@ -3472,12 +3494,14 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     if !s.toasts.is_empty() {
         body.add_child(ui_view::toasts(s, &app));
     }
-    if let Some(popup) = &s.popup {
+    if let Some(popup) = s.popup.as_ref() {
         let (title, panel) = ui_dialogs::popup_parts(popup, s, &app);
         if s.inline_dialogs {
             body.add_child(ui_dialogs::inline_sheet(title, panel));
         } else {
             let (closed_by, close_box) = ui_dialogs::window_close(popup);
+            // Its fixed id keeps its window while it turns into another (a busy setup into its
+            // recovery sheet), whatever else this rebuild changed above it.
             body.add_child(
                 Dialog::create(panel)
                     .with_title(AzString::from(title))
@@ -3486,7 +3510,8 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
                     .with_closed_by(closed_by)
                     .with_close_button(close_box)
                     .with_on_close(app.clone(), ui_dialogs::on_dialog_closed)
-                    .dom(),
+                    .dom()
+                    .with_id(ids::POPUP),
             );
         }
     }
@@ -3910,12 +3935,10 @@ pub fn start() {
         root_counts: HashMap::new(),
         disk: HashMap::new(),
         usage: HashMap::new(),
-        #[cfg(feature = "encryption")]
-        pending_sheets: Vec::new(),
         message,
         toasts: Notices::default(),
         picker,
-        popup: None,
+        popup: popup_slot::PopupSlot::default(),
         popups_opened: 0,
         keyring_waiting: None,
         keyring_queue: VecDeque::new(),

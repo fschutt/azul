@@ -876,7 +876,7 @@ pub(crate) fn ask_pair(s: &mut DriveState, drive_id: &str) {
         _ => String::new(),
     };
     s.popups_opened += 1;
-    s.popup = Some(Popup::Sync(SyncDialog::Pair {
+    s.popup.open(Popup::Sync(SyncDialog::Pair {
         drive_id: drive_id.to_string(),
         folder: default_folder(&home, &name).display().to_string(),
         prefix,
@@ -904,7 +904,7 @@ pub(crate) fn ask_next_question(s: &mut DriveState) {
             if s.sync_view.asked.insert(format!("{id}\n{what}")) {
                 println!("AZDRIVE_SYNC_QUESTION {id} {what}");
                 s.popups_opened += 1;
-                s.popup = Some(Popup::Sync(dialog));
+                s.popup.open(Popup::Sync(dialog));
                 return;
             }
         }
@@ -945,7 +945,7 @@ pub(crate) fn ask_conflict(s: &mut DriveState, drive_id: &str, key: &str) {
     s.sync_view.asked.insert(format!("{drive_id}\n{key}"));
     println!("AZDRIVE_SYNC_CONFLICT {drive_id} {key}");
     s.popups_opened += 1;
-    s.popup = Some(Popup::Sync(SyncDialog::Conflict {
+    s.popup.open(Popup::Sync(SyncDialog::Conflict {
         drive_id: drive_id.to_string(),
         key: key.to_string(),
     }));
@@ -1303,7 +1303,7 @@ extern "C" fn on_answer(mut data: RefAny, mut info: CallbackInfo) -> Update {
             };
             let (drive_id, folder, prefix) = (drive_id.clone(), folder.clone(), prefix.clone());
             match sync_jobs::pair(info, app, s, &drive_id, folder.trim(), prefix.trim()) {
-                Ok(()) => s.popup = None,
+                Ok(()) => s.popup.close(),
                 Err(why) => {
                     if let Some(Popup::Sync(SyncDialog::Pair { error, .. })) = s.popup.as_mut() {
                         *error = why;
@@ -1320,7 +1320,7 @@ extern "C" fn on_answer(mut data: RefAny, mut info: CallbackInfo) -> Update {
             if let Some(Popup::Sync(SyncDialog::Burst { drive_id })) = s.popup.take() {
                 println!("AZDRIVE_SYNC_HACKED {drive_id}");
                 s.popups_opened += 1;
-                s.popup = Some(Popup::Sync(SyncDialog::Hacked { drive_id }));
+                s.popup.open(Popup::Sync(SyncDialog::Hacked { drive_id }));
             }
         }
         #[cfg(feature = "encryption")]

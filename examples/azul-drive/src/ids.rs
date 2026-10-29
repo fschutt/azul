@@ -404,6 +404,9 @@ pub const PROPERTIES: AzString = AzString::from_const_str("__azdrive_properties"
 pub const TRANSFERS: AzString = AzString::from_const_str("__azdrive_transfers");
 /// A dialog shown as a sheet inside the window (`--dialogs inline`).
 pub const SHEET: AzString = AzString::from_const_str("__azdrive_sheet");
+/// The window's dialog (its modal window's node in the page): the node keeps its window by this
+/// id while the dialog turns into another, wherever the rebuild moved it among its siblings.
+pub const POPUP: AzString = AzString::from_const_str("__azdrive_popup");
 /// The Options page and two of its controls.
 pub const SETTINGS: AzString = AzString::from_const_str("__azdrive_settings");
 pub const SETTING_LAYOUT: AzString = AzString::from_const_str("__azdrive_setting_layout");

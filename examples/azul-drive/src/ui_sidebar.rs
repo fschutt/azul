@@ -669,7 +669,7 @@ fn run(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, action: SideAc
         SideAction::Eject(drive_id) => {
             if s.popup.is_none() {
                 s.popups_opened += 1;
-                s.popup = Some(Popup::ConfirmForget { drive_id });
+                s.popup.open(Popup::ConfirmForget { drive_id });
             }
         }
         SideAction::Unpin(index) => {

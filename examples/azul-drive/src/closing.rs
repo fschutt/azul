@@ -54,7 +54,7 @@ pub(crate) fn work_running(s: &DriveState) -> usize {
     let syncs = s.sync_view.drives.values().filter(|d| d.running.is_some()).count();
     #[cfg(feature = "encryption")]
     let encrypting = usize::from(matches!(
-        s.popup,
+        s.popup.as_ref(),
         Some(crate::Popup::Encryption(crate::encryption::Dialog::Busy { .. }))
     ));
     #[cfg(not(feature = "encryption"))]

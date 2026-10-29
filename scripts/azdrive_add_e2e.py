@@ -642,9 +642,9 @@ def finish_new_drive_sheet(app, drive_id, out=None, thorough=False, stack=None, 
     Escape keeps the sheet, "I have written it down" without the groups and with a wrong one is
     refused, a group in lower case is taken; the recovery key reaches the token server and the
     settings file keeps the check, never the code. Returns the code."""
-    popup = e2e.modal_window(app)
-    popup.until("the recovery sheet of %s" % drive_id,
-                lambda: popup.has("#__azdrive_sheet_group_0"))
+    # The window that shows the sheet: the first other window may be the Add drive dialog (or a
+    # busy note) about to close as the sheet's window opens.
+    popup = e2e.modal_window(app, showing="#__azdrive_sheet_group_0")
     texts = popup.texts()
     code = found(texts, CODE_RE)
     asked = found(texts, ASKED_RE)
@@ -675,7 +675,6 @@ def finish_new_drive_sheet(app, drive_id, out=None, thorough=False, stack=None, 
             popup.screenshot(os.path.join(out, "5-recovery-sheet.png"))
         popup.key("escape")
         app.frame(3)
-        popup = e2e.modal_window(app)
         if not popup.has("#__azdrive_sheet_group_0"):
             raise Failure("Escape took the recovery sheet away before its groups were typed")
         popup.click(selector="#__azdrive_sheet_done", frames=3)

@@ -97,20 +97,14 @@ fn a_late_hand_over_from_the_busy_setup_still_shows_the_sheet_until_its_user_clo
 }
 
 #[test]
-fn the_busy_setup_and_its_recovery_sheet_are_one_window() {
+fn the_busy_setup_hands_its_place_to_its_recovery_sheet_at_once() {
+    // The sheet takes the busy dialog's place in the same callback: the page never shows the
+    // slot empty between them, so the dialog's node (one fixed id) keeps its window.
     let mut slot = PopupSlot::default();
     slot.open(busy());
-    let window = slot.window();
     slot.open_when_free(sheet("d_1"));
-    assert_eq!(slot.window(), window, "the sheet takes the busy dialog's window");
-    slot.user_closed();
-    slot.open(message("Next"));
-    assert_ne!(slot.window(), window, "a dialog opened after it is a window of its own");
-    assert_ne!(
-        crate::ui_dialogs::popup_window_id(window),
-        crate::ui_dialogs::popup_window_id(slot.window()),
-        "the dialog's node names its window"
-    );
+    assert!(shows_sheet_of(&slot, "d_1"));
+    assert_eq!(slot.waiting().count(), 0, "nothing waits: the sheet is the busy dialog's answer");
 }
 
 #[test]

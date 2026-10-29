@@ -14,7 +14,7 @@ use crate::{jobs::Job, periods, spawn, with_state, DriveState, Popup};
 /// Opens the voucher dialog of `drive_id`.
 pub(crate) fn open(s: &mut DriveState, drive_id: &str) {
     s.popups_opened += 1;
-    s.popup = Some(Popup::Voucher {
+    s.popup.open(Popup::Voucher {
         drive_id: drive_id.to_string(),
         code: String::new(),
         error: Text::default(),
@@ -81,12 +81,13 @@ pub(crate) fn redeemed(
     drive_id: &str,
     result: Result<(u32, Option<u64>), Text>,
 ) {
-    let open = matches!(&s.popup, Some(Popup::Voucher { drive_id: id, .. }) if id == drive_id);
+    let open =
+        matches!(s.popup.as_ref(), Some(Popup::Voucher { drive_id: id, .. }) if id == drive_id);
     match result {
         Ok((days, until)) => {
             println!("AZDRIVE_VOUCHER {drive_id} {days}");
             if open {
-                s.popup = None;
+                s.popup.close();
             }
             let name = s
                 .slot_index(drive_id)

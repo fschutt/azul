@@ -609,7 +609,7 @@ pub(crate) fn run_action(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
             if let Some(index) = s.selected_drive.or(s.current_drive()) {
                 let drive_id = s.slots[index].entry.id.clone();
                 s.popups_opened += 1;
-                s.popup = Some(Popup::ConfirmForget { drive_id });
+                s.popup.open(Popup::ConfirmForget { drive_id });
             }
         }
         Action::DriveProperties => {
@@ -639,7 +639,7 @@ pub(crate) fn run_action(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
         Action::CloseWindow => info.close_window(),
         Action::ShowTransfers => {
             s.popups_opened += 1;
-            s.popup = Some(Popup::Transfers { auto: false });
+            s.popup.open(Popup::Transfers { auto: false });
         }
         Action::NewWindow => open_new_window(s),
         Action::OpenTerminal { azterm } => open_terminal(s, azterm),
@@ -1472,7 +1472,7 @@ pub(crate) fn show_progress_when_long(s: &mut DriveState) {
     if let Some(id) = s.queue.wants_progress_dialog(now_ms(), PROGRESS_DIALOG_AFTER_MS) {
         s.queue.mark_dialog_shown(id);
         s.popups_opened += 1;
-        s.popup = Some(Popup::Transfers { auto: true });
+        s.popup.open(Popup::Transfers { auto: true });
     }
 }
 
@@ -2256,7 +2256,7 @@ pub(crate) fn transfer_planned(
     } else if conflicts > 0 {
         println!("AZDRIVE_TRANSFER {id} conflict {conflicts}");
         s.popups_opened += 1;
-        s.popup = Some(Popup::Conflict {
+        s.popup.open(Popup::Conflict {
             id,
             apply_all: false,
         });
@@ -2308,7 +2308,7 @@ pub(crate) fn resolve_conflict(
     if done {
         run_planned(info, app, s, id);
     } else {
-        s.popup = Some(Popup::Conflict { id, apply_all });
+        s.popup.open(Popup::Conflict { id, apply_all });
     }
 }
 
@@ -2323,7 +2323,8 @@ pub(crate) fn cancel_transfer(
     if let Some(job) = s.transfers.get(&id) {
         job.cancel.store(true, std::sync::atomic::Ordering::SeqCst);
     }
-    let asking = matches!(s.popup, Some(Popup::Conflict { id: asked, .. }) if asked == id);
+    let asking =
+        matches!(s.popup.as_ref(), Some(Popup::Conflict { id: asked, .. }) if *asked == id);
     let waiting = s
         .queue
         .jobs()
@@ -2332,7 +2333,7 @@ pub(crate) fn cancel_transfer(
     s.queue.cancel(id);
     if asking || waiting {
         if asking {
-            s.popup = None;
+            s.popup.close();
         }
         let job = s.transfers.remove(&id);
         println!("AZDRIVE_TRANSFER {id} cancelled 0");
@@ -2444,8 +2445,8 @@ pub(crate) fn transfer_ran(
     }
     pump_queue(info, app, s);
     // The progress dialog that opened by itself closes by itself once nothing runs or waits.
-    if matches!(s.popup, Some(Popup::Transfers { auto: true })) && s.queue.is_idle() {
-        s.popup = None;
+    if matches!(s.popup.as_ref(), Some(Popup::Transfers { auto: true })) && s.queue.is_idle() {
+        s.popup.close();
     }
 }
 
@@ -2771,7 +2772,7 @@ fn delete_selected(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, pe
     }
     if !local || s.settings.confirm_delete {
         s.popups_opened += 1;
-        s.popup = Some(Popup::ConfirmDelete { drive_id, items });
+        s.popup.open(Popup::ConfirmDelete { drive_id, items });
         return;
     }
     delete_for_good(info, app, s, drive_id, items);
@@ -2977,7 +2978,7 @@ pub(crate) fn open_properties(
 ) {
     s.popups_opened += 1;
     let serial = s.popups_opened;
-    s.popup = Some(Popup::Properties(PropertiesState {
+    s.popup.open(Popup::Properties(PropertiesState {
         items: items.clone(),
         drive,
         tab: 0,
@@ -3760,15 +3761,24 @@ pub(crate) fn context_menu(app: &RefAny, s: &DriveState) -> Menu {
     Menu::create(items)
 }
 
-/// A popup's close (x, Escape): a conflict question cancels its transfer.
+/// The user closes the popup (its close box, Escape, its Close or Cancel): a conflict question
+/// cancels its transfer.
 pub(crate) fn close_popup(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
-    match s.popup {
-        Some(Popup::Conflict { id, .. }) => cancel_transfer(info, app, s, id),
+    let conflict = match s.popup.as_ref() {
+        Some(Popup::Conflict { id, .. }) => Some(*id),
+        _ => None,
+    };
+    if let Some(id) = conflict {
+        cancel_transfer(info, app, s, id);
+        return;
+    }
+    match s.popup.as_ref() {
         // A payment shown is abandoned, one waited for is waited for in the background.
         Some(Popup::AddDrive(_)) => crate::add_flow::close(info, app, s),
         // The recovery sheet stays until its groups are typed back: its code shows only now.
-        Some(ref popup) if !popup.may_close() => {}
-        _ => s.popup = None,
+        Some(popup) if !popup.may_close() => {}
+        // The user's own close: it takes even a dialog that must be seen (they saw it).
+        _ => s.popup.user_closed(),
     }
 }
 
@@ -3861,7 +3871,7 @@ extern "C" fn on_destination_picked(
             Some(place) => transfer_selection_to(info, app, s, kind, place),
             None => {
                 s.popups_opened += 1;
-                s.popup = Some(Popup::ChooseLocation {
+                s.popup.open(Popup::ChooseLocation {
                     kind,
                     text: path.display().to_string(),
                     error: Text::key("azdrive-pick-not-a-drive"),
@@ -3928,7 +3938,7 @@ pub(crate) fn choose_location_done(info: &mut CallbackInfo, app: &RefAny, s: &mu
     match browse::parse_path(&text, &s.drive_names()) {
         Some(place @ Place::Folder { .. }) => transfer_selection_to(info, app, s, kind, place),
         _ => {
-            s.popup = Some(Popup::ChooseLocation {
+            s.popup.open(Popup::ChooseLocation {
                 kind,
                 error: Phrase::new("azdrive-pick-not-a-folder")
                     .arg("path", text.trim())

@@ -212,7 +212,7 @@ pub(super) fn uninstall(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveStat
     if s.slot_index(&drive_id).is_none() {
         return Err(format!("AzDrive has no drive {drive_id} (removed already?)"));
     }
-    s.popup = Some(Popup::ConfirmForget {
+    s.popup.open(Popup::ConfirmForget {
         drive_id: drive_id.clone(),
     });
     crate::actions::forget_drive(info, app, s);

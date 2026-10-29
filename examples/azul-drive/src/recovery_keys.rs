@@ -168,7 +168,7 @@ fn open(s: &mut DriveState, page: Page) {
     if s.popup.is_none() {
         s.popups_opened += 1;
     }
-    s.popup = Some(Popup::Encryption(Dialog::Keys(page)));
+    s.popup.open(Popup::Encryption(Dialog::Keys(page)));
 }
 
 /// "Recover a drive with its emergency kit...".
@@ -1142,7 +1142,7 @@ pub(crate) fn on_done(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState,
                     ),
                     None => t("azdrive-keys-locked-down-what"),
                 };
-                s.popup = Some(Popup::Encryption(Dialog::Message {
+                s.popup.open(Popup::Encryption(Dialog::Message {
                     title: t("azdrive-keys-locked-down-title"),
                     text,
                 }));
@@ -1202,7 +1202,7 @@ pub(crate) fn on_done(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState,
                         file,
                         made: now,
                     });
-                s.popup = Some(Popup::Encryption(Dialog::Sheet(
+                s.popup.open(Popup::Encryption(Dialog::Sheet(
                     Sheet::new(&drive_id, code).extra(),
                 )));
                 save_settings(info, app, s);
@@ -1219,7 +1219,7 @@ pub(crate) fn on_done(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState,
                 println!("AZDRIVE_RECOVERY_FINDABLE {drive_id}");
                 state_mut(&mut s.settings.recovery.drives, &drive_id).findable_key =
                     Some(findable_public);
-                s.popup = None;
+                s.popup.close();
                 s.success(Phrase::new("azdrive-keys-findable-now"));
                 save_settings(info, app, s);
                 check_keys(info, app, s, &drive_id);
@@ -1236,7 +1236,7 @@ pub(crate) fn on_done(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState,
                 let state = state_mut(&mut s.settings.recovery.drives, &drive_id);
                 state.extra_codes.retain(|code| code.key_id != key_id);
                 state.server_keys.retain(|key| key.key_id != key_id);
-                s.popup = None;
+                s.popup.close();
                 save_settings(info, app, s);
                 check_keys(info, app, s, &drive_id);
             }

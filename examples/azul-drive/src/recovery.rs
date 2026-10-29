@@ -544,7 +544,7 @@ pub(crate) fn setup_verified(s: &mut DriveState, drive_id: &str) {
 pub(crate) fn open_drill(s: &mut DriveState, drive_id: &str) {
     if s.popup.is_none() {
         s.popups_opened += 1;
-        s.popup = Some(Popup::Encryption(Dialog::Drill {
+        s.popup.open(Popup::Encryption(Dialog::Drill {
             drive_id: drive_id.to_string(),
             typed: Zeroizing::new(String::new()),
             error: String::new(),
@@ -660,7 +660,7 @@ pub(crate) fn drill_passed(
     });
     println!("AZDRIVE_DRILL_PASSED {drive_id}");
     let name = s.drive_name(&crate::browse::Place::folder(drive_id, ""));
-    s.popup = Some(Popup::Encryption(Dialog::Message {
+    s.popup.open(Popup::Encryption(Dialog::Message {
         title: t("azdrive-drill-passed-title"),
         text: match next {
             Some(day) => t_args(
@@ -717,14 +717,14 @@ pub(crate) fn bucket_answered(
         Ok(true) => drill_passed(info, app, s, drive_id, Some(recovery_key)),
         Ok(false) => {
             println!("AZDRIVE_DRILL_FAILED {drive_id}");
-            s.popup = None;
+            s.popup.close();
             open_drill(s, drive_id);
             if let Some(Popup::Encryption(Dialog::Drill { error, .. })) = s.popup.as_mut() {
                 *error = t("azdrive-drill-not-this-drives");
             }
         }
         Err(why) => {
-            s.popup = Some(Popup::Encryption(Dialog::Message {
+            s.popup.open(Popup::Encryption(Dialog::Message {
                 title: t("azdrive-drill-not-checked"),
                 text: t_label(&why),
             }));
@@ -739,7 +739,7 @@ extern "C" fn on_drill_later(mut data: RefAny, mut info: CallbackInfo) -> Update
         };
         state_mut(&mut s.settings.recovery.drives, &drive_id).postpone(now());
         println!("AZDRIVE_DRILL_LATER {drive_id}");
-        s.popup = None;
+        s.popup.close();
         save_settings(info, app, s);
     })
 }
@@ -750,7 +750,7 @@ extern "C" fn on_drill_stop(mut data: RefAny, mut info: CallbackInfo) -> Update 
             return;
         };
         let stopped = state_mut(&mut s.settings.recovery.drives, &drive_id).stop_drills();
-        s.popup = None;
+        s.popup.close();
         if stopped {
             s.info(Text::key("azdrive-drill-stopped"));
         }

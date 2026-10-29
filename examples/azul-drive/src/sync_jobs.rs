@@ -1530,7 +1530,7 @@ pub(crate) fn delete_through_sync(
     }
     if s.popup.is_none() {
         s.popups_opened += 1;
-        s.popup = Some(Popup::Sync(SyncDialog::Delete { drive_id, keys }));
+        s.popup.open(Popup::Sync(SyncDialog::Delete { drive_id, keys }));
     }
     Vec::new()
 }
@@ -1678,7 +1678,7 @@ pub(crate) fn run_action(
         SyncAction::Stop => {
             if s.popup.is_none() {
                 s.popups_opened += 1;
-                s.popup = Some(Popup::Sync(SyncDialog::Stop { drive_id }));
+                s.popup.open(Popup::Sync(SyncDialog::Stop { drive_id }));
             }
         }
         SyncAction::SendKept => {

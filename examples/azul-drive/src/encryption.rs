@@ -635,6 +635,22 @@ impl Dialog {
     pub(crate) fn may_close(&self) -> bool {
         !matches!(self, Dialog::Sheet(_))
     }
+
+    /// Whether it shows something only this once: a recovery code (its sheet), the join code
+    /// made for another computer, the shares made for trusted contacts or the code two shares
+    /// gave back. Only its user closes it.
+    pub(crate) const fn must_be_seen(&self) -> bool {
+        match self {
+            Dialog::Sheet(_) | Dialog::Invite { .. } => true,
+            Dialog::Contacts(page) => page.shows_a_secret_once(),
+            _ => false,
+        }
+    }
+
+    /// Whether it only reports work under way: the work's answer takes its place.
+    pub(crate) const fn reports_progress(&self) -> bool {
+        matches!(self, Dialog::Busy { .. })
+    }
 }
 
 fn drive_name(s: &DriveState, drive_id: &str) -> String {
@@ -1008,15 +1024,15 @@ pub(crate) fn guard_unfinished_setup(
     if !offered() || !setup_unfinished(state) {
         return;
     }
-    let showing = match &s.popup {
+    let showing = match s.popup.as_ref() {
         Some(Popup::Encryption(Dialog::Sheet(sheet))) => sheet.drive_id == drive,
         Some(Popup::Encryption(Dialog::Busy { .. })) => true,
         _ => false,
     };
-    if showing
-        || s.pending_sheets.iter().any(|sheet| sheet.drive_id == drive)
-        || new_code_asked().contains(&drive)
-    {
+    let waiting = s.popup.waiting().any(|popup| {
+        matches!(popup, Popup::Encryption(Dialog::Sheet(sheet)) if sheet.drive_id == drive)
+    });
+    if showing || waiting || new_code_asked().contains(&drive) {
         return;
     }
     let Some(auto) = auto_of(s, &drive) else {
@@ -1026,7 +1042,7 @@ pub(crate) fn guard_unfinished_setup(
     new_code_asked().push(drive.clone());
     if s.popup.is_none() {
         s.popups_opened += 1;
-        s.popup = Some(Popup::Encryption(Dialog::Busy {
+        s.popup.open(Popup::Encryption(Dialog::Busy {
             title: t("azdrive-enc-finishing-title"),
             text: t("azdrive-enc-finishing"),
         }));
@@ -1141,7 +1157,7 @@ pub(crate) fn encrypt_new_drive(
     // sheet waits for it to close.
     if s.popup.is_none() {
         s.popups_opened += 1;
-        s.popup = Some(Popup::Encryption(Dialog::Busy {
+        s.popup.open(Popup::Encryption(Dialog::Busy {
             title: t("azdrive-enc-setting-up-title"),
             text: t("azdrive-enc-setting-up"),
         }));
@@ -1308,7 +1324,7 @@ pub(crate) fn restore_file_version(
 pub(crate) fn ask_encrypt(s: &mut DriveState, drive_id: &str) {
     if s.popup.is_none() {
         s.popups_opened += 1;
-        s.popup = Some(Popup::Encryption(Dialog::Confirm {
+        s.popup.open(Popup::Encryption(Dialog::Confirm {
             drive_id: drive_id.to_string(),
         }));
     }
@@ -1348,10 +1364,12 @@ pub(crate) fn request_totals(info: &mut CallbackInfo, app: &RefAny, s: &mut Driv
     }
 }
 
-/// Whether a recovery sheet may take the window's dialog now: no dialog is open, or the
-/// encryption's own "working" page is (the sheet is what it waits for).
+/// Whether a recovery sheet may take the window's dialog now: no dialog is open, or one that
+/// only reports progress is (the encryption's own "working" page: the sheet is what it waits
+/// for). The popup slot's [`open_when_free`](crate::popup_slot::PopupSlot::open_when_free) goes
+/// by the same rule.
 pub(crate) fn sheet_shows_now(popup: Option<&Popup>) -> bool {
-    matches!(popup, None | Some(Popup::Encryption(Dialog::Busy { .. })))
+    popup.is_none_or(Popup::reports_progress)
 }
 
 /// The set-up's answer for a new drive that holds key files already: another computer made its
@@ -1367,20 +1385,11 @@ pub(crate) fn set_up_failure_shows_as_dialog(why: &str, popup: Option<&Popup>) -
     why != ENCRYPTED_ELSEWHERE && sheet_shows_now(popup)
 }
 
-/// Shows the first recovery sheet that waited for another dialog, once none is open.
-pub(crate) fn show_pending_sheet(s: &mut DriveState) {
-    if s.popup.is_none() && !s.pending_sheets.is_empty() {
-        let sheet = s.pending_sheets.remove(0);
-        s.popups_opened += 1;
-        s.popup = Some(Popup::Encryption(Dialog::Sheet(sheet)));
-    }
-}
-
 /// "I was hacked: new keys...": the question.
 pub(crate) fn ask_rotate(s: &mut DriveState, drive_id: &str) {
     if s.popup.is_none() {
         s.popups_opened += 1;
-        s.popup = Some(Popup::Encryption(Dialog::ConfirmRotate {
+        s.popup.open(Popup::Encryption(Dialog::ConfirmRotate {
             drive_id: drive_id.to_string(),
             typed: Zeroizing::new(String::new()),
             error: String::new(),
@@ -1390,7 +1399,7 @@ pub(crate) fn ask_rotate(s: &mut DriveState, drive_id: &str) {
 
 extern "C" fn on_rotate(mut data: RefAny, mut info: CallbackInfo) -> Update {
     with_state(&mut data, &mut info, |info, _app, s| {
-        if matches!(s.popup, Some(Popup::Encryption(Dialog::ConfirmRotate { .. }))) {
+        if matches!(s.popup.as_ref(), Some(Popup::Encryption(Dialog::ConfirmRotate { .. }))) {
             // New keys are made only after Touch ID or the password (the gated tier).
             crate::presence::ask(info, s, crate::presence::Gated::Rotate);
         }
@@ -1425,7 +1434,7 @@ pub(crate) fn rotate_confirmed(info: &mut CallbackInfo, app: &RefAny, s: &mut Dr
             }
         }
     };
-    s.popup = None;
+    s.popup.close();
     let Some(auto) = auto_of(s, &drive_id) else {
         return;
     };
@@ -1436,7 +1445,7 @@ pub(crate) fn rotate_confirmed(info: &mut CallbackInfo, app: &RefAny, s: &mut Dr
         s.error(Text::key("azdrive-enc-only-azlin-lockdown"));
         return;
     };
-    s.popup = Some(Popup::Encryption(Dialog::Busy {
+    s.popup.open(Popup::Encryption(Dialog::Busy {
         title: t("azdrive-enc-rotating-title"),
         text: t("azdrive-enc-rotating"),
     }));
@@ -1481,7 +1490,7 @@ extern "C" fn on_reencrypt(mut data: RefAny, mut info: CallbackInfo) -> Update {
 pub(crate) fn ask_unlock(s: &mut DriveState, drive_id: &str) {
     if s.popup.is_none() {
         s.popups_opened += 1;
-        s.popup = Some(Popup::Encryption(Dialog::Unlock {
+        s.popup.open(Popup::Encryption(Dialog::Unlock {
             drive_id: drive_id.to_string(),
             typed: Zeroizing::new(String::new()),
             error: String::new(),
@@ -1559,7 +1568,7 @@ extern "C" fn on_encrypt(mut data: RefAny, mut info: CallbackInfo) -> Update {
         let Some(auto) = auto_of(s, &drive_id) else {
             return;
         };
-        s.popup = Some(Popup::Encryption(Dialog::Busy {
+        s.popup.open(Popup::Encryption(Dialog::Busy {
             title: t("azdrive-enc-encrypting-title"),
             text: t("azdrive-enc-encrypting"),
         }));
@@ -1589,11 +1598,15 @@ extern "C" fn on_sheet_done(mut data: RefAny, mut info: CallbackInfo) -> Update 
             return;
         }
         let drive_id = sheet.drive_id.clone();
-        if sheet.extra {
+        let (extra, after_rotation, new_drive) =
+            (sheet.extra, sheet.after_rotation, sheet.new_drive);
+        // The groups typed back are the user's own close of the sheet: it goes now, and what
+        // follows shows after it.
+        s.popup.user_closed();
+        if extra {
             // A second kit: its key is at the token server already; nothing else to set up.
             crate::recovery::forget_print_copies();
             println!("AZDRIVE_RECOVERY_CODE_VERIFIED {drive_id}");
-            s.popup = None;
             s.success(Phrase::new("azdrive-keys-second-works"));
             return;
         }
@@ -1601,16 +1614,12 @@ extern "C" fn on_sheet_done(mut data: RefAny, mut info: CallbackInfo) -> Update 
         crate::recovery::forget_print_copies();
         crate::recovery::setup_verified(s, &drive_id);
         crate::save_settings(info, app, s);
-        let Some(Popup::Encryption(Dialog::Sheet(sheet))) = s.popup.as_ref() else {
-            return;
-        };
-        if sheet.after_rotation {
-            s.popup = Some(Popup::Encryption(Dialog::OfferReencrypt { drive_id }));
+        if after_rotation {
+            s.popup.open(Popup::Encryption(Dialog::OfferReencrypt { drive_id }));
             return;
         }
-        if sheet.new_drive {
+        if new_drive {
             // A new drive is empty: nothing to move into the encryption.
-            s.popup = None;
             let name = drive_name(s, &drive_id);
             println!("AZDRIVE_ENCRYPTED_NEW_DRIVE {drive_id}");
             s.success(Phrase::new("azdrive-enc-new-drive-ready").arg("name", name));
@@ -1632,7 +1641,7 @@ pub(crate) fn start_migration(
         return;
     };
     let state_file = state_file(s, drive_id);
-    s.popup = Some(Popup::Encryption(Dialog::Busy {
+    s.popup.open(Popup::Encryption(Dialog::Busy {
         title: t("azdrive-enc-migrating-title"),
         text: t_args(
             "azdrive-enc-migrating",
@@ -1669,7 +1678,7 @@ extern "C" fn on_unlock(mut data: RefAny, mut info: CallbackInfo) -> Update {
         let Some(auto) = auto_of(s, &drive_id) else {
             return;
         };
-        s.popup = Some(Popup::Encryption(Dialog::Busy {
+        s.popup.open(Popup::Encryption(Dialog::Busy {
             title: t("azdrive-enc-unlocking-title"),
             text: t("azdrive-enc-unlocking"),
         }));
@@ -2278,7 +2287,7 @@ pub(crate) fn invite_device(
         return;
     };
     s.popups_opened += 1;
-    s.popup = Some(Popup::Encryption(Dialog::Busy {
+    s.popup.open(Popup::Encryption(Dialog::Busy {
         title: t("azdrive-invite-title"),
         text: t("azdrive-invite-making"),
     }));
@@ -2767,15 +2776,13 @@ pub(crate) fn on_outcome(
                 } else {
                     sheet
                 };
-                if sheet_shows_now(s.popup.as_ref()) {
-                    s.popup = Some(Popup::Encryption(Dialog::Sheet(sheet)));
-                } else {
-                    s.pending_sheets.push(sheet);
-                }
+                // In place of the busy setup (its window), else once the dialog showing closed
+                // (a paid drive that arrived while the Add drive dialog was open).
+                s.popup.open_when_free(Popup::Encryption(Dialog::Sheet(sheet)));
             }
             Err(why) => {
-                if matches!(s.popup, Some(Popup::Encryption(Dialog::Busy { .. }))) {
-                    s.popup = None;
+                if matches!(s.popup.as_ref(), Some(Popup::Encryption(Dialog::Busy { .. }))) {
+                    s.popup.close();
                 }
                 if why == ENCRYPTED_ELSEWHERE {
                     println!("AZDRIVE_ENCRYPTED_ELSEWHERE {drive_id}");
@@ -2790,7 +2797,7 @@ pub(crate) fn on_outcome(
                         why
                     };
                     if shows_as_dialog {
-                        s.popup = Some(Popup::Encryption(Dialog::Message {
+                        s.popup.open(Popup::Encryption(Dialog::Message {
                             title: t("azdrive-enc-not-encrypted"),
                             text,
                         }));
@@ -2802,8 +2809,8 @@ pub(crate) fn on_outcome(
         },
         EncryptionOutcome::Recovered { drive_id, result } => match result {
             Ok(()) => {
-                if matches!(s.popup, Some(Popup::Encryption(Dialog::Busy { .. }))) {
-                    s.popup = None;
+                if matches!(s.popup.as_ref(), Some(Popup::Encryption(Dialog::Busy { .. }))) {
+                    s.popup.close();
                 }
                 // The drive was unlocked to be opened (its menu offers it wherever the window is):
                 // it shows now, read again when it showed already.
@@ -2819,15 +2826,15 @@ pub(crate) fn on_outcome(
                 crate::archive::register_device_key(info, app, s, &drive_id);
             }
             Err(why) => {
-                s.popup = Some(Popup::Encryption(Dialog::Message {
+                s.popup.open(Popup::Encryption(Dialog::Message {
                     title: t("azdrive-enc-not-unlocked"),
                     text: t_label(&why),
                 }));
             }
         },
         EncryptionOutcome::Migrated { drive_id, result } => {
-            if matches!(s.popup, Some(Popup::Encryption(Dialog::Busy { .. }))) {
-                s.popup = None;
+            if matches!(s.popup.as_ref(), Some(Popup::Encryption(Dialog::Busy { .. }))) {
+                s.popup.close();
             }
             let name = drive_name(s, &drive_id);
             match result {
@@ -2882,7 +2889,7 @@ pub(crate) fn on_outcome(
                     said = said.then(" ").then(Text::key("azdrive-enc-rotated-mail"));
                 }
                 s.info(said);
-                s.popup = Some(Popup::Encryption(Dialog::Sheet(
+                s.popup.open(Popup::Encryption(Dialog::Sheet(
                     Sheet::new(&drive_id, done.code)
                         .after_rotation()
                         .replacing(done.previous_code),
@@ -2890,7 +2897,7 @@ pub(crate) fn on_outcome(
                 crate::refresh(info, app, s);
             }
             Err(why) => {
-                s.popup = Some(Popup::Encryption(Dialog::Message {
+                s.popup.open(Popup::Encryption(Dialog::Message {
                     title: t("azdrive-enc-not-rotated"),
                     text: t_args(
                         "azdrive-enc-not-rotated-why",
@@ -2936,14 +2943,14 @@ pub(crate) fn on_outcome(
         EncryptionOutcome::Invited { drive_id, result } => match result {
             Ok(code) => {
                 println!("AZDRIVE_INVITED {drive_id}");
-                s.popup = Some(Popup::Encryption(Dialog::Invite {
+                s.popup.open(Popup::Encryption(Dialog::Invite {
                     drive_id,
                     code,
                     note: String::new(),
                 }));
             }
             Err(why) => {
-                s.popup = Some(Popup::Encryption(Dialog::Message {
+                s.popup.open(Popup::Encryption(Dialog::Message {
                     title: t("azdrive-invite-title"),
                     text: t_args("azdrive-invite-not-made", &[("why", Arg::from(t_label(&why)))]),
                 }));
@@ -2989,11 +2996,11 @@ pub(crate) fn on_outcome(
         }
         EncryptionOutcome::LockdownCancelled { drive_id, result } => match result {
             Ok(()) => {
-                s.popup = None;
+                s.popup.close();
                 crate::periods::lockdown_cancelled(s, &drive_id);
             }
             Err(why) => {
-                s.popup = Some(Popup::Encryption(Dialog::CancelLockdown {
+                s.popup.open(Popup::Encryption(Dialog::CancelLockdown {
                     drive_id,
                     typed: Zeroizing::new(String::new()),
                     error: t_label(&why),
@@ -3002,7 +3009,7 @@ pub(crate) fn on_outcome(
         },
         EncryptionOutcome::LockedDown { drive_id, result } => {
             let name = drive_name(s, &drive_id);
-            s.popup = Some(Popup::Encryption(match result {
+            s.popup.open(Popup::Encryption(match result {
                 Ok(until) => {
                     let until =
                         until.map_or_else(|| String::from("none"), azul_storage::time::iso8601);
@@ -3055,7 +3062,7 @@ pub(crate) fn check_code_in_bucket(
     let Some(auto) = auto_of(s, drive_id) else {
         return;
     };
-    s.popup = Some(Popup::Encryption(Dialog::Busy {
+    s.popup.open(Popup::Encryption(Dialog::Busy {
         title: t("azdrive-enc-checking-title"),
         text: t("azdrive-enc-checking"),
     }));
@@ -3089,7 +3096,7 @@ pub(crate) fn count_devices(
 pub(crate) fn ask_cancel_lockdown(s: &mut DriveState, drive_id: &str) {
     if s.popup.is_none() {
         s.popups_opened += 1;
-        s.popup = Some(Popup::Encryption(Dialog::CancelLockdown {
+        s.popup.open(Popup::Encryption(Dialog::CancelLockdown {
             drive_id: drive_id.to_string(),
             typed: Zeroizing::new(String::new()),
             error: String::new(),
@@ -3124,7 +3131,7 @@ extern "C" fn on_cancel_lockdown_signed(mut data: RefAny, mut info: CallbackInfo
                 return;
             }
         };
-        s.popup = Some(Popup::Encryption(Dialog::Busy {
+        s.popup.open(Popup::Encryption(Dialog::Busy {
             title: t("azdrive-enc-cancelling-title"),
             text: t("azdrive-enc-cancelling"),
         }));
@@ -3142,7 +3149,7 @@ extern "C" fn on_cancel_lockdown_signed(mut data: RefAny, mut info: CallbackInfo
 pub(crate) fn ask_get_back(s: &mut DriveState, drive_id: &str, checkout: Option<String>) {
     if s.popup.is_none() {
         s.popups_opened += 1;
-        s.popup = Some(Popup::Encryption(Dialog::GetDriveBack {
+        s.popup.open(Popup::Encryption(Dialog::GetDriveBack {
             drive_id: drive_id.to_string(),
             checkout,
             typed: Zeroizing::new(String::new()),
@@ -3170,7 +3177,7 @@ extern "C" fn on_get_back_signed(mut data: RefAny, mut info: CallbackInfo) -> Up
             .and_then(|state| state.recovery_key.clone());
         match current_code(known.as_deref(), &drive_id, typed) {
             Ok(code) => {
-                s.popup = None;
+                s.popup.close();
                 crate::archive::prove_start(
                     info,
                     app,
@@ -3195,7 +3202,7 @@ extern "C" fn on_get_back_signed(mut data: RefAny, mut info: CallbackInfo) -> Up
 pub(crate) fn ask_recovery_lockdown(s: &mut DriveState, drive_id: &str) {
     if s.popup.is_none() {
         s.popups_opened += 1;
-        s.popup = Some(Popup::Encryption(Dialog::RecoveryLockdown {
+        s.popup.open(Popup::Encryption(Dialog::RecoveryLockdown {
             drive_id: drive_id.to_string(),
             typed: Zeroizing::new(String::new()),
             error: String::new(),
@@ -3222,7 +3229,7 @@ extern "C" fn on_recovery_lockdown(mut data: RefAny, mut info: CallbackInfo) -> 
             }
             return;
         };
-        s.popup = Some(Popup::Encryption(Dialog::Busy {
+        s.popup.open(Popup::Encryption(Dialog::Busy {
             title: t("azdrive-enc-locking-title"),
             text: t("azdrive-enc-locking"),
         }));

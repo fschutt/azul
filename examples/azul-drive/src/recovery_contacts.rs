@@ -128,6 +128,14 @@ pub(crate) enum Page {
     },
 }
 
+impl Page {
+    /// Whether the page shows something only this once: the shares just made (each to send or
+    /// to print) or the code two shares gave back.
+    pub(crate) const fn shows_a_secret_once(&self) -> bool {
+        matches!(self, Page::Made { .. } | Page::Rebuilt { .. })
+    }
+}
+
 /// What the owner's three people are checked into: each one's contact key (`None`: printed).
 pub(crate) fn plan_shares(people: &[Person]) -> Result<Vec<Option<MemberPublic>>, String> {
     let mut keys: Vec<Option<MemberPublic>> = Vec::new();
@@ -278,7 +286,7 @@ fn open(s: &mut DriveState, page: Page) {
     if s.popup.is_none() {
         s.popups_opened += 1;
     }
-    s.popup = Some(Popup::Encryption(Dialog::Contacts(page)));
+    s.popup.open(Popup::Encryption(Dialog::Contacts(page)));
 }
 
 /// Options > Drives > "Trusted contacts: Add...".
@@ -889,7 +897,7 @@ extern "C" fn on_make(mut data: RefAny, mut info: CallbackInfo) -> Update {
                     })
                     .collect();
                 println!("AZDRIVE_CONTACTS_SHARED {drive_id} {}", made.len());
-                s.popup = Some(Popup::Encryption(Dialog::Contacts(Page::Made {
+                s.popup.open(Popup::Encryption(Dialog::Contacts(Page::Made {
                     drive_id,
                     shares: made,
                     note: String::new(),
@@ -909,7 +917,8 @@ extern "C" fn on_make(mut data: RefAny, mut info: CallbackInfo) -> Update {
 
 extern "C" fn on_made_done(mut data: RefAny, mut info: CallbackInfo) -> Update {
     with_state(&mut data, &mut info, |info, app, s| {
-        s.popup = None;
+        // The user's Done: the shares were sent or printed.
+        s.popup.user_closed();
         save_settings(info, app, s);
     })
 }
@@ -935,7 +944,7 @@ extern "C" fn on_paste(mut data: RefAny, mut info: CallbackInfo) -> Update {
                     {
                         Some(t("azdrive-contacts-no-share-held"))
                     } else {
-                        s.popup = Some(Popup::Encryption(Dialog::Contacts(Page::Answer {
+                        s.popup.open(Popup::Encryption(Dialog::Contacts(Page::Answer {
                             safety: safety_number(&request),
                             request: text,
                             reply: None,
@@ -1250,7 +1259,7 @@ pub(crate) fn on_done(
                 held.label = label.clone();
                 held.sealed = text;
                 held.received = Some(now_unix());
-                s.popup = None;
+                s.popup.close();
                 s.success(
                     Phrase::new("azdrive-contacts-taken")
                         .arg("index", u32::from(index))
@@ -1323,7 +1332,7 @@ pub(crate) fn on_done(
             match outcome {
                 Ok(()) => {
                     println!("AZDRIVE_CONTACTS_TESTED {drive_id}");
-                    s.popup = Some(Popup::Encryption(Dialog::Message {
+                    s.popup.open(Popup::Encryption(Dialog::Message {
                         title: t("azdrive-contacts-tested-title"),
                         text: t("azdrive-contacts-tested"),
                     }));

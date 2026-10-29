@@ -1286,7 +1286,7 @@ extern "C" fn on_remove_drive(mut data: RefAny, mut info: CallbackInfo) -> Updat
         if let Some(slot) = s.slots.get(index) {
             let drive_id = slot.entry.id.clone();
             s.popups_opened += 1;
-            s.popup = Some(Popup::ConfirmForget { drive_id });
+            s.popup.open(Popup::ConfirmForget { drive_id });
         }
     })
 }

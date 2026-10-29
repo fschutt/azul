@@ -178,7 +178,7 @@ pub(crate) fn open(s: &mut DriveState) {
         d.kept = Some(checkout.clone());
     }
     print_page(&d);
-    s.popup = Some(Popup::AddDrive(d));
+    s.popup.open(Popup::AddDrive(d));
 }
 
 /// Opens Buy storage for the next months of the drive `renew` (Renew): on its tier, any other
@@ -201,7 +201,7 @@ pub(crate) fn open_renewing(
     renewing.choose_buy();
     print_page(&renewing);
     let on_buy = renewing.page == AddPage::Buy;
-    s.popup = Some(Popup::AddDrive(renewing));
+    s.popup.open(Popup::AddDrive(renewing));
     if on_buy {
         load_tiers(info, app, s, false);
     }
@@ -228,7 +228,7 @@ pub(crate) fn open_editing(s: &mut DriveState, index: usize) {
     s.popups_opened += 1;
     let d = AddDialog::editing(&entry, s.popups_opened);
     print_page(&d);
-    s.popup = Some(Popup::AddDrive(d));
+    s.popup.open(Popup::AddDrive(d));
 }
 
 /// A button or a tile of the dialog.
@@ -384,7 +384,7 @@ pub(crate) fn cancel(s: &mut DriveState) {
             cancel.store(true, Ordering::SeqCst);
         }
     }
-    s.popup = None;
+    s.popup.close();
 }
 
 /// The user closes the dialog (Cancel, its close button, Escape): a payment shown and not

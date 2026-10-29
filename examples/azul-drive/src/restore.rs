@@ -146,7 +146,7 @@ pub(crate) fn open(s: &mut DriveState, drive_id: &str) {
         return;
     }
     s.popups_opened += 1;
-    s.popup = Some(Popup::Restore {
+    s.popup.open(Popup::Restore {
         drive_id: drive_id.to_string(),
         // What the time field holds when it opens: "1 hour ago" in the window's language.
         text: t("azdrive-restore-default-as-of"),
@@ -273,7 +273,8 @@ pub(crate) fn restored(
     as_of: u64,
     result: Result<Restored, Text>,
 ) {
-    let open = matches!(&s.popup, Some(Popup::Restore { drive_id: id, .. }) if id == drive_id);
+    let open =
+        matches!(s.popup.as_ref(), Some(Popup::Restore { drive_id: id, .. }) if id == drive_id);
     match result {
         Ok(how) => {
             let (kind, what) = match &how {
@@ -286,7 +287,7 @@ pub(crate) fn restored(
                 iso8601(as_of)
             );
             if open {
-                s.popup = None;
+                s.popup.close();
             }
             let name = s.drive_name(&Place::folder(drive_id, ""));
             s.success(restored_text(&name, as_of, &how));

@@ -888,15 +888,19 @@ class InWindow(App):
         raise Failure("stop the app, not one of its windows")
 
 
-def modal_window(app, known=()):
+def modal_window(app, known=(), showing=None):
     """The open modal's window: the one window that is neither the app's own (the default) nor
-    in `known`."""
+    in `known`. With `showing` (a selector), the window that lays that node out: the first other
+    window may be a dialog about to close while the one asked for opens."""
     def other():
         windows = (app.value("list_windows") or {}).get("windows") or []
         ids = [w.get("window_id") for w in windows
                if not w.get("is_default") and w.get("window_id") not in known]
+        if showing is not None:
+            ids = [i for i in ids if InWindow(app, i).has(showing)]
         return ids[0] if ids else None
-    return InWindow(app, app.until("the modal's window", other))
+    what = "the modal's window" if showing is None else "the modal showing %s" % showing
+    return InWindow(app, app.until(what, other))
 
 
 DIALOG_BUTTONS = "__azul-native-standard-dialog-buttons"
