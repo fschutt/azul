@@ -2,9 +2,9 @@
 //! popup near it while the pointer hovers, hiding it again on leave.
 //!
 //! The tip is shown in the operating system's tooltip window
-//! (`CallbackInfo::show_tooltip_at`, a transient window of the platform's
-//! tooltip kind), opened under the anchor on `MouseEnter` and closed on
-//! `MouseLeave`. A window is not clipped by the anchor's ancestors and does
+//! (`CallbackInfo::show_tooltip_for` the anchor's box, a window of the
+//! platform's tooltip kind), opened under the anchor - above it where the
+//! screen has no room - on `MouseEnter` and closed on `MouseLeave`. A window is not clipped by the anchor's ancestors and does
 //! not move the page. The tip's styled node stays in the DOM, hidden: it is
 //! the anchor's accessible description and the look the window's text
 //! follows where a platform draws the tooltip itself.

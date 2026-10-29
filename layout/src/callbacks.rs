@@ -221,8 +221,10 @@ impl Default for E2eScriptHandle {
     }
 }
 
-/// How far below the pointer a tooltip shown at the pointer opens, in
-/// logical px: past a standard arrow cursor, as the platforms place theirs.
+/// How tall the pointer's box is, the box a tooltip shown at the pointer
+/// keeps clear, in logical px: a standard arrow cursor below its hot spot. The
+/// tooltip opens below that, as the platforms place theirs, or above the hot
+/// spot where the screen has no room below.
 pub(crate) const TOOLTIP_BELOW_POINTER: f32 = 20.0;
 
 /// Represents a change made by a callback that will be applied after the callback returns
