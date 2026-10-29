@@ -123,10 +123,10 @@ impl Deref for VisualLine {
     }
 }
 
-/// The items of a visual line, or of a piece of one, from the end of the line
-/// a paragraph running in `base` reads towards: its right end left to right,
-/// its left end right to left. Rule L1 keeps a line's trailing white space and
-/// its break there.
+/// The items of a visual line, or of a piece of one, from the end a paragraph
+/// running in `base` reads towards: from the right end leftwards in a
+/// left-to-right paragraph, from the left end rightwards in a right-to-left
+/// one. Rule L1 keeps a line's trailing white space and its break there.
 #[must_use]
 pub fn from_line_end(
     items: &[ShapedItem],
