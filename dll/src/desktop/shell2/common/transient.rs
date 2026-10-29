@@ -80,7 +80,7 @@ use super::debug_server::LogCategory;
 use crate::log_debug;
 
 /// Shared between a parent window and one of its popups — see the module doc.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TransientWindowData {
     /// The parent's registry id, as `WindowCreateOptions::parent_window_id`.
     pub parent_window_id: u64,

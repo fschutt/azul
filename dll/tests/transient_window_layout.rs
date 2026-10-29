@@ -957,30 +957,9 @@ fn drag_by(window: &mut HeadlessWindow, from: LogicalPosition, delta: LogicalPos
 
 fn mailbox(opts_state: &azul_layout::window_state::FullWindowState) -> TransientWindowData {
     let mut m = mailbox_of(opts_state).expect("the window's ctx is its mailbox");
-    let d = m.downcast_ref::<TransientWindowData>().unwrap();
-    TransientWindowData {
-        parent_window_id: d.parent_window_id,
-        content_dom: d.content_dom,
-        placement: d.placement,
-        content_size: d.content_size,
-        content: d.content.clone(),
-        generation: d.generation,
-        closed: d.closed,
-        dismissed: d.dismissed,
-        origin: d.origin,
-        torn: d.torn,
-        drag: d.drag,
-        drop: d.drop,
-        following: d.following,
-        // master's a11y work added this field without updating the test's
-        // field-by-field copy of the mailbox.
-        focus_visible: d.focus_visible,
-        forwarded_keys: d.forwarded_keys.clone(),
-        takes_focus: d.takes_focus,
-        autofocused: d.autofocused,
-        close_owner: d.close_owner,
-        owner_threads: d.owner_threads.clone(),
-    }
+    // A snapshot of the mailbox as it stands: a clone, so a field added to
+    // the mailbox is copied too.
+    m.downcast_ref::<TransientWindowData>().unwrap().clone()
 }
 
 /// The colour picker's grip: dragging it off the swatch turns the popup into
