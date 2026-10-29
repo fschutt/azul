@@ -26,6 +26,8 @@ use azul_core::{
     },
 };
 
+use crate::placement::{floating_frame, FloatingPlacement};
+
 /// Everything a backend needs to materialise one open transient window.
 ///
 /// Placement is an ANCHOR RECT plus an EDGE, never a screen position. Wayland
@@ -61,38 +63,54 @@ pub struct TransientPlacement {
 }
 
 impl TransientPlacement {
-    /// Where the popup's top-left goes, in the PARENT's logical coordinates,
-    /// for a popup of `size` opening from this anchor.
+    /// The rule this popup is placed by, in the form every floating surface states it
+    /// ([`crate::placement`]): its anchor box and, per axis, which edge it opens on, and
+    /// whether it may flip to the other edge or slide when the screen has no room. A
+    /// Wayland backend hands this to the compositor's positioner, every other backend to
+    /// [`crate::placement::floating_frame`], so the two cannot disagree.
     ///
-    /// Shared by every backend that needs a coordinate (X11, Windows, macOS,
-    /// headless) so the arithmetic lives once. Wayland does NOT call this — it
-    /// hands `anchor_rect` + `anchor` to `xdg_positioner` and lets the
-    /// compositor place it, which is the only way to get it right there.
+    /// `cursor` is used only for [`TransientAnchor::Cursor`]; pass the current pointer
+    /// position, or `None` to fall back to the anchor's corner.
+    #[must_use]
+    pub const fn floating(
+        &self,
+        cursor: Option<azul_core::geom::LogicalPosition>,
+    ) -> FloatingPlacement {
+        let a = self.anchor_rect;
+        match self.anchor {
+            TransientAnchor::Bottom => FloatingPlacement::below(a, false),
+            TransientAnchor::Top => FloatingPlacement::above(a, false),
+            TransientAnchor::Left => FloatingPlacement::left_of(a),
+            TransientAnchor::Right => FloatingPlacement::right_of(a),
+            // At the pointer, like a context menu: it flips to the pointer's left or
+            // above it where there is no room right or below.
+            TransientAnchor::Cursor => FloatingPlacement::at_point(
+                match cursor {
+                    Some(point) => point,
+                    None => a.origin,
+                },
+                true,
+            ),
+            // The anchor rect IS the viewport (`cover_viewport`).
+            TransientAnchor::Viewport => FloatingPlacement::pinned(a.origin),
+            // Centred over the viewport (`cover_viewport` made it the anchor).
+            TransientAnchor::Dialog => FloatingPlacement::centered_over(a),
+        }
+    }
+
+    /// Where the popup's top-left goes, in the PARENT's logical coordinates,
+    /// for a popup of `size` opening from this anchor, before any screen edge
+    /// has a say (a torn-off window that has not been dropped anywhere yet).
     ///
     /// `cursor` is used only for [`TransientAnchor::Cursor`]; pass the current
     /// pointer position, or `None` to fall back to the anchor's corner.
     #[must_use]
-    pub fn resolve(
+    pub const fn resolve(
         &self,
         size: LogicalSize,
         cursor: Option<azul_core::geom::LogicalPosition>,
     ) -> azul_core::geom::LogicalPosition {
-        use azul_core::geom::LogicalPosition;
-        let a = self.anchor_rect;
-        match self.anchor {
-            TransientAnchor::Bottom => LogicalPosition::new(a.origin.x, a.origin.y + a.size.height),
-            TransientAnchor::Top => LogicalPosition::new(a.origin.x, a.origin.y - size.height),
-            TransientAnchor::Left => LogicalPosition::new(a.origin.x - size.width, a.origin.y),
-            TransientAnchor::Right => LogicalPosition::new(a.origin.x + a.size.width, a.origin.y),
-            TransientAnchor::Cursor => cursor.unwrap_or(a.origin),
-            // The anchor rect IS the viewport (`cover_viewport`).
-            TransientAnchor::Viewport => a.origin,
-            // Centred over the viewport (`cover_viewport` made it the anchor).
-            TransientAnchor::Dialog => LogicalPosition::new(
-                a.origin.x + (a.size.width - size.width) / 2.0,
-                a.origin.y + (a.size.height - size.height) / 2.0,
-            ),
-        }
+        self.floating(cursor).preferred_origin(size)
     }
 
     /// For an `anchor="viewport"` placement, the placement that covers a
@@ -122,13 +140,14 @@ impl TransientPlacement {
     }
 
     /// [`Self::resolve`], then keep the popup inside `bounds` — a rect in the
-    /// PARENT's coordinate space, normally the monitor's work area (a popup is
-    /// its own OS window and may hang out of the parent, but not off the
-    /// screen; a short parent window must not force its picker to flip).
-    /// A popup that would run off the bottom flips to open upward when there
-    /// is room above (and vice versa; left/right the same), and whatever
-    /// still overflows is slid back in. Menus have done this edge-flip +
-    /// clamp since forever.
+    /// PARENT's coordinate space, normally the work area of the screen the
+    /// anchor is on (a popup is its own OS window and may hang out of the
+    /// parent, but not off the screen; a short parent window must not force
+    /// its picker to flip). A popup that would run off the bottom flips to
+    /// open upward when there is room above (and vice versa; left/right the
+    /// same), and whatever still overflows is slid back in - the rule every
+    /// floating surface follows ([`crate::placement::floating_frame`]). A
+    /// viewport cover sits exactly on its parent and is never moved.
     #[must_use]
     pub fn resolve_within(
         &self,
@@ -136,10 +155,7 @@ impl TransientPlacement {
         cursor: Option<azul_core::geom::LogicalPosition>,
         bounds: LogicalRect,
     ) -> azul_core::geom::LogicalPosition {
-        // A viewport cover sits exactly on its parent: flipping or sliding
-        // it into the monitor would uncover part of the parent it exists to
-        // cover.
-        if self.anchor == TransientAnchor::Viewport {
+        if matches!(self.anchor, TransientAnchor::Viewport) {
             return self.anchor_rect.origin;
         }
         let a = self.anchor_rect;
@@ -477,6 +493,30 @@ mod tests {
         let monitor = rect(-300.0, -200.0, 1920.0, 1080.0);
         let p = mk(TransientAnchor::Bottom, 550.0).resolve_within(size, None, monitor);
         assert_eq!(p.y, 570.0, "room on the screen below the window: no flip");
+    }
+
+    /// A popup at the pointer opens the way a context menu does: with no room right of or
+    /// below the pointer it opens left of or above it, instead of being slid back over the
+    /// spot the user pointed at.
+    #[test]
+    fn a_popup_at_the_cursor_near_the_screen_edge_opens_left_of_and_above_it() {
+        let at_cursor = TransientPlacement {
+            node: NodeId::new(0),
+            anchor_rect: rect(40.0, 40.0, 10.0, 10.0),
+            anchor: TransientAnchor::Cursor,
+            dismiss: TransientDismiss::Outside,
+            size: OptionLogicalSize::None,
+            tearoff: TransientTearoff::None,
+            torn: false,
+            material: azul_core::window::WindowBackgroundMaterial::Opaque,
+            dock: TransientDock::Popup,
+        };
+        let size = LogicalSize::new(200.0, 150.0);
+        let bounds = rect(0.0, 0.0, 800.0, 600.0);
+        let p = at_cursor.resolve_within(size, Some(LogicalPosition::new(780.0, 590.0)), bounds);
+        assert_eq!((p.x, p.y), (580.0, 440.0));
+        let p = at_cursor.resolve_within(size, Some(LogicalPosition::new(100.0, 100.0)), bounds);
+        assert_eq!((p.x, p.y), (100.0, 100.0), "with room it opens right at the pointer");
     }
 
     /// `anchor="viewport"`, the modal dialog's top layer: the window covers

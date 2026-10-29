@@ -59,7 +59,7 @@ use alloc::vec::Vec;
 use azul_core::{
     callbacks::{LayoutCallback, LayoutCallbackInfo},
     dom::{Dom, DomId},
-    geom::{LogicalPosition, LogicalSize, PhysicalPosition},
+    geom::{LogicalPosition, LogicalRect, LogicalSize, PhysicalPosition},
     id::NodeId,
     refany::{OptionRefAny, RefAny},
     task::ThreadId,
@@ -69,6 +69,7 @@ use azul_core::{
     },
 };
 use azul_layout::{
+    placement::{screen_for_anchor, FloatingPlacement, ScreenRects},
     thread::Thread,
     transient::{OpenTransientWindow, TransientPlacement},
     window::LayoutWindow,
@@ -87,6 +88,10 @@ pub struct TransientWindowData {
     pub content_dom: DomId,
     /// Anchor rect + edge + dismiss policy, from the parent's last layout.
     pub placement: TransientPlacement,
+    /// The rule the popup is placed by (`TransientPlacement::floating`), in the
+    /// parent's coordinates: what a Wayland compositor's positioner is handed,
+    /// and what `origin` is resolved from everywhere else.
+    pub floating: FloatingPlacement,
     /// What the parent measured the content at; the popup window's size.
     pub content_size: LogicalSize,
     /// The extracted subtree the popup lays out. Replaced by the parent on
@@ -415,14 +420,16 @@ pub fn popup_create_options(
     focus_visible: bool,
 ) -> (WindowCreateOptions, RefAny) {
     let size = open.content_size;
+    let floating = open.placement.floating(cursor);
     let origin = open
         .placement
-        .resolve_within(size, cursor, placement_bounds(parent));
+        .resolve_within(size, cursor, placement_bounds(parent, floating.anchor));
 
     let mailbox = RefAny::new(TransientWindowData {
         parent_window_id,
         content_dom: open.content_dom,
         placement: open.placement,
+        floating,
         content_size: size,
         content,
         generation: 0,
@@ -500,6 +507,7 @@ pub fn toplevel_create_options(
         parent_window_id,
         content_dom: open.content_dom,
         placement: open.placement,
+        floating: open.placement.floating(None),
         content_size: size,
         content,
         generation: 0,
@@ -557,16 +565,27 @@ pub fn toplevel_create_options(
     (options, mailbox)
 }
 
-/// Where a popup of `parent` may go, in the parent's own coordinates: the
-/// work area of the monitor the parent is on (a popup is its own window and
-/// may hang out of a short parent, but not off the screen). When the
-/// parent's screen position is unknown — Wayland, which never tells — the
-/// parent's own rect is the best available bound; the compositor's
-/// positioner does its own constraint adjustment there anyway.
-fn placement_bounds(parent: &FullWindowState) -> azul_core::geom::LogicalRect {
-    use azul_core::geom::LogicalRect;
-    screen_work_area(parent)
-        .unwrap_or_else(|| LogicalRect::new(LogicalPosition::zero(), parent.size.dimensions))
+/// Where a popup of `parent` anchored at `anchor` (parent coordinates) may go:
+/// the work area of the screen the anchor is on (a popup is its own window and
+/// may hang out of a short parent, but not off the screen). See [`popup_bounds`].
+fn placement_bounds(parent: &FullWindowState, anchor: LogicalRect) -> LogicalRect {
+    popup_bounds(&screens_around(parent), parent.size.dimensions, anchor)
+}
+
+/// Where a popup anchored at `anchor` may go, given every screen in the
+/// parent's own coordinates: the work area of the screen the ANCHOR is on,
+/// which for a parent spanning two monitors need not be the one the parent is
+/// mostly on. Without any screen to go by - Wayland, which never tells - the
+/// parent's own rect is the best available bound; the compositor's positioner
+/// does its own constraint adjustment there anyway.
+fn popup_bounds(
+    screens: &[ScreenRects],
+    parent_size: LogicalSize,
+    anchor: LogicalRect,
+) -> LogicalRect {
+    let _ = anchor;
+    screen_for_anchor(LogicalRect::new(LogicalPosition::zero(), parent_size), screens)
+        .unwrap_or_else(|| LogicalRect::new(LogicalPosition::zero(), parent_size))
 }
 
 /// How far a popup stays off the edges of the screen's work area.
@@ -605,26 +624,43 @@ pub fn content_room(room: LogicalSize, titled: bool) -> LogicalSize {
 
 /// The work area of the screen `parent` is on, in the parent's own
 /// coordinates; `None` when the parent's screen position is unknown.
-fn screen_work_area(parent: &FullWindowState) -> Option<azul_core::geom::LogicalRect> {
-    use azul_core::geom::LogicalRect;
+fn screen_work_area(parent: &FullWindowState) -> Option<LogicalRect> {
+    screen_for_anchor(
+        LogicalRect::new(LogicalPosition::zero(), parent.size.dimensions),
+        &screens_around(parent),
+    )
+}
+
+/// Every screen, in `parent`'s own coordinates; none when the parent's screen
+/// position is unknown.
+fn screens_around(parent: &FullWindowState) -> Vec<ScreenRects> {
     let WindowPosition::Initialized(pos) = parent.position else {
-        return None;
+        return Vec::new();
     };
-    #[allow(clippy::cast_precision_loss)] // screen coordinates
-    let parent_origin = LogicalPosition::new(pos.x as f32, pos.y as f32);
     // macOS enumerates screens through AppKit, main thread only; a layout
     // pass off it (headless tests) keeps the parent-rect bound.
     #[cfg(target_os = "macos")]
     if objc2_foundation::MainThreadMarker::new().is_none() {
-        return None;
+        return Vec::new();
     }
-    let display =
-        crate::desktop::display::get_window_display(parent_origin, parent.size.dimensions)?;
-    let wa = display.work_area;
-    Some(LogicalRect::new(
-        LogicalPosition::new(wa.origin.x - parent_origin.x, wa.origin.y - parent_origin.y),
-        wa.size,
-    ))
+    #[allow(clippy::cast_precision_loss)] // screen coordinates
+    let parent_origin = LogicalPosition::new(pos.x as f32, pos.y as f32);
+    let local = |rect: LogicalRect| {
+        LogicalRect::new(
+            LogicalPosition::new(
+                rect.origin.x - parent_origin.x,
+                rect.origin.y - parent_origin.y,
+            ),
+            rect.size,
+        )
+    };
+    crate::desktop::display::get_displays()
+        .into_iter()
+        .map(|display| ScreenRects {
+            bounds: local(display.bounds),
+            work_area: local(display.work_area),
+        })
+        .collect()
 }
 
 /// The window state every popup window starts from — a transient window
@@ -996,18 +1032,20 @@ pub fn sync_parent(
                     // A popup follows its anchor (the parent scrolled, the
                     // zone it docked onto moved); a torn toplevel is where
                     // the user put it and only its content refreshes.
+                    let floating = w.placement.floating(cursor);
                     let origin = if w.torn.is_some() {
                         None
                     } else {
                         Some(w.placement.resolve_within(
                             w.content_size,
                             cursor,
-                            placement_bounds(parent_state),
+                            placement_bounds(parent_state, floating.anchor),
                         ))
                     };
                     write(m, |d| {
                         d.content = content;
                         d.placement = w.placement;
+                        d.floating = floating;
                         d.content_size = w.content_size;
                         if let Some(o) = origin {
                             if d.drag.is_none() {
@@ -2011,6 +2049,44 @@ mod tests {
             popup_grab_serial(0, 7),
             7,
             "no input serial recorded yet: the pointer's is all there is"
+        );
+    }
+
+    /// A parent window that spans two monitors opens its popover on the monitor
+    /// its CONTROL is on. Bounded by the monitor the parent is mostly on, the
+    /// popover was slid back across the seam, away from the control.
+    #[test]
+    fn a_popover_anchored_on_a_second_monitor_stays_on_that_monitor() {
+        // Parent at (1000, 100) on the left monitor, 1000 wide, so its right part
+        // hangs over onto the right monitor; both monitors in parent coordinates.
+        let screen = |x: f32| ScreenRects {
+            bounds: LogicalRect::new(
+                LogicalPosition::new(x, -100.0),
+                LogicalSize::new(1920.0, 1080.0),
+            ),
+            work_area: LogicalRect::new(
+                LogicalPosition::new(x, -100.0),
+                LogicalSize::new(1920.0, 1040.0),
+            ),
+        };
+        let (left, right) = (screen(-1000.0), screen(920.0));
+        let swatch = LogicalRect::new(
+            LogicalPosition::new(950.0, 500.0),
+            LogicalSize::new(40.0, 20.0),
+        );
+        let bounds = popup_bounds(&[left, right], LogicalSize::new(1000.0, 600.0), swatch);
+        assert_eq!(bounds, right.work_area, "the swatch is on the right monitor");
+
+        let picker = placement_for(
+            NodeId::new(3),
+            swatch,
+            &azul_core::transient::TransientWindowConfig::opened(),
+        );
+        let origin = picker.resolve_within(LogicalSize::new(300.0, 200.0), None, bounds);
+        assert_eq!(
+            (origin.x, origin.y),
+            (950.0, 520.0),
+            "the picker opens under its swatch, not slid back onto the left monitor"
         );
     }
 
