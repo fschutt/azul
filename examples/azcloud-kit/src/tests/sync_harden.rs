@@ -615,6 +615,16 @@ fn the_volume_is_probed_once_and_the_probe_leaves_nothing_behind() {
     assert!(names(&dir.path().join(".azlin").join("sync")).is_empty());
 }
 
+/// A system without permission bits (Windows) shows every file as not executable: its volume
+/// keeps none, so an edit made there sends the bit the version had on the drive, never a
+/// cleared one, and a download keeps the drive's bit in the base.
+#[cfg(not(unix))]
+#[test]
+fn a_system_without_permission_bits_keeps_the_drives_executable_bit() {
+    let dir = TempDir::new("azcloud-probe-exec");
+    assert!(root::probe_volume(dir.path()).no_exec_bits);
+}
+
 #[test]
 fn the_token_servers_restore_announcement_reaches_the_sync_and_the_account_record() {
     // V3: the token server answers the drive's newest verified restore announcement in every
