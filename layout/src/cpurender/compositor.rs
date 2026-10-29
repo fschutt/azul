@@ -173,6 +173,10 @@ pub struct Layer {
     pub scroll_id: Option<LocalScrollId>,
     /// Whether this layer needs re-compositing onto its parent.
     pub composite_dirty: bool,
+    /// Whether the last render seeded the pixbuf with the parent's pixels
+    /// under it (a plain layer, see `render_layers`). Such a layer already
+    /// holds its backdrop, so it is copied over it, not blended.
+    pub seeded_backdrop: bool,
     /// Scroll frames between this layer and its parent layer that were NOT
     /// promoted to layers of their own - in practice the page's frame, which
     /// covers the whole window (see `allocate_layers_from_display_list`).
@@ -1109,11 +1113,13 @@ impl CompositorState {
             // Clear the layer pixbuf: the clear colour (white; transparent
             // for a transparent window) for the root, the parent's backdrop
             // for a plain layer, transparent for an effect layer.
+            layer.seeded_backdrop = false;
             if *layer_id == self.root_layer {
                 let [r, g, b, a] = self.clear_color;
                 layer.pixbuf.fill(r, g, b, a);
             } else if let Some(seed) = seed.filter(|s| s.len() == layer.pixbuf.data().len()) {
                 layer.pixbuf.data_mut().copy_from_slice(&seed);
+                layer.seeded_backdrop = true;
             } else {
                 layer.pixbuf.fill(0, 0, 0, 0);
             }
@@ -1344,7 +1350,13 @@ impl CompositorState {
             };
 
             let src_pixbuf = src.as_ref().unwrap_or(&layer.pixbuf);
-            if is_pure_translation {
+            if is_pure_translation
+                && layer.seeded_backdrop
+                && layer.opacity >= 1.0
+                && layer.filters.is_empty()
+            {
+                copy_pixmap_clipped(src_pixbuf, output, px_x, px_y, clip);
+            } else if is_pure_translation {
                 blit_pixmap_clipped(src_pixbuf, output, px_x, px_y, layer.opacity, clip);
             } else if is_affine {
                 blit_pixmap_affine_clipped(src_pixbuf, output, &this_m, layer.opacity, clip);
@@ -1522,6 +1534,7 @@ impl Layer {
             display_list_range: (0, 0),
             scroll_id: None,
             composite_dirty: true,
+            seeded_backdrop: false,
             inherited_scroll: Vec::new(),
             inherited_offset: (0.0, 0.0),
             wrapping_clips: Vec::new(),

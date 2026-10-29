@@ -68,11 +68,43 @@ pub fn blit_pixmap_clipped(
     opacity: f32,
     clip: Option<(i32, i32, i32, i32)>,
 ) {
+    let op = (opacity * 255.0).clamp(0.0, 255.0) as u32;
+    for_each_clipped_pixel(src, dst, px_x, px_y, clip, |below, layer| {
+        blend_over(below, layer, op);
+    });
+}
+
+/// [`blit_pixmap_clipped`] for a layer that already holds its backdrop - a
+/// plain layer seeded with its parent's pixels: its window replaces the
+/// pixels under it. Blended over them, a translucent backdrop (a translucent
+/// box inside an opacity group) would count twice.
+pub fn copy_pixmap_clipped(
+    src: &AzulPixmap,
+    dst: &mut AzulPixmap,
+    px_x: i32,
+    px_y: i32,
+    clip: Option<(i32, i32, i32, i32)>,
+) {
+    for_each_clipped_pixel(src, dst, px_x, px_y, clip, |below, layer| {
+        below.copy_from_slice(&layer);
+    });
+}
+
+/// Hands every pixel of `src` placed at (`px_x`, `px_y`) in `dst` that lands
+/// inside `dst` and the optional DEST-space clip `(x0, y0, x1, y1)` to
+/// `apply`, with the destination pixel to write.
+fn for_each_clipped_pixel(
+    src: &AzulPixmap,
+    dst: &mut AzulPixmap,
+    px_x: i32,
+    px_y: i32,
+    clip: Option<(i32, i32, i32, i32)>,
+    mut apply: impl FnMut(&mut [u8], [u8; 4]),
+) {
     let sw = src.width as i32;
     let sh = src.height as i32;
     let dw = dst.width as i32;
     let dh = dst.height as i32;
-    let op = (opacity * 255.0).clamp(0.0, 255.0) as u32;
 
     for sy in 0..sh {
         // saturating: px_y/px_x are caller-supplied device offsets that a large-but-legal
@@ -104,7 +136,7 @@ pub fn blit_pixmap_clipped(
             }
 
             let px = [src.data[si], src.data[si + 1], src.data[si + 2], src.data[si + 3]];
-            blend_over(&mut dst.data[di..di + 4], px, op);
+            apply(&mut dst.data[di..di + 4], px);
         }
     }
 }
