@@ -413,6 +413,8 @@ pub mod tls_testing;
 ///
 /// Stateful manager lives in `azul_layout::managers::keyring`.
 pub mod keyring;
+/// What the layout reads of a node (its attribute table), and what a change of each part moves.
+pub mod layout_inputs;
 /// Runtime log filtering: per-level and per-category atomics.
 ///
 /// Parsed from `AZ_LOG` but changeable while the process runs. Logging is gated HERE and

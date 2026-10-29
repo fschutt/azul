@@ -99,6 +99,19 @@ impl NodeChangeSet {
     /// hyphenate in it (`hyphens: auto`), so the node's own lines and those
     /// of the inline formatting contexts below it may break anew.
     pub const CONTENT_LANGUAGE: u32 = 0b0100_0000_0000_0000;
+    /// Something the boxes below the node read from it changed
+    /// ([`crate::layout_inputs::LayoutReach::Descendants`]): the legacy
+    /// `align`, an SVG group's `transform` or stroke, an `<svg>`'s `viewBox`.
+    /// Every box below the node is laid out again.
+    pub const DESCENDANT_INPUTS: u32 = 0b0001_0000_0000_0000_0000;
+
+    // --- Changes that affect the node's own box ---
+
+    /// Something the node's own box is laid out or painted from changed,
+    /// besides its type, style and flags
+    /// ([`crate::layout_inputs::LayoutReach::OwnBox`]): a cell's span, an
+    /// SVG text's position, a shape's geometry.
+    pub const OWN_BOX_INPUTS: u32 = 0b1000_0000_0000_0000;
 
     // --- Composite masks ---
 
@@ -111,7 +124,9 @@ impl NodeChangeSet {
         | Self::IMAGE_CHANGED
         | Self::CONTENTEDITABLE
         | Self::CUSTOM_PROPERTIES
-        | Self::CONTENT_LANGUAGE;
+        | Self::CONTENT_LANGUAGE
+        | Self::OWN_BOX_INPUTS
+        | Self::DESCENDANT_INPUTS;
 
     /// Any change that requires a paint/display-list update (but not layout).
     /// (`CUSTOM_PROPERTIES` is a layout change: a relayout repaints anyway,
@@ -281,23 +296,21 @@ pub fn compute_node_changes(
         _ => {} // Same non-content type → no content change
     }
 
-    // 3. IDs and classes (now stored in attributes as AttributeType::Id/Class)
+    // 3. What the layout reads of the attributes and the SVG data, by what
+    // a change of it moves: the ids and classes, the content language, the
+    // node's own box, the boxes below it. The fingerprint hashes the same
+    // inputs (`LayoutInputHashes`), so the two tiers report alike.
     {
-        use crate::dom::AttributeType;
-        let old_ids_classes: Vec<_> = old_node
-            .attributes()
-            .as_ref()
-            .iter()
-            .filter(|a| matches!(a, AttributeType::Id(_) | AttributeType::Class(_)))
-            .collect();
-        let new_ids_classes: Vec<_> = new_node
-            .attributes()
-            .as_ref()
-            .iter()
-            .filter(|a| matches!(a, AttributeType::Id(_) | AttributeType::Class(_)))
-            .collect();
-        if old_ids_classes != new_ids_classes {
-            changes.insert(NodeChangeSet::IDS_AND_CLASSES);
+        use crate::layout_inputs::{reads_alike, LayoutReach};
+        for (reach, flag) in [
+            (LayoutReach::Selectors, NodeChangeSet::IDS_AND_CLASSES),
+            (LayoutReach::Lines, NodeChangeSet::CONTENT_LANGUAGE),
+            (LayoutReach::OwnBox, NodeChangeSet::OWN_BOX_INPUTS),
+            (LayoutReach::Descendants, NodeChangeSet::DESCENDANT_INPUTS),
+        ] {
+            if !reads_alike(old_node, new_node, reach) {
+                changes.insert(flag);
+            }
         }
     }
 
@@ -417,22 +430,6 @@ pub fn compute_node_changes(
     // 8. Tab index
     if old_node.get_tab_index() != new_node.get_tab_index() {
         changes.insert(NodeChangeSet::TAB_INDEX);
-    }
-
-    // 8b. Content language: the `lang` attributes, in order (the last one
-    // names the language).
-    {
-        use crate::dom::AttributeType;
-        let is_lang = |a: &&AttributeType| matches!(a, AttributeType::Lang(_));
-        if !old_node
-            .attributes()
-            .as_ref()
-            .iter()
-            .filter(is_lang)
-            .eq(new_node.attributes().as_ref().iter().filter(is_lang))
-        {
-            changes.insert(NodeChangeSet::CONTENT_LANGUAGE);
-        }
     }
 
     // 9. Styled node state (hover, active, focused, etc.)
@@ -2294,6 +2291,13 @@ impl ChangeAccumulator {
             return RelayoutScope::Full;
         }
 
+        // DESCENDANT_INPUTS → Full: every box below the node reads it.
+        // OWN_BOX_INPUTS → Full as well: a cell's span re-grids its whole
+        // table, which no scope narrower than the subtree describes.
+        if change_set.intersects(NodeChangeSet::DESCENDANT_INPUTS | NodeChangeSet::OWN_BOX_INPUTS) {
+            return RelayoutScope::Full;
+        }
+
         // INLINE_STYLE_LAYOUT → could be IfcOnly, SizingOnly, or Full
         // We need to check individual properties for the exact scope.
         // For now, we use SizingOnly as a conservative default since
@@ -2419,7 +2423,8 @@ pub struct NodeDataFingerprint {
     pub state_hash: u64,
     /// Hash of inline CSS properties
     pub inline_css_hash: u64,
-    /// Hash of `ids_and_classes`
+    /// Hash of `ids_and_classes`, the attributes that select style rules
+    /// ([`crate::layout_inputs::LayoutReach::Selectors`])
     pub ids_classes_hash: u64,
     /// Hash of callbacks (event types + function pointers)
     pub callbacks_hash: u64,
@@ -2444,6 +2449,17 @@ pub struct NodeDataFingerprint {
     /// the line styles of the subtree, as an inherited style change does
     /// ([`Self::may_restyle_descendants`]).
     pub lang_hash: u64,
+    /// Hash of what the node's own box is laid out and painted from besides
+    /// its type, style and flags: a cell's span, an SVG text's position, a
+    /// shape's geometry ([`crate::layout_inputs::LayoutReach::OwnBox`]). A
+    /// change is [`NodeChangeSet::OWN_BOX_INPUTS`].
+    pub own_box_hash: u64,
+    /// Hash of what the boxes below the node read from it: the legacy
+    /// `align`, an SVG group's `transform` and stroke, an `<svg>`'s `viewBox`
+    /// ([`crate::layout_inputs::LayoutReach::Descendants`]). A change is
+    /// [`NodeChangeSet::DESCENDANT_INPUTS`], and every box below the node is
+    /// laid out again ([`Self::rebuilds_descendants`]).
+    pub descendants_hash: u64,
 }
 
 impl NodeDataFingerprint {
@@ -2477,25 +2493,9 @@ impl NodeDataFingerprint {
             h.finish()
         };
 
-        // IDs and classes hash (now stored in attributes), and the content
-        // language from the same walk over the attributes.
-        let (ids_classes_hash, lang_hash) = {
-            let mut h = crate::hash::DefaultHasher::new();
-            let mut lang = crate::hash::DefaultHasher::new();
-            for attr in node.attributes().as_ref() {
-                match attr {
-                    crate::dom::AttributeType::Id(s) => {
-                        crate::dom::IdOrClass::Id(s.clone()).hash(&mut h);
-                    }
-                    crate::dom::AttributeType::Class(s) => {
-                        crate::dom::IdOrClass::Class(s.clone()).hash(&mut h);
-                    }
-                    crate::dom::AttributeType::Lang(tag) => tag.hash(&mut lang),
-                    _ => {}
-                }
-            }
-            (h.finish(), lang.finish())
-        };
+        // What the layout reads of the attributes and the SVG data, one hash
+        // per reach, from one walk over them (the layout's attribute table).
+        let inputs = crate::layout_inputs::LayoutInputHashes::of(node);
 
         // Callbacks hash
         let callbacks_hash = {
@@ -2540,16 +2540,18 @@ impl NodeDataFingerprint {
             content_hash,
             state_hash,
             inline_css_hash,
-            ids_classes_hash,
+            ids_classes_hash: inputs.selectors,
             callbacks_hash,
             attrs_hash,
             dataset_hash,
-            lang_hash,
+            lang_hash: inputs.lines,
+            own_box_hash: inputs.own_box,
+            descendants_hash: inputs.descendants,
         }
     }
 
     /// Returns a quick `NodeChangeSet` by comparing two fingerprints.
-    /// This is O(1) — just comparing 8 u64s.
+    /// This is O(1) — just comparing their u64s.
     ///
     /// The result is *conservative*: if a field hash differs, we set the
     /// broadest applicable flag. For precise classification (e.g., which
@@ -2598,6 +2600,14 @@ impl NodeDataFingerprint {
             changes.insert(NodeChangeSet::CONTENT_LANGUAGE);
         }
 
+        if self.own_box_hash != other.own_box_hash {
+            changes.insert(NodeChangeSet::OWN_BOX_INPUTS);
+        }
+
+        if self.descendants_hash != other.descendants_hash {
+            changes.insert(NodeChangeSet::DESCENDANT_INPUTS);
+        }
+
         changes
     }
 
@@ -2615,6 +2625,8 @@ impl NodeDataFingerprint {
             || self.ids_classes_hash != other.ids_classes_hash
             || self.attrs_hash != other.attrs_hash
             || self.lang_hash != other.lang_hash
+            || self.own_box_hash != other.own_box_hash
+            || self.descendants_hash != other.descendants_hash
     }
 
     /// Quick check: could this change affect visuals at all?
@@ -2625,6 +2637,8 @@ impl NodeDataFingerprint {
             || self.inline_css_hash != other.inline_css_hash
             || self.ids_classes_hash != other.ids_classes_hash
             || self.lang_hash != other.lang_hash
+            || self.own_box_hash != other.own_box_hash
+            || self.descendants_hash != other.descendants_hash
     }
 
     /// Whether a change from `self` to `other` may move what the node's
@@ -2642,6 +2656,21 @@ impl NodeDataFingerprint {
             || self.ids_classes_hash != other.ids_classes_hash
             || self.state_hash != other.state_hash
             || self.lang_hash != other.lang_hash
+    }
+
+    /// Whether a change from `self` to `other` moves what the boxes below
+    /// the node read from it ([`Self::descendants_hash`]): the layout's
+    /// reconcile builds every node below such a node fresh.
+    #[must_use]
+    pub const fn rebuilds_descendants(&self, other: &Self) -> bool {
+        self.descendants_hash != other.descendants_hash
+    }
+
+    /// Whether the node states anything the boxes below it read from it: a
+    /// node new to the tree that does is laid out with every box below it.
+    #[must_use]
+    pub const fn reaches_descendants(&self) -> bool {
+        self.descendants_hash != 0
     }
 }
 
@@ -2818,6 +2847,11 @@ pub fn fingerprint_dom(dom: &crate::dom::Dom) -> (DomFingerprints, PreCascadeTra
         // layout-relevant attributes
         node.is_contenteditable().hash(&mut h);
         node.flags.hash(&mut h);
+
+        // The SVG data the layout reads (`crate::layout_inputs`): a shape's
+        // geometry, an `<svg>`'s `viewBox`. It is no attribute, and a DOM
+        // that differs only in it is another picture.
+        node.get_svg_data().hash(&mut h);
 
         // hierarchy shape
         child_count.hash(&mut h);

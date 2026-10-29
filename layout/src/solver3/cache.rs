@@ -1140,10 +1140,14 @@ impl ReconciliationResult {
 /// decided by its container's flex algorithm, and its siblings' slots move
 /// with it. The same holds for an INLINE-LEVEL box (an inline-block, an
 /// inline replaced element): its box sits on a line the parent's inline
-/// formatting context lays out, and a size change re-breaks that line.
+/// formatting context lays out, and a size change re-breaks that line. And
+/// for a PART OF A TABLE (a cell, a row, a row group, a column, the caption):
+/// the table's grid decides its size and place, and a cell's span or content
+/// moves every column and row of the grid.
 /// Promote such a root to its container, walking up through nested
 /// containers (a flex item inside a flex item; an inline-block inside a
-/// flex row). Block-flow siblings need no promotion: `reposition_clean_subtrees`
+/// flex row; a cell up through its row and row group to the table).
+/// Block-flow siblings need no promotion: `reposition_clean_subtrees`
 /// re-stacks them after the root is re-solved.
 ///
 /// Nor can anything inside a MULTI-COLUMN container's flow: the container
@@ -1275,7 +1279,19 @@ pub(crate) fn lift_to_slot_container(
             parent_fc,
             Some(FormattingContext::Flex | FormattingContext::Grid)
         );
-        if !inline_level && !parent_is_flex_or_grid {
+        // A part of a table (a cell, a row, a row group, a column, the
+        // caption) is sized and placed by its table's grid: a cell's span or
+        // content moves every column and row of it.
+        let parent_is_a_table_part = matches!(
+            parent_fc,
+            Some(
+                FormattingContext::Table
+                    | FormattingContext::TableRowGroup
+                    | FormattingContext::TableRow
+                    | FormattingContext::TableColumnGroup
+            )
+        );
+        if !inline_level && !parent_is_flex_or_grid && !parent_is_a_table_part {
             break;
         }
         root = parent;
@@ -1744,7 +1760,8 @@ pub fn reconcile_and_invalidate_restyled<T: ParsedFontTrait>(
         &mut new_tree_builder,
         &mut recon_result,
         ctx.debug_messages,
-        false, // the root has no ancestor whose restyle could reach it
+        // The root has no ancestor whose change could reach it.
+        InheritedChange::default(),
         clean_slice,
         &mut text_styles,
     )?;
@@ -1965,7 +1982,7 @@ fn reconcile_child_under(
     new_tree_builder: &mut LayoutTreeBuilder,
     recon: &mut ReconciliationResult,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
-    ancestor_style_changed: bool,
+    ancestor: InheritedChange,
     dom_diff_clean: Option<&[bool]>,
     new_child_hashes: &mut Vec<u64>,
     text_styles: &mut TextStyleReader<'_>,
@@ -1980,7 +1997,7 @@ fn reconcile_child_under(
         new_tree_builder,
         recon,
         debug_messages,
-        ancestor_style_changed,
+        ancestor,
         dom_diff_clean,
         text_styles,
     )?;
@@ -2016,7 +2033,7 @@ fn reconcile_table_children(
     new_tree_builder: &mut LayoutTreeBuilder,
     recon: &mut ReconciliationResult,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
-    ancestor_style_changed: bool,
+    ancestor: InheritedChange,
     dom_diff_clean: Option<&[bool]>,
     new_child_hashes: &mut Vec<u64>,
     text_styles: &mut TextStyleReader<'_>,
@@ -2034,7 +2051,7 @@ fn reconcile_table_children(
                 new_tree_builder,
                 recon,
                 debug_messages,
-                ancestor_style_changed,
+                ancestor,
                 dom_diff_clean,
                 new_child_hashes,
                 text_styles,
@@ -2067,7 +2084,7 @@ fn reconcile_table_children(
                     new_tree_builder,
                     recon,
                     debug_messages,
-                    ancestor_style_changed,
+                    ancestor,
                     dom_diff_clean,
                     new_child_hashes,
                     text_styles,
@@ -2106,7 +2123,7 @@ fn reconcile_table_children(
                         new_tree_builder,
                         recon,
                         debug_messages,
-                        ancestor_style_changed,
+                        ancestor,
                         dom_diff_clean,
                         new_child_hashes,
                         text_styles,
@@ -2138,7 +2155,7 @@ fn reconcile_table_children(
                         new_tree_builder,
                         recon,
                         debug_messages,
-                        ancestor_style_changed,
+                        ancestor,
                         dom_diff_clean,
                         new_child_hashes,
                         text_styles,
@@ -2199,10 +2216,11 @@ fn reconcile_table_children(
 /// measured by a fresh collection).
 ///
 /// The wrapper breaks its lines with the styles of its element,
-/// `style_dom_id`. When a restyle on or above the element (`restyled`) moved
-/// them (`fc::LineStyle`), the wrapper is not matched: it keeps nothing and
-/// is laid out anew, as an element that is an IFC root is built anew
-/// (`reconcile_node`).
+/// `style_dom_id`. When a restyle on or above the element (`subtree.restyled`)
+/// moved them (`fc::LineStyle`), the wrapper is not matched: it keeps nothing
+/// and is laid out anew, as an element that is an IFC root is built anew
+/// (`reconcile_node`). Nor is it under an element whose subtree is built
+/// fresh (`subtree.rebuilt`).
 ///
 /// Returns whether the wrapper matched; the caller folds `!matched` into
 /// `children_are_different` instead of flipping it unconditionally. A DIRTY
@@ -2219,12 +2237,16 @@ fn try_reuse_anon_wrapper(
     recon: &mut ReconciliationResult,
     styled_dom: &StyledDom,
     style_dom_id: NodeId,
-    restyled: bool,
+    subtree: InheritedChange,
     text_styles: &mut TextStyleReader<'_>,
 ) -> bool {
     let (Some(t), Some(op)) = (old_tree, old_parent_idx) else {
         return false;
     };
+    // Its run is built fresh: what the old block laid out is not that run.
+    if subtree.rebuilt {
+        return false;
+    }
     // Children live on the TREE (hot/warm/cold split), not the node struct.
     let Some(old_anon) = t
         .children(op)
@@ -2254,7 +2276,7 @@ fn try_reuse_anon_wrapper(
     let laid_out_with = t
         .cold(LayoutNodeId::new(old_anon))
         .and_then(|cold| cold.line_style.clone());
-    if restyled
+    if subtree.restyled
         && line_style_moved(
             laid_out_with.as_deref(),
             styled_dom,
@@ -2313,7 +2335,7 @@ pub fn reconcile_recursive(
     new_tree_builder: &mut LayoutTreeBuilder,
     recon: &mut ReconciliationResult,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
-    ancestor_style_changed: bool,
+    ancestor: InheritedChange,
     // GRANULAR DIFF: per-NodeId "self+ancestors unchanged on both
     // pre-cascade tiers". None = no diff available (full fingerprinting).
     dom_diff_clean: Option<&[bool]>,
@@ -2321,7 +2343,7 @@ pub fn reconcile_recursive(
 ) -> Result<usize> {
     let ReconciledNode {
         new_node_idx,
-        subtree_style_changed,
+        subtree,
         new_fingerprint,
         dirty_flag,
         new_children_dom_ids,
@@ -2338,7 +2360,7 @@ pub fn reconcile_recursive(
         new_tree_builder,
         recon,
         debug_messages,
-        ancestor_style_changed,
+        ancestor,
         dom_diff_clean,
         text_styles,
     )?;
@@ -2392,7 +2414,7 @@ pub fn reconcile_recursive(
             new_tree_builder,
             recon,
             debug_messages,
-            subtree_style_changed,
+            subtree,
             dom_diff_clean,
             &mut new_child_hashes,
             text_styles,
@@ -2433,7 +2455,7 @@ pub fn reconcile_recursive(
                 new_tree_builder,
                 recon,
                 debug_messages,
-                subtree_style_changed,
+                subtree,
                 dom_diff_clean,
                 text_styles,
             )?;
@@ -2508,7 +2530,7 @@ pub fn reconcile_recursive(
                             recon,
                             styled_dom,
                             new_dom_id,
-                            subtree_style_changed,
+                            subtree,
                             text_styles,
                         );
                         anon_ordinal += 1;
@@ -2546,7 +2568,7 @@ pub fn reconcile_recursive(
                                 new_tree_builder,
                                 recon,
                                 debug_messages,
-                                subtree_style_changed,
+                                subtree,
                                 dom_diff_clean,
                                 text_styles,
                             )?;
@@ -2594,7 +2616,7 @@ pub fn reconcile_recursive(
                     new_tree_builder,
                     recon,
                     debug_messages,
-                    subtree_style_changed,
+                    subtree,
                     dom_diff_clean,
                     text_styles,
                 )?;
@@ -2662,7 +2684,7 @@ pub fn reconcile_recursive(
                     recon,
                     styled_dom,
                     new_dom_id,
-                    subtree_style_changed,
+                    subtree,
                     text_styles,
                 );
                 anon_ordinal += 1;
@@ -2697,7 +2719,7 @@ pub fn reconcile_recursive(
                         new_tree_builder,
                         recon,
                         debug_messages,
-                        subtree_style_changed,
+                        subtree,
                         dom_diff_clean,
                         text_styles,
                     )?;
@@ -2736,11 +2758,26 @@ pub fn reconcile_recursive(
     Ok(new_node_idx)
 }
 
+/// What moved above a node that its own data does not show: what
+/// [`reconcile_recursive`] hands each child down.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct InheritedChange {
+    /// A style the node may inherit moved: an ancestor's inline CSS, classes,
+    /// state or content language
+    /// ([`NodeDataFingerprint::may_restyle_descendants`]). The node's text
+    /// and line styles are compared with the ones it was laid out with.
+    pub restyled: bool,
+    /// Something the node reads from an ancestor moved, or a new ancestor
+    /// states it ([`NodeDataFingerprint::rebuilds_descendants`]): the node
+    /// is built fresh.
+    pub rebuilt: bool,
+}
+
 /// What [`reconcile_node`] decided about one node before its children are
 /// reconciled.
 struct ReconciledNode {
     new_node_idx: usize,
-    subtree_style_changed: bool,
+    subtree: InheritedChange,
     new_fingerprint: NodeDataFingerprint,
     dirty_flag: DirtyFlag,
     new_children_dom_ids: Vec<NodeId>,
@@ -2768,7 +2805,7 @@ fn reconcile_node(
     new_tree_builder: &mut LayoutTreeBuilder,
     recon: &mut ReconciliationResult,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
-    ancestor_style_changed: bool,
+    ancestor: InheritedChange,
     dom_diff_clean: Option<&[bool]>,
     text_styles: &mut TextStyleReader<'_>,
 ) -> Result<ReconciledNode> {
@@ -2895,13 +2932,20 @@ fn reconcile_node(
     // them), ids/classes (select the rules that declare them), and the
     // styled state (:hover/:focus/:active variants). The `lang` attribute is
     // inherited too: the content language every line below hyphenates in
-    // (`fc::LineStyle`). Content, callbacks and the other attributes are the
-    // node's own, so a plain text edit still invalidates only its own node
-    // and the incremental-edit path is untouched.
+    // (`fc::LineStyle`). Content, callbacks and the attributes its own box is
+    // laid out from (a cell's span, an SVG text's `x`) are the node's own, so
+    // a plain text edit still invalidates only its own node and the
+    // incremental-edit path is untouched.
     //
     // The CSS diff of this pass names the nodes whose computed style moved
     // with the fingerprint untouched (another stylesheet, a dynamic
     // selector): such a node is restyled too, and is built fresh below.
+    //
+    // What the boxes below a node read from it without inheriting it as a
+    // style (the legacy `align`, an SVG group's `transform` and stroke, an
+    // `<svg>`'s `viewBox`) reaches into layouts and paths no style comparison
+    // looks at: when it moves, or a node new to the tree states it, every
+    // node below is built fresh.
     let css_relayout_here = recon.css_relayout.contains(&new_dom_id);
     let own_style_changed = css_relayout_here
         || old_cold.is_none_or(|old_c| {
@@ -2909,7 +2953,18 @@ fn reconcile_node(
                 .node_data_fingerprint
                 .may_restyle_descendants(&new_fingerprint)
         });
-    let subtree_style_changed = ancestor_style_changed || own_style_changed;
+    let subtree = InheritedChange {
+        restyled: ancestor.restyled || own_style_changed,
+        rebuilt: ancestor.rebuilt
+            || old_cold.map_or_else(
+                || new_fingerprint.reaches_descendants(),
+                |old_c| {
+                    old_c
+                        .node_data_fingerprint
+                        .rebuilds_descendants(&new_fingerprint)
+                },
+            ),
+    };
 
     // A text node under a restyled ancestor is REBUILT rather than cloned
     // when the style it is laid out with moved: the clone carries the shaped
@@ -2930,7 +2985,7 @@ fn reconcile_node(
     // cascade, and be re-solved with them.
     // The key read this pass, for a fresh node to keep (a clone keeps its own).
     let mut text_style_now: Option<std::sync::Arc<TextStyleKey>> = None;
-    let text_restyled = ancestor_style_changed
+    let text_restyled = ancestor.restyled
         && matches!(node_data.get_node_type(), NodeType::Text(_))
         && {
             let now = TextStyleKey::of(
@@ -2956,14 +3011,14 @@ fn reconcile_node(
     // `word-break` or `text-align` set on an ancestor reaches the root while
     // the root and its text keep their own data, and a kept root would serve
     // its old lines from its size cache.
-    let line_restyled = subtree_style_changed
+    let line_restyled = subtree.restyled
         && line_style_moved(
             old_cold.and_then(|c| c.line_style.as_deref()),
             styled_dom,
             new_dom_id,
             text_styles,
         );
-    let dirty_flag = if css_relayout_here || text_restyled || line_restyled {
+    let dirty_flag = if css_relayout_here || text_restyled || line_restyled || ancestor.rebuilt {
         DirtyFlag::Layout
     } else {
         dirty_flag
@@ -3035,7 +3090,7 @@ fn reconcile_node(
             // clean descendant of a restyled node, and its measurements would
             // describe the old values. Such a node is laid out again, as every
             // clone was before; so is a node paired by position.
-            if subtree_style_changed || paired_by_position {
+            if subtree.restyled || paired_by_position {
                 cloned.taffy_cache.clear();
                 cloned.measured_content_sizes = (None, None);
             }
@@ -3216,7 +3271,7 @@ fn reconcile_node(
 
     Ok(ReconciledNode {
         new_node_idx,
-        subtree_style_changed,
+        subtree,
         new_fingerprint,
         dirty_flag,
         new_children_dom_ids,

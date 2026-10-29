@@ -184,7 +184,7 @@ fn layout_tree_node_struct_sizes_are_pinned() {
     );
     assert_size!(
         LayoutNodeCold,
-        320,
+        336,
         "Per layout node, rarely touched. GREW 280 -> 288 (2026-08-22): NodeDataFingerprint \
          gained `dataset_hash` so a dataset's allocation is no longer a LAYOUT change (the \
          TextArea-over-Slider fix). GREW 288 -> 296 (2026-10-03, CSS `zoom`, aa4a3f9e1): \
@@ -197,7 +197,9 @@ fn layout_tree_node_struct_sizes_are_pinned() {
          312 (2026-10-25): `line_style`, the styles an IFC root's lines were broken with, so a \
          restyle above it that moves them lays it out anew. GREW 312 -> 320 (2026-10-26): \
          NodeDataFingerprint gained `lang_hash`, so a changed `lang` reaches the lines that \
-         hyphenate in it."
+         hyphenate in it. GREW 320 -> 336: NodeDataFingerprint gained `own_box_hash` and \
+         `descendants_hash`, the attributes and SVG data the layout reads, so a page that \
+         changes only a cell's span or an SVG text's position is laid out again."
     );
 }
 

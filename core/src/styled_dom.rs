@@ -4307,6 +4307,12 @@ pub fn is_layout_equivalent(old: &StyledDom, new: &StyledDom) -> bool {
         if old_node.attributes().as_ref() != new_node.attributes().as_ref() {
             return false;
         }
+
+        // Compare the SVG data (a shape's geometry, an `<svg>`'s `viewBox`):
+        // the layout reads it, and it is no attribute.
+        if old_node.get_svg_data() != new_node.get_svg_data() {
+            return false;
+        }
     }
 
     // Compare the author CSS the cascade ran with. The sheets nodes carry

@@ -106,7 +106,10 @@ pub const fn convert_font_weight(weight: StyleFontWeight) -> FcWeight {
 /// same attribute, after `lang`, so the node's LAST one is read). `None`
 /// when no element states one, or the nearest says `lang=""` ("unknown").
 pub(super) fn content_language(styled_dom: &StyledDom, node: NodeId) -> Option<&str> {
-    use azul_core::dom::{AttributeType, NodeData};
+    use azul_core::{
+        dom::{AttributeType, NodeData},
+        layout_inputs::LayoutAttribute,
+    };
 
     let hierarchy = styled_dom.node_hierarchy.as_container();
     let node_data: &[NodeData] = styled_dom.node_data.as_ref();
@@ -114,14 +117,12 @@ pub(super) fn content_language(styled_dom: &StyledDom, node: NodeId) -> Option<&
     while let Some(id) = current {
         let lang = node_data
             .get(id.index())?
-            .attributes()
-            .as_ref()
-            .iter()
-            .rev()
-            .find_map(|a| match a {
+            .layout_attributes(LayoutAttribute::Lang)
+            .filter_map(|a| match a {
                 AttributeType::Lang(tag) => Some(tag.as_str().trim()),
                 _ => None,
-            });
+            })
+            .last();
         if let Some(tag) = lang {
             return (!tag.is_empty()).then_some(tag);
         }

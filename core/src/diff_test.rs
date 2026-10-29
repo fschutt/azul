@@ -3437,3 +3437,171 @@ mod the_content_language_is_inherited {
         );
     }
 }
+
+#[cfg(test)]
+mod every_input_the_layout_reads_moves_the_fingerprint {
+    use super::*;
+    use crate::{
+        dom::{AttributeNameValue, AttributeType, Dom, NodeData, SvgNodeData},
+        layout_inputs::{LayoutAttribute, LayoutReach},
+    };
+
+    /// The attribute of `row`, one of two values: `second` picks the other.
+    fn attribute(row: LayoutAttribute, second: bool) -> AttributeType {
+        let text = if second { "b" } else { "a" };
+        let span = if second { 2 } else { 1 };
+        match row {
+            LayoutAttribute::Id => AttributeType::Id(text.into()),
+            LayoutAttribute::Class => AttributeType::Class(text.into()),
+            LayoutAttribute::Lang => AttributeType::Lang(text.into()),
+            LayoutAttribute::ContentEditable => AttributeType::ContentEditable(second),
+            LayoutAttribute::ColSpan => AttributeType::ColSpan(span),
+            LayoutAttribute::RowSpan => AttributeType::RowSpan(span),
+            LayoutAttribute::Align
+            | LayoutAttribute::SvgX
+            | LayoutAttribute::SvgY
+            | LayoutAttribute::SvgWidth
+            | LayoutAttribute::SvgHeight
+            | LayoutAttribute::SvgDx
+            | LayoutAttribute::SvgTransform
+            | LayoutAttribute::SvgFillRule
+            | LayoutAttribute::SvgStrokeLinecap
+            | LayoutAttribute::SvgStrokeLinejoin
+            | LayoutAttribute::SvgStrokeMiterlimit
+            | LayoutAttribute::SvgStrokeDasharray
+            | LayoutAttribute::SvgStrokeDashoffset => AttributeType::Custom(AttributeNameValue {
+                attr_name: row.name().into(),
+                value: text.into(),
+            }),
+        }
+    }
+
+    /// A div that holds `attribute` and nothing else.
+    fn holding(attribute: AttributeType) -> NodeData {
+        let mut node = NodeData::create_div();
+        node.set_attributes(vec![attribute].into());
+        node
+    }
+
+    /// Every row of the layout's attribute table moves the fingerprint, and
+    /// the field-by-field comparison, as far as a change of it reaches: a
+    /// change the layout cannot see is one it serves the old page for.
+    #[test]
+    fn every_row_of_the_table_moves_the_fingerprint_as_far_as_it_reaches() {
+        for row in LayoutAttribute::ALL {
+            assert_eq!(
+                LayoutAttribute::of(&attribute(row, false)),
+                Some(row),
+                "{row:?} is read as its own row"
+            );
+            let (a, b) = (holding(attribute(row, false)), holding(attribute(row, true)));
+            let (fa, fb) = (
+                NodeDataFingerprint::compute(&a, None),
+                NodeDataFingerprint::compute(&b, None),
+            );
+            let fast = fa.diff(&fb);
+            let precise = compute_node_changes(&a, &b, None, None);
+            let reaches_below = row.reach() == LayoutReach::Descendants;
+            assert_eq!(fa.rebuilds_descendants(&fb), reaches_below, "{row:?}");
+            assert_eq!(fb.reaches_descendants(), reaches_below, "{row:?}");
+            let flag = match row.reach() {
+                LayoutReach::Live => {
+                    assert!(fa.is_identical(&fb), "{row:?} is read live: {fast:?}");
+                    assert!(precise.is_empty(), "{row:?} is read live: {precise:?}");
+                    continue;
+                }
+                LayoutReach::Selectors => NodeChangeSet::IDS_AND_CLASSES,
+                LayoutReach::OwnBox => NodeChangeSet::OWN_BOX_INPUTS,
+                LayoutReach::Lines => {
+                    assert!(fa.may_restyle_descendants(&fb), "{row:?}");
+                    NodeChangeSet::CONTENT_LANGUAGE
+                }
+                LayoutReach::Descendants => NodeChangeSet::DESCENDANT_INPUTS,
+            };
+            assert!(
+                fast.contains(flag) && fast.needs_layout() && fa.might_affect_layout(&fb),
+                "{row:?}: the fingerprint lays the node out again: {fast:?}"
+            );
+            assert!(
+                precise.contains(flag) && precise.needs_layout(),
+                "{row:?}: the field-by-field comparison reports what the fingerprint \
+                 does: {precise:?}"
+            );
+        }
+    }
+
+    /// An attribute that is no row of the table is read by nothing that lays
+    /// out or paints: changing it lays nothing out.
+    #[test]
+    fn an_attribute_the_layout_does_not_read_moves_no_layout() {
+        let titled = |title: &str| holding(AttributeType::Title(title.into()));
+        let (a, b) = (titled("Save"), titled("Save all"));
+        let (fa, fb) = (
+            NodeDataFingerprint::compute(&a, None),
+            NodeDataFingerprint::compute(&b, None),
+        );
+        assert!(fa.is_identical(&fb));
+        assert!(!compute_node_changes(&a, &b, None, None).needs_layout());
+    }
+
+    /// A node holding the SVG data `data`.
+    fn with_svg(data: SvgNodeData) -> NodeData {
+        let mut node = NodeData::create_div();
+        node.set_svg_data(data);
+        node
+    }
+
+    /// The path `d` as SVG data.
+    fn path(d: &str) -> SvgNodeData {
+        SvgNodeData::Path(crate::path_parser::parse_svg_path_d(d).expect("the path parses"))
+    }
+
+    /// The `viewBox` `0 0 width 10` as SVG data.
+    const fn view_box(width: f32) -> SvgNodeData {
+        SvgNodeData::ViewBox {
+            min_x: 0.0,
+            min_y: 0.0,
+            width,
+            height: 10.0,
+        }
+    }
+
+    /// A shape's geometry is its own box's; a `viewBox` maps everything in
+    /// its `<svg>`. Neither is an attribute, and both are compared by the
+    /// fingerprint, the field-by-field comparison and the pre-cascade tier.
+    #[test]
+    fn an_svg_nodes_data_moves_the_fingerprint_as_far_as_it_reaches() {
+        for (first, second, flag, reaches_below) in [
+            (
+                path("M 0 10 L 10 0"),
+                path("M 0 0 L 10 10"),
+                NodeChangeSet::OWN_BOX_INPUTS,
+                false,
+            ),
+            (
+                view_box(10.0),
+                view_box(20.0),
+                NodeChangeSet::DESCENDANT_INPUTS,
+                true,
+            ),
+        ] {
+            let (a, b) = (with_svg(first.clone()), with_svg(second.clone()));
+            let (fa, fb) = (
+                NodeDataFingerprint::compute(&a, None),
+                NodeDataFingerprint::compute(&b, None),
+            );
+            assert!(fa.diff(&fb).contains(flag), "{first:?} -> {second:?}");
+            assert_eq!(fa.rebuilds_descendants(&fb), reaches_below, "{first:?}");
+            assert!(
+                compute_node_changes(&a, &b, None, None).contains(flag),
+                "{first:?} -> {second:?}: the field-by-field comparison sees it"
+            );
+            let (da, _) = fingerprint_dom(&Dom::create_div().with_svg_data(first.clone()));
+            let (db, _) = fingerprint_dom(&Dom::create_div().with_svg_data(second.clone()));
+            assert_ne!(
+                da.structure, db.structure,
+                "{first:?} -> {second:?}: the pre-cascade tier sees it"
+            );
+        }
+    }
+}

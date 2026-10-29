@@ -1261,18 +1261,28 @@ pub(super) fn analyze_table_colgroup<T: ParsedFontTrait>(
 /// (`sizing::calculate_table_intrinsic_sizes`).
 #[allow(clippy::cast_sign_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
 pub(crate) fn get_cell_spans(styled_dom: &StyledDom, dom_id: NodeId) -> (usize, usize) {
-    let mut colspan = 1usize;
-    let mut rowspan = 1usize;
+    use azul_core::{dom::AttributeType, layout_inputs::LayoutAttribute};
+
     let node_data = &styled_dom.node_data.as_container()[dom_id];
-    for attr in node_data.attributes().as_ref() {
-        match attr {
-            // Clamp to the HTML limits (colspan 1000, rowspan 65534): an
-            // unclamped span grows the column/row vectors unboundedly -> OOM/hang.
-            azul_core::dom::AttributeType::ColSpan(n) => colspan = (*n).clamp(1, 1000) as usize,
-            azul_core::dom::AttributeType::RowSpan(n) => rowspan = (*n).clamp(1, 65534) as usize,
-            _ => {}
-        }
-    }
+    // The last one of each counts. Clamped to the HTML limits (colspan 1000,
+    // rowspan 65534): an unclamped span grows the column/row vectors
+    // unboundedly -> OOM/hang.
+    let colspan = node_data
+        .layout_attributes(LayoutAttribute::ColSpan)
+        .filter_map(|attr| match attr {
+            AttributeType::ColSpan(n) => Some((*n).clamp(1, 1000) as usize),
+            _ => None,
+        })
+        .last()
+        .unwrap_or(1);
+    let rowspan = node_data
+        .layout_attributes(LayoutAttribute::RowSpan)
+        .filter_map(|attr| match attr {
+            AttributeType::RowSpan(n) => Some((*n).clamp(1, 65534) as usize),
+            _ => None,
+        })
+        .last()
+        .unwrap_or(1);
     (colspan, rowspan)
 }
 

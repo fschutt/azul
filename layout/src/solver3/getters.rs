@@ -7577,7 +7577,7 @@ pub fn is_text_selectable(
 /// This does NOT check inheritance - use `is_node_contenteditable_inherited` for that.
 #[must_use]
 pub fn is_node_contenteditable(styled_dom: &StyledDom, node_id: NodeId) -> bool {
-    use azul_core::dom::AttributeType;
+    use azul_core::{dom::AttributeType, layout_inputs::LayoutAttribute};
 
     let node_data = &styled_dom.node_data.as_container()[node_id];
 
@@ -7589,9 +7589,7 @@ pub fn is_node_contenteditable(styled_dom: &StyledDom, node_id: NodeId) -> bool 
     // Also check the attribute for backwards compatibility
     // Only return true if the attribute value is explicitly true
     node_data
-        .attributes()
-        .as_ref()
-        .iter()
+        .layout_attributes(LayoutAttribute::ContentEditable)
         .any(|attr| matches!(attr, AttributeType::ContentEditable(true)))
 }
 // =============================================================================
@@ -8710,7 +8708,7 @@ pub fn get_counter_increment(
 /// ```
 #[must_use]
 pub fn is_node_contenteditable_inherited(styled_dom: &StyledDom, node_id: NodeId) -> bool {
-    use azul_core::dom::AttributeType;
+    use azul_core::{dom::AttributeType, layout_inputs::LayoutAttribute};
 
     let node_data_container = styled_dom.node_data.as_container();
     let hierarchy = styled_dom.node_hierarchy.as_container();
@@ -8728,7 +8726,7 @@ pub fn is_node_contenteditable_inherited(styled_dom: &StyledDom, node_id: NodeId
 
         // Then check for explicit contenteditable attribute on this node
         // This handles HTML-style contenteditable="true" or contenteditable="false"
-        for attr in node_data.attributes().as_ref() {
+        for attr in node_data.layout_attributes(LayoutAttribute::ContentEditable) {
             if let AttributeType::ContentEditable(is_editable) = attr {
                 // If explicitly set to true, node is editable
                 // If explicitly set to false, node is NOT editable (blocks inheritance)
@@ -8848,7 +8846,7 @@ pub(crate) fn is_focus_within_or_above(styled_dom: &StyledDom, node_id: NodeId) 
 /// - `None` if no contenteditable ancestor exists
 #[must_use]
 pub fn find_contenteditable_ancestor(styled_dom: &StyledDom, node_id: NodeId) -> Option<NodeId> {
-    use azul_core::dom::AttributeType;
+    use azul_core::{dom::AttributeType, layout_inputs::LayoutAttribute};
 
     let node_data_container = styled_dom.node_data.as_container();
     let hierarchy = styled_dom.node_hierarchy.as_container();
@@ -8864,7 +8862,7 @@ pub fn find_contenteditable_ancestor(styled_dom: &StyledDom, node_id: NodeId) ->
         }
 
         // Then check for contenteditable attribute on this node
-        for attr in node_data.attributes().as_ref() {
+        for attr in node_data.layout_attributes(LayoutAttribute::ContentEditable) {
             if let AttributeType::ContentEditable(is_editable) = attr {
                 if *is_editable {
                     return Some(nid);

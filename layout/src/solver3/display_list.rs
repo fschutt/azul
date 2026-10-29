@@ -2168,19 +2168,24 @@ impl StrokeOutline {
     /// attributes, inherited through its groups).
     #[must_use]
     pub fn of(styled_dom: &StyledDom, node: NodeId) -> Self {
-        use azul_core::svg::{SvgLineCap, SvgLineJoin};
-        let lookup = |name: &str| super::svg::inherited_svg_attribute(styled_dom, node, name);
-        let number = |name: &str| {
-            lookup(name)
+        use azul_core::{
+            layout_inputs::LayoutAttribute,
+            svg::{SvgLineCap, SvgLineJoin},
+        };
+        let lookup = |attribute: LayoutAttribute| {
+            super::svg::inherited_svg_attribute(styled_dom, node, attribute)
+        };
+        let number = |attribute: LayoutAttribute| {
+            lookup(attribute)
                 .and_then(|v| v.trim().trim_end_matches("px").trim().parse::<f32>().ok())
                 .filter(|v| v.is_finite())
         };
-        let cap = match lookup("stroke-linecap").as_deref().map(str::trim) {
+        let cap = match lookup(LayoutAttribute::SvgStrokeLinecap).as_deref().map(str::trim) {
             Some("round") => SvgLineCap::Round,
             Some("square") => SvgLineCap::Square,
             _ => SvgLineCap::Butt,
         };
-        let join = match lookup("stroke-linejoin").as_deref().map(str::trim) {
+        let join = match lookup(LayoutAttribute::SvgStrokeLinejoin).as_deref().map(str::trim) {
             Some("round") => SvgLineJoin::Round,
             Some("bevel") => SvgLineJoin::Bevel,
             Some("miter-clip") => SvgLineJoin::MiterClip,
@@ -2190,9 +2195,11 @@ impl StrokeOutline {
         Self {
             cap,
             join,
-            miter_limit: number("stroke-miterlimit").filter(|m| *m >= 1.0).unwrap_or(4.0),
-            dashes: parse_dash_array(lookup("stroke-dasharray").as_deref()),
-            dash_offset: number("stroke-dashoffset").unwrap_or(0.0),
+            miter_limit: number(LayoutAttribute::SvgStrokeMiterlimit)
+                .filter(|m| *m >= 1.0)
+                .unwrap_or(4.0),
+            dashes: parse_dash_array(lookup(LayoutAttribute::SvgStrokeDasharray).as_deref()),
+            dash_offset: number(LayoutAttribute::SvgStrokeDashoffset).unwrap_or(0.0),
         }
     }
 
@@ -7033,7 +7040,7 @@ where
                 };
                 // `fill-rule`, kept on the node (SVG's default is non-zero).
                 let even_odd = node_data
-                    .get_attribute("fill-rule")
+                    .layout_attribute(azul_core::layout_inputs::LayoutAttribute::SvgFillRule)
                     .is_some_and(|rule| rule.as_str().trim() == "evenodd");
                 svg_mask_memo::get_or_rasterise(
                     if even_odd {

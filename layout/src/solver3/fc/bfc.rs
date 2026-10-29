@@ -140,7 +140,7 @@ use super::*;
 /// legacy-centering element found on the way decides. An element that
 /// says something else stops the walk.
 pub(super) fn centers_blocks_the_legacy_way(styled_dom: &StyledDom, dom_id: NodeId) -> bool {
-    use azul_core::dom::{AttributeType, NodeType};
+    use azul_core::{dom::NodeType, layout_inputs::LayoutAttribute};
     use azul_css::props::style::StyleTextAlign;
 
     let hierarchy = styled_dom.node_hierarchy.as_container();
@@ -167,13 +167,10 @@ pub(super) fn centers_blocks_the_legacy_way(styled_dom: &StyledDom, dom_id: Node
                 | NodeType::Th
         );
         if takes_align
-            && nd.attributes().as_ref().iter().any(|a| match a {
-                AttributeType::Custom(nv) => {
-                    nv.attr_name.as_str().eq_ignore_ascii_case("align")
-                        && (nv.value.as_str().trim().eq_ignore_ascii_case("center")
-                            || nv.value.as_str().trim().eq_ignore_ascii_case("middle"))
-                }
-                _ => false,
+            && nd.layout_attributes(LayoutAttribute::Align).any(|align| {
+                let value = align.value();
+                let value = value.as_str().trim();
+                value.eq_ignore_ascii_case("center") || value.eq_ignore_ascii_case("middle")
             })
         {
             return true;

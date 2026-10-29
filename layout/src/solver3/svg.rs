@@ -11,6 +11,7 @@ use alloc::{sync::Arc, vec::Vec};
 
 use azul_core::{
     dom::{NodeId, NodeType, SvgNodeData},
+    layout_inputs::LayoutAttribute,
     styled_dom::{NodeHierarchyItem, StyledDom},
     svg::{parse_svg_transform, SvgAffine},
 };
@@ -37,11 +38,15 @@ pub fn svg_ancestor(styled_dom: &StyledDom, node: NodeId) -> Option<NodeId> {
     None
 }
 
-/// The SVG presentation attribute `name` of `node`: its own, else that of the
-/// nearest group above it within its `<svg>`, the `<svg>` included - how SVG
-/// inherits `stroke-dasharray`, `stroke-linecap` and the like.
+/// The SVG presentation attribute `attribute` of `node`: its own, else that
+/// of the nearest group above it within its `<svg>`, the `<svg>` included -
+/// how SVG inherits `stroke-dasharray`, `stroke-linecap` and the like.
 #[must_use]
-pub fn inherited_svg_attribute(styled_dom: &StyledDom, node: NodeId, name: &str) -> Option<String> {
+pub fn inherited_svg_attribute(
+    styled_dom: &StyledDom,
+    node: NodeId,
+    attribute: LayoutAttribute,
+) -> Option<String> {
     let node_data = styled_dom.node_data.as_container();
     let hierarchy = styled_dom.node_hierarchy.as_container();
     let top = svg_ancestor(styled_dom, node);
@@ -49,7 +54,7 @@ pub fn inherited_svg_attribute(styled_dom: &StyledDom, node: NodeId, name: &str)
     while let Some(id) = cursor {
         if let Some(value) = node_data
             .get(id)
-            .and_then(|nd| nd.get_attribute(name))
+            .and_then(|nd| nd.layout_attribute(attribute))
         {
             return Some(value.as_str().to_string());
         }
@@ -94,7 +99,10 @@ pub fn user_transform(styled_dom: &StyledDom, node: NodeId) -> SvgAffine {
     let hierarchy = styled_dom.node_hierarchy.as_container();
     let mut cursor = Some(node);
     while let Some(id) = cursor.filter(|id| *id != svg) {
-        if let Some(transform) = node_data.get(id).and_then(|n| n.get_attribute("transform")) {
+        if let Some(transform) = node_data
+            .get(id)
+            .and_then(|n| n.layout_attribute(LayoutAttribute::SvgTransform))
+        {
             user = user.then(&parse_svg_transform(transform.as_str()));
         }
         cursor = hierarchy.get(id).and_then(NodeHierarchyItem::parent_id);
@@ -129,14 +137,17 @@ fn first_number(value: &str) -> Option<f64> {
 #[must_use]
 pub fn text_anchor(styled_dom: &StyledDom, node: NodeId) -> (f64, f64) {
     let node_data = styled_dom.node_data.as_container();
-    let coordinate = |name: &str| {
+    let coordinate = |attribute: LayoutAttribute| {
         node_data
             .get(node)
-            .and_then(|n| n.get_attribute(name))
+            .and_then(|n| n.layout_attribute(attribute))
             .and_then(|v| first_number(v.as_str()))
             .unwrap_or(0.0)
     };
-    (coordinate("x"), coordinate("y"))
+    (
+        coordinate(LayoutAttribute::SvgX),
+        coordinate(LayoutAttribute::SvgY),
+    )
 }
 
 /// What maps the SVG text `node`'s user units into its `<svg>`'s current
@@ -191,7 +202,12 @@ fn tspan_dx(styled_dom: &StyledDom, text: NodeId) -> Option<f32> {
         return None;
     }
     #[allow(clippy::cast_possible_truncation)] // user units
-    let dx = first_number(node_data.get(tspan)?.get_attribute("dx")?.as_str())? as f32;
+    let dx = first_number(
+        node_data
+            .get(tspan)?
+            .layout_attribute(LayoutAttribute::SvgDx)?
+            .as_str(),
+    )? as f32;
     (dx.is_finite() && dx != 0.0).then_some(dx)
 }
 
@@ -314,14 +330,19 @@ pub fn image_rect(
     let svg = svg_ancestor(styled_dom, node)?;
     let view_box = view_box_of(styled_dom, svg)?;
     let node_data = styled_dom.node_data.as_container();
-    let number = |name: &str| {
+    let number = |attribute: LayoutAttribute| {
         node_data
             .get(node)
-            .and_then(|n| n.get_attribute(name))
+            .and_then(|n| n.layout_attribute(attribute))
             .and_then(|v| first_number(v.as_str()))
             .unwrap_or(0.0)
     };
-    let (x, y, w, h) = (number("x"), number("y"), number("width"), number("height"));
+    let (x, y, w, h) = (
+        number(LayoutAttribute::SvgX),
+        number(LayoutAttribute::SvgY),
+        number(LayoutAttribute::SvgWidth),
+        number(LayoutAttribute::SvgHeight),
+    );
     if !(w > 0.0 && h > 0.0) {
         return None;
     }
