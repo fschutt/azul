@@ -277,10 +277,11 @@ pub fn reads_alike(old: &NodeData, new: &NodeData, reach: LayoutReach) -> bool {
         && svg_data_of(old, reach) == svg_data_of(new, reach)
 }
 
-/// The hashes of what the layout reads of a node besides its type, its own
-/// style and its flags, one per reach that keeps one: its attributes by
-/// their rows ([`LayoutAttribute`]) and its SVG data. A reach the node has
-/// no input of hashes to 0.
+/// The hashes of what the layout reads of a node beyond its type, style and flags.
+///
+/// There is one per reach that keeps one: its attributes by their rows
+/// ([`LayoutAttribute`]) and its SVG data. A reach the node has no input of
+/// hashes to 0.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct LayoutInputHashes {
     /// [`LayoutReach::Selectors`]: the node's ids and classes, as worn.
@@ -345,13 +346,14 @@ fn finish(hasher: Option<&DefaultHasher>) -> u64 {
     hasher.map_or(0, Hasher::finish)
 }
 
-/// What of a node itself makes it a target of the pointer and the keyboard,
-/// beside its style (a `:hover` or `cursor` rule, an `overflow` that scrolls):
-/// a handler of an event that is not the window's, a tab stop, a context
-/// menu. Such a node gets a hit-test tag (`CssPropertyCache::generate_tag_ids`
-/// reads these), and the display list paints a hit-test area for it, so the
-/// fingerprints compare whether a node is one
-/// ([`crate::diff::NodeDataFingerprint::hit_test_target`]).
+/// What of a node itself makes it a target of the pointer and the keyboard.
+///
+/// Beside its style (a `:hover` or `cursor` rule, an `overflow` that
+/// scrolls), that is a handler of an event that is not the window's, a tab
+/// stop or a context menu. Such a node gets a hit-test tag
+/// (`CssPropertyCache::generate_tag_ids` reads these), and the display list
+/// paints a hit-test area for it, so the fingerprints compare whether a node
+/// is one ([`crate::diff::NodeDataFingerprint::hit_test_target`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct HitTestInputs {
     /// The node's tab stop: its own tab index, else the one a focus handler
@@ -374,7 +376,7 @@ impl HitTestInputs {
         Self {
             tab_stop: node
                 .get_tab_index()
-                .or(focus_handler.then_some(TabIndex::Auto)),
+                .or_else(|| focus_handler.then_some(TabIndex::Auto)),
             listens: callbacks.iter().any(|cb| !cb.event.is_window_callback()),
             context_menu: node.has_context_menu(),
         }
@@ -465,10 +467,12 @@ impl Effects {
     }
 }
 
-/// A field of a node's data ([`NodeData`] and its rarely used fields,
-/// [`NodeDataExt`]): one row of the table every comparison of two builds of
-/// a DOM reads (`crate::diff::fingerprint_dom`, the payloads the pre-cascade
-/// skip carries, `crate::styled_dom::is_layout_equivalent`).
+/// A field of a node's data, one row of the table rebuilds are compared by.
+///
+/// The fields are those of [`NodeData`] and its rarely used fields,
+/// [`NodeDataExt`]; every comparison of two builds of a DOM reads the table
+/// (`crate::diff::fingerprint_dom`, the payloads the pre-cascade skip carries,
+/// `crate::styled_dom::is_layout_equivalent`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum NodeField {
     /// What the node is: a text and its characters, an image, a `div`.

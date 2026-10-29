@@ -7586,7 +7586,8 @@ pub fn is_text_selectable(
 pub fn is_node_contenteditable(styled_dom: &StyledDom, node_id: NodeId) -> bool {
     use azul_core::{dom::AttributeType, layout_inputs::LayoutAttribute};
 
-    let node_data = &styled_dom.node_data.as_container()[node_id];
+    let nodes = styled_dom.node_data.as_container();
+    let node_data = &nodes[node_id];
 
     // First check the direct contenteditable field (primary method)
     if node_data.is_contenteditable() {
@@ -7595,9 +7596,10 @@ pub fn is_node_contenteditable(styled_dom: &StyledDom, node_id: NodeId) -> bool 
 
     // Also check the attribute for backwards compatibility
     // Only return true if the attribute value is explicitly true
-    node_data
+    let declared = node_data
         .layout_attributes(LayoutAttribute::ContentEditable)
-        .any(|attr| matches!(attr, AttributeType::ContentEditable(true)))
+        .any(|attr| matches!(attr, AttributeType::ContentEditable(true)));
+    declared
 }
 // =============================================================================
 // Additional ExtractPropertyValue impls (not in compact cache tier 1/2)

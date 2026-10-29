@@ -16,7 +16,7 @@ use azul_layout::window::LayoutWindow;
 use crate::{
     an_edit_in_a_vertical_paragraph_lays_out_as_a_fresh_layout_does::{items_of, same_layout},
     an_edit_re_wraps_its_paragraph_as_a_fresh_layout_does::{
-        text_of, type_in_front, window, PARAGRAPH,
+        text_of, type_in_front, window,
     },
 };
 

@@ -1764,11 +1764,13 @@ pub fn adopt_fresh_payloads(
     merge_fresh_datasets(node_data, datasets)
 }
 
-/// Puts the values the table of a node's fields says are carried
-/// ([`crate::layout_inputs::NodeField`]) from `fresh`, a styled DOM that
+/// Carries the fresh values of a rebuild onto the DOM the window keeps.
+///
+/// The values are the ones the table of a node's fields says are carried
+/// ([`crate::layout_inputs::NodeField`]), from `fresh`, a styled DOM that
 /// compared alike (`crate::styled_dom::is_layout_equivalent`), onto
-/// `retained`, the DOM the window keeps: node by node, the datasets as they
-/// are (the fresh DOM's are merged already).
+/// `retained`: node by node, the datasets as they are (the fresh DOM's are
+/// merged already).
 pub fn carry_fresh_values(retained: &mut [NodeData], fresh: &[NodeData]) {
     use crate::layout_inputs::NodeField;
 

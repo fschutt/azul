@@ -2524,6 +2524,10 @@ fn copy_trace(msg: impl FnOnce() -> String) {
     drop(msg);
 }
 
+
+/// An edited paragraph's logical items and the items they shaped into.
+type ShapedForRelayout = (Arc<Vec<crate::text3::cache::LogicalItem>>, Arc<Vec<ShapedItem>>);
+
 impl LayoutWindow {
     /// #28: SPECULATIVE pagination query — "what WOULD the page breaks be
     /// for this content at this page size?" — answered from this window's
@@ -26361,7 +26365,7 @@ impl LayoutWindow {
         &mut self,
         content: &[InlineContent],
         constraints: &UnifiedConstraints,
-    ) -> Option<(Arc<Vec<crate::text3::cache::LogicalItem>>, Arc<Vec<ShapedItem>>)> {
+    ) -> Option<ShapedForRelayout> {
         // See the doc on `ensure_fonts_loaded_for_content`: the pool this
         // function shapes against only contains fonts a previous FULL layout
         // needed, and the first character of a previously-empty editable

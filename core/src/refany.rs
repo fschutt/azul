@@ -1743,7 +1743,7 @@ impl RefAnyHolder for OptionRefAny {
 /// `RefAny`, which would then be taken for a clone of it.
 #[derive(Debug, Default, Clone)]
 pub struct Repointing {
-    replaced: alloc::vec::Vec<(RefAny, RefAny)>,
+    replaced: Vec<(RefAny, RefAny)>,
 }
 
 impl Repointing {

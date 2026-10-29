@@ -70,8 +70,11 @@ fn page((a_listens, x_listens): (bool, bool)) -> Dom {
     )
 }
 
+/// Whether `a` and `x` listen.
+type Listening = (bool, bool);
+
 /// The page before and after each rebuild, and what the rebuild changes.
-const REBUILDS: [((bool, bool), (bool, bool), &str); 2] = [
+const REBUILDS: [(Listening, Listening, &str); 2] = [
     ((true, false), (true, true), "`x` starts listening"),
     ((true, false), (false, false), "`a` stops listening"),
 ];

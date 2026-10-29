@@ -205,11 +205,13 @@ pub fn app_trust_roots() -> TrustRoots {
     TrustRoots::public_roots()
 }
 
-/// How an SMTP client's connection is encrypted: the one policy every SMTP client of the
-/// framework and its apps connects by (the crash reporter's mail, AzMail's sending). TLS
-/// is required unless the account explicitly opts out: a server that offers no STARTTLS, or a
-/// handshake that fails, gets nothing, so nobody on the path can downgrade a connection to
-/// plaintext by hiding the server's offer.
+/// How an SMTP client's connection is encrypted.
+///
+/// It is the one policy every SMTP client of the framework and its apps
+/// connects by (the crash reporter's mail, `AzMail`'s sending). TLS is
+/// required unless the account explicitly opts out: a server that offers no
+/// STARTTLS, or a handshake that fails, gets nothing, so nobody on the path
+/// can downgrade a connection to plaintext by hiding the server's offer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 #[cfg_attr(feature = "serde-json", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde-json", serde(rename_all = "lowercase"))]

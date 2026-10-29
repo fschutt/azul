@@ -160,7 +160,7 @@ impl BlockContent {
         let items = (self.generated..self.items.len()).flat_map(|index| {
             self.readings
                 .get(&index)
-                .map_or(&self.items[index..=index], Vec::as_slice)
+                .map_or_else(|| &self.items[index..=index], Vec::as_slice)
         });
         for item in items {
             let len = flat_len_of(item);

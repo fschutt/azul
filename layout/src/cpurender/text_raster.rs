@@ -361,7 +361,7 @@ mod set {
         end: usize,
         max: Option<f32>,
         measure: &dyn Fn(&str) -> f32,
-    ) -> Vec<core::ops::Range<usize>> {
+    ) -> Vec<Range<usize>> {
         let Some(max) = max else {
             return core::iter::once(start..end).collect();
         };
@@ -600,7 +600,7 @@ mod set {
             let font_ref: FontRef = crate::parsed_font_to_font_ref(parsed);
             let hash = crate::font_ref_to_parsed_font(&font_ref).hash;
             let fm: FontManager<FontRef> = FontManager::new(FcFontCache::default()).ok()?;
-            fm.insert_font(rust_fontconfig::FontId::new(), font_ref);
+            fm.insert_font(FontId::new(), font_ref);
             let clip_rect = LogicalRect {
                 origin: LogicalPosition { x: 0.0, y: 0.0 },
                 size: LogicalSize {
