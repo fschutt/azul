@@ -114,9 +114,9 @@ fn type_in_front(lw: &mut LayoutWindow, letter: &str) {
 fn typing_in_an_svg_text_keeps_its_svgs_scale() {
     let fresh = items_of(&window("bHello"));
     let unscaled = items_of(&window_at("bHello", 200));
-    let last_x = |items: &[(usize, String, f32, f32)]| {
+    fn last_x(items: &[(usize, String, f32, f32)]) -> f32 {
         items.iter().map(|item| item.2).fold(0.0_f32, f32::max)
-    };
+    }
     assert!(
         last_x(&fresh) > 1.5 * last_x(&unscaled),
         "harness: drawn at twice its viewBox the text is laid out twice as wide: {fresh:?}, \
