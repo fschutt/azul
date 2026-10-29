@@ -63,8 +63,8 @@ pub use idempotency::{
 };
 pub use period::{IssueAnswer, IssueRefusal, IssueSchedule, INSTALMENT_SECS};
 pub use read_only::{
-    is_service_metadata, map_epoch, BucketOp, DriveAccess, ReadOnlyWhy, MAP_HEADER, MOVED_HEADER,
-    SERVICE_METADATA_PREFIX,
+    index_put_shrinks, is_index_key, is_service_metadata, map_epoch, BucketOp, DriveAccess,
+    ReadOnlyWhy, INDEX_PREFIX, MAP_HEADER, MOVED_HEADER, SERVICE_METADATA_PREFIX,
 };
 pub use refresh::{BanWire, RefreshRefusal};
 pub use renewal::{

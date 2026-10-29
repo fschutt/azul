@@ -80,11 +80,51 @@ pub(crate) fn of(s: &DriveState, drive_id: &str) -> DriveAccess {
         .unwrap_or(DriveAccess::Writable)
 }
 
+/// The requests the bucket sees of `op` on a drive that is `encrypted` or not. An encrypted
+/// drive's files are entries of its index: a delete removes entries (an index shrink) and then
+/// deletes the file's objects; a write grows the index and the stored data alike.
+#[must_use]
+pub(crate) const fn requests(op: BucketOp, encrypted: bool) -> &'static [BucketOp] {
+    match op {
+        BucketOp::Delete if encrypted => &[BucketOp::IndexShrink, BucketOp::Delete],
+        BucketOp::Delete => &[BucketOp::Delete],
+        BucketOp::Read => &[BucketOp::Read],
+        BucketOp::Write => &[BucketOp::Write],
+        BucketOp::IndexShrink => &[BucketOp::IndexShrink],
+        BucketOp::Link => &[BucketOp::Link],
+    }
+}
+
+/// Whether drive `drive_id`'s files are entries of an encrypted index: an Azlin drive is,
+/// unless it opened as one made before encryption.
+fn encrypted(s: &DriveState, drive_id: &str) -> bool {
+    let Some(index) = s.slot_index(drive_id) else {
+        return false;
+    };
+    let slot = &s.slots[index];
+    if slot.entry.azlin().is_none() {
+        return false;
+    }
+    #[cfg(feature = "encryption")]
+    {
+        slot.auto
+            .as_ref()
+            .is_none_or(|auto| auto.is_encrypted() != Some(false))
+    }
+    #[cfg(not(feature = "encryption"))]
+    {
+        false
+    }
+}
+
 /// Why drive `drive_id` does not take `op`, in the window's language; `None` when it does.
 #[must_use]
 pub(crate) fn refuses_op(s: &DriveState, drive_id: &str, op: BucketOp) -> Option<String> {
     let access = of(s, drive_id);
-    if access.permits(op) {
+    if requests(op, encrypted(s, drive_id))
+        .iter()
+        .all(|request| access.permits(*request))
+    {
         return None;
     }
     Some(match crate::ban::ban_of(s, drive_id) {
@@ -100,11 +140,14 @@ pub(crate) fn refuses(s: &DriveState, action: &Action) -> Option<String> {
     refuses_op(s, &drive_id, op_of(action)?)
 }
 
-/// Why `action` does not run on a drive in `access`; `None` when it does.
+/// Why `action` does not run on a drive in `access` (`encrypted` or not); `None` when it does.
 #[must_use]
-pub(crate) fn refusal(action: &Action, access: DriveAccess) -> Option<String> {
+pub(crate) fn refusal(action: &Action, access: DriveAccess, encrypted: bool) -> Option<String> {
     let op = op_of(action)?;
-    (!access.permits(op)).then(|| why(access))
+    let taken = requests(op, encrypted)
+        .iter()
+        .all(|request| access.permits(*request));
+    (!taken).then(|| why(access))
 }
 
 /// Whether a sync pass of drive `drive_id` may run: a pass sends writes and deletes, so a drive

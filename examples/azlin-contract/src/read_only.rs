@@ -99,8 +99,35 @@ pub enum BucketOp {
     Write,
     /// The owner's DeleteObject, DeleteObjects and a multipart upload's abort.
     Delete,
+    /// A PutObject of one of an encrypted drive's index objects ([`is_index_key`]) no larger
+    /// than the object it replaces ([`index_put_shrinks`]): a delete of the owner's files on a
+    /// drive whose index the backend cannot read. Entries can be removed, stored data cannot
+    /// grow.
+    IndexShrink,
     /// A presigned link that lets someone else read.
     Link,
+}
+
+/// Every key of an encrypted drive's index starts with this: the manifest, the log entries,
+/// the packs and their indexes, the checkpoints and the leases (azul-storage's drive index).
+pub const INDEX_PREFIX: &str = ".azlin/meta/";
+
+/// Whether `key` is one of an encrypted drive's index objects: a key under [`INDEX_PREFIX`]
+/// from the bucket's root.
+#[must_use]
+pub fn is_index_key(key: &str) -> bool {
+    key.len() > INDEX_PREFIX.len() && key.starts_with(INDEX_PREFIX)
+}
+
+/// Whether a PutObject of `new_len` bytes at an index key shrinks the index: an object is there
+/// (`current_len`, its size) and the new one is not larger. A new index object adds to the
+/// index, so it is no shrink.
+#[must_use]
+pub const fn index_put_shrinks(current_len: Option<u64>, new_len: u64) -> bool {
+    match current_len {
+        Some(current) => new_len <= current,
+        None => false,
+    }
 }
 
 /// A drive's state as its bucket sees it.
@@ -123,26 +150,38 @@ impl DriveAccess {
     /// change, and a reason this build does not know is taken as reads only.
     #[must_use]
     pub const fn permits(self, op: BucketOp) -> bool {
-        // (reads, writes, deletes, links)
-        let (read, write, delete, link) = match self {
-            DriveAccess::Writable => (true, true, true, true),
+        // (reads, writes, deletes, index shrinks, links)
+        let (read, write, delete, shrink, link) = match self {
+            DriveAccess::Writable => (true, true, true, true, true),
             DriveAccess::ReadOnly(
                 ReadOnlyWhy::Unpaid | ReadOnlyWhy::Operator | ReadOnlyWhy::Moving,
-            ) => (true, false, true, true),
+            ) => (true, false, true, true, true),
             DriveAccess::ReadOnly(ReadOnlyWhy::LockdownPending | ReadOnlyWhy::Unknown) => {
-                (true, false, false, true)
+                (true, false, false, false, true)
             }
             DriveAccess::ReadOnly(ReadOnlyWhy::Archived) | DriveAccess::Closed => {
-                (false, false, false, false)
+                (false, false, false, false, false)
             }
-            DriveAccess::Banned => (true, false, false, false),
+            DriveAccess::Banned => (true, false, false, false, false),
         };
         match op {
             BucketOp::Read => read,
             BucketOp::Write => write,
             BucketOp::Delete => delete,
+            BucketOp::IndexShrink => shrink,
             BucketOp::Link => link,
         }
+    }
+
+    /// Whether a drive in this state takes a PutObject of `new_len` bytes at `key`, where
+    /// `current_len` is the size of the object it replaces (`None`: a new key): any put while it
+    /// takes writes, else only an index shrink ([`BucketOp::IndexShrink`]).
+    #[must_use]
+    pub fn takes_put(self, key: &str, current_len: Option<u64>, new_len: u64) -> bool {
+        self.permits(BucketOp::Write)
+            || (self.permits(BucketOp::IndexShrink)
+                && is_index_key(key)
+                && index_put_shrinks(current_len, new_len))
     }
 }
 

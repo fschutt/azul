@@ -124,8 +124,9 @@ use crate::DriveError;
 /// The repository's keys in the bucket. Nothing in them comes from a name or
 /// a path of the drive: sequence numbers, random attempt ids, keyed hashes.
 pub mod keys {
-    /// Every key of the repository starts with this.
-    pub const ROOT: &str = ".azlin/meta/";
+    /// Every key of the repository starts with this: the contract's index prefix, which the
+    /// nodes read as the drive's index objects.
+    pub const ROOT: &str = azlin_contract::INDEX_PREFIX;
     /// The manifest: replaced only by a compare-and-swap.
     pub const MANIFEST: &str = ".azlin/meta/manifest";
     pub const LOG_DIR: &str = ".azlin/meta/log/";

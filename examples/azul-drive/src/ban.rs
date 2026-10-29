@@ -51,6 +51,7 @@ pub(crate) fn refusal(action: &Action, ban: &Ban, now: u64) -> Option<String> {
     } else {
         DriveAccess::Banned
     };
+    // A banned drive takes no change of its index either: the plain requests decide.
     let op = crate::access::op_of(action)?;
     (!access.permits(op)).then(|| refused_words(ban, now))
 }
