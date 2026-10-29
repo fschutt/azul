@@ -1631,7 +1631,14 @@ impl<D: Drive> EncryptedDrive<D> {
         let mut results: Vec<Option<Result<(), DriveError>>> = vec![None; items.len()];
         let mut live: Vec<(usize, Expect)> = Vec::new();
         for (i, item) in items.iter().enumerate() {
-            if let Err(e) = check_key(item.key) {
+            // A folder's marker (`a/`): the index removes the folder only when nothing is left in
+            // it at the end of the change, so what another device put there meanwhile stays.
+            let checked = if item.key.ends_with('/') {
+                check_folder(item.key).and_then(|()| check_prefix(item.key))
+            } else {
+                check_key(item.key)
+            };
+            if let Err(e) = checked {
                 results[i] = Some(Err(e));
                 continue;
             }

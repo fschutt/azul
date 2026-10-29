@@ -91,6 +91,9 @@ pub(super) struct NamedFiles<'d> {
     /// The folder record the last read laid over the listing, and its entity tag (`None`: the
     /// drive has none yet): what the commit's write is conditional on.
     record: Mutex<(RemoteIndex, Option<String>)>,
+    /// The folders the last read listed as entries of their own (not only as the folders of
+    /// files): a folder deleted here takes its entry away on the drive.
+    markers: Mutex<BTreeSet<String>>,
 }
 
 /// Large files a batch takes before it is sent (and named in one commit of an encrypted
@@ -192,6 +195,7 @@ impl<'d> NamedFiles<'d> {
             sent_any: AtomicBool::new(false),
             transient: Mutex::new(None),
             record: Mutex::new((RemoteIndex::empty(), None)),
+            markers: Mutex::new(BTreeSet::new()),
         }
     }
 
@@ -578,6 +582,11 @@ impl SyncRemote for NamedFiles<'_> {
         self.keeps_record()
     }
 
+    /// The drive lists its folders; the record keeps their identities and deletes.
+    fn keeps_folders(&self) -> bool {
+        self.keeps_record()
+    }
+
     fn read(
         &self,
         _cached: Option<&(String, RemoteIndex)>,
@@ -589,18 +598,25 @@ impl SyncRemote for NamedFiles<'_> {
         let mut index = RemoteIndex::empty();
         index.generation = memo.generation;
         let mut seen = BTreeMap::new();
+        let mut markers = BTreeSet::new();
         for object in objects {
             let Some(key) = object.key.strip_prefix(&self.prefix) else {
                 continue;
             };
-            // Folder markers, and the bookkeeping of a plain sync under the same prefix (its
-            // `.azlin/` at the prefix's root; a `.azlin` folder deeper down is the user's, but
-            // never the record of a folder synced there).
+            // The bookkeeping of a plain sync under the same prefix and this folder's record
+            // (its `.azlin/` at the prefix's root; a `.azlin` folder deeper down is the user's,
+            // but never the record of a folder synced there).
             if key.is_empty()
-                || key.ends_with('/')
                 || key.split('/').next() == Some(remote::META_DIR)
                 || record::is_record(key)
             {
+                continue;
+            }
+            // A folder's own entry (a marker).
+            if let Some(folder) = key.strip_suffix('/') {
+                if !folder.is_empty() {
+                    markers.insert(folder.to_string());
+                }
                 continue;
             }
             // A name that cannot be a file here (`..`, a backslash) is never synced.
@@ -628,9 +644,23 @@ impl SyncRemote for NamedFiles<'_> {
         if memo.versions.len() != before {
             self.dirty.store(true, Ordering::SeqCst);
         }
+        let keeps_folders = !memo.no_record;
         drop(memo);
         record::overlay(&mut index, &found);
+        if keeps_folders {
+            // Every folder the drive lists: its own entries and the folders its files lie in.
+            let mut listed = markers.clone();
+            for key in index.files.keys().chain(markers.iter()) {
+                let mut folder = key.as_str();
+                while let Some(end) = folder.rfind('/') {
+                    folder = &folder[..end];
+                    listed.insert(folder.to_string());
+                }
+            }
+            record::overlay_folders(&mut index, &listed, &found);
+        }
         *lock(&self.record) = (found, found_tag);
+        *lock(&self.markers) = markers;
         *lock(&self.seen) = seen;
         let marker = marker_of(&index);
         Ok((index, Some(marker)))
@@ -843,7 +873,7 @@ impl SyncRemote for NamedFiles<'_> {
             .filter(|key| !next.files.contains_key(*key) && !moved.contains(*key))
             .collect();
         let fulls: Vec<String> = gone.iter().map(|key| self.full(key)).collect();
-        let items: Vec<BatchDelete<'_>> = gone
+        let mut items: Vec<BatchDelete<'_>> = gone
             .iter()
             .zip(&fulls)
             .map(|(key, full)| match seen.get(*key) {
@@ -851,9 +881,24 @@ impl SyncRemote for NamedFiles<'_> {
                 _ => BatchDelete::new(full),
             })
             .collect();
-        let results = self.drive.delete_many(&items);
+        // The folders this run deleted that the drive lists as entries of their own go in the
+        // same batch, after the files and deepest first: the drive takes such an entry away only
+        // when nothing is left in the folder at the end of the batch.
+        let markers = lock(&self.markers).clone();
+        let mut emptied: Vec<&String> = remote
+            .folders
+            .keys()
+            .filter(|key| !next.folders.contains_key(*key) && markers.contains(*key))
+            .collect();
+        emptied.sort_by_key(|key| std::cmp::Reverse(key.matches('/').count()));
+        let folder_fulls: Vec<String> = emptied
+            .iter()
+            .map(|key| format!("{}/", self.full(key)))
+            .collect();
+        items.extend(folder_fulls.iter().map(|full| BatchDelete::new(full)));
+        let mut results = self.drive.delete_many(&items).into_iter();
         let mut stop = None;
-        for (key, result) in gone.iter().zip(results) {
+        for (key, result) in gone.iter().zip(results.by_ref()) {
             match result {
                 Ok(()) => {
                     lock(&self.memo).versions.remove(*key);
@@ -867,8 +912,37 @@ impl SyncRemote for NamedFiles<'_> {
                 }
             }
         }
+        for (key, result) in emptied.iter().zip(results) {
+            if let Err(e) = result {
+                report
+                    .notes
+                    .push(format!("{key}: the folder stays on the drive ({e})"));
+            }
+        }
         if let Some(e) = stop {
             return Err(e.into());
+        }
+        // A folder this run made that holds nothing on the drive gets an entry of its own there
+        // (a folder with files in it is one already).
+        for key in next.folders.keys().filter(|key| !remote.folders.contains_key(*key)) {
+            let inside = format!("{key}/");
+            let holds = next
+                .files
+                .range(inside.clone()..)
+                .next()
+                .is_some_and(|(k, _)| k.starts_with(&inside))
+                || next
+                    .folders
+                    .range(inside.clone()..)
+                    .next()
+                    .is_some_and(|(k, _)| k.starts_with(&inside));
+            if !holds {
+                if let Err(e) = self.drive.create_folder(&format!("{}/", self.full(key))) {
+                    report
+                        .notes
+                        .push(format!("{key}: the folder could not be made on the drive ({e})"));
+                }
+            }
         }
         lock(&self.memo).generation = next.generation;
         self.dirty.store(true, Ordering::SeqCst);

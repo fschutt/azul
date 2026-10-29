@@ -336,6 +336,8 @@ pub struct Scan {
     /// The folders found (keys, no trailing slash): a file of the drive cannot come down under
     /// such a name, nor one whose folder is a file here.
     pub dirs: BTreeSet<String>,
+    /// Each folder's inode and device: a folder renamed here keeps them.
+    pub folder_ids: BTreeMap<String, (u64, u64)>,
     /// The links found, with their targets: never followed. What a link now hides where a
     /// synced folder was is unknown, never deleted, and nothing is written through one.
     pub links: BTreeMap<String, String>,
@@ -782,6 +784,7 @@ pub fn scan_settled(
                     match dir.child(&name, false) {
                         Ok(child) if !tree.is_mount_point(child.rel()) => {
                             out.dirs.insert(key.clone());
+                            out.folder_ids.insert(key.clone(), (st.ino, st.dev));
                             stack.push((child, format!("{key}/")));
                         }
                         Ok(_) | Err(BeneathError::CrossesMount(_)) => {

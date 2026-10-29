@@ -62,6 +62,8 @@ pub mod evict;
 // clock and disk a pass sees.
 pub mod faults;
 pub mod folder_remote;
+// Folders as entries of their own: empty ones made, deleted and renamed everywhere.
+pub mod folders;
 pub mod guard;
 pub mod journal;
 pub mod local;
@@ -111,9 +113,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 pub use self::{
+    folders::FolderAction,
     local::{BaseEntry, BaseFolder, Content, LocalFile, LocalIndex, Scan},
     merge::Action,
-    remote::{normalize_prefix, RemoteFile, RemoteIndex, Tombstone},
+    remote::{
+        normalize_prefix, FolderTombstone, RemoteFile, RemoteFolder, RemoteIndex, Tombstone,
+    },
     rules::Rules,
 };
 pub use crate::store::{Conditional, RemoteObject, RemoteStore};
@@ -350,6 +355,10 @@ pub struct SyncReport {
     pub deleted_here: usize,
     pub deleted_there: usize,
     pub unchanged: usize,
+    /// Folders made here because the drive has them, and removed here (empty) because the drive
+    /// deleted them.
+    pub folders_made: usize,
+    pub folders_removed: usize,
     /// `key -> copy` of every conflict.
     pub conflicts: Vec<String>,
     /// JSON files merged key by key, and the keys both sides changed (the
@@ -931,6 +940,13 @@ trait SyncRemote: Sync {
         true
     }
 
+    /// Whether the drive keeps folders as entries of their own ([`remote::RemoteIndex::folders`],
+    /// [`folders`]). One that does not (a harness's layout, a drive synced by name without a
+    /// record) syncs files only: a folder goes with its last file, as before folders were kept.
+    fn keeps_folders(&self) -> bool {
+        false
+    }
+
     /// Whether an entry may name the drive's version of a file instead of its content
     /// ([`remote::version_stand_in`]): a drive synced by name knows a file's content only once
     /// a device read or wrote it. Anywhere else such an entry is a damaged one.
@@ -1014,6 +1030,10 @@ impl<S: RemoteStore + ?Sized> SyncRemote for BlobIndex<'_, S> {
         cached: Option<&(String, RemoteIndex)>,
     ) -> CloudResult<(RemoteIndex, Option<String>)> {
         read_index(self.store, &self.index_key, cached)
+    }
+
+    fn keeps_folders(&self) -> bool {
+        true
     }
 
     fn fetch(&self, _key: &str, hash: &str, size: u64) -> CloudResult<Vec<u8>> {
@@ -1634,9 +1654,11 @@ fn stops_the_run(e: &CloudError) -> bool {
 
 /// The index after `actions`: `remote` itself when they change nothing in it
 /// (so an unchanged folder writes no index).
+#[allow(clippy::too_many_arguments)]
 fn next_index(
     remote: &RemoteIndex,
     actions: &[Action],
+    folders: &[FolderAction],
     scan: &Scan,
     merged: &BTreeMap<String, Merged>,
     device: &str,
@@ -1714,9 +1736,45 @@ fn next_index(
             | Action::CloudOnly { .. } => {}
         }
     }
+    for action in folders {
+        match action {
+            FolderAction::Send { key, id } => {
+                let entry = RemoteFolder {
+                    id: id.clone(),
+                    gen: generation,
+                    device: device.to_string(),
+                };
+                next.folders.insert(key.clone(), entry);
+                next.deleted_folders.remove(key);
+                changed = true;
+            }
+            FolderAction::RemoveThere { key, id } => {
+                if next.folders.remove(key).is_some() {
+                    let tomb = FolderTombstone {
+                        id: id.clone(),
+                        gen: generation,
+                        at: now,
+                        device: device.to_string(),
+                    };
+                    next.deleted_folders.insert(key.clone(), tomb);
+                    changed = true;
+                }
+            }
+            FolderAction::Agree { .. }
+            | FolderAction::Make { .. }
+            | FolderAction::RemoveHere { .. }
+            | FolderAction::Forget { .. } => {}
+        }
+    }
     if changed {
         let horizon = now - tombstone_days * 86_400;
         next.deleted.retain(|_, t| t.at >= horizon);
+        next.deleted_folders.retain(|_, t| t.at >= horizon);
+        // An index with folders says so: a version that does not know them would drop them.
+        let has_folders = !next.folders.is_empty() || !next.deleted_folders.is_empty();
+        if has_folders && !next.features.iter().any(|f| f == remote::FOLDERS_FEATURE) {
+            next.features.push(remote::FOLDERS_FEATURE.to_string());
+        }
         next.generation = generation;
         next.updated_at = now;
         next.updated_by = device.to_string();
@@ -2008,7 +2066,6 @@ fn move_here(
     hooks.point("after-rename");
     moved?;
     drive.note_renamed(from_here, to);
-    local::prune_empty_parents(&root.path, from_here);
     Ok(local::entry_now(&root.path, to, &expect.hash))
 }
 
@@ -2122,6 +2179,10 @@ fn apply_local<R: SyncRemote + ?Sized>(
                 let from = moved_here[key];
                 match move_here(&tree, &drive, root, scan, from, key, hooks) {
                     Ok(Some(entry)) => {
+                        // The folder it left goes with it only where folders are no entries.
+                        if !remote_side.keeps_folders() {
+                            local::prune_empty_parents(&root.path, scan.here(from));
+                        }
                         base.remove(from);
                         base.insert(key.to_string(), entry);
                         report.moved.push(format!("{from} -> {key}"));
@@ -2174,7 +2235,11 @@ fn apply_local<R: SyncRemote + ?Sized>(
                 match moved {
                     Ok(()) => {
                         drive.note_deleted(here);
-                        local::prune_empty_parents(&root.path, here);
+                        // A drive that keeps folders deletes one only by its own delete: the
+                        // folder of a deleted file stays, empty.
+                        if !remote_side.keeps_folders() {
+                            local::prune_empty_parents(&root.path, here);
+                        }
                         base.remove(key);
                         report.deleted_here += 1;
                         report.trashed.push((key.to_string(), rel));
@@ -2626,6 +2691,164 @@ fn hold_big(
 }
 
 /// What the plan moves: files and bytes up and down.
+/// What is here and on the drive once `actions` are done: the files, and here also what the
+/// scan saw and does not sync (unknown, settling, left out, links), there what the run could not
+/// read. A folder holding any of it is not removed on that side.
+fn files_after(
+    actions: &[Action],
+    scan: &Scan,
+    remote: &RemoteIndex,
+    unreadable: &BTreeMap<String, String>,
+) -> (BTreeSet<String>, BTreeSet<String>) {
+    let mut here: BTreeSet<String> = scan.files.keys().cloned().collect();
+    here.extend(scan.unknown.iter().cloned());
+    here.extend(scan.temps.keys().cloned());
+    here.extend(scan.links.keys().cloned());
+    here.extend(scan.mounts.iter().cloned());
+    here.extend(scan.skipped.iter().map(|(key, _)| key.clone()));
+    let mut there: BTreeSet<String> = remote.files.keys().cloned().collect();
+    there.extend(unreadable.keys().cloned());
+    for action in actions {
+        match action {
+            Action::Download { key } => {
+                here.insert(key.clone());
+            }
+            Action::DeleteLocal { key } => {
+                here.remove(key);
+            }
+            Action::Upload { key } | Action::MergeJson { key } => {
+                there.insert(key.clone());
+            }
+            Action::DeleteRemote { key } => {
+                there.remove(key);
+            }
+            Action::Conflict { key, copy } => {
+                here.insert(key.clone());
+                here.insert(copy.clone());
+                there.insert(copy.clone());
+            }
+            Action::Agree { .. } | Action::Forget { .. } | Action::CloudOnly { .. } => {}
+        }
+    }
+    (here, there)
+}
+
+/// The folders' plan of a run ([`folders::plan`]): the folders here whose names may be keys,
+/// what stays on each side after `actions`, and the drive's folders as the run plans with them.
+fn plan_folders(
+    actions: &[Action],
+    scan: &Scan,
+    readable: &RemoteIndex,
+    unreadable: &BTreeMap<String, String>,
+    base: &BTreeMap<String, BaseFolder>,
+    excluded: &dyn Fn(&str) -> bool,
+    rules: &Rules,
+) -> Vec<FolderAction> {
+    let here: BTreeSet<String> = scan
+        .dirs
+        .iter()
+        .filter(|key| remote::check_key(key).is_ok() && names::key_problem(key).is_none())
+        .cloned()
+        .collect();
+    let (files_here, files_there) = files_after(actions, scan, readable, unreadable);
+    let left_out = |key: &str| excluded(key) || rules.excluded_dir(key).is_some();
+    folders::plan(
+        &folders::FolderInput {
+            base,
+            here: &here,
+            remote: readable,
+            excluded: &left_out,
+            files_here: &files_here,
+            files_there: &files_there,
+        },
+        &root::new_id,
+    )
+}
+
+/// Makes here the folders the drive has and this side has not, removes the ones the drive
+/// deleted (empty ones only: a folder that still holds something stays), and keeps in `base`
+/// the folders both sides have now, with their inode here.
+fn apply_folders(
+    root: &LocalRoot,
+    scan: &Scan,
+    actions: &[FolderAction],
+    base: &mut BTreeMap<String, BaseFolder>,
+    report: &mut SyncReport,
+) {
+    if actions.is_empty() {
+        return;
+    }
+    let tree = match beneath::Root::open(&root.path) {
+        Ok(tree) => tree,
+        Err(e) => {
+            report.errors.push(format!(
+                "{}: the folder cannot be opened ({e}); no folder was made or removed here",
+                root.path.display()
+            ));
+            return;
+        }
+    };
+    let here = |key: &str| scan.folder_ids.get(key).copied().unwrap_or((0, 0));
+    for action in actions {
+        match action {
+            FolderAction::Agree { key, id } | FolderAction::Send { key, id } => {
+                let (ino, dev) = here(key);
+                let entry = BaseFolder {
+                    id: id.clone(),
+                    ino,
+                    dev,
+                };
+                base.insert(key.clone(), entry);
+            }
+            FolderAction::Make { key, id } => {
+                let made = tree
+                    .dir(key, true)
+                    .and_then(|dir| dir.stat().map_err(BeneathError::from));
+                match made {
+                    Ok(st) => {
+                        let entry = BaseFolder {
+                            id: id.clone(),
+                            ino: st.ino,
+                            dev: st.dev,
+                        };
+                        base.insert(key.clone(), entry);
+                        report.folders_made += 1;
+                    }
+                    Err(e) => failed_here(report, "make", key, &e),
+                }
+            }
+            FolderAction::RemoveThere { key, .. } | FolderAction::Forget { key } => {
+                base.remove(key);
+            }
+            FolderAction::RemoveHere { .. } => {}
+        }
+    }
+    // Deepest first: a folder inside goes before the one it is in.
+    let mut removals: Vec<&str> = actions
+        .iter()
+        .filter_map(|a| match a {
+            FolderAction::RemoveHere { key } => Some(key.as_str()),
+            _ => None,
+        })
+        .collect();
+    removals.sort_by_key(|key| std::cmp::Reverse(key.matches('/').count()));
+    for key in removals {
+        match tree.parent_of(key, false).and_then(|(dir, name)| dir.rmdir(name)) {
+            Ok(()) => {
+                base.remove(key);
+                report.folders_removed += 1;
+            }
+            Err(e) if e.is_not_found() => {
+                base.remove(key);
+            }
+            // Something the sync does not take is still in it (a file left out by a rule).
+            Err(e) => report.notes.push(format!(
+                "{key}: deleted on the drive, and kept here because it is not empty ({e})"
+            )),
+        }
+    }
+}
+
 fn planned(actions: &[Action], scan: &Scan, remote: &RemoteIndex) -> SyncEvent {
     let (mut up_files, mut up_bytes, mut down_files, mut down_bytes) = (0usize, 0u64, 0usize, 0u64);
     for action in actions {
@@ -3181,7 +3404,7 @@ fn run<R: SyncRemote + ?Sized>(
     let mut attempt = 0u32;
     // The files D5 keeps (the last attempt's), remembered in the base.
     let mut kept: BTreeSet<String> = BTreeSet::new();
-    let (committed, actions, merged, etag, scan, base_after, restore_epoch) = loop {
+    let (committed, actions, folder_actions, merged, etag, scan, base_after, restore_epoch) = loop {
         attempt += 1;
         report.problems.truncate(told);
         let (remote, etag) = remote_side.read(cached.as_ref())?;
@@ -3285,6 +3508,10 @@ fn run<R: SyncRemote + ?Sized>(
                 index.kept.contains(key)
                     || !(scan.files.contains_key(key) && !base.contains_key(key))
             });
+            // So with a folder made here again under a deleted folder's name.
+            readable
+                .deleted_folders
+                .retain(|key, _| !(scan.dirs.contains(key) && !index.folders.contains_key(key)));
         }
         let excluded = |key: &str| {
             root.rules.excluded(key).is_some() || frozen.contains(key) || scan.hides(key)
@@ -3393,6 +3620,40 @@ fn run<R: SyncRemote + ?Sized>(
         if let Some(limit) = hooks.transfer_limit {
             report.held_back = hold_big(&mut actions, &scan, &readable, limit);
         }
+        // The folders after the files: a folder stays wherever something stays in it.
+        let mut folder_actions = if remote_side.keeps_folders() {
+            plan_folders(
+                &actions,
+                &scan,
+                &readable,
+                &unreadable,
+                &index.folders,
+                &excluded,
+                &root.rules,
+            )
+        } else {
+            Vec::new()
+        };
+        if hooks.backup {
+            // One way: nothing of the drive changes the folder, nothing deleted here goes.
+            folder_actions.retain(|a| {
+                matches!(
+                    a,
+                    FolderAction::Agree { .. }
+                        | FolderAction::Send { .. }
+                        | FolderAction::Forget { .. }
+                )
+            });
+        }
+        if pause.is_some() {
+            // Only what the drive changed comes here.
+            folder_actions.retain(|a| {
+                !matches!(
+                    a,
+                    FolderAction::Send { .. } | FolderAction::RemoveThere { .. }
+                )
+            });
+        }
         if attempt == 1 {
             hooks.tell(planned(&actions, &scan, &readable));
         }
@@ -3418,6 +3679,7 @@ fn run<R: SyncRemote + ?Sized>(
         let next = next_index(
             &remote,
             &actions,
+            &folder_actions,
             &scan,
             &merged,
             &opts.device,
@@ -3430,6 +3692,7 @@ fn run<R: SyncRemote + ?Sized>(
             break (
                 remote,
                 actions,
+                folder_actions,
                 merged,
                 etag,
                 scan,
@@ -3450,6 +3713,7 @@ fn run<R: SyncRemote + ?Sized>(
                 break (
                     next,
                     actions,
+                    folder_actions,
                     merged,
                     Some(new_etag),
                     scan,
@@ -3485,6 +3749,10 @@ fn run<R: SyncRemote + ?Sized>(
         &mut base,
         &mut report,
     );
+    // The folders once the files are in place: a folder is removed only when it is empty.
+    if !hooks.cancelled() {
+        apply_folders(root, &scan, &folder_actions, &mut index.folders, &mut report);
+    }
     guard::learn(&mut index.guard, &actions, &root.path, &scan);
     report.paused = pause;
     report.cancelled = hooks.cancelled();

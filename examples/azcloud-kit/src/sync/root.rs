@@ -57,7 +57,7 @@ pub enum RootCheck {
     Unreadable(String),
 }
 
-fn new_id() -> String {
+pub(super) fn new_id() -> String {
     let mut bytes = [0u8; 16];
     // The OS random source; a failure leaves a time-based id, still unique enough to tell
     // two folders apart.
