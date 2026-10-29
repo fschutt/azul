@@ -240,11 +240,32 @@ pub(crate) fn x11_monitor_work_area(
     gtk_workareas: &[ScreenRect],
     net_workarea: Option<ScreenRect>,
 ) -> ScreenRect {
-    let _ = (gtk_workareas, net_workarea);
-    ScreenRect::new(
-        bounds.origin,
-        ScreenSize::new(bounds.size.width, (bounds.size.height - 24.0).max(0.0)),
-    )
+    let (left, top) = (bounds.origin.x, bounds.origin.y);
+    let (right, bottom) = (left + bounds.size.width, top + bounds.size.height);
+    let on_the_monitor = |r: &&ScreenRect| {
+        r.size.width > 0.0
+            && r.size.height > 0.0
+            && r.origin.x >= left
+            && r.origin.y >= top
+            && r.origin.x + r.size.width <= right
+            && r.origin.y + r.size.height <= bottom
+    };
+    if let Some(own) = gtk_workareas.iter().find(on_the_monitor) {
+        return *own;
+    }
+    if let Some(desktop) = net_workarea {
+        let cut_left = left.max(desktop.origin.x);
+        let cut_top = top.max(desktop.origin.y);
+        let cut_right = right.min(desktop.origin.x + desktop.size.width);
+        let cut_bottom = bottom.min(desktop.origin.y + desktop.size.height);
+        if cut_right > cut_left && cut_bottom > cut_top {
+            return ScreenRect::new(
+                ScreenPoint::new(cut_left, cut_top),
+                ScreenSize::new(cut_right - cut_left, cut_bottom - cut_top),
+            );
+        }
+    }
+    bounds
 }
 
 /// Get the primary display
@@ -702,6 +723,99 @@ mod linux {
             }
         }
 
+        /// `XA_CARDINAL`, the type of the work-area properties.
+        const XA_CARDINAL: std::os::raw::c_ulong = 6;
+
+        /// The 32-bit values of the CARDINAL property `name` on the root
+        /// window; `None` when it does not exist or is empty.
+        unsafe fn root_cardinals(
+            xlib: &Xlib,
+            display: *mut crate::desktop::shell2::linux::x11::dlopen::Display,
+            root: crate::desktop::shell2::linux::x11::dlopen::Window,
+            name: &str,
+        ) -> Option<Vec<i64>> {
+            let name = std::ffi::CString::new(name).ok()?;
+            unsafe {
+                let atom = (xlib.XInternAtom)(display, name.as_ptr(), 1); // only if it exists
+                if atom == 0 {
+                    return None;
+                }
+                let mut actual_type = 0;
+                let mut actual_format = 0;
+                let mut nitems = 0;
+                let mut bytes_after = 0;
+                let mut data: *mut u8 = ptr::null_mut();
+                let status = (xlib.XGetWindowProperty)(
+                    display,
+                    root,
+                    atom,
+                    0,
+                    1024,
+                    0, // delete = false
+                    XA_CARDINAL,
+                    &mut actual_type,
+                    &mut actual_format,
+                    &mut nitems,
+                    &mut bytes_after,
+                    &mut data,
+                );
+                let mut values = Vec::new();
+                if status == 0 && !data.is_null() && actual_format == 32 {
+                    // 32-bit properties come back as an array of C `long`.
+                    let longs = std::slice::from_raw_parts(
+                        data as *const std::os::raw::c_long,
+                        nitems as usize,
+                    );
+                    values = longs.iter().map(|&v| i64::from(v)).collect();
+                }
+                if !data.is_null() {
+                    (xlib.XFree)(data as *mut c_void);
+                }
+                (!values.is_empty()).then_some(values)
+            }
+        }
+
+        /// Rects of four CARDINALs each (x, y, width, height), root pixels.
+        #[allow(clippy::cast_precision_loss)] // screen pixels
+        fn rects_of(values: &[i64]) -> Vec<ScreenRect> {
+            values
+                .chunks_exact(4)
+                .map(|r| {
+                    ScreenRect::new(
+                        ScreenPoint::new(r[0] as f32, r[1] as f32),
+                        ScreenSize::new(r[2] as f32, r[3] as f32),
+                    )
+                })
+                .collect()
+        }
+
+        /// The work areas the window manager publishes for the current desktop:
+        /// mutter's per-monitor `_GTK_WORKAREAS_D<desktop>` and the EWMH
+        /// `_NET_WORKAREA` rect, each as far as it is published.
+        unsafe fn published_work_areas(
+            xlib: &Xlib,
+            display: *mut crate::desktop::shell2::linux::x11::dlopen::Display,
+            root: crate::desktop::shell2::linux::x11::dlopen::Window,
+        ) -> (Vec<ScreenRect>, Option<ScreenRect>) {
+            unsafe {
+                let desktop = root_cardinals(xlib, display, root, "_NET_CURRENT_DESKTOP")
+                    .and_then(|v| v.first().copied())
+                    .and_then(|d| usize::try_from(d).ok())
+                    .unwrap_or(0);
+                let per_monitor = root_cardinals(
+                    xlib,
+                    display,
+                    root,
+                    &format!("_GTK_WORKAREAS_D{desktop}"),
+                )
+                .map(|v| rects_of(&v))
+                .unwrap_or_default();
+                let whole_desktop = root_cardinals(xlib, display, root, "_NET_WORKAREA")
+                    .and_then(|v| rects_of(&v).get(desktop).copied());
+                (per_monitor, whole_desktop)
+            }
+        }
+
         fn try_xrandr_displays() -> Result<Vec<DisplayInfo>, ()> {
             use crate::desktop::shell2::{
                 common::{
@@ -748,6 +862,7 @@ mod linux {
 
                 let resources = &*(resources_ptr as *const XRRScreenResourcesStruct);
                 let mut displays = Vec::new();
+                let (gtk_workareas, net_workarea) = published_work_areas(&xlib, display, root);
 
                 // Calculate base DPI from screen size
                 let width_mm = (xlib.XDisplayWidthMM)(display, screen);
@@ -781,14 +896,8 @@ mod linux {
                         ScreenSize::new(crtc_info.width as f32, crtc_info.height as f32),
                     );
 
-                    // Approximate work area (subtract 24px for panel)
-                    let work_area = ScreenRect::new(
-                        ScreenPoint::new(crtc_info.x as f32, crtc_info.y as f32),
-                        ScreenSize::new(
-                            crtc_info.width as f32,
-                            (crtc_info.height as f32 - FALLBACK_PANEL_HEIGHT).max(0.0),
-                        ),
-                    );
+                    // The monitor less the panels the window manager says are on it.
+                    let work_area = x11_monitor_work_area(bounds, &gtk_workareas, net_workarea);
 
                     // Get refresh rate from mode info
                     let refresh_rate = if crtc_info.mode != 0 {
@@ -884,6 +993,8 @@ mod linux {
                 let avg_dpi = (dpi_x + dpi_y) / 2.0;
                 let scale_factor = avg_dpi / 96.0; // 96 DPI is the standard baseline
 
+                let root = (xlib.XRootWindow)(display, screen);
+                let (gtk_workareas, net_workarea) = published_work_areas(&xlib, display, root);
                 (xlib.XCloseDisplay)(display);
 
                 let bounds = ScreenRect::new(
@@ -891,14 +1002,8 @@ mod linux {
                     ScreenSize::new(width_px as f32, height_px as f32),
                 );
 
-                // Approximate work area by subtracting common panel height (24px)
-                let work_area = ScreenRect::new(
-                    ScreenPoint::new(0.0, 0.0),
-                    ScreenSize::new(
-                        width_px as f32,
-                        (height_px as f32 - FALLBACK_PANEL_HEIGHT).max(0.0),
-                    ),
-                );
+                // The screen less the panels the window manager says are on it.
+                let work_area = x11_monitor_work_area(bounds, &gtk_workareas, net_workarea);
 
                 vec![DisplayInfo {
                     name: format!(":0.{}", screen),
