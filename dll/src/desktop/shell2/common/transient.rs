@@ -583,8 +583,7 @@ fn popup_bounds(
     parent_size: LogicalSize,
     anchor: LogicalRect,
 ) -> LogicalRect {
-    let _ = anchor;
-    screen_for_anchor(LogicalRect::new(LogicalPosition::zero(), parent_size), screens)
+    screen_for_anchor(anchor, screens)
         .unwrap_or_else(|| LogicalRect::new(LogicalPosition::zero(), parent_size))
 }
 

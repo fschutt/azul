@@ -149,45 +149,13 @@ impl TransientPlacement {
     /// floating surface follows ([`crate::placement::floating_frame`]). A
     /// viewport cover sits exactly on its parent and is never moved.
     #[must_use]
-    pub fn resolve_within(
+    pub const fn resolve_within(
         &self,
         size: LogicalSize,
         cursor: Option<azul_core::geom::LogicalPosition>,
         bounds: LogicalRect,
     ) -> azul_core::geom::LogicalPosition {
-        if matches!(self.anchor, TransientAnchor::Viewport) {
-            return self.anchor_rect.origin;
-        }
-        let a = self.anchor_rect;
-        let (min_x, min_y) = (bounds.origin.x, bounds.origin.y);
-        let (max_x, max_y) = (bounds.max_x(), bounds.max_y());
-        let mut pos = self.resolve(size, cursor);
-        match self.anchor {
-            TransientAnchor::Bottom
-                if pos.y + size.height > max_y && a.origin.y - size.height >= min_y =>
-            {
-                pos.y = a.origin.y - size.height;
-            }
-            TransientAnchor::Top
-                if pos.y < min_y && a.origin.y + a.size.height + size.height <= max_y =>
-            {
-                pos.y = a.origin.y + a.size.height;
-            }
-            TransientAnchor::Right
-                if pos.x + size.width > max_x && a.origin.x - size.width >= min_x =>
-            {
-                pos.x = a.origin.x - size.width;
-            }
-            TransientAnchor::Left
-                if pos.x < min_x && a.origin.x + a.size.width + size.width <= max_x =>
-            {
-                pos.x = a.origin.x + a.size.width;
-            }
-            _ => {}
-        }
-        pos.x = pos.x.min(max_x - size.width).max(min_x);
-        pos.y = pos.y.min(max_y - size.height).max(min_y);
-        pos
+        floating_frame(&self.floating(cursor), size, bounds).origin
     }
 }
 
