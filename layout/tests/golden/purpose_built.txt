@@ -4,8 +4,8 @@ n0 root d0 Block { establishes_new_context: true } @0,0 800x365 ov=800x365 bl=36
 n1 p0 d1 Block { establishes_new_context: false } @0,10 800x365 ov=800x365 mt=10 mb=0 bl=357 ic=500/500 rel=0,10
 n2 p1 d2 Inline @238,10 324x54 ov=63.203125x16 bl=13 ic=300/300 rel=238,0
 n3 p2 d3 Inline @250,17 -x- ic=35.203125/63.203125
-n4 p1 d4 Inline @0,74 400x56 ov=114.40625x16 bl=13 ic=48/114.40625 rel=0,64
-n5 p4 d5 Inline @13,87 -x- ic=48/114.40625
+n4 p1 d4 Inline @0,74 400x56 ov=114.40625x16 bl=13 ic=56/114.40625 rel=0,64
+n5 p4 d5 Inline @13,87 -x- ic=56/114.40625
 n6 p1 d6 Inline @200,130 200x16 ov=151.20313x32 bl=29 ic=80/200 rel=200,120
 n7 p6 d7 Inline @200,130 -x- ic=80/204.8125
 n8 p1 d8 Inline @680,146 120x16 ov=87.203125x16 bl=13 ic=120/120 rel=680,136

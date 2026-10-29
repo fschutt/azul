@@ -127,17 +127,17 @@ n50 p47 d53 Inline @8,32 -x- ic=0/0
   dl70 PopStackingContext
 === mail_corpus/azmail/phishing.html
 dom DomId { inner: 0 }
-n0 root d0 Block { establishes_new_context: true } @0,0 800x97 ov=800x97 bl=96 ic=136/336.01563
-n1 p0 d1 Block { establishes_new_context: false } @8,16 784x89 ov=784x89 mt=16 mb=8 bl=80 ic=120/320.01563 rel=8,16
+n0 root d0 Block { establishes_new_context: true } @0,0 800x97 ov=800x97 bl=96 ic=187.20313/336.01563
+n1 p0 d1 Block { establishes_new_context: false } @8,16 784x89 ov=784x89 mt=16 mb=8 bl=80 ic=171.20313/320.01563 rel=8,16
 n2 p1 d3 Inline @8,16 784x16 ov=320x16 bl=13 ic=73.609375/320.01563 rel=0,0
 n3 p2 d4 Inline @8,16 -x- ic=73.609375/269.60938
 n4 p2 d5 Inline @8,16 -x- ic=43.203125/43.203125
 n5 p4 d6 Inline @8,16 -x- ic=43.203125/43.203125
 n6 p2 d7 Inline @8,16 -x- ic=3.203125/3.203125
-n7 p1 d8 Inline @8,48 784x16 ov=277.59375x16 bl=13 ic=120/277.60938 rel=0,32
+n7 p1 d8 Inline @8,48 784x16 ov=277.59375x16 bl=13 ic=171.20313/277.60938 rel=0,32
 n8 p7 d9 Inline @8,48 -x- ic=43.203125/102.40625
-n9 p7 d10 Inline @8,48 -x- ic=120/171.20313
-n10 p9 d11 Inline @8,48 -x- ic=120/171.20313
+n9 p7 d10 Inline @8,48 -x- ic=171.20313/171.20313
+n10 p9 d11 Inline @8,48 -x- ic=171.20313/171.20313
 n11 p7 d12 Inline @8,48 -x- ic=0/0
 n12 p1 d13 Inline @8,80 784x25 ov=57.109375x25 bl=16 ic=57.109375/57.109375 rel=0,64
   line 0 y=16 items=2 glyphs=0 x=0..57.109375
@@ -2107,13 +2107,13 @@ n9 p8 d13 TableCell @120,0 560x40 bl=19 ic=76.8125/76.8125 rel=0,0
 n10 p9 d14 Inline @128,8 -x- ic=76.8125/76.8125
 n11 p10 d15 Inline @128,8 -x- ic=76.8125/76.8125
 n12 p11 d16 Inline @128,8 -x- ic=76.8125/76.8125
-n13 p7 d18 TableRow @120,40 560x32 ic=48.5/79.703125 rel=0,40
+n13 p7 d18 TableRow @120,40 560x32 ic=53.703125/79.703125 rel=0,40
 n14 p13 d19 TableCell @120,40 361.875x32 bl=13 ic=32.5/48.75 rel=0,0
 n15 p14 d20 Inline @128,48 -x- ic=32.5/48.75
 n16 p15 d21 Inline @128,48 -x- ic=32.5/48.75
-n17 p13 d22 TableCell @481.875,40 198.125x32 bl=13 ic=31.203125/63.703125 rel=361.875,0
-n18 p17 d23 Inline @489.875,48 -x- ic=31.203125/63.703125
-n19 p18 d24 Inline @489.875,48 -x- ic=31.203125/63.703125
+n17 p13 d22 TableCell @481.875,40 198.125x32 bl=13 ic=37.703125/63.703125 rel=361.875,0
+n18 p17 d23 Inline @489.875,48 -x- ic=37.703125/63.703125
+n19 p18 d24 Inline @489.875,48 -x- ic=37.703125/63.703125
 n20 p7 d26 TableRow @120,72 560x32 ic=42/81 rel=0,72
 n21 p20 d27 TableCell @120,72 361.875x32 bl=13 ic=26/26 rel=0,0
 n22 p21 d28 Inline @128,80 -x- ic=26/26
@@ -2327,8 +2327,8 @@ n36 p35 d29 Inline @8,269 -x- ic=0/0
   dl26 PopStackingContext
 === mail_corpus/exploration/06_thunderbird_reply.html
 dom DomId { inner: 0 }
-n0 root d0 Block { establishes_new_context: true } @0,0 800x208 ov=800x208 bl=205 ic=294.40625/599.2031
-n1 p0 d1 Block { establishes_new_context: false } @8,16 784x192 ov=784x192 mt=16 mb=16 bl=189 ic=278.40625/583.2031 rel=8,16
+n0 root d0 Block { establishes_new_context: true } @0,0 800x208 ov=800x208 bl=205 ic=412.8125/599.2031
+n1 p0 d1 Block { establishes_new_context: false } @8,16 784x192 ov=784x192 mt=16 mb=16 bl=189 ic=396.8125/583.2031 rel=8,16
 n2 p1 d3 Inline @8,16 784x16 ov=168x16 bl=13 ic=67.203125/168 rel=0,0
 n3 p2 d4 Inline @8,16 -x- ic=67.203125/168
 n4 p1 d6 Inline @8,48 784x16 ov=252x16 bl=13 ic=54.40625/252 rel=0,32
@@ -2336,18 +2336,18 @@ n4 p1 d6 Inline @8,48 784x16 ov=252x16 bl=13 ic=54.40625/252 rel=0,32
 n5 p4 d7 Inline @8,48 -x- ic=54.40625/252
 n6 p4 d8 Inline @8,48 -x- ic=0/0
 n7 p4 d9 Inline @8,48 -x- ic=0/0
-n8 p1 d11 Block { establishes_new_context: false } @48,80 704x80 ov=704x80 mt=16 mb=16 bl=77 ic=198.40625/503.20313 rel=40,64
+n8 p1 d11 Block { establishes_new_context: false } @48,80 704x80 ov=704x80 mt=16 mb=16 bl=77 ic=316.8125/503.20313 rel=40,64
 n9 p8 d13 Inline @48,80 704x48 ov=366.40625x48 bl=29 ic=64/366.40625 rel=0,0
   line 0 y=0 items=30 glyphs=29 x=0..201.59375
   line 1 y=16 items=52 glyphs=51 x=0..366.40625
   line 2 y=45 items=1 glyphs=0 x=0..0
 n10 p9 d14 Inline @48,80 -x- ic=64/366.40625
-n11 p8 d16 Block { establishes_new_context: false } @88,144 624x16 ov=624x16 mt=16 mb=16 bl=13 ic=118.40625/423.20313 rel=40,64
-n12 p11 d18 Inline @88,144 624x16 ov=423.20313x16 bl=13 ic=118.40625/423.20313 rel=0,0
+n11 p8 d16 Block { establishes_new_context: false } @88,144 624x16 ov=624x16 mt=16 mb=16 bl=13 ic=236.8125/423.20313 rel=40,64
+n12 p11 d18 Inline @88,144 624x16 ov=423.20313x16 bl=13 ic=236.8125/423.20313 rel=0,0
   line 0 y=0 items=59 glyphs=58 x=0..423.20313
 n13 p12 d19 Inline @88,144 -x- ic=70.40625/186.40625
-n14 p12 d20 Inline @88,144 -x- ic=118.40625/236.8125
-n15 p14 d21 Inline @88,144 -x- ic=118.40625/236.8125
+n14 p12 d20 Inline @88,144 -x- ic=236.8125/236.8125
+n15 p14 d21 Inline @88,144 -x- ic=236.8125/236.8125
 n16 p12 d22 Inline @88,144 -x- ic=0/0
 n17 p1 d26 Inline @8,176 784x32 ov=144x32 bl=29 ic=51.203125/144 rel=0,160
   line 0 y=0 items=3 glyphs=2 x=0..16
@@ -2383,8 +2383,8 @@ n18 p17 d27 Inline @8,176 -x- ic=51.203125/144
   dl27 PopStackingContext
 === mail_corpus/exploration/07_hostile.html
 dom DomId { inner: 0 }
-n0 root d0 Block { establishes_new_context: true } @0,0 800x182 ov=800x182 bl=179 ic=136/364.8125
-n1 p0 d1 Block { establishes_new_context: false } @8,8 784x174 ov=784x174 mt=8 mb=8 bl=171 ic=120/348.8125 rel=8,8
+n0 root d0 Block { establishes_new_context: true } @0,0 800x182 ov=800x182 bl=179 ic=251.20313/364.8125
+n1 p0 d1 Block { establishes_new_context: false } @8,8 784x174 ov=784x174 mt=8 mb=8 bl=171 ic=235.20313/348.8125 rel=8,8
 n2 p1 d3 Inline @0,0 800x600 ov=338.40625x16 bl=13 ic=62.40625/338.40625 rel=0,0
 n3 p2 d4 Inline @0,0 -x- ic=62.40625/338.40625
 n4 p1 d6 Inline @8,8 784x25 ov=64.453125x25 bl=16 ic=44.109375/64.453125 rel=0,0
@@ -2397,10 +2397,10 @@ n9 p4 d11 Inline @8,8 -x- ic=0/0
 n10 p4 d12 InlineBlock @16,8 56.453125x25 bl=10 ic=22.109375/34.453125 rel=8,0
 n11 p10 d13 Inline @27,14 34.453125x13 ov=34.453125x13 bl=10 ic=22.109375/34.453125 rel=0,0
 n12 p4 d14 Inline @8,8 -x- ic=0/0
-n13 p1 d16 Inline @8,49 784x16 ov=348.79688x16 bl=13 ic=120/348.8125 rel=0,41
+n13 p1 d16 Inline @8,49 784x16 ov=348.79688x16 bl=13 ic=235.20313/348.8125 rel=0,41
 n14 p13 d17 Inline @8,49 -x- ic=73.609375/109.609375
-n15 p13 d18 Inline @8,49 -x- ic=120/235.20313
-n16 p15 d19 Inline @8,49 -x- ic=120/235.20313
+n15 p13 d18 Inline @8,49 -x- ic=235.20313/235.20313
+n16 p15 d19 Inline @8,49 -x- ic=235.20313/235.20313
 n17 p1 d21 Inline @8,81 784x16 ov=66.40625x16 bl=13 ic=32/66.40625 rel=0,73
 n18 p17 d22 Inline @8,81 -x- ic=30.40625/30.40625
 n19 p18 d23 Inline @8,81 -x- ic=30.40625/30.40625

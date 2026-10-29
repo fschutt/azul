@@ -491,11 +491,11 @@ n8 p6 d7 Inline @8,246 -x- ic=0/0
   dl14 PopStackingContext
 === wpt/normalized/css/CSS2/linebox/vertical-align-baseline-003-ref.xht
 dom DomId { inner: 0 }
-n0 root d0 Block { establishes_new_context: true } @0,0 800x152 ov=800x152 bl=45 ic=83.203125/833.6094
-n1 p0 d1 Block { establishes_new_context: false } @8,16 784x144 ov=784x144 mt=16 mb=8 bl=29 ic=67.203125/817.6094 rel=8,16
+n0 root d0 Block { establishes_new_context: true } @0,0 800x152 ov=800x152 bl=45 ic=89.609375/833.6094
+n1 p0 d1 Block { establishes_new_context: false } @8,16 784x144 ov=784x144 mt=16 mb=8 bl=29 ic=73.609375/817.6094 rel=8,16
 n2 p1 d3 Inline @8,16 784x32 ov=770.40625x32 bl=29 ic=67.203125/817.6094 rel=0,0
 n3 p2 d4 Inline @8,16 -x- ic=67.203125/817.6094
-n4 p1 d6 Table @8,64 144x96 ov=144x96 ic=65.609375/144 rel=0,48
+n4 p1 d6 Table @8,64 144x96 ov=144x96 ic=73.609375/144 rel=0,48
 n5 p4 d8 None @8,64 -x- ic=0/0
 n6 p4 d10 None @8,64 -x- ic=80/80
 n7 p4 d12 None @8,64 -x- ic=0/0
@@ -504,8 +504,8 @@ n9 p8 d15 TableCell @8,64 32x96 bl=13 ic=16/32 rel=0,0
 n10 p9 d16 Inline @8,64 -x- ic=16/32
 n11 p8 d17 TableCell @40,64 80x96 bl=93 ic=33.609375/437.60938 rel=32,0
 n12 p11 d18 Inline @40,64 -x- ic=33.609375/437.60938
-n13 p8 d19 TableCell @120,64 32x96 bl=13 ic=16/32 rel=112,0
-n14 p13 d20 Inline @120,64 -x- ic=16/32
+n13 p8 d19 TableCell @120,64 32x96 bl=13 ic=24/32 rel=112,0
+n14 p13 d20 Inline @120,64 -x- ic=24/32
   dl0 PushStackingContext 0,0 800x152
   dl1 HitTestArea 8,16 784x144
   dl2 HitTestArea 8,16 784x32
@@ -554,7 +554,7 @@ n6 p4 d8 Inline @8,64 -x- ic=80/136
 n7 p6 d9 Inline @8,64 -x- ic=8/24
 n8 p6 d10 InlineBlock @36,64 80x96 bl=93 ic=80/80 rel=28,0
 n9 p8 d11 Inline @36,64 437.60938x96 ov=69.59375x96 bl=93 ic=33.609375/437.60938 rel=0,0
-n10 p6 d12 Inline @8,64 -x- ic=8/24
+n10 p6 d12 Inline @8,64 -x- ic=16/24
 n11 p4 d13 Inline @8,64 -x- ic=0/0
   dl0 PushStackingContext 0,0 800x152
   dl1 HitTestArea 8,16 784x144
@@ -3958,18 +3958,18 @@ n7 p1 d9 Block { establishes_new_context: false } @8,48 784x100 ov=0x0 ic=0/0 re
   dl11 PopStackingContext
 === wpt/normalized/css/css-backgrounds/background-clip-color-ref.html
 dom DomId { inner: 0 }
-n0 root d0 Block { establishes_new_context: true } @0,0 800x230 ov=800x230 bl=193 ic=72/384.01563
-n1 p0 d1 Block { establishes_new_context: false } @8,16 784x220 ov=784x220 mt=16 mb=10 bl=177 ic=56/368.01563 rel=8,16
+n0 root d0 Block { establishes_new_context: true } @0,0 800x230 ov=800x230 bl=193 ic=80/384.01563
+n1 p0 d1 Block { establishes_new_context: false } @8,16 784x220 ov=784x220 mt=16 mb=10 bl=177 ic=64/368.01563 rel=8,16
 n2 p1 d2 Inline @8,16 784x16 ov=368x16 bl=13 ic=56/368.01563 rel=0,0
 n3 p2 d3 Inline @8,16 -x- ic=56/368.01563
-n4 p1 d5 Inline @8,48 784x16 ov=80x16 bl=13 ic=48/80 rel=0,32
-n5 p4 d6 Inline @8,48 -x- ic=48/80
+n4 p1 d5 Inline @8,48 784x16 ov=80x16 bl=13 ic=56/80 rel=0,32
+n5 p4 d6 Inline @8,48 -x- ic=56/80
 n6 p1 d8 Block { establishes_new_context: false } @18,74 30x30 ov=0x0 ic=30/30 rel=10,58
-n7 p1 d10 Inline @8,114 784x16 ov=83.203125x16 bl=13 ic=51.203125/83.203125 rel=0,98
-n8 p7 d11 Inline @8,114 -x- ic=51.203125/83.203125
+n7 p1 d10 Inline @8,114 784x16 ov=83.203125x16 bl=13 ic=59.203125/83.203125 rel=0,98
+n8 p7 d11 Inline @8,114 -x- ic=59.203125/83.203125
 n9 p1 d13 Block { establishes_new_context: false } @18,140 30x30 ov=0x0 ic=30/30 rel=10,124
-n10 p1 d15 Inline @8,180 784x16 ov=88x16 bl=13 ic=56/88 rel=0,164
-n11 p10 d16 Inline @8,180 -x- ic=56/88
+n10 p1 d15 Inline @8,180 784x16 ov=88x16 bl=13 ic=64/88 rel=0,164
+n11 p10 d16 Inline @8,180 -x- ic=64/88
 n12 p1 d18 Block { establishes_new_context: false } @18,206 30x30 ov=0x0 ic=30/30 rel=10,190
   dl0 PushStackingContext 0,0 800x230
   dl1 HitTestArea 8,16 784x220
@@ -3991,20 +3991,20 @@ n12 p1 d18 Block { establishes_new_context: false } @18,206 30x30 ov=0x0 ic=30/3
   dl17 PopStackingContext
 === wpt/normalized/css/css-backgrounds/background-clip-color.html
 dom DomId { inner: 0 }
-n0 root d0 Block { establishes_new_context: true } @0,0 800x238 ov=800x238 bl=193 ic=72/384.01563
-n1 p0 d1 Block { establishes_new_context: false } @8,16 784x230 ov=784x230 mt=16 mb=8 bl=177 ic=56/368.01563 rel=8,16
+n0 root d0 Block { establishes_new_context: true } @0,0 800x238 ov=800x238 bl=193 ic=80/384.01563
+n1 p0 d1 Block { establishes_new_context: false } @8,16 784x230 ov=784x230 mt=16 mb=8 bl=177 ic=64/368.01563 rel=8,16
 n2 p1 d2 Inline @8,16 784x16 ov=368x16 bl=13 ic=56/368.01563 rel=0,0
 n3 p2 d3 Inline @8,16 -x- ic=56/368.01563
-n4 p1 d5 Inline @8,48 784x16 ov=80x16 bl=13 ic=48/80 rel=0,32
-n5 p4 d6 Inline @8,48 -x- ic=48/80
+n4 p1 d5 Inline @8,48 784x16 ov=80x16 bl=13 ic=56/80 rel=0,32
+n5 p4 d6 Inline @8,48 -x- ic=56/80
 n6 p1 d8 Block { establishes_new_context: false } @18,74 30x30 ov=30x30 mt=10 mb=10 ic=30/30 rel=10,58
 n7 p6 d10 Block { establishes_new_context: false } @18,74 30x30 ov=0x0 ic=6/6 rel=0,0
-n8 p1 d13 Inline @8,114 784x16 ov=83.203125x16 bl=13 ic=51.203125/83.203125 rel=0,98
-n9 p8 d14 Inline @8,114 -x- ic=51.203125/83.203125
+n8 p1 d13 Inline @8,114 784x16 ov=83.203125x16 bl=13 ic=59.203125/83.203125 rel=0,98
+n9 p8 d14 Inline @8,114 -x- ic=59.203125/83.203125
 n10 p1 d16 Block { establishes_new_context: false } @8,130 784x50 ov=50x50 mt=0 mb=0 ic=50/50 rel=0,114
 n11 p10 d18 Block { establishes_new_context: false } @8,130 50x50 ov=0x0 ic=10/10 rel=0,0
-n12 p1 d21 Inline @8,180 784x16 ov=88x16 bl=13 ic=56/88 rel=0,164
-n13 p12 d22 Inline @8,180 -x- ic=56/88
+n12 p1 d21 Inline @8,180 784x16 ov=88x16 bl=13 ic=64/88 rel=0,164
+n13 p12 d22 Inline @8,180 -x- ic=64/88
 n14 p1 d24 Block { establishes_new_context: false } @8,196 784x50 ov=50x50 mt=0 mb=0 ic=50/50 rel=0,180
 n15 p14 d26 Block { establishes_new_context: false } @8,196 50x50 ov=0x0 ic=30/30 rel=0,0
   dl0 PushStackingContext 0,0 800x238
@@ -5809,8 +5809,8 @@ n5 p3 d5 Inline @0,0 -x- ic=33.609375/69.609375
 dom DomId { inner: 0 }
 n0 root d0 Block { establishes_new_context: true } @0,0 800x43.90625 ov=800x43.90625 bl=38.90625 ic=216/541.6094
 n1 p0 d1 Block { establishes_new_context: false } @8,19.90625 784x24 ov=784x24 mt=19.90625 mb=19.90625 bl=19 ic=200/525.6094 rel=8,19.90625
-n2 p1 d2 Inline @8,19.90625 784x24 ov=525.59375x24 bl=19 ic=129.60938/525.6094 rel=0,0
-n3 p2 d3 Inline @8,19.90625 -x- ic=129.60938/525.6094
+n2 p1 d2 Inline @8,19.90625 784x24 ov=525.59375x24 bl=19 ic=141.60938/525.6094 rel=0,0
+n3 p2 d3 Inline @8,19.90625 -x- ic=141.60938/525.6094
 n4 p1 d5 Block { establishes_new_context: true } @8,63.796875 200x272 ov=200x272 bl=253 ic=200/200 rel=0,43.90625
 n5 p4 d- Inline anon=InlineWrapper @8,63.796875 200x16 ov=90.40625x16 bl=13 ic=56/90.40625 rel=0,0
 n6 p5 d6 Inline @8,63.796875 -x- ic=56/90.40625
@@ -6119,8 +6119,8 @@ n119 p117 d133 Inline @448,239.79688 -x- ic=16/48
 dom DomId { inner: 0 }
 n0 root d0 Block { establishes_new_context: true } @0,0 800x43.90625 ov=800x43.90625 bl=38.90625 ic=216/541.6094
 n1 p0 d1 Block { establishes_new_context: false } @8,19.90625 784x24 ov=784x24 mt=19.90625 mb=19.90625 bl=19 ic=200/525.6094 rel=8,19.90625
-n2 p1 d2 Inline @8,19.90625 784x24 ov=525.59375x24 bl=19 ic=129.60938/525.6094 rel=0,0
-n3 p2 d3 Inline @8,19.90625 -x- ic=129.60938/525.6094
+n2 p1 d2 Inline @8,19.90625 784x24 ov=525.59375x24 bl=19 ic=141.60938/525.6094 rel=0,0
+n3 p2 d3 Inline @8,19.90625 -x- ic=141.60938/525.6094
 n4 p1 d5 Block { establishes_new_context: true } @8,63.796875 200x272 ov=200x272 bl=253 ic=200/200 rel=0,43.90625
 n5 p4 d- Inline anon=InlineWrapper @8,63.796875 200x16 ov=90.40625x16 bl=13 ic=56/90.40625 rel=0,0
 n6 p5 d6 Inline @8,63.796875 -x- ic=56/90.40625
@@ -8250,9 +8250,9 @@ n17 p15 d17 Inline @52,74 -x- ic=40/40
 n18 p2 d19 Inline @52,90 91.203125x16 ov=56x16 bl=13 ic=48/48 rel=0,80
 n19 p18 d19 Inline pseudo=Marker @52,90 -x- ic=0/0
 n20 p18 d20 Inline @52,90 -x- ic=48/48
-n21 p2 d22 Inline @52,106 91.203125x32 ov=64x32 bl=29 ic=48/91.203125 rel=0,96
+n21 p2 d22 Inline @52,106 91.203125x32 ov=64x32 bl=29 ic=56/91.203125 rel=0,96
 n22 p21 d22 Inline pseudo=Marker @52,106 -x- ic=0/0
-n23 p21 d23 Inline @52,106 -x- ic=48/91.203125
+n23 p21 d23 Inline @52,106 -x- ic=56/91.203125
   dl0 PushStackingContext 0,0 800x140
   dl1 HitTestArea 50,8 742x132
   dl2 Border 50,8 95.203125x132
@@ -8319,9 +8319,9 @@ n18 p16 d19 Inline @52,74 -x- ic=40/40
 n19 p3 d21 Inline @52,90 91.203125x16 ov=60x16 bl=13 ic=48/48 rel=0,80
 n20 p19 d21 Inline pseudo=Marker @52,90 -x- ic=0/0
 n21 p19 d22 Inline @52,90 -x- ic=48/48
-n22 p3 d24 Inline @52,106 91.203125x16 ov=103.203125x16 bl=13 ic=48/91.203125 rel=0,96
+n22 p3 d24 Inline @52,106 91.203125x16 ov=103.203125x16 bl=13 ic=56/91.203125 rel=0,96
 n23 p22 d24 Inline pseudo=Marker @52,106 -x- ic=0/0
-n24 p22 d25 Inline @52,106 -x- ic=48/91.203125
+n24 p22 d25 Inline @52,106 -x- ic=56/91.203125
   dl0 PushStackingContext 0,0 800x124
   dl1 HitTestArea 50,8 742x116
   dl2 Border 50,8 95.203125x116
@@ -8386,9 +8386,9 @@ n17 p15 d17 Inline @52,74 -x- ic=40/40
 n18 p2 d19 Inline @52,90 91.203125x16 ov=60x16 bl=13 ic=48/48 rel=0,80
 n19 p18 d19 Inline pseudo=Marker @52,90 -x- ic=0/0
 n20 p18 d20 Inline @52,90 -x- ic=48/48
-n21 p2 d22 Inline @52,106 91.203125x16 ov=103.203125x16 bl=13 ic=48/91.203125 rel=0,96
+n21 p2 d22 Inline @52,106 91.203125x16 ov=103.203125x16 bl=13 ic=56/91.203125 rel=0,96
 n22 p21 d22 Inline pseudo=Marker @52,106 -x- ic=0/0
-n23 p21 d23 Inline @52,106 -x- ic=48/91.203125
+n23 p21 d23 Inline @52,106 -x- ic=56/91.203125
   dl0 PushStackingContext 0,0 800x124
   dl1 HitTestArea 50,8 742x116
   dl2 Border 50,8 95.203125x116
@@ -10478,8 +10478,8 @@ n0 root d0 Block { establishes_new_context: true } @0,0 800x648 ov=800x648 sb=v 
 n1 p0 d1 Block { establishes_new_context: false } @8,8 784x640 ov=784x640 mt=8 mb=8 bl=621 ic=89.609375/1046.4063 rel=8,8
 n2 p1 d3 Inline @8,8 784x32 ov=772x32 bl=29 ic=89.609375/1046.4063 rel=0,0
 n3 p2 d4 Inline @8,8 -x- ic=78.40625/400.01563
-n4 p2 d5 Inline @8,8 -x- ic=75.203125/145.60938
-n5 p4 d6 Inline @8,8 -x- ic=75.203125/145.60938
+n4 p2 d5 Inline @8,8 -x- ic=83.203125/145.60938
+n5 p4 d6 Inline @8,8 -x- ic=83.203125/145.60938
 n6 p2 d7 Inline @8,8 -x- ic=48/48
 n7 p2 d8 Inline @8,8 -x- ic=75.203125/115.203125
 n8 p7 d9 Inline @8,8 -x- ic=75.203125/115.203125
@@ -11258,8 +11258,8 @@ n0 root d0 Block { establishes_new_context: true } @0,0 800x648 ov=800x648 sb=v 
 n1 p0 d1 Block { establishes_new_context: false } @8,8 784x640 ov=784x640 mt=8 mb=8 bl=621 ic=89.609375/1046.4063 rel=8,8
 n2 p1 d3 Inline @8,8 784x32 ov=772x32 bl=29 ic=89.609375/1046.4063 rel=0,0
 n3 p2 d4 Inline @8,8 -x- ic=78.40625/400.01563
-n4 p2 d5 Inline @8,8 -x- ic=75.203125/145.60938
-n5 p4 d6 Inline @8,8 -x- ic=75.203125/145.60938
+n4 p2 d5 Inline @8,8 -x- ic=83.203125/145.60938
+n5 p4 d6 Inline @8,8 -x- ic=83.203125/145.60938
 n6 p2 d7 Inline @8,8 -x- ic=48/48
 n7 p2 d8 Inline @8,8 -x- ic=75.203125/115.203125
 n8 p7 d9 Inline @8,8 -x- ic=75.203125/115.203125
