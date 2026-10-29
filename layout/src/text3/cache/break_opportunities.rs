@@ -395,6 +395,20 @@ pub(crate) fn is_break_opportunity(item: &ShapedItem) -> bool {
     is_break_opportunity_with_word_break(item, WordBreak::Normal, Hyphens::Manual)
 }
 
+/// Where a [`BreakCursor`] stands in its items, owned: the next whole item
+/// and the rest of a word the line before hyphenated, with that word's
+/// later breaks.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CursorPosition {
+    /// The index of the next whole item.
+    pub next_item_index: usize,
+    /// The rest of the word the line before broke, read before that item.
+    pub partial_remainder: Vec<ShapedItem>,
+    /// Where that rest may still be hyphenated (see
+    /// [`BreakCursor::partial_remainder_breaks`]).
+    pub partial_remainder_breaks: Option<Vec<usize>>,
+}
+
 // A cursor to manage the state of the line breaking process.
 // This allows us to handle items that are partially consumed by hyphenation.
 // `Clone` is used to take a cheap snapshot for the multi-column balancing dry run
@@ -465,6 +479,24 @@ impl<'a> BreakCursor<'a> {
             hyphens: constraints.hyphenation,
             line_break: constraints.line_break,
         }
+    }
+
+    /// Where the cursor stands: what a line breaker restores to take back
+    /// a line it broke.
+    #[must_use]
+    pub fn position(&self) -> CursorPosition {
+        CursorPosition {
+            next_item_index: self.next_item_index,
+            partial_remainder: self.partial_remainder.clone(),
+            partial_remainder_breaks: self.partial_remainder_breaks.clone(),
+        }
+    }
+
+    /// Puts the cursor back where `position` says it stood.
+    pub fn restore(&mut self, position: CursorPosition) {
+        self.next_item_index = position.next_item_index;
+        self.partial_remainder = position.partial_remainder;
+        self.partial_remainder_breaks = position.partial_remainder_breaks;
     }
 
     /// Checks if the cursor is at the very beginning of the content stream.

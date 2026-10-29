@@ -562,6 +562,44 @@ pub enum ShapeBoundary {
 }
 
 impl ShapeBoundary {
+    /// Calls `visit` with every height at which the shape's horizontal extent
+    /// can change its course: a rectangle's top and bottom, a circle's or an
+    /// ellipse's top, centre and bottom, every vertex of a polygon or a path.
+    pub fn for_each_turning_height(&self, visit: &mut impl FnMut(f32)) {
+        match self {
+            Self::Rectangle(rect) => {
+                visit(rect.y);
+                visit(rect.y + rect.height);
+            }
+            Self::Circle { center, radius } => {
+                visit(center.y - radius);
+                visit(center.y);
+                visit(center.y + radius);
+            }
+            Self::Ellipse { center, radii } => {
+                visit(center.y - radii.height);
+                visit(center.y);
+                visit(center.y + radii.height);
+            }
+            Self::Polygon { points, .. } => points.iter().for_each(|p| visit(p.y)),
+            Self::Path { segments, .. } => {
+                for segment in segments {
+                    match segment {
+                        PathSegment::MoveTo(p)
+                        | PathSegment::LineTo(p)
+                        | PathSegment::CurveTo { end: p, .. }
+                        | PathSegment::QuadTo { end: p, .. } => visit(p.y),
+                        PathSegment::Arc { center, radius, .. } => {
+                            visit(center.y - radius);
+                            visit(center.y + radius);
+                        }
+                        PathSegment::Close => {}
+                    }
+                }
+            }
+        }
+    }
+
     #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
     #[must_use]
     pub fn inflate(&self, margin: f32) -> Self {

@@ -1037,8 +1037,8 @@ n24 p23 d24 Inline @8,86 -x- ic=16/16
   dl31 PopStackingContext
 === multicol
 dom DomId { inner: 0 }
-n0 root d0 Block { establishes_new_context: true } @0,0 800x452 ov=600x452 bl=481 ic=600/600
-n1 p0 d1 Block { establishes_new_context: false } @0,0 600x452 ov=600x452 mt=0 mb=0 bl=481 ic=600/600 rel=0,0
+n0 root d0 Block { establishes_new_context: true } @0,0 800x452 ov=600x452 bl=473 ic=600/600
+n1 p0 d1 Block { establishes_new_context: false } @0,0 600x452 ov=600x452 mt=0 mb=0 bl=473 ic=600/600 rel=0,0
 n2 p1 d2 Block { establishes_new_context: false } @0,0 600x112 ov=600x112 bl=77 ic=51.203125/516.0156 rel=0,0
 n3 p2 d3 Inline @0,16 186.67188x64 ov=169.59375x64 bl=61 ic=51.203125/516.0156 rel=0,16
 n4 p3 d4 Inline @0,16 -x- ic=51.203125/516.0156
@@ -1055,9 +1055,9 @@ n14 p13 d14 Inline @0,112 189.32813x100 ov=8x16 bl=13 ic=8/8 rel=0,0
 n15 p14 d15 Inline @0,112 -x- ic=8/8
 n16 p13 d16 Inline @205.32813,112 189.32813x100 ov=8x16 bl=13 ic=8/8 rel=205.32813,0
 n17 p16 d17 Inline @205.32813,112 -x- ic=8/8
-n18 p1 d18 Block { establishes_new_context: false } @0,212 600x240 ov=600x240 bl=269 ic=51.203125/516.0156 rel=0,212
+n18 p1 d18 Block { establishes_new_context: false } @0,212 600x240 ov=600x240 bl=261 ic=51.203125/516.0156 rel=0,212
 n19 p18 d19 Block { establishes_new_context: true } @0,212 40x40 ov=0x0 ic=40/40 rel=0,0
-n20 p18 d20 Inline @0,228 2.125x224 ov=51.203125x224 bl=253 ic=51.203125/516.0156 rel=0,16
+n20 p18 d20 Inline @0,228 2.125x224 ov=51.203125x224 bl=245 ic=51.203125/516.0156 rel=0,16
 n21 p20 d21 Inline @0,228 -x- ic=51.203125/516.0156
   dl0 PushStackingContext 0,0 800x452
   dl1 HitTestArea 0,16 186.67188x64
@@ -1100,34 +1100,34 @@ n21 p20 d21 Inline @0,228 -x- ic=51.203125/516.0156
   dl38 Text 189.32813,112 221.32813x100 glyphs=1 fs=16
   dl39 HitTestArea 205.32813,112.203125 8x16
   dl40 HitTestArea 0,228 2.125x224
-  dl41 Text -16,228 83.203125x256 glyphs=3 fs=16
-  dl42 Text -16,228 83.203125x256 glyphs=5 fs=16
-  dl43 Text -16,228 83.203125x256 glyphs=5 fs=16
-  dl44 Text -16,228 83.203125x256 glyphs=3 fs=16
-  dl45 Text -16,228 83.203125x256 glyphs=5 fs=16
-  dl46 Text -16,228 83.203125x256 glyphs=4 fs=16
-  dl47 Text -16,228 83.203125x256 glyphs=3 fs=16
-  dl48 Text -16,228 83.203125x256 glyphs=4 fs=16
-  dl49 Text -16,228 83.203125x256 glyphs=3 fs=16
-  dl50 Text -16,228 83.203125x256 glyphs=3 fs=16
-  dl51 Text -16,228 83.203125x256 glyphs=5 fs=16
-  dl52 Text -16,228 83.203125x256 glyphs=7 fs=16
-  dl53 Text -16,228 83.203125x256 glyphs=3 fs=16
-  dl54 Text -16,228 83.203125x256 glyphs=5 fs=16
-  dl55 HitTestArea 0,260.20313 24x16
-  dl56 HitTestArea 0,276.20313 35.203125x16
-  dl57 HitTestArea 0,292.20313 46.40625x16
-  dl58 HitTestArea 0,308.20313 24x16
-  dl59 HitTestArea 0,324.20313 46.40625x16
-  dl60 HitTestArea 0,340.20313 32x16
-  dl61 HitTestArea 0,356.20313 24x16
-  dl62 HitTestArea 0,372.20313 27.203125x16
-  dl63 HitTestArea 0,388.20313 24x16
-  dl64 HitTestArea 0,404.20313 24x16
-  dl65 HitTestArea 0,420.20313 40x16
-  dl66 HitTestArea 0,436.20313 51.203125x16
-  dl67 HitTestArea 0,452.20313 24x16
-  dl68 HitTestArea 0,468.20313 41.59375x16
+  dl41 Text -16,228 83.203125x248 glyphs=3 fs=16
+  dl42 Text -16,228 83.203125x248 glyphs=5 fs=16
+  dl43 Text -16,228 83.203125x248 glyphs=5 fs=16
+  dl44 Text -16,228 83.203125x248 glyphs=3 fs=16
+  dl45 Text -16,228 83.203125x248 glyphs=5 fs=16
+  dl46 Text -16,228 83.203125x248 glyphs=4 fs=16
+  dl47 Text -16,228 83.203125x248 glyphs=3 fs=16
+  dl48 Text -16,228 83.203125x248 glyphs=4 fs=16
+  dl49 Text -16,228 83.203125x248 glyphs=3 fs=16
+  dl50 Text -16,228 83.203125x248 glyphs=3 fs=16
+  dl51 Text -16,228 83.203125x248 glyphs=5 fs=16
+  dl52 Text -16,228 83.203125x248 glyphs=7 fs=16
+  dl53 Text -16,228 83.203125x248 glyphs=3 fs=16
+  dl54 Text -16,228 83.203125x248 glyphs=5 fs=16
+  dl55 HitTestArea 0,252.20313 24x16
+  dl56 HitTestArea 0,268.20313 35.203125x16
+  dl57 HitTestArea 0,284.20313 46.40625x16
+  dl58 HitTestArea 0,300.20313 24x16
+  dl59 HitTestArea 0,316.20313 46.40625x16
+  dl60 HitTestArea 0,332.20313 32x16
+  dl61 HitTestArea 0,348.20313 24x16
+  dl62 HitTestArea 0,364.20313 27.203125x16
+  dl63 HitTestArea 0,380.20313 24x16
+  dl64 HitTestArea 0,396.20313 24x16
+  dl65 HitTestArea 0,412.20313 40x16
+  dl66 HitTestArea 0,428.20313 51.203125x16
+  dl67 HitTestArea 0,444.20313 24x16
+  dl68 HitTestArea 0,460.20313 41.59375x16
   dl69 PopStackingContext
 === positioned boxes
 dom DomId { inner: 0 }
