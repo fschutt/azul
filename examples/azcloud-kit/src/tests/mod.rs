@@ -62,6 +62,9 @@ mod sync_root_and_links;
 mod sync_folder_writes;
 /// Folders as entries of their own: empty ones made, deleted and renamed on every device.
 mod sync_folders;
+/// Links as entries of their own: relative ones inside the folder sync, no other is ever made.
+#[cfg(unix)]
+mod sync_links;
 /// The name policy: names no folder can hold, names other systems cannot hold, look-alikes.
 mod sync_names;
 mod sync_local;

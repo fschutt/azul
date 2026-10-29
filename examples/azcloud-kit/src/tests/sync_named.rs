@@ -527,6 +527,26 @@ fn a_folder_rename_and_a_rename_inside_it_on_another_device_compose_on_a_drive_s
     assert!(s3.read("Documents/dir2/child.txt").is_none());
 }
 
+/// A relative link inside the folder travels through a drive synced by name as a link: the
+/// drive holds its target as a small file, the folder record says it is a link.
+#[cfg(unix)]
+#[test]
+fn a_relative_link_travels_through_a_drive_synced_by_name_as_a_link() {
+    let s3 = FakeS3::new();
+    let drive = NamesHashes(s3_drive(&s3));
+    let a = Device::new("dev-a-link");
+    let b = Device::new("dev-b-link");
+    a.write("notes/report.md", b"the report");
+    std::os::unix::fs::symlink("notes/report.md", a.folder.path().join("latest.md")).unwrap();
+    a.sync(&drive);
+    b.sync(&drive);
+    let path = b.folder.path().join("latest.md");
+    assert!(fs::symlink_metadata(&path).unwrap().file_type().is_symlink());
+    assert_eq!(fs::read_link(&path).unwrap(), Path::new("notes/report.md"));
+    let again = b.sync(&drive);
+    assert_eq!((again.files_up, again.files_down), (0, 0), "{}", again.summary());
+}
+
 // ==== A drive as the plain sync's store ====
 
 #[test]
