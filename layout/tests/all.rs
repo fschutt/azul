@@ -1357,3 +1357,5 @@ mod a_rebuild_that_changes_who_listens_hits_and_tags_like_a_fresh_window;
 mod mono_lines;
 #[path = "a_line_keeps_off_an_exclusion_over_its_whole_height.rs"]
 mod a_line_keeps_off_an_exclusion_over_its_whole_height;
+#[path = "a_shape_inside_frame_holds_its_text_inside_the_shape.rs"]
+mod a_shape_inside_frame_holds_its_text_inside_the_shape;
