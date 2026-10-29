@@ -13528,6 +13528,10 @@ mod tests {
     // A layout pass rebuilds the CPU hit tester once (`tests/one_hit_tester.rs`).
     mod one_hit_tester;
 
+    // A rebuild that only adds or changes a context menu opens the new menu
+    // (`tests/context_menu_rebuild.rs`).
+    mod context_menu_rebuild;
+
     // --- Video tiles: a new frame is an image CONTENT update ---------------
     //
     // A camera / decoder frame reaches its tile as `ChangeNodeImage` (the
