@@ -9538,6 +9538,57 @@ mod autotest_generated {
     /// live-run symptom was the page shadow visibly accumulating darker
     /// with each resize frame. Starting from a correct frame, repainting a
     /// small rect that crosses the shadow must change NOTHING anywhere.
+    /// A turned frame turns everything its content paints, not only its box:
+    /// a box's shadow outside the box is scaled with it. The frame's surface
+    /// was the box, so the shadow past the box was cut off.
+    #[test]
+    fn a_scaled_frame_keeps_the_shadow_its_box_casts_outside_it() {
+        let black = ColorU {
+            r: 0,
+            g: 0,
+            b: 0,
+            a: 255,
+        };
+        let half = azul_core::transform::ComputedTransform3D {
+            m: [
+                [0.5, 0.0, 0.0, 0.0],
+                [0.0, 0.5, 0.0, 0.0],
+                [0.0, 0.0, 1.0, 0.0],
+                [0.0, 0.0, 0.0, 1.0],
+            ],
+        };
+        let dl = DisplayList {
+            items: vec![
+                DisplayListItem::PushReferenceFrame {
+                    transform_key: TransformKey { id: 1 },
+                    initial_transform: half,
+                    bounds: wrect(4.0, 4.0, 8.0, 8.0),
+                },
+                DisplayListItem::BoxShadow {
+                    bounds: wrect(4.0, 4.0, 8.0, 8.0),
+                    shadow: shadow(6.0, 0.0, 0.0, black),
+                    border_radius: BorderRadius::default(),
+                },
+                DisplayListItem::Rect {
+                    bounds: wrect(4.0, 4.0, 8.0, 8.0),
+                    color: WHITE,
+                    border_radius: BorderRadius::default(),
+                },
+                DisplayListItem::PopReferenceFrame,
+            ],
+            ..Default::default()
+        };
+        let mut p = pixmap(24, 24);
+        run_list(&dl, &mut p, 1.0).expect("must render");
+        // The shadow lies at (10..18, 10..18) laid out, at (7..11, 7..11)
+        // scaled about the box's origin (4, 4).
+        assert!(
+            px_at(&p, 10, 10)[0] < 64,
+            "the scaled shadow past the box is {:?}, not shadow-dark",
+            px_at(&p, 10, 10)
+        );
+    }
+
     /// An isolated reference frame paints its content into a surface of its
     /// own, not into the window at its layout place. A box laid out past the
     /// window's bottom edge and scaled into view by its transform keeps the

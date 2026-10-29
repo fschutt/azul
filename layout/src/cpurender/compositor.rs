@@ -9450,6 +9450,79 @@ mod autotest_generated {
         );
     }
 
+    /// The compositor's layer for a turned frame reaches as far as the
+    /// frame's content paints, as the rasterizer's surface does: a box's
+    /// shadow outside the box is scaled with it.
+    #[test]
+    fn a_composited_scaled_frame_keeps_the_shadow_its_box_casts_outside_it() {
+        let half = azul_core::transform::ComputedTransform3D {
+            m: [
+                [0.5, 0.0, 0.0, 0.0],
+                [0.0, 0.5, 0.0, 0.0],
+                [0.0, 0.0, 1.0, 0.0],
+                [0.0, 0.0, 0.0, 1.0],
+            ],
+        };
+        let mut c = CompositorState::new(24, 24);
+        let list = dlist(vec![
+            DisplayListItem::PushReferenceFrame {
+                transform_key: TransformKey { id: 1 },
+                initial_transform: half,
+                bounds: wlr(4.0, 4.0, 8.0, 8.0),
+            },
+            DisplayListItem::BoxShadow {
+                bounds: wlr(4.0, 4.0, 8.0, 8.0),
+                shadow: azul_css::props::style::box_shadow::StyleBoxShadow {
+                    offset_x: azul_css::props::basic::pixel::PixelValueNoPercent {
+                        inner: azul_css::props::basic::pixel::PixelValue::px(6.0),
+                    },
+                    offset_y: azul_css::props::basic::pixel::PixelValueNoPercent {
+                        inner: azul_css::props::basic::pixel::PixelValue::px(6.0),
+                    },
+                    blur_radius: azul_css::props::basic::pixel::PixelValueNoPercent {
+                        inner: azul_css::props::basic::pixel::PixelValue::px(0.0),
+                    },
+                    spread_radius: azul_css::props::basic::pixel::PixelValueNoPercent {
+                        inner: azul_css::props::basic::pixel::PixelValue::px(0.0),
+                    },
+                    color: ColorU {
+                        r: 0,
+                        g: 0,
+                        b: 0,
+                        a: 255,
+                    },
+                    clip_mode: azul_css::props::style::box_shadow::BoxShadowClipMode::Outset,
+                },
+                border_radius: BorderRadius::default(),
+            },
+            rect_item(
+                4.0,
+                4.0,
+                8.0,
+                8.0,
+                ColorU {
+                    r: 255,
+                    g: 255,
+                    b: 255,
+                    a: 255,
+                },
+            ),
+            DisplayListItem::PopReferenceFrame,
+        ]);
+        c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new(), &HashMap::new());
+        let (rr, mut gc, st) = render_deps();
+        c.render_layers(&list, 1.0, &rr, &test_font_manager(), &mut gc, &st)
+            .unwrap();
+        let mut out = AzulPixmap::new(24, 24).unwrap();
+        out.fill(255, 255, 255, 255);
+        c.composite_frame(&mut out, 1.0);
+        assert!(
+            at(&out, 10, 10)[0] < 64,
+            "the scaled shadow past the box is {:?}, not shadow-dark",
+            at(&out, 10, 10)
+        );
+    }
+
     /// A scroll frame inside a rounded clip shows the clip's round corners,
     /// as the rasterizer paints them in place. Promoted, the frame was
     /// composited through a rectangle and its content filled the corners.
