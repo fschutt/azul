@@ -24,7 +24,7 @@ proc styleText*(): AzCssPropertyWithConditionsVec =
     ),
     AzCssPropertyWithConditions_simple(AzCssProperty_fontWeight(AzStyleFontWeight.W600)),
     AzCssPropertyWithConditions_simple(AzCssProperty_fontStyle(AzStyleFontStyle.Italic)),
-    AzCssPropertyWithConditions_simple(AzCssProperty_fontVariantNumeric(AzStyleFontVariantNumericValue(Exact: AzStyleFontVariantNumericValueVariant_Exact(tag: 6, payload: AzStyleFontVariantNumeric(lining_nums: false, oldstyle_nums: false, proportional_nums: false, tabular_nums: true, diagonal_fractions: false, stacked_fractions: false, ordinal: false, slashed_zero: false))))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_fontVariantNumeric(AzStyleFontVariantNumeric(lining_nums: false, oldstyle_nums: false, proportional_nums: false, tabular_nums: true, diagonal_fractions: false, stacked_fractions: false, ordinal: false, slashed_zero: false))),
     AzCssPropertyWithConditions_simple(AzCssProperty_fontVariantCaps(AzStyleFontVariantCapsValue(Exact: AzStyleFontVariantCapsValueVariant_Exact(tag: 6, payload: AzStyleFontVariantCaps.SmallCaps)))),
     AzCssPropertyWithConditions_simple(AzCssProperty_fontFeatureSettings(AzStyleFontFeatureSettingsValue(Exact: AzStyleFontFeatureSettingsValueVariant_Exact(tag: 6, payload: AzStyleFontFeatureSettings(inner: azStr("\"liga\" 0, \"tnum\"")))))),
     AzCssPropertyWithConditions_simple(AzCssProperty_textAlign(AzStyleTextAlign.Center)),
@@ -292,9 +292,9 @@ proc styleFragment*(): AzCssPropertyWithConditionsVec =
 # CSS: .shape
 proc styleShape*(): AzCssPropertyWithConditionsVec =
   azVec(AzCssPropertyWithConditionsVec_copyFromPtr, [
-    AzCssPropertyWithConditions_simple(AzCssProperty_shapeOutside(AzShapeOutside_shape(AzCssShape_circle(AzShapeCircle(center: AzShapePoint(x: 0.0, y: 0.0), radius: 50.0))))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_shapeInside(AzShapeInside_shape(AzCssShape_circle(AzShapeCircle(center: AzShapePoint(x: 50.0, y: 50.0), radius: 100.0))))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_clipPath(AzClipPath_shape(AzCssShape_circle(AzShapeCircle(center: AzShapePoint(x: 0.0, y: 0.0), radius: 40.0))))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_shapeOutside(AzShapeOutside_shape(AzCssShape_circle(AzShapeCircle(center: AzShapePosition(x: AzShapeOffset(from_end: false, offset: AzPixelValue_percent(50.0)), y: AzShapeOffset(from_end: false, offset: AzPixelValue_percent(50.0))), radius: AzShapeRadius_length(AzPixelValue_px(50.0))))))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_shapeInside(AzShapeInside_shape(AzCssShape_circle(AzShapeCircle(center: AzShapePosition(x: AzShapeOffset(from_end: false, offset: AzPixelValue_px(50.0)), y: AzShapeOffset(from_end: false, offset: AzPixelValue_px(50.0))), radius: AzShapeRadius_length(AzPixelValue_px(100.0))))))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_clipPath(AzClipPath_shape(AzCssShape_circle(AzShapeCircle(center: AzShapePosition(x: AzShapeOffset(from_end: false, offset: AzPixelValue_percent(50.0)), y: AzShapeOffset(from_end: false, offset: AzPixelValue_percent(50.0))), radius: AzShapeRadius_length(AzPixelValue_px(40.0))))))),
     AzCssPropertyWithConditions_simple(AzCssProperty_shapeMargin(AzShapeMargin(inner: AzPixelValue_px(10.0)))),
     AzCssPropertyWithConditions_simple(AzCssProperty_shapeImageThreshold(AzShapeImageThreshold(inner: AzFloatValue_create(0.5)))),
   ])

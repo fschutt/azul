@@ -17,7 +17,7 @@ module AzulStyles
       ),
       Azul::CssPropertyWithConditions.simple(Azul::CssProperty.font_weight(Azul::StyleFontWeight::W600)),
       Azul::CssPropertyWithConditions.simple(Azul::CssProperty.font_style(Azul::StyleFontStyle::Italic)),
-      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.font_variant_numeric(Azul::StyleFontVariantNumericValue::Exact.new(Azul::StyleFontVariantNumeric.__own(LibAzul::AzStyleFontVariantNumeric.new(lining_nums: false, oldstyle_nums: false, proportional_nums: false, tabular_nums: true, diagonal_fractions: false, stacked_fractions: false, ordinal: false, slashed_zero: false))))),
+      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.font_variant_numeric(Azul::StyleFontVariantNumeric.__own(LibAzul::AzStyleFontVariantNumeric.new(lining_nums: false, oldstyle_nums: false, proportional_nums: false, tabular_nums: true, diagonal_fractions: false, stacked_fractions: false, ordinal: false, slashed_zero: false)))),
       Azul::CssPropertyWithConditions.simple(Azul::CssProperty.font_variant_caps(Azul::StyleFontVariantCapsValue::Exact.new(Azul::StyleFontVariantCaps::SmallCaps))),
       Azul::CssPropertyWithConditions.simple(Azul::CssProperty.font_feature_settings(Azul::StyleFontFeatureSettingsValue::Exact.new(Azul::StyleFontFeatureSettings.__own(LibAzul::AzStyleFontFeatureSettings.new(inner: Azul::Native.az_string("\"liga\" 0, \"tnum\"")))))),
       Azul::CssPropertyWithConditions.simple(Azul::CssProperty.text_align(Azul::StyleTextAlign::Center)),
@@ -273,9 +273,9 @@ module AzulStyles
   # CSS: .shape
   def self.style_shape : Array(Azul::CssPropertyWithConditions)
     [
-      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.shape_outside(Azul::ShapeOutside.shape(Azul::CssShape.circle(Azul::ShapeCircle.__own(LibAzul::AzShapeCircle.new(center: LibAzul::AzShapePoint.new(x: 0.0_f32, y: 0.0_f32), radius: 50.0_f32)))))),
-      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.shape_inside(Azul::ShapeInside.shape(Azul::CssShape.circle(Azul::ShapeCircle.__own(LibAzul::AzShapeCircle.new(center: LibAzul::AzShapePoint.new(x: 50.0_f32, y: 50.0_f32), radius: 100.0_f32)))))),
-      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.clip_path(Azul::ClipPath.shape(Azul::CssShape.circle(Azul::ShapeCircle.__own(LibAzul::AzShapeCircle.new(center: LibAzul::AzShapePoint.new(x: 0.0_f32, y: 0.0_f32), radius: 40.0_f32)))))),
+      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.shape_outside(Azul::ShapeOutside.shape(Azul::CssShape.circle(Azul::ShapeCircle.__own(LibAzul::AzShapeCircle.new(center: LibAzul::AzShapePosition.new(x: LibAzul::AzShapeOffset.new(from_end: false, offset: Azul::PixelValue.percent(50.0_f32).__take), y: LibAzul::AzShapeOffset.new(from_end: false, offset: Azul::PixelValue.percent(50.0_f32).__take)), radius: Azul::ShapeRadius.length(Azul::PixelValue.px(50.0_f32)).__take)))))),
+      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.shape_inside(Azul::ShapeInside.shape(Azul::CssShape.circle(Azul::ShapeCircle.__own(LibAzul::AzShapeCircle.new(center: LibAzul::AzShapePosition.new(x: LibAzul::AzShapeOffset.new(from_end: false, offset: Azul::PixelValue.px(50.0_f32).__take), y: LibAzul::AzShapeOffset.new(from_end: false, offset: Azul::PixelValue.px(50.0_f32).__take)), radius: Azul::ShapeRadius.length(Azul::PixelValue.px(100.0_f32)).__take)))))),
+      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.clip_path(Azul::ClipPath.shape(Azul::CssShape.circle(Azul::ShapeCircle.__own(LibAzul::AzShapeCircle.new(center: LibAzul::AzShapePosition.new(x: LibAzul::AzShapeOffset.new(from_end: false, offset: Azul::PixelValue.percent(50.0_f32).__take), y: LibAzul::AzShapeOffset.new(from_end: false, offset: Azul::PixelValue.percent(50.0_f32).__take)), radius: Azul::ShapeRadius.length(Azul::PixelValue.px(40.0_f32)).__take)))))),
       Azul::CssPropertyWithConditions.simple(Azul::CssProperty.shape_margin(Azul::ShapeMargin.__own(LibAzul::AzShapeMargin.new(inner: Azul::PixelValue.px(10.0_f32).__take)))),
       Azul::CssPropertyWithConditions.simple(Azul::CssProperty.shape_image_threshold(Azul::ShapeImageThreshold.__own(LibAzul::AzShapeImageThreshold.new(inner: Azul::FloatValue.new(0.5_f32).__take)))),
     ] of Azul::CssPropertyWithConditions

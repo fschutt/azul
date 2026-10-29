@@ -43,7 +43,7 @@
       )
       (css-property-with-conditions-simple (css-property-font-weight AzStyleFontWeight_W600))
       (css-property-with-conditions-simple (css-property-font-style AzStyleFontStyle_Italic))
-      (css-property-with-conditions-simple (css-property-font-variant-numeric (css-union _AzStyleFontVariantNumericValue AzStyleFontVariantNumericValue_Variant_Exact-tag set-AzStyleFontVariantNumericValue_Variant_Exact-variant-tag! AzStyleFontVariantNumericValue_Tag_Exact set-AzStyleFontVariantNumericValue_Variant_Exact-payload! (make-AzStyleFontVariantNumeric #f #f #f #t #f #f #f #f))))
+      (css-property-with-conditions-simple (css-property-font-variant-numeric (make-AzStyleFontVariantNumeric #f #f #f #t #f #f #f #f)))
       (css-property-with-conditions-simple (css-property-font-variant-caps (css-union _AzStyleFontVariantCapsValue AzStyleFontVariantCapsValue_Variant_Exact-tag set-AzStyleFontVariantCapsValue_Variant_Exact-variant-tag! AzStyleFontVariantCapsValue_Tag_Exact set-AzStyleFontVariantCapsValue_Variant_Exact-payload! AzStyleFontVariantCaps_SmallCaps)))
       (css-property-with-conditions-simple (css-property-font-feature-settings (css-union _AzStyleFontFeatureSettingsValue AzStyleFontFeatureSettingsValue_Variant_Exact-tag set-AzStyleFontFeatureSettingsValue_Variant_Exact-variant-tag! AzStyleFontFeatureSettingsValue_Tag_Exact set-AzStyleFontFeatureSettingsValue_Variant_Exact-payload! (make-AzStyleFontFeatureSettings (string->azul-string "\"liga\" 0, \"tnum\"")))))
       (css-property-with-conditions-simple (css-property-text-align AzStyleTextAlign_Center))
@@ -365,9 +365,9 @@
     css-property-with-conditions-vec-copy-from-ptr
     _AzCssPropertyWithConditions
     (list
-      (css-property-with-conditions-simple (css-property-shape-outside (shape-outside-shape (css-shape-circle (make-AzShapeCircle (make-AzShapePoint 0.0 0.0) 50.0)))))
-      (css-property-with-conditions-simple (css-property-shape-inside (shape-inside-shape (css-shape-circle (make-AzShapeCircle (make-AzShapePoint 50.0 50.0) 100.0)))))
-      (css-property-with-conditions-simple (css-property-clip-path (clip-path-shape (css-shape-circle (make-AzShapeCircle (make-AzShapePoint 0.0 0.0) 40.0)))))
+      (css-property-with-conditions-simple (css-property-shape-outside (shape-outside-shape (css-shape-circle (make-AzShapeCircle (make-AzShapePosition (make-AzShapeOffset #f (pixel-value-percent 50.0)) (make-AzShapeOffset #f (pixel-value-percent 50.0))) (shape-radius-length (pixel-value-px 50.0)))))))
+      (css-property-with-conditions-simple (css-property-shape-inside (shape-inside-shape (css-shape-circle (make-AzShapeCircle (make-AzShapePosition (make-AzShapeOffset #f (pixel-value-px 50.0)) (make-AzShapeOffset #f (pixel-value-px 50.0))) (shape-radius-length (pixel-value-px 100.0)))))))
+      (css-property-with-conditions-simple (css-property-clip-path (clip-path-shape (css-shape-circle (make-AzShapeCircle (make-AzShapePosition (make-AzShapeOffset #f (pixel-value-percent 50.0)) (make-AzShapeOffset #f (pixel-value-percent 50.0))) (shape-radius-length (pixel-value-px 40.0)))))))
       (css-property-with-conditions-simple (css-property-shape-margin (make-AzShapeMargin (pixel-value-px 10.0))))
       (css-property-with-conditions-simple (css-property-shape-image-threshold (make-AzShapeImageThreshold (float-value-create 0.5))))
     )

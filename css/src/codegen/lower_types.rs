@@ -211,18 +211,18 @@ pub(crate) fn lower_css_property(p: &crate::props::property::CssProperty) -> Exp
         P::Content(v) => prop_value(v, "Content", "ContentValue", "Content", Some("content")),
         P::CounterReset(v) => prop_value(v, "CounterReset", "CounterResetValue", "CounterReset", Some("counter_reset")),
         P::CounterIncrement(v) => prop_value(v, "CounterIncrement", "CounterIncrementValue", "CounterIncrement", Some("counter_increment")),
-        P::CounterSet(v) => prop_value(v, "CounterSet", "CounterSetValue", "CounterSet", Some("counter_set")),
-        P::Quotes(v) => prop_value(v, "Quotes", "StyleQuotesValue", "StyleQuotes", Some("quotes")),
-        P::BackgroundOrigin(v) => prop_value(v, "BackgroundOrigin", "StyleBackgroundOriginVecValue", "StyleBackgroundOriginVec", Some("background_origin")),
-        P::BackgroundColor(v) => prop_value(v, "BackgroundColor", "StyleBackgroundContentValue", "StyleBackgroundContent", Some("background_color")),
         P::ListStyleType(v) => prop_value(v, "ListStyleType", "StyleListStyleTypeValue", "StyleListStyleType", Some("list_style_type")),
         P::ListStylePosition(v) => prop_value(v, "ListStylePosition", "StyleListStylePositionValue", "StyleListStylePosition", Some("list_style_position")),
         P::StringSet(v) => prop_value(v, "StringSet", "StringSetValue", "StringSet", Some("string_set")),
         P::Zoom(v) => prop_value(v, "Zoom", "StyleZoomValue", "StyleZoom", None),
         P::BackgroundClip(v) => prop_value(v, "BackgroundClip", "StyleBackgroundClipVecValue", "StyleBackgroundClipVec", Some("background_clip")),
-        P::FontVariantNumeric(v) => prop_value(v, "FontVariantNumeric", "StyleFontVariantNumericValue", "StyleFontVariantNumeric", None),
+        P::FontVariantNumeric(v) => prop_value(v, "FontVariantNumeric", "StyleFontVariantNumericValue", "StyleFontVariantNumeric", Some("font_variant_numeric")),
         P::FontVariantCaps(v) => prop_value(v, "FontVariantCaps", "StyleFontVariantCapsValue", "StyleFontVariantCaps", None),
         P::FontFeatureSettings(v) => prop_value(v, "FontFeatureSettings", "StyleFontFeatureSettingsValue", "StyleFontFeatureSettings", None),
+        P::CounterSet(v) => prop_value(v, "CounterSet", "CounterSetValue", "CounterSet", Some("counter_set")),
+        P::Quotes(v) => prop_value(v, "Quotes", "StyleQuotesValue", "StyleQuotes", Some("quotes")),
+        P::BackgroundOrigin(v) => prop_value(v, "BackgroundOrigin", "StyleBackgroundOriginVecValue", "StyleBackgroundOriginVec", Some("background_origin")),
+        P::BackgroundColor(v) => prop_value(v, "BackgroundColor", "StyleBackgroundContentValue", "StyleBackgroundContent", Some("background_color")),
     }
 }
 
@@ -325,6 +325,13 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("AudioPlayer", "audio"),
     ("AudioPlayerState", "audio"),
     ("AudioSink", "audio"),
+    ("AuthCode", "url"),
+    ("AuthCodeStatus", "url"),
+    ("AuthPkce", "url"),
+    ("AuthRequest", "url"),
+    ("AuthSession", "url"),
+    ("AuthSessionResult", "url"),
+    ("AuthSessionStatus", "url"),
     ("Avatar", "widgets"),
     ("AvatarSize", "widgets"),
     ("BackgroundPositionHorizontal", "css"),
@@ -343,6 +350,7 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("BackstageTheme", "widgets"),
     ("Badge", "widgets"),
     ("BadgeKind", "widgets"),
+    ("BatteryState", "sensor"),
     ("BiometricKind", "biometric"),
     ("BiometricPrompt", "biometric"),
     ("BiometricResult", "biometric"),
@@ -369,6 +377,7 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("BreakPolicy", "pdf"),
     ("BrowserShell", "shells"),
     ("Brush", "image"),
+    ("BuiltinTexture", "gl"),
     ("Button", "widgets"),
     ("ButtonFormAction", "widgets"),
     ("ButtonOnClick", "widgets"),
@@ -630,6 +639,7 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("CoreCallbackDataVecDestructorType", "vec"),
     ("CoreCallbackDataVecSlice", "dom"),
     ("CoreCallbackType", "callbacks"),
+    ("CoreE2eCommandCallback", "dom"),
     ("CoreImageCallback", "dom"),
     ("CoreMenuCallback", "dom"),
     ("CoreRenderImageCallback", "dom"),
@@ -964,6 +974,13 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("DynamicSelectorVecDestructor", "vec"),
     ("DynamicSelectorVecDestructorType", "vec"),
     ("DynamicSelectorVecSlice", "css"),
+    ("E2eCommand", "dom"),
+    ("E2eCommandCallback", "dom"),
+    ("E2eCommandCallbackType", "callbacks"),
+    ("E2eCommandVec", "vec"),
+    ("E2eCommandVecDestructor", "vec"),
+    ("E2eCommandVecDestructorType", "vec"),
+    ("E2eCommandVecSlice", "dom"),
     ("EchoCanceller", "audio"),
     ("EdgeType", "callbacks"),
     ("EditResumePoint", "misc"),
@@ -1177,6 +1194,7 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("HapticRequest", "gesture"),
     ("HapticTarget", "gesture"),
     ("HeaderFooterConfig", "pdf"),
+    ("HeardStatus", "speech"),
     ("HidDevice", "gamepad"),
     ("HidDeviceVec", "vec"),
     ("HidDeviceVecDestructor", "vec"),
@@ -1224,6 +1242,11 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("IconGridDragKind", "widgets"),
     ("IconGridEvent", "widgets"),
     ("IconGridEventKind", "widgets"),
+    ("IconGridGroup", "widgets"),
+    ("IconGridGroupVec", "vec"),
+    ("IconGridGroupVecDestructor", "vec"),
+    ("IconGridGroupVecDestructorType", "vec"),
+    ("IconGridGroupVecSlice", "widgets"),
     ("IconGridItem", "widgets"),
     ("IconGridOnEvent", "widgets"),
     ("IconGridOnEventCallback", "dom"),
@@ -1347,6 +1370,8 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("KeyframesVecDestructor", "vec"),
     ("KeyframesVecDestructorType", "vec"),
     ("KeyframesVecSlice", "css"),
+    ("Keyring", "misc"),
+    ("KeyringNamespace", "misc"),
     ("KeyringResult", "error"),
     ("LanguageCondition", "css"),
     ("LargeWindowIconBytes", "window"),
@@ -1494,6 +1519,7 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("LevelMeter", "widgets"),
     ("LevelMeterOrientation", "widgets"),
     ("LevelMeterThrottle", "widgets"),
+    ("Light", "app"),
     ("LinearGradient", "css"),
     ("LinuxCustomization", "css"),
     ("LinuxDecorationsState", "window"),
@@ -1537,12 +1563,33 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("MacWindowOptions", "window"),
     ("MalformedHierarchyError", "error"),
     ("MapLatLon", "widgets"),
+    ("MapLatLonVec", "vec"),
+    ("MapLatLonVecDestructor", "vec"),
+    ("MapLatLonVecDestructorType", "vec"),
+    ("MapLatLonVecSlice", "widgets"),
+    ("MapLineDash", "widgets"),
+    ("MapMarker", "widgets"),
+    ("MapMarkerTap", "widgets"),
+    ("MapMarkerTapCallback", "dom"),
+    ("MapMarkerTapCallbackType", "callbacks"),
     ("MapMount", "widgets"),
     ("MapMountCallback", "dom"),
     ("MapMountCallbackType", "callbacks"),
+    ("MapOverlay", "widgets"),
+    ("MapOverlayVec", "vec"),
+    ("MapOverlayVecDestructor", "vec"),
+    ("MapOverlayVecDestructorType", "vec"),
+    ("MapOverlayVecSlice", "widgets"),
     ("MapPinTap", "widgets"),
     ("MapPinTapCallback", "dom"),
     ("MapPinTapCallbackType", "callbacks"),
+    ("MapPolygon", "widgets"),
+    ("MapPolyline", "widgets"),
+    ("MapSeedTile", "widgets"),
+    ("MapSeedTileVec", "vec"),
+    ("MapSeedTileVecDestructor", "vec"),
+    ("MapSeedTileVecDestructorType", "vec"),
+    ("MapSeedTileVecSlice", "widgets"),
     ("MapSetup", "widgets"),
     ("MapTheme", "widgets"),
     ("MapTileId", "widgets"),
@@ -1570,6 +1617,7 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("MediaControlsOnAction", "widgets"),
     ("MediaControlsOnActionCallback", "dom"),
     ("MediaControlsOnActionCallbackType", "callbacks"),
+    ("MediaControlsSize", "widgets"),
     ("MediaPlaybackState", "audio"),
     ("MediaRepeat", "widgets"),
     ("MediaShell", "shells"),
@@ -1608,6 +1656,7 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("ModalStateWrapper", "widgets"),
     ("ModeCondition", "css"),
     ("MoneyCurrency", "widgets"),
+    ("MoneyGrouping", "widgets"),
     ("MoneyInput", "widgets"),
     ("MoneyInputError", "error"),
     ("MoneyInputOnChange", "widgets"),
@@ -1641,6 +1690,8 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("NamedGridLine", "css"),
     ("NativeGestureEvent", "gesture"),
     ("NaturalScroll", "app"),
+    ("NetworkKind", "sensor"),
+    ("NetworkState", "sensor"),
     ("NodeData", "dom"),
     ("NodeDataVec", "vec"),
     ("NodeDataVecDestructor", "vec"),
@@ -1772,6 +1823,7 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("OptionAttributeType", "option"),
     ("OptionAudioDeviceListResult", "option"),
     ("OptionAudioFrame", "option"),
+    ("OptionAuthSessionResult", "option"),
     ("OptionBackstageNavItem", "option"),
     ("OptionBackstageOnNavSelect", "option"),
     ("OptionBiometricResult", "option"),
@@ -1887,6 +1939,7 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("OptionDropDownOptGroup", "option"),
     ("OptionDuration", "option"),
     ("OptionDynamicSelector", "option"),
+    ("OptionE2eCommand", "option"),
     ("OptionEmailAddress", "option"),
     ("OptionExternalResource", "option"),
     ("OptionF32", "option"),
@@ -1931,6 +1984,7 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("OptionI64", "option"),
     ("OptionIconColorMapping", "option"),
     ("OptionIconGridDataSource", "option"),
+    ("OptionIconGridGroup", "option"),
     ("OptionIconGridOnEvent", "option"),
     ("OptionIdOrClass", "option"),
     ("OptionIdentifiedSelection", "option"),
@@ -1966,8 +2020,12 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("OptionLogicalPosition", "option"),
     ("OptionLogicalRect", "option"),
     ("OptionLogicalSize", "option"),
+    ("OptionMapLatLon", "option"),
+    ("OptionMapMarkerTap", "option"),
     ("OptionMapMount", "option"),
+    ("OptionMapOverlay", "option"),
     ("OptionMapPinTap", "option"),
+    ("OptionMapSeedTile", "option"),
     ("OptionMapViewportChanged", "option"),
     ("OptionMarginBoxContent", "option"),
     ("OptionMediaControlRequest", "option"),
@@ -2023,6 +2081,10 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("OptionPaginationOnChange", "option"),
     ("OptionParentWithNodeDepth", "option"),
     ("OptionPathInputOnChange", "option"),
+    ("OptionPdfFieldValue", "option"),
+    ("OptionPdfFormField", "option"),
+    ("OptionPdfFormWidget", "option"),
+    ("OptionPdfStamp", "option"),
     ("OptionPenState", "option"),
     ("OptionPenTilt", "option"),
     ("OptionPendingTextEdit", "option"),
@@ -2043,6 +2105,9 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("OptionReferencePickerOnEvent", "option"),
     ("OptionRendererOptions", "option"),
     ("OptionRibbonAppButton", "option"),
+    ("OptionRibbonFileMenuCommand", "option"),
+    ("OptionRibbonFileMenuOnEvent", "option"),
+    ("OptionRibbonFileMenuPlace", "option"),
     ("OptionRibbonGalleryCell", "option"),
     ("OptionRibbonGalleryOnSelect", "option"),
     ("OptionRibbonGroup", "option"),
@@ -2052,6 +2117,7 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("OptionRiceFileStatus", "option"),
     ("OptionRichBlock", "option"),
     ("OptionRichImageSource", "option"),
+    ("OptionRichPageStart", "option"),
     ("OptionRichRun", "option"),
     ("OptionRichTableRow", "option"),
     ("OptionRichTextDoc", "option"),
@@ -2069,6 +2135,7 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("OptionScrollPhysics", "option"),
     ("OptionScrollState", "option"),
     ("OptionSeekBarOnSeek", "option"),
+    ("OptionSeekThumbnail", "option"),
     ("OptionSegmentedOnChange", "option"),
     ("OptionSelectAllResult", "option"),
     ("OptionSelection", "option"),
@@ -2076,6 +2143,7 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("OptionSelectionRange", "option"),
     ("OptionSelectionState", "option"),
     ("OptionSensorReading", "option"),
+    ("OptionSessionChange", "option"),
     ("OptionShapePoint", "option"),
     ("OptionShellBottomTab", "option"),
     ("OptionShellCommandPaletteOnQuery", "option"),
@@ -2131,9 +2199,13 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("OptionSystemLanguage", "option"),
     ("OptionTabIndex", "option"),
     ("OptionTabOnClick", "option"),
+    ("OptionTabOverviewItem", "option"),
+    ("OptionTabOverviewOnEvent", "option"),
+    ("OptionTabReveal", "option"),
     ("OptionTabletDeviceInfo", "option"),
     ("OptionTabletPadState", "option"),
     ("OptionTabletToolKind", "option"),
+    ("OptionTabsInTitlebar", "option"),
     ("OptionTagIdToNodeIdMapping", "option"),
     ("OptionTaskBarIcon", "option"),
     ("OptionTerminalLine", "option"),
@@ -2169,6 +2241,8 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("OptionTimerId", "option"),
     ("OptionToDoBarOnEvent", "option"),
     ("OptionToDoTask", "option"),
+    ("OptionToast", "option"),
+    ("OptionToastAction", "option"),
     ("OptionToastOnDismiss", "option"),
     ("OptionTokenInputOnEvent", "option"),
     ("OptionTokenInputOnValidate", "option"),
@@ -2200,6 +2274,7 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("OptionVirtualKeyCode", "option"),
     ("OptionVirtualKeyCodeCombo", "option"),
     ("OptionWaylandTheme", "option"),
+    ("OptionWebViewEvent", "option"),
     ("OptionWindowFlags", "option"),
     ("OptionWindowIcon", "option"),
     ("OptionWizardComponent", "option"),
@@ -2275,7 +2350,31 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("PathInputOnChangeCallback", "dom"),
     ("PathInputOnChangeCallbackType", "callbacks"),
     ("Pdf", "pdf"),
+    ("PdfFieldValue", "pdf"),
+    ("PdfFieldValueVec", "vec"),
+    ("PdfFieldValueVecDestructor", "vec"),
+    ("PdfFieldValueVecDestructorType", "vec"),
+    ("PdfFieldValueVecSlice", "pdf"),
+    ("PdfFormField", "pdf"),
+    ("PdfFormFieldKind", "pdf"),
+    ("PdfFormFieldVec", "vec"),
+    ("PdfFormFieldVecDestructor", "vec"),
+    ("PdfFormFieldVecDestructorType", "vec"),
+    ("PdfFormFieldVecSlice", "pdf"),
+    ("PdfFormWidget", "pdf"),
+    ("PdfFormWidgetVec", "vec"),
+    ("PdfFormWidgetVecDestructor", "vec"),
+    ("PdfFormWidgetVecDestructorType", "vec"),
+    ("PdfFormWidgetVecSlice", "pdf"),
     ("PdfPageSize", "pdf"),
+    ("PdfPageSvgOptions", "svg"),
+    ("PdfRect", "svg"),
+    ("PdfStamp", "pdf"),
+    ("PdfStampVec", "vec"),
+    ("PdfStampVecDestructor", "vec"),
+    ("PdfStampVecDestructorType", "vec"),
+    ("PdfStampVecSlice", "pdf"),
+    ("PdfTextAlign", "css"),
     ("PenState", "callbacks"),
     ("PenTilt", "callbacks"),
     ("PendingTextEdit", "css"),
@@ -2290,6 +2389,8 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("PhysicalPositionI32", "css"),
     ("PhysicalSize", "css"),
     ("PhysicalSizeU32", "css"),
+    ("PieMarker", "widgets"),
+    ("PieTone", "widgets"),
     ("PimShell", "shells"),
     ("PixelNoValueGivenError", "error"),
     ("PixelValue", "css"),
@@ -2301,6 +2402,7 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("PlatformSpecificOptions", "window"),
     ("PlaybackState", "misc"),
     ("PluralCategory", "icu"),
+    ("PointLight", "app"),
     ("PointerSeat", "window"),
     ("PointerSeatVec", "vec"),
     ("PointerSeatVecDestructor", "vec"),
@@ -2313,6 +2415,7 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("PopoverOnToggleCallbackType", "callbacks"),
     ("PopoverState", "widgets"),
     ("PopoverStateWrapper", "widgets"),
+    ("PowerState", "sensor"),
     ("ProgressAriaInfo", "dom"),
     ("ProgressBar", "widgets"),
     ("ProgressBarState", "widgets"),
@@ -2390,6 +2493,7 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("ResultRefAnyString", "error"),
     ("ResultStringFileError", "error"),
     ("ResultStringString", "error"),
+    ("ResultStringVecString", "error"),
     ("ResultStyledDomRenderDomError", "error"),
     ("ResultSvgSvgParseError", "error"),
     ("ResultU8VecEncodeImageError", "error"),
@@ -2408,6 +2512,22 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("RibbonBehavior", "widgets"),
     ("RibbonButton", "widgets"),
     ("RibbonColumn", "widgets"),
+    ("RibbonFileMenu", "widgets"),
+    ("RibbonFileMenuCommand", "widgets"),
+    ("RibbonFileMenuCommandVec", "vec"),
+    ("RibbonFileMenuCommandVecDestructor", "vec"),
+    ("RibbonFileMenuCommandVecDestructorType", "vec"),
+    ("RibbonFileMenuCommandVecSlice", "widgets"),
+    ("RibbonFileMenuEvent", "widgets"),
+    ("RibbonFileMenuEventKind", "widgets"),
+    ("RibbonFileMenuOnEvent", "widgets"),
+    ("RibbonFileMenuOnEventCallback", "dom"),
+    ("RibbonFileMenuOnEventCallbackType", "callbacks"),
+    ("RibbonFileMenuPlace", "widgets"),
+    ("RibbonFileMenuPlaceVec", "vec"),
+    ("RibbonFileMenuPlaceVecDestructor", "vec"),
+    ("RibbonFileMenuPlaceVecDestructorType", "vec"),
+    ("RibbonFileMenuPlaceVecSlice", "widgets"),
     ("RibbonGallery", "widgets"),
     ("RibbonGalleryCell", "widgets"),
     ("RibbonGalleryCellVec", "vec"),
@@ -2455,6 +2575,7 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("RichBlockVecSlice", "widgets"),
     ("RichCheck", "widgets"),
     ("RichEditGroup", "widgets"),
+    ("RichFont", "widgets"),
     ("RichFormat", "widgets"),
     ("RichFormats", "widgets"),
     ("RichImage", "widgets"),
@@ -2463,6 +2584,11 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("RichImageSourceVecDestructor", "vec"),
     ("RichImageSourceVecDestructorType", "vec"),
     ("RichImageSourceVecSlice", "widgets"),
+    ("RichPageStart", "widgets"),
+    ("RichPageStartVec", "vec"),
+    ("RichPageStartVecDestructor", "vec"),
+    ("RichPageStartVecDestructorType", "vec"),
+    ("RichPageStartVecSlice", "widgets"),
     ("RichRun", "widgets"),
     ("RichRunVec", "vec"),
     ("RichRunVecDestructor", "vec"),
@@ -2543,6 +2669,11 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("SeekBarOnSeekCallback", "dom"),
     ("SeekBarOnSeekCallbackType", "callbacks"),
     ("SeekBarState", "widgets"),
+    ("SeekThumbnail", "widgets"),
+    ("SeekThumbnailVec", "vec"),
+    ("SeekThumbnailVecDestructor", "vec"),
+    ("SeekThumbnailVecDestructorType", "vec"),
+    ("SeekThumbnailVecSlice", "widgets"),
     ("Segmented", "widgets"),
     ("SegmentedOnChange", "widgets"),
     ("SegmentedOnChangeCallback", "dom"),
@@ -2581,9 +2712,11 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("SelectionVecSlice", "dom"),
     ("SensorKind", "sensor"),
     ("SensorReading", "sensor"),
+    ("SessionChange", "dom"),
     ("Shape", "css"),
     ("ShapeCircle", "svg"),
     ("ShapeEllipse", "css"),
+    ("ShapeFillRule", "css"),
     ("ShapeImageThreshold", "css"),
     ("ShapeImageThresholdValue", "css"),
     ("ShapeInset", "css"),
@@ -2591,6 +2724,7 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("ShapeInsideValue", "css"),
     ("ShapeMargin", "css"),
     ("ShapeMarginValue", "css"),
+    ("ShapeOffset", "css"),
     ("ShapeOutside", "css"),
     ("ShapeOutsideValue", "css"),
     ("ShapePath", "css"),
@@ -2600,6 +2734,8 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("ShapePointVecDestructorType", "vec"),
     ("ShapePointVecSlice", "css"),
     ("ShapePolygon", "svg"),
+    ("ShapePosition", "css"),
+    ("ShapeRadius", "css"),
     ("ShapeRendering", "css"),
     ("ShellBottomTab", "shells"),
     ("ShellBottomTabVec", "vec"),
@@ -2694,10 +2830,14 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("SmallAriaInfo", "dom"),
     ("SmallWindowIconBytes", "window"),
     ("SpatialNavigationSearchOptions", "callbacks"),
+    ("Speech", "speech"),
+    ("SpeechHeard", "speech"),
+    ("SpeechStatus", "speech"),
     ("Spinner", "widgets"),
     ("SpinnerStyle", "widgets"),
     ("SplitDirection", "widgets"),
     ("SplitPane", "widgets"),
+    ("SplitPaneFixed", "widgets"),
     ("SplitPaneOnResize", "widgets"),
     ("SplitPaneOnResizeCallback", "dom"),
     ("SplitPaneOnResizeCallbackType", "callbacks"),
@@ -3057,6 +3197,7 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("SummaryRowVecDestructor", "vec"),
     ("SummaryRowVecDestructorType", "vec"),
     ("SummaryRowVecSlice", "widgets"),
+    ("SunLight", "app"),
     ("Svg", "svg"),
     ("SvgCubicCurve", "svg"),
     ("SvgDashPattern", "svg"),
@@ -3117,12 +3258,29 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("SystemTick", "time"),
     ("SystemTickDiff", "time"),
     ("SystemTimeDiff", "time"),
+    ("TabClickBehaviour", "widgets"),
+    ("TabContent", "widgets"),
     ("TabHeader", "widgets"),
     ("TabHeaderState", "widgets"),
     ("TabIndex", "dom"),
     ("TabOnClick", "widgets"),
     ("TabOnClickCallback", "dom"),
     ("TabOnClickCallbackType", "callbacks"),
+    ("TabOverview", "widgets"),
+    ("TabOverviewButton", "widgets"),
+    ("TabOverviewEvent", "widgets"),
+    ("TabOverviewEventKind", "widgets"),
+    ("TabOverviewItem", "widgets"),
+    ("TabOverviewItemVec", "vec"),
+    ("TabOverviewItemVecDestructor", "vec"),
+    ("TabOverviewItemVecDestructorType", "vec"),
+    ("TabOverviewItemVecSlice", "widgets"),
+    ("TabOverviewOnEvent", "widgets"),
+    ("TabOverviewOnEventCallback", "dom"),
+    ("TabOverviewOnEventCallbackType", "callbacks"),
+    ("TabReveal", "widgets"),
+    ("TabSlide", "widgets"),
+    ("TabStyle", "widgets"),
     ("TabletDeviceInfo", "gesture"),
     ("TabletDeviceInfoVec", "vec"),
     ("TabletDeviceInfoVecDestructor", "vec"),
@@ -3130,6 +3288,7 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("TabletDeviceInfoVecSlice", "gesture"),
     ("TabletPadState", "gesture"),
     ("TabletToolKind", "gesture"),
+    ("TabsInTitlebar", "widgets"),
     ("TagId", "dom"),
     ("TagIdToNodeIdMapping", "dom"),
     ("TagIdToNodeIdMappingVec", "vec"),
@@ -3228,6 +3387,8 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("TextOpSelectAll", "css"),
     ("TextOpSetSelection", "dom"),
     ("TextOperation", "css"),
+    ("TextRasterAlign", "image"),
+    ("TextRasterDirection", "image"),
     ("TextRasterStyle", "image"),
     ("TextRendering", "css"),
     ("TextRenderingHints", "css"),
@@ -3235,6 +3396,7 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("Texture", "gl"),
     ("TextureFlags", "gl"),
     ("ThemeCondition", "window"),
+    ("ThermalState", "sensor"),
     ("Thread", "task"),
     ("ThreadCallback", "callbacks"),
     ("ThreadCallbackType", "callbacks"),
@@ -3318,12 +3480,18 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("ToDoTaskVecDestructorType", "vec"),
     ("ToDoTaskVecSlice", "widgets"),
     ("Toast", "widgets"),
+    ("ToastAction", "widgets"),
     ("ToastKind", "widgets"),
     ("ToastOnDismiss", "widgets"),
     ("ToastOnDismissCallback", "dom"),
     ("ToastOnDismissCallbackType", "callbacks"),
+    ("ToastStack", "widgets"),
     ("ToastState", "widgets"),
     ("ToastStateWrapper", "widgets"),
+    ("ToastVec", "vec"),
+    ("ToastVecDestructor", "vec"),
+    ("ToastVecDestructorType", "vec"),
+    ("ToastVecSlice", "widgets"),
     ("TokenInput", "widgets"),
     ("TokenInputEvent", "widgets"),
     ("TokenInputEventKind", "widgets"),
@@ -3388,6 +3556,8 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("TreeViewOnNodeToggle", "widgets"),
     ("TreeViewOnNodeToggleCallback", "dom"),
     ("TreeViewOnNodeToggleCallbackType", "callbacks"),
+    ("TrustRootSet", "http"),
+    ("TrustRoots", "http"),
     ("U16Vec", "vec"),
     ("U16VecDestructor", "vec"),
     ("U16VecDestructorType", "vec"),
@@ -3414,6 +3584,7 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("UnknownPropertyKeyError", "error"),
     ("UnknownSelectorError", "error"),
     ("Update", "callbacks"),
+    ("UpdateAudience", "callbacks"),
     ("UpdateCheckCallback", "dom"),
     ("UpdateCheckCallbackType", "callbacks"),
     ("UpdateCheckInfo", "callbacks"),
@@ -3422,6 +3593,7 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("UpdateMode", "callbacks"),
     ("UpdateOptions", "callbacks"),
     ("UpdateSettings", "callbacks"),
+    ("UpdateStageResult", "callbacks"),
     ("Url", "url"),
     ("UrlParseError", "error"),
     ("UselessFunctionArgumentError", "error"),
@@ -3486,6 +3658,11 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("WaylandTheme", "window"),
     ("WebHandle", "window"),
     ("WebTransport", "webtransport"),
+    ("WebViewConfig", "window"),
+    ("WebViewEvent", "dom"),
+    ("WebViewLoadError", "error"),
+    ("WebViewNavigation", "window"),
+    ("WebViewStorage", "window"),
     ("WhiteSpaceInComponentNameError", "error"),
     ("WhiteSpaceInComponentTypeError", "error"),
     ("Widows", "css"),
@@ -3618,6 +3795,7 @@ pub(crate) static C_LIKE_ENUMS: &[&str] = &[
     "RadialGradientSize",
     "ScrollbarVisibilityMode",
     "Shape",
+    "ShapeFillRule",
     "SizeMetric",
     "StyleAlignmentBaseline",
     "StyleAppRegion",
@@ -3865,7 +4043,7 @@ pub(crate) static CSS_PROPERTY_ALIASES: &[(&str, &str, &str)] = &[
     ("StringSet", "StringSetValue", "string_set"),
     ("Zoom", "StyleZoomValue", ""),
     ("BackgroundClip", "StyleBackgroundClipVecValue", "background_clip"),
-    ("FontVariantNumeric", "StyleFontVariantNumericValue", ""),
+    ("FontVariantNumeric", "StyleFontVariantNumericValue", "font_variant_numeric"),
     ("FontVariantCaps", "StyleFontVariantCapsValue", ""),
     ("FontFeatureSettings", "StyleFontFeatureSettingsValue", ""),
     ("CounterSet", "CounterSetValue", "counter_set"),
@@ -4514,25 +4692,34 @@ impl Lower for crate::props::style::content::CounterEntryVec {
 
 impl Lower for crate::props::style::content::CounterIncrement {
     fn lower(&self) -> Expr {
-        Expr::strukt("CounterIncrement", vec![("counters", self.counters.lower())])
+        Expr::strukt(
+            "CounterIncrement",
+            vec![
+                ("counters", self.counters.lower()),
+            ],
+        )
     }
 }
 
 impl Lower for crate::props::style::content::CounterReset {
     fn lower(&self) -> Expr {
-        Expr::strukt("CounterReset", vec![("counters", self.counters.lower())])
-    }
-}
-
-impl Lower for crate::props::style::content::StyleQuotes {
-    fn lower(&self) -> Expr {
-        Expr::strukt("StyleQuotes", vec![("inner", self.inner.lower())])
+        Expr::strukt(
+            "CounterReset",
+            vec![
+                ("counters", self.counters.lower()),
+            ],
+        )
     }
 }
 
 impl Lower for crate::props::style::content::CounterSet {
     fn lower(&self) -> Expr {
-        Expr::strukt("CounterSet", vec![("counters", self.counters.lower())])
+        Expr::strukt(
+            "CounterSet",
+            vec![
+                ("counters", self.counters.lower()),
+            ],
+        )
     }
 }
 
@@ -5927,6 +6114,15 @@ impl Lower for crate::corety::OptionF32 {
     }
 }
 
+impl Lower for crate::props::basic::pixel::OptionPixelValue {
+    fn lower(&self) -> Expr {
+        match self {
+            Self::None => Expr::unit("OptionPixelValue", EnumShape::Tagged, "None"),
+            Self::Some(v) => Expr::variant("OptionPixelValue", EnumShape::Tagged, "Some", vec![v.lower()]),
+        }
+    }
+}
+
 impl Lower for crate::corety::OptionString {
     fn lower(&self) -> Expr {
         match self {
@@ -6238,6 +6434,16 @@ impl Lower for crate::shape::ShapeEllipse {
     }
 }
 
+impl Lower for crate::shape::ShapeFillRule {
+    fn lower(&self) -> Expr {
+        let variant = match self {
+            Self::NonZero => "NonZero",
+            Self::EvenOdd => "EvenOdd",
+        };
+        Expr::unit("ShapeFillRule", EnumShape::CLike, variant)
+    }
+}
+
 impl Lower for crate::props::layout::shape::ShapeImageThreshold {
     fn lower(&self) -> Expr {
         Expr::strukt(
@@ -6284,6 +6490,18 @@ impl Lower for crate::props::layout::shape::ShapeMargin {
     }
 }
 
+impl Lower for crate::shape::ShapeOffset {
+    fn lower(&self) -> Expr {
+        Expr::strukt(
+            "ShapeOffset",
+            vec![
+                ("from_end", self.from_end.lower()),
+                ("offset", self.offset.lower()),
+            ],
+        )
+    }
+}
+
 impl Lower for crate::props::layout::shape::ShapeOutside {
     fn lower(&self) -> Expr {
         match self {
@@ -6298,6 +6516,7 @@ impl Lower for crate::shape::ShapePath {
         Expr::strukt(
             "ShapePath",
             vec![
+                ("fill_rule", self.fill_rule.lower()),
                 ("data", self.data.lower()),
             ],
         )
@@ -6327,9 +6546,32 @@ impl Lower for crate::shape::ShapePolygon {
         Expr::strukt(
             "ShapePolygon",
             vec![
+                ("fill_rule", self.fill_rule.lower()),
                 ("points", self.points.lower()),
             ],
         )
+    }
+}
+
+impl Lower for crate::shape::ShapePosition {
+    fn lower(&self) -> Expr {
+        Expr::strukt(
+            "ShapePosition",
+            vec![
+                ("x", self.x.lower()),
+                ("y", self.y.lower()),
+            ],
+        )
+    }
+}
+
+impl Lower for crate::shape::ShapeRadius {
+    fn lower(&self) -> Expr {
+        match self {
+            Self::Length(v) => Expr::variant("ShapeRadius", EnumShape::Tagged, "Length", vec![v.lower()]),
+            Self::ClosestSide => Expr::unit("ShapeRadius", EnumShape::Tagged, "ClosestSide"),
+            Self::FarthestSide => Expr::unit("ShapeRadius", EnumShape::Tagged, "FarthestSide"),
+        }
     }
 }
 
@@ -6442,23 +6684,6 @@ impl Lower for crate::props::style::background::StyleBackgroundClip {
     }
 }
 
-impl Lower for crate::props::style::background::StyleBackgroundOrigin {
-    fn lower(&self) -> Expr {
-        let variant = match self {
-            Self::BorderBox => "BorderBox",
-            Self::PaddingBox => "PaddingBox",
-            Self::ContentBox => "ContentBox",
-        };
-        Expr::unit("StyleBackgroundOrigin", EnumShape::CLike, variant)
-    }
-}
-
-impl Lower for crate::props::style::background::StyleBackgroundOriginVec {
-    fn lower(&self) -> Expr {
-        Expr::vec("StyleBackgroundOriginVec", "StyleBackgroundOrigin", self.as_slice().iter().map(Lower::lower).collect())
-    }
-}
-
 impl Lower for crate::props::style::background::StyleBackgroundClipVec {
     fn lower(&self) -> Expr {
         Expr::vec("StyleBackgroundClipVec", "StyleBackgroundClip", self.as_slice().iter().map(Lower::lower).collect())
@@ -6481,6 +6706,23 @@ impl Lower for crate::props::style::background::StyleBackgroundContent {
 impl Lower for crate::props::style::background::StyleBackgroundContentVec {
     fn lower(&self) -> Expr {
         Expr::vec("StyleBackgroundContentVec", "StyleBackgroundContent", self.as_slice().iter().map(Lower::lower).collect())
+    }
+}
+
+impl Lower for crate::props::style::background::StyleBackgroundOrigin {
+    fn lower(&self) -> Expr {
+        let variant = match self {
+            Self::BorderBox => "BorderBox",
+            Self::PaddingBox => "PaddingBox",
+            Self::ContentBox => "ContentBox",
+        };
+        Expr::unit("StyleBackgroundOrigin", EnumShape::CLike, variant)
+    }
+}
+
+impl Lower for crate::props::style::background::StyleBackgroundOriginVec {
+    fn lower(&self) -> Expr {
+        Expr::vec("StyleBackgroundOriginVec", "StyleBackgroundOrigin", self.as_slice().iter().map(Lower::lower).collect())
     }
 }
 
@@ -6932,6 +7174,17 @@ impl Lower for crate::props::basic::font::StyleFontFamilyVec {
     }
 }
 
+impl Lower for crate::props::basic::font::StyleFontFeatureSettings {
+    fn lower(&self) -> Expr {
+        Expr::strukt(
+            "StyleFontFeatureSettings",
+            vec![
+                ("inner", self.inner.lower()),
+            ],
+        )
+    }
+}
+
 impl Lower for crate::props::basic::font::StyleFontSize {
     fn lower(&self) -> Expr {
         Expr::strukt(
@@ -6954,25 +7207,6 @@ impl Lower for crate::props::basic::font::StyleFontStyle {
     }
 }
 
-impl Lower for crate::props::basic::font::StyleFontWeight {
-    fn lower(&self) -> Expr {
-        let variant = match self {
-            Self::Lighter => "Lighter",
-            Self::W100 => "W100",
-            Self::W200 => "W200",
-            Self::W300 => "W300",
-            Self::Normal => "Normal",
-            Self::W500 => "W500",
-            Self::W600 => "W600",
-            Self::Bold => "Bold",
-            Self::W800 => "W800",
-            Self::W900 => "W900",
-            Self::Bolder => "Bolder",
-        };
-        Expr::unit("StyleFontWeight", EnumShape::CLike, variant)
-    }
-}
-
 impl Lower for crate::props::basic::font::StyleFontVariantCaps {
     fn lower(&self) -> Expr {
         let variant = match self {
@@ -6985,17 +7219,6 @@ impl Lower for crate::props::basic::font::StyleFontVariantCaps {
             Self::TitlingCaps => "TitlingCaps",
         };
         Expr::unit("StyleFontVariantCaps", EnumShape::CLike, variant)
-    }
-}
-
-impl Lower for crate::props::basic::font::StyleFontFeatureSettings {
-    fn lower(&self) -> Expr {
-        Expr::strukt(
-            "StyleFontFeatureSettings",
-            vec![
-                ("inner", self.inner.lower()),
-            ],
-        )
     }
 }
 
@@ -7014,6 +7237,25 @@ impl Lower for crate::props::basic::font::StyleFontVariantNumeric {
                 ("slashed_zero", self.slashed_zero.lower()),
             ],
         )
+    }
+}
+
+impl Lower for crate::props::basic::font::StyleFontWeight {
+    fn lower(&self) -> Expr {
+        let variant = match self {
+            Self::Lighter => "Lighter",
+            Self::W100 => "W100",
+            Self::W200 => "W200",
+            Self::W300 => "W300",
+            Self::Normal => "Normal",
+            Self::W500 => "W500",
+            Self::W600 => "W600",
+            Self::Bold => "Bold",
+            Self::W800 => "W800",
+            Self::W900 => "W900",
+            Self::Bolder => "Bolder",
+        };
+        Expr::unit("StyleFontWeight", EnumShape::CLike, variant)
     }
 }
 
@@ -7162,24 +7404,21 @@ impl Lower for crate::props::style::lists::StyleListStylePosition {
 
 impl Lower for crate::props::style::lists::StyleListStyleType {
     fn lower(&self) -> Expr {
-        let variant = match self {
-            Self::String(text) => {
-                return Expr::variant("StyleListStyleType", EnumShape::Tagged, "String", vec![text.lower()]);
-            }
-            Self::None => "None",
-            Self::Disc => "Disc",
-            Self::Circle => "Circle",
-            Self::Square => "Square",
-            Self::Decimal => "Decimal",
-            Self::DecimalLeadingZero => "DecimalLeadingZero",
-            Self::LowerRoman => "LowerRoman",
-            Self::UpperRoman => "UpperRoman",
-            Self::LowerGreek => "LowerGreek",
-            Self::UpperGreek => "UpperGreek",
-            Self::LowerAlpha => "LowerAlpha",
-            Self::UpperAlpha => "UpperAlpha",
-        };
-        Expr::unit("StyleListStyleType", EnumShape::Tagged, variant)
+        match self {
+            Self::None => Expr::unit("StyleListStyleType", EnumShape::Tagged, "None"),
+            Self::Disc => Expr::unit("StyleListStyleType", EnumShape::Tagged, "Disc"),
+            Self::Circle => Expr::unit("StyleListStyleType", EnumShape::Tagged, "Circle"),
+            Self::Square => Expr::unit("StyleListStyleType", EnumShape::Tagged, "Square"),
+            Self::Decimal => Expr::unit("StyleListStyleType", EnumShape::Tagged, "Decimal"),
+            Self::DecimalLeadingZero => Expr::unit("StyleListStyleType", EnumShape::Tagged, "DecimalLeadingZero"),
+            Self::LowerRoman => Expr::unit("StyleListStyleType", EnumShape::Tagged, "LowerRoman"),
+            Self::UpperRoman => Expr::unit("StyleListStyleType", EnumShape::Tagged, "UpperRoman"),
+            Self::LowerGreek => Expr::unit("StyleListStyleType", EnumShape::Tagged, "LowerGreek"),
+            Self::UpperGreek => Expr::unit("StyleListStyleType", EnumShape::Tagged, "UpperGreek"),
+            Self::LowerAlpha => Expr::unit("StyleListStyleType", EnumShape::Tagged, "LowerAlpha"),
+            Self::UpperAlpha => Expr::unit("StyleListStyleType", EnumShape::Tagged, "UpperAlpha"),
+            Self::String(v) => Expr::variant("StyleListStyleType", EnumShape::Tagged, "String", vec![v.lower()]),
+        }
     }
 }
 
@@ -7273,6 +7512,17 @@ impl Lower for crate::props::style::transform::StylePerspectiveOrigin {
             vec![
                 ("x", self.x.lower()),
                 ("y", self.y.lower()),
+            ],
+        )
+    }
+}
+
+impl Lower for crate::props::style::content::StyleQuotes {
+    fn lower(&self) -> Expr {
+        Expr::strukt(
+            "StyleQuotes",
+            vec![
+                ("inner", self.inner.lower()),
             ],
         )
     }

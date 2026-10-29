@@ -704,28 +704,43 @@ pub(super) fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
             .shape_box_height
             .unwrap_or(constraints.available_size.width)
     };
-    let reference_box = text3::cache::Rect {
-        x: 0.0,
-        y: 0.0,
+    // The lengths of a shape resolve against that box, its ems against the
+    // element's font size, its rems and viewport units against the root's
+    // font size and the viewport.
+    let shape_reference = azul_css::shape::ShapeReference {
         width: constraints.available_size.width,
         height: ref_box_height,
+        font_size: style.font_size,
+        root_font_size: crate::solver3::layout_tree::get_root_font_size(ctx.styled_dom),
+        viewport_width: ctx.viewport_size.width,
+        viewport_height: ctx.viewport_size.height,
     };
+    let shape_origin = text3::cache::Point { x: 0.0, y: 0.0 };
 
     // shape-inside: the lines of the content area flow inside the shape, and
     // the overflow below that area runs on uncut (CSS Shapes 2).
     let (shape_boundaries, shape_area_height) =
         if let Some(ShapeInside::Shape(css_shape)) = &style.shape_inside {
-            let boundary =
-                ShapeBoundary::from_css_shape(css_shape, reference_box, ctx.debug_messages);
+            let boundary = ShapeBoundary::from_css_shape(
+                css_shape,
+                shape_origin,
+                &shape_reference,
+                ctx.debug_messages,
+            );
             debug_info!(ctx, "Created ShapeBoundary: {:?}", boundary);
-            (vec![boundary], Some(reference_box.height))
+            (vec![boundary], Some(shape_reference.height))
         } else {
             (Vec::new(), None)
         };
 
     // shape-outside: Text wraps around the shape (adds to exclusions)
     if let Some(ShapeOutside::Shape(css_shape)) = &style.shape_outside {
-        let boundary = ShapeBoundary::from_css_shape(css_shape, reference_box, ctx.debug_messages);
+        let boundary = ShapeBoundary::from_css_shape(
+            css_shape,
+            shape_origin,
+            &shape_reference,
+            ctx.debug_messages,
+        );
         debug_info!(ctx, "Created ShapeBoundary (exclusion): {:?}", boundary);
         shape_exclusions.push(boundary);
     }

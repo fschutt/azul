@@ -8,8 +8,8 @@
 //!
 //! Glyphs here are Azul Mock Mono at 20px: 10px wide, in 20px line boxes.
 
-use azul_css::shape_parser::parse_shape;
-use azul_layout::text3::cache::{Rect, ShapeBoundary};
+use azul_css::{shape::ShapeReference, shape_parser::parse_shape};
+use azul_layout::text3::cache::{Point, ShapeBoundary};
 
 use crate::mono_lines::{box_of_width, glyph_boxes, lay_out, GlyphBox};
 
@@ -21,13 +21,8 @@ const TEXT: &str = "text text text text text text text text text text text text 
 /// The shape `css` resolved against a 400 x 200 box at the origin.
 fn shape(css: &str) -> ShapeBoundary {
     let parsed = parse_shape(css).expect("the shape parses");
-    let reference = Rect {
-        x: 0.0,
-        y: 0.0,
-        width: 400.0,
-        height: 200.0,
-    };
-    ShapeBoundary::from_css_shape(&parsed, reference, &mut None)
+    let reference = ShapeReference::of_box(400.0, 200.0);
+    ShapeBoundary::from_css_shape(&parsed, Point::default(), &reference, &mut None)
 }
 
 /// `TEXT` in a 400px box around `exclusion`.

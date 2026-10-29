@@ -19,7 +19,7 @@ CssPropertyWithConditions[] styleText()
         ),
         CssPropertyWithConditions.simple(CssProperty.fontWeight(StyleFontWeight.w600)),
         CssPropertyWithConditions.simple(CssProperty.fontStyle(StyleFontStyle.italic)),
-        CssPropertyWithConditions.simple(CssProperty.fontVariantNumeric(StyleFontVariantNumericValue.exact(StyleFontVariantNumeric(false, false, false, true, false, false, false, false)))),
+        CssPropertyWithConditions.simple(CssProperty.fontVariantNumeric(StyleFontVariantNumeric(false, false, false, true, false, false, false, false))),
         CssPropertyWithConditions.simple(CssProperty.fontVariantCaps(StyleFontVariantCapsValue.exact(StyleFontVariantCaps.smallCaps))),
         CssPropertyWithConditions.simple(CssProperty.fontFeatureSettings(StyleFontFeatureSettingsValue.exact(StyleFontFeatureSettings("\"liga\" 0, \"tnum\"")))),
         CssPropertyWithConditions.simple(CssProperty.textAlign(StyleTextAlign.center)),
@@ -294,9 +294,9 @@ CssPropertyWithConditions[] styleFragment()
 CssPropertyWithConditions[] styleShape()
 {
     return [
-        CssPropertyWithConditions.simple(CssProperty.shapeOutside(ShapeOutside.shape(CssShape.circle(ShapeCircle(ShapePoint(0.0f, 0.0f), 50.0f))))),
-        CssPropertyWithConditions.simple(CssProperty.shapeInside(ShapeInside.shape(CssShape.circle(ShapeCircle(ShapePoint(50.0f, 50.0f), 100.0f))))),
-        CssPropertyWithConditions.simple(CssProperty.clipPath(ClipPath.shape(CssShape.circle(ShapeCircle(ShapePoint(0.0f, 0.0f), 40.0f))))),
+        CssPropertyWithConditions.simple(CssProperty.shapeOutside(ShapeOutside.shape(CssShape.circle(ShapeCircle(ShapePosition(ShapeOffset(false, PixelValue.percent(50.0f)), ShapeOffset(false, PixelValue.percent(50.0f))), ShapeRadius.length(PixelValue.px(50.0f))))))),
+        CssPropertyWithConditions.simple(CssProperty.shapeInside(ShapeInside.shape(CssShape.circle(ShapeCircle(ShapePosition(ShapeOffset(false, PixelValue.px(50.0f)), ShapeOffset(false, PixelValue.px(50.0f))), ShapeRadius.length(PixelValue.px(100.0f))))))),
+        CssPropertyWithConditions.simple(CssProperty.clipPath(ClipPath.shape(CssShape.circle(ShapeCircle(ShapePosition(ShapeOffset(false, PixelValue.percent(50.0f)), ShapeOffset(false, PixelValue.percent(50.0f))), ShapeRadius.length(PixelValue.px(40.0f))))))),
         CssPropertyWithConditions.simple(CssProperty.shapeMargin(ShapeMargin(PixelValue.px(10.0f)))),
         CssPropertyWithConditions.simple(CssProperty.shapeImageThreshold(ShapeImageThreshold(FloatValue(0.5f)))),
     ];

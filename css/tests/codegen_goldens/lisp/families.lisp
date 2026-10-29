@@ -27,7 +27,6 @@
     (azul-internal::%az-string-copy-from-bytes buf 0 len)))
 
 ;; CSS: .text
-;; dropped a value these bindings cannot build: CFFI cannot build the union `StyleFontVariantNumericValue` from Lisp data (no constructor function)
 ;; dropped a value these bindings cannot build: CFFI cannot build the union `StyleFontVariantCapsValue` from Lisp data (no constructor function)
 ;; dropped a value these bindings cannot build: CFFI cannot build the union `StyleFontFeatureSettingsValue` from Lisp data (no constructor function)
 ;; dropped a value these bindings cannot build: CFFI cannot build the union `StyleInitialLetterValue` from Lisp data (no constructor function)
@@ -78,6 +77,7 @@
       )
       (azul-internal::%az-css-property-with-conditions-simple (azul-internal::%az-css-property-font-weight :w600))
       (azul-internal::%az-css-property-with-conditions-simple (azul-internal::%az-css-property-font-style :italic))
+      (azul-internal::%az-css-property-with-conditions-simple (azul-internal::%az-css-property-font-variant-numeric (list 'azul-internal::lining-nums nil 'azul-internal::oldstyle-nums nil 'azul-internal::proportional-nums nil 'azul-internal::tabular-nums t 'azul-internal::diagonal-fractions nil 'azul-internal::stacked-fractions nil 'azul-internal::ordinal nil 'azul-internal::slashed-zero nil)))
       (azul-internal::%az-css-property-with-conditions-simple (azul-internal::%az-css-property-text-align :center))
       (azul-internal::%az-css-property-with-conditions-simple (azul-internal::%az-css-property-text-justify :inter-word))
       (azul-internal::%az-css-property-with-conditions-simple (azul-internal::%az-css-property-vertical-align (azul-internal::%az-style-vertical-align-middle)))
@@ -303,9 +303,9 @@
     #'azul-internal::%az-css-property-with-conditions-vec-copy-from-ptr
     'azul-internal::az-css-property-with-conditions
     (list
-      (azul-internal::%az-css-property-with-conditions-simple (azul-internal::%az-css-property-shape-outside (azul-internal::%az-shape-outside-shape (azul-internal::%az-css-shape-circle (list 'azul-internal::center (list 'azul-internal::x 0.0 'azul-internal::y 0.0) 'azul-internal::radius 50.0)))))
-      (azul-internal::%az-css-property-with-conditions-simple (azul-internal::%az-css-property-shape-inside (azul-internal::%az-shape-inside-shape (azul-internal::%az-css-shape-circle (list 'azul-internal::center (list 'azul-internal::x 50.0 'azul-internal::y 50.0) 'azul-internal::radius 100.0)))))
-      (azul-internal::%az-css-property-with-conditions-simple (azul-internal::%az-css-property-clip-path (azul-internal::%az-clip-path-shape (azul-internal::%az-css-shape-circle (list 'azul-internal::center (list 'azul-internal::x 0.0 'azul-internal::y 0.0) 'azul-internal::radius 40.0)))))
+      (azul-internal::%az-css-property-with-conditions-simple (azul-internal::%az-css-property-shape-outside (azul-internal::%az-shape-outside-shape (azul-internal::%az-css-shape-circle (list 'azul-internal::center (list 'azul-internal::x (list 'azul-internal::from-end nil 'azul-internal::offset (azul-internal::%az-pixel-value-percent 50.0)) 'azul-internal::y (list 'azul-internal::from-end nil 'azul-internal::offset (azul-internal::%az-pixel-value-percent 50.0))) 'azul-internal::radius (azul-internal::%az-shape-radius-length (azul-internal::%az-pixel-value-px 50.0)))))))
+      (azul-internal::%az-css-property-with-conditions-simple (azul-internal::%az-css-property-shape-inside (azul-internal::%az-shape-inside-shape (azul-internal::%az-css-shape-circle (list 'azul-internal::center (list 'azul-internal::x (list 'azul-internal::from-end nil 'azul-internal::offset (azul-internal::%az-pixel-value-px 50.0)) 'azul-internal::y (list 'azul-internal::from-end nil 'azul-internal::offset (azul-internal::%az-pixel-value-px 50.0))) 'azul-internal::radius (azul-internal::%az-shape-radius-length (azul-internal::%az-pixel-value-px 100.0)))))))
+      (azul-internal::%az-css-property-with-conditions-simple (azul-internal::%az-css-property-clip-path (azul-internal::%az-clip-path-shape (azul-internal::%az-css-shape-circle (list 'azul-internal::center (list 'azul-internal::x (list 'azul-internal::from-end nil 'azul-internal::offset (azul-internal::%az-pixel-value-percent 50.0)) 'azul-internal::y (list 'azul-internal::from-end nil 'azul-internal::offset (azul-internal::%az-pixel-value-percent 50.0))) 'azul-internal::radius (azul-internal::%az-shape-radius-length (azul-internal::%az-pixel-value-px 40.0)))))))
       (azul-internal::%az-css-property-with-conditions-simple (azul-internal::%az-css-property-shape-margin (list 'azul-internal::inner (azul-internal::%az-pixel-value-px 10.0))))
       (azul-internal::%az-css-property-with-conditions-simple (azul-internal::%az-css-property-shape-image-threshold (list 'azul-internal::inner (azul-internal::%az-float-value-create 0.5))))
     )

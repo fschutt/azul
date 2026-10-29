@@ -17,7 +17,7 @@ fn style_text() azul.AzCssPropertyWithConditionsVec {
 	t3[2] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontFamily(C.AzStyleFontFamilyVec_copyFromPtr(unsafe { &t1[0] }, 2)))
 	t3[3] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontWeight(azul.AzStyleFontWeight.W600))
 	t3[4] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontStyle(azul.AzStyleFontStyle.Italic))
-	t3[5] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontVariantNumeric(azul.AzStyleFontVariantNumericValue{ Exact: azul.AzStyleFontVariantNumericValueVariant_Exact{ tag: 6, payload: azul.AzStyleFontVariantNumeric{ lining_nums: false, oldstyle_nums: false, proportional_nums: false, tabular_nums: true, diagonal_fractions: false, stacked_fractions: false, ordinal: false, slashed_zero: false } } }))
+	t3[5] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontVariantNumeric(azul.AzStyleFontVariantNumeric{ lining_nums: false, oldstyle_nums: false, proportional_nums: false, tabular_nums: true, diagonal_fractions: false, stacked_fractions: false, ordinal: false, slashed_zero: false }))
 	t3[6] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontVariantCaps(azul.AzStyleFontVariantCapsValue{ Exact: azul.AzStyleFontVariantCapsValueVariant_Exact{ tag: 6, payload: azul.AzStyleFontVariantCaps.SmallCaps } }))
 	t3[7] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontFeatureSettings(azul.AzStyleFontFeatureSettingsValue{ Exact: azul.AzStyleFontFeatureSettingsValueVariant_Exact{ tag: 6, payload: azul.AzStyleFontFeatureSettings{ inner: azul.az_str('"liga" 0, "tnum"') } } }))
 	t3[8] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_textAlign(azul.AzStyleTextAlign.Center))
@@ -273,9 +273,9 @@ fn style_fragment() azul.AzCssPropertyWithConditionsVec {
 // CSS: .shape
 fn style_shape() azul.AzCssPropertyWithConditionsVec {
 	mut t1 := [5]azul.AzCssPropertyWithConditions{}
-	t1[0] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_shapeOutside(C.AzShapeOutside_shape(C.AzCssShape_circle(azul.AzShapeCircle{ center: azul.AzShapePoint{ x: 0.0, y: 0.0 }, radius: 50.0 }))))
-	t1[1] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_shapeInside(C.AzShapeInside_shape(C.AzCssShape_circle(azul.AzShapeCircle{ center: azul.AzShapePoint{ x: 50.0, y: 50.0 }, radius: 100.0 }))))
-	t1[2] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_clipPath(C.AzClipPath_shape(C.AzCssShape_circle(azul.AzShapeCircle{ center: azul.AzShapePoint{ x: 0.0, y: 0.0 }, radius: 40.0 }))))
+	t1[0] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_shapeOutside(C.AzShapeOutside_shape(C.AzCssShape_circle(azul.AzShapeCircle{ center: azul.AzShapePosition{ x: azul.AzShapeOffset{ from_end: false, offset: C.AzPixelValue_percent(50.0) }, y: azul.AzShapeOffset{ from_end: false, offset: C.AzPixelValue_percent(50.0) } }, radius: C.AzShapeRadius_length(C.AzPixelValue_px(50.0)) }))))
+	t1[1] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_shapeInside(C.AzShapeInside_shape(C.AzCssShape_circle(azul.AzShapeCircle{ center: azul.AzShapePosition{ x: azul.AzShapeOffset{ from_end: false, offset: C.AzPixelValue_px(50.0) }, y: azul.AzShapeOffset{ from_end: false, offset: C.AzPixelValue_px(50.0) } }, radius: C.AzShapeRadius_length(C.AzPixelValue_px(100.0)) }))))
+	t1[2] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_clipPath(C.AzClipPath_shape(C.AzCssShape_circle(azul.AzShapeCircle{ center: azul.AzShapePosition{ x: azul.AzShapeOffset{ from_end: false, offset: C.AzPixelValue_percent(50.0) }, y: azul.AzShapeOffset{ from_end: false, offset: C.AzPixelValue_percent(50.0) } }, radius: C.AzShapeRadius_length(C.AzPixelValue_px(40.0)) }))))
 	t1[3] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_shapeMargin(azul.AzShapeMargin{ inner: C.AzPixelValue_px(10.0) }))
 	t1[4] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_shapeImageThreshold(azul.AzShapeImageThreshold{ inner: C.AzFloatValue_create(0.5) }))
 	return C.AzCssPropertyWithConditionsVec_copyFromPtr(unsafe { &t1[0] }, 5)

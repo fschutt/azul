@@ -13839,99 +13839,82 @@ pub(crate) fn resolve_clip_path(
     clip_path: &azul_css::props::layout::shape::ClipPath,
     node_bounds: LogicalRect,
 ) -> Option<(LogicalRect, f32)> {
-    use azul_css::{props::layout::shape::ClipPath, shape::CssShape};
+    use azul_css::{
+        props::layout::shape::ClipPath,
+        shape::{ResolvedShape, ShapeReference},
+    };
 
-    match clip_path {
-        ClipPath::None => None,
-        ClipPath::Shape(shape) => {
-            match shape {
-                CssShape::Inset(inset) => {
-                    // CSS inset() creates a rectangular clip inset from each edge.
-                    // inset(top right bottom left round border-radius)
-                    let x = node_bounds.origin.x + inset.inset_left;
-                    let y = node_bounds.origin.y + inset.inset_top;
-                    let w =
-                        (node_bounds.size.width - inset.inset_left - inset.inset_right).max(0.0);
-                    let h =
-                        (node_bounds.size.height - inset.inset_top - inset.inset_bottom).max(0.0);
-                    let radius = match inset.border_radius {
-                        azul_css::corety::OptionF32::Some(r) => r,
-                        azul_css::corety::OptionF32::None => 0.0,
-                    };
-                    Some((
-                        LogicalRect {
-                            origin: LogicalPosition::new(x, y),
-                            size: LogicalSize::new(w, h),
-                        },
-                        radius,
-                    ))
-                }
-                CssShape::Circle(circle) => {
-                    // Approximate circle as a square bounding box centered at the circle center.
-                    // CSS circle(radius at cx cy). The center point coordinates are in
-                    // absolute units (pre-resolved by the CSS parser).
-                    let cx = node_bounds.origin.x + circle.center.x;
-                    let cy = node_bounds.origin.y + circle.center.y;
-                    let r = circle.radius;
-                    Some((
-                        LogicalRect {
-                            origin: LogicalPosition::new(cx - r, cy - r),
-                            size: LogicalSize::new(r * 2.0, r * 2.0),
-                        },
-                        r,
-                    ))
-                }
-                CssShape::Ellipse(ellipse) => {
-                    // Approximate ellipse as its bounding box.
-                    let cx = node_bounds.origin.x + ellipse.center.x;
-                    let cy = node_bounds.origin.y + ellipse.center.y;
-                    let rx = ellipse.radius_x;
-                    let ry = ellipse.radius_y;
-                    let radius = rx.min(ry);
-                    Some((
-                        LogicalRect {
-                            origin: LogicalPosition::new(cx - rx, cy - ry),
-                            size: LogicalSize::new(rx * 2.0, ry * 2.0),
-                        },
-                        radius,
-                    ))
-                }
-                CssShape::Polygon(polygon) => {
-                    // Compute the axis-aligned bounding box of the polygon.
-                    if polygon.points.is_empty() {
-                        return None;
-                    }
-                    let mut min_x = f32::INFINITY;
-                    let mut min_y = f32::INFINITY;
-                    let mut max_x = f32::NEG_INFINITY;
-                    let mut max_y = f32::NEG_INFINITY;
-                    for point in &polygon.points {
-                        // Polygon points are in absolute coordinates (pre-resolved)
-                        let px = node_bounds.origin.x + point.x;
-                        let py = node_bounds.origin.y + point.y;
-                        min_x = min_x.min(px);
-                        min_y = min_y.min(py);
-                        max_x = max_x.max(px);
-                        max_y = max_y.max(py);
-                    }
-                    Some((
-                        LogicalRect {
-                            origin: LogicalPosition::new(min_x, min_y),
-                            size: LogicalSize::new(
-                                (max_x - min_x).max(0.0),
-                                (max_y - min_y).max(0.0),
-                            ),
-                        },
-                        0.0,
-                    ))
-                }
-                CssShape::Path(_) => {
-                    // SVG paths are not supported for clip-path yet.
-                    // Return the full node bounds (no clipping).
-                    None
-                }
-            }
+    let ClipPath::Shape(shape) = clip_path else {
+        return None;
+    };
+    let reference = ShapeReference::of_box(node_bounds.size.width, node_bounds.size.height);
+    let at = |x: f32, y: f32| LogicalPosition::new(node_bounds.origin.x + x, node_bounds.origin.y + y);
+    match shape.resolve(&reference) {
+        ResolvedShape::Inset {
+            x,
+            y,
+            width,
+            height,
+            radius,
+        } => Some((
+            LogicalRect {
+                origin: at(x, y),
+                size: LogicalSize::new(width.max(0.0), height.max(0.0)),
+            },
+            radius.unwrap_or(0.0).max(0.0),
+        )),
+        // A circle as its bounding square with the circle's radius.
+        ResolvedShape::Circle {
+            center: (cx, cy),
+            radius,
+        } => {
+            let r = radius.max(0.0);
+            Some((
+                LogicalRect {
+                    origin: at(cx - r, cy - r),
+                    size: LogicalSize::new(r * 2.0, r * 2.0),
+                },
+                r,
+            ))
         }
+        // An ellipse as its bounding box with its smaller radius.
+        ResolvedShape::Ellipse {
+            center: (cx, cy),
+            radius_x,
+            radius_y,
+        } => {
+            let (rx, ry) = (radius_x.max(0.0), radius_y.max(0.0));
+            Some((
+                LogicalRect {
+                    origin: at(cx - rx, cy - ry),
+                    size: LogicalSize::new(rx * 2.0, ry * 2.0),
+                },
+                rx.min(ry),
+            ))
+        }
+        // A polygon as its bounding box.
+        ResolvedShape::Polygon { points, .. } => {
+            let finite: Vec<(f32, f32)> = points
+                .into_iter()
+                .filter(|(x, y)| x.is_finite() && y.is_finite())
+                .collect();
+            if finite.is_empty() {
+                return None;
+            }
+            let (min_x, min_y, max_x, max_y) = finite.iter().fold(
+                (f32::INFINITY, f32::INFINITY, f32::NEG_INFINITY, f32::NEG_INFINITY),
+                |(a, b, c, d), &(x, y)| (a.min(x), b.min(y), c.max(x), d.max(y)),
+            );
+            Some((
+                LogicalRect {
+                    origin: at(min_x, min_y),
+                    size: LogicalSize::new((max_x - min_x).max(0.0), (max_y - min_y).max(0.0)),
+                },
+                0.0,
+            ))
+        }
+        // A path does not clip yet: the box is painted whole.
+        ResolvedShape::Path { .. } => None,
     }
 }
 
@@ -17341,37 +17324,30 @@ mod autotest_generated {
     #[test]
     fn resolve_clip_path_inset_shrinks_from_every_edge() {
         use azul_css::{
-            corety::OptionF32,
-            props::layout::shape::ClipPath,
-            shape::{CssShape, ShapeInset},
+            props::{basic::PixelValue, layout::shape::ClipPath},
+            shape::CssShape,
         };
-        let path = ClipPath::Shape(CssShape::Inset(ShapeInset {
-            inset_top: 10.0,
-            inset_right: 20.0,
-            inset_bottom: 30.0,
-            inset_left: 40.0,
-            border_radius: OptionF32::Some(6.0),
-        }));
+        let path = ClipPath::Shape(CssShape::inset_rounded(
+            PixelValue::px(10.0),
+            PixelValue::px(20.0),
+            PixelValue::percent(7.5),
+            PixelValue::px(40.0),
+            PixelValue::px(6.0),
+        ));
         let (r, radius) =
             resolve_clip_path(&path, rect(100.0, 200.0, 300.0, 400.0)).expect("inset clips");
-        assert_eq!(r, rect(140.0, 210.0, 240.0, 360.0));
+        assert_eq!(r, rect(140.0, 210.0, 240.0, 360.0), "7.5% of the 400px height");
         assert_eq!(radius, 6.0);
     }
 
     #[test]
     fn resolve_clip_path_over_inset_clamps_the_size_to_zero() {
         use azul_css::{
-            corety::OptionF32,
-            props::layout::shape::ClipPath,
-            shape::{CssShape, ShapeInset},
+            props::{basic::PixelValue, layout::shape::ClipPath},
+            shape::CssShape,
         };
-        let path = ClipPath::Shape(CssShape::Inset(ShapeInset {
-            inset_top: 500.0,
-            inset_right: 500.0,
-            inset_bottom: 500.0,
-            inset_left: 500.0,
-            border_radius: OptionF32::None,
-        }));
+        let big = PixelValue::px(500.0);
+        let path = ClipPath::Shape(CssShape::inset(big, big, big, big));
         let (r, radius) =
             resolve_clip_path(&path, rect(0.0, 0.0, 100.0, 100.0)).expect("still returns a rect");
         assert_eq!(
@@ -17379,20 +17355,20 @@ mod autotest_generated {
             LogicalSize::zero(),
             "insets larger than the box collapse, they do not go negative"
         );
-        assert_eq!(radius, 0.0, "OptionF32::None => radius 0");
+        assert_eq!(radius, 0.0, "no round radius => radius 0");
     }
 
     #[test]
     fn resolve_clip_path_circle_and_ellipse_use_their_bounding_box() {
         use azul_css::{
-            props::layout::shape::ClipPath,
-            shape::{CssShape, ShapeCircle, ShapeEllipse, ShapePoint},
+            props::{basic::PixelValue, layout::shape::ClipPath},
+            shape::{CssShape, ShapePosition, ShapeRadius},
         };
 
-        let circle = ClipPath::Shape(CssShape::Circle(ShapeCircle {
-            center: ShapePoint { x: 50.0, y: 50.0 },
-            radius: 20.0,
-        }));
+        let circle = ClipPath::Shape(CssShape::circle(
+            ShapePosition::px(50.0, 50.0),
+            ShapeRadius::Length(PixelValue::px(20.0)),
+        ));
         let (r, radius) =
             resolve_clip_path(&circle, rect(100.0, 100.0, 200.0, 200.0)).expect("circle clips");
         assert_eq!(
@@ -17402,11 +17378,11 @@ mod autotest_generated {
         );
         assert_eq!(radius, 20.0);
 
-        let ellipse = ClipPath::Shape(CssShape::Ellipse(ShapeEllipse {
-            center: ShapePoint { x: 50.0, y: 50.0 },
-            radius_x: 10.0,
-            radius_y: 30.0,
-        }));
+        let ellipse = ClipPath::Shape(CssShape::ellipse(
+            ShapePosition::center(),
+            ShapeRadius::Length(PixelValue::px(10.0)),
+            ShapeRadius::Length(PixelValue::percent(30.0)),
+        ));
         let (r, radius) =
             resolve_clip_path(&ellipse, rect(0.0, 0.0, 100.0, 100.0)).expect("ellipse clips");
         assert_eq!(r, rect(40.0, 20.0, 20.0, 60.0));
@@ -17417,48 +17393,45 @@ mod autotest_generated {
     }
 
     #[test]
-    fn resolve_clip_path_circle_with_a_degenerate_radius_does_not_panic() {
+    fn resolve_clip_path_circle_takes_the_closest_side_by_default() {
         use azul_css::{
             props::layout::shape::ClipPath,
-            shape::{CssShape, ShapeCircle, ShapePoint},
+            shape::{CssShape, ShapePosition, ShapeRadius},
         };
-        for radius in [0.0, -10.0, f32::NAN, f32::INFINITY] {
-            let path = ClipPath::Shape(CssShape::Circle(ShapeCircle {
-                center: ShapePoint { x: 0.0, y: 0.0 },
-                radius,
-            }));
-            // The value is passed through unclamped; the contract here is only that it
-            // returns a value deterministically instead of panicking.
-            let out = resolve_clip_path(&path, rect(0.0, 0.0, 100.0, 100.0));
-            assert!(out.is_some(), "radius {radius} must still resolve");
-        }
+        let path = ClipPath::Shape(CssShape::circle(
+            ShapePosition::center(),
+            ShapeRadius::ClosestSide,
+        ));
+        let (r, radius) =
+            resolve_clip_path(&path, rect(0.0, 0.0, 100.0, 60.0)).expect("circle clips");
+        assert_eq!(radius, 30.0, "the closer sides are the top and the bottom");
+        assert_eq!(r, rect(20.0, 0.0, 60.0, 60.0));
     }
 
     #[test]
     fn resolve_clip_path_polygon_bbox_and_empty_polygon() {
         use azul_css::{
             props::layout::shape::ClipPath,
-            shape::{CssShape, ShapePoint, ShapePolygon},
+            shape::{CssShape, ShapeFillRule, ShapePoint},
         };
 
         // An empty polygon has no bounding box => no clip.
-        let empty = ClipPath::Shape(CssShape::Polygon(ShapePolygon {
-            points: Vec::new().into(),
-        }));
+        let empty = ClipPath::Shape(CssShape::polygon(ShapeFillRule::NonZero, Vec::new().into()));
         assert_eq!(
             resolve_clip_path(&empty, rect(0.0, 0.0, 100.0, 100.0)),
             None
         );
 
         // A real polygon collapses to its axis-aligned bounding box.
-        let tri = ClipPath::Shape(CssShape::Polygon(ShapePolygon {
-            points: vec![
-                ShapePoint { x: 10.0, y: 90.0 },
-                ShapePoint { x: 50.0, y: 10.0 },
-                ShapePoint { x: 90.0, y: 90.0 },
+        let tri = ClipPath::Shape(CssShape::polygon(
+            ShapeFillRule::NonZero,
+            vec![
+                ShapePoint::px(10.0, 90.0),
+                ShapePoint::px(50.0, 10.0),
+                ShapePoint::px(90.0, 90.0),
             ]
             .into(),
-        }));
+        ));
         let (r, radius) =
             resolve_clip_path(&tri, rect(1000.0, 2000.0, 100.0, 100.0)).expect("polygon clips");
         assert_eq!(r, rect(1010.0, 2010.0, 80.0, 80.0));
@@ -17466,34 +17439,12 @@ mod autotest_generated {
     }
 
     #[test]
-    fn resolve_clip_path_polygon_with_nan_points_collapses_instead_of_panicking() {
-        use azul_css::{
-            props::layout::shape::ClipPath,
-            shape::{CssShape, ShapePoint, ShapePolygon},
-        };
-        let nan_poly = ClipPath::Shape(CssShape::Polygon(ShapePolygon {
-            points: vec![ShapePoint {
-                x: f32::NAN,
-                y: f32::NAN,
-            }]
-            .into(),
-        }));
-        let (r, _) =
-            resolve_clip_path(&nan_poly, rect(0.0, 0.0, 100.0, 100.0)).expect("still resolves");
-        // f32::min/max drop NaN, leaving the ±INFINITY seeds; the `.max(0.0)` on the size
-        // keeps the result degenerate-but-finite rather than negative.
-        assert_eq!(r.size, LogicalSize::zero());
-    }
-
-    #[test]
     fn resolve_clip_path_svg_path_is_unsupported_and_does_not_clip() {
         use azul_css::{
             props::layout::shape::ClipPath,
-            shape::{CssShape, ShapePath},
+            shape::{CssShape, ShapeFillRule},
         };
-        let path = ClipPath::Shape(CssShape::Path(ShapePath {
-            data: String::from("M 0 0 L 10 10 Z").into(),
-        }));
+        let path = ClipPath::Shape(CssShape::path(ShapeFillRule::NonZero, "M 0 0 L 10 10 Z"));
         assert_eq!(
             resolve_clip_path(&path, rect(0.0, 0.0, 100.0, 100.0)),
             None,

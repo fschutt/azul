@@ -11,7 +11,10 @@
 //! `+-range` logical px, exactly as the GPU reads it from a texture, so the
 //! CPU and the GPU bevel the same shape.
 
-use azul_css::{props::layout::shape::ClipPath, shape::CssShape};
+use azul_css::{
+    props::layout::shape::ClipPath,
+    shape::{ResolvedShape, ShapeReference},
+};
 
 /// A shape's signed distance field: negative inside, positive outside,
 /// logical px, one byte per device pixel.
@@ -106,34 +109,41 @@ impl ShapeField {
             (height * dpr).round().max(1.0) as usize,
         );
         let at = |x: usize, y: usize| ((x as f32 + 0.5) / dpr, (y as f32 + 0.5) / dpr);
-        Some(match shape {
-            CssShape::Circle(c) => Self::from_mask_with_range(w, h, dpr, range, |x, y| {
+        Some(match shape.resolve(&ShapeReference::of_box(width, height)) {
+            ResolvedShape::Circle {
+                center: (cx, cy),
+                radius,
+            } => Self::from_mask_with_range(w, h, dpr, range, |x, y| {
                 let (px, py) = at(x, y);
-                (px - c.center.x).hypot(py - c.center.y) < c.radius
+                (px - cx).hypot(py - cy) < radius
             }),
-            CssShape::Ellipse(e) => Self::from_mask_with_range(w, h, dpr, range, |x, y| {
+            ResolvedShape::Ellipse {
+                center: (cx, cy),
+                radius_x,
+                radius_y,
+            } => Self::from_mask_with_range(w, h, dpr, range, |x, y| {
                 let (px, py) = at(x, y);
                 let (dx, dy) = (
-                    (px - e.center.x) / e.radius_x.max(1e-3),
-                    (py - e.center.y) / e.radius_y.max(1e-3),
+                    (px - cx) / radius_x.max(1e-3),
+                    (py - cy) / radius_y.max(1e-3),
                 );
                 dx * dx + dy * dy < 1.0
             }),
-            CssShape::Polygon(polygon) => {
-                let points: Vec<(f32, f32)> =
-                    polygon.points.as_ref().iter().map(|p| (p.x, p.y)).collect();
+            ResolvedShape::Polygon { points, .. } => {
                 Self::from_mask_with_range(w, h, dpr, range, |x, y| {
                     let (px, py) = at(x, y);
                     inside_polygon(&points, px, py)
                 })
             }
-            CssShape::Inset(inset) => {
-                let r = match inset.border_radius {
-                    azul_css::corety::OptionF32::Some(r) => r.max(0.0),
-                    azul_css::corety::OptionF32::None => 0.0,
-                };
-                let (x0, y0) = (inset.inset_left, inset.inset_top);
-                let (x1, y1) = (width - inset.inset_right, height - inset.inset_bottom);
+            ResolvedShape::Inset {
+                x: x0,
+                y: y0,
+                width: inset_width,
+                height: inset_height,
+                radius,
+            } => {
+                let r = radius.unwrap_or(0.0).max(0.0);
+                let (x1, y1) = (x0 + inset_width, y0 + inset_height);
                 Self::from_mask_with_range(w, h, dpr, range, |x, y| {
                     let (px, py) = at(x, y);
                     if px < x0 || px >= x1 || py < y0 || py >= y1 {
@@ -145,7 +155,7 @@ impl ShapeField {
                     (px - cx).hypot(py - cy) <= r
                 })
             }
-            CssShape::Path(_) => return None,
+            ResolvedShape::Path { .. } => return None,
         })
     }
 

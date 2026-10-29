@@ -30,7 +30,7 @@ pub fn style_text() -> CssPropertyWithConditionsVec {
         ),
         CssPropertyWithConditions::simple(CssProperty::font_weight(StyleFontWeight::W600)),
         CssPropertyWithConditions::simple(CssProperty::font_style(StyleFontStyle::Italic)),
-        CssPropertyWithConditions::simple(CssProperty::FontVariantNumeric(StyleFontVariantNumericValue::Exact(StyleFontVariantNumeric { lining_nums: false, oldstyle_nums: false, proportional_nums: false, tabular_nums: true, diagonal_fractions: false, stacked_fractions: false, ordinal: false, slashed_zero: false }))),
+        CssPropertyWithConditions::simple(CssProperty::font_variant_numeric(StyleFontVariantNumeric { lining_nums: false, oldstyle_nums: false, proportional_nums: false, tabular_nums: true, diagonal_fractions: false, stacked_fractions: false, ordinal: false, slashed_zero: false })),
         CssPropertyWithConditions::simple(CssProperty::FontVariantCaps(StyleFontVariantCapsValue::Exact(StyleFontVariantCaps::SmallCaps))),
         CssPropertyWithConditions::simple(CssProperty::FontFeatureSettings(StyleFontFeatureSettingsValue::Exact(StyleFontFeatureSettings { inner: azul::str::String::from("\"liga\" 0, \"tnum\"") }))),
         CssPropertyWithConditions::simple(CssProperty::text_align(StyleTextAlign::Center)),
@@ -297,9 +297,9 @@ pub fn style_fragment() -> CssPropertyWithConditionsVec {
 /// CSS: .shape
 pub fn style_shape() -> CssPropertyWithConditionsVec {
     CssPropertyWithConditionsVec::from(vec![
-        CssPropertyWithConditions::simple(CssProperty::shape_outside(ShapeOutside::Shape(CssShape::Circle(ShapeCircle { center: ShapePoint { x: 0.0, y: 0.0 }, radius: 50.0 })))),
-        CssPropertyWithConditions::simple(CssProperty::shape_inside(ShapeInside::Shape(CssShape::Circle(ShapeCircle { center: ShapePoint { x: 50.0, y: 50.0 }, radius: 100.0 })))),
-        CssPropertyWithConditions::simple(CssProperty::clip_path(ClipPath::Shape(CssShape::Circle(ShapeCircle { center: ShapePoint { x: 0.0, y: 0.0 }, radius: 40.0 })))),
+        CssPropertyWithConditions::simple(CssProperty::shape_outside(ShapeOutside::Shape(CssShape::Circle(ShapeCircle { center: ShapePosition { x: ShapeOffset { from_end: false, offset: PixelValue::percent(50.0) }, y: ShapeOffset { from_end: false, offset: PixelValue::percent(50.0) } }, radius: ShapeRadius::Length(PixelValue::px(50.0)) })))),
+        CssPropertyWithConditions::simple(CssProperty::shape_inside(ShapeInside::Shape(CssShape::Circle(ShapeCircle { center: ShapePosition { x: ShapeOffset { from_end: false, offset: PixelValue::px(50.0) }, y: ShapeOffset { from_end: false, offset: PixelValue::px(50.0) } }, radius: ShapeRadius::Length(PixelValue::px(100.0)) })))),
+        CssPropertyWithConditions::simple(CssProperty::clip_path(ClipPath::Shape(CssShape::Circle(ShapeCircle { center: ShapePosition { x: ShapeOffset { from_end: false, offset: PixelValue::percent(50.0) }, y: ShapeOffset { from_end: false, offset: PixelValue::percent(50.0) } }, radius: ShapeRadius::Length(PixelValue::px(40.0)) })))),
         CssPropertyWithConditions::simple(CssProperty::shape_margin(ShapeMargin { inner: PixelValue::px(10.0) })),
         CssPropertyWithConditions::simple(CssProperty::shape_image_threshold(ShapeImageThreshold { inner: FloatValue::create(0.5) })),
     ])

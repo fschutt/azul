@@ -1,9 +1,19 @@
-    use azul_css::shape::{CssShape, ShapePath};
+    use azul_css::shape::{CssShape, ShapeFillRule, ShapeReference};
 
     use super::*;
 
     fn path_shape(d: &str) -> CssShape {
-        CssShape::Path(ShapePath { data: d.into() })
+        CssShape::path(ShapeFillRule::EvenOdd, d)
+    }
+
+    /// `shape` in a `width` x `height` reference box at the origin.
+    fn in_box(shape: &CssShape, width: f32, height: f32) -> ShapeBoundary {
+        ShapeBoundary::from_css_shape(
+            shape,
+            Point::default(),
+            &ShapeReference::of_box(width, height),
+            &mut None,
+        )
     }
 
     // --- shape-outside: path() ----------------------------------------------
@@ -12,13 +22,7 @@
     fn css_path_shape_builds_path_boundary_not_rect_fallback() {
         // A right triangle (0,0)-(100,0)-(0,100).
         let shape = path_shape("M 0 0 L 100 0 L 0 100 Z");
-        let rbox = Rect {
-            x: 0.0,
-            y: 0.0,
-            width: 100.0,
-            height: 100.0,
-        };
-        let boundary = ShapeBoundary::from_css_shape(&shape, rbox, &mut None);
+        let boundary = in_box(&shape, 100.0, 100.0);
         match boundary {
             ShapeBoundary::Path { segments, .. } => {
                 assert!(!segments.is_empty(), "path() must flatten to real segments");
@@ -31,13 +35,7 @@
 
     #[test]
     fn empty_or_garbage_path_falls_back_to_rectangle() {
-        let rbox = Rect {
-            x: 0.0,
-            y: 0.0,
-            width: 50.0,
-            height: 50.0,
-        };
-        let boundary = ShapeBoundary::from_css_shape(&path_shape("   "), rbox, &mut None);
+        let boundary = in_box(&path_shape("   "), 50.0, 50.0);
         assert!(
             matches!(boundary, ShapeBoundary::Rectangle(_)),
             "unparseable path() should fall back to the reference rectangle"
@@ -51,13 +49,7 @@
         // must NARROW as y increases — the proof that real path geometry (not a
         // full-width rect) drives the per-line exclusion.
         let shape = path_shape("M 0 0 L 100 0 L 0 100 Z");
-        let rbox = Rect {
-            x: 0.0,
-            y: 0.0,
-            width: 100.0,
-            height: 100.0,
-        };
-        let boundary = ShapeBoundary::from_css_shape(&shape, rbox, &mut None);
+        let boundary = in_box(&shape, 100.0, 100.0);
 
         let spans_top = get_shape_horizontal_spans(&boundary, 10.0, 1.0);
         let spans_bot = get_shape_horizontal_spans(&boundary, 80.0, 1.0);
@@ -93,13 +85,7 @@
         // scanline through the hole, even-odd fill yields two spans straddling the hole.
         let shape =
             path_shape("M 0 0 L 100 0 L 100 100 L 0 100 Z M 30 30 L 30 70 L 70 70 L 70 30 Z");
-        let rbox = Rect {
-            x: 0.0,
-            y: 0.0,
-            width: 100.0,
-            height: 100.0,
-        };
-        let boundary = ShapeBoundary::from_css_shape(&shape, rbox, &mut None);
+        let boundary = in_box(&shape, 100.0, 100.0);
         let spans = get_shape_horizontal_spans(&boundary, 50.0, 1.0);
         assert_eq!(
             spans.len(),

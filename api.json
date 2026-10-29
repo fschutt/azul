@@ -50861,34 +50861,32 @@
                     },
                     "ShapeInset": {
                         "external": "azul_css::shape::ShapeInset",
-                        "custom_impls": [
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
                             "Eq",
                             "Hash",
                             "Ord",
                             "PartialEq",
                             "PartialOrd"
                         ],
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy"
-                        ],
                         "struct_fields": [
                             {
                                 "inset_top": {
-                                    "type": "f32"
+                                    "type": "PixelValue"
                                 },
                                 "inset_right": {
-                                    "type": "f32"
+                                    "type": "PixelValue"
                                 },
                                 "inset_bottom": {
-                                    "type": "f32"
+                                    "type": "PixelValue"
                                 },
                                 "inset_left": {
-                                    "type": "f32"
+                                    "type": "PixelValue"
                                 },
                                 "border_radius": {
-                                    "type": "OptionF32"
+                                    "type": "OptionPixelValue"
                                 }
                             }
                         ],
@@ -50896,16 +50894,14 @@
                     },
                     "CssShape": {
                         "external": "azul_css::shape::CssShape",
-                        "custom_impls": [
+                        "derive": [
+                            "Debug",
+                            "Clone",
                             "Eq",
                             "Hash",
                             "Ord",
                             "PartialEq",
                             "PartialOrd"
-                        ],
-                        "derive": [
-                            "Debug",
-                            "Clone"
                         ],
                         "enum_fields": [
                             {
@@ -50941,6 +50937,9 @@
                         ],
                         "struct_fields": [
                             {
+                                "fill_rule": {
+                                    "type": "ShapeFillRule"
+                                },
                                 "data": {
                                     "type": "String"
                                 }
@@ -50950,28 +50949,27 @@
                     },
                     "ShapeEllipse": {
                         "external": "azul_css::shape::ShapeEllipse",
-                        "custom_impls": [
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "Default",
                             "Eq",
                             "Hash",
                             "Ord",
                             "PartialEq",
                             "PartialOrd"
                         ],
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy"
-                        ],
                         "struct_fields": [
                             {
                                 "center": {
-                                    "type": "ShapePoint"
+                                    "type": "ShapePosition"
                                 },
                                 "radius_x": {
-                                    "type": "f32"
+                                    "type": "ShapeRadius"
                                 },
                                 "radius_y": {
-                                    "type": "f32"
+                                    "type": "ShapeRadius"
                                 }
                             }
                         ],
@@ -50979,25 +50977,24 @@
                     },
                     "ShapePoint": {
                         "external": "azul_css::shape::ShapePoint",
-                        "custom_impls": [
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Default",
                             "Eq",
                             "Hash",
                             "Ord",
                             "PartialOrd"
                         ],
-                        "derive": [
-                            "Debug",
-                            "Copy",
-                            "Clone",
-                            "PartialEq"
-                        ],
                         "struct_fields": [
                             {
                                 "x": {
-                                    "type": "f32"
+                                    "type": "PixelValue"
                                 },
                                 "y": {
-                                    "type": "f32"
+                                    "type": "PixelValue"
                                 }
                             }
                         ],
@@ -60147,6 +60144,100 @@
                             }
                         ],
                         "repr": "C"
+                    },
+                    "ShapeFillRule": {
+                        "external": "azul_css::shape::ShapeFillRule",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "Hash",
+                            "PartialOrd",
+                            "Ord",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "NonZero": {},
+                                "EvenOdd": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "ShapeOffset": {
+                        "external": "azul_css::shape::ShapeOffset",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "Hash",
+                            "PartialOrd",
+                            "Ord",
+                            "Default"
+                        ],
+                        "struct_fields": [
+                            {
+                                "from_end": {
+                                    "type": "bool"
+                                },
+                                "offset": {
+                                    "type": "PixelValue"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "ShapePosition": {
+                        "external": "azul_css::shape::ShapePosition",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "Hash",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "x": {
+                                    "type": "ShapeOffset"
+                                },
+                                "y": {
+                                    "type": "ShapeOffset"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "ShapeRadius": {
+                        "external": "azul_css::shape::ShapeRadius",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "Hash",
+                            "PartialOrd",
+                            "Ord",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Length": {
+                                    "type": "PixelValue"
+                                },
+                                "ClosestSide": {},
+                                "FarthestSide": {}
+                            }
+                        ],
+                        "repr": "C, u8"
                     }
                 }
             },
@@ -130532,25 +130623,24 @@
                     },
                     "ShapeCircle": {
                         "external": "azul_css::shape::ShapeCircle",
-                        "custom_impls": [
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "Default",
                             "Eq",
                             "Hash",
                             "Ord",
                             "PartialEq",
                             "PartialOrd"
                         ],
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy"
-                        ],
                         "struct_fields": [
                             {
                                 "center": {
-                                    "type": "ShapePoint"
+                                    "type": "ShapePosition"
                                 },
                                 "radius": {
-                                    "type": "f32"
+                                    "type": "ShapeRadius"
                                 }
                             }
                         ],
@@ -130569,6 +130659,9 @@
                         ],
                         "struct_fields": [
                             {
+                                "fill_rule": {
+                                    "type": "ShapeFillRule"
+                                },
                                 "points": {
                                     "type": "ShapePointVec"
                                 }

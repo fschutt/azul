@@ -45,7 +45,7 @@ package body Styles is
       t3 (2) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Font_Family (Az_StyleFontFamilyVec_Copy_From_Ptr (t1 (0)'Address, 2)));
       t3 (3) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Font_Weight (Az_StyleFontWeight'(W600)));
       t3 (4) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Font_Style (Az_StyleFontStyle'(Italic)));
-      t3 (5) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Font_Variant_Numeric (Az_StyleFontVariantNumericValue'(Tag => Exact, Payload_Exact => Az_StyleFontVariantNumeric'(Lining_Nums => 0, Oldstyle_Nums => 0, Proportional_Nums => 0, Tabular_Nums => 1, Diagonal_Fractions => 0, Stacked_Fractions => 0, Ordinal => 0, Slashed_Zero => 0))));
+      t3 (5) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Font_Variant_Numeric (Az_StyleFontVariantNumeric'(Lining_Nums => 0, Oldstyle_Nums => 0, Proportional_Nums => 0, Tabular_Nums => 1, Diagonal_Fractions => 0, Stacked_Fractions => 0, Ordinal => 0, Slashed_Zero => 0)));
       t3 (6) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Font_Variant_Caps (Az_StyleFontVariantCapsValue'(Tag => Exact, Payload_Exact => Az_StyleFontVariantCaps'(SmallCaps))));
       t3 (7) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Font_Feature_Settings (Az_StyleFontFeatureSettingsValue'(Tag => Exact, Payload_Exact => Az_StyleFontFeatureSettings'(Inner => To_Az_String ("""liga"" 0, ""tnum""")))));
       t3 (8) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Text_Align (Az_StyleTextAlign'(Center)));
@@ -309,9 +309,9 @@ package body Styles is
    function Style_Shape return Az_CssPropertyWithConditionsVec is
       t1 : aliased array (0 .. 4) of Az_CssPropertyWithConditions;
    begin
-      t1 (0) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Shape_Outside (Az_ShapeOutside_Shape (Az_CssShape_Circle (Az_ShapeCircle'(Center => Az_ShapePoint'(X => 0.0, Y => 0.0), Radius => 50.0)))));
-      t1 (1) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Shape_Inside (Az_ShapeInside_Shape (Az_CssShape_Circle (Az_ShapeCircle'(Center => Az_ShapePoint'(X => 50.0, Y => 50.0), Radius => 100.0)))));
-      t1 (2) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Clip_Path (Az_ClipPath_Shape (Az_CssShape_Circle (Az_ShapeCircle'(Center => Az_ShapePoint'(X => 0.0, Y => 0.0), Radius => 40.0)))));
+      t1 (0) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Shape_Outside (Az_ShapeOutside_Shape (Az_CssShape_Circle (Az_ShapeCircle'(Center => Az_ShapePosition'(X => Az_ShapeOffset'(From_End => 0, Offset => Az_PixelValue_Percent (50.0)), Y => Az_ShapeOffset'(From_End => 0, Offset => Az_PixelValue_Percent (50.0))), Radius => Az_ShapeRadius_Length (Az_PixelValue_Px (50.0)))))));
+      t1 (1) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Shape_Inside (Az_ShapeInside_Shape (Az_CssShape_Circle (Az_ShapeCircle'(Center => Az_ShapePosition'(X => Az_ShapeOffset'(From_End => 0, Offset => Az_PixelValue_Px (50.0)), Y => Az_ShapeOffset'(From_End => 0, Offset => Az_PixelValue_Px (50.0))), Radius => Az_ShapeRadius_Length (Az_PixelValue_Px (100.0)))))));
+      t1 (2) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Clip_Path (Az_ClipPath_Shape (Az_CssShape_Circle (Az_ShapeCircle'(Center => Az_ShapePosition'(X => Az_ShapeOffset'(From_End => 0, Offset => Az_PixelValue_Percent (50.0)), Y => Az_ShapeOffset'(From_End => 0, Offset => Az_PixelValue_Percent (50.0))), Radius => Az_ShapeRadius_Length (Az_PixelValue_Px (40.0)))))));
       t1 (3) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Shape_Margin (Az_ShapeMargin'(Inner => Az_PixelValue_Px (10.0))));
       t1 (4) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Shape_Image_Threshold (Az_ShapeImageThreshold'(Inner => Az_FloatValue_Create (0.5))));
       return Az_CssPropertyWithConditionsVec_Copy_From_Ptr (t1 (0)'Address, 5);

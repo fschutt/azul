@@ -20,7 +20,7 @@ function M.style_text()
         ),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontWeight(C.AzStyleFontWeight_W600)),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontStyle(C.AzStyleFontStyle_Italic)),
-        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontVariantNumeric(ffi.new('AzStyleFontVariantNumericValue', { Exact = { tag = 6, payload = ffi.new('AzStyleFontVariantNumeric', { lining_nums = false, oldstyle_nums = false, proportional_nums = false, tabular_nums = true, diagonal_fractions = false, stacked_fractions = false, ordinal = false, slashed_zero = false }) } }))),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontVariantNumeric(ffi.new('AzStyleFontVariantNumeric', { lining_nums = false, oldstyle_nums = false, proportional_nums = false, tabular_nums = true, diagonal_fractions = false, stacked_fractions = false, ordinal = false, slashed_zero = false }))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontVariantCaps(ffi.new('AzStyleFontVariantCapsValue', { Exact = { tag = 6, payload = C.AzStyleFontVariantCaps_SmallCaps } }))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontFeatureSettings(ffi.new('AzStyleFontFeatureSettingsValue', { Exact = { tag = 6, payload = ffi.new('AzStyleFontFeatureSettings', { inner = azul._az_string("\"liga\" 0, \"tnum\"") }) } }))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_textAlign(C.AzStyleTextAlign_Center)),
@@ -314,9 +314,9 @@ end
 -- CSS: .shape
 function M.style_shape()
     return C.AzCssPropertyWithConditionsVec_copyFromPtr(ffi.new('AzCssPropertyWithConditions[5]', {
-        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_shapeOutside(C.AzShapeOutside_shape(C.AzCssShape_circle(ffi.new('AzShapeCircle', { center = ffi.new('AzShapePoint', { x = 0.0, y = 0.0 }), radius = 50.0 }))))),
-        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_shapeInside(C.AzShapeInside_shape(C.AzCssShape_circle(ffi.new('AzShapeCircle', { center = ffi.new('AzShapePoint', { x = 50.0, y = 50.0 }), radius = 100.0 }))))),
-        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_clipPath(C.AzClipPath_shape(C.AzCssShape_circle(ffi.new('AzShapeCircle', { center = ffi.new('AzShapePoint', { x = 0.0, y = 0.0 }), radius = 40.0 }))))),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_shapeOutside(C.AzShapeOutside_shape(C.AzCssShape_circle(ffi.new('AzShapeCircle', { center = ffi.new('AzShapePosition', { x = ffi.new('AzShapeOffset', { from_end = false, offset = C.AzPixelValue_percent(50.0) }), y = ffi.new('AzShapeOffset', { from_end = false, offset = C.AzPixelValue_percent(50.0) }) }), radius = C.AzShapeRadius_length(C.AzPixelValue_px(50.0)) }))))),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_shapeInside(C.AzShapeInside_shape(C.AzCssShape_circle(ffi.new('AzShapeCircle', { center = ffi.new('AzShapePosition', { x = ffi.new('AzShapeOffset', { from_end = false, offset = C.AzPixelValue_px(50.0) }), y = ffi.new('AzShapeOffset', { from_end = false, offset = C.AzPixelValue_px(50.0) }) }), radius = C.AzShapeRadius_length(C.AzPixelValue_px(100.0)) }))))),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_clipPath(C.AzClipPath_shape(C.AzCssShape_circle(ffi.new('AzShapeCircle', { center = ffi.new('AzShapePosition', { x = ffi.new('AzShapeOffset', { from_end = false, offset = C.AzPixelValue_percent(50.0) }), y = ffi.new('AzShapeOffset', { from_end = false, offset = C.AzPixelValue_percent(50.0) }) }), radius = C.AzShapeRadius_length(C.AzPixelValue_px(40.0)) }))))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_shapeMargin(ffi.new('AzShapeMargin', { inner = C.AzPixelValue_px(10.0) }))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_shapeImageThreshold(ffi.new('AzShapeImageThreshold', { inner = C.AzFloatValue_create(0.5) }))),
     }), 5)

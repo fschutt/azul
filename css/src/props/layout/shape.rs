@@ -279,7 +279,7 @@ pub mod parser {
     /// Returns an error if `input` is not a valid CSS `shape-outside` value.
     pub fn parse_shape_outside(input: &str) -> Result<ShapeOutside, ShapeParseError> {
         let trimmed = input.trim();
-        if trimmed == "none" {
+        if trimmed.eq_ignore_ascii_case("none") {
             Ok(ShapeOutside::None)
         } else {
             let shape = parse_shape(trimmed)?;
@@ -293,7 +293,7 @@ pub mod parser {
     /// Returns an error if `input` is not a valid CSS `shape-inside` value.
     pub fn parse_shape_inside(input: &str) -> Result<ShapeInside, ShapeParseError> {
         let trimmed = input.trim();
-        if trimmed == "none" {
+        if trimmed.eq_ignore_ascii_case("none") {
             Ok(ShapeInside::None)
         } else {
             let shape = parse_shape(trimmed)?;
@@ -307,7 +307,7 @@ pub mod parser {
     /// Returns an error if `input` is not a valid CSS `clip-path` value.
     pub fn parse_clip_path(input: &str) -> Result<ClipPath, ShapeParseError> {
         let trimmed = input.trim();
-        if trimmed == "none" {
+        if trimmed.eq_ignore_ascii_case("none") {
             Ok(ClipPath::None)
         } else {
             let shape = parse_shape(trimmed)?;
@@ -407,9 +407,11 @@ mod autotest_generated {
 
     use super::*;
     use crate::{
-        corety::OptionF32,
-        props::basic::length::SizeMetric,
-        shape::{ShapeCircle, ShapeEllipse, ShapeInset, ShapePath, ShapePolygon},
+        props::basic::{length::SizeMetric, pixel::OptionPixelValue},
+        shape::{
+            ShapeCircle, ShapeEllipse, ShapeFillRule, ShapeInset, ShapePath, ShapePoint,
+            ShapePolygon, ShapeRadius,
+        },
         shape_parser::ShapeParseError,
     };
 
@@ -658,16 +660,16 @@ mod autotest_generated {
         );
     }
 
-    /// A NaN f32 in a shape used to break the `Eq`/`Ord` contracts: the property
-    /// enums derived `PartialEq` (raw compare, NaN != NaN) while hand-writing
-    /// `Ord`/`Hash` as NaN-Equal (`to_bits`), so `a == a` was false yet `cmp` said
-    /// `Equal`. Fixed: `PartialEq` is now hand-written to match `Ord`, so a
-    /// preserved NaN length stays reflexive and consistent with Hash/Ord.
+    /// A NaN or infinite number is no CSS number: such a shape is refused, so
+    /// every shape that parses is finite and its `Eq`, `Ord` and `Hash` agree.
     #[test]
-    fn nan_shape_is_reflexive_and_consistent_across_eq_ord_hash() {
-        let a = parse_clip_path("circle(NaN)").expect("NaN is a preserved length");
-        let b = parse_clip_path("circle(NaN)").expect("NaN is a preserved length");
-        assert_eq!(a, a, "Eq must be reflexive for a NaN shape");
+    fn a_shape_of_a_non_finite_number_is_refused_and_parsed_shapes_agree() {
+        for input in ["circle(NaN)", "circle(inf)", "circle(1e400px)"] {
+            assert!(parse_clip_path(input).is_err(), "{input:?}");
+        }
+        let a = parse_clip_path("circle(5px)").expect("a circle");
+        let b = parse_clip_path("circle(5px)").expect("a circle");
+        assert_eq!(a, a);
         assert_eq!(a, b);
         assert_eq!(a.cmp(&b), Ordering::Equal);
         assert_eq!(a.partial_cmp(&b), Some(Ordering::Equal));
@@ -805,21 +807,18 @@ mod autotest_generated {
 
         let big_polygon = format!("polygon({}1px 1px)", "1px 1px, ".repeat(10_000));
         match clip_shape(&big_polygon) {
-            CssShape::Polygon(ShapePolygon { points }) => {
+            CssShape::Polygon(ShapePolygon { points, .. }) => {
                 assert_eq!(points.as_ref().len(), 10_001);
             }
             other => panic!("expected Polygon, got {other:?}"),
         }
 
-        // 10 000 digits overflow f32 to infinity rather than erroring — the
-        // shape keeps a raw f32, so this is where a non-finite radius gets in.
+        // 10 000 digits overflow f32 to infinity: no CSS number, refused.
         let huge_radius = format!("circle({}px)", "9".repeat(10_000));
-        match clip_shape(&huge_radius) {
-            CssShape::Circle(ShapeCircle { radius, .. }) => {
-                assert!(radius.is_infinite() && radius.is_sign_positive());
-            }
-            other => panic!("expected Circle, got {other:?}"),
-        }
+        assert!(matches!(
+            parse_clip_path(&huge_radius),
+            Err(ShapeParseError::InvalidNumber(_))
+        ));
     }
 
     // ---------------------------------------------------------------------
@@ -857,19 +856,14 @@ mod autotest_generated {
         }
     }
 
-    /// `none` is matched case-sensitively, which is not CSS-conformant (CSS
-    /// keywords are ASCII case-insensitive). Asserted as an invariant that holds
-    /// either way — uppercase must never silently become a *shape*.
+    /// CSS keywords are ASCII case-insensitive: `NONE` is `none`.
     #[test]
-    fn uppercase_none_never_yields_a_shape() {
+    fn uppercase_none_is_none() {
         for input in ["NONE", "None", "nOnE"] {
-            match parse_clip_path(input) {
-                Ok(ClipPath::None) | Err(_) => {}
-                Ok(other) => panic!("{input:?} parsed as a shape: {other:?}"),
-            }
+            assert_eq!(parse_clip_path(input), Ok(ClipPath::None), "{input:?}");
+            assert_eq!(parse_shape_outside(input), Ok(ShapeOutside::None));
+            assert_eq!(parse_shape_inside(input), Ok(ShapeInside::None));
         }
-        // Current behaviour: rejected as an unparseable function.
-        assert!(parse_clip_path("NONE").is_err());
     }
 
     #[test]
@@ -911,31 +905,16 @@ mod autotest_generated {
         );
     }
 
-    /// Trailing junk after the closing paren is currently *ignored*:
-    /// `parse_function` takes `rfind(')')` and never checks that the input ends
-    /// there, so `circle(50px);garbage` parses as a plain circle. That is a
-    /// leniency bug (a declaration with trailing garbage should be dropped), but
-    /// it is not a memory-safety issue.
-    ///
-    /// Asserted as the invariant that must hold either way: the parser may
-    /// reject the input, but it must never return a *different* shape than the
-    /// prefix describes.
+    /// A shape ends at its closing parenthesis: a value with anything after
+    /// it is no shape, and the declaration is dropped.
     #[test]
-    fn trailing_junk_is_ignored_but_never_changes_the_shape() {
+    fn trailing_junk_after_a_shape_is_refused() {
         for input in [
             "circle(50px);garbage",
             "circle(50px)garbage",
             "circle(50px)🙂",
         ] {
-            match parse_clip_path(input) {
-                Ok(ClipPath::Shape(CssShape::Circle(ShapeCircle { center, radius }))) => {
-                    assert_eq!(radius, 50.0, "{input:?}");
-                    assert_eq!(center.x, 0.0);
-                    assert_eq!(center.y, 0.0);
-                }
-                Err(_) => { /* rejecting trailing junk would be more correct */ }
-                other => panic!("{input:?} produced an unexpected value: {other:?}"),
-            }
+            assert!(parse_clip_path(input).is_err(), "{input:?}");
         }
     }
 
@@ -963,60 +942,41 @@ mod autotest_generated {
 
         // Multibyte *inside* a quoted path is data, and is preserved verbatim.
         match clip_shape("path(\"🙂\")") {
-            CssShape::Path(ShapePath { data }) => assert_eq!(data.as_str(), "🙂"),
+            CssShape::Path(ShapePath { data, .. }) => assert_eq!(data.as_str(), "🙂"),
             other => panic!("expected Path, got {other:?}"),
         }
     }
 
     #[test]
     fn circle_boundary_numbers() {
-        // Unitless and `%` are both accepted; `%` is silently treated as a raw
-        // number (parse_length has a TODO — it needs the container size).
-        for input in ["circle(50px)", "circle(50)", "circle(50%)"] {
-            match clip_shape(input) {
-                CssShape::Circle(ShapeCircle { radius, .. }) => assert_eq!(radius, 50.0),
-                other => panic!("expected Circle, got {other:?}"),
-            }
-        }
-
-        // Zero, signed zero, and negative radii are all accepted. A negative
-        // radius is invalid per CSS Shapes; it is stored as-is.
+        // A length keeps its unit; a bare number is read as pixels.
         for (input, expected) in [
-            ("circle(0px)", 0.0_f32),
-            ("circle(-0px)", -0.0_f32),
-            ("circle(-50px)", -50.0_f32),
-            ("circle(+5px)", 5.0_f32),
-            ("circle(.5px)", 0.5_f32),
-            ("circle(5.px)", 5.0_f32),
+            ("circle(50px)", PixelValue::px(50.0)),
+            ("circle(50)", PixelValue::px(50.0)),
+            ("circle(50%)", PixelValue::percent(50.0)),
+            ("circle(0px)", PixelValue::px(0.0)),
+            ("circle(+5px)", PixelValue::px(5.0)),
+            ("circle(.5px)", PixelValue::px(0.5)),
+            ("circle(5.px)", PixelValue::px(5.0)),
         ] {
             match clip_shape(input) {
                 CssShape::Circle(ShapeCircle { radius, .. }) => {
-                    assert_eq!(radius, expected, "{input:?}");
+                    assert_eq!(radius, ShapeRadius::Length(expected), "{input:?}");
                 }
                 other => panic!("expected Circle, got {other:?}"),
             }
         }
 
-        // f32 overflow saturates to infinity instead of erroring.
-        for input in ["circle(1e400px)", "circle(inf)", "circle(infpx)"] {
-            match clip_shape(input) {
-                CssShape::Circle(ShapeCircle { radius, .. }) => {
-                    assert!(radius.is_infinite(), "{input:?} -> {radius}");
-                }
-                other => panic!("expected Circle, got {other:?}"),
-            }
-        }
-
-        // i64::MAX survives as an f32 approximation, no overflow panic.
-        match clip_shape("circle(9223372036854775807px)") {
-            CssShape::Circle(ShapeCircle { radius, .. }) => {
-                assert!(radius.is_finite() && radius > 9.0e18);
-            }
-            other => panic!("expected Circle, got {other:?}"),
-        }
-
-        // Rust-only / C-only numeric literals are NOT valid CSS numbers.
-        for input in ["circle(0x10px)", "circle(1_000px)"] {
+        // A radius cannot be negative, and a number must be a finite CSS
+        // number: no overflow to infinity, no Rust-only literal.
+        for input in [
+            "circle(-50px)",
+            "circle(1e400px)",
+            "circle(inf)",
+            "circle(infpx)",
+            "circle(0x10px)",
+            "circle(1_000px)",
+        ] {
             assert!(
                 matches!(
                     parse_clip_path(input),
@@ -1025,64 +985,63 @@ mod autotest_generated {
                 "expected InvalidNumber for {input:?}"
             );
         }
+
+        // i64::MAX survives as an f32 approximation, no overflow panic.
+        match clip_shape("circle(9223372036854775807px)") {
+            CssShape::Circle(ShapeCircle {
+                radius: ShapeRadius::Length(radius),
+                ..
+            }) => {
+                assert!(radius.number.get() > 9.0e6);
+            }
+            other => panic!("expected Circle, got {other:?}"),
+        }
     }
 
-    /// `circle()` needs 4 parts *and* `parts[1] == "at"` before it reads a
-    /// center; anything else silently falls back to the origin rather than
-    /// erroring. Pin that down — a partial `at` clause is not a parse error.
+    /// `at` takes a whole position: one, two or four values, never none or
+    /// three. Without `at` the circle is centred in its box, and without a
+    /// radius it reaches its closest side.
     #[test]
-    fn circle_at_clause_arity_falls_back_to_origin() {
+    fn a_circle_at_clause_names_a_whole_position() {
         for input in [
             "circle(50px at)",
-            "circle(50px at 1px)",
-            "circle(50px AT 1px 2px)",
+            "circle(50px at 1px 2px 3px)",
+            "circle(50px 60px)",
+        ] {
+            assert!(parse_clip_path(input).is_err(), "{input:?}");
+        }
+        for (input, x, y) in [
+            ("circle(50px at 1px 2px)", PixelValue::px(1.0), PixelValue::px(2.0)),
+            ("circle(50px AT 1px)", PixelValue::px(1.0), PixelValue::percent(50.0)),
+            ("circle(50px)", PixelValue::percent(50.0), PixelValue::percent(50.0)),
         ] {
             match clip_shape(input) {
                 CssShape::Circle(ShapeCircle { center, radius }) => {
-                    assert_eq!(radius, 50.0);
-                    assert_eq!((center.x, center.y), (0.0, 0.0), "{input:?}");
+                    assert_eq!(radius, ShapeRadius::Length(PixelValue::px(50.0)));
+                    assert_eq!((center.x.offset, center.y.offset), (x, y), "{input:?}");
                 }
                 other => panic!("expected Circle, got {other:?}"),
             }
         }
-
-        // A complete `at` clause is honoured; extra trailing parts are ignored.
-        for input in ["circle(50px at 1px 2px)", "circle(50px at 1px 2px 3px)"] {
-            match clip_shape(input) {
-                CssShape::Circle(ShapeCircle { center, radius }) => {
-                    assert_eq!(radius, 50.0);
-                    assert_eq!((center.x, center.y), (1.0, 2.0), "{input:?}");
-                }
-                other => panic!("expected Circle, got {other:?}"),
+        match clip_shape("circle()") {
+            CssShape::Circle(ShapeCircle { radius, .. }) => {
+                assert_eq!(radius, ShapeRadius::ClosestSide);
             }
+            other => panic!("expected Circle, got {other:?}"),
         }
-
-        assert!(matches!(
-            parse_clip_path("circle()"),
-            Err(ShapeParseError::MissingParameter(_))
-        ));
     }
 
     #[test]
-    fn ellipse_requires_two_radii() {
-        for input in ["ellipse()", "ellipse(1px)"] {
-            assert!(
-                matches!(
-                    parse_clip_path(input),
-                    Err(ShapeParseError::MissingParameter(_))
-                ),
-                "expected MissingParameter for {input:?}"
-            );
-        }
-
-        match clip_shape("ellipse(1px 2px)") {
+    fn an_ellipse_takes_two_radii_or_none() {
+        assert!(matches!(
+            parse_clip_path("ellipse(1px)"),
+            Err(ShapeParseError::MissingParameter(_))
+        ));
+        match clip_shape("ellipse()") {
             CssShape::Ellipse(ShapeEllipse {
-                center,
-                radius_x,
-                radius_y,
+                radius_x, radius_y, ..
             }) => {
-                assert_eq!((radius_x, radius_y), (1.0, 2.0));
-                assert_eq!((center.x, center.y), (0.0, 0.0));
+                assert_eq!((radius_x, radius_y), (ShapeRadius::ClosestSide, ShapeRadius::ClosestSide));
             }
             other => panic!("expected Ellipse, got {other:?}"),
         }
@@ -1093,8 +1052,17 @@ mod autotest_generated {
                 radius_x,
                 radius_y,
             }) => {
-                assert_eq!((radius_x, radius_y), (1.0, 2.0));
-                assert_eq!((center.x, center.y), (3.0, 4.0));
+                assert_eq!(
+                    (radius_x, radius_y),
+                    (
+                        ShapeRadius::Length(PixelValue::px(1.0)),
+                        ShapeRadius::Length(PixelValue::px(2.0))
+                    )
+                );
+                assert_eq!(
+                    (center.x.offset, center.y.offset),
+                    (PixelValue::px(3.0), PixelValue::px(4.0))
+                );
             }
             other => panic!("expected Ellipse, got {other:?}"),
         }
@@ -1105,17 +1073,17 @@ mod autotest_generated {
         ));
     }
 
+    /// `polygon()` takes one or more whole points, comma-separated, after an
+    /// optional fill rule of its own.
     #[test]
-    fn polygon_needs_three_complete_points() {
-        // Fewer than 3 points, empty args, and a trailing comma all fail.
+    fn a_polygon_takes_whole_points() {
         for input in [
             "polygon()",
             "polygon(,)",
-            "polygon(0 0)",
-            "polygon(0 0, 1 1)",
             "polygon(0 0, 1 1, 2 2,)",
             "polygon(0, 1, 2)",
             "polygon(nonzero,)",
+            "polygon(nonzero 0 0, 1 1, 2 2)",
         ] {
             assert!(
                 parse_clip_path(input).is_err(),
@@ -1124,30 +1092,26 @@ mod autotest_generated {
         }
 
         match clip_shape("polygon(0 0, 1 1, 2 2)") {
-            CssShape::Polygon(ShapePolygon { points }) => {
+            CssShape::Polygon(ShapePolygon { fill_rule, points }) => {
+                assert_eq!(fill_rule, ShapeFillRule::NonZero);
                 assert_eq!(points.as_ref().len(), 3);
-                assert_eq!((points.as_ref()[2].x, points.as_ref()[2].y), (2.0, 2.0));
+                assert_eq!(points.as_ref()[2], ShapePoint::px(2.0, 2.0));
             }
             other => panic!("expected Polygon, got {other:?}"),
         }
 
-        // The optional fill-rule prefix is accepted (and ignored) only when it
-        // is immediately followed by a comma.
-        for input in [
-            "polygon(nonzero, 0 0, 1 1, 2 2)",
-            "polygon(evenodd,0 0,1 1,2 2)",
+        for (input, rule) in [
+            ("polygon(nonzero, 0 0, 1 1, 2 2)", ShapeFillRule::NonZero),
+            ("polygon(evenodd,0 0,1 1,2 2)", ShapeFillRule::EvenOdd),
         ] {
             match clip_shape(input) {
-                CssShape::Polygon(ShapePolygon { points }) => {
+                CssShape::Polygon(ShapePolygon { fill_rule, points }) => {
+                    assert_eq!(fill_rule, rule, "{input:?}");
                     assert_eq!(points.as_ref().len(), 3, "{input:?}");
                 }
                 other => panic!("expected Polygon, got {other:?}"),
             }
         }
-        assert!(matches!(
-            parse_clip_path("polygon(nonzero 0 0, 1 1, 2 2)"),
-            Err(ShapeParseError::InvalidNumber(_))
-        ));
         assert!(matches!(
             parse_clip_path("polygon(x y, x y, x y)"),
             Err(ShapeParseError::InvalidNumber(_))
@@ -1174,10 +1138,10 @@ mod autotest_generated {
                 }) => {
                     assert_eq!(
                         [inset_top, inset_right, inset_bottom, inset_left],
-                        [top, right, bottom, left],
+                        [top, right, bottom, left].map(PixelValue::px),
                         "{input:?}"
                     );
-                    assert!(matches!(border_radius, OptionF32::None));
+                    assert_eq!(border_radius, OptionPixelValue::None);
                 }
                 other => panic!("expected Inset, got {other:?}"),
             }
@@ -1197,26 +1161,19 @@ mod autotest_generated {
             Err(ShapeParseError::MissingParameter(_))
         ));
 
-        // `round` with a missing / unparseable radius errors rather than
-        // panicking on the `args[round_pos + 5..]` slice.
+        // `round` needs one radius after insets.
         for input in [
             "inset(round)",
             "inset(10px round)",
             "inset(roundround)",
             "inset(10px round 5px 6px)",
         ] {
-            assert!(
-                matches!(
-                    parse_clip_path(input),
-                    Err(ShapeParseError::InvalidNumber(_))
-                ),
-                "expected InvalidNumber for {input:?}"
-            );
+            assert!(parse_clip_path(input).is_err(), "expected Err for {input:?}");
         }
 
         match clip_shape("inset(10px round 5px)") {
             CssShape::Inset(ShapeInset { border_radius, .. }) => {
-                assert!(matches!(border_radius, OptionF32::Some(r) if r == 5.0));
+                assert_eq!(border_radius, OptionPixelValue::Some(PixelValue::px(5.0)));
             }
             other => panic!("expected Inset, got {other:?}"),
         }
@@ -1226,27 +1183,19 @@ mod autotest_generated {
     fn path_data_must_be_quoted_and_is_stored_verbatim() {
         // Unquoted / half-quoted path data is rejected.
         for input in ["path()", "path(abc)", "path(\"abc)", "path(abc\")"] {
-            assert!(
-                matches!(
-                    parse_clip_path(input),
-                    Err(ShapeParseError::InvalidSyntax(_))
-                ),
-                "expected InvalidSyntax for {input:?}"
-            );
+            assert!(parse_clip_path(input).is_err(), "expected Err for {input:?}");
         }
 
-        // An empty quoted path is valid and yields empty data (this is the
-        // len == 2 neighbour of the len == 1 panic in the known-bug test).
+        // An empty quoted path is valid and yields empty data.
         match clip_shape("path(\"\")") {
-            CssShape::Path(ShapePath { data }) => assert_eq!(data.as_str(), ""),
+            CssShape::Path(ShapePath { data, .. }) => assert_eq!(data.as_str(), ""),
             other => panic!("expected Path, got {other:?}"),
         }
 
-        // Path data is never interpreted, so it can contain anything — including
-        // the parens that `parse_function` scans for, thanks to rfind(')').
-        match clip_shape("path(\"M 0 0 (L) 1 1 Z\")") {
-            CssShape::Path(ShapePath { data }) => {
-                assert_eq!(data.as_str(), "M 0 0 (L) 1 1 Z");
+        // Path data is a string: it can hold parentheses and either quote.
+        match clip_shape("path('M 0 0 (L) \"1\" 1 Z')") {
+            CssShape::Path(ShapePath { data, .. }) => {
+                assert_eq!(data.as_str(), "M 0 0 (L) \"1\" 1 Z");
             }
             other => panic!("expected Path, got {other:?}"),
         }
@@ -1262,7 +1211,7 @@ mod autotest_generated {
             "none",
             "circle(50px)",
             "circle(50px at 10px 20px)",
-            "circle(-1px at -2px -3px)",
+            "circle(1px at -2px -3px)",
             "ellipse(1px 2px)",
             "ellipse(1px 2px at 3px 4px)",
             "polygon(0px 0px, 100px 0px, 100px 100px)",

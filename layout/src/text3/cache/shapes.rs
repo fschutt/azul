@@ -704,157 +704,125 @@ impl PartialEq for ShapeBoundary {
 impl Eq for ShapeBoundary {}
 
 impl ShapeBoundary {
-    /// Converts a CSS shape (from azul-css) to a layout engine `ShapeBoundary`
+    /// The shape `css_shape` measured against `reference` (its reference box
+    /// and the sizes its relative lengths take), placed with the box's top
+    /// left corner at `origin`.
     ///
-    /// # Arguments
-    /// * `css_shape` - The parsed CSS shape from azul-css
-    /// * `reference_box` - The containing box for resolving coordinates (from layout solver)
-    ///
-    /// # Returns
-    /// A `ShapeBoundary` ready for use in the text layout engine
-    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse
-                                     // routine (one branch per case)
+    /// An inset rounded by `round` follows its rounded corners. A path whose
+    /// data cannot be read takes the whole reference box: a shape that means
+    /// nothing cuts nothing.
+    #[must_use]
     pub fn from_css_shape(
         css_shape: &azul_css::shape::CssShape,
-        reference_box: Rect,
+        origin: Point,
+        reference: &azul_css::shape::ShapeReference,
         debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     ) -> Self {
-        use azul_css::shape::CssShape;
+        use azul_css::shape::ResolvedShape;
 
-        if let Some(msgs) = debug_messages {
-            msgs.push(LayoutDebugMessage::info(format!(
-                "[ShapeBoundary::from_css_shape] Input CSS shape: {css_shape:?}"
-            )));
-            msgs.push(LayoutDebugMessage::info(format!(
-                "[ShapeBoundary::from_css_shape] Reference box: {reference_box:?}"
-            )));
-        }
-
-        let result = match css_shape {
-            CssShape::Circle(circle) => {
-                let center = Point {
-                    x: reference_box.x + circle.center.x,
-                    y: reference_box.y + circle.center.y,
-                };
-                if let Some(msgs) = debug_messages {
-                    msgs.push(LayoutDebugMessage::info(format!(
-                        "[ShapeBoundary::from_css_shape] Circle - CSS center: ({}, {}), radius: {}",
-                        circle.center.x, circle.center.y, circle.radius
-                    )));
-                    msgs.push(LayoutDebugMessage::info(format!(
-                        "[ShapeBoundary::from_css_shape] Circle - Absolute center: ({}, {}), \
-                         radius: {}",
-                        center.x, center.y, circle.radius
-                    )));
-                }
-                Self::Circle {
-                    center,
-                    radius: circle.radius,
-                }
-            }
-
-            CssShape::Ellipse(ellipse) => {
-                let center = Point {
-                    x: reference_box.x + ellipse.center.x,
-                    y: reference_box.y + ellipse.center.y,
-                };
-                let radii = Size {
-                    width: ellipse.radius_x,
-                    height: ellipse.radius_y,
-                };
-                if let Some(msgs) = debug_messages {
-                    msgs.push(LayoutDebugMessage::info(format!(
-                        "[ShapeBoundary::from_css_shape] Ellipse - center: ({}, {}), radii: ({}, \
-                         {})",
-                        center.x, center.y, radii.width, radii.height
-                    )));
-                }
-                Self::Ellipse { center, radii }
-            }
-
-            CssShape::Polygon(polygon) => {
-                let points = polygon
-                    .points
-                    .as_ref()
-                    .iter()
-                    .map(|pt| Point {
-                        x: reference_box.x + pt.x,
-                        y: reference_box.y + pt.y,
-                    })
-                    .collect();
-                if let Some(msgs) = debug_messages {
-                    msgs.push(LayoutDebugMessage::info(format!(
-                        "[ShapeBoundary::from_css_shape] Polygon - {} points",
-                        polygon.points.as_ref().len()
-                    )));
-                }
-                Self::Polygon {
-                    points,
-                    fill_rule: FillRule::EvenOdd,
-                }
-            }
-
-            CssShape::Inset(inset) => {
-                // Inset defines distances from reference box edges
-                let x = reference_box.x + inset.inset_left;
-                let y = reference_box.y + inset.inset_top;
-                let width = reference_box.width - inset.inset_left - inset.inset_right;
-                let height = reference_box.height - inset.inset_top - inset.inset_bottom;
-
-                if let Some(msgs) = debug_messages {
-                    msgs.push(LayoutDebugMessage::info(format!(
-                        "[ShapeBoundary::from_css_shape] Inset - insets: ({}, {}, {}, {})",
-                        inset.inset_top, inset.inset_right, inset.inset_bottom, inset.inset_left
-                    )));
-                    msgs.push(LayoutDebugMessage::info(format!(
-                        "[ShapeBoundary::from_css_shape] Inset - resulting rect: x={x}, y={y}, \
-                         w={width}, h={height}"
-                    )));
-                }
-
-                Self::Rectangle(Rect {
-                    x,
-                    y,
+        let at = |(x, y): (f32, f32)| Point {
+            x: origin.x + x,
+            y: origin.y + y,
+        };
+        let result = match css_shape.resolve(reference) {
+            ResolvedShape::Circle { center, radius } => Self::Circle {
+                center: at(center),
+                radius: radius.max(0.0),
+            },
+            ResolvedShape::Ellipse {
+                center,
+                radius_x,
+                radius_y,
+            } => Self::Ellipse {
+                center: at(center),
+                radii: Size::new(radius_x.max(0.0), radius_y.max(0.0)),
+            },
+            ResolvedShape::Polygon { fill_rule, points } => Self::Polygon {
+                points: points.into_iter().map(at).collect(),
+                fill_rule: fill_rule.into(),
+            },
+            ResolvedShape::Inset {
+                x,
+                y,
+                width,
+                height,
+                radius,
+            } => {
+                let rect = Rect {
+                    x: origin.x + x,
+                    y: origin.y + y,
                     width: width.max(0.0),
                     height: height.max(0.0),
-                })
-            }
-
-            CssShape::Path(path) => {
-                // CSS `path()` value: `path.data` is a raw SVG path `d=""` string in the
-                // reference-box coordinate system (origin at the reference box's top-left).
-                // Parse + flatten it into `Vec<PathSegment>` (curves sampled to line
-                // segments) so the scanline code in `get_shape_horizontal_spans` can
-                // intersect it per line, exactly like `polygon`.
-                let segments = azul_core::path_parser::parse_svg_path_d(path.data.as_str())
-                    .map_or_else(
-                        |_| Vec::new(),
-                        |multipolygon| flatten_svg_to_path_segments(&multipolygon, reference_box),
-                    );
-                if let Some(msgs) = debug_messages {
-                    msgs.push(LayoutDebugMessage::info(format!(
-                        "[ShapeBoundary::from_css_shape] Path - parsed {} flattened segments",
-                        segments.len()
-                    )));
+                };
+                match radius.map(|r| r.min(rect.width / 2.0).min(rect.height / 2.0)) {
+                    Some(r) if r > 0.0 => Self::Polygon {
+                        points: rounded_rect_points(rect, r),
+                        fill_rule: FillRule::NonZero,
+                    },
+                    _ => Self::Rectangle(rect),
                 }
+            }
+            ResolvedShape::Path { fill_rule, data } => {
+                let box_rect = Rect {
+                    x: origin.x,
+                    y: origin.y,
+                    width: reference.width,
+                    height: reference.height,
+                };
+                let segments = azul_core::path_parser::parse_svg_path_d(data).map_or_else(
+                    |_| Vec::new(),
+                    |multipolygon| flatten_svg_to_path_segments(&multipolygon, box_rect),
+                );
                 if segments.is_empty() {
-                    // Unparseable / empty path: fall back to the reference rectangle so a
-                    // shape-inside container does not collapse to zero usable space.
-                    Self::Rectangle(reference_box)
+                    Self::Rectangle(box_rect)
                 } else {
                     Self::Path {
                         segments,
-                        fill_rule: FillRule::EvenOdd,
+                        fill_rule: fill_rule.into(),
                     }
                 }
             }
         };
-
         if let Some(msgs) = debug_messages {
             msgs.push(LayoutDebugMessage::info(format!(
-                "[ShapeBoundary::from_css_shape] Result: {result:?}"
+                "[ShapeBoundary::from_css_shape] {css_shape:?} in {reference:?} at {origin:?}: \
+                 {result:?}"
             )));
         }
         result
     }
+}
+
+impl From<azul_css::shape::ShapeFillRule> for FillRule {
+    fn from(rule: azul_css::shape::ShapeFillRule) -> Self {
+        match rule {
+            azul_css::shape::ShapeFillRule::NonZero => Self::NonZero,
+            azul_css::shape::ShapeFillRule::EvenOdd => Self::EvenOdd,
+        }
+    }
+}
+
+/// The outline of `rect` with its corners rounded by `radius`, each quarter
+/// circle sampled at eight points, clockwise from the top edge.
+fn rounded_rect_points(rect: Rect, radius: f32) -> Vec<Point> {
+    const STEPS: u16 = 8;
+    let corners = [
+        // centre of the corner's circle, and the angle its arc starts at
+        (rect.x + rect.width - radius, rect.y + radius, -core::f32::consts::FRAC_PI_2),
+        (rect.x + rect.width - radius, rect.y + rect.height - radius, 0.0),
+        (rect.x + radius, rect.y + rect.height - radius, core::f32::consts::FRAC_PI_2),
+        (rect.x + radius, rect.y + radius, core::f32::consts::PI),
+    ];
+    let mut points = Vec::with_capacity(corners.len() * usize::from(STEPS + 1));
+    for (cx, cy, start) in corners {
+        for step in 0..=STEPS {
+            let angle = (f32::from(step) / f32::from(STEPS))
+                .mul_add(core::f32::consts::FRAC_PI_2, start);
+            points.push(Point {
+                x: radius.mul_add(angle.cos(), cx),
+                y: radius.mul_add(angle.sin(), cy),
+            });
+        }
+    }
+    points
 }
