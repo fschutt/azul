@@ -133,6 +133,36 @@ pub fn render_svg_to_raw_image_over(
     Ok(premultiplied_raw_image(&pixmap))
 }
 
+/// [`render_svg_to_raw_image_over`] with the document's text in the fonts
+/// of `fonts` where it embeds none of its own, rather than in the installed
+/// fonts: what a test that knows its fonts draws with.
+/// # Errors
+///
+/// Returns an error string if the SVG cannot be parsed or rendered.
+#[cfg(all(
+    feature = "std",
+    feature = "xml",
+    feature = "text_layout",
+    feature = "font_loading"
+))]
+pub fn render_svg_to_raw_image_with(
+    fonts: &rust_fontconfig::FcFontCache,
+    svg_data: &[u8],
+    target_width: u32,
+    target_height: u32,
+    background: Option<(u8, u8, u8, u8)>,
+) -> Result<azul_core::resources::RawImage, String> {
+    let pixmap = rasterize_svg_with(
+        svg_data,
+        target_width,
+        target_height,
+        background.unwrap_or((0, 0, 0, 0)),
+        &SvgPaintContext::default(),
+        |root| SvgText::for_document_in(root, fonts.clone()),
+    )?;
+    Ok(premultiplied_raw_image(&pixmap))
+}
+
 /// A rasterised pixmap as an RGBA8 `RawImage`. The pixmap is AGG's
 /// PREMULTIPLIED output, and the image says so: labelled straight, the
 /// image load premultiplied it a second time and a translucent paint
@@ -182,6 +212,26 @@ fn rasterize_svg(
     background: (u8, u8, u8, u8),
     paint: &SvgPaintContext,
 ) -> Result<AzulPixmap, String> {
+    rasterize_svg_with(
+        svg_data,
+        target_width,
+        target_height,
+        background,
+        paint,
+        SvgText::for_document,
+    )
+}
+
+/// [`rasterize_svg`] with the document's text drawn by the painter `text`
+/// makes for its `<svg>` root.
+fn rasterize_svg_with(
+    svg_data: &[u8],
+    target_width: u32,
+    target_height: u32,
+    background: (u8, u8, u8, u8),
+    paint: &SvgPaintContext,
+    text: impl FnOnce(&azul_core::xml::XmlNode) -> SvgText,
+) -> Result<AzulPixmap, String> {
     with_svg_root(svg_data, |svg_node| -> Result<AzulPixmap, String> {
         // Parse viewBox for coordinate mapping. An ABSENT viewBox is
         // `0 0 <width> <height>` (SVG's own sizing rule), not "the target's
@@ -205,7 +255,15 @@ fn rasterize_svg(
             .ok_or_else(|| "Failed to create pixmap".to_string())?;
         let (r, g, b, a) = background;
         pixmap.fill(r, g, b, a);
-        render_svg_group_painted(svg_node, &mut pixmap, &root_transform, paint);
+        render_svg_group_inner(
+            svg_node,
+            &mut pixmap,
+            &root_transform,
+            &SvgInheritedStyle::default(),
+            None,
+            paint,
+            &mut text(svg_node),
+        );
         Ok(pixmap)
     })?
 }
@@ -805,15 +863,19 @@ struct SvgText(SvgTextPainter);
 impl SvgText {
     /// The painter for the document under `root`: the fonts of every
     /// `@font-face` in its `<style>` elements (a PDF page's SVG embeds its
-    /// fonts as `data:` URIs), by the family each declares.
+    /// fonts as `data:` URIs), by the family each declares, and the
+    /// installed fonts for the families it does not embed.
     fn for_document(root: &azul_core::xml::XmlNode) -> Self {
-        let mut css = String::new();
-        collect_style_text(root, &mut css);
-        let embedded = azul_core::xml::element::font_face_rules(&css)
-            .into_iter()
-            .filter_map(|(family, src)| Some((family, crate::font_from_url(&src)?)))
-            .collect();
-        Self(SvgTextPainter::new(embedded))
+        Self(SvgTextPainter::with_installed_fonts(embedded_faces(root)))
+    }
+
+    /// [`Self::for_document`] with the families the document does not embed
+    /// drawn in `installed`.
+    fn for_document_in(
+        root: &azul_core::xml::XmlNode,
+        installed: rust_fontconfig::FcFontCache,
+    ) -> Self {
+        Self(SvgTextPainter::new(embedded_faces(root), installed))
     }
 
     #[allow(clippy::too_many_arguments)] // one text run's whole description
@@ -833,6 +895,25 @@ impl SvgText {
             pixmap, content, families, bold, italic, size_px, color, x, y,
         );
     }
+}
+
+/// The fonts of every `@font-face` in the `<style>` elements under `root`,
+/// by the family each declares.
+#[cfg(all(
+    feature = "std",
+    feature = "xml",
+    feature = "text_layout",
+    feature = "font_loading"
+))]
+fn embedded_faces(
+    root: &azul_core::xml::XmlNode,
+) -> Vec<(String, azul_css::props::basic::FontRef)> {
+    let mut css = String::new();
+    collect_style_text(root, &mut css);
+    azul_core::xml::element::font_face_rules(&css)
+        .into_iter()
+        .filter_map(|(family, src)| Some((family, crate::font_from_url(&src)?)))
+        .collect()
 }
 
 /// Without the text engine an SVG's text is not drawn.

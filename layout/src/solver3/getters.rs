@@ -5060,6 +5060,13 @@ fn structural_theme_of(styled_dom: &StyledDom) -> Option<&str> {
 /// names stay in lock-step with the font-loading pass (which always uses
 /// `Platform::current()`); diverging to a bare "sans-serif" would not match the
 /// names the loader registered → zero glyphs → text collapses to 0 width.
+/// The generic families a font stack ends in, each one the stack does not
+/// name itself: a text whose families are all missing is set in the
+/// platform's sans-serif, as CSS sets it in the user agent's default font.
+/// The DOM's stacks end so, and so do the stacks of the text painters that
+/// draw into images.
+pub(crate) const FALLBACK_GENERIC_FAMILIES: [&str; 3] = ["sans-serif", "serif", "monospace"];
+
 // The `platform` binding uses a pre-declared `let current;` so the else branch can
 // extend the lifetime of a freshly-computed Platform and hand back a reference to it;
 // map_or_else cannot express this (the closure would return a dangling local ref).
@@ -5179,7 +5186,7 @@ fn build_font_selector_stack_themed(
         }
     }
 
-    for fallback in &["sans-serif", "serif", "monospace"] {
+    for fallback in &FALLBACK_GENERIC_FAMILIES {
         if !stack
             .iter()
             .any(|f| f.family.eq_ignore_ascii_case(fallback))

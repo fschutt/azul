@@ -16,7 +16,7 @@
 use azul_core::resources::{RawImage, RawImageData};
 use azul_css::{props::basic::ColorU, AzString};
 use azul_layout::{
-    cpurender::{text_image_with, TextRasterStyle},
+    cpurender::{render_svg_to_raw_image_with, text_image_with, TextRasterStyle},
     text3::mock_fonts::MOCK_MONO_TTF,
 };
 use rust_fontconfig::{FcFont, FcFontCache, FcPattern};
@@ -81,6 +81,37 @@ fn a_text_image_in_sans_serif_is_drawn_in_the_face_that_has_its_letters() {
     );
     assert_eq!(
         set_in(&fc, "Hi", "sans-serif"),
+        mono,
+        "`sans-serif` draws `Hi` in the face that has `H` and `i`"
+    );
+}
+
+/// An SVG whose one `<text>` says `Hi` in `family`, rendered with the fonts
+/// of `fc` on a transparent backdrop.
+fn svg_text_in(fc: &FcFontCache, family: &str) -> (usize, usize, Vec<u8>) {
+    let svg = format!(
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"60\" height=\"30\" \
+         viewBox=\"0 0 60 30\"><text x=\"5\" y=\"20\" font-family=\"{family}\" \
+         font-size=\"20\">Hi</text></svg>"
+    );
+    pixels(
+        &render_svg_to_raw_image_with(fc, svg.as_bytes(), 60, 30, None)
+            .expect("the SVG renders"),
+    )
+}
+
+/// The labels of a chart drawn as an SVG: the `<text>` in `sans-serif` is
+/// drawn in the face that has its letters, and inks the image.
+#[test]
+fn an_svg_text_in_sans_serif_is_drawn_in_the_face_that_has_its_letters() {
+    let fc = mono_and_arabic();
+    let mono = svg_text_in(&fc, MONO);
+    assert!(
+        mono.2.chunks_exact(4).any(|px| px[3] > 0),
+        "the SVG text inks the image"
+    );
+    assert_eq!(
+        svg_text_in(&fc, "sans-serif"),
         mono,
         "`sans-serif` draws `Hi` in the face that has `H` and `i`"
     );

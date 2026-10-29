@@ -66,9 +66,11 @@ pub enum TextRasterDirection {
 #[repr(C)]
 #[derive(Debug, Clone, PartialEq)]
 pub struct TextRasterStyle {
-    /// A family name: `sans-serif`, `serif`, `monospace` or an installed
-    /// family. A family that is not there falls back to one that covers the
-    /// text.
+    /// A family name, or a CSS list of them: `sans-serif`, `serif`,
+    /// `monospace` or an installed family. The text is set in the face its
+    /// first letter is drawn in, as the DOM's text resolves the family: a
+    /// family that is not there, or has not the letter, falls back to one
+    /// that has it.
     pub font_family: AzString,
     /// The em size in image pixels.
     pub size_px: f32,
@@ -181,8 +183,10 @@ mod set {
         resources::RendererResources,
         ui_solver::GlyphInstance,
     };
+    use core::ops::Range;
+
     use azul_css::props::basic::FontRef;
-    use rust_fontconfig::{FcFontCache, FcPattern, FcWeight, OwnedFontSource, PatternMatch};
+    use rust_fontconfig::{FcFontCache, FcWeight, FontFallbackChain, FontId, OwnedFontSource};
 
     use super::{
         TextPixels, TextRasterAlign, TextRasterStyle, TEXT_RASTER_MAX_SIDE_PX,
@@ -192,56 +196,96 @@ mod set {
         cpurender::AzulPixmap,
         font::parsed::ParsedFont,
         glyph_cache::GlyphCache,
+        solver3::getters::FALLBACK_GENERIC_FAMILIES,
         text3::{
-            cache::{BidiDirection, FontHash, FontManager, StyleProperties},
+            cache::{
+                needs_own_glyph, resolve_chain_on_miss, BidiDirection, FontChainKey, FontHash,
+                FontManager, StyleProperties,
+            },
             default::shape_text_for_parsed_font,
             script::{detect_script, Language, Script},
         },
     };
 
-    /// The face for `style`: the family with the asked weight and slant,
-    /// then the family as it is, then `sans-serif`; each through
-    /// fontconfig's own fallback ladder (exact, family-relaxed, coverage).
-    fn resolve_font(fc: &FcFontCache, style: &TextRasterStyle) -> Option<ParsedFont> {
-        let family = style.font_family.as_str().trim();
-        let family = if family.is_empty() {
-            "sans-serif"
-        } else {
-            family
+    /// The family names of the CSS family list `families` (`Arial, "Noto
+    /// Sans", serif`), unquoted, and after them the generic families the
+    /// DOM's font stacks end in, each one the list does not name.
+    fn family_names(families: &str) -> Vec<String> {
+        let mut names: Vec<String> = families
+            .split(',')
+            .map(|name| name.trim().trim_matches(|c| c == '"' || c == '\'').trim())
+            .filter(|name| !name.is_empty())
+            .map(String::from)
+            .collect();
+        for generic in FALLBACK_GENERIC_FAMILIES {
+            if !names.iter().any(|name| name.eq_ignore_ascii_case(generic)) {
+                names.push(String::from(generic));
+            }
+        }
+        names
+    }
+
+    /// The font chain of the family list `families`, as the DOM's text
+    /// resolves it: each family's faces, a generic family (`sans-serif`)
+    /// standing for the faces the platform sets it in, then the faces that
+    /// cover the scripts the families do not.
+    fn chain_of(fc: &FcFontCache, families: &str, bold: bool, italic: bool) -> FontFallbackChain {
+        let key = FontChainKey {
+            font_families: family_names(families),
+            weight: if bold { FcWeight::Bold } else { FcWeight::Normal },
+            italic,
+            oblique: false,
+            optical_size: 0,
         };
-        let styled = FcPattern {
-            family: Some(family.to_string()),
-            weight: if style.bold {
-                FcWeight::Bold
+        resolve_chain_on_miss(&key, fc)
+    }
+
+    /// The face `chain` draws `ch` in: the first of its faces that has it,
+    /// its last resort when none has.
+    fn face_of(chain: &FontFallbackChain, ch: char) -> Option<FontId> {
+        chain.resolve_codepoint(u32::from(ch)).map(|(id, _)| id)
+    }
+
+    /// The face `chain` draws `text` in when one face sets all of it: the
+    /// face of its first character that is drawn, the chain's first face for
+    /// a text of spaces.
+    fn face_of_text(chain: &FontFallbackChain, text: &str) -> Option<FontId> {
+        text.chars()
+            .filter(|ch| needs_own_glyph(*ch))
+            .find_map(|ch| face_of(chain, ch))
+            .or_else(|| chain.fonts().next().map(|face| face.id))
+    }
+
+    /// The byte ranges of `text` with the face `chain` draws each in,
+    /// character by character: a character without a glyph of its own (a
+    /// space, a joiner) goes with the run before it, or with the first run.
+    fn runs_by_face(chain: &FontFallbackChain, text: &str) -> Vec<(Range<usize>, FontId)> {
+        let mut runs: Vec<(Range<usize>, FontId)> = Vec::new();
+        for (at, ch) in text.char_indices() {
+            let end = at + ch.len_utf8();
+            let face = if needs_own_glyph(ch) {
+                face_of(chain, ch)
             } else {
-                FcWeight::Normal
-            },
-            bold: if style.bold {
-                PatternMatch::True
-            } else {
-                PatternMatch::DontCare
-            },
-            italic: if style.italic {
-                PatternMatch::True
-            } else {
-                PatternMatch::DontCare
-            },
-            ..Default::default()
-        };
-        let plain = FcPattern {
-            family: Some(family.to_string()),
-            ..Default::default()
-        };
-        let generic = FcPattern {
-            family: Some("sans-serif".to_string()),
-            ..Default::default()
-        };
-        let mut trace = Vec::new();
-        let matched = [styled, plain, generic]
-            .iter()
-            .find_map(|p| fc.query_with_fallback(p, &mut trace))?;
-        let bytes = fc.get_font_bytes(&matched.id)?;
-        let index = fc.get_font_by_id(&matched.id).map_or(0, |src| match src {
+                None
+            };
+            if let Some((range, id)) = runs.last_mut() {
+                if face.is_none_or(|face| face == *id) {
+                    range.end = end;
+                    continue;
+                }
+            }
+            if let Some(face) = face {
+                let start = if runs.is_empty() { 0 } else { at };
+                runs.push((start..end, face));
+            }
+        }
+        runs
+    }
+
+    /// The face `id` of `fc`, parsed.
+    fn parsed_face(fc: &FcFontCache, id: &FontId) -> Option<ParsedFont> {
+        let bytes = fc.get_font_bytes(id)?;
+        let index = fc.get_font_by_id(id).map_or(0, |src| match src {
             OwnedFontSource::Disk(path) => path.font_index,
             OwnedFontSource::Memory(font) => font.font_index,
         });
@@ -249,6 +293,13 @@ mod set {
             ParsedFont::from_bytes(bytes.as_slice(), index, &mut Vec::new())?
                 .with_source_bytes(bytes.clone()),
         )
+    }
+
+    /// The face `style` sets `text` in: one face for all of it, the face
+    /// its family's chain draws its first character in ([`face_of_text`]).
+    fn resolve_font(fc: &FcFontCache, style: &TextRasterStyle, text: &str) -> Option<ParsedFont> {
+        let chain = chain_of(fc, style.font_family.as_str(), style.bold, style.italic);
+        parsed_face(fc, &face_of_text(&chain, text)?)
     }
 
     /// One run of a set line in one direction: its glyphs in reading order.
@@ -458,7 +509,7 @@ mod set {
         if text.is_empty() || !size.is_finite() || size <= 0.0 || size > TEXT_RASTER_MAX_SIZE_PX {
             return None;
         }
-        let parsed = resolve_font(fc, style)?;
+        let parsed = resolve_font(fc, style, text)?;
         let upm = f32::from(parsed.font_metrics.units_per_em);
         if upm <= 0.0 {
             return None;
@@ -584,16 +635,22 @@ mod set {
 
     /// The text of one SVG document, drawn straight into its pixmap: in the
     /// faces its `@font-face`s embed (by the family they declare), else in
-    /// the installed family a `<text>` names. A face is looked up once per
-    /// document and the glyph outlines are kept across its texts, so a PDF
-    /// page of a thousand runs in three fonts makes three faces.
+    /// the installed faces the font chain of a `<text>`'s family puts each
+    /// of its characters in, as the DOM's text is drawn. A chain and a face
+    /// are looked up once per document and the glyph outlines are kept across
+    /// its texts, so a PDF page of a thousand runs in three fonts makes three
+    /// faces.
     pub(crate) struct SvgTextPainter {
         /// The faces the document embeds, by the family their `@font-face`
         /// declares.
         embedded: Vec<(String, FontRef)>,
-        /// Installed faces looked up so far, by (family, bold, italic);
-        /// `None` where nothing matched, so a miss is not looked up again.
-        installed: Vec<((String, bool, bool), Option<FontRef>)>,
+        /// The fonts the families the document does not embed are drawn in.
+        installed: FcFontCache,
+        /// The chains looked up so far, by (family list, bold, italic).
+        chains: Vec<((String, bool, bool), FontFallbackChain)>,
+        /// The installed faces loaded so far; `None` for one that does not
+        /// parse, so it is not loaded again.
+        faces: Vec<(FontId, Option<FontRef>)>,
         /// The manager the glyph path resolves the faces from, made with the
         /// first text drawn.
         fonts: Option<FontManager<FontRef>>,
@@ -604,59 +661,83 @@ mod set {
     }
 
     impl SvgTextPainter {
-        /// A painter for a document that embeds `embedded`.
+        /// A painter for a document that embeds `embedded`, drawing the
+        /// families it does not embed in `installed`.
         #[must_use]
-        pub(crate) fn new(embedded: Vec<(String, FontRef)>) -> Self {
+        pub(crate) fn new(embedded: Vec<(String, FontRef)>, installed: FcFontCache) -> Self {
             Self {
                 embedded,
-                installed: Vec::new(),
+                installed,
+                chains: Vec::new(),
+                faces: Vec::new(),
                 fonts: None,
                 registered: Vec::new(),
                 glyph_cache: GlyphCache::new(),
             }
         }
 
-        /// The face for the CSS family list `families`: the first family the
-        /// document embeds, else the first family as an installed one (with
-        /// fontconfig's fallback, `sans-serif` last).
-        fn face(&mut self, families: &str, bold: bool, italic: bool) -> Option<FontRef> {
-            let names: Vec<&str> = families
-                .split(',')
-                .map(|f| f.trim().trim_matches(|c| c == '"' || c == '\''))
-                .filter(|f| !f.is_empty())
-                .collect();
-            for name in &names {
-                if let Some((_, font)) = self
-                    .embedded
+        /// [`Self::new`] in the installed fonts of the machine.
+        #[must_use]
+        pub(crate) fn with_installed_fonts(embedded: Vec<(String, FontRef)>) -> Self {
+            Self::new(embedded, with_process_fonts(FcFontCache::clone))
+        }
+
+        /// The face the document embeds for the first of the families
+        /// `families` it embeds one for.
+        fn embedded_face(&self, families: &str) -> Option<FontRef> {
+            family_names(families).iter().find_map(|name| {
+                self.embedded
                     .iter()
-                    .find(|(f, _)| f.eq_ignore_ascii_case(name))
-                {
-                    return Some(font.clone());
-                }
+                    .find(|(family, _)| family.eq_ignore_ascii_case(name))
+                    .map(|(_, font)| font.clone())
+            })
+        }
+
+        /// The chain of the family list `families` in the installed fonts.
+        fn chain(&mut self, families: &str, bold: bool, italic: bool) -> &FontFallbackChain {
+            let key = (families.to_string(), bold, italic);
+            let found = self.chains.iter().position(|(known, _)| *known == key);
+            let at = found.unwrap_or_else(|| {
+                let chain = chain_of(&self.installed, families, bold, italic);
+                self.chains.push((key, chain));
+                self.chains.len() - 1
+            });
+            &self.chains[at].1
+        }
+
+        /// The installed face `id`, loaded once.
+        fn installed_face(&mut self, id: FontId) -> Option<FontRef> {
+            if let Some((_, face)) = self.faces.iter().find(|(known, _)| *known == id) {
+                return face.clone();
             }
-            let family = names.first().map_or("sans-serif", |f| *f).to_string();
-            let key = (family.clone(), bold, italic);
-            if let Some((_, found)) = self.installed.iter().find(|(k, _)| *k == key) {
-                return found.clone();
+            let face = parsed_face(&self.installed, &id).map(crate::parsed_font_to_font_ref);
+            self.faces.push((id, face.clone()));
+            face
+        }
+
+        /// The byte ranges of `text` with the face each is drawn in: all of
+        /// it in the face the document embeds for `families`, else each
+        /// character in the installed face its family's chain puts it in.
+        fn runs(
+            &mut self,
+            text: &str,
+            families: &str,
+            bold: bool,
+            italic: bool,
+        ) -> Vec<(Range<usize>, FontRef)> {
+            if let Some(font) = self.embedded_face(families) {
+                return vec![(0..text.len(), font)];
             }
-            let style = TextRasterStyle::create(
-                azul_css::AzString::from(family),
-                16.0,
-                azul_css::props::basic::ColorU::rgb(0, 0, 0),
-            )
-            .with_bold(bold)
-            .with_italic(italic);
-            let found = with_process_fonts(|fc| resolve_font(fc, &style))
-                .map(crate::parsed_font_to_font_ref);
-            self.installed.push((key, found.clone()));
-            found
+            let runs = runs_by_face(self.chain(families, bold, italic), text);
+            runs.into_iter()
+                .filter_map(|(range, id)| Some((range, self.installed_face(id)?)))
+                .collect()
         }
 
         /// `text`, one line in `families` at `size_px`, its baseline starting
-        /// at (`x`, `y`) in `pixmap`'s pixels, in `color`. Draws nothing when
-        /// no face is found or the text does not shape.
+        /// at (`x`, `y`) in `pixmap`'s pixels, in `color`. Draws nothing of a
+        /// run no face is found for or that does not shape.
         #[allow(clippy::too_many_arguments)] // one text run's whole description
-        #[allow(clippy::cast_precision_loss)] // pixmap sides are far below 2^24
         pub(crate) fn draw(
             &mut self,
             pixmap: &mut AzulPixmap,
@@ -677,10 +758,28 @@ mod set {
             {
                 return;
             }
-            let Some(font) = self.face(families, bold, italic) else {
-                return;
-            };
-            let parsed = crate::font_ref_to_parsed_font(&font);
+            let mut pen = x;
+            for (range, font) in self.runs(text, families, bold, italic) {
+                pen = self.draw_run(pixmap, &text[range], &font, bold, size_px, color, pen, y);
+            }
+        }
+
+        /// `text` in the one face `font` at `size_px`, its baseline starting
+        /// at (`x`, `y`): where the pen stands after it.
+        #[allow(clippy::too_many_arguments)] // one run's whole description
+        #[allow(clippy::cast_precision_loss)] // pixmap sides are far below 2^24
+        fn draw_run(
+            &mut self,
+            pixmap: &mut AzulPixmap,
+            text: &str,
+            font: &FontRef,
+            bold: bool,
+            size_px: f32,
+            color: azul_css::props::basic::ColorU,
+            x: f32,
+            y: f32,
+        ) -> f32 {
+            let parsed = crate::font_ref_to_parsed_font(font);
             let shaping = StyleProperties {
                 font_size_px: size_px,
                 ..StyleProperties::default()
@@ -694,7 +793,7 @@ mod set {
                 BidiDirection::Ltr,
                 &shaping,
             ) else {
-                return;
+                return x;
             };
             let mut glyphs = Vec::with_capacity(shaped.len());
             let mut pen = x;
@@ -713,7 +812,7 @@ mod set {
                 pen += g.advance + g.kerning;
             }
             if glyphs.is_empty() {
-                return;
+                return pen;
             }
             let hash = parsed.hash;
             let synthetic_bold = crate::text3::cache::needs_synthetic_bold(
@@ -724,10 +823,10 @@ mod set {
                 self.fonts = FontManager::new(FcFontCache::default()).ok();
             }
             let Some(fonts) = self.fonts.as_ref() else {
-                return;
+                return pen;
             };
             if !self.registered.contains(&hash) {
-                fonts.insert_font(rust_fontconfig::FontId::new(), font.clone());
+                fonts.insert_font(FontId::new(), font.clone());
                 self.registered.push(hash);
             }
             let clip_rect = LogicalRect {
@@ -753,6 +852,7 @@ mod set {
                 // Coverage only: the page may be transparent under its text.
                 true,
             );
+            pen
         }
     }
 
