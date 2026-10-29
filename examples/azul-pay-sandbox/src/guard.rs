@@ -1,5 +1,6 @@
 //! What keeps the sandbox on this computer and out of releases: loopback names and addresses
-//! only (for the Host of every request and for the webhook URL), and no start in a release build.
+//! only (for the Host of every request and for the webhook URL), and no start in a release build
+//! unless the local test stack opts in.
 
 use std::net::IpAddr;
 
