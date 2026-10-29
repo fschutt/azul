@@ -1770,9 +1770,11 @@ mod autotest_generated {
         with_env(|env| {
             let mut info = env.timer_info();
             info.show_tooltip(String::from("hi").into());
-            let CallbackChange::ShowTooltip { text, position } = env.take_one() else {
+            let CallbackChange::ShowTooltip { text, anchor } = env.take_one() else {
                 panic!("expected ShowTooltip");
             };
+            let position = crate::placement::FloatingPlacement::tooltip(anchor)
+                .preferred_origin(LogicalSize::zero());
             assert_eq!(text.as_str(), "hi");
             assert_eq!((position.x, position.y), (0.0, 0.0), "no cursor -> origin");
         });
@@ -1793,9 +1795,11 @@ mod autotest_generated {
                 false,
             );
             info.show_tooltip(String::from("t").into());
-            let CallbackChange::ShowTooltip { position, .. } = env.take_one() else {
+            let CallbackChange::ShowTooltip { anchor, .. } = env.take_one() else {
                 panic!("expected ShowTooltip");
             };
+            let position = crate::placement::FloatingPlacement::tooltip(anchor)
+                .preferred_origin(LogicalSize::zero());
             // The tooltip opens below the pointer, clear of the cursor.
             assert_eq!(
                 (position.x, position.y),
@@ -1809,12 +1813,13 @@ mod autotest_generated {
         with_env(|env| {
             let mut info = env.timer_info();
             info.show_tooltip_at(String::new().into(), LogicalPosition::new(f32::NAN, -0.0));
-            let CallbackChange::ShowTooltip { text, position } = env.take_one() else {
+            let CallbackChange::ShowTooltip { text, anchor } = env.take_one() else {
                 panic!("expected ShowTooltip");
             };
             assert_eq!(text.as_str(), "", "empty tooltip text is not rejected");
-            assert!(position.x.is_nan());
-            assert!(position.y.is_sign_negative());
+            assert!(anchor.origin.x.is_nan());
+            assert!(anchor.origin.y.is_sign_negative());
+            assert_eq!(anchor.size, LogicalSize::zero(), "the tooltip opens AT the position");
         });
     }
 

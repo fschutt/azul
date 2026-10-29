@@ -36517,9 +36517,11 @@ mod hover_tooltip_tests {
         changes
             .iter()
             .filter_map(|c| match c {
-                CallbackChange::ShowTooltip { text, position } => {
-                    Some((text.as_str().to_string(), *position))
-                }
+                CallbackChange::ShowTooltip { text, anchor } => Some((
+                    text.as_str().to_string(),
+                    crate::placement::FloatingPlacement::tooltip(*anchor)
+                        .preferred_origin(LogicalSize::zero()),
+                )),
                 _ => None,
             })
             .collect()

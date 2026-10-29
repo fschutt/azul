@@ -687,16 +687,16 @@ pub enum CallbackChange {
     ReleasePointerCapture,
 
     // Tooltip Management
-    /// Show a tooltip at a specific position
-    ///
-    /// Platform-specific implementation:
-    /// - Windows: Uses native tooltip window (`TOOLTIPS_CLASS`)
-    /// - macOS: Uses `NSPopover` or custom `NSWindow` with tooltip styling
-    /// - X11: Creates transient window with _`NET_WM_WINDOW_TYPE_TOOLTIP`
-    /// - Wayland: Creates surface with `zwlr_layer_shell_v1` (overlay layer)
+    /// Show a tooltip for a box in the window: the control it explains, or the
+    /// pointer. It opens below the box with the left edges lined up, and above
+    /// it or with the right edges lined up where the screen has no room
+    /// (`placement::FloatingPlacement::tooltip`), so it never covers the box.
+    /// Each backend measures the text and places the tooltip on the screen the
+    /// box is on: the native tooltip control on Windows, a panel elsewhere.
     ShowTooltip {
         text: AzString,
-        position: LogicalPosition,
+        /// The box, in window-logical coordinates.
+        anchor: LogicalRect,
     },
     /// Hide the currently displayed tooltip
     HideTooltip,
@@ -3787,13 +3787,16 @@ impl CallbackInfo {
         // Below the pointer, as the platforms' own tooltips open: a tooltip
         // window under the pointer takes it from the control it explains,
         // which then hears MouseLeave, hides the tooltip and shows it again.
-        let position = self
+        let anchor = self
             .get_cursor_relative_to_viewport()
             .into_option()
-            .map_or_else(LogicalPosition::zero, |cursor| {
-                LogicalPosition::new(cursor.x, cursor.y + TOOLTIP_BELOW_POINTER)
+            .map_or_else(LogicalRect::zero, |cursor| {
+                LogicalRect::new(
+                    LogicalPosition::new(cursor.x, cursor.y + TOOLTIP_BELOW_POINTER),
+                    LogicalSize::zero(),
+                )
             });
-        self.push_change(CallbackChange::ShowTooltip { text, position });
+        self.push_change(CallbackChange::ShowTooltip { text, anchor });
     }
 
     /// Show a tooltip at a specific position
@@ -3802,7 +3805,16 @@ impl CallbackInfo {
     /// * `text` - The tooltip text to display
     /// * `position` - The position where the tooltip should appear (in window coordinates)
     pub fn show_tooltip_at(&mut self, text: AzString, position: LogicalPosition) {
-        self.push_change(CallbackChange::ShowTooltip { text, position });
+        self.push_change(CallbackChange::ShowTooltip {
+            text,
+            anchor: LogicalRect::new(position, LogicalSize::zero()),
+        });
+    }
+
+    /// Show a tooltip for `anchor`, a box in the window (a control): below it,
+    /// or above it where the screen has no room below - never over it.
+    pub(crate) fn show_tooltip_for(&mut self, text: AzString, anchor: LogicalRect) {
+        self.push_change(CallbackChange::ShowTooltip { text, anchor });
     }
 
     /// Hide the currently displayed tooltip
@@ -9910,7 +9922,7 @@ mod autotest_generated {
                 matches!(&changes[0], CallbackChange::ShowTooltip { text, .. } if text.as_str().is_empty())
             );
             assert!(
-                matches!(&changes[1], CallbackChange::ShowTooltip { text, position } if text.as_str() == "🌍" && position.x.is_nan())
+                matches!(&changes[1], CallbackChange::ShowTooltip { text, anchor } if text.as_str() == "🌍" && anchor.origin.x.is_nan())
             );
             assert!(
                 matches!(&changes[2], CallbackChange::ShowTooltip { text, .. } if text.as_str().len() == 100_000)
@@ -9929,9 +9941,11 @@ mod autotest_generated {
         with_info_at_cursor(node_none(), OptionLogicalPosition::Some(cursor), |info| {
             info.show_tooltip(AzString::from("Select a file to move it"));
             let changes = info.take_changes();
-            let Some(CallbackChange::ShowTooltip { position, .. }) = changes.first() else {
+            let Some(CallbackChange::ShowTooltip { anchor, .. }) = changes.first() else {
                 panic!("show_tooltip records a ShowTooltip, {changes:?}");
             };
+            let position = crate::placement::FloatingPlacement::tooltip(*anchor)
+                .preferred_origin(LogicalSize::zero());
             assert_eq!(position.x, cursor.x, "the tooltip starts where the pointer is");
             assert!(
                 position.y >= cursor.y + 16.0,

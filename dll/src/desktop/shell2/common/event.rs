@@ -7590,8 +7590,10 @@ pub trait PlatformWindow {
                 ProcessEventResult::DoNothing
             }
 
-            CallbackChange::ShowTooltip { text, position } => {
-                self.show_tooltip_from_callback(text.as_str(), *position);
+            CallbackChange::ShowTooltip { text, anchor } => {
+                let position = azul_layout::placement::FloatingPlacement::tooltip(*anchor)
+                    .preferred_origin(azul_core::geom::LogicalSize::zero());
+                self.show_tooltip_from_callback(text.as_str(), position);
                 ProcessEventResult::DoNothing
             }
 
