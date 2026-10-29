@@ -124,16 +124,54 @@ fn the_words_tell_the_truth_in_english_and_german() {
         let start = text.find(&format!("\n{key} = ")).expect(key) + 1;
         text[start..].split("\nazdrive-").next().unwrap_or("").to_string()
     };
-    let closing = line(en, "azdrive-renew-closing");
-    assert!(closing.contains("locked") && closing.contains("offline storage"), "{closing}");
-    assert!(!closing.contains("deleted"), "nothing is deleted: {closing}");
-    let schliessen = line(de, "azdrive-renew-closing");
-    assert!(schliessen.contains("gesperrt") && schliessen.contains("Offline-Speicher"), "{schliessen}");
-    assert!(!schliessen.contains("gelöscht"), "{schliessen}");
+    // Each text of the lock says where the files go - one offline copy - and promises no time
+    // of keeping it: no "nothing is deleted", no years.
+    for key in [
+        "azdrive-renew-closing",
+        "azdrive-archive-grace",
+        "azdrive-archive-read-only",
+        "azdrive-archive-locked",
+    ] {
+        let english = line(en, key);
+        assert!(english.contains("locked") && english.contains("offline copy"), "{english}");
+        let german = line(de, key);
+        assert!(german.contains("gesperrt") && german.contains("Offline-Kopie"), "{german}");
+    }
+    for (file, ftl) in [("en.ftl", en), ("de.ftl", de)] {
+        for text in ftl.split("\nazdrive-").filter(|m| {
+            m.starts_with("archive-") || m.starts_with("renew-") || m.starts_with("unpaid-")
+        }) {
+            for never in ["deleted", "gelöscht", "year", "Jahr"] {
+                assert!(!text.contains(never), "{file}: {never} in {text}");
+            }
+        }
+    }
     let locked_en = line(en, "azdrive-archive-locked");
-    assert!(locked_en.contains("nothing was deleted") && locked_en.contains("some days"));
+    assert!(locked_en.contains("some days") && !locked_en.contains("104"), "{locked_en}");
     let locked_de = line(de, "azdrive-archive-locked");
-    assert!(locked_de.contains("gelöscht wurde nichts") && locked_de.contains("einige Tage"));
+    assert!(locked_de.contains("einige Tage") && !locked_de.contains("104"), "{locked_de}");
+}
+
+/// The promise to an unpaid drive's owner is the contract's own sentence, with the contract's
+/// days: no number is typed into AzDrive's message, in English or German.
+#[test]
+fn the_unpaid_promise_is_the_contracts_sentence_with_its_days() {
+    use azcloud_kit::azlin_contract::{unpaid_promise, UNPAID_DAYS};
+    use azul_appkit::l10n::{set_locale, t_phrase};
+    crate::l10n::in_english();
+    let promise = crate::archive::promise_phrase();
+    assert_eq!(t_phrase(&promise), unpaid_promise());
+    set_locale("de-DE");
+    let versprechen = t_phrase(&promise);
+    for days in [UNPAID_DAYS.grace, UNPAID_DAYS.read_only, UNPAID_DAYS.lock] {
+        assert!(versprechen.contains(&days.to_string()), "{days}: {versprechen}");
+    }
+    set_locale("en-US");
+    for ftl in [include_str!("../resources/en.ftl"), include_str!("../resources/de.ftl")] {
+        let start = ftl.find("\nazdrive-unpaid-promise = ").expect("the promise") + 1;
+        let message = ftl[start..].lines().next().unwrap_or("");
+        assert!(!message.chars().any(|c| c.is_ascii_digit()), "{message}");
+    }
 }
 
 #[test]

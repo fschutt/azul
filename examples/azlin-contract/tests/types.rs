@@ -552,8 +552,8 @@ mod archive {
         archive_statement, device_key_statement, months_owed, paid_through, pay_through,
         ARCHIVE_STATEMENT_FORMAT, DEVICE_KEY_STATEMENT_FORMAT,
         period_after_restore, ArchiveRefusal, ArchiveState, ArchiveWire, RedeemRefusal,
-        RefreshRefusal, ARCHIVE_KEEP_SECS, INSTALMENT_SECS, LOCK_AFTER_SECS, READ_ONLY_SECS,
-        RESTORE_OWED_SECS, WRITABLE_GRACE_SECS,
+        unpaid_promise, RefreshRefusal, UnpaidDays, INSTALMENT_SECS, LOCK_AFTER_SECS,
+        READ_ONLY_SECS, RESTORE_OWED_SECS, UNPAID_DAYS, WRITABLE_GRACE_SECS,
     };
 
     const DAY: i64 = 86_400;
@@ -580,9 +580,37 @@ mod archive {
         assert_eq!(period_after_restore(through, through, now), now);
     }
 
+    /// The promise every text that states it uses (the backend's documents, AzDrive): its days
+    /// come from the constants, and it names no time of keeping the offline copy.
     #[test]
-    fn an_archive_is_kept_for_years() {
-        assert!(ARCHIVE_KEEP_SECS >= 10 * 365 * DAY);
+    fn the_unpaid_promise_says_the_contracts_days_and_no_time_of_keeping() {
+        assert_eq!(
+            UNPAID_DAYS,
+            UnpaidDays {
+                grace: WRITABLE_GRACE_SECS / DAY,
+                read_only: READ_ONLY_SECS / DAY,
+                lock: LOCK_AFTER_SECS / DAY,
+            }
+        );
+        assert_eq!(UNPAID_DAYS.grace + UNPAID_DAYS.read_only, UNPAID_DAYS.lock);
+        let UnpaidDays { grace, read_only, lock } = UNPAID_DAYS;
+        assert_eq!(
+            unpaid_promise(),
+            format!(
+                "{grace} days after the paid period ends, the drive becomes read-only. {read_only} \
+                 days after that (day {lock}), it is locked and its files are moved to one offline \
+                 copy. Paying restores them."
+            )
+        );
+        assert_eq!(
+            unpaid_promise(),
+            "14 days after the paid period ends, the drive becomes read-only. 90 days after that \
+             (day 104), it is locked and its files are moved to one offline copy. Paying restores \
+             them."
+        );
+        for never in ["year", "month", "kept", "deleted"] {
+            assert!(!unpaid_promise().contains(never), "{never}");
+        }
     }
 
     #[test]
