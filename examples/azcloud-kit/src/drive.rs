@@ -310,6 +310,7 @@ impl AzlinDrive {
         self.failover.set_nodes(nodes);
         self.failover.set_alternatives(bundle.failover.clone());
         self.failover.trust(TrustedEndpoint::from_bundle(bundle));
+        self.failover.saw_frozen(bundle.read_only);
         self.failover.set_map_epoch(bundle.map_epoch);
         *self.restore.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
             bundle.restore.clone();

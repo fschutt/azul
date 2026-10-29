@@ -66,7 +66,7 @@ pub fn is_final_error(e: &TokenError) -> bool {
 }
 
 /// A key from the OS random source.
-fn fresh_key() -> Result<IdempotencyKey, TokenError> {
+pub(crate) fn fresh_key() -> Result<IdempotencyKey, TokenError> {
     let mut bytes = [0_u8; 16];
     getrandom::getrandom(&mut bytes).map_err(|_| {
         TokenError::Config(String::from(

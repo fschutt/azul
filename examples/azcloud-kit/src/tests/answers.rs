@@ -504,3 +504,79 @@ fn a_frozen_drives_index_commit_is_asked_again_while_the_nodes_learn_its_frozen_
         );
     }
 }
+
+#[test]
+fn the_outbox_keeps_one_key_per_checkout_attempt_across_its_calls() {
+    // Asked again after its answers were lost - a later call, the app started anew - the same
+    // order carries the key of its first try; another order (another claim key) a key of its own.
+    let dir = TempDir::new("azcloud-answers-checkout-outbox");
+    let outbox = crate::Outbox::new(dir.path().join("outbox"));
+    let lost = std::sync::atomic::AtomicBool::new(true);
+    let fake = Fake::new(move |_, _| {
+        if lost.swap(false, Ordering::SeqCst) {
+            return Err(String::from("timed out"));
+        }
+        Ok(json(201, CHECKOUT))
+    });
+    let transport = Shared(fake.clone());
+    let server = TokenServer::new(TOKEN, &transport)
+        .unwrap()
+        .with_retry_pause(Duration::ZERO)
+        .with_policy(crate::policy::Policy {
+            attempts: 1,
+            ..crate::policy::Policy::TOKEN
+        })
+        .with_outbox(outbox.clone());
+    let claim = ClaimKey::generate().unwrap();
+    assert!(
+        server
+            .checkout("100GB", 12, "sepa", &claim, CheckoutFor::NewDrive)
+            .is_err(),
+        "one try, no answer"
+    );
+    assert!(
+        outbox
+            .pending(azlin_contract::IdempotentScope::Checkout, "")
+            .is_some(),
+        "the attempt stays open"
+    );
+    server
+        .checkout("100GB", 12, "sepa", &claim, CheckoutFor::NewDrive)
+        .expect("asked again");
+    let other = ClaimKey::generate().unwrap();
+    server
+        .checkout("100GB", 12, "sepa", &other, CheckoutFor::NewDrive)
+        .expect("another order");
+    let keys: Vec<String> = fake.calls().iter().map(key_of).collect();
+    assert_eq!(keys.len(), 3);
+    assert_eq!(keys[0], keys[1], "the same attempt, the same key: {keys:?}");
+    assert_ne!(keys[2], keys[0], "another attempt, a key of its own: {keys:?}");
+    assert!(
+        outbox
+            .pending(azlin_contract::IdempotentScope::Checkout, "")
+            .is_none(),
+        "answered: closed"
+    );
+}
+
+#[test]
+fn an_index_commit_refused_a_minute_after_the_freeze_says_the_drive_is_read_only() {
+    let clock = Arc::new(AtomicU64::new(NOW));
+    let fake = Fake::new(|call, _| {
+        assert_eq!(call.method, Method::Put);
+        Ok(refused_by_node("read_only_unpaid"))
+    });
+    let (bucket, pauses) = bucket_on(&fake, &clock);
+    // A file's write on the frozen drive: refused at once, never asked again, and the drive's
+    // freeze is known from then on.
+    assert!(bucket.put("photos/a.jpg", b"x").is_err());
+    assert_eq!(fake.calls().len(), 1, "a write is no index commit");
+    // A minute and more later the nodes know the bytes at the freeze: a refused commit is over
+    // the budget, and the user is told the drive takes no writes.
+    clock.fetch_add(61, Ordering::SeqCst);
+    let error = bucket.put(COMMIT, b"the index's commit").expect_err("over the budget");
+    assert_eq!(fake.calls().len(), 2, "not asked again");
+    assert!(pauses.lock().unwrap().is_empty());
+    let user = UserError::from_cloud_error(&error).expect("an error the user sees");
+    assert_eq!(user.code, Code::ReadOnlyUnpaid);
+}

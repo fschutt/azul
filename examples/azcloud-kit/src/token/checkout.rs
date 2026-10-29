@@ -412,7 +412,7 @@ impl<'a> TokenServer<'a> {
             "claim_key": claim.public_base64(),
         });
         grant.add_to(&mut body);
-        let value = self.call(Method::Post, "/v1/checkout", None, Some(&body))?;
+        let value = self.order(claim, &body)?;
         let checkout = checkout_of(&value, months);
         if checkout.checkout_id.is_empty() || checkout.pay_url.is_empty() {
             return Err(TokenError::Protocol(String::from(
@@ -479,7 +479,7 @@ impl<'a> TokenServer<'a> {
             body["payer"] = Value::Object(payer);
         }
         grant.add_to(&mut body);
-        let value = self.call(Method::Post, "/v1/checkout", None, Some(&body))?;
+        let value = self.order(claim, &body)?;
         let checkout = checkout_of(&value, months);
         if checkout.checkout_id.is_empty() {
             return Err(TokenError::Protocol(String::from("the checkout has no id")));
@@ -514,12 +514,21 @@ impl<'a> TokenServer<'a> {
             "claim_key": claim.public_base64(),
         });
         grant.add_to(&mut body);
-        let value = self.call(Method::Post, "/v1/checkout", None, Some(&body))?;
+        let value = self.order(claim, &body)?;
         let checkout = checkout_of(&value, months);
         if checkout.checkout_id.is_empty() {
             return Err(TokenError::Protocol(String::from("the checkout has no id")));
         }
         Ok((checkout, value))
+    }
+
+    /// `POST /v1/checkout` of the order `body`, named by one key per attempt: the attempt is its
+    /// claim key's, so the order asked again after a lost answer gets its first answer instead
+    /// of being a second checkout ([`IdempotentScope::Checkout`]).
+    fn order(&self, claim: &ClaimKey, body: &Value) -> Result<Value, TokenError> {
+        self.named(IdempotentScope::Checkout, "", &claim.public_base64(), |key| {
+            self.grant(Method::Post, "/v1/checkout", None, Some(body), key)
+        })
     }
 
     /// Ends the monthly plan of `checkout_id` (`POST /v1/checkout/{id}/cancel {"issue_key"}`,
@@ -548,15 +557,20 @@ impl<'a> TokenServer<'a> {
     /// session expires, so a forgotten browser tab can never take money for it - unless it
     /// was paid meanwhile, which the token server refuses as `checkout_paid` (409). Only an
     /// answer whose [`AbandonAnswer::is_over`] lets the checkout's claim key go
-    /// ([`crate::pending::abandon`]).
+    /// ([`crate::pending::abandon`]). Named by its key ([`IdempotentScope::Abandon`]): an
+    /// abandon whose answer was lost is asked again and gets its first answer.
     ///
     /// # Errors
     ///
     /// No answer, a refusal (`checkout_paid`, `provider_unavailable`: the session may still
     /// be paid), an answer that is not one.
     pub fn abandon_checkout(&self, checkout_id: &str) -> Result<AbandonAnswer, TokenError> {
-        let path = format!("/v1/checkout/{}/abandon", check_id(checkout_id.trim())?);
-        let value = self.call(Method::Post, &path, None, Some(&json!({})))?;
+        let id = check_id(checkout_id.trim())?;
+        let path = format!("/v1/checkout/{id}/abandon");
+        let body = json!({});
+        let value = self.named(IdempotentScope::Abandon, id, "", |key| {
+            self.grant(Method::Post, &path, None, Some(&body), key)
+        })?;
         let wire: AbandonWire = serde_json::from_value(value).map_err(|e| {
             TokenError::Protocol(format!("the abandon's answer does not read as one: {e}"))
         })?;

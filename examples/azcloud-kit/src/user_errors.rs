@@ -151,11 +151,14 @@ pub enum Code {
     /// The payment method has no such way to pay this order (`surface_unavailable`): another
     /// method, or another way to pay, is the buyer's to choose.
     SurfaceUnavailable,
+    /// The app sent a request under the key of another request (`idempotency_key_reused`):
+    /// nothing was made for it - the app's bug, never asked again.
+    KeyReused,
 }
 
 impl Code {
     /// Every code, in the table's order.
-    pub const ALL: [Code; 38] = [
+    pub const ALL: [Code; 39] = [
         Code::Unavailable,
         Code::Maintenance,
         Code::Network,
@@ -194,6 +197,7 @@ impl Code {
         Code::RateLimited,
         Code::SurfaceUnavailable,
         Code::ReadOnlyMoving,
+        Code::KeyReused,
     ];
 
     /// `quota_exceeded`, ...
@@ -236,6 +240,7 @@ impl Code {
             Code::DriveArchived => "drive_archived",
             Code::RateLimited => azlin_contract::RATE_LIMITED,
             Code::SurfaceUnavailable => "surface_unavailable",
+            Code::KeyReused => azlin_contract::IDEMPOTENCY_KEY_REUSED,
             Code::Other => "other",
             Code::DriveBanned => "drive_banned",
         }
@@ -671,6 +676,16 @@ pub const ROWS: &[Row] = &[
              charged.",
         de: "Mit dieser Zahlungsart geht es hier nicht weiter. Wähle eine andere Zahlungsart - \
              es wurde nichts berechnet.",
+    },
+    Row {
+        code: Code::KeyReused,
+        class: Class::Fatal,
+        behaviour: Behaviour::Nothing,
+        en: "The app sent this request under the key of another one, so Azlin Storage did not \
+             make it. This is a bug in the app - please report it with the error ID.",
+        de: "Die App hat diese Anfrage unter dem Schlüssel einer anderen gesendet, deshalb hat \
+             Azlin Storage sie nicht ausgeführt. Das ist ein Fehler der App - bitte melde ihn mit \
+             der Fehler-ID.",
     },
 ];
 

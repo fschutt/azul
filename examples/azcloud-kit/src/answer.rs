@@ -15,7 +15,8 @@
 use std::time::Duration;
 
 use azlin_contract::{
-    AzlinError, CheckoutRefusal, ALREADY_ANSWERED, IDEMPOTENCY_REQUIRED, RATE_LIMITED,
+    AzlinError, BucketOp, CheckoutRefusal, DriveAccess, ReadOnlyWhy, ALREADY_ANSWERED,
+    IDEMPOTENCY_KEY_REUSED, IDEMPOTENCY_REQUIRED, RATE_LIMITED,
 };
 use azul_storage::{DriveError, HttpReply, ServiceError};
 use serde_json::Value;
@@ -146,6 +147,13 @@ pub const TOKEN_ROWS: &[Row] = &[
     Row {
         wire: IDEMPOTENCY_REQUIRED,
         code: Code::Other,
+        pass: Pass::Final,
+    },
+    // azlin_contract::IDEMPOTENCY_KEY_REUSED: a key sent again with another request (422) -
+    // nothing was made for it, and asking again meets the same: the app's bug, said as one.
+    Row {
+        wire: IDEMPOTENCY_KEY_REUSED,
+        code: Code::KeyReused,
         pass: Pass::Final,
     },
 ];
@@ -340,6 +348,62 @@ pub fn of_service(service: &ServiceError) -> Outcome {
         (code, Pass::Transient(spent)) => {
             transient(Service::Node, service.status, code, spent, service.retry_after)
         }
+    }
+}
+
+/// How long after a drive froze its owner's index commits may still be refused while the nodes
+/// learn what it stored at the freeze: its block's leader records the bytes on its heartbeat
+/// (every 30 s), and the nodes read them at their next control poll.
+pub const FREEZE_SETTLE: Duration = Duration::from_secs(60);
+
+/// What a request to a node was, where the meaning of its answer depends on it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Asked {
+    /// It commits an encrypted drive's index: a PUT, or a multipart upload's request, of a key
+    /// under the contract's index prefix ([`azlin_contract::is_index_key`]).
+    pub index_commit: bool,
+    /// How long ago the drive froze, as far as this device knows.
+    pub frozen_for: Option<Duration>,
+}
+
+/// Whether `code` is the refusal of a frozen drive whose owner's index commits a node takes
+/// within its byte budget: the code of each read-only reason the contract's table lets index
+/// commits through ([`DriveAccess::permits`] of [`BucketOp::IndexCommit`]), and
+/// `quota_exceeded`, the line such a commit carries as its quota.
+#[must_use]
+pub fn is_commit_budget(code: Code) -> bool {
+    code == Code::QuotaExceeded || is_commit_freeze(code)
+}
+
+/// Whether `code` says the drive froze for a reason that still takes its owner's index commits
+/// (unpaid, the operator's hold): what starts the clock of [`FREEZE_SETTLE`].
+#[must_use]
+pub fn is_commit_freeze(code: Code) -> bool {
+    ReadOnlyWhy::ALL.into_iter().any(|why| {
+        DriveAccess::ReadOnly(why).permits(BucketOp::IndexCommit) && Code::from(why.code()) == code
+    })
+}
+
+/// `outcome` of the request `asked` seen through the drive's freeze: an owner's index commit
+/// refused by the budget within [`FREEZE_SETTLE`] of the freeze passes by itself - the nodes do
+/// not know the drive's bytes at the freeze yet - and is asked again after a backoff, at any
+/// node; after that the refusal says why the drive takes no writes.
+#[must_use]
+pub fn during_freeze(outcome: Outcome, asked: Asked) -> Outcome {
+    match outcome {
+        Outcome::Refused(code)
+            if asked.index_commit
+                && is_commit_budget(code)
+                && asked.frozen_for.is_some_and(|frozen| frozen < FREEZE_SETTLE) =>
+        {
+            Outcome::Transient {
+                code,
+                retry_after: None,
+                spent: Spent::Nothing,
+                elsewhere: false,
+            }
+        }
+        other => other,
     }
 }
 

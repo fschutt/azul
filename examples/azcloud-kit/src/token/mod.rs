@@ -53,7 +53,7 @@
 
 use std::{fmt, sync::Arc, time::Duration};
 
-use azlin_contract::{IdempotencyKey, IDEMPOTENCY_HEADER};
+use azlin_contract::{IdempotencyKey, IdempotentScope, IDEMPOTENCY_HEADER};
 use azul_storage::{sigv4::uri_encode, HttpCall, HttpReply, Method, Transport};
 use serde_json::{json, Value};
 
@@ -61,6 +61,7 @@ use crate::{
     answer::{Outcome, Spent},
     bundle::DriveBundle,
     claim::ClaimKey,
+    outbox::Outbox,
     period::{IssuerKey, PeriodToken},
     policy::{Policy, Repeat, Sleep},
 };
@@ -324,6 +325,9 @@ pub struct TokenServer<'a> {
     policy: Policy,
     /// How its pauses are taken.
     sleep: Sleep,
+    /// Where the keys of the requests it names itself (a checkout, its abandon) are kept until
+    /// their final answer; `None`: each call names its request with a key of its own.
+    outbox: Option<Outbox>,
 }
 
 impl<'a> TokenServer<'a> {
@@ -337,7 +341,17 @@ impl<'a> TokenServer<'a> {
             transport,
             policy: Policy::TOKEN,
             sleep: Arc::new(std::thread::sleep) as Sleep,
+            outbox: None,
         })
+    }
+
+    /// Keeps the keys of the requests it names itself (a checkout, its abandon) in `outbox`
+    /// until their final answer, so a call asked again after a lost answer, a crash or a
+    /// restart carries the key of its first try.
+    #[must_use]
+    pub fn with_outbox(mut self, outbox: Outbox) -> Self {
+        self.outbox = Some(outbox);
+        self
     }
 
     /// Takes every pause of the policy as `pause` instead (the tests: none at all), whatever the
@@ -393,6 +407,28 @@ impl<'a> TokenServer<'a> {
             };
             (self.sleep)(pause);
             attempt += 1;
+        }
+    }
+
+    /// Sends `send` - a request the token server keeps the first answer of, under the key it is
+    /// given - until its outcome is final ([`Self::until_final`]), every try under the same key:
+    /// the one the outbox keeps for `scope`, `name` and `words` (the request's own: another
+    /// request gets a key of its own), else a key of this call. A lost answer is safe to send
+    /// again then; the same key with another request is refused (`idempotency_key_reused`), and
+    /// that refusal is final.
+    fn named<T>(
+        &self,
+        scope: IdempotentScope,
+        name: &str,
+        words: &str,
+        mut send: impl FnMut(&IdempotencyKey) -> Result<T, TokenError>,
+    ) -> Result<T, TokenError> {
+        match &self.outbox {
+            Some(outbox) => outbox.send(scope, name, words, |key| self.until_final(|| send(key))),
+            None => {
+                let key = crate::outbox::fresh_key()?;
+                self.until_final(|| send(&key))
+            }
         }
     }
 

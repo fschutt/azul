@@ -55,13 +55,13 @@ use azul_storage::{
     s3::{Idempotency, Routed, Router, Verify},
     time::now_unix,
     transport::is_dns_failure,
-    DriveError, HttpCall, HttpReply, S3Drive, Transport,
+    DriveError, HttpCall, HttpReply, Method, S3Drive, Transport,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::{
-    answer::{Outcome, Spent},
+    answer::{Asked, Outcome, Spent},
     policy::Policy,
     transport::{IrohLane, LaneAnswer},
     user_errors::Behaviour,
@@ -77,6 +77,10 @@ pub const BACKOFF: Duration = Policy::NODE.base;
 pub const MAX_PAUSE: Duration = Policy::NODE.max_wait;
 /// The most addresses one host is reached at (what azul's HTTP client keeps of a host).
 pub const MAX_ADDRESSES: usize = 16;
+/// The most rounds an index commit is asked while its drive's freeze settles
+/// ([`crate::answer::FREEZE_SETTLE`]): the backoff, doubling up to its ceiling, spans more than
+/// that minute.
+pub const FREEZE_ROUNDS: u32 = 16;
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
@@ -240,6 +244,10 @@ enum Verdict {
     /// Every node says the same (a client asked to slow down, a drive whose deletes are
     /// paused): no other node in this round, again after the pause.
     Wait(Option<Duration>),
+    /// The drive froze a moment ago and its nodes do not know its bytes at the freeze yet: no
+    /// other node in this round, again after the backoff, past the policy's rounds while the
+    /// freeze settles.
+    Settle,
     /// The drive is at this endpoint now.
     Moved(String),
 }
@@ -297,6 +305,9 @@ struct State {
     map_epoch: Option<u64>,
     /// An answer named an endpoint or a map the drive's view does not have.
     view_stale: bool,
+    /// When this device first saw the drive frozen (a node's refusal for a freeze, or the token
+    /// server's view): an index commit refused within a minute of it is asked again.
+    frozen_since: Option<u64>,
 }
 
 /// The endpoints of one drive and how its requests move between them. Shared by every request
@@ -405,6 +416,56 @@ impl Failover {
     #[must_use]
     pub fn map_epoch(&self) -> Option<u64> {
         lock(&self.state).map_epoch
+    }
+
+    /// The token server's view of the drive: frozen (the freeze's clock starts now when the
+    /// drive knew of none) or taking writes again.
+    pub fn saw_frozen(&self, frozen: bool) {
+        let now = self.now();
+        let mut state = lock(&self.state);
+        if frozen {
+            if state.frozen_since.is_none() {
+                state.frozen_since = Some(now);
+            }
+        } else {
+            state.frozen_since = None;
+        }
+    }
+
+    /// `outcome` of a request (`method`, `key`) seen through the drive's freeze
+    /// ([`crate::answer::during_freeze`]): a refusal of a freeze that still takes the owner's
+    /// index commits starts the freeze's clock when the drive knew of none, and a write the
+    /// drive took outside its index ends it.
+    fn through_freeze(
+        &self,
+        outcome: Outcome,
+        reply: &HttpReply,
+        method: Method,
+        key: Option<&str>,
+    ) -> Outcome {
+        let now = self.now();
+        let writes = matches!(method, Method::Put | Method::Post);
+        let index_commit = writes && key.is_some_and(azlin_contract::is_index_key);
+        let since = {
+            let mut state = lock(&self.state);
+            match outcome {
+                Outcome::Refused(code) if crate::answer::is_commit_freeze(code) => {
+                    if state.frozen_since.is_none() {
+                        state.frozen_since = Some(now);
+                    }
+                }
+                Outcome::Done if method == Method::Put && !index_commit && reply.is_success() => {
+                    state.frozen_since = None;
+                }
+                _ => {}
+            }
+            state.frozen_since
+        };
+        let asked = Asked {
+            index_commit,
+            frozen_for: since.map(|since| Duration::from_secs(now.saturating_sub(since))),
+        };
+        crate::answer::during_freeze(outcome, asked)
     }
 
     /// Whether an answer named an endpoint or a newer map than the drive's view has, since the
@@ -631,9 +692,19 @@ impl Failover {
     /// ([`crate::answer`]): what passes by itself is asked again (the next node first), a drive
     /// that moved is followed, a damaged object is read once more from another node, and
     /// everything else is the caller's answer.
-    fn verdict(&self, reply: &HttpReply, key: Option<&str>, reread: &mut bool) -> Verdict {
-        match crate::answer::of_node_reply(reply) {
+    fn verdict(
+        &self,
+        reply: &HttpReply,
+        method: Method,
+        key: Option<&str>,
+        reread: &mut bool,
+    ) -> Verdict {
+        let read = crate::answer::of_node_reply(reply);
+        let seen = self.through_freeze(read, reply, method, key);
+        match seen {
             Outcome::Done => Verdict::Done,
+            // An index commit the freeze holds back for a moment (it was refused).
+            Outcome::Transient { .. } if !read.is_transient() => Verdict::Settle,
             Outcome::Transient {
                 retry_after,
                 elsewhere: true,
@@ -677,10 +748,11 @@ impl Router for Failover {
         if let Some(lane) = self.lane() {
             let nodes = self.nodes();
             let key = request.key();
+            let method = request.method();
             let mut reread_over_iroh = false;
             let mut is_final = |reply: &HttpReply| {
                 matches!(
-                    self.verdict(reply, key, &mut reread_over_iroh),
+                    self.verdict(reply, method, key, &mut reread_over_iroh),
                     Verdict::Done
                 )
             };
@@ -701,10 +773,14 @@ impl Router for Failover {
         let mut reread = false;
         // a node's newer map gets the request once more, not in a loop
         let mut map_resent = false;
-        for round in 1..=rounds {
+        let mut round = 0;
+        loop {
+            round += 1;
             let mut route = self.route();
             // The longest pause a node asked for in this round.
             let mut asked: Option<Duration> = None;
+            // The round ended on an index commit its drive's fresh freeze held back.
+            let mut settling = false;
             let mut i = 0;
             while i < route.len() {
                 let endpoint = route[i].clone();
@@ -754,7 +830,7 @@ impl Router for Failover {
                         }
                     }
                 }
-                match self.verdict(&reply, request.key(), &mut reread) {
+                match self.verdict(&reply, request.method(), request.key(), &mut reread) {
                     Verdict::Done => {
                         self.answered(&endpoint);
                         return Ok(reply);
@@ -778,13 +854,21 @@ impl Router for Failover {
                         last_reply = Some(reply);
                         break;
                     }
+                    Verdict::Settle => {
+                        settling = true;
+                        last_reply = Some(reply);
+                        break;
+                    }
                     Verdict::Moved(moved) => {
                         next_in(&mut route, i, moved);
                         last_reply = Some(reply);
                     }
                 }
             }
-            if round == rounds {
+            // A freeze that settles keeps an index commit asked past the policy's rounds; its
+            // window ends on the drive's clock, and the rounds are bounded all the same.
+            let more = round < rounds || (settling && round < FREEZE_ROUNDS);
+            if !more {
                 break;
             }
             // Never sooner than a node asked, nor than the backoff: a Retry-After of 0 named
