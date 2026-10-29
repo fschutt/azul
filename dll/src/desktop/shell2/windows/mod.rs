@@ -7979,21 +7979,22 @@ impl Win32Window {
 }
 
 /// Position window on requested monitor, or center on primary monitor
-/// Resolve a parent window's stored top-left from the registry, for
-/// `WindowPosition::RelativeToParentWindow`. Returns `None` if there is no
-/// parent or it has no concrete position yet (caller treats the offset as
+/// Resolve a parent window's CLIENT-area top-left on the screen (physical
+/// pixels), for `WindowPosition::RelativeToParentWindow`: a popup's offset is
+/// measured from the content its anchor lies in, not from the parent's frame,
+/// whose title bar and border would push the popup down and right by their
+/// size. Returns `None` if there is no parent (caller treats the offset as
 /// monitor-relative).
+#[allow(clippy::cast_possible_truncation)] // whole screen pixels
 fn resolve_windows_parent_origin(parent_window_id: u64) -> Option<(i32, i32)> {
     if parent_window_id == 0 {
         return None;
     }
-    unsafe {
+    let origin = unsafe {
         let wptr = registry::get_window(parent_window_id as usize as HWND)?;
-        match (*wptr).common.current_window_state().position {
-            azul_core::window::WindowPosition::Initialized(pos) => Some((pos.x, pos.y)),
-            _ => None,
-        }
-    }
+        (*wptr).screen_mapping().content_origin
+    };
+    Some((origin.x.round() as i32, origin.y.round() as i32))
 }
 
 fn position_window_on_monitor(

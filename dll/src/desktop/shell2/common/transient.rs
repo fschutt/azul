@@ -632,8 +632,7 @@ pub fn popup_room(
     screens: &[ScreenRects],
     anchor: LogicalRect,
 ) -> LogicalSize {
-    let _ = anchor;
-    match screen_for_anchor(LogicalRect::new(LogicalPosition::zero(), parent_size), screens) {
+    match screen_for_anchor(anchor, screens) {
         Some(wa) => LogicalSize::new(
             (wa.size.width - 2.0 * POPUP_SCREEN_MARGIN).max(1.0),
             (wa.size.height - 2.0 * POPUP_SCREEN_MARGIN).max(1.0),
@@ -1243,8 +1242,7 @@ pub fn release_proxy(mailbox: &RefAny) -> bool {
 /// screen mapping).
 #[must_use]
 pub fn relative_position(origin: LogicalPosition, screen_scale: f32) -> WindowPosition {
-    let _ = screen_scale;
-    let window = WindowToScreen::new(ScreenPoint::new(0.0, 0.0), 1.0);
+    let window = WindowToScreen::new(ScreenPoint::new(0.0, 0.0), screen_scale);
     WindowPosition::RelativeToParentWindow(window.offset_from_content(window.point(origin)))
 }
 
@@ -1311,8 +1309,7 @@ pub fn tear_drag_move(state: &FullWindowState, window_follows: bool) -> Option<W
     };
     write(&m, |d| d.origin = new_origin);
     // The pointer moved in logical px; the window is moved in screen units.
-    let _ = screen_scale;
-    let (dx_screen, dy_screen) = (dx, dy);
+    let (dx_screen, dy_screen) = (dx * screen_scale, dy * screen_scale);
     #[allow(clippy::cast_possible_truncation)] // whole pixels
     let position = if torn {
         match state.position {
