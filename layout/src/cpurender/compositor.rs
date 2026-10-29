@@ -446,6 +446,11 @@ impl CompositorState {
         // its push: what wraps a layer is what was opened inside its parent
         // (`Layer::wrapping_clips`).
         let mut clip_stack: Vec<(LogicalRect, usize)> = Vec::new();
+        // Whether each open `PushClip` rounds its corners. A layer is
+        // composited through rectangles only, while the rasteriser rounds a
+        // clip's corners in place: a group inside a rounded clip is painted in
+        // place, or its content shows square in the clip's corners.
+        let mut rounded_clips: Vec<bool> = Vec::new();
         let mut clip_base_of: HashMap<LayerId, usize> = HashMap::new();
         // One entry per open `PushReferenceFrame`, recording whether it actually
         // promoted a layer, so `PopReferenceFrame` pops exactly what was pushed.
@@ -552,6 +557,7 @@ impl CompositorState {
                     let split = pushes_per_id.get(scroll_id).is_some_and(|n| *n > 1);
                     let created = !covers_root
                         && !split
+                        && !rounded_clips.contains(&true)
                         && pw > 0
                         && ph > 0
                         && end > i + 1
@@ -619,6 +625,7 @@ impl CompositorState {
                     let (pw, ph) = layer_pixel_size(b.size, dpi_factor, node_of(display_list, i));
                     let end = find_matching_pop(&display_list.items, i, MatchKind::Opacity);
                     let promote = effective < 1.0
+                        && !rounded_clips.contains(&true)
                         && pw > 0
                         && ph > 0
                         && end > i + 1
@@ -710,6 +717,7 @@ impl CompositorState {
                     let live = azul_core::transform::ComputedTransform3D { m: *m };
                     let origin = bounds.inner().origin;
                     let promote = !is_identity
+                        && !rounded_clips.contains(&true)
                         && end > i + 1
                         && !painted_over(
                             layer_stack.as_slice(),
@@ -812,11 +820,16 @@ impl CompositorState {
                 // `text-shadow` (Push/PopTextShadow) is a text-rasterization
                 // concern, not a layer boundary, so it is handled in
                 // `render_single_item`, not here.
-                DisplayListItem::PushClip { bounds, .. } => {
+                DisplayListItem::PushClip {
+                    bounds,
+                    border_radius,
+                } => {
                     clip_stack.push((*bounds.inner(), in_place_frames.len()));
+                    rounded_clips.push(!border_radius.is_zero());
                 }
                 DisplayListItem::PopClip => {
                     clip_stack.pop();
+                    rounded_clips.pop();
                 }
                 _ => {}
             }
