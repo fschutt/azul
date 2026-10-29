@@ -1345,3 +1345,7 @@ mod a_right_to_left_paragraph_breaks_its_lines_in_reading_order;
 mod a_noncharacter_in_html_text_keeps_its_page;
 #[path = "typed_and_pasted_text_is_read_by_the_input_rule.rs"]
 mod typed_and_pasted_text_is_read_by_the_input_rule;
+#[path = "an_attribute_change_lays_out_like_a_fresh_window.rs"]
+mod an_attribute_change_lays_out_like_a_fresh_window;
+#[path = "every_attribute_the_layout_reads_is_a_row_of_its_table.rs"]
+mod every_attribute_the_layout_reads_is_a_row_of_its_table;
