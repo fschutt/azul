@@ -455,7 +455,7 @@ impl<'a> BreakCursor<'a> {
     /// relayout after an edit alike, so the lines of both follow the same
     /// style.
     #[must_use]
-    pub fn for_constraints(items: &'a [ShapedItem], constraints: &UnifiedConstraints) -> Self {
+    pub const fn for_constraints(items: &'a [ShapedItem], constraints: &UnifiedConstraints) -> Self {
         Self {
             items,
             next_item_index: 0,
@@ -526,6 +526,7 @@ impl<'a> BreakCursor<'a> {
     /// The definition of "unbreakable unit" depends on the word-break property.
     // a single typographic character unit (every character is a soft wrap opportunity), including
     // punctuation and preserved white spaces; currently handled via peek_next_single_item
+    #[must_use]
     pub fn peek_next_unit(&self) -> Vec<ShapedItem> {
         let mut unit = Vec::new();
         // The remaining stream, WITHOUT materializing it. This used to be
