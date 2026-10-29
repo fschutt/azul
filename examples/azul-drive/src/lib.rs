@@ -260,6 +260,8 @@ mod recovery;
 /// Trusted contacts: the owner's shares, a contact's side, the recovery with two shares.
 #[cfg(feature = "encryption")]
 mod recovery_contacts;
+#[cfg(all(test, feature = "encryption"))]
+mod popup_slot_tests;
 /// A drive's several recovery keys: the kit's lookup on a computer that never had the drive,
 /// a second kit, removing a key.
 #[cfg(feature = "encryption")]
