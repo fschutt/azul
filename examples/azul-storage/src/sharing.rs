@@ -46,7 +46,7 @@ use crate::{
         CryptoError, KeyId, ShareKey, Zeroizing,
     },
     encrypted::EncryptedDrive,
-    key::check_path_key,
+    key::check_key,
     ops::list_all,
     sigv4::uri_encode,
     time::now_unix,
@@ -130,7 +130,7 @@ pub fn share<D: Drive>(
                 }
             }
         } else {
-            check_path_key(path)?;
+            check_key(path)?;
             files.push((path.to_string(), last_part(path).to_string()));
         }
     }

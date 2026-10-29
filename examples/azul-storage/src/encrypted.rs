@@ -52,7 +52,7 @@ use crate::{
         device, random_bytes, to_hex, CryptoError, DriveKey, KeyId, ObjectId, ShareKey,
         WrappedKey,
     },
-    key::{check_path_key, check_path_prefix},
+    key::{check_key, check_prefix},
     keyring::KeyringStore,
     ops::check_folder,
     time::now_unix,
@@ -1011,9 +1011,9 @@ impl<D: Drive> EncryptedDrive<D> {
     pub fn entry(&self, path: &str) -> Result<IndexEntry, DriveError> {
         if path.ends_with('/') {
             check_folder(path)?;
-            check_path_prefix(path)?;
+            check_prefix(path)?;
         } else {
-            check_path_key(path)?;
+            check_key(path)?;
         }
         self.index.get(path)?.ok_or_else(|| DriveError::NotFound {
             key: path.to_string(),
@@ -1167,7 +1167,7 @@ impl<D: Drive> EncryptedDrive<D> {
     /// Writes `path` from `bytes` when `expect` holds of its index entry; what the listing now
     /// shows of it.
     pub fn write(&self, path: &str, bytes: &[u8], expect: Expect) -> Result<ObjectInfo, DriveError> {
-        check_path_key(path)?;
+        check_key(path)?;
         if self.packs_size(bytes.len() as u64) {
             return self.write_packed(path, bytes, expect);
         }
@@ -1189,7 +1189,7 @@ impl<D: Drive> EncryptedDrive<D> {
         body: &mut dyn Read,
         expect: Expect,
     ) -> Result<ObjectInfo, DriveError> {
-        check_path_key(path)?;
+        check_key(path)?;
         let Some(threshold) = self.pack_threshold() else {
             return self.write_stream(path, body, expect);
         };
@@ -1458,7 +1458,7 @@ impl<D: Drive> EncryptedDrive<D> {
                 None => Ok(Expect::Any),
                 Some(condition) => expect_of(item.key, condition),
             };
-            let expect = match expect.and_then(|e| check_path_key(item.key).map(|()| e)) {
+            let expect = match expect.and_then(|e| check_key(item.key).map(|()| e)) {
                 Ok(expect) => expect,
                 Err(e) => {
                     results[i] = Some(Err(e));
@@ -1631,7 +1631,7 @@ impl<D: Drive> EncryptedDrive<D> {
         let mut results: Vec<Option<Result<(), DriveError>>> = vec![None; items.len()];
         let mut live: Vec<(usize, Expect)> = Vec::new();
         for (i, item) in items.iter().enumerate() {
-            if let Err(e) = check_path_key(item.key) {
+            if let Err(e) = check_key(item.key) {
                 results[i] = Some(Err(e));
                 continue;
             }
@@ -1717,8 +1717,8 @@ impl<D: Drive> EncryptedDrive<D> {
                 }));
                 continue;
             }
-            let entry = check_path_key(item.from)
-                .and_then(|()| check_path_key(item.to))
+            let entry = check_key(item.from)
+                .and_then(|()| check_key(item.to))
                 .and_then(|()| self.entry(item.from));
             let entry = match entry {
                 Ok(entry) => entry,
@@ -1799,7 +1799,7 @@ impl<D: Drive> EncryptedDrive<D> {
     fn rename_folder(&self, from: &str, to: &str) -> Result<(), DriveError> {
         for folder in [from, to] {
             check_folder(folder)?;
-            check_path_prefix(folder)?;
+            check_prefix(folder)?;
         }
         if to.starts_with(from) {
             return Err(DriveError::InvalidKey {
@@ -1836,7 +1836,7 @@ impl<D: Drive> EncryptedDrive<D> {
 
 impl<D: Drive> Drive for EncryptedDrive<D> {
     fn list(&self, request: &ListRequest) -> Result<ListPage, DriveError> {
-        check_path_prefix(&request.prefix)?;
+        check_prefix(&request.prefix)?;
         let page = self.index.list(request)?;
         Ok(ListPage {
             folders: page.folders,
@@ -1991,7 +1991,7 @@ impl<D: Drive> Drive for EncryptedDrive<D> {
     }
 
     fn delete(&self, key: &str) -> Result<(), DriveError> {
-        check_path_key(key)?;
+        check_key(key)?;
         let released = self.index.apply(vec![IndexChange::Remove {
             path: key.to_string(),
             expect: Expect::Any,
@@ -2013,7 +2013,7 @@ impl<D: Drive> Drive for EncryptedDrive<D> {
                 reason: "a folder is copied object by object",
             });
         }
-        check_path_key(to)?;
+        check_key(to)?;
         let mut entry = self.entry(from)?;
         entry.modified = Some(now_unix());
         let released = self.index.apply(vec![IndexChange::Put {
@@ -2028,7 +2028,7 @@ impl<D: Drive> Drive for EncryptedDrive<D> {
     /// A marker in the index; the bucket sees nothing.
     fn create_folder(&self, prefix: &str) -> Result<(), DriveError> {
         check_folder(prefix)?;
-        check_path_prefix(prefix)?;
+        check_prefix(prefix)?;
         self.index.apply(vec![IndexChange::Put {
             path: prefix.to_string(),
             entry: IndexEntry {
@@ -2052,7 +2052,7 @@ impl<D: Drive> Drive for EncryptedDrive<D> {
         if from.ends_with('/') {
             return self.rename_folder(from, to);
         }
-        check_path_key(to)?;
+        check_key(to)?;
         let entry = self.entry(from)?;
         let changes = vec![
             IndexChange::Remove {
@@ -2075,7 +2075,7 @@ impl<D: Drive> Drive for EncryptedDrive<D> {
 
     fn delete_folder(&self, prefix: &str) -> Result<(), DriveError> {
         check_folder(prefix)?;
-        check_path_prefix(prefix)?;
+        check_prefix(prefix)?;
         let changes: Vec<IndexChange> = self
             .all_entries(prefix)?
             .into_iter()

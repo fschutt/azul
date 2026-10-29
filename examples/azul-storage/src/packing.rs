@@ -60,7 +60,7 @@ use crate::{
         expect_of, info_of, read_error, EncryptedDrive, Expect, IndexChange, IndexEntry, ReadError,
         StoredObject,
     },
-    key::check_path_key,
+    key::check_key,
     local::write_atomically,
     time::now_unix,
     BatchPut, ByteRange, Drive, DriveError, ObjectInfo,
@@ -1273,7 +1273,7 @@ impl<D: Drive> EncryptedDrive<D> {
                 Some(condition) => expect_of(item.key, condition),
             };
             let member = expect
-                .and_then(|expect| check_path_key(item.key).map(|()| expect))
+                .and_then(|expect| check_key(item.key).map(|()| expect))
                 .and_then(|expect| Member::new(item.key, item.bytes, expect));
             match member {
                 Ok(member) => small.push((i, member)),

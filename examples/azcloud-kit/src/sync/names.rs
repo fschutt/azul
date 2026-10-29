@@ -6,13 +6,18 @@
 //! cannot hold, never becomes a file: the run lists it with its reason and leaves the drive's
 //! file as it is. Nothing is renamed silently, because a renamed file is a different file to
 //! every other device. The policy is the same on every system; only [`Volume`] (what the disk
-//! under the folder refuses or folds, probed when the folder is paired) differs.
+//! under the folder refuses or folds, probed when the folder is paired) differs. What one name
+//! may be is the storage crate's one table ([`NameProblem`]): the sync refuses its rows that no
+//! system should hold, and Windows (or a disk that refuses what Windows refuses) the rows
+//! Windows misreads - the same rows every path check on Windows refuses.
 
+pub use azul_storage::key::System;
+use azul_storage::key::{self as storage_key, NameProblem};
 use serde::{Deserialize, Serialize};
 use unicode_normalization::UnicodeNormalization;
 
 /// The longest name of one file or folder, in bytes (every common file system).
-pub const COMPONENT_MAX_BYTES: usize = 255;
+pub const COMPONENT_MAX_BYTES: usize = storage_key::NAME_MAX_BYTES;
 /// The longest path, in bytes (Linux's PATH_MAX).
 pub const PATH_MAX_BYTES: usize = 4096;
 /// Windows' MAX_PATH without the long-path opt-in, in UTF-16 units, less what a typical folder
@@ -21,38 +26,6 @@ const WINDOWS_KEY_MAX_UNITS: usize = 259 - 40;
 /// The engine's own bookkeeping at the root of a synced folder (the root marker, the trash):
 /// no name from the drive may point into it.
 pub const BOOKKEEPING: &str = ".azlin";
-
-/// The systems a synced folder lives on.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum System {
-    Windows,
-    Macos,
-    Linux,
-}
-
-impl System {
-    /// The system this code runs on.
-    #[must_use]
-    pub fn here() -> System {
-        if cfg!(windows) {
-            System::Windows
-        } else if cfg!(any(target_os = "macos", target_os = "ios")) {
-            System::Macos
-        } else {
-            System::Linux
-        }
-    }
-
-    #[must_use]
-    pub fn label(self) -> &'static str {
-        match self {
-            System::Windows => "Windows",
-            System::Macos => "macOS",
-            System::Linux => "Linux",
-        }
-    }
-}
 
 /// What the disk under a synced folder does with names, probed once when it is paired: a disk
 /// that ignores case (APFS, NTFS) or Unicode normalization (APFS, HFS+) takes two names of the
@@ -79,38 +52,25 @@ fn is_control(c: char) -> bool {
     o < 0x20 || o == 0x7F || (0x80..=0x9F).contains(&o)
 }
 
-fn is_noncharacter(c: char) -> bool {
-    let o = u32::from(c);
-    (0xFDD0..=0xFDEF).contains(&o) || (o & 0xFFFE) == 0xFFFE
-}
-
-/// Why one name of a path can be no file name on any system, or `None`.
+/// Why one name of a path can be no file name on any system, or `None`: the table's rows a
+/// synced name may never break.
 #[must_use]
 pub fn segment_problem(segment: &str) -> Option<String> {
-    if segment.is_empty() {
-        return Some(String::from("an empty name in its path"));
-    }
-    if segment == "." || segment == ".." {
-        return Some(format!(
-            "a \"{segment}\" in its path climbs out of its folder"
-        ));
-    }
-    if segment.contains('\0') {
-        return Some(String::from("a NUL character"));
-    }
-    if segment.contains('\\') {
-        return Some(String::from("a backslash (a path separator on Windows)"));
-    }
-    if segment.chars().any(is_control) {
-        return Some(String::from("a control character"));
-    }
-    if segment.chars().any(is_noncharacter) {
-        return Some(String::from("a Unicode noncharacter"));
-    }
-    if segment.len() > COMPONENT_MAX_BYTES {
-        return Some(format!("a name longer than {COMPONENT_MAX_BYTES} bytes"));
-    }
-    None
+    let problem = storage_key::name_problem(segment, NameProblem::refused_for_sync)?;
+    Some(match problem {
+        NameProblem::Empty => String::from("an empty name in its path"),
+        NameProblem::Dot | NameProblem::DotDot => {
+            format!("a \"{segment}\" in its path climbs out of its folder")
+        }
+        NameProblem::Nul => String::from("a NUL character"),
+        NameProblem::Backslash => String::from("a backslash (a path separator on Windows)"),
+        NameProblem::ControlBelowSpace | NameProblem::OtherControl => {
+            String::from("a control character")
+        }
+        NameProblem::Noncharacter => String::from("a Unicode noncharacter"),
+        NameProblem::TooLong => format!("a name longer than {COMPONENT_MAX_BYTES} bytes"),
+        other => String::from(other.reason()),
+    })
 }
 
 /// Why a key of the drive can never become a file under the folder, on any system, or `None`.
@@ -145,11 +105,9 @@ pub fn key_problem(key: &str) -> Option<String> {
     key.split('/').find_map(segment_problem)
 }
 
-/// The names Windows reserves for devices, as a whole name and as the part before the first
-/// dot (`nul.tar.gz`), in any case: the storage crate's list, which its local drives refuse on
-/// Windows too.
-fn is_windows_device(stem: &str) -> bool {
-    azul_storage::key::is_windows_device_name(stem)
+/// The rows of the name table only Windows refuses: the ones another system keeps and warns of.
+fn windows_only(problem: NameProblem) -> bool {
+    problem.refused_on(System::Windows) && !problem.refused_for_sync()
 }
 
 /// Why Windows (or a FAT or exFAT disk) cannot hold this otherwise valid key, or `None`. A `:`
@@ -157,28 +115,34 @@ fn is_windows_device(stem: &str) -> bool {
 /// `dir/C:x` makes a path relative to drive C's current folder.
 #[must_use]
 pub fn windows_problem(key: &str) -> Option<String> {
-    const REFUSED: &[char] = &['<', '>', ':', '"', '|', '?', '*', '\\'];
     for segment in key.split('/') {
-        let mut bad: Vec<char> = segment.chars().filter(|c| REFUSED.contains(c)).collect();
-        if !bad.is_empty() {
-            bad.sort_unstable();
-            bad.dedup();
-            let bad: String = bad.into_iter().collect();
-            return Some(format!("\"{bad}\" is not allowed in a Windows name"));
-        }
-        if segment.ends_with('.') || segment.ends_with(' ') {
-            return Some(String::from("a name ending in a dot or a space"));
-        }
-        let stem = segment.split('.').next().unwrap_or(segment);
-        if is_windows_device(stem) {
-            return Some(format!(
-                "{} is a reserved device name on Windows",
-                stem.trim_end_matches(' ').to_uppercase()
-            ));
-        }
-        if segment.encode_utf16().count() > COMPONENT_MAX_BYTES {
-            return Some(String::from("a name longer than 255 UTF-16 units"));
-        }
+        let Some(problem) = storage_key::name_problem(segment, windows_only) else {
+            continue;
+        };
+        return Some(match problem {
+            NameProblem::Colon | NameProblem::WindowsCharacter => {
+                // Every character of the name Windows refuses, said once each.
+                let refused = |c: &char| {
+                    let mut buf = [0u8; 4];
+                    let one: &str = c.encode_utf8(&mut buf);
+                    NameProblem::Colon.holds(one) || NameProblem::WindowsCharacter.holds(one)
+                };
+                let mut bad: Vec<char> = segment.chars().filter(refused).collect();
+                bad.sort_unstable();
+                bad.dedup();
+                let bad: String = bad.into_iter().collect();
+                format!("\"{bad}\" is not allowed in a Windows name")
+            }
+            NameProblem::TrailingDotOrSpace => String::from("a name ending in a dot or a space"),
+            NameProblem::DeviceName => {
+                let stem = segment.split('.').next().unwrap_or(segment);
+                format!(
+                    "{} is a reserved device name on Windows",
+                    stem.trim_end_matches(' ').to_uppercase()
+                )
+            }
+            other => String::from(other.reason()),
+        });
     }
     if key.encode_utf16().count() > WINDOWS_KEY_MAX_UNITS {
         return Some(String::from(

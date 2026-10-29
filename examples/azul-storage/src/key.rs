@@ -1,6 +1,16 @@
 //! Keys: `/`-separated names, `mail/inbox/0001.eml`; a "folder" is a prefix
 //! ending in `/`. The checks here keep a key that is a path on disk inside its
 //! root, and a downloaded file inside its folder.
+//!
+//! What one name of a key may be is one table ([`NameProblem`]): each row says what a name must
+//! not hold and where that matters - on every system (the name would leave its folder or be no
+//! name at all), on Windows (it would name a stream, a drive, a device or another file there),
+//! or for a synced name everywhere (no common disk takes it, or it hides in a list).
+//! [`check_key`] keeps any drive's keys in shape; [`check_path_key`] adds the rows of the system
+//! it runs on, for a key that becomes a path on this computer's disk, and
+//! [`check_path_key_on`] asks the same for another system.
+
+use serde::{Deserialize, Serialize};
 
 use crate::DriveError;
 
@@ -17,10 +27,193 @@ fn has_drive_letter(key: &str) -> bool {
     matches!((chars.next(), chars.next()), (Some(c), Some(':')) if c.is_ascii_alphabetic())
 }
 
-/// Checks a key of a drive whose keys are paths on disk: no `..` or `.`
-/// segment, not absolute (`/x`, `\\server`, `C:`), no backslash or NUL, no
-/// empty segment, no trailing `/`.
-pub fn check_path_key(key: &str) -> Result<(), DriveError> {
+/// The systems a name may have to live on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum System {
+    Windows,
+    Macos,
+    Linux,
+}
+
+impl System {
+    /// Every system.
+    pub const ALL: [System; 3] = [System::Windows, System::Macos, System::Linux];
+
+    /// The system this code runs on.
+    #[must_use]
+    pub fn here() -> System {
+        if cfg!(windows) {
+            System::Windows
+        } else if cfg!(any(target_os = "macos", target_os = "ios")) {
+            System::Macos
+        } else {
+            System::Linux
+        }
+    }
+
+    #[must_use]
+    pub fn label(self) -> &'static str {
+        match self {
+            System::Windows => "Windows",
+            System::Macos => "macOS",
+            System::Linux => "Linux",
+        }
+    }
+}
+
+/// The longest name of one file or folder a synced folder takes, in bytes (what every common
+/// file system holds).
+pub const NAME_MAX_BYTES: usize = 255;
+
+/// What one name of a path must not be: the rows of the one table every key is checked against,
+/// in the order they are asked.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NameProblem {
+    /// Nothing between two slashes.
+    Empty,
+    /// `.`: the folder itself.
+    Dot,
+    /// `..`: the folder above, out of the folder.
+    DotDot,
+    /// A NUL: where the system ends the name.
+    Nul,
+    /// A backslash: a separator on Windows, so one name would be two there.
+    Backslash,
+    /// A `:`: on Windows `C:x` is relative to drive C's current folder (a path built from it
+    /// leaves its root) and `a.txt:s` is an alternate data stream of `a.txt`.
+    Colon,
+    /// `<`, `>`, `"`, `|`, `?`, `*` or `/`: Windows refuses them in a name.
+    WindowsCharacter,
+    /// A control character below the space: Windows refuses it, and it hides in a list.
+    ControlBelowSpace,
+    /// DEL or a C1 control character: a disk takes it, but it hides in a list.
+    OtherControl,
+    /// A Unicode noncharacter: no text may hold one.
+    Noncharacter,
+    /// A dot or a space at the end: Windows drops it, so two names would be one file there.
+    TrailingDotOrSpace,
+    /// A device name (`CON`, `AUX`, `NUL`, `COM1`, ...), alone or before a dot: Windows opens
+    /// the device instead.
+    DeviceName,
+    /// Longer than [`NAME_MAX_BYTES`].
+    TooLong,
+}
+
+impl NameProblem {
+    /// Every row, in the order a name is asked: the first that holds is the one said.
+    pub const ALL: [NameProblem; 13] = [
+        NameProblem::Empty,
+        NameProblem::Dot,
+        NameProblem::DotDot,
+        NameProblem::Nul,
+        NameProblem::Backslash,
+        NameProblem::Colon,
+        NameProblem::WindowsCharacter,
+        NameProblem::ControlBelowSpace,
+        NameProblem::OtherControl,
+        NameProblem::Noncharacter,
+        NameProblem::TrailingDotOrSpace,
+        NameProblem::DeviceName,
+        NameProblem::TooLong,
+    ];
+
+    /// Whether `name` (one name of a path, no slash) has this problem.
+    #[must_use]
+    pub fn holds(self, name: &str) -> bool {
+        match self {
+            NameProblem::Empty => name.is_empty(),
+            NameProblem::Dot => name == ".",
+            NameProblem::DotDot => name == "..",
+            NameProblem::Nul => name.contains('\0'),
+            NameProblem::Backslash => name.contains('\\'),
+            NameProblem::Colon => name.contains(':'),
+            NameProblem::WindowsCharacter => name
+                .chars()
+                .any(|c| matches!(c, '<' | '>' | '"' | '|' | '?' | '*' | '/')),
+            NameProblem::ControlBelowSpace => name.chars().any(|c| c < ' '),
+            NameProblem::OtherControl => name
+                .chars()
+                .any(|c| c == '\u{7f}' || ('\u{80}'..='\u{9f}').contains(&c)),
+            NameProblem::Noncharacter => name.chars().any(|c| {
+                let o = u32::from(c);
+                (0xFDD0..=0xFDEF).contains(&o) || (o & 0xFFFE) == 0xFFFE
+            }),
+            NameProblem::TrailingDotOrSpace => name.ends_with('.') || name.ends_with(' '),
+            NameProblem::DeviceName => {
+                is_windows_device_name(name.split('.').next().unwrap_or(name))
+            }
+            NameProblem::TooLong => name.len() > NAME_MAX_BYTES,
+        }
+    }
+
+    /// Whether a disk of `system` cannot take a name with this problem as it is meant: the path
+    /// would leave its folder, or name a stream, a drive, a device or another file there.
+    #[must_use]
+    pub fn refused_on(self, system: System) -> bool {
+        match self {
+            NameProblem::Empty
+            | NameProblem::Dot
+            | NameProblem::DotDot
+            | NameProblem::Nul
+            | NameProblem::Backslash => true,
+            NameProblem::Colon
+            | NameProblem::WindowsCharacter
+            | NameProblem::ControlBelowSpace
+            | NameProblem::TrailingDotOrSpace
+            | NameProblem::DeviceName => system == System::Windows,
+            NameProblem::OtherControl | NameProblem::Noncharacter | NameProblem::TooLong => false,
+        }
+    }
+
+    /// Whether a synced name may never have it, on any system. The other rows only Windows
+    /// refuses: another system keeps such a name and says Windows cannot hold it.
+    #[must_use]
+    pub fn refused_for_sync(self) -> bool {
+        !matches!(
+            self,
+            NameProblem::Colon
+                | NameProblem::WindowsCharacter
+                | NameProblem::TrailingDotOrSpace
+                | NameProblem::DeviceName
+        )
+    }
+
+    /// Why, as a drive's refusal says it.
+    #[must_use]
+    pub fn reason(self) -> &'static str {
+        match self {
+            NameProblem::Empty => "it has an empty path segment",
+            NameProblem::Dot => "it has a \".\" segment",
+            NameProblem::DotDot => "it climbs out of its folder (\"..\")",
+            NameProblem::Nul => "it contains a NUL character",
+            NameProblem::Backslash => "it contains a backslash",
+            NameProblem::Colon => "a \":\" in a name means a drive or a stream on Windows",
+            NameProblem::WindowsCharacter | NameProblem::ControlBelowSpace => {
+                "it has a character Windows does not allow in a name"
+            }
+            NameProblem::OtherControl => "it has a control character",
+            NameProblem::Noncharacter => "it has a Unicode noncharacter",
+            NameProblem::TrailingDotOrSpace => {
+                "Windows drops a dot or a space at the end of a name"
+            }
+            NameProblem::DeviceName => "it is a device name on Windows (CON, AUX, NUL, COM1, ...)",
+            NameProblem::TooLong => "a name in it is longer than 255 bytes",
+        }
+    }
+}
+
+/// The first row of the table that `name` breaks among those `counts` keeps.
+#[must_use]
+pub fn name_problem(name: &str, counts: impl Fn(NameProblem) -> bool) -> Option<NameProblem> {
+    NameProblem::ALL
+        .into_iter()
+        .find(|problem| counts(*problem) && problem.holds(name))
+}
+
+/// The shape of `key` - not absolute (`/x`, `\\server`, `C:`), no backslash or NUL, no trailing
+/// `/`, no empty, `.` or `..` name - then every name of it against the rows `counts` keeps.
+fn check_names(key: &str, counts: impl Fn(NameProblem) -> bool) -> Result<(), DriveError> {
     if key.is_empty() {
         return invalid(key, "it is empty");
     }
@@ -36,39 +229,41 @@ pub fn check_path_key(key: &str) -> Result<(), DriveError> {
     if key.ends_with('/') {
         return invalid(key, "it names a folder, not a file");
     }
-    for segment in key.split('/') {
-        match segment {
-            "" => return invalid(key, "it has an empty path segment"),
-            "." => return invalid(key, "it has a \".\" segment"),
-            ".." => return invalid(key, "it climbs out of its folder (\"..\")"),
-            _ => {}
+    let shape =
+        |p: NameProblem| matches!(p, NameProblem::Empty | NameProblem::Dot | NameProblem::DotDot);
+    for name in key.split('/') {
+        if let Some(problem) = name_problem(name, |p| shape(p) || counts(p)) {
+            return invalid(key, problem.reason());
         }
     }
     Ok(())
 }
 
-/// The systems a name may have to live on.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum System {
-    Windows,
-    Macos,
-    Linux,
+/// Checks a key of any drive: its shape only (no `..` or `.` name, not absolute, no backslash
+/// or NUL, no empty name, no trailing `/`). A drive's key becomes a path on a disk only through
+/// [`check_path_key`].
+pub fn check_key(key: &str) -> Result<(), DriveError> {
+    check_names(key, |_| false)
 }
 
-impl System {
-    /// Every system.
-    pub const ALL: [System; 3] = [System::Windows, System::Macos, System::Linux];
+/// Checks a key that becomes a path on this computer's disk: [`check_key`], and every name of
+/// it one this system takes as it is meant ([`NameProblem::refused_on`]) - on Windows no `:`,
+/// device name, trailing dot or space, or character Windows refuses.
+pub fn check_path_key(key: &str) -> Result<(), DriveError> {
+    check_path_key_on(key, System::here())
 }
 
-/// Checks a key that becomes a path on a disk of `system`.
+/// [`check_path_key`] for a disk of `system`.
 pub fn check_path_key_on(key: &str, system: System) -> Result<(), DriveError> {
-    let _ = system;
-    check_path_key(key)
+    check_names(key, |problem| problem.refused_on(system))
 }
 
-/// Checks a listing prefix of such a drive: empty (the root), a folder
-/// (`mail/`), or a folder and the start of a name (`mail/in`).
-pub fn check_path_prefix(prefix: &str) -> Result<(), DriveError> {
+/// `check` of a listing prefix: empty (the root), a folder (`mail/`), or a folder and the start
+/// of a name (`mail/in`).
+fn check_prefix_with(
+    prefix: &str,
+    check: fn(&str) -> Result<(), DriveError>,
+) -> Result<(), DriveError> {
     if prefix.is_empty() {
         return Ok(());
     }
@@ -76,7 +271,7 @@ pub fn check_path_prefix(prefix: &str) -> Result<(), DriveError> {
     if trimmed.is_empty() {
         return invalid(prefix, "it is an absolute path");
     }
-    check_path_key(trimmed).map_err(|e| match e {
+    check(trimmed).map_err(|e| match e {
         DriveError::InvalidKey { reason, .. } => DriveError::InvalidKey {
             key: prefix.to_string(),
             reason,
@@ -85,28 +280,22 @@ pub fn check_path_prefix(prefix: &str) -> Result<(), DriveError> {
     })
 }
 
-/// Why Windows cannot take `name` as one name of a path on disk, or `None`. A `:` is never part
-/// of a name there: `C:x` is a path relative to drive C's current folder (a path built from it
-/// leaves its root) and `a.txt:s` writes an alternate data stream of `a.txt`. Device names
-/// (`CON`, `aux.txt`, `COM1`) open the device, and Windows drops a dot or a space at the end of
-/// a name, so two names would be one file. The other characters it refuses, and control
-/// characters, cannot be in a name either.
+/// Checks a listing prefix of any drive as [`check_key`] checks a key.
+pub fn check_prefix(prefix: &str) -> Result<(), DriveError> {
+    check_prefix_with(prefix, check_key)
+}
+
+/// Checks a listing prefix of a drive whose keys are paths on this computer's disk, as
+/// [`check_path_key`] checks a key.
+pub fn check_path_prefix(prefix: &str) -> Result<(), DriveError> {
+    check_prefix_with(prefix, check_path_key)
+}
+
+/// Why Windows cannot take `name` as one name of a path on disk, or `None`: the first row of the
+/// table Windows refuses ([`NameProblem::refused_on`]).
 #[must_use]
 pub fn windows_name_problem(name: &str) -> Option<&'static str> {
-    const REFUSED: &[char] = &['<', '>', '"', '|', '?', '*', '/', '\\'];
-    if name.contains(':') {
-        return Some("a \":\" in a name means a drive or a stream on Windows");
-    }
-    if name.chars().any(|c| c < ' ' || REFUSED.contains(&c)) {
-        return Some("it has a character Windows does not allow in a name");
-    }
-    if name.ends_with('.') || name.ends_with(' ') {
-        return Some("Windows drops a dot or a space at the end of a name");
-    }
-    if is_windows_device_name(name.split('.').next().unwrap_or(name)) {
-        return Some("it is a device name on Windows (CON, AUX, NUL, COM1, ...)");
-    }
-    None
+    name_problem(name, |problem| problem.refused_on(System::Windows)).map(NameProblem::reason)
 }
 
 /// Whether `stem` (a name up to its first dot) is a name Windows keeps for a device, in any
@@ -129,19 +318,18 @@ pub fn is_windows_device_name(stem: &str) -> bool {
     })
 }
 
-/// Checks the names of a key (or a folder prefix) that becomes a path on this computer's disk:
-/// on Windows each one must be a name Windows takes ([`windows_name_problem`]); elsewhere they
-/// are valid as they are. Runs after [`check_path_key`] or [`check_path_prefix`].
+/// Checks the names of a key or a folder prefix that becomes a path on this computer's disk:
+/// each one a name this system takes ([`NameProblem::refused_on`]). [`check_path_key`] and
+/// [`check_path_prefix`] ask it already.
 ///
 /// # Errors
 ///
-/// [`DriveError::InvalidKey`] naming why, on Windows.
+/// [`DriveError::InvalidKey`] naming why.
 pub fn check_local_names(key: &str) -> Result<(), DriveError> {
-    if cfg!(windows) {
-        for name in key.split('/').filter(|n| !n.is_empty()) {
-            if let Some(reason) = windows_name_problem(name) {
-                return invalid(key, reason);
-            }
+    let here = System::here();
+    for name in key.split('/').filter(|n| !n.is_empty()) {
+        if let Some(problem) = name_problem(name, |p| p.refused_on(here)) {
+            return invalid(key, problem.reason());
         }
     }
     Ok(())

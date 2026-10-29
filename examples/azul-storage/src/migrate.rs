@@ -32,7 +32,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     crypto::ObjectId,
     encrypted::{EncryptedDrive, Expect},
-    key::check_path_key,
+    key::check_key,
     ops::list_all,
     transfer::CHUNK,
     ByteRange, Drive, DriveError, ObjectInfo,
@@ -205,7 +205,7 @@ fn move_one<D: Drive>(
             Err(e) => Err(e),
         };
     }
-    if let Err(DriveError::InvalidKey { reason, .. }) = check_path_key(key) {
+    if let Err(DriveError::InvalidKey { reason, .. }) = check_key(key) {
         return Ok(Outcome::Skipped(format!(
             "an encrypted drive cannot name this file: {reason}"
         )));

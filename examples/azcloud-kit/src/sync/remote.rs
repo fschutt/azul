@@ -52,7 +52,7 @@ pub fn normalize_prefix(prefix: &str) -> CloudResult<String> {
     } else {
         format!("{p}/")
     };
-    azul_storage::key::check_path_prefix(&p)
+    azul_storage::key::check_prefix(&p)
         .map_err(|e| CloudError::failed(format!("the prefix {prefix:?}: {e}")))?;
     if p.split('/').any(|segment| segment == META_DIR) {
         fail!("the prefix {prefix:?} names {META_DIR}, the bookkeeping folder");
@@ -361,7 +361,7 @@ impl RemoteIndex {
 /// When it climbs out, is absolute, holds a backslash or NUL, or lies in the
 /// bookkeeping folder at the root.
 pub fn check_key(key: &str) -> CloudResult<()> {
-    azul_storage::key::check_path_key(key)?;
+    azul_storage::key::check_key(key)?;
     if azul_storage::manifest::is_reserved_key(key) {
         fail!("{key:?} lies in the bookkeeping folder {META_DIR}");
     }

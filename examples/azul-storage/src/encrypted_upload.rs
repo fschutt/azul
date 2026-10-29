@@ -31,7 +31,7 @@ use crate::{
         random_bytes, to_hex, ObjectId, WrappedKey,
     },
     encrypted::{EncryptedDrive, Expect},
-    key::check_path_key,
+    key::check_key,
     local::write_atomically,
     multipart::STALE_AFTER_SECS,
     Drive, DriveError,
@@ -194,7 +194,7 @@ impl<D: Drive> EncryptedDrive<D> {
         check: Option<&FileCheck>,
         progress: &(dyn Fn(u64) + Sync),
     ) -> Result<Option<Spooled>, DriveError> {
-        check_path_key(key)?;
+        check_key(key)?;
         let Some(folder) = self.inner.resume_folder() else {
             return Ok(None);
         };

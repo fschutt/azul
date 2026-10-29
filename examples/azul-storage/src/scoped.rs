@@ -8,7 +8,7 @@
 use std::{io::Read, path::PathBuf};
 
 use crate::{
-    key::{check_path_key, check_path_prefix},
+    key::{check_key, check_prefix},
     ops::check_folder,
     ByteRange, Drive, DriveError, ListPage, ListRequest, ObjectInfo, Precondition,
 };
@@ -32,7 +32,7 @@ impl<D: Drive> ScopedDrive<D> {
                     reason: "a grant covers a folder, which ends with /",
                 });
             }
-            check_path_prefix(prefix)?;
+            check_prefix(prefix)?;
         }
         Ok(ScopedDrive {
             inner,
@@ -52,7 +52,7 @@ impl<D: Drive> ScopedDrive<D> {
     }
 
     fn full_key(&self, key: &str) -> Result<String, DriveError> {
-        check_path_key(key)?;
+        check_key(key)?;
         Ok(format!("{}{key}", self.prefix))
     }
 
@@ -60,7 +60,7 @@ impl<D: Drive> ScopedDrive<D> {
     fn full_name(&self, name: &str) -> Result<String, DriveError> {
         if name.ends_with('/') {
             check_folder(name)?;
-            check_path_prefix(name)?;
+            check_prefix(name)?;
             Ok(format!("{}{name}", self.prefix))
         } else {
             self.full_key(name)
@@ -84,7 +84,7 @@ impl<D: Drive> ScopedDrive<D> {
 
 impl<D: Drive> Drive for ScopedDrive<D> {
     fn list(&self, request: &ListRequest) -> Result<ListPage, DriveError> {
-        check_path_prefix(&request.prefix)?;
+        check_prefix(&request.prefix)?;
         let mut inner_request = request.clone();
         inner_request.prefix = format!("{}{}", self.prefix, request.prefix);
         let page = self.inner.list(&inner_request)?;
