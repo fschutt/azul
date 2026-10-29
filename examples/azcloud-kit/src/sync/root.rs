@@ -293,8 +293,11 @@ pub fn spool(root: &Root) -> Result<beneath::Dir, BeneathError> {
 /// would write a stream of `a`, so that probe runs elsewhere only.
 #[must_use]
 pub fn probe_volume(root: &Path) -> Volume {
+    // A system without permission bits (Windows) keeps none on any disk: a file there keeps the
+    // bit its synced version has, as on a FAT disk elsewhere.
     let mut volume = Volume {
         max_file: beneath::file_size_limit(root),
+        no_exec_bits: !cfg!(unix),
         ..Volume::default()
     };
     let Ok(root) = Root::open(root) else {
