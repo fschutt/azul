@@ -189,7 +189,9 @@ impl BaseDb {
                 .map_err(|e| db_error(&self.path, format!("the entry of {key:?}: {e}")))?;
             index.files.insert(key, entry);
         }
-        Ok(Some(index))
+        // The pairing record names the base's format as the JSON base does: a newer one is
+        // refused, an older one brought up to this version's.
+        index.upgraded(&self.path).map(Some)
     }
 
     /// Makes `index` the base: the rows that changed, the pairing record, in one transaction.
@@ -280,6 +282,7 @@ pub fn load(path: &Path) -> CloudResult<Option<LocalIndex>> {
     let Some(index) = crate::state::read_json::<LocalIndex>(&json)? else {
         return Ok(None);
     };
+    let index = index.upgraded(&json)?;
     db.save(&index)?;
     let mut done = json.as_os_str().to_os_string();
     done.push(".migrated");

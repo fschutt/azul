@@ -41,8 +41,9 @@ use crate::{
 
 /// The `format` of a local index.
 pub const LOCAL_FORMAT: &str = "azcloud.sync-local";
-/// The newest format version of it this version reads (and the one it writes).
-pub const LOCAL_VERSION: u32 = 1;
+/// The newest format version of it this version reads (and the one it writes). Format 2 keeps
+/// the folders both sides had next to the files; format 1 kept files only.
+pub const LOCAL_VERSION: u32 = 2;
 /// A file whose time lies this close to the scan that recorded it is read
 /// again by the next scan.
 pub const RACY_NS: u64 = 2_000_000_000;
@@ -84,6 +85,18 @@ pub struct BaseEntry {
     pub dev: u64,
 }
 
+/// A folder both sides had at the last sync.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BaseFolder {
+    /// The folder's identity on the drive: it stays the same when the folder is renamed.
+    pub id: String,
+    /// Its inode and device here (0: not known): a folder renamed here keeps them.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub ino: u64,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub dev: u64,
+}
+
 /// The local index of one folder.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LocalIndex {
@@ -104,6 +117,9 @@ pub struct LocalIndex {
     /// The base.
     #[serde(default)]
     pub files: BTreeMap<String, BaseEntry>,
+    /// The folders of the base, by key (no trailing slash): empty ones too.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub folders: BTreeMap<String, BaseFolder>,
     /// The burst guard's memory, and its pause ([`super::guard`]).
     #[serde(default)]
     pub guard: Guard,
@@ -138,6 +154,7 @@ impl LocalIndex {
             scanned_at_ns: 0,
             remote_etag: None,
             files: BTreeMap::new(),
+            folders: BTreeMap::new(),
             guard: Guard::default(),
             root_id: None,
             restore_epoch: 0,
@@ -161,20 +178,35 @@ impl LocalIndex {
         let Some(index) = read_json::<LocalIndex>(path)? else {
             return Ok(None);
         };
-        if index.format != LOCAL_FORMAT {
+        index.upgraded(path).map(Some)
+    }
+
+    /// The index as this version keeps it, whichever store it was read from. One a newer
+    /// version wrote may mean things this one cannot read: never taken as one of its own (a run
+    /// pairs afresh and deletes nothing, D5). One of an older format is brought up to this one.
+    ///
+    /// # Errors
+    ///
+    /// When it is no local index, or of a newer format.
+    pub fn upgraded(mut self, path: &Path) -> CloudResult<LocalIndex> {
+        if self.format != LOCAL_FORMAT {
             fail!("{} is no azcloud local index", path.display());
         }
-        // A newer version's base may mean things this one cannot read: never taken as one of
-        // its own (a run pairs afresh and deletes nothing, D5).
-        if index.version > LOCAL_VERSION {
+        if self.version > LOCAL_VERSION {
             fail!(
                 "{} was written by a newer version of the app (state format {}; this one reads up \
                  to {LOCAL_VERSION})",
                 path.display(),
-                index.version
+                self.version
             );
         }
-        Ok(Some(index))
+        // Format 1 kept no folders: they stay unknown until the next pass records the ones both
+        // sides have, so nothing is taken for renamed or deleted on its account.
+        if self.version < 2 {
+            self.folders.clear();
+        }
+        self.version = LOCAL_VERSION;
+        Ok(self)
     }
 
     /// Moves the base at `path` that [`LocalIndex::load`] could not read out of the way: kept

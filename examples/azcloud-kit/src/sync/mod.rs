@@ -111,7 +111,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 pub use self::{
-    local::{BaseEntry, Content, LocalFile, LocalIndex, Scan},
+    local::{BaseEntry, BaseFolder, Content, LocalFile, LocalIndex, Scan},
     merge::Action,
     remote::{normalize_prefix, RemoteFile, RemoteIndex, Tombstone},
     rules::Rules,
