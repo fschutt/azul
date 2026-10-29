@@ -411,7 +411,67 @@ mod period {
 }
 
 mod read_only_and_map {
-    use azlin_contract::{map_epoch, AzlinError, ReadOnlyWhy, MAP_HEADER};
+    use azlin_contract::{
+        is_service_metadata, map_epoch, AzlinError, BucketOp, DriveAccess, ReadOnlyWhy,
+        MAP_HEADER, MOVED_HEADER,
+    };
+
+    /// What `access` takes: (reads, writes, deletes, links).
+    fn takes(access: DriveAccess) -> (bool, bool, bool, bool) {
+        (
+            access.permits(BucketOp::Read),
+            access.permits(BucketOp::Write),
+            access.permits(BucketOp::Delete),
+            access.permits(BucketOp::Link),
+        )
+    }
+
+    /// One table says what each state of a drive takes, for the nodes and the apps alike: a
+    /// drive frozen by the operator or for a move takes its owner's deletes as an unpaid one
+    /// does, and no other write; a lockdown takes no change; a locked drive nothing.
+    #[test]
+    fn one_table_says_what_each_state_of_a_drive_takes() {
+        use DriveAccess::{Banned, Closed, ReadOnly, Writable};
+        assert_eq!(takes(Writable), (true, true, true, true));
+        assert_eq!(takes(ReadOnly(ReadOnlyWhy::Unpaid)), (true, false, true, true));
+        assert_eq!(takes(ReadOnly(ReadOnlyWhy::Operator)), (true, false, true, true));
+        assert_eq!(takes(ReadOnly(ReadOnlyWhy::Moving)), (true, false, true, true));
+        assert_eq!(takes(ReadOnly(ReadOnlyWhy::LockdownPending)), (true, false, false, true));
+        assert_eq!(takes(ReadOnly(ReadOnlyWhy::Archived)), (false, false, false, false));
+        // a reason a newer server wrote: reads only, until this build knows it
+        assert_eq!(takes(ReadOnly(ReadOnlyWhy::Unknown)), (true, false, false, true));
+        assert_eq!(takes(Banned), (true, false, false, false));
+        assert_eq!(takes(Closed), (false, false, false, false));
+        for why in ReadOnlyWhy::ALL {
+            assert_eq!(!ReadOnly(why).permits(BucketOp::Read), why.blocks_reads(), "{why:?}");
+        }
+    }
+
+    #[test]
+    fn a_drive_frozen_for_a_move_has_its_own_reason_and_code_and_older_builds_still_read_it() {
+        assert_eq!(ReadOnlyWhy::parse("moving"), Some(ReadOnlyWhy::Moving));
+        assert_eq!(ReadOnlyWhy::Moving.as_str(), "moving");
+        assert_eq!(ReadOnlyWhy::Moving.code(), AzlinError::ReadOnlyMoving);
+        assert_eq!(AzlinError::ReadOnlyMoving.as_str(), "read_only_moving");
+        assert_eq!(AzlinError::parse("read_only_moving"), Some(AzlinError::ReadOnlyMoving));
+        assert_eq!(AzlinError::ReadOnlyMoving.s3(), (403, "AccessDenied"));
+        assert!(!AzlinError::ReadOnlyMoving.is_transient());
+        assert_ne!(ReadOnlyWhy::Moving.code(), ReadOnlyWhy::Operator.code());
+        // the next reason a newer server writes still reads, as a freeze this build keeps
+        let read: ReadOnlyWhy = serde_json::from_str("\"rebalancing\"").expect("reads");
+        assert_eq!(read, ReadOnlyWhy::Unknown);
+    }
+
+    #[test]
+    fn a_moved_objects_marker_is_the_services_own_metadata_and_never_the_users() {
+        assert_eq!(MOVED_HEADER, "x-amz-meta-azlin-moved");
+        assert!(is_service_metadata(MOVED_HEADER));
+        assert!(is_service_metadata("X-Amz-Meta-Azlin-Moved"));
+        assert!(is_service_metadata("x-amz-meta-azlin-anything-later"));
+        assert!(!is_service_metadata("x-amz-meta-author"));
+        assert!(!is_service_metadata("x-amz-meta-azlinfan"));
+        assert!(!is_service_metadata("content-type"));
+    }
 
     #[test]
     fn each_reason_a_bucket_is_read_only_has_its_own_node_code() {
@@ -452,8 +512,9 @@ mod read_only_and_map {
             AzlinError::ReadOnlyLockdown,
             AzlinError::ReadOnlyOperator,
             AzlinError::DriveArchived,
+            AzlinError::ReadOnlyMoving,
         ];
-        assert_eq!(&AzlinError::ALL[n - 3..], &newest[..]);
+        assert_eq!(&AzlinError::ALL[n - 4..], &newest[..]);
         for code in [AzlinError::ReadOnlyLockdown, AzlinError::ReadOnlyOperator] {
             assert_eq!(code.s3(), (403, "AccessDenied"), "{code}");
             assert_eq!(code.retry_after(), None, "{code}");

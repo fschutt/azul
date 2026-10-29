@@ -188,6 +188,8 @@ mod options_cancel_tests;
 mod ban;
 #[cfg(test)]
 mod ban_tests;
+#[cfg(test)]
+mod access_tests;
 /// An unpaid Azlin drive's last months (the bar, the copy to this computer), its lock and its
 /// way back (Get my drive back).
 mod archive;

@@ -176,3 +176,34 @@ fn the_drives_status_says_why_it_takes_no_writes_and_only_unpaid_is_a_payment_du
     assert_eq!(older.read_only_why, None);
     assert!(older.payment_due());
 }
+
+/// The drive's status names its state in the contract's table: what the window and the sync
+/// may do with it comes from there, never from a check of its own.
+#[test]
+fn the_drives_status_names_its_state_in_the_contracts_table() {
+    use azlin_contract::{BucketOp, DriveAccess, ReadOnlyWhy};
+    let status = |read_only: bool, why: Option<ReadOnlyWhy>| DriveStatus {
+        read_only,
+        read_only_why: why,
+        ..DriveStatus::default()
+    };
+    assert_eq!(status(false, None).access(0), DriveAccess::Writable);
+    // a server of before names no reason: read-only was always a payment
+    assert_eq!(status(true, None).access(0), DriveAccess::ReadOnly(ReadOnlyWhy::Unpaid));
+    for why in [ReadOnlyWhy::Operator, ReadOnlyWhy::Moving, ReadOnlyWhy::Unpaid] {
+        let access = status(true, Some(why)).access(0);
+        assert_eq!(access, DriveAccess::ReadOnly(why));
+        assert!(access.permits(BucketOp::Delete) && !access.permits(BucketOp::Write), "{why:?}");
+    }
+    assert!(!status(true, Some(ReadOnlyWhy::Moving)).payment_due());
+    let banned = DriveStatus {
+        ban: Some(crate::token::Ban {
+            reason: String::from("spam"),
+            until: Some(100),
+            closed: false,
+        }),
+        ..status(true, None)
+    };
+    assert_eq!(banned.access(50), DriveAccess::Banned);
+    assert_eq!(banned.access(100), DriveAccess::Closed);
+}

@@ -635,6 +635,27 @@ fn the_metadata_of_an_object_lists_its_type_storage_class_and_user_metadata() {
 }
 
 #[test]
+fn a_moved_objects_marker_is_not_shown_as_its_metadata() {
+    let fake = Fake::default();
+    fake.answer(
+        200,
+        &[
+            ("Content-Type", "text/plain"),
+            ("x-amz-meta-azlin-moved", "1"),
+            ("X-Amz-Meta-Azlin-Moved-From", "b2"),
+            ("x-amz-meta-project", "garden"),
+        ],
+        "",
+    );
+    let pairs = local_drive(&fake).metadata("notes/a.txt").unwrap();
+    assert!(
+        pairs.iter().all(|(k, _)| !k.to_ascii_lowercase().starts_with("azlin-")),
+        "the service's own marker is no metadata of the file: {pairs:?}"
+    );
+    assert!(pairs.iter().any(|(k, v)| k == "project" && v == "garden"), "{pairs:?}");
+}
+
+#[test]
 fn the_metadata_of_a_missing_object_is_not_found() {
     let fake = Fake::default();
     fake.answer(404, &[], "");
