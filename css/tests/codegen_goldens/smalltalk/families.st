@@ -27,7 +27,6 @@ AzulStyles class >> str: aString [
 ]
 
 "CSS: .text
-dropped a value these bindings cannot build: the Smalltalk bindings define no class for `StyleFontVariantNumericValue` or its CssPropertyValue<T> payload
 dropped a value these bindings cannot build: the Smalltalk bindings define no class for `StyleFontVariantCapsValue` or its CssPropertyValue<T> payload
 dropped a value these bindings cannot build: the Smalltalk bindings define no class for `StyleFontFeatureSettingsValue` or its CssPropertyValue<T> payload
 dropped a value these bindings cannot build: the Smalltalk bindings define no class for `StyleInitialLetterValue` or its CssPropertyValue<T> payload
@@ -68,6 +67,7 @@ AzulStyles class >> styleText [
         }))).
         (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyFontWeight: (AzStyleFontWeight W600))).
         (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyFontStyle: (AzStyleFontStyle Italic))).
+        (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyFontVariantNumeric: (AzStyleFontVariantNumeric new lining_nums: false; oldstyle_nums: false; proportional_nums: false; tabular_nums: true; diagonal_fractions: false; stacked_fractions: false; ordinal: false; slashed_zero: false; yourself))).
         (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyTextAlign: (AzStyleTextAlign Center))).
         (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyTextJustify: (AzLayoutTextJustify InterWord))).
         (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyVerticalAlign: (AzulNative azStyleVerticalAlignMiddle))).
@@ -273,9 +273,9 @@ AzulStyles class >> styleFragment [
 { #category : 'styles' }
 AzulStyles class >> styleShape [
     ^ self vec: [ :p :n | AzulNative azCssPropertyWithConditionsVecCopyFromPtr: p len: n ] of: AzCssPropertyWithConditions items: {
-        (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyShapeOutside: (AzulNative azShapeOutsideShape: (AzulNative azCssShapeCircle: (AzShapeCircle new center: (AzShapePoint new x: 0.0; y: 0.0; yourself); radius: 50.0; yourself))))).
-        (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyShapeInside: (AzulNative azShapeInsideShape: (AzulNative azCssShapeCircle: (AzShapeCircle new center: (AzShapePoint new x: 50.0; y: 50.0; yourself); radius: 100.0; yourself))))).
-        (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyClipPath: (AzulNative azClipPathShape: (AzulNative azCssShapeCircle: (AzShapeCircle new center: (AzShapePoint new x: 0.0; y: 0.0; yourself); radius: 40.0; yourself))))).
+        (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyShapeOutside: (AzulNative azShapeOutsideShape: (AzulNative azCssShapeCircle: (AzShapeCircle new center: (AzShapePosition new x: (AzShapeOffset new from_end: false; offset: (AzulNative azPixelValuePercent: 50.0); yourself); y: (AzShapeOffset new from_end: false; offset: (AzulNative azPixelValuePercent: 50.0); yourself); yourself); radius: (AzulNative azShapeRadiusLength: (AzulNative azPixelValuePx: 50.0)); yourself))))).
+        (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyShapeInside: (AzulNative azShapeInsideShape: (AzulNative azCssShapeCircle: (AzShapeCircle new center: (AzShapePosition new x: (AzShapeOffset new from_end: false; offset: (AzulNative azPixelValuePx: 50.0); yourself); y: (AzShapeOffset new from_end: false; offset: (AzulNative azPixelValuePx: 50.0); yourself); yourself); radius: (AzulNative azShapeRadiusLength: (AzulNative azPixelValuePx: 100.0)); yourself))))).
+        (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyClipPath: (AzulNative azClipPathShape: (AzulNative azCssShapeCircle: (AzShapeCircle new center: (AzShapePosition new x: (AzShapeOffset new from_end: false; offset: (AzulNative azPixelValuePercent: 50.0); yourself); y: (AzShapeOffset new from_end: false; offset: (AzulNative azPixelValuePercent: 50.0); yourself); yourself); radius: (AzulNative azShapeRadiusLength: (AzulNative azPixelValuePx: 40.0)); yourself))))).
         (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyShapeMargin: (AzShapeMargin new inner: (AzulNative azPixelValuePx: 10.0); yourself))).
         (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyShapeImageThreshold: (AzShapeImageThreshold new inner: (AzulNative azFloatValueCreate: 0.5); yourself)))
     }

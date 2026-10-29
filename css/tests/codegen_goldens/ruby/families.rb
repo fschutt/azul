@@ -69,7 +69,7 @@ module AzulStyles
       ),
       N.az_css_property_with_conditions_simple(N.az_css_property_font_weight(N::AzStyleFontWeight::W600)),
       N.az_css_property_with_conditions_simple(N.az_css_property_font_style(N::AzStyleFontStyle::Italic)),
-      N.az_css_property_with_conditions_simple(N.az_css_property_font_variant_numeric(AzulCodegen.union(N::AzStyleFontVariantNumericValue, :Exact, 6, AzulCodegen.struct(N::AzStyleFontVariantNumeric, lining_nums: false, oldstyle_nums: false, proportional_nums: false, tabular_nums: true, diagonal_fractions: false, stacked_fractions: false, ordinal: false, slashed_zero: false)))),
+      N.az_css_property_with_conditions_simple(N.az_css_property_font_variant_numeric(AzulCodegen.struct(N::AzStyleFontVariantNumeric, lining_nums: false, oldstyle_nums: false, proportional_nums: false, tabular_nums: true, diagonal_fractions: false, stacked_fractions: false, ordinal: false, slashed_zero: false))),
       N.az_css_property_with_conditions_simple(N.az_css_property_font_variant_caps(AzulCodegen.union(N::AzStyleFontVariantCapsValue, :Exact, 6, N::AzStyleFontVariantCaps::SmallCaps))),
       N.az_css_property_with_conditions_simple(N.az_css_property_font_feature_settings(AzulCodegen.union(N::AzStyleFontFeatureSettingsValue, :Exact, 6, AzulCodegen.struct(N::AzStyleFontFeatureSettings, inner: Azul._az_string("\"liga\" 0, \"tnum\""))))),
       N.az_css_property_with_conditions_simple(N.az_css_property_text_align(N::AzStyleTextAlign::Center)),
@@ -372,9 +372,9 @@ module AzulStyles
     AzulCodegen.vec(
       :az_css_property_with_conditions_vec_copy_from_ptr,
       N::AzCssPropertyWithConditions,
-      N.az_css_property_with_conditions_simple(N.az_css_property_shape_outside(N.az_shape_outside_shape(N.az_css_shape_circle(AzulCodegen.struct(N::AzShapeCircle, center: AzulCodegen.struct(N::AzShapePoint, x: 0.0, y: 0.0), radius: 50.0))))),
-      N.az_css_property_with_conditions_simple(N.az_css_property_shape_inside(N.az_shape_inside_shape(N.az_css_shape_circle(AzulCodegen.struct(N::AzShapeCircle, center: AzulCodegen.struct(N::AzShapePoint, x: 50.0, y: 50.0), radius: 100.0))))),
-      N.az_css_property_with_conditions_simple(N.az_css_property_clip_path(N.az_clip_path_shape(N.az_css_shape_circle(AzulCodegen.struct(N::AzShapeCircle, center: AzulCodegen.struct(N::AzShapePoint, x: 0.0, y: 0.0), radius: 40.0))))),
+      N.az_css_property_with_conditions_simple(N.az_css_property_shape_outside(N.az_shape_outside_shape(N.az_css_shape_circle(AzulCodegen.struct(N::AzShapeCircle, center: AzulCodegen.struct(N::AzShapePosition, x: AzulCodegen.struct(N::AzShapeOffset, from_end: false, offset: N.az_pixel_value_percent(50.0)), y: AzulCodegen.struct(N::AzShapeOffset, from_end: false, offset: N.az_pixel_value_percent(50.0))), radius: N.az_shape_radius_length(N.az_pixel_value_px(50.0))))))),
+      N.az_css_property_with_conditions_simple(N.az_css_property_shape_inside(N.az_shape_inside_shape(N.az_css_shape_circle(AzulCodegen.struct(N::AzShapeCircle, center: AzulCodegen.struct(N::AzShapePosition, x: AzulCodegen.struct(N::AzShapeOffset, from_end: false, offset: N.az_pixel_value_px(50.0)), y: AzulCodegen.struct(N::AzShapeOffset, from_end: false, offset: N.az_pixel_value_px(50.0))), radius: N.az_shape_radius_length(N.az_pixel_value_px(100.0))))))),
+      N.az_css_property_with_conditions_simple(N.az_css_property_clip_path(N.az_clip_path_shape(N.az_css_shape_circle(AzulCodegen.struct(N::AzShapeCircle, center: AzulCodegen.struct(N::AzShapePosition, x: AzulCodegen.struct(N::AzShapeOffset, from_end: false, offset: N.az_pixel_value_percent(50.0)), y: AzulCodegen.struct(N::AzShapeOffset, from_end: false, offset: N.az_pixel_value_percent(50.0))), radius: N.az_shape_radius_length(N.az_pixel_value_px(40.0))))))),
       N.az_css_property_with_conditions_simple(N.az_css_property_shape_margin(AzulCodegen.struct(N::AzShapeMargin, inner: N.az_pixel_value_px(10.0)))),
       N.az_css_property_with_conditions_simple(N.az_css_property_shape_image_threshold(AzulCodegen.struct(N::AzShapeImageThreshold, inner: N.az_float_value_create(0.5))))
     )

@@ -239,9 +239,9 @@ styleFragment = sequence
 styleShape :: IO [CssPropertyWithConditions]
 styleShape = sequence
   [
-    (CssPropertyWithConditions.simple (T.CssProperty_ShapeOutside (T.ShapeOutsideValue_Exact (T.ShapeOutside_Shape (T.CssShape_Circle (T.ShapeCircle (T.ShapePoint 0.0 0.0) 50.0)))))),
-    (CssPropertyWithConditions.simple (T.CssProperty_ShapeInside (T.ShapeInsideValue_Exact (T.ShapeInside_Shape (T.CssShape_Circle (T.ShapeCircle (T.ShapePoint 50.0 50.0) 100.0)))))),
-    (CssPropertyWithConditions.simple (T.CssProperty_ClipPath (T.ClipPathValue_Exact (T.ClipPath_Shape (T.CssShape_Circle (T.ShapeCircle (T.ShapePoint 0.0 0.0) 40.0)))))),
+    (CssPropertyWithConditions.simple (T.CssProperty_ShapeOutside (T.ShapeOutsideValue_Exact (T.ShapeOutside_Shape (T.CssShape_Circle (T.ShapeCircle (T.ShapePosition (T.ShapeOffset 0 (T.PixelValue T.SizeMetric_Percent (T.FloatValue 50000))) (T.ShapeOffset 0 (T.PixelValue T.SizeMetric_Percent (T.FloatValue 50000)))) (T.ShapeRadius_Length (T.PixelValue T.SizeMetric_Px (T.FloatValue 50000))))))))),
+    (CssPropertyWithConditions.simple (T.CssProperty_ShapeInside (T.ShapeInsideValue_Exact (T.ShapeInside_Shape (T.CssShape_Circle (T.ShapeCircle (T.ShapePosition (T.ShapeOffset 0 (T.PixelValue T.SizeMetric_Px (T.FloatValue 50000))) (T.ShapeOffset 0 (T.PixelValue T.SizeMetric_Px (T.FloatValue 50000)))) (T.ShapeRadius_Length (T.PixelValue T.SizeMetric_Px (T.FloatValue 100000))))))))),
+    (CssPropertyWithConditions.simple (T.CssProperty_ClipPath (T.ClipPathValue_Exact (T.ClipPath_Shape (T.CssShape_Circle (T.ShapeCircle (T.ShapePosition (T.ShapeOffset 0 (T.PixelValue T.SizeMetric_Percent (T.FloatValue 50000))) (T.ShapeOffset 0 (T.PixelValue T.SizeMetric_Percent (T.FloatValue 50000)))) (T.ShapeRadius_Length (T.PixelValue T.SizeMetric_Px (T.FloatValue 40000))))))))),
     (CssPropertyWithConditions.simple (T.CssProperty_ShapeMargin (T.ShapeMarginValue_Exact (T.ShapeMargin (T.PixelValue T.SizeMetric_Px (T.FloatValue 10000)))))),
     (CssPropertyWithConditions.simple (T.CssProperty_ShapeImageThreshold (T.ShapeImageThresholdValue_Exact (T.ShapeImageThreshold (T.FloatValue 500)))))
   ]

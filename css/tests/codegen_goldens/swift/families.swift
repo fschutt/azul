@@ -16,7 +16,7 @@ public func styleText() -> [CssPropertyWithConditions] {
         ),
         CssPropertyWithConditions.simple(CssProperty.fontWeight(StyleFontWeight.w600)),
         CssPropertyWithConditions.simple(CssProperty.fontStyle(StyleFontStyle.italic)),
-        CssPropertyWithConditions.simple(CssProperty.fontVariantNumeric(StyleFontVariantNumericValue.exact(StyleFontVariantNumeric(liningNums: false, oldstyleNums: false, proportionalNums: false, tabularNums: true, diagonalFractions: false, stackedFractions: false, ordinal: false, slashedZero: false)))),
+        CssPropertyWithConditions.simple(CssProperty.fontVariantNumeric(StyleFontVariantNumeric(liningNums: false, oldstyleNums: false, proportionalNums: false, tabularNums: true, diagonalFractions: false, stackedFractions: false, ordinal: false, slashedZero: false))),
         CssPropertyWithConditions.simple(CssProperty.fontVariantCaps(StyleFontVariantCapsValue.exact(StyleFontVariantCaps.smallCaps))),
         CssPropertyWithConditions.simple(CssProperty.fontFeatureSettings(StyleFontFeatureSettingsValue.exact(StyleFontFeatureSettings(inner: "\"liga\" 0, \"tnum\"")))),
         CssPropertyWithConditions.simple(CssProperty.textAlign(StyleTextAlign.center)),
@@ -283,9 +283,9 @@ public func styleFragment() -> [CssPropertyWithConditions] {
 // CSS: .shape
 public func styleShape() -> [CssPropertyWithConditions] {
     return [
-        CssPropertyWithConditions.simple(CssProperty.shapeOutside(ShapeOutside.shape(CssShape.circle(ShapeCircle(center: ShapePoint(x: 0.0, y: 0.0), radius: 50.0))))),
-        CssPropertyWithConditions.simple(CssProperty.shapeInside(ShapeInside.shape(CssShape.circle(ShapeCircle(center: ShapePoint(x: 50.0, y: 50.0), radius: 100.0))))),
-        CssPropertyWithConditions.simple(CssProperty.clipPath(ClipPath.shape(CssShape.circle(ShapeCircle(center: ShapePoint(x: 0.0, y: 0.0), radius: 40.0))))),
+        CssPropertyWithConditions.simple(CssProperty.shapeOutside(ShapeOutside.shape(CssShape.circle(ShapeCircle(center: ShapePosition(x: ShapeOffset(fromEnd: false, offset: PixelValue.percent(50.0)), y: ShapeOffset(fromEnd: false, offset: PixelValue.percent(50.0))), radius: ShapeRadius.length(PixelValue.px(50.0))))))),
+        CssPropertyWithConditions.simple(CssProperty.shapeInside(ShapeInside.shape(CssShape.circle(ShapeCircle(center: ShapePosition(x: ShapeOffset(fromEnd: false, offset: PixelValue.px(50.0)), y: ShapeOffset(fromEnd: false, offset: PixelValue.px(50.0))), radius: ShapeRadius.length(PixelValue.px(100.0))))))),
+        CssPropertyWithConditions.simple(CssProperty.clipPath(ClipPath.shape(CssShape.circle(ShapeCircle(center: ShapePosition(x: ShapeOffset(fromEnd: false, offset: PixelValue.percent(50.0)), y: ShapeOffset(fromEnd: false, offset: PixelValue.percent(50.0))), radius: ShapeRadius.length(PixelValue.px(40.0))))))),
         CssPropertyWithConditions.simple(CssProperty.shapeMargin(ShapeMargin(inner: PixelValue.px(10.0)))),
         CssPropertyWithConditions.simple(CssProperty.shapeImageThreshold(ShapeImageThreshold(inner: FloatValue(0.5)))),
     ]

@@ -14,7 +14,6 @@ sub css_str {
 
 # CSS: .text
 # dropped a value these bindings cannot build: the Perl bindings cannot build a StyleFontFamilyVec of 2+ items (only create() / fromItem())
-# dropped a value these bindings cannot build: `StyleFontVariantNumericValue` is a fake-layout record in the Perl bindings (tag + byte blob)
 # dropped a value these bindings cannot build: `StyleFontVariantCapsValue` is a fake-layout record in the Perl bindings (tag + byte blob)
 # dropped a value these bindings cannot build: `StyleFontFeatureSettingsValue` is a fake-layout record in the Perl bindings (tag + byte blob)
 # dropped a value these bindings cannot build: `StyleInitialLetterValue` is a fake-layout record in the Perl bindings (tag + byte blob)
@@ -51,6 +50,7 @@ sub style_text {
         Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_fontSize(Azul::AzStyleFontSize->new(inner => ${ Azul::FFI::AzPixelValue_px(14.0) }))),
         Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_fontWeight(Azul::AzStyleFontWeight::W600())),
         Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_fontStyle(Azul::AzStyleFontStyle::Italic())),
+        Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_fontVariantNumeric(Azul::AzStyleFontVariantNumeric->new(lining_nums => 0, oldstyle_nums => 0, proportional_nums => 0, tabular_nums => 1, diagonal_fractions => 0, stacked_fractions => 0, ordinal => 0, slashed_zero => 0))),
         Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_textAlign(Azul::AzStyleTextAlign::Center())),
         Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_textJustify(Azul::AzLayoutTextJustify::InterWord())),
         Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_verticalAlign(Azul::FFI::AzStyleVerticalAlign_middle())),
@@ -244,9 +244,9 @@ sub style_fragment {
 # CSS: .shape
 sub style_shape {
     return [
-        Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_shapeOutside(Azul::FFI::AzShapeOutside_shape(Azul::FFI::AzCssShape_circle(Azul::AzShapeCircle->new(center => ${ Azul::AzShapePoint->new(x => 0.0, y => 0.0) }, radius => 50.0))))),
-        Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_shapeInside(Azul::FFI::AzShapeInside_shape(Azul::FFI::AzCssShape_circle(Azul::AzShapeCircle->new(center => ${ Azul::AzShapePoint->new(x => 50.0, y => 50.0) }, radius => 100.0))))),
-        Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_clipPath(Azul::FFI::AzClipPath_shape(Azul::FFI::AzCssShape_circle(Azul::AzShapeCircle->new(center => ${ Azul::AzShapePoint->new(x => 0.0, y => 0.0) }, radius => 40.0))))),
+        Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_shapeOutside(Azul::FFI::AzShapeOutside_shape(Azul::FFI::AzCssShape_circle(Azul::AzShapeCircle->new(center => ${ Azul::AzShapePosition->new(x => ${ Azul::AzShapeOffset->new(from_end => 0, offset => ${ Azul::FFI::AzPixelValue_percent(50.0) }) }, y => ${ Azul::AzShapeOffset->new(from_end => 0, offset => ${ Azul::FFI::AzPixelValue_percent(50.0) }) }) }, radius => ${ Azul::FFI::AzShapeRadius_length(Azul::FFI::AzPixelValue_px(50.0)) }))))),
+        Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_shapeInside(Azul::FFI::AzShapeInside_shape(Azul::FFI::AzCssShape_circle(Azul::AzShapeCircle->new(center => ${ Azul::AzShapePosition->new(x => ${ Azul::AzShapeOffset->new(from_end => 0, offset => ${ Azul::FFI::AzPixelValue_px(50.0) }) }, y => ${ Azul::AzShapeOffset->new(from_end => 0, offset => ${ Azul::FFI::AzPixelValue_px(50.0) }) }) }, radius => ${ Azul::FFI::AzShapeRadius_length(Azul::FFI::AzPixelValue_px(100.0)) }))))),
+        Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_clipPath(Azul::FFI::AzClipPath_shape(Azul::FFI::AzCssShape_circle(Azul::AzShapeCircle->new(center => ${ Azul::AzShapePosition->new(x => ${ Azul::AzShapeOffset->new(from_end => 0, offset => ${ Azul::FFI::AzPixelValue_percent(50.0) }) }, y => ${ Azul::AzShapeOffset->new(from_end => 0, offset => ${ Azul::FFI::AzPixelValue_percent(50.0) }) }) }, radius => ${ Azul::FFI::AzShapeRadius_length(Azul::FFI::AzPixelValue_px(40.0)) }))))),
         Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_shapeMargin(Azul::AzShapeMargin->new(inner => ${ Azul::FFI::AzPixelValue_px(10.0) }))),
         Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_shapeImageThreshold(Azul::AzShapeImageThreshold->new(inner => ${ Azul::FFI::AzFloatValue_create(0.5) }))),
     ];

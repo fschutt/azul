@@ -15,7 +15,7 @@ def style_text():
         CssPropertyWithConditions.simple(CssProperty.font_size(_with(StyleFontSize.default(), inner=PixelValue.px(14.0)))),
         CssPropertyWithConditions.simple(CssProperty.font_weight(StyleFontWeight.W600)),
         CssPropertyWithConditions.simple(CssProperty.font_style(StyleFontStyle.Italic)),
-        CssPropertyWithConditions.simple(CssProperty.FontVariantNumeric(StyleFontVariantNumericValue.Exact(_with(StyleFontVariantNumeric.default(), lining_nums=False, oldstyle_nums=False, proportional_nums=False, tabular_nums=True, diagonal_fractions=False, stacked_fractions=False, ordinal=False, slashed_zero=False)))),
+        CssPropertyWithConditions.simple(CssProperty.font_variant_numeric(_with(StyleFontVariantNumeric.default(), lining_nums=False, oldstyle_nums=False, proportional_nums=False, tabular_nums=True, diagonal_fractions=False, stacked_fractions=False, ordinal=False, slashed_zero=False))),
         CssPropertyWithConditions.simple(CssProperty.FontVariantCaps(StyleFontVariantCapsValue.Exact(StyleFontVariantCaps.SmallCaps))),
         CssPropertyWithConditions.simple(CssProperty.FontFeatureSettings(StyleFontFeatureSettingsValue.Exact(_with(StyleFontFeatureSettings.default(), inner="\"liga\" 0, \"tnum\"")))),
         CssPropertyWithConditions.simple(CssProperty.text_align(StyleTextAlign.Center)),
@@ -231,9 +231,9 @@ def style_fragment():
 # CSS: .shape
 def style_shape():
     return [
-        CssPropertyWithConditions.simple(CssProperty.shape_outside(ShapeOutside.Shape(CssShape.Circle(_with(ShapeCircle.default(), center=_with(ShapePoint.default(), x=0.0, y=0.0), radius=50.0))))),
-        CssPropertyWithConditions.simple(CssProperty.shape_inside(ShapeInside.Shape(CssShape.Circle(_with(ShapeCircle.default(), center=_with(ShapePoint.default(), x=50.0, y=50.0), radius=100.0))))),
-        CssPropertyWithConditions.simple(CssProperty.clip_path(ClipPath.Shape(CssShape.Circle(_with(ShapeCircle.default(), center=_with(ShapePoint.default(), x=0.0, y=0.0), radius=40.0))))),
+        CssPropertyWithConditions.simple(CssProperty.shape_outside(ShapeOutside.Shape(CssShape.Circle(_with(ShapeCircle.default(), center=_with(ShapePosition.default(), x=_with(ShapeOffset.default(), from_end=False, offset=PixelValue.percent(50.0)), y=_with(ShapeOffset.default(), from_end=False, offset=PixelValue.percent(50.0))), radius=ShapeRadius.Length(PixelValue.px(50.0))))))),
+        CssPropertyWithConditions.simple(CssProperty.shape_inside(ShapeInside.Shape(CssShape.Circle(_with(ShapeCircle.default(), center=_with(ShapePosition.default(), x=_with(ShapeOffset.default(), from_end=False, offset=PixelValue.px(50.0)), y=_with(ShapeOffset.default(), from_end=False, offset=PixelValue.px(50.0))), radius=ShapeRadius.Length(PixelValue.px(100.0))))))),
+        CssPropertyWithConditions.simple(CssProperty.clip_path(ClipPath.Shape(CssShape.Circle(_with(ShapeCircle.default(), center=_with(ShapePosition.default(), x=_with(ShapeOffset.default(), from_end=False, offset=PixelValue.percent(50.0)), y=_with(ShapeOffset.default(), from_end=False, offset=PixelValue.percent(50.0))), radius=ShapeRadius.Length(PixelValue.px(40.0))))))),
         CssPropertyWithConditions.simple(CssProperty.shape_margin(_with(ShapeMargin.default(), inner=PixelValue.px(10.0)))),
         CssPropertyWithConditions.simple(CssProperty.shape_image_threshold(_with(ShapeImageThreshold.default(), inner=FloatValue.create(0.5)))),
     ]

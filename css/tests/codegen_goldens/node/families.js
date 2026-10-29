@@ -18,7 +18,7 @@ function styleText() {
         ),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_fontWeight(azul.StyleFontWeight.W600)),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_fontStyle(azul.StyleFontStyle.Italic)),
-        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_fontVariantNumeric({ Exact: { tag: 6, payload: { lining_nums: false, oldstyle_nums: false, proportional_nums: false, tabular_nums: true, diagonal_fractions: false, stacked_fractions: false, ordinal: false, slashed_zero: false } } })),
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_fontVariantNumeric({ lining_nums: false, oldstyle_nums: false, proportional_nums: false, tabular_nums: true, diagonal_fractions: false, stacked_fractions: false, ordinal: false, slashed_zero: false })),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_fontVariantCaps({ Exact: { tag: 6, payload: azul.StyleFontVariantCaps.SmallCaps } })),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_fontFeatureSettings({ Exact: { tag: 6, payload: { inner: azul._azString("\"liga\" 0, \"tnum\"") } } })),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_textAlign(azul.StyleTextAlign.Center)),
@@ -294,9 +294,9 @@ function styleFragment() {
 // CSS: .shape
 function styleShape() {
     return new azul.CssPropertyWithConditionsVec(lib.AzCssPropertyWithConditionsVec_copyFromPtr([
-        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_shapeOutside(lib.AzShapeOutside_shape(lib.AzCssShape_circle({ center: { x: 0.0, y: 0.0 }, radius: 50.0 })))),
-        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_shapeInside(lib.AzShapeInside_shape(lib.AzCssShape_circle({ center: { x: 50.0, y: 50.0 }, radius: 100.0 })))),
-        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_clipPath(lib.AzClipPath_shape(lib.AzCssShape_circle({ center: { x: 0.0, y: 0.0 }, radius: 40.0 })))),
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_shapeOutside(lib.AzShapeOutside_shape(lib.AzCssShape_circle({ center: { x: { from_end: false, offset: lib.AzPixelValue_percent(50.0) }, y: { from_end: false, offset: lib.AzPixelValue_percent(50.0) } }, radius: lib.AzShapeRadius_length(lib.AzPixelValue_px(50.0)) })))),
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_shapeInside(lib.AzShapeInside_shape(lib.AzCssShape_circle({ center: { x: { from_end: false, offset: lib.AzPixelValue_px(50.0) }, y: { from_end: false, offset: lib.AzPixelValue_px(50.0) } }, radius: lib.AzShapeRadius_length(lib.AzPixelValue_px(100.0)) })))),
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_clipPath(lib.AzClipPath_shape(lib.AzCssShape_circle({ center: { x: { from_end: false, offset: lib.AzPixelValue_percent(50.0) }, y: { from_end: false, offset: lib.AzPixelValue_percent(50.0) } }, radius: lib.AzShapeRadius_length(lib.AzPixelValue_px(40.0)) })))),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_shapeMargin({ inner: lib.AzPixelValue_px(10.0) })),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_shapeImageThreshold({ inner: lib.AzFloatValue_create(0.5) })),
     ], 5));

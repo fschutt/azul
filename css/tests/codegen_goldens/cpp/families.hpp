@@ -22,7 +22,7 @@ inline AzCssPropertyWithConditionsVec style_text() {
             ),
             AzCssPropertyWithConditions_simple(AzCssProperty_fontWeight(AzStyleFontWeight_W600)),
             AzCssPropertyWithConditions_simple(AzCssProperty_fontStyle(AzStyleFontStyle_Italic)),
-            AzCssPropertyWithConditions_simple(AzCssProperty_fontVariantNumeric([]{ AzStyleFontVariantNumericValue v{}; v.Exact = AzStyleFontVariantNumericValueVariant_Exact{ AzStyleFontVariantNumericValue_Tag_Exact, AzStyleFontVariantNumeric{ false, false, false, true, false, false, false, false } }; return v; }())),
+            AzCssPropertyWithConditions_simple(AzCssProperty_fontVariantNumeric(AzStyleFontVariantNumeric{ false, false, false, true, false, false, false, false })),
             AzCssPropertyWithConditions_simple(AzCssProperty_fontVariantCaps([]{ AzStyleFontVariantCapsValue v{}; v.Exact = AzStyleFontVariantCapsValueVariant_Exact{ AzStyleFontVariantCapsValue_Tag_Exact, AzStyleFontVariantCaps_SmallCaps }; return v; }())),
             AzCssPropertyWithConditions_simple(AzCssProperty_fontFeatureSettings([]{ AzStyleFontFeatureSettingsValue v{}; v.Exact = AzStyleFontFeatureSettingsValueVariant_Exact{ AzStyleFontFeatureSettingsValue_Tag_Exact, AzStyleFontFeatureSettings{ AzString_copyFromBytes(reinterpret_cast<const uint8_t*>("\"liga\" 0, \"tnum\""), 0, 16) } }; return v; }())),
             AzCssPropertyWithConditions_simple(AzCssProperty_textAlign(AzStyleTextAlign_Center)),
@@ -328,9 +328,9 @@ inline AzCssPropertyWithConditionsVec style_fragment() {
 inline AzCssPropertyWithConditionsVec style_shape() {
     return AzCssPropertyWithConditionsVec_copyFromPtr(
         std::vector<AzCssPropertyWithConditions>{
-            AzCssPropertyWithConditions_simple(AzCssProperty_shapeOutside(AzShapeOutside_shape(AzCssShape_circle(AzShapeCircle{ AzShapePoint{ 0.0f, 0.0f }, 50.0f })))),
-            AzCssPropertyWithConditions_simple(AzCssProperty_shapeInside(AzShapeInside_shape(AzCssShape_circle(AzShapeCircle{ AzShapePoint{ 50.0f, 50.0f }, 100.0f })))),
-            AzCssPropertyWithConditions_simple(AzCssProperty_clipPath(AzClipPath_shape(AzCssShape_circle(AzShapeCircle{ AzShapePoint{ 0.0f, 0.0f }, 40.0f })))),
+            AzCssPropertyWithConditions_simple(AzCssProperty_shapeOutside(AzShapeOutside_shape(AzCssShape_circle(AzShapeCircle{ AzShapePosition{ AzShapeOffset{ false, AzPixelValue_percent(50.0f) }, AzShapeOffset{ false, AzPixelValue_percent(50.0f) } }, AzShapeRadius_length(AzPixelValue_px(50.0f)) })))),
+            AzCssPropertyWithConditions_simple(AzCssProperty_shapeInside(AzShapeInside_shape(AzCssShape_circle(AzShapeCircle{ AzShapePosition{ AzShapeOffset{ false, AzPixelValue_px(50.0f) }, AzShapeOffset{ false, AzPixelValue_px(50.0f) } }, AzShapeRadius_length(AzPixelValue_px(100.0f)) })))),
+            AzCssPropertyWithConditions_simple(AzCssProperty_clipPath(AzClipPath_shape(AzCssShape_circle(AzShapeCircle{ AzShapePosition{ AzShapeOffset{ false, AzPixelValue_percent(50.0f) }, AzShapeOffset{ false, AzPixelValue_percent(50.0f) } }, AzShapeRadius_length(AzPixelValue_px(40.0f)) })))),
             AzCssPropertyWithConditions_simple(AzCssProperty_shapeMargin(AzShapeMargin{ AzPixelValue_px(10.0f) })),
             AzCssPropertyWithConditions_simple(AzCssProperty_shapeImageThreshold(AzShapeImageThreshold{ AzFloatValue_create(0.5f) })),
         }.data(),

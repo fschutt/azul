@@ -67,7 +67,7 @@ function style_text()
             ),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_fontWeight($L->AzStyleFontWeight_W600)),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_fontStyle($L->AzStyleFontStyle_Italic)),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_fontVariantNumeric(azul_union('AzStyleFontVariantNumericValue', 'Exact', 6, azul_struct('AzStyleFontVariantNumeric', ['lining_nums' => false, 'oldstyle_nums' => false, 'proportional_nums' => false, 'tabular_nums' => true, 'diagonal_fractions' => false, 'stacked_fractions' => false, 'ordinal' => false, 'slashed_zero' => false])))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_fontVariantNumeric(azul_struct('AzStyleFontVariantNumeric', ['lining_nums' => false, 'oldstyle_nums' => false, 'proportional_nums' => false, 'tabular_nums' => true, 'diagonal_fractions' => false, 'stacked_fractions' => false, 'ordinal' => false, 'slashed_zero' => false]))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_fontVariantCaps(azul_union('AzStyleFontVariantCapsValue', 'Exact', 6, $L->AzStyleFontVariantCaps_SmallCaps))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_fontFeatureSettings(azul_union('AzStyleFontFeatureSettingsValue', 'Exact', 6, azul_struct('AzStyleFontFeatureSettings', ['inner' => azul_str('"liga" 0, "tnum"')])))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_textAlign($L->AzStyleTextAlign_Center)),
@@ -416,9 +416,9 @@ function style_shape()
         'AzCssPropertyWithConditionsVec_copyFromPtr',
         'AzCssPropertyWithConditions',
         [
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_shapeOutside($L->AzShapeOutside_shape($L->AzCssShape_circle(azul_struct('AzShapeCircle', ['center' => azul_struct('AzShapePoint', ['x' => 0.0, 'y' => 0.0]), 'radius' => 50.0]))))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_shapeInside($L->AzShapeInside_shape($L->AzCssShape_circle(azul_struct('AzShapeCircle', ['center' => azul_struct('AzShapePoint', ['x' => 50.0, 'y' => 50.0]), 'radius' => 100.0]))))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_clipPath($L->AzClipPath_shape($L->AzCssShape_circle(azul_struct('AzShapeCircle', ['center' => azul_struct('AzShapePoint', ['x' => 0.0, 'y' => 0.0]), 'radius' => 40.0]))))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_shapeOutside($L->AzShapeOutside_shape($L->AzCssShape_circle(azul_struct('AzShapeCircle', ['center' => azul_struct('AzShapePosition', ['x' => azul_struct('AzShapeOffset', ['from_end' => false, 'offset' => $L->AzPixelValue_percent(50.0)]), 'y' => azul_struct('AzShapeOffset', ['from_end' => false, 'offset' => $L->AzPixelValue_percent(50.0)])]), 'radius' => $L->AzShapeRadius_length($L->AzPixelValue_px(50.0))]))))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_shapeInside($L->AzShapeInside_shape($L->AzCssShape_circle(azul_struct('AzShapeCircle', ['center' => azul_struct('AzShapePosition', ['x' => azul_struct('AzShapeOffset', ['from_end' => false, 'offset' => $L->AzPixelValue_px(50.0)]), 'y' => azul_struct('AzShapeOffset', ['from_end' => false, 'offset' => $L->AzPixelValue_px(50.0)])]), 'radius' => $L->AzShapeRadius_length($L->AzPixelValue_px(100.0))]))))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_clipPath($L->AzClipPath_shape($L->AzCssShape_circle(azul_struct('AzShapeCircle', ['center' => azul_struct('AzShapePosition', ['x' => azul_struct('AzShapeOffset', ['from_end' => false, 'offset' => $L->AzPixelValue_percent(50.0)]), 'y' => azul_struct('AzShapeOffset', ['from_end' => false, 'offset' => $L->AzPixelValue_percent(50.0)])]), 'radius' => $L->AzShapeRadius_length($L->AzPixelValue_px(40.0))]))))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_shapeMargin(azul_struct('AzShapeMargin', ['inner' => $L->AzPixelValue_px(10.0)]))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_shapeImageThreshold(azul_struct('AzShapeImageThreshold', ['inner' => $L->AzFloatValue_create(0.5)]))),
         ]

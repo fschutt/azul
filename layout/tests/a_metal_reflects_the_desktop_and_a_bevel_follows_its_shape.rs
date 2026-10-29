@@ -7,8 +7,8 @@
 use std::sync::Arc;
 
 use azul_css::{
-    props::layout::shape::ClipPath,
-    shape::{CssShape, ShapeCircle, ShapePoint},
+    props::{basic::PixelValue, layout::shape::ClipPath},
+    shape::{CssShape, ShapePosition, ShapeRadius},
 };
 use azul_layout::texture::{
     environment::{Environment, Wallpaper},
@@ -101,10 +101,10 @@ fn the_distance_field_of_a_shape_is_its_euclidean_distance() {
 
 #[test]
 fn a_bevel_follows_the_clip_path_it_is_cut_to() {
-    let circle = ClipPath::Shape(CssShape::Circle(ShapeCircle {
-        center: ShapePoint { x: 50.0, y: 50.0 },
-        radius: 40.0,
-    }));
+    let circle = ClipPath::Shape(CssShape::circle(
+        ShapePosition::px(50.0, 50.0),
+        ShapeRadius::Length(PixelValue::px(40.0)),
+    ));
     let field = ShapeField::from_clip_path(&circle, 100.0, 100.0, 2.0).expect("a circle's field");
     let mut params = MaterialParams::of(Material::Leather);
     params.source = MaterialSource::Smooth;

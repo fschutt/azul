@@ -9,8 +9,8 @@
 //! Glyphs here are Azul Mock Mono at 20px: each one 10px wide, each line box
 //! 20px tall, so a glyph's box can be checked against the shape exactly.
 
-use azul_css::shape_parser::parse_shape;
-use azul_layout::text3::cache::{Rect, ShapeBoundary};
+use azul_css::{shape::ShapeReference, shape_parser::parse_shape};
+use azul_layout::text3::cache::{Point, ShapeBoundary};
 
 use crate::{
     mono_lines::{box_of_width, glyph_boxes, inked_pens, lay_out, GLYPH, LINE},
@@ -26,13 +26,8 @@ const LOREM: &str = "Lorem ipsum dolor sit amet, consectetur adipiscing elit, se
 /// The shape `css` resolved against a `width` x `height` box at the origin.
 fn shape(css: &str, width: f32, height: f32) -> ShapeBoundary {
     let parsed = parse_shape(css).expect("the shape parses");
-    let reference = Rect {
-        x: 0.0,
-        y: 0.0,
-        width,
-        height,
-    };
-    ShapeBoundary::from_css_shape(&parsed, reference, &mut None)
+    let reference = ShapeReference::of_box(width, height);
+    ShapeBoundary::from_css_shape(&parsed, Point::default(), &reference, &mut None)
 }
 
 #[test]
