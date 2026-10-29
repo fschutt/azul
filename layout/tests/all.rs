@@ -1365,3 +1365,7 @@ mod a_frames_last_line_ends_inside_the_frame;
 mod a_shapes_lengths_are_measured_against_its_box;
 #[path = "a_line_beside_a_hole_breaks_on_each_side_of_it.rs"]
 mod a_line_beside_a_hole_breaks_on_each_side_of_it;
+#[path = "a_floats_shape_outside_shapes_the_text_beside_it.rs"]
+mod a_floats_shape_outside_shapes_the_text_beside_it;
+#[path = "a_shape_margin_grows_the_float_area.rs"]
+mod a_shape_margin_grows_the_float_area;
