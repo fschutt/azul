@@ -9435,6 +9435,55 @@ mod autotest_generated {
         );
     }
 
+    /// A scroll frame inside a rounded clip shows the clip's round corners,
+    /// as the rasterizer paints them in place. Promoted, the frame was
+    /// composited through a rectangle and its content filled the corners.
+    #[test]
+    fn a_scroll_frame_in_a_rounded_clip_keeps_the_clips_corners() {
+        let mut c = CompositorState::new(32, 32);
+        let round = BorderRadius {
+            top_left: 8.0,
+            top_right: 8.0,
+            bottom_left: 8.0,
+            bottom_right: 8.0,
+        };
+        let list = dlist(vec![
+            DisplayListItem::PushClip {
+                bounds: wlr(4.0, 4.0, 24.0, 24.0),
+                border_radius: round,
+            },
+            push_scroll(9, 4.0, 4.0, 24.0, 24.0),
+            rect_item(
+                4.0,
+                4.0,
+                24.0,
+                24.0,
+                ColorU {
+                    r: 0,
+                    g: 200,
+                    b: 0,
+                    a: 255,
+                },
+            ),
+            DisplayListItem::PopScrollFrame,
+            DisplayListItem::PopClip,
+        ]);
+        c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new(), &HashMap::new());
+        let (rr, mut gc, st) = render_deps();
+        c.render_layers(&list, 1.0, &rr, &test_font_manager(), &mut gc, &st)
+            .unwrap();
+        let mut out = AzulPixmap::new(32, 32).unwrap();
+        out.fill(255, 255, 255, 255);
+        c.composite_frame(&mut out, 1.0);
+        assert_eq!(
+            at(&out, 5, 5),
+            [255, 255, 255, 255],
+            "the clip's top-left corner, outside its arc, is painted {:?}",
+            at(&out, 5, 5)
+        );
+        assert_eq!(at(&out, 16, 16)[1], 200, "the frame's content shows inside the clip");
+    }
+
     /// A scroll frame inside an opacity group is a layer of its own, seeded
     /// with the group's pixels under it - the translucent box it scrolls in.
     /// Composited over the group, that box counted twice inside the frame's
