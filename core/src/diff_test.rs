@@ -3065,9 +3065,8 @@ mod dom_fingerprint_tests {
     #[test]
     fn transfers_collect_callback_nodes_at_their_preorder_indices() {
         let (_, transfers) = fingerprint_dom(&sample_dom());
-        assert!(transfers.image_callbacks.is_empty());
-        assert!(transfers.callbacks.is_empty());
-        assert!(transfers.virtual_views.is_empty());
+        assert!(transfers.nodes.is_empty(), "no node holds a value to carry");
+        assert!(!transfers.holds_views());
     }
 
     extern "C" fn render_nothing(
@@ -3091,9 +3090,15 @@ mod dom_fingerprint_tests {
         // retained view renders last build's refany.
         let fresh = crate::refany::RefAny::new(7_u32);
         let (print, transfers) = fingerprint_dom(&view_of(&fresh));
-        assert_eq!(transfers.virtual_views.len(), 1);
-        let (index, view) = &transfers.virtual_views[0];
-        assert_eq!(*index, 1, "the view's pre-order index");
+        assert!(transfers.holds_views());
+        let views: Vec<_> = transfers
+            .nodes
+            .iter()
+            .filter_map(|(index, values)| Some((*index, values.get_virtual_view_node_ref()?)))
+            .collect();
+        assert_eq!(views.len(), 1);
+        let (index, view) = views[0];
+        assert_eq!(index, 1, "the view's pre-order index");
         assert_eq!(
             view.refany.sharing_info.ptr, fresh.sharing_info.ptr,
             "the fresh build's refany"
@@ -3650,6 +3655,169 @@ mod every_input_the_layout_reads_moves_the_fingerprint {
                 da.structure, db.structure,
                 "{first:?} -> {second:?}: the pre-cascade tier sees it"
             );
+        }
+    }
+}
+
+#[cfg(test)]
+mod every_field_of_a_node_is_a_row_of_the_field_table {
+    use super::*;
+    use crate::{
+        dom::{Dom, NodeData},
+        layout_inputs::{NodeField, Retained},
+        menu::{Menu, MenuItem, StringMenuItem},
+    };
+
+    /// The source the node's fields are declared in.
+    const DOM_RS: &str = include_str!("dom.rs");
+
+    /// The names of the fields of `struct name`, read from its declaration.
+    fn fields_of(name: &str) -> Vec<String> {
+        let head = format!("pub struct {name} {{");
+        let start = DOM_RS
+            .find(&head)
+            .unwrap_or_else(|| panic!("harness: `{name}` is declared in dom.rs"))
+            + head.len();
+        let body = &DOM_RS[start..];
+        let end = body.find("\n}").expect("harness: the declaration ends");
+        body[..end]
+            .lines()
+            .filter_map(|line| {
+                let line = line.trim();
+                if line.starts_with("//") || line.starts_with("#[") {
+                    return None;
+                }
+                let (field, _) = line.strip_prefix("pub ").unwrap_or(line).split_once(':')?;
+                let is_name = !field.is_empty()
+                    && field
+                        .chars()
+                        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_');
+                is_name.then(|| field.to_string())
+            })
+            .collect()
+    }
+
+    /// Every field of a node's data is a row of the table every comparison of
+    /// two builds reads, and every row is a field: a field without a row is
+    /// one no comparison knows of, and its change is kept from the window.
+    #[test]
+    fn every_field_of_a_node_is_a_row_of_the_table() {
+        let mut fields = fields_of("NodeData");
+        assert!(
+            fields.iter().any(|f| f == "extra"),
+            "harness: a node keeps its rarely used fields in `extra`: {fields:?}"
+        );
+        fields.retain(|f| f != "extra");
+        fields.extend(fields_of("NodeDataExt"));
+        assert!(fields.len() > 10, "harness: the fields are read: {fields:?}");
+        for field in &fields {
+            assert!(
+                NodeField::ALL.iter().any(|row| row.name() == field),
+                "`{field}` of a node is no row of `NodeField`: give it one, with what a change \
+                 of it moves and what a rebuild that keeps its DOM does with it"
+            );
+        }
+        for row in NodeField::ALL {
+            assert!(
+                fields.iter().any(|f| f == row.name()),
+                "{row:?} names no field of a node: {fields:?}"
+            );
+        }
+    }
+
+    /// A field that something the window keeps reads (the cascade, the
+    /// layout, the paint, the hit-test targets, the accessibility tree) is
+    /// compared, and every other one is carried or derived.
+    #[test]
+    fn what_the_window_keeps_is_compared_and_the_rest_is_carried() {
+        for row in NodeField::ALL {
+            let retained = row.retained();
+            if row.effects().reach_what_is_kept() {
+                assert!(retained.compares(), "{row:?} reaches what the window keeps");
+            }
+            assert!(
+                retained.compares() || retained.carries() || retained == Retained::Derived,
+                "{row:?} is neither compared, carried nor derived"
+            );
+        }
+    }
+
+    /// A box whose context menu is the one item `label`.
+    fn with_menu(label: &str) -> Dom {
+        Dom::create_div().with_context_menu(Menu::create(
+            vec![MenuItem::String(StringMenuItem::create(label.into()))].into(),
+        ))
+    }
+
+    /// The label of the first item of `node`'s context menu.
+    fn menu_label(node: &NodeData) -> Option<String> {
+        match node.get_context_menu()?.items.as_ref().first()? {
+            MenuItem::String(item) => Some(item.label.as_str().to_string()),
+            _ => None,
+        }
+    }
+
+    /// A context menu that comes or goes is another tree; one that is
+    /// replaced by another is the same tree, and its value is carried onto
+    /// the DOM a rebuild keeps, on both of its paths.
+    #[test]
+    fn a_context_menu_is_compared_by_its_presence_and_carried_by_its_value() {
+        let structure = |dom: &Dom| fingerprint_dom(dom).0.structure_root;
+        let plain = Dom::create_div();
+        assert_ne!(
+            structure(&plain),
+            structure(&with_menu("Copy")),
+            "a menu that comes is another tree"
+        );
+        assert_eq!(
+            structure(&with_menu("Copy")),
+            structure(&with_menu("Paste")),
+            "a menu replaced by another is the same tree"
+        );
+
+        let (_, transfers) = fingerprint_dom(&with_menu("Paste"));
+        let mut retained = vec![with_menu("Copy").root];
+        adopt_fresh_payloads(&mut retained, &transfers);
+        assert_eq!(
+            menu_label(&retained[0]).as_deref(),
+            Some("Paste"),
+            "the pre-cascade skip carries the fresh menu"
+        );
+
+        let mut kept = vec![with_menu("Copy").root];
+        carry_fresh_values(&mut kept, &[with_menu("Paste").root]);
+        assert_eq!(
+            menu_label(&kept[0]).as_deref(),
+            Some("Paste"),
+            "the full path carries the fresh menu"
+        );
+
+        let styled = |mut dom: Dom| {
+            crate::styled_dom::StyledDom::create(&mut dom, azul_css::css::Css::empty())
+        };
+        assert!(
+            !crate::styled_dom::is_layout_equivalent(
+                &styled(Dom::create_body().with_child(Dom::create_div())),
+                &styled(Dom::create_body().with_child(with_menu("Copy"))),
+            ),
+            "a menu that comes is no equivalent DOM"
+        );
+    }
+
+    /// A key, being part of the parent and a menu bar are compared too.
+    #[test]
+    fn a_key_a_part_of_the_parent_and_a_menu_bar_move_the_fingerprints() {
+        let structure = |dom: &Dom| fingerprint_dom(dom).0.structure_root;
+        let plain = structure(&Dom::create_div());
+        for (what, other) in [
+            ("a key", Dom::create_div().with_key("row-1")),
+            ("part of its parent", Dom::create_div().with_part_of_parent(true)),
+            (
+                "a menu bar",
+                Dom::create_div().with_menu_bar(Menu::create(Vec::<MenuItem>::new().into())),
+            ),
+        ] {
+            assert_ne!(plain, structure(&other), "{what}");
         }
     }
 }

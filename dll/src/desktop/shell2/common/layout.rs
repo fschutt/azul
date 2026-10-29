@@ -745,9 +745,8 @@ pub fn regenerate_layout(
         let (_fp, transfers) = precascade.expect("precascade_skip implies fingerprints");
         log_debug!(
             LogCategory::Layout,
-            "[regenerate_layout] pre-cascade fingerprints equal (both tiers) — skipping              cascade/icons/CSD; transferring {} image callbacks + {} callback lists",
-            transfers.image_callbacks.len(),
-            transfers.callbacks.len()
+            "[regenerate_layout] pre-cascade fingerprints equal (both tiers) — skipping              cascade/icons/CSD; carrying the fresh values of {} nodes",
+            transfers.nodes.len()
         );
         phases.mark("precascade_skip");
 
@@ -1342,109 +1341,20 @@ pub fn regenerate_layout(
                  (size_changed={window_size_changed})"
             );
 
-            // Transfer the new image callback RefAnys to the old DOM's nodes.
-            // The old layout result keeps all its positions/sizes/display list data,
-            // but the image callback data needs to be updated so that re-invocation
-            // uses the freshly-created RefAny (which may reference new app state).
-            let old_node_data = old_layout_result.styled_dom.node_data.as_ref();
-            let new_node_data = styled_dom.node_data.as_ref();
-            // Collect updates first to avoid borrow issues
-            let mut image_updates: Vec<(usize, azul_core::callbacks::CoreImageCallback)> =
-                Vec::new();
-            for (idx, (old_nd, new_nd)) in
-                old_node_data.iter().zip(new_node_data.iter()).enumerate()
+            // The values every build makes anew go onto the retained DOM, as
+            // the table of a node's fields says (`NodeField`): an image's
+            // callback, the handlers, a view's callback and data, the menus,
+            // the marker, and the datasets. `transfer_states` above merged
+            // the fresh build's datasets with last frame's and re-pointed the
+            // fresh handlers at the result, so copying both keeps the retained
+            // node the unified one (a released slider stays released).
             {
-                if let (
-                    azul_core::dom::NodeType::Image(ref _old_img),
-                    azul_core::dom::NodeType::Image(ref new_img),
-                ) = (&old_nd.node_type, &new_nd.node_type)
-                {
-                    if let azul_core::resources::DecodedImage::Callback(new_cb) = new_img.get_data()
-                    {
-                        image_updates.push((idx, new_cb.clone()));
-                    }
-                }
-            }
-
-            // Now apply image callback updates to old DOM's node data
-            if !image_updates.is_empty() {
-                let old_layout_result_mut = layout_window
+                let fresh = styled_dom.node_data.as_ref();
+                let retained = layout_window
                     .layout_results
                     .get_mut(&azul_core::dom::DomId::ROOT_ID)
                     .expect("layout_result must exist after get() succeeded");
-                let old_node_data_mut = old_layout_result_mut.styled_dom.node_data.as_mut();
-                for (idx, new_cb) in image_updates {
-                    if let Some(old_nd) = old_node_data_mut.get_mut(idx) {
-                        old_nd.node_type =
-                            azul_core::dom::NodeType::Image(azul_css::css::BoxOrStatic::heap(
-                                azul_core::resources::ImageRef::callback(
-                                    new_cb.callback.clone(),
-                                    new_cb.refany.clone(),
-                                ),
-                            ));
-                    }
-                }
-            }
-
-            // Also transfer any updated callback data (RefAny) for event callbacks
-            // so that future events use fresh app state references.
-            //
-            // The DATASET (and a VirtualView's content refany) travel with
-            // them. `transfer_states` above merged the fresh build's datasets
-            // with last frame's and re-pointed the fresh callbacks at the
-            // result, so `styled_dom`'s nodes are unified: callbacks and
-            // dataset on ONE allocation. Copying only the callbacks onto the
-            // retained node left its dataset on last frame's allocation —
-            // every later callback mutated the one the dataset no longer was,
-            // and the NEXT rebuild merged from the stale dataset (a released
-            // slider came back mid-drag). Copy all three, so the retained
-            // node IS the unified one.
-            let mut callback_updates: Vec<(
-                usize,
-                azul_core::callbacks::CoreCallbackDataVec,
-                Option<RefAny>,
-                Option<RefAny>,
-            )> = Vec::new();
-            {
-                let old_nd_ref = layout_window
-                    .layout_results
-                    .get(&azul_core::dom::DomId::ROOT_ID)
-                    .expect("layout_result must exist after get() succeeded")
-                    .styled_dom
-                    .node_data
-                    .as_ref();
-                let new_nd_ref = styled_dom.node_data.as_ref();
-                for (idx, (_old_nd, new_nd)) in old_nd_ref.iter().zip(new_nd_ref.iter()).enumerate()
-                {
-                    let dataset = new_nd.get_dataset().cloned();
-                    let vv_refany = new_nd
-                        .get_virtual_view_node_ref()
-                        .map(|vv| vv.refany.clone());
-                    if !new_nd.callbacks.as_ref().is_empty()
-                        || dataset.is_some()
-                        || vv_refany.is_some()
-                    {
-                        callback_updates.push((idx, new_nd.callbacks.clone(), dataset, vv_refany));
-                    }
-                }
-            }
-            if !callback_updates.is_empty() {
-                let old_layout_result_mut = layout_window
-                    .layout_results
-                    .get_mut(&azul_core::dom::DomId::ROOT_ID)
-                    .expect("layout_result must exist after get() succeeded");
-                let old_node_data_mut = old_layout_result_mut.styled_dom.node_data.as_mut();
-                for (idx, new_callbacks, dataset, vv_refany) in callback_updates {
-                    if let Some(old_nd) = old_node_data_mut.get_mut(idx) {
-                        old_nd.callbacks = new_callbacks;
-                        if let Some(ds) = dataset {
-                            old_nd.set_dataset(azul_core::refany::OptionRefAny::Some(ds));
-                        }
-                        if let (Some(r), Some(vv)) = (vv_refany, old_nd.get_virtual_view_node()) {
-                            vv.refany = r;
-                        }
-                    }
-                }
+                azul_core::diff::carry_fresh_values(retained.styled_dom.node_data.as_mut(), fresh);
             }
 
             if !window_size_changed && !overlay_retires {

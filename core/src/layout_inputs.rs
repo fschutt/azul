@@ -10,14 +10,22 @@
 //! rows of [`LayoutAttribute`], and the data an SVG node carries.
 //! [`LayoutInputHashes`] hashes them by what a change of them moves, and the
 //! fingerprints and the field-by-field comparison both read them so.
+//!
+//! A rebuild can also find its whole DOM unchanged and keep the one it
+//! retained, cascade and layout included. [`NodeField`] lists every field of
+//! a node with what reads it and what such a rebuild does with it: compares
+//! it, or carries the fresh build's value onto the retained DOM, or both.
+//! The pre-cascade fingerprints, the payloads they carry and the comparison
+//! of two styled DOMs are derived from that list.
 
 use core::hash::{Hash, Hasher};
 
 use azul_css::AzString;
 
 use crate::{
-    dom::{AttributeType, NodeData, NodeType, SvgNodeData, TabIndex},
+    dom::{AttributeType, NodeData, NodeDataExt, NodeType, SvgNodeData, TabIndex},
     hash::DefaultHasher,
+    resources::DecodedImage,
 };
 
 /// What a change of something the layout reads of a node moves.
@@ -375,5 +383,552 @@ impl HitTestInputs {
     #[must_use]
     pub const fn make_a_target(&self) -> bool {
         self.tab_stop.is_some() || self.listens || self.context_menu
+    }
+}
+
+/// What a rebuild that finds its DOM unchanged does with a field of a node.
+///
+/// Such a rebuild keeps the DOM the window retained, with its cascade and its
+/// layout: before the cascade when the fingerprints of the two builds did not
+/// move (`crate::diff::fingerprint_dom`), after it when the two styled DOMs
+/// compare alike (`crate::styled_dom::is_layout_equivalent`). A field is
+/// compared there, carried onto the retained DOM, or both; one that is
+/// neither would keep its change from the window.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Retained {
+    /// Compared: a change of it styles and lays out the new DOM.
+    Compared,
+    /// Compared as the node's own style (the style tier of the fingerprints).
+    Style,
+    /// Its shape is compared, and its value, which every build makes anew (a
+    /// handler's data, a menu's handlers), is carried onto the retained DOM.
+    ComparedAndCarried,
+    /// Carried onto the retained DOM, never compared: what reads it reads it
+    /// live, and nothing the window keeps holds it.
+    Carried,
+    /// Derived by the engine from the other fields: the retained DOM's own
+    /// value is the right one.
+    Derived,
+}
+
+impl Retained {
+    /// Whether a change of the field is compared.
+    #[must_use]
+    pub const fn compares(self) -> bool {
+        matches!(self, Self::Compared | Self::Style | Self::ComparedAndCarried)
+    }
+
+    /// Whether the fresh build's value is carried onto the retained DOM.
+    #[must_use]
+    pub const fn carries(self) -> bool {
+        matches!(self, Self::ComparedAndCarried | Self::Carried)
+    }
+}
+
+/// What reads a field of a node, and so what a change of it moves.
+#[allow(clippy::struct_excessive_bools)] // one flag per kind of reader
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Effects {
+    /// The cascade: which style rules apply and what they compute.
+    pub cascade: bool,
+    /// How the node is laid out.
+    pub layout: bool,
+    /// How it is painted.
+    pub paint: bool,
+    /// Whether it is a hit-test target ([`HitTestInputs`]).
+    pub hit_target: bool,
+    /// What the window keeps beside its layout: the accessibility tree, the
+    /// keys the next rebuild is matched by.
+    pub kept: bool,
+    /// What reads it where it is used, from the DOM as it is then: an event's
+    /// dispatch, a right-click, a lookup by marker.
+    pub live: bool,
+}
+
+impl Effects {
+    /// Nothing reads it.
+    pub const NONE: Self = Self {
+        cascade: false,
+        layout: false,
+        paint: false,
+        hit_target: false,
+        kept: false,
+        live: false,
+    };
+
+    /// Whether something the window keeps from one build to the next reads
+    /// it: such a field has to be compared.
+    #[must_use]
+    pub const fn reach_what_is_kept(self) -> bool {
+        self.cascade || self.layout || self.paint || self.hit_target || self.kept
+    }
+}
+
+/// A field of a node's data ([`NodeData`] and its rarely used fields,
+/// [`NodeDataExt`]): one row of the table every comparison of two builds of
+/// a DOM reads (`crate::diff::fingerprint_dom`, the payloads the pre-cascade
+/// skip carries, `crate::styled_dom::is_layout_equivalent`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum NodeField {
+    /// What the node is: a text and its characters, an image, a `div`.
+    NodeType,
+    /// Its event handlers.
+    Callbacks,
+    /// Its own style.
+    Style,
+    /// Its tab index, `contenteditable` and the anonymous-box bit.
+    Flags,
+    /// What assistive technology is told about it.
+    Accessibility,
+    /// The Fluent arguments its localizable text is formatted with.
+    FluentArgs,
+    /// Its attributes, ids and classes among them.
+    Attributes,
+    /// A virtual view's callback and data.
+    VirtualView,
+    /// The widget state it carries.
+    Dataset,
+    /// An SVG node's geometry or `viewBox`, a clip mask.
+    SvgData,
+    /// The menu bar shown at the top of its rect.
+    MenuBar,
+    /// The menu a right-click on it opens.
+    ContextMenu,
+    /// The key the next rebuild is matched by.
+    Key,
+    /// A marker its node is looked up by, minted anew by every build.
+    Marker,
+    /// What merges its dataset with the one of the build before.
+    DatasetMergeCallback,
+    /// The component that rendered it.
+    ComponentOrigin,
+    /// Its presence animations, by name.
+    AnimationCallbacks,
+    /// The Fluent key its text was translated from.
+    L10nKey,
+    /// Whether it is drawn as part of its parent.
+    PartOfParent,
+}
+
+impl NodeField {
+    /// Every row of the table.
+    pub const ALL: [Self; 19] = [
+        Self::NodeType,
+        Self::Callbacks,
+        Self::Style,
+        Self::Flags,
+        Self::Accessibility,
+        Self::FluentArgs,
+        Self::Attributes,
+        Self::VirtualView,
+        Self::Dataset,
+        Self::SvgData,
+        Self::MenuBar,
+        Self::ContextMenu,
+        Self::Key,
+        Self::Marker,
+        Self::DatasetMergeCallback,
+        Self::ComponentOrigin,
+        Self::AnimationCallbacks,
+        Self::L10nKey,
+        Self::PartOfParent,
+    ];
+
+    /// The field's name in [`NodeData`] or [`NodeDataExt`].
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::NodeType => "node_type",
+            Self::Callbacks => "callbacks",
+            Self::Style => "style",
+            Self::Flags => "flags",
+            Self::Accessibility => "accessibility",
+            Self::FluentArgs => "fluent_args",
+            Self::Attributes => "attributes",
+            Self::VirtualView => "virtual_view",
+            Self::Dataset => "dataset",
+            Self::SvgData => "svg_data",
+            Self::MenuBar => "menu_bar",
+            Self::ContextMenu => "context_menu",
+            Self::Key => "key",
+            Self::Marker => "marker",
+            Self::DatasetMergeCallback => "dataset_merge_callback",
+            Self::ComponentOrigin => "component_origin",
+            Self::AnimationCallbacks => "animation_callbacks",
+            Self::L10nKey => "l10n_key",
+            Self::PartOfParent => "part_of_parent",
+        }
+    }
+
+    /// What a rebuild that finds its DOM unchanged does with the field.
+    #[must_use]
+    pub const fn retained(self) -> Retained {
+        match self {
+            // The type and the handlers' events are compared; an image's
+            // callback, the handlers and a menu's handlers are made anew by
+            // every build.
+            Self::NodeType | Self::Callbacks | Self::MenuBar | Self::ContextMenu => {
+                Retained::ComparedAndCarried
+            }
+            Self::Style => Retained::Style,
+            Self::Flags
+            | Self::Accessibility
+            | Self::FluentArgs
+            | Self::Attributes
+            | Self::SvgData
+            | Self::Key
+            | Self::PartOfParent => Retained::Compared,
+            Self::VirtualView
+            | Self::Dataset
+            | Self::Marker
+            | Self::DatasetMergeCallback
+            | Self::ComponentOrigin
+            | Self::AnimationCallbacks => Retained::Carried,
+            Self::L10nKey => Retained::Derived,
+        }
+    }
+
+    /// What reads the field.
+    #[must_use]
+    pub const fn effects(self) -> Effects {
+        let none = Effects::NONE;
+        match self {
+            Self::NodeType => Effects {
+                cascade: true,
+                layout: true,
+                paint: true,
+                hit_target: true,
+                live: true,
+                ..none
+            },
+            Self::Callbacks | Self::ContextMenu => Effects {
+                hit_target: true,
+                live: true,
+                ..none
+            },
+            Self::Style => Effects {
+                cascade: true,
+                layout: true,
+                paint: true,
+                hit_target: true,
+                ..none
+            },
+            Self::Flags => Effects {
+                layout: true,
+                hit_target: true,
+                live: true,
+                ..none
+            },
+            Self::Accessibility | Self::Key => Effects { kept: true, ..none },
+            Self::FluentArgs | Self::SvgData => Effects {
+                layout: true,
+                paint: true,
+                ..none
+            },
+            Self::Attributes => Effects {
+                cascade: true,
+                layout: true,
+                paint: true,
+                ..none
+            },
+            Self::PartOfParent => Effects {
+                cascade: true,
+                ..none
+            },
+            Self::VirtualView
+            | Self::Dataset
+            | Self::MenuBar
+            | Self::Marker
+            | Self::DatasetMergeCallback
+            | Self::ComponentOrigin
+            | Self::AnimationCallbacks
+            | Self::L10nKey => Effects { live: true, ..none },
+        }
+    }
+
+    /// Hashes what the structure tier of the fingerprints compares of the
+    /// field of `node`: nothing for a field it does not compare, nor for the
+    /// style, which is the style tier's.
+    pub fn hash_shape<H: Hasher>(self, node: &NodeData, h: &mut H) {
+        match self {
+            Self::NodeType => hash_node_type_shape(node, h),
+            Self::Callbacks => {
+                // The events only: the handlers are carried.
+                node.callbacks.as_ref().len().hash(h);
+                for cb in node.callbacks.as_ref() {
+                    cb.event.hash(h);
+                }
+            }
+            Self::Flags => {
+                node.is_contenteditable().hash(h);
+                node.flags.hash(h);
+            }
+            Self::Accessibility => node.accessibility.hash(h),
+            Self::FluentArgs => hash_fluent_args(node, h),
+            Self::Attributes => {
+                // Ids and classes as worn, in order, and every other one.
+                for attr in node.attributes().as_ref() {
+                    match attr {
+                        AttributeType::Id(s) => {
+                            1u8.hash(h);
+                            s.hash(h);
+                        }
+                        AttributeType::Class(s) => {
+                            2u8.hash(h);
+                            s.hash(h);
+                        }
+                        other => {
+                            3u8.hash(h);
+                            other.hash(h);
+                        }
+                    }
+                }
+            }
+            Self::SvgData => node.get_svg_data().hash(h),
+            // Whether there is one: its items' handlers are carried.
+            Self::MenuBar => node.get_menu_bar().is_some().hash(h),
+            Self::ContextMenu => node.get_context_menu().is_some().hash(h),
+            Self::Key => node.get_key().hash(h),
+            Self::PartOfParent => node.is_part_of_parent().hash(h),
+            Self::Style
+            | Self::VirtualView
+            | Self::Dataset
+            | Self::Marker
+            | Self::DatasetMergeCallback
+            | Self::ComponentOrigin
+            | Self::AnimationCallbacks
+            | Self::L10nKey => {}
+        }
+    }
+
+    /// Whether `old` and `new` compare alike in the field, as a styled DOM is
+    /// compared with the one it would replace (always, for a field that is
+    /// not compared).
+    #[must_use]
+    pub fn reads_alike(self, old: &NodeData, new: &NodeData) -> bool {
+        match self {
+            Self::NodeType => node_types_alike(old, new),
+            Self::Callbacks => old
+                .callbacks
+                .as_ref()
+                .iter()
+                .map(|cb| &cb.event)
+                .eq(new.callbacks.as_ref().iter().map(|cb| &cb.event)),
+            Self::Style => old.style == new.style,
+            Self::Flags => old.flags == new.flags,
+            Self::Accessibility => old.accessibility == new.accessibility,
+            Self::FluentArgs => old.fluent_args == new.fluent_args,
+            Self::Attributes => old.attributes().as_ref() == new.attributes().as_ref(),
+            Self::SvgData => old.get_svg_data() == new.get_svg_data(),
+            Self::MenuBar => old.get_menu_bar().is_some() == new.get_menu_bar().is_some(),
+            Self::ContextMenu => {
+                old.get_context_menu().is_some() == new.get_context_menu().is_some()
+            }
+            Self::Key => old.get_key() == new.get_key(),
+            Self::PartOfParent => old.is_part_of_parent() == new.is_part_of_parent(),
+            Self::VirtualView
+            | Self::Dataset
+            | Self::Marker
+            | Self::DatasetMergeCallback
+            | Self::ComponentOrigin
+            | Self::AnimationCallbacks
+            | Self::L10nKey => true,
+        }
+    }
+
+    /// Whether `node` holds a value of the field to carry (never, for a field
+    /// that is not carried).
+    #[must_use]
+    pub fn holds_value(self, node: &NodeData) -> bool {
+        let extra = node.extra_fields();
+        match self {
+            Self::NodeType => image_callback(node).is_some(),
+            Self::Callbacks => !node.callbacks.as_ref().is_empty(),
+            Self::VirtualView => extra.is_some_and(|e| e.virtual_view.is_some()),
+            Self::Dataset => extra.is_some_and(|e| e.dataset.is_some()),
+            Self::MenuBar => extra.is_some_and(|e| e.menu_bar.is_some()),
+            Self::ContextMenu => extra.is_some_and(|e| e.context_menu.is_some()),
+            Self::Marker => extra.is_some_and(|e| e.marker.is_some()),
+            Self::DatasetMergeCallback => {
+                extra.is_some_and(|e| e.dataset_merge_callback.is_some())
+            }
+            Self::ComponentOrigin => extra.is_some_and(|e| e.component_origin.is_some()),
+            Self::AnimationCallbacks => {
+                extra.is_some_and(|e| !e.animation_callbacks.is_empty())
+            }
+            Self::Style
+            | Self::Flags
+            | Self::Accessibility
+            | Self::FluentArgs
+            | Self::Attributes
+            | Self::SvgData
+            | Self::Key
+            | Self::L10nKey
+            | Self::PartOfParent => false,
+        }
+    }
+
+    /// Puts `from`'s value of the field onto `to`, when `from` holds one to
+    /// carry ([`Self::holds_value`]).
+    pub fn carry(self, from: &NodeData, to: &mut NodeData) {
+        if !self.holds_value(from) {
+            return;
+        }
+        match self {
+            Self::NodeType => {
+                if let Some(callback) = image_callback(from) {
+                    to.node_type = NodeType::Image(azul_css::css::BoxOrStatic::heap(
+                        crate::resources::ImageRef::callback(
+                            callback.callback.clone(),
+                            callback.refany.clone(),
+                        ),
+                    ));
+                }
+            }
+            Self::Callbacks => to.callbacks = from.callbacks.clone(),
+            Self::VirtualView => carry_extra(from, to, |fresh, held| {
+                held.virtual_view.clone_from(&fresh.virtual_view);
+            }),
+            Self::Dataset => carry_extra(from, to, |fresh, held| {
+                held.dataset.clone_from(&fresh.dataset);
+            }),
+            Self::MenuBar => carry_extra(from, to, |fresh, held| {
+                held.menu_bar.clone_from(&fresh.menu_bar);
+            }),
+            Self::ContextMenu => carry_extra(from, to, |fresh, held| {
+                held.context_menu.clone_from(&fresh.context_menu);
+            }),
+            Self::Marker => carry_extra(from, to, |fresh, held| {
+                held.marker.clone_from(&fresh.marker);
+            }),
+            Self::DatasetMergeCallback => carry_extra(from, to, |fresh, held| {
+                held.dataset_merge_callback
+                    .clone_from(&fresh.dataset_merge_callback);
+            }),
+            Self::ComponentOrigin => carry_extra(from, to, |fresh, held| {
+                held.component_origin.clone_from(&fresh.component_origin);
+            }),
+            Self::AnimationCallbacks => carry_extra(from, to, |fresh, held| {
+                held.animation_callbacks
+                    .clone_from(&fresh.animation_callbacks);
+            }),
+            Self::Style
+            | Self::Flags
+            | Self::Accessibility
+            | Self::FluentArgs
+            | Self::Attributes
+            | Self::SvgData
+            | Self::Key
+            | Self::L10nKey
+            | Self::PartOfParent => {}
+        }
+    }
+
+    /// A node holding `node`'s values to carry and nothing else, `None` when
+    /// it holds none: what the pre-cascade skip keeps of a fresh build's node.
+    #[must_use]
+    pub fn values_to_carry(node: &NodeData) -> Option<NodeData> {
+        let carried = Self::ALL
+            .into_iter()
+            .filter(|field| field.retained().carries());
+        if !carried.clone().any(|field| field.holds_value(node)) {
+            return None;
+        }
+        let mut values = NodeData::create_div();
+        for field in carried {
+            field.carry(node, &mut values);
+        }
+        Some(values)
+    }
+}
+
+/// The image callback of `node`, if it is an image drawn by one.
+fn image_callback(node: &NodeData) -> Option<&crate::callbacks::CoreImageCallback> {
+    match node.get_node_type() {
+        NodeType::Image(image) => match image.get_data() {
+            DecodedImage::Callback(callback) => Some(callback),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// Copies a rarely used field of `from` onto `to` with `copy`.
+fn carry_extra(
+    from: &NodeData,
+    to: &mut NodeData,
+    copy: impl FnOnce(&NodeDataExt, &mut NodeDataExt),
+) {
+    if let Some(fresh) = from.extra_fields() {
+        copy(fresh, to.extra_fields_mut());
+    }
+}
+
+/// The shape of a node's type: an image callback by its function and the
+/// type of its data (both builds make the data anew; the callback itself is
+/// carried), any other image by its identity, everything else by its value,
+/// and a text's being localizable (it renders its key's translation).
+fn hash_node_type_shape<H: Hasher>(node: &NodeData, h: &mut H) {
+    match node.get_node_type() {
+        NodeType::Image(image) => match image.get_data() {
+            DecodedImage::Callback(callback) => {
+                0xB0DE_CA11_u32.hash(h);
+                callback.callback.cb.hash(h);
+                callback.refany.get_type_id().hash(h);
+            }
+            _ => node.get_node_type().hash(h),
+        },
+        NodeType::Text(text) => {
+            node.get_node_type().hash(h);
+            text.as_ref().is_localizable().hash(h);
+        }
+        other => other.hash(h),
+    }
+}
+
+/// Whether two nodes' types compare alike: [`hash_node_type_shape`]'s rule.
+fn node_types_alike(old: &NodeData, new: &NodeData) -> bool {
+    match (old.get_node_type(), new.get_node_type()) {
+        (NodeType::Image(old_image), NodeType::Image(new_image)) => {
+            match (old_image.get_data(), new_image.get_data()) {
+                (DecodedImage::Callback(old_cb), DecodedImage::Callback(new_cb)) => {
+                    old_cb.callback.cb == new_cb.callback.cb
+                        && old_cb.refany.get_type_id() == new_cb.refany.get_type_id()
+                }
+                _ => old_image == new_image,
+            }
+        }
+        (NodeType::Text(old_text), NodeType::Text(new_text)) => {
+            old_text == new_text
+                && old_text.as_ref().is_localizable() == new_text.as_ref().is_localizable()
+        }
+        (old_type, new_type) => old_type == new_type,
+    }
+}
+
+/// The Fluent arguments of `node`, which its localizable text is formatted
+/// with: each by its key and its typed value.
+fn hash_fluent_args<H: Hasher>(node: &NodeData, h: &mut H) {
+    let Some(args) = node.fluent_args.as_deref() else {
+        return;
+    };
+    0xF1u8.hash(h);
+    args.as_slice().len().hash(h);
+    for arg in args.as_slice() {
+        arg.key.hash(h);
+        match &arg.value {
+            crate::dom::FluentArg::String(s) => {
+                0u8.hash(h);
+                s.hash(h);
+            }
+            crate::dom::FluentArg::I32(i) => {
+                1u8.hash(h);
+                i.hash(h);
+            }
+            crate::dom::FluentArg::F32(f) => {
+                2u8.hash(h);
+                f.to_bits().hash(h);
+            }
+        }
     }
 }

@@ -12188,7 +12188,7 @@ impl LayoutWindow {
         let same = self.child_dom_fingerprints.get(&child).is_some_and(|prev| {
             prev.structure_root == fresh.structure_root && prev.style_root == fresh.style_root
         });
-        if !same || !transfers.virtual_views.is_empty() {
+        if !same || transfers.holds_views() {
             return false;
         }
         let shaped = |r: &DomLayoutResult| r.styled_dom.node_data.as_ref().len() == fresh.structure.len();

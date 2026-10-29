@@ -1860,6 +1860,19 @@ impl NodeData {
     fn identity_extra(&self) -> Option<&NodeDataExt> {
         self.extra.as_deref().filter(|e| !e.is_identity_empty())
     }
+
+    /// The node's rarely used fields, `None` when it has none: what the
+    /// table of a node's fields reads them through
+    /// (`crate::layout_inputs::NodeField`).
+    pub(crate) fn extra_fields(&self) -> Option<&NodeDataExt> {
+        self.extra.as_deref()
+    }
+
+    /// The node's rarely used fields, made when the first one is written.
+    pub(crate) fn extra_fields_mut(&mut self) -> &mut NodeDataExt {
+        self.extra
+            .get_or_insert_with(|| Box::new(NodeDataExt::default()))
+    }
 }
 /// The double-drop guard. `NodeData` owns two `Box`es (`accessibility`,
 /// `extra`); the codegen FFI mirror (`AzNodeData`) is dropped by

@@ -1727,33 +1727,47 @@ pub fn merge_fresh_datasets(node_data: &mut [NodeData], fresh: Vec<(usize, RefAn
 /// Puts a fresh build's payloads onto the retained arena of a DOM whose
 /// fingerprints did not move (the same tree, the same styles).
 ///
-/// The image callbacks, the event callbacks and the views' callbacks and data of the
-/// fresh build - they may reference new app state - and then its datasets,
-/// merged as the full path's `transfer_states` merges them. The views go in
-/// before the datasets, so a widget whose handlers and view share one
-/// `RefAny` stays one allocation.
+/// Every value the table of a node's fields says is carried
+/// ([`crate::layout_inputs::NodeField`]): the handlers, an image's callback,
+/// a view's callback and data, the menus, the marker... - and then the
+/// datasets, merged as the full path's `transfer_states` merges them. The
+/// handlers and the views go in before the datasets, so a widget whose
+/// handlers and view share one `RefAny` stays one allocation.
 pub fn adopt_fresh_payloads(node_data: &mut [NodeData], transfers: &PreCascadeTransfers) {
-    for (idx, fresh) in &transfers.image_callbacks {
+    use crate::layout_inputs::NodeField;
+
+    for (idx, values) in &transfers.nodes {
         if let Some(nd) = node_data.get_mut(*idx) {
-            nd.node_type = NodeType::Image(azul_css::css::BoxOrStatic::heap(
-                crate::resources::ImageRef::callback(fresh.callback.clone(), fresh.refany.clone()),
-            ));
+            for field in NodeField::ALL {
+                if field.retained().carries() && field != NodeField::Dataset {
+                    field.carry(values, nd);
+                }
+            }
         }
     }
-    for (idx, fresh) in &transfers.callbacks {
-        if let Some(nd) = node_data.get_mut(*idx) {
-            nd.callbacks = fresh.clone();
+    let datasets = transfers
+        .nodes
+        .iter()
+        .filter_map(|(idx, values)| Some((*idx, values.get_dataset()?.clone())))
+        .collect();
+    merge_fresh_datasets(node_data, datasets);
+}
+
+/// Puts the values the table of a node's fields says are carried
+/// ([`crate::layout_inputs::NodeField`]) from `fresh`, a styled DOM that
+/// compared alike (`crate::styled_dom::is_layout_equivalent`), onto
+/// `retained`, the DOM the window keeps: node by node, the datasets as they
+/// are (the fresh DOM's are merged already).
+pub fn carry_fresh_values(retained: &mut [NodeData], fresh: &[NodeData]) {
+    use crate::layout_inputs::NodeField;
+
+    for (held, new) in retained.iter_mut().zip(fresh) {
+        for field in NodeField::ALL {
+            if field.retained().carries() {
+                field.carry(new, held);
+            }
         }
     }
-    for (idx, fresh) in &transfers.virtual_views {
-        if let Some(view) = node_data
-            .get_mut(*idx)
-            .and_then(NodeData::get_virtual_view_node)
-        {
-            *view = fresh.clone();
-        }
-    }
-    merge_fresh_datasets(node_data, transfers.datasets.clone());
 }
 
 /// Calculate a stable key for a contenteditable node using the hierarchy:
@@ -2747,36 +2761,30 @@ pub struct DomFingerprints {
     pub style_root: u64,
 }
 
-/// `RefAny` payloads collected during the fingerprint walk.
+/// The payloads of a fresh build the pre-cascade skip carries onto the DOM it
+/// retains: what the table of a node's fields says is carried
+/// ([`crate::layout_inputs::NodeField::values_to_carry`]).
 ///
-/// Transferred onto the retained DOM when the produce side is skipped. The skip path
-/// keeps last frame's `StyledDom`, but callbacks/image callbacks must use the
-/// freshly-created `RefAnys` (they may reference new app state) — same
-/// transfer `regenerate_layout`'s equivalence branch has always done, minus
-/// the cascade it used to pay to get here. Indices are flattened `NodeIds`.
+/// The skip keeps last build's `StyledDom`, but the values every build makes
+/// anew have to be the fresh build's: the handlers, an image's callback and a
+/// view's callback and data may reference new app state, a menu's handlers
+/// too, a marker is minted anew. Indices are flattened `NodeIds`.
 #[derive(Debug, Default, Clone)]
 pub struct PreCascadeTransfers {
-    /// `(flattened NodeId index, fresh image callback)` for every
-    /// `NodeType::Image(DecodedImage::Callback)` node.
-    pub image_callbacks: Vec<(usize, crate::callbacks::CoreImageCallback)>,
-    /// `(flattened NodeId index, fresh event callbacks)` for every node with
-    /// a non-empty callback list.
-    pub callbacks: Vec<(usize, crate::callbacks::CoreCallbackDataVec)>,
-    /// `(flattened NodeId index, fresh dataset)` for every node that carries
-    /// one. Merged onto the retained DOM by [`merge_fresh_dataset`] — the
-    /// skip path's equivalent of `transfer_states` — so a widget's state
-    /// survives an identical rebuild and its callbacks (installed from
-    /// `callbacks` above) end up on the SAME allocation as its dataset.
-    pub datasets: Vec<(usize, RefAny)>,
-    /// `(flattened NodeId index, fresh payload)` for every `VirtualView`: its
-    /// callback and refany, which the fingerprint does not read
-    /// (`NodeType::VirtualView` is a bare variant, the payload lives beside
-    /// it). Installed on the retained DOM BEFORE the datasets are merged, so
-    /// a widget whose handlers and view share one `RefAny` stays ONE
-    /// allocation: the retained view used to keep last build's refany while
-    /// the handlers got the fresh one, and the view rendered a state nothing
-    /// wrote any more.
-    pub virtual_views: Vec<(usize, crate::dom::VirtualViewNode)>,
+    /// `(flattened NodeId index, a node holding the fresh build's values to
+    /// carry and nothing else)` for every node that holds one, in pre-order.
+    pub nodes: Vec<(usize, NodeData)>,
+}
+
+impl PreCascadeTransfers {
+    /// Whether the fresh build holds a virtual view: a DOM of its own, which
+    /// a retained arena would not bring back.
+    #[must_use]
+    pub fn holds_views(&self) -> bool {
+        self.nodes
+            .iter()
+            .any(|(_, values)| values.get_virtual_view_node_ref().is_some())
+    }
 }
 
 /// Walk a recursive [`crate::dom::Dom`] once, pre-order.
@@ -2792,93 +2800,15 @@ pub fn fingerprint_dom(dom: &crate::dom::Dom) -> (DomFingerprints, PreCascadeTra
     fn node_structure_hash(node: &NodeData, child_count: usize) -> u64 {
         use core::hash::{Hash, Hasher};
 
-        use crate::{dom::NodeType, resources::DecodedImage};
         let mut h = crate::hash::DefaultHasher::new();
 
-        // node_type content — image-callback special case (see struct doc)
-        match node.get_node_type() {
-            NodeType::Image(img) => {
-                match img.get_data() {
-                    DecodedImage::Callback(cb) => {
-                        0xB0DE_CA11u32.hash(&mut h);
-                        cb.callback.cb.hash(&mut h);
-                        cb.refany.get_type_id().hash(&mut h);
-                    }
-                    _ => {
-                        // Raw / GPU images: ImageRef hashes by id — instance
-                        // identity, the same strictness is_layout_equivalent's
-                        // `old_img != new_img` applies.
-                        node.get_node_type().hash(&mut h);
-                    }
-                }
-            }
-            other => other.hash(&mut h),
+        // Every field of the node the table says is compared, by its shape
+        // (`NodeField::hash_shape`): its type, its handlers' events, its
+        // flags, attributes, SVG data, menus, key... The style is the style
+        // tier's, and what is carried travels with the transfers.
+        for field in crate::layout_inputs::NodeField::ALL {
+            field.hash_shape(node, &mut h);
         }
-
-        // Localization inputs. A localizable text renders its key's
-        // TRANSLATION, formatted with the Fluent arguments of the node or its
-        // parent, and this fingerprint is taken BEFORE translation - so the
-        // flag and the arguments are part of what the node renders. (`AzString`
-        // hashes its characters only, which a plain "save" and the key
-        // `tr("save")` share.)
-        if let NodeType::Text(text) = node.get_node_type() {
-            text.as_ref().is_localizable().hash(&mut h);
-        }
-        if let Some(args) = node.fluent_args.as_deref() {
-            0xF1u8.hash(&mut h);
-            args.as_slice().len().hash(&mut h);
-            for arg in args.as_slice() {
-                arg.key.hash(&mut h);
-                match &arg.value {
-                    crate::dom::FluentArg::String(s) => {
-                        0u8.hash(&mut h);
-                        s.hash(&mut h);
-                    }
-                    crate::dom::FluentArg::I32(i) => {
-                        1u8.hash(&mut h);
-                        i.hash(&mut h);
-                    }
-                    crate::dom::FluentArg::F32(f) => {
-                        2u8.hash(&mut h);
-                        f.to_bits().hash(&mut h);
-                    }
-                }
-            }
-        }
-
-        // ids + classes (order-sensitive, as worn)
-        for attr in node.attributes().as_ref() {
-            match attr {
-                crate::dom::AttributeType::Id(s) => {
-                    1u8.hash(&mut h);
-                    s.hash(&mut h);
-                }
-                crate::dom::AttributeType::Class(s) => {
-                    2u8.hash(&mut h);
-                    s.hash(&mut h);
-                }
-                other => {
-                    3u8.hash(&mut h);
-                    other.hash(&mut h);
-                }
-            }
-        }
-
-        // callback EVENT types only — the fn ptr + RefAny are transferred,
-        // not compared (is_layout_equivalent: "compare only event types")
-        node.callbacks.as_ref().len().hash(&mut h);
-        for cb in node.callbacks.as_ref() {
-            cb.event.hash(&mut h);
-        }
-
-        // layout-relevant attributes
-        node.is_contenteditable().hash(&mut h);
-        node.flags.hash(&mut h);
-
-        // The SVG data the layout reads (`crate::layout_inputs`): a shape's
-        // geometry, an `<svg>`'s `viewBox`. It is no attribute, and a DOM
-        // that differs only in it is another picture.
-        node.get_svg_data().hash(&mut h);
 
         // hierarchy shape
         child_count.hash(&mut h);
@@ -2913,26 +2843,14 @@ pub fn fingerprint_dom(dom: &crate::dom::Dom) -> (DomFingerprints, PreCascadeTra
     }
 
     fn walk(dom: &crate::dom::Dom, fp: &mut DomFingerprints, transfers: &mut PreCascadeTransfers) {
-        use crate::{dom::NodeType, resources::DecodedImage};
-
         let idx = fp.structure.len();
         fp.structure
             .push(node_structure_hash(&dom.root, dom.children.as_ref().len()));
         fp.style.push(node_style_hash(dom));
 
-        if let NodeType::Image(img) = dom.root.get_node_type() {
-            if let DecodedImage::Callback(cb) = img.get_data() {
-                transfers.image_callbacks.push((idx, cb.clone()));
-            }
-        }
-        if !dom.root.callbacks.as_ref().is_empty() {
-            transfers.callbacks.push((idx, dom.root.callbacks.clone()));
-        }
-        if let Some(ds) = dom.root.get_dataset() {
-            transfers.datasets.push((idx, ds.clone()));
-        }
-        if let Some(view) = dom.root.get_virtual_view_node_ref() {
-            transfers.virtual_views.push((idx, view.clone()));
+        // What the table says is carried: the values every build makes anew.
+        if let Some(values) = crate::layout_inputs::NodeField::values_to_carry(&dom.root) {
+            transfers.nodes.push((idx, values));
         }
 
         for child in dom.children.as_ref() {

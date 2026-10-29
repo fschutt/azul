@@ -4194,10 +4194,12 @@ pub fn collect_nodes_in_document_order(
 
 /// Check if two `StyledDom`s are structurally equivalent for layout purposes.
 ///
-/// Returns `true` if the DOMs have the same structure, node types, classes,
-/// IDs, inline styles, node stylesheets (`Dom::with_css`, compared through
-/// the author CSS the cascade ran with), and callback event registrations -
-/// meaning the layout output would be identical.
+/// Returns `true` if the DOMs have the same structure, node stylesheets
+/// (`Dom::with_css`, compared through the author CSS the cascade ran with)
+/// and states, and their nodes compare alike in every field the table of a
+/// node's fields compares (`crate::layout_inputs::NodeField`): their types,
+/// handlers' events, styles, flags, attributes, SVG data, accessibility,
+/// menus and keys - meaning the layout output would be identical.
 ///
 /// Image callback nodes are compared by function pointer and `RefAny` type ID
 /// rather than heap pointer, since each `layout()` call creates new `ImageRef`
@@ -4208,8 +4210,6 @@ pub fn collect_nodes_in_document_order(
 /// texture content changed, not the DOM structure).
 #[must_use]
 pub fn is_layout_equivalent(old: &StyledDom, new: &StyledDom) -> bool {
-    use crate::{dom::NodeType, resources::DecodedImage};
-
     // Quick check: node count must match
     let old_nodes = old.node_data.as_ref();
     let new_nodes = new.node_data.as_ref();
@@ -4227,92 +4227,23 @@ pub fn is_layout_equivalent(old: &StyledDom, new: &StyledDom) -> bool {
         return false;
     }
 
-    // Per-node comparison
-    for (old_node, new_node) in old_nodes.iter().zip(new_nodes.iter()) {
-        // Compare node type discriminant
-        if core::mem::discriminant(&old_node.node_type)
-            != core::mem::discriminant(&new_node.node_type)
-        {
-            return false;
-        }
-
-        // Compare node type content (with special handling for image callbacks)
-        match (&old_node.node_type, &new_node.node_type) {
-            (NodeType::Image(old_img), NodeType::Image(new_img)) => {
-                match (old_img.get_data(), new_img.get_data()) {
-                    (DecodedImage::Callback(old_cb), DecodedImage::Callback(new_cb)) => {
-                        // Compare callback function pointer (stable across frames)
-                        if old_cb.callback.cb != new_cb.callback.cb {
-                            return false;
-                        }
-                        // Compare RefAny type ID (not instance pointer)
-                        if old_cb.refany.get_type_id() != new_cb.refany.get_type_id() {
-                            return false;
-                        }
-                    }
-                    _ => {
-                        // Raw images / GL textures: compare by pointer identity
-                        if old_img != new_img {
-                            return false;
-                        }
-                    }
-                }
-            }
-            _ => {
-                if old_node.node_type != new_node.node_type {
-                    return false;
-                }
-            }
-        }
-
-        // Compare IDs and classes (now stored in attributes as AttributeType::Id/Class)
-        {
-            use crate::dom::AttributeType;
-            let old_ids_classes: Vec<_> = old_node
-                .attributes()
-                .as_ref()
-                .iter()
-                .filter(|a| matches!(a, AttributeType::Id(_) | AttributeType::Class(_)))
-                .collect();
-            let new_ids_classes: Vec<_> = new_node
-                .attributes()
-                .as_ref()
-                .iter()
-                .filter(|a| matches!(a, AttributeType::Id(_) | AttributeType::Class(_)))
-                .collect();
-            if old_ids_classes != new_ids_classes {
-                return false;
-            }
-        }
-
-        // Compare inline CSS (direct layout input)
-        if old_node.style != new_node.style {
-            return false;
-        }
-
-        // Compare callback event types (affects hit-test tags)
-        // We compare only event types, not function pointers or data
-        let old_cbs = old_node.callbacks.as_ref();
-        let new_cbs = new_node.callbacks.as_ref();
-        if old_cbs.len() != new_cbs.len() {
-            return false;
-        }
-        for (old_cb, new_cb) in old_cbs.iter().zip(new_cbs.iter()) {
-            if old_cb.event != new_cb.event {
-                return false;
-            }
-        }
-
-        // Compare attributes (some affect layout, e.g. colspan)
-        if old_node.attributes().as_ref() != new_node.attributes().as_ref() {
-            return false;
-        }
-
-        // Compare the SVG data (a shape's geometry, an `<svg>`'s `viewBox`):
-        // the layout reads it, and it is no attribute.
-        if old_node.get_svg_data() != new_node.get_svg_data() {
-            return false;
-        }
+    // Per node, every field the table of a node's fields says is compared
+    // (`NodeField::reads_alike`): its type (an image callback by its
+    // function and the type of its data), its handlers' events, its style,
+    // flags, attributes, SVG data, accessibility, menus, key. What is carried
+    // instead, the caller puts onto the DOM it keeps
+    // (`crate::diff::carry_fresh_values`).
+    let fields_alike = |old_node: &NodeData, new_node: &NodeData| {
+        crate::layout_inputs::NodeField::ALL
+            .into_iter()
+            .all(|field| field.reads_alike(old_node, new_node))
+    };
+    if !old_nodes
+        .iter()
+        .zip(new_nodes.iter())
+        .all(|(old_node, new_node)| fields_alike(old_node, new_node))
+    {
+        return false;
     }
 
     // Compare the author CSS the cascade ran with. The sheets nodes carry
