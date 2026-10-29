@@ -9451,6 +9451,62 @@ mod autotest_generated {
     /// live-run symptom was the page shadow visibly accumulating darker
     /// with each resize frame. Starting from a correct frame, repainting a
     /// small rect that crosses the shadow must change NOTHING anywhere.
+    /// An outer shadow is drawn outside the border box only (CSS Backgrounds
+    /// 3, 7.1), so a translucent box shows what is behind it and not its own
+    /// shadow. A rounded box was not cut out of its shadow at all: blue at
+    /// alpha 160 over white came out nearly black at its centre.
+    #[test]
+    fn a_translucent_rounded_box_does_not_show_its_own_shadow() {
+        let radius = BorderRadius {
+            top_left: 8.0,
+            top_right: 8.0,
+            bottom_left: 8.0,
+            bottom_right: 8.0,
+        };
+        let black = ColorU {
+            r: 0,
+            g: 0,
+            b: 0,
+            a: 255,
+        };
+        let dl = DisplayList {
+            items: vec![
+                DisplayListItem::BoxShadow {
+                    bounds: wrect(10.0, 10.0, 40.0, 40.0),
+                    shadow: shadow(4.0, 2.0, 0.0, black),
+                    border_radius: radius,
+                },
+                DisplayListItem::Rect {
+                    bounds: wrect(10.0, 10.0, 40.0, 40.0),
+                    color: ColorU {
+                        r: 30,
+                        g: 30,
+                        b: 200,
+                        a: 160,
+                    },
+                    border_radius: radius,
+                },
+            ],
+            ..Default::default()
+        };
+        let mut p = pixmap(64, 64);
+        run_list(&dl, &mut p, 1.0).expect("must render");
+        // Blue at 160 / 255 over white: (114, 114, 221).
+        let [red, _, blue, _] = px_at(&p, 30, 30);
+        assert!(
+            (i32::from(red) - 114).abs() <= 2 && (i32::from(blue) - 221).abs() <= 2,
+            "the centre of the translucent box is {:?}, not blue over white (114, 114, 221): its \
+             own shadow shows through it",
+            px_at(&p, 30, 30)
+        );
+        // The shadow itself still falls outside the box, to its right.
+        assert!(
+            px_at(&p, 52, 40)[0] < 128,
+            "the shadow beside the box is gone: {:?}",
+            px_at(&p, 52, 40)
+        );
+    }
+
     #[test]
     fn damaged_repaint_does_not_accumulate_box_shadow_ink() {
         let rr = RendererResources::default();
