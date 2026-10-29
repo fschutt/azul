@@ -24329,12 +24329,11 @@ impl LayoutWindow {
             | NodeType::SvgTspan => self.collect_text_from_children(dom_id, node_id),
             // An SVG text is a text block of its own: its characters, with
             // the space a tspan's `dx` puts before its own - the items its
-            // layout numbers (`solver3::svg::svg_text_content`), so a caret
+            // layout numbers (`solver3::svg::svg_text_items`), so a caret
             // or a selection in it maps to its text.
-            NodeType::SvgText => solver3::svg::svg_text_content(
+            NodeType::SvgText => solver3::svg::svg_text_items(
                 &layout_result.styled_dom,
                 &self.collect_text_from_children(dom_id, node_id),
-                1.0,
             ),
             // A `<br>` is the hard line break `solver3::fc` lays it out as:
             // an item of its own, so the runs behind it keep the numbers
@@ -25075,6 +25074,19 @@ impl LayoutWindow {
         else {
             return;
         };
+
+        // An SVG `<text>` is laid out at its `<svg>`'s scale: the edit model,
+        // like the IFC's collection, holds its user units, scaled here as the
+        // full layout scales them (`solver3::svg::scaled_content`).
+        if let Some(scale) = self.layout_results.get(&dom_id).and_then(|layout_result| {
+            solver3::svg::text_scale(
+                &layout_result.styled_dom,
+                &layout_result.layout_tree,
+                ifc_layout_index,
+            )
+        }) {
+            new_inline_content = solver3::svg::scaled_content(&new_inline_content, scale);
+        }
 
         // 3. Re-run the inline layout pipeline, from the shaping on, through
         // the same functions as the solver's `layout_ifc`: the edited

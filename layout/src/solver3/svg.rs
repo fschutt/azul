@@ -214,16 +214,24 @@ fn scaled_style(style: &StyleProperties, s: f32) -> StyleProperties {
     scaled
 }
 
-/// An SVG text's collected inline content as it is laid out: its user-unit
-/// sizes scaled by `s` (the runs' styles, the widths of measured spaces), and
-/// each `<tspan dx>`'s shift - printpdf's kerning, often negative - as a
-/// space of that width before the tspan's first character.
+/// An SVG text's collected inline content as it is laid out: its items
+/// ([`svg_text_items`]) with their user-unit sizes scaled by `s`
+/// ([`scaled_content`]).
 #[must_use]
 pub fn svg_text_content(
     styled_dom: &StyledDom,
     content: &[InlineContent],
     s: f32,
 ) -> Vec<InlineContent> {
+    scaled_content(&svg_text_items(styled_dom, content), s)
+}
+
+/// An SVG text's collected inline content in its user units, with each
+/// `<tspan dx>`'s shift - printpdf's kerning, often negative - as a space of
+/// that width before the tspan's first character: the items its layout
+/// numbers, and what the edit model holds for it.
+#[must_use]
+pub fn svg_text_items(styled_dom: &StyledDom, content: &[InlineContent]) -> Vec<InlineContent> {
     let mut out = Vec::with_capacity(content.len());
     let mut last_source = None;
     for item in content {
@@ -232,16 +240,24 @@ pub fn svg_text_content(
                 last_source = run.source_node_id;
                 if let Some(dx) = run.source_node_id.and_then(|t| tspan_dx(styled_dom, t)) {
                     out.push(InlineContent::Space(crate::text3::cache::InlineSpace {
-                        width: dx * s,
+                        width: dx,
                         is_breaking: false,
                         is_stretchy: false,
                     }));
                 }
             }
         }
-        out.push(scaled_item(item, s));
+        out.push(item.clone());
     }
     out
+}
+
+/// `content`, an SVG text's items in its user units, at the scale `s` it is
+/// drawn at ([`text_scale`]): the runs' styles and the widths of its spaces
+/// scaled. A full layout and a relayout after an edit both scale it here.
+#[must_use]
+pub fn scaled_content(content: &[InlineContent], s: f32) -> Vec<InlineContent> {
+    content.iter().map(|item| scaled_item(item, s)).collect()
 }
 
 /// One inline item with its user-unit sizes scaled by `s`.
