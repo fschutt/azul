@@ -530,80 +530,21 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
             );
 
             if line_constraints.segments.is_empty() {
+                // No room at this height: a shape or an exclusion covers the
+                // whole line. It moves down to where the room can change.
                 empty_segment_count += 1;
-                if let Some(msgs) = debug_messages {
-                    msgs.push(LayoutDebugMessage::info(format!(
-                        "  No available segments at y={line_top_y}, skipping to next line. (empty \
-                         count: {empty_segment_count}/{MAX_EMPTY_SEGMENTS})"
-                    )));
-                }
-
-                // Failsafe: If we've skipped too many lines without content, break out
-                if empty_segment_count >= MAX_EMPTY_SEGMENTS {
+                if empty_segment_count >= MAX_EMPTY_SEGMENTS
+                    || below_every_shape(line_top_y, fragment_constraints)
+                {
                     if let Some(msgs) = debug_messages {
                         msgs.push(LayoutDebugMessage::warning(format!(
-                            "  [WARN] Reached maximum empty segment count ({MAX_EMPTY_SEGMENTS}). \
-                             Breaking to prevent infinite loop."
-                        )));
-                        msgs.push(LayoutDebugMessage::warning(
-                            "  This likely means the shape constraints are too restrictive or \
-                             positioned incorrectly."
-                                .to_string(),
-                        ));
-                        msgs.push(LayoutDebugMessage::warning(format!(
-                            "  Current y={line_top_y}, shape boundaries might be outside this \
-                             range."
+                            "  No room for a line at y={line_top_y} or below it: the shapes \
+                             leave none. Ending the column."
                         )));
                     }
                     break;
                 }
-
-                // Additional check: If we have shapes and are far beyond the expected height,
-                // also break to avoid infinite loops
-                if !fragment_constraints.shape_boundaries.is_empty() && empty_segment_count > 50 {
-                    // Calculate maximum shape height
-                    let max_shape_y: f32 = fragment_constraints
-                        .shape_boundaries
-                        .iter()
-                        .map(|shape| match shape {
-                            ShapeBoundary::Circle { center, radius } => center.y + radius,
-                            ShapeBoundary::Ellipse { center, radii } => center.y + radii.height,
-                            ShapeBoundary::Polygon { points, .. } => {
-                                points.iter().map(|p| p.y).fold(0.0, f32::max)
-                            }
-                            ShapeBoundary::Rectangle(rect) => rect.y + rect.height,
-                            ShapeBoundary::Path { segments, .. } => segments
-                                .iter()
-                                .filter_map(|s| match s {
-                                    PathSegment::MoveTo(p) | PathSegment::LineTo(p) => Some(p.y),
-                                    PathSegment::CurveTo { end, .. }
-                                    | PathSegment::QuadTo { end, .. } => Some(end.y),
-                                    PathSegment::Arc { center, radius, .. } => {
-                                        Some(center.y + radius)
-                                    }
-                                    PathSegment::Close => None,
-                                })
-                                .fold(0.0, f32::max),
-                        })
-                        .fold(0.0, f32::max);
-
-                    if line_top_y > max_shape_y + 100.0 {
-                        if let Some(msgs) = debug_messages {
-                            msgs.push(LayoutDebugMessage::info(format!(
-                                "  [INFO] Current y={line_top_y} is far beyond maximum shape \
-                                 extent y={max_shape_y}. Breaking layout."
-                            )));
-                            msgs.push(LayoutDebugMessage::info(
-                                "  Shape boundaries exist but no segments available - text cannot \
-                                 fit in shape."
-                                    .to_string(),
-                            ));
-                        }
-                        break;
-                    }
-                }
-
-                line_top_y += fragment_constraints.resolved_line_height();
+                line_top_y = next_band_top(line_top_y, fragment_constraints);
                 continue;
             }
 
@@ -634,6 +575,7 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
             // width of a line box, it is split into several fragments, which are
             // partitioned across multiple line boxes."
             let position_before_line = (cursor.next_item_index, cursor.partial_remainder.len());
+            let cursor_before_line = cursor.position();
             let (logical_line, was_hyphenated) = break_one_line(
                 cursor,
                 &line_constraints,
@@ -667,6 +609,26 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
                     ));
                 }
                 break;
+            }
+
+            // A line too short for its first word: where a shape or an
+            // exclusion cuts its room, it moves down to where the room can
+            // change (CSS 2.2 9.5: until some content fits), as long as the
+            // room still changes below; a line the shapes do not cut lets the
+            // word overflow.
+            if !is_min_content
+                && !is_max_content
+                && room_is_cut(&line_constraints, column_width)
+                && !below_every_shape(line_top_y, fragment_constraints)
+            {
+                let line_width = logical_line
+                    .iter()
+                    .fold(0.0, |width, item| fold_line_width(width, item, false));
+                if line_width > line_constraints.total_available + 0.01 {
+                    cursor.restore(cursor_before_line);
+                    line_top_y = next_band_top(line_top_y, fragment_constraints);
+                    continue;
+                }
             }
 
             if let Some(msgs) = debug_messages {
@@ -2342,126 +2304,143 @@ pub(crate) fn indent_line_box(
     line_constraints.total_available -= indent;
 }
 
-/// Calculates the available horizontal segments for a line at a given vertical position,
-/// considering both shape boundaries and exclusions.
-#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant
-                                  // (or cross-type bindings that can't merge)
+/// The room a line has at block offset `line_y`, `line_height` tall: the
+/// spans of the content area left to it, left to right.
+///
+/// The room starts as the available width. Inside the content area a
+/// `shape-inside` keeps only what every one of its shapes covers over the
+/// whole line box (CSS Shapes 2 takes the area outside the shape away); a
+/// line below that area keeps the whole width, as overflow continues outside
+/// the element. Each exclusion then takes whatever of the line box it
+/// reaches, at any height of it. One span is one segment of the line.
 pub(super) fn get_line_constraints(
     line_y: f32,
     line_height: f32,
     constraints: &UnifiedConstraints,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
 ) -> LineConstraints {
-    if let Some(msgs) = debug_messages {
-        msgs.push(LayoutDebugMessage::info(format!(
-            "\n--- Entering get_line_constraints for y={line_y} ---"
-        )));
-    }
-
-    let mut available_segments = Vec::new();
-    if constraints.shape_boundaries.is_empty() {
-        // The segment_width is determined by available_width, NOT by TextWrap.
-        // TextWrap::NoWrap only affects whether the LineBreaker can insert soft breaks,
-        // it should NOT override a definite width constraint from CSS.
-        // +spec:overflow:b06c3e - text overflows when wrapping is prevented (e.g. white-space:
-        // nowrap) CSS Text Level 3: For 'white-space: pre/nowrap', text overflows
-        // horizontally if it doesn't fit, rather than expanding the container.
-        //
-        // For MinContent/MaxContent intrinsic sizing: use a large value to let text
-        // lay out fully. The line breaker handles min-content by breaking at word
-        // boundaries. The actual content width is measured from the laid-out lines.
-        let segment_width = match constraints.available_width {
-            AvailableSpace::Definite(w) => w, // Respect definite width from CSS
-            AvailableSpace::MaxContent => f32::MAX / 2.0, // For intrinsic max-content sizing
-            AvailableSpace::MinContent => f32::MAX / 2.0, // For intrinsic min-content sizing
+    // The width is the available width when it is definite, and a large one
+    // while measuring the intrinsic sizes: the min-content breaker breaks at
+    // every word on its own, and `white-space: nowrap` overflows whatever the
+    // width (both in `break_one_line`).
+    let width = match constraints.available_width {
+        AvailableSpace::Definite(w) => w,
+        AvailableSpace::MaxContent | AvailableSpace::MinContent => f32::MAX / 2.0,
+    };
+    let is_min_content = matches!(constraints.available_width, AvailableSpace::MinContent);
+    if constraints.shape_boundaries.is_empty() && constraints.shape_exclusions.is_empty() {
+        // The whole width, even an empty one: a zero-width box still lays
+        // its content out, on lines that overflow it.
+        return LineConstraints {
+            segments: vec![LineSegment {
+                start_x: 0.0,
+                width,
+                priority: 0,
+            }],
+            total_available: width,
+            is_min_content,
         };
-        // Note: TextWrap::NoWrap is handled by the LineBreaker in break_one_line()
-        // to prevent soft wraps. The text will simply overflow if it exceeds segment_width.
-        available_segments.push(LineSegment {
-            start_x: 0.0,
-            width: segment_width,
+    }
+    let mut spans = vec![(0.0, width)];
+
+    let area_bottom = constraints.shape_area_height.unwrap_or(f32::INFINITY);
+    let band_bottom_in_area = (line_y + line_height).min(area_bottom);
+    if band_bottom_in_area > line_y {
+        for boundary in &constraints.shape_boundaries {
+            let inside = shape_spans_in_band(
+                boundary,
+                line_y,
+                band_bottom_in_area - line_y,
+                BandCover::Whole,
+            );
+            spans = intersect_spans(&spans, &inside);
+        }
+    }
+    if let Some(msgs) = debug_messages {
+        msgs.push(LayoutDebugMessage::info(format!(
+            "[get_line_constraints] y={line_y} h={line_height}: room inside the shapes {spans:?}"
+        )));
+    }
+
+    for exclusion in &constraints.shape_exclusions {
+        let taken = get_shape_horizontal_spans(exclusion, line_y, line_height);
+        if !taken.is_empty() {
+            spans = subtract_spans(&spans, &taken);
+        }
+    }
+
+    let segments: Vec<LineSegment> = spans
+        .into_iter()
+        .filter(|(start, end)| end > start)
+        .map(|(start, end)| LineSegment {
+            start_x: start,
+            width: end - start,
             priority: 0,
-        });
-    } else {
-        // ... complex boundary logic ...
-    }
-
+        })
+        .collect();
+    let total_available = segments.iter().map(|s| s.width).sum();
     if let Some(msgs) = debug_messages {
         msgs.push(LayoutDebugMessage::info(format!(
-            "Initial available segments: {available_segments:?}"
+            "[get_line_constraints] segments {segments:?}, {total_available} wide in all"
         )));
-    }
-
-    for (idx, exclusion) in constraints.shape_exclusions.iter().enumerate() {
-        if let Some(msgs) = debug_messages {
-            msgs.push(LayoutDebugMessage::info(format!(
-                "Applying exclusion #{idx}: {exclusion:?}"
-            )));
-        }
-        let exclusion_spans = get_shape_horizontal_spans(exclusion, line_y, line_height);
-        if let Some(msgs) = debug_messages {
-            msgs.push(LayoutDebugMessage::info(format!(
-                "  Exclusion spans at y={line_y}: {exclusion_spans:?}"
-            )));
-        }
-
-        if exclusion_spans.is_empty() {
-            continue;
-        }
-
-        let mut next_segments = Vec::new();
-        for (excl_start, excl_end) in exclusion_spans {
-            for segment in &available_segments {
-                let seg_start = segment.start_x;
-                let seg_end = segment.start_x + segment.width;
-
-                // Create new segments by subtracting the exclusion
-                if seg_end > excl_start && seg_start < excl_end {
-                    if seg_start < excl_start {
-                        // Left part
-                        next_segments.push(LineSegment {
-                            start_x: seg_start,
-                            width: excl_start - seg_start,
-                            priority: segment.priority,
-                        });
-                    }
-                    if seg_end > excl_end {
-                        // Right part
-                        next_segments.push(LineSegment {
-                            start_x: excl_end,
-                            width: seg_end - excl_end,
-                            priority: segment.priority,
-                        });
-                    }
-                } else {
-                    next_segments.push(*segment); // No overlap
-                }
-            }
-            available_segments = merge_segments(next_segments);
-            next_segments = Vec::new();
-        }
-        if let Some(msgs) = debug_messages {
-            msgs.push(LayoutDebugMessage::info(format!(
-                "  Segments after exclusion #{idx}: {available_segments:?}"
-            )));
-        }
-    }
-
-    let total_width = available_segments.iter().map(|s| s.width).sum();
-    if let Some(msgs) = debug_messages {
-        msgs.push(LayoutDebugMessage::info(format!(
-            "Final segments: {available_segments:?}, total available width: {total_width}"
-        )));
-        msgs.push(LayoutDebugMessage::info(
-            "--- Exiting get_line_constraints ---".to_string(),
-        ));
     }
 
     LineConstraints {
-        segments: available_segments,
-        total_available: total_width,
-        is_min_content: matches!(constraints.available_width, AvailableSpace::MinContent),
+        segments,
+        total_available,
+        is_min_content,
     }
+}
+
+/// Whether the room of a line is cut by a shape or an exclusion: anything but
+/// the one span of the full `width` from the line's start.
+fn room_is_cut(line_constraints: &LineConstraints, width: f32) -> bool {
+    match line_constraints.segments.as_slice() {
+        [only] => only.start_x.abs() > 0.01 || only.width < width - 0.01,
+        _ => true,
+    }
+}
+
+/// Where a line that found no room at `line_top` tries next: the next height
+/// below it at which a shape or an exclusion starts, ends or turns (where the
+/// room can change), or one line further down, whichever comes first.
+///
+/// CSS 2.2 9.5 moves a line box that is too short for its content down until
+/// some content fits; the room only changes at those heights, so no height in
+/// between needs a try.
+fn next_band_top(line_top: f32, constraints: &UnifiedConstraints) -> f32 {
+    let mut next = line_top + constraints.resolved_line_height().max(1.0);
+    let mut consider = |y: f32| {
+        if y > line_top + 0.01 && y < next {
+            next = y;
+        }
+    };
+    for shape in constraints
+        .shape_boundaries
+        .iter()
+        .chain(&constraints.shape_exclusions)
+    {
+        shape.for_each_turning_height(&mut consider);
+    }
+    if let Some(area) = constraints.shape_area_height {
+        consider(area);
+    }
+    next
+}
+
+/// Whether a line at `line_top` lies below every height where a shape or an
+/// exclusion could still change its room: moving it further down gains
+/// nothing.
+fn below_every_shape(line_top: f32, constraints: &UnifiedConstraints) -> bool {
+    let mut lowest = constraints.shape_area_height.unwrap_or(f32::MIN);
+    for shape in constraints
+        .shape_boundaries
+        .iter()
+        .chain(&constraints.shape_exclusions)
+    {
+        shape.for_each_turning_height(&mut |y| lowest = lowest.max(y));
+    }
+    line_top >= lowest
 }
 
 /// The hyphenation dictionary of `language`.

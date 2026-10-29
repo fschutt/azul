@@ -273,8 +273,16 @@ pub(crate) struct CursorBoundsError {
 ///    +spec:positioning:fb233a - initial letter block-axis: if size < sink, use over alignment
 #[derive(Debug, Clone)]
 pub struct UnifiedConstraints {
-    // Shape definition
+    /// The shapes of `shape-inside`: a line inside the content area keeps
+    /// only the room every one of them covers over its whole line box.
     pub shape_boundaries: Vec<ShapeBoundary>,
+    /// How tall the content area the `shape_boundaries` cut is. CSS Shapes 2
+    /// subtracts the area outside the shape from the content area only, so a
+    /// line below it is not cut: overflow continues outside the element's
+    /// bounds. `None` cuts every line.
+    pub shape_area_height: Option<f32>,
+    /// The exclusion areas lines flow around: floats, `shape-outside`, an
+    /// initial letter. A line loses whatever of its line box they cover.
     pub shape_exclusions: Vec<ShapeBoundary>,
 
     // Basic layout - using AvailableSpace for proper indefinite handling
@@ -392,6 +400,7 @@ impl Default for UnifiedConstraints {
     fn default() -> Self {
         Self {
             shape_boundaries: Vec::new(),
+            shape_area_height: None,
             shape_exclusions: Vec::new(),
 
             // Use MaxContent as default to avoid premature line breaking.
@@ -467,6 +476,7 @@ impl UnifiedConstraints {
     pub fn hash_line_inputs<H: Hasher>(&self, state: &mut H) {
         let Self {
             shape_boundaries,
+            shape_area_height,
             shape_exclusions: _,
             available_width: _,
             available_height,
@@ -507,6 +517,7 @@ impl UnifiedConstraints {
             column_flow,
         } = self;
         shape_boundaries.hash(state);
+        shape_area_height.map(|h| h.round() as isize).hash(state);
         available_height.map(|h| h.round() as isize).hash(state);
         writing_mode.hash(state);
         direction.hash(state);
@@ -550,6 +561,7 @@ impl PartialEq for UnifiedConstraints {
     fn eq(&self, other: &Self) -> bool {
         let Self {
             shape_boundaries,
+            shape_area_height,
             shape_exclusions,
             available_width,
             available_height,
@@ -590,6 +602,11 @@ impl PartialEq for UnifiedConstraints {
             column_flow,
         } = self;
         *shape_boundaries == other.shape_boundaries
+            && match (*shape_area_height, other.shape_area_height) {
+                (None, None) => true,
+                (Some(h1), Some(h2)) => round_eq(h1, h2),
+                _ => false,
+            }
             && *shape_exclusions == other.shape_exclusions
             && *available_width == other.available_width
             && match (*available_height, other.available_height) {

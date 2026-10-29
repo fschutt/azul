@@ -711,14 +711,17 @@ pub(super) fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         height: ref_box_height,
     };
 
-    // shape-inside: Text flows within the shape boundary
-    let shape_boundaries = if let Some(ShapeInside::Shape(css_shape)) = &style.shape_inside {
-        let boundary = ShapeBoundary::from_css_shape(css_shape, reference_box, ctx.debug_messages);
-        debug_info!(ctx, "Created ShapeBoundary: {:?}", boundary);
-        vec![boundary]
-    } else {
-        Vec::new()
-    };
+    // shape-inside: the lines of the content area flow inside the shape, and
+    // the overflow below that area runs on uncut (CSS Shapes 2).
+    let (shape_boundaries, shape_area_height) =
+        if let Some(ShapeInside::Shape(css_shape)) = &style.shape_inside {
+            let boundary =
+                ShapeBoundary::from_css_shape(css_shape, reference_box, ctx.debug_messages);
+            debug_info!(ctx, "Created ShapeBoundary: {:?}", boundary);
+            (vec![boundary], Some(reference_box.height))
+        } else {
+            (Vec::new(), None)
+        };
 
     // shape-outside: Text wraps around the shape (adds to exclusions)
     if let Some(ShapeOutside::Shape(css_shape)) = &style.shape_outside {
@@ -1051,8 +1054,9 @@ pub(super) fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         } else {
             None
         },
-        shape_boundaries, // CSS shape-inside: text flows within shape
-        shape_exclusions, // CSS shape-outside + floats: text wraps around shapes
+        shape_boundaries,
+        shape_area_height,
+        shape_exclusions,
         writing_mode: Some(match style.writing_mode {
             LayoutWritingMode::HorizontalTb => text3::cache::WritingMode::HorizontalTb,
             LayoutWritingMode::VerticalRl => text3::cache::WritingMode::VerticalRl,

@@ -363,6 +363,29 @@ pub fn intersect_spans(a: &[(f32, f32)], b: &[(f32, f32)]) -> Vec<(f32, f32)> {
     out
 }
 
+/// What of `spans` lies outside every span of `taken`, left to right.
+#[must_use]
+pub fn subtract_spans(spans: &[(f32, f32)], taken: &[(f32, f32)]) -> Vec<(f32, f32)> {
+    let taken = union_spans(taken.to_vec(), Vec::new());
+    let mut out = Vec::new();
+    for &(start, end) in spans {
+        let mut from = start;
+        for &(cut_start, cut_end) in &taken {
+            if cut_end <= from || cut_start >= end {
+                continue;
+            }
+            if cut_start > from {
+                out.push((from, cut_start));
+            }
+            from = from.max(cut_end);
+        }
+        if end > from {
+            out.push((from, end));
+        }
+    }
+    out
+}
+
 /// What either span list covers, left to right, overlapping spans merged.
 #[must_use]
 pub fn union_spans(mut a: Vec<(f32, f32)>, b: Vec<(f32, f32)>) -> Vec<(f32, f32)> {
