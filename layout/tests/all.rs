@@ -1327,3 +1327,5 @@ mod an_svg_with_absurd_geometry_renders_in_bounded_time;
 mod an_arabic_letter_keeps_its_dots_and_marks;
 #[path = "a_dotted_circle_the_shaper_inserts_stands_for_no_text.rs"]
 mod a_dotted_circle_the_shaper_inserts_stands_for_no_text;
+#[path = "a_right_to_left_paragraph_breaks_its_lines_in_reading_order.rs"]
+mod a_right_to_left_paragraph_breaks_its_lines_in_reading_order;
