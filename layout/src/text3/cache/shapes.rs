@@ -526,13 +526,39 @@ pub(super) const fn round_eq(a: f32, b: f32) -> bool {
     (a.round() as isize) == (b.round() as isize)
 }
 
+/// Which points the rings of a polygon or a path enclose: the `fill-rule` of
+/// CSS `polygon()` and `path()` (SVG's rule of the same name).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum FillRule {
+    /// A point is inside where the rings around it wind a non-zero number of
+    /// times, so a ring drawn the other way round inside another cuts a hole
+    /// and one drawn the same way does not.
+    #[default]
+    NonZero,
+    /// A point is inside where an odd number of ring edges lie on either side
+    /// of it, so every ring inside another cuts a hole.
+    EvenOdd,
+}
+
 #[derive(Debug, Clone)]
 pub enum ShapeBoundary {
     Rectangle(Rect),
-    Circle { center: Point, radius: f32 },
-    Ellipse { center: Point, radii: Size },
-    Polygon { points: Vec<Point> },
-    Path { segments: Vec<PathSegment> },
+    Circle {
+        center: Point,
+        radius: f32,
+    },
+    Ellipse {
+        center: Point,
+        radii: Size,
+    },
+    Polygon {
+        points: Vec<Point>,
+        fill_rule: FillRule,
+    },
+    Path {
+        segments: Vec<PathSegment>,
+        fill_rule: FillRule,
+    },
 }
 
 impl ShapeBoundary {
@@ -575,8 +601,17 @@ impl Hash for ShapeBoundary {
                 center.hash(state);
                 radii.hash(state);
             }
-            Self::Polygon { points } => points.hash(state),
-            Self::Path { segments } => segments.hash(state),
+            Self::Polygon { points, fill_rule } => {
+                points.hash(state);
+                fill_rule.hash(state);
+            }
+            Self::Path {
+                segments,
+                fill_rule,
+            } => {
+                segments.hash(state);
+                fill_rule.hash(state);
+            }
         }
     }
 }
@@ -604,8 +639,26 @@ impl PartialEq for ShapeBoundary {
                     radii: r2,
                 },
             ) => c1 == c2 && r1 == r2,
-            (Self::Polygon { points: p1 }, Self::Polygon { points: p2 }) => p1 == p2,
-            (Self::Path { segments: s1 }, Self::Path { segments: s2 }) => s1 == s2,
+            (
+                Self::Polygon {
+                    points: p1,
+                    fill_rule: f1,
+                },
+                Self::Polygon {
+                    points: p2,
+                    fill_rule: f2,
+                },
+            ) => p1 == p2 && f1 == f2,
+            (
+                Self::Path {
+                    segments: s1,
+                    fill_rule: f1,
+                },
+                Self::Path {
+                    segments: s2,
+                    fill_rule: f2,
+                },
+            ) => s1 == s2 && f1 == f2,
             _ => false,
         }
     }
@@ -697,7 +750,10 @@ impl ShapeBoundary {
                         polygon.points.as_ref().len()
                     )));
                 }
-                Self::Polygon { points }
+                Self::Polygon {
+                    points,
+                    fill_rule: FillRule::EvenOdd,
+                }
             }
 
             CssShape::Inset(inset) => {
@@ -748,7 +804,10 @@ impl ShapeBoundary {
                     // shape-inside container does not collapse to zero usable space.
                     Self::Rectangle(reference_box)
                 } else {
-                    Self::Path { segments }
+                    Self::Path {
+                        segments,
+                        fill_rule: FillRule::EvenOdd,
+                    }
                 }
             }
         };

@@ -568,11 +568,11 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
                         .map(|shape| match shape {
                             ShapeBoundary::Circle { center, radius } => center.y + radius,
                             ShapeBoundary::Ellipse { center, radii } => center.y + radii.height,
-                            ShapeBoundary::Polygon { points } => {
+                            ShapeBoundary::Polygon { points, .. } => {
                                 points.iter().map(|p| p.y).fold(0.0, f32::max)
                             }
                             ShapeBoundary::Rectangle(rect) => rect.y + rect.height,
-                            ShapeBoundary::Path { segments } => segments
+                            ShapeBoundary::Path { segments, .. } => segments
                                 .iter()
                                 .filter_map(|s| match s {
                                     PathSegment::MoveTo(p) | PathSegment::LineTo(p) => Some(p.y),

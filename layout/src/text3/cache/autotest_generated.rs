@@ -999,10 +999,12 @@
     fn shape_boundary_inflate_is_a_documented_no_op_for_polygon_and_path() {
         let p = ShapeBoundary::Polygon {
             points: vec![Point { x: 0.0, y: 0.0 }, Point { x: 1.0, y: 1.0 }],
+            fill_rule: FillRule::NonZero,
         };
         assert_eq!(p.inflate(10.0), p, "polygon inflation is not implemented");
         let path = ShapeBoundary::Path {
             segments: vec![PathSegment::MoveTo(Point { x: 0.0, y: 0.0 })],
+            fill_rule: FillRule::NonZero,
         };
         assert_eq!(
             path.inflate(10.0),
@@ -2446,95 +2448,108 @@
         assert!(!out.is_empty(), "NaN input must not abort the merge");
     }
 
-    #[test]
-    fn polygon_line_intersection_needs_at_least_three_points() {
-        assert!(polygon_line_intersection(&[], 0.0, 1.0).is_empty());
-        assert!(polygon_line_intersection(&[Point { x: 0.0, y: 0.0 }], 0.0, 1.0).is_empty());
-        assert!(polygon_line_intersection(
-            &[Point { x: 0.0, y: 0.0 }, Point { x: 1.0, y: 1.0 }],
-            0.0,
-            1.0
-        )
-        .is_empty());
+    fn polygon(points: &[(f32, f32)], fill_rule: FillRule) -> ShapeBoundary {
+        ShapeBoundary::Polygon {
+            points: points.iter().map(|&(x, y)| Point { x, y }).collect(),
+            fill_rule,
+        }
     }
 
     #[test]
-    fn polygon_line_intersection_narrows_across_a_triangle() {
-        // Right triangle (0,0) - (100,0) - (0,100): span width ≈ 100 - y.
-        let tri = [
-            Point { x: 0.0, y: 0.0 },
-            Point { x: 100.0, y: 0.0 },
-            Point { x: 0.0, y: 100.0 },
+    fn a_polygon_of_fewer_than_three_points_has_no_spans() {
+        for points in [&[][..], &[(0.0, 0.0)][..], &[(0.0, 0.0), (1.0, 1.0)][..]] {
+            let p = polygon(points, FillRule::NonZero);
+            assert!(shape_spans_in_band(&p, 0.0, 1.0, BandCover::Any).is_empty());
+            assert!(shape_spans_in_band(&p, 0.0, 1.0, BandCover::Whole).is_empty());
+        }
+    }
+
+    #[test]
+    fn a_triangle_spans_its_widest_reach_or_its_narrowest_part_of_a_band() {
+        // Right triangle (0,0) - (100,0) - (0,100): at height y it spans 0..100-y.
+        let tri = polygon(&[(0.0, 0.0), (100.0, 0.0), (0.0, 100.0)], FillRule::NonZero);
+        let any = shape_spans_in_band(&tri, 10.0, 10.0, BandCover::Any);
+        let whole = shape_spans_in_band(&tri, 10.0, 10.0, BandCover::Whole);
+        assert_eq!(any.len(), 1);
+        assert_eq!(whole.len(), 1);
+        assert!((any[0].1 - 90.0).abs() < 0.01, "the band's top reaches 90: {any:?}");
+        assert!((whole[0].1 - 80.0).abs() < 0.01, "its bottom keeps 80: {whole:?}");
+    }
+
+    #[test]
+    fn a_band_outside_a_polygon_or_on_a_nan_height_has_no_spans() {
+        let tri = polygon(&[(0.0, 0.0), (100.0, 0.0), (0.0, 100.0)], FillRule::NonZero);
+        assert!(shape_spans_in_band(&tri, 500.0, 1.0, BandCover::Any).is_empty());
+        assert!(shape_spans_in_band(&tri, f32::NAN, 1.0, BandCover::Any).is_empty());
+        assert!(shape_spans_in_band(&tri, f32::INFINITY, 1.0, BandCover::Any).is_empty());
+    }
+
+    #[test]
+    fn a_flat_polygon_has_no_spans() {
+        let flat = polygon(&[(0.0, 5.0), (10.0, 5.0), (20.0, 5.0)], FillRule::NonZero);
+        assert!(shape_spans_in_band(&flat, 4.5, 1.0, BandCover::Any).is_empty());
+    }
+
+    #[test]
+    fn a_band_through_a_hole_spans_both_sides_under_both_fill_rules() {
+        // A square with a square hole drawn the other way round.
+        let rings = [
+            (0.0, 0.0),
+            (100.0, 0.0),
+            (100.0, 100.0),
+            (0.0, 100.0),
+            (0.0, 0.0),
+            (30.0, 30.0),
+            (30.0, 70.0),
+            (70.0, 70.0),
+            (70.0, 30.0),
+            (30.0, 30.0),
         ];
-        let top = polygon_line_intersection(&tri, 10.0, 1.0);
-        let bot = polygon_line_intersection(&tri, 80.0, 1.0);
-        assert_eq!(top.len(), 1);
-        assert_eq!(bot.len(), 1);
-        assert!(
-            top[0].width > bot[0].width,
-            "the band must narrow with y ({} !> {})",
-            top[0].width,
-            bot[0].width
-        );
-        assert!((top[0].width - 89.5).abs() < 1.0);
+        for fill_rule in [FillRule::NonZero, FillRule::EvenOdd] {
+            let spans = shape_spans_in_band(&polygon(&rings, fill_rule), 40.0, 20.0, BandCover::Whole);
+            assert_eq!(spans.len(), 2, "{fill_rule:?}: {spans:?}");
+            assert!((spans[0].1 - 30.0).abs() < 0.01 && (spans[1].0 - 70.0).abs() < 0.01);
+        }
     }
 
     #[test]
-    fn polygon_line_intersection_outside_the_shape_and_on_nan_scanlines_is_empty() {
-        let tri = [
-            Point { x: 0.0, y: 0.0 },
-            Point { x: 100.0, y: 0.0 },
-            Point { x: 0.0, y: 100.0 },
-        ];
-        assert!(
-            polygon_line_intersection(&tri, 500.0, 1.0).is_empty(),
-            "a scanline below the shape yields no spans"
-        );
-        assert!(
-            polygon_line_intersection(&tri, f32::NAN, 1.0).is_empty(),
-            "a NaN scanline must not panic — every crossing test is false"
-        );
-        assert!(polygon_line_intersection(&tri, f32::INFINITY, 1.0).is_empty());
+    fn a_ring_drawn_the_same_way_inside_another_is_a_hole_only_under_even_odd() {
+        let path = |fill_rule| ShapeBoundary::Path {
+            segments: vec![
+                PathSegment::MoveTo(Point { x: 0.0, y: 0.0 }),
+                PathSegment::LineTo(Point { x: 100.0, y: 0.0 }),
+                PathSegment::LineTo(Point { x: 100.0, y: 100.0 }),
+                PathSegment::LineTo(Point { x: 0.0, y: 100.0 }),
+                PathSegment::Close,
+                PathSegment::MoveTo(Point { x: 30.0, y: 30.0 }),
+                PathSegment::LineTo(Point { x: 70.0, y: 30.0 }),
+                PathSegment::LineTo(Point { x: 70.0, y: 70.0 }),
+                PathSegment::LineTo(Point { x: 30.0, y: 70.0 }),
+                PathSegment::Close,
+            ],
+            fill_rule,
+        };
+        let nonzero = shape_spans_in_band(&path(FillRule::NonZero), 50.0, 1.0, BandCover::Any);
+        let evenodd = shape_spans_in_band(&path(FillRule::EvenOdd), 50.0, 1.0, BandCover::Any);
+        assert_eq!(nonzero, vec![(0.0, 100.0)], "the inner ring adds to the winding");
+        assert_eq!(evenodd.len(), 2, "the inner ring cuts a hole: {evenodd:?}");
     }
 
     #[test]
-    fn polygon_line_intersection_of_a_degenerate_flat_polygon_is_empty() {
-        // All edges horizontal → every edge is skipped.
-        let flat = [
-            Point { x: 0.0, y: 5.0 },
-            Point { x: 10.0, y: 5.0 },
-            Point { x: 20.0, y: 5.0 },
-        ];
-        assert!(polygon_line_intersection(&flat, 4.5, 1.0).is_empty());
+    fn a_path_of_a_lone_move_has_no_spans() {
+        let lone = ShapeBoundary::Path {
+            segments: vec![PathSegment::MoveTo(Point { x: 0.0, y: 0.0 })],
+            fill_rule: FillRule::NonZero,
+        };
+        assert!(shape_spans_in_band(&lone, 0.0, 1.0, BandCover::Any).is_empty());
     }
 
     #[test]
-    fn path_segments_line_intersection_on_empty_and_degenerate_input() {
-        assert!(path_segments_line_intersection(&[], 0.0, 1.0).is_empty());
-        // A lone MoveTo cannot form a subpath.
-        assert!(path_segments_line_intersection(
-            &[PathSegment::MoveTo(Point { x: 0.0, y: 0.0 })],
-            0.0,
-            1.0
-        )
-        .is_empty());
-    }
-
-    #[test]
-    fn path_segments_line_intersection_of_a_square() {
-        let sq = vec![
-            PathSegment::MoveTo(Point { x: 0.0, y: 0.0 }),
-            PathSegment::LineTo(Point { x: 100.0, y: 0.0 }),
-            PathSegment::LineTo(Point { x: 100.0, y: 100.0 }),
-            PathSegment::LineTo(Point { x: 0.0, y: 100.0 }),
-            PathSegment::Close,
-        ];
-        let spans = path_segments_line_intersection(&sq, 50.0, 1.0);
-        assert_eq!(spans.len(), 1);
-        assert!((spans[0].0 - 0.0).abs() < 0.01);
-        assert!((spans[0].1 - 100.0).abs() < 0.01);
-        // Outside the square vertically → nothing.
-        assert!(path_segments_line_intersection(&sq, 500.0, 1.0).is_empty());
+    fn the_spans_of_two_lists_intersect_and_unite() {
+        let a = vec![(0.0, 10.0), (20.0, 30.0)];
+        let b = vec![(5.0, 25.0)];
+        assert_eq!(intersect_spans(&a, &b), vec![(5.0, 10.0), (20.0, 25.0)]);
+        assert_eq!(union_spans(a, b), vec![(0.0, 30.0)]);
     }
 
     #[test]
@@ -2611,6 +2626,7 @@
                 Point { x: 100.0, y: 0.0 },
                 Point { x: 0.0, y: 100.0 },
             ],
+            fill_rule: FillRule::NonZero,
         };
         let spans = get_shape_horizontal_spans(&p, 10.0, 1.0);
         assert_eq!(spans.len(), 1);
