@@ -3344,6 +3344,9 @@ pub fn render_single_item(
                     scroll_dx - vv_origin.x - content_offset.x,
                     scroll_dy - vv_origin.y - content_offset.y,
                 ));
+                // The view's own frames open their surfaces here and
+                // composite them into what this walk paints into.
+                let mut view_surfaces: Vec<AzulPixmap> = Vec::new();
                 for (child_idx, child_item) in child_dl.items.iter().enumerate() {
                     render_single_item(
                         child_item,
@@ -3358,9 +3361,7 @@ pub fn render_single_item(
                         clip_stack,
                         real_clip_stack,
                         mask_stack,
-                        // The view's own frames composite into what this
-                        // walk paints into.
-                        &mut Vec::new(),
+                        &mut view_surfaces,
                         scroll_offset_stack,
                         text_shadow_stack,
                         render_state,
