@@ -3856,6 +3856,7 @@ fn render_display_list_range(
     let mut clip_stack: Vec<Option<AzRect>> = vec![None];
     let mut real_clip_stack: Vec<Option<AzRect>> = vec![None];
     let mut mask_stack: Vec<MaskEntry> = Vec::new();
+    let mut surfaces: Vec<AzulPixmap> = Vec::new();
     // Apply the layer origin offset: content is translated by -(offset_x,offset_y)
     // so it's rendered RELATIVE to this layer's pixbuf origin (which is then
     // composited back at +layer_origin). The renderer translates positions by
@@ -3885,6 +3886,7 @@ fn render_display_list_range(
             &mut clip_stack,
             &mut real_clip_stack,
             &mut mask_stack,
+            &mut surfaces,
             &mut scroll_offset_stack,
             &mut text_shadow_stack,
             render_state,

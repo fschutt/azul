@@ -1151,17 +1151,16 @@ pub enum ReferenceFrameGroup {
 
 /// A reference frame whose matrix is not a translation, painted in place.
 ///
-/// The push sets the device-pixel box of the frame's bounds aside and clears
-/// it; the frame's content paints into that box at its LAYOUT place, clipped
-/// to it (the compositor's layer for the frame is that box, too). The pop
-/// takes those pixels out, puts the backdrop back and composites them
-/// through the matrix - about the frame's origin, as the compositor places
-/// its layer - inside the clip that was open around the push.
+/// The push opens a surface of its own the size of the frame's device-pixel
+/// box (the compositor's layer for the frame is that box, too), and the
+/// frame's content paints into it at its LAYOUT place, clipped to it. The pop
+/// composites the surface through the matrix - about the frame's origin, as
+/// the compositor places its layer - into the surface below, inside the clip
+/// that was open around the push. The content never touches the pixels
+/// below at its layout place: a box laid out past the window's edge and
+/// turned into view keeps the part the window would have cut off.
 #[derive(Debug)]
 pub struct TransformGroup {
-    backdrop: Vec<u8>,
-    x: i32,
-    y: i32,
     width: u32,
     height: u32,
     /// Group pixel -> pixmap pixel, a column-vector homography (`Mat3`).
@@ -1178,7 +1177,7 @@ impl ReferenceFrameGroup {
     fn begin(
         m: &[[f32; 4]; 4],
         bounds: &LogicalRect,
-        pixmap: &mut AzulPixmap,
+        surfaces: &mut Vec<AzulPixmap>,
         dpi_factor: f32,
         clip_stack: &mut Vec<Option<AzRect>>,
         real_clip_stack: &mut Vec<Option<AzRect>>,
@@ -1238,21 +1237,31 @@ impl ReferenceFrameGroup {
             ),
         );
 
-        let backdrop = snapshot_region(pixmap, x, y, width, height);
-        let clear = vec![0u8; backdrop.len()];
-        write_region(pixmap, &clear, width, height, x, y);
+        // The group's surface: its pixel (0, 0) is the box's device pixel
+        // (x, y), so the walk paints at its position less the box's origin.
+        let surface = AzulPixmap::new(width.max(1), height.max(1)).map_or_else(
+            || AzulPixmap {
+                data: Vec::new().into(),
+                width: 0,
+                height: 0,
+            },
+            |mut surface| {
+                surface.fill(0, 0, 0, 0);
+                surface
+            },
+        );
+        surfaces.push(surface);
+        let (sx, sy) = scroll_offset_stack.last().copied().unwrap_or((0.0, 0.0));
+        scroll_offset_stack.push((sx + x as f32 / dpi_factor, sy + y as f32 / dpi_factor));
 
         // The content paints inside the group's box only, whatever was open
         // around it: that clip applies where the group lands, at the pop.
-        let group_clip = AzRect::from_xywh(x as f32, y as f32, width as f32, height as f32)
+        let group_clip = AzRect::from_xywh(0.0, 0.0, width as f32, height as f32)
             .unwrap_or(AzRect::DENY_ALL);
         clip_stack.push(Some(group_clip));
         real_clip_stack.push(Some(group_clip));
 
         Self::Isolated(Box::new(TransformGroup {
-            backdrop,
-            x,
-            y,
             width,
             height,
             matrix,
@@ -1261,10 +1270,12 @@ impl ReferenceFrameGroup {
     }
 
     /// Closes what [`Self::begin`] opened: the scroll-offset entry of a
-    /// translation, or the isolated group - composited through its matrix.
+    /// translation, or the isolated group - its surface composited through
+    /// its matrix into the surface below (`pixmap` when no other is open).
     fn finish(
         self,
         pixmap: &mut AzulPixmap,
+        surfaces: &mut Vec<AzulPixmap>,
         clip_stack: &mut Vec<Option<AzRect>>,
         real_clip_stack: &mut Vec<Option<AzRect>>,
         scroll_offset_stack: &mut Vec<(f32, f32)>,
@@ -1283,7 +1294,16 @@ impl ReferenceFrameGroup {
                 if real_clip_stack.len() > 1 {
                     real_clip_stack.pop();
                 }
-                group.finish(pixmap);
+                if scroll_offset_stack.len() > 1 {
+                    scroll_offset_stack.pop();
+                }
+                if let Some(surface) = surfaces.pop() {
+                    let below = match surfaces.last_mut() {
+                        Some(below) => below,
+                        None => pixmap,
+                    };
+                    group.finish(&surface, below);
+                }
             }
         }
     }
@@ -1294,36 +1314,21 @@ impl ReferenceFrameGroup {
 const MAX_TRANSFORM_GROUP_SIDE: i32 = 16_384;
 
 impl TransformGroup {
-    /// Take what the group painted out of the pixmap, put the backdrop back
-    /// and composite the group through its matrix.
-    fn finish(&self, pixmap: &mut AzulPixmap) {
+    /// Composites the group's `surface` through its matrix into `pixmap`.
+    fn finish(&self, surface: &AzulPixmap, pixmap: &mut AzulPixmap) {
         if self.width == 0 || self.height == 0 {
             return;
         }
-        let painted = snapshot_region(pixmap, self.x, self.y, self.width, self.height);
-        write_region(
-            pixmap,
-            &self.backdrop,
-            self.width,
-            self.height,
-            self.x,
-            self.y,
-        );
-        let group = AzulPixmap {
-            data: painted.into(),
-            width: self.width,
-            height: self.height,
-        };
         if mat3_is_affine(&self.matrix) {
             blit_pixmap_affine_clipped(
-                &group,
+                surface,
                 pixmap,
                 &mat3_affine_part(&self.matrix),
                 1.0,
                 self.outer_clip,
             );
         } else {
-            blit_pixmap_projective_clipped(&group, pixmap, &self.matrix, 1.0, self.outer_clip);
+            blit_pixmap_projective_clipped(surface, pixmap, &self.matrix, 1.0, self.outer_clip);
         }
     }
 }
@@ -2060,6 +2065,7 @@ fn render_display_list_with_state(
     let mut clip_stack: Vec<Option<AzRect>> = vec![None];
     let mut real_clip_stack: Vec<Option<AzRect>> = vec![None];
     let mut mask_stack: Vec<MaskEntry> = Vec::new();
+    let mut surfaces: Vec<AzulPixmap> = Vec::new();
     // Accumulated scroll offset stack. Each PushScrollFrame pushes
     // (parent_offset_x + scroll_x, parent_offset_y + scroll_y).
     // Items inside a scroll frame have their bounds shifted by the
@@ -2088,6 +2094,7 @@ fn render_display_list_with_state(
             &mut clip_stack,
             &mut real_clip_stack,
             &mut mask_stack,
+            &mut surfaces,
             &mut scroll_offset_stack,
             &mut text_shadow_stack,
             render_state,
@@ -2460,6 +2467,7 @@ pub fn render_display_list_damaged(
         let mut clip_stack: Vec<Option<AzRect>> = vec![base_clip];
         let mut real_clip_stack: Vec<Option<AzRect>> = vec![None];
         let mut mask_stack: Vec<MaskEntry> = Vec::new();
+        let mut surfaces: Vec<AzulPixmap> = Vec::new();
         let mut scroll_offset_stack: Vec<(f32, f32)> = vec![(0.0, 0.0)];
         let mut text_shadow_stack: Vec<StyleBoxShadow> = Vec::new();
 
@@ -2530,6 +2538,7 @@ pub fn render_display_list_damaged(
                 &mut clip_stack,
                 &mut real_clip_stack,
                 &mut mask_stack,
+                &mut surfaces,
                 &mut scroll_offset_stack,
                 &mut text_shadow_stack,
                 render_state,
@@ -2593,6 +2602,9 @@ pub fn render_single_item(
     // is NOT damaged is by definition identical between frames.
     real_clip_stack: &mut Vec<Option<AzRect>>,
     mask_stack: &mut Vec<MaskEntry>,
+    // The surfaces of the isolated reference frames open around the item,
+    // innermost last (see `TransformGroup`); empty: it paints into `pixmap`.
+    surfaces: &mut Vec<AzulPixmap>,
     scroll_offset_stack: &mut Vec<(f32, f32)>,
     text_shadow_stack: &mut Vec<StyleBoxShadow>,
     render_state: &CpuRenderState,
@@ -2617,6 +2629,80 @@ pub fn render_single_item(
             },
             size: r.size,
         }
+    };
+
+    // A reference frame opens or closes a surface, so it is the one item that
+    // changes where the others paint: it is handled before the target is
+    // chosen.
+    match item {
+        DisplayListItem::PushReferenceFrame {
+            transform_key,
+            initial_transform,
+            bounds,
+        } => {
+            // Look up the current GPU-cached transform value for this key.
+            // For scrollbar thumbs, the GpuValueCache stores the up-to-date
+            // thumb translation. For CSS transforms, it stores the computed
+            // matrix. Falls back to the initial_transform baked in the DL.
+            let live_transform = render_state.transforms.get(&transform_key.id);
+            let m = live_transform.map_or(&initial_transform.m, |t| &t.m);
+            let tf = TransAffine::new_custom(
+                f64::from(m[0][0]),
+                f64::from(m[0][1]), // sx, shy
+                f64::from(m[1][0]),
+                f64::from(m[1][1]), // shx, sy
+                f64::from(m[3][0]),
+                f64::from(m[3][1]), // tx, ty
+            );
+            let current = transform_stack
+                .last()
+                .copied()
+                .unwrap_or_else(TransAffine::new);
+            let mut composed = tf;
+            composed.premultiply(&current);
+            transform_stack.push(composed);
+
+            // The frame's content is painted MOVED by its live matrix - the
+            // layered compositor's layer for this frame, in place. Without
+            // this every damage rect repainted a transformed box at its
+            // layout place (mid-slide ghosts; a lasting transform ghosted
+            // wherever damage touched its layout box).
+            let group = ReferenceFrameGroup::begin(
+                m,
+                &scroll_rect(bounds.inner()),
+                surfaces,
+                dpi_factor,
+                clip_stack,
+                real_clip_stack,
+                scroll_offset_stack,
+            );
+            mask_stack.push(MaskEntry::Transform(group));
+            return Ok(());
+        }
+        DisplayListItem::PopReferenceFrame => {
+            if transform_stack.len() > 1 {
+                transform_stack.pop();
+            }
+            if matches!(mask_stack.last(), Some(MaskEntry::Transform(_))) {
+                if let Some(MaskEntry::Transform(group)) = mask_stack.pop() {
+                    group.finish(
+                        pixmap,
+                        surfaces,
+                        clip_stack,
+                        real_clip_stack,
+                        scroll_offset_stack,
+                    );
+                }
+            }
+            return Ok(());
+        }
+        _ => {}
+    }
+    // Inside an isolated reference frame every item paints into the frame's
+    // own surface; the frame's pop composites it into the one below.
+    let pixmap = match surfaces.last_mut() {
+        Some(surface) => surface,
+        None => pixmap,
     };
 
     match item {
@@ -3260,6 +3346,9 @@ pub fn render_single_item(
                         clip_stack,
                         real_clip_stack,
                         mask_stack,
+                        // The view's own frames composite into what this
+                        // walk paints into.
+                        &mut Vec::new(),
                         scroll_offset_stack,
                         text_shadow_stack,
                         render_state,
@@ -3447,59 +3536,8 @@ pub fn render_single_item(
         }
 
         // --- Reference frames (CSS transforms) ---
-        DisplayListItem::PushReferenceFrame {
-            transform_key,
-            initial_transform,
-            bounds,
-        } => {
-            // Look up the current GPU-cached transform value for this key.
-            // For scrollbar thumbs, the GpuValueCache stores the up-to-date
-            // thumb translation. For CSS transforms, it stores the computed
-            // matrix. Falls back to the initial_transform baked in the DL.
-            let live_transform = render_state.transforms.get(&transform_key.id);
-            let m = live_transform.map_or(&initial_transform.m, |t| &t.m);
-            let tf = TransAffine::new_custom(
-                f64::from(m[0][0]),
-                f64::from(m[0][1]), // sx, shy
-                f64::from(m[1][0]),
-                f64::from(m[1][1]), // shx, sy
-                f64::from(m[3][0]),
-                f64::from(m[3][1]), // tx, ty
-            );
-            let current = transform_stack
-                .last()
-                .copied()
-                .unwrap_or_else(TransAffine::new);
-            let mut composed = tf;
-            composed.premultiply(&current);
-            transform_stack.push(composed);
-
-            // The frame's content is painted MOVED by its live matrix - the
-            // layered compositor's layer for this frame, in place. Without
-            // this every damage rect repainted a transformed box at its
-            // layout place (mid-slide ghosts; a lasting transform ghosted
-            // wherever damage touched its layout box).
-            let group = ReferenceFrameGroup::begin(
-                m,
-                &scroll_rect(bounds.inner()),
-                pixmap,
-                dpi_factor,
-                clip_stack,
-                real_clip_stack,
-                scroll_offset_stack,
-            );
-            mask_stack.push(MaskEntry::Transform(group));
-        }
-        DisplayListItem::PopReferenceFrame => {
-            if transform_stack.len() > 1 {
-                transform_stack.pop();
-            }
-            if matches!(mask_stack.last(), Some(MaskEntry::Transform(_))) {
-                if let Some(MaskEntry::Transform(group)) = mask_stack.pop() {
-                    group.finish(pixmap, clip_stack, real_clip_stack, scroll_offset_stack);
-                }
-            }
-        }
+        // Opened and closed above, before the item's target was chosen.
+        DisplayListItem::PushReferenceFrame { .. } | DisplayListItem::PopReferenceFrame => {}
 
         // --- Filter effects ---
         //
@@ -7819,6 +7857,7 @@ mod autotest_generated {
         transforms: Vec<TransAffine>,
         clips: Vec<Option<AzRect>>,
         masks: Vec<MaskEntry>,
+        surfaces: Vec<AzulPixmap>,
         scrolls: Vec<(f32, f32)>,
         shadows: Vec<StyleBoxShadow>,
         real_clips: Vec<Option<AzRect>>,
@@ -7831,6 +7870,7 @@ mod autotest_generated {
                 clips: vec![None],
                 real_clips: vec![None],
                 masks: Vec::new(),
+                surfaces: Vec::new(),
                 scrolls: vec![(0.0, 0.0)],
                 shadows: Vec::new(),
             }
@@ -7858,6 +7898,7 @@ mod autotest_generated {
             &mut st.clips,
             &mut st.real_clips,
             &mut st.masks,
+            &mut st.surfaces,
             &mut st.scrolls,
             &mut st.shadows,
             state,
