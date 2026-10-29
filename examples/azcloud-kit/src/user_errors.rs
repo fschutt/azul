@@ -138,6 +138,9 @@ pub enum Code {
     ReadOnlyLockdown,
     /// Azlin Storage made the drive read-only for now (`read_only_operator`).
     ReadOnlyOperator,
+    /// The drive's files are being moved: an encrypted drive's deletes and every other change
+    /// wait until the move is done (`read_only_moving`).
+    ReadOnlyMoving,
     /// The drive was unpaid past its read-only time and is locked: nothing is read or written,
     /// its files are in offline storage until its owner proves it is theirs and pays
     /// (`drive_archived`).
@@ -152,7 +155,7 @@ pub enum Code {
 
 impl Code {
     /// Every code, in the table's order.
-    pub const ALL: [Code; 37] = [
+    pub const ALL: [Code; 38] = [
         Code::Unavailable,
         Code::Maintenance,
         Code::Network,
@@ -190,6 +193,7 @@ impl Code {
         Code::DriveArchived,
         Code::RateLimited,
         Code::SurfaceUnavailable,
+        Code::ReadOnlyMoving,
     ];
 
     /// `quota_exceeded`, ...
@@ -228,6 +232,7 @@ impl Code {
             Code::AlreadyAnswered => azlin_contract::ALREADY_ANSWERED,
             Code::ReadOnlyLockdown => "read_only_lockdown",
             Code::ReadOnlyOperator => "read_only_operator",
+            Code::ReadOnlyMoving => "read_only_moving",
             Code::DriveArchived => "drive_archived",
             Code::RateLimited => azlin_contract::RATE_LIMITED,
             Code::SurfaceUnavailable => "surface_unavailable",
@@ -294,8 +299,7 @@ impl From<AzlinError> for Code {
             AzlinError::BadChallenge => Code::BadChallenge,
             AzlinError::ReadOnlyLockdown => Code::ReadOnlyLockdown,
             AzlinError::ReadOnlyOperator => Code::ReadOnlyOperator,
-            // A move is the operator's hold too: read-only for now, said in the same words.
-            AzlinError::ReadOnlyMoving => Code::ReadOnlyOperator,
+            AzlinError::ReadOnlyMoving => Code::ReadOnlyMoving,
             AzlinError::DriveArchived => Code::DriveArchived,
         }
     }
@@ -621,6 +625,16 @@ pub const ROWS: &[Row] = &[
         de: "Azlin Storage hat dieses Laufwerk vorübergehend schreibgeschützt. Deine Dateien \
              sind sicher und lesbar; die Synchronisierung geht weiter, sobald es wieder \
              Änderungen annimmt.",
+    },
+    Row {
+        code: Code::ReadOnlyMoving,
+        class: Class::ReadOnly,
+        behaviour: Behaviour::ReadsOnly,
+        en: "This drive's files are being moved. They stay readable; deletes and changes resume \
+             after the move, and syncing goes on by itself then.",
+        de: "Die Dateien dieses Laufwerks ziehen gerade um. Sie bleiben lesbar; Löschen und \
+             Ändern geht nach dem Umzug weiter, und die Synchronisierung setzt dann von selbst \
+             wieder ein.",
     },
     Row {
         code: Code::DriveArchived,

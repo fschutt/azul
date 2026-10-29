@@ -998,9 +998,14 @@ fn work_of(info: &mut CallbackInfo, s: &mut DriveState, drive_id: &str) -> Optio
 
 /// A pass of synced drive `drive_id` now - or, while one runs, right after it.
 pub(crate) fn request_pass(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, drive_id: &str) {
-    // A drive that takes neither writes nor deletes (a ban, a pending lockdown, a lock): its
-    // sync rests, the status line says why.
+    // A drive that takes none of what a pass sends (a ban, a pending lockdown, a lock, an
+    // encrypted drive being moved): its sync rests, the status line says why. A move ends by
+    // itself: the drive's state is asked again (at most every ten minutes), and the poll after
+    // the look that says it is over runs the pass.
     if !crate::access::takes_passes(s, drive_id) {
+        if crate::access::waits_for_move(s, drive_id) {
+            ask_drive_status(info, app, s, drive_id);
+        }
         sync_view::say_status(s, drive_id);
         return;
     }

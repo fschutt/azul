@@ -142,6 +142,7 @@ azdrive-why-frozen-unknown = Dieses Laufwerk ist vorübergehend schreibgeschütz
 azdrive-why-lockdown = Dieses Laufwerk nimmt keine Änderungen an, solange die Sperrung mit seinem Wiederherstellungscode aussteht.
 azdrive-why-archived = Dieses Laufwerk ist gesperrt: Weise nach, dass es dir gehört, und bezahle es, um es zurückzubekommen.
 azdrive-why-banned = Dieses Laufwerk ist gesperrt: Seine Dateien lassen sich nur noch lesen und kopieren.
+azdrive-why-moving = Dieses Laufwerk ist schreibgeschützt, solange es umzieht: Seine Dateien bleiben lesbar, Ändern und Löschen geht nach dem Umzug weiter.
 azdrive-why-nothing-to-paste = Nichts zum Einfügen: Kopiere oder schneide zuerst etwas aus.
 azdrive-why-rename-one = Wähle genau ein Element zum Umbenennen aus.
 azdrive-why-one-folder = Wähle einen Ordner, um ihn in einem neuen Tab zu öffnen.
@@ -565,6 +566,7 @@ azdrive-sync-status-mass-delete = Wartet auf dich: { $count ->
     } gelöscht
 azdrive-sync-status-read-only = Schreibgeschützt
 azdrive-sync-status-lockdown = Pausiert: Die Sperrung mit dem Wiederherstellungscode steht aus
+azdrive-sync-status-moving = Pausiert: Das Laufwerk zieht um; die Synchronisierung geht nach dem Umzug weiter
 azdrive-sync-status-syncing = Wird synchronisiert…
 azdrive-sync-status-syncing-files = { $count ->
         [one] Eine Datei wird

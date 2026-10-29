@@ -2,8 +2,11 @@
 //! request it sends the drive's bucket ([`op_of`]), and the contract's one table says whether
 //! the drive's state takes it ([`DriveAccess::permits`]): the window greys what the drive would
 //! refuse and says why, a transfer that would be refused is not queued, and a sync pass rests
-//! while the drive takes neither writes nor deletes. A freeze (unpaid, the operator's hold, a
-//! move) keeps the owner's deletes; a pending lockdown takes no change; a ban reads only.
+//! while the drive takes none of what a pass sends. A freeze (unpaid, the operator's hold) keeps
+//! the owner's deletes, an encrypted drive's as index commits; a move keeps plain deletes and
+//! holds an encrypted drive's until it is done; a pending lockdown takes no change; a ban reads
+//! only. The node judges an index commit by its byte budget, which AzDrive cannot know: it sends
+//! the commit and goes by the node's answer.
 
 use std::collections::HashMap;
 
@@ -81,18 +84,33 @@ pub(crate) fn of(s: &DriveState, drive_id: &str) -> DriveAccess {
 }
 
 /// The requests the bucket sees of `op` on a drive that is `encrypted` or not. An encrypted
-/// drive's files are entries of its index: a delete removes entries (an index shrink) and then
-/// deletes the file's objects; a write grows the index and the stored data alike.
+/// drive's files are entries of its index: a delete commits the index without them (an index
+/// commit) and then deletes the file's objects; a write grows the index and the stored data
+/// alike.
 #[must_use]
 pub(crate) const fn requests(op: BucketOp, encrypted: bool) -> &'static [BucketOp] {
     match op {
-        BucketOp::Delete if encrypted => &[BucketOp::IndexShrink, BucketOp::Delete],
+        BucketOp::Delete if encrypted => &[BucketOp::IndexCommit, BucketOp::Delete],
         BucketOp::Delete => &[BucketOp::Delete],
         BucketOp::Read => &[BucketOp::Read],
         BucketOp::Write => &[BucketOp::Write],
-        BucketOp::IndexShrink => &[BucketOp::IndexShrink],
+        BucketOp::IndexCommit => &[BucketOp::IndexCommit],
         BucketOp::Link => &[BucketOp::Link],
     }
+}
+
+/// Whether a sync pass may run on a drive in `access`: a pass sends what changed - on an
+/// encrypted drive every change is an index commit, on a plain one its deletes are deletes - so
+/// a drive that takes none of it rests (a ban, a pending lockdown, a lock; an encrypted drive
+/// being moved).
+#[must_use]
+pub(crate) const fn passes_allowed(access: DriveAccess, encrypted: bool) -> bool {
+    access.permits(BucketOp::Write)
+        || if encrypted {
+            access.permits(BucketOp::IndexCommit)
+        } else {
+            access.permits(BucketOp::Delete)
+        }
 }
 
 /// Whether drive `drive_id`'s files are entries of an encrypted index: an Azlin drive is,
@@ -150,12 +168,17 @@ pub(crate) fn refusal(action: &Action, access: DriveAccess, encrypted: bool) -> 
     (!taken).then(|| why(access))
 }
 
-/// Whether a sync pass of drive `drive_id` may run: a pass sends writes and deletes, so a drive
-/// that takes neither (a ban, a pending lockdown, a lock) rests until it does.
+/// Whether a sync pass of drive `drive_id` may run ([`passes_allowed`]).
 #[must_use]
 pub(crate) fn takes_passes(s: &DriveState, drive_id: &str) -> bool {
-    let access = of(s, drive_id);
-    access.permits(BucketOp::Write) || access.permits(BucketOp::Delete)
+    passes_allowed(of(s, drive_id), encrypted(s, drive_id))
+}
+
+/// Whether drive `drive_id`'s passes rest for a move, which ends by itself: its state is asked
+/// again until it is over.
+#[must_use]
+pub(crate) fn waits_for_move(s: &DriveState, drive_id: &str) -> bool {
+    of(s, drive_id) == DriveAccess::ReadOnly(ReadOnlyWhy::Moving) && !takes_passes(s, drive_id)
 }
 
 /// The sync's status line of a drive whose passes rest for its state, when neither the ban nor
@@ -169,6 +192,7 @@ pub(crate) fn sync_status(s: &DriveState, drive_id: &str) -> Option<Phrase> {
         DriveAccess::ReadOnly(ReadOnlyWhy::LockdownPending) => {
             Some(Phrase::new("azdrive-sync-status-lockdown"))
         }
+        DriveAccess::ReadOnly(ReadOnlyWhy::Moving) => Some(Phrase::new("azdrive-sync-status-moving")),
         DriveAccess::ReadOnly(ReadOnlyWhy::Unknown) => {
             Some(Phrase::new("azdrive-sync-status-read-only"))
         }
@@ -182,9 +206,8 @@ fn why(access: DriveAccess) -> String {
         DriveAccess::ReadOnly(ReadOnlyWhy::Unpaid) => t("azdrive-why-unpaid"),
         DriveAccess::ReadOnly(ReadOnlyWhy::LockdownPending) => t("azdrive-why-lockdown"),
         DriveAccess::ReadOnly(ReadOnlyWhy::Archived) => t("azdrive-why-archived"),
-        DriveAccess::ReadOnly(ReadOnlyWhy::Operator | ReadOnlyWhy::Moving) => {
-            t("azdrive-why-frozen")
-        }
+        DriveAccess::ReadOnly(ReadOnlyWhy::Operator) => t("azdrive-why-frozen"),
+        DriveAccess::ReadOnly(ReadOnlyWhy::Moving) => t("azdrive-why-moving"),
         DriveAccess::ReadOnly(ReadOnlyWhy::Unknown) => t("azdrive-why-frozen-unknown"),
         DriveAccess::Banned | DriveAccess::Closed => t("azdrive-why-banned"),
         // A writable drive takes every request: nothing to say.

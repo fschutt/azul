@@ -144,6 +144,7 @@ azdrive-why-frozen-unknown = This drive is read-only for now: its files can stil
 azdrive-why-lockdown = This drive takes no changes while the lockdown with its recovery code is pending.
 azdrive-why-archived = This drive is locked: prove that it is yours and pay to get it back.
 azdrive-why-banned = This drive is banned: its files can only be read and copied.
+azdrive-why-moving = This drive is read-only while it is being moved: its files stay readable, and changes and deletes resume after the move.
 azdrive-why-nothing-to-paste = Nothing to paste: copy or cut something first.
 azdrive-why-rename-one = Select exactly one item to rename.
 azdrive-why-one-folder = Select one folder to open it in a new tab.
@@ -567,6 +568,7 @@ azdrive-sync-status-mass-delete = Waiting for you: { $count ->
     } would be deleted
 azdrive-sync-status-read-only = Read-only
 azdrive-sync-status-lockdown = Paused: the lockdown with the recovery code is pending
+azdrive-sync-status-moving = Paused: the drive is being moved; syncing resumes after the move
 azdrive-sync-status-syncing = Syncing…
 azdrive-sync-status-syncing-files = Syncing { $count ->
         [one] one file

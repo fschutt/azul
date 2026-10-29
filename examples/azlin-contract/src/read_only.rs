@@ -99,11 +99,10 @@ pub enum BucketOp {
     Write,
     /// The owner's DeleteObject, DeleteObjects and a multipart upload's abort.
     Delete,
-    /// A PutObject of one of an encrypted drive's index objects ([`is_index_key`]) no larger
-    /// than the object it replaces ([`index_put_shrinks`]): a delete of the owner's files on a
-    /// drive whose index the backend cannot read. Entries can be removed, stored data cannot
-    /// grow.
-    IndexShrink,
+    /// A PutObject of one of an encrypted drive's index objects ([`is_index_key`]): a commit of
+    /// the drive's index, which a delete of the owner's files on an encrypted drive is. On a
+    /// frozen drive a node takes it by [`DriveAccess::takes_index_commit`].
+    IndexCommit,
     /// A presigned link that lets someone else read.
     Link,
 }
@@ -119,14 +118,35 @@ pub fn is_index_key(key: &str) -> bool {
     key.len() > INDEX_PREFIX.len() && key.starts_with(INDEX_PREFIX)
 }
 
-/// Whether a PutObject of `new_len` bytes at an index key shrinks the index: an object is there
-/// (`current_len`, its size) and the new one is not larger. A new index object adds to the
-/// index, so it is no shrink.
-#[must_use]
-pub const fn index_put_shrinks(current_len: Option<u64>, new_len: u64) -> bool {
-    match current_len {
-        Some(current) => new_len <= current,
-        None => false,
+/// How far a frozen drive's stored bytes may go above what it stored when it froze, for its
+/// owner's index commits: 64 MiB. The data objects a delete removes after its commit make room
+/// again.
+pub const INDEX_ALLOWANCE: u64 = 64 * 1024 * 1024;
+
+/// The largest index object a frozen drive takes in one PutObject: 64 MiB.
+pub const INDEX_OBJECT_MAX: u64 = 64 * 1024 * 1024;
+
+/// Whose credential signs a request, as the nodes tell them apart.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CredentialKind {
+    /// A member's read-write credential: one of the owner's devices.
+    MemberReadWrite,
+    /// A member's read-only credential: one of the owner's devices, its credential minted while
+    /// the drive took no writes.
+    MemberReadOnly,
+    /// A share's credential: someone a link or a shared folder lets in.
+    Share,
+    /// A kind this build does not know: a newer service wrote it. Never written.
+    #[serde(other)]
+    Unknown,
+}
+
+impl CredentialKind {
+    /// Whether it is the owner's: a member's credential (read-write at most), never a share's.
+    #[must_use]
+    pub const fn is_owner(self) -> bool {
+        matches!(self, CredentialKind::MemberReadWrite | CredentialKind::MemberReadOnly)
     }
 }
 
@@ -146,16 +166,19 @@ pub enum DriveAccess {
 impl DriveAccess {
     /// Whether a drive in this state takes `op`. This is the one table of it: the nodes refuse
     /// by it, and the apps' windows and syncs offer and send by it. A freeze keeps the owner's
-    /// deletes (an unpaid drive, the operator's hold, a move), a pending lockdown takes no
-    /// change, and a reason this build does not know is taken as reads only.
+    /// deletes (an unpaid drive, the operator's hold, a move); an encrypted drive's index commits
+    /// go on while it is unpaid or held by the operator ([`Self::takes_index_commit`] adds the
+    /// byte budget), not during a move; a pending lockdown takes no change, and a reason this
+    /// build does not know is taken as reads only.
     #[must_use]
     pub const fn permits(self, op: BucketOp) -> bool {
-        // (reads, writes, deletes, index shrinks, links)
-        let (read, write, delete, shrink, link) = match self {
+        // (reads, writes, deletes, index commits, links)
+        let (read, write, delete, commit, link) = match self {
             DriveAccess::Writable => (true, true, true, true, true),
-            DriveAccess::ReadOnly(
-                ReadOnlyWhy::Unpaid | ReadOnlyWhy::Operator | ReadOnlyWhy::Moving,
-            ) => (true, false, true, true, true),
+            DriveAccess::ReadOnly(ReadOnlyWhy::Unpaid | ReadOnlyWhy::Operator) => {
+                (true, false, true, true, true)
+            }
+            DriveAccess::ReadOnly(ReadOnlyWhy::Moving) => (true, false, true, false, true),
             DriveAccess::ReadOnly(ReadOnlyWhy::LockdownPending | ReadOnlyWhy::Unknown) => {
                 (true, false, false, false, true)
             }
@@ -168,20 +191,41 @@ impl DriveAccess {
             BucketOp::Read => read,
             BucketOp::Write => write,
             BucketOp::Delete => delete,
-            BucketOp::IndexShrink => shrink,
+            BucketOp::IndexCommit => commit,
             BucketOp::Link => link,
         }
     }
 
-    /// Whether a drive in this state takes a PutObject of `new_len` bytes at `key`, where
-    /// `current_len` is the size of the object it replaces (`None`: a new key): any put while it
-    /// takes writes, else only an index shrink ([`BucketOp::IndexShrink`]).
+    /// Whether a frozen drive in this state takes its owner's index commit: a PutObject of
+    /// `new_len` bytes at `key` in place of an object of `replaced_len` bytes (0 for a new key),
+    /// signed with a `credential`, while the bucket stores `stored_now` bytes and stored
+    /// `frozen_at` when it became read-only. It takes it only when all hold: the key is an index
+    /// key ([`is_index_key`]); the drive is unpaid or held by the operator (not being moved, not
+    /// in a lockdown's pause, not locked, not banned); the credential is a member's
+    /// ([`CredentialKind::is_owner`]); the bucket stays within `frozen_at` plus
+    /// [`INDEX_ALLOWANCE`] after the put; the object is at most [`INDEX_OBJECT_MAX`]. The figures
+    /// are stored bytes as the nodes count them; no sum underflows or overflows. A writable
+    /// drive's puts are writes ([`BucketOp::Write`]), not this exception.
     #[must_use]
-    pub fn takes_put(self, key: &str, current_len: Option<u64>, new_len: u64) -> bool {
-        self.permits(BucketOp::Write)
-            || (self.permits(BucketOp::IndexShrink)
-                && is_index_key(key)
-                && index_put_shrinks(current_len, new_len))
+    pub fn takes_index_commit(
+        self,
+        credential: CredentialKind,
+        key: &str,
+        stored_now: u64,
+        frozen_at: u64,
+        replaced_len: u64,
+        new_len: u64,
+    ) -> bool {
+        let frozen = matches!(
+            self,
+            DriveAccess::ReadOnly(ReadOnlyWhy::Unpaid | ReadOnlyWhy::Operator)
+        );
+        let after = stored_now.saturating_sub(replaced_len).saturating_add(new_len);
+        frozen
+            && credential.is_owner()
+            && is_index_key(key)
+            && new_len <= INDEX_OBJECT_MAX
+            && after <= frozen_at.saturating_add(INDEX_ALLOWANCE)
     }
 }
 
