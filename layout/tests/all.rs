@@ -1349,3 +1349,5 @@ mod typed_and_pasted_text_is_read_by_the_input_rule;
 mod an_attribute_change_lays_out_like_a_fresh_window;
 #[path = "every_attribute_the_layout_reads_is_a_row_of_its_table.rs"]
 mod every_attribute_the_layout_reads_is_a_row_of_its_table;
+#[path = "a_text_in_a_generic_family_is_drawn_in_a_face_that_has_its_letters.rs"]
+mod a_text_in_a_generic_family_is_drawn_in_a_face_that_has_its_letters;
