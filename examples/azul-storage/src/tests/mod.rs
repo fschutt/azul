@@ -86,6 +86,9 @@ mod migrate;
 /// The recompression pass (feature `encryption`).
 #[cfg(feature = "encryption")]
 mod recompress;
+/// An encrypted file's upload cut off and resumed at its next part (feature `encryption`).
+#[cfg(feature = "encryption")]
+mod encrypted_resume;
 /// The drops of incoming mail, AZD1 (feature `encryption`).
 #[cfg(feature = "encryption")]
 mod drops;
