@@ -81,6 +81,36 @@ fn windows_refuses_its_characters_device_names_trailing_dots_and_long_paths() {
     }
 }
 
+/// The sync and every other place a key becomes a path on Windows read one table: a name the
+/// sync lists as one Windows cannot hold is a name the storage's path check for Windows refuses,
+/// and the other way round.
+#[test]
+fn the_sync_and_a_path_on_windows_refuse_the_same_names() {
+    for name in [
+        "a:b.txt",
+        "dir/C:x",
+        "q?.txt",
+        "pipe|.txt",
+        "lt<.txt",
+        "CON",
+        "con.txt",
+        "nul.tar.gz",
+        "COM\u{b9}",
+        "dot.",
+        "space ",
+        "dir./x",
+        "fine.txt",
+        "console.txt",
+        "COM10",
+        "a.b.c",
+    ] {
+        let sync = here_problem(name, System::Windows, &Volume::default()).is_some();
+        let path = azul_storage::key::check_path_key_on(name, azul_storage::key::System::Windows)
+            .is_err();
+        assert_eq!(sync, path, "{name:?}");
+    }
+}
+
 #[test]
 fn a_name_valid_here_and_not_elsewhere_is_named_for_the_systems_that_cannot_hold_it() {
     let warned = portability("a:b.txt", System::Linux);

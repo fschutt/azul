@@ -7,7 +7,60 @@
 use std::fs;
 
 use super::TempDir;
-use crate::{key::windows_name_problem, Drive, LocalDrive};
+use crate::{
+    key::{check_path_key_on, windows_name_problem, System},
+    Drive, LocalDrive,
+};
+
+/// A key becomes a path on Windows only when every name of it is one Windows takes as it is
+/// meant: the same table on every computer that checks a key for Windows, so a name made on
+/// macOS never writes a stream, a drive-relative path or a device there. macOS and Linux take
+/// these names as they are.
+#[test]
+fn a_key_that_becomes_a_path_on_windows_never_names_a_stream_a_drive_or_a_device() {
+    for key in [
+        "a.txt:stream",
+        "dir/C:evil.txt",
+        "notes/12:30.txt",
+        "x:",
+        "CON",
+        "dir/aux.txt",
+        "nul.tar.gz",
+        "COM1.log",
+        "trailing.",
+        "dir./x",
+        "dir/space ",
+        "a<b",
+        "q?.txt",
+        "tab\there",
+    ] {
+        assert!(check_path_key_on(key, System::Windows).is_err(), "{key:?}");
+        for system in [System::Macos, System::Linux] {
+            assert!(check_path_key_on(key, system).is_ok(), "{key:?} on {system:?}");
+        }
+    }
+    // The shape of a key is the same everywhere.
+    for key in ["a/../b", "/abs", "C:/x", "a\\b", "nul\0", "a//b", "./a"] {
+        for system in System::ALL {
+            assert!(check_path_key_on(key, system).is_err(), "{key:?} on {system:?}");
+        }
+    }
+    for key in ["a.txt", "console.txt", "dir/COM10", ".hidden/x", "na\u{ef}ve.md"] {
+        for system in System::ALL {
+            assert!(check_path_key_on(key, system).is_ok(), "{key:?} on {system:?}");
+        }
+    }
+}
+
+/// Every caller that only asks whether a key may be a path here (a bucket in a folder, a
+/// migration, a share) is covered on Windows: the check itself refuses what Windows misreads.
+#[cfg(windows)]
+#[test]
+fn the_path_key_check_on_windows_refuses_a_stream_and_a_drive_relative_name() {
+    for key in ["a.txt:stream", "dir/C:x", "CON", "trailing."] {
+        assert!(crate::key::check_path_key(key).is_err(), "{key:?}");
+    }
+}
 
 #[test]
 fn windows_refuses_a_colon_a_device_name_and_a_trailing_dot_or_space_in_a_name() {

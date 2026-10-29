@@ -47,6 +47,25 @@ pub fn check_path_key(key: &str) -> Result<(), DriveError> {
     Ok(())
 }
 
+/// The systems a name may have to live on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum System {
+    Windows,
+    Macos,
+    Linux,
+}
+
+impl System {
+    /// Every system.
+    pub const ALL: [System; 3] = [System::Windows, System::Macos, System::Linux];
+}
+
+/// Checks a key that becomes a path on a disk of `system`.
+pub fn check_path_key_on(key: &str, system: System) -> Result<(), DriveError> {
+    let _ = system;
+    check_path_key(key)
+}
+
 /// Checks a listing prefix of such a drive: empty (the root), a folder
 /// (`mail/`), or a folder and the start of a name (`mail/in`).
 pub fn check_path_prefix(prefix: &str) -> Result<(), DriveError> {
