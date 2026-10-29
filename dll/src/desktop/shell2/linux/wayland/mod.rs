@@ -1976,7 +1976,7 @@ impl WaylandWindow {
         let menu_size = self::menu::calculate_menu_size(menu, &self.common.system_style);
 
         let menu_options = self::menu::create_menu_popup_options(
-            self,
+            self.common.menu_picks.clone(),
             menu,
             &self.common.system_style,
             trigger_rect,
@@ -6691,13 +6691,16 @@ impl WaylandWindow {
         let trigger_rect =
             azul_core::geom::LogicalRect::new(position, azul_core::geom::LogicalSize::zero());
         let menu_size = self::menu::calculate_menu_size(menu, &self.common.system_style);
+        // At the pointer, by the menu's own rule (a context menu flips to the
+        // pointer's left or above it at the screen's edge).
+        let placement = self::menu::menu_popup_placement(menu, position, None);
 
         let menu_options = self::menu::create_menu_popup_options(
-            self,
+            self.common.menu_picks.clone(),
             menu,
             &self.common.system_style,
             trigger_rect,
-            azul_core::transient::TransientAnchor::Cursor,
+            placement,
             menu_size,
         );
 
@@ -9904,6 +9907,7 @@ impl WaylandPopup {
             xdg_popup,
             configured: std::cell::Cell::new(false),
             dismissed: std::cell::Cell::new(false),
+            origin_on_parent: std::cell::Cell::new((0, 0)),
         });
         let listener_context_ptr = Box::into_raw(listener_context);
 
@@ -10019,6 +10023,19 @@ impl WaylandPopup {
             }
 
             self.is_open = false;
+        }
+    }
+
+    /// Where the compositor put this popup on its parent surface.
+    #[allow(clippy::cast_precision_loss)] // logical px
+    fn on_parent(&self) -> self::menu::PopupOnParent {
+        let (x, y) = if self.listener_context.is_null() {
+            (0, 0)
+        } else {
+            unsafe { (*self.listener_context).origin_on_parent.get() }
+        };
+        self::menu::PopupOnParent {
+            origin: LogicalPosition::new(x as f32, y as f32),
         }
     }
 
@@ -10702,21 +10719,27 @@ impl PlatformWindow for WaylandPopup {
         position: LogicalPosition,
         anchor: Option<azul_core::geom::LogicalRect>,
     ) {
-        // A context menu opened from inside a popup: build the menu window
-        // like the parent does and let the parent drain it. It replaces this
-        // popup, so the item picked in it runs in the parent: this popup's
-        // mailbox IS the parent's (`WaylandPopup::new`).
-        let options = crate::desktop::menu::show_menu(
-            menu.clone(),
-            self.resources.system_style.clone(),
-            azul_layout::placement::WindowToScreen::new(
-                azul_layout::placement::ScreenPoint::new(0.0, 0.0),
-                1.0,
-            ),
-            anchor,
-            Some(position),
-            None,
+        // A context menu opened from inside a popup: build the menu popup
+        // the parent builds and let the parent drain it. It is anchored on
+        // the PARENT surface, so the pointer and the item move by where the
+        // compositor put this popup there. It replaces this popup, so the
+        // item picked in it runs in the parent: this popup's mailbox IS the
+        // parent's (`WaylandPopup::new`).
+        let on_parent = self.on_parent();
+        let position = on_parent.point(position);
+        let anchor = anchor.map(|rect| on_parent.rect(rect));
+        let trigger = anchor.unwrap_or_else(|| {
+            azul_core::geom::LogicalRect::new(position, azul_core::geom::LogicalSize::zero())
+        });
+        let placement = self::menu::menu_popup_placement(menu, position, anchor);
+        let size = self::menu::calculate_menu_size(menu, &self.resources.system_style);
+        let options = self::menu::create_menu_popup_options(
             self.common.menu_picks.clone(),
+            menu,
+            &self.resources.system_style,
+            trigger,
+            placement,
+            size,
         );
         self.pending_window_creates.push(options);
     }
@@ -10867,6 +10890,9 @@ struct PopupListenerContext {
     /// Set by the xdg_popup popup_done callback (click-outside / compositor
     /// dismiss). The parent drops the popup on its next loop iteration.
     dismissed: std::cell::Cell<bool>,
+    /// Where the compositor put the popup on the parent surface (its
+    /// xdg_popup configure), logical px.
+    origin_on_parent: std::cell::Cell<(i32, i32)>,
 }
 
 /// xdg_surface configure callback for popup
@@ -11961,8 +11987,13 @@ extern "C" fn popup_configure(
         width,
         height
     );
-    // Compositor has positioned the popup
-    // We could resize the popup here if needed
+    // The compositor placed the popup at (x, y) on the parent surface: what a
+    // menu opened from inside it is anchored by.
+    unsafe {
+        (*(data as *const PopupListenerContext))
+            .origin_on_parent
+            .set((x, y));
+    }
 }
 
 /// xdg_popup done callback - popup was dismissed by compositor

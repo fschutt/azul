@@ -63,7 +63,7 @@ impl PopupOnParent {
     /// A point of the popup's surface, on the parent surface.
     #[must_use]
     pub const fn point(&self, point: LogicalPosition) -> LogicalPosition {
-        point
+        LogicalPosition::new(self.origin.x + point.x, self.origin.y + point.y)
     }
 
     /// A box of the popup's surface, on the parent surface.
@@ -151,7 +151,7 @@ extern "C" fn menu_layout_callback(_data: RefAny, info: LayoutCallbackInfo) -> a
 /// The menu is rendered through the normal layout/rendering pipeline.
 ///
 /// # Arguments
-/// * `parent` - Parent WaylandWindow: the window the items picked in the menu run in
+/// * `picks` - The mailbox of the window the items picked in the menu run in
 /// * `menu` - Menu structure to display
 /// * `system_style` - System style for native look
 /// * `trigger_rect` - Rectangle where menu was triggered (logical coords, relative to parent)
@@ -161,7 +161,7 @@ extern "C" fn menu_layout_callback(_data: RefAny, info: LayoutCallbackInfo) -> a
 /// # Returns
 /// * `WindowCreateOptions` - Window options for creating the popup
 pub fn create_menu_popup_options(
-    parent: &WaylandWindow,
+    picks: crate::desktop::menu::MenuPicks,
     menu: &Menu,
     system_style: &SystemStyle,
     trigger_rect: LogicalRect,
@@ -173,7 +173,7 @@ pub fn create_menu_popup_options(
         system_style: system_style.clone(),
         trigger_rect,
         placement,
-        picks: parent.common.menu_picks.clone(),
+        picks,
     };
 
     let menu_data_refany = RefAny::new(menu_data);
