@@ -1696,15 +1696,14 @@ fn main() -> ExitCode {
 mod tests {
     use super::*;
 
-    /// A new drive is encrypted as it is made; `--plaintext` makes one like the drives made
-    /// before encryption (tests of those).
-    #[cfg(feature = "encryption")]
+    /// Every drive is encrypted as it is made: a plaintext one is refused with why.
     #[test]
-    fn a_signup_makes_an_encrypted_drive_unless_asked_for_a_plaintext_one() {
-        assert!(signup_encrypts(&Args::parse(&argv("signup --name Photos")).unwrap()));
-        assert!(!signup_encrypts(
-            &Args::parse(&argv("signup --plaintext --name Old")).unwrap()
-        ));
+    fn a_signup_makes_an_encrypted_drive_and_refuses_a_plaintext_one() {
+        assert!(Args::parse(&argv("signup --name Photos")).is_ok());
+        let refused = Args::parse(&argv("signup --plaintext --name Old"))
+            .err()
+            .expect("no plaintext drive");
+        assert!(refused.contains("encrypted"), "{refused}");
     }
 
     /// "We always encrypt and compress": the command line's default build makes, opens and

@@ -102,7 +102,33 @@ impl IndexProvider for SharedIndex {
 
 fn signed_up(transports: &TransportFactory, dir: &TempDir) -> Account {
     let state = StateDir::open(dir.path()).unwrap();
-    Account::signup(&state, TOKEN, transports.clone(), "100GB", "Ann's drive").unwrap()
+    Account::sign_up_at_token_server(&state, TOKEN, transports.clone(), "100GB", "Ann's drive")
+        .unwrap()
+}
+
+/// Every drive is encrypted as it is made: the sign-up sets up its keys before anything else
+/// can touch it, and hands back its recovery code once.
+#[test]
+fn a_signup_makes_the_drive_encrypted_before_anything_uses_it() {
+    let s3 = FakeS3::new();
+    let transports = cloud(&s3);
+    let dir = TempDir::new("azcloud-enc-signup");
+    let state = StateDir::open(dir.path()).unwrap();
+    let keys = MemoryKeyring::new();
+    let (account, code) = Account::signup(
+        &state,
+        TOKEN,
+        transports,
+        "100GB",
+        "Ann's drive",
+        None,
+        &keys,
+        cheap(),
+    )
+    .unwrap();
+    assert!(s3.keys().iter().any(|k| k == ".azlin/keys/recovery.key"));
+    assert_eq!(account.encryption_status(&keys).unwrap(), (true, true));
+    assert!(!code.to_text().is_empty());
 }
 
 #[test]

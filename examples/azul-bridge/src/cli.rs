@@ -695,14 +695,13 @@ mod tests {
         text.split_whitespace().map(str::to_string).collect()
     }
 
-    /// "We always encrypt": the bridge's own development drive is encrypted as it is made;
-    /// `--plaintext` makes one like the drives made before encryption.
+    /// Every drive is encrypted as it is made: the bridge's own development drive too, and a
+    /// plaintext one is refused with why.
     #[test]
-    fn a_signup_makes_an_encrypted_drive_unless_asked_for_a_plaintext_one() {
-        assert!(signup_encrypts(&parse_args(&args("signup --name Bridge")).unwrap()));
-        assert!(!signup_encrypts(
-            &parse_args(&args("signup --plaintext")).unwrap()
-        ));
+    fn a_signup_makes_an_encrypted_drive_and_refuses_a_plaintext_one() {
+        assert_eq!(parse_args(&args("signup --name Bridge")).unwrap().command, "signup");
+        let refused = parse_args(&args("signup --plaintext")).expect_err("no plaintext drive");
+        assert!(refused.contains("encrypted"), "{refused}");
     }
 
     #[test]

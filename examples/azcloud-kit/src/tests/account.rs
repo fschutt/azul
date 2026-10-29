@@ -281,7 +281,7 @@ fn a_signed_up_device_refreshes_with_the_rotated_token_and_invites_another_that_
     let server = token_server();
     let a_dir = TempDir::new("azcloud-device-a");
     let a_state = StateDir::open(a_dir.path()).unwrap();
-    let mut a = Account::signup(
+    let mut a = Account::sign_up_at_token_server(
         &a_state,
         &format!("{TOKEN}/"),
         factory(&server),
@@ -341,7 +341,7 @@ fn a_lockdown_keeps_this_devices_new_grant_and_a_restore_wants_an_rfc_3339_time(
     let dir = TempDir::new("azcloud-lockdown");
     let state = StateDir::open(dir.path()).unwrap();
     let mut a =
-        Account::signup(&state, TOKEN, factory(&server), "100GB", "Ann's drive").unwrap();
+        Account::sign_up_at_token_server(&state, TOKEN, factory(&server), "100GB", "Ann's drive").unwrap();
     let locked = a.lockdown().unwrap();
     assert_eq!(locked["locked_down"], true);
     assert_eq!(locked["drive"], "d_k3f9");
@@ -391,10 +391,24 @@ fn a_grant_goes_with_the_newest_drive_token_behind_the_refresh_lock() {
         }
         Ok(reply(200, r#"{"ok": true}"#))
     });
-    let a = Account::signup(&state, TOKEN, factory(&server), "100GB", "Ann's drive").unwrap();
+    let a = Account::sign_up_at_token_server(&state, TOKEN, factory(&server), "100GB", "Ann's drive").unwrap();
     a.invite(Some("laptop")).unwrap();
     a.lockdown_cancel(&[0x5A; 16]).unwrap();
     a.restore("docs/", "2026-10-08T09:00:00Z").unwrap();
     assert_eq!(server.calls().len(), 4);
     assert!(!lock.exists(), "released after each call");
+}
+
+/// Every drive is encrypted as it is made: a build of the kit without encryption makes none,
+/// and asks no token server for one.
+#[cfg(not(feature = "encryption"))]
+#[test]
+fn a_build_without_encryption_makes_no_drive_and_asks_no_token_server() {
+    let server = token_server();
+    let dir = TempDir::new("azcloud-no-encryption");
+    let state = StateDir::open(dir.path()).unwrap();
+    let refused = Account::signup(&state, TOKEN, factory(&server), "100GB", "Ann's drive")
+        .expect_err("no unencrypted drive is made");
+    assert!(refused.to_string().contains("encrypted"), "{refused}");
+    assert!(server.calls().is_empty(), "no drive is asked for");
 }
