@@ -7,12 +7,15 @@
 //!                  [--gocardless-access-token T] [--gocardless-webhook-secret S]
 //!                  [--dlocal-login L] [--dlocal-trans-key K] [--dlocal-secret-key S]
 //!                  [--ebanx-integration-key K] [--ebanx-notification-token T]
+//!                  [--local-test-stack]
 //! ```
 //!
 //! A key's value may be `@<file>` to read it from a file. It prints where each provider's API is
-//! and the keys to configure the backend with, then serves until it is stopped.
+//! and the keys to configure the backend with, then serves until it is stopped. A release build
+//! starts only for a local test stack that says so: `--local-test-stack`, or
+//! `AZ_PAY_SANDBOX_ALLOW_RELEASE=1`.
 
-use azul_pay_sandbox::{start, Config, Kind};
+use azul_pay_sandbox::{guard, start, Config, Kind};
 
 fn value(raw: &str) -> Result<String, String> {
     match raw.strip_prefix('@') {
@@ -25,10 +28,17 @@ fn value(raw: &str) -> Result<String, String> {
 
 fn parse(args: &[String]) -> Result<Config, String> {
     let mut cfg = Config::default();
+    cfg.local_test_stack = guard::release_opted_in(std::env::var(guard::ALLOW_RELEASE_ENV).ok().as_deref());
     let mut i = 0;
     while let Some(flag) = args.get(i) {
         if flag == "--help" || flag == "-h" {
             return Err(String::new());
+        }
+        // the one switch without a value
+        if flag == "--local-test-stack" {
+            cfg.local_test_stack = true;
+            i += 1;
+            continue;
         }
         let next = args.get(i + 1).ok_or_else(|| format!("{flag} needs a value"))?;
         match flag.as_str() {
@@ -73,7 +83,7 @@ fn main() {
             if !why.is_empty() {
                 eprintln!("azul-pay-sandbox: {why}");
             }
-            eprintln!("usage: azul-pay-sandbox [--port 8784] [--webhook-url URL] [--providers stripe,gocardless,dlocal,ebanx,komoju] [--step-secs 2] [--stripe-secret-key K] [--stripe-webhook-secret S] [--stripe-publishable-key P] [--gocardless-access-token T] [--gocardless-webhook-secret S] [--dlocal-login L] [--dlocal-trans-key K] [--dlocal-secret-key S] [--ebanx-integration-key K] [--ebanx-notification-token T]");
+            eprintln!("usage: azul-pay-sandbox [--port 8784] [--webhook-url URL] [--providers stripe,gocardless,dlocal,ebanx,komoju] [--step-secs 2] [--stripe-secret-key K] [--stripe-webhook-secret S] [--stripe-publishable-key P] [--gocardless-access-token T] [--gocardless-webhook-secret S] [--dlocal-login L] [--dlocal-trans-key K] [--dlocal-secret-key S] [--ebanx-integration-key K] [--ebanx-notification-token T] [--local-test-stack]");
             std::process::exit(2);
         }
     };

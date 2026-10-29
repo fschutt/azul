@@ -15,7 +15,8 @@
 //! loopback only and answers loopback names only, posts webhooks only to this computer, every
 //! page says TEST in its title, ribbon and watermark in a hazard palette no provider uses, only
 //! the providers' documented test cards and test IBANs are taken (nothing of them is kept), no
-//! page may be framed from elsewhere, and a release build refuses to start it. See README.md.
+//! page may be framed from elsewhere, and a release build refuses to start it unless the local
+//! test stack opts in. See README.md.
 
 #![forbid(unsafe_code)]
 #![cfg_attr(not(test), deny(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
@@ -207,6 +208,10 @@ pub struct Config {
     pub komoju: Keys,
     /// One step of a SEPA debit's compressed timeline in seconds (business days for real).
     pub step_secs: i64,
+    /// The local test stack's explicit opt-in for a release build (`--local-test-stack`, or
+    /// [`guard::ALLOW_RELEASE_ENV`] set to 1): without it a release build refuses to start. It
+    /// lifts that check alone; loopback only and test data only stay.
+    pub local_test_stack: bool,
 }
 
 impl Default for Config {
@@ -221,6 +226,7 @@ impl Default for Config {
             ebanx: Keys::ebanx_default(),
             komoju: Keys::komoju_default(),
             step_secs: 2,
+            local_test_stack: false,
         }
     }
 }
@@ -229,7 +235,7 @@ impl Default for Config {
 pub enum Error {
     /// A webhook URL (or another address) off this computer.
     NotLoopback(String),
-    /// A release build: the sandbox never runs there.
+    /// A release build without the local test stack's opt-in: the sandbox does not run there.
     Release,
     /// The port could not be taken.
     Bind(String),
@@ -241,7 +247,12 @@ impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Error::NotLoopback(why) => write!(f, "{why}"),
-            Error::Release => write!(f, "the payment sandbox is a test tool and does not run in a release build"),
+            Error::Release => write!(
+                f,
+                "the payment sandbox is a test tool and does not run in a release build \
+                 (the local test stack opts in with --local-test-stack or {}=1)",
+                guard::ALLOW_RELEASE_ENV
+            ),
             Error::Bind(why) => write!(f, "the sandbox's port: {why}"),
             Error::Registry(why) => write!(f, "the payment methods registry: {why}"),
         }

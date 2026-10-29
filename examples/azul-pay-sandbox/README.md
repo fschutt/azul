@@ -153,7 +153,10 @@ webhooks itself. One PASS / FAIL line per flow; the exit code is the number of f
 4. **No embedding elsewhere.** Every answer carries `Content-Security-Policy: frame-ancestors
    'self' http://127.0.0.1:* http://localhost:* http://[::1]:*`, `X-Frame-Options: SAMEORIGIN`,
    `Referrer-Policy: no-referrer` and `X-Content-Type-Options: nosniff`.
-5. **Never in release.** A release build refuses to start the sandbox. An app that links it
+5. **Never in release.** A release build refuses to start the sandbox, unless a local test
+   stack opts in explicitly (`--local-test-stack`, `AZ_PAY_SANDBOX_ALLOW_RELEASE=1`, or
+   `Config::local_test_stack` for a program that links it): the opt-in lifts this check alone,
+   and the sandbox still serves on 127.0.0.1 only and takes test data only. An app that links it
    behind a feature makes that feature fail to compile in a release build, and its payment
    registry takes the sandbox's origins only in builds with its development registry.
 6. **It says so.** This README, the ribbon and the index page (`GET /`) state that it is a local

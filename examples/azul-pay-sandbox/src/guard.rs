@@ -80,10 +80,22 @@ pub fn loopback_webhook_url(url: &str) -> Result<LoopbackUrl, Error> {
     Ok(LoopbackUrl { host, port, path })
 }
 
-/// A release build never runs the sandbox: `debug` is `cfg!(debug_assertions)`. (A
-/// `compile_error!` would break every workspace-wide release build.)
-pub fn refuse_in_release(debug: bool) -> Result<(), Error> {
-    if debug {
+/// The environment variable that opts a release build in for the local test stack, set to `1`.
+pub const ALLOW_RELEASE_ENV: &str = "AZ_PAY_SANDBOX_ALLOW_RELEASE";
+
+/// Whether the value of [`ALLOW_RELEASE_ENV`] opts in: exactly `1`, so a stray `0` or an empty
+/// variable never does.
+pub fn release_opted_in(value: Option<&str>) -> bool {
+    value.is_some_and(|v| v.trim() == "1")
+}
+
+/// A release build runs the sandbox only for the local test stack's explicit opt-in
+/// (`local_test_stack`: `--local-test-stack` or [`ALLOW_RELEASE_ENV`]); `debug` is
+/// `cfg!(debug_assertions)`. The opt-in lifts this check alone: the sandbox still listens on
+/// 127.0.0.1, answers loopback names, posts webhooks to this computer and takes test data only.
+/// (A `compile_error!` would break every workspace-wide release build.)
+pub fn refuse_in_release(debug: bool, local_test_stack: bool) -> Result<(), Error> {
+    if debug || local_test_stack {
         Ok(())
     } else {
         Err(Error::Release)

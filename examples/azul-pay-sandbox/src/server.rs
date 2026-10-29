@@ -64,9 +64,14 @@ fn lock(core: &Mutex<Core>) -> MutexGuard<'_, Core> {
 }
 
 /// Starts the sandbox on 127.0.0.1 (`cfg.port`; 0: any free port). Refused in a release build
-/// and for a webhook URL off this computer.
+/// without the local test stack's opt-in, and for a webhook URL off this computer.
 pub fn start(cfg: Config) -> Result<Running, Error> {
-    guard::refuse_in_release(cfg!(debug_assertions))?;
+    start_as(cfg, cfg!(debug_assertions))
+}
+
+/// [`start`] in a build with (`debug`) or without debug assertions.
+pub(crate) fn start_as(cfg: Config, debug: bool) -> Result<Running, Error> {
+    guard::refuse_in_release(debug, cfg.local_test_stack)?;
     guard::loopback_webhook_url(&cfg.webhook_url)?;
     let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, cfg.port)).map_err(|e| Error::Bind(e.to_string()))?;
     let port = listener.local_addr().map_err(|e| Error::Bind(e.to_string()))?.port();
