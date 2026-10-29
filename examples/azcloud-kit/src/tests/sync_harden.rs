@@ -731,7 +731,8 @@ fn a_folder_renamed_on_one_device_is_renamed_on_the_other_not_trashed_and_fetche
     assert!(sent.mass_delete.is_none(), "{}", sent.summary());
     let got = b.sync(&store);
     assert!(got.mass_delete.is_none(), "{}", got.summary());
-    assert_eq!(got.moved.len(), 30, "{}", got.summary());
+    // One rename of the folder, its 30 files with it.
+    assert_eq!(got.moved, vec![String::from("old/ -> new/")], "{}", got.summary());
     assert_eq!(got.files_down, 0, "nothing fetched again");
     assert!(trashed(b.path()).is_empty());
     assert_eq!(b.tree(), a.tree());

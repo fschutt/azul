@@ -1001,6 +1001,10 @@ struct Uploads<'a> {
     remote: &'a RemoteIndex,
     opts: &'a SyncOptions,
     hooks: &'a RunHooks<'a>,
+    /// The folders renamed here that the drive renames with this run, in order (`remote` and
+    /// the plan have them at their new names already): a drive whose commit is its files moves
+    /// them before anything is sent.
+    folder_moves: &'a [(String, String)],
 }
 
 /// The plain JSON index and BLAKE3 blobs under a prefix ([`remote`]).
@@ -1654,9 +1658,12 @@ fn stops_the_run(e: &CloudError) -> bool {
 
 /// The index after `actions`: `remote` itself when they change nothing in it
 /// (so an unchanged folder writes no index).
+/// The index this run commits: `remote` (with the folders this run renamed here moved already,
+/// when `moved`) and every change of the plan.
 #[allow(clippy::too_many_arguments)]
 fn next_index(
     remote: &RemoteIndex,
+    moved: bool,
     actions: &[Action],
     folders: &[FolderAction],
     scan: &Scan,
@@ -1677,7 +1684,7 @@ fn next_index(
         device: device.to_string(),
         exec,
     };
-    let mut changed = false;
+    let mut changed = moved;
     for action in actions {
         match action {
             Action::Upload { key } => {
@@ -2691,6 +2698,247 @@ fn hold_big(
 }
 
 /// What the plan moves: files and bytes up and down.
+/// `map` with every key under a folder of `finals` (base key -> final key) at its final key.
+fn rebase_keys<V: Clone>(
+    map: &BTreeMap<String, V>,
+    finals: &BTreeMap<String, String>,
+) -> BTreeMap<String, V> {
+    map.iter()
+        .map(|(key, value)| (folders::rebased(key, finals), value.clone()))
+        .collect()
+}
+
+/// Every name the scan found here: files, folders, and what it does not sync.
+fn present_here(scan: &Scan) -> BTreeSet<String> {
+    let mut out: BTreeSet<String> = scan.files.keys().cloned().collect();
+    out.extend(scan.dirs.iter().cloned());
+    out.extend(scan.unknown.iter().cloned());
+    out.extend(scan.temps.keys().cloned());
+    out.extend(scan.links.keys().cloned());
+    out.extend(scan.mounts.iter().cloned());
+    out.extend(scan.skipped.iter().map(|(key, _)| key.clone()));
+    out
+}
+
+/// Whether `moves` can be made one after the other where `present` names everything: each moves
+/// a folder that is there onto a name nothing has, never into itself.
+fn moves_fit(present: &BTreeSet<String>, moves: &[(String, String)]) -> bool {
+    let mut present = present.clone();
+    for (from, to) in moves {
+        let inside = format!("{to}/");
+        let taken = present.contains(to)
+            || present
+                .range(inside.clone()..)
+                .next()
+                .is_some_and(|k| k.starts_with(&inside));
+        if !present.contains(from) || taken || to.starts_with(&format!("{from}/")) {
+            return false;
+        }
+        let one = [(from.clone(), to.clone())];
+        present = present
+            .into_iter()
+            .map(|key| folders::moved(&key, &one))
+            .collect();
+    }
+    true
+}
+
+/// The scan with the folders of `moves` moved, as they were just moved here.
+fn moved_scan(scan: &mut Scan, moves: &[(String, String)]) {
+    if moves.is_empty() {
+        return;
+    }
+    let m = |key: &str| folders::moved(key, moves);
+    scan.files = std::mem::take(&mut scan.files)
+        .into_iter()
+        .map(|(key, file)| (m(key.as_str()), file))
+        .collect();
+    scan.folder_ids = std::mem::take(&mut scan.folder_ids)
+        .into_iter()
+        .map(|(key, ino)| (m(key.as_str()), ino))
+        .collect();
+    scan.temps = std::mem::take(&mut scan.temps)
+        .into_iter()
+        .map(|(key, size)| (m(key.as_str()), size))
+        .collect();
+    scan.links = std::mem::take(&mut scan.links)
+        .into_iter()
+        .map(|(key, target)| (m(key.as_str()), target))
+        .collect();
+    scan.spelled = std::mem::take(&mut scan.spelled)
+        .into_iter()
+        .map(|(key, spelling)| (m(key.as_str()), m(spelling.as_str())))
+        .collect();
+    for set in [&mut scan.dirs, &mut scan.unknown, &mut scan.mounts] {
+        *set = std::mem::take(set)
+            .into_iter()
+            .map(|key| m(key.as_str()))
+            .collect();
+    }
+    for (key, _) in &mut scan.skipped {
+        *key = m(key.as_str());
+    }
+}
+
+/// The drive's index with the folders of `moves` moved, as this device moved them here: every
+/// entry under one at its new key, and the old names' deletes recorded, so a device that lost
+/// its state keeps an old copy instead of sending it again.
+fn moved_index(
+    index: &RemoteIndex,
+    moves: &[(String, String)],
+    gen: u64,
+    now: i64,
+    device: &str,
+) -> RemoteIndex {
+    let mut out = index.clone();
+    if moves.is_empty() {
+        return out;
+    }
+    out.files = BTreeMap::new();
+    for (key, file) in &index.files {
+        let to = folders::moved(key, moves);
+        if to != *key && remote::is_hash(&file.hash) {
+            let tomb = Tombstone {
+                hash: file.hash.clone(),
+                gen,
+                at: now,
+                device: device.to_string(),
+                confirmed: false,
+            };
+            out.deleted.insert(key.clone(), tomb);
+        }
+        out.deleted.remove(&to);
+        out.files.insert(to, file.clone());
+    }
+    out.folders = BTreeMap::new();
+    for (key, folder) in &index.folders {
+        let to = folders::moved(key, moves);
+        if to != *key {
+            let tomb = FolderTombstone {
+                id: folder.id.clone(),
+                gen,
+                at: now,
+                device: device.to_string(),
+            };
+            out.deleted_folders.insert(key.clone(), tomb);
+        }
+        out.deleted_folders.remove(&to);
+        out.folders.insert(to, folder.clone());
+    }
+    out
+}
+
+/// Moves the folders of `moves` here, one after the other, without following a link: how many
+/// were moved (a move that fails stops the rest).
+fn move_folders_here(
+    root: &LocalRoot,
+    moves: &[(String, String)],
+    report: &mut SyncReport,
+) -> usize {
+    let Ok(tree) = beneath::Root::open(&root.path) else {
+        return 0;
+    };
+    for (made, (from, to)) in moves.iter().enumerate() {
+        let moved = tree.parent_of(from, false).and_then(|(source, name)| {
+            let (target, target_name) = tree.parent_of(to, true)?;
+            source.rename(name, &target, target_name)?;
+            target.sync();
+            source.sync();
+            Ok(())
+        });
+        match moved {
+            Ok(()) => report.moved.push(format!("{from}/ -> {to}/")),
+            Err(e) => {
+                report.notes.push(format!(
+                    "{from}: renamed on the drive to {to}, and not renamed here ({e}); its files \
+                     follow one by one"
+                ));
+                return made;
+            }
+        }
+    }
+    moves.len()
+}
+
+/// The folders renamed since the base, on either side (A3, C1): what the drive renamed is
+/// renamed here now and taken into the scan; a rename both sides have made is taken into the
+/// base; what was renamed here comes back as the moves the drive gets with this run's commit,
+/// with the key every folder of the base ends at. A rename that cannot be made as a whole (its
+/// name taken, a folder that cannot be moved, a backup) is left to the files, each a delete and
+/// a new file as without folder identities.
+fn align_folders(
+    root: &LocalRoot,
+    index: &mut LocalIndex,
+    scan: &mut Scan,
+    remote: &RemoteIndex,
+    backup: bool,
+    report: &mut SyncReport,
+) -> (Vec<(String, String)>, BTreeMap<String, String>) {
+    let none = || (Vec::new(), BTreeMap::new());
+    let there: BTreeMap<String, RemoteFolder> = remote
+        .folders
+        .iter()
+        .filter(|(key, folder)| {
+            remote::check_key(key).is_ok()
+                && names::key_problem(key).is_none()
+                && remote::is_folder_id(&folder.id)
+        })
+        .map(|(key, folder)| (key.clone(), folder.clone()))
+        .collect();
+    let mut found = folders::renames(&index.folders, &scan.folder_ids, &there);
+    if found.is_empty() {
+        return none();
+    }
+    for key in &found.clashes {
+        report.notes.push(format!(
+            "{key}: renamed here and on the drive to different names; it takes the drive's"
+        ));
+    }
+    if !found.here.is_empty() {
+        if backup || !moves_fit(&present_here(scan), &found.here) {
+            report.notes.push(String::from(
+                "a folder renamed on the drive cannot be renamed here (its new name is taken); \
+                 its files follow one by one",
+            ));
+            return none();
+        }
+        let made = move_folders_here(root, &found.here, report);
+        moved_scan(scan, &found.here[..made]);
+        if made < found.here.len() {
+            return none();
+        }
+        found = folders::renames(&index.folders, &scan.folder_ids, &there);
+    }
+    if !found.agreed.is_empty() {
+        index.files = rebase_keys(&index.files, &found.agreed);
+        index.folders = rebase_keys(&index.folders, &found.agreed);
+        index.kept = index
+            .kept
+            .iter()
+            .map(|key| folders::rebased(key, &found.agreed))
+            .collect();
+        found = folders::renames(&index.folders, &scan.folder_ids, &there);
+    }
+    if found.there.is_empty() || backup {
+        return none();
+    }
+    let present: BTreeSet<String> = remote
+        .files
+        .keys()
+        .chain(remote.folders.keys())
+        .chain(remote.damaged.keys())
+        .cloned()
+        .collect();
+    if !moves_fit(&present, &found.there) {
+        report.notes.push(String::from(
+            "a folder renamed here cannot be renamed on the drive (its new name is taken there); \
+             its files go one by one",
+        ));
+        return none();
+    }
+    (found.there, found.finals)
+}
+
 /// What is here and on the drive once `actions` are done: the files, and here also what the
 /// scan saw and does not sync (unknown, settling, left out, links), there what the run could not
 /// read. A folder holding any of it is not removed on that side.
@@ -3404,6 +3652,8 @@ fn run<R: SyncRemote + ?Sized>(
     let mut attempt = 0u32;
     // The files D5 keeps (the last attempt's), remembered in the base.
     let mut kept: BTreeSet<String> = BTreeSet::new();
+    // Where the base's folders end, as the last attempt renamed them.
+    let mut finals_done: BTreeMap<String, String> = BTreeMap::new();
     let (committed, actions, folder_actions, merged, etag, scan, base_after, restore_epoch) = loop {
         attempt += 1;
         report.problems.truncate(told);
@@ -3430,12 +3680,33 @@ fn run<R: SyncRemote + ?Sized>(
         if attempt == 1 && !opts.dry_run && remote.generation >= index.generation {
             adopt_sent(index_path, &remote, &mut index.files);
         }
+        // A3, C1: folders renamed since the base, here or on the drive, move as folders: the
+        // drive's renames are made here now, this side's go to the drive with this commit, and
+        // the files are planned under the names both sides end with.
+        let (there_moves, finals) = if remote_side.keeps_folders()
+            && !opts.dry_run
+            && remote.generation >= index.generation
+        {
+            align_folders(root, &mut index, &mut scanned, &remote, hooks.backup, &mut report)
+        } else {
+            (Vec::new(), BTreeMap::new())
+        };
+        finals_done.clone_from(&finals);
+        // The drive as this commit will leave it, and as it was read (to tell a change by).
+        let (remote, read) = if there_moves.is_empty() {
+            (remote, None)
+        } else {
+            let gen = remote.generation + 1;
+            let moved = moved_index(&remote, &there_moves, gen, crate::now(), &opts.device);
+            (moved, Some(remote))
+        };
         // S15, V3: an index older than the last one seen is a rollback (a replayed or
         // rolled-back index would resurrect deletes and turn every edit since into a conflict)
         // unless the drive announced a restore since. A restore heals from here: the files
         // the restored index lacks are sent again, never deleted.
         let mut restore_epoch = index.restore_epoch;
         let healed;
+        let renamed;
         let base: &BTreeMap<String, BaseEntry> = if remote.generation < index.generation {
             let notice = opts
                 .restore
@@ -3475,9 +3746,15 @@ fn run<R: SyncRemote + ?Sized>(
             restore_epoch = notice.epoch;
             healed = kept;
             &healed
+        } else if !finals.is_empty() {
+            renamed = rebase_keys(&index.files, &finals);
+            &renamed
         } else {
             &index.files
         };
+        // The base's folders under the names both sides end with.
+        let folders_renamed = (!finals.is_empty()).then(|| rebase_keys(&index.folders, &finals));
+        let base_folders = folders_renamed.as_ref().unwrap_or(&index.folders);
         // M1: entries no run acts on stay on the drive as they are.
         let unreadable = remote.unreadable(remote_side.names_versions());
         for (key, why) in &unreadable {
@@ -3511,7 +3788,7 @@ fn run<R: SyncRemote + ?Sized>(
             // So with a folder made here again under a deleted folder's name.
             readable
                 .deleted_folders
-                .retain(|key, _| !(scan.dirs.contains(key) && !index.folders.contains_key(key)));
+                .retain(|key, _| !(scan.dirs.contains(key) && !base_folders.contains_key(key)));
         }
         let excluded = |key: &str| {
             root.rules.excluded(key).is_some() || frozen.contains(key) || scan.hides(key)
@@ -3627,7 +3904,7 @@ fn run<R: SyncRemote + ?Sized>(
                 &scan,
                 &readable,
                 &unreadable,
-                &index.folders,
+                base_folders,
                 &excluded,
                 &root.rules,
             )
@@ -3671,6 +3948,7 @@ fn run<R: SyncRemote + ?Sized>(
                 remote: &readable,
                 opts,
                 hooks,
+                folder_moves: &there_moves,
             },
             &mut report,
         )?;
@@ -3678,6 +3956,7 @@ fn run<R: SyncRemote + ?Sized>(
         // From the drive's whole index: the entries no run acts on stay in it as they are.
         let next = next_index(
             &remote,
+            read.is_some(),
             &actions,
             &folder_actions,
             &scan,
@@ -3687,7 +3966,7 @@ fn run<R: SyncRemote + ?Sized>(
             opts.tombstone_days,
             opts.allow_mass_delete,
         );
-        if next == remote {
+        if next == *read.as_ref().unwrap_or(&remote) {
             let base_after = base.clone();
             break (
                 remote,
@@ -3749,6 +4028,10 @@ fn run<R: SyncRemote + ?Sized>(
         &mut base,
         &mut report,
     );
+    // The folders this run renamed on the drive are the base's under their new names now.
+    if !finals_done.is_empty() {
+        index.folders = rebase_keys(&index.folders, &finals_done);
+    }
     // The folders once the files are in place: a folder is removed only when it is empty.
     if !hooks.cancelled() {
         apply_folders(root, &scan, &folder_actions, &mut index.folders, &mut report);

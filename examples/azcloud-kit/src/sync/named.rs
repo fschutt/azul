@@ -94,6 +94,9 @@ pub(super) struct NamedFiles<'d> {
     /// The folders the last read listed as entries of their own (not only as the folders of
     /// files): a folder deleted here takes its entry away on the drive.
     markers: Mutex<BTreeSet<String>>,
+    /// The drive as the last read saw it, the record laid over it: what the record's changes are
+    /// told from (the run's own view may have folders moved already).
+    last_read: Mutex<RemoteIndex>,
 }
 
 /// Large files a batch takes before it is sent (and named in one commit of an encrypted
@@ -196,6 +199,7 @@ impl<'d> NamedFiles<'d> {
             transient: Mutex::new(None),
             record: Mutex::new((RemoteIndex::empty(), None)),
             markers: Mutex::new(BTreeSet::new()),
+            last_read: Mutex::new(RemoteIndex::empty()),
         }
     }
 
@@ -546,6 +550,32 @@ impl<'d> NamedFiles<'d> {
         unmoved
     }
 
+    /// Moves on the drive the folders this run found renamed here, one after the other, each as
+    /// one folder (an encrypted drive changes its index once, nothing is sent again); the
+    /// versions the run read move with their files. A move that fails stops the run: the plan
+    /// has the files at their new names already.
+    fn move_folders(&self, moves: &[(String, String)]) -> CloudResult<()> {
+        for (from, to) in moves {
+            let source = format!("{}/", self.full(from));
+            let target = format!("{}/", self.full(to));
+            self.drive.rename(&source, &target)?;
+            let one = [(from.clone(), to.clone())];
+            let mut seen = lock(&self.seen);
+            *seen = std::mem::take(&mut *seen)
+                .into_iter()
+                .map(|(key, tag)| (super::folders::moved(&key, &one), tag))
+                .collect();
+            drop(seen);
+            let mut memo = lock(&self.memo);
+            memo.versions = std::mem::take(&mut memo.versions)
+                .into_iter()
+                .map(|(key, version)| (super::folders::moved(&key, &one), version))
+                .collect();
+            self.dirty.store(true, Ordering::SeqCst);
+        }
+        Ok(())
+    }
+
     /// An upload failed by itself (it waits for the next run, listed): the first such error.
     fn passing(&self, e: CloudError) {
         lock(&self.transient).get_or_insert(e);
@@ -662,6 +692,7 @@ impl SyncRemote for NamedFiles<'_> {
         *lock(&self.record) = (found, found_tag);
         *lock(&self.markers) = markers;
         *lock(&self.seen) = seen;
+        lock(&self.last_read).clone_from(&index);
         let marker = marker_of(&index);
         Ok((index, Some(marker)))
     }
@@ -739,6 +770,7 @@ impl SyncRemote for NamedFiles<'_> {
         work: &Uploads<'_>,
         report: &mut SyncReport,
     ) -> CloudResult<BTreeSet<String>> {
+        self.move_folders(work.folder_moves)?;
         let seen = lock(&self.seen).clone();
         let mut abandoned = BTreeSet::new();
         // The files this run deletes on the drive, by content: a new file here with the same
@@ -860,8 +892,12 @@ impl SyncRemote for NamedFiles<'_> {
     ) -> CloudResult<Option<String>> {
         // The record first: a delete it names that a crash keeps from happening is of a file the
         // drive still lists (the listing wins), while a delete made without its tombstone would
-        // let a device that lost its state send the file again.
-        self.write_record(remote, next)?;
+        // let a device that lost its state send the file again. Its changes are told from the
+        // drive as read (folders this run moved are at their new names in `remote` already).
+        {
+            let read = lock(&self.last_read);
+            self.write_record(&read, next)?;
+        }
         let seen = lock(&self.seen).clone();
         let moved = lock(&self.moved).clone();
         // Every delete in one batch (an encrypted drive: one commit of its index), each only
