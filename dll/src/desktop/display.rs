@@ -316,8 +316,51 @@ pub(crate) fn x11_strut_work_area(
     root: ScreenSize,
     struts: &[X11Strut],
 ) -> ScreenRect {
-    let _ = (root, struts);
-    bounds
+    let (mut left, mut top) = (bounds.origin.x, bounds.origin.y);
+    let (mut right, mut bottom) = (left + bounds.size.width, top + bounds.size.height);
+    let (monitor_left, monitor_top, monitor_right, monitor_bottom) = (left, top, right, bottom);
+    // Whether a strip's range along its edge (both ends included) meets the
+    // monitor's span along that edge.
+    let meets = |start: f32, end: f32, from: f32, to: f32| start < to && end >= from;
+    for strut in struts {
+        let inner_left = strut.left;
+        if strut.left > 0.0
+            && inner_left > monitor_left
+            && inner_left <= monitor_right
+            && meets(strut.left_start_y, strut.left_end_y, monitor_top, monitor_bottom)
+        {
+            left = left.max(inner_left);
+        }
+        let inner_right = root.width - strut.right;
+        if strut.right > 0.0
+            && inner_right >= monitor_left
+            && inner_right < monitor_right
+            && meets(strut.right_start_y, strut.right_end_y, monitor_top, monitor_bottom)
+        {
+            right = right.min(inner_right);
+        }
+        let inner_top = strut.top;
+        if strut.top > 0.0
+            && inner_top > monitor_top
+            && inner_top <= monitor_bottom
+            && meets(strut.top_start_x, strut.top_end_x, monitor_left, monitor_right)
+        {
+            top = top.max(inner_top);
+        }
+        let inner_bottom = root.height - strut.bottom;
+        if strut.bottom > 0.0
+            && inner_bottom >= monitor_top
+            && inner_bottom < monitor_bottom
+            && meets(strut.bottom_start_x, strut.bottom_end_x, monitor_left, monitor_right)
+        {
+            bottom = bottom.min(inner_bottom);
+        }
+    }
+    if right > left && bottom > top {
+        ScreenRect::new(ScreenPoint::new(left, top), ScreenSize::new(right - left, bottom - top))
+    } else {
+        bounds
+    }
 }
 
 /// The work area of one X11 monitor of `bounds`, in root-window pixels, as GTK
@@ -355,6 +398,9 @@ pub(crate) fn x11_monitor_work_area(bounds: ScreenRect, published: &X11WorkAreas
                 ScreenSize::new(cut_right - cut_left, cut_bottom - cut_top),
             );
         }
+    }
+    if !published.struts.is_empty() {
+        return x11_strut_work_area(bounds, published.root, &published.struts);
     }
     bounds
 }
@@ -817,13 +863,14 @@ mod linux {
         /// `XA_CARDINAL`, the type of the work-area properties.
         const XA_CARDINAL: std::os::raw::c_ulong = 6;
 
-        /// The 32-bit values of the CARDINAL property `name` on the root
-        /// window; `None` when it does not exist or is empty.
-        unsafe fn root_cardinals(
+        /// The 32-bit values of the property `name` of type `kind` on `window`;
+        /// `None` when it does not exist or is empty.
+        unsafe fn window_cardinals(
             xlib: &Xlib,
             display: *mut crate::desktop::shell2::linux::x11::dlopen::Display,
-            root: crate::desktop::shell2::linux::x11::dlopen::Window,
+            window: crate::desktop::shell2::linux::x11::dlopen::Window,
             name: &str,
+            kind: std::os::raw::c_ulong,
         ) -> Option<Vec<i64>> {
             let name = std::ffi::CString::new(name).ok()?;
             unsafe {
@@ -838,12 +885,12 @@ mod linux {
                 let mut data: *mut u8 = ptr::null_mut();
                 let status = (xlib.XGetWindowProperty)(
                     display,
-                    root,
+                    window,
                     atom,
                     0,
                     1024,
                     0, // delete = false
-                    XA_CARDINAL,
+                    kind,
                     &mut actual_type,
                     &mut actual_format,
                     &mut nitems,
@@ -880,30 +927,70 @@ mod linux {
                 .collect()
         }
 
+        /// `XA_WINDOW`, the type of `_NET_CLIENT_LIST`.
+        const XA_WINDOW: std::os::raw::c_ulong = 33;
+
         /// The work areas the window manager publishes for the current desktop:
         /// mutter's per-monitor `_GTK_WORKAREAS_D<desktop>` and the EWMH
-        /// `_NET_WORKAREA` rect, each as far as it is published.
+        /// `_NET_WORKAREA` rect, each as far as it is published, and - only
+        /// when neither is - the struts of the managed windows (the docks).
+        #[allow(clippy::cast_precision_loss, clippy::cast_sign_loss)] // root pixels, window ids
         unsafe fn published_work_areas(
             xlib: &Xlib,
             display: *mut crate::desktop::shell2::linux::x11::dlopen::Display,
+            screen: i32,
             root: crate::desktop::shell2::linux::x11::dlopen::Window,
-        ) -> (Vec<ScreenRect>, Option<ScreenRect>) {
+        ) -> X11WorkAreas {
             unsafe {
-                let desktop = root_cardinals(xlib, display, root, "_NET_CURRENT_DESKTOP")
-                    .and_then(|v| v.first().copied())
-                    .and_then(|d| usize::try_from(d).ok())
-                    .unwrap_or(0);
-                let per_monitor = root_cardinals(
+                let desktop =
+                    window_cardinals(xlib, display, root, "_NET_CURRENT_DESKTOP", XA_CARDINAL)
+                        .and_then(|v| v.first().copied())
+                        .and_then(|d| usize::try_from(d).ok())
+                        .unwrap_or(0);
+                let per_monitor = window_cardinals(
                     xlib,
                     display,
                     root,
                     &format!("_GTK_WORKAREAS_D{desktop}"),
+                    XA_CARDINAL,
                 )
                 .map(|v| rects_of(&v))
                 .unwrap_or_default();
-                let whole_desktop = root_cardinals(xlib, display, root, "_NET_WORKAREA")
-                    .and_then(|v| rects_of(&v).get(desktop).copied());
-                (per_monitor, whole_desktop)
+                let whole_desktop =
+                    window_cardinals(xlib, display, root, "_NET_WORKAREA", XA_CARDINAL)
+                        .and_then(|v| rects_of(&v).get(desktop).copied());
+                let root_size = ScreenSize::new(
+                    (xlib.XDisplayWidth)(display, screen) as f32,
+                    (xlib.XDisplayHeight)(display, screen) as f32,
+                );
+                let struts = if per_monitor.is_empty() && whole_desktop.is_none() {
+                    window_cardinals(xlib, display, root, "_NET_CLIENT_LIST", XA_WINDOW)
+                        .unwrap_or_default()
+                        .into_iter()
+                        .filter_map(|client| {
+                            let client = client as crate::desktop::shell2::linux::x11::dlopen::Window;
+                            window_cardinals(
+                                xlib,
+                                display,
+                                client,
+                                "_NET_WM_STRUT_PARTIAL",
+                                XA_CARDINAL,
+                            )
+                            .or_else(|| {
+                                window_cardinals(xlib, display, client, "_NET_WM_STRUT", XA_CARDINAL)
+                            })
+                            .and_then(|v| X11Strut::from_cardinals(&v, root_size))
+                        })
+                        .collect()
+                } else {
+                    Vec::new()
+                };
+                X11WorkAreas {
+                    per_monitor,
+                    desktop: whole_desktop,
+                    struts,
+                    root: root_size,
+                }
             }
         }
 
@@ -953,7 +1040,7 @@ mod linux {
 
                 let resources = &*(resources_ptr as *const XRRScreenResourcesStruct);
                 let mut displays = Vec::new();
-                let (gtk_workareas, net_workarea) = published_work_areas(&xlib, display, root);
+                let published = published_work_areas(&xlib, display, screen, root);
 
                 // Calculate base DPI from screen size
                 let width_mm = (xlib.XDisplayWidthMM)(display, screen);
@@ -988,14 +1075,7 @@ mod linux {
                     );
 
                     // The monitor less the panels the window manager says are on it.
-                    let work_area = x11_monitor_work_area(
-                        bounds,
-                        &X11WorkAreas {
-                            per_monitor: gtk_workareas.clone(),
-                            desktop: net_workarea,
-                            ..X11WorkAreas::default()
-                        },
-                    );
+                    let work_area = x11_monitor_work_area(bounds, &published);
 
                     // Get refresh rate from mode info
                     let refresh_rate = if crtc_info.mode != 0 {
@@ -1092,7 +1172,7 @@ mod linux {
                 let scale_factor = avg_dpi / 96.0; // 96 DPI is the standard baseline
 
                 let root = (xlib.XRootWindow)(display, screen);
-                let (gtk_workareas, net_workarea) = published_work_areas(&xlib, display, root);
+                let published = published_work_areas(&xlib, display, screen, root);
                 (xlib.XCloseDisplay)(display);
 
                 let bounds = ScreenRect::new(
@@ -1101,14 +1181,7 @@ mod linux {
                 );
 
                 // The screen less the panels the window manager says are on it.
-                let work_area = x11_monitor_work_area(
-                        bounds,
-                        &X11WorkAreas {
-                            per_monitor: gtk_workareas.clone(),
-                            desktop: net_workarea,
-                            ..X11WorkAreas::default()
-                        },
-                    );
+                let work_area = x11_monitor_work_area(bounds, &published);
 
                 vec![DisplayInfo {
                     name: format!(":0.{}", screen),
