@@ -653,11 +653,11 @@ fn screens_around(parent: &FullWindowState) -> Vec<ScreenRects> {
             rect.size,
         )
     };
-    crate::desktop::display::get_displays()
+    crate::desktop::display::screen_rects()
         .into_iter()
-        .map(|display| ScreenRects {
-            bounds: local(display.bounds),
-            work_area: local(display.work_area),
+        .map(|screen| ScreenRects {
+            bounds: local(screen.bounds),
+            work_area: local(screen.work_area),
         })
         .collect()
 }

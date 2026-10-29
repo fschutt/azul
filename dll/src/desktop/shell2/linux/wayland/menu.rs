@@ -18,7 +18,8 @@ use azul_core::{
 use azul_css::system::SystemStyle;
 use azul_layout::window_state::WindowCreateOptions;
 
-use azul_core::{geom::LogicalPosition, transient::TransientAnchor};
+use azul_core::geom::LogicalPosition;
+use azul_layout::placement::FloatingPlacement;
 
 use super::{super::super::common::debug_server::LogCategory, WaylandWindow};
 use crate::log_error;
@@ -36,26 +37,33 @@ pub(crate) struct MenuLayoutData {
     /// address absolute screen coordinates, so positioning must happen via
     /// the compositor with this rect.
     pub trigger_rect: LogicalRect,
-    /// Which edge of `trigger_rect` the popup opens on. A menu bar item and
-    /// a dropdown open BELOW their trigger with the left edges aligned; a
-    /// context menu opens at the pointer. This used to be decided at popup
-    /// creation with a single answer for every menu - the pointer corner -
-    /// so every dropdown hung off its trigger's bottom-RIGHT corner, one
-    /// trigger width to the right of where it belongs.
-    pub edge: TransientAnchor,
+    /// How the popup is placed against the parent surface: the rule every
+    /// window-drawn menu is placed by (`crate::desktop::menu::menu_placement`),
+    /// which the compositor's positioner is handed. A menu bar item and a
+    /// dropdown open BELOW their trigger with the left edges aligned, a context
+    /// menu at the pointer, a submenu beside its item.
+    pub placement: FloatingPlacement,
     /// The mailbox of the window that opened the menu: an item picked in the popup runs
     /// there (`crate::desktop::menu::MenuPicks`).
     pub picks: crate::desktop::menu::MenuPicks,
 }
 
-/// The edge a menu opens on, from what the opener knew: a real trigger rect
-/// means "below the control"; none means "at the pointer" (a context menu,
-/// whose trigger rect is the zero-sized cursor point).
+/// The rule a menu opened at `position` (parent-surface coordinates) for
+/// `anchor` is placed by: the menu's own `MenuPopupPosition`, with a real
+/// trigger rect meaning "for this control" and none - or the zero-sized
+/// cursor point of a context menu - "at the pointer".
 #[must_use]
-pub fn menu_edge_for(anchor: Option<LogicalRect>) -> TransientAnchor {
+pub fn menu_popup_placement(
+    menu: &Menu,
+    position: LogicalPosition,
+    anchor: Option<LogicalRect>,
+) -> FloatingPlacement {
+    let _ = menu;
     match anchor {
-        Some(rect) if rect.size.width > 0.0 || rect.size.height > 0.0 => TransientAnchor::Bottom,
-        _ => TransientAnchor::Cursor,
+        Some(rect) if rect.size.width > 0.0 || rect.size.height > 0.0 => {
+            FloatingPlacement::below(rect, true)
+        }
+        _ => FloatingPlacement::at_point(position, true),
     }
 }
 
@@ -122,6 +130,7 @@ extern "C" fn menu_layout_callback(_data: RefAny, info: LayoutCallbackInfo) -> a
 /// * `menu` - Menu structure to display
 /// * `system_style` - System style for native look
 /// * `trigger_rect` - Rectangle where menu was triggered (logical coords, relative to parent)
+/// * `placement` - The rule the menu is placed by (`menu_popup_placement`)
 /// * `menu_size` - Size of menu window (logical coords)
 ///
 /// # Returns
@@ -131,14 +140,14 @@ pub fn create_menu_popup_options(
     menu: &Menu,
     system_style: &SystemStyle,
     trigger_rect: LogicalRect,
-    edge: TransientAnchor,
+    placement: FloatingPlacement,
     menu_size: LogicalSize,
 ) -> WindowCreateOptions {
     let menu_data = MenuLayoutData {
         menu: menu.clone(),
         system_style: system_style.clone(),
         trigger_rect,
-        edge,
+        placement,
         picks: parent.common.menu_picks.clone(),
     };
 
@@ -208,15 +217,27 @@ mod tests {
     }
 
     /// A real trigger rect (a menu bar item, a dropdown's control) opens the
-    /// menu below it; the zero-sized cursor point of a context menu opens it
-    /// at the pointer.
+    /// menu below it with the left edges lined up; the zero-sized cursor point
+    /// of a context menu opens it at the pointer.
     #[test]
     fn a_trigger_rect_opens_below_and_a_cursor_point_opens_at_the_pointer() {
+        use azul_layout::placement::AxisEnd;
+
+        let menu = menu_of(&[Entry::Item]);
         let swatch = LogicalRect::new(LogicalPosition::new(50.0, 396.0), LogicalSize::new(14.0, 14.0));
-        assert_eq!(menu_edge_for(Some(swatch)), TransientAnchor::Bottom);
+        let below = menu_popup_placement(&menu, swatch.origin, Some(swatch));
+        assert_eq!(below.anchor, swatch);
+        assert_eq!((below.x.anchor, below.x.grow), (AxisEnd::Start, AxisEnd::End));
+        assert_eq!((below.y.anchor, below.y.grow), (AxisEnd::End, AxisEnd::End));
+
         let cursor = LogicalRect::new(LogicalPosition::new(50.0, 396.0), LogicalSize::zero());
-        assert_eq!(menu_edge_for(Some(cursor)), TransientAnchor::Cursor);
-        assert_eq!(menu_edge_for(None), TransientAnchor::Cursor);
+        for anchor in [Some(cursor), None] {
+            let at = menu_popup_placement(&menu, cursor.origin, anchor);
+            assert_eq!(at.anchor, cursor, "at the pointer");
+            assert_eq!((at.x.anchor, at.x.grow), (AxisEnd::End, AxisEnd::End));
+            assert_eq!((at.y.anchor, at.y.grow), (AxisEnd::End, AxisEnd::End));
+            assert!(at.x.flip && at.y.flip, "a context menu flips at the screen edge");
+        }
     }
 
     /// The size the positioner is told and the buffer that is attached must

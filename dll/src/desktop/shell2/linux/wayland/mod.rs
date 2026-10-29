@@ -1976,7 +1976,7 @@ impl WaylandWindow {
         let trigger_rect = anchor.unwrap_or_else(|| {
             azul_core::geom::LogicalRect::new(position, azul_core::geom::LogicalSize::zero())
         });
-        let edge = self::menu::menu_edge_for(anchor);
+        let placement = self::menu::menu_popup_placement(menu, position, anchor);
         let menu_size = self::menu::calculate_menu_size(menu, &self.common.system_style);
 
         let menu_options = self::menu::create_menu_popup_options(
@@ -1984,7 +1984,7 @@ impl WaylandWindow {
             menu,
             &self.common.system_style,
             trigger_rect,
-            edge,
+            placement,
             menu_size,
         );
 
@@ -2008,46 +2008,37 @@ impl WaylandWindow {
     /// coordinates — Wayland clients cannot address absolute screen coordinates,
     /// so the compositor positions the popup from this rect.
     pub fn open_menu_popup(&mut self, options: WindowCreateOptions) -> Result<(), String> {
-        use azul_core::geom::{LogicalRect, LogicalSize};
-
         // A new menu replaces any currently-open one.
         self.dismiss_active_popup();
 
-        // The anchor: a menu stashes its trigger rect in `MenuLayoutData`; a
-        // `<transient-window>` carries its placement in the shared mailbox
-        // (`common::transient::TransientWindowData`) — anchor rect AND the edge
-        // to open on. Both are parent-surface-relative, which is all a Wayland
-        // client can say; the compositor's positioner does the placing.
-        let (mailbox_anchor, edge) = match &options.window_state.layout_callback.ctx {
+        // The placement: a menu stashes its rule in `MenuLayoutData`; a
+        // `<transient-window>` carries its rule in the shared mailbox
+        // (`common::transient::TransientWindowData::floating`). Both are
+        // parent-surface-relative, which is all a Wayland client can say; the
+        // compositor's positioner does the placing, by the same rule every other
+        // backend places by (`xdg_positioner_rules`).
+        let placement = match &options.window_state.layout_callback.ctx {
             azul_core::refany::OptionRefAny::Some(refany) => {
                 let mut r = refany.clone();
                 let menu = r
                     .downcast_ref::<self::menu::MenuLayoutData>()
-                    .map(|d| (d.trigger_rect, d.edge));
+                    .map(|d| d.placement);
                 let mut r2 = refany.clone();
                 let transient = r2
                     .downcast_ref::<crate::desktop::shell2::common::transient::TransientWindowData>(
                     )
-                    .map(|d| (d.placement.anchor_rect, d.placement.anchor));
-                match (menu, transient) {
-                    (Some((rect, edge)), _) | (None, Some((rect, edge))) => (Some(rect), edge),
-                    (None, None) => (None, azul_core::transient::TransientAnchor::Cursor),
-                }
+                    .map(|d| d.floating);
+                menu.or(transient)
             }
-            azul_core::refany::OptionRefAny::None => {
-                (None, azul_core::transient::TransientAnchor::Cursor)
-            }
-        };
-        let mut anchor_rect = mailbox_anchor.unwrap_or_else(|| {
-            LogicalRect::new(
+            azul_core::refany::OptionRefAny::None => None,
+        }
+        .unwrap_or_else(|| {
+            azul_layout::placement::FloatingPlacement::at_point(
                 azul_core::geom::LogicalPosition::zero(),
-                LogicalSize::zero(),
+                true,
             )
         });
-
-        // A zero-sized anchor rect is rejected by some compositors — clamp >= 1x1.
-        anchor_rect.size.width = anchor_rect.size.width.max(1.0);
-        anchor_rect.size.height = anchor_rect.size.height.max(1.0);
+        let anchor_rect = placement.anchor;
 
         // One rounding for the positioner, the buffer and the viewport
         // destination alike (see `menu::popup_size_px`).
@@ -2064,7 +2055,7 @@ impl WaylandWindow {
             popup_size.width,
             popup_size.height
         );
-        let popup = WaylandPopup::new(self, anchor_rect, popup_size, edge, options)?;
+        let popup = WaylandPopup::new(self, &placement, popup_size, options)?;
         self.active_popup = Some(Box::new(popup));
         crate::plog_info!("[wayland-popup] xdg_popup created + grab requested, awaiting configure");
 
@@ -9756,7 +9747,8 @@ impl WaylandPopup {
     ///
     /// # Arguments
     /// * `parent` - Parent WaylandWindow
-    /// * `anchor_rect` - Rectangle on parent surface where popup is anchored (logical coords)
+    /// * `placement` - The rule the popup is placed by, its anchor on the parent
+    ///   surface (logical coords)
     /// * `popup_size` - Size of popup window (logical coords)
     /// * `options` - Window creation options (for rendering setup)
     ///
@@ -9765,9 +9757,8 @@ impl WaylandPopup {
     /// * `Err(String)` - Error message
     pub fn new(
         parent: &WaylandWindow,
-        anchor_rect: azul_core::geom::LogicalRect,
+        placement: &azul_layout::placement::FloatingPlacement,
         popup_size: azul_core::geom::LogicalSize,
-        edge: azul_core::transient::TransientAnchor,
         options: WindowCreateOptions,
     ) -> Result<Self, String> {
         use crate::desktop::shell2::linux::wayland::defines::*;
@@ -9865,75 +9856,9 @@ impl WaylandPopup {
             return Err("Failed to create xdg_positioner".to_string());
         }
 
-        // 2. Configure positioner
-        unsafe {
-            // Set popup size
-            (wayland.xdg_positioner_set_size)(
-                positioner,
-                popup_size.width as i32,
-                popup_size.height as i32,
-            );
-
-            // Set anchor rectangle (where popup is triggered from on parent surface)
-            (wayland.xdg_positioner_set_anchor_rect)(
-                positioner,
-                anchor_rect.origin.x as i32,
-                anchor_rect.origin.y as i32,
-                anchor_rect.size.width as i32,
-                anchor_rect.size.height as i32,
-            );
-
-            // Which corner/edge of the anchor rect the popup hangs off, and
-            // which way it grows from there. A `<transient-window anchor=…>`
-            // says so; a menu opens at its trigger's bottom-right like before.
-            use azul_core::transient::TransientAnchor;
-            let (anchor, gravity) = match edge {
-                TransientAnchor::Bottom => (
-                    XDG_POSITIONER_ANCHOR_BOTTOM_LEFT,
-                    XDG_POSITIONER_GRAVITY_BOTTOM_RIGHT,
-                ),
-                // The anchor rect is the parent's whole surface
-                // (`cover_viewport`): hang the popup off its top-left
-                // corner, growing down and right, so it covers the parent.
-                TransientAnchor::Viewport => (
-                    XDG_POSITIONER_ANCHOR_TOP_LEFT,
-                    XDG_POSITIONER_GRAVITY_BOTTOM_RIGHT,
-                ),
-                TransientAnchor::Top => (
-                    XDG_POSITIONER_ANCHOR_TOP_LEFT,
-                    XDG_POSITIONER_GRAVITY_TOP_RIGHT,
-                ),
-                TransientAnchor::Left => (
-                    XDG_POSITIONER_ANCHOR_TOP_LEFT,
-                    XDG_POSITIONER_GRAVITY_BOTTOM_LEFT,
-                ),
-                TransientAnchor::Right => (
-                    XDG_POSITIONER_ANCHOR_TOP_RIGHT,
-                    XDG_POSITIONER_GRAVITY_BOTTOM_RIGHT,
-                ),
-                TransientAnchor::Cursor => (
-                    XDG_POSITIONER_ANCHOR_BOTTOM_RIGHT,
-                    XDG_POSITIONER_GRAVITY_BOTTOM_RIGHT,
-                ),
-                // A dialog window is a toplevel with a parent (the compositor
-                // places it); should one ever come here, centre it over the
-                // anchor rect, the parent's whole surface (`cover_viewport`).
-                TransientAnchor::Dialog => {
-                    (XDG_POSITIONER_ANCHOR_NONE, XDG_POSITIONER_GRAVITY_NONE)
-                }
-            };
-            (wayland.xdg_positioner_set_anchor)(positioner, anchor);
-            (wayland.xdg_positioner_set_gravity)(positioner, gravity);
-
-            // Allow compositor to flip/slide if popup would overflow screen
-            (wayland.xdg_positioner_set_constraint_adjustment)(
-                positioner,
-                XDG_POSITIONER_CONSTRAINT_ADJUSTMENT_FLIP_X
-                    | XDG_POSITIONER_CONSTRAINT_ADJUSTMENT_FLIP_Y
-                    | XDG_POSITIONER_CONSTRAINT_ADJUSTMENT_SLIDE_X
-                    | XDG_POSITIONER_CONSTRAINT_ADJUSTMENT_SLIDE_Y,
-            );
-        }
+        // 2. Configure positioner: the popup's measured size, its anchor on the
+        //    parent surface and the rule the compositor places it by.
+        configure_positioner(&wayland, positioner, placement, popup_size);
 
         // 3. Create wl_surface
         let surface = unsafe { (wayland.wl_compositor_create_surface)(parent.compositor) };
@@ -10823,6 +10748,110 @@ impl Drop for WaylandPopup {
                 self.listener_context = std::ptr::null_mut();
             }
         }
+    }
+}
+
+/// The `xdg_positioner` form of a placement rule: which point of the anchor
+/// rect the surface hangs from, which way it grows, and the constraint
+/// adjustment the compositor may apply at the screen edge.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct XdgPositionerRules {
+    anchor: u32,
+    gravity: u32,
+    constraint_adjustment: u32,
+}
+
+/// `placement` as `xdg_positioner` takes it: per axis, the anchor end becomes
+/// the anchor edge, the direction the surface grows the gravity, and flip /
+/// slide / resize the matching constraint adjustment. The compositor then does
+/// on Wayland exactly what `azul_layout::placement::floating_frame` does
+/// everywhere else - where only it knows the screens.
+fn xdg_positioner_rules(
+    placement: &azul_layout::placement::FloatingPlacement,
+) -> XdgPositionerRules {
+    use azul_layout::placement::{AxisEnd, AxisRule};
+
+    const fn anchor_of(x: AxisEnd, y: AxisEnd) -> u32 {
+        match (x, y) {
+            (AxisEnd::Center, AxisEnd::Center) => XDG_POSITIONER_ANCHOR_NONE,
+            (AxisEnd::Center, AxisEnd::Start) => XDG_POSITIONER_ANCHOR_TOP,
+            (AxisEnd::Center, AxisEnd::End) => XDG_POSITIONER_ANCHOR_BOTTOM,
+            (AxisEnd::Start, AxisEnd::Center) => XDG_POSITIONER_ANCHOR_LEFT,
+            (AxisEnd::End, AxisEnd::Center) => XDG_POSITIONER_ANCHOR_RIGHT,
+            (AxisEnd::Start, AxisEnd::Start) => XDG_POSITIONER_ANCHOR_TOP_LEFT,
+            (AxisEnd::Start, AxisEnd::End) => XDG_POSITIONER_ANCHOR_BOTTOM_LEFT,
+            (AxisEnd::End, AxisEnd::Start) => XDG_POSITIONER_ANCHOR_TOP_RIGHT,
+            (AxisEnd::End, AxisEnd::End) => XDG_POSITIONER_ANCHOR_BOTTOM_RIGHT,
+        }
+    }
+    const fn gravity_of(x: AxisEnd, y: AxisEnd) -> u32 {
+        match (x, y) {
+            (AxisEnd::Center, AxisEnd::Center) => XDG_POSITIONER_GRAVITY_NONE,
+            (AxisEnd::Center, AxisEnd::Start) => XDG_POSITIONER_GRAVITY_TOP,
+            (AxisEnd::Center, AxisEnd::End) => XDG_POSITIONER_GRAVITY_BOTTOM,
+            (AxisEnd::Start, AxisEnd::Center) => XDG_POSITIONER_GRAVITY_LEFT,
+            (AxisEnd::End, AxisEnd::Center) => XDG_POSITIONER_GRAVITY_RIGHT,
+            (AxisEnd::Start, AxisEnd::Start) => XDG_POSITIONER_GRAVITY_TOP_LEFT,
+            (AxisEnd::Start, AxisEnd::End) => XDG_POSITIONER_GRAVITY_BOTTOM_LEFT,
+            (AxisEnd::End, AxisEnd::Start) => XDG_POSITIONER_GRAVITY_TOP_RIGHT,
+            (AxisEnd::End, AxisEnd::End) => XDG_POSITIONER_GRAVITY_BOTTOM_RIGHT,
+        }
+    }
+    const fn adjustment_of(rule: AxisRule, flip: u32, slide: u32, resize: u32) -> u32 {
+        (if rule.flip { flip } else { 0 })
+            | (if rule.slide { slide } else { 0 })
+            | (if rule.resize { resize } else { 0 })
+    }
+
+    XdgPositionerRules {
+        anchor: anchor_of(placement.x.anchor, placement.y.anchor),
+        gravity: gravity_of(placement.x.grow, placement.y.grow),
+        constraint_adjustment: adjustment_of(
+            placement.x,
+            XDG_POSITIONER_CONSTRAINT_ADJUSTMENT_FLIP_X,
+            XDG_POSITIONER_CONSTRAINT_ADJUSTMENT_SLIDE_X,
+            XDG_POSITIONER_CONSTRAINT_ADJUSTMENT_RESIZE_X,
+        ) | adjustment_of(
+            placement.y,
+            XDG_POSITIONER_CONSTRAINT_ADJUSTMENT_FLIP_Y,
+            XDG_POSITIONER_CONSTRAINT_ADJUSTMENT_SLIDE_Y,
+            XDG_POSITIONER_CONSTRAINT_ADJUSTMENT_RESIZE_Y,
+        ),
+    }
+}
+
+/// Configure `positioner` (live, not yet used for a popup) for a surface of
+/// `size` placed by `placement`, both in parent-surface logical coordinates.
+/// The protocol rejects an empty size or anchor rect, so a pointer's anchor is
+/// one pixel square.
+#[allow(clippy::cast_possible_truncation)] // whole logical pixels
+fn configure_positioner(
+    wayland: &Wayland,
+    positioner: *mut xdg_positioner,
+    placement: &azul_layout::placement::FloatingPlacement,
+    size: azul_core::geom::LogicalSize,
+) {
+    let rules = xdg_positioner_rules(placement);
+    let anchor = placement.anchor;
+    unsafe {
+        (wayland.xdg_positioner_set_size)(
+            positioner,
+            (size.width.ceil() as i32).max(1),
+            (size.height.ceil() as i32).max(1),
+        );
+        (wayland.xdg_positioner_set_anchor_rect)(
+            positioner,
+            anchor.origin.x as i32,
+            anchor.origin.y as i32,
+            (anchor.size.width as i32).max(1),
+            (anchor.size.height as i32).max(1),
+        );
+        (wayland.xdg_positioner_set_anchor)(positioner, rules.anchor);
+        (wayland.xdg_positioner_set_gravity)(positioner, rules.gravity);
+        (wayland.xdg_positioner_set_constraint_adjustment)(
+            positioner,
+            rules.constraint_adjustment,
+        );
     }
 }
 
@@ -11802,6 +11831,60 @@ fn compositor_refused_server_side(
     granted: u32,
 ) -> bool {
     granted == 1 && xdg_decoration_mode(has_decorations, decorations) == 2
+}
+
+#[cfg(test)]
+mod positioner_rule_tests {
+    use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
+    use azul_layout::placement::FloatingPlacement;
+
+    use super::*;
+
+    /// The compositor is handed the rule every other backend places by: a
+    /// dropdown hangs below its control's left edge and may flip and slide, a
+    /// tooltip may also be cut to the screen's height, a submenu opens right of
+    /// its item, and a cover over the parent is never moved.
+    #[test]
+    fn the_compositor_is_handed_the_rule_every_other_backend_places_by() {
+        let control = LogicalRect::new(
+            LogicalPosition::new(40.0, 60.0),
+            LogicalSize::new(120.0, 24.0),
+        );
+        let flip_slide = XDG_POSITIONER_CONSTRAINT_ADJUSTMENT_FLIP_X
+            | XDG_POSITIONER_CONSTRAINT_ADJUSTMENT_FLIP_Y
+            | XDG_POSITIONER_CONSTRAINT_ADJUSTMENT_SLIDE_X
+            | XDG_POSITIONER_CONSTRAINT_ADJUSTMENT_SLIDE_Y;
+        assert_eq!(
+            xdg_positioner_rules(&FloatingPlacement::below(control, true)),
+            XdgPositionerRules {
+                anchor: XDG_POSITIONER_ANCHOR_BOTTOM_LEFT,
+                gravity: XDG_POSITIONER_GRAVITY_BOTTOM_RIGHT,
+                constraint_adjustment: flip_slide,
+            }
+        );
+        assert_eq!(
+            xdg_positioner_rules(&FloatingPlacement::tooltip(control)).constraint_adjustment,
+            flip_slide | XDG_POSITIONER_CONSTRAINT_ADJUSTMENT_RESIZE_Y
+        );
+        assert_eq!(
+            xdg_positioner_rules(&FloatingPlacement::right_of(control)),
+            XdgPositionerRules {
+                anchor: XDG_POSITIONER_ANCHOR_TOP_RIGHT,
+                gravity: XDG_POSITIONER_GRAVITY_BOTTOM_RIGHT,
+                constraint_adjustment: XDG_POSITIONER_CONSTRAINT_ADJUSTMENT_FLIP_X
+                    | XDG_POSITIONER_CONSTRAINT_ADJUSTMENT_SLIDE_X
+                    | XDG_POSITIONER_CONSTRAINT_ADJUSTMENT_SLIDE_Y,
+            }
+        );
+        assert_eq!(
+            xdg_positioner_rules(&FloatingPlacement::pinned(LogicalPosition::zero())),
+            XdgPositionerRules {
+                anchor: XDG_POSITIONER_ANCHOR_TOP_LEFT,
+                gravity: XDG_POSITIONER_GRAVITY_BOTTOM_RIGHT,
+                constraint_adjustment: XDG_POSITIONER_CONSTRAINT_ADJUSTMENT_NONE,
+            }
+        );
+    }
 }
 
 #[cfg(test)]

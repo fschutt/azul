@@ -184,6 +184,19 @@ pub fn refresh_monitors() -> MonitorVec {
     get_monitors()
 }
 
+/// Every display's bounds and work area, in the form a floating surface (tooltip,
+/// menu, popover) is placed against (`azul_layout::placement`), in the coordinates
+/// of [`get_displays`].
+pub fn screen_rects() -> Vec<azul_layout::placement::ScreenRects> {
+    get_displays()
+        .into_iter()
+        .map(|display| azul_layout::placement::ScreenRects {
+            bounds: display.bounds,
+            work_area: display.work_area,
+        })
+        .collect()
+}
+
 /// Get the display containing the given point
 ///
 /// Returns None if the point is not on any display.
