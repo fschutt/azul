@@ -16,7 +16,9 @@
 //!   device is checked and applied again on the newer state. The index keeps the history, so it
 //!   releases no object (the old versions stay restorable).
 //! - `.azlin` at the root (the drive's policy and keys) and the shards' names are no drive
-//!   paths: hidden from reads, refused for changes.
+//!   paths: hidden from reads, refused for changes. Only the sync's bookkeeping under it
+//!   ([`SYNC_BOOKKEEPING`], the record of a folder synced at the root) is read and written by
+//!   its key, sealed like every file and never listed.
 
 use std::{
     cmp::Reverse,
@@ -58,11 +60,15 @@ fn marker() -> IndexEntry {
     }
 }
 
+/// The sync's bookkeeping in the drive's own folder: the record of a folder synced at the root,
+/// a file of the drive (sealed, kept in the history) that no listing shows.
+pub const SYNC_BOOKKEEPING: &str = ".azlin/sync/";
+
 /// Whether `path` (a key or a folder prefix) is the drive's own: `.azlin` at
-/// the root, or a segment of a shard's name.
+/// the root (but the sync's bookkeeping in it), or a segment of a shard's name.
 fn reserved(path: &str) -> bool {
     let mut segments = path.trim_end_matches('/').split('/');
-    segments.next() == Some(".azlin")
+    (segments.next() == Some(".azlin") && !path.starts_with(SYNC_BOOKKEEPING))
         || path.split('/').any(|segment| segment.starts_with(SHARD_PREFIX))
 }
 

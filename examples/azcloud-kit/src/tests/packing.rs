@@ -118,6 +118,18 @@ fn data_objects(bucket: &MemoryBucket) -> Vec<String> {
         .collect()
 }
 
+/// The bucket object that holds the folder record's current version (a pack of its own, or an
+/// object when it is large).
+fn record_object(drive: &dyn Drive) -> String {
+    drive
+        .metadata(&format!("{PREFIX}.azlin/sync/record.json"))
+        .unwrap()
+        .into_iter()
+        .find(|(name, _)| name == azul_storage::OBJECT_KEY_METADATA)
+        .map(|(_, object)| object)
+        .expect("the record's object")
+}
+
 /// An encrypted drive that packs, its index the bucket's metadata repository, over `bucket`.
 fn packing_drive(
     bucket: &Arc<MemoryBucket>,
@@ -146,10 +158,13 @@ fn a_sync_of_small_files_packs_them_and_commits_the_drive_index_once_per_pack() 
     let logs_before = list_all(&*bucket, ".azlin/meta/log/").unwrap().len();
     let sent = a.sync(&drive);
     assert_eq!(sent.files_up, 300, "{}", sent.summary());
-    let packs = data_objects(&bucket);
+    // The folder's record is a small file of the drive too, written after the files.
+    let record = record_object(&drive);
+    let all = data_objects(&bucket);
+    let packs: Vec<&String> = all.iter().filter(|key| **key != record).collect();
     assert!(packs.len() <= 2, "300 small files in {} objects", packs.len());
     let logs = list_all(&*bucket, ".azlin/meta/log/").unwrap().len() - logs_before;
-    assert!(logs <= packs.len(), "{logs} index commits for {} packs", packs.len());
+    assert!(logs <= all.len(), "{logs} index commits for {} packs", all.len());
     for i in 0..300 {
         let (key, bytes) = file(i);
         assert_eq!(drive.get(&format!("{PREFIX}{key}")).unwrap(), bytes, "{key}");
@@ -201,7 +216,13 @@ fn five_thousand_small_files_sync_read_back_half_deleted_repacked_and_all_verifi
     // Synced up: packs, not five thousand objects.
     let sent = a.sync(&laptop);
     assert_eq!(sent.files_up, FILES, "{}", sent.summary());
-    let packs = data_objects(&bucket);
+    // The files' packs; the folder record's object is no pack (a later run writes a new one
+    // and the drive's history keeps the old).
+    let record = record_object(&laptop);
+    let packs: Vec<String> = data_objects(&bucket)
+        .into_iter()
+        .filter(|key| *key != record)
+        .collect();
     assert!(packs.len() < FILES / 100, "{FILES} small files in {} objects", packs.len());
 
     // Read back on another device: every file, byte for byte.

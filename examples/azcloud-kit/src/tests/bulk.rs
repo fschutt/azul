@@ -742,7 +742,11 @@ mod encrypted {
         let before = commits(&*bucket);
         let gone = here.sync(&drive).unwrap();
         assert_eq!(gone.deleted_there, 10_000, "{}", gone.summary());
-        assert_eq!(commits(&*bucket), before + 1, "one commit for 10,000 deletes");
+        assert_eq!(
+            commits(&*bucket),
+            before + 2,
+            "one commit for 10,000 deletes, one for the folder record that keeps them"
+        );
         assert_eq!(on_drive(&drive, "big/"), 0);
         assert_eq!(on_drive(&drive, "kept/"), 3);
     }
@@ -795,13 +799,18 @@ mod encrypted {
         s3.clear_log();
         let applies = index.applies.load(Ordering::SeqCst);
         let moved = here.sync(&drive).unwrap();
-        for method in ["PUT", "COPY", "GET"] {
+        for method in ["COPY", "GET"] {
             assert_eq!(s3.count_under(method, "data/"), 0, "no {method} of an object");
         }
         assert_eq!(
+            s3.count_under("PUT", "data/"),
+            1,
+            "no file written again, only the folder record (the old names' deletes)"
+        );
+        assert_eq!(
             index.applies.load(Ordering::SeqCst),
-            applies + 1,
-            "one commit moves the folder: {}",
+            applies + 2,
+            "one commit moves the folder, one writes its record: {}",
             moved.summary()
         );
         assert_eq!(on_drive(&drive, "draft/"), 0);

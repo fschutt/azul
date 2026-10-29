@@ -22,6 +22,10 @@
 //!   1,000 keys a request on a bucket.
 //! - **The commit** is the files themselves; the run's marker is a hash of the names and
 //!   versions, and the generation counts this device's commits.
+//! - **The folder record** ([`super::record`]) keeps what the drive's index cannot: each file's
+//!   modification time and executable bit, and the deletes (with whether the user confirmed
+//!   them), so a device that lost its state does not send a deleted file again. A read lays it
+//!   over the listing; a commit writes it before its deletes, over the version it read.
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -40,9 +44,9 @@ use azul_storage::{
 use serde::{Deserialize, Serialize};
 
 use super::{
-    blob_job, job_bytes, local, lock, open_job_file, remote, uploaded_hash, Action, BlobJob,
-    BlobSource,
-    CheckedRead, RemoteFile, RemoteIndex, SyncEvent, SyncRemote, SyncReport, Uploads,
+    blob_job, job_bytes, local, lock, open_job_file, record, remote, uploaded_hash, Action,
+    BlobJob, BlobSource, CheckedRead, RemoteFile, RemoteIndex, SyncEvent, SyncRemote, SyncReport,
+    Uploads, MAX_ATTEMPTS,
 };
 use crate::{
     error::{fail, CloudError, CloudResult},
@@ -58,6 +62,14 @@ struct Memo {
     /// This device's commits so far (the drive side's generation).
     #[serde(default)]
     generation: u64,
+    /// The folder record as last read or written, with its entity tag: an unchanged record is
+    /// not read again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    record: Option<(String, RemoteIndex)>,
+    /// The drive refused the record's name: it syncs without one (no times, bits or deletes
+    /// beyond what its listing shows).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    no_record: bool,
 }
 
 /// The drive side of a folder synced by name.
@@ -76,6 +88,9 @@ pub(super) struct NamedFiles<'d> {
     /// index sync's does - the drive cannot be reached, which "files cannot sync" would hide.
     sent_any: AtomicBool,
     transient: Mutex<Option<CloudError>>,
+    /// The folder record the last read laid over the listing, and its entity tag (`None`: the
+    /// drive has none yet): what the commit's write is conditional on.
+    record: Mutex<(RemoteIndex, Option<String>)>,
 }
 
 /// Large files a batch takes before it is sent (and named in one commit of an encrypted
@@ -176,11 +191,115 @@ impl<'d> NamedFiles<'d> {
             moved: Mutex::new(BTreeSet::new()),
             sent_any: AtomicBool::new(false),
             transient: Mutex::new(None),
+            record: Mutex::new((RemoteIndex::empty(), None)),
         }
     }
 
     fn full(&self, key: &str) -> String {
         format!("{}{key}", self.prefix)
+    }
+
+    /// Whether the drive keeps the folder's record (it took its name so far).
+    fn keeps_record(&self) -> bool {
+        !lock(&self.memo).no_record
+    }
+
+    /// The drive refuses the record's name (a folder on disk keeps its root's `.azlin` to
+    /// itself): this folder syncs without one from now on.
+    fn without_record(&self, memo: &mut Memo) {
+        memo.no_record = true;
+        memo.record = None;
+        self.dirty.store(true, Ordering::SeqCst);
+    }
+
+    /// The folder record and its entity tag (`None`: the drive has none, or keeps none). The
+    /// copy in the memo answers while the tag is the one it was read or written at; a record
+    /// that cannot be read describes nothing, and the next commit writes a new one over it.
+    fn read_record(&self, memo: &mut Memo) -> CloudResult<(RemoteIndex, Option<String>)> {
+        if memo.no_record {
+            return Ok((RemoteIndex::empty(), None));
+        }
+        let key = self.full(record::RECORD_FILE);
+        let tag = match self.drive.head(&key) {
+            Ok(info) => info.etag.as_deref().map(bare).unwrap_or_default(),
+            Err(DriveError::NotFound { .. }) => return Ok((RemoteIndex::empty(), None)),
+            Err(DriveError::InvalidKey { .. }) => {
+                self.without_record(memo);
+                return Ok((RemoteIndex::empty(), None));
+            }
+            Err(e) => return Err(e.into()),
+        };
+        // Without a version no write can be conditional on it: two devices would overwrite
+        // each other's record.
+        if tag.is_empty() {
+            self.without_record(memo);
+            return Ok((RemoteIndex::empty(), None));
+        }
+        if let Some((cached_tag, cached)) = &memo.record {
+            if *cached_tag == tag {
+                return Ok((cached.clone(), Some(tag)));
+            }
+        }
+        let bytes = match self.drive.get(&key) {
+            Ok(bytes) => bytes,
+            Err(DriveError::NotFound { .. }) => return Ok((RemoteIndex::empty(), None)),
+            Err(e) => return Err(e.into()),
+        };
+        let found = RemoteIndex::parse(&bytes).unwrap_or_else(|_| RemoteIndex::empty());
+        memo.record = Some((tag.clone(), found.clone()));
+        self.dirty.store(true, Ordering::SeqCst);
+        Ok((found, Some(tag)))
+    }
+
+    /// Writes the folder record for a commit from `before` (the drive as read) to `next`, only
+    /// over the version the run read: a record another device wrote meanwhile is read again and
+    /// this run's changes are made to it.
+    fn write_record(&self, before: &RemoteIndex, next: &RemoteIndex) -> CloudResult<()> {
+        if !self.keeps_record() {
+            return Ok(());
+        }
+        let key = self.full(record::RECORD_FILE);
+        let (read, read_tag) = lock(&self.record).clone();
+        let mut current = read.clone();
+        let mut tag = read_tag;
+        for _ in 0..MAX_ATTEMPTS {
+            let written = record::with_changes(&current, &read, before, next);
+            let condition = match &tag {
+                Some(tag) => Precondition::Matches(tag.clone()),
+                None => Precondition::Absent,
+            };
+            match self.drive.put_if(&key, &written.to_bytes(), &condition) {
+                Ok(etag) => {
+                    let etag = match etag {
+                        Some(etag) => bare(&etag),
+                        None => self
+                            .tag_now(record::RECORD_FILE)
+                            .ok()
+                            .flatten()
+                            .unwrap_or_default(),
+                    };
+                    let mut memo = lock(&self.memo);
+                    memo.record = (!etag.is_empty()).then(|| (etag.clone(), written.clone()));
+                    self.dirty.store(true, Ordering::SeqCst);
+                    drop(memo);
+                    *lock(&self.record) = (written, (!etag.is_empty()).then_some(etag));
+                    return Ok(());
+                }
+                Err(DriveError::Conflict { .. }) => {
+                    let mut memo = lock(&self.memo);
+                    (current, tag) = self.read_record(&mut memo)?;
+                }
+                Err(DriveError::InvalidKey { .. } | DriveError::Unsupported(_)) => {
+                    self.without_record(&mut lock(&self.memo));
+                    return Ok(());
+                }
+                Err(e) => return Err(e.into()),
+            }
+        }
+        fail!(
+            "other devices wrote this folder's record {MAX_ATTEMPTS} times while this one tried; \
+             run again"
+        )
     }
 
     /// The content hash of `key` at version `etag`.
@@ -453,9 +572,10 @@ impl SyncRemote for NamedFiles<'_> {
         true
     }
 
-    /// The drive's index names a file's content, not its permission bits.
+    /// The folder record keeps each file's executable bit; a drive that keeps no record names
+    /// a file's content only, and the bit stays out of every comparison there.
     fn tracks_exec(&self) -> bool {
-        false
+        self.keeps_record()
     }
 
     fn read(
@@ -465,6 +585,7 @@ impl SyncRemote for NamedFiles<'_> {
         // The drive as it is now: a pass must see what another device committed a moment ago.
         let objects = ops::list_all_fresh(self.drive, &self.prefix)?;
         let mut memo = lock(&self.memo);
+        let (found, found_tag) = self.read_record(&mut memo)?;
         let mut index = RemoteIndex::empty();
         index.generation = memo.generation;
         let mut seen = BTreeMap::new();
@@ -473,10 +594,12 @@ impl SyncRemote for NamedFiles<'_> {
                 continue;
             };
             // Folder markers, and the bookkeeping of a plain sync under the same prefix (its
-            // `.azlin/` at the prefix's root; a `.azlin` folder deeper down is the user's).
+            // `.azlin/` at the prefix's root; a `.azlin` folder deeper down is the user's, but
+            // never the record of a folder synced there).
             if key.is_empty()
                 || key.ends_with('/')
                 || key.split('/').next() == Some(remote::META_DIR)
+                || record::is_record(key)
             {
                 continue;
             }
@@ -506,6 +629,8 @@ impl SyncRemote for NamedFiles<'_> {
             self.dirty.store(true, Ordering::SeqCst);
         }
         drop(memo);
+        record::overlay(&mut index, &found);
+        *lock(&self.record) = (found, found_tag);
         *lock(&self.seen) = seen;
         let marker = marker_of(&index);
         Ok((index, Some(marker)))
@@ -703,6 +828,10 @@ impl SyncRemote for NamedFiles<'_> {
         _etag: Option<&str>,
         report: &mut SyncReport,
     ) -> CloudResult<Option<String>> {
+        // The record first: a delete it names that a crash keeps from happening is of a file the
+        // drive still lists (the listing wins), while a delete made without its tombstone would
+        // let a device that lost its state send the file again.
+        self.write_record(remote, next)?;
         let seen = lock(&self.seen).clone();
         let moved = lock(&self.moved).clone();
         // Every delete in one batch (an encrypted drive: one commit of its index), each only

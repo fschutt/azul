@@ -79,6 +79,8 @@ mod oneway;
 pub mod oplog;
 pub mod problems;
 pub mod quarantine;
+// What a drive synced by name cannot keep in its own index: times, executable bits, deletes.
+pub mod record;
 pub mod remote;
 pub mod retry;
 pub mod root;
@@ -922,9 +924,9 @@ trait SyncRemote: Sync {
     /// when the drive no longer has them.
     fn fetch_hash(&self, hash: &str, size: u64) -> CloudResult<Vec<u8>>;
 
-    /// Whether the drive keeps a file's executable bit. A drive that cannot (an encrypted
-    /// drive's files by name) leaves it out of every comparison: a file would otherwise look
-    /// changed there on every run.
+    /// Whether the drive keeps a file's executable bit. A drive that cannot (one synced by name
+    /// that keeps no folder record) leaves it out of every comparison: a file would otherwise
+    /// look changed there on every run.
     fn tracks_exec(&self) -> bool {
         true
     }

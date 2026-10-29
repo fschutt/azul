@@ -187,9 +187,15 @@ fn a_folder_synced_by_name_keeps_each_file_under_its_own_key_and_no_sync_index()
     assert_eq!(sent.files_up, 2, "{}", sent.summary());
     assert_eq!(s3.read("Documents/notes/a.md").as_deref(), Some(&b"alpha"[..]));
     assert_eq!(s3.read("Documents/b.txt").as_deref(), Some(&b"beta"[..]));
-    assert!(
-        s3.keys().iter().all(|k| !k.contains(".azlin")),
-        "no index of the sync in the bucket: {:?}",
+    // No plain index and no blobs: the folder's record is the one file of the sync's own (on
+    // an encrypted drive sealed like the others, its name in the sealed index).
+    assert_eq!(
+        s3.keys()
+            .into_iter()
+            .filter(|k| k.contains(".azlin"))
+            .collect::<Vec<_>>(),
+        vec![String::from("Documents/.azlin/sync/record.json")],
+        "{:?}",
         s3.keys()
     );
     let got = b.sync(&*drive);
@@ -384,7 +390,7 @@ fn a_file_deleted_on_the_drive_is_not_sent_again_by_a_device_that_lost_its_state
 #[test]
 fn a_files_modification_time_travels_through_a_drive_synced_by_name() {
     let s3 = FakeS3::new();
-    let drive = s3_drive(&s3);
+    let drive = NamesHashes(s3_drive(&s3));
     let a = Device::new("dev-a-time");
     let b = Device::new("dev-b-time");
     a.write("photo.jpg", b"taken long ago");
@@ -395,16 +401,16 @@ fn a_files_modification_time_travels_through_a_drive_synced_by_name() {
         .unwrap()
         .set_modified(taken)
         .unwrap();
-    a.sync(&*drive);
-    b.sync(&*drive);
+    a.sync(&drive);
+    b.sync(&drive);
     let got = fs::metadata(path_of(b.folder.path(), "photo.jpg"))
         .unwrap()
         .modified()
         .unwrap();
     assert_eq!(got, taken);
-    let again = b.sync(&*drive);
+    let again = b.sync(&drive);
     assert_eq!((again.files_up, again.files_down), (0, 0), "{}", again.summary());
-    let back = a.sync(&*drive);
+    let back = a.sync(&drive);
     assert_eq!((back.files_up, back.files_down), (0, 0), "{}", back.summary());
 }
 
@@ -415,15 +421,15 @@ fn the_executable_bit_travels_through_a_drive_synced_by_name() {
     use std::os::unix::fs::PermissionsExt;
 
     let s3 = FakeS3::new();
-    let drive = s3_drive(&s3);
+    let drive = NamesHashes(s3_drive(&s3));
     let a = Device::new("dev-a-exec");
     let b = Device::new("dev-b-exec");
     a.write("run.sh", b"#!/bin/sh\necho hi\n");
     a.write("plain.txt", b"not a program");
     let script = path_of(a.folder.path(), "run.sh");
     fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
-    a.sync(&*drive);
-    b.sync(&*drive);
+    a.sync(&drive);
+    b.sync(&drive);
     let mode = |device: &Device, key: &str| {
         fs::metadata(path_of(device.folder.path(), key))
             .unwrap()
@@ -432,13 +438,13 @@ fn the_executable_bit_travels_through_a_drive_synced_by_name() {
     };
     assert_ne!(mode(&b, "run.sh") & 0o100, 0, "{:o}", mode(&b, "run.sh"));
     assert_eq!(mode(&b, "plain.txt") & 0o111, 0, "{:o}", mode(&b, "plain.txt"));
-    let again = b.sync(&*drive);
+    let again = b.sync(&drive);
     assert_eq!((again.files_up, again.files_down), (0, 0), "{}", again.summary());
     // The bit taken away on a reaches b as a change of the file.
     fs::set_permissions(&script, fs::Permissions::from_mode(0o644)).unwrap();
-    let sent = a.sync(&*drive);
+    let sent = a.sync(&drive);
     assert_eq!(sent.files_up, 1, "{}", sent.summary());
-    b.sync(&*drive);
+    b.sync(&drive);
     assert_eq!(mode(&b, "run.sh") & 0o111, 0, "{:o}", mode(&b, "run.sh"));
 }
 
