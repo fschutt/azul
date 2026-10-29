@@ -131,7 +131,10 @@ fn an_edit_in_a_break_all_paragraph_breaks_between_any_letters() {
 
 #[test]
 fn an_edit_in_a_paragraph_with_hyphens_none_does_not_break_at_its_soft_hyphen() {
-    let css = "width: 60px; font-size: 20px; hyphens: none;";
+    // Editable text wraps an overlong word anywhere (`overflow-wrap:
+    // break-word`, as in Chrome); with `normal` the word can only break at
+    // its soft hyphen, which `hyphens: none` takes away.
+    let css = "width: 60px; font-size: 20px; hyphens: none; overflow-wrap: normal;";
     let text = "aa\u{AD}aaaaaaaaaaaa";
     let fresh = window(page(&format!("b{text}"), css));
     assert_eq!(

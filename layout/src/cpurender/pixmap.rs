@@ -3146,10 +3146,11 @@ mod autotest_generated {
 
     #[test]
     fn blit_pixmap_half_alpha_blend_is_exact() {
-        let src = filled(1, 1, [200, 100, 50, 128]);
+        // (200, 100, 50) at alpha 128, premultiplied as a layer holds it:
+        // over transparent black it lands as it is.
+        let src = filled(1, 1, [100, 50, 25, 128]);
         let mut dst = filled(1, 1, CLEAR);
         blit_pixmap(&src, &mut dst, 0, 0, 1.0);
-        // sa = 128, inv = 127, dst starts at 0 => (c * 128) / 255
         assert_eq!(get(&dst, 0, 0), [100, 50, 25, 128]);
     }
 
