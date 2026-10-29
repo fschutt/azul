@@ -93,130 +93,289 @@ pub(super) fn flatten_svg_to_path_segments(
     out
 }
 
-/// Computes horizontal line segments where a flattened `path()` shape (a set of
-/// `MoveTo`/`LineTo`/`Close` subpaths) intersects a scanline at the given y range. Uses an
-/// even-odd fill rule over the union of all subpaths so reversed rings (holes) carve out
-/// space. Curves are assumed already flattened to `LineTo`s by `flatten_svg_to_path_segments`.
-pub(super) fn path_segments_line_intersection(
-    segments: &[PathSegment],
+/// How a line band meets a shape: the room a line has inside it, or the room
+/// the shape takes away from a line.
+///
+/// A line box is as tall as its band, so a shape is measured over the whole
+/// band, never at one height of it: inside a slanted or round shape the line
+/// has only the room the shape gives at every height of the band, and beside
+/// one it loses whatever the shape reaches at any height.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BandCover {
+    /// Where the shape covers the band from its top edge to its bottom edge:
+    /// the room inside a `shape-inside`.
+    Whole,
+    /// Where the shape reaches into the band at any height: the room an
+    /// exclusion takes.
+    Any,
+}
+
+/// How far inside a band a polygon is sampled next to an edge or a vertex,
+/// so the sample sees the edges on that side of it and not those meeting
+/// there.
+const BAND_SAMPLE_INSET: f32 = 1.0e-3;
+
+/// The horizontal spans of `shape` in the line band from `top` down `height`,
+/// as `cover` reads them, left to right and disjoint.
+#[must_use]
+pub fn shape_spans_in_band(
+    shape: &ShapeBoundary,
+    top: f32,
+    height: f32,
+    cover: BandCover,
+) -> Vec<(f32, f32)> {
+    let bottom = top + height.max(0.0);
+    if !top.is_finite() || !bottom.is_finite() {
+        return Vec::new();
+    }
+    match shape {
+        ShapeBoundary::Rectangle(rect) => {
+            let (rect_top, rect_bottom) = (rect.y, rect.y + rect.height);
+            let meets = match cover {
+                BandCover::Any => top < rect_bottom && bottom > rect_top,
+                BandCover::Whole => {
+                    rect.height > 0.0
+                        && top >= rect_top - BAND_SAMPLE_INSET
+                        && bottom <= rect_bottom + BAND_SAMPLE_INSET
+                }
+            };
+            if meets && rect.width >= 0.0 {
+                vec![(rect.x, rect.x + rect.width)]
+            } else {
+                Vec::new()
+            }
+        }
+        ShapeBoundary::Circle { center, radius } => conic_spans(
+            *center,
+            |dy| {
+                let squared = radius.mul_add(*radius, -(dy * dy));
+                (dy.abs() <= *radius && squared >= 0.0).then(|| squared.sqrt())
+            },
+            top,
+            bottom,
+            cover,
+        ),
+        ShapeBoundary::Ellipse { center, radii } => conic_spans(
+            *center,
+            |dy| {
+                if dy.abs() > radii.height {
+                    return None;
+                }
+                let along = dy / radii.height;
+                let squared = along.mul_add(-along, 1.0);
+                (squared >= 0.0).then(|| radii.width * squared.sqrt())
+            },
+            top,
+            bottom,
+            cover,
+        ),
+        ShapeBoundary::Polygon { points, fill_rule } => ring_spans_in_band(
+            core::slice::from_ref(points),
+            *fill_rule,
+            top,
+            bottom,
+            cover,
+        ),
+        ShapeBoundary::Path {
+            segments,
+            fill_rule,
+        } => ring_spans_in_band(&rings_of_path(segments), *fill_rule, top, bottom, cover),
+    }
+}
+
+/// The spans an exclusion takes from the line band from `y` down
+/// `line_height`: wherever it reaches into the band.
+#[must_use]
+pub fn get_shape_horizontal_spans(
+    shape: &ShapeBoundary,
     y: f32,
     line_height: f32,
 ) -> Vec<(f32, f32)> {
-    let line_center_y = y + line_height / 2.0;
-    let mut crossings: Vec<f32> = Vec::new();
+    shape_spans_in_band(shape, y, line_height, BandCover::Any)
+}
 
-    // Walk the segments, reconstructing each subpath's vertices and intersecting its
-    // (closing) edges with the scanline.
-    let mut subpath: Vec<Point> = Vec::new();
-    let flush = |subpath: &mut Vec<Point>, crossings: &mut Vec<f32>| {
-        if subpath.len() >= 2 {
-            for i in 0..subpath.len() {
-                let p1 = subpath[i];
-                let p2 = subpath[(i + 1) % subpath.len()];
-                if (p2.y - p1.y).abs() < f32::EPSILON {
-                    continue;
-                }
-                let crosses = (p1.y <= line_center_y && p2.y > line_center_y)
-                    || (p1.y > line_center_y && p2.y <= line_center_y);
-                if crosses {
-                    let t = (line_center_y - p1.y) / (p2.y - p1.y);
-                    crossings.push(t.mul_add(p2.x - p1.x, p1.x));
-                }
-            }
-        }
-        subpath.clear();
+/// The span of a circle or an ellipse around `center` in a band, where
+/// `half_width` is its half width at a vertical distance from the centre
+/// (`None` above or below it).
+///
+/// Both are convex: the widest span any part of the band meets is at the
+/// band's height closest to the centre, the span the whole band keeps at the
+/// band's edge farthest from it.
+fn conic_spans(
+    center: Point,
+    half_width: impl Fn(f32) -> Option<f32>,
+    top: f32,
+    bottom: f32,
+    cover: BandCover,
+) -> Vec<(f32, f32)> {
+    let half = match cover {
+        BandCover::Any => half_width(center.y.clamp(top, bottom) - center.y),
+        BandCover::Whole => half_width(top - center.y)
+            .zip(half_width(bottom - center.y))
+            .map(|(at_top, at_bottom)| at_top.min(at_bottom)),
     };
+    half.filter(|h| h.is_finite())
+        .map(|h| vec![(center.x - h, center.x + h)])
+        .unwrap_or_default()
+}
 
-    for seg in segments {
-        match seg {
+/// The closed rings of a flattened `path()`: one per subpath, its vertices in
+/// order. Curves were sampled into line segments when the path was made
+/// (`flatten_svg_to_path_segments`); a curve still left counts by its end
+/// point.
+fn rings_of_path(segments: &[PathSegment]) -> Vec<Vec<Point>> {
+    let mut rings = Vec::new();
+    let mut ring: Vec<Point> = Vec::new();
+    for segment in segments {
+        match segment {
             PathSegment::MoveTo(p) => {
-                flush(&mut subpath, &mut crossings);
-                subpath.push(*p);
+                if !ring.is_empty() {
+                    rings.push(core::mem::take(&mut ring));
+                }
+                ring.push(*p);
             }
-            PathSegment::LineTo(p) => subpath.push(*p),
-            PathSegment::Close => flush(&mut subpath, &mut crossings),
-            // CurveTo/QuadTo/Arc should have been flattened to LineTo already; sample the
-            // end point as a fallback so an unflattened path still produces a polygon.
-            PathSegment::CurveTo { end, .. } | PathSegment::QuadTo { end, .. } => {
-                subpath.push(*end);
+            PathSegment::LineTo(p)
+            | PathSegment::CurveTo { end: p, .. }
+            | PathSegment::QuadTo { end: p, .. } => ring.push(*p),
+            PathSegment::Arc { center, .. } => ring.push(*center),
+            PathSegment::Close => {
+                if !ring.is_empty() {
+                    rings.push(core::mem::take(&mut ring));
+                }
             }
-            PathSegment::Arc { center, .. } => subpath.push(*center),
         }
     }
-    flush(&mut subpath, &mut crossings);
+    if !ring.is_empty() {
+        rings.push(ring);
+    }
+    rings
+}
 
-    crossings.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
+/// The spans of the shape the `rings` fill under `fill_rule` in a band.
+///
+/// Between two vertex heights every edge is straight, so each span's ends
+/// move linearly with the height and are widest and narrowest at the
+/// heights where the band or an edge ends. The shape is read just inside
+/// the band's top and bottom edges and on both sides of every vertex within
+/// the band, and the band keeps what all of those readings cover
+/// ([`BandCover::Whole`]) or loses what any of them does ([`BandCover::Any`]).
+fn ring_spans_in_band(
+    rings: &[Vec<Point>],
+    fill_rule: FillRule,
+    top: f32,
+    bottom: f32,
+    cover: BandCover,
+) -> Vec<(f32, f32)> {
+    let inset = BAND_SAMPLE_INSET.min((bottom - top) / 4.0);
+    let mut heights = Vec::new();
+    if inset <= 0.0 {
+        heights.push(top);
+    } else {
+        heights.push(top + inset);
+        heights.push(bottom - inset);
+        for vertex in rings.iter().flatten() {
+            if vertex.y > top && vertex.y < bottom {
+                heights.push((vertex.y - inset).max(top + inset));
+                heights.push((vertex.y + inset).min(bottom - inset));
+            }
+        }
+    }
+    let mut readings = heights
+        .iter()
+        .map(|&y| scanline_spans(rings, y, fill_rule));
+    let Some(first) = readings.next() else {
+        return Vec::new();
+    };
+    readings.fold(first, |acc, spans| match cover {
+        BandCover::Whole => intersect_spans(&acc, &spans),
+        BandCover::Any => union_spans(acc, spans),
+    })
+}
+
+/// How narrow a span may be and still be read as part of a shape: a narrower
+/// one is the rounding of two edges that meet, not an area.
+const MIN_SPAN_WIDTH: f32 = 1.0e-3;
+
+/// Where a horizontal line at `y` is inside the shape the `rings` fill
+/// under `fill_rule`, left to right.
+///
+/// An edge counts from its upper end up to (and not including) its lower
+/// one, so a line through a vertex crosses the two edges meeting there once
+/// between them. A ring of fewer than three points encloses nothing.
+fn scanline_spans(rings: &[Vec<Point>], y: f32, fill_rule: FillRule) -> Vec<(f32, f32)> {
+    let mut crossings: Vec<(f32, i32)> = Vec::new();
+    for ring in rings.iter().filter(|ring| ring.len() >= 3) {
+        for (index, &from) in ring.iter().enumerate() {
+            let to = ring[(index + 1) % ring.len()];
+            let downward = from.y <= y && y < to.y;
+            let upward = to.y <= y && y < from.y;
+            if downward || upward {
+                let along = (y - from.y) / (to.y - from.y);
+                let x = along.mul_add(to.x - from.x, from.x);
+                crossings.push((x, if downward { 1 } else { -1 }));
+            }
+        }
+    }
+    crossings.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(Ordering::Equal));
     let mut spans = Vec::new();
-    for chunk in crossings.chunks_exact(2) {
-        if chunk[1] > chunk[0] {
-            spans.push((chunk[0], chunk[1]));
+    match fill_rule {
+        FillRule::EvenOdd => {
+            for pair in crossings.chunks_exact(2) {
+                if pair[1].0 - pair[0].0 > MIN_SPAN_WIDTH {
+                    spans.push((pair[0].0, pair[1].0));
+                }
+            }
+        }
+        FillRule::NonZero => {
+            let mut winding = 0;
+            let mut start = 0.0;
+            for (x, direction) in crossings {
+                let was_outside = winding == 0;
+                winding += direction;
+                if was_outside && winding != 0 {
+                    start = x;
+                } else if !was_outside && winding == 0 && x - start > MIN_SPAN_WIDTH {
+                    spans.push((start, x));
+                }
+            }
         }
     }
     spans
 }
 
-/// Helper function to get the horizontal spans of any shape at a given y-coordinate.
-/// Returns a list of (`start_x`, `end_x`) tuples.
-#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma;
-                                   // keep explicit a*b+c
-pub(super) fn get_shape_horizontal_spans(shape: &ShapeBoundary, y: f32, line_height: f32) -> Vec<(f32, f32)> {
-    match shape {
-        ShapeBoundary::Rectangle(rect) => {
-            // Check for any overlap between the line box [y, y + line_height]
-            // and the rectangle's vertical span [rect.y, rect.y + rect.height].
-            let line_start = y;
-            let line_end = y + line_height;
-            let rect_start = rect.y;
-            let rect_end = rect.y + rect.height;
-
-            if line_start < rect_end && line_end > rect_start {
-                vec![(rect.x, rect.x + rect.width)]
-            } else {
-                vec![]
-            }
+/// The parts both span lists cover, left to right.
+#[must_use]
+pub fn intersect_spans(a: &[(f32, f32)], b: &[(f32, f32)]) -> Vec<(f32, f32)> {
+    let mut out = Vec::new();
+    let (mut i, mut j) = (0, 0);
+    while i < a.len() && j < b.len() {
+        let start = a[i].0.max(b[j].0);
+        let end = a[i].1.min(b[j].1);
+        if end > start {
+            out.push((start, end));
         }
-        ShapeBoundary::Circle { center, radius } => {
-            let line_center_y = y + line_height / 2.0;
-            let dy = (line_center_y - center.y).abs();
-            if dy <= *radius {
-                let dx = (radius.powi(2) - dy.powi(2)).sqrt();
-                vec![(center.x - dx, center.x + dx)]
-            } else {
-                vec![]
-            }
-        }
-        ShapeBoundary::Ellipse { center, radii } => {
-            let line_center_y = y + line_height / 2.0;
-            let dy = line_center_y - center.y;
-            if dy.abs() <= radii.height {
-                // Formula: (x-h)^2/a^2 + (y-k)^2/b^2 = 1
-                let y_term = dy / radii.height;
-                let x_term_squared = 1.0 - y_term.powi(2);
-                if x_term_squared >= 0.0 {
-                    let dx = radii.width * x_term_squared.sqrt();
-                    vec![(center.x - dx, center.x + dx)]
-                } else {
-                    vec![]
-                }
-            } else {
-                vec![]
-            }
-        }
-        ShapeBoundary::Polygon { points } => {
-            let segments = polygon_line_intersection(points, y, line_height);
-            segments
-                .iter()
-                .map(|s| (s.start_x, s.start_x + s.width))
-                .collect()
-        }
-        // Scanline intersection for `path()` shapes. `segments` is the flattened
-        // (Close-terminated, curves pre-sampled) output of `flatten_svg_to_path_segments`;
-        // intersect each subpath polygon with this scanline under an even-odd fill rule so
-        // reversed rings (holes) carve out space.
-        ShapeBoundary::Path { segments } => {
-            path_segments_line_intersection(segments, y, line_height)
+        if a[i].1 < b[j].1 {
+            i += 1;
+        } else {
+            j += 1;
         }
     }
+    out
+}
+
+/// What either span list covers, left to right, overlapping spans merged.
+#[must_use]
+pub fn union_spans(mut a: Vec<(f32, f32)>, b: Vec<(f32, f32)>) -> Vec<(f32, f32)> {
+    a.extend(b);
+    a.sort_by(|x, y| x.0.partial_cmp(&y.0).unwrap_or(Ordering::Equal));
+    let mut out: Vec<(f32, f32)> = Vec::with_capacity(a.len());
+    for (start, end) in a {
+        match out.last_mut() {
+            Some(last) if start <= last.1 => last.1 = last.1.max(end),
+            _ => out.push((start, end)),
+        }
+    }
+    out
 }
 
 /// Merges overlapping or adjacent line segments into larger ones.
@@ -236,57 +395,4 @@ pub(super) fn merge_segments(mut segments: Vec<LineSegment>) -> Vec<LineSegment>
         }
     }
     merged
-}
-
-/// Computes horizontal line segments where a polygon intersects a scanline at the given y range.
-#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma;
-                                   // keep explicit a*b+c
-pub(super) fn polygon_line_intersection(points: &[Point], y: f32, line_height: f32) -> Vec<LineSegment> {
-    if points.len() < 3 {
-        return vec![];
-    }
-
-    let line_center_y = y + line_height / 2.0;
-    let mut intersections = Vec::new();
-
-    // Use winding number algorithm for robustness with complex polygons.
-    for i in 0..points.len() {
-        let p1 = points[i];
-        let p2 = points[(i + 1) % points.len()];
-
-        // Skip horizontal edges as they don't intersect a horizontal scanline in a meaningful way.
-        if (p2.y - p1.y).abs() < f32::EPSILON {
-            continue;
-        }
-
-        // Check if our horizontal scanline at `line_center_y` crosses this polygon edge.
-        let crosses = (p1.y <= line_center_y && p2.y > line_center_y)
-            || (p1.y > line_center_y && p2.y <= line_center_y);
-
-        if crosses {
-            // Calculate intersection x-coordinate using linear interpolation.
-            let t = (line_center_y - p1.y) / (p2.y - p1.y);
-            let x = p1.x + t * (p2.x - p1.x);
-            intersections.push(x);
-        }
-    }
-
-    // Sort intersections by x-coordinate to form spans.
-    intersections.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
-
-    // Build segments from paired intersection points.
-    let mut segments = Vec::new();
-    for chunk in intersections.chunks_exact(2) {
-        let start_x = chunk[0];
-        let end_x = chunk[1];
-        if end_x > start_x {
-            segments.push(LineSegment {
-                start_x,
-                width: end_x - start_x,
-                priority: 0,
-            });
-        }
-    }
-
-    segments
 }

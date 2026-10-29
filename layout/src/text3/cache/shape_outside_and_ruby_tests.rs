@@ -20,7 +20,7 @@
         };
         let boundary = ShapeBoundary::from_css_shape(&shape, rbox, &mut None);
         match boundary {
-            ShapeBoundary::Path { segments } => {
+            ShapeBoundary::Path { segments, .. } => {
                 assert!(!segments.is_empty(), "path() must flatten to real segments");
                 assert!(matches!(segments[0], PathSegment::MoveTo(_)));
                 assert!(segments.iter().any(|s| matches!(s, PathSegment::Close)));

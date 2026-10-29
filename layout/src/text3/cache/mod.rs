@@ -105,7 +105,7 @@ pub use char_classes::*;
 mod measure;
 pub use measure::*;
 mod exclusions;
-pub(crate) use exclusions::*;
+pub use exclusions::*;
 #[allow(clippy::redundant_pub_crate)]
 mod break_opportunities;
 pub use break_opportunities::*;
