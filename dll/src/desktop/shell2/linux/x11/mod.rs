@@ -8561,11 +8561,10 @@ impl PlatformWindow for X11Window {
 
     // Tooltip Methods (X11 Implementation)
 
-    fn show_tooltip_from_callback(
-        &mut self,
-        text: &str,
-        position: azul_core::geom::LogicalPosition,
-    ) {
+    fn show_tooltip_from_callback(&mut self, text: &str, anchor: azul_core::geom::LogicalRect) {
+        let position = azul_layout::placement::FloatingPlacement::tooltip(anchor)
+            .preferred_origin(azul_core::geom::LogicalSize::zero());
+
         // Convert logical position to LOGICAL screen coordinates: the window
         // position is physical px, `position` is logical; show_tooltip →
         // TooltipWindow::show converts logical→physical exactly once.

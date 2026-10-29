@@ -688,12 +688,7 @@ impl PlatformWindow for AndroidWindow {
     ) {
     }
 
-    fn show_tooltip_from_callback(
-        &mut self,
-        _text: &str,
-        _position: azul_core::geom::LogicalPosition,
-    ) {
-    }
+    fn show_tooltip_from_callback(&mut self, _text: &str, _anchor: azul_core::geom::LogicalRect) {}
 
     fn hide_tooltip_from_callback(&mut self) {}
 

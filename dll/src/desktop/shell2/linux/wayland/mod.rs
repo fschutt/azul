@@ -1900,13 +1900,9 @@ impl PlatformWindow for WaylandWindow {
 
     // Tooltip Methods (Wayland Implementation)
 
-    fn show_tooltip_from_callback(
-        &mut self,
-        text: &str,
-        position: azul_core::geom::LogicalPosition,
-    ) {
-        // Wayland tooltips use subsurfaces positioned relative to the parent
-        // surface, so the logical position is passed through directly.
+    fn show_tooltip_from_callback(&mut self, text: &str, anchor: azul_core::geom::LogicalRect) {
+        let position = azul_layout::placement::FloatingPlacement::tooltip(anchor)
+            .preferred_origin(azul_core::geom::LogicalSize::zero());
         self.show_tooltip(text, position);
     }
 
@@ -10722,7 +10718,7 @@ impl PlatformWindow for WaylandPopup {
         self.pending_window_creates.push(options);
     }
 
-    fn show_tooltip_from_callback(&mut self, _text: &str, _position: LogicalPosition) {}
+    fn show_tooltip_from_callback(&mut self, _text: &str, _anchor: azul_core::geom::LogicalRect) {}
 
     fn hide_tooltip_from_callback(&mut self) {}
 

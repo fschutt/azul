@@ -4092,7 +4092,7 @@ impl PlatformWindow for HeadlessWindow {
         }
     }
 
-    fn show_tooltip_from_callback(&mut self, _text: &str, _position: LogicalPosition) {
+    fn show_tooltip_from_callback(&mut self, _text: &str, _anchor: azul_core::geom::LogicalRect) {
         // No-op — no visual surface to show a tooltip on
     }
 

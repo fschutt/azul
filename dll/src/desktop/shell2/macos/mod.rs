@@ -5342,11 +5342,9 @@ impl PlatformWindow for MacOSWindow {
         }
     }
 
-    fn show_tooltip_from_callback(
-        &mut self,
-        text: &str,
-        position: azul_core::geom::LogicalPosition,
-    ) {
+    fn show_tooltip_from_callback(&mut self, text: &str, anchor: azul_core::geom::LogicalRect) {
+        let position = azul_layout::placement::FloatingPlacement::tooltip(anchor)
+            .preferred_origin(azul_core::geom::LogicalSize::zero());
         if let Err(e) = self.show_tooltip(text, position) {
             log_error!(
                 LogCategory::Platform,

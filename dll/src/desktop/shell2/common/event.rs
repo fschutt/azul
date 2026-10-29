@@ -5985,23 +5985,23 @@ pub trait PlatformWindow {
 
     // REQUIRED: Tooltip Display (Platform-Specific Implementation)
 
-    /// Show a tooltip with the given text at the specified position.
+    /// Show a tooltip with `text` for `anchor`, the box in this window (window-logical
+    /// coordinates) it explains: a control, or the pointer.
     ///
-    /// This method is called when a callback uses `info.show_tooltip()` or
-    /// `info.show_tooltip_at()`. The platform should display a native tooltip at the given
-    /// position.
+    /// Called when a callback uses `info.show_tooltip()` or `info.show_tooltip_at()`, and
+    /// when a titled node has been hovered for the hover delay. The backend measures the
+    /// text - wrapped at `azul_layout::placement::TOOLTIP_MAX_WIDTH` - and places the
+    /// tooltip by `FloatingPlacement::tooltip(anchor)` on the screen the anchor is on:
+    /// with `floating_frame` against that screen's work area, or on Wayland through the
+    /// compositor's positioner. Below the anchor, above it where there is no room.
     ///
     /// ## Platform Implementation Notes
     ///
-    /// - **Windows**: Use TOOLTIPS_CLASS with TTM_TRACKACTIVATE
-    /// - **macOS**: Use NSPopover with NSViewController
-    /// - **X11**: Create transient window with override_redirect
-    /// - **Wayland**: Use zwlr_layer_shell_v1 for tooltip surface
-    ///
-    /// ## Parameters
-    /// * `text` - The tooltip text to display
-    /// * `position` - The position where the tooltip should appear (logical coordinates)
-    fn show_tooltip_from_callback(&mut self, text: &str, position: LogicalPosition);
+    /// - **Windows**: TOOLTIPS_CLASS (it measures and wraps), placed with TTM_TRACKPOSITION
+    /// - **macOS**: a borderless panel with a wrapping NSTextField that measures the text
+    /// - **X11**: an override-redirect window showing the CPU-drawn text
+    /// - **Wayland**: an `xdg_popup` without a grab showing the CPU-drawn text
+    fn show_tooltip_from_callback(&mut self, text: &str, anchor: azul_core::geom::LogicalRect);
 
     /// Hide the currently displayed tooltip.
     ///
@@ -7591,9 +7591,7 @@ pub trait PlatformWindow {
             }
 
             CallbackChange::ShowTooltip { text, anchor } => {
-                let position = azul_layout::placement::FloatingPlacement::tooltip(*anchor)
-                    .preferred_origin(azul_core::geom::LogicalSize::zero());
-                self.show_tooltip_from_callback(text.as_str(), position);
+                self.show_tooltip_from_callback(text.as_str(), *anchor);
                 ProcessEventResult::DoNothing
             }
 
