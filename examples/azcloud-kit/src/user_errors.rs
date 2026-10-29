@@ -626,13 +626,14 @@ pub const ROWS: &[Row] = &[
         code: Code::DriveArchived,
         class: Class::Fatal,
         behaviour: Behaviour::StopUploads,
-        en: "This drive is locked: it went unpaid for 104 days after its last paid day, so its \
-             files were moved to offline storage. Nothing was deleted. Prove it is yours and pay \
-             for it to get it back; restoring it can take some days.",
-        de: "Dieses Laufwerk ist gesperrt: Es blieb nach seinem letzten bezahlten Tag 104 Tage \
-             unbezahlt, deshalb wurden seine Dateien in einen Offline-Speicher verschoben. \
-             Gelöscht wurde nichts. Weise nach, dass es dir gehört, und bezahle es, um es \
-             zurückzubekommen; die Wiederherstellung kann einige Tage dauern.",
+        // `{lock_days}`: the contract's day an unpaid drive is locked ([`with_contract_days`]).
+        en: "This drive is locked: it stayed unpaid for {lock_days} days after its paid period \
+             ended, so its files were moved to one offline copy. Prove it is yours and pay to get \
+             it back; restoring it can take some days.",
+        de: "Dieses Laufwerk ist gesperrt: Es blieb nach dem Ende seines bezahlten Zeitraums \
+             {lock_days} Tage unbezahlt, deshalb wurden seine Dateien in eine Offline-Kopie \
+             verschoben. Weise nach, dass es dir gehört, und bezahle, um es zurückzubekommen; die \
+             Wiederherstellung kann einige Tage dauern.",
     },
     Row {
         code: Code::BadChallenge,
@@ -829,7 +830,7 @@ impl UserError {
             Lang::En => row.en,
             Lang::De => row.de,
         };
-        let mut message = text
+        let mut message = with_contract_days(text)
             .replace("{detail}", self.detail.trim())
             .replace("{seconds}", &self.seconds().to_string());
         if let Some(id) = self.error_id() {
@@ -879,6 +880,15 @@ fn busy_or_other(status: u16) -> Code {
     crate::answer::by_status(status).0
 }
 
+/// A row's text with the contract's numbers in it: `{lock_days}` is the day an unpaid drive is
+/// locked ([`azlin_contract::UNPAID_DAYS`]), so no text types a number the contract decides.
+fn with_contract_days(text: &str) -> String {
+    text.replace(
+        "{lock_days}",
+        &azlin_contract::UNPAID_DAYS.lock.to_string(),
+    )
+}
+
 /// The table in `lang` as a Fluent resource: [`Code::message_id`] `= <text>` per row
 /// (`{detail}` as `{ $detail }`), then the error ID's label ([`ID_LABEL_MESSAGE`] `= Error ID:
 /// { $id }`) - what an app gives the engine (`AppConfig::fluent_locales`) under the language's
@@ -895,7 +905,8 @@ pub fn fluent_source(lang: Lang) -> String {
             out,
             "{} = {}",
             row.code.message_id(),
-            text.replace("{detail}", "{ $detail }")
+            with_contract_days(text)
+                .replace("{detail}", "{ $detail }")
                 .replace("{seconds}", "{ $seconds }")
         );
     }
