@@ -46,7 +46,10 @@ use std::{
     sync::{atomic::AtomicBool, Arc},
 };
 
-use azcloud_kit::sync::session::{AutoDownload, FileState, LocalCopies, SyncSetup, SyncStates};
+use azcloud_kit::sync::{
+    session::{AutoDownload, FileState, LocalCopies, SyncSetup, SyncStates},
+    trash::Trashed,
+};
 use azul::{
     callbacks::{
         ButtonOnClickCallbackType, CheckBoxOnToggleCallbackType,
@@ -153,6 +156,8 @@ pub(crate) enum SyncAction {
     /// "Send them again": the files the drive deleted before this pairing knew them, kept
     /// here and listed (`deleted-elsewhere-kept`), go up with the next pass.
     SendKept,
+    /// "Trash": the files the passes moved into the folder's trash, each with Restore.
+    Trash,
 }
 
 // ==== Plain data ====
@@ -799,7 +804,8 @@ pub(crate) fn why_not(s: &DriveState, what: SyncAction) -> Option<String> {
         | SyncAction::Pause
         | SyncAction::Stop
         | SyncAction::OpenFolder
-        | SyncAction::SendKept => synced
+        | SyncAction::SendKept
+        | SyncAction::Trash => synced
             .is_none()
             .then(|| String::from("azdrive-sync-why-open-synced")),
         SyncAction::KeepOnDevice | SyncAction::FreeUpSpace => {
@@ -832,6 +838,7 @@ pub(crate) fn menu_entries(s: &DriveState, drive_id: &str) -> Vec<(String, SyncA
                 }),
                 SyncAction::Pause,
             ),
+            (String::from("azdrive-sync-menu-trash"), SyncAction::Trash),
             (String::from("azdrive-sync-menu-stop"), SyncAction::Stop),
         ],
     }
@@ -862,6 +869,117 @@ pub(crate) enum SyncDialog {
     /// A pass would delete most of the folder here or there: "Delete them on the drive too" (or
     /// here) or "Keep them".
     MassDelete { drive_id: String },
+    /// The folder's trash: what the passes moved there (the drive deleted it), each file with
+    /// Restore, and what the last Restore brought back.
+    Trash {
+        drive_id: String,
+        items: Vec<Trashed>,
+        note: Text,
+    },
+}
+
+/// The trash rows a dialog shows at most; the rest is counted.
+const TRASH_SHOWN: usize = 50;
+
+/// A trashed file's row: its key, the day it was deleted and the day the trash lets it go.
+#[must_use]
+pub(crate) fn trash_row(item: &Trashed) -> Phrase {
+    let day = |at: Option<i64>| {
+        at.map_or_else(String::new, |at| {
+            azul_storage::time::iso8601(u64::try_from(at).unwrap_or(0))
+                .chars()
+                .take(10)
+                .collect()
+        })
+    };
+    Phrase::new("azdrive-sync-trash-row")
+        .arg("key", item.key.as_str())
+        .arg("deleted", day(item.trashed_at))
+        .arg("until", day(item.kept_until()))
+}
+
+/// The folder and the state folder of drive `drive_id`'s pairing.
+fn pairing_folders(s: &DriveState, drive_id: &str) -> Option<(PathBuf, PathBuf)> {
+    let setup = setup_of(s, drive_id)?;
+    let root = sync_jobs::state_root(s)?;
+    Some((setup.folder.clone(), setup.state_dir(&root)))
+}
+
+/// Opens the trash of drive `drive_id`'s pairing.
+pub(crate) fn open_trash(s: &mut DriveState, drive_id: &str) {
+    let Some((folder, state_dir)) = pairing_folders(s, drive_id) else {
+        return;
+    };
+    let items = azcloud_kit::sync::trash::trashed(&folder, &state_dir);
+    println!("AZDRIVE_SYNC_TRASH {drive_id} {}", items.len());
+    if s.popup.is_none() {
+        s.popups_opened += 1;
+    }
+    s.popup.open(Popup::Sync(SyncDialog::Trash {
+        drive_id: drive_id.to_string(),
+        items,
+        note: Text::default(),
+    }));
+}
+
+/// Puts back what the trash of the dialog's pairing holds of `key` (`None`: everything), lists
+/// it again, says how many came back, and asks for a pass: the files go up again.
+fn restore_trashed(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, key: Option<&str>) {
+    let Some(Popup::Sync(SyncDialog::Trash { drive_id, .. })) = s.popup.as_ref() else {
+        return;
+    };
+    let drive_id = drive_id.clone();
+    let Some((folder, state_dir)) = pairing_folders(s, &drive_id) else {
+        return;
+    };
+    let result = azcloud_kit::sync::trash::untrash(&folder, &state_dir, key.unwrap_or(""));
+    let items = azcloud_kit::sync::trash::trashed(&folder, &state_dir);
+    let said = match &result {
+        Ok(back) => {
+            println!("AZDRIVE_SYNC_UNTRASHED {drive_id} {}", back.len());
+            Text::from(Phrase::new("azdrive-sync-trash-restored").arg("count", back.len()))
+        }
+        Err(e) => Text::plain(e.to_string()),
+    };
+    if let Some(Popup::Sync(SyncDialog::Trash { items: shown, note, .. })) = s.popup.as_mut() {
+        *shown = items;
+        *note = said;
+    }
+    if result.is_ok_and(|back| !back.is_empty()) {
+        sync_jobs::request_pass(info, app, s, &drive_id);
+    }
+}
+
+/// What a Restore button of the trash carries: the file (`None`: everything).
+struct TrashRef {
+    app: RefAny,
+    key: Option<String>,
+}
+
+fn restore_button(app: &RefAny, key: Option<&str>, text: &str, id: AzString) -> Dom {
+    Button::create(l10n::label(text))
+        .with_on_click(
+            RefAny::new(TrashRef {
+                app: app.clone(),
+                key: key.map(str::to_string),
+            }),
+            on_restore_trashed as ButtonOnClickCallbackType,
+        )
+        .dom()
+        .with_id(id)
+        .with_css("margin-left: 6px;")
+}
+
+extern "C" fn on_restore_trashed(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((mut app, key)) = data
+        .downcast_ref::<TrashRef>()
+        .map(|r| (r.app.clone(), r.key.clone()))
+    else {
+        return Update::DoNothing;
+    };
+    with_state(&mut app, &mut info, |info, app, s| {
+        restore_trashed(info, app, s, key.as_deref());
+    })
 }
 
 /// The pairing dialog of drive `drive_id`, its folder filled in (`AzDrive/<name>` in Home) and
@@ -1228,6 +1346,60 @@ pub(crate) fn dialog_parts(dialog: &SyncDialog, s: &DriveState, app: &RefAny) ->
                 ),
             ]));
             (t("azdrive-sync-mass-title"), body.with_id(ids::SYNC_MASS))
+        }
+        SyncDialog::Trash {
+            drive_id,
+            items,
+            note,
+        } => {
+            let name = s.drive_name(&Place::folder(drive_id, ""));
+            let mut body = column(vec![line("azdrive-sync-trash-what")]);
+            if items.is_empty() {
+                body.add_child(line("azdrive-sync-trash-empty"));
+            }
+            for (row, item) in items.iter().take(TRASH_SHOWN).enumerate() {
+                body.add_child(
+                    Dom::create_div()
+                        .with_css(
+                            "display: flex; flex-direction: row; align-items: center; \
+                             margin-top: 4px;",
+                        )
+                        .with_child(
+                            text_line(&trash_row(item).into())
+                                .with_css("flex-grow: 1; font-size: 12px; margin-top: 0px;"),
+                        )
+                        .with_child(restore_button(
+                            app,
+                            Some(&item.key),
+                            "azdrive-sync-trash-restore",
+                            ids::sync_trash_restore(row),
+                        )),
+                );
+            }
+            if items.len() > TRASH_SHOWN {
+                body.add_child(text_line(
+                    &Phrase::new("azdrive-sync-trash-more")
+                        .arg("count", items.len() - TRASH_SHOWN)
+                        .into(),
+                ));
+            }
+            if !note.is_empty() {
+                body.add_child(text_line(note));
+            }
+            let mut actions = vec![button("azdrive-button-close", app, on_cancel_popup)];
+            if !items.is_empty() {
+                actions.push(restore_button(
+                    app,
+                    None,
+                    "azdrive-sync-trash-restore-all",
+                    ids::SYNC_TRASH_RESTORE_ALL,
+                ));
+            }
+            body.add_child(buttons(actions));
+            (
+                l10n::t_args("azdrive-sync-trash-title", &[("name", l10n::Arg::from(name))]),
+                body.with_id(ids::SYNC_TRASH),
+            )
         }
         SyncDialog::Stop { drive_id } => {
             let name = s.drive_name(&Place::folder(drive_id, ""));

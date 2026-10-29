@@ -2,14 +2,103 @@
 //! drive deleted it) is put back where it was, found through the operations log, which names
 //! each file's place in the trash. The next pass sends it up again: a file made here with the
 //! bytes of one deleted earlier is the user's (the merge's D5 rule), so the undo travels to
-//! every device.
+//! every device. [`trashed`] lists what a restore would bring back, for the app's trash view.
 
 use std::{collections::BTreeSet, path::Path};
 
 use azul_storage::beneath::Root;
 
-use super::oplog::{OpKind, OpLog};
+use super::{
+    oplog::{OpKind, OpLog},
+    root::{TRASH_DAYS, TRASH_DIR},
+};
 use crate::error::{CloudResult, Context};
+
+/// A file of the folder's trash: the newest version of `key` a pass moved there.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Trashed {
+    /// The file's key in the synced folder: where a restore puts it back.
+    pub key: String,
+    /// When it was moved into the trash (seconds since 1970), from its pass's trash folder.
+    pub trashed_at: Option<i64>,
+    /// Its size.
+    pub bytes: u64,
+}
+
+impl Trashed {
+    /// When the trash lets it go: [`TRASH_DAYS`] after it came (the bytes stay on the drive as
+    /// its versions).
+    #[must_use]
+    pub fn kept_until(&self) -> Option<i64> {
+        self.trashed_at.map(|at| at + TRASH_DAYS * 86_400)
+    }
+}
+
+/// What [`untrash`] would put back of the whole folder `root` of the pairing whose state folder
+/// is `state_dir`: each file's newest trashed version that is still in the trash and whose
+/// place is free, newest first (then by key). A file purged, put back by hand, or made again
+/// where it was is not listed, as a restore would not bring it back.
+#[must_use]
+pub fn trashed(root: &Path, state_dir: &Path) -> Vec<Trashed> {
+    let Ok(tree) = Root::open(root) else {
+        return Vec::new();
+    };
+    let mut seen: BTreeSet<String> = BTreeSet::new();
+    let mut out = Vec::new();
+    for op in OpLog::new(state_dir).read().into_iter().rev() {
+        if op.op != OpKind::Trash || seen.contains(&op.key) {
+            continue;
+        }
+        let Some(trashed) = op.to.as_deref() else {
+            continue;
+        };
+        // Only the newest version counts, as for a restore.
+        seen.insert(op.key.clone());
+        let Ok((dir, name)) = tree.parent_of(trashed, false) else {
+            continue;
+        };
+        let Ok(stat) = dir.lstat(name) else {
+            continue;
+        };
+        let taken = tree
+            .parent_of(&op.key, false)
+            .is_ok_and(|(dir, name)| dir.lstat(name).is_ok());
+        if taken {
+            continue;
+        }
+        out.push(Trashed {
+            trashed_at: stamp_time(trashed),
+            bytes: stat.size,
+            key: op.key,
+        });
+    }
+    out.sort_by(|a, b| b.trashed_at.cmp(&a.trashed_at).then_with(|| a.key.cmp(&b.key)));
+    out
+}
+
+/// When the pass whose trash folder holds `path` ran: the folder's name, `20261024-110000-...`.
+fn stamp_time(path: &str) -> Option<i64> {
+    let stamp = path
+        .strip_prefix(TRASH_DIR)?
+        .trim_start_matches('/')
+        .split('/')
+        .next()?;
+    let (date, rest) = stamp.split_once('-')?;
+    let time = rest.get(..6)?;
+    let digits = |text: &str| text.bytes().all(|b| b.is_ascii_digit());
+    if date.len() != 8 || !digits(date) || !digits(time) {
+        return None;
+    }
+    crate::parse_rfc3339(&format!(
+        "{}-{}-{}T{}:{}:{}Z",
+        date.get(..4)?,
+        date.get(4..6)?,
+        date.get(6..)?,
+        time.get(..2)?,
+        time.get(2..4)?,
+        time.get(4..)?
+    ))
+}
 
 /// Puts back what the passes of the pairing whose state folder is `state_dir` trashed of `key`
 /// (a file, or a folder with everything in it; `""` the whole folder) in the synced folder

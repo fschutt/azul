@@ -374,6 +374,7 @@ azdrive-sync-menu-now = Sync now
 azdrive-sync-menu-resume = Resume syncing
 azdrive-sync-menu-pause = Pause syncing
 azdrive-sync-menu-stop = Stop syncing…
+azdrive-sync-menu-trash = Trash…
 
 ## Dialogs and Options
 
@@ -642,6 +643,17 @@ azdrive-sync-mass-title = Delete most of the files?
 azdrive-sync-stop-title = Stop syncing "{ $name }"?
 azdrive-sync-stop-what = The files stay where they are: on the drive, and in { $folder }. Changes no longer travel between them.
 azdrive-sync-stop-button = Stop syncing
+azdrive-sync-trash-title = The trash of "{ $name }"
+azdrive-sync-trash-what = Files the drive deleted were moved here from the synced folder. Restore puts a file back where it was, and it syncs up again.
+azdrive-sync-trash-empty = Nothing is in this folder's trash.
+azdrive-sync-trash-row = { $key } - deleted { $deleted }, kept until { $until }
+azdrive-sync-trash-restore = Restore
+azdrive-sync-trash-restore-all = Restore all
+azdrive-sync-trash-restored = { $count ->
+        [one] 1 file is back where it was.
+       *[other] { $count } files are back where they were.
+    }
+azdrive-sync-trash-more = …and { $count } more.
 azdrive-sync-auto-everything = Everything
 azdrive-sync-auto-new-under = New files under { $mb } MB
 azdrive-sync-auto-pinned = Only pinned folders

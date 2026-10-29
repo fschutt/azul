@@ -372,6 +372,7 @@ azdrive-sync-menu-now = Jetzt synchronisieren
 azdrive-sync-menu-resume = Synchronisierung fortsetzen
 azdrive-sync-menu-pause = Synchronisierung anhalten
 azdrive-sync-menu-stop = Synchronisierung beenden…
+azdrive-sync-menu-trash = Papierkorb…
 
 ## Dialogs and Options
 
@@ -640,6 +641,17 @@ azdrive-sync-mass-title = Die meisten Dateien löschen?
 azdrive-sync-stop-title = Synchronisierung von „{ $name }“ beenden?
 azdrive-sync-stop-what = Die Dateien bleiben, wo sie sind: auf dem Laufwerk und in { $folder }. Änderungen werden nicht mehr zwischen ihnen übertragen.
 azdrive-sync-stop-button = Synchronisierung beenden
+azdrive-sync-trash-title = Der Papierkorb von „{ $name }“
+azdrive-sync-trash-what = Dateien, die auf dem Laufwerk gelöscht wurden, kamen aus dem synchronisierten Ordner hierher. Wiederherstellen legt eine Datei zurück an ihren Platz, und sie wird wieder hochgeladen.
+azdrive-sync-trash-empty = Im Papierkorb dieses Ordners liegt nichts.
+azdrive-sync-trash-row = { $key } - gelöscht am { $deleted }, aufbewahrt bis { $until }
+azdrive-sync-trash-restore = Wiederherstellen
+azdrive-sync-trash-restore-all = Alle wiederherstellen
+azdrive-sync-trash-restored = { $count ->
+        [one] 1 Datei ist wieder an ihrem Platz.
+       *[other] { $count } Dateien sind wieder an ihrem Platz.
+    }
+azdrive-sync-trash-more = …und { $count } weitere.
 azdrive-sync-auto-everything = Alles
 azdrive-sync-auto-new-under = Neue Dateien unter { $mb } MB
 azdrive-sync-auto-pinned = Nur angeheftete Ordner

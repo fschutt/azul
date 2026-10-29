@@ -398,6 +398,15 @@ pub const SYNC_HACKED_LOCKDOWN: AzString =
     AzString::from_const_str("__azdrive_sync_hacked_lockdown");
 pub const SYNC_HACKED_RESTORE: AzString = AzString::from_const_str("__azdrive_sync_hacked_restore");
 pub const SYNC_MASS: AzString = AzString::from_const_str("__azdrive_sync_mass");
+/// The folder's trash: the dialog, a row's Restore (`__azdrive_sync_trash_restore_<n>`, the
+/// rows in their order) and Restore all.
+pub const SYNC_TRASH: AzString = AzString::from_const_str("__azdrive_sync_trash");
+#[must_use]
+pub fn sync_trash_restore(row: usize) -> AzString {
+    AzString::from(format!("__azdrive_sync_trash_restore_{row}"))
+}
+pub const SYNC_TRASH_RESTORE_ALL: AzString =
+    AzString::from_const_str("__azdrive_sync_trash_restore_all");
 pub const SYNC_MASS_KEEP: AzString = AzString::from_const_str("__azdrive_sync_mass_keep");
 pub const SYNC_MASS_DELETE: AzString = AzString::from_const_str("__azdrive_sync_mass_delete");
 /// The Properties dialog.

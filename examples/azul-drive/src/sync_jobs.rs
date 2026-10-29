@@ -1685,6 +1685,7 @@ pub(crate) fn run_action(
         SyncAction::SendKept => {
             send_kept(info, app, s, &drive_id);
         }
+        SyncAction::Trash => sync_view::open_trash(s, &drive_id),
         SyncAction::OpenFolder => {
             let folder = sync_view::setup_of(s, &drive_id).map(|p| p.folder.clone());
             match folder.and_then(|f| local_place(s, &f)) {
