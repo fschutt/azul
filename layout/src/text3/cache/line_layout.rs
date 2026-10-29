@@ -83,6 +83,10 @@ pub(crate) fn resolve_effective_alignment(
     }
 }
 
+/// How far below a fragment's bottom a line may end and still fit it: float
+/// rounding, not overflow.
+const LINE_FIT_EPSILON: f32 = 0.01;
+
 /// A paragraph as the line breaker sees it: its shaped items turned for its
 /// writing mode, with the constraints it is laid out in.
 ///
@@ -427,6 +431,9 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
             0
         };
         let mut empty_segment_count = 0; // Failsafe counter for infinite loops
+        // The lines this column holds so far: the first one stays even when
+        // it is taller than the column.
+        let mut lines_in_column = 0usize;
         let mut is_after_forced_break = column_flow.is_some() && flow_after_forced_break;
         // +spec:writing-modes:6e22a7 - vertical-rl advances columns (lines) right-to-left.
         // The positioner lays every line out at an increasing block-axis (x) offset from 0,
@@ -462,10 +469,18 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
                 }
             }
             if let Some(max_height) = fragment_constraints.available_height {
-                if line_top_y >= max_height {
+                // A line box is at least one line-height tall, so once less
+                // than that is left no further line ends inside the column.
+                let full = if lines_in_column == 0 {
+                    line_top_y >= max_height
+                } else {
+                    line_top_y + fragment_constraints.resolved_line_height()
+                        > max_height + LINE_FIT_EPSILON
+                };
+                if full {
                     if let Some(msgs) = debug_messages {
                         msgs.push(LayoutDebugMessage::info(format!(
-                            "  Column full (pen {line_top_y} >= height {max_height}), breaking to \
+                            "  Column full (pen {line_top_y}, height {max_height}), breaking to \
                              next column."
                         )));
                     }
@@ -690,6 +705,23 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
                 fonts,
             );
 
+            // +spec:display-property:6c4978 - line-height on block container establishes minimum
+            // line box height
+            let band_height = line_height.max(fragment_constraints.resolved_line_height());
+
+            // A line box is monolithic (CSS Fragmentation 3): one that ends
+            // below the fragment goes to the next fragment or column, and
+            // the line before it ends this one. The first line of an empty
+            // fragment stays whatever its height, so the flow moves on.
+            if let Some(max_height) = fragment_constraints.available_height {
+                if lines_in_column > 0 && line_top_y + band_height > max_height + LINE_FIT_EPSILON
+                {
+                    cursor.restore(cursor_before_line);
+                    break;
+                }
+            }
+            lines_in_column += 1;
+
             before_chain = line_end_boxes.or(before_chain);
 
             // Track whether the next line follows a forced break
@@ -700,9 +732,6 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
                 item.position.x += column_start_x;
             }
 
-            // +spec:display-property:6c4978 - line-height on block container establishes minimum
-            // line box height
-            let band_height = line_height.max(fragment_constraints.resolved_line_height());
             line_bands.push((line_index, line_top_y, band_height));
             let band_top = line_top_y;
             line_top_y += band_height;
