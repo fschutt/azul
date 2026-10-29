@@ -1361,3 +1361,5 @@ mod a_line_keeps_off_an_exclusion_over_its_whole_height;
 mod a_shape_inside_frame_holds_its_text_inside_the_shape;
 #[path = "a_frames_last_line_ends_inside_the_frame.rs"]
 mod a_frames_last_line_ends_inside_the_frame;
+#[path = "a_shapes_lengths_are_measured_against_its_box.rs"]
+mod a_shapes_lengths_are_measured_against_its_box;
