@@ -1022,11 +1022,10 @@ impl Win32Window {
                             .layout_callback
                             .ctx
                             .clone();
-                        #[allow(clippy::cast_precision_loss)] // whole screen pixels
-                        let measured = azul_core::geom::LogicalSize::new(w as f32, h as f32);
-                        if let Some(frame) =
-                            crate::desktop::menu::place_measured_menu(&ctx, measured)
+                        if let Some(placed) =
+                            crate::desktop::menu::place_measured_menu(&ctx, root_size)
                         {
+                            let frame = placed.frame;
                             use dlopen::constants::{SWP_NOACTIVATE, SWP_NOZORDER};
                             #[allow(clippy::cast_possible_truncation)] // whole screen pixels
                             let (x, y, fw, fh) = (
@@ -3595,32 +3594,18 @@ impl Win32Window {
         _dom_id: azul_core::dom::DomId,
         _node_id: azul_core::dom::NodeId,
     ) {
-        // Convert client coordinates to screen coordinates
-        use self::dlopen::POINT;
-        let mut pt = POINT {
-            x: client_x,
-            y: client_y,
-        };
-        unsafe {
-            (self.win32.user32.ClientToScreen)(self.hwnd, &mut pt);
-        }
-
-        let cursor_pos = LogicalPosition::new(pt.x as f32, pt.y as f32);
-
-        // Get parent window position
-        let parent_pos = match self.common.current_window_state().position {
-            azul_core::window::WindowPosition::Initialized(pos) => {
-                LogicalPosition::new(pos.x as f32, pos.y as f32)
-            }
-            _ => LogicalPosition::new(0.0, 0.0),
-        };
+        // The menu is placed in this window's logical px: the client pixels
+        // of the mouse message, scaled by the window's DPI.
+        let opener = self.screen_mapping();
+        #[allow(clippy::cast_precision_loss)] // client pixels
+        let cursor_pos = opener.window_point_from_content_offset(client_x as f32, client_y as f32);
 
         // Create menu window options using the unified menu system
         // This is identical to how menu bar menus work, but with cursor_pos instead of trigger_rect
         let menu_options = crate::desktop::menu::show_menu(
             menu.clone(),
             self.common.system_style.clone(),
-            parent_pos,
+            opener,
             None,             // No trigger rect for context menus (they spawn at cursor)
             Some(cursor_pos), // Cursor position for menu positioning
             None,             // No parent menu
@@ -3632,10 +3617,10 @@ impl Win32Window {
         // The event loop will create the window with Win32Window::new()
         log_debug!(
             LogCategory::Window,
-            "Queuing window-based context menu at screen ({}, {}) - will be created in event loop \
+            "Queuing window-based context menu at client ({}, {}) - will be created in event loop \
              Phase 3",
-            pt.x,
-            pt.y
+            client_x,
+            client_y
         );
 
         self.pending_window_creates.push(menu_options);
@@ -7946,19 +7931,12 @@ impl Win32Window {
         position: azul_core::geom::LogicalPosition,
         anchor: Option<azul_core::geom::LogicalRect>,
     ) {
-        // Get parent window position
-        let parent_pos = match self.common.current_window_state().position {
-            azul_core::window::WindowPosition::Initialized(pos) => {
-                azul_core::geom::LogicalPosition::new(pos.x as f32, pos.y as f32)
-            }
-            _ => azul_core::geom::LogicalPosition::new(0.0, 0.0),
-        };
-
-        // Create menu window options
+        // `position` and `anchor` are this window's logical px; the menu is
+        // placed in them and reaches the screen through the window's mapping.
         let menu_options = crate::desktop::menu::show_menu(
             menu.clone(),
             self.common.system_style.clone(),
-            parent_pos,
+            self.screen_mapping(),
             anchor,         // The node the menu was opened for (drives min-width)
             Some(position), // Position for menu
             None,           // No parent menu

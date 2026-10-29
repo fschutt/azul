@@ -4041,7 +4041,10 @@ impl PlatformWindow for HeadlessWindow {
         let options = crate::desktop::menu::show_menu(
             menu.clone(),
             self.common.system_style.clone(),
-            LogicalPosition { x: 0.0, y: 0.0 },
+            azul_layout::placement::WindowToScreen::new(
+                azul_layout::placement::ScreenPoint::new(0.0, 0.0),
+                1.0,
+            ),
             anchor,
             Some(position),
             None,

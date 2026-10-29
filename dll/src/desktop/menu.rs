@@ -18,11 +18,13 @@ use azul_core::{
     geom::{LogicalPosition, LogicalRect, LogicalSize},
     menu::{CoreMenuCallback, Menu, MenuPopupPosition},
     refany::RefAny,
+    window::WindowPosition,
 };
 use azul_css::system::SystemStyle;
 use azul_layout::{
     placement::{
-        floating_frame, screen_for_anchor, AxisRule, FloatingPlacement, ScreenPoint, ScreenRects,
+        floating_frame, screen_for_anchor, AxisRule, FloatingPlacement, ScreenPoint, ScreenRect,
+        ScreenRects, WindowToScreen,
     },
     window_state::WindowCreateOptions,
 };
@@ -84,11 +86,13 @@ pub struct MenuWindowData {
     pub menu: Menu,
     /// System style for native look
     pub system_style: Arc<SystemStyle>,
-    /// Parent window position (for calculating popup position)
-    pub parent_window_position: LogicalPosition,
-    /// Hit node rectangle (where the menu was triggered from)
+    /// How the window the menu was opened from lies on the screen: the menu is
+    /// placed in that window's logical px and reaches the screen through this.
+    pub opener: WindowToScreen,
+    /// The control the menu was opened for, in the opener's logical px
     pub trigger_rect: Option<LogicalRect>,
-    /// Cursor position when menu was triggered (used for AutoCursor positioning)
+    /// The pointer when the menu was opened, in the opener's logical px (used
+    /// for AutoCursor positioning)
     pub cursor_position: Option<LogicalPosition>,
     /// Parent menu window ID (for submenus) - used to close parent when submenu closes
     pub parent_menu_id: Option<u64>,
@@ -110,16 +114,30 @@ pub struct MenuWindowData {
 }
 
 impl MenuWindowData {
-    /// The rule this menu is placed by, in screen coordinates: its strategy against the
-    /// pointer and the control it was opened from, offset by the window that opened it.
+    /// The rule this menu is placed by, in the opener's logical px: its strategy
+    /// against the pointer and the control it was opened from.
     pub(crate) fn placement(&self) -> FloatingPlacement {
-        menu_placement_on_screen(
+        menu_placement(
             resolve_position_strategy(self.menu.position, self.trigger_rect.is_some()),
-            self.parent_window_position,
             self.cursor_position,
             self.trigger_rect,
+            LogicalPosition::zero(),
         )
     }
+
+    /// The screens around the opener, in its logical px.
+    fn screens(&self) -> Vec<ScreenRects> {
+        self.opener.screens(&desktop_screens())
+    }
+}
+
+/// A window-drawn menu placed for the size its content measured.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct PlacedMenu {
+    /// The menu window's size in logical px, cut to the screen where it was taller.
+    pub size: LogicalSize,
+    /// Its frame on the screen, in screen units.
+    pub frame: ScreenRect,
 }
 
 /// A menu opens where it ASKED to: only the `Auto*` answers hand the choice
@@ -261,36 +279,19 @@ pub(crate) fn menu_placement(
     FloatingPlacement::new(anchor, x, y.with_resize())
 }
 
-/// [`menu_placement`] for a menu opened from a window at `parent` (screen coordinates),
-/// from the pointer and the control in that window's own coordinates.
+/// The `RelativeToParentWindow` position of a menu whose top-left is `origin` in the
+/// logical px of the window `opener` maps onto the screen: the offset from the
+/// opener's content origin, in screen units.
 #[must_use]
-pub(crate) fn menu_placement_on_screen(
-    strategy: MenuPopupPosition,
-    parent: LogicalPosition,
-    cursor: Option<LogicalPosition>,
-    trigger: Option<LogicalRect>,
-) -> FloatingPlacement {
-    let on_screen = |p: LogicalPosition| LogicalPosition::new(parent.x + p.x, parent.y + p.y);
-    menu_placement(
-        strategy,
-        cursor.map(on_screen),
-        trigger.map(|r| LogicalRect::new(on_screen(r.origin), r.size)),
-        parent,
-    )
+pub(crate) fn menu_offset(opener: WindowToScreen, origin: LogicalPosition) -> WindowPosition {
+    let unscaled = WindowToScreen::new(opener.content_origin, 1.0);
+    WindowPosition::RelativeToParentWindow(unscaled.offset_from_content(unscaled.point(origin)))
 }
 
-/// Where a window-drawn menu of `size` goes for `placement` (screen coordinates): against
-/// the work area of the screen its anchor is on. With no screen known it opens where it
-/// asks to.
-#[must_use]
-pub(crate) fn menu_frame(placement: &FloatingPlacement, size: LogicalSize) -> LogicalRect {
-    frame_among(placement, size, &screen_rects())
-}
-
-/// The screens, their numbers taken as they are.
-fn screen_rects() -> Vec<ScreenRects> {
-    azul_layout::placement::WindowToScreen::new(ScreenPoint::new(0.0, 0.0), 1.0)
-        .screens(&desktop_screens())
+/// The screens with their numbers taken as they are, for a menu placed in desktop
+/// coordinates ([`calculate_menu_position`]).
+fn desktop_screens_as_is() -> Vec<ScreenRects> {
+    WindowToScreen::new(ScreenPoint::new(0.0, 0.0), 1.0).screens(&desktop_screens())
 }
 
 /// [`menu_frame`] against an explicit list of screens.
@@ -305,9 +306,9 @@ fn frame_among(
     }
 }
 
-/// Calculate the menu position for a `MenuPopupPosition` strategy: [`menu_placement`]
-/// placed by [`menu_frame`]. `cursor_pos` is on the screen, `trigger_rect` in the parent
-/// window at `parent_window_pos`.
+/// Calculate the menu position for a `MenuPopupPosition` strategy, in desktop
+/// coordinates: [`menu_placement`] against the screens as they are. `cursor_pos` is on
+/// the screen, `trigger_rect` in the parent window at `parent_window_pos`.
 pub(crate) fn calculate_menu_position(
     position_strategy: MenuPopupPosition,
     cursor_pos: Option<LogicalPosition>,
@@ -325,35 +326,40 @@ pub(crate) fn calculate_menu_position(
         )
     });
     let placement = menu_placement(position_strategy, cursor_pos, trigger_abs, parent_window_pos);
-    menu_frame(&placement, menu_size).origin
+    frame_among(&placement, menu_size, &desktop_screens_as_is()).origin
 }
 
-/// Where a window-drawn menu goes once its content has been MEASURED, in the screen
-/// coordinates it was opened in: its frame by the rule it was opened with - flipped
-/// above its control when the real menu is taller than the room below, cut to the screen
-/// when it is taller than that. `show_menu` can only place a menu from an estimate of its
-/// size; the backend lays the menu out, then places it again through this, so the
-/// estimate never decides where a menu ends up. `None` when `ctx` is not a menu's.
+/// Where a window-drawn menu goes once its content has been MEASURED (logical px): its
+/// frame by the rule it was opened with - flipped above its control when the real menu
+/// is taller than the room below, cut to the screen when it is taller than that.
+/// `show_menu` can only place a menu from an estimate of its size; the backend lays the
+/// menu out, then places it again through this, so the estimate never decides where a
+/// menu ends up. `None` when `ctx` is not a menu's.
 #[must_use]
 pub(crate) fn place_measured_menu(
     ctx: &azul_core::refany::OptionRefAny,
     measured: LogicalSize,
-) -> Option<LogicalRect> {
+) -> Option<PlacedMenu> {
     let azul_core::refany::OptionRefAny::Some(refany) = ctx else {
         return None;
     };
     let mut probe = refany.clone();
     let data = probe.downcast_ref::<MenuWindowData>()?;
-    Some(measured_menu_frame(&data, measured, &screen_rects()))
+    Some(measured_menu_frame(&data, measured, &data.screens()))
 }
 
-/// [`place_measured_menu`] for a menu's data, against an explicit list of screens.
+/// [`place_measured_menu`] for a menu's data, against an explicit list of screens in
+/// the opener's logical px.
 fn measured_menu_frame(
     data: &MenuWindowData,
     measured: LogicalSize,
     screens: &[ScreenRects],
-) -> LogicalRect {
-    frame_among(&data.placement(), measured, screens)
+) -> PlacedMenu {
+    let frame = frame_among(&data.placement(), measured, screens);
+    PlacedMenu {
+        size: frame.size,
+        frame: data.opener.rect(frame),
+    }
 }
 
 /// Layout callback for menu windows
@@ -403,7 +409,7 @@ extern "C" fn menu_layout_callback(_data: RefAny, info: LayoutCallbackInfo) -> a
 pub fn show_menu(
     menu: Menu,
     system_style: Arc<SystemStyle>,
-    parent_window_position: LogicalPosition,
+    opener: WindowToScreen,
     trigger_rect: Option<LogicalRect>,
     cursor_position: Option<LogicalPosition>,
     parent_menu_id: Option<u64>,
@@ -414,7 +420,7 @@ pub fn show_menu(
     // for that size. The backend then lays the menu out and places it again for its
     // MEASURED size (`place_measured_menu`), so the estimate only decides where the menu
     // shows for the instant before that. `cursor_position` and `trigger_rect` are in the
-    // parent window, at `parent_window_position` on the screen.
+    // logical px of the window `opener` maps onto the screen.
     let estimated_size = crate::desktop::menu_renderer::MenuMetrics::from_system_style(
         &system_style,
     )
@@ -422,7 +428,7 @@ pub fn show_menu(
     let menu_data = MenuWindowData {
         menu,
         system_style,
-        parent_window_position,
+        opener,
         trigger_rect,
         cursor_position,
         parent_menu_id,
@@ -431,26 +437,17 @@ pub fn show_menu(
         open_submenu: Arc::new(std::sync::Mutex::new(None)),
         picks,
     };
-    let frame = menu_frame(&menu_data.placement(), estimated_size);
-    let menu_pos = frame.origin;
+    let frame = frame_among(&menu_data.placement(), estimated_size, &menu_data.screens());
 
     // A menu is a popup window like any other (`<transient-window>` shares
-    // this builder): Menu-type, borderless, always on top, parent-relative.
-    // `menu_pos` is an absolute (work-area-clamped) screen position; convert
-    // it to a parent-local offset so the backend re-resolves it against the
-    // parent's live origin. Wayland cannot take screen coordinates at all, and
-    // it degrades to monitor-relative when there is no parent.
+    // this builder): Menu-type, borderless, always on top, parent-relative:
+    // its offset from the opener's content origin, in screen units, which the
+    // backend re-resolves against the opener's live origin.
     let mut window_state = crate::desktop::shell2::common::transient::popup_window_state(
         "Menu",
         "azul-menu",
         frame.size,
-        crate::desktop::shell2::common::transient::relative_position(
-            LogicalPosition::new(
-                menu_pos.x - parent_window_position.x,
-                menu_pos.y - parent_window_position.y,
-            ),
-            1.0,
-        ),
+        menu_offset(opener, frame.origin),
     );
     window_state.layout_callback = LayoutCallback {
         cb: menu_layout_callback,
@@ -469,8 +466,8 @@ pub fn show_menu(
         hot_reload: false,
         owned: false,
         // A menu opened FROM a menu is placed AGAINST that menu: the
-        // `RelativeToParentWindow` offset above is measured from
-        // `parent_window_position`, and the backend needs to be told which
+        // `RelativeToParentWindow` offset above is measured from the
+        // opener's content origin, and the backend needs to be told which
         // window that was or it has nothing to add the offset to. X11 then
         // fell back to the MONITOR origin and a submenu's parent-local offset
         // (parent width, item y) became its screen position — measured live
@@ -737,7 +734,7 @@ mod placement_tests {
                 context_mouse_btn: azul_core::window::ContextMenuMouseButton::Right,
             },
             system_style: Arc::new(azul_css::system::defaults::kde_breeze_light()),
-            parent_window_position: LogicalPosition::zero(),
+            opener: WindowToScreen::new(ScreenPoint::new(0.0, 0.0), 1.0),
             trigger_rect: Some(LogicalRect::new(
                 LogicalPosition::new(100.0, 900.0),
                 LogicalSize::new(120.0, 30.0),
@@ -749,7 +746,8 @@ mod placement_tests {
             open_submenu: Arc::new(std::sync::Mutex::new(None)),
             picks: MenuPicks::default(),
         };
-        let frame = measured_menu_frame(&data, LogicalSize::new(180.0, 300.0), &[screen]);
+        let placed = measured_menu_frame(&data, LogicalSize::new(180.0, 300.0), &[screen]);
+        let frame = placed.frame;
         assert_eq!(
             (frame.origin.x, frame.origin.y),
             (100.0, 600.0),
@@ -758,6 +756,42 @@ mod placement_tests {
         assert!(
             frame.origin.y + frame.size.height <= 900.0,
             "the menu must not cover the control at 900..930: {frame:?}"
+        );
+    }
+
+    /// A menu opened from a window is offset from that window's content in the
+    /// window's SCREEN units: from a window at twice the DPI a context menu at
+    /// (10, 20) logical opens 20, 40 pixels in. Given its logical numbers as
+    /// pixels (the Windows fallback menu) it opened at half the distance;
+    /// given a screen point as the window's (the Windows window-drawn context
+    /// menu) it opened a whole window position further away.
+    #[test]
+    fn a_menu_opened_from_a_scaled_window_is_offset_in_its_screen_pixels() {
+        let opener = WindowToScreen::new(ScreenPoint::new(500.0, 300.0), 2.0);
+        let cursor = opener.window_point_from_content_offset(20.0, 40.0);
+        assert_eq!(cursor, LogicalPosition::new(10.0, 20.0));
+        let opts = show_menu(
+            Menu {
+                items: azul_core::menu::MenuItemVec::from_vec(vec![
+                    azul_core::menu::MenuItem::String(azul_core::menu::StringMenuItem::create(
+                        "Open".to_string().into(),
+                    )),
+                ]),
+                position: MenuPopupPosition::AutoCursor,
+                context_mouse_btn: azul_core::window::ContextMenuMouseButton::Right,
+            },
+            Arc::new(azul_css::system::defaults::kde_breeze_light()),
+            opener,
+            None,
+            Some(cursor),
+            None,
+            MenuPicks::default(),
+        );
+        assert_eq!(
+            opts.window_state.position,
+            WindowPosition::RelativeToParentWindow(azul_core::geom::PhysicalPositionI32::new(
+                20, 40
+            ))
         );
     }
 }
@@ -925,7 +959,7 @@ mod chain_tests {
         let opts = show_menu(
             one_item_menu(),
             Arc::new(azul_css::system::defaults::kde_breeze_light()),
-            LogicalPosition::new(962.0, 451.0),
+            WindowToScreen::new(ScreenPoint::new(962.0, 451.0), 1.0),
             Some(LogicalRect::new(
                 LogicalPosition::new(0.0, 94.0),
                 LogicalSize::new(160.0, 22.0),
@@ -952,7 +986,7 @@ mod chain_tests {
         let opts = show_menu(
             one_item_menu(),
             Arc::new(azul_css::system::defaults::kde_breeze_light()),
-            LogicalPosition::new(962.0, 451.0),
+            WindowToScreen::new(ScreenPoint::new(962.0, 451.0), 1.0),
             Some(LogicalRect::new(
                 LogicalPosition::new(0.0, 94.0),
                 LogicalSize::new(160.0, 22.0),
@@ -990,24 +1024,23 @@ mod chain_tests {
     /// This is the value the live run should have produced.
     #[test]
     fn a_submenu_opens_at_its_items_right_edge_in_screen_coordinates() {
-        let placement = menu_placement_on_screen(
+        let parent_menu = WindowToScreen::new(ScreenPoint::new(962.0, 451.0), 1.0);
+        let placement = menu_placement(
             MenuPopupPosition::RightOfHitRect,
-            LogicalPosition::new(962.0, 451.0),
             None,
             Some(LogicalRect::new(
                 LogicalPosition::new(0.0, 94.0),
                 LogicalSize::new(160.0, 22.0),
             )),
+            LogicalPosition::zero(),
         );
-        let pos = azul_layout::placement::floating_frame(
-            &placement,
-            LogicalSize::new(160.0, 54.0),
-            LogicalRect::new(
-                LogicalPosition::new(0.0, 0.0),
-                LogicalSize::new(1920.0, 1080.0),
-            ),
-        )
-        .origin;
+        let screen = parent_menu.window_rect(ScreenRect::new(
+            ScreenPoint::new(0.0, 0.0),
+            azul_layout::placement::ScreenSize::new(1920.0, 1080.0),
+        ));
+        let frame =
+            azul_layout::placement::floating_frame(&placement, LogicalSize::new(160.0, 54.0), screen);
+        let pos = parent_menu.point(frame.origin);
         assert_eq!((pos.x, pos.y), (1122.0, 545.0));
     }
 

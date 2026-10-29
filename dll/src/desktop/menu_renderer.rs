@@ -149,10 +149,27 @@ extern "C" fn submenu_hover_callback(mut data: RefAny, mut info: CallbackInfo) -
     // Get system style from CallbackInfo (safe Arc clone)
     let system_style = info.get_system_style();
 
-    // Get parent window position
-    let parent_pos = match info.get_current_window_state().position {
-        WindowPosition::Initialized(pos) => LogicalPosition::new(pos.x as f32, pos.y as f32),
-        _ => LogicalPosition::new(0.0, 0.0),
+    // The submenu opens from THIS menu window: `item_rect` is in its logical
+    // px, its content starts at its own position on the screen, and it lies on
+    // the screen at the scale of the window that opened the chain.
+    let scale = parent_menu_data.opener.scale;
+    let opener = match info.get_current_window_state().position {
+        WindowPosition::Initialized(pos) => azul_layout::placement::WindowToScreen::new(
+            azul_layout::placement::ScreenPoint::of_window_position(pos),
+            scale,
+        ),
+        #[allow(clippy::cast_precision_loss)] // screen units
+        WindowPosition::RelativeToParentWindow(offset) => {
+            let origin = parent_menu_data.opener.content_origin;
+            azul_layout::placement::WindowToScreen::new(
+                azul_layout::placement::ScreenPoint::new(
+                    origin.x + offset.x as f32,
+                    origin.y + offset.y as f32,
+                ),
+                scale,
+            )
+        }
+        WindowPosition::Uninitialized => parent_menu_data.opener,
     };
 
     // Create submenu using the menu item's children
@@ -162,7 +179,7 @@ extern "C" fn submenu_hover_callback(mut data: RefAny, mut info: CallbackInfo) -
         context_mouse_btn: parent_menu_data.menu.context_mouse_btn,
     };
 
-    // The submenu is placed AGAINST THIS MENU WINDOW: `parent_pos` above is
+    // The submenu is placed AGAINST THIS MENU WINDOW: `opener` above is
     // this menu's own origin and `item_rect` is local to it, so the offset
     // `show_menu` derives is meaningless unless the backend is also told
     // which window to add it to. `menu_window_id` was never assigned (it is
@@ -178,7 +195,7 @@ extern "C" fn submenu_hover_callback(mut data: RefAny, mut info: CallbackInfo) -
     let submenu_options = crate::desktop::menu::show_menu(
         submenu,
         system_style,
-        parent_pos,
+        opener,
         Some(item_rect),
         None, // No cursor position for submenu
         parent_id,
@@ -1419,7 +1436,10 @@ mod menu_metrics_tests {
         RefAny::new(MenuWindowData {
             menu: menu_of(vec![]),
             system_style: Arc::new(defaults::kde_breeze_light()),
-            parent_window_position: LogicalPosition::zero(),
+            opener: azul_layout::placement::WindowToScreen::new(
+                azul_layout::placement::ScreenPoint::new(0.0, 0.0),
+                1.0,
+            ),
             trigger_rect: None,
             cursor_position: None,
             parent_menu_id: None,

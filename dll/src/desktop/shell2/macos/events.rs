@@ -1608,20 +1608,13 @@ impl MacOSWindow {
         menu: &azul_core::menu::Menu,
         position: LogicalPosition,
     ) {
-        // Get parent window position
-        let parent_pos = match self.common.current_window_state().position {
-            azul_core::window::WindowPosition::Initialized(pos) => {
-                LogicalPosition::new(pos.x as f32, pos.y as f32)
-            }
-            _ => LogicalPosition::new(0.0, 0.0),
-        };
-
         // Create menu window options using the unified menu system
-        // This is identical to how menu bar menus work, but with cursor_pos instead of trigger_rect
+        // This is identical to how menu bar menus work, but with cursor_pos instead of trigger_rect.
+        // `position` is this window's logical px (its content's points).
         let menu_options = crate::desktop::menu::show_menu(
             menu.clone(),
             self.common.system_style.clone(),
-            parent_pos,
+            self.screen_mapping(),
             None,           // No trigger rect for context menus (they spawn at cursor)
             Some(position), // Cursor position for menu positioning
             None,           // No parent menu

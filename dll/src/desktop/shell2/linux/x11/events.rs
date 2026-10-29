@@ -1588,26 +1588,14 @@ impl X11Window {
         menu: &azul_core::menu::Menu,
         position: LogicalPosition,
     ) {
-        // Get parent window position
-        let parent_pos = match self.common.current_window_state().position {
-            azul_core::window::WindowPosition::Initialized(pos) => {
-                azul_core::geom::LogicalPosition::new(pos.x as f32, pos.y as f32)
-            }
-            _ => azul_core::geom::LogicalPosition::new(0.0, 0.0),
-        };
-
-        // show_menu's screen-space math is consumed as PHYSICAL px on X11
-        // (parent_pos above is physical); scale the logical cursor to match.
-        let scale = self.hidpi();
-        let physical_cursor = LogicalPosition::new(position.x * scale, position.y * scale);
-
-        // Create menu window options using unified menu system
+        // `position` is this window's logical px; the menu is placed in them
+        // and reaches the root window through the window's mapping.
         let mut menu_options = crate::desktop::menu::show_menu(
             menu.clone(),
             self.resources.system_style.clone(),
-            parent_pos,
-            None,                  // No trigger rect for context menus
-            Some(physical_cursor), // Cursor position (physical px)
+            self.screen_mapping(),
+            None,           // No trigger rect for context menus
+            Some(position), // Cursor position
             None,                  // No parent menu
             // The item picked in it runs in THIS window (run.rs, `run_menu_picks`).
             self.common.menu_picks.clone(),

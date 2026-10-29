@@ -8599,8 +8599,9 @@ impl MacOSWindow {
             .layout_callback
             .ctx
             .clone();
-        let frame = crate::desktop::menu::place_measured_menu(&ctx, measured);
-        let size = frame.map_or(measured, |f| f.size);
+        let placed = crate::desktop::menu::place_measured_menu(&ctx, measured);
+        let size = placed.map_or(measured, |p| p.size);
+        let frame = placed.map(|p| p.frame);
         unsafe {
             self.window.setContentSize(NSSize::new(
                 f64::from(size.width),
@@ -8742,19 +8743,12 @@ impl MacOSWindow {
         position: azul_core::geom::LogicalPosition,
         anchor: Option<azul_core::geom::LogicalRect>,
     ) {
-        // Get parent window position
-        let parent_pos = match self.common.current_window_state().position {
-            WindowPosition::Initialized(pos) => {
-                azul_core::geom::LogicalPosition::new(pos.x as f32, pos.y as f32)
-            }
-            _ => azul_core::geom::LogicalPosition::new(0.0, 0.0),
-        };
-
-        // Create menu window options using the unified menu system
+        // `position` and `anchor` are this window's logical px; the menu is
+        // placed in them and reaches the screen through the window's mapping.
         let menu_options = crate::desktop::menu::show_menu(
             menu.clone(),
             self.common.system_style.clone(),
-            parent_pos,
+            self.screen_mapping(),
             anchor,         // The node the menu was opened for (drives min-width)
             Some(position), // Position for menu
             None,           // No parent menu

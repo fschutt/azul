@@ -6536,20 +6536,18 @@ impl X11Window {
         // menu taller than the room below its control flips above it instead of being
         // slid over it, and one taller than the screen is cut to the screen's height
         // (the menu DOM scrolls, overflow-y:auto on the menu container in
-        // menu_renderer). The menu's data, the screens and so the frame are all raw X11
-        // (physical) px, hence the menu's PHYSICAL size.
+        // menu_renderer). The menu is placed in its opener's logical px; its frame
+        // comes back in root (physical) pixels.
         if self.common.current_window_state().flags.window_type
             == azul_core::window::WindowType::Menu
         {
-            let scale = final_size.get_hidpi_factor().inner.get();
-            let measured = LogicalSize::new(
-                final_size.dimensions.width * scale,
-                final_size.dimensions.height * scale,
-            );
             let ctx = self.common.current_window_state().layout_callback.ctx.clone();
-            if let Some(frame) = crate::desktop::menu::place_measured_menu(&ctx, measured) {
-                if frame.size.height < measured.height {
-                    final_size.dimensions.height = frame.size.height / scale;
+            if let Some(placed) =
+                crate::desktop::menu::place_measured_menu(&ctx, final_size.dimensions)
+            {
+                let frame = placed.frame;
+                if placed.size.height < final_size.dimensions.height {
+                    final_size.dimensions.height = placed.size.height;
                     self.common
                         .update_window_state(event::WindowStateSource::Os, |ws| {
                             ws.size = final_size
@@ -8704,40 +8702,16 @@ impl X11Window {
         position: azul_core::geom::LogicalPosition,
         anchor: Option<azul_core::geom::LogicalRect>,
     ) {
-        // Get parent window position
-        let parent_pos = match self.common.current_window_state().position {
-            azul_core::window::WindowPosition::Initialized(pos) => {
-                azul_core::geom::LogicalPosition::new(pos.x as f32, pos.y as f32)
-            }
-            _ => azul_core::geom::LogicalPosition::new(0.0, 0.0),
-        };
-
-        // show_menu mixes the parent position and cursor into screen-space
-        // offsets that every backend consumes as PHYSICAL px (its work-area
-        // clamp + the resulting RelativeToParentWindow offset). parent_pos is
-        // already physical (X11 window position); scale the LOGICAL cursor
-        // position to physical so both are in the same space.
-        let scale = self.hidpi();
-        let physical_cursor =
-            azul_core::geom::LogicalPosition::new(position.x * scale, position.y * scale);
-
-        // The anchor is logical like `position`; scale it into the same
-        // physical space the rest of this call works in.
-        let physical_anchor = anchor.map(|a| {
-            azul_core::geom::LogicalRect::new(
-                azul_core::geom::LogicalPosition::new(a.origin.x * scale, a.origin.y * scale),
-                azul_core::geom::LogicalSize::new(a.size.width * scale, a.size.height * scale),
-            )
-        });
-
-        // Create menu window options
+        // `position` and `anchor` are this window's logical px; the menu is
+        // placed in them and reaches the root window through the window's
+        // mapping.
         let mut menu_options = crate::desktop::menu::show_menu(
             menu.clone(),
             self.common.system_style.clone(),
-            parent_pos,
-            physical_anchor, // The node the menu was opened for (drives min-width)
-            Some(physical_cursor), // Position for menu (physical px)
-            None,            // No parent menu
+            self.screen_mapping(),
+            anchor,         // The node the menu was opened for (drives min-width)
+            Some(position), // Position for menu
+            None,           // No parent menu
             // The item picked in it runs in THIS window (run.rs, `run_menu_picks`).
             self.common.menu_picks.clone(),
         );

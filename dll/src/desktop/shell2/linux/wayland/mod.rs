@@ -10709,7 +10709,10 @@ impl PlatformWindow for WaylandPopup {
         let options = crate::desktop::menu::show_menu(
             menu.clone(),
             self.resources.system_style.clone(),
-            LogicalPosition::zero(),
+            azul_layout::placement::WindowToScreen::new(
+                azul_layout::placement::ScreenPoint::new(0.0, 0.0),
+                1.0,
+            ),
             anchor,
             Some(position),
             None,
