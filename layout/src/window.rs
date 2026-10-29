@@ -1115,6 +1115,16 @@ enum GeneratedSide {
 /// collected it from generated content: a `::marker` item, or the text or
 /// the box of a `::marker`, `::before` or `::after` node.
 fn generated_side(styled_dom: &StyledDom, item: &InlineContent) -> Option<GeneratedSide> {
+    match item {
+        InlineContent::Marker { .. } => Some(GeneratedSide::Front),
+        other => generated_node_side(styled_dom, content_item_node(other)?),
+    }
+}
+
+/// Which side of its element's content the node `node` was generated on,
+/// when it is a `::marker`, `::before` or `::after` node or the text node
+/// one of them holds.
+fn generated_node_side(styled_dom: &StyledDom, node: NodeId) -> Option<GeneratedSide> {
     let side_of = |node: NodeId| match styled_dom
         .node_data
         .as_container()
@@ -1125,11 +1135,6 @@ fn generated_side(styled_dom: &StyledDom, item: &InlineContent) -> Option<Genera
         Some(NodeType::After) => Some(GeneratedSide::Back),
         _ => None,
     };
-    let node = match item {
-        InlineContent::Marker { .. } => return Some(GeneratedSide::Front),
-        other => content_item_node(other)?,
-    };
-    // A text run's node is the text node the generated node holds.
     side_of(node).or_else(|| {
         let parent = styled_dom
             .node_hierarchy
@@ -4523,7 +4528,9 @@ impl LayoutWindow {
     /// behind them in document order. An item with no node of its own (a
     /// `<br>`'s line break, a tab) is ordered by the item with a node in
     /// front of it for a `::before` and by the one behind it for an
-    /// `::after`, so a `<br>` next to an element stays outside it.
+    /// `::after`, so a `<br>` next to an element stays outside it. With no
+    /// item to order by, a `::before` stands in front of the text and an
+    /// `::after` behind it.
     fn with_generated_ifc_content(
         &self,
         dom_id: DomId,
@@ -4578,7 +4585,9 @@ impl LayoutWindow {
                 (Some(node), Some(key)) => {
                     is_before_in_document_order(&styled_dom.node_hierarchy, node, key)
                 }
-                (Some(_), None) => false,
+                // No item has a node to order by (a seeded empty run): a
+                // `::before` goes in front of the text, an `::after` behind.
+                (Some(_), None) => side == GeneratedSide::Front,
             }
         };
         let mut out = Vec::with_capacity(text.len() + generated.len());
@@ -24397,6 +24406,8 @@ impl LayoutWindow {
     fn seed_style_node(&self, dom_id: DomId, node_id: NodeId) -> Option<NodeId> {
         let layout_result = self.layout_results.get(&dom_id)?;
         let node_data = layout_result.styled_dom.node_data.as_ref();
+        // The text of a `::before` or `::after` is no document text: a run
+        // seeded with its node would be taken for generated content.
         self.ifc_candidate_children(dom_id, node_id)
             .into_iter()
             .find(|c| {
@@ -24405,7 +24416,7 @@ impl LayoutWindow {
                         .get(c.index())
                         .map(azul_core::dom::NodeData::get_node_type),
                     Some(NodeType::Text(_))
-                )
+                ) && generated_node_side(&layout_result.styled_dom, *c).is_none()
             })
     }
 
