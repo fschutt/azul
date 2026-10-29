@@ -335,6 +335,36 @@ fn a_busy_service_is_asked_again_after_a_growing_backoff() {
 }
 
 #[test]
+fn a_node_busy_everywhere_is_asked_again_after_a_backoff_not_at_once() {
+    // A node past its download bound says so after making the GET wait, with Retry-After: 0 -
+    // another node at once. When every node of the drive said it, the next round waits.
+    let s3 = FakeS3::new();
+    s3.write("a.txt", b"alpha".to_vec());
+    let service = s3.clone();
+    let fake = Fake::new(move |call, n| {
+        if n < 2 {
+            return Ok(reply(
+                503,
+                &[("x-azlin-error", "unavailable"), ("Retry-After", "0")],
+                "<Error><Code>SlowDown</Code><Message>too many downloads at once on this \
+                 node</Message></Error>",
+            ));
+        }
+        Ok(service.answer(call))
+    });
+    let (bucket, pauses) = bucket_with(factory(&fake), clock());
+    assert_eq!(bucket.get("a.txt").unwrap().unwrap(), b"alpha");
+    assert_eq!(fake.calls().len(), 3);
+    let pauses = pauses.lock().unwrap().clone();
+    assert_eq!(pauses.len(), 2, "{pauses:?}");
+    assert!(
+        pauses.iter().all(|pause| !pause.is_zero()),
+        "Retry-After: 0 names another node, not the same one at once: {pauses:?}"
+    );
+    assert!(pauses[1] > pauses[0], "the backoff grows: {pauses:?}");
+}
+
+#[test]
 fn the_pause_a_node_asks_for_is_kept_and_a_long_one_is_the_callers_to_wait_out() {
     let s3 = FakeS3::new();
     s3.write("a.txt", b"alpha".to_vec());
