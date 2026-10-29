@@ -209,3 +209,19 @@ pub fn inked_pens(lw: &LayoutWindow) -> Vec<(f32, f32)> {
         .map(|g| (g.point.x, g.point.y))
         .collect()
 }
+
+/// The glyph boxes' top left corners (x, line box top) of `body` laid out
+/// under `style` in an 800 x 600 window, every margin and padding zeroed and
+/// all text in Azul Mock Mono at [`FONT_SIZE`] on [`LINE`]-tall lines.
+pub fn page_glyphs(style: &str, body: &str) -> Vec<(f32, f32)> {
+    let html = format!(
+        "<html><head><style>* {{ margin: 0; padding: 0 }} body {{ font-family: 'Azul Mock \
+         Mono'; font-size: 20px; line-height: 20px }} {style}</style></head><body>{body}\
+         </body></html>"
+    );
+    // The pen stands on the baseline, the ascent (0.8 em) below the top.
+    inked_pens(&crate::table_markup::laid_out(&html, 800.0, 600.0))
+        .into_iter()
+        .map(|(x, baseline)| (x, baseline - FONT_SIZE * 0.8))
+        .collect()
+}
