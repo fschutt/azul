@@ -3544,6 +3544,54 @@ mod every_input_the_layout_reads_moves_the_fingerprint {
         assert!(!compute_node_changes(&a, &b, None, None).needs_layout());
     }
 
+    /// A handler or a tab stop that comes makes a node a hit-test target: no
+    /// change of its layout or of its look, but of the hit-test area the
+    /// display list paints for it, which both comparisons report. A tab stop
+    /// that moves keeps the node a target.
+    #[test]
+    fn a_node_that_starts_listening_becomes_a_hit_test_target() {
+        use crate::{
+            callbacks::CoreCallback,
+            dom::{EventFilter, HoverEventFilter, TabIndex},
+            refany::{OptionRefAny, RefAny},
+        };
+
+        let plain = NodeData::create_div();
+        let mut listening = NodeData::create_div();
+        listening.add_callback(
+            EventFilter::Hover(HoverEventFilter::Click),
+            RefAny::new(0u32),
+            CoreCallback {
+                cb: 0usize,
+                ctx: OptionRefAny::None,
+            },
+        );
+        let tabbed = NodeData::create_div().with_tab_index(TabIndex::Auto);
+        let fingerprint = |node: &NodeData| NodeDataFingerprint::compute(node, None);
+        for (target, what) in [(&listening, "a click handler"), (&tabbed, "a tab stop")] {
+            let (fa, fb) = (fingerprint(&plain), fingerprint(target));
+            assert!(!fa.hit_test_target && fb.hit_test_target, "{what}");
+            let fast = fa.diff(&fb);
+            assert!(fast.contains(NodeChangeSet::HIT_TEST_TARGET), "{what}: {fast:?}");
+            assert!(
+                !fast.needs_layout() && !fast.needs_paint(),
+                "{what}: neither layout nor look: {fast:?}"
+            );
+            assert!(
+                compute_node_changes(&plain, target, None, None)
+                    .contains(NodeChangeSet::HIT_TEST_TARGET),
+                "{what}: the field-by-field comparison sees it"
+            );
+        }
+        let moved = NodeData::create_div().with_tab_index(TabIndex::NoKeyboardFocus);
+        assert!(
+            !fingerprint(&tabbed)
+                .diff(&fingerprint(&moved))
+                .contains(NodeChangeSet::HIT_TEST_TARGET),
+            "a moved tab stop is still a target"
+        );
+    }
+
     /// A node holding the SVG data `data`.
     fn with_svg(data: SvgNodeData) -> NodeData {
         let mut node = NodeData::create_div();

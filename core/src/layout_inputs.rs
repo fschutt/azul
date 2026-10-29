@@ -16,7 +16,7 @@ use core::hash::{Hash, Hasher};
 use azul_css::AzString;
 
 use crate::{
-    dom::{AttributeType, NodeData, SvgNodeData},
+    dom::{AttributeType, NodeData, NodeType, SvgNodeData, TabIndex},
     hash::DefaultHasher,
 };
 
@@ -334,4 +334,46 @@ impl Hashers {
 /// The hash `hasher` holds, 0 for none.
 fn finish(hasher: Option<&DefaultHasher>) -> u64 {
     hasher.map_or(0, Hasher::finish)
+}
+
+/// What of a node itself makes it a target of the pointer and the keyboard,
+/// beside its style (a `:hover` or `cursor` rule, an `overflow` that scrolls):
+/// a handler of an event that is not the window's, a tab stop, a context
+/// menu. Such a node gets a hit-test tag (`CssPropertyCache::generate_tag_ids`
+/// reads these), and the display list paints a hit-test area for it, so the
+/// fingerprints compare whether a node is one
+/// ([`crate::diff::NodeDataFingerprint::hit_test_target`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct HitTestInputs {
+    /// The node's tab stop: its own tab index, else the one a focus handler
+    /// or a webview gives it.
+    pub tab_stop: Option<TabIndex>,
+    /// It handles an event that is not the window's.
+    pub listens: bool,
+    /// It opens a context menu.
+    pub context_menu: bool,
+}
+
+impl HitTestInputs {
+    /// The inputs of `node`.
+    #[must_use]
+    pub fn of(node: &NodeData) -> Self {
+        let callbacks = node.get_callbacks();
+        // A webview takes the pointer and the keyboard as an iframe does.
+        let focus_handler = matches!(node.get_node_type(), NodeType::WebView(_))
+            || callbacks.iter().any(|cb| cb.event.is_focus_callback());
+        Self {
+            tab_stop: node
+                .get_tab_index()
+                .or(focus_handler.then_some(TabIndex::Auto)),
+            listens: callbacks.iter().any(|cb| !cb.event.is_window_callback()),
+            context_menu: node.has_context_menu(),
+        }
+    }
+
+    /// Whether these alone make the node a hit-test target.
+    #[must_use]
+    pub const fn make_a_target(&self) -> bool {
+        self.tab_stop.is_some() || self.listens || self.context_menu
+    }
 }

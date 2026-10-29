@@ -84,6 +84,12 @@ impl NodeChangeSet {
     pub const DATASET: u32 = 0b0000_1000_0000_0000;
     /// Accessibility info changed.
     pub const ACCESSIBILITY: u32 = 0b0001_0000_0000_0000;
+    /// Whether the node itself makes it a hit-test target changed: a handler
+    /// of an event that is not the window's, a tab stop or a context menu
+    /// came or went ([`crate::layout_inputs::HitTestInputs`]). Nothing the
+    /// node is laid out or looks like moved, but the display list paints it
+    /// anew, with its hit-test area or without one.
+    pub const HIT_TEST_TARGET: u32 = 0b0010_0000_0000_0000_0000;
 
     // --- Changes that affect the node's whole SUBTREE ---
 
@@ -430,6 +436,16 @@ pub fn compute_node_changes(
     // 8. Tab index
     if old_node.get_tab_index() != new_node.get_tab_index() {
         changes.insert(NodeChangeSet::TAB_INDEX);
+    }
+
+    // 8b. Whether the node itself is a hit-test target, read as the
+    // fingerprint and the tag generator read it.
+    {
+        use crate::layout_inputs::HitTestInputs;
+        let target = |node: &NodeData| HitTestInputs::of(node).make_a_target();
+        if target(old_node) != target(new_node) {
+            changes.insert(NodeChangeSet::HIT_TEST_TARGET);
+        }
     }
 
     // 9. Styled node state (hover, active, focused, etc.)
@@ -2460,6 +2476,12 @@ pub struct NodeDataFingerprint {
     /// [`NodeChangeSet::DESCENDANT_INPUTS`], and every box below the node is
     /// laid out again ([`Self::rebuilds_descendants`]).
     pub descendants_hash: u64,
+    /// Whether the node itself makes it a hit-test target: a handler of an
+    /// event that is not the window's, a tab stop, a context menu
+    /// ([`crate::layout_inputs::HitTestInputs`]). A change is
+    /// [`NodeChangeSet::HIT_TEST_TARGET`]: the display list paints the node
+    /// anew, with its hit-test area or without one.
+    pub hit_test_target: bool,
 }
 
 impl NodeDataFingerprint {
@@ -2547,6 +2569,7 @@ impl NodeDataFingerprint {
             lang_hash: inputs.lines,
             own_box_hash: inputs.own_box,
             descendants_hash: inputs.descendants,
+            hit_test_target: crate::layout_inputs::HitTestInputs::of(node).make_a_target(),
         }
     }
 
@@ -2606,6 +2629,10 @@ impl NodeDataFingerprint {
 
         if self.descendants_hash != other.descendants_hash {
             changes.insert(NodeChangeSet::DESCENDANT_INPUTS);
+        }
+
+        if self.hit_test_target != other.hit_test_target {
+            changes.insert(NodeChangeSet::HIT_TEST_TARGET);
         }
 
         changes

@@ -2512,23 +2512,11 @@ impl CssPropertyCache {
             .filter_map(|(node_idx, node_data)| {
                 let node_id = NodeId::new(node_idx);
 
-                // A `<webview>` is focusable as an iframe is: its page takes
-                // the pointer and the keyboard without a callback of its own.
-                let should_auto_insert_tabindex =
-                    matches!(node_data.get_node_type(), NodeType::WebView(_))
-                        || node_data
-                            .get_callbacks()
-                            .iter()
-                            .any(|cb| cb.event.is_focus_callback());
-
-                let tab_index = node_data.get_tab_index().map_or(
-                    if should_auto_insert_tabindex {
-                        Some(TabIndex::Auto)
-                    } else {
-                        None
-                    },
-                    Some,
-                );
+                // What of the node itself makes it a target: its handlers,
+                // its tab stop, its context menu. One reading, which the
+                // node fingerprints compare too.
+                let inputs = crate::layout_inputs::HitTestInputs::of(node_data);
+                let tab_index = inputs.tab_stop;
 
                 let mut need_tag = false;
 
@@ -2545,11 +2533,9 @@ impl CssPropertyCache {
                         } // 4 = LayoutDisplay::None (new encoding)
                     }
 
-                    if node_data.has_context_menu() || node_data.get_context_menu().is_some() {
-                        need_tag = true;
-                        break 'compute_need_tag;
-                    }
-                    if tab_index.is_some() {
+                    // A handler of an event that is not the window's, a tab
+                    // stop, a context menu.
+                    if inputs.make_a_target() {
                         need_tag = true;
                         break 'compute_need_tag;
                     }
@@ -2576,17 +2562,6 @@ impl CssPropertyCache {
                             need_tag = true;
                             break 'compute_need_tag;
                         }
-                    }
-
-                    // Non-window callbacks
-                    let has_non_window_cb = !node_data.get_callbacks().is_empty()
-                        && !node_data
-                            .get_callbacks()
-                            .iter()
-                            .all(|cb| cb.event.is_window_callback());
-                    if has_non_window_cb {
-                        need_tag = true;
-                        break 'compute_need_tag;
                     }
 
                     // Cursor check — read from cached css_props or inline style.

@@ -1089,6 +1089,14 @@ pub struct ReconciliationResult {
     /// exists: an edited text run, a same-count replace), instead of the
     /// whole intrinsic-dirty ancestor chain whose items are unchanged.
     pub fresh_indices: BTreeSet<usize>,
+    /// The INDICES of the nodes CLONED from the previous tree that became a
+    /// hit-test target or stopped being one (a handler, a tab stop, a context
+    /// menu came or went,
+    /// [`azul_core::diff::NodeDataFingerprint::hit_test_target`]). They are
+    /// laid out as before, but the items they painted hold the hit-test
+    /// area of what they were: the display-list patch re-emits them, as it
+    /// does `fresh_indices`.
+    pub retargeted: BTreeSet<usize>,
     /// Fingerprint computations skipped because the pre-cascade DOM diff
     /// proved the node (and its ancestors) unchanged. See
     /// `LayoutCache::dom_diff_clean`.
@@ -3067,11 +3075,24 @@ fn reconcile_node(
         // different (or, after the DOM shrank, a nonexistent) node.
         let mut idx =
             new_tree_builder.clone_node_from_old(&old_full_node, new_parent_idx, Some(new_dom_id));
-        // If paint-only change, update the fingerprint and dirty flag
-        if dirty_flag == DirtyFlag::Paint {
+        // A node that became a hit-test target, or stopped being one (a
+        // handler, a tab stop, a context menu came or went), is laid out as
+        // it was, but the items it keeps hold the hit-test area of what it
+        // was: the display list paints it anew (`retargeted`).
+        let retargeted = old_cold.is_some_and(|old_c| {
+            old_c.node_data_fingerprint.hit_test_target != new_fingerprint.hit_test_target
+        });
+        if retargeted {
+            recon.retargeted.insert(idx);
+        }
+        // A node painted anew takes the fingerprint it is painted from, and
+        // a paint-only change its dirty flag.
+        if dirty_flag == DirtyFlag::Paint || retargeted {
             if let Some(cloned) = new_tree_builder.get_mut(idx) {
                 cloned.node_data_fingerprint = new_fingerprint;
-                cloned.dirty_flag = DirtyFlag::Paint;
+                if dirty_flag == DirtyFlag::Paint {
+                    cloned.dirty_flag = DirtyFlag::Paint;
+                }
             }
         }
         if let Some(old_idx) = old_tree_idx {

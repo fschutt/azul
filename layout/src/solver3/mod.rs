@@ -1912,8 +1912,11 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                     // an ancestor whose geometry did not change splices its
                     // unchanged items (size/position changes re-emit via
                     // PatchState's own size diff).
+                    // So must a node whose hit-test area came or went: its
+                    // items hold the area of what it was.
                     let mut reemit = ctx.reflowed_ifcs.clone();
                     reemit.extend(recon_result.fresh_indices.iter().copied());
+                    reemit.extend(recon_result.retargeted.iter().copied());
                     reemit.extend(css_dirty_reemit.iter().copied());
                     display_list::PatchState::build(
                         prev_dl,
