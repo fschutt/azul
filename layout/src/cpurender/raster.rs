@@ -1029,6 +1029,52 @@ fn render_box_shadow(
         }
         // Degenerate hole (element fully outside the buffer) — fall through.
     }
+    // An outer shadow is drawn outside the border box only (CSS Backgrounds
+    // 3, 7.1): a rounded box is cut out of it through its own curve, or a
+    // translucent box would show its shadow through it.
+    if matches!(shadow.clip_mode, BoxShadowClipMode::Outset) && !border_radius.is_zero() {
+        let mut mask = AzulPixmap::new(sw, sh).ok_or("cannot create shadow mask")?;
+        mask.fill(0, 0, 0, 0);
+        if let Some(border_box) = AzRect::from_xywh(
+            rect.x - dst_x as f32,
+            rect.y - dst_y as f32,
+            rect.width,
+            rect.height,
+        ) {
+            let mut box_path = build_rounded_rect_path(&border_box, border_radius, dpi_factor);
+            agg_fill_path(
+                &mut mask,
+                &mut box_path,
+                &Rgba8::new(255, 255, 255, 255),
+                FillingRule::NonZero,
+            );
+        }
+        // Premultiplied: every channel scales with what the box leaves.
+        let mut outside_the_box = shadow_data.as_slice().to_vec();
+        for (px, m) in outside_the_box
+            .chunks_exact_mut(4)
+            .zip(mask.data().chunks_exact(4))
+        {
+            let left = 255 - u32::from(m[3]);
+            for channel in px.iter_mut() {
+                *channel = ((u32::from(*channel) * left + 127) / 255) as u8;
+            }
+        }
+        blit_clipped(
+            pixmap,
+            clip_px,
+            &outside_the_box,
+            sw,
+            sh,
+            0,
+            0,
+            sw,
+            sh,
+            dst_x,
+            dst_y,
+        );
+        return Ok(());
+    }
     blit_clipped(
         pixmap,
         clip_px,
