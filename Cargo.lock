@@ -11357,9 +11357,9 @@ dependencies = [
 
 [[package]]
 name = "rust-fontconfig"
-version = "5.0.1"
+version = "5.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b8de3c58d41e83f0d560c51148322e7f0b42781f25ed609c4f7df9b9229992dd"
+checksum = "ed5799956a5fa7abd968823c4d4876f2eb9301d5c02e2f53d0dc9471c001c782"
 dependencies = [
  "allsorts-azul",
  "bincode 1.3.3",
