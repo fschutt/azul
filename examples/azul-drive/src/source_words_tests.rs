@@ -97,3 +97,59 @@ fn a_source_its_form_and_its_problems_are_said_in_the_windows_language() {
         assert_eq!(source_words::kind(&kind), kind.to_string());
     }
 }
+
+/// Storage providers' names, which AzDrive's words never list: a provider is configuration, and
+/// a name appears only as the label of a source type of its own (`Backblaze B2`'s own API).
+const PROVIDERS: &[&str] = &[
+    "AWS", "Amazon", "amazonaws", "MinIO", "Cloudflare", "R2", "Backblaze", "Wasabi", "Garage",
+];
+
+/// The provider names among `text`'s words.
+fn providers_in(text: &str) -> Vec<&'static str> {
+    let words: Vec<&str> = text.split(|c: char| !c.is_ascii_alphanumeric()).collect();
+    PROVIDERS
+        .iter()
+        .copied()
+        .filter(|p| words.iter().any(|w| w.eq_ignore_ascii_case(p)))
+        .collect()
+}
+
+#[test]
+fn s3_compatible_storage_lists_no_provider_and_says_any() {
+    let s3 = catalog::service("s3").unwrap();
+    assert_eq!(s3.summary, "Any S3-compatible storage");
+    let mut words = vec![s3.name, s3.summary];
+    for f in s3.fields {
+        words.extend([f.label, f.help, f.placeholder]);
+    }
+    for text in words {
+        assert!(providers_in(text).is_empty(), "{text:?} names {:?}", providers_in(text));
+    }
+    let empty = crate::browse::DriveForm {
+        name: String::from("Photos"),
+        ..crate::browse::DriveForm::default()
+    };
+    let said = empty.check().unwrap_err();
+    assert!(providers_in(&said).is_empty(), "{said}");
+}
+
+#[test]
+fn no_message_of_azdrive_names_a_storage_provider_but_a_source_types_own_label() {
+    for (file, ftl) in [
+        ("en.ftl", include_str!("../resources/en.ftl")),
+        ("de.ftl", include_str!("../resources/de.ftl")),
+    ] {
+        for line in ftl.lines() {
+            let Some((key, value)) = line.split_once(" = ") else {
+                continue;
+            };
+            // A source type's own name and line (Backblaze B2's own API), a way to pay.
+            let label = key.starts_with("azdrive-service-")
+                || key.starts_with("azdrive-summary-b2-")
+                || key.starts_with("azdrive-pay-method-");
+            if !label {
+                assert!(providers_in(value).is_empty(), "{file}: {key} = {value}");
+            }
+        }
+    }
+}
