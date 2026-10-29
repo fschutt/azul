@@ -153,16 +153,37 @@ fn lt_and_amp_in_text_and_attribute_values_are_characters() {
     );
 }
 
-/// C0 controls are not XML characters (`NonXmlChar`); a browser keeps them in the DOM
-/// where they paint as nothing or a box. CR LF and a lone CR are a line feed.
+/// Text and attribute values hold their characters as the input rule has them
+/// (`azul_css::input_chars`), written or referenced alike: NUL, the C0 controls but tab and
+/// line feed, U+FFFE and U+FFFF become U+FFFD (a browser keeps them, but XML has no way to
+/// carry them), a form feed is a space, CR LF and a lone CR are a line feed, and the other
+/// noncharacters stay.
 #[test]
-fn stray_control_characters_are_dropped() {
+fn stray_control_characters_and_noncharacters_are_read_by_the_input_rule() {
     check(
         &[
-            // Chrome keeps the controls; azul drops them
-            ("a\u{1}b\u{8}c\u{B}d\u{1F}e\r\nf\rg", "\"abcde f g\""),
+            // Chrome keeps the controls, painted as nothing or a box
+            (
+                "a\u{1}b\u{8}c\u{B}d\u{1F}e\r\nf\rg",
+                "\"a\u{FFFD}b\u{FFFD}c\u{FFFD}d\u{FFFD}e f g\"",
+            ),
+            ("a\u{0}b\u{C}c", "\"a\u{FFFD}b c\""),
+            ("a\u{FFFE}38020 b\u{FFFF}c", "\"a\u{FFFD}38020 b\u{FFFD}c\""),
+            (
+                "a\u{FDD0}b\u{1FFFE}c\u{10FFFF}d",
+                "\"a\u{FDD0}b\u{1FFFE}c\u{10FFFF}d\"",
+            ),
+            ("a&#xFFFE;b&#1;c&#0;d", "\"a\u{FFFD}b\u{FFFD}c\u{FFFD}d\""),
         ],
         false,
+        body_of,
+    );
+    check(
+        &[(
+            "<p title=\"a\u{1}b&#xFFFF;c\">x</p>",
+            "p[title=a\u{FFFD}b\u{FFFD}c]{\"x\"}",
+        )],
+        true,
         body_of,
     );
 }

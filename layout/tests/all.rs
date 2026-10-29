@@ -1329,3 +1329,7 @@ mod an_arabic_letter_keeps_its_dots_and_marks;
 mod a_dotted_circle_the_shaper_inserts_stands_for_no_text;
 #[path = "a_right_to_left_paragraph_breaks_its_lines_in_reading_order.rs"]
 mod a_right_to_left_paragraph_breaks_its_lines_in_reading_order;
+#[path = "a_noncharacter_in_html_text_keeps_its_page.rs"]
+mod a_noncharacter_in_html_text_keeps_its_page;
+#[path = "typed_and_pasted_text_is_read_by_the_input_rule.rs"]
+mod typed_and_pasted_text_is_read_by_the_input_rule;

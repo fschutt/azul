@@ -1607,6 +1607,20 @@ mod tests {
         );
     }
 
+    /// A family name holds its characters as the input rule has them
+    /// (`crate::input_chars`), as every other text does.
+    #[test]
+    fn a_font_family_name_holds_its_characters_as_the_input_rule_has_them() {
+        let result = parse_style_font_family("\"Times\u{0}\", Ser\u{FFFE}if").unwrap();
+        assert_eq!(
+            result.as_slice(),
+            &[
+                StyleFontFamily::System("Times\u{FFFD}".into()),
+                StyleFontFamily::System("Ser\u{FFFD}if".into()),
+            ]
+        );
+    }
+
     #[test]
     fn test_parse_system_font_type() {
         use crate::system::SystemFontType;

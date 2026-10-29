@@ -2560,3 +2560,85 @@ mod webview_node_tests {
         );
     }
 }
+
+/// Every text a node is given holds its characters as the input rule has them
+/// (`azul_css::input_chars`): NUL, the C0 controls but tab and line feed, U+FFFE and U+FFFF
+/// become U+FFFD, a form feed a space, CR LF and a lone CR a line feed; the other
+/// noncharacters stay.
+#[cfg(test)]
+mod input_rule_tests {
+    use super::*;
+
+    const RAW: &str = "a\u{0}b\u{1}c\u{FFFE}38020\u{FFFF}d\r\ne\rf\u{C}g\u{1FFFE}h\u{FDD0}";
+    const RULED: &str = "a\u{FFFD}b\u{FFFD}c\u{FFFD}38020\u{FFFD}d\ne\nf g\u{1FFFE}h\u{FDD0}";
+
+    fn text_of(node: &NodeData) -> Option<&str> {
+        match node.get_node_type() {
+            NodeType::Text(text) => Some(text.as_ref().as_str()),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn a_text_node_holds_its_text_as_the_input_rule_has_it() {
+        let node = NodeData::create_text_do_not_use_without_block_level_wrapper(RAW);
+        assert_eq!(text_of(&node), Some(RULED));
+        let dom = Dom::create_text_do_not_use_without_block_level_wrapper(RAW);
+        assert_eq!(text_of(&dom.root), Some(RULED));
+        let paragraph = Dom::create_p_with_text(RAW);
+        assert_eq!(text_of(&paragraph.children.as_ref()[0].root), Some(RULED));
+    }
+
+    #[test]
+    fn a_text_set_on_a_node_holds_its_text_as_the_input_rule_has_it() {
+        let mut node = NodeData::create_div();
+        node.set_node_type(NodeType::Text(BoxOrStatic::heap(AzString::from(RAW))));
+        assert_eq!(text_of(&node), Some(RULED));
+        let built = NodeData::create_div()
+            .with_node_type(NodeType::Text(BoxOrStatic::heap(AzString::from(RAW))));
+        assert_eq!(text_of(&built), Some(RULED));
+    }
+
+    #[test]
+    fn a_text_the_rule_leaves_alone_is_the_text_it_was_given() {
+        let plain = "plain caf\u{E9} \u{65E5}\u{672C} \u{1F642}\ttab\nline \u{7F}\u{85}";
+        let node = NodeData::create_text_do_not_use_without_block_level_wrapper(plain);
+        assert_eq!(text_of(&node), Some(plain));
+    }
+
+    #[test]
+    fn a_translation_key_stays_one_when_the_rule_changes_it() {
+        let node =
+            NodeData::create_text_do_not_use_without_block_level_wrapper(AzString::tr("hi\u{0}"));
+        let NodeType::Text(text) = node.get_node_type() else {
+            panic!("a text node");
+        };
+        assert_eq!(text.as_ref().as_str(), "hi\u{FFFD}");
+        assert!(text.as_ref().is_localizable(), "the key lost its mark");
+    }
+
+    #[test]
+    fn a_text_attribute_holds_its_text_as_the_input_rule_has_it() {
+        let dom = Dom::create_div()
+            .with_attribute(AttributeType::Title(RAW.into()))
+            .with_attribute(AttributeType::Alt(RAW.into()))
+            .with_attribute(AttributeType::Placeholder(RAW.into()))
+            .with_attribute(AttributeType::AriaLabel(RAW.into()))
+            .with_attribute(AttributeType::Value(RAW.into()));
+        let texts: Vec<&str> = dom
+            .root
+            .attributes()
+            .as_ref()
+            .iter()
+            .filter_map(|attribute| match attribute {
+                AttributeType::Title(s)
+                | AttributeType::Alt(s)
+                | AttributeType::Placeholder(s)
+                | AttributeType::AriaLabel(s)
+                | AttributeType::Value(s) => Some(s.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(texts, vec![RULED; 5]);
+    }
+}
