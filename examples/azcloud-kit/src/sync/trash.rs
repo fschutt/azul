@@ -102,4 +102,43 @@ mod tests {
         );
         assert!(!root.path().join("photosets/c.jpg").exists());
     }
+
+    /// What the trash view lists is what Restore brings back: each file's newest trashed
+    /// version that is still in the trash, newest first, with the day it was deleted and its
+    /// size; a file purged or put back by hand is not listed.
+    #[test]
+    fn the_trash_lists_each_files_newest_version_still_there_newest_first() {
+        let root = TempDir::new("azcloud-trashed");
+        let state = TempDir::new("azcloud-trashed-state");
+        let log = OpLog::new(state.path());
+        let trash = |stamp: &str, key: &str, text: &str| {
+            let to = format!(".azlin/sync/trash/{stamp}/{key}");
+            let path = path_of(root.path(), &to);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(&path, text).unwrap();
+            log.record(&Op { t: 1.0, op: OpKind::Trash, key: key.to_string(), to: Some(to), hash: None })
+                .unwrap();
+            path
+        };
+        trash("20261024-100000-aaaaaa", "photos/a.jpg", "old a");
+        trash("20261024-110000-bbbbbb", "photos/a.jpg", "new a!");
+        trash("20261025-090000-cccccc", "notes/b.txt", "b");
+        let gone = trash("20261026-080000-dddddd", "notes/c.txt", "purged");
+        fs::remove_file(gone).unwrap();
+        let list = trashed(root.path(), state.path());
+        let keys: Vec<&str> = list.iter().map(|t| t.key.as_str()).collect();
+        assert_eq!(keys, ["notes/b.txt", "photos/a.jpg"], "newest first, one row per file");
+        let a = &list[1];
+        assert_eq!(a.bytes, 6, "the newest version's size");
+        assert_eq!(a.trashed_at, crate::parse_rfc3339("2026-10-24T11:00:00Z"));
+        assert_eq!(
+            a.kept_until(),
+            crate::parse_rfc3339("2026-11-23T11:00:00Z"),
+            "kept for the trash's days"
+        );
+        // Restored, it leaves the list.
+        untrash(root.path(), state.path(), "photos").unwrap();
+        let keys: Vec<String> = trashed(root.path(), state.path()).into_iter().map(|t| t.key).collect();
+        assert_eq!(keys, ["notes/b.txt"]);
+    }
 }

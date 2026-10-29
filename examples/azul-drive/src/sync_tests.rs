@@ -1144,3 +1144,28 @@ fn send_them_again_releases_the_kept_files_for_the_next_pass() {
     let index = LocalIndex::load(&index_path).unwrap().expect("the base");
     assert!(index.kept.is_empty(), "{:?}", index.kept);
 }
+
+/// The sync trash's rows: each file by its key, the day it was deleted and the day the trash
+/// lets it go, in the window's language.
+#[test]
+fn a_trashed_file_says_when_it_was_deleted_and_until_when_it_can_be_restored() {
+    crate::l10n::in_english();
+    let item = azcloud_kit::sync::trash::Trashed {
+        key: String::from("photos/a.jpg"),
+        trashed_at: Some(1_792_839_600),
+        bytes: 6,
+    };
+    let row = azul_appkit::l10n::t_phrase(&crate::sync_view::trash_row(&item));
+    assert!(row.contains("photos/a.jpg"), "{row}");
+    assert!(row.contains("2026-10-24"), "deleted: {row}");
+    assert!(row.contains("2026-11-23"), "kept until: {row}");
+    for key in [
+        "azdrive-sync-menu-trash",
+        "azdrive-sync-trash-title",
+        "azdrive-sync-trash-empty",
+        "azdrive-sync-trash-restore",
+        "azdrive-sync-trash-restore-all",
+    ] {
+        assert_ne!(azul_appkit::l10n::t(key), key, "{key} has its words");
+    }
+}
