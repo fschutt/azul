@@ -345,22 +345,7 @@ fn measured_menu_frame(
     measured: LogicalSize,
     screens: &[ScreenRects],
 ) -> LogicalRect {
-    let placement = data.placement();
-    let estimate = crate::desktop::menu_renderer::MenuMetrics::from_system_style(
-        &data.system_style,
-    )
-    .estimate_menu_size(&data.menu);
-    let at = frame_among(&placement, estimate, screens).origin;
-    let Some(wa) = screen_for_anchor(placement.anchor, screens) else {
-        return LogicalRect::new(at, measured);
-    };
-    LogicalRect::new(
-        LogicalPosition::new(
-            at.x.min(wa.origin.x + wa.size.width - measured.width).max(wa.origin.x),
-            at.y.min(wa.origin.y + wa.size.height - measured.height).max(wa.origin.y),
-        ),
-        measured,
-    )
+    frame_among(&data.placement(), measured, screens)
 }
 
 /// Layout callback for menu windows

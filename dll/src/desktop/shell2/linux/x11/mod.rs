@@ -6531,54 +6531,40 @@ impl X11Window {
         self.common
             .update_window_state(event::WindowStateSource::Os, |ws| ws.size = final_size);
 
-        // Re-clamp a menu's position to the monitor work-area now that its TRUE
-        // size is known (show_menu positioned it from a size ESTIMATE). Keeps a
-        // menu whose real content exceeds the estimate from spilling off-screen
-        // right/bottom. Position and work_area are both raw X11 (physical) px,
-        // so compare with the menu's PHYSICAL size.
+        // A menu was placed from an ESTIMATE of its size (`show_menu`); now that its
+        // true size is known it is placed again by the rule it was opened with, so a
+        // menu taller than the room below its control flips above it instead of being
+        // slid over it, and one taller than the screen is cut to the screen's height
+        // (the menu DOM scrolls, overflow-y:auto on the menu container in
+        // menu_renderer). The menu's data, the screens and so the frame are all raw X11
+        // (physical) px, hence the menu's PHYSICAL size.
         if self.common.current_window_state().flags.window_type
             == azul_core::window::WindowType::Menu
         {
-            use azul_core::window::WindowPosition;
-            if let WindowPosition::Initialized(pos) = self.common.current_window_state().position {
-                let posf = azul_core::geom::LogicalPosition::new(pos.x as f32, pos.y as f32);
-                if let Some(display) = crate::desktop::display::get_display_at_point(posf) {
-                    let wa = display.work_area;
-                    let scale = final_size.get_hidpi_factor().inner.get();
-                    // Height-clamp: a menu taller than the monitor work-area is
-                    // capped to it so it never runs off the bottom of the screen.
-                    // The menu DOM scrolls within the capped height (overflow-y:auto
-                    // on the menu container in menu_renderer).
-                    if final_size.dimensions.height * scale > wa.size.height {
-                        final_size.dimensions.height = wa.size.height / scale;
-                        self.common
-                            .update_window_state(event::WindowStateSource::Os, |ws| {
-                                ws.size = final_size
-                            });
-                    }
-                    let w = final_size.dimensions.width * scale;
-                    let h = final_size.dimensions.height * scale;
-                    let nx = posf.x.min(wa.origin.x + wa.size.width - w).max(wa.origin.x);
-                    let ny = posf
-                        .y
-                        .min(wa.origin.y + wa.size.height - h)
-                        .max(wa.origin.y);
-                    if (nx - posf.x).abs() > 0.5 || (ny - posf.y).abs() > 0.5 {
-                        self.common
-                            .update_window_state(event::WindowStateSource::Os, |ws| {
-                                ws.position = WindowPosition::Initialized(
-                                    azul_core::geom::PhysicalPositionI32::new(nx as i32, ny as i32),
-                                );
-                            });
-                        unsafe {
-                            (self.xlib.XMoveWindow)(
-                                self.display,
-                                self.window,
-                                nx as i32,
-                                ny as i32,
-                            );
-                        }
-                    }
+            let scale = final_size.get_hidpi_factor().inner.get();
+            let measured = LogicalSize::new(
+                final_size.dimensions.width * scale,
+                final_size.dimensions.height * scale,
+            );
+            let ctx = self.common.current_window_state().layout_callback.ctx.clone();
+            if let Some(frame) = crate::desktop::menu::place_measured_menu(&ctx, measured) {
+                if frame.size.height < measured.height {
+                    final_size.dimensions.height = frame.size.height / scale;
+                    self.common
+                        .update_window_state(event::WindowStateSource::Os, |ws| {
+                            ws.size = final_size
+                        });
+                }
+                #[allow(clippy::cast_possible_truncation)] // whole screen pixels
+                let (nx, ny) = (frame.origin.x.round() as i32, frame.origin.y.round() as i32);
+                self.common
+                    .update_window_state(event::WindowStateSource::Os, |ws| {
+                        ws.position = azul_core::window::WindowPosition::Initialized(
+                            azul_core::geom::PhysicalPositionI32::new(nx, ny),
+                        );
+                    });
+                unsafe {
+                    (self.xlib.XMoveWindow)(self.display, self.window, nx, ny);
                 }
             }
         }

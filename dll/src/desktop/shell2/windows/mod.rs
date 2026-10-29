@@ -1011,6 +1011,42 @@ impl Win32Window {
                                 e
                             );
                         }
+                        // A window-drawn menu was placed from an ESTIMATE of its size
+                        // (`show_menu`). Placed again by its rule for the size it measured,
+                        // it flips above its control when it turned out taller than the room
+                        // below, and is cut to the screen when taller than that. The menu is
+                        // borderless, so its window rect is its client rect.
+                        let ctx = result
+                            .common
+                            .current_window_state()
+                            .layout_callback
+                            .ctx
+                            .clone();
+                        #[allow(clippy::cast_precision_loss)] // whole screen pixels
+                        let measured = azul_core::geom::LogicalSize::new(w as f32, h as f32);
+                        if let Some(frame) =
+                            crate::desktop::menu::place_measured_menu(&ctx, measured)
+                        {
+                            use dlopen::constants::{SWP_NOACTIVATE, SWP_NOZORDER};
+                            #[allow(clippy::cast_possible_truncation)] // whole screen pixels
+                            let (x, y, fw, fh) = (
+                                frame.origin.x.round() as i32,
+                                frame.origin.y.round() as i32,
+                                frame.size.width.round() as i32,
+                                frame.size.height.round() as i32,
+                            );
+                            unsafe {
+                                (result.win32.user32.SetWindowPos)(
+                                    result.hwnd,
+                                    ptr::null_mut(),
+                                    x,
+                                    y,
+                                    fw.max(1),
+                                    fh.max(1),
+                                    SWP_NOZORDER | SWP_NOACTIVATE,
+                                );
+                            }
+                        }
                     }
                 }
             }

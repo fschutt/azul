@@ -6853,6 +6853,12 @@ impl MacOSWindow {
             );
         }
 
+        // A window created to fit its content (a window-drawn menu) takes the size
+        // its first layout measured, before it is ever shown.
+        if options.size_to_content {
+            window.fit_to_content();
+        }
+
         // Install the application menu bar from the root DOM's menu_bar (if any).
         window.apply_menu_bar_from_dom();
 
@@ -8578,6 +8584,56 @@ impl MacOSWindow {
         }
 
         Ok(())
+    }
+
+    /// Size a `size_to_content` window (a window-drawn menu) to its content as its
+    /// first layout measured it. A menu is placed again for that size by the rule it
+    /// was opened with - `show_menu` could only place it from an estimate - so one
+    /// taller than the room below its control flips above it, and one taller than the
+    /// screen is cut to it. Its data and the frame are global top-down points.
+    fn fit_to_content(&mut self) {
+        let Some(measured) = self
+            .common
+            .layout_window
+            .as_ref()
+            .and_then(|lw| lw.layout_results.get(&azul_core::dom::DomId::ROOT_ID))
+            .map(|r| {
+                r.layout_tree.get_content_size(
+                    azul_layout::solver3::layout_tree::LayoutNodeId::new(r.layout_tree.root),
+                )
+            })
+        else {
+            return;
+        };
+        let measured_something = measured.width > 0.0 && measured.height > 0.0;
+        if !measured_something {
+            return;
+        }
+        let ctx = self
+            .common
+            .current_window_state()
+            .layout_callback
+            .ctx
+            .clone();
+        let frame = crate::desktop::menu::place_measured_menu(&ctx, measured);
+        let size = frame.map_or(measured, |f| f.size);
+        unsafe {
+            self.window.setContentSize(NSSize::new(
+                f64::from(size.width),
+                f64::from(size.height),
+            ));
+            // AppKit takes the top-left in bottom-up coordinates of the primary screen.
+            if let (Some(frame), Some(primary_height)) = (frame, primary_screen_height()) {
+                self.window.setFrameTopLeftPoint(NSPoint::new(
+                    f64::from(frame.origin.x),
+                    primary_height - f64::from(frame.origin.y),
+                ));
+            }
+        }
+        self.common
+            .update_window_state(event::WindowStateSource::Os, |ws| {
+                ws.size.dimensions = size;
+            });
     }
 
     /// Hide the currently displayed tooltip

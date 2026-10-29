@@ -58,13 +58,13 @@ pub fn menu_popup_placement(
     position: LogicalPosition,
     anchor: Option<LogicalRect>,
 ) -> FloatingPlacement {
-    let _ = menu;
-    match anchor {
-        Some(rect) if rect.size.width > 0.0 || rect.size.height > 0.0 => {
-            FloatingPlacement::below(rect, true)
-        }
-        _ => FloatingPlacement::at_point(position, true),
-    }
+    let trigger = anchor.filter(|rect| rect.size.width > 0.0 || rect.size.height > 0.0);
+    crate::desktop::menu::menu_placement(
+        crate::desktop::menu::resolve_position_strategy(menu.position, trigger.is_some()),
+        Some(position),
+        trigger,
+        position,
+    )
 }
 
 /// The popup size as the positioner and the buffer must both see it.
