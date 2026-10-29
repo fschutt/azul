@@ -27,8 +27,10 @@ fn value(raw: &str) -> Result<String, String> {
 }
 
 fn parse(args: &[String]) -> Result<Config, String> {
-    let mut cfg = Config::default();
-    cfg.local_test_stack = guard::release_opted_in(std::env::var(guard::ALLOW_RELEASE_ENV).ok().as_deref());
+    let mut cfg = Config {
+        local_test_stack: guard::release_opted_in(std::env::var(guard::ALLOW_RELEASE_ENV).ok().as_deref()),
+        ..Config::default()
+    };
     let mut i = 0;
     while let Some(flag) = args.get(i) {
         if flag == "--help" || flag == "-h" {
