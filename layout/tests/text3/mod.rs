@@ -126,17 +126,26 @@ pub fn position_one_line_compat(
     constraints: &azul_layout::text3::cache::UnifiedConstraints,
 ) -> (Vec<PositionedItem>, f32) {
     // The items are a line in logical order; the positioner takes it in
-    // visual order.
-    let line = azul_layout::text3::cache::LogicalLine::new(line_items.to_vec())
+    // visual order, as one segment: the first of the room's.
+    let items = azul_layout::text3::cache::LogicalLine::new(line_items.to_vec())
         .into_visual(base_direction);
+    let segment = lc.segments.first().copied().unwrap_or(
+        azul_layout::text3::cache::LineSegment {
+            start_x: 0.0,
+            width: lc.total_available,
+            priority: 0,
+        },
+    );
     azul_layout::text3::cache::position_one_line(
-        &line,
-        lc,
+        &[azul_layout::text3::cache::SegmentLine {
+            segment,
+            items,
+            text_align,
+            is_last_line,
+        }],
         line_top_y,
         line_index,
-        text_align,
         base_direction,
-        is_last_line,
         constraints,
         &mut None,
         &mock_loaded_fonts(),

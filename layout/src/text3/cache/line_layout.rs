@@ -190,8 +190,14 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
     }
 
     // For TextWrap::Balance, use Knuth-Plass algorithm for optimal line breaking
-    // This produces more visually balanced lines at the cost of more computation
-    if fragment_constraints.text_wrap == TextWrap::Balance {
+    // This produces more visually balanced lines at the cost of more computation.
+    // It breaks against one measure, the full width: a room shapes or
+    // exclusions cut, whose segments differ from line to line, is broken by
+    // the greedy breaker below.
+    if fragment_constraints.text_wrap == TextWrap::Balance
+        && fragment_constraints.shape_boundaries.is_empty()
+        && fragment_constraints.shape_exclusions.is_empty()
+    {
         if let Some(msgs) = debug_messages {
             msgs.push(LayoutDebugMessage::info(
                 "Using Knuth-Plass algorithm for text-wrap: balance".to_string(),
@@ -532,6 +538,14 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
                 &column_constraints,
                 debug_messages,
             );
+            // Whether shapes or exclusions cut the room, read before the
+            // indent: the indent is a margin on the line box, which a unit
+            // too wide for what it leaves overflows (it never moves the line
+            // down). Below every shape no cut is left to move past.
+            let room_cut = !is_min_content
+                && !is_max_content
+                && room_is_cut(&line_constraints, column_width)
+                && !below_every_shape(line_top_y, fragment_constraints);
             // CSS Text 3 8.1: the indent is a margin on the line box's start
             // edge - the line is broken, justified and aligned in what is left.
             indent_line_box(
@@ -589,98 +603,106 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
             // distributed across line boxes "When an inline box exceeds the logical
             // width of a line box, it is split into several fragments, which are
             // partitioned across multiple line boxes."
-            let position_before_line = (cursor.next_item_index, cursor.partial_remainder.len());
             let cursor_before_line = cursor.position();
-            let (logical_line, was_hyphenated) = break_one_line(
+            let pieces = match break_line_into_segments(
                 cursor,
                 &line_constraints,
-                false,
+                room_cut,
+                base_direction,
                 hyphenator.as_deref(),
                 fonts,
-                fragment_constraints.line_break,
-                fragment_constraints.white_space_mode,
+                fragment_constraints,
                 effective_overflow_wrap,
-            );
-            if logical_line.is_empty() {
-                // An empty line ends the column only at the end of the content.
-                // With content left, the breaker took items and stripped them all
-                // as white space at the line's edges: such a line has no box, and
-                // the next line starts here. Ending the column there
-                // would drop the rest of the paragraph without a trace.
-                if cursor.is_done() {
-                    break;
-                }
-                if (cursor.next_item_index, cursor.partial_remainder.len()) != position_before_line
-                {
-                    continue;
-                }
-                // Defensive: the breaker always consumes an item while content
-                // is left, so this never happens; it must not loop forever.
-                if let Some(msgs) = debug_messages {
-                    msgs.push(LayoutDebugMessage::warning(
-                        "  Break returned no items and consumed none with content left. \
-                         Ending column."
-                            .to_string(),
-                    ));
-                }
-                break;
-            }
-
-            // A line too short for its first word: where a shape or an
-            // exclusion cuts its room, it moves down to where the room can
-            // change (CSS 2.2 9.5: until some content fits), as long as the
-            // room still changes below; a line the shapes do not cut lets the
-            // word overflow.
-            if !is_min_content
-                && !is_max_content
-                && room_is_cut(&line_constraints, column_width)
-                && !below_every_shape(line_top_y, fragment_constraints)
-            {
-                let line_width = logical_line
-                    .iter()
-                    .fold(0.0, |width, item| fold_line_width(width, item, false));
-                if line_width > line_constraints.total_available + 0.01 {
-                    cursor.restore(cursor_before_line);
+            ) {
+                SegmentedLine::Pieces(pieces) => pieces,
+                // The room the shapes and exclusions leave here holds not
+                // even the next word: the line moves down to where the room
+                // can change (CSS 2.2 9.5: until some content fits).
+                SegmentedLine::NoRoom => {
                     line_top_y = next_band_top(line_top_y, fragment_constraints);
                     continue;
                 }
-            }
+                // White space the breaker strips at a line's edge leaves no
+                // line box; the content after it starts a line here.
+                SegmentedLine::Empty if !cursor.is_done() => continue,
+                SegmentedLine::Empty => break,
+                SegmentedLine::Stalled => {
+                    // Defensive: the breaker always consumes an item while
+                    // content is left; it must not loop forever.
+                    if let Some(msgs) = debug_messages {
+                        msgs.push(LayoutDebugMessage::warning(
+                            "  Break returned no items and consumed none with content left. \
+                             Ending column."
+                                .to_string(),
+                        ));
+                    }
+                    break;
+                }
+            };
 
             if let Some(msgs) = debug_messages {
-                let text: String = logical_line
-                    .iter()
-                    .filter_map(|i| i.as_cluster())
-                    .map(ShapedCluster::text)
-                    .collect();
-                msgs.push(LayoutDebugMessage::info(format!(
-                    "[PFLayout] Line items from breaker (logical order): [{text}]"
-                )));
+                for piece in &pieces {
+                    let text: String = piece
+                        .line
+                        .iter()
+                        .filter_map(|i| i.as_cluster())
+                        .map(ShapedCluster::text)
+                        .collect();
+                    msgs.push(LayoutDebugMessage::info(format!(
+                        "[PFLayout] Segment at x={} ({} wide), logical order: [{text}]",
+                        piece.segment.start_x, piece.segment.width
+                    )));
+                }
             }
 
             // The spans the next line continues: those of this line's last
             // cluster in reading order, wherever the line puts it.
-            let line_end_boxes = logical_line
+            let line_end_boxes = pieces
                 .iter()
                 .rev()
+                .flat_map(|piece| piece.line.iter().rev())
                 .find_map(ShapedItem::as_cluster)
                 .map(|c| c.style.inline_boxes.clone());
 
-            // The line in visual order (UAX 9 rules L1 and L2), once, now that
-            // it is broken.
-            let line_items = logical_line.into_visual(base_direction);
-
             // +spec:line-breaking:c59944 - forced line breaks detected for bidi-aware alignment
-            let line_ends_with_forced_break = line_items
+            let line_ends_with_forced_break = pieces
                 .iter()
-                .any(|item| matches!(item, ShapedItem::Break { .. }));
+                .any(|piece| piece.line.iter().any(|item| matches!(item, ShapedItem::Break { .. })));
+            let last_piece = pieces.len() - 1;
+            let ends_paragraph = cursor.is_done() && !pieces[last_piece].hyphenated;
 
-            // uses text-align-last (last line of block, or line right before forced break)
-            let is_last_line = cursor.is_done() && !was_hyphenated;
-            let effective_align = resolve_effective_alignment(
-                fragment_constraints.text_align,
-                fragment_constraints.text_align_last,
-                is_last_line || line_ends_with_forced_break,
-            );
+            // Each segment is a line box of its own for alignment and
+            // justification, its items put in visual order (UAX 9 rules L1
+            // and L2) on their own; text-align-last takes the paragraph's
+            // last one and one a forced break ends. They are positioned left
+            // to right.
+            let mut segment_lines: Vec<SegmentLine> = pieces
+                .into_iter()
+                .enumerate()
+                .map(|(index, piece)| {
+                    let forced = piece
+                        .line
+                        .iter()
+                        .any(|item| matches!(item, ShapedItem::Break { .. }));
+                    let is_last_line = index == last_piece && ends_paragraph;
+                    SegmentLine {
+                        segment: piece.segment,
+                        items: piece.line.into_visual(base_direction),
+                        text_align: resolve_effective_alignment(
+                            fragment_constraints.text_align,
+                            fragment_constraints.text_align_last,
+                            is_last_line || forced,
+                        ),
+                        is_last_line,
+                    }
+                })
+                .collect();
+            segment_lines.sort_by(|a, b| {
+                a.segment
+                    .start_x
+                    .partial_cmp(&b.segment.start_x)
+                    .unwrap_or(Ordering::Equal)
+            });
 
             // The spans on the lines around this one: a span the wrap
             // splits has no edge at the split.
@@ -691,15 +713,12 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
                 .find_map(ShapedItem::as_cluster)
                 .map(|c| c.style.inline_boxes.clone());
             let (mut line_pos_items, line_height) = position_one_line_between(
-                &line_items,
+                &segment_lines,
                 before_chain.as_deref(),
                 after_chain.as_deref(),
-                &line_constraints,
                 line_top_y,
                 line_index,
-                effective_align,
                 base_direction,
-                is_last_line,
                 fragment_constraints,
                 debug_messages,
                 fonts,
@@ -1180,6 +1199,143 @@ pub fn break_one_line<T: ParsedFontTrait>(
     (line, false)
 }
 
+/// How narrow, in ems of the paragraph's font, a segment the shapes and
+/// exclusions cut off may be before it holds no text: a sliver beside a hole
+/// would hold a letter or two, cut off from the rest of the line.
+const MIN_SEGMENT_EM: f32 = 1.0;
+
+/// One segment of a line as the breaker filled it.
+#[derive(Debug)]
+pub(super) struct LinePiece {
+    /// The segment's room.
+    pub(super) segment: LineSegment,
+    /// What the breaker put in it, in reading order.
+    pub(super) line: LogicalLine,
+    /// Whether its last word was hyphenated.
+    pub(super) hyphenated: bool,
+}
+
+/// What breaking a line into the segments of its room came to.
+#[derive(Debug)]
+pub(super) enum SegmentedLine {
+    /// The segments that hold content, in reading order.
+    Pieces(Vec<LinePiece>),
+    /// No segment the shapes and exclusions leave holds the next unit; the
+    /// cursor stands where it stood.
+    NoRoom,
+    /// The content ended in white space, which a line's edge strips.
+    Empty,
+    /// Content is left and nothing was taken (never expected).
+    Stalled,
+}
+
+/// One segment of a line ready to be positioned: its room and its items in
+/// visual order, with how its line box is aligned.
+#[derive(Debug, Clone)]
+pub struct SegmentLine {
+    /// The segment's room.
+    pub segment: LineSegment,
+    /// Its items, in visual order.
+    pub items: VisualLine,
+    /// Its alignment, `text-align-last` already taken where it applies.
+    pub text_align: TextAlign,
+    /// Whether it holds the end of its paragraph (it is not justified).
+    pub is_last_line: bool,
+}
+
+/// Breaks the next line into the segments of `line_constraints`, each one in
+/// turn, in reading order, as a line of its own: no word and no hyphenation
+/// crosses from one segment into the next, as the room between them is not
+/// the line's.
+///
+/// Where the room is cut by shapes or exclusions (`room_cut`), a segment
+/// narrower than [`MIN_SEGMENT_EM`] holds nothing, and neither does one too
+/// narrow for its next unit: the unit goes on to the next segment. A room
+/// the shapes do not cut is one segment, and a unit too wide for it
+/// overflows it. A forced break ends the whole line.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn break_line_into_segments<T: ParsedFontTrait>(
+    cursor: &mut BreakCursor<'_>,
+    line_constraints: &LineConstraints,
+    room_cut: bool,
+    base_direction: BidiDirection,
+    hyphenator: Option<&Standard>,
+    fonts: &LoadedFonts<T>,
+    constraints: &UnifiedConstraints,
+    overflow_wrap: OverflowWrap,
+) -> SegmentedLine {
+    let start = cursor.position();
+    let mut in_reading_order = line_constraints.segments.clone();
+    if base_direction == BidiDirection::Rtl {
+        in_reading_order.reverse();
+    }
+    let min_width = MIN_SEGMENT_EM * constraints.strut_font_size;
+    let mut pieces = Vec::new();
+    'segments: for segment in in_reading_order {
+        if room_cut && segment.width + 0.01 < min_width {
+            continue;
+        }
+        let room = LineConstraints {
+            segments: vec![segment],
+            total_available: segment.width,
+            is_min_content: line_constraints.is_min_content,
+        };
+        // White space a segment's edge strips leaves it empty: it is read
+        // again, from the content after the white space.
+        while !cursor.is_done() {
+            let before = cursor.position();
+            let (line, hyphenated) = break_one_line(
+                cursor,
+                &room,
+                false,
+                hyphenator,
+                fonts,
+                constraints.line_break,
+                constraints.white_space_mode,
+                overflow_wrap,
+            );
+            if line.is_empty() {
+                if cursor.position() == before {
+                    return SegmentedLine::Stalled;
+                }
+                continue;
+            }
+            let width = line
+                .iter()
+                .fold(0.0, |width, item| fold_line_width(width, item, false));
+            if room_cut && width > segment.width + 0.01 {
+                cursor.restore(before);
+                continue 'segments;
+            }
+            let forced = line
+                .iter()
+                .any(|item| matches!(item, ShapedItem::Break { .. }));
+            pieces.push(LinePiece {
+                segment,
+                line,
+                hyphenated,
+            });
+            if forced {
+                break 'segments;
+            }
+            continue 'segments;
+        }
+        break;
+    }
+    if !pieces.is_empty() {
+        return SegmentedLine::Pieces(pieces);
+    }
+    if cursor.is_done() {
+        return SegmentedLine::Empty;
+    }
+    cursor.restore(start);
+    if room_cut {
+        SegmentedLine::NoRoom
+    } else {
+        SegmentedLine::Stalled
+    }
+}
+
 /// Represents a single valid hyphenation point within a word.
 #[derive(Debug, Clone)]
 pub struct HyphenationBreak {
@@ -1640,27 +1796,21 @@ const fn apostrophe_is_a_letter(_hyphenator: &Standard) -> bool {
 // merge)
 #[allow(clippy::too_many_arguments)]
 pub fn position_one_line<T: ParsedFontTrait>(
-    line_items: &VisualLine,
-    line_constraints: &LineConstraints,
+    segment_lines: &[SegmentLine],
     line_top_y: f32,
     line_index: usize,
-    text_align: TextAlign,
     base_direction: BidiDirection,
-    is_last_line: bool,
     constraints: &UnifiedConstraints,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     fonts: &LoadedFonts<T>,
 ) -> (Vec<PositionedItem>, f32) {
     position_one_line_between(
-        line_items,
+        segment_lines,
         None,
         None,
-        line_constraints,
         line_top_y,
         line_index,
-        text_align,
         base_direction,
-        is_last_line,
         constraints,
         debug_messages,
         fonts,
@@ -1671,6 +1821,11 @@ pub fn position_one_line<T: ParsedFontTrait>(
 /// the inline boxes of the nearest clusters on the lines before and after
 /// it, so a span split by the line wrap gets no edge at the split
 /// ([`inline_box_edge_advances_between`]).
+///
+/// The line is one line box: its height and baseline come from the items of
+/// all its segments. Each segment is aligned and justified in its own room
+/// (`segment_lines` left to right, each holding the items the breaker put in
+/// it).
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
 #[allow(clippy::cast_precision_loss)] // bounded pixel/coord/colour/glyph cast
 #[allow(clippy::match_same_arms)]
@@ -1679,37 +1834,29 @@ pub fn position_one_line<T: ParsedFontTrait>(
                                                                // layout/render/parse routine (one
                                                                // branch per case)
 pub fn position_one_line_between<T: ParsedFontTrait>(
-    line_items: &VisualLine,
+    segment_lines: &[SegmentLine],
     before: Option<&[InlineBoxEdge]>,
     after: Option<&[InlineBoxEdge]>,
-    line_constraints: &LineConstraints,
     line_top_y: f32,
     line_index: usize,
-    text_align: TextAlign,
     base_direction: BidiDirection,
-    is_last_line: bool,
     constraints: &UnifiedConstraints,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     fonts: &LoadedFonts<T>,
 ) -> (Vec<PositionedItem>, f32) {
-    let line_text: String = line_items
+    // The line's items left to right, every segment's after the one before.
+    let line_items: Vec<ShapedItem> = segment_lines
         .iter()
-        .filter_map(|i| i.as_cluster())
-        .map(ShapedCluster::text)
+        .flat_map(|piece| piece.items.iter().cloned())
         .collect();
     if let Some(msgs) = debug_messages {
+        let line_text: String = line_items
+            .iter()
+            .filter_map(|i| i.as_cluster())
+            .map(ShapedCluster::text)
+            .collect();
         msgs.push(LayoutDebugMessage::info(format!(
             "\n--- Entering position_one_line for line: [{line_text}] ---"
-        )));
-    }
-    // +spec:text-alignment-spacing:13b72d - line box start/end determined by inline base direction
-    // +spec:text-alignment-spacing:d497af - line box inline base direction affects text-align
-    // resolution +spec:text-alignment-spacing:68332e - bidi direction determines start/end to
-    // left/right mapping
-    let physical_align = physical_text_align(text_align, base_direction);
-    if let Some(msgs) = debug_messages {
-        msgs.push(LayoutDebugMessage::info(format!(
-            "[Pos1Line] Physical align: {physical_align:?}"
         )));
     }
 
@@ -1745,74 +1892,27 @@ pub fn position_one_line_between<T: ParsedFontTrait>(
         constraints.strut_descent,
     );
     let (line_ascent, line_descent) =
-        calculate_line_metrics(line_items, constraints.vertical_align, constraints, strut);
+        calculate_line_metrics(&line_items, constraints.vertical_align, constraints, strut);
     let line_box_height = line_ascent + line_descent;
 
     // The baseline for the entire line is determined by its tallest item.
     let line_baseline_y = line_top_y + line_ascent;
 
     // --- Segment-Aware Positioning ---
+    // The index in `line_items` of the current segment's first item.
     let mut item_cursor = 0;
 
-    // white-space: nowrap / pre suppress soft wrapping, so break_one_line already
-    // put the WHOLE line (overflowing content and all) into `line_items`. The
-    // per-segment fit test below is a distribution step for wrapped/shaped text —
-    // for a nowrap line it must NOT stop at `segment.width`, or every item past
-    // the box edge is silently dropped (a single-line text-input then loses its
-    // overflow tail: only ~one box-width of glyphs is positioned, `unclipped_bounds`
-    // never exceeds the box, and no horizontal scroll box is registered). Keep every
-    // item on the (single) segment and let it overflow; paint-time clipping handles
-    // visual overflow.
-    let no_wrap = matches!(
-        constraints.white_space_mode,
-        WhiteSpaceMode::Nowrap | WhiteSpaceMode::Pre
-    );
-
-    for (segment_idx, segment) in line_constraints.segments.iter().enumerate() {
-        if item_cursor >= line_items.len() {
-            break;
-        }
-
-        // 1. Collect all items that fit into the current segment.
-        //
-        // The LAST segment must absorb whatever is left. This loop distributes
-        // a line the breaker already decided across the line's float/shape
-        // segments — it is not a second line-breaking pass, and it has no way
-        // to hand leftovers anywhere: items not taken by the last segment are
-        // simply never positioned, and `overflow_items` is never populated, so
-        // they vanish silently.
-        //
-        // That is not theoretical. A `text-align: center` fit-content box is
-        // measured, then laid out again AT its own measurement — and the
-        // centred measure loses one f32 ULP, because `UnifiedLayout::bounds()`
-        // computes `max_x - min_x` where both are large and near-equal (a
-        // left-aligned line has `min_x == 0` and is exact). The re-layout then
-        // folds the same clusters and reaches `47.568005 > 47.568` on the last
-        // one, so a ~4e-6 px shortfall discarded a whole 6.9 px glyph: the
-        // Stepper rendered "Shippin", "Paymen", "Don". Same class as the
-        // nowrap/pre case above, and the same answer — paint-time clipping
-        // handles visual overflow; the positioner must not drop content.
-        let is_last_segment = segment_idx + 1 >= line_constraints.segments.len();
+    for piece in segment_lines {
+        let segment = &piece.segment;
+        let is_last_line = piece.is_last_line;
+        // +spec:text-alignment-spacing:13b72d - line box start/end determined by inline base
+        // direction +spec:text-alignment-spacing:d497af - line box inline base direction
+        // affects text-align resolution +spec:text-alignment-spacing:68332e - bidi direction
+        // determines start/end to left/right mapping
+        let physical_align = physical_text_align(piece.text_align, base_direction);
         let segment_start = item_cursor;
-        let mut segment_items = Vec::new();
-        let mut current_segment_width = 0.0;
-        while item_cursor < line_items.len() {
-            let item = &line_items[item_cursor];
-            // With the spacing after it, as the line breaker measured it.
-            let item_measure = get_item_measure_with_spacing(item, is_vertical);
-            // Put at least one item in the segment to avoid getting stuck.
-            // For nowrap/pre the overflow must stay on the line (see above).
-            if !no_wrap
-                && !is_last_segment
-                && current_segment_width + item_measure > segment.width
-                && !segment_items.is_empty()
-            {
-                break;
-            }
-            segment_items.push(item.clone());
-            current_segment_width += item_measure;
-            item_cursor += 1;
-        }
+        let segment_items: Vec<ShapedItem> = piece.items.to_vec();
+        item_cursor += segment_items.len();
 
         if segment_items.is_empty() {
             continue;
