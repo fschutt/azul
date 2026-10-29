@@ -3142,7 +3142,7 @@ fn apply_folders(
     for action in actions {
         match action {
             FolderAction::Agree { key, id } | FolderAction::Send { key, id } => {
-                let (ino, dev) = here(key);
+                let (ino, dev) = here(key.as_str());
                 let entry = BaseFolder {
                     id: id.clone(),
                     ino,
