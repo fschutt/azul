@@ -477,6 +477,27 @@ fn a_mass_delete_confirmed_on_one_device_is_not_asked_again_on_another() {
     assert!(b.tree().is_empty(), "{:?}", b.tree().keys().collect::<Vec<_>>());
 }
 
+/// An empty folder travels through a drive synced by name too, and so does its delete.
+#[test]
+fn an_empty_folder_travels_through_a_drive_synced_by_name() {
+    let s3 = FakeS3::new();
+    let drive = NamesHashes(s3_drive(&s3));
+    let a = Device::new("dev-a-dirs");
+    let b = Device::new("dev-b-dirs");
+    a.write("notes/a.md", b"alpha");
+    fs::create_dir_all(a.folder.path().join("photos/2026")).unwrap();
+    a.sync(&drive);
+    b.sync(&drive);
+    assert!(b.folder.path().join("photos/2026").is_dir());
+    let again = b.sync(&drive);
+    assert_eq!((again.files_up, again.files_down), (0, 0), "{}", again.summary());
+    fs::remove_dir_all(a.folder.path().join("photos")).unwrap();
+    a.sync(&drive);
+    b.sync(&drive);
+    assert!(!b.folder.path().join("photos").exists());
+    assert_eq!(b.read("notes/a.md").as_deref(), Some(&b"alpha"[..]));
+}
+
 // ==== A drive as the plain sync's store ====
 
 #[test]
