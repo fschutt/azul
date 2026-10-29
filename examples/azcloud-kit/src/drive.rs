@@ -176,6 +176,22 @@ fn drive_error_of(e: &TokenError) -> DriveError {
             azlin_error: AzlinError::parse(code).filter(|known| *known != AzlinError::Internal),
             ..ServiceError::default()
         }),
+        // A token server that asked to wait keeps its pause: the sync's gate and its next pass
+        // do not ask before it is over.
+        TokenError::Busy {
+            status,
+            code,
+            message,
+            retry_after,
+            ..
+        } => DriveError::Service(ServiceError {
+            status: *status,
+            code: code.clone(),
+            message: message.clone(),
+            azlin_error: AzlinError::parse(code).filter(|known| *known != AzlinError::Internal),
+            retry_after: *retry_after,
+            ..ServiceError::default()
+        }),
         TokenError::Protocol(_) => DriveError::Protocol(e.to_string()),
     }
 }

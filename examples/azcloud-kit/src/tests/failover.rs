@@ -365,6 +365,90 @@ fn a_node_busy_everywhere_is_asked_again_after_a_backoff_not_at_once() {
 }
 
 #[test]
+fn a_busy_node_hands_the_read_to_another_node_of_the_placement() {
+    // Past its download bound a node says so (Retry-After: 0, another node at once); one whose
+    // request failed inside answers 500 InternalError: the read goes on at the next node of the
+    // drive, without a pause.
+    let s3 = FakeS3::new();
+    s3.write("a.txt", b"alpha".to_vec());
+    let service = s3.clone();
+    let fake = Fake::new(move |call, _| {
+        if call.url.starts_with(S3) {
+            return Ok(reply(
+                503,
+                &[("x-azlin-error", "unavailable"), ("Retry-After", "0")],
+                "<Error><Code>SlowDown</Code><Message>too many downloads at once on this \
+                 node</Message></Error>",
+            ));
+        }
+        if call.url.starts_with(N1) {
+            return Ok(reply(
+                500,
+                &[],
+                "<Error><Code>InternalError</Code><Message>the request failed inside the node; \
+                 send it again</Message></Error>",
+            ));
+        }
+        Ok(service.answer(call))
+    });
+    let (bucket, pauses) = bucket_with(factory(&fake), clock());
+    let bucket = bucket.with_nodes(vec![node("n1", N1, true), node("n2", N2, true)]);
+    assert_eq!(bucket.get("a.txt").unwrap().unwrap(), b"alpha");
+    assert_eq!(
+        hosts(&fake),
+        vec![S3.to_string(), N1.to_string(), N2.to_string()],
+        "the next node of the drive, each once"
+    );
+    assert!(pauses.lock().unwrap().is_empty(), "another node at once");
+}
+
+#[test]
+fn a_download_cut_off_after_a_minute_resumes_where_it_stopped() {
+    // A node cuts off a GET whose reader took nothing for a minute (the app was suspended): the
+    // ranges already written stay, and the next download asks only for the rest, by Range -
+    // never from the first byte again.
+    let tmp = TempDir::new("azcloud-failover-resume");
+    let s3 = FakeS3::new();
+    let bytes: Vec<u8> = (0..10 * 1024).map(|i| (i % 251) as u8).collect();
+    s3.write("film.bin", bytes.clone());
+    let service = s3.clone();
+    let cut = Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let cutting = cut.clone();
+    let ranges = Arc::new(Mutex::new(Vec::<String>::new()));
+    let seen = ranges.clone();
+    let fake = Fake::new(move |call, _| {
+        let range = header(call, "range").map(str::to_string);
+        if let Some(range) = &range {
+            seen.lock().unwrap().push(range.clone());
+        }
+        if cutting.load(Ordering::SeqCst)
+            && range.as_deref().is_some_and(|r| r.starts_with("bytes=4096-"))
+        {
+            return Err(String::from("the node cut off a body nobody read for a minute"));
+        }
+        Ok(service.answer(call))
+    });
+    let (mut bucket, _) = bucket_with(factory(&fake), clock());
+    bucket.set_part_size(1024);
+    bucket.set_parallel(1);
+    let dest = tmp.path().join("film.bin");
+    assert!(bucket.download_to("film.bin", &dest, &mut |_| {}).is_err(), "cut off");
+    cut.store(false, Ordering::SeqCst);
+    let before = ranges.lock().unwrap().len();
+    bucket.download_to("film.bin", &dest, &mut |_| {}).unwrap();
+    assert_eq!(std::fs::read(&dest).unwrap(), bytes);
+    let asked: Vec<String> = ranges.lock().unwrap()[before..].to_vec();
+    assert!(
+        !asked.iter().any(|r| r.starts_with("bytes=0-")),
+        "never from the first byte again: {asked:?}"
+    );
+    assert!(
+        asked.iter().any(|r| r.starts_with("bytes=4096-")),
+        "the range that was cut off, asked for again: {asked:?}"
+    );
+}
+
+#[test]
 fn the_pause_a_node_asks_for_is_kept_and_a_long_one_is_the_callers_to_wait_out() {
     let s3 = FakeS3::new();
     s3.write("a.txt", b"alpha".to_vec());

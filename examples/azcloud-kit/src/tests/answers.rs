@@ -4,7 +4,10 @@
 //! caller's to wait out and said in the user's words; a refusal that does not pass says what it
 //! is.
 
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use azul_storage::{
     config::keyring_key,
@@ -45,6 +48,19 @@ const CHECKOUT: &str = r#"{"checkout_id": "ck_1", "pay_url": "http://127.0.0.1:1
 /// The issue key of a test checkout's period tokens (base64url of 32 bytes).
 const ISSUE_KEY: &str = "Zm9yIHRoZSBwZXJpb2QgdG9rZW5zIG9mIGNrXzEgb25seQ";
 
+/// The pauses a token server took.
+type Pauses = Arc<Mutex<Vec<Duration>>>;
+
+/// The token server on `transport`, its pauses recorded instead of slept.
+fn recording(transport: &Shared) -> (TokenServer<'_>, Pauses) {
+    let pauses: Pauses = Arc::new(Mutex::new(Vec::new()));
+    let heard = pauses.clone();
+    let server = TokenServer::new(TOKEN, transport)
+        .unwrap()
+        .with_sleep(Arc::new(move |pause| heard.lock().unwrap().push(pause)));
+    (server, pauses)
+}
+
 fn authorizations(fake: &Fake) -> Vec<String> {
     fake.calls()
         .iter()
@@ -64,9 +80,7 @@ fn a_rate_limited_refresh_waits_and_retries_with_the_same_token() {
         })
     });
     let transport = Shared(fake.clone());
-    let server = TokenServer::new(TOKEN, &transport)
-        .unwrap()
-        .with_retry_pause(Duration::ZERO);
+    let (server, pauses) = recording(&transport);
     let rotation = server
         .refresh(shared.spend("d_1").unwrap(), None)
         .rotated()
@@ -77,6 +91,7 @@ fn a_rate_limited_refresh_waits_and_retries_with_the_same_token() {
         vec!["Bearer dt_f.0.aaa", "Bearer dt_f.0.aaa"],
         "the same token both times: a rate limit spends nothing"
     );
+    assert_eq!(*pauses.lock().unwrap(), vec![Duration::from_secs(2)], "its Retry-After");
 }
 
 #[test]
@@ -85,14 +100,17 @@ fn a_rate_limited_refresh_keeps_its_token_and_says_how_long_to_wait() {
     let shared = keyring_holding(&dir, "dt_f.0.aaa");
     let fake = Fake::new(|_, _| Ok(rate_limited("60")));
     let transport = Shared(fake.clone());
-    let server = TokenServer::new(TOKEN, &transport)
-        .unwrap()
-        .with_retry_pause(Duration::ZERO);
+    let (server, pauses) = recording(&transport);
     let error = server
         .refresh(shared.spend("d_1").unwrap(), None)
         .rotated()
         .expect_err("still limited");
     assert_eq!(fake.calls().len(), 1, "a minute is the caller's to wait out");
+    assert!(pauses.lock().unwrap().is_empty());
+    assert!(
+        matches!(&error, crate::TokenError::Busy { retry_after: Some(60), .. }),
+        "{error:?}"
+    );
     assert!(!CloudError::from(error.clone()).is_sign_in());
     let user = UserError::from_token_error(&error).expect("an error the user sees");
     assert_eq!(user.class(), Class::Retry, "it passes by itself");
@@ -152,9 +170,7 @@ fn a_rate_limited_checkout_is_asked_again_with_the_same_order() {
     let claim = ClaimKey::generate().unwrap();
     let fake = Fake::new(|_, n| Ok(if n == 0 { rate_limited("2") } else { json(201, CHECKOUT) }));
     let transport = Shared(fake.clone());
-    let server = TokenServer::new(TOKEN, &transport)
-        .unwrap()
-        .with_retry_pause(Duration::ZERO);
+    let (server, pauses) = recording(&transport);
     let started = server
         .checkout("100GB", 12, "sepa", &claim, CheckoutFor::NewDrive)
         .expect("asked again after the pause");
@@ -163,6 +179,7 @@ fn a_rate_limited_checkout_is_asked_again_with_the_same_order() {
     assert_eq!(calls.len(), 2);
     assert_eq!(calls[0].url, calls[1].url);
     assert_eq!(calls[0].body, calls[1].body, "the same order, the same claim key");
+    assert_eq!(*pauses.lock().unwrap(), vec![Duration::from_secs(2)]);
 }
 
 #[test]
@@ -176,9 +193,7 @@ fn a_rate_limited_voucher_keeps_its_idempotency_key() {
         })
     });
     let transport = Shared(fake.clone());
-    let server = TokenServer::new(TOKEN, &transport)
-        .unwrap()
-        .with_retry_pause(Duration::ZERO);
+    let (server, pauses) = recording(&transport);
     match server.redeem_voucher("AZ-TEST-1234", None, "1TB", &key) {
         Ok(VoucherRedeemed::NewDrive(drive)) => assert_eq!(drive.drive_token, "dt_f.1.bbb"),
         other => panic!("not the drive: {other:?}"),
@@ -193,6 +208,7 @@ fn a_rate_limited_voucher_keeps_its_idempotency_key() {
         })
         .collect();
     assert_eq!(keys, vec![key.header_value(), key.header_value()], "never a new key");
+    assert_eq!(*pauses.lock().unwrap(), vec![Duration::from_secs(2)]);
 }
 
 #[test]
@@ -275,9 +291,7 @@ fn a_provider_that_did_not_answer_is_asked_again_for_the_surface() {
         })
     });
     let transport = Shared(fake.clone());
-    let server = TokenServer::new(TOKEN, &transport)
-        .unwrap()
-        .with_retry_pause(Duration::ZERO);
+    let (server, pauses) = recording(&transport);
     let answer = server
         .checkout_surface("ck_9", "browser")
         .expect("nothing changed: asked again");
@@ -285,6 +299,8 @@ fn a_provider_that_did_not_answer_is_asked_again_for_the_surface() {
     let calls = fake.calls();
     assert_eq!(calls.len(), 2);
     assert_eq!(calls[0].body, calls[1].body);
+    let pauses = pauses.lock().unwrap().clone();
+    assert!(pauses.len() == 1 && !pauses[0].is_zero(), "after a backoff: {pauses:?}");
 }
 
 #[test]

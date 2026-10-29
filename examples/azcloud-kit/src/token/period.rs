@@ -110,9 +110,11 @@ impl<'a> TokenServer<'a> {
         });
         let reply = self.exchange(Method::Post, "/v1/tokens/issue", None, Some(&body))?;
         if !reply.is_success() {
+            // A refusal the contract's issue does not name (the rate limit, a proxy's) is read
+            // as every other answer.
             return match serde_json::from_slice::<IssueRefusal>(&reply.body) {
-                Ok(refusal) => Ok(IssueAnswer::Refused(refusal)),
-                Err(_) => Err(refusal(&reply, false)),
+                Ok(IssueRefusal::Unknown) | Err(_) => Err(refusal(&reply, false)),
+                Ok(refused) => Ok(IssueAnswer::Refused(refused)),
             };
         }
         let answer: ContractIssueAnswer = serde_json::from_slice(&reply.body).map_err(|e| {

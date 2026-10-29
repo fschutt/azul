@@ -24,19 +24,24 @@ pub enum ProofAnswer {
     Restored,
 }
 
-/// A refused proof as a [`TokenError`]: the contract's refusals of the proof are refusals
-/// ([`TokenError::Refused`] with their code), never "sign in again" - a wrong key or a used
+/// A refused proof as a [`TokenError`]: the contract's refusals of the proof keep their code
+/// (refused, or busy for `not_verified`), never "sign in again" - a wrong key or a used
 /// challenge says nothing about this device's drive token.
 fn proof_refusal(reply: &HttpReply) -> TokenError {
     let said: Option<ArchiveRefusal> = serde_json::from_slice(&reply.body).ok();
     match said {
         Some(r) if r != ArchiveRefusal::Unknown => {
             let value: Value = serde_json::from_slice(&reply.body).unwrap_or(Value::Null);
-            TokenError::Refused {
-                status: reply.status,
-                code: r.as_str().to_string(),
-                message: value["message"].as_str().unwrap_or_default().to_string(),
-            }
+            let retry_after = reply
+                .header("retry-after")
+                .and_then(|secs| secs.trim().parse::<u64>().ok());
+            TokenError::answered(
+                reply.status,
+                r.as_str(),
+                value["message"].as_str().unwrap_or_default(),
+                retry_after,
+                value["spent"].as_bool(),
+            )
         }
         _ => refusal(reply, true),
     }

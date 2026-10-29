@@ -280,10 +280,12 @@ impl Ban {
 impl<'a> TokenServer<'a> {
     /// Spends the drive token of `spend` for fresh credentials and the next token (`name`: what
     /// this device calls the drive, which the answer's drive then carries). A refusal that says
-    /// it spent nothing (`not_verified`, `try_again`, `unavailable` with `"spent": false`) is
-    /// sent again after a pause; no answer, or a failure that does not say so, is
-    /// [`RefreshOutcome::Unknown`]: the token may be spent, and only the same token goes on
-    /// ([`Self::retry`], or the next refresh: the keyring still holds it).
+    /// it spent nothing (the rate limit, `not_verified`, `try_again`, `unavailable` with
+    /// `"spent": false`) is sent again with the same token under the policy, and when it lasts
+    /// the token stays the device's ([`TokenError::Busy`] says how long to wait); no answer, or a
+    /// failure that does not say so, is [`RefreshOutcome::Unknown`]: the token may be spent, and
+    /// only the same token goes on ([`Self::retry`], or the next refresh: the keyring still
+    /// holds it).
     pub fn refresh<'k>(&self, spend: SpendOnce<'k>, name: Option<&str>) -> RefreshOutcome<'k> {
         let drive_id = spend.drive_id().to_string();
         if drive_id.is_empty() {
@@ -297,57 +299,45 @@ impl<'a> TokenServer<'a> {
             Some(name) => json!({ "name": name }),
             None => json!({}),
         };
-        let mut tries = 1;
-        loop {
-            let token = spend.token().as_str();
-            let reply = match self.exchange(Method::Post, &path, Some(token), Some(&body)) {
-                Ok(reply) => reply,
-                // The request may have reached the token server and spent the token.
-                Err(e) => return RefreshOutcome::Unknown(PendingSpend::new(spend, e)),
+        let token = spend.token().as_str();
+        let reply = match self.exchange(Method::Post, &path, Some(token), Some(&body)) {
+            Ok(reply) => reply,
+            // The request may have reached the token server and spent the token.
+            Err(e) => return RefreshOutcome::Unknown(PendingSpend::new(spend, e)),
+        };
+        if reply.is_success() {
+            let bundle = serde_json::from_slice::<Value>(&reply.body)
+                .map_err(|_| TokenError::Protocol(String::from("the answer is not JSON")))
+                .and_then(|value| DriveBundle::from_value(&value));
+            return match bundle {
+                Ok(bundle) if bundle.drive_id() == drive_id => {
+                    RefreshOutcome::Rotated(spend.answered(bundle))
+                }
+                Ok(bundle) => {
+                    let why = format!(
+                        "the answer is for the drive {}, not {drive_id}",
+                        bundle.drive_id()
+                    );
+                    RefreshOutcome::Unknown(PendingSpend::new(spend, TokenError::Protocol(why)))
+                }
+                // Spent, and the answer cannot be read.
+                Err(e) => RefreshOutcome::Unknown(PendingSpend::new(spend, e)),
             };
-            if reply.is_success() {
-                let bundle = serde_json::from_slice::<Value>(&reply.body)
-                    .map_err(|_| TokenError::Protocol(String::from("the answer is not JSON")))
-                    .and_then(|value| DriveBundle::from_value(&value));
-                return match bundle {
-                    Ok(bundle) if bundle.drive_id() == drive_id => {
-                        RefreshOutcome::Rotated(spend.answered(bundle))
-                    }
-                    Ok(bundle) => {
-                        let why = format!(
-                            "the answer is for the drive {}, not {drive_id}",
-                            bundle.drive_id()
-                        );
-                        RefreshOutcome::Unknown(PendingSpend::new(spend, TokenError::Protocol(why)))
-                    }
-                    // Spent, and the answer cannot be read.
-                    Err(e) => RefreshOutcome::Unknown(PendingSpend::new(spend, e)),
-                };
-            }
-            let said: Option<RefreshRefusal> = serde_json::from_slice(&reply.body).ok();
-            let error = refusal(&reply, true);
-            match said {
-                Some(r) if r.spent_nothing() && tries < REFRESH_TRIES => {
-                    tries += 1;
-                    std::thread::sleep(self.retry_pause);
-                }
-                Some(r) if r.spent_nothing() => {
-                    return RefreshOutcome::Refused {
-                        refusal: Some(r),
-                        error,
-                    }
-                }
-                // A failure that does not say it spent nothing (or says it did): maybe it did.
-                _ if reply.status >= 500 => {
-                    return RefreshOutcome::Unknown(PendingSpend::new(spend, error))
-                }
-                said => {
-                    return RefreshOutcome::Refused {
-                        refusal: said,
-                        error,
-                    }
-                }
-            }
+        }
+        let said: Option<RefreshRefusal> = serde_json::from_slice(&reply.body).ok();
+        let error = refusal(&reply, true);
+        match crate::answer::of_token_reply(&reply) {
+            // A failure that does not say it spent nothing (or says it did): maybe it did.
+            Outcome::Transient {
+                spent: Spent::Maybe,
+                ..
+            } => RefreshOutcome::Unknown(PendingSpend::new(spend, error)),
+            // Refused for good, or busy still after the policy's tries: nothing was spent, the
+            // keyring keeps the token for the next refresh.
+            _ => RefreshOutcome::Refused {
+                refusal: said,
+                error,
+            },
         }
     }
 

@@ -36,40 +36,9 @@ use crate::{
 /// The backoff state's file in a pairing's state folder.
 pub const RETRY_FILE: &str = "retry.json";
 
-/// How one request is retried.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct RetryPolicy {
-    /// Tries in all (the first one included).
-    pub attempts: u32,
-    /// The first wait; each next one doubles it, up to `ceiling`.
-    pub base: Duration,
-    pub ceiling: Duration,
-    /// The longest a request waits for a `Retry-After` inside a pass; a longer one fails the
-    /// request (nothing is sent early) and the pass's schedule keeps it.
-    pub max_wait: Duration,
-}
-
-impl RetryPolicy {
-    /// A request of a pass: four tries, 100 ms doubling up to 5 s.
-    pub const REQUEST: RetryPolicy = RetryPolicy {
-        attempts: 4,
-        base: Duration::from_millis(100),
-        ceiling: Duration::from_secs(5),
-        max_wait: Duration::from_secs(30),
-    };
-
-    /// The wait before try `attempt` (1 = the first retry): `base * 2^(attempt-1)` capped at
-    /// the ceiling, times `jitter` in [0, 1) ("full jitter": devices that failed together do
-    /// not come back together).
-    #[must_use]
-    pub fn delay(&self, attempt: u32, jitter: f64) -> Duration {
-        let exp = self
-            .base
-            .saturating_mul(1u32 << attempt.saturating_sub(1).min(20))
-            .min(self.ceiling);
-        exp.mul_f64(jitter.clamp(0.0, 1.0))
-    }
-}
+/// How one request is retried: the kit's one policy ([`crate::policy::Policy`]; a pass's
+/// requests take [`RetryPolicy::REQUEST`]).
+pub use crate::policy::Policy as RetryPolicy;
 
 /// What to do after a failed request.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -90,19 +59,17 @@ pub fn classify(error: &CloudError) -> Verdict {
     }
 }
 
-/// Whether the drive's answer `error` passes by itself: a 429, a 5xx other than a full drive,
-/// a dropped connection.
+/// Whether the drive's answer `error` passes by itself, as the kit reads every answer
+/// ([`crate::answer`]): a 429 or a rate limit (with its `Retry-After`, never less than a
+/// second), a 5xx other than a full drive, a dropped connection.
 #[must_use]
 pub fn classify_drive(error: &DriveError) -> Verdict {
-    match error {
-        DriveError::Service(service) => match service.status {
-            429 => Verdict::Retry(Some(Duration::from_secs(service.retry_after.unwrap_or(1)))),
-            500..=599 if service.status != 507 => {
-                Verdict::Retry(service.retry_after.map(Duration::from_secs))
-            }
-            _ => Verdict::GiveUp,
-        },
-        DriveError::Transport(_) => Verdict::Retry(None),
+    match crate::answer::of_drive_error(error) {
+        // A Retry-After of 0 named another node, which the drive's failover asked already: the
+        // request waits for the backoff, not for nothing.
+        crate::answer::Outcome::Transient { retry_after, .. } => {
+            Verdict::Retry(retry_after.filter(|pause| !pause.is_zero()))
+        }
         _ => Verdict::GiveUp,
     }
 }
@@ -147,14 +114,7 @@ impl Gate {
 }
 
 /// A number in [0, 1) from the OS random source (the jitter of every wait).
-#[must_use]
-pub fn random_jitter() -> f64 {
-    let mut bytes = [0u8; 8];
-    if getrandom::getrandom(&mut bytes).is_err() {
-        return 0.5;
-    }
-    (u64::from_le_bytes(bytes) >> 11) as f64 / (1u64 << 53) as f64
-}
+pub use crate::policy::random_jitter;
 
 /// The error a request refused before it was sent: the gate stays closed longer than a pass
 /// waits. It is a 429 (the server's own answer, kept).

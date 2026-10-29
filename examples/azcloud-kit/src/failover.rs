@@ -25,10 +25,11 @@
 //!    resolve ([`azul_storage::transport::is_dns_failure`]) is told the node's addresses once
 //!    more and the request is sent again.
 //!
-//! What happens to an answer is its class in [`crate::user_errors`] (no table here): busy and
-//! "something went wrong" are asked again at the next endpoint and, after every endpoint, again
-//! after a growing backoff ([`Retry`]); a pause the node asks for (`Retry-After`) is kept, and
-//! one longer than [`Retry::max_pause`] is the caller's to wait out (the answer is returned); a
+//! What happens to an answer is what [`crate::answer`] reads in it (no table here): what passes
+//! by itself (a busy or draining node, one that failed inside, no answer) is asked again at the
+//! next endpoint and, after every endpoint, again under the kit's one policy ([`Retry`]): never
+//! sooner than the backoff nor than the pause a node asked for (`Retry-After`), and a pause
+//! longer than [`Policy::max_wait`] is the caller's to wait out (the answer is returned); a
 //! drive that moved (`wrong_block`) is followed to the endpoint the answer names; a damaged
 //! object is read once more from another node; everything the user must act on (a full drive,
 //! a device signed out, a conflict) and every ordinary answer (404, 412, ...) is returned as it
@@ -60,18 +61,20 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::{
+    answer::{Outcome, Spent},
+    policy::Policy,
     transport::{IrohLane, LaneAnswer},
-    user_errors::{Behaviour, UserError},
+    user_errors::Behaviour,
 };
 
 /// How long the endpoint that answered stays first (seconds).
 pub const STICKY_SECS: u64 = 600;
-/// How often the endpoints are asked for one request, by default.
-pub const ROUNDS: u32 = 3;
+/// How often the endpoints are asked for one request, by default ([`Policy::NODE`]).
+pub const ROUNDS: u32 = Policy::NODE.attempts;
 /// The pause after the first round without an answer; it doubles every round.
-pub const BACKOFF: Duration = Duration::from_millis(250);
+pub const BACKOFF: Duration = Policy::NODE.base;
 /// The longest `Retry-After` a request waits out itself.
-pub const MAX_PAUSE: Duration = Duration::from_secs(30);
+pub const MAX_PAUSE: Duration = Policy::NODE.max_wait;
 /// The most addresses one host is reached at (what azul's HTTP client keeps of a host).
 pub const MAX_ADDRESSES: usize = 16;
 
@@ -219,51 +222,12 @@ impl Node {
     }
 }
 
-/// How often one request is tried.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Retry {
-    /// Times every endpoint is asked (at least one).
-    pub rounds: u32,
-    /// The pause after the first round; it doubles every round (with a random part on top).
-    pub backoff: Duration,
-    /// The longest `Retry-After` waited out here; a longer one returns the node's answer.
-    pub max_pause: Duration,
-}
-
-impl Default for Retry {
-    fn default() -> Retry {
-        Retry {
-            rounds: ROUNDS,
-            backoff: BACKOFF,
-            max_pause: MAX_PAUSE,
-        }
-    }
-}
-
-impl Retry {
-    /// Every endpoint once, no pause (a probe, a lane that falls back on its own).
-    #[must_use]
-    pub fn once() -> Retry {
-        Retry {
-            rounds: 1,
-            ..Retry::default()
-        }
-    }
-
-    /// The pause after `round` (from 1) without an answer: the backoff doubled per round, and up
-    /// to half of it again at random (two devices do not come back at the same moment).
-    fn pause_after(&self, round: u32) -> Duration {
-        let base = self
-            .backoff
-            .saturating_mul(1u32 << round.saturating_sub(1).min(16));
-        let half = u64::try_from(base.as_millis() / 2).unwrap_or(u64::MAX);
-        let extra = azul_storage::ids::random_seed() % half.saturating_add(1);
-        base.saturating_add(Duration::from_millis(extra))
-    }
-}
+/// How often one request is tried, and its pauses: the kit's one policy - every endpoint is
+/// asked once a round, [`Policy::attempts`] rounds.
+pub type Retry = Policy;
 
 /// How a pause is taken (the tests record it instead).
-pub type Sleep = Arc<dyn Fn(Duration) + Send + Sync>;
+pub use crate::policy::Sleep;
 /// Now, in seconds since 1970 (the sticky node's ten minutes).
 pub type Clock = Arc<dyn Fn() -> u64 + Send + Sync>;
 
@@ -273,6 +237,9 @@ enum Verdict {
     Done,
     /// Ask the next endpoint; after the last one, again after a pause (`Retry-After`, if any).
     Again(Option<Duration>),
+    /// Every node says the same (a client asked to slow down, a drive whose deletes are
+    /// paused): no other node in this round, again after the pause.
+    Wait(Option<Duration>),
     /// The drive is at this endpoint now.
     Moved(String),
 }
@@ -361,7 +328,7 @@ impl Failover {
         Failover {
             block: normal(block),
             state: Mutex::new(State::default()),
-            retry: Mutex::new(Retry::default()),
+            retry: Mutex::new(Policy::NODE),
             sleep: Mutex::new(Arc::new(std::thread::sleep) as Sleep),
             clock: Mutex::new(Arc::new(now_unix) as Clock),
             lane: Mutex::new(None),
@@ -660,44 +627,39 @@ impl Failover {
         transport.fallback_addresses(&host, &node.addresses)
     }
 
-    /// What `reply` means for the request about `key` (see the module).
+    /// What `reply` means for the request about `key`, as the kit reads every answer
+    /// ([`crate::answer`]): what passes by itself is asked again (the next node first), a drive
+    /// that moved is followed, a damaged object is read once more from another node, and
+    /// everything else is the caller's answer.
     fn verdict(&self, reply: &HttpReply, key: Option<&str>, reread: &mut bool) -> Verdict {
-        let azlin = reply
-            .header("x-azlin-error")
-            .is_some_and(|code| !code.trim().is_empty());
-        let redirect = matches!(reply.status, 301 | 307);
-        if !azlin && !redirect && reply.status < 500 && reply.status != 429 {
-            return Verdict::Done;
-        }
-        let error = S3Drive::failure_of(reply, key);
-        let DriveError::Service(service) = &error else {
-            return Verdict::Done;
-        };
-        if redirect && !azlin {
-            // A plain S3 redirect (another region) is the user's setting to fix.
-            return Verdict::Done;
-        }
-        let Some(user) = UserError::from_drive_error(&error) else {
-            return Verdict::Done;
-        };
-        let pause = service.retry_after.map(Duration::from_secs);
-        match user.behaviour() {
-            Behaviour::FollowRedirect => match service
-                .endpoint
-                .as_deref()
-                .and_then(|named| self.endpoint_named(named))
-            {
-                Some(moved) => Verdict::Moved(moved),
-                None => Verdict::Again(pause),
+        match crate::answer::of_node_reply(reply) {
+            Outcome::Done => Verdict::Done,
+            Outcome::Transient {
+                retry_after,
+                elsewhere: true,
+                ..
+            } => Verdict::Again(retry_after),
+            Outcome::Transient { retry_after, .. } => Verdict::Wait(retry_after),
+            Outcome::Refused(code) => match code.row().behaviour {
+                Behaviour::FollowRedirect => {
+                    let DriveError::Service(service) = S3Drive::failure_of(reply, key) else {
+                        return Verdict::Done;
+                    };
+                    match service
+                        .endpoint
+                        .as_deref()
+                        .and_then(|named| self.endpoint_named(named))
+                    {
+                        Some(moved) => Verdict::Moved(moved),
+                        None => Verdict::Again(service.retry_after.map(Duration::from_secs)),
+                    }
+                }
+                Behaviour::RetryOnceThenMark if !*reread => {
+                    *reread = true;
+                    Verdict::Again(None)
+                }
+                _ => Verdict::Done,
             },
-            Behaviour::RetryWithBackoff | Behaviour::RetryAfterPause | Behaviour::Report => {
-                Verdict::Again(pause)
-            }
-            Behaviour::RetryOnceThenMark if !*reread => {
-                *reread = true;
-                Verdict::Again(None)
-            }
-            _ => Verdict::Done,
         }
     }
 }
@@ -733,7 +695,7 @@ impl Router for Failover {
             }
         }
         let retry = self.retry();
-        let rounds = retry.rounds.max(1);
+        let rounds = retry.attempts.max(1);
         let mut last_reply: Option<HttpReply> = None;
         let mut last_error: Option<DriveError> = None;
         let mut reread = false;
@@ -809,6 +771,13 @@ impl Router for Failover {
                         }
                         last_reply = Some(reply);
                     }
+                    Verdict::Wait(pause) => {
+                        if let Some(pause) = pause {
+                            asked = Some(asked.map_or(pause, |a| a.max(pause)));
+                        }
+                        last_reply = Some(reply);
+                        break;
+                    }
                     Verdict::Moved(moved) => {
                         next_in(&mut route, i, moved);
                         last_reply = Some(reply);
@@ -818,11 +787,11 @@ impl Router for Failover {
             if round == rounds {
                 break;
             }
-            let pause = match asked {
-                // A long pause is the caller's to wait out: the node's answer says how long.
-                Some(asked) if asked > retry.max_pause => break,
-                Some(asked) => asked,
-                None => retry.pause_after(round),
+            // Never sooner than a node asked, nor than the backoff: a Retry-After of 0 named
+            // another node, not this round's nodes again at once. A longer pause than the
+            // policy waits is the caller's to wait out: the node's answer says how long.
+            let Some(pause) = retry.pause(asked, round) else {
+                break;
             };
             let sleep = lock(&self.sleep).clone();
             sleep(pause);
@@ -852,16 +821,16 @@ fn next_in(route: &mut Vec<String>, at: usize, url: String) -> bool {
     }
 }
 
-/// Whether `reply` leaves open whether the request was done: a 5xx that is no refusal before
-/// the work (a node that is busy, draining or being updated says so and did nothing).
+/// Whether `reply` leaves open whether the request was done: a transient answer that may have
+/// done something (a node that is busy, draining or being updated says so and did nothing).
 fn outcome_unknown(reply: &HttpReply) -> bool {
-    let refused_first = reply.header("x-azlin-error").is_some_and(|code| {
-        matches!(
-            AzlinError::from_wire(code),
-            AzlinError::Unavailable | AzlinError::Maintenance | AzlinError::DeletePaused
-        )
-    });
-    reply.status >= 500 && !refused_first
+    matches!(
+        crate::answer::of_node_reply(reply),
+        Outcome::Transient {
+            spent: Spent::Maybe,
+            ..
+        }
+    )
 }
 
 /// Reads a node list kept in `path` (a JSON array of [`Node`]s); empty when there is none.

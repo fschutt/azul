@@ -679,11 +679,13 @@ fn answered(
             tokens.join(&done(Some(ended))).map_err(not_kept)?;
             Ok(Sent::Ended(why))
         }
-        IssueAnswer::Refused(refusal) => Err(TokenError::Refused {
-            status: refusal.status(),
-            code: refusal.as_str().to_string(),
-            message: String::from("the token server could not issue the month now"),
-        }),
+        IssueAnswer::Refused(refusal) => Err(TokenError::answered(
+            refusal.status(),
+            refusal.as_str(),
+            "the token server could not issue the month now",
+            None,
+            None,
+        )),
     }
 }
 

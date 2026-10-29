@@ -52,7 +52,8 @@ pub struct OpenCall {
 }
 
 /// Whether `outcome` is the final answer of a call: an answer, or a refusal that will not change
-/// when asked again. No answer, an answer cut off, a 5xx, 408 and 429 leave the call open.
+/// when asked again. What passes by itself ([`crate::answer`]: no answer, an answer cut off, the
+/// rate limit, a 5xx, 408 and 429) leaves the call open.
 #[must_use]
 pub fn is_final<T>(outcome: &Result<T, TokenError>) -> bool {
     outcome.as_ref().err().is_none_or(is_final_error)
@@ -61,11 +62,7 @@ pub fn is_final<T>(outcome: &Result<T, TokenError>) -> bool {
 /// Whether the refusal `e` is final ([`is_final`]).
 #[must_use]
 pub fn is_final_error(e: &TokenError) -> bool {
-    match e {
-        TokenError::SignIn(_) | TokenError::Config(_) => true,
-        TokenError::Connect(_) | TokenError::Protocol(_) => false,
-        TokenError::Refused { status, .. } => !(*status >= 500 || *status == 408 || *status == 429),
-    }
+    !crate::answer::of_token_error(e).is_transient()
 }
 
 /// A key from the OS random source.

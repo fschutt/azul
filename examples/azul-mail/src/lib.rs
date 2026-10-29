@@ -1290,7 +1290,9 @@ fn azlin_error(e: azlin::TokenError) -> SyncError {
     match e {
         azlin::TokenError::Connect(why) => SyncError::Connect(why),
         azlin::TokenError::Protocol(why) => SyncError::Protocol(why),
-        e @ azlin::TokenError::Refused { .. } => SyncError::Protocol(e.to_string()),
+        e @ (azlin::TokenError::Refused { .. } | azlin::TokenError::Busy { .. }) => {
+            SyncError::Protocol(e.to_string())
+        }
         e @ (azlin::TokenError::SignIn(_) | azlin::TokenError::Config(_)) => {
             SyncError::Auth(e.to_string())
         }

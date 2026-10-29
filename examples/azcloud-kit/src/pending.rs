@@ -628,7 +628,7 @@ impl Final {
 pub enum Transient {
     /// No answer from the token server (DNS, connection, TLS, a timeout).
     NoAnswer(String),
-    /// The token server was busy (5xx, 429).
+    /// The token server was busy ([`TokenError::Busy`]: a 5xx, its rate limit).
     Busy(String),
     /// Its sealed sign-up did not open (fewer than [`UNOPENABLE_AFTER`] times): asked again.
     Unopened(String),
@@ -714,9 +714,7 @@ pub fn poll(
         Err(TokenError::Connect(why)) => Polled::Transient(Transient::NoAnswer(format!(
             "no answer from the token server: {why}"
         ))),
-        Err(e @ TokenError::Refused { status, .. }) if status >= 500 || status == 429 => {
-            Polled::Transient(Transient::Busy(e.to_string()))
-        }
+        Err(e @ TokenError::Busy { .. }) => Polled::Transient(Transient::Busy(e.to_string())),
         Err(e) => Polled::Transient(Transient::Unread(e.to_string())),
     }
 }

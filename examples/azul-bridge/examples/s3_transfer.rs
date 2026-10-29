@@ -110,9 +110,10 @@ fn drive(args: &Args) -> Result<S3Drive, DriveError> {
             .collect(),
     );
     failover.set_retry(Retry {
-        rounds: 3,
-        backoff: Duration::from_millis(200),
-        max_pause: Duration::from_secs(5),
+        attempts: 3,
+        base: Duration::from_millis(200),
+        ceiling: Duration::from_secs(5),
+        max_wait: Duration::from_secs(5),
     });
     let drive = S3Drive::new(
         S3Config {

@@ -142,11 +142,17 @@ pub enum Code {
     /// its files are in offline storage until its owner proves it is theirs and pays
     /// (`drive_archived`).
     DriveArchived,
+    /// The token server's rate limit (`rate_limited`): nothing was done, and the same request
+    /// goes again when the pause it named is over - said with its seconds.
+    RateLimited,
+    /// The payment method has no such way to pay this order (`surface_unavailable`): another
+    /// method, or another way to pay, is the buyer's to choose.
+    SurfaceUnavailable,
 }
 
 impl Code {
     /// Every code, in the table's order.
-    pub const ALL: [Code; 35] = [
+    pub const ALL: [Code; 37] = [
         Code::Unavailable,
         Code::Maintenance,
         Code::Network,
@@ -182,6 +188,8 @@ impl Code {
         Code::ReadOnlyLockdown,
         Code::ReadOnlyOperator,
         Code::DriveArchived,
+        Code::RateLimited,
+        Code::SurfaceUnavailable,
     ];
 
     /// `quota_exceeded`, ...
@@ -221,6 +229,8 @@ impl Code {
             Code::ReadOnlyLockdown => "read_only_lockdown",
             Code::ReadOnlyOperator => "read_only_operator",
             Code::DriveArchived => "drive_archived",
+            Code::RateLimited => azlin_contract::RATE_LIMITED,
+            Code::SurfaceUnavailable => "surface_unavailable",
             Code::Other => "other",
             Code::DriveBanned => "drive_banned",
         }
@@ -303,6 +313,7 @@ impl From<&CheckoutRefusal> for Code {
             }
             CheckoutRefusal::PayerRequired | CheckoutRefusal::PayerInvalid => Code::PayerRequired,
             CheckoutRefusal::CheckoutPaid => Code::CheckoutPaid,
+            CheckoutRefusal::SurfaceUnavailable => Code::SurfaceUnavailable,
             // Asking again in a moment may work.
             CheckoutRefusal::ProviderUnavailable
             | CheckoutRefusal::NoPriceLadder
@@ -313,7 +324,6 @@ impl From<&CheckoutRefusal> for Code {
             | CheckoutRefusal::PayerUnexpected
             | CheckoutRefusal::ConsentRequired
             | CheckoutRefusal::BadProvider
-            | CheckoutRefusal::SurfaceUnavailable
             | CheckoutRefusal::CashUnavailable
             | CheckoutRefusal::ClaimKeyRequired
             | CheckoutRefusal::LockUsed
@@ -334,7 +344,8 @@ pub struct Row {
     pub code: Code,
     pub class: Class,
     pub behaviour: Behaviour,
-    /// The English source text (`{detail}`: what went wrong, for [`Code::Other`]).
+    /// The English source text (`{detail}`: what went wrong, for [`Code::Other`]; `{seconds}`:
+    /// the pause the service named).
     pub en: &'static str,
     pub de: &'static str,
 }
@@ -628,6 +639,22 @@ pub const ROWS: &[Row] = &[
         en: "The recovery request ran out. Try again.",
         de: "Die Wiederherstellungsanfrage ist abgelaufen. Versuche es noch einmal.",
     },
+    Row {
+        code: Code::RateLimited,
+        class: Class::Retry,
+        behaviour: Behaviour::RetryAfterPause,
+        en: "Azlin Storage is busy right now - next try in {seconds} s.",
+        de: "Azlin Storage ist gerade ausgelastet - nächster Versuch in {seconds} s.",
+    },
+    Row {
+        code: Code::SurfaceUnavailable,
+        class: Class::Fatal,
+        behaviour: Behaviour::Nothing,
+        en: "This payment method cannot go on here. Choose another way to pay - nothing was \
+             charged.",
+        de: "Mit dieser Zahlungsart geht es hier nicht weiter. Wähle eine andere Zahlungsart - \
+             es wurde nichts berechnet.",
+    },
 ];
 
 /// The languages with texts of their own.
@@ -720,17 +747,17 @@ impl UserError {
         })
     }
 
-    /// An S3 error answer: its `x-azlin-error` (an unknown one is [`Code::Other`]); a service
-    /// without Azlin codes by its status only - busy (503, 429) or [`Code::Other`].
+    /// An S3 error answer as [`crate::answer`] reads it: its `x-azlin-error` (an unknown one by
+    /// its status), an S3 code of the table, the token server's code a refresh's refusal
+    /// carries, else its status only - busy (503, 429) or [`Code::Other`].
     fn from_service(service: &ServiceError) -> UserError {
-        let code = match service.azlin_error {
-            Some(code) => Code::from(code),
-            None if service.code == "RequestTimeTooSkewed" => Code::ClockSkew,
-            None => busy_or_other(service.status),
-        };
+        let outcome = crate::answer::of_service(service);
         UserError {
-            code,
-            retry_after: service.retry_after,
+            code: outcome.code().unwrap_or(Code::Other),
+            retry_after: outcome
+                .retry_after()
+                .map(|pause| pause.as_secs())
+                .or(service.retry_after),
             request_id: service.request_id.clone(),
             detail: service.to_string(),
         }
@@ -742,14 +769,20 @@ impl UserError {
         Some(match e {
             TokenError::Connect(why) => UserError::new(Code::Network, why.clone()),
             TokenError::SignIn(why) => UserError::new(Code::CredentialsRevoked, why.clone()),
-            // The token server's other codes are not in the contract yet: by their status.
-            TokenError::Refused { status, code, .. } => {
-                let known = AzlinError::parse(code)
-                    .map(Code::from)
-                    .or_else(|| CheckoutRefusal::parse(code).map(|r| Code::from(&r)))
-                    .or_else(|| (code == azlin_contract::ALREADY_ANSWERED).then_some(Code::AlreadyAnswered))
+            // As crate::answer reads the code; a code that is "something went wrong" by its
+            // row, or one this build does not know, by the status.
+            TokenError::Refused { status, code, .. } | TokenError::Busy { status, code, .. } => {
+                let known = crate::answer::meaning(crate::answer::Service::TokenServer, code)
+                    .map(|(code, _)| code)
                     .filter(|code| *code != Code::Other);
-                UserError::new(known.unwrap_or_else(|| busy_or_other(*status)), e.to_string())
+                let mut user = UserError::new(
+                    known.unwrap_or_else(|| busy_or_other(*status)),
+                    e.to_string(),
+                );
+                user.retry_after = crate::answer::of_token_error(e)
+                    .retry_after()
+                    .map(|pause| pause.as_secs());
+                user
             }
             TokenError::Protocol(why) => UserError::new(Code::Other, why.clone()),
             TokenError::Config(_) => return None,
@@ -794,7 +827,9 @@ impl UserError {
             Lang::En => row.en,
             Lang::De => row.de,
         };
-        let mut message = text.replace("{detail}", self.detail.trim());
+        let mut message = text
+            .replace("{detail}", self.detail.trim())
+            .replace("{seconds}", &self.seconds().to_string());
         if let Some(id) = self.error_id() {
             let _ = write!(message, " {}: {id}", lang.error_id());
         }
@@ -807,10 +842,21 @@ impl UserError {
         self.code.message_id()
     }
 
-    /// The arguments of its message: `detail` (what went wrong, for [`Code::Other`]).
+    /// The arguments of its message: `detail` (what went wrong, for [`Code::Other`]), and
+    /// `seconds` (the pause the service named) for a message that says it.
     #[must_use]
     pub fn fluent_args(&self) -> Vec<(&'static str, String)> {
-        vec![("detail", self.detail.trim().to_string())]
+        let mut args = vec![("detail", self.detail.trim().to_string())];
+        if self.code.row().en.contains("{seconds}") {
+            args.push(("seconds", self.seconds().to_string()));
+        }
+        args
+    }
+
+    /// The seconds of the pause the service named, at least one (a rate limit never asks again
+    /// at once).
+    fn seconds(&self) -> u64 {
+        self.retry_after.unwrap_or(0).max(1)
     }
 
     /// The error ID (the request ID support traces), when there is one: the `id` of
@@ -824,14 +870,11 @@ impl UserError {
     }
 }
 
-/// A service without Azlin codes: busy (503, 429), too new for this app (426, "upgrade
-/// required", also from a proxy that drops the body) or something else.
+/// A service without Azlin codes, by its status as [`crate::answer::by_status`] reads it: busy
+/// (503, 429, a gateway's 502 and 504), too new for this app (426, "upgrade required", also from
+/// a proxy that drops the body) or something else.
 fn busy_or_other(status: u16) -> Code {
-    match status {
-        503 | 429 => Code::Unavailable,
-        426 => Code::UpdateApp,
-        _ => Code::Other,
-    }
+    crate::answer::by_status(status).0
 }
 
 /// The table in `lang` as a Fluent resource: [`Code::message_id`] `= <text>` per row
@@ -851,6 +894,7 @@ pub fn fluent_source(lang: Lang) -> String {
             "{} = {}",
             row.code.message_id(),
             text.replace("{detail}", "{ $detail }")
+                .replace("{seconds}", "{ $seconds }")
         );
     }
     let _ = writeln!(out, "{ID_LABEL_MESSAGE} = {}: {{ $id }}", lang.error_id());

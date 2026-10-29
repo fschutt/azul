@@ -628,7 +628,7 @@ fn a_token_server_without_payment_options_answers_none() {
     let server = TokenServer::new(TOKEN, &transport).unwrap();
     assert!(matches!(
         server.checkout_options(&query),
-        Err(TokenError::Refused { status: 500, .. })
+        Err(TokenError::Busy { status: 500, .. })
     ));
 }
 
@@ -862,7 +862,7 @@ fn a_refresh_answered_503_is_tried_again_with_the_same_token_and_never_drops_it(
         .rotated()
         .unwrap_err();
     assert!(
-        matches!(&error, TokenError::Refused { status: 503, code, .. } if code == "not_verified"),
+        matches!(&error, TokenError::Busy { status: 503, code, .. } if code == "not_verified"),
         "{error:?}"
     );
     assert!(!CloudError::from(error).is_sign_in());

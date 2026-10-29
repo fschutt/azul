@@ -51,16 +51,18 @@
 //!
 //! Blocking, through azul-storage's [`Transport`]: call it from an azul `Thread`.
 
-use std::{fmt, time::Duration};
+use std::{fmt, sync::Arc, time::Duration};
 
 use azlin_contract::{IdempotencyKey, IDEMPOTENCY_HEADER};
 use azul_storage::{sigv4::uri_encode, HttpCall, HttpReply, Method, Transport};
 use serde_json::{json, Value};
 
 use crate::{
+    answer::{Outcome, Spent},
     bundle::DriveBundle,
     claim::ClaimKey,
     period::{IssuerKey, PeriodToken},
+    policy::{Policy, Repeat, Sleep},
 };
 
 // One file per group of routes, so changes to one group do not meet changes to another.
@@ -101,11 +103,25 @@ pub enum TokenError {
     /// The drive token was refused (revoked, reused, unknown): this device must sign in to the
     /// drive again.
     SignIn(String),
-    /// The token server said no: its HTTP status, its error code, its sentence.
+    /// The token server said no, and asking again does not change it: its HTTP status, its
+    /// error code, its sentence.
     Refused {
         status: u16,
         code: String,
         message: String,
+    },
+    /// The token server could not take the request now, and it passes by itself (its rate
+    /// limit, a busy moment, a payment provider that did not answer): its HTTP status, its
+    /// error code, its sentence, the seconds it asked to wait (`Retry-After`), and whether the
+    /// request may have done something. The same request - the same drive token, the same
+    /// idempotency key - goes again: at once by the policy when the pause is short and nothing
+    /// was spent, else by the caller once `retry_after` is over.
+    Busy {
+        status: u16,
+        code: String,
+        message: String,
+        retry_after: Option<u64>,
+        spent: Spent,
     },
     /// An answer that makes no sense.
     Protocol(String),
@@ -119,6 +135,51 @@ impl TokenError {
     #[must_use]
     pub fn is_checkout_only(&self) -> bool {
         matches!(self, TokenError::Refused { status: 404, .. })
+    }
+
+    /// The token server's refusal `code` with `status` (its sentence `message`, the seconds of
+    /// its `Retry-After`, what its body says it spent) as what it means ([`crate::answer`]):
+    /// [`TokenError::Busy`] when it passes by itself, [`TokenError::Refused`] when it does not.
+    #[must_use]
+    pub fn answered(
+        status: u16,
+        code: &str,
+        message: &str,
+        retry_after: Option<u64>,
+        said_spent: Option<bool>,
+    ) -> TokenError {
+        let outcome = crate::answer::classify(
+            crate::answer::Service::TokenServer,
+            status,
+            Some(code),
+            retry_after,
+            said_spent,
+        );
+        match outcome {
+            Outcome::Transient {
+                retry_after, spent, ..
+            } => TokenError::Busy {
+                status,
+                code: code.to_string(),
+                message: message.to_string(),
+                retry_after: retry_after.map(|pause| pause.as_secs()),
+                spent,
+            },
+            Outcome::Done | Outcome::Refused(_) => TokenError::Refused {
+                status,
+                code: code.to_string(),
+                message: message.to_string(),
+            },
+        }
+    }
+
+    /// The seconds the token server asked to wait before the same request goes again.
+    #[must_use]
+    pub fn retry_after(&self) -> Option<u64> {
+        match self {
+            TokenError::Busy { retry_after, .. } => *retry_after,
+            _ => None,
+        }
     }
 }
 
@@ -138,6 +199,20 @@ impl fmt::Display for TokenError {
             } => {
                 let what = if message.is_empty() { code } else { message };
                 write!(f, "the Azlin token server said: {what} (HTTP {status})")
+            }
+            TokenError::Busy {
+                status,
+                code,
+                message,
+                retry_after,
+                ..
+            } => {
+                let what = if message.is_empty() { code } else { message };
+                write!(f, "the Azlin token server is busy: {what} (HTTP {status})")?;
+                match retry_after {
+                    Some(secs) => write!(f, "; it asked to wait {secs} s"),
+                    None => Ok(()),
+                }
             }
             TokenError::Protocol(e) => {
                 write!(f, "the Azlin token server answered unexpectedly: {e}")
@@ -213,8 +288,9 @@ pub fn check_token_url(url: &str) -> Result<(), TokenError> {
 
 /// The token server's error answer as a [`TokenError`]: a 401 to a call with a drive token
 /// (`with_token`) is [`TokenError::SignIn`] - the token is gone (reused, revoked, unknown) -,
-/// every other refusal [`TokenError::Refused`]: a 403 refuses the call, not the token, and a 503
-/// (`not_verified`, `try_again`) asks for the same token again later.
+/// every other refusal what it means ([`TokenError::answered`]): a 403 refuses the call, not the
+/// token, and a 503 (`not_verified`, `try_again`) or a rate limit is busy - the same token
+/// again, later.
 fn refusal(reply: &HttpReply, with_token: bool) -> TokenError {
     let value: Value = serde_json::from_slice(&reply.body).unwrap_or(Value::Null);
     let code = value["error"].as_str().unwrap_or_default().to_string();
@@ -228,24 +304,26 @@ fn refusal(reply: &HttpReply, with_token: bool) -> TokenError {
         };
         return TokenError::SignIn(why);
     }
-    TokenError::Refused {
-        status: reply.status,
-        code,
-        message,
-    }
+    let retry_after = reply
+        .header("retry-after")
+        .and_then(|secs| secs.trim().parse::<u64>().ok());
+    TokenError::answered(
+        reply.status,
+        &code,
+        &message,
+        retry_after,
+        value["spent"].as_bool(),
+    )
 }
-
-/// How often a refresh is sent with one drive token while the token server answers 503 (the
-/// token is not spent then).
-const REFRESH_TRIES: u32 = 3;
-/// The pause between two such tries.
-const REFRESH_RETRY_PAUSE: Duration = Duration::from_secs(2);
 
 /// The token server at a base address. Blocking: call it from an azul `Thread`.
 pub struct TokenServer<'a> {
     base: String,
     transport: &'a dyn Transport,
-    retry_pause: Duration,
+    /// How a request is asked again ([`Policy::TOKEN`]).
+    policy: Policy,
+    /// How its pauses are taken.
+    sleep: Sleep,
 }
 
 impl<'a> TokenServer<'a> {
@@ -257,33 +335,64 @@ impl<'a> TokenServer<'a> {
         Ok(TokenServer {
             base: base.trim().trim_end_matches('/').to_string(),
             transport,
-            retry_pause: REFRESH_RETRY_PAUSE,
+            policy: Policy::TOKEN,
+            sleep: Arc::new(std::thread::sleep) as Sleep,
         })
     }
 
-    /// Pauses `pause` (instead of two seconds) before a refresh the token server answered 503
-    /// is sent again.
+    /// Takes every pause of the policy as `pause` instead (the tests: none at all), whatever the
+    /// backoff or the token server's `Retry-After` says.
     #[must_use]
     pub fn with_retry_pause(mut self, pause: Duration) -> Self {
-        self.retry_pause = pause;
+        self.sleep = Arc::new(move |_: Duration| {
+            if !pause.is_zero() {
+                std::thread::sleep(pause);
+            }
+        });
         self
     }
 
-    /// Sends the grant call `call` until its outcome is final ([`crate::outbox::is_final`]): at
-    /// most [`REFRESH_TRIES`] times, the retry pause between. Safe for a grant only, whose every
-    /// try carries the same idempotency key.
+    /// Takes the policy's pauses with `sleep` (the tests record them).
+    #[must_use]
+    pub fn with_sleep(mut self, sleep: Sleep) -> Self {
+        self.sleep = sleep;
+        self
+    }
+
+    /// Asks requests again under `policy` instead of [`Policy::TOKEN`].
+    #[must_use]
+    pub fn with_policy(mut self, policy: Policy) -> Self {
+        self.policy = policy;
+        self
+    }
+
+    /// Sends the grant call `call` until its outcome is final ([`crate::outbox::is_final`]),
+    /// under the policy: what the token server said spent nothing was asked again with the
+    /// request itself already (every request is); what may have been done - no answer, an
+    /// answer cut off, a 5xx that does not say - goes again here. Safe for a grant only, whose
+    /// every try carries the same idempotency key.
     pub fn until_final<T>(
         &self,
         mut call: impl FnMut() -> Result<T, TokenError>,
     ) -> Result<T, TokenError> {
-        let mut tries = 1;
+        let mut attempt = 1;
         loop {
             let outcome = call();
-            if crate::outbox::is_final(&outcome) || tries >= REFRESH_TRIES {
+            let answer = match &outcome {
+                Ok(_)
+                | Err(TokenError::Busy {
+                    spent: Spent::Nothing,
+                    ..
+                }) => None,
+                Err(error) => Some(crate::answer::of_token_error(error)),
+            };
+            let pause =
+                answer.and_then(|answer| self.policy.again(&answer, attempt, Repeat::Keyed));
+            let Some(pause) = pause else {
                 return outcome;
-            }
-            tries += 1;
-            std::thread::sleep(self.retry_pause);
+            };
+            (self.sleep)(pause);
+            attempt += 1;
         }
     }
 
@@ -409,7 +518,19 @@ impl<'a> TokenServer<'a> {
             // The token server answers small JSON documents; a body of any size is refused.
             limits: azul_storage::CallLimits::json(),
         };
-        self.transport.send(&call).map_err(TokenError::Connect)
+        // A refusal that spent nothing (a rate limit, a moment the token server could not take
+        // it) goes again as it is - the same drive token, the same idempotency key, the same
+        // order - after the pause the policy takes; anything else is the caller's answer.
+        let mut attempt = 1;
+        loop {
+            let reply = self.transport.send(&call).map_err(TokenError::Connect)?;
+            let outcome = crate::answer::of_token_reply(&reply);
+            let Some(pause) = self.policy.again(&outcome, attempt, Repeat::NothingSpent) else {
+                return Ok(reply);
+            };
+            (self.sleep)(pause);
+            attempt += 1;
+        }
     }
 }
 

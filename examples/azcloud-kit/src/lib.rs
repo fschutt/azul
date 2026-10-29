@@ -72,6 +72,10 @@
 //! - `encryption` (feature `encryption`): the drive encrypted on this device - its keys in the
 //!   keyring, the join code's key seal for a second device, the recovery code, the files
 //!   through azul-storage's `EncryptedDrive` with the index an `IndexProvider` opens.
+//! - [`answer`] and [`policy`]: what every answer of the token server and the nodes means, read
+//!   in one place, and the one policy that asks a request again - only what passes by itself,
+//!   always as the same request (the same token, the same idempotency key), never sooner than
+//!   the service asked.
 //! - [`error`]: [`CloudError`], what went wrong, telling a drive token to sign in again for
 //!   from everything else.
 //! - [`user_errors`]: the errors users see - one table from the token server's and the
@@ -83,6 +87,7 @@
 //! token). No azul types: tested without a window (`cargo test -p azcloud-kit`).
 
 pub mod account;
+pub mod answer;
 pub mod bridge;
 pub mod bucket;
 pub mod bundle;
@@ -102,6 +107,7 @@ pub mod lock;
 pub mod outbox;
 pub mod pending;
 pub mod period;
+pub mod policy;
 pub mod recovery;
 pub mod restore;
 pub mod secrets;
