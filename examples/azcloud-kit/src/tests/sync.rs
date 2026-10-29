@@ -131,6 +131,38 @@ pub(super) fn index_of(store: &S3Bucket) -> RemoteIndex {
     RemoteIndex::parse(&store.read(&index_key(PREFIX)).expect("an index")).unwrap()
 }
 
+/// An upgrade of the app reads the sync state the old version left (state format 1, no
+/// folders): the next pass moves and deletes nothing on either side and saves the state in the
+/// current format.
+#[test]
+fn a_pass_after_an_upgrade_from_state_format_one_moves_and_deletes_nothing() {
+    use crate::sync::local::LOCAL_VERSION;
+    let store = S3Bucket::new();
+    let a = Device::new("dev-upgrade");
+    a.write("notes/a.md", b"alpha");
+    a.write("docs/b.txt", b"beta");
+    a.sync(&store);
+    let read = |path: &Path| -> serde_json::Value {
+        serde_json::from_slice(&fs::read(path).unwrap()).unwrap()
+    };
+    let mut state = read(&a.index());
+    state["version"] = serde_json::json!(1);
+    if let Some(fields) = state.as_object_mut() {
+        fields.remove("folders");
+    }
+    fs::write(a.index(), serde_json::to_vec_pretty(&state).unwrap()).unwrap();
+    let again = a.sync(&store);
+    assert_eq!(
+        (again.files_up, again.files_down, again.deleted_here, again.deleted_there),
+        (0, 0, 0, 0),
+        "{}",
+        again.summary()
+    );
+    assert_ne!(LOCAL_VERSION, 1, "format 1 is older than this version's");
+    assert_eq!(read(&a.index())["version"], serde_json::json!(LOCAL_VERSION));
+    assert_eq!(a.tree().len(), 2);
+}
+
 #[test]
 fn the_second_sync_of_an_unchanged_folder_uploads_nothing_and_writes_no_index() {
     let store = S3Bucket::new();

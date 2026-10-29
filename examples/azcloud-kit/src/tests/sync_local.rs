@@ -244,6 +244,51 @@ fn a_base_a_newer_version_wrote_is_never_read_as_this_ones() {
     assert!(err.contains("newer version"), "{err}");
 }
 
+/// A base an earlier version wrote (state format 1, before the base kept folders) is read as
+/// this version's: its files as they were, its folders not known yet (the next pass records
+/// them), and its next save is in the current format.
+#[test]
+fn a_base_of_state_format_one_is_read_and_saved_in_the_current_format() {
+    use crate::sync::local::{LocalIndex, LOCAL_VERSION};
+    let dir = TempDir::new("azcloud-v1-base");
+    let path = dir.path().join("index.json");
+    let snapshot = serde_json::json!({
+        "format": "azcloud.sync-local",
+        "version": 1,
+        "root": "/home/user/AzDrive",
+        "bucket": "d-test",
+        "prefix": "",
+        "generation": 4,
+        "scanned_at_ns": 1_761_000_000_000_000_000_u64,
+        "remote_etag": "\"v4\"",
+        "files": {
+            "notes/a.md": {
+                "hash": hash_bytes(b"alpha"),
+                "size": 5,
+                "mtime_ns": 1_760_000_000_000_000_000_u64
+            },
+            "run.sh": {
+                "hash": hash_bytes(b"#!/bin/sh"),
+                "size": 9,
+                "mtime_ns": 1_760_000_000_000_000_001_u64,
+                "exec": true
+            }
+        },
+        "root_id": "a1b2c3"
+    });
+    fs::write(&path, serde_json::to_vec_pretty(&snapshot).unwrap()).unwrap();
+    let index = LocalIndex::load(&path).unwrap().expect("the base");
+    assert_ne!(LOCAL_VERSION, 1, "the snapshot is of an older format than this version's");
+    assert_eq!(index.version, LOCAL_VERSION);
+    assert_eq!((index.generation, index.files.len()), (4, 2));
+    assert!(index.files["run.sh"].exec);
+    assert_eq!(index.root_id.as_deref(), Some("a1b2c3"));
+    index.save(&path).unwrap();
+    let saved: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    assert_eq!(saved["version"], Value::from(LOCAL_VERSION));
+    assert_eq!(LocalIndex::load(&path).unwrap(), Some(index));
+}
+
 /// P2: an ignore rule typed in NFC takes a folder a Mac named in NFD, and the other way round.
 #[test]
 fn an_ignore_rule_matches_names_in_either_normalization() {

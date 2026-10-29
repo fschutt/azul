@@ -70,6 +70,30 @@ fn an_older_json_base_is_imported_once_and_kept_aside() {
     assert_eq!(LocalIndex::load(&db).unwrap(), Some(old), "the second load reads the database");
 }
 
+/// The state database keeps the base's format version too: a base a newer version wrote is
+/// never taken for this one's (D5: the pass pairs afresh and deletes nothing), and one of an
+/// older format is read as the current one.
+#[test]
+fn a_base_database_reads_the_formats_it_knows_and_refuses_a_newer_one() {
+    use crate::sync::local::LOCAL_VERSION;
+    let root = TempDir::new("base-root");
+    let state = TempDir::new("base-state");
+    let path = state.path().join("index.db");
+    let mut old = index(root.path());
+    old.version = 1;
+    old.save(&path).unwrap();
+    assert_ne!(LOCAL_VERSION, 1, "format 1 is older than this version's");
+    let read = LocalIndex::load(&path).unwrap().unwrap();
+    assert_eq!(read.version, LOCAL_VERSION);
+    assert_eq!(read.files, old.files);
+    let newer_path = state.path().join("newer.db");
+    let mut newer = index(root.path());
+    newer.version = LOCAL_VERSION + 1;
+    newer.save(&newer_path).unwrap();
+    let err = LocalIndex::load(&newer_path).unwrap_err().to_string();
+    assert!(err.contains("newer version"), "{err}");
+}
+
 #[cfg(unix)]
 #[test]
 fn the_base_and_its_side_files_are_readable_by_their_owner_only() {
