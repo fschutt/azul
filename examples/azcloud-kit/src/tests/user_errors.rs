@@ -614,3 +614,15 @@ fn a_locked_drive_says_the_contracts_lock_day_and_promises_no_keeping() {
         assert!(line.contains(&lock), "{line}");
     }
 }
+
+/// A drive being moved refuses an encrypted drive's deletes until the move is done: its own
+/// words, which say so, not the operator's hold's.
+#[test]
+fn a_drive_being_moved_says_its_deletes_resume_after_the_move() {
+    let moving = UserError::from_drive_error(&azlin(403, "AccessDenied", Some("read_only_moving")))
+        .expect("the move's refusal has its row");
+    assert_eq!(moving.code, Code::ReadOnlyMoving);
+    assert_eq!(moving.class(), Class::ReadOnly);
+    assert!(moving.message(Lang::En).contains("after the move"), "{}", moving.message(Lang::En));
+    assert!(moving.message(Lang::De).contains("nach dem Umzug"), "{}", moving.message(Lang::De));
+}

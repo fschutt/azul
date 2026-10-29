@@ -6,7 +6,7 @@
 use azcloud_kit::azlin_contract::{BucketOp, DriveAccess, ReadOnlyWhy};
 
 use crate::{
-    access::{op_of, refusal, requests},
+    access::{op_of, passes_allowed, refusal, requests},
     actions::Action,
 };
 
@@ -78,10 +78,10 @@ fn a_lockdown_takes_no_change_and_a_writable_drive_takes_everything() {
 #[test]
 fn on_a_read_only_encrypted_drive_a_delete_is_an_index_shrink_and_an_index_growth_is_refused() {
     crate::l10n::in_english();
-    assert_eq!(requests(BucketOp::Delete, true), [BucketOp::IndexShrink, BucketOp::Delete]);
+    assert_eq!(requests(BucketOp::Delete, true), [BucketOp::IndexCommit, BucketOp::Delete]);
     assert_eq!(requests(BucketOp::Delete, false), [BucketOp::Delete]);
     assert_eq!(requests(BucketOp::Write, true), [BucketOp::Write]);
-    for why in [ReadOnlyWhy::Unpaid, ReadOnlyWhy::Operator, ReadOnlyWhy::Moving] {
+    for why in [ReadOnlyWhy::Unpaid, ReadOnlyWhy::Operator] {
         let frozen = DriveAccess::ReadOnly(why);
         for action in DELETES {
             assert_eq!(refusal(&action, frozen, true), None, "{why:?} {action:?}");
@@ -92,4 +92,23 @@ fn on_a_read_only_encrypted_drive_a_delete_is_an_index_shrink_and_an_index_growt
     }
     let lockdown = DriveAccess::ReadOnly(ReadOnlyWhy::LockdownPending);
     assert!(refusal(&Action::Delete, lockdown, true).is_some());
+}
+
+/// While the drive is being moved an encrypted drive's deletes wait (they are index commits)
+/// and say so; a plain drive's deletes go on. The sync of an encrypted drive rests until the move
+/// is done, a plain drive's goes on.
+#[test]
+fn a_drive_being_moved_holds_an_encrypted_drives_deletes_and_its_sync_until_the_move_is_done() {
+    crate::l10n::in_english();
+    let moving = DriveAccess::ReadOnly(ReadOnlyWhy::Moving);
+    for action in DELETES {
+        let said = refusal(&action, moving, true).unwrap_or_else(|| panic!("{action:?} runs"));
+        assert!(said.contains("moved") && said.contains("after the move"), "{said}");
+        assert_eq!(refusal(&action, moving, false), None, "{action:?}: a plain drive deletes");
+    }
+    assert!(!passes_allowed(moving, true), "an encrypted drive's sync rests");
+    assert!(passes_allowed(moving, false), "a plain drive's sync goes on");
+    assert!(passes_allowed(DriveAccess::ReadOnly(ReadOnlyWhy::Unpaid), true));
+    assert!(!passes_allowed(DriveAccess::Banned, true));
+    assert_ne!(azul_appkit::l10n::t("azdrive-sync-status-moving"), "azdrive-sync-status-moving");
 }

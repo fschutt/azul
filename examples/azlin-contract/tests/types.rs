@@ -412,8 +412,9 @@ mod period {
 
 mod read_only_and_map {
     use azlin_contract::{
-        index_put_shrinks, is_index_key, is_service_metadata, map_epoch, AzlinError, BucketOp,
-        DriveAccess, ReadOnlyWhy, INDEX_PREFIX, MAP_HEADER, MOVED_HEADER,
+        is_index_key, is_service_metadata, map_epoch, AzlinError, BucketOp, CredentialKind,
+        DriveAccess, ReadOnlyWhy, INDEX_ALLOWANCE, INDEX_OBJECT_MAX, INDEX_PREFIX, MAP_HEADER,
+        MOVED_HEADER,
     };
 
     /// What `access` takes: (reads, writes, deletes, links).
@@ -452,39 +453,147 @@ mod read_only_and_map {
         }
     }
 
-    /// The backend cannot read an encrypted drive's index, so a frozen drive (unpaid, the
-    /// operator's hold, a move) takes its owner's index changes only as long as they do not
-    /// grow it: a PutObject of an index object no larger than the object it replaces. Entries
-    /// can be removed (a delete), stored data cannot grow (an upload, a new index object).
+    const MIB: u64 = 1024 * 1024;
+    const MANIFEST: &str = ".azlin/meta/manifest";
+
+    /// A commit of `new_len` bytes in place of `replaced_len` on a drive frozen at 10 GiB that
+    /// stores `stored_now`, by the owner's member credential.
+    fn commit(access: DriveAccess, stored_now: u64, replaced_len: u64, new_len: u64) -> bool {
+        access.takes_index_commit(
+            CredentialKind::MemberReadOnly,
+            MANIFEST,
+            stored_now,
+            10 * 1024 * MIB,
+            replaced_len,
+            new_len,
+        )
+    }
+
+    /// The backend cannot read an encrypted drive's index. On an unpaid or operator-frozen
+    /// drive it takes the owner's index commits as long as the bucket stays within what it
+    /// stored when it froze plus the index allowance, one object at most the object maximum:
+    /// entries can be removed, stored data cannot grow.
     #[test]
-    fn a_frozen_drive_takes_an_index_shrink_and_refuses_an_index_growth() {
-        assert!(index_put_shrinks(Some(500), 500));
-        assert!(index_put_shrinks(Some(500), 120));
-        assert!(!index_put_shrinks(Some(500), 501), "a larger object grows the index");
-        assert!(!index_put_shrinks(None, 10), "a new index object grows the index");
-        let manifest = ".azlin/meta/manifest";
-        for why in [ReadOnlyWhy::Unpaid, ReadOnlyWhy::Operator, ReadOnlyWhy::Moving] {
+    fn a_frozen_drive_takes_its_owners_index_commit_within_the_budget() {
+        assert_eq!(INDEX_ALLOWANCE, 64 * MIB);
+        assert_eq!(INDEX_OBJECT_MAX, 64 * MIB);
+        let frozen_at = 10 * 1024 * MIB;
+        for why in [ReadOnlyWhy::Unpaid, ReadOnlyWhy::Operator] {
             let frozen = DriveAccess::ReadOnly(why);
-            assert!(frozen.permits(BucketOp::IndexShrink), "{why:?}");
-            assert!(frozen.takes_put(manifest, Some(500), 480), "{why:?}: a shrink");
-            assert!(!frozen.takes_put(manifest, Some(500), 520), "{why:?}: a growth");
-            assert!(!frozen.takes_put(".azlin/meta/wal/ab.pack", None, 64), "{why:?}: a new object");
-            assert!(!frozen.takes_put("data/ab/ab12", Some(500), 10), "{why:?}: no index key");
+            assert!(frozen.permits(BucketOp::IndexCommit), "{why:?}");
+            assert!(commit(frozen, frozen_at, 4_000, 4_200), "{why:?}: a commit within the budget");
+            for credential in [CredentialKind::MemberReadWrite, CredentialKind::MemberReadOnly] {
+                assert!(
+                    frozen.takes_index_commit(credential, MANIFEST, frozen_at, frozen_at, 0, 64 * MIB),
+                    "{why:?} {credential:?}: the whole allowance"
+                );
+            }
         }
+    }
+
+    /// Each condition alone refuses: not an index key, a state that takes no index commit, a
+    /// share's credential, the budget spent, an object over the maximum.
+    #[test]
+    fn each_condition_of_an_index_commit_alone_refuses_it() {
+        let frozen_at = 10 * 1024 * MIB;
+        let unpaid = DriveAccess::ReadOnly(ReadOnlyWhy::Unpaid);
+        assert!(commit(unpaid, frozen_at, 0, 100), "the case every refusal below changes once");
+        // (1) the key
+        for key in ["data/ab/ab12", ".azlin/keys/recovery.key", ".azlin/meta/", "x/.azlin/meta/manifest"] {
+            assert!(
+                !unpaid.takes_index_commit(CredentialKind::MemberReadOnly, key, frozen_at, frozen_at, 0, 100),
+                "{key}"
+            );
+        }
+        // (2) the state: a move, a lockdown's pause, a lock, a ban, a reason this build does not
+        // know - and a writable drive, whose puts are writes, not this exception
         for access in [
+            DriveAccess::ReadOnly(ReadOnlyWhy::Moving),
             DriveAccess::ReadOnly(ReadOnlyWhy::LockdownPending),
-            DriveAccess::ReadOnly(ReadOnlyWhy::Unknown),
             DriveAccess::ReadOnly(ReadOnlyWhy::Archived),
+            DriveAccess::ReadOnly(ReadOnlyWhy::Unknown),
             DriveAccess::Banned,
             DriveAccess::Closed,
+            DriveAccess::Writable,
         ] {
-            assert!(!access.permits(BucketOp::IndexShrink), "{access:?}");
-            assert!(!access.takes_put(manifest, Some(500), 10), "{access:?}");
+            assert!(!commit(access, frozen_at, 0, 100), "{access:?}");
         }
-        let writable = DriveAccess::Writable;
-        assert!(writable.permits(BucketOp::IndexShrink));
-        assert!(writable.takes_put(manifest, Some(10), 500), "a writable drive takes any put");
-        assert!(writable.takes_put("data/ab/ab12", None, 500));
+        // (3) a share's credential (or one this build does not know)
+        for credential in [CredentialKind::Share, CredentialKind::Unknown] {
+            assert!(
+                !unpaid.takes_index_commit(credential, MANIFEST, frozen_at, frozen_at, 0, 100),
+                "{credential:?}"
+            );
+        }
+        // (4) the budget: stored now - replaced + new must stay within frozen + allowance
+        let full = frozen_at + INDEX_ALLOWANCE;
+        assert!(commit(unpaid, full, 500, 500), "an object replaced by one as large: no growth");
+        assert!(!commit(unpaid, full, 500, 501), "one byte over the budget");
+        assert!(!commit(unpaid, full + 1, 0, 0), "a bucket over its budget takes no commit");
+        // (5) one object at most the maximum, whatever the budget
+        assert!(!unpaid.takes_index_commit(
+            CredentialKind::MemberReadOnly,
+            MANIFEST,
+            0,
+            frozen_at,
+            0,
+            INDEX_OBJECT_MAX + 1
+        ));
+    }
+
+    /// The data objects a delete removes after its commit refill the budget for the next one.
+    #[test]
+    fn the_budget_refills_after_the_data_deletes() {
+        let frozen_at = 10 * 1024 * MIB;
+        let unpaid = DriveAccess::ReadOnly(ReadOnlyWhy::Unpaid);
+        let spent = frozen_at + INDEX_ALLOWANCE;
+        assert!(!commit(unpaid, spent, 0, 4_096), "the allowance is spent");
+        // the deleted files' data objects: 2 MiB fewer stored bytes
+        assert!(commit(unpaid, spent - 2 * MIB, 0, 4_096), "the deletes made room again");
+    }
+
+    /// No figure can underflow or overflow the rule: a replaced object larger than what the
+    /// bucket stores, the largest numbers.
+    #[test]
+    fn the_budget_never_underflows_or_overflows() {
+        let unpaid = DriveAccess::ReadOnly(ReadOnlyWhy::Unpaid);
+        assert!(commit(unpaid, 10, 1_000, 100), "more replaced than stored counts as nothing stored");
+        let huge = unpaid.takes_index_commit(
+            CredentialKind::MemberReadOnly,
+            MANIFEST,
+            u64::MAX,
+            u64::MAX,
+            0,
+            1,
+        );
+        assert!(huge, "frozen at the largest figure, stored at it: one byte more fits the allowance");
+        assert!(!unpaid.takes_index_commit(CredentialKind::MemberReadOnly, MANIFEST, u64::MAX, 0, 0, 1));
+    }
+
+    /// A drive being moved takes its owner's plain deletes but no index commit: an encrypted
+    /// drive's deletes wait for the move (the node refuses them with read_only_moving).
+    #[test]
+    fn a_drive_being_moved_takes_deletes_but_refuses_index_commits() {
+        let moving = DriveAccess::ReadOnly(ReadOnlyWhy::Moving);
+        assert!(moving.permits(BucketOp::Delete));
+        assert!(!moving.permits(BucketOp::IndexCommit));
+        assert!(!commit(moving, 0, 0, 1));
+        assert_eq!(ReadOnlyWhy::Moving.code(), AzlinError::ReadOnlyMoving);
+        assert!(DriveAccess::Writable.permits(BucketOp::IndexCommit), "a writable drive commits");
+    }
+
+    /// The credential kinds as the wire names them; one a newer service sends reads as unknown.
+    #[test]
+    fn a_credential_kind_reads_and_writes_its_name() {
+        for (kind, name) in [
+            (CredentialKind::MemberReadWrite, "member_read_write"),
+            (CredentialKind::MemberReadOnly, "member_read_only"),
+            (CredentialKind::Share, "share"),
+        ] {
+            assert_eq!(serde_json::to_string(&kind).unwrap(), format!("\"{name}\""));
+        }
+        let read: CredentialKind = serde_json::from_str("\"operator_console\"").unwrap();
+        assert_eq!(read, CredentialKind::Unknown);
     }
 
     /// One table says what each state of a drive takes, for the nodes and the apps alike: a
