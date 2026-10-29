@@ -924,6 +924,123 @@ pub(super) fn calculate_id<T: Hash>(item: &T) -> CacheId {
 // --- Main Layout Pipeline Implementation ---
 
 impl TextShapingCache {
+    /// The first stages of a paragraph's layout, each cached: its logical
+    /// items (`create_logical_items`), split into bidi runs (`paragraph_bidi`,
+    /// `split_into_bidi_runs`) and shaped (`shape_bidi_runs`).
+    ///
+    /// Every layout of a paragraph shapes it here: `layout_flow`, the
+    /// intrinsic sizes, the solver's inline formatting context and a
+    /// relayout after an edit, so they all break the same shaped items.
+    ///
+    /// # Panics
+    ///
+    /// Panics if bidi reordering of the logical items fails (an internal invariant).
+    ///
+    /// # Errors
+    ///
+    /// Returns a `LayoutError` if shaping fails.
+    pub fn shape_content<T: ParsedFontTrait>(
+        &mut self,
+        content: &[InlineContent],
+        style_overrides: &[StyleOverride],
+        constraints: &UnifiedConstraints,
+        font_chain_cache: &HashMap<FontChainKey, rust_fontconfig::FontFallbackChain>,
+        fc_cache: &FcFontCache,
+        loaded_fonts: &LoadedFonts<T>,
+        debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+    ) -> Result<(Arc<Vec<LogicalItem>>, Arc<Vec<ShapedItem>>), LayoutError> {
+        // Cap per-item shaped cache to prevent unbounded growth.
+        // When threshold is exceeded, evict entries not accessed this generation.
+        const PER_ITEM_CACHE_MAX: usize = 4096;
+        // The stage caches need a trigger too — they were the unbounded
+        // ones. A document's worth of distinct runs is ~800 entries, so
+        // 4096 leaves several documents' worth resident before any sweep.
+        const STAGE_CACHE_MAX: usize = 4096;
+        let (l, v, sh) = self.stage_entry_counts();
+        if self.per_item_shaped.len() > PER_ITEM_CACHE_MAX || l.max(v).max(sh) > STAGE_CACHE_MAX {
+            self.begin_generation();
+        }
+
+        // Stage 1: Logical Analysis (InlineContent -> LogicalItem)
+        // [g213 2026-06-09] The web lift uses the real `self.logical_items` HashMap cache (NO
+        // bypass). This entry() find-probe USED to spin forever on the lift (g178-g210
+        // mis-diagnosed it many ways). TRUE root cause: hashbrown's portable WIDTH=8
+        // `Group::static_empty()` — `[0xFF; 8]` in libazul's `__TEXT.__const` — was not
+        // mirrored into the wasm, so the empty-map ctrl-scan read 0x00, looked
+        // ALL-FULL (EMPTY=0xFF), and the probe never terminated. FIXED entirely transpiler-side in
+        // `dll/src/web/symbol_table.rs::compute_hashbrown_empty_group_ranges` (signature-scans
+        // `__const` for >=8-byte 8-aligned 0xFF runs and mirrors them). Verified:
+        // web-nested-text lays out ("Hello" at 8,16,800,20), __remill_error=0. No
+        // azul-source workaround needed here.
+        let logical_items_id = calculate_id(&content);
+        self.touch_stage(logical_items_id);
+        let logical_items = self
+            .logical_items
+            .entry(logical_items_id)
+            .or_insert_with(|| {
+                Arc::new(create_logical_items(
+                    content,
+                    style_overrides,
+                    debug_messages,
+                ))
+            })
+            .clone();
+
+        // +spec:containing-block:e7a271 - paragraph embedding level set from containing block's
+        // 'direction' property +spec:display-property:7665cb - inline boxes split into
+        // multiple bidi runs due to bidi text processing +spec:display-property:929d6b -
+        // applies Unicode bidi algorithm to inline-level box sequences
+        // +spec:display-property:e8584a - Apply Unicode bidi algorithm to inline-level box
+        // sequences per CSS Writing Modes §2.4 Stage 2: Bidi Reordering (LogicalItem ->
+        // BidiRun) +spec:containing-block:961e3c - bidi paragraph level from containing
+        // block direction, not UAX9 heuristic +spec:writing-modes:0a5368 - unicode-bidi:
+        // plaintext auto-detects direction from text content Per CSS Writing Modes §8.3:
+        // when unicode-bidi is plaintext, the paragraph's base direction is determined from
+        // text content (first strong character), ignoring the containing block's direction
+        // property. Empty paragraphs fall back to the containing block's direction.
+        let (base_direction, unicode_bidi_val) = paragraph_bidi(&logical_items, constraints);
+        let runs_key = BidiRunsKey {
+            logical_items_id,
+            base_direction,
+        };
+        let bidi_runs_id = calculate_id(&runs_key);
+        self.touch_stage(bidi_runs_id);
+        // [g213] web lift uses the real bidi_runs HashMap cache (g180 bypass deleted; WIDTH=8
+        // EMPTY_GROUP now mirrored — see Stage-1 note + symbol_table.rs).
+        let bidi_runs = self
+            .bidi_runs
+            .entry(bidi_runs_id)
+            .or_insert_with(|| {
+                Arc::new(
+                    split_into_bidi_runs(
+                        &logical_items,
+                        base_direction,
+                        unicode_bidi_val,
+                        debug_messages,
+                    )
+                    .unwrap(),
+                )
+            })
+            .clone();
+
+        // Stage 3: Shaping (BidiRun -> ShapedItem)
+        // Two-level cache: monolithic (fast path) + per-item (incremental path).
+        let _probe_shape = crate::probe::Probe::span("text_shape_stage");
+        // (d7) Per-item assembly every pass — the monolithic map is gone
+        // (see the field comment). Hits come from `per_item_shaped`.
+        let shaped_items = Arc::new(shape_bidi_runs_with_per_item_cache(
+            &bidi_runs,
+            &mut self.per_item_shaped,
+            &mut self.per_item_accessed,
+            font_chain_cache,
+            fc_cache,
+            loaded_fonts,
+            debug_messages,
+        )?);
+
+        Ok((logical_items, shaped_items))
+    }
+
     /// New top-level entry point for flowing layout across multiple regions.
     ///
     /// This function orchestrates the entire layout pipeline, but instead of fitting
@@ -1016,101 +1133,24 @@ impl TextShapingCache {
         // on the entire content block before flowing. Caching is used at each stage.
 
         let _probe_flow = crate::probe::Probe::span("text_layout_flow");
-        // Cap per-item shaped cache to prevent unbounded growth.
-        // When threshold is exceeded, evict entries not accessed this generation.
-        const PER_ITEM_CACHE_MAX: usize = 4096;
-        // The stage caches need a trigger too — they were the unbounded
-        // ones. A document's worth of distinct runs is ~800 entries, so
-        // 4096 leaves several documents' worth resident before any sweep.
-        const STAGE_CACHE_MAX: usize = 4096;
-        let (l, v, sh) = self.stage_entry_counts();
-        if self.per_item_shaped.len() > PER_ITEM_CACHE_MAX || l.max(v).max(sh) > STAGE_CACHE_MAX {
-            self.begin_generation();
-        }
 
-        // Stage 1: Logical Analysis (InlineContent -> LogicalItem)
-        // [g213 2026-06-09] The web lift uses the real `self.logical_items` HashMap cache (NO
-        // bypass). This entry() find-probe USED to spin forever on the lift (g178-g210
-        // mis-diagnosed it many ways). TRUE root cause: hashbrown's portable WIDTH=8
-        // `Group::static_empty()` — `[0xFF; 8]` in libazul's `__TEXT.__const` — was not
-        // mirrored into the wasm, so the empty-map ctrl-scan read 0x00, looked
-        // ALL-FULL (EMPTY=0xFF), and the probe never terminated. FIXED entirely transpiler-side in
-        // `dll/src/web/symbol_table.rs::compute_hashbrown_empty_group_ranges` (signature-scans
-        // `__const` for >=8-byte 8-aligned 0xFF runs and mirrors them). Verified:
-        // web-nested-text lays out ("Hello" at 8,16,800,20), __remill_error=0. No
-        // azul-source workaround needed here.
-        let logical_items_id = calculate_id(&content);
-        self.touch_stage(logical_items_id);
-        let logical_items = self
-            .logical_items
-            .entry(logical_items_id)
-            .or_insert_with(|| {
-                Arc::new(create_logical_items(
-                    content,
-                    style_overrides,
-                    debug_messages,
-                ))
-            })
-            .clone();
-
-        // Get the first fragment's constraints to extract the CSS direction property.
-        // This is used for BiDi reordering in Stage 2.
+        // Get the first fragment's constraints: its direction orders the text
+        // (Stage 2) and its writing mode orients it (Stage 4).
         let default_constraints = UnifiedConstraints::default();
         let first_constraints = flow_chain
             .first()
             .map_or(&default_constraints, |f| &f.constraints);
 
-        // +spec:containing-block:e7a271 - paragraph embedding level set from containing block's
-        // 'direction' property +spec:display-property:7665cb - inline boxes split into
-        // multiple bidi runs due to bidi text processing +spec:display-property:929d6b -
-        // applies Unicode bidi algorithm to inline-level box sequences
-        // +spec:display-property:e8584a - Apply Unicode bidi algorithm to inline-level box
-        // sequences per CSS Writing Modes §2.4 Stage 2: Bidi Reordering (LogicalItem ->
-        // BidiRun) +spec:containing-block:961e3c - bidi paragraph level from containing
-        // block direction, not UAX9 heuristic +spec:writing-modes:0a5368 - unicode-bidi:
-        // plaintext auto-detects direction from text content Per CSS Writing Modes §8.3:
-        // when unicode-bidi is plaintext, the paragraph's base direction is determined from
-        // text content (first strong character), ignoring the containing block's direction
-        // property. Empty paragraphs fall back to the containing block's direction.
-        let (base_direction, unicode_bidi_val) = paragraph_bidi(&logical_items, first_constraints);
-        let runs_key = BidiRunsKey {
-            logical_items_id,
-            base_direction,
-        };
-        let bidi_runs_id = calculate_id(&runs_key);
-        self.touch_stage(bidi_runs_id);
-        // [g213] web lift uses the real bidi_runs HashMap cache (g180 bypass deleted; WIDTH=8
-        // EMPTY_GROUP now mirrored — see Stage-1 note + symbol_table.rs).
-        let bidi_runs = self
-            .bidi_runs
-            .entry(bidi_runs_id)
-            .or_insert_with(|| {
-                Arc::new(
-                    split_into_bidi_runs(
-                        &logical_items,
-                        base_direction,
-                        unicode_bidi_val,
-                        debug_messages,
-                    )
-                    .unwrap(),
-                )
-            })
-            .clone();
-
-        // Stage 3: Shaping (BidiRun -> ShapedItem)
-        // Two-level cache: monolithic (fast path) + per-item (incremental path).
-        let _probe_shape = crate::probe::Probe::span("text_shape_stage");
-        // (d7) Per-item assembly every pass — the monolithic map is gone
-        // (see the field comment). Hits come from `per_item_shaped`.
-        let shaped_items = Arc::new(shape_bidi_runs_with_per_item_cache(
-            &bidi_runs,
-            &mut self.per_item_shaped,
-            &mut self.per_item_accessed,
+        // --- Stages 1-3: logical items, bidi, shaping (`shape_content`) ---
+        let (logical_items, shaped_items) = self.shape_content(
+            content,
+            style_overrides,
+            first_constraints,
             font_chain_cache,
             fc_cache,
             loaded_fonts,
             debug_messages,
-        )?);
+        )?;
 
         // --- Stage 4: The paragraph the line breaker sees ---
 
@@ -1222,68 +1262,16 @@ impl TextShapingCache {
         loaded_fonts: &LoadedFonts<T>,
         debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     ) -> Result<IntrinsicTextSizes, LayoutError> {
-        const PER_ITEM_CACHE_MAX: usize = 4096;
-        // The stage caches need a trigger too — they were the unbounded
-        // ones. A document's worth of distinct runs is ~800 entries, so
-        // 4096 leaves several documents' worth resident before any sweep.
-        const STAGE_CACHE_MAX: usize = 4096;
-        let (l, v, sh) = self.stage_entry_counts();
-        if self.per_item_shaped.len() > PER_ITEM_CACHE_MAX || l.max(v).max(sh) > STAGE_CACHE_MAX {
-            self.begin_generation();
-        }
-
-        // Stage 1: Logical Analysis (cached, same as layout_flow — the historic web-lift
-        // bypass here was rooted in the un-mirrored hashbrown EMPTY_GROUP, fixed transpiler-side
-        // in symbol_table.rs::compute_hashbrown_empty_group_ranges).
-        let logical_items_id = calculate_id(&content);
-        self.touch_stage(logical_items_id);
-        let logical_items = self
-            .logical_items
-            .entry(logical_items_id)
-            .or_insert_with(|| {
-                Arc::new(create_logical_items(
-                    content,
-                    style_overrides,
-                    debug_messages,
-                ))
-            })
-            .clone();
-
-        // Stage 2: BiDi (the derivation every layout of the paragraph shares)
-        let (base_direction, unicode_bidi_val) = paragraph_bidi(&logical_items, constraints);
-        let runs_key = BidiRunsKey {
-            logical_items_id,
-            base_direction,
-        };
-        let bidi_runs_id = calculate_id(&runs_key);
-        self.touch_stage(bidi_runs_id);
-        let bidi_runs = self
-            .bidi_runs
-            .entry(bidi_runs_id)
-            .or_insert_with(|| {
-                Arc::new(
-                    split_into_bidi_runs(
-                        &logical_items,
-                        base_direction,
-                        unicode_bidi_val,
-                        debug_messages,
-                    )
-                    .unwrap(),
-                )
-            })
-            .clone();
-
-        // Stage 3: Shaping (two-level cache, same as layout_flow)
-        // (d7) Per-item assembly every pass (monolithic map deleted).
-        let shaped_items = Arc::new(shape_bidi_runs_with_per_item_cache(
-            &bidi_runs,
-            &mut self.per_item_shaped,
-            &mut self.per_item_accessed,
+        // Stages 1-3: the paragraph's shaped items, as every layout of it shapes them.
+        let (_, shaped_items) = self.shape_content(
+            content,
+            style_overrides,
+            constraints,
             font_chain_cache,
             fc_cache,
             loaded_fonts,
             debug_messages,
-        )?);
+        )?;
 
         // Stage 4: the paragraph the line breaker sees, oriented as it is.
         let paragraph = ParagraphToBreak::new(shaped_items, constraints);

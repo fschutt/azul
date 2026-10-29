@@ -1046,6 +1046,73 @@ impl DomLayoutResult {
     pub fn layout_tree_mut(&mut self) -> &mut LayoutTree {
         Arc::make_mut(&mut self.layout_tree)
     }
+
+    /// Puts the atomic inline children of the inline formatting context at
+    /// `ifc_layout_index` where its lines put them (`positions`, from the
+    /// IFC's content box), and their descendants with them, as the solver
+    /// places every in-flow child once its parent is laid out
+    /// (`place_inflow_child`).
+    fn place_inline_children(
+        &mut self,
+        ifc_layout_index: usize,
+        positions: &BTreeMap<usize, LogicalPosition>,
+    ) -> solver3::Result<()> {
+        if positions.is_empty() {
+            return Ok(());
+        }
+        let tree = Arc::make_mut(&mut self.layout_tree);
+        let ifc = LayoutNodeId::new(ifc_layout_index);
+        let (Some(node), Some(&origin)) =
+            (tree.get(ifc), self.calculated_positions.get(ifc_layout_index))
+        else {
+            return Err(solver3::LayoutError::InvalidTree);
+        };
+        let edges = node.box_props.unpack();
+        let content_box = LogicalPosition::new(
+            origin.x + edges.border.left + edges.padding.left,
+            origin.y + edges.border.top + edges.padding.top,
+        );
+        let writing_mode = tree
+            .warm(ifc)
+            .map(|warm| warm.computed_style.writing_mode)
+            .unwrap_or_default();
+        for (&child, &position) in positions {
+            solver3::cache::place_inflow_child(
+                tree,
+                child,
+                position,
+                content_box,
+                writing_mode,
+                false,
+                &mut self.calculated_positions,
+            )?;
+        }
+        Ok(())
+    }
+}
+
+/// An inline formatting context as a relayout after an edit lays it out:
+/// the node its style comes from, and its atomic inline children by where
+/// the edited content holds them.
+#[derive(Debug)]
+struct EditedIfc {
+    dom_id: DomId,
+    root_style_node: NodeId,
+    child_map: HashMap<crate::text3::cache::ContentIndex, usize>,
+}
+
+/// The DOM node an atomic inline item of an inline formatting context's
+/// content stands for: the inline-block, image or empty inline box with
+/// edges its layout collected it from.
+const fn atomic_item_node(item: &InlineContent) -> Option<NodeId> {
+    match item {
+        InlineContent::Shape(shape) => shape.source_node_id,
+        InlineContent::Image(crate::text3::cache::InlineImage {
+            source: crate::text3::cache::ImageSource::Node(node),
+            ..
+        }) => Some(*node),
+        _ => None,
+    }
 }
 
 /// The next window's key for the a11y lints (`LayoutWindow::dom_lint_scope`);
@@ -24230,7 +24297,10 @@ impl LayoutWindow {
 
     /// Recursively collect text content from child nodes
     ///
-    /// A subtree carrying an explicit `contenteditable="false"` is skipped
+    /// A child that is an atomic inline of its inline formatting context (an
+    /// inline-block, an image) is the item that IFC's layout collected for it
+    /// ([`Self::collected_atomic_item`]), whatever it holds. Otherwise a
+    /// subtree carrying an explicit `contenteditable="false"` is skipped
     /// ([`Self::is_walled_off_editable_subtree`]).
     fn collect_text_from_children(
         &self,
@@ -24258,8 +24328,15 @@ impl LayoutWindow {
             let is_walled_off = node_data
                 .get(child_id.index())
                 .is_some_and(Self::is_walled_off_editable_subtree);
+            // A text node is never an atomic inline: only elements are looked up.
+            let atomic = node_data
+                .get(child_id.index())
+                .filter(|data| !matches!(data.get_node_type(), NodeType::Text(_)))
+                .and_then(|_| self.collected_atomic_item(dom_id, child_id));
 
-            if !is_walled_off {
+            if let Some(item) = atomic {
+                result.push(item);
+            } else if !is_walled_off {
                 // Get content from this child (recursive)
                 let child_content = self.get_text_before_textinput(dom_id, child_id);
                 result.extend(child_content);
@@ -24273,6 +24350,95 @@ impl LayoutWindow {
         }
 
         result
+    }
+
+    /// The item the inline formatting context holding the element `node_id`
+    /// collected for it, when it is an atomic inline there (an inline-block,
+    /// an image, an empty inline box with edges).
+    ///
+    /// The edit model carries that item in the element's place, as the
+    /// layout's content does: the runs after it keep the numbers the
+    /// layout's carets give them, and a relayout of the edited text lays the
+    /// box out in its line. The IFC is the nearest layout ancestor holding a
+    /// collection (`LayoutNodeWarm::inline_content_cache`).
+    fn collected_atomic_item(&self, dom_id: DomId, node_id: NodeId) -> Option<InlineContent> {
+        let tree = &self.layout_results.get(&dom_id)?.layout_tree;
+        let own = tree.dom_to_layout.get(&node_id)?.first()?.index();
+        let mut ancestor = tree.get(LayoutNodeId::new(own))?.parent;
+        while let Some(index) = ancestor {
+            if let Some(collected) = tree
+                .warm(LayoutNodeId::new(index))
+                .and_then(|warm| warm.inline_content_cache.as_deref())
+            {
+                return collected
+                    .content
+                    .iter()
+                    .find(|item| atomic_item_node(item) == Some(node_id))
+                    .cloned();
+            }
+            ancestor = tree.get(LayoutNodeId::new(index))?.parent;
+        }
+        None
+    }
+
+    /// The inline formatting context at `ifc_layout_index` as a relayout of
+    /// its edited `content` lays it out: the node its style comes from, and
+    /// its atomic inline children by where `content` holds them, each mapped
+    /// to the layout node its last layout's collection maps it to.
+    ///
+    /// The atomic items of `content` become the collection's own: the edit
+    /// model keeps them as they were when the typing began, and the box may
+    /// have been measured anew since.
+    fn edited_ifc(
+        &self,
+        dom_id: DomId,
+        ifc_layout_index: usize,
+        content: &mut [InlineContent],
+    ) -> Option<EditedIfc> {
+        use crate::text3::cache::ContentIndex;
+
+        let object_at = |index: usize| {
+            u32::try_from(index).ok().map(|run_index| ContentIndex {
+                run_index,
+                item_index: 0,
+            })
+        };
+        let tree = &self.layout_results.get(&dom_id)?.layout_tree;
+        let root_style_node = solver3::fc::ifc_root_style_dom_id(tree, ifc_layout_index)?;
+        let collected_of_node: HashMap<NodeId, (&InlineContent, Option<usize>)> = tree
+            .warm(LayoutNodeId::new(ifc_layout_index))
+            .and_then(|warm| warm.inline_content_cache.as_deref())
+            .map(|collected| {
+                collected
+                    .content
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(index, item)| {
+                        let child = object_at(index)
+                            .and_then(|key| collected.child_map.get(&key))
+                            .copied();
+                        Some((atomic_item_node(item)?, (item, child)))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let mut child_map = HashMap::new();
+        for (index, item) in content.iter_mut().enumerate() {
+            let Some(&(collected_item, child)) =
+                atomic_item_node(item).and_then(|node| collected_of_node.get(&node))
+            else {
+                continue;
+            };
+            item.clone_from(collected_item);
+            if let (Some(key), Some(child)) = (object_at(index), child) {
+                child_map.insert(key, child);
+            }
+        }
+        Some(EditedIfc {
+            dom_id,
+            root_style_node,
+            child_map,
+        })
     }
 
     /// Extract plain text string from inline content
@@ -24645,7 +24811,7 @@ impl LayoutWindow {
         // The edit model's text has no `::marker`; the layout's content, and
         // every caret it mints, starts with it. Put it back in front, or a
         // keystroke in a list item erased its bullet and renumbered its carets.
-        let new_inline_content = if matches!(
+        let mut new_inline_content = if matches!(
             new_inline_content.first(),
             Some(InlineContent::Marker { .. })
         ) {
@@ -24738,14 +24904,21 @@ impl LayoutWindow {
             }
         }
 
-        // 3. Re-run the text3 layout pipeline.
+        // The IFC the edit lays out again: the node its style comes from and
+        // its atomic inline children, by where the edited content holds them.
+        let Some(edited_ifc) = self.edited_ifc(dom_id, ifc_layout_index, &mut new_inline_content)
+        else {
+            return;
+        };
+
+        // 3. Re-run the inline layout pipeline, from the shaping on, through
+        // the same functions as the solver's `layout_ifc`.
         //
-        // Try the incremental path first: it runs stages 1-3 (logical items,
-        // bidi, shape) on the new content and, if the cached layout is
-        // still reusable (same item count, no overflow, line breaks cached),
-        // skips stage 4 (line-breaking + positioning). For edits whose new
-        // advances fall into GlyphSwap/LineShift territory, this turns a
-        // full IFC relayout into a glyph + x-position patch.
+        // Try the incremental path first: it shapes the new content and, if
+        // the cached layout is still reusable (same item count, no overflow,
+        // line breaks cached), skips the line breaking and positioning. For
+        // edits whose new advances fall into GlyphSwap/LineShift territory,
+        // this turns a full IFC relayout into a glyph + x-position patch.
         let cached_snapshot = self
             .layout_results
             .get(&dom_id)
@@ -24753,20 +24926,20 @@ impl LayoutWindow {
             .and_then(|w| w.inline_layout_result.as_ref())
             .cloned();
 
-        let new_layout = cached_snapshot.map_or_else(
-            || self.relayout_text_node_internal(&new_inline_content, &constraints),
-            |cached| {
-                self.try_incremental_text_relayout(
-                    &new_inline_content,
-                    &constraints,
-                    &cached,
-                    node_id,
-                )
-                .map(|(layout, _skipped_fragment)| layout)
-            },
-        );
+        let relaid = match cached_snapshot {
+            Some(cached) => self.try_incremental_text_relayout(
+                &edited_ifc,
+                &new_inline_content,
+                &constraints,
+                &cached,
+                node_id,
+            ),
+            None => {
+                self.relayout_text_node_internal(&edited_ifc, &new_inline_content, &constraints)
+            }
+        };
 
-        let Some(new_layout) = new_layout else {
+        let Some((new_layout, finished)) = relaid else {
             return;
         };
 
@@ -24796,19 +24969,16 @@ impl LayoutWindow {
                 }
             }
 
-            // The true content extent of the fresh layout. `bounds()` alone is
-            // not enough: a nowrap line that overflows the box reports its full
+            // The true content extent of the fresh layout, as the full layout
+            // reports it (`finish_inline_layout`). `bounds()` alone is not
+            // enough: a nowrap line that overflows the box reports its full
             // width in `unclipped_bounds` (captured during line breaking and
             // surviving the dense-text sentinel swap), and `overflow_content_size`
             // is what `get_content_size` → `register_scroll_nodes` reads to
             // decide whether this IFC became a scroll box. Leaving it stale
             // meant a single-line text input never registered horizontal
             // overflow while typing, so the caret-reveal had nothing to scroll.
-            let unclipped = new_layout.overflow.unclipped_bounds;
-            let mut content_extent = LogicalSize {
-                width: new_bounds.width.max(unclipped.width),
-                height: new_bounds.height.max(unclipped.height),
-            };
+            let mut content_extent = finished.overflow_size;
             // An edit that ENDS in a hard break leaves `[.., LineBreak,
             // Text("")]`: the caret stands on a line that holds no glyph, so no
             // line box materializes and `bounds()` stops at the line above.
@@ -24843,7 +25013,7 @@ impl LayoutWindow {
                 .warm_mut(LayoutNodeId::new(ifc_layout_index))
             {
                 let mut fresh = CachedInlineLayout::new_with_constraints(
-                    Arc::new(new_layout),
+                    new_layout,
                     constraints.available_width,
                     false, // No floats in quick relayout
                     constraints,
@@ -24856,6 +25026,23 @@ impl LayoutWindow {
                 // stale, and the next layout measures it again.
                 warm_node.inline_measure_layouts = None;
                 warm_node.overflow_content_size = Some(content_extent);
+                // The baseline the box's alignment reads, as the full layout
+                // writes it.
+                warm_node.baseline = finished.baseline;
+            }
+
+            // The atomic inline children stand where the new lines put them,
+            // placed as the solver places them after a full layout. A child
+            // the tree has no node for leaves the placing to the full layout.
+            let unplaced = layout_result
+                .place_inline_children(ifc_layout_index, &finished.positions)
+                .is_err();
+            if let Some(dirty_node) = self
+                .content_overlay
+                .text_for_node_mut(dom_id, node_id)
+                .filter(|_| unplaced)
+            {
+                dirty_node.needs_ancestor_relayout = true;
             }
         }
 
@@ -25702,27 +25889,30 @@ impl LayoutWindow {
         }
     }
 
-    /// Internal helper to re-run the text3 layout pipeline on new content
+    /// The edited inline formatting context laid out again as the solver's
+    /// `layout_ifc` lays it out from its collected content on: shaped by the
+    /// one `shape_content`, then broken, positioned and reported by the one
+    /// `lay_out_shaped_ifc`. Only its content is the edit's own.
     fn relayout_text_node_internal(
-        &self,
+        &mut self,
+        ifc: &EditedIfc,
         content: &[InlineContent],
         constraints: &UnifiedConstraints,
-    ) -> Option<UnifiedLayout> {
-        let (logical_items, paragraph) = self.shape_text_for_relayout(content, constraints)?;
+    ) -> Option<(Arc<UnifiedLayout>, solver3::fc::LayoutOutput)> {
+        let (logical_items, shaped_items) = self.shape_text_for_relayout(content, constraints)?;
 
         if logical_items.is_empty() {
-            return Some(UnifiedLayout {
+            let empty = UnifiedLayout {
                 items: Vec::new(),
                 overflow: crate::text3::cache::OverflowInfo::default(),
-            });
+            };
+            return self.finish_edited_layout(ifc, empty, constraints);
         }
 
-        self.fragment_layout_from_shaped(&logical_items, &paragraph)
+        let paragraph = crate::text3::cache::ParagraphToBreak::new(shaped_items, constraints);
+        self.lay_out_edited_paragraph(ifc, &logical_items, &paragraph)
     }
 
-    /// Stages 1-3 of the text3 pipeline (logical items, bidi reorder, shape).
-    /// Returned separately so an incremental relayout path can skip stage 4
-    /// (line breaking + positioning) when the cached layout is reusable.
     /// Load the font bytes for every styled text run in `content` that the
     /// full layout path never loaded.
     ///
@@ -25794,89 +25984,77 @@ impl LayoutWindow {
             });
     }
 
-    fn shape_text_for_relayout<'c>(
-        &self,
+    /// The edited content's logical and shaped items, shaped as every layout
+    /// of a paragraph shapes it (`TextShapingCache::shape_content`), in the
+    /// window's shaping cache, the one its full layouts shape with.
+    fn shape_text_for_relayout(
+        &mut self,
         content: &[InlineContent],
-        constraints: &'c UnifiedConstraints,
-    ) -> Option<(
-        Vec<crate::text3::cache::LogicalItem>,
-        crate::text3::cache::ParagraphToBreak<'c>,
-    )> {
-        use crate::text3::cache::{
-            create_logical_items, paragraph_bidi, split_into_bidi_runs, shape_bidi_runs,
-            ParagraphToBreak,
-        };
-
-        let logical_items = create_logical_items(content, &[], &mut None);
-        if logical_items.is_empty() {
-            let paragraph = ParagraphToBreak::new(Arc::new(Vec::new()), constraints);
-            return Some((logical_items, paragraph));
-        }
-
+        constraints: &UnifiedConstraints,
+    ) -> Option<(Arc<Vec<crate::text3::cache::LogicalItem>>, Arc<Vec<ShapedItem>>)> {
         // See the doc on `ensure_fonts_loaded_for_content`: the pool this
         // function shapes against only contains fonts a previous FULL layout
         // needed, and the first character of a previously-empty editable
         // introduces a style no full layout has seen.
         self.ensure_fonts_loaded_for_content(content);
 
-        // The paragraph's base direction and unicode-bidi, as its full layout
-        // reorders it.
-        let (base_direction, unicode_bidi) = paragraph_bidi(&logical_items, constraints);
-        let bidi_runs =
-            split_into_bidi_runs(&logical_items, base_direction, unicode_bidi, &mut None).ok()?;
-
         let loaded_fonts = self.font_manager.get_loaded_fonts();
-        let shaped_items = shape_bidi_runs(
-            &bidi_runs,
-            self.font_manager.get_font_chain_cache(),
-            &self.font_manager.fc_cache,
-            &loaded_fonts,
-            &mut None,
-        )
-        .ok()?;
-
-        // The paragraph as the full layout's line breaker sees it: turned
-        // for its writing mode, broken in its line breaking style.
-        Some((
-            logical_items,
-            ParagraphToBreak::new(Arc::new(shaped_items), constraints),
-        ))
+        self.text_cache
+            .shape_content(
+                content,
+                &[],
+                constraints,
+                self.font_manager.get_font_chain_cache(),
+                &self.font_manager.fc_cache,
+                &loaded_fonts,
+                &mut None,
+            )
+            .ok()
     }
 
-    /// Stage 4 of the text3 pipeline: line breaking + positioning.
-    fn fragment_layout_from_shaped(
+    /// Breaks, positions and reports the edited paragraph as the solver lays
+    /// out an inline formatting context (`lay_out_shaped_ifc`).
+    fn lay_out_edited_paragraph(
         &self,
+        ifc: &EditedIfc,
         logical_items: &[crate::text3::cache::LogicalItem],
         paragraph: &crate::text3::cache::ParagraphToBreak<'_>,
-    ) -> Option<UnifiedLayout> {
-        use crate::text3::cache::perform_fragment_layout;
-
+    ) -> Option<(Arc<UnifiedLayout>, solver3::fc::LayoutOutput)> {
+        let styled_dom = &self.layout_results.get(&ifc.dom_id)?.styled_dom;
         let loaded_fonts = self.font_manager.get_loaded_fonts();
-        let mut cursor = paragraph.cursor();
-        perform_fragment_layout(
-            &mut cursor,
+        solver3::fc::lay_out_shaped_ifc(
             logical_items,
-            paragraph.constraints(),
-            &mut None,
+            paragraph,
             &loaded_fonts,
+            styled_dom,
+            ifc.root_style_node,
+            &ifc.child_map,
+            &mut None,
         )
         .ok()
     }
 
-    /// Attempt an incremental IFC relayout for a text edit.
-    ///
-    /// Runs stages 1-3 (logical items, bidi, shape) on the new content, then
-    /// checks whether the cached `UnifiedLayout` can be patched without
-    /// re-running line-breaking (stage 4).
-    ///
-    /// Returns `Some((new_layout, skipped_fragment_layout))`:
-    ///   - `skipped_fragment_layout == true` means we took the incremental fast path and returned a
-    ///     patched cached layout.
-    ///   - `skipped_fragment_layout == false` means we fell back to full `fragment_layout` (stage
-    ///     4) but reused shape output from stages 1-3.
-    ///
-    /// Returns `None` only if `logical_items` + reorder + shape itself fails.
-    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+    /// What the edited paragraph's box reports from lines it did not break
+    /// anew (a patch of its last layout, or no content at all), as every
+    /// layout of an inline formatting context reports it from its lines
+    /// (`finish_inline_layout`).
+    fn finish_edited_layout(
+        &self,
+        ifc: &EditedIfc,
+        layout: UnifiedLayout,
+        constraints: &UnifiedConstraints,
+    ) -> Option<(Arc<UnifiedLayout>, solver3::fc::LayoutOutput)> {
+        let styled_dom = &self.layout_results.get(&ifc.dom_id)?.styled_dom;
+        let output = solver3::fc::finish_inline_layout(
+            &layout,
+            constraints,
+            styled_dom,
+            ifc.root_style_node,
+            &ifc.child_map,
+        );
+        Some((Arc::new(layout), output))
+    }
+
     /// (d6g) Position + `line_index` for item `i` of a cached inline
     /// layout: dense reconstruction when the view is retained
     /// (verify-A/B'd under `AZ_DENSE_TEXT=verify`), sparse read
@@ -26062,30 +26240,44 @@ impl LayoutWindow {
         }
     }
 
+    /// Attempt an incremental IFC relayout for a text edit.
+    ///
+    /// Shapes the new content, then checks whether the cached
+    /// `UnifiedLayout` can be patched without breaking the lines again: the
+    /// new items keep the cached positions when their widths are unchanged,
+    /// or shift along their line when it still fits. Otherwise the paragraph
+    /// is laid out as [`Self::relayout_text_node_internal`] lays it out, from
+    /// the items shaped here. Either way its box reports what its lines give
+    /// it (`finish_inline_layout`).
+    ///
+    /// Returns `None` only if shaping or laying out the lines fails.
     fn try_incremental_text_relayout(
-        &self,
+        &mut self,
+        ifc: &EditedIfc,
         content: &[InlineContent],
         constraints: &UnifiedConstraints,
         cached: &solver3::layout_tree::CachedInlineLayout,
         edited_node_id: NodeId,
-    ) -> Option<(UnifiedLayout, bool)> {
+    ) -> Option<(Arc<UnifiedLayout>, solver3::fc::LayoutOutput)> {
         use crate::text3::cache::{
             try_incremental_relayout as decide_incremental, IncrementalRelayoutResult,
-            PositionedItem, ShapedItem,
+            ParagraphToBreak, PositionedItem, ShapedItem,
         };
 
-        let (logical_items, paragraph) = self.shape_text_for_relayout(content, constraints)?;
-        let shaped_items = &paragraph.items;
+        let (logical_items, shaped_items) = self.shape_text_for_relayout(content, constraints)?;
 
         if logical_items.is_empty() {
-            return Some((
-                UnifiedLayout {
-                    items: Vec::new(),
-                    overflow: crate::text3::cache::OverflowInfo::default(),
-                },
-                true,
-            ));
+            let empty = UnifiedLayout {
+                items: Vec::new(),
+                overflow: crate::text3::cache::OverflowInfo::default(),
+            };
+            return self.finish_edited_layout(ifc, empty, constraints);
         }
+
+        // The paragraph as the full layout's line breaker sees it: turned
+        // for its writing mode, broken in its line breaking style.
+        let paragraph = ParagraphToBreak::new(shaped_items, constraints);
+        let shaped_items = &paragraph.items;
 
         // Incremental patching requires:
         //   - The cached layout came with line-break metadata.
@@ -26169,13 +26361,11 @@ impl LayoutWindow {
                             }
                         })
                         .collect();
-                    return Some((
-                        UnifiedLayout {
-                            items,
-                            overflow: cached.layout.overflow.clone(),
-                        },
-                        true,
-                    ));
+                    let patched = UnifiedLayout {
+                        items,
+                        overflow: cached.layout.overflow.clone(),
+                    };
+                    return self.finish_edited_layout(ifc, patched, constraints);
                 }
                 IncrementalRelayoutResult::LineShift {
                     affected_item,
@@ -26201,13 +26391,11 @@ impl LayoutWindow {
                             }
                         })
                         .collect();
-                    return Some((
-                        UnifiedLayout {
-                            items,
-                            overflow: cached.layout.overflow.clone(),
-                        },
-                        true,
-                    ));
+                    let patched = UnifiedLayout {
+                        items,
+                        overflow: cached.layout.overflow.clone(),
+                    };
+                    return self.finish_edited_layout(ifc, patched, constraints);
                 }
                 IncrementalRelayoutResult::PartialReflow { .. }
                 | IncrementalRelayoutResult::FullRelayout => {
@@ -26216,11 +26404,9 @@ impl LayoutWindow {
             }
         }
 
-        // Fall-back: run stage 4 (line breaking + positioning) with the
-        // already-computed logical + shaped items. Still cheaper than the
-        // plain full path because stages 1-3 aren't repeated.
-        let layout = self.fragment_layout_from_shaped(&logical_items, &paragraph)?;
-        Some((layout, false))
+        // Fall-back: break and position the lines from the items already
+        // shaped here, as the full layout does.
+        self.lay_out_edited_paragraph(ifc, &logical_items, &paragraph)
     }
 
     /// Helper to get node `used_size` for accessibility actions

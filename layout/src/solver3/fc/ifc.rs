@@ -41,7 +41,7 @@ use crate::{
     debug_ifc_layout, debug_info, debug_log, debug_table_layout, debug_warning,
     font_traits::{
         ContentIndex, FontLoaderTrait, ImageSource, InlineContent, InlineImage, InlineShape,
-        LayoutFragment, ObjectFit, ParsedFontTrait, SegmentAlignment, ShapeBoundary,
+        ObjectFit, ParsedFontTrait, SegmentAlignment, ShapeBoundary,
         ShapeDefinition, ShapedItem, Size, StyleProperties, StyledRun, TextLayoutCache,
         UnifiedConstraints,
     },
@@ -94,8 +94,9 @@ use super::*;
 /// 2. **Translate Constraints**: Convert the `LayoutConstraints` (available space, floats) from
 ///    `solver3` into the more detailed `UnifiedConstraints` that `text3` requires.
 ///
-/// 3. **Invoke Text Layout**: Call the `text3` cache's `layout_flow` method to perform the complex
-///    tasks of BIDI analysis, shaping, line breaking, justification, and vertical alignment.
+/// 3. **Invoke Text Layout**: Shape the content (`shape_content`) and lay its lines out
+///    (`lay_out_shaped_ifc`): BIDI analysis, shaping, line breaking, justification, and vertical
+///    alignment.
 ///    +spec:display-property:e96c82 - inline formatting context: flow of elements/text wrapped into
 ///    lines
 ///
@@ -290,6 +291,89 @@ pub(super) fn ifc_extent(main_frag: &text3::cache::UnifiedLayout) -> LogicalSize
         frag_bounds.width.max(unclipped.width),
         frag_bounds.height.max(unclipped.height),
     )
+}
+
+/// Lays an inline formatting context out from the paragraph its shaped
+/// items make in its constraints (`ParagraphToBreak`): its lines broken and
+/// positioned (`perform_fragment_layout`), and what its box reports from
+/// them (`finish_inline_layout`).
+///
+/// The solver's layout of an IFC (`layout_ifc`) and a relayout after an edit
+/// both lay it out here; they differ only in where its content, and so its
+/// shaped items, come from.
+///
+/// # Errors
+///
+/// Returns a `LayoutError` if the lines cannot be laid out.
+pub(crate) fn lay_out_shaped_ifc<T: ParsedFontTrait>(
+    logical_items: &[text3::cache::LogicalItem],
+    paragraph: &text3::cache::ParagraphToBreak<'_>,
+    fonts: &text3::cache::LoadedFonts<T>,
+    styled_dom: &StyledDom,
+    ifc_root_dom_id: NodeId,
+    child_map: &HashMap<ContentIndex, usize>,
+    debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+) -> core::result::Result<
+    (Arc<text3::cache::UnifiedLayout>, LayoutOutput),
+    text3::cache::LayoutError,
+> {
+    let constraints = paragraph.constraints();
+    let mut cursor = paragraph.cursor();
+    let layout = Arc::new(text3::cache::perform_fragment_layout(
+        &mut cursor,
+        logical_items,
+        constraints,
+        debug_messages,
+        fonts,
+    )?);
+    let output = finish_inline_layout(&layout, constraints, styled_dom, ifc_root_dom_id, child_map);
+    Ok((layout, output))
+}
+
+/// What an inline formatting context's box reports once its lines stand.
+///
+/// That is the extent of the lines (`ifc_extent`), less what `text-box-trim`
+/// trims (`apply_text_box_trim`), the last line's baseline, and where each
+/// atomic inline child (an inline-block, an image) stands, relative to the
+/// IFC's content box: where its line put the item `child_map` names it by.
+/// Every layout of an IFC reports these from here, a fresh one, the cache's
+/// reuse of an earlier one and a relayout after an edit alike.
+pub(crate) fn finish_inline_layout(
+    layout: &text3::cache::UnifiedLayout,
+    constraints: &UnifiedConstraints,
+    styled_dom: &StyledDom,
+    ifc_root_dom_id: NodeId,
+    child_map: &HashMap<ContentIndex, usize>,
+) -> LayoutOutput {
+    // +spec:display-property:a0d0ab - IFC height = top of topmost line box to bottom of
+    // bottommost line box +spec:display-property:a63b8f - baseline-source defaults to
+    // auto (last baseline for inline-block/IFC)
+    let mut output = LayoutOutput {
+        overflow_size: ifc_extent(layout),
+        baseline: layout.last_baseline(),
+        ..LayoutOutput::default()
+    };
+    apply_text_box_trim(
+        styled_dom,
+        ifc_root_dom_id,
+        constraints,
+        !layout.items.is_empty(),
+        &mut output,
+    );
+    for positioned_item in &layout.items {
+        if let ShapedItem::Object { source, .. } = &positioned_item.item {
+            if let Some(&child_node_index) = child_map.get(source) {
+                output.positions.insert(
+                    child_node_index,
+                    LogicalPosition {
+                        x: positioned_item.position.x,
+                        y: positioned_item.position.y,
+                    },
+                );
+            }
+        }
+    }
+    output
 }
 
 pub(super) fn layout_ifc<T: ParsedFontTrait>(
@@ -689,7 +773,7 @@ pub(super) fn layout_ifc<T: ParsedFontTrait>(
     //
     // Check if a cached layout exists with matching constraints. If so,
     // try incremental relayout (GlyphSwap or LineShift) before falling
-    // back to full layout_flow().
+    // back to the full layout.
     {
         // A measure (a min- or max-content width) is answered from the slot
         // its earlier measures filled, a definite width from the final
@@ -704,7 +788,7 @@ pub(super) fn layout_ifc<T: ParsedFontTrait>(
         // Only reuse the cached inline layout when the available WIDTH is unchanged.
         // This fast path was built for text edits (content changes, width constant); on a
         // viewport/container resize the width differs and the text must RE-WRAP, so the
-        // cached old-width layout must NOT be reused — fall through to full layout_flow()
+        // cached old-width layout must NOT be reused — fall through to the full layout
         // below. Without this guard, resizing kept the stale line breaks (#45). Real
         // text-edit incremental relayout (with dirty items) lives in
         // LayoutWindow::try_incremental_text_relayout.
@@ -794,59 +878,32 @@ pub(super) fn layout_ifc<T: ParsedFontTrait>(
                     // reuse path's overflow_size (scrollbars vanished on
                     // every GlyphSwap reuse).
                     let main_frag = cached.materialized();
-                    let mut output = LayoutOutput {
-                        overflow_size: ifc_extent(&main_frag),
-                        baseline: main_frag.last_baseline(),
-                        ..Default::default()
-                    };
-                    // The node's baseline is that of its last layout, which
-                    // the box's sizing and alignment read: the full path
-                    // writes it, and so must this exit - a measure at another
-                    // width may have left its own since.
+                    // This exit REPLAYS what the full path writes, from the
+                    // one `finish_inline_layout`: the extent with
+                    // its text-box-trim, the baseline the box's sizing and
+                    // alignment read, and the inline-block children's
+                    // positions. The children's sizes are assumed to be in
+                    // the tree already: a carried `inline_layout_result` (a
+                    // clone's, and a matched anonymous block's since
+                    // `try_reuse_anon_wrapper` carries layout state) can reach
+                    // this exit in a new tree, and the assumption still holds
+                    // there: the collection above is only reused while
+                    // `atomic_inline_children_are_laid_out` says the atomic
+                    // children it places have sizes (carried by their own
+                    // clones), and a re-collection lays them out.
+                    let output = finish_inline_layout(
+                        &main_frag,
+                        &text3_constraints,
+                        ctx.styled_dom,
+                        ifc_root_dom_id,
+                        &child_map,
+                    );
                     if let Some(warm_node) = tree.warm_mut(LayoutNodeId::new(node_index)) {
                         warm_node.baseline = output.baseline;
                     }
-                    // The cache-reuse exit must trim like the full path: a
-                    // measure pass that lands here would otherwise size the
-                    // box untrimmed while the final pass trims (see
-                    // apply_text_box_trim).
-                    apply_text_box_trim(
-                        ctx.styled_dom,
-                        ifc_root_dom_id,
-                        &text3_constraints,
-                        !main_frag.items.is_empty(),
-                        &mut output,
-                    );
-                    // Re-position inline-block children from cached layout.
-                    //
-                    // This is the discipline a memoized call with a side effect
-                    // needs: the exit REPLAYS what the full path would have
-                    // written. Note it replays the baseline (above) and the
-                    // POSITIONS only — the children's sizes are assumed to be
-                    // in the tree already. A carried
-                    // `inline_layout_result` (a clone's, and a matched
-                    // anonymous block's since `try_reuse_anon_wrapper` carries
-                    // layout state) can reach this exit in a new tree, and the
-                    // assumption still holds there: the collection above is
-                    // only reused while `atomic_inline_children_are_laid_out`
-                    // says the atomic children it places have sizes (carried
-                    // by their own clones), and a re-collection lays them out.
-                    for positioned_item in &main_frag.items {
-                        if let ShapedItem::Object { source, .. } = &positioned_item.item {
-                            if let Some(&child_node_index) = child_map.get(source) {
-                                output.positions.insert(
-                                    child_node_index,
-                                    LogicalPosition {
-                                        x: positioned_item.position.x,
-                                        y: positioned_item.position.y,
-                                    },
-                                );
-                            }
-                        }
-                    }
                     return Ok(output);
                 }
-                // Fall through to full layout_flow
+                // Fall through to the full layout
                 drop(crate::probe::Probe::span("ifc_reflow_incr_declined"));
             }
         }
@@ -854,33 +911,44 @@ pub(super) fn layout_ifc<T: ParsedFontTrait>(
 
     // Phase 2: text3_constraints was resolved early (above) so the cache-reuse key
     // could include container-level properties.
-    // Clone constraints for caching (before they're moved into fragments)
-    let cached_constraints = text3_constraints.clone();
 
     debug_info!(
         ctx,
-        "[layout_ifc] CALLING text_cache.layout_flow for node {} with {} exclusions",
+        "[layout_ifc] laying out the inline content of node {} with {} exclusions",
         node_index,
         text3_constraints.shape_exclusions.len()
     );
 
-    let fragments = vec![LayoutFragment {
-        id: "main".to_string(),
-        constraints: text3_constraints,
-    }];
-
-    // Phase 3: Invoke the text layout engine.
+    // Phase 3: Invoke the text layout engine: the content is shaped
+    // (`shape_content`), then broken, positioned and reported
+    // (`ParagraphToBreak`, `lay_out_shaped_ifc`), the same functions a
+    // relayout after an edit runs.
     // Get pre-loaded fonts from font manager (fonts should be loaded before layout)
     let loaded_fonts = ctx.font_manager.get_loaded_fonts();
-    let text_layout_result = match text_cache.layout_flow(
+    let flow_probe = crate::probe::Probe::span("text_layout_flow");
+    let shaped = text_cache.shape_content(
         &inline_content,
         &[],
-        &fragments,
+        &text3_constraints,
         &ctx.font_manager.font_chain_cache,
         &ctx.font_manager.fc_cache,
         &loaded_fonts,
         ctx.debug_messages,
-    ) {
+    );
+    let laid_out = shaped.and_then(|(logical_items, shaped_items)| {
+        let paragraph = text3::cache::ParagraphToBreak::new(shaped_items, &text3_constraints);
+        lay_out_shaped_ifc(
+            &logical_items,
+            &paragraph,
+            &loaded_fonts,
+            ctx.styled_dom,
+            ifc_root_dom_id,
+            &child_map,
+            ctx.debug_messages,
+        )
+    });
+    drop(flow_probe);
+    let (main_frag, finished) = match laid_out {
         Ok(result) => {
             // [g133 az-web-lift DIAG] layout_flow returned Ok.
             #[cfg(feature = "web_lift")]
@@ -917,13 +985,8 @@ pub(super) fn layout_ifc<T: ParsedFontTrait>(
     // Phase 4: Integrate results back into the solver3 layout tree.
     let mut output = LayoutOutput::default();
 
-    debug_ifc_layout!(
-        ctx,
-        "text_layout_result has {} fragment_layouts",
-        text_layout_result.fragment_layouts.len()
-    );
-
-    if let Some(main_frag) = text_layout_result.fragment_layouts.get("main") {
+    {
+        let main_frag = &main_frag;
         let frag_bounds = main_frag.bounds();
         debug_ifc_layout!(
             ctx,
@@ -1040,7 +1103,7 @@ pub(super) fn layout_ifc<T: ParsedFontTrait>(
                 main_frag.clone(),
                 current_width_type,
                 has_floats,
-                cached_constraints.clone(),
+                text3_constraints.clone(),
             );
             // #11 fix: record the content hash so Phase 2d only fast-path-reuses
             // this layout when the inline content is genuinely unchanged, and so
@@ -1078,44 +1141,11 @@ pub(super) fn layout_ifc<T: ParsedFontTrait>(
             }
         }
 
-        // Extract the overall size and baseline for the IFC root.
-        // +spec:display-property:a0d0ab - IFC height = top of topmost line box to bottom of
-        // bottommost line box +spec:display-property:a63b8f - baseline-source defaults to
-        // auto (last baseline for inline-block/IFC)
-        //
-        // The ONE measure of an IFC's extent (`ifc_extent`): the cache-reuse
-        // exit above reports the same, so two layouts of unchanged content
-        // agree to the bit.
-        output.overflow_size = ifc_extent(main_frag);
-        output.baseline = main_frag.last_baseline();
+        // The IFC's extent, baseline and inline-block positions, from
+        // `finish_inline_layout`: the cache-reuse exit above reports the
+        // same, so two layouts of unchanged content agree to the bit.
+        output = finished;
         warm_node.baseline = output.baseline;
-
-        apply_text_box_trim(
-            ctx.styled_dom,
-            ifc_root_dom_id,
-            &cached_constraints,
-            !main_frag.items.is_empty(),
-            &mut output,
-        );
-
-        // Position all the inline-block children based on text3's calculations.
-        // [CoordinateSpace::Parent] - positions are relative to IFC's content-box (0,0)
-        for positioned_item in &main_frag.items {
-            if let ShapedItem::Object {
-                source, content, ..
-            } = &positioned_item.item
-            {
-                if let Some(&child_node_index) = child_map.get(source) {
-                    // new_relative_pos is [CoordinateSpace::Parent] - relative to this IFC's
-                    // content-box
-                    let new_relative_pos = LogicalPosition {
-                        x: positioned_item.position.x,
-                        y: positioned_item.position.y,
-                    };
-                    output.positions.insert(child_node_index, new_relative_pos);
-                }
-            }
-        }
     }
 
     // [g132 az-web-lift VERIFY] Capture the IFC content geometry (the line-box bounds from

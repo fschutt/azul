@@ -4199,6 +4199,56 @@ fn process_inflow_child<T: ParsedFontTrait>(
     reflow_needed_for_scrollbars: bool,
     float_cache: &HashMap<usize, fc::FloatingContext>,
 ) -> Result<()> {
+    // Debug logging
+    {
+        let child_node = tree
+            .get(LayoutNodeId::new(child_index))
+            .ok_or(LayoutError::InvalidTree)?;
+        let child_absolute_pos = LogicalPosition::new(
+            self_content_box_pos.x + child_relative_pos.x,
+            self_content_box_pos.y + child_relative_pos.y,
+        );
+        log_child_positioning(
+            ctx,
+            child_index,
+            child_node,
+            self_content_box_pos,
+            child_relative_pos,
+            child_absolute_pos,
+        );
+    }
+    place_inflow_child(
+        tree,
+        child_index,
+        child_relative_pos,
+        self_content_box_pos,
+        writing_mode,
+        is_flex_or_grid,
+        calculated_positions,
+    )
+}
+
+/// Puts the in-flow child `child_index` where its parent's formatting
+/// context placed it, `child_relative_pos` from the parent's content box at
+/// `self_content_box_pos`, and its descendants with it, from the layout
+/// they already have.
+///
+/// The solver places every in-flow child here once its parent is laid out,
+/// and a relayout after an edit places an inline formatting context's
+/// atomic inlines here too, so both put a box where the other would.
+///
+/// # Errors
+///
+/// Returns `LayoutError::InvalidTree` if `child_index` is no node of `tree`.
+pub(crate) fn place_inflow_child(
+    tree: &mut LayoutTree,
+    child_index: usize,
+    child_relative_pos: LogicalPosition,
+    self_content_box_pos: LogicalPosition,
+    writing_mode: LayoutWritingMode,
+    is_flex_or_grid: bool,
+    calculated_positions: &mut super::PositionVec,
+) -> Result<()> {
     // Set relative position on child
     // child_relative_pos is [CoordinateSpace::Parent] - relative to parent's content-box
     let child_warm = tree
@@ -4213,21 +4263,6 @@ fn process_inflow_child<T: ParsedFontTrait>(
         self_content_box_pos.x + child_relative_pos.x,
         self_content_box_pos.y + child_relative_pos.y,
     );
-
-    // Debug logging
-    {
-        let child_node = tree
-            .get(LayoutNodeId::new(child_index))
-            .ok_or(LayoutError::InvalidTree)?;
-        log_child_positioning(
-            ctx,
-            child_index,
-            child_node,
-            self_content_box_pos,
-            child_relative_pos,
-            child_absolute_pos,
-        );
-    }
 
     // calculated_positions stores [CoordinateSpace::Window] - absolute positions
     super::pos_set(calculated_positions, child_index, child_absolute_pos);
