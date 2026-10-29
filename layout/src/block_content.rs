@@ -21,7 +21,7 @@
 //! document order, one `'\n'` between two of them. That is the text a screen
 //! reader reads as the host's value and sets its selection in.
 
-use alloc::collections::BTreeSet;
+use alloc::collections::{BTreeMap, BTreeSet};
 
 use azul_core::{
     dom::{DomNodeId, NodeId},
@@ -65,10 +65,16 @@ pub fn flat_len_of(item: &InlineContent) -> usize {
 /// The content a caret in one text block indexes: the block's text behind
 /// the items the layout generates in front of it (a list item's `::marker`),
 /// numbered as the layout numbers them.
+///
+/// The flat text reads each item as its text, except the items with a
+/// reading of their own ([`Self::with_readings`]): an atomic inline that
+/// holds text (an inline-block's) reads as that text, in its place, and a
+/// generated item amid the text reads as nothing.
 #[derive(Debug, Clone, Default)]
 pub struct BlockContent {
     items: Vec<InlineContent>,
     generated: usize,
+    readings: BTreeMap<usize, Vec<InlineContent>>,
 }
 
 impl BlockContent {
@@ -76,7 +82,28 @@ impl BlockContent {
     #[must_use]
     pub fn new(items: Vec<InlineContent>, generated: usize) -> Self {
         let generated = generated.min(items.len());
-        Self { items, generated }
+        Self {
+            items,
+            generated,
+            readings: BTreeMap::new(),
+        }
+    }
+
+    /// This content, with item `index` read as `readings[index]` in its
+    /// flat text.
+    #[must_use]
+    pub fn with_readings(mut self, readings: BTreeMap<usize, Vec<InlineContent>>) -> Self {
+        self.readings = readings;
+        self
+    }
+
+    /// How many bytes item `index` contributes to the flat text.
+    #[must_use]
+    pub fn item_flat_len(&self, index: usize) -> usize {
+        match self.readings.get(&index) {
+            Some(reading) => reading.iter().map(flat_len_of).sum(),
+            None => self.items.get(index).map_or(0, flat_len_of),
+        }
     }
 
     /// Every item, in the carets' numbering.
@@ -107,13 +134,20 @@ impl BlockContent {
     /// The block's flat text - what the app, the IME and a screen reader read.
     #[must_use]
     pub fn flat_text(&self) -> String {
-        crate::overlay::flatten_inline_content(self.text())
+        (self.generated..self.items.len())
+            .map(|index| match self.readings.get(&index) {
+                Some(reading) => crate::overlay::flatten_inline_content(reading),
+                None => crate::overlay::flatten_inline_content(&self.items[index..=index]),
+            })
+            .collect()
     }
 
     /// The length of [`Self::flat_text`].
     #[must_use]
     pub fn flat_len(&self) -> usize {
-        self.text().iter().map(flat_len_of).sum()
+        (self.generated..self.items.len())
+            .map(|index| self.item_flat_len(index))
+            .sum()
     }
 
     /// The part of the flat text laid out from the DOM nodes `holds`
@@ -123,7 +157,12 @@ impl BlockContent {
     pub fn flat_window_of(&self, holds: impl Fn(NodeId) -> bool) -> Option<(FlatByte, FlatByte)> {
         let mut acc = 0usize;
         let mut window: Option<(usize, usize)> = None;
-        for item in self.text() {
+        let items = (self.generated..self.items.len()).flat_map(|index| {
+            self.readings
+                .get(&index)
+                .map_or(&self.items[index..=index], Vec::as_slice)
+        });
+        for item in items {
             let len = flat_len_of(item);
             if let InlineContent::Text(run) = item {
                 if run.source_node_id.is_some_and(&holds) {
@@ -207,16 +246,16 @@ impl BlockContent {
         for (i, item) in self.items.iter().enumerate().skip(self.generated) {
             if i == run {
                 let inside = match item {
-                    InlineContent::Text(t) => {
+                    InlineContent::Text(t) if !self.readings.contains_key(&i) => {
                         crate::text3::edit::cursor_byte_offset_in_run(&t.text, cursor)
                             .min(t.text.len())
                     }
-                    other if cursor.affinity == CursorAffinity::Trailing => flat_len_of(other),
+                    _ if cursor.affinity == CursorAffinity::Trailing => self.item_flat_len(i),
                     _ => 0,
                 };
                 return FlatByte(acc + inside);
             }
-            acc += flat_len_of(item);
+            acc += self.item_flat_len(i);
         }
         FlatByte(acc)
     }
@@ -240,7 +279,14 @@ impl BlockContent {
         let mut first_run: Option<usize> = None;
         for i in self.generated..self.items.len() {
             let item = &self.items[i];
-            let len = flat_len_of(item);
+            let len = self.item_flat_len(i);
+            if self.readings.contains_key(&i) {
+                // Read as the text inside it (an inline-block's, whose own
+                // block holds its carets) or as nothing: no caret of this
+                // block stands in it.
+                acc += len;
+                continue;
+            }
             if let InlineContent::Text(t) = item {
                 if first_run.is_none() {
                     first_run = Some(i);

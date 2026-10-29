@@ -4653,7 +4653,70 @@ impl LayoutWindow {
             .take_while(|item| generated_side(styled_dom, item).is_some())
             .count();
         content.truncate(content.len() - behind);
-        BlockContent::new(content, generated)
+        // The flat text reads an inline-block's text where the box stands,
+        // and a generated item amid the text as nothing.
+        let readings = content
+            .iter()
+            .enumerate()
+            .skip(generated)
+            .filter_map(|(index, item)| {
+                if generated_side(styled_dom, item).is_some() {
+                    return Some((index, Vec::new()));
+                }
+                let reading = self.atomic_reading(dom_id, atomic_item_node(item)?)?;
+                Some((index, reading))
+            })
+            .collect();
+        BlockContent::new(content, generated).with_readings(readings)
+    }
+
+    /// What the atomic inline `node` reads as in its paragraph's flat text:
+    /// the text inside it, its own inline-blocks read the same way, as the
+    /// edit model holds it ([`Self::get_text_before_textinput`]). `None`
+    /// when it holds no text, or is walled off from the editable it sits in
+    /// ([`Self::is_walled_off_editable_subtree`]).
+    ///
+    /// The paragraph's content carries the box as one item, which is what
+    /// places it and what its carets number; its text is read in place, and
+    /// its own block holds the carets inside it.
+    fn atomic_reading(&self, dom_id: DomId, node: NodeId) -> Option<Vec<InlineContent>> {
+        let walled_off = self
+            .layout_results
+            .get(&dom_id)?
+            .styled_dom
+            .node_data
+            .as_ref()
+            .get(node.index())
+            .is_some_and(Self::is_walled_off_editable_subtree);
+        if walled_off {
+            return None;
+        }
+        let reading: Vec<InlineContent> = self
+            .get_text_before_textinput(dom_id, node)
+            .into_iter()
+            .flat_map(|item| {
+                match atomic_item_node(&item).and_then(|inner| self.atomic_reading(dom_id, inner)) {
+                    Some(inner) => inner,
+                    None => vec![item],
+                }
+            })
+            .collect();
+        let holds_text = reading
+            .iter()
+            .any(|item| crate::block_content::flat_len_of(item) > 0);
+        holds_text.then_some(reading)
+    }
+
+    /// How many bytes `item`, an item of an element's edit model, contributes
+    /// to its flat text: an atomic inline its text's
+    /// ([`Self::atomic_reading`]), as [`Self::element_content`] reads it.
+    fn reading_flat_len(&self, dom_id: DomId, item: &InlineContent) -> usize {
+        atomic_item_node(item)
+            .and_then(|node| self.atomic_reading(dom_id, node))
+            .map_or_else(
+                || crate::block_content::flat_len_of(item),
+                |reading| reading.iter().map(crate::block_content::flat_len_of).sum(),
+            )
     }
 
     /// Whether `a` and `b` are ONE caret position in `block`: equal as
@@ -4778,7 +4841,7 @@ impl LayoutWindow {
             let content = self.get_text_before_textinput(dom_id, node_id);
             let mut acc = 0usize;
             for (i, item) in content.iter().enumerate() {
-                let len = crate::block_content::flat_len_of(item);
+                let len = self.reading_flat_len(dom_id, item);
                 let idx = u32::try_from(i).unwrap_or(u32::MAX);
                 if abs <= acc + len {
                     if matches!(item, IC::Text(_)) {
