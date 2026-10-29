@@ -9,11 +9,15 @@
 //! asks [`floating_frame`] where the surface goes. One rule, so a menu, a tooltip and a
 //! picker cannot disagree about what the edge of a screen means.
 //!
-//! The coordinates are in whatever space the caller works in (global logical points on
-//! macOS, physical screen pixels on Windows and X11, the parent window on Wayland): the
-//! functions only compare numbers, they never ask the system anything.
+//! Placement happens in the logical coordinates of the window a surface is opened from:
+//! its anchor is a box in that window, and the screens are brought into that window's
+//! space by its [`WindowToScreen`]. That mapping is the one bridge to the shell's screen
+//! unit - physical pixels on Windows and X11, points on macOS - and what crosses it is
+//! typed ([`ScreenPoint`], [`ScreenRect`]), so a screen coordinate cannot be passed where
+//! a window's logical one is meant, nor a logical one where the native API wants pixels.
+//! The functions only compute, they never ask the system anything.
 
-use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
+use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize, PhysicalPositionI32};
 
 /// One end of an axis: the left or top end (`Start`), the middle, or the right or bottom
 /// end (`End`).
@@ -235,7 +239,8 @@ impl FloatingPlacement {
     }
 }
 
-/// One screen as a backend reports it, in the caller's coordinate space.
+/// One screen in the space a surface is placed in - the logical coordinates of the
+/// window it is opened from ([`WindowToScreen::screens`]).
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct ScreenRects {
     /// The whole screen.
@@ -243,6 +248,190 @@ pub struct ScreenRects {
     /// The part a floating surface may cover: the screen less the menu bar, dock or
     /// taskbars.
     pub work_area: LogicalRect,
+}
+
+/// A point on the desktop in the shell's SCREEN unit: physical pixels on Windows and
+/// X11, points on macOS. What window positions, monitor rects and native popup APIs are
+/// given in. A type of its own, not a `LogicalPosition`, so the two cannot be mixed up.
+#[derive(Debug, Default, Copy, Clone, PartialEq)]
+pub struct ScreenPoint {
+    /// Right of the desktop's origin.
+    pub x: f32,
+    /// Below the desktop's origin.
+    pub y: f32,
+}
+
+impl ScreenPoint {
+    /// A point from its coordinates.
+    #[must_use]
+    pub const fn new(x: f32, y: f32) -> Self {
+        Self { x, y }
+    }
+
+    /// Where a window's stored position says it is: `WindowPosition::Initialized`
+    /// carries screen units.
+    #[must_use]
+    #[allow(clippy::cast_precision_loss)] // screen coordinates
+    pub const fn of_window_position(position: PhysicalPositionI32) -> Self {
+        Self::new(position.x as f32, position.y as f32)
+    }
+}
+
+/// A size in the shell's screen unit (see [`ScreenPoint`]).
+#[derive(Debug, Default, Copy, Clone, PartialEq)]
+pub struct ScreenSize {
+    /// Width in screen units.
+    pub width: f32,
+    /// Height in screen units.
+    pub height: f32,
+}
+
+impl ScreenSize {
+    /// A size from its extents.
+    #[must_use]
+    pub const fn new(width: f32, height: f32) -> Self {
+        Self { width, height }
+    }
+}
+
+/// A rect on the desktop in the shell's screen unit (see [`ScreenPoint`]).
+#[derive(Debug, Default, Copy, Clone, PartialEq)]
+pub struct ScreenRect {
+    /// The top-left corner.
+    pub origin: ScreenPoint,
+    /// The extent.
+    pub size: ScreenSize,
+}
+
+impl ScreenRect {
+    /// A rect from its corner and extent.
+    #[must_use]
+    pub const fn new(origin: ScreenPoint, size: ScreenSize) -> Self {
+        Self { origin, size }
+    }
+
+    /// Whether `point` lies inside (the right and bottom edges excluded).
+    #[must_use]
+    pub const fn contains(&self, point: ScreenPoint) -> bool {
+        point.x >= self.origin.x
+            && point.x < self.origin.x + self.size.width
+            && point.y >= self.origin.y
+            && point.y < self.origin.y + self.size.height
+    }
+}
+
+/// One screen of the desktop, in screen units.
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct DesktopScreen {
+    /// The whole screen.
+    pub bounds: ScreenRect,
+    /// The part a floating surface may cover: the screen less the menu bar, dock or
+    /// panels.
+    pub work_area: ScreenRect,
+}
+
+/// How a window's logical content space lies on the screen: where the top-left of its
+/// content area is, in screen units, and how many screen units one logical px is (the
+/// DPI scale on Windows and X11, 1 on macOS where the screen unit is the point).
+///
+/// The shell knows this and nothing else does: it is what a window hands out to
+/// everything that places a floating surface, and the only way between the two spaces.
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct WindowToScreen {
+    /// The top-left of the window's content area on the screen.
+    pub content_origin: ScreenPoint,
+    /// Screen units per logical px.
+    pub scale: f32,
+}
+
+impl WindowToScreen {
+    /// The mapping of a window whose content starts at `content_origin` and whose
+    /// logical px is `scale` screen units. A scale that is not a positive number is 1.
+    #[must_use]
+    pub const fn new(content_origin: ScreenPoint, scale: f32) -> Self {
+        let scale = if scale.is_finite() && scale > 0.0 {
+            scale
+        } else {
+            1.0
+        };
+        Self {
+            content_origin,
+            scale,
+        }
+    }
+
+    /// Where a point of the window's content is on the screen.
+    #[must_use]
+    pub const fn point(&self, point: LogicalPosition) -> ScreenPoint {
+        ScreenPoint::new(
+            self.content_origin.x + point.x * self.scale,
+            self.content_origin.y + point.y * self.scale,
+        )
+    }
+
+    /// A logical size in screen units.
+    #[must_use]
+    pub const fn size(&self, size: LogicalSize) -> ScreenSize {
+        ScreenSize::new(size.width * self.scale, size.height * self.scale)
+    }
+
+    /// Where a box of the window's content is on the screen.
+    #[must_use]
+    pub const fn rect(&self, rect: LogicalRect) -> ScreenRect {
+        ScreenRect::new(self.point(rect.origin), self.size(rect.size))
+    }
+
+    /// Where a point of the screen is in the window's content.
+    #[must_use]
+    pub const fn window_point(&self, point: ScreenPoint) -> LogicalPosition {
+        LogicalPosition::new(
+            (point.x - self.content_origin.x) / self.scale,
+            (point.y - self.content_origin.y) / self.scale,
+        )
+    }
+
+    /// A size in screen units in logical px.
+    #[must_use]
+    pub const fn window_size(&self, size: ScreenSize) -> LogicalSize {
+        LogicalSize::new(size.width / self.scale, size.height / self.scale)
+    }
+
+    /// Where a box of the screen is in the window's content.
+    #[must_use]
+    pub const fn window_rect(&self, rect: ScreenRect) -> LogicalRect {
+        LogicalRect::new(self.window_point(rect.origin), self.window_size(rect.size))
+    }
+
+    /// A point of the window's content given in screen units from the content's
+    /// top-left - the client coordinates a Win32 or X11 mouse message carries - as a
+    /// logical point.
+    #[must_use]
+    pub const fn window_point_from_content_offset(&self, x: f32, y: f32) -> LogicalPosition {
+        LogicalPosition::new(x / self.scale, y / self.scale)
+    }
+
+    /// How far `point` is from the content's top-left, in whole screen units: what
+    /// `WindowPosition::RelativeToParentWindow` carries for a window opened from this one.
+    #[must_use]
+    pub const fn offset_from_content(&self, point: ScreenPoint) -> PhysicalPositionI32 {
+        PhysicalPositionI32::new(
+            round_to_i32(point.x - self.content_origin.x),
+            round_to_i32(point.y - self.content_origin.y),
+        )
+    }
+
+    /// The screens as they lie around this window, in its logical coordinates: what a
+    /// floating surface opened from it is placed against.
+    #[must_use]
+    pub fn screens(&self, desktop: &[DesktopScreen]) -> Vec<ScreenRects> {
+        desktop
+            .iter()
+            .map(|screen| ScreenRects {
+                bounds: self.window_rect(screen.bounds),
+                work_area: self.window_rect(screen.work_area),
+            })
+            .collect()
+    }
 }
 
 /// The work area of the screen a surface anchored at `anchor` belongs on: the screen
@@ -323,6 +512,16 @@ pub const fn tooltip_text_width(screen_width: f32, padding: f32) -> f32 {
         width
     } else {
         1.0
+    }
+}
+
+/// `value` rounded to the nearest whole number, halves away from zero; not a number is 0.
+#[allow(clippy::cast_possible_truncation)] // whole screen units
+const fn round_to_i32(value: f32) -> i32 {
+    if value >= 0.0 {
+        (value + 0.5) as i32
+    } else {
+        (value - 0.5) as i32
     }
 }
 
@@ -612,6 +811,48 @@ mod tests {
             "below the short left monitor and beside the tall right one: the right one is nearer"
         );
         assert_eq!(screen_for_anchor(rect(0.0, 0.0, 0.0, 0.0), &[]), None);
+    }
+
+    /// A window on a 2x display at (300, 200) on the desktop sees a monitor's rect in its
+    /// own logical px, and that rect maps back onto the same screen pixels.
+    #[test]
+    fn a_screen_rect_seen_from_a_scaled_window_is_in_its_logical_px() {
+        let window = WindowToScreen::new(ScreenPoint::new(300.0, 200.0), 2.0);
+        let monitor = ScreenRect::new(ScreenPoint::new(0.0, 0.0), ScreenSize::new(3840.0, 2160.0));
+        let seen = window.window_rect(monitor);
+        assert_eq!(seen, rect(-150.0, -100.0, 1920.0, 1080.0));
+        assert_eq!(window.rect(seen), monitor, "the two spaces map onto each other exactly");
+        assert_eq!(
+            window.point(LogicalPosition::new(10.0, 20.0)),
+            ScreenPoint::new(320.0, 240.0)
+        );
+        assert_eq!(
+            window.offset_from_content(window.point(LogicalPosition::new(10.0, 20.0))),
+            PhysicalPositionI32::new(20, 40),
+            "an offset from the content origin is in screen units"
+        );
+        assert_eq!(
+            window.window_point_from_content_offset(20.0, 40.0),
+            LogicalPosition::new(10.0, 20.0),
+            "a mouse message's client pixels are half as many logical px"
+        );
+    }
+
+    /// A monitor left of the window's own has negative coordinates in the window's space,
+    /// and a scale that is not a number is taken as 1.
+    #[test]
+    fn a_monitor_left_of_the_window_has_negative_window_coordinates() {
+        let window = WindowToScreen::new(ScreenPoint::new(100.0, 50.0), f32::NAN);
+        let screens = window.screens(&[DesktopScreen {
+            bounds: ScreenRect::new(ScreenPoint::new(-1920.0, 0.0), ScreenSize::new(1920.0, 1080.0)),
+            work_area: ScreenRect::new(
+                ScreenPoint::new(-1920.0, 0.0),
+                ScreenSize::new(1920.0, 1040.0),
+            ),
+        }]);
+        assert_eq!(screens.len(), 1);
+        assert_eq!(screens[0].bounds, rect(-2020.0, -50.0, 1920.0, 1080.0));
+        assert_eq!(screens[0].work_area, rect(-2020.0, -50.0, 1920.0, 1040.0));
     }
 
     #[test]
