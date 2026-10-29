@@ -171,11 +171,16 @@ fn is_conflict_copy_of(name: &str, key: &str, device: &str) -> bool {
 fn cut_conflicts(input: &PlanInput<'_>) -> BTreeMap<String, String> {
     let mut found = BTreeMap::new();
     for (key, file) in input.local {
-        let here = ident(&file.hash, file.exec);
-        let Some(there) = input.remote.files.get(key).map(|f| ident(&f.hash, f.exec)) else {
+        let here = ident(&file.hash, file.exec, file.link.is_some());
+        let there = input
+            .remote
+            .files
+            .get(key)
+            .map(|f| ident(&f.hash, f.exec, f.link.is_some()));
+        let Some(there) = there else {
             continue;
         };
-        let base = input.base.get(key).map(|e| ident(&e.hash, e.exec));
+        let base = input.base.get(key).map(|e| ident(&e.hash, e.exec, e.link));
         if here == there
             || base == Some(here)
             || base == Some(there)
@@ -192,7 +197,7 @@ fn cut_conflicts(input: &PlanInput<'_>) -> BTreeMap<String, String> {
             .take_while(|(name, _)| name.starts_with(&prefix))
             .find(|(name, f)| {
                 is_conflict_copy_of(name, key, input.device)
-                    && ident(&f.hash, f.exec) == here
+                    && ident(&f.hash, f.exec, f.link.is_some()) == here
                     && !input.base.contains_key(*name)
                     && !input.local.contains_key(*name)
                     && !(input.excluded)(name)
@@ -208,9 +213,10 @@ fn cut_conflicts(input: &PlanInput<'_>) -> BTreeMap<String, String> {
 /// bits (Windows) keeps whatever the drive says.
 pub const TRACKS_EXEC: bool = cfg!(unix);
 
-/// A file's content as the merge compares it.
-fn ident(hash: &str, exec: bool) -> (&str, bool) {
-    (hash, exec && TRACKS_EXEC)
+/// A file's content as the merge compares it: its bytes, its executable bit where the system
+/// has one, and whether it is a link (a link to `a.txt` is never the file holding `a.txt`).
+fn ident(hash: &str, exec: bool, link: bool) -> (&str, bool, bool) {
+    (hash, exec && TRACKS_EXEC, link)
 }
 
 /// The files of the folder whose bytes match a tombstone and that the base never knew: a copy
@@ -251,10 +257,14 @@ pub fn plan(input: &PlanInput<'_>) -> Vec<Action> {
         if (input.excluded)(key) || finishing.contains(key) {
             continue;
         }
-        let base = input.base.get(key).map(|e| ident(&e.hash, e.exec));
+        let base = input.base.get(key).map(|e| ident(&e.hash, e.exec, e.link));
         let local = input.local.get(key);
-        let here = local.map(|f| ident(&f.hash, f.exec));
-        let there = input.remote.files.get(key).map(|f| ident(&f.hash, f.exec));
+        let here = local.map(|f| ident(&f.hash, f.exec, f.link.is_some()));
+        let there = input
+            .remote
+            .files
+            .get(key)
+            .map(|f| ident(&f.hash, f.exec, f.link.is_some()));
         let key_s = key.to_string();
         let action = match (here, there) {
             (None, None) => match base {

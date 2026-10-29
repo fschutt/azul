@@ -83,6 +83,9 @@ pub struct BaseEntry {
     pub ino: u64,
     #[serde(default, skip_serializing_if = "is_zero")]
     pub dev: u64,
+    /// A link, not a file: `hash` is its target's.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub link: bool,
 }
 
 /// A folder both sides had at the last sync.
@@ -292,6 +295,9 @@ pub struct LocalFile {
     pub ctime_ns: u64,
     pub ino: u64,
     pub dev: u64,
+    /// A link inside the folder ([`link_stays_inside`]), never followed: its target, which is
+    /// its content (`hash` and the sizes are the target's).
+    pub link: Option<String>,
 }
 
 impl LocalFile {
@@ -307,13 +313,19 @@ impl LocalFile {
             ctime_ns: self.ctime_ns,
             ino: self.ino,
             dev: self.dev,
+            link: self.link.is_some(),
         }
     }
 
-    /// Whether `st` (an `lstat` now) is still this file, untouched.
+    /// Whether `st` (an `lstat` now) is still this file - or this link - untouched.
     #[must_use]
     pub fn matches(&self, st: &Stat) -> bool {
-        st.kind == Kind::File
+        let kind = if self.link.is_some() {
+            Kind::Link
+        } else {
+            Kind::File
+        };
+        st.kind == kind
             && st.size == self.size
             && st.mtime_ns == self.mtime_ns
             && (self.ctime_ns == 0 || st.ctime_ns == self.ctime_ns)
@@ -760,8 +772,38 @@ pub fn scan_settled(
             };
             match st.kind {
                 Kind::Link => {
-                    let target = dir
-                        .read_link(&name)
+                    let read = dir.read_link(&name).ok();
+                    // A relative link that stays inside the folder syncs as a link (never
+                    // followed): its target is its content. Any other is skipped and listed.
+                    let inside = read
+                        .as_deref()
+                        .and_then(Path::to_str)
+                        .filter(|target| link_stays_inside(&key, target))
+                        .map(str::to_string);
+                    if let Some(target) = inside {
+                        if rules.excluded(&key).is_some() {
+                            out.excluded += 1;
+                            continue;
+                        }
+                        if super::remote::check_key(&key).is_ok() && names::key_problem(&key).is_none()
+                        {
+                            let file = LocalFile {
+                                hash: hash_bytes(target.as_bytes()),
+                                size: st.size,
+                                mtime_ns: st.mtime_ns,
+                                blob_size: target.len() as u64,
+                                content: Content::Raw,
+                                exec: false,
+                                ctime_ns: st.ctime_ns,
+                                ino: st.ino,
+                                dev: st.dev,
+                                link: Some(target),
+                            };
+                            out.files.insert(key, file);
+                            continue;
+                        }
+                    }
+                    let target = read
                         .map(|t| t.to_string_lossy().into_owned())
                         .unwrap_or_default();
                     out.skipped.push((
@@ -1009,6 +1051,7 @@ fn scan_file(
         ctime_ns: at.ctime_ns,
         ino: at.ino,
         dev: at.dev,
+        link: None,
     };
     if json_merge.iter().any(|k| k == key) {
         let (bytes, at) = match read_checked(dir, name, st) {
@@ -1209,6 +1252,69 @@ fn same_file(found: &fs::Metadata, entry: &fs::DirEntry) -> bool {
         .is_ok_and(|m| m.len() == found.len() && m.modified().ok() == found.modified().ok())
 }
 
+/// Whether a link at `key` holding `target` may sync as a link: its target is relative and,
+/// read from the link's folder, stays inside the synced folder and out of its bookkeeping, so
+/// the same link made on another device never points out of that device's folder. The names it
+/// reaches are checked as a key's ([`azul_storage::key::check_path_key`]): none that this
+/// system reads as a stream, a drive or a device.
+#[must_use]
+pub fn link_stays_inside(key: &str, target: &str) -> bool {
+    if target.is_empty()
+        || target.starts_with('/')
+        || target.contains('\\')
+        || target.contains('\0')
+    {
+        return false;
+    }
+    let mut chars = target.chars();
+    if matches!((chars.next(), chars.next()), (Some(c), Some(':')) if c.is_ascii_alphabetic()) {
+        return false;
+    }
+    // Read from the link's own folder.
+    let mut parts: Vec<&str> = key.split('/').collect();
+    parts.pop();
+    for segment in target.split('/') {
+        match segment {
+            "" | "." => {}
+            ".." => {
+                if parts.pop().is_none() {
+                    return false;
+                }
+            }
+            name => parts.push(name),
+        }
+    }
+    if parts.first() == Some(&names::BOOKKEEPING) {
+        return false;
+    }
+    parts.is_empty() || azul_storage::key::check_path_key(&parts.join("/")).is_ok()
+}
+
+/// Takes the links out of `scan`'s files, for a drive that keeps no links: each is skipped and
+/// listed, never followed, as every link was before links were synced.
+pub fn skip_links(scan: &mut Scan) {
+    let links: Vec<String> = scan
+        .files
+        .iter()
+        .filter(|(_, file)| file.link.is_some())
+        .map(|(key, _)| key.clone())
+        .collect();
+    for key in links {
+        let Some(file) = scan.files.remove(&key) else {
+            continue;
+        };
+        let target = file.link.unwrap_or_default();
+        scan.skipped
+            .push((key.clone(), String::from("a symbolic link (never followed)")));
+        scan.tell(
+            Code::SymlinkSkipped,
+            &key,
+            format!("a link to {target:?} is never followed"),
+        );
+        scan.links.insert(key, target);
+    }
+}
+
 /// Removes the folders of `key` under `root` that a delete left empty, up to (not including)
 /// `root`; never through a link.
 pub fn prune_empty_parents(root: &Path, key: &str) {
@@ -1233,14 +1339,16 @@ pub fn prune_empty_parents(root: &Path, key: &str) {
 #[must_use]
 pub fn entry_now(root: &Path, key: &str, hash: &str) -> Option<BaseEntry> {
     let st = stat_now(root, key).ok()??;
-    (st.kind == Kind::File).then(|| BaseEntry {
+    let link = st.kind == Kind::Link;
+    (st.kind == Kind::File || link).then(|| BaseEntry {
         hash: hash.to_string(),
         size: st.size,
         mtime_ns: st.mtime_ns,
         cloud_only: false,
-        exec: st.executable(),
+        exec: !link && st.executable(),
         ctime_ns: st.ctime_ns,
         ino: st.ino,
         dev: st.dev,
+        link,
     })
 }

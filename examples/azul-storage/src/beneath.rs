@@ -586,6 +586,28 @@ impl Dir {
         }
     }
 
+    /// Makes the link `name` here holding `target` (only the text: nothing is resolved or
+    /// followed). A system whose links a sync does not make (Windows) refuses it.
+    ///
+    /// # Errors
+    ///
+    /// When something has that name, or the link cannot be made.
+    pub fn symlink(&self, target: &str, name: &str) -> Result<(), BeneathError> {
+        check_name(name)?;
+        #[cfg(unix)]
+        {
+            Ok(sys::symlinkat(OsStr::new(target), &self.fd, OsStr::new(name))?)
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = target;
+            Err(BeneathError::Io(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "links are not made on this system",
+            )))
+        }
+    }
+
     /// Removes the empty folder `name`.
     ///
     /// # Errors
@@ -1033,6 +1055,13 @@ mod sys {
         let flags = if folder { libc::AT_REMOVEDIR } else { 0 };
         // SAFETY: an open descriptor and a valid C string.
         cvt(unsafe { libc::unlinkat(dir.as_raw_fd(), c.as_ptr(), flags) })?;
+        Ok(())
+    }
+
+    pub fn symlinkat(target: &OsStr, dir: &OwnedFd, name: &OsStr) -> io::Result<()> {
+        let (t, c) = (cstr(target)?, cstr(name)?);
+        // SAFETY: an open descriptor and valid C strings.
+        cvt(unsafe { libc::symlinkat(t.as_ptr(), dir.as_raw_fd(), c.as_ptr()) })?;
         Ok(())
     }
 

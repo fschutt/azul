@@ -947,6 +947,12 @@ trait SyncRemote: Sync {
         false
     }
 
+    /// Whether the drive keeps links as entries of their own ([`remote::RemoteFile::link`]). One
+    /// that does not gets none: every link here is skipped and listed, never followed.
+    fn keeps_links(&self) -> bool {
+        false
+    }
+
     /// Whether an entry may name the drive's version of a file instead of its content
     /// ([`remote::version_stand_in`]): a drive synced by name knows a file's content only once
     /// a device read or wrote it. Anywhere else such an entry is a damaged one.
@@ -1037,6 +1043,10 @@ impl<S: RemoteStore + ?Sized> SyncRemote for BlobIndex<'_, S> {
     }
 
     fn keeps_folders(&self) -> bool {
+        true
+    }
+
+    fn keeps_links(&self) -> bool {
         true
     }
 
@@ -1495,6 +1505,11 @@ fn blob_job(action: &Action, work: &Uploads<'_>, hash: &str) -> BlobJob {
             let m = &work.merged[key];
             (m.blob.len() as u64, BlobSource::Bytes(m.blob.clone()), None)
         }
+        // A link's content is its target, as the scan read it: the link is never opened.
+        _ if work.scan.files[key].link.is_some() => {
+            let target = work.scan.files[key].link.clone().unwrap_or_default();
+            (target.len() as u64, BlobSource::Bytes(target.into_bytes()), None)
+        }
         _ => {
             let file = &work.scan.files[key];
             let here = work.scan.here(key);
@@ -1682,24 +1697,26 @@ fn next_index(
         gen: generation,
         device: device.to_string(),
         exec,
+        link: None,
+    };
+    // A file of the scan as the index keeps it: a link with its target.
+    let scanned = |f: &LocalFile| RemoteFile {
+        link: f.link.clone(),
+        ..entry(&f.hash, f.blob_size, f.mtime_ns, f.exec)
     };
     let mut changed = moved;
     for action in actions {
         match action {
             Action::Upload { key } => {
                 if let Some(f) = scan.files.get(key) {
-                    next.files
-                        .insert(key.clone(), entry(&f.hash, f.blob_size, f.mtime_ns, f.exec));
+                    next.files.insert(key.clone(), scanned(f));
                     next.deleted.remove(key);
                     changed = true;
                 }
             }
             Action::Conflict { key, copy } => {
                 if let Some(f) = scan.files.get(key) {
-                    next.files.insert(
-                        copy.clone(),
-                        entry(&f.hash, f.blob_size, f.mtime_ns, f.exec),
-                    );
+                    next.files.insert(copy.clone(), scanned(f));
                     next.deleted.remove(copy);
                     changed = true;
                 }
@@ -1778,8 +1795,14 @@ fn next_index(
         next.deleted_folders.retain(|_, t| t.at >= horizon);
         // An index with folders says so: a version that does not know them would drop them.
         let has_folders = !next.folders.is_empty() || !next.deleted_folders.is_empty();
-        if has_folders && !next.features.iter().any(|f| f == remote::FOLDERS_FEATURE) {
-            next.features.push(remote::FOLDERS_FEATURE.to_string());
+        let has_links = next.files.values().any(|f| f.link.is_some());
+        for (has, feature) in [
+            (has_folders, remote::FOLDERS_FEATURE),
+            (has_links, remote::LINKS_FEATURE),
+        ] {
+            if has && !next.features.iter().any(|f| f == feature) {
+                next.features.push(feature.to_string());
+            }
         }
         next.generation = generation;
         next.updated_at = now;
@@ -2270,6 +2293,12 @@ fn apply_local<R: SyncRemote + ?Sized>(
                     }
                 }
                 if let Some(f) = committed.files.get(key) {
+                    // A link is made from its entry: its target is all of it.
+                    if let Some(target) = &f.link {
+                        let made = Made { tree: &tree, drive: &drive, root, scan };
+                        write_link(&made, key, target, &f.hash, expect.as_ref(), base, report);
+                        continue;
+                    }
                     if !fits(key, f.size, report) {
                         continue;
                     }
@@ -2339,7 +2368,10 @@ fn apply_local<R: SyncRemote + ?Sized>(
                         report.conflicts.push(format!("{key} -> {copy}"));
                         report.files_up += 1;
                         if let Some(f) = committed.files.get(key) {
-                            if fits(key, f.size, report) {
+                            if let Some(target) = &f.link {
+                                let made = Made { tree: &tree, drive: &drive, root, scan };
+                                write_link(&made, key, target, &f.hash, None, base, report);
+                            } else if fits(key, f.size, report) {
                                 downloads.push(Download {
                                     key: key.to_string(),
                                     hash: f.hash.clone(),
@@ -2590,6 +2622,72 @@ fn write_download(
     }
 }
 
+/// Where a run writes here: the folder's tree (reached without a link), its drive (told of the
+/// run's own writes), the folder and the scan.
+struct Made<'a> {
+    tree: &'a beneath::Root,
+    drive: &'a LocalDrive,
+    root: &'a LocalRoot,
+    scan: &'a Scan,
+}
+
+/// Makes the link `key` here holding `target`, in place of what the scan found there (`expect`;
+/// `None`: nothing): never through another link, never over a folder, never over a file that
+/// changed since the scan, and only when its target stays inside the folder and is the content
+/// (`hash`) the entry names.
+fn write_link(
+    made: &Made<'_>,
+    key: &str,
+    target: &str,
+    hash: &str,
+    expect: Option<&LocalFile>,
+    base: &mut BTreeMap<String, BaseEntry>,
+    report: &mut SyncReport,
+) {
+    let here = made.scan.here(key);
+    if !local::link_stays_inside(key, target) || local::hash_bytes(target.as_bytes()) != hash {
+        report.tell(
+            problems::Code::LinkRefused,
+            key,
+            format!("a link to {target:?} is never made here"),
+        );
+        return;
+    }
+    let (dir, name) = match made.tree.parent_of(here, true) {
+        Ok(found) => found,
+        Err(e) => {
+            failed_here(report, "link", key, &e);
+            return;
+        }
+    };
+    if !still_there(&dir, name, expect) {
+        report
+            .changed_during_sync
+            .push(format!("{key}: changed during the run; the next run takes it"));
+        return;
+    }
+    // Made under a name of its own, then renamed into place: what had the name before is
+    // replaced in one step, and a folder of that name is never replaced.
+    let temp = beneath::temp_name(name);
+    match dir
+        .symlink(target, &temp)
+        .and_then(|()| dir.rename(&temp, &dir, name))
+    {
+        Ok(()) => {
+            dir.sync();
+            made.drive.note_written(here);
+            if let Some(entry) = local::entry_now(&made.root.path, here, hash) {
+                base.insert(key.to_string(), entry);
+            }
+            report.files_down += 1;
+        }
+        Err(e) => {
+            let _ = dir.unlink(&temp);
+            failed_here(report, "link", key, &e);
+        }
+    }
+}
+
 /// Why a file of the drive stays there: this disk gives its name to `other` already.
 fn same_name(other: &str) -> String {
     format!(
@@ -2638,6 +2736,12 @@ fn on_demand(
         let action = match action {
             Action::DeleteLocal { key } if cloud_only(&key) => Action::Forget { key },
             Action::Download { key } if cloud_only(&key) => Action::CloudOnly { key },
+            // A link always comes down: it holds no bytes to keep in the cloud.
+            Action::Download { key }
+                if remote.files.get(&key).is_some_and(|f| f.link.is_some()) =>
+            {
+                Action::Download { key }
+            }
             Action::Download { key } if !scan.files.contains_key(&key) => {
                 let size = remote.files.get(&key).map_or(0, |f| f.size);
                 match hooks.fetch {
@@ -3336,6 +3440,20 @@ fn check_remote(
             frozen.insert(key.clone());
             continue;
         }
+        // S8: a link that would point out of the folder (or at its bookkeeping, an absolute
+        // path, a drive) is never made here; what has its name here stays as it is.
+        if let Some(target) = &file.link {
+            if !local::link_stays_inside(key, target) || !cfg!(unix) {
+                let why = if cfg!(unix) {
+                    format!("a link to {target:?} would point out of the folder; it is never made")
+                } else {
+                    format!("a link to {target:?} is not made on this system")
+                };
+                report.tell(Code::LinkRefused, key, why);
+                frozen.insert(key.clone());
+                continue;
+            }
+        }
         for risk in names::display_risks(key) {
             report.tell(Code::DisplayRisk, key, format!("its name has {risk}"));
         }
@@ -3627,6 +3745,10 @@ fn run<R: SyncRemote + ?Sized>(
     )?;
     hooks.point("after-scan");
     let mut scanned = scanned;
+    // A drive that keeps no links gets none: each link is skipped and listed, never followed.
+    if !remote_side.keeps_links() {
+        local::skip_links(&mut scanned);
+    }
     if !remote_side.tracks_exec() {
         for file in scanned.files.values_mut() {
             file.exec = false;

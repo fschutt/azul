@@ -469,6 +469,12 @@ impl FolderRemote {
         };
         if obj.get("kind").and_then(Value::as_str) == Some("link") {
             let target = obj.get("target").and_then(Value::as_str).unwrap_or("");
+            // A link inside the folder is the engine's link entry: its target is its content.
+            if local::link_stays_inside(key, target) {
+                let mut out = make(local::hash_bytes(target.as_bytes()), target.len() as u64);
+                out["link"] = Value::String(target.to_string());
+                return Some(out);
+            }
             let p = Problem::new(Code::LinkRefused, key, format!("a link to {target:?} from another device is not created"));
             return Some(make(self.stand_in(key, entry, p), 0));
         }
@@ -715,6 +721,11 @@ impl SyncRemote for FolderRemote {
         self.call("get", "", || self.blob_bytes("", hash))
     }
 
+    /// The harness keeps links as entries of their own (`kind: link`, its target).
+    fn keeps_links(&self) -> bool {
+        true
+    }
+
     fn upload(&self, work: &Uploads<'_>, report: &mut SyncReport) -> CloudResult<BTreeSet<String>> {
         report.problems.extend(lock(&self.found).drain(..));
         let mut abandoned = BTreeSet::new();
@@ -842,6 +853,20 @@ impl SyncRemote for FolderRemote {
                                 json!({"hash": old.get("hash"), "gen": new_gen, "device": device, "confirmed": confirmed}),
                             );
                         }
+                    }
+                    // A link as the harness keeps one: its target, no blob.
+                    Some(file) if file.get("link").and_then(Value::as_str).is_some() => {
+                        let target = file.get("link").cloned().unwrap_or(Value::Null);
+                        let entry = json!({
+                            "kind": "link",
+                            "target": target,
+                            "size": 0,
+                            "mtime": file.get("mtime_ns").cloned().unwrap_or(json!(0)),
+                            "gen": new_gen,
+                            "device": device,
+                        });
+                        files.insert(key.clone(), entry);
+                        deleted.remove(key);
                     }
                     Some(file) => {
                         let b3 = file.get("hash").and_then(Value::as_str).unwrap_or("");

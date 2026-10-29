@@ -617,6 +617,11 @@ impl SyncRemote for NamedFiles<'_> {
         self.keeps_record()
     }
 
+    /// A link is a small file of the drive holding its target; the record says it is a link.
+    fn keeps_links(&self) -> bool {
+        self.keeps_record()
+    }
+
     fn read(
         &self,
         _cached: Option<&(String, RemoteIndex)>,
@@ -665,6 +670,7 @@ impl SyncRemote for NamedFiles<'_> {
                     gen: memo.generation,
                     device: String::new(),
                     exec: false,
+                    link: None,
                 },
             );
             seen.insert(key.to_string(), etag);

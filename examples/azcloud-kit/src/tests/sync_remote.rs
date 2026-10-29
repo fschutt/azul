@@ -46,6 +46,7 @@ fn an_index_round_trips_and_its_entries_that_break_a_rule_are_named_never_droppe
             gen: 3,
             device: String::from("dev-a"),
             exec: false,
+            link: None,
         },
     );
     index.deleted.insert(
@@ -148,6 +149,7 @@ fn an_entry_whose_fields_cannot_be_read_is_kept_as_it_was_and_the_rest_is_read()
             gen: 1,
             device: String::from("a"),
             exec: false,
+            link: None,
         },
     );
     let mut raw: serde_json::Value = serde_json::from_slice(&index.to_bytes()).unwrap();

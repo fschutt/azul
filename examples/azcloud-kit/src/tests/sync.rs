@@ -243,6 +243,7 @@ fn a_lost_race_rereads_the_index_merges_again_and_retries() {
                 gen: index.generation,
                 device: String::from("dev-b"),
                 exec: false,
+                link: None,
             },
         );
         s.write(&key, index.to_bytes());

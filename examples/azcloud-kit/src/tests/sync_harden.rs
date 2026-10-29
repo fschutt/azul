@@ -46,6 +46,7 @@ fn put_remote(store: &S3Bucket, key: &str, bytes: &[u8], exec: bool) {
             gen: index.generation,
             device: String::from("someone"),
             exec,
+            link: None,
         },
     );
     store.write(&index_key, index.to_bytes());

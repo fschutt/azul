@@ -114,6 +114,11 @@ fn run<R: SyncRemote + ?Sized>(
     let mut whole: BTreeSet<&str> = BTreeSet::new();
     for (key, file) in &drive.files {
         report.checked += 1;
+        // A link's content is its target, which its entry holds: nothing to read back.
+        if file.link.is_some() {
+            whole.insert(key.as_str());
+            continue;
+        }
         let Err(e) = read_back(remote_side, root, key, file) else {
             whole.insert(key.as_str());
             continue;

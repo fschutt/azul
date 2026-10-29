@@ -203,6 +203,7 @@ fn other_device_commits(store: &S3Bucket, files: &[(&str, &[u8])]) {
                 gen: index.generation,
                 device: String::from("linux"),
                 exec: false,
+                link: None,
             },
         );
     }

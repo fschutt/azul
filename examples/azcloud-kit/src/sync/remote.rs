@@ -33,10 +33,13 @@ pub const INDEX_VERSION: u32 = 1;
 /// The format features this code reads (D43): a newer writer names the features its index
 /// uses, and a device that meets one it does not know - or a newer version - leaves the drive
 /// as it is (read-only there) and asks to be updated.
-pub const KNOWN_FEATURES: &[&str] = &[FOLDERS_FEATURE];
+pub const KNOWN_FEATURES: &[&str] = &[FOLDERS_FEATURE, LINKS_FEATURE];
 /// The feature of an index with folder entries ([`RemoteIndex::folders`]): a version that does
 /// not know them would drop them with every commit, so it leaves such a drive as it is.
 pub const FOLDERS_FEATURE: &str = "folders";
+/// The feature of an index with link entries ([`RemoteFile::link`]): a version that does not
+/// know them would write each as a file holding its target.
+pub const LINKS_FEATURE: &str = "links";
 /// The bookkeeping folder under a prefix.
 pub const META_DIR: &str = ".azlin";
 
@@ -128,6 +131,10 @@ pub struct RemoteFile {
     /// other permission bit.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub exec: bool,
+    /// A link, not a file: its target (relative, inside the folder), which is its content -
+    /// `hash` and `size` are the target's ([`LINKS_FEATURE`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link: Option<String>,
 }
 
 /// A deleted file: kept for [`super::SyncOptions::tombstone_days`], so a
@@ -360,6 +367,17 @@ impl RemoteIndex {
                     key.clone(),
                     String::from("the drive's entry names no content (a damaged hash)"),
                 );
+            }
+        }
+        // A link's content is its target: an entry whose hash is another's is damaged.
+        for (key, file) in &self.files {
+            if let Some(target) = &file.link {
+                if blake3::hash(target.as_bytes()).to_hex().as_str() != file.hash {
+                    out.insert(
+                        key.clone(),
+                        String::from("the drive's link entry does not match its target"),
+                    );
+                }
             }
         }
         let folders = self

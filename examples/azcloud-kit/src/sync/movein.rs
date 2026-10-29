@@ -227,6 +227,7 @@ mod tests {
                     gen: 1,
                     device: String::from("a"),
                     exec: false,
+                    link: None,
                 },
             );
         }

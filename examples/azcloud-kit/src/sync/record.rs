@@ -53,6 +53,8 @@ pub(super) fn overlay(index: &mut RemoteIndex, record: &RemoteIndex) {
         file.exec = known.exec;
         file.gen = known.gen;
         file.device.clone_from(&known.device);
+        // A link: the drive's file holds its target, which is the content both name.
+        file.link.clone_from(&known.link);
     }
     // The record is as untrusted as any entry of the drive: a delete of a name no folder can
     // hold, or of no content, says nothing.

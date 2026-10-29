@@ -34,6 +34,7 @@ fn remote_file(c: char) -> RemoteFile {
         gen: 1,
         device: String::from("dev-b"),
         exec: false,
+        link: None,
     }
 }
 
