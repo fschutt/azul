@@ -8,7 +8,7 @@
 //! - Dual render paths: GPU (EGL/WebRender) and CPU (wl_shm shared memory)
 //! - Input handling: XKB keyboard translation, pointer events, scroll physics
 //! - IME support: text-input v3 protocol with GTK IM context fallback
-//! - Tooltips: wl_subsurface-based tooltip windows
+//! - Tooltips: xdg_popup-based tooltips, placed by the compositor
 //! - Popups: xdg_popup for context menus
 //! - D-Bus screensaver inhibition (org.freedesktop.ScreenSaver)
 //! - KDE blur protocol (org.kde.kwin.blur) for material effects
@@ -788,7 +788,7 @@ pub struct WaylandWindow {
     configure_size_changed: bool,
 
     // Wayland protocols
-    subcompositor: Option<*mut defines::wl_subcompositor>, // For tooltips
+    subcompositor: Option<*mut defines::wl_subcompositor>,
 
     // KDE blur protocol (org.kde.kwin.blur)
     blur_manager: Option<*mut defines::org_kde_kwin_blur_manager>,
@@ -1901,9 +1901,9 @@ impl PlatformWindow for WaylandWindow {
     // Tooltip Methods (Wayland Implementation)
 
     fn show_tooltip_from_callback(&mut self, text: &str, anchor: azul_core::geom::LogicalRect) {
-        let position = azul_layout::placement::FloatingPlacement::tooltip(anchor)
-            .preferred_origin(azul_core::geom::LogicalSize::zero());
-        self.show_tooltip(text, position);
+        // Wayland tooltips are popups anchored on the parent surface, which is
+        // the space `anchor` is in.
+        self.show_tooltip(text, anchor);
     }
 
     fn hide_tooltip_from_callback(&mut self) {
@@ -11403,27 +11403,19 @@ impl WaylandWindow {
         self.request_redraw();
     }
 
-    fn show_tooltip(&mut self, text: &str, position: azul_core::geom::LogicalPosition) {
+    /// Show a tooltip with `text` for `anchor`, the box it explains on this
+    /// window's surface (logical coordinates): an `xdg_popup` the compositor
+    /// places by the tooltip rule (see `tooltip.rs`).
+    fn show_tooltip(&mut self, text: &str, anchor: azul_core::geom::LogicalRect) {
         // Create tooltip if needed
         if self.tooltip.is_none() {
-            let subcompositor = match self.subcompositor {
-                Some(sc) => sc,
-                None => {
-                    log_warn!(
-                        LogCategory::Platform,
-                        "[Wayland] Subcompositor not available for tooltips"
-                    );
-                    return;
-                }
-            };
-
             match tooltip::TooltipWindow::new(
                 self.wayland.clone(),
                 self.display,
-                self.surface,
                 self.compositor,
                 self.shm,
-                subcompositor,
+                self.xdg_wm_base,
+                self.xdg_surface,
                 self.viewporter,
                 self.common.fc_cache.clone(),
             ) {
@@ -11442,11 +11434,10 @@ impl WaylandWindow {
         }
 
         // Show tooltip
-        let dpi = azul_core::resources::DpiScaleFactor::new(
-            self.common.current_window_state().size.dpi as f32 / 96.0,
-        );
+        #[allow(clippy::cast_precision_loss)] // a DPI
+        let dpi = self.common.current_window_state().size.dpi as f32 / 96.0;
         if let Some(tooltip) = self.tooltip.as_mut() {
-            if let Err(e) = tooltip.show(text, position, dpi) {
+            if let Err(e) = tooltip.show(text, anchor, dpi) {
                 log_error!(
                     LogCategory::Platform,
                     "[Wayland] Failed to show tooltip: {}",

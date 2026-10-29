@@ -1,21 +1,26 @@
-//! Wayland tooltip implementation using wl_subsurface
+//! Wayland tooltip: an `xdg_popup` without a grab, placed by the compositor.
 //!
-//! This module provides tooltip display for Wayland windows using subsurfaces.
-//! A subsurface is a child surface that can be positioned relative to its parent
-//! and is composited together with the parent by the compositor.
+//! A Wayland client never learns where its window is on the screen, so it
+//! cannot keep a tooltip on the screen itself. An `xdg_popup` can: its
+//! positioner is handed the tooltip's anchor box on the parent surface and the
+//! rule every floating surface follows (`azul_layout::placement`), and the
+//! compositor flips it above the anchor or slides it back on where the screen
+//! has no room. Without a grab the popup takes neither the pointer nor the
+//! keyboard - and its input region is empty, so the pointer passes through it.
+//! (A `wl_subsurface` is placed by the client in parent coordinates and is
+//! never constrained to the screen at all.)
 //!
-//! Text rendering: shaped glyphs are rasterized through Azul's CPU text pipeline
-//! (`azul_layout::cpurender::render_text_run_to_pixmap`) into the ARGB8888
-//! `wl_shm` buffer. Unlike X11/macOS/Windows — which delegate tooltip text to
-//! native server-side/UI text drawing (`XDrawString` / `NSTextField` / GDI) —
-//! Wayland has no native text path, so the client must rasterize the glyphs
-//! itself. The `FcFontCache` used to resolve the font is threaded in via
-//! `new()`. Runtime verification needs a real Wayland compositor.
+//! Text rendering: Wayland has no text drawing of its own, so the text is
+//! shaped, wrapped at the tooltip width and rasterized by Azul's CPU text path
+//! (`azul_layout::cpurender::render_wrapped_text_to_pixmap`) into an ARGB8888
+//! `wl_shm` buffer at device resolution; a `wp_viewport` maps it back to its
+//! logical size. Runtime verification needs a real Wayland compositor.
 
-use std::{rc::Rc, sync::Arc};
+use std::{cell::Cell, ffi::c_void, rc::Rc, sync::Arc};
 
-use azul_core::{geom::LogicalPosition, resources::DpiScaleFactor};
+use azul_core::geom::{LogicalRect, LogicalSize};
 use azul_css::props::basic::ColorU;
+use azul_layout::placement::{tooltip_text_width, FloatingPlacement};
 use rust_fontconfig::FcFontCache;
 
 use super::{super::super::common::debug_server::LogCategory, defines::*, dlopen::Wayland};
@@ -25,11 +30,9 @@ use crate::log_error;
 const TOOLTIP_FONT_SIZE_PX: f32 = 12.0;
 /// Padding around tooltip text in logical pixels.
 const TOOLTIP_PADDING_PX: f32 = 4.0;
-/// Fallback per-character width (logical px) used only when no system font can
-/// be resolved (so an empty-but-positioned tooltip box still appears).
-const TOOLTIP_FALLBACK_CHAR_WIDTH_PX: f32 = 7.0;
-/// Fallback line height (logical px) for the no-font path.
-const TOOLTIP_FALLBACK_LINE_HEIGHT_PX: f32 = 14.0;
+/// The tallest a tooltip's text grows when no output's size is known, in
+/// logical pixels.
+const FALLBACK_MAX_TEXT_HEIGHT_PX: f32 = 1000.0;
 /// Tooltip background colour (light yellow), matching the X11 backend.
 const TOOLTIP_BG_COLOR: ColorU = ColorU {
     r: 0xFF,
@@ -45,30 +48,44 @@ const TOOLTIP_TEXT_COLOR: ColorU = ColorU {
     a: 0xFF,
 };
 
-/// Tooltip window using Wayland wl_subsurface
-///
-/// Wayland doesn't have a direct "tooltip" protocol, so we implement tooltips
-/// using a subsurface that:
-/// - Is positioned relative to the parent surface
-/// - Uses wl_shm for software rendering (simple text rendering)
-/// - Is shown/hidden by attaching/detaching the buffer
+/// What the tooltip popup's listeners need: the buffer to show on the surface
+/// once the compositor has configured (and so placed) the popup.
+struct PopupState {
+    wayland: Rc<Wayland>,
+    surface: *mut wl_surface,
+    buffer: *mut wl_buffer,
+    viewport: Option<*mut wp_viewport>,
+    /// The surface's size in logical pixels (the viewport destination).
+    logical_size: (i32, i32),
+    /// The buffer's size in device pixels.
+    device_size: (i32, i32),
+    /// The compositor dismissed the popup (`popup_done`).
+    dismissed: Cell<bool>,
+}
+
+/// One shown tooltip: its popup and the objects behind it.
+struct TooltipPopup {
+    surface: *mut wl_surface,
+    xdg_surface: *mut xdg_surface,
+    xdg_popup: *mut xdg_popup,
+    viewport: Option<*mut wp_viewport>,
+    /// Owned; freed after the popup's proxies are gone.
+    state: *mut PopupState,
+}
+
+/// Tooltip window using an `xdg_popup`
 pub struct TooltipWindow {
     wayland: Rc<Wayland>,
     display: *mut wl_display,
-    parent_surface: *mut wl_surface,
     compositor: *mut wl_compositor,
     shm: *mut wl_shm,
-    subcompositor: *mut wl_subcompositor,
+    xdg_wm_base: *mut xdg_wm_base,
+    /// The parent window's `xdg_surface`, the popup's parent.
+    parent_xdg_surface: *mut xdg_surface,
+    viewporter: Option<*mut wp_viewporter>,
 
-    // Subsurface for tooltip
-    surface: *mut wl_surface,
-    subsurface: *mut wl_subsurface,
-
-    /// wp_viewport for the tooltip surface (present when the compositor has
-    /// wp_viewporter). The tooltip buffer is rendered at DEVICE resolution;
-    /// the viewport maps it back to the logical size so it isn't displayed
-    /// dpi× oversized on scaled outputs (works for fractional scales too).
-    viewport: Option<*mut wp_viewport>,
+    /// The popup currently shown, if any.
+    popup: Option<TooltipPopup>,
 
     // Shared memory buffer for rendering
     pool: Option<*mut wl_shm_pool>,
@@ -89,93 +106,78 @@ pub struct TooltipWindow {
 }
 
 impl TooltipWindow {
-    /// Create a new tooltip subsurface
+    /// Create the tooltip for the window whose `xdg_surface` is
+    /// `parent_xdg_surface`; nothing is shown until [`Self::show`].
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         wayland: Rc<Wayland>,
         display: *mut wl_display,
-        parent_surface: *mut wl_surface,
         compositor: *mut wl_compositor,
         shm: *mut wl_shm,
-        subcompositor: *mut wl_subcompositor,
+        xdg_wm_base: *mut xdg_wm_base,
+        parent_xdg_surface: *mut xdg_surface,
         viewporter: Option<*mut wp_viewporter>,
         fc_cache: Arc<FcFontCache>,
     ) -> Result<Self, String> {
         if compositor.is_null() {
             return Err("Compositor not available".to_string());
         }
-
-        if subcompositor.is_null() {
-            return Err("Subcompositor not available".to_string());
-        }
-
         if shm.is_null() {
             return Err("Shared memory not available".to_string());
         }
-
-        unsafe {
-            // Create subsurface for tooltip
-            let surface = (wayland.wl_compositor_create_surface)(compositor);
-            if surface.is_null() {
-                return Err("Failed to create tooltip surface".to_string());
-            }
-
-            // Create subsurface from parent
-            let subsurface =
-                (wayland.wl_subcompositor_get_subsurface)(subcompositor, surface, parent_surface);
-            if subsurface.is_null() {
-                (wayland.wl_surface_destroy)(surface);
-                return Err("Failed to create subsurface".to_string());
-            }
-
-            // Set subsurface to desynchronized mode for immediate updates
-            (wayland.wl_subsurface_set_desync)(subsurface);
-
-            // One wp_viewport per surface (when the compositor supports
-            // viewporter): maps the device-resolution buffer to logical size.
-            let viewport = viewporter
-                .and_then(|vpr| super::wp_viewporter_get_viewport(&wayland, vpr, surface));
-
-            Ok(Self {
-                wayland,
-                display,
-                parent_surface,
-                compositor,
-                shm,
-                subcompositor,
-                surface,
-                subsurface,
-                viewport,
-                pool: None,
-                buffer: None,
-                data: None,
-                mapped_size: 0,
-                width: 0,
-                height: 0,
-                stride: 0,
-                fc_cache,
-                is_visible: false,
-            })
+        if xdg_wm_base.is_null() || parent_xdg_surface.is_null() {
+            return Err("xdg_wm_base or the parent's xdg_surface not available".to_string());
         }
+        Ok(Self {
+            wayland,
+            display,
+            compositor,
+            shm,
+            xdg_wm_base,
+            parent_xdg_surface,
+            viewporter,
+            popup: None,
+            pool: None,
+            buffer: None,
+            data: None,
+            mapped_size: 0,
+            width: 0,
+            height: 0,
+            stride: 0,
+            fc_cache,
+            is_visible: false,
+        })
     }
 
-    /// Show the tooltip with `text` at `position`.
-    ///
-    /// Signature aligned with the X11/macOS/Windows backends
-    /// (`text`, `position: LogicalPosition`, `dpi: DpiScaleFactor`) -> `Result`.
-    /// The text is shaped + rasterized through Azul's CPU text pipeline into the
-    /// `wl_shm` buffer (no native server-side text path exists on Wayland).
-    pub fn show(
-        &mut self,
-        text: &str,
-        position: LogicalPosition,
-        dpi_factor: DpiScaleFactor,
-    ) -> Result<(), String> {
-        let dpi = dpi_factor.inner.get();
+    /// Show the tooltip with `text` for `anchor`, the box it explains on the
+    /// parent surface (logical coordinates), at `dpi_factor`. The popup is
+    /// recreated for every show: an `xdg_popup` is placed once, when it is
+    /// created.
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_possible_wrap,
+        clippy::cast_precision_loss
+    )] // buffer pixels
+    pub fn show(&mut self, text: &str, anchor: LogicalRect, dpi_factor: f32) -> Result<(), String> {
+        let dpi = dpi_factor;
+        self.destroy_popup();
 
-        // Shape + rasterize the tooltip text at device resolution. The pixmap is
-        // RGBA8 (`AzulPixmap::data`); it is converted to ARGB8888 (BGRA byte
-        // order) when copied into the `wl_shm` buffer below.
-        let pixmap = azul_layout::cpurender::render_text_run_to_pixmap(
+        // The compositor keeps the popup on the screen; the text only has to
+        // wrap at the tooltip width and stay within an output's height.
+        let max_height = crate::desktop::display::screen_rects()
+            .iter()
+            .map(|screen| screen.work_area.size.height)
+            .fold(0.0_f32, f32::max);
+        let max_height = if max_height > 0.0 {
+            max_height
+        } else {
+            FALLBACK_MAX_TEXT_HEIGHT_PX
+        };
+        let max_text = LogicalSize::new(
+            tooltip_text_width(f32::INFINITY, TOOLTIP_PADDING_PX),
+            (max_height - TOOLTIP_PADDING_PX - TOOLTIP_PADDING_PX).max(1.0),
+        );
+        let pixmap = azul_layout::cpurender::render_wrapped_text_to_pixmap(
             &self.fc_cache,
             text,
             TOOLTIP_FONT_SIZE_PX,
@@ -183,75 +185,161 @@ impl TooltipWindow {
             TOOLTIP_BG_COLOR,
             TOOLTIP_PADDING_PX,
             dpi,
-        );
+            max_text,
+        )
+        .ok_or_else(|| "no font to draw the tooltip's text with".to_string())?;
 
-        // Determine the device-pixel buffer size: from the shaped pixmap when a
-        // font was available, otherwise a fallback box sized by char count so a
-        // (text-less) tooltip still appears.
-        let (width, height) = match &pixmap {
-            Some(p) => (p.width() as i32, p.height() as i32),
-            None => {
-                let logical_w = text.chars().count() as f32 * TOOLTIP_FALLBACK_CHAR_WIDTH_PX
-                    + TOOLTIP_PADDING_PX * 2.0;
-                let logical_h = TOOLTIP_FALLBACK_LINE_HEIGHT_PX + TOOLTIP_PADDING_PX * 2.0;
-                (
-                    ((logical_w * dpi).ceil() as i32).max(1),
-                    ((logical_h * dpi).ceil() as i32).max(1),
-                )
-            }
-        };
-
+        let (width, height) = (pixmap.width() as i32, pixmap.height() as i32);
         if self.width != width || self.height != height || self.buffer.is_none() {
             self.allocate_shm_buffer(width, height)?;
         }
-
         if let Some(data) = self.data {
-            match &pixmap {
-                Some(p) => Self::blit_pixmap(data, self.mapped_size, self.stride, self.width, self.height, p),
-                None => Self::render_fallback_background(data, self.stride, self.width, self.height),
-            }
+            Self::blit_pixmap(data, self.mapped_size, self.stride, self.width, self.height, &pixmap);
         }
+        let Some(buffer) = self.buffer else {
+            return Err("no tooltip buffer".to_string());
+        };
+        let logical_size = (
+            ((width as f32 / dpi).ceil() as i32).max(1),
+            ((height as f32 / dpi).ceil() as i32).max(1),
+        );
 
+        self.popup = Some(self.create_popup(anchor, buffer, logical_size, (width, height))?);
         unsafe {
-            // Position subsurface (surface-local coordinates, relative to parent).
-            (self.wayland.wl_subsurface_set_position)(
-                self.subsurface,
-                position.x as i32,
-                position.y as i32,
-            );
-
-            // Attach buffer and commit.
-            if let Some(buffer) = self.buffer {
-                (self.wayland.wl_surface_attach)(self.surface, buffer, 0, 0);
-                // The buffer is at DEVICE resolution; map it to the logical
-                // size via the viewport so scaled outputs (integer AND
-                // fractional) don't display it dpi× oversized. Without
-                // viewporter the legacy 1:1 behavior is kept.
-                if let Some(vp) = self.viewport {
-                    super::wp_viewport_set_destination(
-                        &self.wayland,
-                        vp,
-                        ((self.width as f32 / dpi).ceil() as i32).max(1),
-                        ((self.height as f32 / dpi).ceil() as i32).max(1),
-                    );
-                }
-                (self.wayland.wl_surface_damage)(self.surface, 0, 0, self.width, self.height);
-                (self.wayland.wl_surface_commit)(self.surface);
-            }
-
             (self.wayland.wl_display_flush)(self.display);
         }
-
         self.is_visible = true;
         Ok(())
     }
 
+    /// Create the popup for a surface of `logical_size` showing `buffer`,
+    /// placed by the tooltip rule against `anchor`. The buffer is attached
+    /// when the compositor configures the popup.
+    fn create_popup(
+        &self,
+        anchor: LogicalRect,
+        buffer: *mut wl_buffer,
+        logical_size: (i32, i32),
+        device_size: (i32, i32),
+    ) -> Result<TooltipPopup, String> {
+        let wayland = &self.wayland;
+        unsafe {
+            let positioner = (wayland.xdg_wm_base_create_positioner)(self.xdg_wm_base);
+            if positioner.is_null() {
+                return Err("Failed to create the tooltip's xdg_positioner".to_string());
+            }
+            #[allow(clippy::cast_precision_loss)] // logical pixels
+            let size = LogicalSize::new(logical_size.0 as f32, logical_size.1 as f32);
+            super::configure_positioner(
+                wayland,
+                positioner,
+                &FloatingPlacement::tooltip(anchor),
+                size,
+            );
+
+            let surface = (wayland.wl_compositor_create_surface)(self.compositor);
+            if surface.is_null() {
+                (wayland.xdg_positioner_destroy)(positioner);
+                return Err("Failed to create tooltip surface".to_string());
+            }
+            // The pointer passes through a tooltip: an empty input region.
+            let region = (wayland.wl_compositor_create_region)(self.compositor);
+            if !region.is_null() {
+                (wayland.wl_surface_set_input_region)(surface, region);
+                (wayland.wl_region_destroy)(region);
+            }
+            let viewport = self
+                .viewporter
+                .and_then(|vpr| super::wp_viewporter_get_viewport(wayland, vpr, surface));
+
+            let xdg_surface = (wayland.xdg_wm_base_get_xdg_surface)(self.xdg_wm_base, surface);
+            if xdg_surface.is_null() {
+                if let Some(vp) = viewport {
+                    super::wp_viewport_destroy(wayland, vp);
+                }
+                (wayland.wl_surface_destroy)(surface);
+                (wayland.xdg_positioner_destroy)(positioner);
+                return Err("Failed to create the tooltip's xdg_surface".to_string());
+            }
+            let xdg_popup =
+                (wayland.xdg_surface_get_popup)(xdg_surface, self.parent_xdg_surface, positioner);
+            (wayland.xdg_positioner_destroy)(positioner);
+            if xdg_popup.is_null() {
+                destroy_xdg_surface(wayland, xdg_surface);
+                if let Some(vp) = viewport {
+                    super::wp_viewport_destroy(wayland, vp);
+                }
+                (wayland.wl_surface_destroy)(surface);
+                return Err("Failed to create the tooltip's xdg_popup".to_string());
+            }
+
+            let state = Box::into_raw(Box::new(PopupState {
+                wayland: wayland.clone(),
+                surface,
+                buffer,
+                viewport,
+                logical_size,
+                device_size,
+                dismissed: Cell::new(false),
+            }));
+            // 'static: the proxies keep the listener pointers.
+            static TOOLTIP_SURFACE_LISTENER: xdg_surface_listener = xdg_surface_listener {
+                configure: tooltip_surface_configure,
+            };
+            static TOOLTIP_POPUP_LISTENER: xdg_popup_listener = xdg_popup_listener {
+                configure: tooltip_popup_configure,
+                popup_done: tooltip_popup_done,
+            };
+            (wayland.xdg_surface_add_listener)(
+                xdg_surface,
+                &TOOLTIP_SURFACE_LISTENER,
+                state.cast::<c_void>(),
+            );
+            (wayland.xdg_popup_add_listener)(
+                xdg_popup,
+                &TOOLTIP_POPUP_LISTENER,
+                state.cast::<c_void>(),
+            );
+
+            // No grab: a tooltip takes neither the pointer nor the keyboard.
+            // The first commit carries no buffer; the compositor answers with
+            // the configure that shows it.
+            (wayland.wl_surface_commit)(surface);
+
+            Ok(TooltipPopup {
+                surface,
+                xdg_surface,
+                xdg_popup,
+                viewport,
+                state,
+            })
+        }
+    }
+
+    /// Unmap and destroy the shown popup, if any.
+    fn destroy_popup(&mut self) {
+        let Some(popup) = self.popup.take() else {
+            return;
+        };
+        let wayland = &self.wayland;
+        unsafe {
+            // Role object, then xdg_surface, then the viewport and the
+            // wl_surface, as the protocol orders it.
+            (wayland.xdg_popup_destroy)(popup.xdg_popup);
+            destroy_xdg_surface(wayland, popup.xdg_surface);
+            if let Some(vp) = popup.viewport {
+                super::wp_viewport_destroy(wayland, vp);
+            }
+            (wayland.wl_surface_destroy)(popup.surface);
+            // No listener can fire for the destroyed proxies any more.
+            drop(Box::from_raw(popup.state));
+        }
+    }
+
     /// Hide the tooltip
     pub fn hide(&mut self) -> Result<(), String> {
+        self.destroy_popup();
         unsafe {
-            // Detach buffer to hide the surface
-            (self.wayland.wl_surface_attach)(self.surface, std::ptr::null_mut(), 0, 0);
-            (self.wayland.wl_surface_commit)(self.surface);
             (self.wayland.wl_display_flush)(self.display);
         }
         self.is_visible = false;
@@ -260,7 +348,11 @@ impl TooltipWindow {
 
     /// Whether the tooltip is currently visible.
     pub fn is_visible(&self) -> bool {
-        self.is_visible
+        let dismissed = self
+            .popup
+            .as_ref()
+            .is_some_and(|popup| unsafe { (*popup.state).dismissed.get() });
+        self.is_visible && !dismissed
     }
 
     /// Allocate a shared memory buffer for tooltip rendering, through the one
@@ -354,22 +446,6 @@ impl TooltipWindow {
         );
     }
 
-    /// Fallback for when no system font could be resolved: fill the buffer with
-    /// the tooltip background colour so a positioned (text-less) box still shows.
-    fn render_fallback_background(data: *mut u8, stride: i32, width: i32, height: i32) {
-        unsafe {
-            for y in 0..height {
-                for x in 0..width {
-                    let offset = (y * stride + x * 4) as isize;
-                    *data.offset(offset) = TOOLTIP_BG_COLOR.b; // Blue
-                    *data.offset(offset + 1) = TOOLTIP_BG_COLOR.g; // Green
-                    *data.offset(offset + 2) = TOOLTIP_BG_COLOR.r; // Red
-                    *data.offset(offset + 3) = TOOLTIP_BG_COLOR.a; // Alpha
-                }
-            }
-        }
-    }
-
     /// Cleanup buffer resources
     fn cleanup_buffer(&mut self) {
         unsafe {
@@ -393,21 +469,80 @@ impl TooltipWindow {
 
 impl Drop for TooltipWindow {
     fn drop(&mut self) {
-        unsafe {
-            self.cleanup_buffer();
+        // The popup goes before the buffer it shows.
+        self.destroy_popup();
+        self.cleanup_buffer();
+    }
+}
 
-            // The viewport must go before its wl_surface (protocol).
-            if let Some(vp) = self.viewport.take() {
-                super::wp_viewport_destroy(&self.wayland, vp);
-            }
+/// `xdg_surface.destroy` (opcode 0) + proxy teardown.
+unsafe fn destroy_xdg_surface(wayland: &Wayland, xdg_surface: *mut xdg_surface) {
+    if xdg_surface.is_null() {
+        return;
+    }
+    type DestroyFn = unsafe extern "C" fn(*mut wl_proxy, u32);
+    unsafe {
+        let f: DestroyFn = std::mem::transmute(wayland.wl_proxy_marshal);
+        f(xdg_surface.cast::<wl_proxy>(), 0);
+        (wayland.wl_proxy_destroy)(xdg_surface.cast());
+    }
+}
 
-            if !self.subsurface.is_null() {
-                (self.wayland.wl_subsurface_destroy)(self.subsurface);
-            }
-
-            if !self.surface.is_null() {
-                (self.wayland.wl_surface_destroy)(self.surface);
-            }
+/// The compositor configured (placed) the popup: acknowledge it and show the
+/// buffer at its logical size.
+extern "C" fn tooltip_surface_configure(
+    data: *mut c_void,
+    xdg_surface: *mut xdg_surface,
+    serial: u32,
+) {
+    if data.is_null() {
+        log_error!(LogCategory::Platform, "[tooltip] configure: null data pointer");
+        return;
+    }
+    unsafe {
+        let state = &*(data as *const PopupState);
+        (state.wayland.xdg_surface_ack_configure)(xdg_surface, serial);
+        (state.wayland.wl_surface_attach)(state.surface, state.buffer, 0, 0);
+        // The buffer is at DEVICE resolution; the viewport maps it to the
+        // logical size so scaled outputs (integer and fractional) do not show
+        // it dpi times oversized. Without viewporter the 1:1 behaviour is kept.
+        if let Some(vp) = state.viewport {
+            super::wp_viewport_set_destination(
+                &state.wayland,
+                vp,
+                state.logical_size.0,
+                state.logical_size.1,
+            );
         }
+        (state.wayland.wl_surface_damage)(
+            state.surface,
+            0,
+            0,
+            state.device_size.0,
+            state.device_size.1,
+        );
+        (state.wayland.wl_surface_commit)(state.surface);
+    }
+}
+
+/// The compositor's placement of the popup; the buffer is attached in the
+/// `xdg_surface` configure that follows it.
+extern "C" fn tooltip_popup_configure(
+    _data: *mut c_void,
+    _xdg_popup: *mut xdg_popup,
+    _x: i32,
+    _y: i32,
+    _width: i32,
+    _height: i32,
+) {
+}
+
+/// The compositor dismissed the popup.
+extern "C" fn tooltip_popup_done(data: *mut c_void, _xdg_popup: *mut xdg_popup) {
+    if data.is_null() {
+        return;
+    }
+    unsafe {
+        (*(data as *const PopupState)).dismissed.set(true);
     }
 }
