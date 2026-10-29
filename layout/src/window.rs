@@ -25002,34 +25002,12 @@ impl LayoutWindow {
         };
 
         // 3. Re-run the inline layout pipeline, from the shaping on, through
-        // the same functions as the solver's `layout_ifc`.
-        //
-        // Try the incremental path first: it shapes the new content and, if
-        // the cached layout is still reusable (same item count, no overflow,
-        // line breaks cached), skips the line breaking and positioning. For
-        // edits whose new advances fall into GlyphSwap/LineShift territory,
-        // this turns a full IFC relayout into a glyph + x-position patch.
-        let cached_snapshot = self
-            .layout_results
-            .get(&dom_id)
-            .and_then(|lr| lr.layout_tree.warm(LayoutNodeId::new(ifc_layout_index)))
-            .and_then(|w| w.inline_layout_result.as_ref())
-            .cloned();
-
-        let relaid = match cached_snapshot {
-            Some(cached) => self.try_incremental_text_relayout(
-                &edited_ifc,
-                &new_inline_content,
-                &constraints,
-                &cached,
-                node_id,
-            ),
-            None => {
-                self.relayout_text_node_internal(&edited_ifc, &new_inline_content, &constraints)
-            }
-        };
-
-        let Some((new_layout, finished)) = relaid else {
+        // the same functions as the solver's `layout_ifc`: the edited
+        // paragraph is laid out as a full layout lays it out, only its content
+        // is the edit's own.
+        let Some((new_layout, finished)) =
+            self.relayout_text_node_internal(&edited_ifc, &new_inline_content, &constraints)
+        else {
             return;
         };
 
@@ -25102,15 +25080,12 @@ impl LayoutWindow {
                 .layout_tree_mut()
                 .warm_mut(LayoutNodeId::new(ifc_layout_index))
             {
-                let mut fresh = CachedInlineLayout::new_with_constraints(
+                let fresh = CachedInlineLayout::new_with_constraints(
                     new_layout,
                     constraints.available_width,
                     false, // No floats in quick relayout
                     constraints,
                 );
-                // Stamp the style this shape ran under so the NEXT keystroke
-                // may patch incrementally against these positions.
-                fresh.shaping_style_fp = Self::shaping_style_fingerprint(&new_inline_content);
                 warm_node.inline_layout_result = Some(Box::new(fresh));
                 // The text changed: what the IFC measured before the edit is
                 // stale, and the next layout measures it again.
@@ -26124,10 +26099,9 @@ impl LayoutWindow {
         .ok()
     }
 
-    /// What the edited paragraph's box reports from lines it did not break
-    /// anew (a patch of its last layout, or no content at all), as every
-    /// layout of an inline formatting context reports it from its lines
-    /// (`finish_inline_layout`).
+    /// What the edited paragraph's box reports when it has no content, and
+    /// so no lines to break: what every layout of an inline formatting
+    /// context reports from its lines (`finish_inline_layout`).
     fn finish_edited_layout(
         &self,
         ifc: &EditedIfc,
@@ -26145,10 +26119,6 @@ impl LayoutWindow {
         Some((Arc::new(layout), output))
     }
 
-    /// (d6g) Position + `line_index` for item `i` of a cached inline
-    /// layout: dense reconstruction when the view is retained
-    /// (verify-A/B'd under `AZ_DENSE_TEXT=verify`), sparse read
-    /// otherwise. The sparse arm dies at the d6 retirement.
     /// (d6h) The stored inline layout, MATERIALIZED when it is the
     /// retirement sentinel: the dense arrays expand (exact by the d6h
     /// expansion gate) into a transient sparse copy for the human-rate
@@ -26252,251 +26222,6 @@ impl LayoutWindow {
             }
         }
         cached.layout.clone()
-    }
-
-    fn cached_positioned_of(
-        cached: &solver3::layout_tree::CachedInlineLayout,
-        i: usize,
-    ) -> (crate::text3::cache::Point, usize) {
-        // (d6h) Dense FIRST, without touching the sparse items — the
-        // stored layout may be the retirement sentinel (empty), which
-        // must never be indexed. Verify mode retains the real sparse
-        // and the A/B assert stays armed there.
-        if let Some(d) = cached.dense.as_deref() {
-            if let Some((x, y, li)) = d.positioned_cluster(i as u32) {
-                if std::env::var("AZ_DENSE_TEXT").as_deref() == Ok("verify") {
-                    if let Some(sparse) = cached.layout.items.get(i) {
-                        assert!(
-                            (sparse.position.x - x).abs() < 0.01
-                                && (sparse.position.y - y).abs() < 0.01
-                                && sparse.line_index == li,
-                            "d6g verify: positioned_cluster({i}) diverged: sparse ({}, {}, {}) vs \
-                             dense ({x}, {y}, {li})",
-                            sparse.position.x,
-                            sparse.position.y,
-                            sparse.line_index,
-                        );
-                    }
-                }
-                return (crate::text3::cache::Point { x, y }, li);
-            }
-        }
-        let sparse = &cached.layout.items[i];
-        (sparse.position, sparse.line_index)
-    }
-
-    /// A fingerprint of everything in the runs' styles that affects SHAPING
-    /// (fonts, sizes, spacing, line height, variants — not paint-only fields
-    /// like color). The incremental patcher pastes freshly shaped glyphs onto
-    /// CACHED pen positions, which is only sound when the cache was shaped
-    /// under the same style environment. Never returns 0 — 0 is the
-    /// "unknown" sentinel a full layout's cache carries.
-    fn shaping_style_fingerprint(content: &[InlineContent]) -> u64 {
-        use core::hash::{Hash, Hasher};
-        let mut h = std::collections::hash_map::DefaultHasher::new();
-        for item in content {
-            match item {
-                InlineContent::Text(run) => {
-                    let s = &run.style;
-                    format!(
-                        "T{:?}|{}|{:?}|{:?}|{:?}|{:?}|{:?}|{}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?\
-                         }|{:?}|{:?}",
-                        s.font_stack,
-                        s.font_size_px.to_bits(),
-                        s.letter_spacing,
-                        s.word_spacing,
-                        s.line_height,
-                        s.font_features,
-                        s.font_variations,
-                        s.tab_size.to_bits(),
-                        s.text_transform,
-                        s.writing_mode,
-                        s.text_orientation,
-                        s.text_combine_upright,
-                        s.font_variant_caps,
-                        s.font_variant_numeric,
-                        s.font_variant_ligatures,
-                        s.font_variant_east_asian,
-                        s.vertical_align,
-                    )
-                    .hash(&mut h);
-                }
-                other => core::mem::discriminant(other).hash(&mut h),
-            }
-        }
-        match h.finish() {
-            0 => 1,
-            v => v,
-        }
-    }
-
-    /// Attempt an incremental IFC relayout for a text edit.
-    ///
-    /// Shapes the new content, then checks whether the cached
-    /// `UnifiedLayout` can be patched without breaking the lines again: the
-    /// new items keep the cached positions when their widths are unchanged,
-    /// or shift along their line when it still fits. Otherwise the paragraph
-    /// is laid out as [`Self::relayout_text_node_internal`] lays it out, from
-    /// the items shaped here. Either way its box reports what its lines give
-    /// it (`finish_inline_layout`).
-    ///
-    /// Returns `None` only if shaping or laying out the lines fails.
-    fn try_incremental_text_relayout(
-        &mut self,
-        ifc: &EditedIfc,
-        content: &[InlineContent],
-        constraints: &UnifiedConstraints,
-        cached: &solver3::layout_tree::CachedInlineLayout,
-        edited_node_id: NodeId,
-    ) -> Option<(Arc<UnifiedLayout>, solver3::fc::LayoutOutput)> {
-        use crate::text3::cache::{
-            try_incremental_relayout as decide_incremental, IncrementalRelayoutResult,
-            ParagraphToBreak, PositionedItem, ShapedItem,
-        };
-
-        let (logical_items, shaped_items) = self.shape_text_for_relayout(content, constraints)?;
-
-        if logical_items.is_empty() {
-            let empty = UnifiedLayout {
-                items: Vec::new(),
-                overflow: crate::text3::cache::OverflowInfo::default(),
-            };
-            return self.finish_edited_layout(ifc, empty, constraints);
-        }
-
-        // The paragraph as the full layout's line breaker sees it: turned
-        // for its writing mode, broken in its line breaking style.
-        let paragraph = ParagraphToBreak::new(shaped_items, constraints);
-        let shaped_items = &paragraph.items;
-
-        // Incremental patching requires:
-        //   - The cached layout came with line-break metadata.
-        //   - No overflow in the cached layout (patching positions around overflow is not
-        //     supported).
-        //   - The new shape output has the same number of items as the cached positioned items, so
-        //     we can zip 1:1.
-        // (d6h) The overflow guard reads the CAPTURED overflow (the
-        // stored layout may be the retirement sentinel); the count
-        // guard is dense-first for the same reason.
-        let cached_item_count = if cached.layout.items.is_empty() {
-            cached.dense.as_deref().map_or(0, |d| d.clusters.len())
-        } else {
-            cached.layout.items.len()
-        };
-        // A cache from a FULL layout carries `shaping_style_fp == 0` and is
-        // never patched against: its pen positions may come from a different
-        // style resolution than this reshape (the 16px-seed / 11px-cache
-        // squash, 2026-08-29). Stage 4 below re-positions instead.
-        let style_fp = Self::shaping_style_fingerprint(content);
-        // The patch below pairs the i-th shaped item (logical order) with the
-        // i-th positioned one (visual order): the same item only when no
-        // line was reordered, i.e. all the text runs left to right at level 0.
-        let lines_keep_logical_order = shaped_items
-            .iter()
-            .all(|item| !matches!(item.bidi_level(), Some(level) if level.level() != 0));
-        let incremental_ok = cached.line_breaks.is_some()
-            && cached.overflow.overflow_items.is_empty()
-            && shaped_items.len() == cached_item_count
-            && cached.shaping_style_fp == style_fp
-            && lines_keep_logical_order;
-
-        if incremental_ok {
-            let line_breaks = cached.line_breaks.as_ref().unwrap();
-
-            let old_advances: Vec<f32> = cached
-                .item_metrics
-                .iter()
-                .map(|m| m.advance_width)
-                .collect();
-            let new_advances: Vec<f32> = shaped_items.iter().map(|si| si.bounds().width).collect();
-
-            // An item is dirty if its advance width changed OR it originates
-            // from the edited DOM node. The latter is needed so GlyphSwap
-            // (same-width edits) still invalidates glyph data, not just
-            // positions.
-            let mut dirty_indices: Vec<usize> = Vec::new();
-            for (i, (old_a, new_a)) in old_advances.iter().zip(new_advances.iter()).enumerate() {
-                if (new_a - old_a).abs() > 0.01 {
-                    dirty_indices.push(i);
-                }
-            }
-            for (i, si) in shaped_items.iter().enumerate() {
-                if let ShapedItem::Cluster(c) = si {
-                    if c.source_node_id == Some(edited_node_id) && !dirty_indices.contains(&i) {
-                        dirty_indices.push(i);
-                    }
-                }
-            }
-            dirty_indices.sort_unstable();
-            dirty_indices.dedup();
-
-            let decision =
-                decide_incremental(&dirty_indices, &old_advances, &new_advances, line_breaks);
-
-            match decision {
-                IncrementalRelayoutResult::GlyphSwap => {
-                    // Widths unchanged — keep cached positions and line
-                    // assignments, swap in the new shaped items so their
-                    // glyph data reflects the edit.
-                    let items: Vec<PositionedItem> = shaped_items
-                        .iter()
-                        .cloned()
-                        .enumerate()
-                        .map(|(i, new_shaped)| {
-                            let (position, line_index) = Self::cached_positioned_of(cached, i);
-                            PositionedItem {
-                                item: new_shaped,
-                                position,
-                                line_index,
-                            }
-                        })
-                        .collect();
-                    let patched = UnifiedLayout {
-                        items,
-                        overflow: cached.layout.overflow.clone(),
-                    };
-                    return self.finish_edited_layout(ifc, patched, constraints);
-                }
-                IncrementalRelayoutResult::LineShift {
-                    affected_item,
-                    delta,
-                } => {
-                    // Width changed but the line still fits — shift x
-                    // positions of items after `affected_item` on the same
-                    // line. Items on later lines keep their positions.
-                    let affected_line = Self::cached_positioned_of(cached, affected_item).1;
-                    let items: Vec<PositionedItem> = shaped_items
-                        .iter()
-                        .cloned()
-                        .enumerate()
-                        .map(|(i, new_shaped)| {
-                            let (mut position, line_index) = Self::cached_positioned_of(cached, i);
-                            if i > affected_item && line_index == affected_line {
-                                position.x += delta;
-                            }
-                            PositionedItem {
-                                item: new_shaped,
-                                position,
-                                line_index,
-                            }
-                        })
-                        .collect();
-                    let patched = UnifiedLayout {
-                        items,
-                        overflow: cached.layout.overflow.clone(),
-                    };
-                    return self.finish_edited_layout(ifc, patched, constraints);
-                }
-                IncrementalRelayoutResult::PartialReflow { .. }
-                | IncrementalRelayoutResult::FullRelayout => {
-                    // Fall through to full fragment layout.
-                }
-            }
-        }
-
-        // Fall-back: break and position the lines from the items already
-        // shaped here, as the full layout does.
-        self.lay_out_edited_paragraph(ifc, &logical_items, &paragraph)
     }
 
     /// Helper to get node `used_size` for accessibility actions

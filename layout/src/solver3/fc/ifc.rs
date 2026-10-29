@@ -789,9 +789,9 @@ pub(super) fn layout_ifc<T: ParsedFontTrait>(
         // This fast path was built for text edits (content changes, width constant); on a
         // viewport/container resize the width differs and the text must RE-WRAP, so the
         // cached old-width layout must NOT be reused — fall through to the full layout
-        // below. Without this guard, resizing kept the stale line breaks (#45). Real
-        // text-edit incremental relayout (with dirty items) lives in
-        // LayoutWindow::try_incremental_text_relayout.
+        // below. Without this guard, resizing kept the stale line breaks (#45). A text
+        // edit lays its paragraph out again through the same stages as this function
+        // (`LayoutWindow::reshape_text_node`).
         let resize_has_floats = constraints
             .bfc_state
             .as_ref()
@@ -851,15 +851,10 @@ pub(super) fn layout_ifc<T: ParsedFontTrait>(
                     .map(|m| m.advance_width)
                     .collect();
 
-                // Cache-reuse fast path. Real incremental relayout for text
-                // edits lives in LayoutWindow::try_incremental_text_relayout
-                // (window.rs) — it has the newly-shaped items and the edited
-                // node id, so it can compute real dirty_item_indices and
-                // take the GlyphSwap / LineShift branches. Here we only
-                // know the IFC is being re-entered (e.g. viewport resize on
-                // a static IFC); with nothing re-shaped yet, the best we can
-                // do is "no items changed at this level" → trivial GlyphSwap
-                // to return the cached layout unchanged.
+                // Cache-reuse fast path: the IFC is re-entered with its
+                // content unchanged (e.g. viewport resize on a static IFC);
+                // with nothing re-shaped, no item changed at this level →
+                // trivial GlyphSwap to return the cached layout unchanged.
                 let result = text3::cache::try_incremental_relayout(
                     &[], // empty = no dirty items detected at this level
                     &old_advances,
