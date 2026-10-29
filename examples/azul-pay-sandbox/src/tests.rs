@@ -321,8 +321,35 @@ fn every_answer_forbids_framing_outside_this_computer_and_sends_no_referrer() {
 
 #[test]
 fn a_release_build_refuses_to_start() {
-    assert_eq!(guard::refuse_in_release(false), Err(Error::Release));
-    assert_eq!(guard::refuse_in_release(true), Ok(()));
+    assert_eq!(guard::refuse_in_release(false, false), Err(Error::Release));
+    assert_eq!(guard::refuse_in_release(true, false), Ok(()));
+    let plain = crate::server::start_as(Config { port: 0, ..Config::default() }, false);
+    assert!(matches!(plain, Err(Error::Release)), "no opt-in, no start");
+}
+
+#[test]
+fn a_release_build_starts_for_the_local_test_stack_and_keeps_it_on_loopback_and_test_data() {
+    assert_eq!(guard::refuse_in_release(false, true), Ok(()));
+    // The opt-in is the switch or the environment variable set to 1, nothing else.
+    assert!(guard::release_opted_in(Some("1")));
+    for no in [None, Some(""), Some("0"), Some("yes"), Some("true")] {
+        assert!(!guard::release_opted_in(no), "{no:?}");
+    }
+    assert_eq!(guard::ALLOW_RELEASE_ENV, "AZ_PAY_SANDBOX_ALLOW_RELEASE");
+
+    let stack = || Config { port: 0, local_test_stack: true, ..Config::default() };
+    let running = crate::server::start_as(stack(), false).expect("the local test stack's sandbox starts");
+    assert!(running.base_url().starts_with("http://127.0.0.1:"), "{}", running.base_url());
+    running.stop();
+    // Off this computer it is refused all the same.
+    let off = Config { webhook_url: "https://hooks.example.com/{provider}".into(), ..stack() };
+    assert!(matches!(crate::server::start_as(off, false), Err(Error::NotLoopback(_))));
+    // And a real card is refused all the same.
+    let mut c = Core::new(&stack(), BASE).expect("the stack's configuration");
+    let s = session(&mut c, "card", "hosted_page", "payment");
+    let (status, page) = submit(&mut c, &page_path(&s), &[("card_number", "4111 1111 1111 1111"), ("exp", "12/34"), ("cvc", "987"), ("country", "DE")], T);
+    assert_eq!(status, 200);
+    assert!(page.contains("This sandbox only accepts test card numbers"), "{page}");
 }
 
 // ---- 6. the README says it plainly ----
