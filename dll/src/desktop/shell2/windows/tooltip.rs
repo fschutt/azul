@@ -1,19 +1,27 @@
 //! Windows tooltip implementation using TOOLTIPS_CLASS.
 //!
-//! This module provides a native Windows tooltip system using the
-//! standard Win32 TOOLTIPS_CLASS control. Tooltips can be shown at
-//! specific positions and hidden programmatically.
+//! The native tooltip control draws, measures and wraps the text itself: it is
+//! told the width to wrap at (the tooltip width at the window's DPI, less on a
+//! narrow monitor) and asked the size it came out at (`TTM_GETBUBBLESIZE`). A
+//! tracking tooltip at an absolute position is not kept on the screen by the
+//! control, so it is placed by the rule every floating surface follows
+//! (`azul_layout::placement`): below its anchor, above it where there is no
+//! room, inside the work area of the monitor the anchor is on, in physical
+//! screen pixels.
 //!
 //! Architecture:
 //! - TooltipWindow: Wraps a Win32 tooltip control (HWND)
 //! - Lifecycle: Create once, show/hide as needed
-//! - Positioning: TTM_TRACKPOSITION for absolute positioning
+//! - Positioning: TTM_TRACKPOSITION at the placed frame's top-left
 
 use std::ptr;
 
 use azul_core::{
-    geom::{LogicalPosition, PhysicalPosition},
+    geom::{LogicalPosition, LogicalRect, LogicalSize},
     resources::DpiScaleFactor,
+};
+use azul_layout::placement::{
+    floating_frame, screen_for_anchor, tooltip_text_width, FloatingPlacement,
 };
 
 use super::dlopen::{Win32Libraries, HWND, LPARAM};
@@ -25,6 +33,7 @@ const TTM_TRACKACTIVATE: u32 = WM_USER + 17;
 const TTM_TRACKPOSITION: u32 = WM_USER + 18;
 const TTM_SETMAXTIPWIDTH: u32 = WM_USER + 24;
 const TTM_UPDATETIPTEXTW: u32 = WM_USER + 57;
+const TTM_GETBUBBLESIZE: u32 = WM_USER + 30;
 
 const TTS_ALWAYSTIP: u32 = 0x01;
 const TTS_NOPREFIX: u32 = 0x02;
@@ -35,7 +44,6 @@ const TTF_TRACK: u32 = 0x0020;
 const TTF_ABSOLUTE: u32 = 0x0080;
 const TTF_IDISHWND: u32 = 0x0001;
 
-const MAX_TOOLTIP_WIDTH_PX: i32 = 300;
 
 const WS_POPUP: u32 = 0x80000000;
 const WS_EX_TOPMOST: u32 = 0x00000008;
@@ -119,16 +127,6 @@ impl TooltipWindow {
             return Err("Failed to create tooltip window".to_string());
         }
 
-        // Set max width for multi-line tooltips (300 pixels)
-        unsafe {
-            (win32.user32.SendMessageW)(
-                hwnd_tooltip,
-                TTM_SETMAXTIPWIDTH,
-                0,
-                MAX_TOOLTIP_WIDTH_PX as LPARAM,
-            );
-        }
-
         Ok(Self {
             hwnd_tooltip,
             hwnd_parent,
@@ -138,16 +136,45 @@ impl TooltipWindow {
         })
     }
 
-    /// Show tooltip with text at the given position
-    ///
-    /// If tooltip is already visible, updates text and position.
-    /// Position is in logical coordinates and will be converted to physical.
+    /// Show the tooltip with `text` for `anchor`, the box it explains in the
+    /// parent's client area (logical px). If the tooltip is already visible,
+    /// its text and place are updated.
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_precision_loss,
+        clippy::cast_sign_loss
+    )] // screen pixels and packed words
     pub fn show(
         &mut self,
         text: &str,
-        position: LogicalPosition,
+        anchor: LogicalRect,
         dpi_factor: DpiScaleFactor,
     ) -> Result<(), String> {
+        let scale = dpi_factor.inner.get();
+
+        // The anchor in physical SCREEN pixels, the space the monitors are
+        // listed in: TTM_TRACKPOSITION takes screen coordinates, `anchor` is
+        // client-area logical.
+        let mut origin = super::dlopen::POINT {
+            x: (anchor.origin.x * scale).round() as i32,
+            y: (anchor.origin.y * scale).round() as i32,
+        };
+        unsafe {
+            (self.win32.user32.ClientToScreen)(self.hwnd_parent, &mut origin);
+        }
+        let anchor_px = LogicalRect::new(
+            LogicalPosition::new(origin.x as f32, origin.y as f32),
+            LogicalSize::new(anchor.size.width * scale, anchor.size.height * scale),
+        );
+        let screen = screen_for_anchor(anchor_px, &crate::desktop::display::screen_rects());
+
+        // Wrap at the tooltip width at this DPI, or the monitor's if narrower.
+        let screen_width = screen.map_or(f32::INFINITY, |s| s.size.width / scale);
+        let max_width = (tooltip_text_width(screen_width, 0.0) * scale).round() as LPARAM;
+        unsafe {
+            (self.win32.user32.SendMessageW)(self.hwnd_tooltip, TTM_SETMAXTIPWIDTH, 0, max_width);
+        }
+
         // Convert text to UTF-16
         self.text_buffer = text.encode_utf16().chain(Some(0u16)).collect();
 
@@ -191,22 +218,32 @@ impl TooltipWindow {
             }
         }
 
-        // Convert position to physical px, then to SCREEN coordinates:
-        // TTM_TRACKPOSITION takes screen coords, but `position` is
-        // window-local logical (see show_tooltip_from_callback) — without
-        // ClientToScreen the tooltip appeared near the desktop's top-left
-        // corner, offset only by the in-window node position.
-        let physical_pos = position.to_physical(dpi_factor.inner.get());
-        let mut pt = super::dlopen::POINT {
-            x: physical_pos.x as i32,
-            y: physical_pos.y as i32,
+        // The size the control shows this text at, wrapped: width in the low
+        // word, height in the high word.
+        let mut ti = TOOLINFOW {
+            uFlags: TTF_IDISHWND,
+            hwnd: self.hwnd_parent,
+            uId: self.hwnd_parent as usize,
+            ..Default::default()
         };
-        unsafe {
-            (self.win32.user32.ClientToScreen)(self.hwnd_parent, &mut pt);
-        }
-        let (x, y) = (pt.x, pt.y);
+        let bubble = unsafe {
+            (self.win32.user32.SendMessageW)(
+                self.hwnd_tooltip,
+                TTM_GETBUBBLESIZE,
+                0,
+                &mut ti as *mut TOOLINFOW as LPARAM,
+            )
+        } as usize;
+        let size = LogicalSize::new((bubble & 0xFFFF) as f32, ((bubble >> 16) & 0xFFFF) as f32);
 
-        // Set tooltip position
+        let placement = FloatingPlacement::tooltip(anchor_px);
+        let frame = match screen {
+            Some(work_area) => floating_frame(&placement, size, work_area),
+            None => LogicalRect::new(placement.preferred_origin(size), size),
+        };
+        let (x, y) = (frame.origin.x.round() as i32, frame.origin.y.round() as i32);
+
+        // Set tooltip position (screen coordinates, a signed word each)
         let pos_param = ((y as u32) << 16) | (x as u32 & 0xFFFF);
         unsafe {
             (self.win32.user32.SendMessageW)(

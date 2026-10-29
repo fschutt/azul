@@ -7407,10 +7407,14 @@ impl Win32Window {
         unsafe { self.dpi.hwnd_dpi(self.hwnd as _) }
     }
 
-    /// Show a tooltip with the given text at the specified position
-    ///
-    /// Position is in logical coordinates. The tooltip will be created on first use.
-    pub fn show_tooltip(&mut self, text: &str, position: LogicalPosition) -> Result<(), String> {
+    /// Show a tooltip with `text` for `anchor`, the box it explains in the
+    /// client area's logical coordinates. The tooltip control is created on
+    /// first use.
+    pub fn show_tooltip(
+        &mut self,
+        text: &str,
+        anchor: azul_core::geom::LogicalRect,
+    ) -> Result<(), String> {
         // Lazily create tooltip if needed
         if self.tooltip.is_none() {
             self.tooltip = Some(tooltip::TooltipWindow::new(self.hwnd, self.win32.clone())?);
@@ -7419,7 +7423,7 @@ impl Win32Window {
         let dpi_factor = DpiScaleFactor::new(self.get_window_dpi() as f32 / 96.0);
 
         if let Some(ref mut tooltip) = self.tooltip {
-            tooltip.show(text, position, dpi_factor)?;
+            tooltip.show(text, anchor, dpi_factor)?;
         }
 
         Ok(())
@@ -7838,9 +7842,7 @@ impl PlatformWindow for Win32Window {
     }
 
     fn show_tooltip_from_callback(&mut self, text: &str, anchor: azul_core::geom::LogicalRect) {
-        let position = azul_layout::placement::FloatingPlacement::tooltip(anchor)
-            .preferred_origin(azul_core::geom::LogicalSize::zero());
-        if let Err(e) = self.show_tooltip(text, position) {
+        if let Err(e) = self.show_tooltip(text, anchor) {
             log_error!(LogCategory::Window, "Failed to show tooltip: {}", e);
         }
     }
