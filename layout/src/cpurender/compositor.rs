@@ -61,7 +61,9 @@ pub fn mat3_affine_part(m: &Mat3) -> TransAffine {
     TransAffine::new_custom(m[0], m[3], m[1], m[4], m[2], m[5])
 }
 use crate::{
-    solver3::display_list::{BorderRadius, DisplayList, DisplayListItem, LocalScrollId},
+    solver3::display_list::{
+        reference_frame_extent, BorderRadius, DisplayList, DisplayListItem, LocalScrollId,
+    },
     text3::cache::FontManager,
 };
 
@@ -177,6 +179,10 @@ pub struct Layer {
     /// under it (a plain layer, see `render_layers`). Such a layer already
     /// holds its backdrop, so it is copied over it, not blended.
     pub seeded_backdrop: bool,
+    /// The point the layer's transform turns about, when it is not the
+    /// layer's own origin: a reference frame's layer reaches past the frame's
+    /// box to whatever its content paints, but turns about the box's origin.
+    pub transform_origin: Option<LogicalPosition>,
     /// Scroll frames between this layer and its parent layer that were NOT
     /// promoted to layers of their own - in practice the page's frame, which
     /// covers the whole window (see `allocate_layers_from_display_list`).
@@ -712,10 +718,16 @@ impl CompositorState {
                     let is_identity = is_identity_2d(m);
                     // Record the decision so the matching pop can be exact.
                     let end = find_matching_pop(&display_list.items, i, MatchKind::ReferenceFrame);
-                    // Where the layer's pixels land: its box (the layer's
-                    // extent) through the matrix about its origin.
+                    // Where the layer's pixels land: what the frame paints
+                    // (the layer's extent) through the matrix about the
+                    // frame's origin.
                     let live = azul_core::transform::ComputedTransform3D { m: *m };
                     let origin = bounds.inner().origin;
+                    let extent = device_pixel_box(
+                        reference_frame_extent(&display_list.items, i)
+                            .unwrap_or_else(|| *bounds.inner()),
+                        dpi_factor,
+                    );
                     let promote = !is_identity
                         && !rounded_clips.contains(&true)
                         && end > i + 1
@@ -723,7 +735,7 @@ impl CompositorState {
                             layer_stack.as_slice(),
                             &self.layers,
                             end,
-                            affine_rect_about(&live, origin, *bounds.inner()),
+                            affine_rect_about(&live, origin, extent),
                             open_groups.as_slice(),
                         );
                     open_groups.push(OpenGroup::Transform(
@@ -731,12 +743,12 @@ impl CompositorState {
                     ));
                     ref_frame_promoted.push(promote);
                     if promote {
-                        let b = *bounds.inner();
                         let (pw, ph) =
-                            layer_pixel_size(b.size, dpi_factor, node_of(display_list, i));
+                            layer_pixel_size(extent.size, dpi_factor, node_of(display_list, i));
                         let (pw, ph) = (pw.max(1), ph.max(1));
                         let new_id = self.alloc_layer_id();
-                        let mut layer = Layer::new(new_id, b, pw, ph);
+                        let mut layer = Layer::new(new_id, extent, pw, ph);
+                        layer.transform_origin = Some(origin);
                         layer.transform = TransAffine::new_custom(
                             f64::from(m[0][0]),
                             f64::from(m[0][1]),
@@ -1234,11 +1246,19 @@ impl CompositorState {
             // place around it (`Layer::inherited_offset`: the page's scroll) -
             // then through the parent chain (column-vector matrices: the
             // rightmost factor applies first).
+            // A layer reaching past the point it turns about (a reference
+            // frame's) is turned about that point, its own origin offset from
+            // it.
+            let pivot = layer.transform_origin.unwrap_or(layer.bounds.origin);
             let place = mat3_translation(
-                layout_offset_device_px(layer.bounds.origin.x - layer.inherited_offset.0, dpi),
-                layout_offset_device_px(layer.bounds.origin.y - layer.inherited_offset.1, dpi),
+                layout_offset_device_px(pivot.x - layer.inherited_offset.0, dpi),
+                layout_offset_device_px(pivot.y - layer.inherited_offset.1, dpi),
             );
-            mat3_mul(&parent_h, &mat3_mul(&place, &layer_h))
+            let from_pivot = mat3_translation(
+                f64::from(layer.bounds.origin.x - pivot.x) * dpi,
+                f64::from(layer.bounds.origin.y - pivot.y) * dpi,
+            );
+            mat3_mul(&parent_h, &mat3_mul(&place, &mat3_mul(&layer_h, &from_pivot)))
         };
         let this_m = mat3_affine_part(&this_h);
         let is_affine = mat3_is_affine(&this_h);
@@ -1298,9 +1318,13 @@ impl CompositorState {
         // is faded / filtered once. Composited straight onto `output` after
         // the group, they escaped it: flora's unchecked check box (an
         // opacity-0 mark around a rotated, layered tick) showed its tick.
+        // A turned layer flattens its layers the same way and is turned once,
+        // as the rasterizer turns a reference frame's surface: both resample
+        // the same composite, rather than one blending each child through the
+        // matrix and the other blending first and turning after.
         let is_group = layer_id != self.root_layer
             && !layer.is_backdrop_filter
-            && (layer.opacity < 1.0 || !layer.filters.is_empty())
+            && (layer.opacity < 1.0 || !layer.filters.is_empty() || !is_pure_translation)
             && !layer.children.is_empty();
         if is_group {
             let dpi = f64::from(dpi_factor);
@@ -1548,6 +1572,7 @@ impl Layer {
             scroll_id: None,
             composite_dirty: true,
             seeded_backdrop: false,
+            transform_origin: None,
             inherited_scroll: Vec::new(),
             inherited_offset: (0.0, 0.0),
             wrapping_clips: Vec::new(),
@@ -1650,7 +1675,7 @@ fn painted_over_later(
                 } else {
                     // Everything it paints, moved - then past its pop.
                     let content =
-                        reference_frame_content(items, i).unwrap_or_else(|| *bounds.inner());
+                        reference_frame_extent(items, i).unwrap_or_else(|| *bounds.inner());
                     let moved = affine_rect_about(m, bounds.inner().origin, content)
                         .unwrap_or(UNBOUNDED);
                     let seen = later.iter().flatten().next().copied().unwrap_or(moved);
@@ -2530,30 +2555,6 @@ fn affine_rect_about(
     ))
 }
 
-/// What the `PushReferenceFrame` at `idx` paints, in its own untransformed
-/// space: the union of the visual bounds of everything down to its matching
-/// pop (nested frames' pixels ride along). `None` when nothing inside paints.
-fn reference_frame_content(items: &[DisplayListItem], idx: usize) -> Option<LogicalRect> {
-    let mut depth = 0usize;
-    let mut content: Option<LogicalRect> = None;
-    for it in items.get(idx..).unwrap_or(&[]) {
-        match it {
-            DisplayListItem::PushReferenceFrame { .. } => depth += 1,
-            DisplayListItem::PopReferenceFrame => {
-                depth = depth.saturating_sub(1);
-                if depth == 0 {
-                    break;
-                }
-            }
-            _ => {}
-        }
-        if let Some(b) = it.visual_bounds() {
-            content = Some(content.map_or(b, |c| union_rects(c, b)));
-        }
-    }
-    content
-}
-
 /// Result of diffing the GPU-animated values between two frames.
 #[derive(Debug, Default)]
 pub struct GpuValueDamage {
@@ -2627,7 +2628,7 @@ pub fn gpu_value_damage(
     }
 
     // A moved reference frame damages its CONTENT at both the old and the
-    // new position: `reference_frame_content`, transformed by each matrix
+    // new position: `reference_frame_extent`, transformed by each matrix
     // ABOUT THE FRAME ORIGIN (`affine_rect_about`) — the same convention the
     // compositor renders with. Only a non-affine matrix (perspective) is
     // genuinely unknowable and keeps the full-repaint fallback; the previous
@@ -2682,7 +2683,7 @@ pub fn gpu_value_damage(
                     .unwrap_or(*initial_transform);
                 if changed_t.contains(&transform_key.id) {
                     let content = moved_by(
-                        reference_frame_content(items, idx).unwrap_or_else(|| *bounds.inner()),
+                        reference_frame_extent(items, idx).unwrap_or_else(|| *bounds.inner()),
                         scrolled,
                     );
                     let old_m = old_transforms.get(&transform_key.id).unwrap_or(&identity);
@@ -2874,7 +2875,7 @@ pub fn node_groups_on_screen(
                         .get(&transform_key.id)
                         .unwrap_or(initial_transform);
                     let content =
-                        reference_frame_content(items, idx).unwrap_or_else(|| *bounds.inner());
+                        reference_frame_extent(items, idx).unwrap_or_else(|| *bounds.inner());
                     affine_rect_about(m, bounds.inner().origin, content)
                 }
                 DisplayListItem::PushOpacity { bounds, .. } => Some(*bounds.inner()),
@@ -3877,6 +3878,7 @@ fn render_display_list_range(
         render_single_item(
             item,
             display_list.uniform_text_bgs.get(i).copied().flatten(),
+            reference_frame_extent(&display_list.items, i),
             pixmap,
             dpi_factor,
             renderer_resources,
@@ -4739,7 +4741,7 @@ fn compute_display_list_damage_impl(
                     // A transform that changed moves the frame's whole
                     // content: damaged where it was and where it is.
                     let content = |items: &[DisplayListItem], b: &LogicalRect, acc: (f32, f32)| {
-                        let c = reference_frame_content(items, idx).unwrap_or(*b);
+                        let c = reference_frame_extent(items, idx).unwrap_or(*b);
                         LogicalRect {
                             origin: at(c.origin, acc),
                             size: c.size,
@@ -5603,6 +5605,18 @@ pub fn compare_region(
 
 /// Layout-driven layer offsets snap to whole device pixels so layers take the integer blit instead of being resampled.
 #[inline]
+/// `rect` grown outward to whole device pixels: the box of pixels a surface
+/// for it covers, as the rasterizer's reference-frame surface covers it, so
+/// both resample a turned frame on the same pixel grid.
+fn device_pixel_box(rect: LogicalRect, dpi_factor: f32) -> LogicalRect {
+    let dpi = dpi_factor.max(f32::EPSILON);
+    let x0 = (rect.origin.x * dpi).floor() / dpi;
+    let y0 = (rect.origin.y * dpi).floor() / dpi;
+    let x1 = ((rect.origin.x + rect.size.width) * dpi).ceil() / dpi;
+    let y1 = ((rect.origin.y + rect.size.height) * dpi).ceil() / dpi;
+    LogicalRect::new(LogicalPosition::new(x0, y0), LogicalSize::new(x1 - x0, y1 - y0))
+}
+
 fn layout_offset_device_px(logical: f32, dpi: f64) -> f64 {
     (f64::from(logical) * dpi).round()
 }

@@ -3434,6 +3434,34 @@ fn group_paint_bounds(items: &[DisplayListItem]) -> Option<LogicalRect> {
     union
 }
 
+/// Where the reference frame pushed at `idx` paints, in its own untransformed
+/// space: its box and what everything down to its matching pop paints
+/// ([`group_paint_bounds`]). The rasterizer's surface for the frame and the
+/// compositor's layer for it are this big, and what it damages is this,
+/// moved by its matrix. `None` when `idx` opens no reference frame.
+pub(crate) fn reference_frame_extent(
+    items: &[DisplayListItem],
+    idx: usize,
+) -> Option<LogicalRect> {
+    let DisplayListItem::PushReferenceFrame { bounds, .. } = items.get(idx)? else {
+        return None;
+    };
+    let mut depth = 0usize;
+    let end = items[idx..]
+        .iter()
+        .position(|item| {
+            match item {
+                DisplayListItem::PushReferenceFrame { .. } => depth += 1,
+                DisplayListItem::PopReferenceFrame => depth = depth.saturating_sub(1),
+                _ => {}
+            }
+            depth == 0
+        })
+        .map_or(items.len(), |at| idx + at);
+    let frame_box = *bounds.inner();
+    Some(group_paint_bounds(&items[idx + 1..end]).map_or(frame_box, |c| rect_union(frame_box, c)))
+}
+
 /// Internal builder to accumulate display list items during generation.
 #[derive(Debug, Default)]
 struct DisplayListBuilder {

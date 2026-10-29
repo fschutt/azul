@@ -33,7 +33,9 @@ use super::*;
 use crate::{
     font::parsed::ParsedFont,
     glyph_cache::GlyphCache,
-    solver3::display_list::{BorderRadius, DisplayList, DisplayListItem, LocalScrollId},
+    solver3::display_list::{
+        reference_frame_extent, BorderRadius, DisplayList, DisplayListItem, LocalScrollId,
+    },
     text3::cache::{FontHash, FontManager},
 };
 
@@ -1159,7 +1161,7 @@ pub enum ReferenceFrameGroup {
 /// that was open around the push. The content never touches the pixels
 /// below at its layout place: a box laid out past the window's edge and
 /// turned into view keeps the part the window would have cut off.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct TransformGroup {
     width: u32,
     height: u32,
@@ -1177,6 +1179,7 @@ impl ReferenceFrameGroup {
     fn begin(
         m: &[[f32; 4]; 4],
         bounds: &LogicalRect,
+        extent: &LogicalRect,
         surfaces: &mut Vec<AzulPixmap>,
         dpi_factor: f32,
         clip_stack: &mut Vec<Option<AzRect>>,
@@ -1194,10 +1197,12 @@ impl ReferenceFrameGroup {
             return Self::Translated;
         }
 
-        let x = (bounds.origin.x * dpi_factor).floor() as i32;
-        let y = (bounds.origin.y * dpi_factor).floor() as i32;
-        let x1 = ((bounds.origin.x + bounds.size.width) * dpi_factor).ceil() as i32;
-        let y1 = ((bounds.origin.y + bounds.size.height) * dpi_factor).ceil() as i32;
+        // The surface covers what the frame paints, not only its box: a
+        // shadow or an overflowing child turns with the frame.
+        let x = (extent.origin.x * dpi_factor).floor() as i32;
+        let y = (extent.origin.y * dpi_factor).floor() as i32;
+        let x1 = ((extent.origin.x + extent.size.width) * dpi_factor).ceil() as i32;
+        let y1 = ((extent.origin.y + extent.size.height) * dpi_factor).ceil() as i32;
         let width = x1.saturating_sub(x).clamp(0, MAX_TRANSFORM_GROUP_SIDE) as u32;
         let height = y1.saturating_sub(y).clamp(0, MAX_TRANSFORM_GROUP_SIDE) as u32;
 
@@ -2085,6 +2090,7 @@ fn render_display_list_with_state(
                 .get(item_idx)
                 .copied()
                 .flatten(),
+            reference_frame_extent(&display_list.items, item_idx),
             pixmap,
             dpi_factor,
             renderer_resources,
@@ -2529,6 +2535,7 @@ pub fn render_display_list_damaged(
                     .get(item_idx)
                     .copied()
                     .flatten(),
+                reference_frame_extent(&display_list.items, item_idx),
                 pixmap,
                 dpi_factor,
                 renderer_resources,
@@ -2586,6 +2593,9 @@ pub fn render_single_item(
     // DisplayList.uniform_text_bgs — the variant itself cannot carry it,
     // printpdf pattern-matches Text exhaustively). None = slow path.
     item_uniform_bg: Option<(ColorU, crate::solver3::display_list::WindowLogicalRect)>,
+    // What a `PushReferenceFrame` item's frame paints
+    // (`reference_frame_extent`), `None` for every other item.
+    frame_extent: Option<LogicalRect>,
     pixmap: &mut AzulPixmap,
     dpi_factor: f32,
     renderer_resources: &RendererResources,
@@ -2670,6 +2680,7 @@ pub fn render_single_item(
             let group = ReferenceFrameGroup::begin(
                 m,
                 &scroll_rect(bounds.inner()),
+                &scroll_rect(&frame_extent.unwrap_or_else(|| *bounds.inner())),
                 surfaces,
                 dpi_factor,
                 clip_stack,
@@ -3337,6 +3348,7 @@ pub fn render_single_item(
                     render_single_item(
                         child_item,
                         child_dl.uniform_text_bgs.get(child_idx).copied().flatten(),
+                        reference_frame_extent(&child_dl.items, child_idx),
                         pixmap,
                         dpi_factor,
                         renderer_resources,
@@ -7888,6 +7900,7 @@ mod autotest_generated {
         let mut gc = GlyphCache::new();
         render_single_item(
             item,
+            None,
             None,
             p,
             1.0,
