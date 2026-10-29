@@ -399,7 +399,7 @@ pub(crate) fn is_break_opportunity(item: &ShapedItem) -> bool {
 /// and the rest of a word the line before hyphenated, with that word's
 /// later breaks.
 #[derive(Debug, Clone, PartialEq)]
-pub struct CursorPosition {
+pub struct BreakPosition {
     /// The index of the next whole item.
     pub next_item_index: usize,
     /// The rest of the word the line before broke, read before that item.
@@ -484,8 +484,8 @@ impl<'a> BreakCursor<'a> {
     /// Where the cursor stands: what a line breaker restores to take back
     /// a line it broke.
     #[must_use]
-    pub fn position(&self) -> CursorPosition {
-        CursorPosition {
+    pub fn position(&self) -> BreakPosition {
+        BreakPosition {
             next_item_index: self.next_item_index,
             partial_remainder: self.partial_remainder.clone(),
             partial_remainder_breaks: self.partial_remainder_breaks.clone(),
@@ -493,7 +493,7 @@ impl<'a> BreakCursor<'a> {
     }
 
     /// Puts the cursor back where `position` says it stood.
-    pub fn restore(&mut self, position: CursorPosition) {
+    pub fn restore(&mut self, position: BreakPosition) {
         self.next_item_index = position.next_item_index;
         self.partial_remainder = position.partial_remainder;
         self.partial_remainder_breaks = position.partial_remainder_breaks;
