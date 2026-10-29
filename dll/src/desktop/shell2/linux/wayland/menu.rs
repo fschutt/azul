@@ -48,6 +48,31 @@ pub(crate) struct MenuLayoutData {
     pub picks: crate::desktop::menu::MenuPicks,
 }
 
+/// Where a popup's surface lies on its parent surface, both in logical px: the
+/// position the compositor reported in the popup's `xdg_popup.configure`. A Wayland
+/// menu is anchored on the PARENT surface, so what a popup knows in its own
+/// coordinates reaches the parent's through this - the popup's coordinates mean
+/// nothing there.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PopupOnParent {
+    /// The popup's top-left on the parent surface.
+    pub origin: LogicalPosition,
+}
+
+impl PopupOnParent {
+    /// A point of the popup's surface, on the parent surface.
+    #[must_use]
+    pub const fn point(&self, point: LogicalPosition) -> LogicalPosition {
+        point
+    }
+
+    /// A box of the popup's surface, on the parent surface.
+    #[must_use]
+    pub const fn rect(&self, rect: LogicalRect) -> LogicalRect {
+        LogicalRect::new(self.point(rect.origin), rect.size)
+    }
+}
+
 /// The rule a menu opened at `position` (parent-surface coordinates) for
 /// `anchor` is placed by: the menu's own `MenuPopupPosition`, with a real
 /// trigger rect meaning "for this control" and none - or the zero-sized
@@ -260,6 +285,24 @@ mod tests {
             (beside.y.anchor, beside.y.grow),
             (AxisEnd::Start, AxisEnd::End),
             "its top on the item's top"
+        );
+    }
+
+    /// A menu opened from inside a popup - a context menu in a dropdown - is
+    /// anchored at its item on the PARENT surface, where the compositor put the
+    /// popup, not at the item's popup coordinates read as the parent's (its
+    /// corner, for a popup at the parent's top-left).
+    #[test]
+    fn a_menu_opened_in_a_popup_is_anchored_at_its_item_on_the_parent() {
+        let popup = PopupOnParent {
+            origin: LogicalPosition::new(120.0, 80.0),
+        };
+        let item = LogicalRect::new(LogicalPosition::new(0.0, 40.0), LogicalSize::new(160.0, 22.0));
+        let menu = menu_of(&[Entry::Item]);
+        let placement = menu_popup_placement(&menu, popup.point(item.origin), Some(popup.rect(item)));
+        assert_eq!(
+            placement.anchor,
+            LogicalRect::new(LogicalPosition::new(120.0, 120.0), LogicalSize::new(160.0, 22.0))
         );
     }
 
