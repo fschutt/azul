@@ -62,6 +62,78 @@ fn an_empty_folder_renamed_on_one_device_is_renamed_on_the_other() {
     assert!(!is_dir(&b, "old name"));
 }
 
+/// A folder has an identity, so its rename is one rename: renamed on one device while a file in
+/// it is renamed on the other, both renames hold (A3, C1).
+#[test]
+fn a_folder_renamed_on_one_device_and_a_file_in_it_renamed_on_the_other_keep_both_renames() {
+    let store = S3Bucket::new();
+    let a = Device::new("dev-a-compose");
+    let b = Device::new("dev-b-compose");
+    a.write("dir/child.txt", b"child");
+    a.write("x.txt", b"x");
+    a.sync(&store);
+    b.sync(&store);
+    a.rename_folder("dir", "dir2");
+    fs::rename(b.path().join("dir/child.txt"), b.path().join("dir/child2.txt")).unwrap();
+    a.sync(&store);
+    b.sync(&store);
+    a.sync(&store);
+    for device in [&a, &b] {
+        assert_eq!(device.read("dir2/child2.txt").as_deref(), Some(&b"child"[..]));
+        assert!(!is_dir(device, "dir"), "the old name is gone");
+        assert!(device.read("dir2/child.txt").is_none());
+    }
+    assert_eq!(a.tree(), b.tree());
+}
+
+/// A file put into a folder under its old name, after another device renamed the folder,
+/// lands in the renamed folder: the folder is not made again under its old name.
+#[test]
+fn a_file_put_into_a_folder_the_drive_renamed_lands_in_the_renamed_folder() {
+    let store = S3Bucket::new();
+    let a = Device::new("dev-a-into");
+    let b = Device::new("dev-b-into");
+    a.write("photos/a.jpg", b"a");
+    a.sync(&store);
+    b.sync(&store);
+    a.rename_folder("photos", "pictures");
+    a.sync(&store);
+    b.write("photos/new.jpg", b"new");
+    b.sync(&store);
+    a.sync(&store);
+    for device in [&a, &b] {
+        assert_eq!(device.read("pictures/new.jpg").as_deref(), Some(&b"new"[..]));
+        assert_eq!(device.read("pictures/a.jpg").as_deref(), Some(&b"a"[..]));
+        assert!(!is_dir(device, "photos"));
+    }
+}
+
+/// A folder renamed here while a file in it was edited on the drive keeps the edit, under the
+/// new name: neither the old folder nor the old version comes back.
+#[test]
+fn a_folder_renamed_here_keeps_an_edit_made_meanwhile_on_the_drive_under_its_new_name() {
+    let store = S3Bucket::new();
+    let a = Device::new("dev-a-edit-in");
+    let b = Device::new("dev-b-edit-in");
+    a.write("docs/x.txt", b"version 1");
+    a.sync(&store);
+    b.sync(&store);
+    b.write("docs/x.txt", b"version 2, from b");
+    b.sync(&store);
+    a.rename_folder("docs", "papers");
+    a.sync(&store);
+    b.sync(&store);
+    a.sync(&store);
+    for device in [&a, &b] {
+        assert_eq!(
+            device.read("papers/x.txt").as_deref(),
+            Some(&b"version 2, from b"[..])
+        );
+        assert!(!is_dir(device, "docs"));
+    }
+    assert_eq!(a.tree(), b.tree());
+}
+
 /// Deleting the last file of a folder deletes the file, not the folder: the folder stays on
 /// every device, empty.
 #[test]

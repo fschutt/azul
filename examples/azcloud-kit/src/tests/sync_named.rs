@@ -498,6 +498,35 @@ fn an_empty_folder_travels_through_a_drive_synced_by_name() {
     assert_eq!(b.read("notes/a.md").as_deref(), Some(&b"alpha"[..]));
 }
 
+/// A folder renamed on one device while a file in it is renamed on the other keeps both renames
+/// on a drive synced by name too: the folder moves on the drive as one folder.
+#[test]
+fn a_folder_rename_and_a_rename_inside_it_on_another_device_compose_on_a_drive_synced_by_name() {
+    let s3 = FakeS3::new();
+    let drive = NamesHashes(s3_drive(&s3));
+    let a = Device::new("dev-a-compose");
+    let b = Device::new("dev-b-compose");
+    a.write("dir/child.txt", b"child");
+    a.sync(&drive);
+    b.sync(&drive);
+    fs::rename(a.folder.path().join("dir"), a.folder.path().join("dir2")).unwrap();
+    fs::rename(
+        b.folder.path().join("dir/child.txt"),
+        b.folder.path().join("dir/child2.txt"),
+    )
+    .unwrap();
+    a.sync(&drive);
+    b.sync(&drive);
+    a.sync(&drive);
+    for device in [&a, &b] {
+        assert_eq!(device.read("dir2/child2.txt").as_deref(), Some(&b"child"[..]));
+        assert!(!device.folder.path().join("dir").exists());
+    }
+    assert_eq!(a.tree(), b.tree());
+    assert!(s3.read("Documents/dir/child.txt").is_none());
+    assert!(s3.read("Documents/dir2/child.txt").is_none());
+}
+
 // ==== A drive as the plain sync's store ====
 
 #[test]
