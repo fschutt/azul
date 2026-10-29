@@ -2367,7 +2367,11 @@ fn start_checkout(
     renew: Option<&RenewJob>,
 ) -> Result<Started, Text> {
     let transport = AzulTransport::new(USER_AGENT);
-    let server = TokenServer::new(token_url, &transport).map_err(|e| token_error_text(&e))?;
+    // The checkout's key is kept with the keyring's open calls: an order whose answer was lost
+    // is asked again under it and gets its first answer.
+    let server = TokenServer::new(token_url, &transport)
+        .map_err(|e| token_error_text(&e))?
+        .with_outbox(keyring.outbox());
     // A renewal names the drive's price lock; without one (or with one the token server no
     // longer takes) it buys period tokens only, at today's price - the price the dialog shows.
     let lock = renew
@@ -2562,7 +2566,11 @@ fn switch_surface(
 fn abandon(token_url: &str, checkout_id: &str, keyring: &SharedKeyring) -> Abandoned {
     let transport = AzulTransport::new(USER_AGENT);
     match TokenServer::new(token_url, &transport) {
-        Ok(server) => pending::abandon(&server, keyring, checkout_id),
+        Ok(server) => {
+            // The abandon's key is kept with the keyring's open calls, as the checkout's is.
+            let server = server.with_outbox(keyring.outbox());
+            pending::abandon(&server, keyring, checkout_id)
+        }
         Err(e) => Abandoned::Kept {
             paid: false,
             why: e.to_string(),
