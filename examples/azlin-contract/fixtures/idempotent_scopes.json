@@ -9,7 +9,8 @@
     "remove_member",
     "recovery_key",
     "restore",
-    "abandon"
+    "abandon",
+    "checkout"
   ],
   "already_answered": "already_answered"
 }

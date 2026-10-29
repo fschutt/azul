@@ -18,6 +18,11 @@ pub const ALREADY_ANSWERED: &str = "already_answered";
 /// a retry after a lost answer can never grant twice.
 pub const IDEMPOTENCY_REQUIRED: &str = "idempotency_required";
 
+/// The error code of a key sent again with another request than the one it named (422): a key
+/// names one request, so nothing was made for the second. Asking again does not change it; an
+/// app that sends it reused a key, which is its bug.
+pub const IDEMPOTENCY_KEY_REUSED: &str = "idempotency_key_reused";
+
 /// What kind of request a key names. A key counts within its scope and for its caller only, so
 /// one key sent to two routes is two requests.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -43,11 +48,13 @@ pub enum IdempotentScope {
     Restore,
     /// A checkout's provider session given up.
     Abandon,
+    /// A checkout made: its order, answered again as it was the first time.
+    Checkout,
 }
 
 impl IdempotentScope {
     /// Every scope, in the order of its fixture.
-    pub const ALL: [IdempotentScope; 10] = [
+    pub const ALL: [IdempotentScope; 11] = [
         IdempotentScope::Lockdown,
         IdempotentScope::Claim,
         IdempotentScope::Redeem,
@@ -58,6 +65,7 @@ impl IdempotentScope {
         IdempotentScope::RecoveryKey,
         IdempotentScope::Restore,
         IdempotentScope::Abandon,
+        IdempotentScope::Checkout,
     ];
 
     /// Its name on the wire and in the services' tables: `add_member`.
@@ -74,6 +82,7 @@ impl IdempotentScope {
             IdempotentScope::RecoveryKey => "recovery_key",
             IdempotentScope::Restore => "restore",
             IdempotentScope::Abandon => "abandon",
+            IdempotentScope::Checkout => "checkout",
         }
     }
 }

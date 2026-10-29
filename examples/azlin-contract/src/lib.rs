@@ -59,7 +59,8 @@ pub use hello::{
     MIN_CONTRACT, MIN_VERSIONS,
 };
 pub use idempotency::{
-    IdempotencyKey, IdempotentScope, ALREADY_ANSWERED, IDEMPOTENCY_HEADER, IDEMPOTENCY_REQUIRED,
+    IdempotencyKey, IdempotentScope, ALREADY_ANSWERED, IDEMPOTENCY_HEADER,
+    IDEMPOTENCY_KEY_REUSED, IDEMPOTENCY_REQUIRED,
 };
 pub use period::{IssueAnswer, IssueRefusal, IssueSchedule, INSTALMENT_SECS};
 pub use read_only::{
