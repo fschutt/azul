@@ -131,6 +131,7 @@
                 height,
             },
             baseline_offset,
+            bidi_level: crate::text3::cache::BidiLevel::new(0),
             content: InlineContent::Space(InlineSpace {
                 width,
                 is_breaking: false,
@@ -2152,6 +2153,7 @@
             source: ci(0, 0),
             bounds: Rect::default(),
             baseline_offset: 0.0,
+            bidi_level: crate::text3::cache::BidiLevel::new(0),
             content: InlineContent::Image(InlineImage {
                 source: ImageSource::Placeholder(Size::new(10.0, 10.0)),
                 intrinsic_size: Size::new(10.0, 10.0),
@@ -2193,6 +2195,7 @@
                 height: 10.0,
             },
             baseline_offset: 0.0,
+            bidi_level: crate::text3::cache::BidiLevel::new(0),
             content: InlineContent::Image(InlineImage {
                 source: ImageSource::Placeholder(Size::new(10.0, 10.0)),
                 intrinsic_size: Size::new(10.0, 10.0),
@@ -2864,8 +2867,8 @@
             per_item_detail_glyphs: 0,
             logical_items_entries: 1_000_000, // must NOT be counted
             logical_items_bytes: 1,
-            visual_items_entries: 1_000_000, // must NOT be counted
-            visual_items_bytes: 2,
+            bidi_runs_entries: 1_000_000, // must NOT be counted
+            bidi_runs_bytes: 2,
             shaped_items_entries: 1_000_000, // must NOT be counted
             shaped_items_bytes: 4,
             shaped_glyph_bytes: 8,
@@ -2941,8 +2944,8 @@
         let mut c = TextShapingCache::new();
         c.logical_items.insert(1, Arc::new(Vec::new()));
         c.logical_items.insert(2, Arc::new(Vec::new()));
-        c.visual_items.insert(1, Arc::new(Vec::new()));
-        c.visual_items.insert(2, Arc::new(Vec::new()));
+        c.bidi_runs.insert(1, Arc::new(Vec::new()));
+        c.bidi_runs.insert(2, Arc::new(Vec::new()));
         // (d7) The monolithic shaped_items stage is deleted; the third
         // stage_entry_counts slot now reports the per-item store, which
         // has its own sweep (covered by the per-item eviction test).
@@ -2966,7 +2969,7 @@
              were the unbounded ones"
         );
         assert!(c.logical_items.contains_key(&1));
-        assert!(c.visual_items.contains_key(&1));
+        assert!(c.bidi_runs.contains_key(&1));
 
         // The accessed set resets, so surviving entries must be re-touched
         // to survive again — otherwise nothing would ever be released.
@@ -3206,7 +3209,7 @@
     }
 
     #[test]
-    fn shaped_items_key_new_on_empty_visual_items_is_stable() {
+    fn shaped_items_key_new_on_empty_bidi_runs_is_stable() {
         let a = ShapedItemsKey::new(7, &[]);
         let b = ShapedItemsKey::new(7, &[]);
         assert_eq!(a, b);
@@ -3217,7 +3220,7 @@
 
     #[test]
     fn shaped_items_key_new_hashes_the_text_styles() {
-        let vi = |st: Arc<StyleProperties>| VisualItem {
+        let vi = |st: Arc<StyleProperties>| BidiRun {
             logical_source: LogicalItem::Text {
                 source: ci(0, 0),
                 text: Arc::from("a"),
@@ -4323,19 +4326,19 @@
     }
 
     #[test]
-    fn reorder_logical_items_on_empty_input_is_ok_and_empty() {
+    fn split_into_bidi_runs_on_empty_input_is_ok_and_empty() {
         let mut dbg = None;
-        let out = reorder_logical_items(&[], BidiDirection::Ltr, UnicodeBidi::Normal, &mut dbg)
+        let out = split_into_bidi_runs(&[], BidiDirection::Ltr, UnicodeBidi::Normal, &mut dbg)
             .expect("reordering nothing must succeed");
         assert!(out.is_empty());
     }
 
     #[test]
-    fn reorder_logical_items_preserves_content_for_pure_ltr_text() {
+    fn split_into_bidi_runs_preserves_content_for_pure_ltr_text() {
         let mut dbg = None;
         let logical = create_logical_items(&[text_content("abc", style())], &[], &mut dbg);
         let visual =
-            reorder_logical_items(&logical, BidiDirection::Ltr, UnicodeBidi::Normal, &mut dbg)
+            split_into_bidi_runs(&logical, BidiDirection::Ltr, UnicodeBidi::Normal, &mut dbg)
                 .expect("LTR reordering must succeed");
         let joined: String = visual.iter().map(|v| v.text.as_str()).collect();
         assert_eq!(joined, "abc", "pure LTR text must survive bidi unchanged");

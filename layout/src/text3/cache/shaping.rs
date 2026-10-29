@@ -46,7 +46,7 @@ use super::*;
 ///
 /// // +spec:display-property:9c6d59 - text shaping not broken across inline box boundaries when no
 /// effective formatting change // +spec:display-property:cf8917 - text shaping not broken across
-/// inline box boundaries When consecutive text `VisualItem`s share the same layout-affecting
+/// inline box boundaries When consecutive text `BidiRun`s share the same layout-affecting
 /// properties (font, size, spacing, etc.) but differ only in rendering properties (color,
 /// background), they are coalesced into a single shaping call. This dramatically
 /// reduces the number of `font.shape_text()` invocations for syntax-highlighted
@@ -63,8 +63,8 @@ use super::*;
 /// # Errors
 ///
 /// Returns a `LayoutError` if shaping the visual items fails.
-pub fn shape_visual_items_with_per_item_cache<T: ParsedFontTrait>(
-    visual_items: &[VisualItem],
+pub fn shape_bidi_runs_with_per_item_cache<T: ParsedFontTrait>(
+    bidi_runs: &[BidiRun],
     per_item_cache: &mut HashMap<u64, Arc<PerItemShapedEntry>>,
     per_item_accessed: &mut HashSet<u64>,
     font_chain_cache: &HashMap<FontChainKey, rust_fontconfig::FontFallbackChain>,
@@ -82,18 +82,18 @@ pub fn shape_visual_items_with_per_item_cache<T: ParsedFontTrait>(
     let mut shaped = Vec::new();
     let mut idx = 0;
 
-    while idx < visual_items.len() {
-        let item = &visual_items[idx];
+    while idx < bidi_runs.len() {
+        let item = &bidi_runs[idx];
 
-        // Determine coalesce group boundaries (same logic as shape_visual_items)
+        // Determine coalesce group boundaries (same logic as shape_bidi_runs)
         let (layout_hash, bidi_level, script) = match &item.logical_source {
             LogicalItem::Text { style, .. } | LogicalItem::CombinedText { style, .. } => {
                 (style.layout_hash(), item.bidi_level, item.script)
             }
             _ => {
                 // Non-text items: shape individually (no coalescing)
-                let single = shape_visual_items(
-                    &visual_items[idx..=idx],
+                let single = shape_bidi_runs(
+                    &bidi_runs[idx..=idx],
                     font_chain_cache,
                     fc_cache,
                     loaded_fonts,
@@ -106,8 +106,8 @@ pub fn shape_visual_items_with_per_item_cache<T: ParsedFontTrait>(
         };
 
         let mut coalesce_end = idx + 1;
-        while coalesce_end < visual_items.len() {
-            let next = &visual_items[coalesce_end];
+        while coalesce_end < bidi_runs.len() {
+            let next = &bidi_runs[coalesce_end];
             let next_layout_hash = match &next.logical_source {
                 LogicalItem::Text { style, .. } | LogicalItem::CombinedText { style, .. } => {
                     Some(style.layout_hash())
@@ -127,7 +127,7 @@ pub fn shape_visual_items_with_per_item_cache<T: ParsedFontTrait>(
 
         // Compute per-group cache key
         let mut hasher = DefaultHasher::new();
-        for item in &visual_items[idx..coalesce_end] {
+        for item in &bidi_runs[idx..coalesce_end] {
             item.text.hash(&mut hasher);
         }
         layout_hash.hash(&mut hasher);
@@ -162,7 +162,7 @@ pub fn shape_visual_items_with_per_item_cache<T: ParsedFontTrait>(
             // re-stamping the paint-and-identity fields from the CURRENT items
             // is sound and keeps the reuse. Clusters map back to their item
             // through `source_content_index`.
-            let group = group_items(&visual_items[idx..coalesce_end]);
+            let group = group_items(&bidi_runs[idx..coalesce_end]);
             // NEGATIVE-CONTROL KNOB (T2, plan §2.3): AZ_T2_SKIP_RESTAMP=1
             // hands back the cached entry UNMODIFIED — the exact defect
             // 8ec9f387d fixed. The identity gate
@@ -197,7 +197,7 @@ pub fn shape_visual_items_with_per_item_cache<T: ParsedFontTrait>(
                             // cluster instead of an Arc clone per glyph (T2
                             // pins this). The text the cluster slices is the
                             // hitting item's whole logical text: the key holds
-                            // the visual run's text only, and the cached
+                            // the bidi run's text only, and the cached
                             // cluster's offset moves into this item below.
                             if let Some(text) = &current.text {
                                 sc.source_text = text.clone();
@@ -222,8 +222,8 @@ pub fn shape_visual_items_with_per_item_cache<T: ParsedFontTrait>(
         } else {
             // Cache miss — shape this group
             let deficit_before = thread_font_shape_deficit();
-            let group_items = shape_visual_items(
-                &visual_items[idx..coalesce_end],
+            let group_items = shape_bidi_runs(
+                &bidi_runs[idx..coalesce_end],
                 font_chain_cache,
                 fc_cache,
                 loaded_fonts,
@@ -247,7 +247,7 @@ pub fn shape_visual_items_with_per_item_cache<T: ParsedFontTrait>(
                     Arc::new(PerItemShapedEntry {
                         compact: CompactShapedEntry::build(&group_items),
                         total_advance,
-                        items: self::group_items(&visual_items[idx..coalesce_end])
+                        items: self::group_items(&bidi_runs[idx..coalesce_end])
                             .into_iter()
                             .map(|it| (it.source, it.run_byte_offset))
                             .collect(),
@@ -730,8 +730,8 @@ pub(super) fn shape_with_font_fallback<T: ParsedFontTrait>(
 /// # Errors
 ///
 /// Returns a `LayoutError` if shaping the visual items fails.
-pub fn shape_visual_items<T: ParsedFontTrait>(
-    visual_items: &[VisualItem],
+pub fn shape_bidi_runs<T: ParsedFontTrait>(
+    bidi_runs: &[BidiRun],
     font_chain_cache: &HashMap<FontChainKey, rust_fontconfig::FontFallbackChain>,
     fc_cache: &FcFontCache,
     loaded_fonts: &LoadedFonts<T>,
@@ -745,8 +745,8 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
 
     // Log count of visual items for debugging coalescing
 
-    while idx < visual_items.len() {
-        let item = &visual_items[idx];
+    while idx < bidi_runs.len() {
+        let item = &bidi_runs[idx];
         match &item.logical_source {
             LogicalItem::Text {
                 style,
@@ -766,8 +766,8 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                 // Look ahead: find consecutive text items with the same layout-affecting
                 // properties (font, size, spacing) that can be shaped as one merged run.
                 let mut coalesce_end = idx + 1;
-                while coalesce_end < visual_items.len() {
-                    let next = &visual_items[coalesce_end];
+                while coalesce_end < bidi_runs.len() {
+                    let next = &bidi_runs[coalesce_end];
                     if let LogicalItem::Text {
                         style: next_style, ..
                     } = &next.logical_source
@@ -795,7 +795,7 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                     // back per original run to preserve per-span rendering styles.
 
                     // Build merged text and record byte ranges → original style
-                    let total_text_len: usize = visual_items[idx..coalesce_end]
+                    let total_text_len: usize = bidi_runs[idx..coalesce_end]
                         .iter()
                         .map(|v| v.text.len())
                         .sum();
@@ -814,7 +814,7 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                         Arc<str>,
                     )> = Vec::with_capacity(coalesce_count);
 
-                    for item in &visual_items[idx..coalesce_end] {
+                    for item in &bidi_runs[idx..coalesce_end] {
                         let start = merged_text.len();
                         merged_text.push_str(&item.text);
                         let end = merged_text.len();
@@ -920,7 +920,7 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                             cluster.source_node_id = *orig_nid;
                             // Fix the byte offset to be relative to the original logical run:
                             // (position within the merged text - this run's start in the merge)
-                            // + this visual run's offset within its logical run (bidi split).
+                            // + this bidi run's offset within its logical run (bidi split).
                             cluster.source_cluster_id.source_run = orig_source.run_index;
                             cluster.source_cluster_id.start_byte_in_run =
                                 (byte_pos - range_start + *orig_run_offset) as u32;
@@ -1017,8 +1017,8 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                 let mut shaped_clusters = shaped_clusters_result?;
 
                 // Re-base cluster byte offsets to the logical run. Shaping produced
-                // `start_byte_in_run` relative to this visual run's `text`; when bidi
-                // split the logical run into several visual runs, add the visual run's
+                // `start_byte_in_run` relative to this bidi run's `text`; when bidi
+                // split the logical run into several bidi runs, add the bidi run's
                 // offset so every cluster ID is unique + matches caret byte positions.
                 let run_byte_offset = item.run_byte_offset as u32;
                 if run_byte_offset != 0 {
@@ -1189,6 +1189,7 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                         logical_start_byte: 0,
                         source_node_id: None,
                     }),
+                    bidi_level: item.bidi_level,
                 });
             }
             LogicalItem::CombinedText {
@@ -1327,6 +1328,7 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                     glyphs: shaped_glyphs,
                     bounds,
                     baseline_offset: em_size / 2.0,
+                    bidi_level: item.bidi_level,
                 });
             }
             LogicalItem::Object {
@@ -1338,6 +1340,7 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                     bounds,
                     baseline_offset: baseline,
                     content: content.clone(),
+                    bidi_level: item.bidi_level,
                 });
             }
             LogicalItem::Break { source, break_info } => {
@@ -1842,6 +1845,7 @@ pub(super) fn apply_text_orientation(
                 bounds,
                 baseline_offset,
                 content,
+                bidi_level,
             } => {
                 let mut new_bounds = *bounds;
                 std::mem::swap(&mut new_bounds.width, &mut new_bounds.height);
@@ -1850,6 +1854,7 @@ pub(super) fn apply_text_orientation(
                     bounds: new_bounds,
                     baseline_offset: *baseline_offset,
                     content: content.clone(),
+                    bidi_level: *bidi_level,
                 });
             }
             _ => oriented_items.push(item.clone()),

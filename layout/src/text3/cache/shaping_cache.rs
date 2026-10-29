@@ -366,7 +366,7 @@ pub(crate) struct PerItemShapedEntry {
     pub(crate) total_advance: f32,
     /// The group's text items as they were when it was shaped, in group
     /// order: each one's `ContentIndex` and its byte offset in its logical
-    /// run (`VisualItem::run_byte_offset`). A hit re-stamps a cluster from the
+    /// run (`BidiRun::run_byte_offset`). A hit re-stamps a cluster from the
     /// hitting group's item at the SAME position - the key hashes the texts in
     /// order, so both groups hold the same items, but not at the same run
     /// indices.
@@ -377,7 +377,7 @@ pub(crate) struct PerItemShapedEntry {
 pub(super) struct GroupItem {
     /// The item's place in the content: a hit's clusters point back to it.
     pub(super) source: ContentIndex,
-    /// Where the item's visual run starts in its logical item, in bytes: a
+    /// Where the item's bidi run starts in its logical item, in bytes: a
     /// cluster's byte offset is moved from the cached item's to this one.
     pub(super) run_byte_offset: usize,
     /// The item's style: the paint-only properties the key leaves out.
@@ -385,7 +385,7 @@ pub(super) struct GroupItem {
     /// The DOM text node the item comes from.
     pub(super) source_node_id: Option<NodeId>,
     /// The whole logical item's text, which a cluster's byte offset indexes
-    /// (`ShapedCluster::text`). The key holds only the visual run's text, and
+    /// (`ShapedCluster::text`). The key holds only the bidi run's text, and
     /// two items with equal runs can hold different logical texts (a word
     /// that bidi splits off a longer run), so a hit must take this one.
     /// `None` for a combined-text item: it shapes into a block, no clusters.
@@ -393,7 +393,7 @@ pub(super) struct GroupItem {
 }
 
 /// The text items of a shaping group, in group order.
-pub(super) fn group_items(group: &[VisualItem]) -> Vec<GroupItem> {
+pub(super) fn group_items(group: &[BidiRun]) -> Vec<GroupItem> {
     group
         .iter()
         .filter_map(|it| match &it.logical_source {
@@ -426,9 +426,9 @@ pub(super) fn group_items(group: &[VisualItem]) -> Vec<GroupItem> {
 pub struct TextShapingCache {
     // Stage 1 Cache: InlineContent -> LogicalItems
     pub(super) logical_items: HashMap<CacheId, Arc<Vec<LogicalItem>>>,
-    // Stage 2 Cache: LogicalItems -> VisualItems
-    pub(super) visual_items: HashMap<CacheId, Arc<Vec<VisualItem>>>,
-    // (d7) The monolithic Stage-3 cache (VisualItems -> ShapedItems) is
+    // Stage 2 Cache: LogicalItems -> BidiRuns
+    pub(super) bidi_runs: HashMap<CacheId, Arc<Vec<BidiRun>>>,
+    // (d7) The monolithic Stage-3 cache (BidiRuns -> ShapedItems) is
     // DELETED: it duplicated every cluster held by `per_item_shaped`
     // (6.1 MB on the 960-line corpus at fat-struct sizes), text edits
     // always missed it (the key hashes the text), and post-R1/R2 resize
@@ -474,8 +474,8 @@ pub(super) const fn hashmap_bytes<K, V>(entries: usize) -> usize {
 pub struct TextCacheMemoryReport {
     pub logical_items_entries: usize,
     pub logical_items_bytes: usize,
-    pub visual_items_entries: usize,
-    pub visual_items_bytes: usize,
+    pub bidi_runs_entries: usize,
+    pub bidi_runs_bytes: usize,
     pub shaped_items_entries: usize,
     pub shaped_items_bytes: usize,
     pub shaped_glyph_bytes: usize,
@@ -514,7 +514,7 @@ impl TextCacheMemoryReport {
     #[must_use]
     pub const fn total_bytes(&self) -> usize {
         self.logical_items_bytes
-            + self.visual_items_bytes
+            + self.bidi_runs_bytes
             + self.shaped_items_bytes
             + self.shaped_glyph_bytes
             + self.shaped_cluster_text_bytes
@@ -541,7 +541,7 @@ impl TextShapingCache {
     pub fn new() -> Self {
         Self {
             logical_items: HashMap::new(),
-            visual_items: HashMap::new(),
+            bidi_runs: HashMap::new(),
             per_item_shaped: HashMap::new(),
             per_item_accessed: HashSet::new(),
             stage_accessed: HashSet::new(),
@@ -562,7 +562,7 @@ impl TextShapingCache {
     pub fn fork_shared(&self) -> Self {
         Self {
             logical_items: self.logical_items.clone(),
-            visual_items: self.visual_items.clone(),
+            bidi_runs: self.bidi_runs.clone(),
             per_item_shaped: self.per_item_shaped.clone(),
             per_item_accessed: HashSet::new(),
             stage_accessed: HashSet::new(),
@@ -615,11 +615,11 @@ impl TextShapingCache {
                 r.shared_bytes_avoided += bytes;
             }
         }
-        r.visual_items_entries = self.visual_items.len();
-        for arc in self.visual_items.values() {
-            let bytes = arc.capacity() * size_of::<VisualItem>();
+        r.bidi_runs_entries = self.bidi_runs.len();
+        for arc in self.bidi_runs.values() {
+            let bytes = arc.capacity() * size_of::<BidiRun>();
             if counted.insert(Arc::as_ptr(arc).cast::<u8>() as usize) {
-                r.visual_items_bytes += bytes;
+                r.bidi_runs_bytes += bytes;
             } else {
                 r.shared_bytes_avoided += bytes;
             }
@@ -698,11 +698,11 @@ impl TextShapingCache {
         // to the printed total — a ~3.4 MB gap on a 960-line document.
         r.map_overhead_bytes =
             hashmap_bytes::<CacheId, Arc<Vec<LogicalItem>>>(self.logical_items.len())
-                + hashmap_bytes::<CacheId, Arc<Vec<VisualItem>>>(self.visual_items.len())
+                + hashmap_bytes::<CacheId, Arc<Vec<BidiRun>>>(self.bidi_runs.len())
                 + hashmap_bytes::<u64, Arc<PerItemShapedEntry>>(self.per_item_shaped.len())
                 + ARC_HEADER
                     * (self.logical_items.len()
-                        + self.visual_items.len()
+                        + self.bidi_runs.len()
                         + self.per_item_shaped.len());
         r
     }
@@ -722,7 +722,7 @@ impl TextShapingCache {
         if self.generation > 0 && !self.stage_accessed.is_empty() {
             let accessed = &self.stage_accessed;
             self.logical_items.retain(|k, _| accessed.contains(k));
-            self.visual_items.retain(|k, _| accessed.contains(k));
+            self.bidi_runs.retain(|k, _| accessed.contains(k));
         }
         self.per_item_accessed.clear();
         self.stage_accessed.clear();
@@ -736,7 +736,7 @@ impl TextShapingCache {
     pub fn stage_entry_counts(&self) -> (usize, usize, usize) {
         (
             self.logical_items.len(),
-            self.visual_items.len(),
+            self.bidi_runs.len(),
             self.per_item_shaped.len(),
         )
     }
@@ -872,7 +872,7 @@ pub(crate) struct LogicalItemsKey<'a> {
 
 /// Key for caching the Bidi reordering stage.
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
-pub(crate) struct VisualItemsKey {
+pub(crate) struct BidiRunsKey {
     pub(crate) logical_items_id: CacheId,
     pub(crate) base_direction: BidiDirection,
 }
@@ -880,15 +880,15 @@ pub(crate) struct VisualItemsKey {
 /// Key for caching the shaping stage.
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub(crate) struct ShapedItemsKey {
-    pub(crate) visual_items_id: CacheId,
+    pub(crate) bidi_runs_id: CacheId,
     pub(crate) style_hash: u64,
 }
 
 impl ShapedItemsKey {
-    pub(crate) fn new(visual_items_id: CacheId, visual_items: &[VisualItem]) -> Self {
+    pub(crate) fn new(bidi_runs_id: CacheId, bidi_runs: &[BidiRun]) -> Self {
         let style_hash = {
             let mut hasher = DefaultHasher::new();
-            for item in visual_items {
+            for item in bidi_runs {
                 // Hash the style from the logical source, as this is what determines the font.
                 match &item.logical_source {
                     LogicalItem::Text { style, .. } | LogicalItem::CombinedText { style, .. } => {
@@ -901,7 +901,7 @@ impl ShapedItemsKey {
         };
 
         Self {
-            visual_items_id,
+            bidi_runs_id,
             style_hash,
         }
     }
@@ -940,13 +940,13 @@ impl TextShapingCache {
     /// - Applies style overrides at character level
     /// - Implements \u00a7 2.2: Content size contribution calculation
     ///
-    /// ## Stage 2: `BiDi` Reordering (`LogicalItem` -> `VisualItem`)
+    /// ## Stage 2: `BiDi` Reordering (`LogicalItem` -> `BidiRun`)
     /// \u2705 IMPLEMENTED: Uses CSS 'direction' property per CSS Writing Modes
     /// - Reorders items for right-to-left text (Arabic, Hebrew)
     /// - Respects containing block direction (not auto-detection)
     /// - Conforms to Unicode `BiDi` Algorithm (UAX #9)
     ///
-    /// ## Stage 3: Shaping (`VisualItem` -> `ShapedItem`)
+    /// ## Stage 3: Shaping (`BidiRun` -> `ShapedItem`)
     /// \u2705 IMPLEMENTED: Converts text to glyphs
     /// - Uses `HarfBuzz` for OpenType shaping
     /// - Handles ligatures, kerning, contextual forms
@@ -1062,31 +1062,31 @@ impl TextShapingCache {
 
         // +spec:containing-block:e7a271 - paragraph embedding level set from containing block's
         // 'direction' property +spec:display-property:7665cb - inline boxes split into
-        // multiple visual runs due to bidi text processing +spec:display-property:929d6b -
+        // multiple bidi runs due to bidi text processing +spec:display-property:929d6b -
         // applies Unicode bidi algorithm to inline-level box sequences
         // +spec:display-property:e8584a - Apply Unicode bidi algorithm to inline-level box
         // sequences per CSS Writing Modes §2.4 Stage 2: Bidi Reordering (LogicalItem ->
-        // VisualItem) +spec:containing-block:961e3c - bidi paragraph level from containing
+        // BidiRun) +spec:containing-block:961e3c - bidi paragraph level from containing
         // block direction, not UAX9 heuristic +spec:writing-modes:0a5368 - unicode-bidi:
         // plaintext auto-detects direction from text content Per CSS Writing Modes §8.3:
         // when unicode-bidi is plaintext, the paragraph's base direction is determined from
         // text content (first strong character), ignoring the containing block's direction
         // property. Empty paragraphs fall back to the containing block's direction.
         let (base_direction, unicode_bidi_val) = paragraph_bidi(&logical_items, first_constraints);
-        let visual_key = VisualItemsKey {
+        let runs_key = BidiRunsKey {
             logical_items_id,
             base_direction,
         };
-        let visual_items_id = calculate_id(&visual_key);
-        self.touch_stage(visual_items_id);
-        // [g213] web lift uses the real visual_items HashMap cache (g180 bypass deleted; WIDTH=8
+        let bidi_runs_id = calculate_id(&runs_key);
+        self.touch_stage(bidi_runs_id);
+        // [g213] web lift uses the real bidi_runs HashMap cache (g180 bypass deleted; WIDTH=8
         // EMPTY_GROUP now mirrored — see Stage-1 note + symbol_table.rs).
-        let visual_items = self
-            .visual_items
-            .entry(visual_items_id)
+        let bidi_runs = self
+            .bidi_runs
+            .entry(bidi_runs_id)
             .or_insert_with(|| {
                 Arc::new(
-                    reorder_logical_items(
+                    split_into_bidi_runs(
                         &logical_items,
                         base_direction,
                         unicode_bidi_val,
@@ -1097,13 +1097,13 @@ impl TextShapingCache {
             })
             .clone();
 
-        // Stage 3: Shaping (VisualItem -> ShapedItem)
+        // Stage 3: Shaping (BidiRun -> ShapedItem)
         // Two-level cache: monolithic (fast path) + per-item (incremental path).
         let _probe_shape = crate::probe::Probe::span("text_shape_stage");
         // (d7) Per-item assembly every pass — the monolithic map is gone
         // (see the field comment). Hits come from `per_item_shaped`.
-        let shaped_items = Arc::new(shape_visual_items_with_per_item_cache(
-            &visual_items,
+        let shaped_items = Arc::new(shape_bidi_runs_with_per_item_cache(
+            &bidi_runs,
             &mut self.per_item_shaped,
             &mut self.per_item_accessed,
             font_chain_cache,
@@ -1251,18 +1251,18 @@ impl TextShapingCache {
 
         // Stage 2: BiDi (the derivation every layout of the paragraph shares)
         let (base_direction, unicode_bidi_val) = paragraph_bidi(&logical_items, constraints);
-        let visual_key = VisualItemsKey {
+        let runs_key = BidiRunsKey {
             logical_items_id,
             base_direction,
         };
-        let visual_items_id = calculate_id(&visual_key);
-        self.touch_stage(visual_items_id);
-        let visual_items = self
-            .visual_items
-            .entry(visual_items_id)
+        let bidi_runs_id = calculate_id(&runs_key);
+        self.touch_stage(bidi_runs_id);
+        let bidi_runs = self
+            .bidi_runs
+            .entry(bidi_runs_id)
             .or_insert_with(|| {
                 Arc::new(
-                    reorder_logical_items(
+                    split_into_bidi_runs(
                         &logical_items,
                         base_direction,
                         unicode_bidi_val,
@@ -1275,8 +1275,8 @@ impl TextShapingCache {
 
         // Stage 3: Shaping (two-level cache, same as layout_flow)
         // (d7) Per-item assembly every pass (monolithic map deleted).
-        let shaped_items = Arc::new(shape_visual_items_with_per_item_cache(
-            &visual_items,
+        let shaped_items = Arc::new(shape_bidi_runs_with_per_item_cache(
+            &bidi_runs,
             &mut self.per_item_shaped,
             &mut self.per_item_accessed,
             font_chain_cache,

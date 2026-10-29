@@ -15,7 +15,7 @@ use crate::text3::cache::{
     get_base_direction_from_logical, get_item_measure, get_item_measure_with_spacing,
     is_no_break_space, is_word_separator, is_zero_width_space, AvailableSpace, BidiDirection,
     JustifyContent, LayoutError, LineConstraints, LineSegment, LoadedFonts, LogicalItem,
-    OverflowInfo, ParsedFontTrait, Point, PositionedItem, ShapedItem, TextAlign,
+    LogicalLine, OverflowInfo, ParsedFontTrait, Point, PositionedItem, ShapedItem, TextAlign,
     UnifiedConstraints, UnifiedLayout,
 };
 
@@ -579,6 +579,9 @@ fn position_lines_from_breaks(
     let mut start_node = 0;
     let mut cross_axis_pen = 0.0;
     let base_direction = get_base_direction_from_logical(logical_items);
+    // The paragraph direction its bidi analysis ran in: the level rule L1
+    // puts a line's trailing white space at, as on the greedy path.
+    let (bidi_base, _) = crate::text3::cache::paragraph_bidi(logical_items, constraints);
     let mut is_after_forced_break = false;
     // `line-clamp` keeps its number of lines; the rest of the paragraph is
     // not laid out, and the last line kept ends in an ellipsis
@@ -602,16 +605,18 @@ fn position_lines_from_breaks(
         // hyphenation opportunity (CSS Text 3 §5.3: hyphenation visually
         // indicates the split, at the split).
         let last_idx = line_nodes.len().saturating_sub(1);
-        let mut line_items: Vec<ShapedItem> = line_nodes
-            .iter()
-            .enumerate()
-            .filter_map(|(k, node)| match node {
-                LayoutNode::Box(item, _) => Some(item.clone()),
-                LayoutNode::Glue { item, .. } => Some(item.clone()),
-                LayoutNode::Penalty { item, .. } if k == last_idx => item.clone(),
-                LayoutNode::Penalty { .. } => None,
-            })
-            .collect();
+        let mut logical_line = LogicalLine::new(
+            line_nodes
+                .iter()
+                .enumerate()
+                .filter_map(|(k, node)| match node {
+                    LayoutNode::Box(item, _) => Some(item.clone()),
+                    LayoutNode::Glue { item, .. } => Some(item.clone()),
+                    LayoutNode::Penalty { item, .. } if k == last_idx => item.clone(),
+                    LayoutNode::Penalty { .. } => None,
+                })
+                .collect(),
+        );
 
         // +spec CSS Text 3 §4.1.2: a line's trailing (line-terminating) spaces
         // "hang" — they are removed before measuring the line and are not counted
@@ -620,12 +625,10 @@ fn position_lines_from_breaks(
         // here. Drop trailing word separators so line_width, the justification
         // space count, and positioning all exclude them (matching the greedy
         // break_one_line path, which trims trailing spaces).
-        while line_items.last().is_some_and(is_word_separator) {
-            line_items.pop();
-        }
-        // The runs of the line are in visual order already; the clusters of a
-        // right-to-left run still read left to right until this turns them.
-        crate::text3::cache::apply_l2_visual_reversal(&mut line_items, base_direction);
+        logical_line.trim_end_while(is_word_separator);
+        // The line in visual order (UAX 9 rules L1 and L2), as the greedy
+        // line breaker puts each of its lines.
+        let line_items = logical_line.into_visual(bidi_base);
 
         // The line's width as the pen below moves over it, the letter- and
         // word-spacing after each item included.
@@ -740,7 +743,7 @@ fn position_lines_from_breaks(
                 base_direction,
             );
 
-        for item in line_items {
+        for item in line_items.into_items() {
             // The pen moves by the advance and the spacing after it, as on
             // every line (position_one_line).
             let item_advance = get_item_measure_with_spacing(&item, false);
@@ -1055,6 +1058,7 @@ mod autotest_generated {
                 height: 10.0,
             },
             baseline_offset: 0.0,
+            bidi_level: crate::text3::cache::BidiLevel::new(0),
             content: InlineContent::Tab {
                 style: Arc::new(StyleProperties::default()),
             },

@@ -17,8 +17,8 @@ use azul_layout::{
     parsed_font_to_font_ref,
     text3::{
         cache::{
-            create_logical_items, perform_fragment_layout, reorder_logical_items,
-            shape_visual_items, AvailableSpace, BidiDirection, BreakCursor, FontChainKey,
+            create_logical_items, perform_fragment_layout, split_into_bidi_runs,
+            shape_bidi_runs, AvailableSpace, BidiDirection, BreakCursor, FontChainKey,
             FontStack, Glyph, InlineContent, LoadedFonts, Point, StyleProperties, StyledRun,
             TextWrap, UnicodeBidi, UnifiedConstraints,
         },
@@ -259,10 +259,10 @@ fn draw_right_to_left_wrapping(
     loaded.insert(FontId::new(), font_ref);
     let logical = create_logical_items(&content, &[], &mut None);
     let visual =
-        reorder_logical_items(&logical, BidiDirection::Rtl, UnicodeBidi::Normal, &mut None)
+        split_into_bidi_runs(&logical, BidiDirection::Rtl, UnicodeBidi::Normal, &mut None)
             .expect("bidi reorder");
     let chains: HashMap<FontChainKey, FontFallbackChain> = HashMap::new();
-    let shaped = shape_visual_items(&visual, &chains, &FcFontCache::default(), &loaded, &mut None)
+    let shaped = shape_bidi_runs(&visual, &chains, &FcFontCache::default(), &loaded, &mut None)
         .expect("shaping");
     let mut cursor = BreakCursor::new(&shaped);
     let constraints = UnifiedConstraints {

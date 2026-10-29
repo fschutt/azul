@@ -889,6 +889,7 @@ mod autotest_generated {
                 height: 0.0,
             },
             baseline_offset: 0.0,
+            bidi_level: crate::text3::cache::BidiLevel::new(0),
         }
     }
 
@@ -934,6 +935,7 @@ mod autotest_generated {
                 height: 10.0,
             },
             baseline_offset: 0.0,
+            bidi_level: crate::text3::cache::BidiLevel::new(0),
             content: InlineContent::Space(InlineSpace {
                 width: 10.0,
                 is_breaking: false,

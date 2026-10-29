@@ -64,7 +64,7 @@ pub enum GlyphKind {
 
 // [g117 az-web-lift FIX] `#[repr(C, u8)]` (was repr(Rust)) — same disc-mis-lift class as
 // InlineContent above. LogicalItem is matched in measure Stage-2 (`if let LogicalItem::Text`) +
-// reorder_logical_items; a repr(Rust) niche disc mis-lifts on the web. Explicit u8 tag at offset 0
+// split_into_bidi_runs; a repr(Rust) niche disc mis-lifts on the web. Explicit u8 tag at offset 0
 // = a simple load the lift reads correctly. Internal to text3 (not FFI-exposed).
 // LogicalItem::Object embeds InlineContent inline.
 #[derive(Debug, Clone)]
@@ -172,22 +172,27 @@ impl Hash for LogicalItem {
     }
 }
 
-// --- Stage 2: Visual Representation ---
+// --- Stage 2: Bidi Runs ---
 
+/// A piece of one logical item at one bidi embedding level, from
+/// [`split_into_bidi_runs`]. The runs of a paragraph are in logical
+/// (reading) order: a paragraph is shaped and broken into lines in that
+/// order, and each line is put in visual order only afterwards
+/// ([`LogicalLine::into_visual`]).
 #[derive(Debug, Clone)]
-pub struct VisualItem {
-    /// A reference to the logical item this visual item originated from.
-    /// A single `LogicalItem` can be split into multiple `VisualItems`.
+pub struct BidiRun {
+    /// A reference to the logical item this run originated from.
+    /// A single `LogicalItem` can be split into multiple `BidiRuns`.
     pub logical_source: LogicalItem,
     /// The Bidi embedding level for this item.
     pub bidi_level: BidiLevel,
     /// The script detected for this run, crucial for shaping.
     pub script: Script,
-    /// The text content for this specific visual run.
+    /// The text content for this specific run.
     pub text: String,
-    /// Byte offset of this visual run's `text` within its source logical run's
-    /// text. When bidi splits one logical run into several visual runs, each
-    /// shaped cluster's `start_byte_in_run` is produced relative to this visual
+    /// Byte offset of this run's `text` within its source logical run's
+    /// text. When bidi splits one logical run into several runs, each
+    /// shaped cluster's `start_byte_in_run` is produced relative to this
     /// run's `text`; adding `run_byte_offset` re-bases it to the logical run so
     /// cluster IDs stay unique and match caret/selection byte positions.
     pub run_byte_offset: usize,
@@ -217,6 +222,8 @@ pub enum ShapedItem {
         style: Arc<StyleProperties>,
         bounds: Rect,
         baseline_offset: f32,
+        /// The bidi embedding level its run resolved to.
+        bidi_level: BidiLevel,
     },
     Object {
         source: ContentIndex,
@@ -224,6 +231,9 @@ pub enum ShapedItem {
         baseline_offset: f32,
         // Store original object for rendering
         content: InlineContent,
+        /// The bidi embedding level the paragraph's bidi analysis gave the
+        /// object, a neutral (U+FFFC) between its neighbours.
+        bidi_level: BidiLevel,
     },
     Tab {
         source: ContentIndex,
@@ -241,6 +251,19 @@ impl ShapedItem {
         match self {
             Self::Cluster(c) => Some(c),
             _ => None,
+        }
+    }
+    /// The bidi embedding level the paragraph's bidi analysis resolved for
+    /// the item; `None` for a tab and a break, which take the paragraph's
+    /// level on every line (UAX 9 rule L1).
+    #[must_use]
+    pub const fn bidi_level(&self) -> Option<BidiLevel> {
+        match self {
+            Self::Cluster(c) => Some(c.bidi_level),
+            Self::CombinedBlock { bidi_level, .. } | Self::Object { bidi_level, .. } => {
+                Some(*bidi_level)
+            }
+            Self::Tab { .. } | Self::Break { .. } => None,
         }
     }
     /// Returns the bounding box of the item, relative to its own origin.
@@ -406,7 +429,7 @@ pub struct ShapedCluster {
     pub flags: ClusterFlags,
     /// The total advance width (horizontal) or height (vertical) of the cluster.
     pub advance: f32,
-    /// The direction of this cluster, inherited from its `VisualItem`.
+    /// The direction of this cluster, inherited from its `BidiRun`.
     pub direction: BidiDirection,
     /// The bidi embedding level the paragraph's bidi analysis resolved for
     /// this cluster's text, which a line's visual order is made from (UAX 9

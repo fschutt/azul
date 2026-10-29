@@ -3,11 +3,11 @@
 //! atomic inline is a neutral, U+FFFC, and takes the direction of the text
 //! around it or, at a line's edge, of the paragraph - rules N1 / N2).
 //!
-//! `reorder_logical_items` orders the level runs visually but leaves a run's
-//! items in logical order, and `apply_l2_visual_reversal` reversed only the
-//! CLUSTERS of an RTL run - an object broke the run and was never moved. Two
-//! inline-blocks in `<td dir="rtl">` therefore stayed left-to-right (only
-//! right-aligned): the Cerberus hybrid template's reversed row (`dir="rtl"`
+//! A line is put in visual order by the bidi levels of its items
+//! (`LogicalLine::into_visual`), an object's being the level the bidi
+//! algorithm gave its U+FFFC. Reversing only the CLUSTERS of an RTL run left
+//! an object where it was: two inline-blocks in `<td dir="rtl">` stayed
+//! left-to-right (only right-aligned), and the Cerberus hybrid template's reversed row (`dir="rtl"`
 //! around two `display: inline-block` columns, the image column on the right)
 //! came out unreversed, ~45 boxes 220 / 440px off (scripts/refci/
 //! mail_boxes.py, MAILREF8 group A residual).

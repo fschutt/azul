@@ -330,10 +330,15 @@ pub(super) fn is_arabic_cluster(cluster: &ShapedCluster) -> bool {
     cluster.glyphs.iter().any(|g| g.script == Script::Arabic)
 }
 
-/// Helper to identify if an item is a word separator (like a space).
-pub(super) fn measure_trailing_whitespace(items: &[ShapedItem], is_vertical: bool) -> f32 {
+/// The width of the white space a visual line (or a piece of one) ends in,
+/// at the end its paragraph, running in `base`, reads towards.
+pub(super) fn measure_trailing_whitespace(
+    items: &[ShapedItem],
+    is_vertical: bool,
+    base: BidiDirection,
+) -> f32 {
     let mut trailing_ws = 0.0;
-    for item in items.iter().rev() {
+    for item in from_line_end(items, base) {
         // A list marker's space belongs to the marker (`break_one_line`).
         let is_marker = matches!(
             item,

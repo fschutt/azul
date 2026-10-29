@@ -58,11 +58,11 @@ pub fn create_logical_items_compat(
     azul_layout::text3::cache::create_logical_items(content, overrides, &mut None)
 }
 
-pub fn reorder_logical_items_compat(
+pub fn split_into_bidi_runs_compat(
     items: &[azul_layout::text3::cache::LogicalItem],
     dir: BidiDirection,
-) -> Result<Vec<azul_layout::text3::cache::VisualItem>, LayoutError> {
-    azul_layout::text3::cache::reorder_logical_items(
+) -> Result<Vec<azul_layout::text3::cache::BidiRun>, LayoutError> {
+    azul_layout::text3::cache::split_into_bidi_runs(
         items,
         dir,
         azul_layout::text3::cache::UnicodeBidi::Normal,
@@ -70,14 +70,14 @@ pub fn reorder_logical_items_compat(
     )
 }
 
-pub fn shape_visual_items_compat(
-    items: &[azul_layout::text3::cache::VisualItem],
+pub fn shape_bidi_runs_compat(
+    items: &[azul_layout::text3::cache::BidiRun],
     _manager: &MockFontManager,
 ) -> Result<Vec<ShapedItem>, LayoutError> {
     let loaded = mock_loaded_fonts();
     let chain = HashMap::new();
     let fc = rust_fontconfig::FcFontCache::default();
-    azul_layout::text3::cache::shape_visual_items(items, &chain, &fc, &loaded, &mut None)
+    azul_layout::text3::cache::shape_bidi_runs(items, &chain, &fc, &loaded, &mut None)
 }
 
 pub fn perform_fragment_layout_compat(
@@ -101,7 +101,7 @@ pub fn break_one_line_compat<'a>(
     is_vertical: bool,
     hyphenator: Option<&hyphenation::Standard>,
 ) -> (Vec<ShapedItem>, bool) {
-    azul_layout::text3::cache::break_one_line(
+    let (line, was_hyphenated) = azul_layout::text3::cache::break_one_line(
         cursor,
         lc,
         is_vertical,
@@ -110,7 +110,8 @@ pub fn break_one_line_compat<'a>(
         Default::default(),
         Default::default(),
         Default::default(),
-    )
+    );
+    (line.into_items(), was_hyphenated)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -124,8 +125,12 @@ pub fn position_one_line_compat(
     is_last_line: bool,
     constraints: &azul_layout::text3::cache::UnifiedConstraints,
 ) -> (Vec<PositionedItem>, f32) {
+    // The items are a line in logical order; the positioner takes it in
+    // visual order.
+    let line = azul_layout::text3::cache::LogicalLine::new(line_items.to_vec())
+        .into_visual(base_direction);
     azul_layout::text3::cache::position_one_line(
-        line_items,
+        &line,
         lc,
         line_top_y,
         line_index,

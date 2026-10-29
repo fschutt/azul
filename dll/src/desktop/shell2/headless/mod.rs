@@ -10493,7 +10493,7 @@ mod tests {
     /// Two nodes with the SAME text must not share one shaped entry's
     /// colour or its identity.
     ///
-    /// `shape_visual_items_with_per_item_cache` keys on `layout_hash`, which
+    /// `shape_bidi_runs_with_per_item_cache` keys on `layout_hash`, which
     /// excludes paint-only properties by design so a recolour can reuse the
     /// shaping. The cached clusters, though, carry a whole
     /// `Arc<StyleProperties>` per glyph AND a `source_node_id`, and the

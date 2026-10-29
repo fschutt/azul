@@ -117,7 +117,7 @@ fn inline_pipeline_struct_sizes_are_pinned() {
          DenseRun.text now aliases instead of concatenating surviving clusters."
     );
     assert_size!(LogicalItem, 128, "Stage 1 output, cached by content hash.");
-    assert_size!(VisualItem, 168, "Stage 2 (bidi) output.");
+    assert_size!(BidiRun, 168, "Stage 2 (bidi) output.");
     assert_size!(
         StyleProperties,
         280,

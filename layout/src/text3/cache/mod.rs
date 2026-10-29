@@ -5,10 +5,12 @@
 //! 5-stage inline layout pipeline:
 //!
 //! 1. **Logical Analysis** — `InlineContent` → `LogicalItem`
-//! 2. **`BiDi` Reordering** — `LogicalItem` → `VisualItem`
-//! 3. **Shaping** — `VisualItem` → `ShapedItem`
+//! 2. **`BiDi` Analysis** — `LogicalItem` → `BidiRun`, still in logical order
+//! 3. **Shaping** — `BidiRun` → `ShapedItem`
 //! 4. **Text Orientation** — vertical writing-mode transforms
-//! 5. **Flow / Positioning** — line breaking + final `PositionedItem` placement
+//! 5. **Flow / Positioning** — line breaking in logical order (`LogicalLine`), each
+//!    line put in visual order once (`LogicalLine::into_visual` → `VisualLine`), then
+//!    final `PositionedItem` placement
 //!
 //! The module also contains cursor movement helpers, caching infrastructure
 //! (per-item and monolithic), and font management (`FontContext`, `FontManager`,
@@ -83,7 +85,6 @@ pub use unified_layout::*;
 #[allow(clippy::redundant_pub_crate)]
 mod shaping_cache;
 pub use shaping_cache::*;
-#[allow(clippy::redundant_pub_crate)]
 mod logical_items;
 pub use logical_items::*;
 #[allow(clippy::redundant_pub_crate)]
@@ -94,6 +95,8 @@ pub use line_metrics::*;
 #[allow(clippy::redundant_pub_crate)]
 mod line_layout;
 pub use line_layout::*;
+mod line_order;
+pub use line_order::*;
 mod justification;
 pub use justification::*;
 #[allow(clippy::redundant_pub_crate)]

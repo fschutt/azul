@@ -13,8 +13,8 @@ use azul_layout::{
     font::parsed::ParsedFont,
     parsed_font_to_font_ref,
     text3::cache::{
-        create_logical_items, get_item_measure, perform_fragment_layout, reorder_logical_items,
-        shape_visual_items, AvailableSpace, BidiDirection, BreakCursor, FontChainKey, FontStack,
+        create_logical_items, get_item_measure, perform_fragment_layout, split_into_bidi_runs,
+        shape_bidi_runs, AvailableSpace, BidiDirection, BreakCursor, FontChainKey, FontStack,
         GlyphKind, InlineContent, LoadedFonts, ShapedCluster, ShapedItem, StyleProperties,
         StyledRun, UnicodeBidi, UnifiedConstraints, UnifiedLayout,
     },
@@ -65,10 +65,10 @@ pub fn lay_out(
     fonts.insert(FontId::new(), font.clone());
     let logical = create_logical_items(&content, &[], &mut None);
     let visual =
-        reorder_logical_items(&logical, BidiDirection::Ltr, UnicodeBidi::Normal, &mut None)
+        split_into_bidi_runs(&logical, BidiDirection::Ltr, UnicodeBidi::Normal, &mut None)
             .expect("bidi reorder");
     let chains: HashMap<FontChainKey, FontFallbackChain> = HashMap::new();
-    let shaped = shape_visual_items(&visual, &chains, &FcFontCache::default(), &fonts, &mut None)
+    let shaped = shape_bidi_runs(&visual, &chains, &FcFontCache::default(), &fonts, &mut None)
         .expect("shaped");
     // The cursor carries the paragraph's breaking properties, as in the solver.
     let mut cursor = BreakCursor::with_word_break(&shaped, paragraph.word_break);

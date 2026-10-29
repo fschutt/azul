@@ -473,13 +473,13 @@ fn breakdown_line(iter: u32, window: &HeadlessWindow) -> Option<String> {
     let tc_fields = format!(
         r#""tc_logical_items":{},"tc_visual_items":{},"tc_shaped_items":{},"tc_shaped_glyphs":{},"tc_shaped_clusters":{},"tc_per_item":{},"tc_logical_entries":{},"tc_visual_entries":{},"tc_shaped_entries":{},"tc_per_item_entries":{}"#,
         tc.logical_items_bytes,
-        tc.visual_items_bytes,
+        tc.bidi_runs_bytes,
         tc.shaped_items_bytes,
         tc.shaped_glyph_bytes,
         tc.shaped_cluster_text_bytes,
         tc.per_item_shaped_bytes,
         tc.logical_items_entries,
-        tc.visual_items_entries,
+        tc.bidi_runs_entries,
         tc.shaped_items_entries,
         tc.per_item_shaped_entries,
     );

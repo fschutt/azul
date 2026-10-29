@@ -53,17 +53,6 @@ pub struct StyledRun {
     pub source_node_id: Option<NodeId>,
 }
 
-// Stage 2: Bidi Analysis - Visual runs in display order
-#[derive(Debug, Clone)]
-pub struct VisualRun<'a> {
-    pub text_slice: &'a str,
-    pub style: Arc<StyleProperties>,
-    pub logical_start_byte: usize,
-    pub bidi_level: BidiLevel,
-    pub script: Script,
-    pub language: Language,
-}
-
 // Font and styling types
 
 /// A selector for loading fonts from the font cache.
@@ -117,7 +106,7 @@ pub fn optical_size_for(font_size_px: f32) -> u16 {
 /// and uses the pre-parsed font data directly. This is used for embedded
 /// fonts like Material Icons.
 // [g121 az-web-lift] `#[repr(C, u8)]` — same disc-mis-lift guard as the other text3 enums; matched
-// in shape_visual_items (`match &style.font_stack { Ref => shape, Stack => resolve }`). repr(Rust)
+// in shape_bidi_runs (`match &style.font_stack { Ref => shape, Stack => resolve }`). repr(Rust)
 // niche (from the Vec/FontRef payloads) could mis-route. Explicit u8 tag = simple load. Internal to
 // text3.
 #[derive(Debug, Clone)]

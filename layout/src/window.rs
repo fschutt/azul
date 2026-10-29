@@ -8431,9 +8431,9 @@ impl LayoutWindow {
                 tc.logical_items_entries
             );
             eprintln!(
-                "[MEM]   visual_items      {:>7} KiB  ({} entries)",
-                tc.visual_items_bytes / 1024,
-                tc.visual_items_entries
+                "[MEM]   bidi_runs      {:>7} KiB  ({} entries)",
+                tc.bidi_runs_bytes / 1024,
+                tc.bidi_runs_entries
             );
             eprintln!(
                 "[MEM]   shaped_items      {:>7} KiB  ({} entries)",
@@ -25792,7 +25792,7 @@ impl LayoutWindow {
         crate::text3::cache::ParagraphToBreak<'c>,
     )> {
         use crate::text3::cache::{
-            create_logical_items, paragraph_bidi, reorder_logical_items, shape_visual_items,
+            create_logical_items, paragraph_bidi, split_into_bidi_runs, shape_bidi_runs,
             ParagraphToBreak,
         };
 
@@ -25811,12 +25811,12 @@ impl LayoutWindow {
         // The paragraph's base direction and unicode-bidi, as its full layout
         // reorders it.
         let (base_direction, unicode_bidi) = paragraph_bidi(&logical_items, constraints);
-        let visual_items =
-            reorder_logical_items(&logical_items, base_direction, unicode_bidi, &mut None).ok()?;
+        let bidi_runs =
+            split_into_bidi_runs(&logical_items, base_direction, unicode_bidi, &mut None).ok()?;
 
         let loaded_fonts = self.font_manager.get_loaded_fonts();
-        let shaped_items = shape_visual_items(
-            &visual_items,
+        let shaped_items = shape_bidi_runs(
+            &bidi_runs,
             self.font_manager.get_font_chain_cache(),
             &self.font_manager.fc_cache,
             &loaded_fonts,
@@ -26095,10 +26095,17 @@ impl LayoutWindow {
         // style resolution than this reshape (the 16px-seed / 11px-cache
         // squash, 2026-08-29). Stage 4 below re-positions instead.
         let style_fp = Self::shaping_style_fingerprint(content);
+        // The patch below pairs the i-th shaped item (logical order) with the
+        // i-th positioned one (visual order): the same item only when no
+        // line was reordered, i.e. all the text runs left to right at level 0.
+        let lines_keep_logical_order = shaped_items
+            .iter()
+            .all(|item| !matches!(item.bidi_level(), Some(level) if level.level() != 0));
         let incremental_ok = cached.line_breaks.is_some()
             && cached.overflow.overflow_items.is_empty()
             && shaped_items.len() == cached_item_count
-            && cached.shaping_style_fp == style_fp;
+            && cached.shaping_style_fp == style_fp
+            && lines_keep_logical_order;
 
         if incremental_ok {
             let line_breaks = cached.line_breaks.as_ref().unwrap();

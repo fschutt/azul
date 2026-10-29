@@ -34,7 +34,7 @@ use azul_layout::{
     font::parsed::ParsedFont,
     parsed_font_to_font_ref,
     text3::cache::{
-        create_logical_items, perform_fragment_layout, reorder_logical_items, shape_visual_items,
+        create_logical_items, perform_fragment_layout, split_into_bidi_runs, shape_bidi_runs,
         AvailableSpace, BidiDirection, BreakCursor, FontChainKey, FontStack, InlineContent,
         LoadedFonts, OverflowInfo, StyleProperties, StyledRun, UnicodeBidi, UnifiedConstraints,
         UnifiedLayout,
@@ -121,10 +121,10 @@ fn layout(text: &str) -> UnifiedLayout {
             overflow: OverflowInfo::default(),
         };
     }
-    let visual = reorder_logical_items(&logical, BidiDirection::Ltr, UnicodeBidi::Normal, &mut None)
+    let visual = split_into_bidi_runs(&logical, BidiDirection::Ltr, UnicodeBidi::Normal, &mut None)
         .expect("bidi reorder");
     let chain: HashMap<FontChainKey, FontFallbackChain> = HashMap::new();
-    let shaped = shape_visual_items(&visual, &chain, &FcFontCache::default(), &loaded, &mut None)
+    let shaped = shape_bidi_runs(&visual, &chain, &FcFontCache::default(), &loaded, &mut None)
         .expect("shaping");
     let mut cursor = BreakCursor::new(&shaped);
     perform_fragment_layout(&mut cursor, &logical, &constraints, &mut None, &loaded)

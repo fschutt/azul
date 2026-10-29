@@ -1,6 +1,6 @@
 //! A cached shaping is re-stamped with the run it is HIT from.
 //!
-//! `shape_visual_items_with_per_item_cache` caches a group's shaped clusters
+//! `shape_bidi_runs_with_per_item_cache` caches a group's shaped clusters
 //! under its text and layout style, and on a hit re-stamps the paint and the
 //! node from the current items - finding each cluster's item by equality of
 //! `source_content_index`. A cluster shaped where its text was run 0 and hit

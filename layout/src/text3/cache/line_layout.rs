@@ -634,7 +634,7 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
             // width of a line box, it is split into several fragments, which are
             // partitioned across multiple line boxes."
             let position_before_line = (cursor.next_item_index, cursor.partial_remainder.len());
-            let (mut line_items, was_hyphenated) = break_one_line(
+            let (logical_line, was_hyphenated) = break_one_line(
                 cursor,
                 &line_constraints,
                 false,
@@ -644,7 +644,7 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
                 fragment_constraints.white_space_mode,
                 effective_overflow_wrap,
             );
-            if line_items.is_empty() {
+            if logical_line.is_empty() {
                 // An empty line ends the column only at the end of the content.
                 // With content left, the breaker took items and stripped them all
                 // as white space at the line's edges: such a line has no box, and
@@ -669,36 +669,28 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
                 break;
             }
 
-            let line_text_before_rev: String = line_items
-                .iter()
-                .filter_map(|i| i.as_cluster())
-                .map(ShapedCluster::text)
-                .collect();
             if let Some(msgs) = debug_messages {
-                msgs.push(LayoutDebugMessage::info(format!(
-                    // FIX: The log message was misleading. Items are in visual order.
-                    "[PFLayout] Line items from breaker (visual order): [{line_text_before_rev}]"
-                )));
-            }
-
-            // Unicode Bidi rule L2 (glyph-level reversal). `reorder_logical_items`
-            // already ordered the level RUNS visually; here we reverse the clusters
-            // within each RTL run so an RTL run reads right-to-left. Applied per line
-            // (after line breaking) so a wrapped RTL run reorders correctly per line.
-            apply_l2_visual_reversal(&mut line_items, base_direction);
-
-            if let Some(msgs) = debug_messages {
-                let after: String = line_items
+                let text: String = logical_line
                     .iter()
                     .filter_map(|i| i.as_cluster())
                     .map(ShapedCluster::text)
                     .collect();
-                if after != line_text_before_rev {
-                    msgs.push(LayoutDebugMessage::info(format!(
-                        "[PFLayout] Line items after L2 reversal: [{after}]"
-                    )));
-                }
+                msgs.push(LayoutDebugMessage::info(format!(
+                    "[PFLayout] Line items from breaker (logical order): [{text}]"
+                )));
             }
+
+            // The spans the next line continues: those of this line's last
+            // cluster in reading order, wherever the line puts it.
+            let line_end_boxes = logical_line
+                .iter()
+                .rev()
+                .find_map(ShapedItem::as_cluster)
+                .map(|c| c.style.inline_boxes.clone());
+
+            // The line in visual order (UAX 9 rules L1 and L2), once, now that
+            // it is broken.
+            let line_items = logical_line.into_visual(base_direction);
 
             // +spec:line-breaking:c59944 - forced line breaks detected for bidi-aware alignment
             let line_ends_with_forced_break = line_items
@@ -736,12 +728,7 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
                 fonts,
             );
 
-            before_chain = line_items
-                .iter()
-                .rev()
-                .find_map(ShapedItem::as_cluster)
-                .map(|c| c.style.inline_boxes.clone())
-                .or(before_chain);
+            before_chain = line_end_boxes.or(before_chain);
 
             // Track whether the next line follows a forced break
             is_after_forced_break = line_ends_with_forced_break;
@@ -984,12 +971,12 @@ pub fn break_one_line<T: ParsedFontTrait>(
     line_break: LineBreakStrictness,
     white_space_mode: WhiteSpaceMode,
     overflow_wrap: OverflowWrap,
-) -> (Vec<ShapedItem>, bool) {
+) -> (LogicalLine, bool) {
     let mut line_items = Vec::new();
     let mut current_width = 0.0;
 
     if cursor.is_done() {
-        return (Vec::new(), false);
+        return (LogicalLine::default(), false);
     }
 
     // +spec:white-space-processing:c83dbd - Phase II: collapsible spaces at line start removed,
@@ -1036,7 +1023,7 @@ pub fn break_one_line<T: ParsedFontTrait>(
             if let Some(ShapedItem::Break { .. }) = next_unit.first() {
                 line_items.push(next_unit[0].clone());
                 cursor.consume(1);
-                return (line_items, false);
+                return (LogicalLine::new(line_items), false);
             }
             line_items.extend_from_slice(&next_unit);
             cursor.consume(next_unit.len());
@@ -1056,7 +1043,7 @@ pub fn break_one_line<T: ParsedFontTrait>(
             if let Some(ShapedItem::Break { .. }) = next_unit.first() {
                 line_items.push(next_unit[0].clone());
                 cursor.consume(1);
-                return (line_items, false);
+                return (LogicalLine::new(line_items), false);
             }
 
             // Min-content: break at EVERY soft-wrap opportunity so each word forms its
@@ -1091,7 +1078,7 @@ pub fn break_one_line<T: ParsedFontTrait>(
                     unit_hyphenation_breaks(&next_unit, cursor, hyphenator, is_vertical, fonts);
                 if !breaks.is_empty() {
                     take_hyphenation_break(&mut line_items, cursor, next_unit.len(), breaks, 0);
-                    return (line_items, true);
+                    return (LogicalLine::new(line_items), true);
                 }
             }
 
@@ -1132,7 +1119,7 @@ pub fn break_one_line<T: ParsedFontTrait>(
                             breaks,
                             chosen,
                         );
-                        return (line_items, true);
+                        return (LogicalLine::new(line_items), true);
                     }
                 }
 
@@ -1195,35 +1182,11 @@ pub fn break_one_line<T: ParsedFontTrait>(
 
     // +spec:white-space-processing:fef250 - Phase II: trailing collapsible spaces and U+1680
     // removed at line end as well as any trailing U+1680 OGHAM SPACE MARK whose white-space is
-    // normal/nowrap/pre-line. Note: pre-wrap and break-spaces have different handling
-    // (hanging/preserving) which is not yet implemented here.
-    // Trailing collapsible white space is trimmed only for the collapsing modes.
-    // Pre keeps significant trailing spaces; pre-wrap hangs them (handled in
-    // position_one_line); break-spaces must never drop them.
-    let strip_trailing = matches!(
-        white_space_mode,
-        WhiteSpaceMode::Normal | WhiteSpaceMode::Nowrap | WhiteSpaceMode::PreLine
-    );
-    if strip_trailing {
-        // A list marker's own space ("1. ", "\u{2022} ") is part of the
-        // marker, never the line's trailing white space (Chrome's UA sheet:
-        // `::marker { white-space: pre }`): alone on its line - an empty
-        // item's marker - it was stripped, and the marker, placed by its
-        // width, moved a space closer to the content than a full item's.
-        while let Some(last) = line_items.last() {
-            let is_marker = matches!(
-                last,
-                ShapedItem::Cluster(c) if c.marker_position_outside.is_some()
-            );
-            if is_collapsible_whitespace(last) && !is_marker {
-                line_items.pop();
-            } else {
-                break;
-            }
-        }
-    }
-
-    (line_items, false)
+    // normal/nowrap/pre-line. The line's end is its logical end: the line is still in
+    // reading order here, its visual order is made after it is broken.
+    let mut line = LogicalLine::new(line_items);
+    line.trim_trailing_white_space(white_space_mode);
+    (line, false)
 }
 
 /// Represents a single valid hyphenation point within a word.
@@ -1686,7 +1649,7 @@ const fn apostrophe_is_a_letter(_hyphenator: &Standard) -> bool {
 // merge)
 #[allow(clippy::too_many_arguments)]
 pub fn position_one_line<T: ParsedFontTrait>(
-    line_items: &[ShapedItem],
+    line_items: &VisualLine,
     line_constraints: &LineConstraints,
     line_top_y: f32,
     line_index: usize,
@@ -1725,7 +1688,7 @@ pub fn position_one_line<T: ParsedFontTrait>(
                                                                // layout/render/parse routine (one
                                                                // branch per case)
 pub fn position_one_line_between<T: ParsedFontTrait>(
-    line_items: &[ShapedItem],
+    line_items: &VisualLine,
     before: Option<&[InlineBoxEdge]>,
     after: Option<&[InlineBoxEdge]>,
     line_constraints: &LineConstraints,
@@ -1947,15 +1910,21 @@ pub fn position_one_line_between<T: ParsedFontTrait>(
         let trailing_ws_width = match constraints.white_space_mode {
             WhiteSpaceMode::BreakSpaces | WhiteSpaceMode::Pre => 0.0,
             WhiteSpaceMode::Normal | WhiteSpaceMode::Nowrap | WhiteSpaceMode::PreLine => {
-                measure_trailing_whitespace(&justified_segment_items, is_vertical)
+                measure_trailing_whitespace(&justified_segment_items, is_vertical, base_direction)
             }
             // +spec:line-breaking:8aa426 - space before forced break does not hang if it doesn't
             // overflow
             WhiteSpaceMode::PreWrap => {
-                let has_forced_break = justified_segment_items
-                    .last()
+                // The line ends where its paragraph reads to (rule L1 keeps
+                // its break and its trailing white space there).
+                let has_forced_break = from_line_end(&justified_segment_items, base_direction)
+                    .next()
                     .is_some_and(|item| matches!(item, ShapedItem::Break { .. }));
-                let ws_width = measure_trailing_whitespace(&justified_segment_items, is_vertical);
+                let ws_width = measure_trailing_whitespace(
+                    &justified_segment_items,
+                    is_vertical,
+                    base_direction,
+                );
                 if has_forced_break {
                     // +spec:display-contents:2704a2 - conditionally hanging chars not considered
                     // when measuring line fit Conditionally hang: only hang if

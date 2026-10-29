@@ -1,4 +1,5 @@
-//! Stages 1 and 2: content to logical items, and bidi reordering into visual order.
+//! Stages 1 and 2: content to logical items, and logical items to bidi runs (still in
+//! logical order; each line is put in visual order once it is broken).
 
 use std::{
     cmp::Ordering,
@@ -364,8 +365,8 @@ pub fn get_base_direction_from_logical(logical_items: &[LogicalItem]) -> BidiDir
     }
 }
 
-/// The base direction and the `unicode-bidi` a paragraph's text is put in
-/// visual order with: its constraints' `direction`, or with
+/// The base direction and the `unicode-bidi` a paragraph's bidi analysis and
+/// the visual order of its lines are made with: its constraints' `direction`, or with
 /// `unicode-bidi: plaintext` the direction of its first strong letter (that
 /// of `direction` in a paragraph without one).
 ///
@@ -417,18 +418,24 @@ pub fn paragraph_bidi(
 // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't
 // merge)
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+/// The paragraph's logical items split into runs of one bidi embedding level
+/// each, resolved by the bidi algorithm over the whole paragraph, and kept in
+/// logical order: the paragraph is shaped and broken into lines in that order,
+/// and each line is put in visual order on its own afterwards
+/// ([`LogicalLine::into_visual`]).
+///
 /// # Errors
 ///
-/// Returns a `LayoutError` if bidi reordering fails.
-pub fn reorder_logical_items(
+/// Returns a `LayoutError` if the bidi analysis fails.
+pub fn split_into_bidi_runs(
     logical_items: &[LogicalItem],
     base_direction: BidiDirection,
     unicode_bidi: UnicodeBidi,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
-) -> Result<Vec<VisualItem>, LayoutError> {
+) -> Result<Vec<BidiRun>, LayoutError> {
     if let Some(msgs) = debug_messages {
         msgs.push(LayoutDebugMessage::info(
-            "\n--- Entering reorder_logical_items ---".to_string(),
+            "\n--- Entering split_into_bidi_runs ---".to_string(),
         ));
         msgs.push(LayoutDebugMessage::info(format!(
             "Input logical items count: {}",
@@ -444,7 +451,7 @@ pub fn reorder_logical_items(
     let mut bidi_str = String::new();
     let mut item_map = Vec::new();
     // Byte offset in `bidi_str` where each logical item's text begins, indexed
-    // by logical item index. Used to re-base each visual run's byte offset to be
+    // by logical item index. Used to re-base each bidi run's byte offset to be
     // relative to its own logical run (see `run_byte_offset`).
     let mut logical_item_starts = Vec::with_capacity(logical_items.len());
     for (idx, item) in logical_items.iter().enumerate() {
@@ -512,76 +519,39 @@ pub fn reorder_logical_items(
     };
     // +spec:writing-modes:15bf17 - bidi isolation handled by unicode_bidi UAX #9 implementation
     let bidi_info = BidiInfo::new(&bidi_str, bidi_level);
-    let para = &bidi_info.paragraphs[0];
-    let (levels, visual_runs) = bidi_info.visual_runs(para, para.range.clone());
+    // The level the bidi algorithm resolved for each byte, in logical order.
+    // Rule L1 and the reordering of rule L2 apply per line, so they wait
+    // until the paragraph is broken into lines (`LogicalLine::into_visual`).
+    let levels = &bidi_info.levels;
 
-    if let Some(msgs) = debug_messages {
-        msgs.push(LayoutDebugMessage::info(
-            "Bidi visual runs generated:".to_string(),
-        ));
-        for (i, run_range) in visual_runs.iter().enumerate() {
-            let level = levels[run_range.start].number();
-            let slice = &bidi_str[run_range.start..run_range.end];
-            msgs.push(LayoutDebugMessage::info(format!(
-                "  Run {i}: range={run_range:?}, level={level}, text='{slice}'"
-            )));
+    // One run per stretch of bytes at one level within one logical item. A
+    // level changes only at a character boundary, so does an item.
+    let mut bidi_runs = Vec::new();
+    let mut run_start = 0;
+    for end in 1..=bidi_str.len() {
+        if end < bidi_str.len()
+            && levels[end] == levels[run_start]
+            && item_map[end] == item_map[run_start]
+        {
+            continue;
         }
-    }
-
-    // TODO(text3-review): RTL glyph-level visual reversal is NOT applied.
-    // `visual_runs` orders the RUNS visually (left-to-right), but the loop below
-    // emits each run's content in LOGICAL byte order, and shaping/positioning then
-    // place clusters left-to-right in that logical order. For an RTL run this is
-    // wrong: the first logical character must land at the LARGEST visual x. The
-    // shaped clusters of each RTL run therefore need to be reversed (UBA rule L2,
-    // applied per run at the glyph level AFTER shaping — a single logical Text item
-    // shapes into multiple clusters, so it cannot be reversed here at the item
-    // level). This must compose with the run-level ordering already done here
-    // (naively re-running full L2 on top would double-reverse RTL-base paragraphs),
-    // and `UnifiedLayout::get_selection_rects` must additionally split a selection
-    // into one visual rect per directional segment. Deferred as a coherent
-    // cross-cutting change; see failing tests text3_brutal_shaping::
-    // {hebrew_run_is_rtl_reversed_and_33px_wide, bidi_mixed_run_is_80px_and_reverses_hebrew}
-    // and text3_brutal_selection::bidi_selection_over_rtl_run_splits_into_multiple_rects.
-    let mut visual_items = Vec::new();
-    for run_range in visual_runs {
-        let bidi_level = BidiLevel::new(levels[run_range.start].number());
-        let mut sub_run_start = run_range.start;
-
-        for i in (run_range.start + 1)..run_range.end {
-            if item_map[i] != item_map[sub_run_start] {
-                let logical_idx = item_map[sub_run_start];
-                let logical_item = &logical_items[logical_idx];
-                let text_slice = &bidi_str[sub_run_start..i];
-                visual_items.push(VisualItem {
-                    logical_source: logical_item.clone(),
-                    bidi_level,
-                    script: crate::text3::script::detect_script(text_slice)
-                        .unwrap_or(Script::Latin),
-                    text: text_slice.to_string(),
-                    run_byte_offset: sub_run_start - logical_item_starts[logical_idx],
-                });
-                sub_run_start = i;
-            }
-        }
-
-        let logical_idx = item_map[sub_run_start];
-        let logical_item = &logical_items[logical_idx];
-        let text_slice = &bidi_str[sub_run_start..run_range.end];
-        visual_items.push(VisualItem {
-            logical_source: logical_item.clone(),
-            bidi_level,
+        let logical_idx = item_map[run_start];
+        let text_slice = &bidi_str[run_start..end];
+        bidi_runs.push(BidiRun {
+            logical_source: logical_items[logical_idx].clone(),
+            bidi_level: BidiLevel::new(levels[run_start].number()),
             script: crate::text3::script::detect_script(text_slice).unwrap_or(Script::Latin),
             text: text_slice.to_string(),
-            run_byte_offset: sub_run_start - logical_item_starts[logical_idx],
+            run_byte_offset: run_start - logical_item_starts[logical_idx],
         });
+        run_start = end;
     }
 
     if let Some(msgs) = debug_messages {
         msgs.push(LayoutDebugMessage::info(
-            "Final visual items produced:".to_string(),
+            "Bidi runs produced, in logical order:".to_string(),
         ));
-        for (i, item) in visual_items.iter().enumerate() {
+        for (i, item) in bidi_runs.iter().enumerate() {
             msgs.push(LayoutDebugMessage::info(format!(
                 "  Item {}: level={}, text='{}'",
                 i,
@@ -590,140 +560,8 @@ pub fn reorder_logical_items(
             )));
         }
         msgs.push(LayoutDebugMessage::info(
-            "--- Exiting reorder_logical_items ---".to_string(),
+            "--- Exiting split_into_bidi_runs ---".to_string(),
         ));
     }
-    Ok(visual_items)
-}
-
-/// Unicode Bidi Algorithm rule L2, applied at the glyph/cluster level for one line.
-///
-/// `reorder_logical_items` already placed the level RUNS of the paragraph in
-/// visual order (rule L2 at the run level, via `unicode_bidi::visual_runs`), but
-/// left the clusters *within* each run in LOGICAL order. To finish L2 the clusters
-/// of every RTL (odd-level) run must be reversed so the run reads right-to-left.
-///
-/// We reverse each maximal contiguous run of clusters that share the same
-/// direction, flipping only the RTL ones. Re-running full L2 over the whole line
-/// instead would double-reverse the run order that is already correct. Grouping
-/// by direction is exact here: under implicit bidi (no explicit embedding
-/// controls, which azul does not inject) two runs of the same direction are never
-/// visually adjacent — a higher even level nests inside its odd parent and a lower
-/// level separates two same-parity runs — so a "same-direction" group is always a
-/// single real level run. An atomic inline (an `Object`, U+FFFC - a neutral)
-/// takes its direction from the clusters around it, rules N1 / N2: the
-/// direction of both neighbours where they agree, the paragraph's (`base`)
-/// otherwise and at the line's edges - so two inline-blocks of an RTL
-/// paragraph are reversed like its letters (Cerberus's `<td dir="rtl">`
-/// columns; they were run boundaries and stayed in logical order). Breaks and
-/// tabs act as run boundaries. Applied per line, so a wrapped RTL run reorders
-/// correctly per line - by both line positioners, the greedy one and the
-/// Knuth-Plass one of `text-wrap: balance`.
-pub(crate) fn apply_l2_visual_reversal(line_items: &mut [ShapedItem], base: BidiDirection) {
-    let cluster_dir = |it: &ShapedItem| it.as_cluster().map(|c| c.direction);
-    let directions: Vec<Option<BidiDirection>> = (0..line_items.len())
-        .map(|k| match &line_items[k] {
-            ShapedItem::Cluster(c) => Some(c.direction),
-            ShapedItem::Object { .. } => {
-                let before = line_items[..k].iter().rev().find_map(cluster_dir);
-                let after = line_items[k + 1..].iter().find_map(cluster_dir);
-                match (before.unwrap_or(base), after.unwrap_or(base)) {
-                    (b, a) if b == a => Some(b),
-                    _ => Some(base),
-                }
-            }
-            _ => None,
-        })
-        .collect();
-    let mut i = 0;
-    while i < line_items.len() {
-        let Some(dir) = directions[i] else {
-            i += 1;
-            continue;
-        };
-        let mut j = i + 1;
-        while j < line_items.len() && directions[j] == Some(dir) {
-            j += 1;
-        }
-        if dir == BidiDirection::Rtl {
-            line_items[i..j].reverse();
-        }
-        i = j;
-    }
-}
-
-pub(super) fn perform_bidi_analysis<'a>(
-    styled_runs: &'a [TextRunInfo<'_>],
-    full_text: &'a str,
-    force_lang: Option<Language>,
-) -> (Vec<VisualRun<'a>>, BidiDirection) {
-    if full_text.is_empty() {
-        return (Vec::new(), BidiDirection::Ltr);
-    }
-
-    let bidi_info = BidiInfo::new(full_text, None);
-    let para = &bidi_info.paragraphs[0];
-    let base_direction = if para.level.is_rtl() {
-        BidiDirection::Rtl
-    } else {
-        BidiDirection::Ltr
-    };
-
-    // Create a map from each byte index to its original styled run.
-    let mut byte_to_run_index: Vec<usize> = vec![0; full_text.len()];
-    for (run_idx, run) in styled_runs.iter().enumerate() {
-        let start = run.logical_start;
-        let end = start + run.text.len();
-        for slot in &mut byte_to_run_index[start..end] {
-            *slot = run_idx;
-        }
-    }
-
-    let mut final_visual_runs = Vec::new();
-    let (levels, visual_run_ranges) = bidi_info.visual_runs(para, para.range.clone());
-
-    for range in visual_run_ranges {
-        let bidi_level = levels[range.start];
-        let mut sub_run_start = range.start;
-
-        // Iterate through the bytes of the visual run to detect style changes.
-        for i in (range.start + 1)..range.end {
-            if byte_to_run_index[i] != byte_to_run_index[sub_run_start] {
-                // Style boundary found. Finalize the previous sub-run.
-                let original_run_idx = byte_to_run_index[sub_run_start];
-                let script = crate::text3::script::detect_script(&full_text[sub_run_start..i])
-                    .unwrap_or(Script::Latin);
-                final_visual_runs.push(VisualRun {
-                    text_slice: &full_text[sub_run_start..i],
-                    style: styled_runs[original_run_idx].style.clone(),
-                    logical_start_byte: sub_run_start,
-                    bidi_level: BidiLevel::new(bidi_level.number()),
-                    language: force_lang.unwrap_or_else(|| {
-                        script_to_language(script, &full_text[sub_run_start..i])
-                    }),
-                    script,
-                });
-                // Start a new sub-run.
-                sub_run_start = i;
-            }
-        }
-
-        // Add the last sub-run (or the only one if no style change occurred).
-        let original_run_idx = byte_to_run_index[sub_run_start];
-        let script = crate::text3::script::detect_script(&full_text[sub_run_start..range.end])
-            .unwrap_or(Script::Latin);
-
-        final_visual_runs.push(VisualRun {
-            text_slice: &full_text[sub_run_start..range.end],
-            style: styled_runs[original_run_idx].style.clone(),
-            logical_start_byte: sub_run_start,
-            bidi_level: BidiLevel::new(bidi_level.number()),
-            script,
-            language: force_lang.unwrap_or_else(|| {
-                script_to_language(script, &full_text[sub_run_start..range.end])
-            }),
-        });
-    }
-
-    (final_visual_runs, base_direction)
+    Ok(bidi_runs)
 }

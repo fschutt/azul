@@ -205,15 +205,6 @@ impl Glyph {
     }
 }
 
-// Information about text runs after initial analysis
-#[derive(Debug, Clone)]
-pub(crate) struct TextRunInfo<'a> {
-    pub(crate) text: &'a str,
-    pub(crate) style: Arc<StyleProperties>,
-    pub(crate) logical_start: usize,
-    pub(crate) content_index: usize,
-}
-
 #[derive(Debug, Clone)]
 pub enum ImageSource {
     /// Direct reference to decoded image (from DOM `NodeType::Image`)

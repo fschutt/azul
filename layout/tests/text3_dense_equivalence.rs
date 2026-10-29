@@ -14,8 +14,8 @@ use azul_layout::{
     parsed_font_to_font_ref,
     text3::{
         cache::{
-            create_logical_items, perform_fragment_layout, reorder_logical_items,
-            shape_visual_items, AvailableSpace, BidiDirection, BreakCursor, FontStack,
+            create_logical_items, perform_fragment_layout, split_into_bidi_runs,
+            shape_bidi_runs, AvailableSpace, BidiDirection, BreakCursor, FontStack,
             InlineBorderInfo, InlineContent, LoadedFonts, ShapedItem, StyleProperties, StyledRun,
             UnicodeBidi, UnifiedConstraints, UnifiedLayout,
         },
@@ -66,13 +66,13 @@ fn layout_of_content(
 ) -> (UnifiedLayout, Vec<InlineContent>, LoadedFonts<FontRef>) {
     let logical = create_logical_items(&content, &[], &mut None);
     let visual =
-        reorder_logical_items(&logical, BidiDirection::Ltr, UnicodeBidi::Normal, &mut None)
+        split_into_bidi_runs(&logical, BidiDirection::Ltr, UnicodeBidi::Normal, &mut None)
             .expect("bidi");
     let mut loaded: LoadedFonts<FontRef> = LoadedFonts::new();
     loaded.insert(FontId::new(), font_ref.clone());
     let chain: HashMap<_, FontFallbackChain> = HashMap::new();
     let fc = FcFontCache::default();
-    let shaped = shape_visual_items(&visual, &chain, &fc, &loaded, &mut None).expect("shape");
+    let shaped = shape_bidi_runs(&visual, &chain, &fc, &loaded, &mut None).expect("shape");
     let constraints = UnifiedConstraints {
         available_width: AvailableSpace::Definite(width),
         ..UnifiedConstraints::default()
@@ -590,13 +590,13 @@ fn override_segmented_run_offsets_are_item_relative_and_dense_text_correct() {
     let content = vec![styled(input, &font_ref, 0, None, |_| {})];
     let logical = create_logical_items(&content, &overrides, &mut None);
     let visual =
-        reorder_logical_items(&logical, BidiDirection::Ltr, UnicodeBidi::Normal, &mut None)
+        split_into_bidi_runs(&logical, BidiDirection::Ltr, UnicodeBidi::Normal, &mut None)
             .expect("bidi");
     let mut loaded: LoadedFonts<FontRef> = LoadedFonts::new();
     loaded.insert(FontId::new(), font_ref.clone());
     let chain: HashMap<_, FontFallbackChain> = HashMap::new();
     let fc = FcFontCache::default();
-    let shaped = shape_visual_items(&visual, &chain, &fc, &loaded, &mut None).expect("shape");
+    let shaped = shape_bidi_runs(&visual, &chain, &fc, &loaded, &mut None).expect("shape");
     let constraints = UnifiedConstraints {
         available_width: AvailableSpace::Definite(400.0),
         ..UnifiedConstraints::default()
