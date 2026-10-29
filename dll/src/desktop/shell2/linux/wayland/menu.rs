@@ -240,6 +240,29 @@ mod tests {
         }
     }
 
+    /// A menu that asks to open beside its item - a submenu - does on Wayland
+    /// too. Placed by "a rect means below it", every Wayland submenu opened
+    /// under its item, covering the items after it.
+    #[test]
+    fn a_submenu_opens_beside_its_item() {
+        use azul_layout::placement::AxisEnd;
+
+        let mut submenu = menu_of(&[Entry::Item]);
+        submenu.position = azul_core::menu::MenuPopupPosition::RightOfHitRect;
+        let item = LogicalRect::new(LogicalPosition::new(0.0, 94.0), LogicalSize::new(160.0, 22.0));
+        let beside = menu_popup_placement(&submenu, item.origin, Some(item));
+        assert_eq!(
+            (beside.x.anchor, beside.x.grow),
+            (AxisEnd::End, AxisEnd::End),
+            "right of its item"
+        );
+        assert_eq!(
+            (beside.y.anchor, beside.y.grow),
+            (AxisEnd::Start, AxisEnd::End),
+            "its top on the item's top"
+        );
+    }
+
     /// The size the positioner is told and the buffer that is attached must
     /// agree: 258.4 logical is 259 for both, never 258 for one and 259 for
     /// the other.

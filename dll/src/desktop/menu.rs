@@ -320,6 +320,49 @@ pub(crate) fn calculate_menu_position(
     menu_frame(&placement, menu_size).origin
 }
 
+/// Where a window-drawn menu goes once its content has been MEASURED, in the screen
+/// coordinates it was opened in: its frame by the rule it was opened with - flipped
+/// above its control when the real menu is taller than the room below, cut to the screen
+/// when it is taller than that. `show_menu` can only place a menu from an estimate of its
+/// size; the backend lays the menu out, then places it again through this, so the
+/// estimate never decides where a menu ends up. `None` when `ctx` is not a menu's.
+#[must_use]
+pub(crate) fn place_measured_menu(
+    ctx: &azul_core::refany::OptionRefAny,
+    measured: LogicalSize,
+) -> Option<LogicalRect> {
+    let azul_core::refany::OptionRefAny::Some(refany) = ctx else {
+        return None;
+    };
+    let mut probe = refany.clone();
+    let data = probe.downcast_ref::<MenuWindowData>()?;
+    Some(measured_menu_frame(&data, measured, &screen_rects()))
+}
+
+/// [`place_measured_menu`] for a menu's data, against an explicit list of screens.
+fn measured_menu_frame(
+    data: &MenuWindowData,
+    measured: LogicalSize,
+    screens: &[ScreenRects],
+) -> LogicalRect {
+    let placement = data.placement();
+    let estimate = crate::desktop::menu_renderer::MenuMetrics::from_system_style(
+        &data.system_style,
+    )
+    .estimate_menu_size(&data.menu);
+    let at = frame_among(&placement, estimate, screens).origin;
+    let Some(wa) = screen_for_anchor(placement.anchor, screens) else {
+        return LogicalRect::new(at, measured);
+    };
+    LogicalRect::new(
+        LogicalPosition::new(
+            at.x.min(wa.origin.x + wa.size.width - measured.width).max(wa.origin.x),
+            at.y.min(wa.origin.y + wa.size.height - measured.height).max(wa.origin.y),
+        ),
+        measured,
+    )
+}
+
 /// Layout callback for menu windows
 extern "C" fn menu_layout_callback(_data: RefAny, info: LayoutCallbackInfo) -> azul_core::dom::Dom {
     // The menu's `MenuWindowData` is carried in the layout callback's `ctx` (set by
@@ -674,6 +717,52 @@ mod placement_tests {
             LogicalSize::new(200.0, 150.0),
         );
         assert_eq!((pos.x, pos.y), (1500.0, 100.0));
+    }
+
+    /// A menu is placed once from an ESTIMATE of its size and again once it has
+    /// been laid out. Placed again by its rule, a menu that turned out taller
+    /// than the room below its control opens above the control. Only slid back
+    /// onto the screen from where the estimate had put it, it covered the
+    /// control that opened it.
+    #[test]
+    fn a_menu_measured_taller_than_its_estimate_opens_above_its_control() {
+        let screen = ScreenRects {
+            bounds: work_area(),
+            work_area: work_area(),
+        };
+        let data = MenuWindowData {
+            menu: Menu {
+                items: azul_core::menu::MenuItemVec::from_vec(vec![
+                    azul_core::menu::MenuItem::String(azul_core::menu::StringMenuItem::create(
+                        "Open".to_string().into(),
+                    )),
+                ]),
+                position: MenuPopupPosition::AutoHitRect,
+                context_mouse_btn: azul_core::window::ContextMenuMouseButton::Right,
+            },
+            system_style: Arc::new(azul_css::system::defaults::kde_breeze_light()),
+            parent_window_position: LogicalPosition::zero(),
+            trigger_rect: Some(LogicalRect::new(
+                LogicalPosition::new(100.0, 900.0),
+                LogicalSize::new(120.0, 30.0),
+            )),
+            cursor_position: None,
+            parent_menu_id: None,
+            menu_window_id: None,
+            child_menu_ids: Arc::new(std::sync::Mutex::new(Vec::new())),
+            open_submenu: Arc::new(std::sync::Mutex::new(None)),
+            picks: MenuPicks::default(),
+        };
+        let frame = measured_menu_frame(&data, LogicalSize::new(180.0, 300.0), &[screen]);
+        assert_eq!(
+            (frame.origin.x, frame.origin.y),
+            (100.0, 600.0),
+            "300 tall does not fit below the control (930..1080) but does above it"
+        );
+        assert!(
+            frame.origin.y + frame.size.height <= 900.0,
+            "the menu must not cover the control at 900..930: {frame:?}"
+        );
     }
 }
 
