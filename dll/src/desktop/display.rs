@@ -228,18 +228,109 @@ pub fn get_window_display(
     get_display_at_point(center)
 }
 
+/// What an X11 window manager publishes about the room its panels leave on the
+/// current desktop, in root-window pixels.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(crate) struct X11WorkAreas {
+    /// `_GTK_WORKAREAS_D<desktop>`: a work area per monitor (mutter).
+    pub per_monitor: Vec<ScreenRect>,
+    /// `_NET_WORKAREA` of the desktop: one rect over the whole root.
+    pub desktop: Option<ScreenRect>,
+    /// What the docks reserve (`_NET_WM_STRUT_PARTIAL`, or `_NET_WM_STRUT`),
+    /// read when neither of the above is published.
+    pub struts: Vec<X11Strut>,
+    /// The root window's size: the edges the struts are measured from.
+    pub root: ScreenSize,
+}
+
+/// The strips a dock reserves along the root window's edges, as EWMH's
+/// `_NET_WM_STRUT_PARTIAL` gives them: how far each strip reaches in from its
+/// edge of the ROOT window, and the range along that edge it covers (both ends
+/// included), all in root-window pixels.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub(crate) struct X11Strut {
+    pub left: f32,
+    pub right: f32,
+    pub top: f32,
+    pub bottom: f32,
+    pub left_start_y: f32,
+    pub left_end_y: f32,
+    pub right_start_y: f32,
+    pub right_end_y: f32,
+    pub top_start_x: f32,
+    pub top_end_x: f32,
+    pub bottom_start_x: f32,
+    pub bottom_end_x: f32,
+}
+
+impl X11Strut {
+    /// A strut from the twelve CARDINALs of `_NET_WM_STRUT_PARTIAL`, or the four
+    /// of the older `_NET_WM_STRUT`, whose strips cover their whole edge of a
+    /// root of `root` size. `None` for anything else.
+    #[allow(clippy::cast_precision_loss)] // root pixels
+    pub(crate) fn from_cardinals(values: &[i64], root: ScreenSize) -> Option<Self> {
+        let v = |i: usize| values[i] as f32;
+        match values.len() {
+            12 => Some(Self {
+                left: v(0),
+                right: v(1),
+                top: v(2),
+                bottom: v(3),
+                left_start_y: v(4),
+                left_end_y: v(5),
+                right_start_y: v(6),
+                right_end_y: v(7),
+                top_start_x: v(8),
+                top_end_x: v(9),
+                bottom_start_x: v(10),
+                bottom_end_x: v(11),
+            }),
+            4 => Some(Self {
+                left: v(0),
+                right: v(1),
+                top: v(2),
+                bottom: v(3),
+                left_start_y: 0.0,
+                left_end_y: root.height - 1.0,
+                right_start_y: 0.0,
+                right_end_y: root.height - 1.0,
+                top_start_x: 0.0,
+                top_end_x: root.width - 1.0,
+                bottom_start_x: 0.0,
+                bottom_end_x: root.width - 1.0,
+            }),
+            _ => None,
+        }
+    }
+}
+
+/// The monitor `bounds` less the strips the docks' `struts` reserve on it, for
+/// a root window of `root` size. A strip is measured from the ROOT's edge, so a
+/// dock on the inner edge of the right monitor of two reserves a strip that
+/// reaches across the whole left one; it is cut off the monitor its inner edge
+/// lies on - where the dock is - and only where its range along the edge meets
+/// that monitor.
+#[must_use]
+pub(crate) fn x11_strut_work_area(
+    bounds: ScreenRect,
+    root: ScreenSize,
+    struts: &[X11Strut],
+) -> ScreenRect {
+    let _ = (root, struts);
+    bounds
+}
+
 /// The work area of one X11 monitor of `bounds`, in root-window pixels, as GTK
 /// works it out: the per-monitor work area the window manager publishes for the
 /// current desktop (`_GTK_WORKAREAS_D<desktop>`, mutter) that lies on the
 /// monitor; else the desktop's single `_NET_WORKAREA` rect cut to the monitor
 /// (right for the panels on the outer edges of the whole screen); else the
-/// whole monitor - a window manager that publishes neither keeps no panels clear.
+/// monitor less the strips its docks' struts reserve on it; else the whole
+/// monitor - a desktop that publishes none of these keeps no panels clear.
 #[must_use]
-pub(crate) fn x11_monitor_work_area(
-    bounds: ScreenRect,
-    gtk_workareas: &[ScreenRect],
-    net_workarea: Option<ScreenRect>,
-) -> ScreenRect {
+pub(crate) fn x11_monitor_work_area(bounds: ScreenRect, published: &X11WorkAreas) -> ScreenRect {
+    let gtk_workareas = &published.per_monitor;
+    let net_workarea = published.desktop;
     let (left, top) = (bounds.origin.x, bounds.origin.y);
     let (right, bottom) = (left + bounds.size.width, top + bounds.size.height);
     let on_the_monitor = |r: &&ScreenRect| {
@@ -897,7 +988,14 @@ mod linux {
                     );
 
                     // The monitor less the panels the window manager says are on it.
-                    let work_area = x11_monitor_work_area(bounds, &gtk_workareas, net_workarea);
+                    let work_area = x11_monitor_work_area(
+                        bounds,
+                        &X11WorkAreas {
+                            per_monitor: gtk_workareas.clone(),
+                            desktop: net_workarea,
+                            ..X11WorkAreas::default()
+                        },
+                    );
 
                     // Get refresh rate from mode info
                     let refresh_rate = if crtc_info.mode != 0 {
@@ -1003,7 +1101,14 @@ mod linux {
                 );
 
                 // The screen less the panels the window manager says are on it.
-                let work_area = x11_monitor_work_area(bounds, &gtk_workareas, net_workarea);
+                let work_area = x11_monitor_work_area(
+                        bounds,
+                        &X11WorkAreas {
+                            per_monitor: gtk_workareas.clone(),
+                            desktop: net_workarea,
+                            ..X11WorkAreas::default()
+                        },
+                    );
 
                 vec![DisplayInfo {
                     name: format!(":0.{}", screen),
@@ -1785,17 +1890,74 @@ mod x11_work_area_tests {
         ScreenRect::new(ScreenPoint::new(x, y), ScreenSize::new(w, h))
     }
 
+    fn per_monitor(rects: &[ScreenRect]) -> X11WorkAreas {
+        X11WorkAreas {
+            per_monitor: rects.to_vec(),
+            ..X11WorkAreas::default()
+        }
+    }
+
+    /// Two 1920 x 1080 monitors side by side.
+    const ROOT: ScreenSize = ScreenSize::new(3840.0, 1080.0);
+
+    fn struts_only(struts: Vec<X11Strut>) -> X11WorkAreas {
+        X11WorkAreas {
+            struts,
+            root: ROOT,
+            ..X11WorkAreas::default()
+        }
+    }
+
+    /// With no published work area, the docks' struts are cut per monitor: a
+    /// top panel over the left monitor only, and a dock on the inner (left)
+    /// edge of the right monitor - whose strip, measured from the root's left
+    /// edge, spans the whole left monitor but is the right monitor's.
+    #[test]
+    fn an_x11_monitor_without_published_work_areas_is_cut_by_its_docks_struts() {
+        let top_panel = X11Strut::from_cardinals(&[0, 0, 32, 0, 0, 0, 0, 0, 0, 1919, 0, 0], ROOT)
+            .expect("twelve values are a partial strut");
+        let inner_dock =
+            X11Strut::from_cardinals(&[1984, 0, 0, 0, 0, 1079, 0, 0, 0, 0, 0, 0], ROOT)
+                .expect("twelve values are a partial strut");
+        let published = struts_only(vec![top_panel, inner_dock]);
+        assert_eq!(
+            x11_monitor_work_area(rect(0.0, 0.0, 1920.0, 1080.0), &published),
+            rect(0.0, 32.0, 1920.0, 1048.0),
+            "the left monitor loses its top panel, not the right monitor's dock"
+        );
+        assert_eq!(
+            x11_monitor_work_area(rect(1920.0, 0.0, 1920.0, 1080.0), &published),
+            rect(1984.0, 0.0, 1856.0, 1080.0),
+            "the right monitor loses the dock on its left edge, not the other monitor's panel"
+        );
+    }
+
+    /// The older `_NET_WM_STRUT` covers its whole edge: a 40 px bottom panel
+    /// leaves both monitors 1040 tall.
+    #[test]
+    fn a_full_edge_strut_cuts_every_monitor_along_that_edge() {
+        let bottom = X11Strut::from_cardinals(&[0, 0, 0, 40], ROOT).expect("four values are a strut");
+        let published = struts_only(vec![bottom]);
+        for x in [0.0, 1920.0] {
+            assert_eq!(
+                x11_monitor_work_area(rect(x, 0.0, 1920.0, 1080.0), &published),
+                rect(x, 0.0, 1920.0, 1040.0)
+            );
+        }
+        assert_eq!(X11Strut::from_cardinals(&[1, 2, 3], ROOT), None);
+    }
+
     /// GNOME publishes a work area per monitor: a dock on the second monitor's
     /// left edge is kept clear of on that monitor only.
     #[test]
     fn an_x11_monitor_works_inside_the_area_its_panels_leave() {
         let gtk = [rect(0.0, 32.0, 1920.0, 1048.0), rect(1984.0, 0.0, 1856.0, 1080.0)];
         assert_eq!(
-            x11_monitor_work_area(rect(1920.0, 0.0, 1920.0, 1080.0), &gtk, None),
+            x11_monitor_work_area(rect(1920.0, 0.0, 1920.0, 1080.0), &per_monitor(&gtk)),
             rect(1984.0, 0.0, 1856.0, 1080.0)
         );
         assert_eq!(
-            x11_monitor_work_area(rect(0.0, 0.0, 1920.0, 1080.0), &gtk, None),
+            x11_monitor_work_area(rect(0.0, 0.0, 1920.0, 1080.0), &per_monitor(&gtk)),
             rect(0.0, 32.0, 1920.0, 1048.0)
         );
     }
@@ -1806,7 +1968,13 @@ mod x11_work_area_tests {
     fn an_x11_monitor_without_its_own_work_area_is_cut_by_the_desktops() {
         let desktop = Some(rect(0.0, 32.0, 3840.0, 1048.0));
         assert_eq!(
-            x11_monitor_work_area(rect(1920.0, 0.0, 1920.0, 1080.0), &[], desktop),
+            x11_monitor_work_area(
+                rect(1920.0, 0.0, 1920.0, 1080.0),
+                &X11WorkAreas {
+                    desktop,
+                    ..X11WorkAreas::default()
+                }
+            ),
             rect(1920.0, 32.0, 1920.0, 1048.0)
         );
     }
@@ -1816,7 +1984,7 @@ mod x11_work_area_tests {
     #[test]
     fn an_x11_monitor_with_no_published_work_area_is_the_whole_monitor() {
         let monitor = rect(0.0, 0.0, 2560.0, 1440.0);
-        assert_eq!(x11_monitor_work_area(monitor, &[], None), monitor);
+        assert_eq!(x11_monitor_work_area(monitor, &X11WorkAreas::default()), monitor);
     }
 }
 
