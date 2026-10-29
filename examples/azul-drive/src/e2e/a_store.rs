@@ -17,8 +17,9 @@ use crate::{DriveState, Popup};
 
 /// What the previous release's base did not have yet: the fields added since, each with a
 /// default an older base reads as (`#[serde(default)]`).
-const NEWER_BASE_FIELDS: &[&str] = &["root_id", "restore_epoch", "volume", "kept", "guard", "remote_etag"];
-const NEWER_ENTRY_FIELDS: &[&str] = &["ctime_ns", "ino", "dev"];
+const NEWER_BASE_FIELDS: &[&str] =
+    &["root_id", "restore_epoch", "volume", "kept", "guard", "remote_etag", "folders"];
+const NEWER_ENTRY_FIELDS: &[&str] = &["ctime_ns", "ino", "dev", "link"];
 const NEWER_STATES_FIELDS: &[&str] = &["freed", "newer_format", "burst", "mass_delete", "skipped", "last_problem"];
 
 fn state_dir_of(args: &Args) -> Result<std::path::PathBuf, String> {
