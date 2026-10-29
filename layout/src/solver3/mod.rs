@@ -243,11 +243,11 @@ pub struct LayoutContext<'a, T: ParsedFontTrait> {
     /// When Some, layout respects page boundaries and generates one `DisplayList` per page
     pub fragmentation_context: Option<&'a mut crate::paged::FragmentationContext>,
     /// Per-pass record: layout-tree indices of IFC roots whose LINE LAYOUT
-    /// was recomputed this pass (`layout_flow` ran — `GlyphSwap` reuse does
-    /// NOT count). The DL-patching invalidation signal: a re-flowed IFC's
+    /// was recomputed this pass (its lines were laid out — a reuse of the
+    /// cached layout does NOT count). The DL-patching invalidation signal: a re-flowed IFC's
     /// text items changed shape and must re-emit; everything else can be
     /// copied+translated. Drained into the patch machinery by
-    /// `layout_document`; empty on GlyphSwap-only passes.
+    /// `layout_document`; empty on passes that only reuse cached layouts.
     pub reflowed_ifcs: std::collections::BTreeSet<usize>,
     /// Whether the text cursor should be drawn (managed by `CursorManager` blink timer)
     /// When false, the cursor is in the "off" phase of blinking and should not be rendered.

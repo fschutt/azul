@@ -171,32 +171,6 @@ pub enum DirtyFlag {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
 pub struct SubtreeHash(pub u64);
 
-/// Per-item metrics cached from the last IFC layout.
-///
-/// These metrics enable incremental IFC relayout (Phase 2 optimization):
-/// when a single inline item changes, we can check whether its advance width
-/// changed and potentially skip full line-breaking for unaffected lines.
-///
-/// Index in `CachedInlineLayout::item_metrics` matches the item order in
-/// `UnifiedLayout::items`.
-#[derive(Copy, Debug, Clone)]
-pub struct InlineItemMetrics {
-    /// The DOM `NodeId` of the source node for this item (for dirty checking).
-    /// `None` for generated content (list markers, hyphens, etc.)
-    pub source_node_id: Option<NodeId>,
-    /// Advance width of this item (glyph run width, inline-block width, etc.)
-    pub advance_width: f32,
-    /// Advance height contribution from this item to its line box.
-    pub line_height_contribution: f32,
-    /// Whether this item can participate in line breaking.
-    /// `false` for items inside `white-space: nowrap` or `white-space: pre`.
-    pub can_break: bool,
-    /// Which line this item was placed on (0-indexed).
-    pub line_index: u32,
-    /// X offset within its line.
-    pub x_offset: f32,
-}
-
 /// Cached inline layout result with the constraints used to compute it.
 ///
 /// This structure solves a fundamental architectural problem: inline layouts
@@ -296,25 +270,13 @@ pub struct CachedInlineLayout {
     /// re-derive these on EVERY paint of every IFC (the run-grouping walk was
     /// the bulk of `dl_inline_text`'s 6.8 ms/resize on big.md); computing them
     /// once alongside the layout makes every later paint a lookup. Rides
-    /// `GlyphSwap` reuse for free — a reused layout is a reused run list.
+    /// the cache reuse for free — a reused layout is a reused run list.
     ///
     /// (#25) Stored COMPACT — 8 B/glyph instead of the 20 B `GlyphInstance`
     /// (y and size are per-run-uniform in the simple-run contract; deviants
     /// ride the exception table). Paint expands into the same offset Vec it
     /// always built; `AZ_DENSE_TEXT=verify` roundtrip-gates the encoding.
     pub glyph_runs: Arc<Vec<crate::text3::glyphs::CompactGlyphRun>>,
-    /// Per-item metrics for incremental IFC relayout (Phase 2).
-    ///
-    /// Each entry corresponds to one `PositionedItem` in `layout.items`.
-    /// These metrics enable the IFC relayout decision tree:
-    /// - Check if a dirty node's `advance_width` changed → skip repositioning if not
-    /// - Use `can_break` + `line_index` for the nowrap fast path
-    /// - Use `x_offset` for shifting subsequent items without full line-breaking
-    pub item_metrics: Vec<InlineItemMetrics>,
-    /// Cached line break boundaries for incremental relayout.
-    /// Enables checking if a width change fits on the same line without
-    /// re-running the full line-breaking algorithm.
-    pub line_breaks: Option<crate::text3::cache::CachedLineBreaks>,
     /// §3.2 step (d5): the ONE cache-stable Arc the display list carries
     /// as its `TextLayout` payload. `TextPayload{dense,sparse}` when the
     /// dense view is retained, else the `layout` Arc itself (identical
@@ -485,63 +447,6 @@ fn compute_glyph_runs_with_mode(
     (ours, Some(Arc::new(dense)))
 }
 
-/// §3.2 step (d2): per-item metrics FROM the dense view. Returns None
-/// unless the layout was PURE clusters (`dense.clusters.len()` must
-/// equal `layout.items.len()` — the dense builder silently skips
-/// objects/tabs/breaks/combined blocks, and `item_metrics` is
-/// index-aligned with ALL items, so a shorter vec would silently
-/// misalign the incremental-relayout decision tree).
-///
-/// Field-for-field vs the sparse extraction (the d2 gate pins this):
-/// `advance_width` = ClusterCompact.advance (BASE advance == bounds().width
-/// since the d2 redefinition), `line_height_contribution` = the run's
-/// resolved line height (== ascent+descent by the half-leading identity),
-/// `can_break` = true (clusters are never `ShapedItem::Break`), `line_index` =
-/// `LineRecord.source_index`, `x_offset` = ClusterCompact.x.
-fn extract_item_metrics_dense(
-    dense: &crate::text3::dense::DenseText,
-    item_count: usize,
-) -> Option<Vec<InlineItemMetrics>> {
-    if dense.clusters.len() != item_count {
-        return None;
-    }
-    let mut out = Vec::with_capacity(dense.clusters.len());
-    let mut line_iter = dense.lines.iter().peekable();
-    for (ci, run) in dense
-        .runs
-        .iter()
-        .flat_map(|r| (r.clusters.start..r.clusters.end).map(move |i| (i, r)))
-    {
-        let c = &dense.clusters[ci as usize];
-        while let Some(l) = line_iter.peek() {
-            if ci >= l.clusters.1 {
-                line_iter.next();
-            } else {
-                break;
-            }
-        }
-        let line_index = line_iter.peek().map_or(0, |l| l.source_index);
-        let m = &run.font_metrics;
-        let lh = if m.units_per_em == 0 {
-            0.0
-        } else {
-            run.style
-                .line_height
-                .resolve_with_metrics(run.style.font_size_px, m)
-        };
-        out.push(InlineItemMetrics {
-            source_node_id: (run.source_node != u32::MAX)
-                .then(|| NodeId::new(run.source_node as usize)),
-            advance_width: c.advance,
-            line_height_contribution: lh,
-            can_break: true,
-            line_index,
-            x_offset: c.x,
-        });
-    }
-    Some(out)
-}
-
 impl CachedInlineLayout {
     /// Creates a new cached inline layout.
     #[must_use]
@@ -552,7 +457,6 @@ impl CachedInlineLayout {
     ) -> Self {
         let (runs, dense) = compute_glyph_runs(&layout);
         let glyph_runs = Arc::new(compact_glyph_runs(runs));
-        let item_metrics = Self::choose_item_metrics(&layout, dense.as_deref());
         let (layout, overflow) = Self::retire_sparse(layout, dense.as_deref());
         // Payload built from the STORED form — under the retirement the
         // sparse half is the sentinel and consumers expand from dense.
@@ -565,8 +469,6 @@ impl CachedInlineLayout {
             constraints: None,
             payload,
             glyph_runs,
-            item_metrics,
-            line_breaks: None,
             dense,
             inline_content_hash: 0,
         }
@@ -580,17 +482,8 @@ impl CachedInlineLayout {
         has_floats: bool,
         constraints: UnifiedConstraints,
     ) -> Self {
-        let available_width_px = match available_width {
-            AvailableSpace::Definite(w) => w,
-            _ => f32::MAX,
-        };
-        let line_breaks = Some(crate::text3::cache::extract_line_breaks(
-            &layout.items,
-            available_width_px,
-        ));
         let (runs, dense) = compute_glyph_runs(&layout);
         let glyph_runs = Arc::new(compact_glyph_runs(runs));
-        let item_metrics = Self::choose_item_metrics(&layout, dense.as_deref());
         let (layout, overflow) = Self::retire_sparse(layout, dense.as_deref());
         // Payload built from the STORED form — under the retirement the
         // sparse half is the sentinel and consumers expand from dense.
@@ -603,8 +496,6 @@ impl CachedInlineLayout {
             constraints: Some(constraints),
             payload,
             glyph_runs,
-            item_metrics,
-            line_breaks,
             dense,
             inline_content_hash: 0,
         }
@@ -634,7 +525,7 @@ impl CachedInlineLayout {
     /// layout whose dense view is retained stores a SHARED EMPTY
     /// sentinel in `layout` — the per-item sparse retention (the
     /// campaign's ~192 B/cluster target) drops here. The real overflow
-    /// info is captured first (the incremental guard reads it).
+    /// info is captured first (`materialized` reads it).
     /// `verify` mode (2) retains BOTH so every dense-first arm keeps
     /// A/B-asserting; flag-off (0) is byte-for-byte unchanged.
     fn retire_sparse(
@@ -675,89 +566,6 @@ impl CachedInlineLayout {
             let shared: Arc<dyn std::any::Any + Send + Sync> = layout.clone();
             shared
         }
-    }
-
-    /// (d2) Metrics source selection: dense when retained AND the layout
-    /// is pure clusters; sparse otherwise. Under `AZ_DENSE_TEXT=verify` the
-    /// dense result is A/B-asserted against the sparse extraction.
-    fn choose_item_metrics(
-        layout: &UnifiedLayout,
-        dense: Option<&crate::text3::dense::DenseText>,
-    ) -> Vec<InlineItemMetrics> {
-        let Some(d) = dense else {
-            return Self::extract_item_metrics(layout);
-        };
-        let Some(from_dense) = extract_item_metrics_dense(d, layout.items.len()) else {
-            return Self::extract_item_metrics(layout);
-        };
-        let verify = env_flag!("AZ_DENSE_TEXT" == "verify");
-        if verify {
-            let reference = Self::extract_item_metrics(layout);
-            assert_eq!(
-                reference.len(),
-                from_dense.len(),
-                "d2 verify: metrics count"
-            );
-            for (i, (r, o)) in reference.iter().zip(from_dense.iter()).enumerate() {
-                assert!(
-                    r.source_node_id == o.source_node_id
-                        && (r.advance_width - o.advance_width).abs() < 0.01
-                        && (r.line_height_contribution - o.line_height_contribution).abs() < 0.01
-                        && r.can_break == o.can_break
-                        && r.line_index == o.line_index
-                        && (r.x_offset - o.x_offset).abs() < 0.01,
-                    "d2 verify: metrics @{i} diverged (ref {r:?} vs dense {o:?})"
-                );
-            }
-        }
-        from_dense
-    }
-
-    /// Extracts per-item metrics from a computed `UnifiedLayout`.
-    ///
-    /// This is called automatically by the constructors. The metrics
-    /// enable incremental IFC relayout in Phase 2c/2d by providing
-    /// cached advance widths, line assignments, and break information
-    /// for each positioned item.
-    #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
-    fn extract_item_metrics(layout: &UnifiedLayout) -> Vec<InlineItemMetrics> {
-        use crate::text3::cache::{get_item_vertical_metrics_approx, ShapedItem};
-
-        layout
-            .items
-            .iter()
-            .map(|positioned_item| {
-                let bounds = positioned_item.item.bounds();
-                let (ascent, descent) = get_item_vertical_metrics_approx(&positioned_item.item);
-
-                let source_node_id = match &positioned_item.item {
-                    ShapedItem::Cluster(c) => c.source_node_id,
-                    // Objects (inline-blocks, images) and other generated items
-                    // don't expose source_node_id directly on ShapedItem.
-                    // Phase 2c will refine this via the ContentIndex mapping.
-                    ShapedItem::Object { .. }
-                    | ShapedItem::CombinedBlock { .. }
-                    | ShapedItem::Tab { .. }
-                    | ShapedItem::Break { .. } => None,
-                };
-
-                // For Phase 2a, default can_break = true for all items.
-                // Phase 2c will refine this by checking the white-space property
-                // on the IFC root's style or the item's own style context.
-                // (Note: text3::StyleProperties doesn't carry white-space;
-                //  that's resolved at the IFC/BFC boundary level.)
-                let can_break = !matches!(&positioned_item.item, ShapedItem::Break { .. });
-
-                InlineItemMetrics {
-                    source_node_id,
-                    advance_width: bounds.width,
-                    line_height_contribution: ascent + descent,
-                    can_break,
-                    line_index: positioned_item.line_index as u32,
-                    x_offset: positioned_item.position.x,
-                }
-            })
-            .collect()
     }
 
     /// Checks if this cached layout is valid for the given constraints.
@@ -1530,7 +1338,7 @@ pub struct LayoutTreeMemoryReport {
     pub distinct_glyph_style_arcs: usize,
     /// Paint-run cache (`CachedInlineLayout::glyph_runs`): heap bytes of the
     /// retained `Vec<SimpleGlyphRun>` lists, each distinct Arc counted once
-    /// (`GlyphSwap` reuse shares them). This is the store-time derivation that
+    /// (a reused layout shares them). This is the store-time derivation that
     /// makes every paint a lookup — the retained cost of that trade.
     pub glyph_run_bytes: usize,
     /// Distinct `SimpleGlyphRun`s behind `glyph_run_bytes`.
@@ -1681,12 +1489,6 @@ impl LayoutTree {
                         + c.shape_exclusions.capacity()
                             * size_of::<crate::text3::cache::ShapeBoundary>();
                 }
-                // Cached line breaks (edit fast-path).
-                if let Some(lb) = &cached.line_breaks {
-                    report.warm_inline_layout_bytes += lb.line_ranges.capacity()
-                        * size_of::<(usize, usize)>()
-                        + lb.line_widths.capacity() * size_of::<f32>();
-                }
                 // The payload Arc: when it is a TextPayload wrapper, that
                 // allocation holds two Arc CLONES of buffers counted
                 // elsewhere — only its own header is new bytes. When it is
@@ -1695,7 +1497,7 @@ impl LayoutTree {
                     report.warm_inline_layout_bytes += size_of::<TextPayload>();
                 }
                 // Paint-run cache — its own report line (see the field doc).
-                // Distinct Arcs only: GlyphSwap reuse clones the Arc.
+                // Distinct Arcs only: a reused layout clones the Arc.
                 if run_arcs.insert(Arc::as_ptr(&cached.glyph_runs).cast::<u8>() as usize) {
                     report.glyph_run_bytes += cached.glyph_runs.capacity()
                         * size_of::<crate::text3::glyphs::CompactGlyphRun>();
@@ -1711,8 +1513,6 @@ impl LayoutTree {
                 report.warm_inline_layout_bytes += size_of::<UnifiedLayout>();
                 report.warm_inline_layout_bytes += cached.layout.items.capacity()
                     * size_of::<crate::text3::cache::PositionedItem>();
-                report.warm_inline_layout_bytes +=
-                    cached.item_metrics.capacity() * size_of::<InlineItemMetrics>();
                 // (d1): the retained dense view, when AZ_DENSE_TEXT keeps it.
                 // Counted per-field so the sparse-vs-dense split is honest
                 // during the reader migration (both alive = the transitional
@@ -5675,9 +5475,9 @@ mod autotest_generated {
         solver3::geometry::{EdgeSizes, PackedBoxProps},
         text3::{
             cache::{
-                BidiDirection, BreakType, ClearType, ClusterFlags, GlyphKind, GraphemeClusterId,
-                InlineBreak, LayoutFontMetrics, OverflowInfo, Point, PositionedItem, Rect,
-                ShapedCluster, ShapedGlyph, ShapedItem, StyleProperties,
+                BidiDirection, ClusterFlags, GlyphKind, GraphemeClusterId, LayoutFontMetrics,
+                OverflowInfo, Point, PositionedItem, Rect, ShapedCluster, ShapedGlyph, ShapedItem,
+                StyleProperties,
             },
             script::Script,
         },
@@ -5862,24 +5662,6 @@ mod autotest_generated {
         }
     }
 
-    fn break_item(line_index: usize) -> PositionedItem {
-        PositionedItem {
-            item: ShapedItem::Break {
-                source: ContentIndex {
-                    run_index: 0,
-                    item_index: 0,
-                },
-                break_info: InlineBreak {
-                    break_type: BreakType::Hard,
-                    clear: ClearType::None,
-                    content_index: 0,
-                },
-            },
-            position: Point { x: 0.0, y: 0.0 },
-            line_index,
-        }
-    }
-
     fn hot(parent: Option<usize>) -> LayoutNodeHot {
         LayoutNodeHot {
             box_props: PackedBoxProps::default(),
@@ -5999,14 +5781,9 @@ mod autotest_generated {
         assert_eq!(c.available_width, AvailableSpace::Definite(123.5));
         assert!(c.has_floats);
         assert!(c.constraints.is_none(), "new() carries no constraints");
-        assert!(c.line_breaks.is_none(), "new() computes no line breaks");
         assert_eq!(
             c.inline_content_hash, 0,
             "0 = unknown ⇒ never fast-path-reuse"
-        );
-        assert!(
-            c.item_metrics.is_empty(),
-            "an empty layout has no item metrics"
         );
     }
 
@@ -6024,95 +5801,12 @@ mod autotest_generated {
             AvailableSpace::MaxContent,
         ] {
             let c = CachedInlineLayout::new(empty_layout(), w, false);
-            assert!(c.item_metrics.is_empty());
             assert!(c.layout.items.is_empty());
         }
     }
 
     #[test]
-    fn extract_item_metrics_mirrors_every_positioned_item() {
-        let layout = layout_of(vec![
-            tab_item(12.0, 20.0, 5.0, 3),
-            tab_item(0.0, 0.0, 0.0, 0),
-        ]);
-        let m = CachedInlineLayout::extract_item_metrics(&layout);
-        assert_eq!(m.len(), 2, "one metric entry per PositionedItem, in order");
-
-        assert_eq!(m[0].advance_width, 12.0);
-        assert_eq!(m[0].x_offset, 5.0);
-        assert_eq!(m[0].line_index, 3);
-        assert!(m[0].can_break, "a Tab is breakable");
-        assert!(
-            m[0].source_node_id.is_none(),
-            "non-Cluster items expose no source_node_id"
-        );
-        // Tab metrics are the fallback ascent/descent split of the item height.
-        assert!(
-            (m[0].line_height_contribution - 20.0).abs() < 1e-3,
-            "ascent+descent should reconstruct the height, got {}",
-            m[0].line_height_contribution
-        );
-
-        assert_eq!(m[1].advance_width, 0.0);
-        assert_eq!(m[1].line_index, 0);
-    }
-
-    #[test]
-    fn extract_item_metrics_marks_break_items_as_unbreakable_and_zero_sized() {
-        let layout = layout_of(vec![break_item(7)]);
-        let m = CachedInlineLayout::extract_item_metrics(&layout);
-        assert_eq!(m.len(), 1);
-        assert!(
-            !m[0].can_break,
-            "ShapedItem::Break is the one non-breakable item"
-        );
-        assert_eq!(m[0].advance_width, 0.0, "a break has no visual geometry");
-        assert_eq!(m[0].line_height_contribution, 0.0);
-        assert_eq!(m[0].line_index, 7);
-    }
-
-    #[test]
-    fn extract_item_metrics_on_an_empty_layout_is_empty_not_a_panic() {
-        assert!(CachedInlineLayout::extract_item_metrics(&empty_layout()).is_empty());
-    }
-
-    #[test]
-    fn extract_item_metrics_does_not_choke_on_non_finite_item_bounds() {
-        let layout = layout_of(vec![
-            tab_item(
-                f32::INFINITY,
-                f32::NAN,
-                f32::NEG_INFINITY,
-                u32::MAX as usize,
-            ),
-            tab_item(f32::MAX, f32::MAX, f32::MIN, 0),
-        ]);
-        let m = CachedInlineLayout::extract_item_metrics(&layout);
-        assert_eq!(m.len(), 2);
-        assert!(m[0].advance_width.is_infinite());
-        assert!(
-            m[0].line_height_contribution.is_nan(),
-            "NaN in, NaN out — but no panic"
-        );
-        assert_eq!(m[1].advance_width, f32::MAX);
-    }
-
-    #[test]
-    fn extract_item_metrics_truncates_a_huge_line_index_into_u32() {
-        // `line_index` is a usize on PositionedItem but a u32 in the metrics —
-        // the cast is `as`, so it wraps rather than panicking.
-        let huge = (u32::MAX as usize) + 5;
-        let m = CachedInlineLayout::extract_item_metrics(&layout_of(vec![tab_item(
-            1.0, 1.0, 0.0, huge,
-        )]));
-        assert_eq!(
-            m[0].line_index, 4,
-            "wrapping `as u32` truncation, not a panic"
-        );
-    }
-
-    #[test]
-    fn cached_inline_layout_new_with_constraints_records_constraints_and_line_breaks() {
+    fn cached_inline_layout_new_with_constraints_records_its_constraints() {
         let arc = layout_of(vec![tab_item(10.0, 20.0, 0.0, 0)]);
         let c = CachedInlineLayout::new_with_constraints(
             Arc::clone(&arc),
@@ -6121,15 +5815,11 @@ mod autotest_generated {
             UnifiedConstraints::default(),
         );
         assert!(c.constraints.is_some());
-        let lb = c
-            .line_breaks
-            .expect("new_with_constraints computes line breaks");
-        assert_eq!(lb.available_width, 200.0);
-        assert_eq!(c.item_metrics.len(), 1);
+        assert_eq!(c.available_width, AvailableSpace::Definite(200.0));
     }
 
     #[test]
-    fn new_with_constraints_treats_indefinite_widths_as_f32_max() {
+    fn new_with_constraints_keeps_an_indefinite_width_as_its_key() {
         for w in [AvailableSpace::MinContent, AvailableSpace::MaxContent] {
             let c = CachedInlineLayout::new_with_constraints(
                 empty_layout(),
@@ -6137,16 +5827,7 @@ mod autotest_generated {
                 false,
                 UnifiedConstraints::default(),
             );
-            let lb = c.line_breaks.expect("line breaks");
-            assert_eq!(
-                lb.available_width,
-                f32::MAX,
-                "indefinite width collapses to f32::MAX for break extraction"
-            );
-            assert_eq!(
-                c.available_width, w,
-                "but the cache key keeps the real variant"
-            );
+            assert_eq!(c.available_width, w, "the cache key keeps the real variant");
         }
     }
 
@@ -7019,8 +6700,8 @@ mod autotest_generated {
             size_of::<CompactGlyphRun>(),
         );
 
-        // Arc-dedup law: a second node SHARING the same run list (GlyphSwap
-        // reuse clones the Arc) must add ZERO bytes and ZERO counts.
+        // Arc-dedup law: a second node SHARING the same run list (a reused
+        // layout clones the Arc) must add ZERO bytes and ZERO counts.
         let shared = tree.warm[0]
             .inline_layout_result
             .as_ref()

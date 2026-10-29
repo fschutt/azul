@@ -769,11 +769,10 @@ pub(super) fn layout_ifc<T: ParsedFontTrait>(
         return Ok(LayoutOutput::default());
     }
 
-    // === Phase 2d: IFC incremental relayout decision tree ===
+    // === Phase 2d: reuse of the cached layout ===
     //
-    // Check if a cached layout exists with matching constraints. If so,
-    // try incremental relayout (GlyphSwap or LineShift) before falling
-    // back to the full layout.
+    // A cached layout of the same content at the same width is this pass's
+    // layout; anything else falls through to the full layout.
     {
         // A measure (a min- or max-content width) is answered from the slot
         // its earlier measures filled, a definite width from the final
@@ -840,66 +839,44 @@ pub(super) fn layout_ifc<T: ParsedFontTrait>(
         };
 
         if let Some(cached) = cached_ifc {
-            if cached.line_breaks.is_none() {
-                drop(crate::probe::Probe::span("ifc_reflow_no_linebreaks"));
-            }
-            if let Some(ref line_breaks) = cached.line_breaks {
-                // Collect per-item advance widths from cached metrics
-                let old_advances: Vec<f32> = cached
-                    .item_metrics
-                    .iter()
-                    .map(|m| m.advance_width)
-                    .collect();
-
-                // Cache-reuse fast path: the IFC is re-entered with its
-                // content unchanged (e.g. viewport resize on a static IFC);
-                // with nothing re-shaped, no item changed at this level →
-                // trivial GlyphSwap to return the cached layout unchanged.
-                let result = text3::cache::try_incremental_relayout(
-                    &[], // empty = no dirty items detected at this level
-                    &old_advances,
-                    &old_advances, // same advances since we haven't reshaped yet
-                    line_breaks,
+            // Only a layout this function made (it keeps its constraints)
+            // is reused as it is: one another pass moved afterwards (a
+            // table cell's `vertical-align` shift) is laid out again.
+            if cached.constraints.is_none() {
+                drop(crate::probe::Probe::span("ifc_reflow_no_constraints"));
+            } else {
+                // The content and the width are unchanged: the cached layout
+                // is this pass's.
+                debug_info!(ctx, "[layout_ifc] Phase 2d: reusing the cached layout");
+                // (d6h) Materialized: the stored layout may be the
+                // retirement sentinel; measuring it raw zeroed the
+                // reuse path's overflow_size (scrollbars vanished on
+                // every reuse).
+                let main_frag = cached.materialized();
+                // This exit REPLAYS what the full path writes, from the
+                // one `finish_inline_layout`: the extent with
+                // its text-box-trim, the baseline the box's sizing and
+                // alignment read, and the inline-block children's
+                // positions. The children's sizes are assumed to be in
+                // the tree already: a carried `inline_layout_result` (a
+                // clone's, and a matched anonymous block's since
+                // `try_reuse_anon_wrapper` carries layout state) can reach
+                // this exit in a new tree, and the assumption still holds
+                // there: the collection above is only reused while
+                // `atomic_inline_children_are_laid_out` says the atomic
+                // children it places have sizes (carried by their own
+                // clones), and a re-collection lays them out.
+                let output = finish_inline_layout(
+                    &main_frag,
+                    &text3_constraints,
+                    ctx.styled_dom,
+                    ifc_root_dom_id,
+                    &child_map,
                 );
-
-                if matches!(result, text3::cache::IncrementalRelayoutResult::GlyphSwap) {
-                    // No items changed — return cached layout directly
-                    debug_info!(
-                        ctx,
-                        "[layout_ifc] Phase 2d: GlyphSwap — reusing cached layout"
-                    );
-                    // (d6h) Materialized: the stored layout may be the
-                    // retirement sentinel; measuring it raw zeroed the
-                    // reuse path's overflow_size (scrollbars vanished on
-                    // every GlyphSwap reuse).
-                    let main_frag = cached.materialized();
-                    // This exit REPLAYS what the full path writes, from the
-                    // one `finish_inline_layout`: the extent with
-                    // its text-box-trim, the baseline the box's sizing and
-                    // alignment read, and the inline-block children's
-                    // positions. The children's sizes are assumed to be in
-                    // the tree already: a carried `inline_layout_result` (a
-                    // clone's, and a matched anonymous block's since
-                    // `try_reuse_anon_wrapper` carries layout state) can reach
-                    // this exit in a new tree, and the assumption still holds
-                    // there: the collection above is only reused while
-                    // `atomic_inline_children_are_laid_out` says the atomic
-                    // children it places have sizes (carried by their own
-                    // clones), and a re-collection lays them out.
-                    let output = finish_inline_layout(
-                        &main_frag,
-                        &text3_constraints,
-                        ctx.styled_dom,
-                        ifc_root_dom_id,
-                        &child_map,
-                    );
-                    if let Some(warm_node) = tree.warm_mut(LayoutNodeId::new(node_index)) {
-                        warm_node.baseline = output.baseline;
-                    }
-                    return Ok(output);
+                if let Some(warm_node) = tree.warm_mut(LayoutNodeId::new(node_index)) {
+                    warm_node.baseline = output.baseline;
                 }
-                // Fall through to the full layout
-                drop(crate::probe::Probe::span("ifc_reflow_incr_declined"));
+                return Ok(output);
             }
         }
     }
