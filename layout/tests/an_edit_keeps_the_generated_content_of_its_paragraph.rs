@@ -172,3 +172,16 @@ fn typing_behind_a_span_goes_into_the_text_behind_it() {
     );
     assert_laid_out_as(&lw, &span_window("ab", "cd", "zef"));
 }
+
+#[test]
+fn typing_into_a_paragraph_holding_only_generated_content_keeps_the_letter() {
+    // No text node: the first keystroke seeds the paragraph's first run.
+    let mut lw = window_of(
+        Dom::create_div()
+            .with_class("p".into())
+            .with_css("width: 300px; font-size: 20px;"),
+    );
+    type_at(&mut lw, caret(0, 0, CursorAffinity::Leading), "z");
+    assert_eq!(text_of(&lw), "z", "the letter is typed in, not into the ::before");
+    assert_laid_out_as_fresh(&lw, "z");
+}
