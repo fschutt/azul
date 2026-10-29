@@ -2590,15 +2590,18 @@ mod autotest_generated {
     }
 
     #[test]
-    fn dom_preserves_adversarial_labels_verbatim() {
+    fn dom_holds_adversarial_labels_as_the_input_rule_reads_them() {
         for s in adversarial_strings() {
+            // The DOM holds a text as the input rule reads it (NUL, controls and U+FFFE /
+            // U+FFFF as U+FFFD, CR LF as LF); nothing else of the label may change.
+            let ruled = azul_css::input_chars::normalize_input_text(&s);
             let dom = Chip::create(AzString::from(s.clone()))
                 .with_removable(true)
                 .dom();
             let label = &dom.children.as_ref()[0];
             let t = text_of(label).expect("the label must be a text node");
-            assert_eq!(t, s.as_str(), "the label changed on its way into the DOM");
-            assert_eq!(t.len(), s.len(), "byte length changed (NUL truncation?)");
+            assert_eq!(t, &*ruled, "the label changed on its way into the DOM");
+            assert_eq!(t.len(), ruled.len(), "byte length changed (NUL truncation?)");
             assert!(dom.root.has_class("__azul-native-chip"));
 
             // A label that *is* the remove glyph must not be confusable with the x:

@@ -847,7 +847,8 @@ mod autotest_generated {
         assert_eq!(got, case, "labels must survive byte-for-byte");
         assert_eq!(bc.labels.as_ref()[9].as_str().len(), 100_000);
 
-        // …and they must survive the trip through the DOM unchanged.
+        // …and they must survive the trip through the DOM as the input rule reads them
+        // (the NUL is U+FFFD there, as in every text; nothing else changes).
         let dom = bc.dom();
         let texts: Vec<&str> = dom
             .children
@@ -857,7 +858,11 @@ mod autotest_generated {
             .filter(|(i, _)| i % 2 == 0) // crumbs sit at even positions
             .filter_map(|(_, c)| text_of(c))
             .collect();
-        assert_eq!(texts, case);
+        let ruled: Vec<String> = case
+            .iter()
+            .map(|s| azul_css::input_chars::normalize_input_text(s).into_owned())
+            .collect();
+        assert_eq!(texts, ruled);
     }
 
     #[test]

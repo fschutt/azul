@@ -791,7 +791,7 @@ mod autotest_generated {
     }
 
     #[test]
-    fn create_stores_pathological_titles_byte_for_byte() {
+    fn create_stores_pathological_titles_and_renders_them_as_the_input_rule_reads_them() {
         for t in ADVERSARIAL_TEXT {
             let f = frame(t, Dom::create_div());
             assert_eq!(
@@ -805,11 +805,12 @@ mod autotest_generated {
                 "the byte length of the title changed (NUL truncation or re-encoding?)",
             );
 
-            // ... and it survives the trip into the rendered DOM.
+            // ... and it survives the trip into the rendered DOM, as the input rule reads
+            // it there (the NUL is U+FFFD, as in every text; nothing else changes).
             let dom = f.dom();
             assert_eq!(
                 text_of(title_node(&dom)),
-                Some(t),
+                Some(&*azul_css::input_chars::normalize_input_text(t)),
                 "the title was corrupted on the way into the DOM",
             );
         }

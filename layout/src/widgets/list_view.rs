@@ -1427,7 +1427,8 @@ mod autotest_generated {
 
     /// Column names are opaque payload: empty strings, interior NULs, astral /
     /// ZWJ / RTL / combining sequences and very long strings must survive the
-    /// builder *and* the DOM build byte-for-byte.
+    /// builder byte-for-byte, and the DOM build as the input rule reads them (a
+    /// NUL is U+FFFD in a text node, as in every text; nothing else changes).
     #[test]
     fn columns_round_trip_unicode_and_pathological_strings() {
         let names: Vec<String> = vec![
@@ -1459,7 +1460,10 @@ mod autotest_generated {
         for (col, want) in hdr.iter().zip(names.iter()) {
             let text = col.children.as_ref();
             assert_eq!(text.len(), 1, "each header cell holds one text node");
-            assert_eq!(text_of(&text[0]), want.as_str());
+            assert_eq!(
+                text_of(&text[0]),
+                &*azul_css::input_chars::normalize_input_text(want)
+            );
         }
     }
 

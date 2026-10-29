@@ -4950,7 +4950,7 @@ mod autotest_generated {
     // ==================================================================
 
     #[test]
-    fn extract_text_from_node_round_trips_the_exact_string() {
+    fn extract_text_from_node_round_trips_the_string_as_the_input_rule_reads_it() {
         for needle in [
             "hello world",
             " \n\t",
@@ -4958,10 +4958,12 @@ mod autotest_generated {
             "line1\nline2\r\n\u{0}nul",
         ] {
             let dom = text_dom(needle);
+            // The DOM holds a text as the input rule reads it (CR LF as LF, NUL as
+            // U+FFFD); nothing else of it may change.
             assert_eq!(
                 extract_text_from_node(&dom, NodeId::new(2)).as_deref(),
-                Some(needle),
-                "text must survive the DOM round-trip byte for byte"
+                Some(&*azul_css::input_chars::normalize_input_text(needle)),
+                "text must survive the DOM round-trip as the input rule reads it"
             );
         }
     }

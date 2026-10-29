@@ -3217,8 +3217,11 @@ mod autotest_generated {
     }
 
     #[test]
-    fn dom_preserves_adversarial_labels_verbatim() {
+    fn dom_holds_adversarial_labels_as_the_input_rule_reads_them() {
         for s in adversarial_strings() {
+            // The DOM holds a text as the input rule reads it (NUL, controls and U+FFFE /
+            // U+FFFF as U+FFFD, CR LF as LF); nothing else of the caption may change.
+            let ruled = azul_css::input_chars::normalize_input_text(&s);
             let dom = Stepper::create(labels(&[s.as_str(), "other"])).dom();
             let children = dom.children.as_ref();
             assert_eq!(children.len(), 2);
@@ -3227,12 +3230,12 @@ mod autotest_generated {
                     NodeType::Text(t) => {
                         assert_eq!(
                             t.as_ref().as_str(),
-                            s.as_str(),
+                            &*ruled,
                             "the caption changed inside dom()"
                         );
                         assert_eq!(
                             t.as_ref().len(),
-                            s.len(),
+                            ruled.len(),
                             "byte length changed (NUL truncation?)"
                         );
                     }

@@ -3619,20 +3619,24 @@ mod autotest_generated {
     }
 
     #[test]
-    fn dom_passes_hostile_text_and_placeholder_through_unchanged() {
+    fn dom_passes_hostile_text_and_placeholder_through_as_the_input_rule_reads_them() {
         for s in HOSTILE {
+            // The label is a text node and the placeholder a text attribute, so both hold
+            // the text as the input rule reads it (NUL as U+FFFD, CR LF as LF); nothing
+            // else of it may change.
+            let ruled = azul_css::input_chars::normalize_input_text(s);
             let dom = TextInput::create()
                 .with_text(s.into())
                 .with_placeholder(s.into())
                 .dom();
             assert_eq!(
                 text_of(&dom.children.as_ref()[LABEL_CHILD]),
-                s,
+                ruled,
                 "label mangled {s:?}"
             );
             assert_eq!(
                 dom.children.as_ref()[LABEL_CHILD].root.get_placeholder(),
-                Some(s),
+                Some(&*ruled),
                 "placeholder mangled {s:?}",
             );
         }

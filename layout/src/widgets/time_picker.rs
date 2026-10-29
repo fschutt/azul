@@ -2992,10 +2992,11 @@ mod autotest_generated {
     }
 
     #[test]
-    fn build_spinner_preserves_every_kind_of_value_string_byte_for_byte() {
+    fn build_spinner_shows_every_kind_of_value_string_as_the_input_rule_reads_it() {
         // The value is host-supplied text in the general case, so it must survive
         // empty, NUL-bearing, astral-plane, combining, RTL and very long inputs
-        // without being trimmed, escaped or re-encoded.
+        // without being trimmed, escaped or re-encoded; only the input rule every
+        // text node holds its text by may change a character (a NUL is U+FFFD).
         let long = "9".repeat(4096);
         let values: Vec<String> = vec![
             String::new(),
@@ -3015,8 +3016,8 @@ mod autotest_generated {
             let shown = text_of(&dom.children.as_ref()[1]);
             assert_eq!(
                 shown.as_deref(),
-                Some(v.as_str()),
-                "the spinner value was not preserved verbatim ({} bytes)",
+                Some(&*azul_css::input_chars::normalize_input_text(&v)),
+                "the spinner value was not shown as the input rule reads it ({} bytes)",
                 v.len(),
             );
         }

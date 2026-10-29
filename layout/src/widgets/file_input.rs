@@ -1434,9 +1434,11 @@ mod autotest_generated {
     fn dom_labels_the_button_with_the_file_name() {
         for (path, expected) in file_name_cases() {
             let dom = FileInput::create(opt(&path)).dom();
+            // The label is a text node, so it holds the file name as the input rule reads
+            // it (a NUL is U+FFFD); nothing else of the name may change.
             assert_eq!(
                 rendered_label(&dom),
-                expected,
+                azul_css::input_chars::normalize_input_text(&expected),
                 "dom() mislabelled the button for path {path:?}",
             );
         }
@@ -1463,18 +1465,21 @@ mod autotest_generated {
     }
 
     #[test]
-    fn dom_renders_a_custom_default_text_verbatim_when_there_is_no_file_name() {
+    fn dom_renders_a_custom_default_text_by_the_input_rule_when_there_is_no_file_name() {
         for s in adversarial_strings() {
+            // The label is a text node, so it holds the text as the input rule reads it
+            // (NUL as U+FFFD, CR LF as LF); nothing else of it may change.
+            let ruled = azul_css::input_chars::normalize_input_text(&s);
             let fi = FileInput::create(None.into()).with_default_text(s.as_str().into());
             assert_eq!(
                 rendered_label(&fi.dom()),
-                s,
+                ruled,
                 "custom default text {s:?} was altered"
             );
 
             // ...and the same for a path that has no file-name component.
             let fi = FileInput::create(opt("/")).with_default_text(s.as_str().into());
-            assert_eq!(rendered_label(&fi.dom()), s);
+            assert_eq!(rendered_label(&fi.dom()), ruled);
         }
     }
 

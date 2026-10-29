@@ -2217,7 +2217,7 @@ mod autotest_generated {
     }
 
     #[test]
-    fn dom_labels_survive_the_round_trip_unchanged() {
+    fn dom_labels_survive_the_round_trip_as_the_input_rule_reads_them() {
         let labels = pathological_labels();
         let mut root = leaf("root").with_expanded(true);
         for l in &labels {
@@ -2232,8 +2232,16 @@ mod autotest_generated {
             .iter()
             .map(|r| text_of(row_parts(r).1).expect("label text node"))
             .collect();
-        let expected: Vec<&str> = labels.iter().map(String::as_str).collect();
-        assert_eq!(rendered, expected, "labels must survive byte-for-byte");
+        // A label is a text node, so it holds its text as the input rule reads it (NUL,
+        // controls and U+FFFE / U+FFFF as U+FFFD, CR LF as LF); nothing else may change.
+        let expected: Vec<String> = labels
+            .iter()
+            .map(|l| azul_css::input_chars::normalize_input_text(l).into_owned())
+            .collect();
+        assert_eq!(
+            rendered, expected,
+            "labels must survive as the input rule reads them"
+        );
     }
 
     #[test]

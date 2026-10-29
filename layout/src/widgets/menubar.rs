@@ -804,7 +804,7 @@ mod autotest_generated {
     }
 
     #[test]
-    fn build_menubar_dom_preserves_pathological_labels_byte_for_byte() {
+    fn build_menubar_dom_holds_pathological_labels_as_the_input_rule_reads_them() {
         let huge = "x".repeat(100_000);
         let cases = vec![
             "",
@@ -825,9 +825,15 @@ mod autotest_generated {
         let bar = build_menubar_dom(&m);
 
         let labels: Vec<&str> = bar.children.as_ref().iter().map(rendered_label).collect();
+        // A label is a text node, so it holds its text as the input rule reads it (NUL as
+        // U+FFFD, CR as LF); nothing else of it may change.
+        let ruled: Vec<String> = cases
+            .iter()
+            .map(|c| azul_css::input_chars::normalize_input_text(c).into_owned())
+            .collect();
         assert_eq!(
-            labels, cases,
-            "labels must round-trip into the DOM verbatim"
+            labels, ruled,
+            "labels must round-trip into the DOM as the input rule reads them"
         );
         assert_eq!(
             labels[cases.len() - 1].len(),
@@ -1092,8 +1098,8 @@ mod autotest_generated {
             assert_eq!(classes_of(&dom), vec![MENUBAR_ITEM_CLASS.to_string()]);
             assert_eq!(
                 rendered_label(&dom),
-                label,
-                "the label must survive verbatim"
+                &*azul_css::input_chars::normalize_input_text(label),
+                "the label must survive as the input rule reads it (a NUL is U+FFFD)"
             );
             // The item, its label <p>, and the text leaf inside it. This was 1
             // when the item held a BARE text node; every widget label is a <p>

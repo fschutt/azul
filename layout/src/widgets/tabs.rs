@@ -3011,7 +3011,8 @@ mod autotest_generated {
     #[test]
     fn create_round_trips_pathological_labels_through_the_dom() {
         // The label is only ever cloned into a `NodeType::Text`, never parsed,
-        // trimmed or NUL-terminated — so every byte must survive verbatim.
+        // trimmed or NUL-terminated — so it must survive as the input rule reads
+        // every text (NUL as U+FFFD, CR LF as LF), and nothing else may change.
         let long = "\u{e9}".repeat(50_000);
         let pathological: Vec<String> = vec![
             String::new(),
@@ -3038,7 +3039,7 @@ mod autotest_generated {
         for (i, expected) in pathological.iter().enumerate() {
             assert_eq!(
                 text_of(&children[i + 1]),
-                Some(expected.as_str()),
+                Some(&*azul_css::input_chars::normalize_input_text(expected)),
                 "label {i} did not round-trip through the DOM"
             );
         }

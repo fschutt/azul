@@ -2137,13 +2137,15 @@ mod autotest_generated {
     }
 
     #[test]
-    fn dom_round_trips_every_sample_string_into_the_label() {
+    fn dom_renders_every_sample_string_into_the_label_as_the_input_rule_reads_it() {
         for s in ROUND_TRIP {
+            // The label is a text node, so it holds the text as the input rule reads it
+            // (NUL as U+FFFD, CR LF as LF); nothing else of it may change.
             let dom = TextArea::create().with_text(AzString::from(s)).dom();
             assert_eq!(
                 text_of(&dom.children.as_ref()[0]),
-                Some(s),
-                "the label must render {s:?} verbatim"
+                Some(&*azul_css::input_chars::normalize_input_text(s)),
+                "the label must render {s:?} as the input rule reads it"
             );
         }
     }

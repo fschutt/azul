@@ -1139,10 +1139,12 @@ mod autotest_generated {
             ));
             dd.selected = idx;
             let dom = dd.dom();
+            // The text node holds the label as the input rule reads it (the NUL is
+            // U+FFFD, as in every text); nothing else of it may change.
             assert_eq!(
                 label_of(&dom),
-                original.as_str(),
-                "label {idx} must reach the text node byte-for-byte",
+                &*azul_css::input_chars::normalize_input_text(original.as_str()),
+                "label {idx} must reach the text node as the input rule reads it",
             );
         }
     }

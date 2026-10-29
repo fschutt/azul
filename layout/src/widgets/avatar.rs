@@ -1076,18 +1076,25 @@ mod autotest_generated {
     }
 
     #[test]
-    fn dom_preserves_adversarial_initials_verbatim() {
+    fn dom_holds_adversarial_initials_as_the_input_rule_reads_them() {
         let long = "\u{1F600}".repeat(10_000); // 40 000 bytes of emoji
         for s in ["", "\0", "e\u{0301}", "\u{5E9}\u{5DC}", long.as_str()] {
+            // The DOM holds a text as the input rule reads it (the NUL is U+FFFD);
+            // nothing else of the initials may change.
+            let ruled = azul_css::input_chars::normalize_input_text(s);
             let dom = Avatar::create(AzString::from(s.to_string())).dom();
             let child = only_child(&dom);
             match child.children.as_ref() {
                 [only] => match only.root.get_node_type() {
                     NodeType::Text(t) => {
-                        assert_eq!(t.as_ref().as_str(), s, "text node mangled the initials");
+                        assert_eq!(
+                            t.as_ref().as_str(),
+                            &*ruled,
+                            "text node mangled the initials"
+                        );
                         assert_eq!(
                             t.as_ref().len(),
-                            s.len(),
+                            ruled.len(),
                             "text node changed the byte length"
                         );
                     }

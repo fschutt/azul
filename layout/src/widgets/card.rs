@@ -566,12 +566,15 @@ mod autotest_generated {
     }
 
     #[test]
-    fn create_stores_pathological_content_verbatim() {
+    fn create_stores_pathological_content_as_the_input_rule_reads_it() {
         for t in ADVERSARIAL_TEXT {
+            // A text node holds its text as the input rule reads it (the NUL is U+FFFD);
+            // the card must change nothing else of it.
+            let ruled = azul_css::input_chars::normalize_input_text(t);
             let c = Card::create(Dom::create_text_do_not_use_without_block_level_wrapper(t));
             assert_eq!(
                 text_of(&c.content),
-                Some(t),
+                Some(&*ruled),
                 "the card mangled or normalised its text content",
             );
 
@@ -580,7 +583,7 @@ mod autotest_generated {
             let child = &dom.children.as_ref()[0];
             assert_eq!(
                 text_of(child),
-                Some(t),
+                Some(&*ruled),
                 "the text was corrupted on the way into the DOM"
             );
         }

@@ -2242,12 +2242,16 @@ mod autotest_generated {
             let combo = ComboBox::new(StringVec::from_vec(items.clone()));
             assert_eq!(combo.combo_state.items.as_ref(), items.as_slice());
 
-            // ...and every option survives the trip through the DOM byte-for-byte
+            // ...and every option survives the trip through the DOM as the input rule reads
+            // it (the NUL is U+FFFD there, as in every text; nothing else changes)
             let dom = combo.dom();
             let (_, list) = parts(&dom);
             assert_eq!(list.children.as_ref().len(), items.len());
             for (i, item) in items.iter().enumerate() {
-                assert_eq!(text_of(&list.children.as_ref()[i]), Some(item.as_str()));
+                assert_eq!(
+                    text_of(&list.children.as_ref()[i]),
+                    Some(&*azul_css::input_chars::normalize_input_text(item.as_str()))
+                );
             }
         }
     }

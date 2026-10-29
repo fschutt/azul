@@ -1125,14 +1125,16 @@ mod autotest_generated {
     }
 
     #[test]
-    fn dom_preserves_adversarial_text_byte_for_byte() {
+    fn dom_holds_adversarial_text_as_the_input_rule_reads_it() {
         for s in adversarial_texts() {
             let dom = Tooltip::new(Dom::create_div(), AzString::from(s.clone())).dom();
             let tip = &dom.children.as_ref()[1];
+            // A text node holds its text as the input rule reads it (NUL, controls and
+            // U+FFFE / U+FFFF as U+FFFD, CR LF as LF); nothing else may change.
             assert_eq!(
                 text_of(tip),
-                Some(s.as_str()),
-                "the tip text must survive the DOM build unchanged"
+                Some(&*azul_css::input_chars::normalize_input_text(&s)),
+                "the tip text must survive the DOM build as the input rule reads it"
             );
         }
     }

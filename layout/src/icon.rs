@@ -2011,9 +2011,10 @@ mod autotest_generated {
     }
 
     #[test]
-    fn font_icon_hostile_unicode_round_trips_verbatim() {
+    fn font_icon_hostile_unicode_round_trips_as_the_input_rule_reads_it() {
         // ZWJ emoji sequence, RTL override, combining marks, an embedded NUL and a
-        // lone PUA codepoint: none may be normalised, truncated or panicked on.
+        // lone PUA codepoint: none may be truncated or panicked on, and only the input
+        // rule may change a character (the NUL is U+FFFD, as in every text).
         for s in [
             "\u{1F469}\u{200D}\u{1F469}\u{200D}\u{1F467}\u{200D}\u{1F466}",
             "\u{202E}gnippilf\u{202C}",
@@ -2029,7 +2030,7 @@ mod autotest_generated {
             );
             assert_eq!(
                 text_of(&out).as_deref(),
-                Some(s),
+                Some(&*azul_css::input_chars::normalize_input_text(s)),
                 "icon_char {s:?} was altered"
             );
         }

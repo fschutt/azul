@@ -1593,12 +1593,17 @@ mod autotest_generated {
         assert_eq!(got, case, "options must survive byte-for-byte");
         assert_eq!(rg.options.as_ref()[7].as_str().len(), 100_000);
 
-        // … and they must survive the trip through the DOM unchanged.
+        // … and they must survive the trip through the DOM as the input rule reads them
+        // (the NUL is U+FFFD there, as in every text; nothing else changes).
         let dom = rg.dom();
         let texts: Vec<&str> = (0..case.len())
             .filter_map(|i| text_of(label_of(&dom, i)))
             .collect();
-        assert_eq!(texts, case, "a label was mangled on its way into the DOM");
+        let ruled: Vec<String> = case
+            .iter()
+            .map(|s| azul_css::input_chars::normalize_input_text(s).into_owned())
+            .collect();
+        assert_eq!(texts, ruled, "a label was mangled on its way into the DOM");
     }
 
     #[test]

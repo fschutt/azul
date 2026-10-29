@@ -2003,7 +2003,8 @@ mod autotest_generated {
             let toast = Toast::create(message.clone());
             assert_eq!(toast.message.as_str(), message.as_str());
 
-            // the message must survive the trip through the DOM byte-for-byte
+            // the message must survive the trip through the DOM as the input rule reads it
+            // (the NUL is U+FFFD there, as in every text; nothing else changes)
             let dom = toast.dom();
             let children = dom.children.as_ref();
             assert_eq!(
@@ -2011,7 +2012,10 @@ mod autotest_generated {
                 2,
                 "message content must never change the child count"
             );
-            assert_eq!(text_of(&children[0]), Some(message.as_str()));
+            assert_eq!(
+                text_of(&children[0]),
+                Some(&*azul_css::input_chars::normalize_input_text(message.as_str()))
+            );
             // a "×" in the *message* must not be mistaken for the close button
             assert!(
                 children[0].root.has_class("__azul-native-toast-message"),

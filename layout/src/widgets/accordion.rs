@@ -1346,11 +1346,15 @@ mod autotest_generated {
             assert_eq!(sec.title.as_str(), title.as_str());
             assert!(!sec.is_open);
 
-            // and the title survives the trip through the DOM unchanged
+            // and the title survives the trip through the DOM as the input rule reads it
+            // (the NUL is U+FFFD there, as in every text; nothing else changes)
             let dom = Accordion::new(AccordionSectionVec::from_vec(alloc::vec![sec])).dom();
             let (header, _) = section_parts(&dom, 0);
             let title_node = &header.children.as_ref()[0];
-            assert_eq!(text_of(title_node), Some(title.as_str()));
+            assert_eq!(
+                text_of(title_node),
+                Some(&*azul_css::input_chars::normalize_input_text(title.as_str()))
+            );
         }
     }
 

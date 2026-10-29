@@ -3528,13 +3528,15 @@ mod autotest_generated {
     }
 
     #[test]
-    fn dom_carries_pathological_titles_into_the_text_node_verbatim() {
+    fn dom_carries_pathological_titles_into_the_text_node_as_the_input_rule_reads_them() {
         for title in ADVERSARIAL_TITLES {
             let dom = tb(title).dom();
             let text = &title_node(&dom).children.as_ref()[0];
+            // A text node holds its text as the input rule reads it (a NUL is U+FFFD);
+            // nothing else of the title may change.
             assert_eq!(
                 text_of(text),
-                Some(title),
+                Some(&*azul_css::input_chars::normalize_input_text(title)),
                 "the title was mangled on the way in"
             );
             // Even an empty title still gets a text node, so the drag target exists.
@@ -3901,12 +3903,15 @@ mod autotest_generated {
     }
 
     #[test]
-    fn dom_with_buttons_carries_pathological_titles_verbatim() {
+    fn dom_with_buttons_carries_pathological_titles_as_the_input_rule_reads_them() {
         for title in ADVERSARIAL_TITLES {
             let dom =
                 tb(title).dom_with_buttons(&TitlebarButtons::default(), TitlebarButtonSide::Left);
             let text = &title_node(&dom).children.as_ref()[0];
-            assert_eq!(text_of(text), Some(title));
+            assert_eq!(
+                text_of(text),
+                Some(&*azul_css::input_chars::normalize_input_text(title))
+            );
         }
     }
 

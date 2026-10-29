@@ -2401,8 +2401,11 @@ mod autotest_generated {
     }
 
     #[test]
-    fn dom_preserves_adversarial_labels_verbatim() {
+    fn dom_holds_adversarial_labels_as_the_input_rule_reads_them() {
         for label in adversarial_labels() {
+            // The DOM holds a text as the input rule reads it (NUL, controls and U+FFFE /
+            // U+FFFF as U+FFFD, CR LF as LF); nothing else of the label may change.
+            let ruled = azul_css::input_chars::normalize_input_text(&label);
             let dom = btn(&label, ButtonType::Default).dom();
             let children = dom.children.as_ref();
             assert_eq!(children.len(), 1);
@@ -2410,13 +2413,13 @@ mod autotest_generated {
                 p_label_of(&children[0]).expect("the label child is not a <p>-wrapped text node");
             assert_eq!(
                 text,
-                label.as_str(),
+                &*ruled,
                 "a {}-byte label was mangled",
                 label.len()
             );
             assert_eq!(
                 text.len(),
-                label.len(),
+                ruled.len(),
                 "a NUL or a wide char truncated the label"
             );
         }
