@@ -584,3 +584,33 @@ fn a_lockdowns_delete_pause_waits_as_long_as_the_node_says_and_does_not_promise_
     assert_eq!(user.behaviour(), Behaviour::RetryAfterPause);
     assert!(!user.message(Lang::En).contains("moment"), "{}", user.message(Lang::En));
 }
+
+/// A locked drive's message says the contract's lock day and where the files went - one offline
+/// copy - and promises no keeping: its days come from the contract's constants, never typed into
+/// the row, in the window's text and in the Fluent resources alike.
+#[test]
+fn a_locked_drive_says_the_contracts_lock_day_and_promises_no_keeping() {
+    let lock = azlin_contract::UNPAID_DAYS.lock.to_string();
+    let locked = UserError::from_drive_error(&azlin(403, "AccessDenied", Some("drive_archived")))
+        .expect("a locked drive's refusal has its row");
+    assert_eq!(locked.code, Code::DriveArchived);
+    let en = locked.message(Lang::En);
+    assert!(en.contains(&format!("{lock} days")) && en.contains("one offline copy"), "{en}");
+    let de = locked.message(Lang::De);
+    assert!(de.contains(&format!("{lock} Tage")) && de.contains("Offline-Kopie"), "{de}");
+    for said in [&en, &de] {
+        assert!(!said.contains("Nothing was deleted") && !said.contains("Gelöscht"), "{said}");
+    }
+    let row = Code::DriveArchived.row();
+    for text in [row.en, row.de] {
+        assert!(!text.chars().any(|c| c.is_ascii_digit()), "no number typed into: {text}");
+    }
+    for lang in [Lang::En, Lang::De] {
+        let source = fluent_source(lang);
+        let line = source
+            .lines()
+            .find(|l| l.starts_with(&format!("{} = ", Code::DriveArchived.message_id())))
+            .expect("the row's message");
+        assert!(line.contains(&lock), "{line}");
+    }
+}
