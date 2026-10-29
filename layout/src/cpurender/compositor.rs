@@ -9422,6 +9422,64 @@ mod autotest_generated {
         );
     }
 
+    /// A scroll frame inside an opacity group is a layer of its own, seeded
+    /// with the group's pixels under it - the translucent box it scrolls in.
+    /// Composited over the group, that box counted twice inside the frame's
+    /// window: blue (30, 30, 200) at alpha 160 at opacity 0.7, over white,
+    /// came out (119, 119, 221) there and (156, 156, 231) beside it.
+    #[test]
+    fn a_scroll_frame_in_an_opacity_group_shows_the_box_behind_it_once() {
+        let mut c = CompositorState::new(32, 32);
+        let list = dlist(vec![
+            DisplayListItem::PushOpacity {
+                bounds: wlr(0.0, 0.0, 32.0, 32.0),
+                opacity: 0.7,
+                opacity_key: None,
+            },
+            rect_item(
+                0.0,
+                0.0,
+                32.0,
+                32.0,
+                ColorU {
+                    r: 30,
+                    g: 30,
+                    b: 200,
+                    a: 160,
+                },
+            ),
+            push_scroll(7, 8.0, 8.0, 16.0, 16.0),
+            rect_item(
+                20.0,
+                20.0,
+                4.0,
+                4.0,
+                ColorU {
+                    r: 0,
+                    g: 200,
+                    b: 0,
+                    a: 255,
+                },
+            ),
+            DisplayListItem::PopScrollFrame,
+            DisplayListItem::PopOpacity,
+        ]);
+        c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new(), &HashMap::new());
+        let (rr, mut gc, st) = render_deps();
+        c.render_layers(&list, 1.0, &rr, &test_font_manager(), &mut gc, &st)
+            .unwrap();
+        let mut out = AzulPixmap::new(32, 32).unwrap();
+        out.fill(255, 255, 255, 255);
+        c.composite_frame(&mut out, 1.0);
+        assert_eq!(
+            at(&out, 12, 12),
+            at(&out, 2, 2),
+            "inside the scroll frame the box behind it is {:?}, beside the frame {:?}",
+            at(&out, 12, 12),
+            at(&out, 2, 2)
+        );
+    }
+
     /// A composited opacity group blends a translucent box once with each
     /// alpha, as the rasterizer's in-place group does: blue (30, 30, 200) at
     /// alpha 160 in a group at opacity 0.7, over white, lands at about
