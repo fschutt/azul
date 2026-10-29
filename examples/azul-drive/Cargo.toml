@@ -7,7 +7,7 @@ license = "MIT"
 description = """
     AzDrive - an Explorer-like file browser on the public azul API. A sidebar
     of drives (Home, a folder on this computer, and S3 drives the user adds:
-    AWS S3, Cloudflare R2, MinIO), a breadcrumb and a sortable, paged list of
+    any S3-compatible storage), a breadcrumb and a sortable, paged list of
     folders and files. Browsing a bucket fetches only listings; "Download" and
     "Open" fetch ONE object. The drives list lives in the per-user config
     folder without secrets; the keys live in the OS keyring. Storage is the

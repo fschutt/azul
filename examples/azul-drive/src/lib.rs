@@ -46,7 +46,7 @@
 //! by name over a recursive listing - slower, and its files are not read.
 //!
 //! The drives: "Home" (the user's home folder, a `LocalDrive`), the local
-//! folders and S3 drives the user added (AWS S3, Cloudflare R2, MinIO). Every
+//! folders and S3 drives the user added (any S3-compatible storage). Every
 //! storage call goes through `azul_storage::Drive` on an azul `Thread`; no
 //! callback waits on a drive. Copies, moves, uploads and downloads go
 //! through ONE queue (one transfer at a time, progress in the source list):

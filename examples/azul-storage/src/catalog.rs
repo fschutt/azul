@@ -233,9 +233,9 @@ const S3_FIELDS: &[FieldSpec] = &[
         "Endpoint",
         FieldKind::Url,
         true,
-        "https://s3.eu-central-1.amazonaws.com",
+        "https://s3.example.com",
     ),
-    field("region", "Region", FieldKind::Text, false, "us-east-1 (R2: auto)"),
+    field("region", "Region", FieldKind::Text, false, "us-east-1"),
     field("bucket", "Bucket", FieldKind::Text, true, "my-bucket"),
     field("access_key_id", "Access key", FieldKind::Text, true, ""),
     with_help(
@@ -245,7 +245,7 @@ const S3_FIELDS: &[FieldSpec] = &[
     with_default(
         field(
             "path_style",
-            "Path-style URLs (MinIO, local servers)",
+            "Path-style URLs (self-hosted servers)",
             FieldKind::Bool,
             false,
             "",
@@ -653,7 +653,7 @@ static SERVICES: &[ServiceSpec] = &[
         "S3-compatible storage",
         CloudStorage,
         "cloud",
-        "AWS S3, MinIO, Cloudflare R2, Backblaze B2, Wasabi, Garage",
+        "Any S3-compatible storage",
         Backend::S3,
         S3_FIELDS,
     ),

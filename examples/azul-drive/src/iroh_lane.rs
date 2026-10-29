@@ -3,7 +3,7 @@
 //! a node that fails rests five minutes), through azul's iroh endpoint
 //! ([`azul_storage::azul_iroh`]: S3 over iroh, no DNS); HTTPS with the failover's layers (the
 //! block endpoint, the nodes, the failover URLs, the nodes' addresses) is the fallback. A plain
-//! S3 bucket (AWS, R2, MinIO) never comes here: it opens through azul-storage, HTTPS only.
+//! S3-compatible bucket never comes here: it opens through azul-storage, HTTPS only.
 
 use std::sync::Arc;
 

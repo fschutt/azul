@@ -5,7 +5,7 @@ what lands where and in which order.
 
 Product decision (user, 2026-10-07): an azul app's file picker PREFERS AzDrive when AzDrive is
 installed and falls back to the platform's dialog otherwise. AzDrive's picker is where the
-azcloud integration lives: the user's cloud drives (S3 / R2 / MinIO / the Azlin cloud), their
+azcloud integration lives: the user's cloud drives (S3-compatible storage, the Azlin cloud), their
 pins and recent places, cloud file handles and access links. The native dialog knows none of
 that.
 
@@ -55,7 +55,7 @@ PickedItem {
 
 CloudFileRef {
     drive_id: AzString,             // the id in drives.json (stable across devices, see 6)
-    drive_name: AzString,           // "Photos (R2)"
+    drive_name: AzString,           // "Photos (S3)"
     key: AzString,                  // "2026/beach.jpg" (a folder ends in '/')
     size: OptionU64,
     etag: OptionString,
@@ -155,10 +155,10 @@ Answers:
 ```
 AZPICK {"v":1,"status":"selected","items":[{"path":"/Users/me/Pictures/a.png"}]}
 AZPICK {"v":1,"status":"selected","items":[{"path":"<cache>/AzDrive/picked/photos/2026/beach.jpg",
-        "cloud":{"drive_id":"photos","drive_name":"Photos (R2)","key":"2026/beach.jpg",
+        "cloud":{"drive_id":"photos","drive_name":"Photos (S3)","key":"2026/beach.jpg",
                  "size":182733,"etag":"\"9b2c\"","modified":1759800000,"link":null}}]}
 AZPICK {"v":1,"status":"cancelled"}
-AZPICK {"v":1,"status":"error","message":"The keys of \"Photos (R2)\" are not in the keyring."}
+AZPICK {"v":1,"status":"error","message":"The keys of \"Photos (S3)\" are not in the keyring."}
 ```
 
 - stdin / stdout of a child the requester started: no listening socket, no port, nothing

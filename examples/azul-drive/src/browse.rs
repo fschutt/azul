@@ -685,7 +685,7 @@ impl DriveForm {
         }
         if endpoint.is_empty() {
             return Err(String::from(
-                "Enter the endpoint, for example https://s3.eu-central-1.amazonaws.com.",
+                "Enter the endpoint, for example https://s3.example.com.",
             ));
         }
         if !lower.starts_with("http://") && !lower.starts_with("https://") {
@@ -1099,7 +1099,7 @@ mod tests {
         };
         assert!(with(|f| f.name.clear()).contains("name"));
         assert!(with(|f| f.endpoint.clear()).contains("endpoint"));
-        assert!(with(|f| f.endpoint = "s3.amazonaws.com".to_string()).contains("http"));
+        assert!(with(|f| f.endpoint = "s3.example.com".to_string()).contains("http"));
         assert!(with(|f| f.bucket.clear()).contains("bucket"));
         assert!(with(|f| f.access_key.clear()).contains("access key"));
         assert!(with(|f| f.secret_key.clear()).contains("secret key"));
