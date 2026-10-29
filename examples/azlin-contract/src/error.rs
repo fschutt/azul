@@ -4,6 +4,12 @@
 
 use serde::{Deserialize, Serialize};
 
+/// The token server's code of a request its rate limit refused (429, with `Retry-After` in
+/// seconds and `"spent": false`). It was refused before its route ran, so nothing was spent or
+/// made: the same request - the same drive token, the same idempotency key - may be sent again
+/// once the pause is over.
+pub const RATE_LIMITED: &str = "rate_limited";
+
 /// One error code. The order of the variants is their wire index in the services' binary
 /// encodings: new codes go at the end, before [`AzlinError::Unknown`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
