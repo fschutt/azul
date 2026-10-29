@@ -1657,9 +1657,8 @@ fn stops_the_run(e: &CloudError) -> bool {
 }
 
 /// The index after `actions`: `remote` itself when they change nothing in it
-/// (so an unchanged folder writes no index).
-/// The index this run commits: `remote` (with the folders this run renamed here moved already,
-/// when `moved`) and every change of the plan.
+/// (so an unchanged folder writes no index). `moved`: `remote` has folders this run renamed
+/// here moved already, a change of its own.
 #[allow(clippy::too_many_arguments)]
 fn next_index(
     remote: &RemoteIndex,
@@ -2697,7 +2696,6 @@ fn hold_big(
     held
 }
 
-/// What the plan moves: files and bytes up and down.
 /// `map` with every key under a folder of `finals` (base key -> final key) at its final key.
 fn rebase_keys<V: Clone>(
     map: &BTreeMap<String, V>,
@@ -3097,6 +3095,7 @@ fn apply_folders(
     }
 }
 
+/// What the plan moves: files and bytes up and down.
 fn planned(actions: &[Action], scan: &Scan, remote: &RemoteIndex) -> SyncEvent {
     let (mut up_files, mut up_bytes, mut down_files, mut down_bytes) = (0usize, 0u64, 0usize, 0u64);
     for action in actions {
