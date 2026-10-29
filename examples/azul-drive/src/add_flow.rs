@@ -231,11 +231,38 @@ pub(crate) fn open_editing(s: &mut DriveState, index: usize) {
     s.popup.open(Popup::AddDrive(d));
 }
 
+/// Whether this build encrypts drives. Every drive is encrypted as it is made, so a build that
+/// cannot makes none.
+const ENCRYPTS: bool = cfg!(feature = "encryption");
+
+/// Why `event` does not run in a build that cannot encrypt (`encrypts` false): it would start
+/// making an Azlin drive (a purchase, a test drive, a voucher's, a claimed one) that would stay
+/// plain, so it stops before anything is paid or asked. `None` for every other event.
+#[must_use]
+pub(crate) fn refuses_making(event: &AddEvent, encrypts: bool) -> Option<String> {
+    let makes = matches!(
+        event,
+        AddEvent::ChooseBuy
+            | AddEvent::Buy
+            | AddEvent::CreateTestDrive
+            | AddEvent::VoucherPage
+            | AddEvent::RedeemVoucher
+            | AddEvent::ClaimCodePage
+            | AddEvent::PickUp
+            | AddEvent::PayCash
+    );
+    (makes && !encrypts).then(|| t("azdrive-add-no-encryption"))
+}
+
 /// A button or a tile of the dialog.
 pub(crate) fn event(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, event: AddEvent) {
     let Some(d) = dialog(s) else {
         return;
     };
+    if let Some(why) = refuses_making(&event, ENCRYPTS) {
+        d.error = why;
+        return;
+    }
     let page_before = d.page_line();
     match event {
         AddEvent::ChooseBuy => {

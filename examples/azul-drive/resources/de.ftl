@@ -1645,6 +1645,7 @@ azdrive-add-choose-database = Datenbankdatei auswählen
 ## Add a drive: sign-in, buying, saving
 
 azdrive-add-cannot-open-source = Diese App kann diese Quelle nicht öffnen.
+azdrive-add-no-encryption = Dieser Build von AzDrive kann keine Laufwerke verschlüsseln, und jedes Azlin-Laufwerk wird beim Anlegen verschlüsselt: Er legt keines an.
 azdrive-add-sign-in-cancelled = Die Anmeldung wurde abgebrochen.
 azdrive-add-sign-in-timed-out = Die Anmeldung kam nicht rechtzeitig zurück. Versuche es erneut.
 azdrive-add-sign-in-unsupported = Dieser Computer kann die Anmeldung nicht ausführen: { $why }.

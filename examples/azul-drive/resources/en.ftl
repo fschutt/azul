@@ -1647,6 +1647,7 @@ azdrive-add-choose-database = Choose a database file
 ## Add a drive: sign-in, buying, saving
 
 azdrive-add-cannot-open-source = This app cannot open that source.
+azdrive-add-no-encryption = This build of AzDrive cannot encrypt drives, and every Azlin drive is encrypted as it is made: it makes none.
 azdrive-add-sign-in-cancelled = The sign-in was cancelled.
 azdrive-add-sign-in-timed-out = The sign-in did not come back in time. Try again.
 azdrive-add-sign-in-unsupported = This computer cannot run the sign-in: { $why }.
