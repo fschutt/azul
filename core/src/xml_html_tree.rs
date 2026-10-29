@@ -27,6 +27,8 @@ use alloc::{
     vec::Vec,
 };
 
+use azul_css::input_chars::normalize_input_text;
+
 use super::{
     is_html_space,
     rules::{
@@ -78,6 +80,20 @@ fn lower(name: &str) -> Cow<'_, str> {
 fn split_space(s: &str) -> (&str, &str) {
     let rest = s.trim_start_matches(['\t', '\n', '\u{C}', '\r', ' ']);
     (&s[..s.len() - rest.len()], rest)
+}
+
+/// `attributes` with their values' characters as the input rule has them.
+fn ruled_attributes(mut attributes: Vec<(String, String)>) -> Vec<(String, String)> {
+    for (_, value) in &mut attributes {
+        let ruled = match normalize_input_text(value.as_str()) {
+            Cow::Owned(ruled) => Some(ruled),
+            Cow::Borrowed(_) => None,
+        };
+        if let Some(ruled) = ruled {
+            *value = ruled;
+        }
+    }
+    attributes
 }
 
 // ============================================================================
@@ -1827,7 +1843,8 @@ impl TreeBuilder {
 
     // ---- the tokens ----
 
-    /// A start tag `<name ...>` (`self_closing`: `<name ... />`).
+    /// A start tag `<name ...>` (`self_closing`: `<name ... />`), its attribute values (already
+    /// decoded) read by the input rule.
     pub fn start_tag(
         &mut self,
         sink: &mut dyn TreeSink,
@@ -1835,6 +1852,7 @@ impl TreeBuilder {
         attributes: Vec<(String, String)>,
         self_closing: bool,
     ) {
+        let attributes = ruled_attributes(attributes);
         self.skip_newline = false;
         if !self.html() {
             self.xml_start_tag(sink, name, attributes, self_closing);
@@ -1861,9 +1879,11 @@ impl TreeBuilder {
         while self.html_end_tag(sink, &key) {}
     }
 
-    /// Text (already decoded).
+    /// Text (already decoded), read by the input rule: a character reference may have written
+    /// a character the rule changes, and the strict loaders' text comes here unchanged.
     pub fn text(&mut self, sink: &mut dyn TreeSink, text: &str) {
-        let mut text = text;
+        let ruled = normalize_input_text(text);
+        let mut text: &str = &ruled;
         if core::mem::take(&mut self.skip_newline) {
             text = text.strip_prefix('\n').unwrap_or(text);
         }
@@ -1892,6 +1912,8 @@ impl TreeBuilder {
     /// A CDATA section: HTML reads one only in SVG / `MathML`, as text; XML keeps its text
     /// inside a `<style>`, else drops it.
     pub fn cdata(&mut self, sink: &mut dyn TreeSink, text: &str) {
+        let ruled = normalize_input_text(text);
+        let text: &str = &ruled;
         self.skip_newline = false;
         if self.html() {
             if !text.is_empty() {

@@ -95,6 +95,9 @@ pub mod compact_cache;
 pub mod hash;
 /// FFI-safe core type aliases (`AzString`, `AzVec`, `OptionT`, etc.).
 pub mod corety;
+/// Which characters of the text that comes into azul stay and which are replaced.
+///
+pub mod input_chars;
 /// Stylesheet types: rules, selectors, declarations, and specificity.
 pub mod css;
 /// Custom properties (`--name`) and `var()`: the per-node variable map and

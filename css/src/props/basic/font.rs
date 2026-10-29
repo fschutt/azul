@@ -20,6 +20,8 @@ use core::{
 
 use crate::props::basic::parse::UnclosedQuotesError;
 #[cfg(feature = "parser")]
+use crate::input_chars::normalize_input_text;
+#[cfg(feature = "parser")]
 use crate::props::basic::parse::{split_top_level, strip_quotes};
 #[cfg(feature = "codegen")]
 use crate::codegen::format::FormatAsRustCode;
@@ -1145,11 +1147,16 @@ pub fn parse_style_font_family(
             // Invalid system font type, fall through to treat as regular font name
         }
 
+        // A family name holds its characters as the input rule has them, as every text does.
         if let Ok(stripped) = strip_quotes(font) {
-            fonts.push(StyleFontFamily::System(stripped.0.to_string().into()));
+            fonts.push(StyleFontFamily::System(
+                normalize_input_text(stripped.0).into_owned().into(),
+            ));
         } else {
             // It could be an unquoted font name like `Times New Roman`.
-            fonts.push(StyleFontFamily::System(font.to_string().into()));
+            fonts.push(StyleFontFamily::System(
+                normalize_input_text(font).into_owned().into(),
+            ));
         }
     }
 

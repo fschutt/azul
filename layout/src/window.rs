@@ -23289,6 +23289,11 @@ impl LayoutWindow {
 
         use crate::managers::text_input::TextInputSource;
 
+        // Typed and composed text holds its characters as the input rule has them, as every
+        // text that comes in does: the edit, its callbacks and the shaper see it so.
+        let ruled = azul_css::input_chars::normalize_input_text(text_input);
+        let text_input: &str = &ruled;
+
         let mut affected_nodes = BTreeMap::new();
 
         if text_input.is_empty() {
@@ -24343,6 +24348,9 @@ impl LayoutWindow {
     /// the node: then the DOM already says it, the screen does not (the form
     /// reset of a field built with the text it goes back to).
     pub fn set_node_text(&mut self, dom_id: DomId, node_id: NodeId, text: &AzString) -> bool {
+        // Compared as the node holds it: `set_node_type` writes a text by the input rule.
+        let ruled = azul_css::input_chars::normalized_az_string(text);
+        let text = ruled.as_ref().unwrap_or(text);
         let Some(unchanged) = self.layout_results.get(&dom_id).and_then(|lr| {
             lr.styled_dom
                 .node_data
@@ -26319,12 +26327,13 @@ impl LayoutWindow {
     ) -> Vec<DomNodeId> {
         use crate::managers::text_input::TextInputSource;
 
-        // Convert TextEditType to string
-        let text_input = match edit_type {
+        // Convert TextEditType to string; what assistive technology sets holds its characters
+        // as the input rule has them, as typed text does.
+        let text_input = azul_css::input_chars::normalize_input_string(match edit_type {
             TextEditType::ReplaceSelection(text) => text.clone(),
             TextEditType::SetValue(text) => text.clone(),
             TextEditType::SetNumericValue(value) => value.to_string(),
-        };
+        });
 
         // Get the OLD text before any changes
         let old_inline_content = self.get_text_before_textinput(dom_id, node_id);
@@ -27413,7 +27422,10 @@ impl LayoutWindow {
         &mut self,
         content: &crate::managers::selection::ClipboardContent,
     ) -> PasteOutcome {
-        let text = content.plain_text.as_str().to_string();
+        // The pasted text holds its characters as the input rule has them, on every path
+        // below (the HTML flavour is read by the loader, which applies the same rule).
+        let text = azul_css::input_chars::normalize_input_text(content.plain_text.as_str())
+            .into_owned();
         let rich_host = self
             .build_editing_query_state(self.focus_manager.focused_node)
             .is_some_and(|e| e.is_contenteditable && !e.host_preserves_newlines);

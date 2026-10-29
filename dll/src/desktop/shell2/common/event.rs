@@ -283,7 +283,9 @@ struct EmptyRefAnyData(u8);
 fn parse_node_type_from_str(s: &str) -> azul_core::dom::NodeType {
     use azul_core::dom::NodeType;
     if let Some(text) = s.strip_prefix("text:") {
-        return NodeType::Text(azul_css::css::BoxOrStatic::heap(text.to_string().into()));
+        // The text holds its characters as the input rule has them, as every text does.
+        let text = azul_css::input_chars::normalize_input_text(text).into_owned();
+        return NodeType::Text(azul_css::css::BoxOrStatic::heap(text.into()));
     }
     match s.to_lowercase().as_str() {
         "html" => NodeType::Html,

@@ -1115,8 +1115,11 @@ fn translate_node(
         fmt_args,
     );
 
+    // A translation holds its characters as the input rule has them, as every text does.
     if let azul_core::dom::NodeType::Text(text_box) = &mut node.node_type {
-        *text_box = azul_css::css::BoxOrStatic::heap(translated);
+        *text_box = azul_css::css::BoxOrStatic::heap(
+            azul_css::input_chars::normalize_input_az_string(translated),
+        );
     }
     // The key is gone from the text now; remember it, so a locale change can
     // translate this node again in place (`localize_styled_dom`).
@@ -1166,11 +1169,13 @@ pub fn localize_styled_dom(
                 .and_then(|parent| parent.fluent_args.as_deref());
             extract_fluent_args(nodes[idx].fluent_args.as_deref().or(parent_args))
         };
-        let translated = localizer.translate(
-            azul_css::corety::AzString::from(locale),
-            azul_css::corety::AzString::from(key.as_str()),
-            fmt_args,
-        );
+        // Compared as the node will hold it: `set_node_type` writes a text by the input rule.
+        let translated =
+            azul_css::input_chars::normalize_input_az_string(localizer.translate(
+                azul_css::corety::AzString::from(locale),
+                azul_css::corety::AzString::from(key.as_str()),
+                fmt_args,
+            ));
 
         let node = &mut nodes[idx];
         let unchanged = match node.get_node_type() {

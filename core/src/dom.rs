@@ -1571,6 +1571,23 @@ impl_vec_eq!(AttributeType, AttributeTypeVec);
 impl_vec_hash!(AttributeType, AttributeTypeVec);
 
 impl AttributeType {
+    /// The attribute, its text read by the input rule if it is one a person reads.
+    ///
+    /// A label, an alternative text, a title, a placeholder and a value are shown and spoken,
+    /// so they hold their characters as the input rule has them (`azul_css::input_chars`),
+    /// as every text a node is given does; names, ids, links and numbers stay as they are.
+    fn with_ruled_text(self) -> Self {
+        use azul_css::input_chars::normalize_input_az_string as ruled;
+        match self {
+            Self::AriaLabel(text) => Self::AriaLabel(ruled(text)),
+            Self::Alt(text) => Self::Alt(ruled(text)),
+            Self::Title(text) => Self::Title(ruled(text)),
+            Self::Placeholder(text) => Self::Placeholder(ruled(text)),
+            Self::Value(text) => Self::Value(ruled(text)),
+            other => other,
+        }
+    }
+
     /// Returns the id string if this is an `Id` attribute, `None` otherwise.
     #[must_use]
     pub fn as_id(&self) -> Option<&str> {
@@ -2898,6 +2915,15 @@ fn node_data_to_string(node_data: &NodeData) -> String {
     format!("{id_string}{class_string}{tabindex_string}")
 }
 
+/// `node_type`, a text with its characters as the input rule has them.
+fn node_type_with_ruled_text(node_type: NodeType) -> NodeType {
+    let ruled = match &node_type {
+        NodeType::Text(text) => azul_css::input_chars::normalized_az_string(text.as_ref()),
+        _ => None,
+    };
+    ruled.map_or(node_type, |text| NodeType::Text(BoxOrStatic::heap(text)))
+}
+
 impl NodeData {
     /// Creates a new `NodeData` instance from a given `NodeType`.
     #[inline]
@@ -3028,11 +3054,19 @@ impl NodeData {
     }
 
     /// Sets the node's attributes, replacing any existing ones.
+    ///
+    /// The texts a person reads (a label, an alternative text, a title, a placeholder, a
+    /// value) hold their characters as the input rule has them (`azul_css::input_chars`).
     #[inline]
     pub fn set_attributes(&mut self, attrs: AttributeTypeVec) {
+        let attrs: Vec<AttributeType> = attrs
+            .into_library_owned_vec()
+            .into_iter()
+            .map(AttributeType::with_ruled_text)
+            .collect();
         self.extra
             .get_or_insert_with(|| Box::new(NodeDataExt::default()))
-            .attributes = attrs;
+            .attributes = attrs.into();
     }
 
     /// Shorthand for `NodeData::create_node(NodeType::Body)`.
@@ -3068,9 +3102,14 @@ impl NodeData {
     /// unwrapped text node.
     ///
     /// Shorthand for `NodeData::create_node(NodeType::Text(value.into()))`.
+    ///
+    /// The text holds its characters as the input rule has them
+    /// (`azul_css::input_chars`), as every text a node is given does.
     #[inline]
     pub fn create_text_do_not_use_without_block_level_wrapper<S: Into<AzString>>(value: S) -> Self {
-        Self::create_node(NodeType::Text(BoxOrStatic::heap(value.into())))
+        Self::create_node(NodeType::Text(BoxOrStatic::heap(
+            azul_css::input_chars::normalize_input_az_string(value.into()),
+        )))
     }
 
     /// Shorthand for `NodeData::create_node(NodeType::Image(image_id))`.
@@ -3452,9 +3491,13 @@ impl NodeData {
         self.flags.is_anonymous()
     }
 
+    /// Sets what the node is.
+    ///
+    /// A text holds its characters as the input rule has them (`azul_css::input_chars`), as
+    /// every text a node is given does.
     #[inline]
     pub fn set_node_type(&mut self, node_type: NodeType) {
-        self.node_type = node_type;
+        self.node_type = node_type_with_ruled_text(node_type);
     }
     #[inline]
     /// The node's component-attached animation functions (empty for the
@@ -5141,9 +5184,14 @@ impl Dom {
     /// [`Dom::create_div_with_text`], [`Dom::create_span_with_text`], ...)
     /// instead. The engine logs a warning after layout if it finds an
     /// unwrapped text node.
+    ///
+    /// The text holds its characters as the input rule has them
+    /// (`azul_css::input_chars`), as every text a node is given does.
     #[inline]
     pub fn create_text_do_not_use_without_block_level_wrapper<S: Into<AzString>>(value: S) -> Self {
-        Self::create_node(NodeType::Text(BoxOrStatic::heap(value.into())))
+        Self::create_node(NodeType::Text(BoxOrStatic::heap(
+            azul_css::input_chars::normalize_input_az_string(value.into()),
+        )))
     }
     #[inline]
     #[must_use]

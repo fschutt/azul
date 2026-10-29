@@ -8,9 +8,11 @@
 //!   machine. It never fails: unquoted and bare (boolean) attributes, upper-case names, `--`
 //!   inside a comment, `<` and `&` in text and attribute values, Word's `<![if ...]>`, the raw
 //!   text of `<style>` / `<script>`, RCDATA `<title>` / `<textarea>`, `<plaintext>`, doctypes
-//!   (quirks mode), the HTML Standard's named character references; stray control characters
-//!   are dropped. The strict loaders keep `xmlparser` as their tokenizer (an XML syntax error
-//!   is an error there).
+//!   (quirks mode), the HTML Standard's named character references. The strict loaders keep
+//!   `xmlparser` as their tokenizer (an XML syntax error is an error there).
+//! - The characters: every loader reads text, attribute values and what a character reference
+//!   decodes to by the one input rule (`azul_css::input_chars`), so a stray control or a
+//!   noncharacter never fails a document and both loaders hold the same text.
 //! - The rules (`xml_html_rules.rs`): every special case of the tree construction as a row of
 //!   a table citing the standard - the elements' categories, the body's start and end tags,
 //!   the table insertion modes, the quirks doctypes. A new rule is a new row.
@@ -32,6 +34,8 @@
 
 use alloc::{borrow::Cow, string::String, vec::Vec};
 use core::cmp::Ordering;
+
+use azul_css::input_chars::normalize_input_text;
 
 use super::{
     entities::HTML5_NAMED_REFERENCES, AzString, AzStringPair, XmlNode, XmlNodeChild,
@@ -255,33 +259,14 @@ const fn is_html_space(b: u8) -> bool {
     matches!(b, b'\t' | b'\n' | 0x0C | b'\r' | b' ')
 }
 
-/// `s` without its `\r` (CR LF and a lone CR are a line feed, as HTML's
-/// input preprocessing has it) and without the control characters other
-/// than tab, line feed and form feed; then its character references decoded
+/// `s` with its characters as the input rule has them, then its character references decoded
 /// by `decode` (`None`: raw text, as written).
+///
+/// The rule ([`normalize_input_text`]) makes CR LF and a lone CR a line feed, as HTML's input
+/// preprocessing has it, and NUL, the controls XML cannot carry, U+FFFE and U+FFFF U+FFFD.
+/// What a reference decodes to, the tree construction reads by the same rule.
 fn clean_text(s: &str, decode: Option<CharRefMode>) -> Cow<'_, str> {
-    let needs_cleaning = s
-        .bytes()
-        .any(|b| b < 0x20 && !matches!(b, b'\t' | b'\n' | 0x0C));
-    let cleaned: Cow<'_, str> = if needs_cleaning {
-        let mut out = String::with_capacity(s.len());
-        let mut chars = s.chars().peekable();
-        while let Some(c) = chars.next() {
-            match c {
-                '\r' => {
-                    if chars.peek() != Some(&'\n') {
-                        out.push('\n');
-                    }
-                }
-                '\t' | '\n' | '\u{C}' => out.push(c),
-                c if u32::from(c) < 0x20 => {}
-                c => out.push(c),
-            }
-        }
-        Cow::Owned(out)
-    } else {
-        Cow::Borrowed(s)
-    };
+    let cleaned = normalize_input_text(s);
     let Some(mode) = decode else {
         return cleaned;
     };

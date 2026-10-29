@@ -5,9 +5,10 @@
 //! What it simplifies: a state that only reports a parse error is folded into its
 //! neighbour; script data's escape states (`<!--` inside a `<script>`) are not modelled (a
 //! script is raw text); character references are decoded per text run / attribute value
-//! ([`super::decode_character_references`], the same algorithm); NUL and the other C0
-//! controls but tab, line feed and form feed are dropped; CR LF and a lone CR are a line
-//! feed (13.2.3.5).
+//! ([`super::decode_character_references`], the same algorithm); text and attribute values
+//! hold their characters as the input rule has them (`azul_css::input_chars`: CR LF and a
+//! lone CR are a line feed, 13.2.3.5; NUL, the C0 controls XML cannot carry, U+FFFE and
+//! U+FFFF are U+FFFD).
 
 use alloc::{
     borrow::Cow,
@@ -63,8 +64,8 @@ pub enum HtmlToken<'a> {
     /// `</name>`, the name lower-cased (its attributes are read and dropped).
     EndTag { name: String },
     /// Text: its character references decoded (the raw text of a `<style>`
-    /// or a `<script>` as written), CR LF as LF, stray control characters
-    /// dropped.
+    /// or a `<script>` as written), its characters as the input rule has
+    /// them (CR LF as LF, a stray control as U+FFFD).
     Text(Cow<'a, str>),
     /// `<!-- .. -->`: the text between the markers; also a bogus comment (`<!x>`,
     /// `<?x>`, `</ x>`, Word's `<![if ...]>`, a CDATA section outside SVG / `MathML`): its

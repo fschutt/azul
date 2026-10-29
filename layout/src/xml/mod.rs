@@ -684,6 +684,10 @@ fn feed_xml_tokens(
 fn parse_xml_to_fast_dom_with_css(
     xml: &str,
 ) -> Result<(azul_core::dom::FastDom, Vec<Css>), XmlError> {
+    // The characters as the input rule has them: what it replaces is no XML 1.0 `Char`, which
+    // the tokenizer would reject with the whole document.
+    let ruled = azul_css::input_chars::normalize_input_text(xml);
+    let xml: &str = &ruled;
     // Strip BOM
     let xml = xml.strip_prefix('\u{FEFF}').unwrap_or(xml);
     let mut xml = xml.trim();
@@ -782,12 +786,19 @@ pub fn domxml_from_file<I: AsRef<Path>>(file_path: I, component_map: &ComponentM
 /// an element left open at the end); the tree construction is the one every
 /// loader shares ([`html::TreeBuilder`], [`html::TreeRules::Xml`]: the names
 /// as written, void elements, implied end tags, end tags matched within
-/// their scope). HTML as a browser reads it: [`parse_html_string`].
+/// their scope). HTML as a browser reads it: [`parse_html_string`]. The
+/// characters are read by the input rule first (`azul_css::input_chars`), so
+/// a stray control or noncharacter is replaced, not an error: only the
+/// syntax can fail a document.
 #[cfg(feature = "xml")]
 /// # Errors
 ///
 /// Returns an `XmlError` if the XML cannot be parsed.
 pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNodeChild>, XmlError> {
+    // The characters as the input rule has them: what it replaces is no XML 1.0
+    // `Char`, which the tokenizer would reject with the whole document.
+    let ruled = azul_css::input_chars::normalize_input_text(xml);
+    let xml: &str = &ruled;
     // Strip UTF-8 BOM if present (some W3C test files have it)
     let xml = xml.strip_prefix('\u{FEFF}').unwrap_or(xml);
     // The text as given: a parse error's line / column are counted in it, not

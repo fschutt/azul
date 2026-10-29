@@ -1026,6 +1026,8 @@ pub fn fill_generated_text(
     }
     let texts = generated_texts(node_data, hierarchy, cache, states);
     for (text_node, text) in texts {
+        // Compared as the node will hold it: `set_node_type` writes a text by the input rule.
+        let text = azul_css::input_chars::normalize_input_string(text);
         let Some(node) = node_data.get_mut(text_node) else {
             continue;
         };
