@@ -12,7 +12,7 @@
 //! Glyphs here are Azul Mock Mono at 20px: 10px wide, in 20px line boxes.
 
 use azul_layout::text3::cache::{
-    BidiDirection, Rect, ShapeBoundary, TextAlign, UnifiedConstraints,
+    BidiDirection, JustifyContent, Rect, ShapeBoundary, TextAlign, UnifiedConstraints,
 };
 
 use crate::{
@@ -106,6 +106,8 @@ fn a_right_to_left_line_fills_the_segment_on_the_right_first() {
 fn each_segment_is_justified_to_its_own_edges() {
     let mut paragraph = with_hole(150.0, 250.0, 60.0);
     paragraph.text_align = TextAlign::Justify;
+    // `text-justify: auto` of Latin text: the spaces stretch.
+    paragraph.text_justify = JustifyContent::InterWord;
     // Words of four letters: three of them and their two spaces take 140px
     // of a segment's 150, and justification spreads the other 10.
     let text = ["aaaa"; 30].join(" ");
@@ -145,6 +147,24 @@ fn a_sliver_beside_a_hole_holds_no_text() {
             g.right
         );
     }
+}
+
+#[test]
+fn an_indent_wider_than_the_line_is_no_hole() {
+    // The indent is a margin on the first line box: the word it leaves no
+    // room for overflows that line, as it would beside no hole at all, and
+    // the line never moves down looking for room.
+    let paragraph = UnifiedConstraints {
+        text_indent: 40.0,
+        ..box_of_width(30.0)
+    };
+    let glyphs = glyph_boxes(&lay_out("aa bb", &paragraph));
+    let first = glyphs.first().expect("the paragraph is laid out");
+    assert_eq!(
+        (first.text.as_str(), first.line, first.left, first.top),
+        ("a", 0, 40.0, 0.0),
+        "the first word stands on the first line, after the indent: {glyphs:?}"
+    );
 }
 
 #[test]
