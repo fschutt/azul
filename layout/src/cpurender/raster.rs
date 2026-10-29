@@ -9497,6 +9497,58 @@ mod autotest_generated {
     /// live-run symptom was the page shadow visibly accumulating darker
     /// with each resize frame. Starting from a correct frame, repainting a
     /// small rect that crosses the shadow must change NOTHING anywhere.
+    /// An isolated reference frame paints its content into a surface of its
+    /// own, not into the window at its layout place. A box laid out past the
+    /// window's bottom edge and scaled into view by its transform keeps the
+    /// part the window would cut off: painted in place, its last rows were
+    /// lost before the matrix brought them into view.
+    #[test]
+    fn a_box_laid_out_past_the_window_and_scaled_into_view_is_painted_whole() {
+        let red = ColorU {
+            r: 200,
+            g: 0,
+            b: 0,
+            a: 255,
+        };
+        let half_height = azul_core::transform::ComputedTransform3D {
+            m: [
+                [1.0, 0.0, 0.0, 0.0],
+                [0.0, 0.5, 0.0, 0.0],
+                [0.0, 0.0, 1.0, 0.0],
+                [0.0, 0.0, 0.0, 1.0],
+            ],
+        };
+        let dl = DisplayList {
+            items: vec![
+                DisplayListItem::PushReferenceFrame {
+                    transform_key: TransformKey { id: 1 },
+                    initial_transform: half_height,
+                    bounds: wrect(0.0, 12.0, 20.0, 12.0),
+                },
+                DisplayListItem::Rect {
+                    bounds: wrect(0.0, 12.0, 20.0, 12.0),
+                    color: red,
+                    border_radius: BorderRadius::default(),
+                },
+                DisplayListItem::PopReferenceFrame,
+            ],
+            ..Default::default()
+        };
+        let mut p = pixmap(20, 20);
+        run_list(&dl, &mut p, 1.0).expect("must render");
+        // The box spans rows 12..24 laid out, rows 12..18 scaled about its
+        // origin: every one of those rows is red, the one below it is not.
+        for y in 12..18 {
+            assert_eq!(
+                px_at(&p, 10, y)[0],
+                200,
+                "row {y} of the scaled box is {:?}: the part laid out past the window was lost",
+                px_at(&p, 10, y)
+            );
+        }
+        assert_eq!(px_at(&p, 10, 19), [255, 255, 255, 255], "below the scaled box");
+    }
+
     /// An outer shadow is drawn outside the border box only (CSS Backgrounds
     /// 3, 7.1), so a translucent box shows what is behind it and not its own
     /// shadow. A rounded box was not cut out of its shadow at all: blue at
