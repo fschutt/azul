@@ -5,7 +5,10 @@
 //! is.
 
 use std::{
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc, Mutex,
+    },
     time::Duration,
 };
 
@@ -13,12 +16,16 @@ use azul_storage::{
     config::keyring_key,
     keyring::{KeyringNamespace, KeyringStore, MemoryKeyring},
     testing::TempDir,
-    Drive, HttpReply, Transport,
+    Credentials, Drive, HttpReply, Method, S3Config, Transport,
 };
 
-use super::{bundle, grant_key, header, json, keyring_holding, Fake, Shared, TOKEN};
+use super::{
+    bundle, fake_s3::FakeS3, grant_key, header, json, keyring_holding, Fake, Shared, S3, TOKEN,
+};
 use crate::{
+    bucket::Bucket,
     drive::TransportFactory,
+    pending::{self, Abandoned, PendingCheckout},
     sync::retry::{classify_drive, Verdict},
     token::{CheckoutFor, IssueAnswer, TokenServer, VoucherRedeemed},
     user_errors::{Class, Code, Lang, UserError},
@@ -324,6 +331,176 @@ fn a_rate_limited_answer_says_when_it_is_asked_again() {
         assert!(
             !text.contains("too many requests") && !text.contains("HTTP"),
             "{lang:?}: never the server's sentence: {text}"
+        );
+    }
+}
+
+// ==== Requests named by their idempotency key: a checkout and its abandon ====
+
+/// The idempotency key `call` carries.
+fn key_of(call: &azul_storage::HttpCall) -> String {
+    header(call, azlin_contract::IDEMPOTENCY_HEADER)
+        .unwrap_or_default()
+        .to_string()
+}
+
+#[test]
+fn a_checkout_whose_answer_was_lost_is_asked_again_under_the_same_key() {
+    // The token server keeps a checkout's first answer under its key: the same order asked again
+    // gets it, so a lost answer is sent again instead of being a second checkout.
+    let claim = ClaimKey::generate().unwrap();
+    let fake = Fake::new(|_, n| {
+        if n == 0 {
+            return Err(String::from("timed out"));
+        }
+        Ok(json(201, CHECKOUT))
+    });
+    let transport = Shared(fake.clone());
+    let server = TokenServer::new(TOKEN, &transport)
+        .unwrap()
+        .with_retry_pause(Duration::ZERO);
+    let started = server
+        .checkout("100GB", 12, "sepa", &claim, CheckoutFor::NewDrive)
+        .expect("the lost answer, asked for again");
+    assert_eq!(started.checkout_id, "ck_1");
+    let calls = fake.calls();
+    assert_eq!(calls.len(), 2);
+    let keys: Vec<String> = calls.iter().map(key_of).collect();
+    assert!(!keys[0].is_empty(), "the checkout is named by a key");
+    assert_eq!(keys[0], keys[1], "the same key: {keys:?}");
+    assert_eq!(calls[0].body, calls[1].body, "the same order");
+}
+
+#[test]
+fn an_abandon_whose_answer_was_lost_is_asked_again_under_the_same_key() {
+    let dir = TempDir::new("azcloud-answers-abandon");
+    let keyring = Arc::new(MemoryKeyring::new());
+    let shared = SharedKeyring::with_lock_root(
+        keyring,
+        KeyringNamespace::azlin_shared(),
+        &dir.path().join("locks"),
+    );
+    let claim = ClaimKey::generate().unwrap();
+    pending::add(&shared, &PendingCheckout::new("ck_1", &claim, "100GB", TOKEN, "Photos")).unwrap();
+    let fake = Fake::new(|call, n| {
+        assert!(call.url.ends_with("/v1/checkout/ck_1/abandon"), "{}", call.url);
+        if n == 0 {
+            return Err(String::from("timed out"));
+        }
+        Ok(json(200, r#"{"checkout_id": "ck_1", "status": "expired"}"#))
+    });
+    let transport = Shared(fake.clone());
+    let server = TokenServer::new(TOKEN, &transport)
+        .unwrap()
+        .with_retry_pause(Duration::ZERO);
+    assert_eq!(
+        pending::abandon(&server, &shared, "ck_1"),
+        Abandoned::Ended,
+        "the lost answer, asked for again, ends the checkout"
+    );
+    let keys: Vec<String> = fake.calls().iter().map(key_of).collect();
+    assert_eq!(keys.len(), 2);
+    assert!(!keys[0].is_empty() && keys[0] == keys[1], "one key: {keys:?}");
+}
+
+#[test]
+fn a_key_reused_for_another_request_is_a_bug_and_never_asked_again() {
+    let fake = Fake::new(|_, _| {
+        Ok(json(
+            422,
+            r#"{"error": "idempotency_key_reused",
+                "message": "this x-azlin-idempotency key named another request"}"#,
+        ))
+    });
+    let transport = Shared(fake.clone());
+    let server = TokenServer::new(TOKEN, &transport)
+        .unwrap()
+        .with_retry_pause(Duration::ZERO);
+    let claim = ClaimKey::generate().unwrap();
+    let error = server
+        .checkout("100GB", 12, "sepa", &claim, CheckoutFor::NewDrive)
+        .expect_err("refused");
+    assert_eq!(fake.calls().len(), 1, "never asked again");
+    assert!(crate::outbox::is_final_error(&error), "the call is closed: {error:?}");
+    let user = UserError::from_token_error(&error).expect("an error the user sees");
+    assert_eq!(user.class(), Class::Fatal);
+    assert_ne!(user.code, Code::Other, "it names what happened");
+    assert!(user.message(Lang::En).contains("bug"), "{}", user.message(Lang::En));
+    assert!(user.message(Lang::De).contains("Fehler"), "{}", user.message(Lang::De));
+    assert!(
+        !user.message(Lang::En).contains("x-azlin-idempotency"),
+        "never the server's sentence"
+    );
+}
+
+// ==== An encrypted drive's index commits on a drive that just froze ====
+
+/// 2026-10-10T00:00:00Z.
+const NOW: u64 = 1_791_590_400;
+
+/// A bucket of drive `d-1` over `fake`, its clock at `clock`, its pauses recorded.
+fn bucket_on(fake: &Arc<Fake>, clock: &Arc<AtomicU64>) -> (Bucket, Pauses) {
+    let pauses: Pauses = Arc::new(Mutex::new(Vec::new()));
+    let heard = pauses.clone();
+    let answering = fake.clone();
+    let factory: TransportFactory =
+        Arc::new(move || Box::new(Shared(answering.clone())) as Box<dyn Transport>);
+    let now = clock.clone();
+    let bucket = Bucket::new(
+        S3Config {
+            endpoint: S3.to_string(),
+            region: String::from("us-east-1"),
+            bucket: String::from("d-1"),
+            path_style: true,
+        },
+        Credentials::new("AKID1", "secret-of-AKID1"),
+        factory,
+    )
+    .unwrap()
+    .with_clock(move || now.load(Ordering::SeqCst))
+    .with_sleep(Arc::new(move |pause| heard.lock().unwrap().push(pause)));
+    (bucket, pauses)
+}
+
+/// A node's refusal with the Azlin code `code`.
+fn refused_by_node(code: &str) -> HttpReply {
+    HttpReply {
+        status: 403,
+        headers: vec![(String::from("x-azlin-error"), code.to_string())],
+        body: b"<Error><Code>AccessDenied</Code><Message>the drive takes no writes</Message></Error>"
+            .to_vec(),
+    }
+}
+
+/// An encrypted drive's index object (a log entry of its index).
+const COMMIT: &str = ".azlin/meta/log/0000000001-0";
+
+#[test]
+fn a_frozen_drives_index_commit_is_asked_again_while_the_nodes_learn_its_frozen_bytes() {
+    // A drive's block leader records the bytes the drive stored at its freeze on its heartbeat,
+    // and the nodes read them at their next control poll: until then its owner's index commit is
+    // refused with the drive's read-only code (rarely quota_exceeded, the commit's own line).
+    // Within a minute of the freeze it is asked again after a backoff.
+    for code in ["read_only_unpaid", "read_only_operator", "quota_exceeded"] {
+        let s3 = FakeS3::new();
+        let service = s3.clone();
+        let fake = Fake::new(move |call, n| {
+            if n == 0 {
+                return Ok(refused_by_node(code));
+            }
+            Ok(service.answer(call))
+        });
+        let (bucket, pauses) = bucket_on(&fake, &Arc::new(AtomicU64::new(NOW)));
+        bucket
+            .put(COMMIT, b"the index's commit")
+            .unwrap_or_else(|e| panic!("{code}: not asked again: {e:?}"));
+        let puts = fake.calls().iter().filter(|c| c.method == Method::Put).count();
+        assert_eq!(puts, 2, "{code}");
+        assert_eq!(s3.read(COMMIT).as_deref(), Some(&b"the index's commit"[..]), "{code}");
+        let pauses = pauses.lock().unwrap().clone();
+        assert!(
+            pauses.len() == 1 && !pauses[0].is_zero(),
+            "{code}: after a backoff: {pauses:?}"
         );
     }
 }
