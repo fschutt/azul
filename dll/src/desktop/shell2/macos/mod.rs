@@ -5343,9 +5343,7 @@ impl PlatformWindow for MacOSWindow {
     }
 
     fn show_tooltip_from_callback(&mut self, text: &str, anchor: azul_core::geom::LogicalRect) {
-        let position = azul_layout::placement::FloatingPlacement::tooltip(anchor)
-            .preferred_origin(azul_core::geom::LogicalSize::zero());
-        if let Err(e) = self.show_tooltip(text, position) {
+        if let Err(e) = self.show_tooltip(text, anchor) {
             log_error!(
                 LogCategory::Platform,
                 "[macOS] Failed to show tooltip: {}",
@@ -8531,54 +8529,54 @@ impl MacOSWindow {
         self.set_application_menu(&menu);
     }
 
-    /// Show a tooltip with the given text at the specified position
-    ///
-    /// Position is in logical coordinates. The tooltip will be created on first use.
+    /// Show a tooltip with `text` for `anchor`, the box it explains in this
+    /// window's logical coordinates (top-left origin). The tooltip panel is
+    /// created on first use.
+    #[allow(clippy::cast_possible_truncation)] // screen points
     pub fn show_tooltip(
         &mut self,
         text: &str,
-        position: azul_core::geom::LogicalPosition,
+        anchor: azul_core::geom::LogicalRect,
     ) -> Result<(), String> {
         // Lazily create tooltip if needed
         if self.tooltip.is_none() {
             self.tooltip = Some(tooltip::TooltipWindow::new(self.mtm)?);
         }
 
-        let dpi_factor = DpiScaleFactor::new(unsafe {
-            self.window
-                .screen()
-                .map(|screen| screen.backingScaleFactor() as f32)
-                .unwrap_or(1.0)
-        });
-
-        // `position` is WINDOW-logical (top-left origin) — the ShowTooltip
-        // contract (`get_cursor_relative_to_viewport`). The tooltip panel is a
-        // separate NSPanel positioned in GLOBAL coordinates, so convert:
-        // window-local top-down → window bottom-up → screen bottom-up
-        // (convertRectToScreen) → global top-down against the PRIMARY screen
-        // height (MWA-B9). Previously the window-local point was handed over
-        // unconverted and read as global: the tooltip appeared at the
-        // window-relative offset measured from the SCREEN's top-left corner.
-        let global_top_down = {
+        // The tooltip panel is a separate NSPanel placed in GLOBAL coordinates,
+        // so convert the box: window-local top-down -> window bottom-up ->
+        // screen bottom-up (convertRectToScreen) -> global top-down against the
+        // PRIMARY screen's height, the space the screens are listed in.
+        let global_anchor = {
             let content_h = self
                 .window
                 .contentView()
                 .map(|cv| cv.bounds().size.height)
                 .unwrap_or(0.0);
+            let (width, height) = (
+                f64::from(anchor.size.width),
+                f64::from(anchor.size.height),
+            );
             let window_rect = NSRect::new(
-                NSPoint::new(position.x as f64, content_h - position.y as f64),
-                NSSize::new(0.0, 0.0),
+                NSPoint::new(
+                    f64::from(anchor.origin.x),
+                    content_h - f64::from(anchor.origin.y) - height,
+                ),
+                NSSize::new(width, height),
             );
             let screen_rect = self.window.convertRectToScreen(window_rect);
             let primary_h = primary_screen_height().unwrap_or(0.0);
-            azul_core::geom::LogicalPosition::new(
-                screen_rect.origin.x as f32,
-                (primary_h - screen_rect.origin.y) as f32,
+            azul_core::geom::LogicalRect::new(
+                azul_core::geom::LogicalPosition::new(
+                    screen_rect.origin.x as f32,
+                    (primary_h - screen_rect.origin.y - screen_rect.size.height) as f32,
+                ),
+                anchor.size,
             )
         };
 
         if let Some(ref mut tooltip) = self.tooltip {
-            tooltip.show(text, global_top_down, dpi_factor)?;
+            tooltip.show(text, global_anchor)?;
         }
 
         Ok(())
