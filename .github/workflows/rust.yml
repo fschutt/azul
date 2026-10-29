@@ -704,9 +704,13 @@ jobs:
           os: ${{ runner.os }}
 
       - name: Run azul-doc tests
+        # Release: the tests generate every binding from the whole API, which
+        # unoptimised ran past the job's 30 minutes. azul-doc's release
+        # profile (Cargo.toml) builds it at -O1 in many codegen units, so the
+        # build costs little more than a debug one.
         run: |
           set -o pipefail
-          cargo test -p azul-doc --bins --no-fail-fast 2>&1 | tee azul-doc-tests.txt
+          cargo test -r -p azul-doc --bins --no-fail-fast 2>&1 | tee azul-doc-tests.txt
           ./scripts/zero_test_guard.sh --strict azul-doc-tests.txt
 
       - name: Double-drop invariant + guide links (azul-doc)
