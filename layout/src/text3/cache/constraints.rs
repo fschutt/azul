@@ -257,7 +257,6 @@ pub(crate) struct CursorBoundsError {
 /// ## CSS Shapes Module
 /// - `shape_boundaries`: \u2705 Custom line box shapes
 /// - `shape_exclusions`: \u2705 Exclusion areas (float-like behavior)
-/// - `exclusion_margin`: \u2705 Margin around exclusions
 ///
 /// ## Multi-column Layout
 /// - `columns`: \u2705 Number of columns
@@ -281,9 +280,9 @@ pub struct UnifiedConstraints {
     /// line below it is not cut: overflow continues outside the element's
     /// bounds. `None` cuts every line.
     pub shape_area_height: Option<f32>,
-    /// The exclusion areas lines flow around: floats, `shape-outside`, an
+    /// The exclusion areas lines flow around: floats, exclusion boxes, an
     /// initial letter. A line loses whatever of its line box they cover.
-    pub shape_exclusions: Vec<ShapeBoundary>,
+    pub shape_exclusions: Vec<Exclusion>,
 
     // Basic layout - using AvailableSpace for proper indefinite handling
     pub available_width: AvailableSpace,
@@ -324,7 +323,6 @@ pub struct UnifiedConstraints {
 
     // Advanced features
     pub text_combine_upright: Option<TextCombineUpright>,
-    pub exclusion_margin: f32,
     pub hyphenation: Hyphens,
     pub hyphenation_language: Option<Language>,
     pub text_indent: f32,
@@ -427,7 +425,6 @@ impl Default for UnifiedConstraints {
             overflow: OverflowBehavior::default(),
             segment_alignment: SegmentAlignment::default(),
             text_combine_upright: None,
-            exclusion_margin: 0.0,
             hyphenation: Hyphens::default(),
             hyphenation_language: None,
             columns: 1,
@@ -496,7 +493,6 @@ impl UnifiedConstraints {
             overflow,
             segment_alignment,
             text_combine_upright,
-            exclusion_margin,
             hyphenation,
             hyphenation_language,
             text_indent,
@@ -535,7 +531,6 @@ impl UnifiedConstraints {
         overflow.hash(state);
         segment_alignment.hash(state);
         text_combine_upright.hash(state);
-        (exclusion_margin.round() as isize).hash(state);
         hyphenation.hash(state);
         hyphenation_language.hash(state);
         (text_indent.round() as isize).hash(state);
@@ -581,7 +576,6 @@ impl PartialEq for UnifiedConstraints {
             overflow,
             segment_alignment,
             text_combine_upright,
-            exclusion_margin,
             hyphenation,
             hyphenation_language,
             text_indent,
@@ -630,7 +624,6 @@ impl PartialEq for UnifiedConstraints {
             && *overflow == other.overflow
             && *segment_alignment == other.segment_alignment
             && *text_combine_upright == other.text_combine_upright
-            && round_eq(*exclusion_margin, other.exclusion_margin)
             && *hyphenation == other.hyphenation
             && *hyphenation_language == other.hyphenation_language
             && round_eq(*text_indent, other.text_indent)

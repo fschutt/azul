@@ -562,6 +562,72 @@ pub enum ShapeBoundary {
 }
 
 impl ShapeBoundary {
+    /// The shape moved by `dx`, `dy`.
+    #[must_use]
+    pub fn translated(&self, dx: f32, dy: f32) -> Self {
+        let at = |p: &Point| Point {
+            x: p.x + dx,
+            y: p.y + dy,
+        };
+        match self {
+            Self::Rectangle(rect) => Self::Rectangle(Rect {
+                x: rect.x + dx,
+                y: rect.y + dy,
+                ..*rect
+            }),
+            Self::Circle { center, radius } => Self::Circle {
+                center: at(center),
+                radius: *radius,
+            },
+            Self::Ellipse { center, radii } => Self::Ellipse {
+                center: at(center),
+                radii: *radii,
+            },
+            Self::Polygon { points, fill_rule } => Self::Polygon {
+                points: points.iter().map(at).collect(),
+                fill_rule: *fill_rule,
+            },
+            Self::Path {
+                segments,
+                fill_rule,
+            } => Self::Path {
+                segments: segments
+                    .iter()
+                    .map(|segment| match segment {
+                        PathSegment::MoveTo(p) => PathSegment::MoveTo(at(p)),
+                        PathSegment::LineTo(p) => PathSegment::LineTo(at(p)),
+                        PathSegment::CurveTo {
+                            control1,
+                            control2,
+                            end,
+                        } => PathSegment::CurveTo {
+                            control1: at(control1),
+                            control2: at(control2),
+                            end: at(end),
+                        },
+                        PathSegment::QuadTo { control, end } => PathSegment::QuadTo {
+                            control: at(control),
+                            end: at(end),
+                        },
+                        PathSegment::Arc {
+                            center,
+                            radius,
+                            start_angle,
+                            end_angle,
+                        } => PathSegment::Arc {
+                            center: at(center),
+                            radius: *radius,
+                            start_angle: *start_angle,
+                            end_angle: *end_angle,
+                        },
+                        PathSegment::Close => PathSegment::Close,
+                    })
+                    .collect(),
+                fill_rule: *fill_rule,
+            },
+        }
+    }
+
     /// Calls `visit` with every height at which the shape's horizontal extent
     /// can change its course: a rectangle's top and bottom, a circle's or an
     /// ellipse's top, centre and bottom, every vertex of a polygon or a path.

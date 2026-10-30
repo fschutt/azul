@@ -28,7 +28,7 @@ fn shape(css: &str) -> ShapeBoundary {
 /// `TEXT` in a 400px box around `exclusion`.
 fn around(exclusion: &str) -> Vec<GlyphBox> {
     let mut paragraph = box_of_width(400.0);
-    paragraph.shape_exclusions = vec![shape(exclusion)];
+    paragraph.shape_exclusions = vec![shape(exclusion).into()];
     let glyphs = glyph_boxes(&lay_out(TEXT, &paragraph));
     assert!(glyphs.len() > 100, "the paragraph is laid out: {glyphs:?}");
     glyphs

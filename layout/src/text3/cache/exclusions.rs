@@ -419,3 +419,227 @@ pub(super) fn merge_segments(mut segments: Vec<LineSegment>) -> Vec<LineSegment>
     }
     merged
 }
+
+/// On which sides of an exclusion lines may flow, in the physical directions
+/// of the line: CSS Exclusions 1 `wrap-flow` with its start and end resolved
+/// against the writing direction, and a float's side.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum ExclusionWrap {
+    /// Lines flow on both sides of it (`wrap-flow: both`).
+    #[default]
+    Both,
+    /// Lines flow on its left side only: the line right of its left edge is
+    /// taken (a right float).
+    Left,
+    /// Lines flow on its right side only: the line left of its right edge is
+    /// taken (a left float).
+    Right,
+    /// Lines flow on the side where they have less room.
+    Minimum,
+    /// Lines flow on the side where they have more room.
+    Maximum,
+    /// No line flows beside it: lines go on above and below it.
+    Clear,
+}
+
+/// An area lines flow around: a float, an exclusion box, an initial letter.
+#[derive(Debug, Clone)]
+pub struct Exclusion {
+    /// The exclusion area.
+    pub shape: ShapeBoundary,
+    /// How far lines keep away from the shape: the area grows by this
+    /// distance in every direction (`shape-margin`), round at its corners.
+    pub margin: f32,
+    /// The box the grown area is clipped to: a float's area never reaches
+    /// past its margin box (CSS Shapes 1, 2.1).
+    pub clip: Option<Rect>,
+    /// On which sides of the area lines may flow.
+    pub wrap: ExclusionWrap,
+}
+
+impl From<ShapeBoundary> for Exclusion {
+    fn from(shape: ShapeBoundary) -> Self {
+        Self {
+            shape,
+            margin: 0.0,
+            clip: None,
+            wrap: ExclusionWrap::Both,
+        }
+    }
+}
+
+impl PartialEq for Exclusion {
+    fn eq(&self, other: &Self) -> bool {
+        self.shape == other.shape
+            && round_eq(self.margin, other.margin)
+            && self.clip == other.clip
+            && self.wrap == other.wrap
+    }
+}
+impl Eq for Exclusion {}
+
+impl Hash for Exclusion {
+    #[allow(clippy::cast_possible_truncation)] // the rounded-pixel key `round_eq` compares
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.shape.hash(state);
+        (self.margin.round() as isize).hash(state);
+        self.clip.hash(state);
+        self.wrap.hash(state);
+    }
+}
+
+/// How many heights of a margin's quarter circle a grown polygon, path or
+/// ellipse is read at, above and below a band.
+const MARGIN_SAMPLES: u16 = 16;
+
+impl Exclusion {
+    /// The exclusion moved by `dx`, `dy`.
+    #[must_use]
+    pub fn translated(&self, dx: f32, dy: f32) -> Self {
+        Self {
+            shape: self.shape.translated(dx, dy),
+            margin: self.margin,
+            clip: self.clip.map(|clip| Rect {
+                x: clip.x + dx,
+                y: clip.y + dy,
+                ..clip
+            }),
+            wrap: self.wrap,
+        }
+    }
+
+    /// The spans of a line band from `top` down `height` the exclusion takes
+    /// from a line `width` wide.
+    #[must_use]
+    pub fn spans_taken(&self, top: f32, height: f32, width: f32) -> Vec<(f32, f32)> {
+        let mut band = (top, top + height.max(0.0));
+        if let Some(clip) = self.clip {
+            band = (band.0.max(clip.y), band.1.min(clip.y + clip.height));
+            if band.1 < band.0 || (band.1 == band.0 && height > 0.0) {
+                return Vec::new();
+            }
+        }
+        let mut spans = grown_spans(&self.shape, band.0, band.1, self.margin);
+        if let Some(clip) = self.clip {
+            spans = intersect_spans(&spans, &[(clip.x, clip.x + clip.width)]);
+        }
+        let (Some(&(start, _)), Some(&(_, end))) = (spans.first(), spans.last()) else {
+            return Vec::new();
+        };
+        let left_side = || vec![(start, f32::INFINITY)];
+        let right_side = || vec![(f32::NEG_INFINITY, end)];
+        match self.wrap {
+            ExclusionWrap::Both => spans,
+            ExclusionWrap::Left => left_side(),
+            ExclusionWrap::Right => right_side(),
+            ExclusionWrap::Clear => vec![(f32::NEG_INFINITY, f32::INFINITY)],
+            ExclusionWrap::Minimum | ExclusionWrap::Maximum => {
+                let room_left = start.max(0.0);
+                let room_right = (width - end).max(0.0);
+                let flows_left = if self.wrap == ExclusionWrap::Maximum {
+                    room_left >= room_right
+                } else {
+                    room_left <= room_right
+                };
+                if flows_left {
+                    left_side()
+                } else {
+                    right_side()
+                }
+            }
+        }
+    }
+
+    /// Calls `visit` with every height at which the room the exclusion takes
+    /// can change course: the shape's own, moved out by the margin, and the
+    /// clip's edges.
+    pub fn for_each_turning_height(&self, visit: &mut impl FnMut(f32)) {
+        let margin = self.margin.max(0.0);
+        self.shape.for_each_turning_height(&mut |y| {
+            visit(y - margin);
+            visit(y);
+            visit(y + margin);
+        });
+        if let Some(clip) = self.clip {
+            visit(clip.y);
+            visit(clip.y + clip.height);
+        }
+    }
+}
+
+/// The spans `shape` grown by `margin` in every direction takes from the band
+/// `top`..`bottom`: what it reaches at any height of the band.
+///
+/// A circle grows into a larger circle and a rectangle into a rectangle with
+/// round corners, both exactly. A polygon, a path or an ellipse is read in
+/// the band grown by the margin, and above and below the band at heights
+/// where the margin's quarter circle reaches less far.
+fn grown_spans(shape: &ShapeBoundary, top: f32, bottom: f32, margin: f32) -> Vec<(f32, f32)> {
+    if margin <= 0.0 {
+        return shape_spans_in_band(shape, top, bottom - top, BandCover::Any);
+    }
+    let reach = |gap: f32| (margin * margin - gap * gap).max(0.0).sqrt();
+    let grow = |spans: Vec<(f32, f32)>, by: f32| -> Vec<(f32, f32)> {
+        union_spans(
+            spans.into_iter().map(|(s, e)| (s - by, e + by)).collect(),
+            Vec::new(),
+        )
+    };
+    match shape {
+        ShapeBoundary::Circle { center, radius } => shape_spans_in_band(
+            &ShapeBoundary::Circle {
+                center: *center,
+                radius: radius + margin,
+            },
+            top,
+            bottom - top,
+            BandCover::Any,
+        ),
+        ShapeBoundary::Rectangle(rect) => {
+            let gap = if bottom <= rect.y {
+                rect.y - bottom
+            } else if top >= rect.y + rect.height {
+                top - (rect.y + rect.height)
+            } else {
+                0.0
+            };
+            if gap >= margin || rect.width < 0.0 {
+                Vec::new()
+            } else {
+                let by = reach(gap);
+                vec![(rect.x - by, rect.x + rect.width + by)]
+            }
+        }
+        _ => {
+            let mut spans = grow(
+                shape_spans_in_band(shape, top, bottom - top, BandCover::Any),
+                margin,
+            );
+            let mut sample = |y: f32, gap: f32| {
+                let at = shape_spans_in_band(shape, y, 0.0, BandCover::Any);
+                spans = union_spans(core::mem::take(&mut spans), grow(at, reach(gap)));
+            };
+            for step in 1..=MARGIN_SAMPLES {
+                let gap = margin * f32::from(step) / f32::from(MARGIN_SAMPLES);
+                sample(top - gap, gap);
+                sample(bottom + gap, gap);
+            }
+            // The shape's corners and the ends of its edges: where it reaches
+            // furthest, read where they are, just above and just below (a
+            // scanline counts an edge from its top, not at its bottom). One
+            // right on the band's edge (a horizontal edge the band touches)
+            // is the band's own.
+            let mut vertices = Vec::new();
+            shape.for_each_turning_height(&mut |y| vertices.push(y));
+            for y in vertices {
+                for at in [y - BAND_SAMPLE_INSET, y, y + BAND_SAMPLE_INSET] {
+                    if at >= top - margin && at <= bottom + margin {
+                        sample(at, (top - at).max(at - bottom).max(0.0));
+                    }
+                }
+            }
+            spans
+        }
+    }
+}
+

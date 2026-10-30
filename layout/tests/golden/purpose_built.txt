@@ -186,11 +186,11 @@ n32 p31 d30 Inline @503,419 -x- ic=37.8125/113.40625
   dl4 Text -14,14 428x70 glyphs=31 fs=14
   dl5 Text -14,14 428x70 glyphs=27 fs=14
   dl6 Text -14,14 428x70 glyphs=17 fs=14
-  dl7 HitTestArea 105,13.796875 199.5x14
-  dl8 HitTestArea 105,27.796875 208.59375x14
-  dl9 HitTestArea 105,41.796875 207.90625x14
-  dl10 HitTestArea 105,55.796875 167.29688x14
-  dl11 HitTestArea 105,69.796875 109.203125x14
+  dl7 HitTestArea 110,13.796875 199.5x14
+  dl8 HitTestArea 110,27.796875 208.59375x14
+  dl9 HitTestArea 110,41.796875 207.90625x14
+  dl10 HitTestArea 110,55.796875 167.29688x14
+  dl11 HitTestArea 110,69.796875 109.203125x14
   dl12 HitTestArea 0,84 400x14
   dl13 Text -14,84 428x14 glyphs=12 fs=14
   dl14 HitTestArea 0,83.796875 72.09375x14
@@ -213,8 +213,8 @@ n32 p31 d30 Inline @503,419 -x- ic=37.8125/113.40625
   dl31 HitTestArea 0,310 400x28
   dl32 Text -14,310 428x28 glyphs=43 fs=14
   dl33 Text -14,310 428x28 glyphs=27 fs=14
-  dl34 HitTestArea 120,309.79688 275.79688x14
-  dl35 HitTestArea 120,323.79688 172.20313x14
+  dl34 HitTestArea 110.75,309.79688 275.79688x14
+  dl35 HitTestArea 117.234375,323.79688 172.20313x14
   dl36 HitTestArea 502,418 296x16
   dl37 Text 489,419 322x14 glyphs=19 fs=14
   dl38 HitTestArea 503,418.79688 113.40625x14
