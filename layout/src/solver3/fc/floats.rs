@@ -76,14 +76,78 @@ use crate::{
 use super::*;
 
 /// Represents a single floated element within a BFC.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub(super) struct FloatBox {
     /// The type of float (Left or Right).
     pub(super) kind: LayoutFloat,
-    /// The rectangle of the float's content box (origin includes top/left margin offset).
+    /// The float's border box, in the coordinates of the context it is in.
     pub(super) rect: LogicalRect,
     /// The margin sizes (needed to calculate true margin-box bounds).
     pub(super) margin: EdgeSizes,
+    /// The float's `shape-outside`, in the same coordinates, and its
+    /// `shape-margin`: the float area lines wrap around (CSS Shapes 1). `None`
+    /// keeps the margin box as the float area.
+    pub(super) shape: Option<(crate::text3::cache::ShapeBoundary, f32)>,
+}
+
+impl FloatBox {
+    /// The float's margin box.
+    pub(super) fn margin_box(&self) -> LogicalRect {
+        LogicalRect {
+            origin: LogicalPosition::new(
+                self.rect.origin.x - self.margin.left,
+                self.rect.origin.y - self.margin.top,
+            ),
+            size: LogicalSize::new(
+                self.rect.size.width + self.margin.left + self.margin.right,
+                self.rect.size.height + self.margin.top + self.margin.bottom,
+            ),
+        }
+    }
+
+    /// The area inline content wraps around: the float's shape grown by its
+    /// shape margin, or its margin box, clipped to the margin box either way,
+    /// with lines flowing only on the side away from the float's edge.
+    pub(super) fn exclusion(&self) -> crate::text3::cache::Exclusion {
+        use crate::text3::cache::{Exclusion, ExclusionWrap, Rect, ShapeBoundary};
+        let margin_box = self.margin_box();
+        let clip = Rect {
+            x: margin_box.origin.x,
+            y: margin_box.origin.y,
+            width: margin_box.size.width,
+            height: margin_box.size.height,
+        };
+        let (shape, margin) = self
+            .shape
+            .clone()
+            .unwrap_or((ShapeBoundary::Rectangle(clip), 0.0));
+        Exclusion {
+            shape,
+            margin,
+            clip: Some(clip),
+            wrap: match self.kind {
+                LayoutFloat::Left => ExclusionWrap::Right,
+                LayoutFloat::Right => ExclusionWrap::Left,
+                LayoutFloat::None => ExclusionWrap::Both,
+            },
+        }
+    }
+
+    /// The float moved by `dx`, `dy`, its shape with it.
+    pub(super) fn translated(&self, dx: f32, dy: f32) -> Self {
+        Self {
+            kind: self.kind,
+            rect: LogicalRect {
+                origin: LogicalPosition::new(self.rect.origin.x + dx, self.rect.origin.y + dy),
+                size: self.rect.size,
+            },
+            margin: self.margin,
+            shape: self
+                .shape
+                .as_ref()
+                .map(|(shape, margin)| (shape.translated(dx, dy), *margin)),
+        }
+    }
 }
 
 /// Manages the state of all floated elements within a Block Formatting Context.
@@ -100,7 +164,29 @@ pub struct FloatingContext {
 impl FloatingContext {
     /// Add a newly positioned float to the context
     pub fn add_float(&mut self, kind: LayoutFloat, rect: LogicalRect, margin: EdgeSizes) {
-        self.floats.push(FloatBox { kind, rect, margin });
+        self.floats.push(FloatBox {
+            kind,
+            rect,
+            margin,
+            shape: None,
+        });
+    }
+
+    /// Add a newly positioned float whose `shape-outside` gives its float
+    /// area (`shape`, with its `shape-margin`).
+    pub(super) fn add_shaped_float(
+        &mut self,
+        kind: LayoutFloat,
+        rect: LogicalRect,
+        margin: EdgeSizes,
+        shape: Option<(crate::text3::cache::ShapeBoundary, f32)>,
+    ) {
+        self.floats.push(FloatBox {
+            kind,
+            rect,
+            margin,
+            shape,
+        });
     }
 
     // +spec:box-model:0c9b13 - line boxes next to floats are shortened to make room
@@ -366,6 +452,7 @@ pub(super) fn position_floated_child(
                 kind: float_type,
                 rect: LogicalRect::new(final_pos, child_margin_box_size),
                 margin: EdgeSizes::default(), // TODO: Pass actual margin if this function is used
+                shape: None,
             };
             floating_context.floats.push(new_float_box);
             return Ok(final_pos);

@@ -406,7 +406,8 @@ fn test_layout_with_shape_exclusion() {
             y: 10.0,
             width: 100.0,
             height: 30.0,
-        })],
+        })
+        .into()],
         ..Default::default()
     };
 

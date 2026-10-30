@@ -32,7 +32,8 @@ fn with_hole(x0: f32, x1: f32, bottom: f32) -> UnifiedConstraints {
         y: 0.0,
         width: x1 - x0,
         height: bottom,
-    })];
+    })
+    .into()];
     paragraph
 }
 

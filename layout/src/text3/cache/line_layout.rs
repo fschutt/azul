@@ -2492,7 +2492,7 @@ pub(super) fn get_line_constraints(
     }
 
     for exclusion in &constraints.shape_exclusions {
-        let taken = get_shape_horizontal_spans(exclusion, line_y, line_height);
+        let taken = exclusion.spans_taken(line_y, line_height, width);
         if !taken.is_empty() {
             spans = subtract_spans(&spans, &taken);
         }
@@ -2544,12 +2544,11 @@ fn next_band_top(line_top: f32, constraints: &UnifiedConstraints) -> f32 {
             next = y;
         }
     };
-    for shape in constraints
-        .shape_boundaries
-        .iter()
-        .chain(&constraints.shape_exclusions)
-    {
+    for shape in &constraints.shape_boundaries {
         shape.for_each_turning_height(&mut consider);
+    }
+    for exclusion in &constraints.shape_exclusions {
+        exclusion.for_each_turning_height(&mut consider);
     }
     if let Some(area) = constraints.shape_area_height {
         consider(area);
@@ -2562,12 +2561,11 @@ fn next_band_top(line_top: f32, constraints: &UnifiedConstraints) -> f32 {
 /// nothing.
 fn below_every_shape(line_top: f32, constraints: &UnifiedConstraints) -> bool {
     let mut lowest = constraints.shape_area_height.unwrap_or(f32::MIN);
-    for shape in constraints
-        .shape_boundaries
-        .iter()
-        .chain(&constraints.shape_exclusions)
-    {
+    for shape in &constraints.shape_boundaries {
         shape.for_each_turning_height(&mut |y| lowest = lowest.max(y));
+    }
+    for exclusion in &constraints.shape_exclusions {
+        exclusion.for_each_turning_height(&mut |y| lowest = lowest.max(y));
     }
     line_top >= lowest
 }

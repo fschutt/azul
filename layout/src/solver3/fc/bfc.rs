@@ -1049,8 +1049,16 @@ fn bfc_place_children<T: ParsedFontTrait>(
                     // (falls through), same rule as atomic blocks.
                 }
 
-                // Add to float context BEFORE positioning next element
-                float_context.add_float(float_type, float_rect, *float_margin);
+                // Add to float context BEFORE positioning next element, with
+                // the float area its `shape-outside` gives it.
+                let float_shape = float_shape_outside(
+                    ctx,
+                    node_id,
+                    float_rect,
+                    float_margin,
+                    flow_cross_size,
+                );
+                float_context.add_shaped_float(float_type, float_rect, *float_margin, float_shape);
 
                 // Store position in output
                 output.positions.insert(child_index, float_rect.origin);
@@ -2151,24 +2159,19 @@ fn bfc_place_children<T: ParsedFontTrait>(
 
             let mut ifc_floats = FloatingContext::default();
             for float_box in &floats_for_ifc.floats {
-                // Convert float position from BFC coords to IFC CONTENT-BOX relative coords
-                let float_rel_to_ifc = LogicalRect {
-                    origin: LogicalPosition {
-                        x: float_box.rect.origin.x - content_box_cross,
-                        y: float_box.rect.origin.y - content_box_main,
-                    },
-                    size: float_box.rect.size,
-                };
+                // The float in the IFC's content-box coordinates, its shape
+                // with it.
+                let float_rel_to_ifc = float_box.translated(-content_box_cross, -content_box_main);
 
                 debug_info!(
                     ctx,
                     "[layout_bfc] Float {:?}: BFC coords = {:?}, IFC-content-relative = {:?}",
                     float_box.kind,
                     float_box.rect,
-                    float_rel_to_ifc
+                    float_rel_to_ifc.rect
                 );
 
-                ifc_floats.add_float(float_box.kind, float_rel_to_ifc, float_box.margin);
+                ifc_floats.floats.push(float_rel_to_ifc);
             }
 
             // Create a BfcState with IFC-relative float coordinates

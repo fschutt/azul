@@ -228,13 +228,8 @@ pub struct LineStyle {
     pub hanging_punctuation: bool,
     /// `text-combine-upright` (vertical writing).
     pub text_combine_upright: Option<text3::cache::TextCombineUpright>,
-    /// `exclusion-margin` plus `shape-margin`, in px: the one margin text3
-    /// keeps around its exclusions.
-    pub exclusion_margin: f32,
     /// `shape-inside`: the shape the lines flow within.
     pub shape_inside: Option<ShapeInside>,
-    /// `shape-outside`: a shape the lines flow around.
-    pub shape_outside: Option<ShapeOutside>,
     /// The root's `height` in an absolute unit, read only when it has a
     /// shape: the shape's reference box is that tall while the available
     /// height is not definite.
@@ -292,12 +287,11 @@ impl LineStyle {
         viewport: PhysicalSize,
     ) -> Self {
         use azul_css::compact_cache::{
-            DOM_HAS_EXCLUSION_MARGIN, DOM_HAS_HANGING_PUNCTUATION, DOM_HAS_HYPHENATION_LANGUAGE,
-            DOM_HAS_HYPHENS, DOM_HAS_INITIAL_LETTER, DOM_HAS_INITIAL_LETTER_ALIGN,
-            DOM_HAS_LINE_BREAK, DOM_HAS_LINE_CLAMP, DOM_HAS_OVERFLOW_WRAP, DOM_HAS_SHAPE_INSIDE,
-            DOM_HAS_SHAPE_MARGIN, DOM_HAS_SHAPE_OUTSIDE, DOM_HAS_TEXT_ALIGN_LAST,
-            DOM_HAS_TEXT_COMBINE_UPRIGHT, DOM_HAS_TEXT_JUSTIFY, DOM_HAS_UNICODE_BIDI,
-            DOM_HAS_WORD_BREAK,
+            DOM_HAS_HANGING_PUNCTUATION, DOM_HAS_HYPHENATION_LANGUAGE, DOM_HAS_HYPHENS,
+            DOM_HAS_INITIAL_LETTER, DOM_HAS_INITIAL_LETTER_ALIGN, DOM_HAS_LINE_BREAK,
+            DOM_HAS_LINE_CLAMP, DOM_HAS_OVERFLOW_WRAP, DOM_HAS_SHAPE_INSIDE,
+            DOM_HAS_TEXT_ALIGN_LAST, DOM_HAS_TEXT_COMBINE_UPRIGHT, DOM_HAS_TEXT_JUSTIFY,
+            DOM_HAS_UNICODE_BIDI, DOM_HAS_WORD_BREAK,
         };
         // DOM-level declared flags: if a bit is clear, no node in this DOM
         // declared the corresponding property → cascade walks always return
@@ -483,26 +477,6 @@ impl LineStyle {
             None
         };
 
-        // exclusion-margin (CSS Exclusions L1) and shape-margin (CSS Shapes
-        // L1) apply to different sources, but text3 keeps one margin around
-        // all of its exclusions, so the two are added.
-        let exclusion_margin_base = if dom_declared & DOM_HAS_EXCLUSION_MARGIN != 0 {
-            cache
-                .get_exclusion_margin(node_data, &id, node_state)
-                .and_then(|s| s.get_property())
-                .map_or(0.0, |em| em.inner.get())
-        } else {
-            0.0
-        };
-        let shape_margin = if dom_declared & DOM_HAS_SHAPE_MARGIN != 0 {
-            cache
-                .get_shape_margin(node_data, &id, node_state)
-                .and_then(|s| s.get_property())
-                .map_or(0.0, |sm| sm.inner.number.get())
-        } else {
-            0.0
-        };
-
         // The hyphenation language (CSS Text 3 5.4): azul's own
         // `-azul-hyphenation-language` where it is set - an override - else
         // the CONTENT LANGUAGE, the nearest `lang` attribute. Read only under
@@ -533,19 +507,11 @@ impl LineStyle {
         } else {
             None
         };
-        let shape_outside = if dom_declared & DOM_HAS_SHAPE_OUTSIDE != 0 {
-            cache
-                .get_shape_outside(node_data, &id, node_state)
-                .and_then(|v| v.get_property())
-                .cloned()
-        } else {
-            None
-        };
         // A shape's reference box takes the element's CSS height while the
         // available height is not definite (an auto-height pass). Only
         // absolute units are read: a %, em or rem height cannot be resolved
         // without its context here.
-        let shape_box_height = if shape_inside.is_some() || shape_outside.is_some() {
+        let shape_box_height = if shape_inside.is_some() {
             cache
                 .get_height(node_data, &id, node_state)
                 .and_then(|v| v.get_property())
@@ -615,9 +581,7 @@ impl LineStyle {
             line_clamp,
             hanging_punctuation,
             text_combine_upright,
-            exclusion_margin: exclusion_margin_base + shape_margin,
             shape_inside,
-            shape_outside,
             shape_box_height,
         }
     }
@@ -647,8 +611,11 @@ pub(super) fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         crate::az_mark(0x60704_u32, (0x30u32));
     }
 
-    // Convert floats into exclusion zones for text3 to flow around.
-    let mut shape_exclusions = if let Some(ref bfc_state) = constraints.bfc_state {
+    // The floats of the context: the lines wrap around each one's float
+    // area (CSS Shapes 1, 2.1), on the side away from its edge.
+    let mut shape_exclusions: Vec<text3::cache::Exclusion> = if let Some(ref bfc_state) =
+        constraints.bfc_state
+    {
         debug_info!(
             ctx,
             "[translate_to_text3] converting {} floats to exclusions",
@@ -658,25 +625,10 @@ pub(super) fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
             .floats
             .floats
             .iter()
-            .enumerate()
-            .map(|(i, float_box)| {
-                let rect = text3::cache::Rect {
-                    x: float_box.rect.origin.x,
-                    y: float_box.rect.origin.y,
-                    width: float_box.rect.size.width,
-                    height: float_box.rect.size.height,
-                };
-                debug_info!(
-                    ctx,
-                    "[translate_to_text3]   Exclusion #{}: {:?} at ({}, {}) size {}x{}",
-                    i,
-                    float_box.kind,
-                    rect.x,
-                    rect.y,
-                    rect.width,
-                    rect.height
-                );
-                ShapeBoundary::Rectangle(rect)
+            .map(|float_box| {
+                let exclusion = float_box.exclusion();
+                debug_info!(ctx, "[translate_to_text3]   Exclusion: {:?}", exclusion);
+                exclusion
             })
             .collect()
     } else {
@@ -732,18 +684,6 @@ pub(super) fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         } else {
             (Vec::new(), None)
         };
-
-    // shape-outside: Text wraps around the shape (adds to exclusions)
-    if let Some(ShapeOutside::Shape(css_shape)) = &style.shape_outside {
-        let boundary = ShapeBoundary::from_css_shape(
-            css_shape,
-            shape_origin,
-            &shape_reference,
-            ctx.debug_messages,
-        );
-        debug_info!(ctx, "Created ShapeBoundary (exclusion): {:?}", boundary);
-        shape_exclusions.push(boundary);
-    }
 
     // TODO: clip-path will be used for rendering clipping (not text layout)
 
@@ -1014,17 +954,21 @@ pub(super) fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         if letter_w > 0.0 && letter_h > 0.0 {
             // Place the exclusion at the inline-start (x=0, y=0 relative to the IFC).
             // This creates a rectangular exclusion that text flows around.
-            shape_exclusions.push(ShapeBoundary::Rectangle(text3::cache::Rect {
-                x: 0.0,
-                y: 0.0,
-                width: letter_w,
-                height: letter_h,
-            }));
+            shape_exclusions.push(text3::cache::Exclusion {
+                shape: ShapeBoundary::Rectangle(text3::cache::Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: letter_w,
+                    height: letter_h,
+                }),
+                margin: 0.0,
+                clip: None,
+                wrap: text3::cache::ExclusionWrap::Right,
+            });
         }
     }
 
     UnifiedConstraints {
-        exclusion_margin: style.exclusion_margin,
         hyphenation_language: style.hyphenation_language,
         text_indent,
         text_indent_each_line,
@@ -1183,4 +1127,49 @@ pub(super) fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
             StyleLineBreak::Anywhere => text3::cache::LineBreakStrictness::Anywhere,
         },
     }
+}
+
+/// The float area `shape-outside` gives the float `node_id` whose border box
+/// is `border_box`, and its `shape-margin` in px: the shape is measured
+/// against the float's margin box (the reference box CSS Shapes 1 gives a
+/// basic shape alone), and a percentage margin is of the containing block's
+/// width. `None` for `shape-outside: none`, whose float area is the margin
+/// box.
+pub(super) fn float_shape_outside<T: ParsedFontTrait>(
+    ctx: &LayoutContext<'_, T>,
+    node_id: NodeId,
+    border_box: LogicalRect,
+    margin: &crate::solver3::geometry::EdgeSizes,
+    containing_block_width: f32,
+) -> Option<(ShapeBoundary, f32)> {
+    let styled_dom = ctx.styled_dom;
+    let node_datas = styled_dom.node_data.as_container();
+    let node_data = node_datas.get(node_id)?;
+    let styled_nodes = styled_dom.styled_nodes.as_container();
+    let node_state = &styled_nodes.get(node_id)?.styled_node_state;
+    let cache = &styled_dom.css_property_cache.ptr;
+    let ShapeOutside::Shape(css_shape) = cache
+        .get_shape_outside(node_data, &node_id, node_state)?
+        .get_property()?
+    else {
+        return None;
+    };
+    let reference = azul_css::shape::ShapeReference {
+        width: border_box.size.width + margin.left + margin.right,
+        height: border_box.size.height + margin.top + margin.bottom,
+        font_size: get_element_font_size(styled_dom, node_id, node_state),
+        root_font_size: crate::solver3::layout_tree::get_root_font_size(styled_dom),
+        viewport_width: ctx.viewport_size.width,
+        viewport_height: ctx.viewport_size.height,
+    };
+    let origin = text3::cache::Point {
+        x: border_box.origin.x - margin.left,
+        y: border_box.origin.y - margin.top,
+    };
+    let shape = ShapeBoundary::from_css_shape(css_shape, origin, &reference, &mut None);
+    let shape_margin = cache
+        .get_shape_margin(node_data, &node_id, node_state)
+        .and_then(|v| v.get_property())
+        .map_or(0.0, |m| reference.length(m.inner, containing_block_width));
+    Some((shape, shape_margin.max(0.0)))
 }

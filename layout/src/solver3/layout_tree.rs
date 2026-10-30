@@ -1487,7 +1487,7 @@ impl LayoutTree {
                     report.warm_inline_layout_bytes += c.shape_boundaries.capacity()
                         * size_of::<crate::text3::cache::ShapeBoundary>()
                         + c.shape_exclusions.capacity()
-                            * size_of::<crate::text3::cache::ShapeBoundary>();
+                            * size_of::<crate::text3::cache::Exclusion>();
                 }
                 // The payload Arc: when it is a TextPayload wrapper, that
                 // allocation holds two Arc CLONES of buffers counted
