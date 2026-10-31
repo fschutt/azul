@@ -48138,16 +48138,11 @@
                         ],
                         "enum_fields": [
                             {
-                                "Auto": {}
-                            },
-                            {
-                                "Avoid": {}
-                            },
-                            {
-                                "AvoidPage": {}
-                            },
-                            {
-                                "AvoidColumn": {}
+                                "Auto": {},
+                                "Avoid": {},
+                                "AvoidPage": {},
+                                "AvoidColumn": {},
+                                "AvoidRegion": {}
                             }
                         ],
                         "repr": "C"
@@ -49021,40 +49016,20 @@
                         ],
                         "enum_fields": [
                             {
-                                "Auto": {}
-                            },
-                            {
-                                "Avoid": {}
-                            },
-                            {
-                                "Always": {}
-                            },
-                            {
-                                "All": {}
-                            },
-                            {
-                                "Page": {}
-                            },
-                            {
-                                "AvoidPage": {}
-                            },
-                            {
-                                "Left": {}
-                            },
-                            {
-                                "Right": {}
-                            },
-                            {
-                                "Recto": {}
-                            },
-                            {
-                                "Verso": {}
-                            },
-                            {
-                                "Column": {}
-                            },
-                            {
-                                "AvoidColumn": {}
+                                "Auto": {},
+                                "Avoid": {},
+                                "Always": {},
+                                "All": {},
+                                "Page": {},
+                                "AvoidPage": {},
+                                "Left": {},
+                                "Right": {},
+                                "Recto": {},
+                                "Verso": {},
+                                "Column": {},
+                                "AvoidColumn": {},
+                                "Region": {},
+                                "AvoidRegion": {}
                             }
                         ],
                         "repr": "C"
@@ -51934,6 +51909,9 @@
                             {
                                 "None": {},
                                 "Named": {
+                                    "type": "String"
+                                },
+                                "NamedContent": {
                                     "type": "String"
                                 }
                             }
@@ -60199,6 +60177,9 @@
                     },
                     "ShapePosition": {
                         "external": "azul_css::shape::ShapePosition",
+                        "custom_impls": [
+                            "Default"
+                        ],
                         "derive": [
                             "Debug",
                             "Copy",
