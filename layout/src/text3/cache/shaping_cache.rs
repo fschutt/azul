@@ -1161,10 +1161,13 @@ impl TextShapingCache {
         let paragraph = ParagraphToBreak::new(shaped_items, first_constraints);
 
         // --- Stage 5: The Flow Loop ---
-        let mut fragment_layouts = HashMap::new();
+        let mut fragment_layouts = FragmentLayouts::default();
         // The cursor now manages the stream of items for the entire flow, with
-        // the first fragment's word-break, hyphens and line-break.
+        // the first fragment's word-break, hyphens and line-break; the line
+        // state carries the paragraph's direction, line numbers and inline
+        // boxes from each fragment to the next.
         let mut cursor = paragraph.cursor();
+        let mut lines = LineState::default();
 
         // [g147 az-web-lift] Hard safety bound on the Stage-5 flow loop. On the remill lift this
         // `for fragment in flow_chain` (or the `cursor.is_done()` break) mis-lifts for the NESTED
@@ -1190,15 +1193,17 @@ impl TextShapingCache {
                 }
             }
             // Perform layout for this single fragment, consuming items from the cursor.
-            let fragment_layout = perform_fragment_layout(
+            let fragment_layout = perform_fragment_layout_from(
                 &mut cursor,
+                &mut lines,
+                FragmentLimits::default(),
                 &logical_items,
                 &fragment.constraints,
                 debug_messages,
                 loaded_fonts,
             )?;
 
-            fragment_layouts.insert(fragment.id.clone(), Arc::new(fragment_layout));
+            fragment_layouts.push(fragment.id.clone(), Arc::new(fragment_layout.layout));
             if cursor.is_done() {
                 break; // All content has been laid out.
             }

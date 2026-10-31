@@ -136,7 +136,7 @@ pub fn flow_content(
         .map(|(id, _)| {
             flowed
                 .fragment_layouts
-                .get(*id)
+                .get(id)
                 .map_or_else(
                     || UnifiedLayout {
                         items: Vec::new(),
