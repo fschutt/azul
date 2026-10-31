@@ -127,6 +127,164 @@ impl<'c> ParagraphToBreak<'c> {
     }
 }
 
+/// What the line breaker carries from one fragment of a paragraph to the
+/// next, so a paragraph laid out in several frames or columns reads as one:
+/// its base direction, the number its next line gets, whether the last line
+/// ended in a forced break, and the inline boxes its last line ended in.
+#[derive(Debug, Clone, Default)]
+pub struct LineState {
+    /// The paragraph's base direction once its first fragment resolved it:
+    /// `unicode-bidi: plaintext` takes it from the paragraph's first strong
+    /// character, not from what a later fragment starts with.
+    pub base_direction: Option<BidiDirection>,
+    /// The index the paragraph's next line gets: lines are numbered through
+    /// all its fragments and columns, and `line-clamp` counts them all.
+    pub line_index: usize,
+    /// Whether the last line ended in a forced break: `text-indent:
+    /// each-line` indents the line after it.
+    pub is_after_forced_break: bool,
+    /// The inline boxes the last line's last cluster is in: a span the break
+    /// between two fragments splits draws no edge there.
+    pub before_chain: Option<Arc<[InlineBoxEdge]>>,
+}
+
+/// How a fragment of a paragraph may end besides running out of room.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FragmentLimits {
+    /// Whether the fragment keeps its first line when that line is taller
+    /// than the room: a fragmentainer that holds nothing else holds at least
+    /// one line, so the flow moves on. Off where the line can go to a later
+    /// fragment instead.
+    pub keep_first_line: bool,
+    /// At most this many lines (widows and orphans).
+    pub max_lines: Option<usize>,
+}
+
+impl Default for FragmentLimits {
+    fn default() -> Self {
+        Self {
+            keep_first_line: true,
+            max_lines: None,
+        }
+    }
+}
+
+/// One fragment of a paragraph: its lines, how many, and the block offset at
+/// which the last one ends.
+#[derive(Debug, Clone)]
+pub struct FragmentLayout {
+    /// The fragment's lines, positioned from the fragment's top left corner.
+    pub layout: UnifiedLayout,
+    /// How many line boxes it holds.
+    pub lines: usize,
+    /// The bottom of its last line box (0 without one).
+    pub block_end: f32,
+}
+
+/// A paragraph laid out fragment by fragment, each fragment with constraints
+/// of its own: one shaped paragraph, and the break position and line state
+/// that carry from each fragment to the next. A copy of it is a trial
+/// layout that leaves the paragraph where it is.
+#[derive(Debug, Clone)]
+pub struct ParagraphFlow {
+    logical_items: Arc<Vec<LogicalItem>>,
+    items: Arc<Vec<ShapedItem>>,
+    word_break: WordBreak,
+    hyphens: Hyphens,
+    line_break: LineBreakStrictness,
+    position: BreakPosition,
+    lines: LineState,
+}
+
+impl ParagraphFlow {
+    /// The paragraph of `shaped_items`, turned for the writing mode of its
+    /// first fragment's `constraints` and broken by their word-break,
+    /// hyphens and line-break.
+    #[must_use]
+    pub fn new(
+        logical_items: Arc<Vec<LogicalItem>>,
+        shaped_items: Arc<Vec<ShapedItem>>,
+        constraints: &UnifiedConstraints,
+    ) -> Self {
+        let paragraph = ParagraphToBreak::new(shaped_items, constraints);
+        let cursor = paragraph.cursor();
+        Self {
+            word_break: cursor.word_break,
+            hyphens: cursor.hyphens,
+            line_break: cursor.line_break,
+            position: cursor.position(),
+            logical_items,
+            items: Arc::clone(&paragraph.items),
+            lines: LineState::default(),
+        }
+    }
+
+    /// Whether every item has been laid out.
+    #[must_use]
+    pub fn is_done(&self) -> bool {
+        self.position.next_item_index >= self.items.len()
+            && self.position.partial_remainder.is_empty()
+    }
+
+    /// Whether no line has been laid out yet.
+    #[must_use]
+    pub const fn is_at_start(&self) -> bool {
+        self.position.next_item_index == 0 && self.position.partial_remainder.is_empty()
+    }
+
+    /// The items not laid out yet, in reading order.
+    pub fn remaining(&self) -> impl Iterator<Item = &ShapedItem> {
+        self.position.partial_remainder.iter().chain(
+            self.items
+                .get(self.position.next_item_index..)
+                .unwrap_or(&[])
+                .iter(),
+        )
+    }
+
+    /// The state the next fragment's lines start from.
+    #[must_use]
+    pub const fn line_state(&self) -> &LineState {
+        &self.lines
+    }
+
+    /// Lays the paragraph's next fragment out in `constraints`, from where
+    /// the last one ended.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `LayoutError` if the lines cannot be laid out.
+    pub fn layout_fragment<T: ParsedFontTrait>(
+        &mut self,
+        constraints: &UnifiedConstraints,
+        limits: FragmentLimits,
+        debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+        fonts: &LoadedFonts<T>,
+    ) -> Result<FragmentLayout, LayoutError> {
+        let mut cursor = BreakCursor {
+            items: &self.items,
+            next_item_index: 0,
+            partial_remainder: Vec::new(),
+            partial_remainder_breaks: None,
+            word_break: self.word_break,
+            hyphens: self.hyphens,
+            line_break: self.line_break,
+        };
+        cursor.restore(self.position.clone());
+        let fragment = perform_fragment_layout_from(
+            &mut cursor,
+            &mut self.lines,
+            limits,
+            &self.logical_items,
+            constraints,
+            debug_messages,
+            fonts,
+        )?;
+        self.position = cursor.position();
+        Ok(fragment)
+    }
+}
+
 /// Performs layout for a single fragment, consuming items from a `BreakCursor`.
 ///
 /// This function contains the core line-breaking and positioning logic, but is
@@ -163,8 +321,6 @@ impl<'c> ParagraphToBreak<'c> {
 /// - § 4 Baseline Alignment: vertical-align property not fully supported
 /// - § 5 Line Spacing: line-height implemented, but line-fit-edge missing
 /// - § 6 Trimming Leading: text-box-trim not implemented
-#[allow(clippy::cast_precision_loss)] // bounded pixel/coord/colour/glyph cast
-#[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 /// # Errors
 ///
 /// Returns a `LayoutError` if fragment layout fails.
@@ -175,6 +331,36 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     fonts: &LoadedFonts<T>,
 ) -> Result<UnifiedLayout, LayoutError> {
+    perform_fragment_layout_from(
+        cursor,
+        &mut LineState::default(),
+        FragmentLimits::default(),
+        logical_items,
+        fragment_constraints,
+        debug_messages,
+        fonts,
+    )
+    .map(|fragment| fragment.layout)
+}
+
+/// [`perform_fragment_layout`] for a fragment of a paragraph laid out in
+/// several: the lines go on from `lines`, the state the fragment before left
+/// (and leave it for the next one), and stop at `limits`.
+///
+/// # Errors
+///
+/// Returns a `LayoutError` if fragment layout fails.
+#[allow(clippy::cast_precision_loss)] // bounded pixel/coord/colour/glyph cast
+#[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+pub fn perform_fragment_layout_from<T: ParsedFontTrait>(
+    cursor: &mut BreakCursor<'_>,
+    lines: &mut LineState,
+    limits: FragmentLimits,
+    logical_items: &[LogicalItem],
+    fragment_constraints: &UnifiedConstraints,
+    debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+    fonts: &LoadedFonts<T>,
+) -> Result<FragmentLayout, LayoutError> {
     const MAX_EMPTY_SEGMENTS: usize = 1000; // Maximum allowed consecutive empty segments
     if let Some(msgs) = debug_messages {
         msgs.push(LayoutDebugMessage::info(
@@ -191,12 +377,17 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
 
     // For TextWrap::Balance, use Knuth-Plass algorithm for optimal line breaking
     // This produces more visually balanced lines at the cost of more computation.
-    // It breaks against one measure, the full width: a room shapes or
-    // exclusions cut, whose segments differ from line to line, is broken by
-    // the greedy breaker below.
+    // It breaks the whole rest of the paragraph against one measure in one
+    // piece: a room shapes or exclusions cut, whose segments differ from line
+    // to line, a fragment that ends at a height or after some lines, and the
+    // columns are broken by the greedy breaker below.
     if fragment_constraints.text_wrap == TextWrap::Balance
         && fragment_constraints.shape_boundaries.is_empty()
         && fragment_constraints.shape_exclusions.is_empty()
+        && fragment_constraints.available_height.is_none()
+        && fragment_constraints.columns <= 1
+        && fragment_constraints.column_flow.is_none()
+        && limits.max_lines.is_none()
     {
         if let Some(msgs) = debug_messages {
             msgs.push(LayoutDebugMessage::info(
@@ -217,14 +408,27 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
         let hyphenator = hyphenator_for(fragment_constraints);
 
         // Use the Knuth-Plass algorithm for optimal line breaking
-        return Ok(crate::text3::knuth_plass::kp_layout(
+        let layout = crate::text3::knuth_plass::kp_layout(
             &shaped_items,
             logical_items,
             fragment_constraints,
             hyphenator.as_deref(),
             fonts,
             starts_paragraph,
-        ));
+        );
+        let line_count = layout
+            .items
+            .iter()
+            .map(|item| item.line_index)
+            .collect::<BTreeSet<_>>()
+            .len();
+        lines.line_index += line_count;
+        let block_end = layout.bounds().height;
+        return Ok(FragmentLayout {
+            layout,
+            lines: line_count,
+            block_end,
+        });
     }
 
     // +spec:intrinsic-sizing:57e02d - hyphenation opportunities considered in min-content sizing
@@ -276,8 +480,11 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
     // This ensures that mixed-direction text (e.g., "مرحبا - Hello") uses the
     // correct paragraph-level direction for alignment purposes.
     // With unicode-bidi: plaintext, direction is auto-detected from text content
-    // per CSS Writing Modes §8.3.
-    let base_direction = if fragment_constraints.unicode_bidi == UnicodeBidi::Plaintext {
+    // per CSS Writing Modes §8.3: once, from the paragraph's start; a later
+    // fragment keeps the direction its paragraph has.
+    let base_direction = if let Some(direction) = lines.base_direction {
+        direction
+    } else if fragment_constraints.unicode_bidi == UnicodeBidi::Plaintext {
         // Auto-detect from remaining shaped items' text content
         let remaining = &cursor.items[cursor.next_item_index..];
         let text: String = remaining
@@ -296,6 +503,7 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
     } else {
         fragment_constraints.direction.unwrap_or(BidiDirection::Ltr)
     };
+    lines.base_direction = Some(base_direction);
 
     if let Some(msgs) = debug_messages {
         msgs.push(LayoutDebugMessage::info(format!(
@@ -406,8 +614,15 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
             .unwrap_or(u32::MAX)
             .saturating_add(1)
     });
-    let mut flow_line_index = 0usize;
-    let mut flow_after_forced_break = false;
+    // The lines go on from the state the paragraph's fragment before left:
+    // their numbering, the forced break the last line ended in, the inline
+    // boxes it ended in. They carry through the columns the same way.
+    let mut line_index = lines.line_index;
+    let mut is_after_forced_break = lines.is_after_forced_break;
+    let mut before_chain: Option<Arc<[InlineBoxEdge]>> = lines.before_chain.clone();
+    // The lines of this fragment, and where the lowest of them ends.
+    let mut fragment_lines = 0usize;
+    let mut block_end = 0.0_f32;
     // The top of the highest and the bottom of the lowest line box that holds
     // only atomic inlines (no text cluster; an inline-block, an image), any
     // column, horizontal modes: such a line box holds the strut too, see
@@ -452,16 +667,12 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
                 *exclusion = exclusion.translated(-column_start_x, 0.0);
             }
         }
-        let mut line_index = if column_flow.is_some() {
-            flow_line_index
-        } else {
-            0
-        };
+        let column_first_line = line_index;
         let mut empty_segment_count = 0; // Failsafe counter for infinite loops
         // The lines this column holds so far: the first one stays even when
-        // it is taller than the column.
+        // it is taller than the column, unless the fragment may leave it to
+        // a later one (`FragmentLimits::keep_first_line`).
         let mut lines_in_column = 0usize;
-        let mut is_after_forced_break = column_flow.is_some() && flow_after_forced_break;
         // +spec:writing-modes:6e22a7 - vertical-rl advances columns (lines) right-to-left.
         // The positioner lays every line out at an increasing block-axis (x) offset from 0,
         // i.e. left-to-right. For vertical-rl we record each line's block band here so we can
@@ -478,9 +689,6 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
         // line counts). The 0x60BC4 marker exposes the iteration count.
         #[allow(clippy::no_effect_underscore_binding)] // web_lift-gated debug iteration counter
         let mut _az_line_iters: usize = 0;
-        // The inline boxes of the last cluster of the line before, for the
-        // edges of a span the wrap splits (`position_one_line_between`).
-        let mut before_chain: Option<Arc<[InlineBoxEdge]>> = None;
         while !cursor.is_done() {
             #[cfg(feature = "web_lift")]
             {
@@ -495,10 +703,13 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
                     break;
                 }
             }
+            if limits.max_lines.is_some_and(|max| fragment_lines >= max) {
+                break 'column_loop;
+            }
             if let Some(max_height) = fragment_constraints.available_height {
                 // A line box is at least one line-height tall, so once less
                 // than that is left no further line ends inside the column.
-                let full = if lines_in_column == 0 {
+                let full = if lines_in_column == 0 && limits.keep_first_line {
                     line_top_y >= max_height
                 } else {
                     line_top_y + fragment_constraints.resolved_line_height()
@@ -526,7 +737,7 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
             // lines so content distributes across columns. The LAST column takes whatever remains
             // (so integer rounding of the per-column budget never drops content).
             if let Some(budget) = balanced_lines_per_column {
-                if current_column + 1 < num_columns && line_index >= budget {
+                if current_column + 1 < num_columns && line_index - column_first_line >= budget {
                     break;
                 }
             }
@@ -743,7 +954,8 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
             // the line before it ends this one. The first line of an empty
             // fragment stays whatever its height, so the flow moves on.
             if let Some(max_height) = fragment_constraints.available_height {
-                if lines_in_column > 0 && line_top_y + band_height > max_height + LINE_FIT_EPSILON
+                if (lines_in_column > 0 || !limits.keep_first_line)
+                    && line_top_y + band_height > max_height + LINE_FIT_EPSILON
                 {
                     cursor.restore(cursor_before_line);
                     break;
@@ -764,6 +976,8 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
             line_bands.push((line_index, line_top_y, band_height));
             let band_top = line_top_y;
             line_top_y += band_height;
+            fragment_lines += 1;
+            block_end = block_end.max(line_top_y);
             let holds_glyphs = line_pos_items
                 .iter()
                 .any(|item| matches!(&item.item, ShapedItem::Cluster(c) if !c.glyphs.is_empty()));
@@ -810,10 +1024,11 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
                 }
             }
         }
-        flow_line_index = line_index;
-        flow_after_forced_break = is_after_forced_break;
         current_column += 1;
     }
+    lines.line_index = line_index;
+    lines.is_after_forced_break = is_after_forced_break;
+    lines.before_chain = before_chain;
 
     if let Some(msgs) = debug_messages {
         msgs.push(LayoutDebugMessage::info(format!(
@@ -918,7 +1133,11 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
         )));
     }
 
-    Ok(layout)
+    Ok(FragmentLayout {
+        layout,
+        lines: fragment_lines,
+        block_end,
+    })
 }
 
 /// Breaks a single line of items to fit within the given geometric constraints,

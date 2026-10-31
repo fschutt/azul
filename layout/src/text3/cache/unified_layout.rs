@@ -1450,11 +1450,54 @@ pub struct LayoutFragment {
     pub constraints: UnifiedConstraints,
 }
 
+/// The layouts of a flow's fragments, in the order of the chain: every
+/// fragment that holds lines keeps its own entry, two with the same id too.
+#[derive(Debug, Clone, Default)]
+pub struct FragmentLayouts(Vec<(String, Arc<UnifiedLayout>)>);
+
+impl FragmentLayouts {
+    /// The layout of the first fragment called `id`.
+    #[must_use]
+    pub fn get(&self, id: &str) -> Option<&Arc<UnifiedLayout>> {
+        self.0
+            .iter()
+            .find(|(fragment, _)| fragment == id)
+            .map(|(_, layout)| layout)
+    }
+
+    /// The fragments' layouts, in the order of the chain.
+    pub fn values(&self) -> impl Iterator<Item = &Arc<UnifiedLayout>> {
+        self.0.iter().map(|(_, layout)| layout)
+    }
+
+    /// The fragments' ids and layouts, in the order of the chain.
+    pub fn iter(&self) -> impl Iterator<Item = (&str, &Arc<UnifiedLayout>)> {
+        self.0.iter().map(|(id, layout)| (id.as_str(), layout))
+    }
+
+    /// How many fragments hold a layout.
+    #[must_use]
+    pub const fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    /// Whether no fragment holds a layout.
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// Adds the next fragment's layout.
+    pub fn push(&mut self, id: String, layout: Arc<UnifiedLayout>) {
+        self.0.push((id, layout));
+    }
+}
+
 /// Represents the final layout distributed across multiple fragments.
 #[derive(Debug, Clone)]
 pub struct FlowLayout {
-    /// A map from a fragment's unique ID to the layout it contains.
-    pub fragment_layouts: HashMap<String, Arc<UnifiedLayout>>,
+    /// The layout each fragment holds, in the order of the chain.
+    pub fragment_layouts: FragmentLayouts,
     /// Any items that did not fit into the last fragment in the flow chain.
     /// This is useful for pagination or determining if more layout space is needed.
     pub remaining_items: Vec<ShapedItem>,
