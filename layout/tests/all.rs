@@ -1353,3 +1353,5 @@ mod every_attribute_the_layout_reads_is_a_row_of_its_table;
 mod a_text_in_a_generic_family_is_drawn_in_a_face_that_has_its_letters;
 #[path = "a_rebuild_that_changes_who_listens_hits_and_tags_like_a_fresh_window.rs"]
 mod a_rebuild_that_changes_who_listens_hits_and_tags_like_a_fresh_window;
+#[path = "a_sidebar_follows_the_title_bar_area.rs"]
+mod a_sidebar_follows_the_title_bar_area;

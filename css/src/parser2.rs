@@ -5440,6 +5440,55 @@ mod env_tests {
     }
 
     #[test]
+    fn env_titlebar_area_x_with_a_fallback_parses_on_margin_left() {
+        let d = only_declaration("div { margin-left: env(titlebar-area-x, 12px); }");
+        assert_eq!(
+            d.env_variable().map(|v| v.as_css_name()),
+            Some("titlebar-area-x")
+        );
+        assert!(d.depends_on_dynamic_context());
+        let twelve = parse_css_property(CssPropertyType::MarginLeft, "12px").unwrap();
+        assert_eq!(d.resolve_in_cascade(None), Some(twelve));
+    }
+
+    #[test]
+    fn env_titlebar_area_height_without_a_fallback_is_zero_until_a_window_has_an_area() {
+        let d = only_declaration("div { padding-top: env(titlebar-area-height); }");
+        assert_eq!(
+            d.env_variable().map(|v| v.as_css_name()),
+            Some("titlebar-area-height")
+        );
+        let zero = parse_css_property(CssPropertyType::PaddingTop, "0px").unwrap();
+        assert_eq!(d.resolve_in_cascade(None), Some(zero.clone()));
+        assert_eq!(
+            d.resolve_in_cascade(Some(&DynamicSelectorContext::default())),
+            Some(zero),
+            "a context without a title bar area"
+        );
+    }
+
+    #[test]
+    fn a_system_titlebar_length_parses_on_margin_left_as_an_environment_value() {
+        let d = only_declaration("div { margin-left: system:titlebar-button-width; }");
+        assert_eq!(
+            d.env_variable().map(|v| v.as_css_name()),
+            Some("system:titlebar-button-width")
+        );
+        assert!(d.depends_on_dynamic_context());
+        let zero = parse_css_property(CssPropertyType::MarginLeft, "0px").unwrap();
+        assert_eq!(d.resolve_in_cascade(None), Some(zero));
+    }
+
+    #[test]
+    fn env_inside_calc_keeps_the_value_and_takes_the_fallback_without_a_window() {
+        let d = only_declaration("div { width: calc(100% - env(titlebar-area-x, 0px)); }");
+        assert_eq!(d.get_type(), Some(CssPropertyType::Width));
+        assert!(d.depends_on_dynamic_context());
+        let fallback = parse_css_property(CssPropertyType::Width, "calc(100% - 0px)").unwrap();
+        assert_eq!(d.resolve_in_cascade(None), Some(fallback));
+    }
+
+    #[test]
     fn plain_values_and_calc_wrapped_env_are_untouched_by_the_env_check() {
         assert!(check_if_value_is_css_env("100px").is_none());
         assert!(check_if_value_is_css_env("var(--x, 1px)").is_none());
