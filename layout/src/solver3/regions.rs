@@ -1334,6 +1334,7 @@ impl FlowWalk<'_> {
             let limits = FragmentLimits {
                 keep_first_line: !can_move_on,
                 max_lines: None,
+                overflow_columns: false,
             };
             let mut trial = flow.clone();
             let Ok(fragment) = trial.layout_fragment(&constraints, limits, &mut None, &fonts)
@@ -1410,6 +1411,7 @@ impl FlowWalk<'_> {
                 let limits = FragmentLimits {
                     keep_first_line: false,
                     max_lines: None,
+                    overflow_columns: false,
                 };
                 if probe.layout_fragment(&room, limits, &mut None, &fonts).is_ok()
                     && !probe.is_done()
@@ -1419,8 +1421,8 @@ impl FlowWalk<'_> {
             }
             let placed = if lines_here < fragment.lines {
                 let limits = FragmentLimits {
-                    keep_first_line: limits.keep_first_line,
                     max_lines: Some(lines_here),
+                    ..limits
                 };
                 match flow.layout_fragment(&constraints, limits, ctx.debug_messages, &fonts) {
                     Ok(placed) => placed,
