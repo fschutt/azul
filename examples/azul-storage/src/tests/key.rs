@@ -1,7 +1,7 @@
 use crate::{
     key::{
-        check_path_key, check_path_prefix, folder_trail, last_segment, parent_prefix,
-        safe_file_name,
+        check_path_key, check_path_key_on, check_path_prefix, folder_trail, last_segment,
+        parent_prefix, safe_file_name, System,
     },
     DriveError,
 };
@@ -30,7 +30,9 @@ fn an_absolute_key_is_refused() {
     assert!(refused("/etc/passwd"));
     assert!(refused("\\\\server\\share"));
     assert!(refused("C:/Windows/win.ini"));
-    assert!(refused("c:evil"));
+    // `c:evil` is relative to drive C's current folder: a path that leaves the root where a key
+    // becomes a path on Windows, and a plain name on macOS and Linux.
+    assert!(check_path_key_on("c:evil", System::Windows).is_err());
 }
 
 #[test]

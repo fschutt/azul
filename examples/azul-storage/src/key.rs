@@ -21,10 +21,15 @@ fn invalid(key: &str, reason: &'static str) -> Result<(), DriveError> {
     })
 }
 
-/// `C:...`: a Windows drive letter, an absolute path there.
+/// `C:/...`: a Windows drive letter and the root after it, an absolute path there. A bare
+/// `C:` or `C:x` is relative to that drive's current folder; it is no absolute path, and the
+/// `:` in it is refused where a key becomes a path on Windows ([`NameProblem`]).
 fn has_drive_letter(key: &str) -> bool {
     let mut chars = key.chars();
-    matches!((chars.next(), chars.next()), (Some(c), Some(':')) if c.is_ascii_alphabetic())
+    matches!(
+        (chars.next(), chars.next(), chars.next()),
+        (Some(c), Some(':'), Some('/')) if c.is_ascii_alphabetic()
+    )
 }
 
 /// The systems a name may have to live on.
