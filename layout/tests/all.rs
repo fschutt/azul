@@ -1377,3 +1377,5 @@ mod a_paragraph_split_across_frames_reads_as_one;
 mod a_break_that_is_no_page_break_starts_no_page;
 #[path = "a_named_flow_runs_through_its_regions.rs"]
 mod a_named_flow_runs_through_its_regions;
+#[path = "a_right_to_left_initial_letter_stands_at_the_right.rs"]
+mod a_right_to_left_initial_letter_stands_at_the_right;
