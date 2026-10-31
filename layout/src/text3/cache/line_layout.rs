@@ -431,6 +431,27 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
             Some(flow) if current_column > 0 => flow.column_top,
             _ => 0.0,
         };
+        // The room of this column's lines: the column's width, and the shapes
+        // and exclusions, which stand in the context's own space, seen from
+        // the column's start (each column lays its lines out from x 0).
+        let mut column_room = fragment_constraints.clone();
+        // For MinContent/MaxContent, preserve the semantic type so the line breaker
+        // can handle word-level breaking correctly. Only use Definite for actual widths.
+        column_room.available_width = if is_min_content {
+            AvailableSpace::MinContent
+        } else if is_max_content {
+            AvailableSpace::MaxContent
+        } else {
+            AvailableSpace::Definite(column_width)
+        };
+        if column_start_x != 0.0 {
+            for boundary in &mut column_room.shape_boundaries {
+                *boundary = boundary.translated(-column_start_x, 0.0);
+            }
+            for exclusion in &mut column_room.shape_exclusions {
+                *exclusion = exclusion.translated(-column_start_x, 0.0);
+            }
+        }
         let mut line_index = if column_flow.is_some() {
             flow_line_index
         } else {
@@ -521,21 +542,10 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
                 }
             }
 
-            // Create constraints specific to the current column for the line breaker.
-            let mut column_constraints = fragment_constraints.clone();
-            // For MinContent/MaxContent, preserve the semantic type so the line breaker
-            // can handle word-level breaking correctly. Only use Definite for actual widths.
-            if is_min_content {
-                column_constraints.available_width = AvailableSpace::MinContent;
-            } else if is_max_content {
-                column_constraints.available_width = AvailableSpace::MaxContent;
-            } else {
-                column_constraints.available_width = AvailableSpace::Definite(column_width);
-            }
             let mut line_constraints = get_line_constraints(
                 line_top_y,
                 fragment_constraints.resolved_line_height(),
-                &column_constraints,
+                &column_room,
                 debug_messages,
             );
             // Whether shapes or exclusions cut the room, read before the
