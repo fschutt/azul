@@ -2339,7 +2339,7 @@ fn bfc_place_children<T: ParsedFontTrait>(
             columns,
             &pos_children,
             &mut output.positions,
-            !float_context.floats.is_empty(),
+            &float_context,
             constraints,
         )?),
         _ => None,
