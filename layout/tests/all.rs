@@ -1387,3 +1387,5 @@ mod a_column_full_paragraph_runs_on_into_overflow_columns;
 mod a_paragraph_away_from_floats_breaks_across_columns;
 #[path = "balanced_text_columns_balance_their_heights.rs"]
 mod balanced_text_columns_balance_their_heights;
+#[path = "an_exclusion_box_shapes_the_lines_of_the_regions_under_it.rs"]
+mod an_exclusion_box_shapes_the_lines_of_the_regions_under_it;
