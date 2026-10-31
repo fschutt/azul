@@ -2548,7 +2548,7 @@ fn fills_its_parent(styled_dom: &StyledDom, tree: &LayoutTree, index: usize) -> 
     node.dom_node_id.is_some_and(|dom| {
         matches!(
             styled_dom.node_data.as_container()[dom].get_node_type(),
-            azul_core::dom::NodeType::Text(_)
+            NodeType::Text(_)
         )
     })
 }
