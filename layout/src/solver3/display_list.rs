@@ -4651,6 +4651,27 @@ struct DisplayListGenerator<'a, 'b, T: ParsedFontTrait> {
     /// did. Their boxes paint their borders and shadows but none of that
     /// background again.
     canvas_painted: [Option<NodeId>; 2],
+    /// The region whose part of a named flow the walk is painting: the boxes
+    /// of the flow are painted there with the parts of them that region
+    /// holds ([`DisplayListGenerator::region_part`]). `None` outside regions.
+    painting_region: Option<usize>,
+}
+
+/// What the region being painted holds of a box (see
+/// [`DisplayListGenerator::region_part`]).
+#[derive(Debug, Clone, Copy)]
+enum RegionPart<'t> {
+    /// Nothing: the box is painted in other regions.
+    Absent,
+    /// The whole box, its subtree with it, placed where it stands: it is
+    /// painted as any box is.
+    Whole,
+    /// The box is no box of a flow, or one inside the part of a broken box
+    /// that paints it (the text of a paragraph).
+    Inside,
+    /// This part of a box broken across regions: it is painted in the
+    /// part's rectangle, a paragraph with the part's lines.
+    Part(&'t crate::solver3::regions::BoxFragment),
 }
 
 /// One entry of [`DisplayListGenerator::open_clips`].
@@ -5177,6 +5198,10 @@ struct StackingContext {
     /// `child_contexts` of its own (they follow it in its parent's list) and
     /// pushes no stacking context.
     positioned_box: bool,
+    /// The region whose part of a named flow this context's box belongs to
+    /// ([`DisplayListGenerator::painting_region`]), `None` outside regions.
+    /// A region paints its flow's content in a region of its own.
+    region: Option<usize>,
 }
 
 impl<'a, 'b, T> DisplayListGenerator<'a, 'b, T>
@@ -5205,7 +5230,81 @@ where
             patch: None,
             open_clips: Vec::new(),
             canvas_painted: [None, None],
+            painting_region: None,
         }
+    }
+
+    /// What the region being painted holds of the box `index`: every box is
+    /// whole outside a region. A box of a named flow carries its parts; a box
+    /// without parts of its own (the text of a paragraph, the boxes inside a
+    /// box placed whole) goes with the nearest box above it that has some.
+    fn region_part(&self, index: usize) -> RegionPart<'a> {
+        let Some(region) = self.painting_region else {
+            return RegionPart::Whole;
+        };
+        let tree = self.positioned_tree.tree;
+        let mut at = index;
+        loop {
+            if let Some(flow) = tree.warm(LayoutNodeId::new(at)).and_then(|w| w.flow.as_deref()) {
+                if !flow.fragments.is_empty() {
+                    let Some(part) = flow.fragments.iter().find(|f| f.region == region) else {
+                        return RegionPart::Absent;
+                    };
+                    return if part.whole {
+                        RegionPart::Whole
+                    } else if at == index {
+                        RegionPart::Part(part)
+                    } else if part.starts {
+                        // A box inside a broken one without parts of its own
+                        // is painted once, with the broken box's first part.
+                        RegionPart::Inside
+                    } else {
+                        RegionPart::Absent
+                    };
+                }
+                if flow.region.is_some() {
+                    return RegionPart::Inside;
+                }
+            }
+            match tree.get(LayoutNodeId::new(at)).and_then(|n| n.parent) {
+                Some(parent) => at = parent,
+                None => return RegionPart::Inside,
+            }
+        }
+    }
+
+    /// Whether the box `index` paints its own selection and caret here: a
+    /// paragraph broken across regions paints them (from its whole layout)
+    /// once, with its first part.
+    fn paints_its_selection_here(&self, index: usize) -> bool {
+        !matches!(self.region_part(index), RegionPart::Part(part) if !part.starts)
+    }
+
+    /// The lines the box `index` paints here: its part's in a region, its
+    /// own anywhere else.
+    fn inline_layout_to_paint(
+        &self,
+        index: usize,
+    ) -> Option<&'a crate::solver3::layout_tree::CachedInlineLayout> {
+        match self.region_part(index) {
+            RegionPart::Part(part) => part.lines.as_deref(),
+            _ => self
+                .positioned_tree
+                .tree
+                .warm(LayoutNodeId::new(index))
+                .and_then(|w| w.inline_layout_result.as_deref()),
+        }
+    }
+
+    /// The content of the named flow the box `index` shows, if it is a
+    /// region.
+    fn region_content(&self, index: usize) -> Option<&'a [usize]> {
+        self.positioned_tree
+            .tree
+            .warm(LayoutNodeId::new(index))
+            .and_then(|w| w.flow.as_deref())
+            .and_then(|flow| flow.region.as_ref())
+            .map(|region| region.content.as_slice())
     }
 
     /// The face a run is drawn in: `font_hash`, thickened (synthetic bold)
@@ -5979,14 +6078,34 @@ where
         let mut child_contexts = Vec::new();
         let mut in_flow_children = Vec::new();
 
-        for &child_index in self.positioned_tree.tree.children(node_index) {
+        // The region its box is painted in; a region shows its flow's content
+        // instead of its own children, each box with its part there (CSS
+        // Regions 1: a region is a stacking context of the flow's fragments).
+        let region = self.painting_region;
+        let children = match self.region_content(node_index) {
+            Some(content) => {
+                self.painting_region = Some(node_index);
+                content
+            }
+            None => self.positioned_tree.tree.children(node_index),
+        };
+        let mut filed = Ok(());
+        for &child_index in children {
+            if matches!(self.region_part(child_index), RegionPart::Absent) {
+                continue;
+            }
             if !self.establishes_stacking_context(child_index)
                 && !self.paints_as_positioned_box(child_index)
             {
                 in_flow_children.push(child_index);
             }
-            self.file_into_context(child_index, &mut child_contexts)?;
+            filed = self.file_into_context(child_index, &mut child_contexts);
+            if filed.is_err() {
+                break;
+            }
         }
+        self.painting_region = region;
+        filed?;
 
         Ok(StackingContext {
             node_index,
@@ -5994,6 +6113,7 @@ where
             child_contexts,
             in_flow_children,
             positioned_box: false,
+            region,
         })
     }
 
@@ -6012,6 +6132,25 @@ where
         index: usize,
         child_contexts: &mut Vec<StackingContext>,
     ) -> Result<()> {
+        // In a region, a box placed whole is filed as any box is, and one
+        // the region holds nothing of is not filed there.
+        let region = self.painting_region;
+        match self.region_part(index) {
+            RegionPart::Absent => return Ok(()),
+            RegionPart::Whole => self.painting_region = None,
+            RegionPart::Inside | RegionPart::Part(_) => {}
+        }
+        let filed = self.file_box_into_context(index, child_contexts);
+        self.painting_region = region;
+        filed
+    }
+
+    /// [`Self::file_into_context`] for a box the region being painted holds.
+    fn file_box_into_context(
+        &mut self,
+        index: usize,
+        child_contexts: &mut Vec<StackingContext>,
+    ) -> Result<()> {
         if self.establishes_stacking_context(index) {
             child_contexts.push(self.collect_stacking_contexts(index)?);
             return Ok(());
@@ -6023,6 +6162,7 @@ where
                 child_contexts: Vec::new(),
                 in_flow_children: self.positioned_tree.tree.children(index).to_vec(),
                 positioned_box: true,
+                region: self.painting_region,
             });
         }
         self.find_nested_stacking_contexts(index, child_contexts)
@@ -6116,16 +6256,13 @@ where
         // (`GpuValueCache::reference_frame_of`, the hit tester's rule too).
         // Push a stacking context for WebRender
         // Get the node's bounds for the stacking context
-        let node_pos = self
-            .positioned_tree
-            .calculated_positions
-            .get(context.node_index)
-            .copied()
-            .unwrap_or_default();
-        let node_size = node.used_size.unwrap_or(LogicalSize {
-            width: 0.0,
-            height: 0.0,
-        });
+        // The region this context's box is painted in: a box broken across
+        // regions is painted there with its part.
+        let outer_region = self.painting_region;
+        self.painting_region = context.region;
+        let node_rect = self.get_paint_rect(context.node_index).unwrap_or_default();
+        let node_pos = node_rect.origin;
+        let node_size = node_rect.size;
         let has_reference_frame = node.dom_node_id.and_then(|dom_id| {
             self.gpu_value_cache.and_then(|cache| {
                 cache.reference_frame_at(
@@ -6315,6 +6452,11 @@ where
         let did_push_clip_or_scroll =
             self.open_node_clips(builder, context.node_index, node);
 
+        // A region paints its flow's content, in its own region.
+        if self.region_content(context.node_index).is_some() {
+            self.painting_region = Some(context.node_index);
+        }
+
         // +spec:display-contents:434de8 - E.2 painting order: negative z-index, in-flow, z-index
         // 0/auto, positive z-index
         // 3. Paint child stacking contexts with negative z-indices.
@@ -6440,6 +6582,7 @@ where
 
         // This context's barrier (pushed before its reference frame).
         self.open_clips.pop();
+        self.painting_region = outer_region;
 
         Ok(())
     }
@@ -6620,8 +6763,14 @@ where
         // generate_for_stacking_context! Only paint selection, cursor, and content for the
         // current node
 
+        // A paragraph broken across regions paints its selection and caret
+        // (from its whole layout) with its first part only.
+        let paints_its_selection = self.paints_its_selection_here(node_index);
+
         // 2. Selection highlights go UNDER the content...
-        self.paint_selections(builder, node_index)?;
+        if paints_its_selection {
+            self.paint_selections(builder, node_index)?;
+        }
 
         // 3. Paint the node's own content (text, images, hit-test areas).
         self.paint_node_content(builder, node_index)?;
@@ -6630,7 +6779,9 @@ where
         // caret was erased wherever an LCD glyph tile (an opaque pre-blended
         // copy, glyph box + FIR pad) landed on it - the caret segment inside
         // the last typed glyph's box vanished (2026-08-31).
-        self.paint_cursor(builder, node_index)?;
+        if paints_its_selection {
+            self.paint_cursor(builder, node_index)?;
+        }
 
         // +spec:display-property:86a3de - inline-level boxes painted in document order; z-index
         // does not apply +spec:floats:b8c494 - E.2 painting order: non-positioned floats
@@ -6650,9 +6801,11 @@ where
         for &child_index in children_indices {
             // Skip stacking context children and positioned boxes - they're
             // painted by the stacking context tree traversal (CSS 2.2 E.2
-            // step 8), not by the in-flow descendant path.
+            // step 8), not by the in-flow descendant path. In a region, so
+            // is every box it holds nothing of.
             if self.establishes_stacking_context(child_index)
                 || self.paints_as_positioned_box(child_index)
+                || matches!(self.region_part(child_index), RegionPart::Absent)
             {
                 continue;
             }
@@ -6697,7 +6850,14 @@ where
             .chain(float_children)
             .chain(dragging_children)
         {
-            self.paint_in_flow_child(builder, child_index)?;
+            // A box a region holds whole is painted as any box is.
+            let region = self.painting_region;
+            if matches!(self.region_part(child_index), RegionPart::Whole) {
+                self.painting_region = None;
+            }
+            let painted = self.paint_in_flow_child(builder, child_index);
+            self.painting_region = region;
+            painted?;
         }
 
         Ok(())
@@ -7450,6 +7610,11 @@ where
     /// transforms handle this. Subtracting here would cause double-offset and
     /// parallax effects (backgrounds and text moving at different speeds).
     fn get_paint_rect(&self, node_index: usize) -> Option<LogicalRect> {
+        // The part of a box broken across regions the region being painted
+        // holds.
+        if let RegionPart::Part(part) = self.region_part(node_index) {
+            return Some(part.rect);
+        }
         let node = self
             .positioned_tree
             .tree
@@ -8655,10 +8820,14 @@ where
             return Ok(());
         };
 
+        // The lines this box paints: a paragraph broken across regions
+        // paints the lines of its part in the region being painted.
+        let inline_layout = self.inline_layout_to_paint(node_index);
+
         // For text nodes (with inline layout), the used_size might be 0x0.
         // In this case, compute the bounds from the inline layout result.
         if paint_rect.size.width == 0.0 || paint_rect.size.height == 0.0 {
-            if let Some(cached_layout) = node_warm.and_then(|w| w.inline_layout_result.as_ref()) {
+            if let Some(cached_layout) = inline_layout {
                 let content_bounds = cached_layout.layout.bounds();
                 paint_rect.size.width = content_bounds.width;
                 paint_rect.size.height = content_bounds.height;
@@ -8691,7 +8860,7 @@ where
         }
 
         // Paint the node's visible content.
-        if let Some(cached_layout) = node_warm.and_then(|w| w.inline_layout_result.as_ref()) {
+        if let Some(cached_layout) = inline_layout {
             let inline_layout = &cached_layout.layout;
             // (d6h) Dense-aware count: the stored sparse may be the
             // retirement sentinel; logs should report the real content.
@@ -8744,7 +8913,14 @@ where
             // For scrollable containers, extend the content rect to the full content size.
             // The scroll frame handles clipping - we need to paint ALL content, not just
             // what fits in the viewport. Otherwise glyphs beyond the viewport are not rendered.
-            let content_size = get_scroll_content_size(node, node_warm);
+            // The part of a paragraph a region holds reaches as far as its own
+            // lines, not as far as the whole paragraph does.
+            let content_size = if let RegionPart::Part(_) = self.region_part(node_index) {
+                let lines = cached_layout.materialized().bounds();
+                LogicalSize::new(lines.x + lines.width, lines.y + lines.height)
+            } else {
+                get_scroll_content_size(node, node_warm)
+            };
             if content_size.height > content_box_rect.size.height {
                 content_box_rect.size.height = content_size.height;
             }
@@ -11275,6 +11451,16 @@ pub(crate) fn node_establishes_stacking_context(
     let Some(dom_id) = node.dom_node_id else {
         return false;
     };
+
+    // CSS Regions 1: a region is a stacking context, the one the fragments
+    // of its flow's content are painted in.
+    if tree
+        .warm(LayoutNodeId::new(node_index))
+        .and_then(|w| w.flow.as_deref())
+        .is_some_and(|flow| flow.region.is_some())
+    {
+        return true;
+    }
 
     let position = get_position_type(styled_dom, Some(dom_id));
     let z_auto = crate::solver3::getters::is_z_index_auto(styled_dom, Some(dom_id));

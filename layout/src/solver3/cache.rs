@@ -1700,6 +1700,7 @@ pub fn reconcile_and_invalidate_restyled<T: ParsedFontTrait>(
     css_dirty: &[(NodeId, azul_css::props::property::RelayoutScope)],
 ) -> Result<(LayoutTree, ReconciliationResult)> {
     let _probe_outer = crate::probe::Probe::span("reconcile_and_invalidate");
+    let _flows = crate::solver3::regions::NamedFlowScope::enter(ctx.styled_dom);
     let mut new_tree_builder = LayoutTreeBuilder::new(ctx.viewport_size);
     let mut recon_result = ReconciliationResult {
         css_relayout: css_dirty
@@ -2383,7 +2384,10 @@ pub fn reconcile_recursive(
     // absolutely positioned block goes with the inline run around it (the
     // fresh tree's rule, `in_flow_block_level_mask`).
     let block_level = in_flow_block_level_mask(styled_dom, &new_children_dom_ids);
-    let has_block_child = block_level.iter().any(|&b| b);
+    // A region holds block-level boxes only (the fresh tree's rule,
+    // `process_block_children`).
+    let has_block_child = block_level.iter().any(|&b| b)
+        || crate::solver3::regions::is_region(styled_dom, new_dom_id);
 
     // CSS Flexbox §4 / Grid §6: every in-flow child of a flex/grid container
     // becomes a (blockified) flex/grid item. Anonymous-block wrapping of inline

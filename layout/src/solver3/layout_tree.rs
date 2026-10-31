@@ -1074,6 +1074,11 @@ pub struct LayoutNodeWarm {
     /// `GpuStateManager::update_scrollbar_transforms`). BOXED: rare data,
     /// `None` on every other node.
     pub sticky: Option<Box<crate::solver3::positioning::StickyConstraint>>,
+    /// Where the boxes of named flows went (CSS Regions): on a box of a
+    /// flow its parts in its regions, on a region what it shows, on the root
+    /// the document's reports. Written by `regions::lay_out_named_flows`
+    /// after every pass. BOXED: rare data, `None` on every other node.
+    pub flow: Option<Box<crate::solver3::regions::FlowData>>,
 }
 
 /// The style a text node's runs are shaped and painted with: its own computed
@@ -1202,6 +1207,8 @@ impl LayoutNode {
                 containing_block_index: self.containing_block_index,
                 // Written by the sticky step of the pass that lays the node out.
                 sticky: None,
+                // Written by the named-flow step of the pass.
+                flow: None,
             },
             LayoutNodeCold {
                 anonymous_type: self.anonymous_type,
@@ -2252,6 +2259,7 @@ impl LayoutTree {
 pub fn generate_layout_tree<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
 ) -> Result<LayoutTree> {
+    let _flows = crate::solver3::regions::NamedFlowScope::enter(ctx.styled_dom);
     let mut builder = LayoutTreeBuilder::new(ctx.viewport_size);
     let root_id = ctx
         .styled_dom
@@ -2797,7 +2805,10 @@ impl LayoutTreeBuilder {
         // CSS 2.2 s9.2.1.1: only in-flow block-level children split the
         // inline content (`in_flow_block_level_mask`).
         let block_level = in_flow_block_level_mask(styled_dom, &children);
-        let has_block_child = block_level.iter().any(|&b| b);
+        // A region holds block-level boxes only: the inline content of its
+        // flow goes into anonymous blocks, which can break across regions.
+        let has_block_child = block_level.iter().any(|&b| b)
+            || crate::solver3::regions::is_region(styled_dom, parent_dom_id);
 
         if let Some(msgs) = debug_messages.as_mut() {
             msgs.push(LayoutDebugMessage::info(format!(
@@ -4263,6 +4274,16 @@ pub(crate) fn has_only_inline_children(styled_dom: &StyledDom, node_id: NodeId) 
             .and_then(azul_core::styled_dom::NodeHierarchyItem::next_sibling_id);
     }
 
+    // A region establishes a block formatting context of the block-level
+    // boxes of its flow (CSS Regions 1), and a child that went into a flow
+    // is no child here.
+    if crate::solver3::regions::document_has_named_flows(styled_dom) {
+        if crate::solver3::regions::is_region(styled_dom, node_id) {
+            return false;
+        }
+        children = crate::solver3::regions::flow_children(styled_dom, node_id, children);
+    }
+
     // If there are no children, it's not an IFC (it's empty)
     if children.is_empty() {
         return false;
@@ -5119,7 +5140,7 @@ pub fn layout_children(styled_dom: &StyledDom, parent: NodeId) -> Vec<NodeId> {
     if hierarchy.get(parent).is_none() {
         return Vec::new(); // an id past the arena: no children, no panic
     }
-    TRANSIENT_DOCKS.with(|d| {
+    let children = TRANSIENT_DOCKS.with(|d| {
         let borrow = d.borrow();
         match borrow.as_ref() {
             Some(docks) if !docks.inline.is_empty() => {
@@ -5132,7 +5153,14 @@ pub fn layout_children(styled_dom: &StyledDom, parent: NodeId) -> Vec<NodeId> {
             }
             _ => parent.az_children(&hierarchy).collect(),
         }
-    })
+    });
+    // Named flows (CSS Regions 1): what goes into a flow leaves its parent,
+    // and a region lays out its flow's content, not its own children.
+    if crate::solver3::regions::document_has_named_flows(styled_dom) {
+        crate::solver3::regions::flow_children(styled_dom, parent, children)
+    } else {
+        children
+    }
 }
 
 // +spec:display-contents:95faa5 - blockification has no effect on none/contents (other => other)
@@ -5201,6 +5229,10 @@ pub(crate) const fn is_replaced_element(node_data: &NodeData) -> bool {
 /// **Corrected:** Checks for all conditions that create a new Block Formatting Context.
 /// A BFC contains floats and prevents margin collapse.
 fn establishes_new_block_formatting_context(styled_dom: &StyledDom, node_id: NodeId) -> bool {
+    // CSS Regions 1: a region establishes a new block formatting context.
+    if crate::solver3::regions::is_region(styled_dom, node_id) {
+        return true;
+    }
     let display = get_display_type(styled_dom, node_id);
     if matches!(
         display,

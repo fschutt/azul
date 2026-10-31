@@ -19,6 +19,7 @@ pub mod page_breaks;
 pub mod paged_layout;
 pub mod pagination;
 pub mod positioning;
+pub mod regions;
 pub mod scroll_chain;
 pub mod scrollbar;
 pub mod sizing;
@@ -1757,6 +1758,15 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         );
     }
 
+    // --- Step 3.6: Lay the Named Flows Out Through Their Regions ---
+    // Once every box is placed, the regions (absolutely positioned ones
+    // too) stand where they are: the content of each named flow goes
+    // through its chain of regions (CSS Regions 1).
+    {
+        let _p = crate::probe::Probe::span("named_flows");
+        regions::lay_out_named_flows(&mut ctx, &mut new_tree, text_cache, &mut calculated_positions);
+    }
+
     // --- Step 3.75: Compute Stable Scroll IDs ---
     // This must be done AFTER layout but BEFORE display list generation
     let (scroll_ids, scroll_id_to_node_id) = {
@@ -1784,7 +1794,11 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         // size — their items just translate by the node's position delta.
         // `AZ_NO_DL_PATCH=1` is the runtime escape hatch (and the A/B lever
         // for the golden-equality test).
-        let patch_disabled = !display_list::dl_patching_enabled();
+        // A region paints the parts of its flow's boxes the region pass gave
+        // it: a box's items are no run of its own to move with it, so a
+        // document with named flows paints its list anew.
+        let patch_disabled = !display_list::dl_patching_enabled()
+            || regions::document_has_named_flows(new_dom);
         // Two ways in: the resize-skip pass (same tree object), or a
         // STRUCTURE-PRESERVED reconcile with no CSS dirt — a text edit
         // reflowed its IFC, everything else splices (per-IFC text patching,

@@ -1076,6 +1076,14 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
         viewport,
     );
 
+    // The named flows go through their regions once every box is placed.
+    crate::solver3::regions::lay_out_named_flows(
+        &mut ctx,
+        &mut new_tree,
+        text_cache,
+        &mut calculated_positions,
+    );
+
     // --- Step 3.75: Compute Stable Scroll IDs ---
     let (scroll_ids, scroll_id_to_node_id) = LayoutWindow::compute_scroll_ids(&new_tree, new_dom);
 
