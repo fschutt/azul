@@ -3821,3 +3821,179 @@ mod every_field_of_a_node_is_a_row_of_the_field_table {
         }
     }
 }
+
+/// What makes a node another node across a rebuild. The rules are React's:
+/// the same type at the same place among its siblings (or the same explicit
+/// key) is the same node, whatever its classes and its CSS id say. A node
+/// that is the same node keeps its state, its focus and its scroll; one that
+/// is not unmounts and the new one mounts.
+#[cfg(test)]
+mod node_identity {
+    use super::*;
+    use crate::{
+        callbacks::CoreCallback,
+        dom::{AttributeType, Dom},
+        refany::{OptionRefAny, RefAny},
+        styled_dom::convert_dom_into_compact_dom,
+    };
+
+    /// A node that reports its mount and its unmount, so a remount shows.
+    fn watched(mut node: NodeData) -> Dom {
+        for filter in [
+            ComponentEventFilter::AfterMount,
+            ComponentEventFilter::BeforeUnmount,
+        ] {
+            node.add_callback(
+                EventFilter::Component(filter),
+                RefAny::new(0u32),
+                CoreCallback {
+                    cb: 0,
+                    ctx: OptionRefAny::None,
+                },
+            );
+        }
+        Dom::create_from_data(node)
+    }
+
+    fn with_classes(classes: &[&str]) -> NodeData {
+        NodeData::create_div().with_ids_and_classes(
+            classes
+                .iter()
+                .map(|c| IdOrClass::Class((*c).into()))
+                .collect::<Vec<_>>()
+                .into(),
+        )
+    }
+
+    fn with_id(id: &str) -> NodeData {
+        NodeData::create_div().with_ids_and_classes(vec![IdOrClass::Id(id.into())].into())
+    }
+
+    fn titled(node_type: NodeType, title: &str) -> NodeData {
+        let mut node = NodeData::create_node(node_type);
+        node.set_attributes(vec![AttributeType::Title(title.into())].into());
+        node
+    }
+
+    fn flatten(dom: Dom) -> (Vec<NodeData>, Vec<NodeHierarchyItem>) {
+        let compact = convert_dom_into_compact_dom(dom);
+        let hierarchy = compact
+            .node_hierarchy
+            .internal
+            .into_iter()
+            .map(NodeHierarchyItem::from)
+            .collect();
+        (compact.node_data.internal, hierarchy)
+    }
+
+    fn diff(old: Dom, new: Dom) -> DiffResult {
+        let (old_data, old_hierarchy) = flatten(old);
+        let (new_data, new_hierarchy) = flatten(new);
+        reconcile_dom(
+            &old_data,
+            &new_data,
+            &old_hierarchy,
+            &new_hierarchy,
+            &OrderedMap::default(),
+            &OrderedMap::default(),
+            DomId::ROOT_ID,
+            Instant::now(),
+        )
+    }
+
+    /// The old node a new one is, if it is one.
+    fn old_of(diff: &DiffResult, new_index: usize) -> Option<usize> {
+        diff.node_moves
+            .iter()
+            .find(|m| m.new_node_id == NodeId::new(new_index))
+            .map(|m| m.old_node_id.index())
+    }
+
+    fn count(diff: &DiffResult, event: EventType) -> usize {
+        diff.events.iter().filter(|e| e.event_type == event).count()
+    }
+
+    fn body(children: Vec<Dom>) -> Dom {
+        children
+            .into_iter()
+            .fold(Dom::create_body(), Dom::with_child)
+    }
+
+    #[test]
+    fn a_node_whose_class_list_changes_keeps_its_identity() {
+        let d = diff(
+            body(vec![watched(with_classes(&["item"]))]),
+            body(vec![watched(with_classes(&["item", "active"]))]),
+        );
+        assert_eq!(old_of(&d, 1), Some(1), "the toggled item is the item it was");
+        assert_eq!(count(&d, EventType::Unmount), 0, "nothing unmounts");
+        assert_eq!(count(&d, EventType::Mount), 0, "nothing mounts");
+    }
+
+    #[test]
+    fn a_node_whose_css_id_changes_keeps_its_identity() {
+        let d = diff(
+            body(vec![watched(with_id("first"))]),
+            body(vec![watched(with_id("second"))]),
+        );
+        assert_eq!(old_of(&d, 1), Some(1), "an id is an attribute, not a key");
+        assert_eq!(count(&d, EventType::Unmount), 0, "nothing unmounts");
+        assert_eq!(count(&d, EventType::Mount), 0, "nothing mounts");
+    }
+
+    #[test]
+    fn classes_and_the_css_id_do_not_enter_the_reconciliation_key() {
+        let key_of = |node: NodeData| {
+            let (data, hierarchy) = flatten(body(vec![Dom::create_from_data(node)]));
+            calculate_reconciliation_key(&data, &hierarchy, NodeId::new(1))
+        };
+        let plain = key_of(NodeData::create_div());
+        assert_eq!(key_of(with_classes(&["item", "active"])), plain, "classes");
+        assert_eq!(key_of(with_id("first")), plain, "the CSS id");
+    }
+
+    /// React numbers a keyless child by its index among ALL its siblings, so
+    /// a node of another type inserted in front shifts every later sibling
+    /// one place: the new first row sits where the old second row sat and
+    /// is that row (its state and focus go with it), the old first row's
+    /// place went to the banner, which is another type, so that row
+    /// unmounts, and the new second row has no old counterpart and mounts.
+    /// The rows' titles change with the rebuild, so no content is left to
+    /// tell them apart: their places decide.
+    #[test]
+    fn a_node_inserted_in_front_moves_its_siblings_one_place_as_in_react() {
+        let d = diff(
+            body(vec![
+                watched(titled(NodeType::Div, "first")),
+                watched(titled(NodeType::Div, "second")),
+            ]),
+            body(vec![
+                watched(titled(NodeType::P, "banner")),
+                watched(titled(NodeType::Div, "first, edited")),
+                watched(titled(NodeType::Div, "second, edited")),
+            ]),
+        );
+        assert_eq!(old_of(&d, 1), None, "the banner is new");
+        assert_eq!(old_of(&d, 2), Some(2), "the new first row is the old second row");
+        assert_eq!(old_of(&d, 3), None, "the new second row is new");
+        assert_eq!(count(&d, EventType::Mount), 2, "the banner and the last row mount");
+        assert_eq!(count(&d, EventType::Unmount), 1, "the old first row unmounts");
+    }
+
+    #[test]
+    fn the_reconciliation_key_counts_every_sibling_before_a_node() {
+        let key_of = |dom: Dom, index: usize| {
+            let (data, hierarchy) = flatten(dom);
+            calculate_reconciliation_key(&data, &hierarchy, NodeId::new(index))
+        };
+        let second_div = key_of(
+            body(vec![Dom::create_div(), Dom::create_div()]),
+            2,
+        );
+        let div_after_a_p = key_of(body(vec![Dom::create_p(), Dom::create_div()]), 2);
+        assert_eq!(
+            div_after_a_p, second_div,
+            "a div after a p stands at the place of a div after a div"
+        );
+    }
+}
