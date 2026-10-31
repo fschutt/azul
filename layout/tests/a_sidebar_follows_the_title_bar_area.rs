@@ -13,14 +13,17 @@ use std::sync::Arc;
 
 use azul_core::{
     dom::{Dom, DomId, DomNodeId, NodeId},
-    geom::{LogicalRect, LogicalSize},
+    geom::{LogicalPosition, LogicalRect, LogicalSize, OptionLogicalPosition},
     resources::RendererResources,
     styled_dom::StyledDom,
     window::{WindowDecorations, WindowFrame},
 };
 use azul_css::{
     props::basic::pixel::{OptionPixelValue, PixelValue},
-    system::{Platform, SystemStyle, TitlebarButtonSide, TitlebarMetrics},
+    system::{
+        Platform, SystemStyle, TitlebarButtonSide, TitlebarGeometry, TitlebarMetrics,
+        TitlebarReport,
+    },
 };
 use azul_layout::{
     callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
@@ -177,4 +180,62 @@ fn the_system_titlebar_lengths_are_the_title_bar_areas_values() {
         (278.0, 38.0),
         "the 78px of controls on the left, the 28px of the title bar on top"
     );
+}
+
+/// An app that moves the traffic lights (`MacWindowOptions::traffic_light_position`,
+/// the close button's top-left) moves the area beside them: the lights keep as
+/// much room after them as before them, and the title bar is the row they are
+/// centred in.
+#[test]
+fn a_traffic_light_position_moves_the_title_bar_area() {
+    let mut ws = window_state(WindowDecorations::NoTitle);
+    let mut lw = window(style(Platform::MacOs, 28.0), SIDEBAR_CSS, &ws);
+    assert_eq!(rect(&lw, SIDEBAR).size.width, 286.0, "AppKit's own place");
+
+    ws.platform_specific_options.mac_options.traffic_light_position =
+        OptionLogicalPosition::Some(LogicalPosition::new(20.0, 18.0));
+    relayout(&mut lw, &ws);
+    let sidebar = rect(&lw, SIDEBAR);
+    assert_eq!(
+        sidebar.size.width, 302.0,
+        "200px after 20px, 54px of lights, 20px and the 8px beside them: {sidebar:?}"
+    );
+    assert_eq!(
+        sidebar.size.height, 62.0,
+        "10px under the 52px row the lights are centred in: {sidebar:?}"
+    );
+    assert_eq!(
+        lw.layout_cache.last_reconcile_fresh, 1,
+        "only the box that reads the area is laid out anew (reused {})",
+        lw.layout_cache.last_reconcile_reused
+    );
+}
+
+/// What the window itself measured of its title bar - the frame's own
+/// buttons, the controls azul draws over a `NoTitle` window - is the area; the
+/// desktop's metrics only stand in where nothing was measured.
+#[test]
+fn a_title_bar_the_window_measured_wins_over_the_desktop_metrics() {
+    let ws = window_state(WindowDecorations::NoTitle);
+    let mut lw = window(style(Platform::MacOs, 28.0), SIDEBAR_CSS, &ws);
+
+    lw.frame_titlebar = TitlebarReport::Measured(TitlebarGeometry {
+        height: 40.0,
+        left: 100.0,
+        right: 0.0,
+    });
+    relayout(&mut lw, &ws);
+    let sidebar = rect(&lw, SIDEBAR);
+    assert_eq!(
+        (sidebar.size.width, sidebar.size.height),
+        (308.0, 50.0),
+        "the measured 100px of controls and 8px beside them, the measured 40px band"
+    );
+
+    // The decorations azul draws itself win over the frame's: a title bar
+    // azul draws above the content leaves the content none of its area.
+    lw.drawn_titlebar = TitlebarReport::NoArea;
+    relayout(&mut lw, &ws);
+    let sidebar = rect(&lw, SIDEBAR);
+    assert_eq!((sidebar.size.width, sidebar.size.height), (212.0, 10.0));
 }
