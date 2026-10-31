@@ -1373,3 +1373,5 @@ mod a_shape_margin_grows_the_float_area;
 mod a_text_column_keeps_off_the_exclusions_in_it;
 #[path = "a_paragraph_split_across_frames_reads_as_one.rs"]
 mod a_paragraph_split_across_frames_reads_as_one;
+#[path = "a_break_that_is_no_page_break_starts_no_page.rs"]
+mod a_break_that_is_no_page_break_starts_no_page;
