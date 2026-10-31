@@ -1381,3 +1381,5 @@ mod a_named_flow_runs_through_its_regions;
 mod a_right_to_left_initial_letter_stands_at_the_right;
 #[path = "a_column_full_paragraph_runs_on_into_overflow_columns.rs"]
 mod a_column_full_paragraph_runs_on_into_overflow_columns;
+#[path = "a_paragraph_away_from_floats_breaks_across_columns.rs"]
+mod a_paragraph_away_from_floats_breaks_across_columns;
