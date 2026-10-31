@@ -741,15 +741,19 @@ fn bfc_place_children<T: ParsedFontTrait>(
         // before the fit check, hence this sits at the loop top). Only
         // once this fragmentainer holds content (a forced break at the top
         // of a fresh page is vacuously satisfied, else every page would
-        // re-break forever).
+        // re-break forever). Only a value that forces a page break does:
+        // `column` and `region` break columns and regions, `avoid` and its
+        // kin force nothing (CSS Fragmentation 3, 3.1).
         if fragment_pass
             && fragment_placed_content
             && fragment_token_out.is_none()
-            && crate::solver3::getters::get_break_before(
-                ctx.styled_dom,
-                tree.get(LayoutNodeId::new(child_index))
-                    .and_then(|n| n.dom_node_id),
-            ) != azul_css::props::layout::fragmentation::PageBreak::Auto
+            && crate::solver3::getters::is_forced_page_break(
+                crate::solver3::getters::get_break_before(
+                    ctx.styled_dom,
+                    tree.get(LayoutNodeId::new(child_index))
+                        .and_then(|n| n.dom_node_id),
+                ),
+            )
         {
             let later: Vec<usize> = pos_children
                 .iter()
