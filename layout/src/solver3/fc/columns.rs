@@ -158,8 +158,9 @@ pub(super) fn block_columns<T: ParsedFontTrait>(
 /// the column its top falls in. `positions` are the children's positions in
 /// the single column, relative to the container's content box.
 ///
-/// With floats in the flow no paragraph splits: its lines wrapped around
-/// them, and a split must break its lines exactly as they are.
+/// A paragraph beside a float of the context (`floats`) does not split: its
+/// lines wrapped around the float, and a split must break its lines exactly
+/// as they are. Every other paragraph splits between its lines.
 #[allow(clippy::too_many_arguments)] // one layout step, the layout state it needs
 pub(super) fn distribute_into_columns<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
@@ -169,11 +170,20 @@ pub(super) fn distribute_into_columns<T: ParsedFontTrait>(
     columns: &BlockColumns,
     children: &[usize],
     positions: &mut BTreeMap<usize, LogicalPosition>,
-    has_floats: bool,
+    floats: &FloatingContext,
     constraints: &LayoutConstraints<'_>,
 ) -> Result<ColumnsExtent> {
     use crate::solver3::multicol::{plan_columns, FlowBox};
 
+    // The heights the floats' margin boxes span, in the single column.
+    let float_spans: Vec<(f32, f32)> = floats
+        .floats
+        .iter()
+        .map(|float| {
+            let margin_box = float.margin_box();
+            (margin_box.origin.y, margin_box.origin.y + margin_box.size.height)
+        })
+        .collect();
     let mut flow: Vec<(usize, FlowBox)> = Vec::new();
     let mut floats: Vec<usize> = Vec::new();
     for &child in children {
@@ -188,7 +198,10 @@ pub(super) fn distribute_into_columns<T: ParsedFontTrait>(
             continue;
         }
         let height = node.used_size.unwrap_or_default().height;
-        let lines = if has_floats {
+        let beside_a_float = float_spans
+            .iter()
+            .any(|&(top, bottom)| top < pos.y + height && bottom > pos.y);
+        let lines = if beside_a_float {
             Vec::new()
         } else {
             splittable_lines(ctx, tree, child, pos.y)
