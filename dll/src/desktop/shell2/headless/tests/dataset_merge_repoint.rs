@@ -21,8 +21,8 @@ struct Counter {
     clicks: u32,
 }
 
-/// Which tree the app builds: the box's class, so that a rebuild keeps the
-/// tree (the pre-cascade skip) or changes it (the full path).
+/// Which tree the app builds: the box's width, so that a rebuild keeps the
+/// tree (the pre-cascade skip) or changes its style (the full path).
 struct PageState {
     wide: bool,
 }
@@ -54,13 +54,13 @@ extern "C" fn counter_page(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
             ctx: OptionRefAny::None,
         },
     );
-    let width = if wide { "wide" } else { "narrow" };
+    // The box keeps its identity (type, class, place) in both trees; only its
+    // width differs, which the full path lays out again.
+    let width = if wide { "200px" } else { "100px" };
     Dom::create_body().with_css("margin: 0px;").with_child(
         Dom::create_div()
-            .with_ids_and_classes(
-                vec![IdOrClass::Class("target".into()), IdOrClass::Class(width.into())].into(),
-            )
-            .with_css("width: 100px; height: 60px;")
+            .with_ids_and_classes(vec![IdOrClass::Class("target".into())].into())
+            .with_css(&format!("width: {width}; height: 60px;"))
             .with_dataset(OptionRefAny::Some(model))
             .with_merge_callback(keep_held as DatasetMergeCallbackType)
             .with_context_menu(Menu::create(vec![MenuItem::String(item)].into())),
