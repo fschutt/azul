@@ -482,7 +482,7 @@ fn present(lw: &LayoutWindow, last: &mut Presented) -> Frame {
                 last.blits += 1;
             }
             for (scroll_id, clip, delta, offset) in
-                cpurender::collect_scroll_shifts(&dl, &new_offsets, &last.offsets, s)
+                cpurender::collect_scroll_shifts(&dl, &new_offsets, &last.offsets, &transforms, s)
             {
                 let out = cpurender::execute_scroll_shift(
                     &mut last.pixels,
@@ -493,6 +493,7 @@ fn present(lw: &LayoutWindow, last: &mut Presented) -> Frame {
                     offset,
                     s,
                     &new_offsets,
+                    &transforms,
                 );
                 damage.extend(out.damage);
             }

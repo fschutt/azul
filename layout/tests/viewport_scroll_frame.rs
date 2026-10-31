@@ -16,6 +16,8 @@
 //! 700px of travel. Every test scrolls by [`N`] (or asks the engine to) and
 //! looks for the page [`N`] px higher.
 
+use std::collections::HashMap;
+
 use azul_core::{
     dom::{Dom, DomId, DomNodeId, NodeId, TabIndex},
     geom::{LogicalPosition, LogicalRect, LogicalSize},
@@ -442,7 +444,7 @@ fn a_viewport_scroll_is_a_scroll_shift_the_cpu_backends_repaint() {
         .get_layout_result(&DomId::ROOT_ID)
         .expect("the page is laid out");
     let shifts: Vec<(LogicalRect, (f32, f32))> =
-        cpurender::collect_scroll_shifts(&lr.display_list, &after, &before, 1.0)
+        cpurender::collect_scroll_shifts(&lr.display_list, &after, &before, &HashMap::new(), 1.0)
             .into_iter()
             .map(|(_, clip, delta, _)| (clip, delta))
             .collect();

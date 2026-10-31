@@ -25,6 +25,8 @@
 //! new offsets and (b) repainted less than half of the scrolled clip.
 //! (a) holds with and without the blit; (b) is the blit.
 
+use std::collections::HashMap;
+
 use azul_core::{
     geom::{LogicalPosition, LogicalRect, LogicalSize},
     resources::RendererResources,
@@ -159,10 +161,18 @@ impl Raster {
         let mut frame = self.full(dl, before);
         let mut damage = Vec::new();
         for (scroll_id, clip, delta, offset) in
-            cpurender::collect_scroll_shifts(dl, after, before, 1.0)
+            cpurender::collect_scroll_shifts(dl, after, before, &HashMap::new(), 1.0)
         {
             let out = cpurender::execute_scroll_shift(
-                &mut frame, dl, scroll_id, &clip, delta, offset, 1.0, after,
+                &mut frame,
+                dl,
+                scroll_id,
+                &clip,
+                delta,
+                offset,
+                1.0,
+                after,
+                &HashMap::new(),
             );
             damage.extend(out.damage);
         }

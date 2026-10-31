@@ -954,6 +954,8 @@ impl CpuBackend {
             display_list,
             &scroll_offsets,
             &self.previous_scroll_offsets,
+            // The matrices this frame paints with, kept for the next one.
+            &self.previous_gpu_transforms,
             dpi_factor,
         );
         let has_scroll = !scroll_shifts.is_empty();
@@ -1334,8 +1336,9 @@ impl CpuBackend {
                     *delta,
                     *offset,
                     dpi_factor,
-                    // The offsets the clip was projected with.
+                    // The offsets and matrices the clip was projected with.
                     &scroll_offsets,
+                    &self.previous_gpu_transforms,
                 );
                 all_damage.extend(out.damage);
                 present_extra.extend(out.present_extra);

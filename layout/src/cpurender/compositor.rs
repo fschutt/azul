@@ -2217,32 +2217,65 @@ fn shift_diagonal_2d(
     }
 }
 
-/// The scroll frames and clips open at one point of a display-list walk,
-/// and how far the frames move what is painted there: an item inside
-/// frames scrolled by a total of [`Self::scrolled`] is painted that far up
-/// and left of its display-list bounds (`pos - offset`, the rule the raster
-/// paints with), and only inside [`Self::visible`].
+/// The scroll frames, reference frames and clips open at one point of a
+/// display-list walk, and how they move what is painted there: an item
+/// inside frames scrolled by a total of [`Self::scrolled`] is painted that
+/// far up and left of its display-list bounds (`pos - offset`, the rule the
+/// raster paints with), then through the reference frames around it
+/// ([`Self::on_screen`]), and only inside [`Self::visible`].
 ///
 /// THE walk the scroll-damage producers share ([`collect_scroll_shifts`],
 /// [`scroll_fast_path_eligible_in`], [`overlay_rects_after_frame_in`]), so
 /// "where is this item on screen" has one answer among them.
 struct ScrollStack<'a> {
     offsets: &'a ScrollOffsetMap,
+    /// The live matrices of the reference frames; a frame missing here is
+    /// painted with the matrix baked into its push.
+    transforms: Option<&'a HashMap<usize, azul_core::transform::ComputedTransform3D>>,
     /// The frames open here: id, offset, and clip on screen.
     open: Vec<(LocalScrollId, (f32, f32), LogicalRect)>,
     /// The `PushClip`s open here, on screen.
     clips: Vec<LogicalRect>,
     scrolled: (f32, f32),
+    /// The reference frames open here, each about its origin on screen.
+    frames: FrameStack,
 }
 
 impl<'a> ScrollStack<'a> {
     const fn new(offsets: &'a ScrollOffsetMap) -> Self {
         Self {
             offsets,
+            transforms: None,
             open: Vec::new(),
             clips: Vec::new(),
             scrolled: (0.0, 0.0),
+            frames: FrameStack { frames: Vec::new() },
         }
+    }
+
+    /// A walk that reads each reference frame's live matrix from `transforms`.
+    const fn with_transforms(
+        offsets: &'a ScrollOffsetMap,
+        transforms: &'a HashMap<usize, azul_core::transform::ComputedTransform3D>,
+    ) -> Self {
+        let mut stack = Self::new(offsets);
+        stack.transforms = Some(transforms);
+        stack
+    }
+
+    /// Where `r`, in the display-list space of what is painted here, is
+    /// painted on screen; `None` through a matrix with perspective.
+    fn on_screen(&self, r: LogicalRect) -> Option<LogicalRect> {
+        self.frames.map(moved_by(r, self.scrolled))
+    }
+
+    /// How far what is painted here is moved up and left on screen when it
+    /// is only moved: the scroll offsets less the reference frames'
+    /// translations, the offset the rasteriser paints it with. `None` inside
+    /// a frame that turns, scales or tilts what it paints.
+    fn placement(&self) -> Option<(f32, f32)> {
+        let (tx, ty) = self.frames.translation()?;
+        Some((self.scrolled.0 - tx, self.scrolled.1 - ty))
     }
 
     /// How far the frames open here move what is painted here. Read it
@@ -2282,7 +2315,7 @@ impl<'a> ScrollStack<'a> {
                     .get(scroll_id)
                     .copied()
                     .unwrap_or((0.0, 0.0));
-                let on_screen = moved_by(*clip_bounds.inner(), self.scrolled);
+                let on_screen = self.on_screen(*clip_bounds.inner()).unwrap_or(UNBOUNDED);
                 self.open.push((*scroll_id, offset, on_screen));
                 self.scrolled.0 += offset.0;
                 self.scrolled.1 += offset.1;
@@ -2294,10 +2327,27 @@ impl<'a> ScrollStack<'a> {
                 }
             }
             DisplayListItem::PushClip { bounds, .. } => {
-                self.clips.push(moved_by(*bounds.inner(), self.scrolled));
+                self.clips
+                    .push(self.on_screen(*bounds.inner()).unwrap_or(UNBOUNDED));
             }
             DisplayListItem::PopClip => {
                 self.clips.pop();
+            }
+            DisplayListItem::PushReferenceFrame {
+                transform_key,
+                initial_transform,
+                bounds,
+            } => {
+                let m = self
+                    .transforms
+                    .and_then(|live| live.get(&transform_key.id))
+                    .copied()
+                    .unwrap_or(*initial_transform);
+                self.frames
+                    .push(moved_by(*bounds.inner(), self.scrolled).origin, m);
+            }
+            DisplayListItem::PopReferenceFrame => {
+                self.frames.pop();
             }
             _ => {}
         }
@@ -2365,6 +2415,7 @@ pub fn scroll_fast_path_eligible(
         scroll_offset,
         prev_offset,
         &ScrollOffsetMap::new(),
+        &HashMap::new(),
     )
 }
 
@@ -2382,20 +2433,24 @@ pub fn scroll_fast_path_eligible(
 /// [`collect_scroll_shifts`] hands over. `scroll_offset` is the frame's
 /// current offset and `prev_offset` the offset the pixels being moved were
 /// rendered at; `scroll_offsets` are the current offsets of every frame (the
-/// map the clip was projected with). Every item the check reads is moved
-/// onto the screen by the frames open around it (`ScrollStack`), so a
+/// map the clip was projected with), `transforms` the live matrices of the
+/// reference frames. Every item the check reads is moved onto the screen by
+/// the frames open around it (`ScrollStack`), so a
 /// scroll box keeps the fast path on a SCROLLED page: it used to give up on
 /// every frame nested in a scrolled one, and each scroll step of a box on a
 /// page taller than its window repainted the whole box. Coverage must hold at
 /// BOTH offsets, since the memmove drags pixels composited at the OLD one. A
 /// SPLIT frame's content is every push of it. A scroll frame over
-/// nothing-but-the-clear-color is always eligible (no backdrop to drag).
-/// Returns `true` when there is no such frame (nothing to do).
+/// nothing-but-the-clear-color is always eligible (no backdrop to drag). A
+/// frame inside a reference frame that turns or scales it is not: its content
+/// does not move along the screen's axes. Returns `true` when there is no
+/// such frame (nothing to do).
 #[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
 #[allow(clippy::match_same_arms)]
 // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't
 // merge)
 #[must_use]
+#[allow(clippy::implicit_hasher)] // internal call sites all use std hasher
 pub fn scroll_fast_path_eligible_in(
     display_list: &DisplayList,
     scroll_id: LocalScrollId,
@@ -2403,6 +2458,7 @@ pub fn scroll_fast_path_eligible_in(
     scroll_offset: (f32, f32),
     prev_offset: (f32, f32),
     scroll_offsets: &ScrollOffsetMap,
+    transforms: &HashMap<usize, azul_core::transform::ComputedTransform3D>,
 ) -> bool {
     let _p = crate::probe::Probe::span("scroll_fastpath_check");
 
@@ -2413,11 +2469,20 @@ pub fn scroll_fast_path_eligible_in(
     };
 
     // The backdrop - what is painted before the frame - each item with the
-    // offset of the frames open around it.
-    let mut stack = ScrollStack::new(scroll_offsets);
+    // offset of the frames open around it. One turned over the clip cannot be
+    // told from a flat fill: the clip is repainted.
+    let mut stack = ScrollStack::with_transforms(scroll_offsets, transforms);
     let mut backdrop: Vec<(&DisplayListItem, (f32, f32))> = Vec::with_capacity(start);
     for it in &items[..start] {
-        backdrop.push((it, stack.scrolled()));
+        match stack.placement() {
+            Some(at) => backdrop.push((it, at)),
+            None => {
+                let turned = it.visual_bounds().map(|b| stack.on_screen(b));
+                if turned.is_some_and(|b| b.is_none_or(|b| rects_overlap(&b, clip_bounds))) {
+                    return false;
+                }
+            }
+        }
         stack.step(it);
     }
     // The frames AROUND this one, and the part of the frame's clip they let
@@ -2425,7 +2490,9 @@ pub fn scroll_fast_path_eligible_in(
     // else was placed by offsets this map does not hold (a caller that passes
     // none, for a frame nested in a scrolled one), and nothing read below
     // would be on screen: the conservative full-clip repaint.
-    let around = stack.scrolled();
+    let Some(around) = stack.placement() else {
+        return false;
+    };
     let own_clip = match &items[start] {
         DisplayListItem::PushScrollFrame {
             clip_bounds: own, ..
@@ -2446,18 +2513,20 @@ pub fn scroll_fast_path_eligible_in(
         .get(&scroll_id)
         .copied()
         .unwrap_or((0.0, 0.0));
+    // A turned item inside it covers no part of the clip for certain.
     let mut content: Vec<(&DisplayListItem, (f32, f32))> = Vec::new();
-    let mut stack = ScrollStack::new(scroll_offsets);
+    let mut stack = ScrollStack::with_transforms(scroll_offsets, transforms);
     for (i, it) in items.iter().enumerate() {
         if pushes.iter().any(|&(s, e)| i > s && i < e) {
-            let at = stack.scrolled();
-            content.push((
-                it,
-                (
-                    at.0 - around.0 - own_in_map.0,
-                    at.1 - around.1 - own_in_map.1,
-                ),
-            ));
+            if let Some(at) = stack.placement() {
+                content.push((
+                    it,
+                    (
+                        at.0 - around.0 - own_in_map.0,
+                        at.1 - around.1 - own_in_map.1,
+                    ),
+                ));
+            }
         }
         stack.step(it);
     }
@@ -3031,12 +3100,15 @@ pub fn node_groups_on_screen(
 /// nested ones land where they are on screen - and cuts each clip to the
 /// enclosing frames' and clips' on-screen rects, the part the frame can show
 /// in (a box half scrolled out of its container moves only its visible
-/// half). Returns `(scroll_id, clip, delta, offset)`.
+/// half). A frame inside a moved reference frame is where `transforms`, the
+/// live matrices, move it. Returns `(scroll_id, clip, delta, offset)`.
+#[allow(clippy::implicit_hasher)] // internal call sites all use std hasher
 #[must_use]
 pub fn collect_scroll_shifts(
     display_list: &DisplayList,
     scroll_offsets: &ScrollOffsetMap,
     previous_scroll_offsets: &ScrollOffsetMap,
+    transforms: &HashMap<usize, azul_core::transform::ComputedTransform3D>,
     dpi_factor: f32,
 ) -> Vec<(LocalScrollId, LogicalRect, (f32, f32), (f32, f32))> {
     let moved = |id: &LocalScrollId, offset: &(f32, f32)| -> Option<(f32, f32)> {
@@ -3051,7 +3123,7 @@ pub fn collect_scroll_shifts(
         ((delta.0 * dpi_factor).abs() > 0.5 || (delta.1 * dpi_factor).abs() > 0.5).then_some(delta)
     };
     let mut out: Vec<(LocalScrollId, LogicalRect, (f32, f32), (f32, f32))> = Vec::new();
-    let mut stack = ScrollStack::new(scroll_offsets);
+    let mut stack = ScrollStack::with_transforms(scroll_offsets, transforms);
     for item in &display_list.items {
         if let DisplayListItem::PushScrollFrame {
             clip_bounds,
@@ -3075,7 +3147,7 @@ pub fn collect_scroll_shifts(
                 // push), and cut to what they let show. The memmove may only
                 // move pixels the frame paints: past an enclosing clip lie
                 // other boxes' pixels, which it would drag along.
-                let projected = moved_by(*clip_bounds.inner(), stack.scrolled());
+                let projected = stack.on_screen(*clip_bounds.inner()).unwrap_or(UNBOUNDED);
                 let clip = stack
                     .visible()
                     .map_or(projected, |outer| intersect_logical_rects(projected, outer));
@@ -3207,6 +3279,7 @@ pub fn logical_rects_to_buffer(
 /// (two nested scrollers scrolling together, a layout blit crossing a scroll
 /// clip) and painted that overlap with R and B swapped.
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::implicit_hasher)] // internal call sites all use std hasher
 pub fn execute_scroll_shift(
     pixmap: &mut AzulPixmap,
     display_list: &DisplayList,
@@ -3216,6 +3289,7 @@ pub fn execute_scroll_shift(
     offset: (f32, f32),
     dpi_factor: f32,
     scroll_offsets: &ScrollOffsetMap,
+    transforms: &HashMap<usize, azul_core::transform::ComputedTransform3D>,
 ) -> ScrollShiftOutcome {
     let mut damage = Vec::new();
     let mut present_extra = Vec::new();
@@ -3227,6 +3301,7 @@ pub fn execute_scroll_shift(
         offset,
         prev_offset,
         scroll_offsets,
+        transforms,
     ) {
         let strips = scroll_shift_region(pixmap, clip, delta, offset, dpi_factor);
         // Empty strips = the delta rounded to ZERO physical pixels: no
@@ -3242,7 +3317,13 @@ pub fn execute_scroll_shift(
         let moved = !strips.is_empty();
         damage.extend(strips);
         if moved {
-            for g in overlay_rects_after_frame_in(display_list, scroll_id, clip, scroll_offsets) {
+            for g in overlay_rects_after_frame_in(
+                display_list,
+                scroll_id,
+                clip,
+                scroll_offsets,
+                transforms,
+            ) {
                 damage.push(g);
                 let mut ghost = g;
                 ghost.origin.x -= delta.0;
@@ -3517,7 +3598,8 @@ pub fn execute_virtual_view_shift(
 }
 
 /// [`overlay_rects_after_frame_in`] with no other frame's offset known: every
-/// item is taken where its display-list bounds are.
+/// item is taken where its display-list bounds and the matrices baked into
+/// its reference frames put it.
 #[must_use]
 pub fn overlay_rects_after_frame(
     display_list: &DisplayList,
@@ -3529,6 +3611,7 @@ pub fn overlay_rects_after_frame(
         scroll_id,
         clip_bounds,
         &ScrollOffsetMap::new(),
+        &HashMap::new(),
     )
 }
 
@@ -3544,19 +3627,23 @@ pub fn overlay_rects_after_frame(
 /// container), the caller adds these rects to the damage set so the dragged
 /// pixels are simply repainted after the shift.
 ///
-/// Each item is placed by the frames open around it (`scroll_offsets`, the
-/// map the clip was projected with): a scroll box's own bar on a scrolled
-/// page is repainted where the page paints it. What a LATER push of the same
+/// Each item is placed where it paints, shadow and all, by the frames open
+/// around it (`scroll_offsets`, the map the clip was projected with, and the
+/// live `transforms` of the reference frames): a scroll box's own bar on a
+/// scrolled page is repainted where the page paints it, a box moved over the
+/// frame by its transform where it is moved to. What a LATER push of the same
 /// frame paints is not an overlay: it moved with the frame, by the same
 /// memmove. Counted as overlays, the cards after a fixed header - most of a
 /// page - were repainted on every scroll step.
 #[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
 #[must_use]
+#[allow(clippy::implicit_hasher)] // internal call sites all use std hasher
 pub fn overlay_rects_after_frame_in(
     display_list: &DisplayList,
     scroll_id: LocalScrollId,
     clip_bounds: &LogicalRect,
     scroll_offsets: &ScrollOffsetMap,
+    transforms: &HashMap<usize, azul_core::transform::ComputedTransform3D>,
 ) -> Vec<LogicalRect> {
     let mut out = Vec::new();
     let Some(&(_, end)) = frame_pushes(display_list, scroll_id).first() else {
@@ -3564,16 +3651,18 @@ pub fn overlay_rects_after_frame_in(
     };
     let cx1 = clip_bounds.origin.x + clip_bounds.size.width;
     let cy1 = clip_bounds.origin.y + clip_bounds.size.height;
-    let mut stack = ScrollStack::new(scroll_offsets);
+    let mut stack = ScrollStack::with_transforms(scroll_offsets, transforms);
     for (i, it) in display_list.items.iter().enumerate() {
-        let at = stack.scrolled();
+        // Where the item paints, shadow and all; read before stepping over it.
+        let on_screen = it
+            .visual_bounds()
+            .map(|b| stack.on_screen(b).unwrap_or(UNBOUNDED));
         let moved_with_the_frame = stack.is_open(scroll_id);
         stack.step(it);
         if i < end || moved_with_the_frame || it.is_state_management() {
             continue;
         }
-        let Some(b) = it.bounds() else { continue };
-        let b = moved_by(b, at);
+        let Some(b) = on_screen else { continue };
         // STRICT overlap: merely touching shares no pixels with the clip and
         // cannot be dragged.
         let ix = b.origin.x.max(clip_bounds.origin.x);
@@ -4329,6 +4418,16 @@ impl FrameStack {
 
     fn pop(&mut self) {
         self.frames.pop();
+    }
+
+    /// The summed translation of the open frames, when every one of them
+    /// only moves what it paints; `None` when one turns, scales or tilts it.
+    fn translation(&self) -> Option<(f32, f32)> {
+        self.frames
+            .iter()
+            .try_fold((0.0_f32, 0.0_f32), |(x, y), (_, m)| {
+                translation_2d(&m.m).map(|(tx, ty)| (x + tx, y + ty))
+            })
     }
 
     /// Where `r` is painted, through every open frame from the innermost

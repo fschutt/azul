@@ -6,6 +6,8 @@
 //! left one smeared scrollbar copy per frame. Both sides now share
 //! `cpurender::execute_scroll_shift`, which this test pins.
 
+use std::collections::HashMap;
+
 use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
 use azul_css::props::basic::ColorU;
 use azul_layout::{
@@ -83,6 +85,7 @@ fn a_dragged_overlay_scrollbar_is_repainted_at_its_ghost_position_too() {
         (10.0, 0.0),
         1.0,
         &[(7, (10.0, 0.0))].into_iter().collect(),
+        &HashMap::new(),
     );
 
     // Fast path taken: the whole clip is presented, not repainted.
@@ -152,7 +155,7 @@ fn a_nested_frames_shift_clip_is_projected_by_the_outer_scroll() {
     prev.insert(1, (0.0, 100.0));
     prev.insert(2, (40.0, 0.0));
 
-    let shifts = cpurender::collect_scroll_shifts(&dl, &now, &prev, 2.0);
+    let shifts = cpurender::collect_scroll_shifts(&dl, &now, &prev, &HashMap::new(), 2.0);
     assert_eq!(shifts.len(), 1, "only the field moved: {shifts:?}");
     let (id, clip, delta, offset) = shifts[0];
     assert_eq!(id, 2);
@@ -167,7 +170,7 @@ fn a_nested_frames_shift_clip_is_projected_by_the_outer_scroll() {
     // And a top-level frame's clip is untouched.
     let mut now2 = cpurender::ScrollOffsetMap::new();
     now2.insert(1, (0.0, 120.0));
-    let shifts = cpurender::collect_scroll_shifts(&dl, &now2, &prev, 2.0);
+    let shifts = cpurender::collect_scroll_shifts(&dl, &now2, &prev, &HashMap::new(), 2.0);
     let page = shifts.iter().find(|s| s.0 == 1).expect("the page moved");
     assert_eq!(page.1, page_clip, "a top-level frame keeps its own clip");
 }
@@ -245,6 +248,7 @@ fn an_overlay_moved_over_the_frame_by_its_transform_is_repainted_where_it_is_pai
         (0.0, 10.0),
         1.0,
         &[(7, (0.0, 10.0))].into_iter().collect(),
+        &HashMap::new(),
     );
     assert!(
         out.present_extra.contains(&clip),
@@ -331,12 +335,90 @@ fn an_overlays_shadow_over_the_frame_is_repainted_too() {
         (0.0, 10.0),
         1.0,
         &[(7, (0.0, 10.0))].into_iter().collect(),
+        &HashMap::new(),
     );
     // The shadow's part inside the frame: from x 194 to the clip's edge.
     let shadow_in_frame = rect(194.0, 30.0, 6.0, 40.0);
     assert!(
         covers(&out.damage, &shadow_in_frame),
         "the shadow inside the frame must be repainted, damage: {:?}",
+        out.damage
+    );
+}
+
+/// The matrix a reference frame paints with is its LIVE one (a drag, a
+/// slide): the overlay is found where that matrix moves it, not where the
+/// matrix baked into the list would.
+#[test]
+fn an_overlay_is_found_where_its_live_matrix_moves_it() {
+    let clip = rect(0.0, 0.0, 200.0, 100.0);
+    let content = rect(-100.0, -100.0, 600.0, 500.0);
+    let laid_out = rect(-100.0, 20.0, 80.0, 30.0);
+    let moved = rect(50.0, 20.0, 80.0, 30.0);
+    let mut live = HashMap::new();
+    live.insert(
+        3,
+        azul_core::transform::ComputedTransform3D {
+            m: [
+                [1.0, 0.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0, 0.0],
+                [150.0, 0.0, 0.0, 1.0],
+            ],
+        },
+    );
+    let dl = DisplayList {
+        items: vec![
+            DisplayListItem::PushScrollFrame {
+                clip_bounds: WindowLogicalRect(clip),
+                content_size: LogicalSize::new(600.0, 500.0),
+                scroll_id: 7,
+            },
+            DisplayListItem::Rect {
+                bounds: WindowLogicalRect(content),
+                color: ColorU {
+                    r: 255,
+                    g: 255,
+                    b: 255,
+                    a: 255,
+                },
+                border_radius: BorderRadius::default(),
+            },
+            DisplayListItem::PopScrollFrame,
+            DisplayListItem::PushReferenceFrame {
+                transform_key: azul_core::resources::TransformKey { id: 3 },
+                initial_transform: azul_core::transform::ComputedTransform3D::IDENTITY,
+                bounds: WindowLogicalRect(laid_out),
+            },
+            DisplayListItem::Rect {
+                bounds: WindowLogicalRect(laid_out),
+                color: ColorU {
+                    r: 200,
+                    g: 40,
+                    b: 40,
+                    a: 255,
+                },
+                border_radius: BorderRadius::default(),
+            },
+            DisplayListItem::PopReferenceFrame,
+        ],
+        ..Default::default()
+    };
+    let mut pixmap = AzulPixmap::new(200, 100).expect("pixmap");
+    let out = cpurender::execute_scroll_shift(
+        &mut pixmap,
+        &dl,
+        7,
+        &clip,
+        (0.0, 10.0),
+        (0.0, 10.0),
+        1.0,
+        &[(7, (0.0, 10.0))].into_iter().collect(),
+        &live,
+    );
+    assert!(
+        covers(&out.damage, &moved),
+        "the box is repainted where its live matrix moves it, damage: {:?}",
         out.damage
     );
 }
