@@ -248,3 +248,91 @@ fn the_flows_text_is_painted_in_its_regions_place() {
         "the background ({background}) is painted before the story's text ({text})"
     );
 }
+
+/// The story of seven words (four lines in a 100px region) through one
+/// region 50px tall, two and a half lines, with `rule` on it.
+fn through_a_last_region(rule: &str) -> LayoutWindow {
+    page(
+        &format!(".r {{ width: 100px; height: 50px; left: 400px; top: 300px; {rule} }}"),
+        &format!("<div class=\"story\"><p>{STORY} ffff gggg</p></div><div class=\"r\"></div>"),
+    )
+}
+
+#[test]
+fn a_last_region_of_region_fragment_auto_shows_the_rest_past_its_end() {
+    let g = glyphs(&through_a_last_region("region-fragment: auto"));
+    assert_eq!(g.len(), 28, "the whole story is drawn: {g:?}");
+    assert_eq!(inside(&g, 400.0, 300.0, 100.0, 50.0), 16, "{g:?}");
+}
+
+#[test]
+fn a_last_region_of_region_fragment_break_shows_nothing_past_its_end() {
+    let g = glyphs(&through_a_last_region("region-fragment: break"));
+    assert_eq!(
+        g.len(),
+        16,
+        "the two lines that fit are drawn; the third, which would cross the region's end, \
+         and the rest are not: {g:?}"
+    );
+    assert_eq!(inside(&g, 400.0, 300.0, 100.0, 50.0), 16, "{g:?}");
+}
+
+#[test]
+fn what_a_breaking_last_region_does_not_show_is_reported() {
+    let lw = through_a_last_region("region-fragment: break");
+    let flows = lw.layout_results[&DomId::ROOT_ID]
+        .layout_tree
+        .named_flows()
+        .to_vec();
+    assert_eq!(flows.len(), 1, "{flows:?}");
+    let overflow = flows[0].overflow.as_ref().expect("the story does not fit");
+    assert_eq!(
+        overflow.byte_offset,
+        Some(20),
+        "what is not shown starts with the fifth word: {overflow:?}"
+    );
+    assert!(
+        (overflow.needed_height - 30.0).abs() < 0.01,
+        "two more lines below the two that fit end 30px past the region's end: {overflow:?}"
+    );
+    assert_eq!(flows[0].regions.len(), 1, "{flows:?}");
+    assert_eq!(flows[0].regions[0].paragraphs.len(), 1);
+    assert_eq!(flows[0].regions[0].paragraphs[0].lines, 2);
+}
+
+#[test]
+fn a_breaking_last_region_breaks_as_if_another_region_followed() {
+    // Three lines fit; the fourth alone after the break would be a widow, so
+    // the region gives up its third line too (widows: 2).
+    let g = glyphs(&page(
+        ".r { width: 100px; height: 60px; left: 400px; top: 300px; region-fragment: break } \
+         .story p { widows: 2; orphans: 1 }",
+        &format!("<div class=\"story\"><p>{STORY} ffff gggg</p></div><div class=\"r\"></div>"),
+    ));
+    assert_eq!(g.len(), 16, "{g:?}");
+    assert_eq!(inside(&g, 400.0, 300.0, 100.0, 40.0), 16, "{g:?}");
+}
+
+#[test]
+fn a_box_the_rest_of_a_breaking_last_region_cannot_hold_is_not_shown() {
+    // The box of a fixed height does not break: after the first line it
+    // would run 10px past the region's end.
+    let lw = page(
+        ".r { width: 100px; height: 50px; left: 400px; top: 300px; region-fragment: break } \
+         .fixed { height: 40px }",
+        "<div class=\"story\"><p>aaaa</p><div class=\"fixed\">zzzz</div></div><div \
+         class=\"r\"></div>",
+    );
+    let g = glyphs(&lw);
+    assert_eq!(g.len(), 4, "only the first paragraph is drawn: {g:?}");
+    let flows = lw.layout_results[&DomId::ROOT_ID]
+        .layout_tree
+        .named_flows()
+        .to_vec();
+    let overflow = flows[0].overflow.as_ref().expect("the box does not fit");
+    assert!(overflow.dom_node.is_some(), "{overflow:?}");
+    assert!(
+        (overflow.needed_height - 10.0).abs() < 0.01,
+        "the region would need 10px more for the box: {overflow:?}"
+    );
+}
