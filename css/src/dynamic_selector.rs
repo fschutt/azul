@@ -7,7 +7,7 @@ use alloc::{
 
 use crate::{
     corety::{AzString, OptionString, StringVec},
-    props::property::CssProperty,
+    props::{basic::pixel::SystemMetricRef, property::CssProperty},
     system::DarkLightMode,
 };
 
@@ -1603,6 +1603,18 @@ pub struct DynamicSelectorContext {
     /// palette: another app theme is another context. APPENDED for ABI
     /// stability.
     pub theme_chain: StringVec,
+    /// The window's title bar area `env(titlebar-area-*)` resolves against
+    /// ([`crate::system::TitlebarArea`]), in logical px. `NaN` while the
+    /// window has none - its title bar does not lie over its content - so an
+    /// `env()` on it takes its fallback, as for a missing safe-area inset.
+    /// Fed from the window's state through [`Self::with_titlebar_area`].
+    pub titlebar_area_x: f32,
+    pub titlebar_area_y: f32,
+    pub titlebar_area_width: f32,
+    pub titlebar_area_height: f32,
+    /// The desktop's metrics the `system:` lengths name
+    /// (`system:button-radius`, `system:titlebar-button-width`).
+    pub system_metrics: crate::system::SystemMetrics,
 }
 
 impl PartialEq for DynamicSelectorContext {
@@ -1634,6 +1646,11 @@ impl PartialEq for DynamicSelectorContext {
             && self.keyboard_inset_height.to_bits() == other.keyboard_inset_height.to_bits()
             && self.system_colors == other.system_colors
             && self.theme_chain == other.theme_chain
+            && self.titlebar_area_x.to_bits() == other.titlebar_area_x.to_bits()
+            && self.titlebar_area_y.to_bits() == other.titlebar_area_y.to_bits()
+            && self.titlebar_area_width.to_bits() == other.titlebar_area_width.to_bits()
+            && self.titlebar_area_height.to_bits() == other.titlebar_area_height.to_bits()
+            && self.system_metrics == other.system_metrics
     }
 }
 
@@ -1666,6 +1683,11 @@ impl Default for DynamicSelectorContext {
             // default (`SystemColorRef::fallback`).
             system_colors: crate::system::SystemColors::default(),
             theme_chain: app_theme_chain(DEFAULT_APP_THEME),
+            titlebar_area_x: f32::NAN,
+            titlebar_area_y: f32::NAN,
+            titlebar_area_width: f32::NAN,
+            titlebar_area_height: f32::NAN,
+            system_metrics: crate::system::SystemMetrics::default(),
         }
     }
 }
@@ -1721,6 +1743,13 @@ impl DynamicSelectorContext {
             // The app theme is the app's (`AppConfig::theme`), not the
             // desktop's: the window's builder sets it (`with_app_theme`).
             theme_chain: app_theme_chain(DEFAULT_APP_THEME),
+            // Whether the window has a title bar area is the window's
+            // (`with_titlebar_area`), not the desktop's.
+            titlebar_area_x: f32::NAN,
+            titlebar_area_y: f32::NAN,
+            titlebar_area_width: f32::NAN,
+            titlebar_area_height: f32::NAN,
+            system_metrics: system_style.metrics.clone(),
         }
     }
 
@@ -1804,6 +1833,43 @@ impl DynamicSelectorContext {
         ctx
     }
 
+    /// Carry the window's title bar area, so `env(titlebar-area-*)` and the
+    /// `system:titlebar-*` lengths resolve against it; `None` (the window's
+    /// title bar does not lie over its content) makes them fall back.
+    #[must_use]
+    pub fn with_titlebar_area(&self, area: Option<crate::system::TitlebarArea>) -> Self {
+        let mut ctx = self.clone();
+        let (x, y, width, height) = area.map_or((f32::NAN, f32::NAN, f32::NAN, f32::NAN), |a| {
+            (a.x, a.y, a.width, a.height)
+        });
+        ctx.titlebar_area_x = x;
+        ctx.titlebar_area_y = y;
+        ctx.titlebar_area_width = width;
+        ctx.titlebar_area_height = height;
+        ctx
+    }
+
+    /// A hash of every length `env()` and the `system:` lengths resolve to
+    /// under this context: two contexts with the same one give every such
+    /// declaration the same value, so a window whose fingerprint did not move
+    /// lays out none of the boxes that read them again.
+    ///
+    /// `with_viewport_values`: whether the values that follow the viewport's
+    /// size count (`env(titlebar-area-width)`), which a resize moves - only
+    /// for a document that reads one.
+    #[must_use]
+    pub fn env_fingerprint(&self, with_viewport_values: bool) -> u64 {
+        use core::hash::{Hash, Hasher};
+        let mut h = crate::hash::SipHasher13::new();
+        let system = SYSTEM_LENGTHS.map(EnvVariable::System);
+        for v in EnvVariable::ALL.iter().chain(system.iter()) {
+            if with_viewport_values || !v.follows_viewport() {
+                v.resolve(self).map(f32::to_bits).hash(&mut h);
+            }
+        }
+        h.finish()
+    }
+
     /// The facets of this context that change what a display list PAINTS
     /// without changing what the cascade RESOLVES.
     ///
@@ -1849,8 +1915,8 @@ impl DynamicSelectorContext {
     }
 
     /// Whether `other` differs from this context only in what a resize
-    /// changes: the viewport's size and the orientation and root container
-    /// size that follow it.
+    /// changes: the viewport's size and the orientation, root container size
+    /// and title bar area width that follow it.
     #[must_use]
     pub fn differs_only_in_viewport(&self, other: &Self) -> bool {
         let mut same_view = other.clone();
@@ -1859,6 +1925,7 @@ impl DynamicSelectorContext {
         same_view.orientation = self.orientation;
         same_view.container_width = self.container_width;
         same_view.container_height = self.container_height;
+        same_view.titlebar_area_width = self.titlebar_area_width;
         same_view == *self
     }
 
@@ -1915,23 +1982,65 @@ pub enum EnvVariable {
     SafeAreaInsetLeft,
     /// The `VirtualKeyboard` API's `env(keyboard-inset-height)`.
     KeyboardInsetHeight,
+    /// `env(titlebar-area-x)` (Window Controls Overlay): where the window's
+    /// title bar area starts, from its left edge.
+    TitlebarAreaX,
+    /// `env(titlebar-area-y)`: where the title bar area starts, from the top.
+    TitlebarAreaY,
+    /// `env(titlebar-area-width)`: the title bar area's width, which follows
+    /// the window's.
+    TitlebarAreaWidth,
+    /// `env(titlebar-area-height)`: the title bar's height.
+    TitlebarAreaHeight,
+    /// A `system:` length written as a whole value
+    /// (`margin-left: system:titlebar-button-width`). It has no `env()` name
+    /// and no fallback (zero when the metric is unknown); its dynamic id is
+    /// `"env:system:<metric>"`.
+    System(SystemMetricRef),
 }
 
 /// `dynamic_id` prefix that marks a `CssDeclaration::Dynamic` as an `env()`
 /// reference rather than a `var()` one. A custom property name can never
 /// contain `:`, so the two namespaces cannot collide.
+///
+/// After the prefix comes the variable's name, or - for a value with `env()`
+/// calls inside its `calc()` - the value as written.
 pub const ENV_DYNAMIC_ID_PREFIX: &str = "env:";
 
+/// How a `system:` length is spelled, before its metric's name.
+const SYSTEM_LENGTH_PREFIX: &str = "system:";
+
+/// Every metric a `system:` length can name.
+const SYSTEM_LENGTHS: [SystemMetricRef; 11] = [
+    SystemMetricRef::ButtonRadius,
+    SystemMetricRef::ButtonPaddingHorizontal,
+    SystemMetricRef::ButtonPaddingVertical,
+    SystemMetricRef::ButtonBorderWidth,
+    SystemMetricRef::TitlebarHeight,
+    SystemMetricRef::TitlebarButtonWidth,
+    SystemMetricRef::TitlebarPadding,
+    SystemMetricRef::SafeAreaTop,
+    SystemMetricRef::SafeAreaBottom,
+    SystemMetricRef::SafeAreaLeft,
+    SystemMetricRef::SafeAreaRight,
+];
+
 impl EnvVariable {
-    pub const ALL: [Self; 5] = [
+    /// Every variable `env()` can name.
+    pub const ALL: [Self; 9] = [
         Self::SafeAreaInsetTop,
         Self::SafeAreaInsetRight,
         Self::SafeAreaInsetBottom,
         Self::SafeAreaInsetLeft,
         Self::KeyboardInsetHeight,
+        Self::TitlebarAreaX,
+        Self::TitlebarAreaY,
+        Self::TitlebarAreaWidth,
+        Self::TitlebarAreaHeight,
     ];
 
-    /// The name as written inside `env(...)`.
+    /// The name as written inside `env(...)`; a `system:` length's own
+    /// spelling (`system:titlebar-height`).
     #[must_use]
     pub const fn as_css_name(&self) -> &'static str {
         match self {
@@ -1940,6 +2049,11 @@ impl EnvVariable {
             Self::SafeAreaInsetBottom => "safe-area-inset-bottom",
             Self::SafeAreaInsetLeft => "safe-area-inset-left",
             Self::KeyboardInsetHeight => "keyboard-inset-height",
+            Self::TitlebarAreaX => "titlebar-area-x",
+            Self::TitlebarAreaY => "titlebar-area-y",
+            Self::TitlebarAreaWidth => "titlebar-area-width",
+            Self::TitlebarAreaHeight => "titlebar-area-height",
+            Self::System(metric) => metric.as_css_str(),
         }
     }
 
@@ -1954,6 +2068,17 @@ impl EnvVariable {
             .find(|v| v.as_css_name() == name.trim())
     }
 
+    /// The `system:` length a whole value spells (`system:titlebar-height`);
+    /// `None` for anything else, a `system:` colour included.
+    #[must_use]
+    pub fn from_system_length(value: &str) -> Option<Self> {
+        value
+            .trim()
+            .strip_prefix(SYSTEM_LENGTH_PREFIX)
+            .and_then(SystemMetricRef::from_css_str)
+            .map(Self::System)
+    }
+
     /// The `dynamic_id` an `env()` declaration is stored under.
     #[must_use]
     pub fn dynamic_id(&self) -> AzString {
@@ -1961,11 +2086,19 @@ impl EnvVariable {
     }
 
     /// Recover the variable from a `dynamic_id`; `None` for a plain `var()` id
-    /// (no prefix) or a prefixed name this build does not know.
+    /// (no prefix), a prefixed name this build does not know, or a value with
+    /// `env()` calls inside it.
     #[must_use]
     pub fn from_dynamic_id(id: &str) -> Option<Self> {
-        id.strip_prefix(ENV_DYNAMIC_ID_PREFIX)
-            .and_then(Self::from_css_name)
+        let name = id.strip_prefix(ENV_DYNAMIC_ID_PREFIX)?;
+        Self::from_system_length(name).or_else(|| Self::from_css_name(name))
+    }
+
+    /// Whether the value follows the viewport's size, so a resize can move it
+    /// while nothing else changes.
+    #[must_use]
+    pub const fn follows_viewport(&self) -> bool {
+        matches!(self, Self::TitlebarAreaWidth)
     }
 
     /// The variable's value under `ctx`, in logical px; `None` when the
@@ -1979,8 +2112,51 @@ impl EnvVariable {
             Self::SafeAreaInsetBottom => ctx.safe_area_bottom,
             Self::SafeAreaInsetLeft => ctx.safe_area_left,
             Self::KeyboardInsetHeight => ctx.keyboard_inset_height,
+            Self::TitlebarAreaX => ctx.titlebar_area_x,
+            Self::TitlebarAreaY => ctx.titlebar_area_y,
+            Self::TitlebarAreaWidth => ctx.titlebar_area_width,
+            Self::TitlebarAreaHeight => ctx.titlebar_area_height,
+            Self::System(metric) => return Self::resolve_system_length(*metric, ctx),
         };
         v.is_finite().then_some(v)
+    }
+
+    /// A `system:` length under `ctx`. The ones that describe the window -
+    /// its title bar's height, its safe area - are the `env()` values of the
+    /// same name, read the same way. The title bar's controls and padding are
+    /// the desktop's metrics, there for the content only while the window has
+    /// a title bar area; the button metrics are the desktop's.
+    fn resolve_system_length(
+        metric: SystemMetricRef,
+        ctx: &DynamicSelectorContext,
+    ) -> Option<f32> {
+        let same_value = match metric {
+            SystemMetricRef::TitlebarHeight => Some(Self::TitlebarAreaHeight),
+            SystemMetricRef::SafeAreaTop => Some(Self::SafeAreaInsetTop),
+            SystemMetricRef::SafeAreaBottom => Some(Self::SafeAreaInsetBottom),
+            SystemMetricRef::SafeAreaLeft => Some(Self::SafeAreaInsetLeft),
+            SystemMetricRef::SafeAreaRight => Some(Self::SafeAreaInsetRight),
+            SystemMetricRef::ButtonRadius
+            | SystemMetricRef::ButtonPaddingHorizontal
+            | SystemMetricRef::ButtonPaddingVertical
+            | SystemMetricRef::ButtonBorderWidth
+            | SystemMetricRef::TitlebarButtonWidth
+            | SystemMetricRef::TitlebarPadding => None,
+        };
+        if let Some(v) = same_value {
+            return v.resolve(ctx);
+        }
+        let of_the_title_bar = matches!(
+            metric,
+            SystemMetricRef::TitlebarButtonWidth | SystemMetricRef::TitlebarPadding
+        );
+        if of_the_title_bar && Self::TitlebarAreaHeight.resolve(ctx).is_none() {
+            return None;
+        }
+        metric
+            .resolve(&ctx.system_metrics)?
+            .to_pixels_absolute()
+            .into_option()
     }
 }
 
@@ -6388,6 +6564,94 @@ mod safe_area_context_tests {
         }
         assert_eq!(EnvVariable::from_css_name("safe-area-inset"), None);
         assert_eq!(EnvVariable::from_css_name(""), None);
+    }
+}
+
+/// The window's title bar area in the context: what `env(titlebar-area-*)`
+/// and the `system:` lengths resolve to, through one path.
+#[cfg(test)]
+mod titlebar_area_context_tests {
+    use super::*;
+    use crate::{
+        props::basic::pixel::{OptionPixelValue, PixelValue},
+        system::TitlebarArea,
+    };
+
+    const AREA: TitlebarArea = TitlebarArea {
+        x: 86.0,
+        y: 0.0,
+        width: 714.0,
+        height: 28.0,
+    };
+
+    fn with_controls() -> DynamicSelectorContext {
+        let mut ctx = DynamicSelectorContext::default();
+        ctx.system_metrics.titlebar.button_area_width = OptionPixelValue::Some(PixelValue::px(78.0));
+        ctx.system_metrics.titlebar.padding_horizontal = OptionPixelValue::Some(PixelValue::px(8.0));
+        ctx.system_metrics.corner_radius = OptionPixelValue::Some(PixelValue::px(6.0));
+        ctx
+    }
+
+    #[test]
+    fn with_titlebar_area_carries_each_value_and_none_makes_them_fall_back() {
+        let ctx = DynamicSelectorContext::default().with_titlebar_area(Some(AREA));
+        assert_eq!(EnvVariable::TitlebarAreaX.resolve(&ctx), Some(86.0));
+        assert_eq!(EnvVariable::TitlebarAreaY.resolve(&ctx), Some(0.0));
+        assert_eq!(EnvVariable::TitlebarAreaWidth.resolve(&ctx), Some(714.0));
+        assert_eq!(EnvVariable::TitlebarAreaHeight.resolve(&ctx), Some(28.0));
+        let gone = ctx.with_titlebar_area(None);
+        assert_eq!(EnvVariable::TitlebarAreaHeight.resolve(&gone), None);
+        assert_eq!(gone, DynamicSelectorContext::default(), "NaN compares equal to itself");
+        assert_ne!(ctx, gone, "a new area is a new context");
+    }
+
+    #[test]
+    fn the_system_titlebar_lengths_resolve_through_the_same_path_as_env() {
+        let ctx = with_controls().with_titlebar_area(Some(AREA));
+        let system = |metric| EnvVariable::System(metric).resolve(&ctx);
+        assert_eq!(
+            system(SystemMetricRef::TitlebarHeight),
+            EnvVariable::TitlebarAreaHeight.resolve(&ctx)
+        );
+        assert_eq!(system(SystemMetricRef::TitlebarButtonWidth), Some(78.0));
+        assert_eq!(system(SystemMetricRef::TitlebarPadding), Some(8.0));
+        assert_eq!(system(SystemMetricRef::ButtonRadius), Some(6.0));
+
+        // Without a title bar area its controls leave the content no room to
+        // keep; the button metrics stay the desktop's.
+        let no_area = with_controls();
+        let system = |metric| EnvVariable::System(metric).resolve(&no_area);
+        assert_eq!(system(SystemMetricRef::TitlebarHeight), None);
+        assert_eq!(system(SystemMetricRef::TitlebarButtonWidth), None);
+        assert_eq!(system(SystemMetricRef::ButtonRadius), Some(6.0));
+    }
+
+    #[test]
+    fn a_system_length_round_trips_through_its_dynamic_id() {
+        let v = EnvVariable::from_system_length(" system:titlebar-padding ")
+            .expect("a system length");
+        assert_eq!(v, EnvVariable::System(SystemMetricRef::TitlebarPadding));
+        assert_eq!(EnvVariable::from_dynamic_id(v.dynamic_id().as_str()), Some(v));
+        assert_eq!(EnvVariable::from_system_length("system:accent"), None, "a colour");
+        assert_eq!(EnvVariable::from_css_name("system:titlebar-padding"), None);
+    }
+
+    #[test]
+    fn the_env_fingerprint_moves_with_the_area_and_counts_its_width_only_when_asked() {
+        let ctx = DynamicSelectorContext::default().with_titlebar_area(Some(AREA));
+        let taller = ctx.with_titlebar_area(Some(TitlebarArea {
+            height: 38.0,
+            ..AREA
+        }));
+        assert_ne!(ctx.env_fingerprint(false), taller.env_fingerprint(false));
+
+        let wider = ctx.with_titlebar_area(Some(TitlebarArea {
+            width: 900.0,
+            ..AREA
+        }));
+        assert_eq!(ctx.env_fingerprint(false), wider.env_fingerprint(false));
+        assert_ne!(ctx.env_fingerprint(true), wider.env_fingerprint(true));
+        assert!(ctx.differs_only_in_viewport(&wider));
     }
 }
 

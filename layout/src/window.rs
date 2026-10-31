@@ -1361,7 +1361,7 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         media_session_manager: _,
         form_validation_manager: _,
         safe_area_insets: _,
-        laid_out_safe_area_insets: _,
+        laid_out_env: _,
         currently_dragging_thumb: _,
         pending_caret_restore: _,
         pending_editor_reset: _,
@@ -2156,17 +2156,17 @@ pub struct LayoutWindow {
     /// px. Set by the platform shell (macOS NSScreen.safeAreaInsets, iOS
     /// UIView.safeAreaInsets, Android `WindowInsets`); zero where none.
     pub safe_area_insets: azul_css::system::SafeAreaInsets,
-    /// The insets the RETAINED layout tree in `layout_cache` was built with.
+    /// The window environment the RETAINED layout tree in `layout_cache` was
+    /// built with: the fingerprint of every value `env()` and the `system:`
+    /// lengths resolve to (`DynamicSelectorContext::env_fingerprint`).
     ///
-    /// `env(safe-area-inset-*)` is baked at CASCADE time, so a change to
-    /// `safe_area_insets` changes the RESOLVED value of a property whose
-    /// declaration text is identical - and the solver's incremental
-    /// reconcile fingerprints pre-cascade node data plus interaction state,
-    /// so it cannot see that. The retained tree is dropped when this differs
-    /// from `safe_area_insets`, the same treatment a dock change gets, and
-    /// for the same reason: a rotation or a keyboard show is a rare,
-    /// user-driven event that can afford one cold pass.
-    laid_out_safe_area_insets: azul_css::system::SafeAreaInsets,
+    /// Those values are baked at CASCADE time, so a new safe-area inset or
+    /// title bar area changes the RESOLVED value of a property whose
+    /// declaration text is identical - and the solver's incremental reconcile
+    /// fingerprints pre-cascade node data plus interaction state, so it
+    /// cannot see that. When this moves, the nodes that read the environment
+    /// go into the pass's css dirt.
+    laid_out_env: u64,
     /// Timers associated with this window
     pub timers: BTreeMap<TimerId, Timer>,
     /// A cursor-blink [`Timer`] the ENGINE installed into [`Self::timers`]
@@ -2984,7 +2984,7 @@ impl LayoutWindow {
             media_session_manager: azul_core::media_session::MediaSessionManager::new(),
             form_validation_manager: azul_core::form::FormValidationManager::new(),
             safe_area_insets: azul_css::system::SafeAreaInsets::default(),
-            laid_out_safe_area_insets: azul_css::system::SafeAreaInsets::default(),
+            laid_out_env: 0,
             timers: BTreeMap::new(),
             unarmed_blink_timer: None,
             system_animations_override: None,
@@ -7239,10 +7239,37 @@ impl LayoutWindow {
             )
     }
 
+    /// The window's title bar area, which `env(titlebar-area-*)` and the
+    /// `system:titlebar-*` lengths read: where its content may draw beside
+    /// the window's own controls.
+    ///
+    /// Only a window whose content runs under its title bar has one - a
+    /// `NoTitle` window, out of full screen, where the title bar is hidden -
+    /// and only on a platform that draws its controls over the content
+    /// ([`azul_css::system::SystemStyle::titlebar_area`]), from the desktop's
+    /// title bar metrics as azul's own title bar widgets read them.
+    #[must_use]
+    pub fn titlebar_area(
+        &self,
+        window_state: &FullWindowState,
+    ) -> Option<azul_css::system::TitlebarArea> {
+        use azul_core::window::{WindowDecorations, WindowFrame};
+        let content_under_titlebar = matches!(
+            window_state.flags.decorations,
+            WindowDecorations::NoTitle | WindowDecorations::NoTitleAutoInject
+        ) && window_state.flags.frame != WindowFrame::Fullscreen;
+        if !content_under_titlebar {
+            return None;
+        }
+        self.system_style
+            .as_deref()?
+            .titlebar_area(window_state.size.dimensions.width)
+    }
+
     /// The dynamic-selector context every cascade in this window evaluates
     /// against: the system style (OS, language, reduced motion, ...), the
-    /// viewport, the live safe-area insets, focus — and the THEME, which is
-    /// the window's own.
+    /// viewport, the live safe-area insets and title bar area, focus — and
+    /// the THEME, which is the window's own.
     ///
     /// `window_state.theme` is the effective theme of this window: the shells
     /// write the OS theme into it and keep it current, a transient window
@@ -7274,7 +7301,8 @@ impl LayoutWindow {
         let dims = window_state.size.dimensions;
         let mut ctx = base
             .with_viewport(dims.width, dims.height)
-            .with_safe_area(&self.safe_area_insets);
+            .with_safe_area(&self.safe_area_insets)
+            .with_titlebar_area(self.titlebar_area(window_state));
         // Both focus flags, read through the one helper: every backend
         // writes `window_focused`, only Win32 `flags.has_focus`.
         ctx.window_focused = window_state.is_window_active();
@@ -8429,7 +8457,7 @@ impl LayoutWindow {
 
         // Consume the CSS diff staged by `begin_reconciliation` — exactly one
         // pass eats it, and only for the DOM it was computed against.
-        let css_dirty_for_this_pass: Vec<(NodeId, azul_css::props::property::RelayoutScope)> =
+        let mut css_dirty_for_this_pass: Vec<(NodeId, azul_css::props::property::RelayoutScope)> =
             match &self.pending_css_dirty {
                 Some((d, _)) if *d == dom_id => self
                     .pending_css_dirty
@@ -8439,28 +8467,43 @@ impl LayoutWindow {
                 _ => Vec::new(),
             };
 
-        // SAFE-AREA CHANGE: lay the root out cold, once.
+        // A NEW WINDOW ENVIRONMENT: lay out again the boxes that read it.
         //
-        // `env(safe-area-inset-*)` resolves at CASCADE time against the
-        // dynamic-selector context this pass offered, so a rotation or a
-        // keyboard show changes what `padding-bottom: env(safe-area-inset-
-        // bottom, 7px)` COMPUTES TO while the declaration, the node data and
-        // the interaction state all stay byte-identical. Those three are what
-        // `reconcile_recursive` fingerprints, so the retained tree calls every
-        // such node clean and hands back its old box: the property cache read
-        // 34px and the laid-out node stayed 7px wide forever - a window that
-        // had ever laid out without insets could never pick them up, while a
-        // window that was born with them was correct.
-        //
-        // Dropping the retained tree is what the dock change immediately below
-        // does for the same class of problem, and the cost is the same: one
-        // cold pass on an event the user causes by hand.
-        if dom_id == DomId::ROOT_ID && self.laid_out_safe_area_insets != self.safe_area_insets {
-            self.laid_out_safe_area_insets = self.safe_area_insets;
-            if self.layout_cache.tree.is_some() {
-                let build_seq = self.layout_cache.build_seq;
-                self.layout_cache = solver3::cache::LayoutCache::default();
-                self.layout_cache.build_seq = build_seq;
+        // `env()` and the `system:` lengths resolve at CASCADE time against
+        // the dynamic-selector context this pass offered, so a rotation, a
+        // keyboard show or a title bar that grows changes what
+        // `padding-bottom: env(safe-area-inset-bottom, 7px)` COMPUTES TO while
+        // the declaration, the node data and the interaction state all stay
+        // byte-identical. Those three are what `reconcile_recursive`
+        // fingerprints, so the retained tree would call every such node clean
+        // and hand back its old box. The cascade noted which nodes read the
+        // environment: they are this pass's css dirt, each built fresh with
+        // its new value, and the rest of the tree is kept. A value that
+        // reaches further (a `*` rule, an inherited property) lays the root
+        // out cold once instead, as a dock change below does.
+        if dom_id == DomId::ROOT_ID {
+            let cache = styled_dom.get_css_property_cache();
+            let readers = &cache.env_readers;
+            let env_now = cache
+                .dynamic_context
+                .as_deref()
+                .map_or(0, |c| c.env_fingerprint(readers.follows_viewport));
+            if self.laid_out_env != env_now {
+                self.laid_out_env = env_now;
+                if self.layout_cache.tree.is_some() {
+                    if readers.beyond_nodes {
+                        let build_seq = self.layout_cache.build_seq;
+                        self.layout_cache = solver3::cache::LayoutCache::default();
+                        self.layout_cache.build_seq = build_seq;
+                    } else {
+                        css_dirty_for_this_pass.extend(
+                            readers
+                                .nodes
+                                .iter()
+                                .map(|(node, scope)| (NodeId::new(*node), *scope)),
+                        );
+                    }
+                }
             }
         }
 
@@ -29095,7 +29138,7 @@ impl LayoutWindow {
             #[cfg(feature = "pdf")]
                 fragmentation_context: _,
             safe_area_insets: _,
-            laid_out_safe_area_insets: _,
+            laid_out_env: _,
             // App-level animation CONFIG (durations + fn pointers), no node ids.
             system_animations_override: _,
             // NODE-KEYED through `thread_owners`, like `threads`: a timer one

@@ -1268,6 +1268,65 @@ pub struct CssPropertyCache {
         (usize, CssPropertyType, azul_css::css::CssWideKeyword),
         CssProperty,
     >,
+
+    /// The nodes the last restyle gave a value from the window's environment
+    /// (an `env()`, a `system:` length), so a new environment lays out only
+    /// them again.
+    pub env_readers: EnvReaders,
+}
+
+/// The nodes whose style reads the window's environment.
+///
+/// That is an `env()` or a `system:` length, which the cascade resolves
+/// against the window's context. A new value changes what such a node
+/// computes while its declarations, its data and its states stay the same,
+/// so nothing the layout compares sees it: the window hands these nodes to
+/// the layout as restyled (`LayoutWindow`'s css dirt) when the environment
+/// moves.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct EnvReaders {
+    /// Each node with the widest relayout a new value of its properties asks
+    /// for.
+    pub nodes: alloc::collections::BTreeMap<usize, azul_css::props::property::RelayoutScope>,
+    /// A value reaches further than [`Self::nodes`]: a `*` rule's reaches
+    /// every node, an inherited property's the node's descendants.
+    pub beyond_nodes: bool,
+    /// A value follows the viewport's size (`env(titlebar-area-width)`), so a
+    /// resize can move it.
+    pub follows_viewport: bool,
+}
+
+impl EnvReaders {
+    /// Notes that `node` (`None`: every node, a `*` rule) takes
+    /// `declaration`'s value, if that comes from the environment.
+    pub fn note(&mut self, node: Option<usize>, declaration: &azul_css::css::CssDeclaration) {
+        let azul_css::css::CssDeclaration::Dynamic(d) = declaration else {
+            return;
+        };
+        if !d.is_env() {
+            return;
+        }
+        self.follows_viewport |= d.env_follows_viewport();
+        let ty = d.default_value.get_type();
+        match node {
+            Some(node) if !ty.is_inheritable() => {
+                let scope = self.nodes.entry(node).or_default();
+                *scope = (*scope).max(ty.relayout_scope(true));
+            }
+            _ => self.beyond_nodes = true,
+        }
+    }
+
+    /// Takes `other`'s readers, whose nodes come `offset` after this DOM's.
+    pub fn append(&mut self, other: &mut Self, offset: usize) {
+        self.nodes.extend(
+            core::mem::take(&mut other.nodes)
+                .into_iter()
+                .map(|(node, scope)| (node + offset, scope)),
+        );
+        self.beyond_nodes |= other.beyond_nodes;
+        self.follows_viewport |= other.follows_viewport;
+    }
 }
 
 /// Heap-size breakdown of a `CssPropertyCache`, produced by
@@ -1937,6 +1996,7 @@ impl CssPropertyCache {
         self.global_css_props.clear();
         self.left_state_mask = 0;
         self.inline_overruled.clear();
+        self.env_readers = EnvReaders::default();
         // What the compounds left of a rule's subject read (`.btn:hover
         // .ink`): the nodes' states as they are now, and the window's
         // activation for `:backdrop`.
@@ -1964,6 +2024,7 @@ impl CssPropertyCache {
                     continue;
                 }
                 for declaration in rule.declarations.as_ref() {
+                    self.env_readers.note(Some(index), declaration);
                     if let Some(prop) = declaration.resolve_in_cascade(dyn_ctx.as_deref()) {
                         self.css_props.push_to(
                             index,
@@ -2049,6 +2110,7 @@ impl CssPropertyCache {
                     for d in &rule.declarations {
                         // `Static` as-is; an `env()` declaration resolved
                         // against the same context that gates the rule.
+                        self.env_readers.note(None, d);
                         if let Some(s) = d.resolve_in_cascade(dyn_ctx.as_deref()) {
                             global_priorities.push((s.get_type(), rule.priority));
                             self.global_css_props.push(s);
@@ -2195,6 +2257,7 @@ impl CssPropertyCache {
                                 } else if let Some(prop) =
                                     decl.resolve_in_cascade(dyn_ctx.as_deref())
                                 {
+                                    self.env_readers.note(Some(node_index), decl);
                                     self.css_props.push_to(
                                         node_index,
                                         StatefulCssProperty {
@@ -3006,6 +3069,7 @@ impl CssPropertyCache {
             left_state_mask: 0,
             inline_overruled: alloc::collections::BTreeMap::new(),
             css_wide_values: alloc::collections::BTreeMap::new(),
+            env_readers: EnvReaders::default(),
         }
     }
 
@@ -3048,6 +3112,7 @@ impl CssPropertyCache {
                 .map(|(node, resolved)| (node + offset, resolved)),
         );
         self.variables_depend_on_context |= other.variables_depend_on_context;
+        self.env_readers.append(&mut other.env_readers, offset);
         self.inline_overruled.extend(
             core::mem::take(&mut other.inline_overruled)
                 .into_iter()

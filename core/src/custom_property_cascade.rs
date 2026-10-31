@@ -512,6 +512,7 @@ impl CssPropertyCache {
                     let CssDeclaration::Dynamic(dy) = d else {
                         continue;
                     };
+                    self.env_readers.note(Some(idx), d);
                     let value = d.var_reference().map_or_else(
                         || d.resolve_in_cascade(ctx).unwrap_or_else(|| dy.default_value.clone()),
                         |r| resolver.resolve(r, envs.map_for(idx, rule_state)),
@@ -561,7 +562,7 @@ fn push_node_definitions(
                             stage.defs[idx].push((state, c.name.clone(), c.value.clone()));
                         }
                     }
-                    CssDeclaration::Dynamic(_) if d.env_variable().is_some() => {
+                    CssDeclaration::Dynamic(_) if d.reads_env() => {
                         depends_on_context = true;
                     }
                     _ => {}

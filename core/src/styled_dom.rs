@@ -3400,6 +3400,12 @@ impl StyledDom {
         if cache.variables_depend_on_context {
             return true;
         }
+        // `env(titlebar-area-width)` follows the window's width.
+        if cache.env_readers.follows_viewport
+            && old.titlebar_area_width.to_bits() != new.titlebar_area_width.to_bits()
+        {
+            return true;
+        }
         let Some((widths, heights)) = self.viewport_breakpoints() else {
             return true;
         };

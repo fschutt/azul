@@ -1135,6 +1135,79 @@ impl TitlebarMetrics {
     }
 }
 
+/// The part of a window's title bar its content may draw in.
+///
+/// The strip along the window's top edge that the content runs under, less
+/// the window's own controls and the padding beside them. CSS reads it as
+/// `env(titlebar-area-x)`, `-y`, `-width` and `-height` (the Window Controls
+/// Overlay names), in logical px from the window's top-left.
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct TitlebarArea {
+    /// Where the area starts, from the window's left edge: past the controls
+    /// when they sit on the left.
+    pub x: f32,
+    /// Where the area starts, from the window's top edge.
+    pub y: f32,
+    /// The window's width less the controls and the safe area on both sides.
+    pub width: f32,
+    /// The title bar's height.
+    pub height: f32,
+}
+
+impl SystemStyle {
+    /// The [`TitlebarArea`] of a window `viewport_width` px wide whose content
+    /// runs under its title bar.
+    ///
+    /// Laid out as azul's own tab strip in the title bar keeps it
+    /// (`TabsInTitlebar::from_system_style`): the controls and the padding
+    /// beside them on their side, the title bar's safe area on both sides. A
+    /// metric the desktop does not report is the platform's own.
+    ///
+    /// `None` where the platform keeps its controls above the content, so
+    /// nothing of the title bar lies over it: Windows' caption, a phone's
+    /// status bar. Only macOS (the traffic lights over the content view) and
+    /// Linux (the controls overlaid at the frame's corner) draw them there.
+    #[must_use]
+    pub fn titlebar_area(&self, viewport_width: f32) -> Option<TitlebarArea> {
+        let preset: fn() -> TitlebarMetrics = match self.platform {
+            Platform::MacOs => TitlebarMetrics::macos,
+            Platform::Linux(_) => TitlebarMetrics::linux_gnome,
+            _ => return None,
+        };
+        let px = |v: &OptionPixelValue| {
+            v.as_option()
+                .and_then(|p| p.to_pixels_absolute().into_option())
+        };
+        let own = &self.metrics.titlebar;
+        // Built only when the desktop left out a metric the area needs.
+        let platform = if px(&own.height).is_some() && px(&own.button_area_width).is_some() {
+            None
+        } else {
+            Some(preset())
+        };
+        let metric = |of: fn(&TitlebarMetrics) -> &OptionPixelValue| {
+            px(of(own))
+                .or_else(|| platform.as_ref().and_then(|p| px(of(p))))
+                .unwrap_or(0.0)
+        };
+        let height = metric(|t| &t.height);
+        let controls = metric(|t| &t.button_area_width) + metric(|t| &t.padding_horizontal);
+        let safe_left = metric(|t| &t.safe_area.left);
+        let safe_right = metric(|t| &t.safe_area.right);
+        let (left, right) = match own.button_side {
+            TitlebarButtonSide::Left => (controls + safe_left, safe_right),
+            TitlebarButtonSide::Right => (safe_left, controls + safe_right),
+        };
+        let width = (viewport_width - left - right).max(0.0);
+        (height > 0.0).then_some(TitlebarArea {
+            x: left,
+            y: 0.0,
+            width,
+            height,
+        })
+    }
+}
+
 // ── Input interaction metrics ────────────────────────────────────────────
 
 /// Input interaction timing and distance thresholds from the OS.
@@ -4616,5 +4689,68 @@ mod system_language_tests {
         assert_eq!(resolve("en-us"), SystemLanguage::new("en-US", false));
         // Nothing known about the language: left-to-right, id kept.
         assert_eq!(SystemLanguage::resolve("fr-FR", &[]), SystemLanguage::new("fr-FR", false));
+    }
+}
+
+/// Where a window's content may draw beside the window's own controls
+/// (`env(titlebar-area-*)`).
+#[cfg(test)]
+mod titlebar_area_tests {
+    use super::{
+        DesktopEnvironment, OptionPixelValue, PixelValue, Platform, SystemStyle, TitlebarArea,
+        TitlebarButtonSide, TitlebarMetrics,
+    };
+
+    fn style(platform: Platform, side: TitlebarButtonSide) -> SystemStyle {
+        let mut style = SystemStyle {
+            platform,
+            ..SystemStyle::default()
+        };
+        style.metrics.titlebar = TitlebarMetrics {
+            button_side: side,
+            height: OptionPixelValue::Some(PixelValue::px(28.0)),
+            button_area_width: OptionPixelValue::Some(PixelValue::px(78.0)),
+            padding_horizontal: OptionPixelValue::Some(PixelValue::px(8.0)),
+            ..TitlebarMetrics::default()
+        };
+        style
+    }
+
+    #[test]
+    fn the_area_starts_past_the_traffic_lights_on_macos() {
+        let area = style(Platform::MacOs, TitlebarButtonSide::Left).titlebar_area(800.0);
+        assert_eq!(
+            area,
+            Some(TitlebarArea {
+                x: 86.0,
+                y: 0.0,
+                width: 714.0,
+                height: 28.0,
+            })
+        );
+    }
+
+    #[test]
+    fn controls_on_the_right_shorten_the_area_from_its_end() {
+        let linux = Platform::Linux(DesktopEnvironment::Gnome);
+        let area = style(linux, TitlebarButtonSide::Right).titlebar_area(800.0);
+        assert_eq!(area.map(|a| (a.x, a.width)), Some((0.0, 714.0)));
+    }
+
+    #[test]
+    fn a_platform_that_keeps_its_caption_above_the_content_has_no_area() {
+        for platform in [Platform::Windows, Platform::Ios, Platform::Android, Platform::Unknown] {
+            let style = style(platform.clone(), TitlebarButtonSide::Right);
+            assert_eq!(style.titlebar_area(800.0), None, "{platform:?}");
+        }
+    }
+
+    #[test]
+    fn a_metric_the_desktop_leaves_out_is_the_platforms_own() {
+        let mut style = style(Platform::MacOs, TitlebarButtonSide::Left);
+        style.metrics.titlebar.height = OptionPixelValue::None;
+        let area = style.titlebar_area(800.0).expect("macOS has a title bar");
+        assert_eq!(area.height, 28.0, "macOS's own title bar height");
+        assert_eq!(area.x, 86.0, "the reported controls stay");
     }
 }

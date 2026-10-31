@@ -31,6 +31,7 @@ use alloc::{
 
 use crate::{
     css::DynamicCssProperty,
+    dynamic_selector::EnvVariable,
     props::property::{CssProperty, CssPropertyType},
 };
 
@@ -260,16 +261,54 @@ impl<'a> Substituter<'a, '_> {
 /// Byte offset of the next `var(` call in `text` (ASCII case-insensitive,
 /// not the tail of a longer identifier such as `myvar(`).
 fn find_var_call(text: &str) -> Option<usize> {
+    find_call(text, b"var(")
+}
+
+/// Byte offset of the next `call` (a function name with its `(`) in `text`,
+/// ASCII case-insensitive and not the tail of a longer identifier.
+fn find_call(text: &str, call: &[u8]) -> Option<usize> {
     let bytes = text.as_bytes();
     let mut i = 0;
-    while i + 4 <= bytes.len() {
-        if bytes[i..i + 4].eq_ignore_ascii_case(b"var(") && (i == 0 || !is_ident_byte(bytes[i - 1]))
+    while i + call.len() <= bytes.len() {
+        if bytes[i..i + call.len()].eq_ignore_ascii_case(call)
+            && (i == 0 || !is_ident_byte(bytes[i - 1]))
         {
             return Some(i);
         }
         i += 1;
     }
     None
+}
+
+/// `text` with every `env(<name> [, <fallback>])` call replaced.
+///
+/// `with` makes the replacement from the variable (`None` for a name the
+/// engine does not define) and the call's fallback text. `None` when a call
+/// is not closed, or `with` finds no value for one.
+///
+/// What both halves of an `env()` inside a `calc()` share: the parser
+/// substitutes every fallback to check the value, the cascade every live
+/// length to resolve it.
+#[must_use]
+pub fn substitute_env(
+    text: &str,
+    mut with: impl FnMut(Option<EnvVariable>, Option<&str>) -> Option<String>,
+) -> Option<String> {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(start) = find_call(rest, b"env(") {
+        out.push_str(&rest[..start]);
+        let after = &rest[start + "env(".len()..];
+        let close = closing_paren(after)?;
+        let mut arguments = after[..close].splitn(2, ',');
+        let name = arguments.next().unwrap_or("");
+        let fallback = arguments.next().map(str::trim).filter(|f| !f.is_empty());
+        let variable = EnvVariable::from_css_name(name);
+        out.push_str(&with(variable, fallback)?);
+        rest = &after[close + 1..];
+    }
+    out.push_str(rest);
+    Some(out)
 }
 
 const fn is_ident_byte(b: u8) -> bool {
