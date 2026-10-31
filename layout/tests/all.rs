@@ -1371,3 +1371,5 @@ mod a_floats_shape_outside_shapes_the_text_beside_it;
 mod a_shape_margin_grows_the_float_area;
 #[path = "a_text_column_keeps_off_the_exclusions_in_it.rs"]
 mod a_text_column_keeps_off_the_exclusions_in_it;
+#[path = "a_paragraph_split_across_frames_reads_as_one.rs"]
+mod a_paragraph_split_across_frames_reads_as_one;
