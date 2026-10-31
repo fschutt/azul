@@ -807,7 +807,9 @@ impl<'a> Model<'a> {
         let Shape::Struct(fields) = &class.shape else {
             return None;
         };
-        if !class.name.ends_with("Vec") || fields.len() != 4 {
+        if !class.name.ends_with("Vec")
+            || !crate::codegen::v2::ir::is_vec_field_count(fields.iter().map(|f| f.name.as_str()))
+        {
             return None;
         }
         let ptr = fields.iter().find(|f| f.name == "ptr")?;

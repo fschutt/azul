@@ -19,8 +19,8 @@ use azul_layout::{
     parsed_font_to_font_ref,
     text3::{
         cache::{
-            create_logical_items, perform_fragment_layout, reorder_logical_items,
-            shape_visual_items, AvailableSpace, BidiDirection, BreakCursor, FontChainKey,
+            create_logical_items, perform_fragment_layout, split_into_bidi_runs,
+            shape_bidi_runs, AvailableSpace, BidiDirection, BreakCursor, FontChainKey,
             FontStack, InlineContent, LoadedFonts, OverflowInfo, ShapedItem, StyleProperties,
             StyledRun, UnicodeBidi, UnifiedConstraints, UnifiedLayout,
         },
@@ -86,11 +86,11 @@ fn layout_content(
         };
     }
     let base_dir = constraints.direction.unwrap_or(BidiDirection::Ltr);
-    let visual = reorder_logical_items(&logical, base_dir, UnicodeBidi::Normal, &mut None)
+    let visual = split_into_bidi_runs(&logical, base_dir, UnicodeBidi::Normal, &mut None)
         .expect("bidi reorder");
     let chain: HashMap<FontChainKey, FontFallbackChain> = HashMap::new();
     let fc = FcFontCache::default();
-    let shaped = shape_visual_items(&visual, &chain, &fc, &loaded, &mut None).expect("shape");
+    let shaped = shape_bidi_runs(&visual, &chain, &fc, &loaded, &mut None).expect("shape");
     let mut cursor = BreakCursor::new(&shaped);
     perform_fragment_layout(&mut cursor, &logical, constraints, &mut None, &loaded)
         .expect("fragment layout")
@@ -259,7 +259,8 @@ fn caret_from_x_ltr_leading_and_trailing_halves() {
 #[test]
 fn caret_from_x_rtl_maps_visual_to_logical() {
     // Hit-testing in RTL "אבג": visual x runs ג@0..11, ב@11..22, א@22..33. A click on
-    // the visually-leftmost glyph resolves to the LAST logical char (ג, byte 4).
+    // the visually-leftmost glyph resolves to the LAST logical char (ג, byte 4); its
+    // left half is that letter's END, so the caret is drawn at x 0, where the click was.
     let l = layout_rtl("אבג");
     let left = l
         .hittest_cursor(LogicalPosition::new(2.0, 8.0))
@@ -268,8 +269,10 @@ fn caret_from_x_rtl_maps_visual_to_logical() {
         left.cluster_id.start_byte_in_run, 4,
         "leftmost visual glyph is ג (byte 4)"
     );
-    assert_eq!(left.affinity, CursorAffinity::Leading);
-    // A click deep in the visually-rightmost glyph resolves to the FIRST logical char.
+    assert_eq!(left.affinity, CursorAffinity::Trailing);
+    assert_px(l.get_cursor_rect(&left).expect("rect").origin.x, 0.0);
+    // A click deep in the visually-rightmost glyph resolves to the FIRST logical char;
+    // its right half is that letter's START, drawn at x 33.
     let right = l
         .hittest_cursor(LogicalPosition::new(31.0, 8.0))
         .expect("caret");
@@ -277,7 +280,8 @@ fn caret_from_x_rtl_maps_visual_to_logical() {
         right.cluster_id.start_byte_in_run, 0,
         "rightmost visual glyph is א (byte 0)"
     );
-    assert_eq!(right.affinity, CursorAffinity::Trailing);
+    assert_eq!(right.affinity, CursorAffinity::Leading);
+    assert_px(l.get_cursor_rect(&right).expect("rect").origin.x, 33.0);
 }
 
 // ===========================================================================

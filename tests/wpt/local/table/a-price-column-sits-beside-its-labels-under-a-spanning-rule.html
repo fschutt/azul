@@ -1,0 +1,10 @@
+<!DOCTYPE html>
+<!-- azul's own reftest (MIT, like the rest of azul); WPT reftest format. -->
+<meta charset="utf-8">
+<title>a price column sits beside its labels under a spanning rule</title>
+<link rel="match" href="a-price-column-sits-beside-its-labels-under-a-spanning-rule-ref.html">
+<meta name="assert" content="The AzMail exploration's receipt: the right column (prices) went missing under a colspan row with a full-width rule (sample 04).">
+<table style="border-spacing:0">
+  <tr><td colspan="2" style="padding:0"><div style="height:2px;background:black"></div></td></tr>
+  <tr><td style="padding:0;width:200px">Coffee</td><td style="padding:0;width:100px;text-align:right">$3.00</td></tr>
+</table>

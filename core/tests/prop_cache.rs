@@ -38,7 +38,7 @@ macro_rules! setup_styled_dom {
         let mut cache = styled_dom.css_property_cache.ptr.clone();
         let h = styled_dom.node_hierarchy.as_container();
         let d = styled_dom.node_data.as_container();
-        cache.compute_inherited_values(h.internal, d.internal);
+        cache.compute_inherited_values(h.internal, d.internal, &[]);
         (styled_dom, cache)
     }};
     ($dom:expr, $css:expr) => {{
@@ -49,7 +49,7 @@ macro_rules! setup_styled_dom {
         let mut cache = styled_dom.css_property_cache.ptr.clone();
         let h = styled_dom.node_hierarchy.as_container();
         let d = styled_dom.node_data.as_container();
-        cache.compute_inherited_values(h.internal, d.internal);
+        cache.compute_inherited_values(h.internal, d.internal, &[]);
         (styled_dom, cache)
     }};
 }
@@ -752,6 +752,7 @@ fn prune_handles_unflattened_cascaded_props() {
                     azul_css::props::layout::display::LayoutDisplay::Block,
                 )),
                 ua_origin: false,
+                priority: 0,
             },
         );
     }

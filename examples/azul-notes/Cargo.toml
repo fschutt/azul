@@ -1,0 +1,37 @@
+[package]
+name = "AzNotes"
+version = "0.1.0"
+edition = "2021"
+authors = ["Felix Schuett <felix.schuett@maps4print.com>"]
+license = "MIT"
+description = """
+    AzNotes - notes on the public azul API, in the three-pane PIM shell:
+    notebooks (nested), tags, pinning, search as you type, a rich-text
+    editor with a formatting toolbar and Markdown shortcuts. Every note is
+    a Markdown file with a small front matter, notes/<notebook>/<uuid>.md,
+    written through azul-storage's Drive (a LocalDrive on the AzNotes
+    folder, the user's bucket later) from an azul Thread, autosaved; a
+    version per save under notes/.history/, images next to the note,
+    export to PDF and Markdown.
+"""
+publish = false
+
+[dependencies]
+azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-dynamic"] }
+# The storage layer the apps share (AzDrive, AzMail): LocalDrive today, S3Drive later.
+azul-storage = { path = "../azul-storage" }
+# The PIM logic the Azlin apps share: the search (diacritics folded), tag cleaning.
+azul-pim = { path = "../azul-pim" }
+# The skeleton the Azlin apps share: args, data root, settings file and page, About, shortcuts.
+azul-appkit = { path = "../azul-appkit", features = ["azul"] }
+# The same features azul-layout, AzDrive and AzMail build chrono with: the list's local dates.
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+
+[lib]
+name = "aznotes"
+path = "src/lib.rs"
+crate-type = ["rlib", "cdylib"]
+
+[[bin]]
+name = "AzNotes"
+path = "src/main.rs"

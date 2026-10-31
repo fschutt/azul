@@ -1,0 +1,67 @@
+[
+  {
+    "name": "FILEN-029: the device's sync state, which names every file, is readable by its owner only",
+    "description": "FILEN-029 (Filen): the CLI wrote master keys into a 0644 file readable by every local user. Rule S19: the state folder is 0700 and its files 0600; keys live in the OS keyring. sync-chaos sec-local-secrets-hygiene.",
+    "steps": [
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "medical/diagnosis.pdf", "text": "private" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_rm", "device": "a", "path": "medical/diagnosis.pdf" },
+      { "op": "drive_write", "device": "a", "path": "x.txt", "text": "x" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "state_private", "device": "a" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "FILEN-029: a pair folder whose name holds quotes and $(...) runs nothing",
+    "description": "FILEN-029 (Filen): an iCloud check ran exec(`xattr \"${path}\"`) through a shell, so a sync root containing quotes or $(...) could run commands. Rule S19 (no shell is ever spawned with a path).",
+    "steps": [
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_pair", "device": "a", "folder": "{run}/devices/a/a\"$(touch {outside}/pwned)\"`touch {outside}/pwned2`" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "x.txt", "text": "x" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "x.txt", "text": "x" },
+      { "op": "drive_check", "check": "file", "device": "a", "path": "{outside}/pwned", "absent": true },
+      { "op": "drive_check", "check": "file", "device": "a", "path": "{outside}/pwned2", "absent": true },
+      { "op": "drive_check", "check": "outside_untouched" },
+      { "op": "drive_check", "check": "state_private", "device": "a" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "FILEN-029: no secret appears in the command line of any process AzDrive starts",
+    "description": "FILEN-029 (Filen): a managed rclone was started with --rc-pass and an obscured API key on its command line (visible in /proc/<pid>/cmdline). Rule S19: keys never in argv or logs.",
+    "pending": "drive_check argv_clean {device} (no child process AzDrive started carried a key, a token or a password in its argv): AzDrive starts its child processes (the system's opener, its helpers) through std::process::Command in several places and nothing records them; the check needs one spawn seam that records every child's argv in E2E runs",
+    "steps": [
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "x.txt", "text": "x" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "argv_clean", "device": "a" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "FILEN-029: no file AzDrive leaves readable by others names a synced file",
+    "description": "FILEN-029 (Filen): secrets and names in places other users can read. Rule S19: keys and file names never in logs; what names files is kept private (0600).",
+    "steps": [
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "tax-return-2026.pdf", "text": "x" },
+      { "op": "drive_write", "device": "a", "path": "letters/to-the-doctor.txt", "text": "y" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "logs_clean", "device": "a" },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

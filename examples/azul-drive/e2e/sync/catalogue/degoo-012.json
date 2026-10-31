@@ -1,0 +1,48 @@
+[
+  {
+    "name": "a touch sends nothing and a move sends no content",
+    "description": "DEGOO-012 (sync-chaos perf-delta-upload, the part v1 already does): Degoo re-uploads whole files. Rules P12 and A3: a touch alone sends nothing; a move is a move on both sides (no new upload, no trash).",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "big.bin", "size": 16777216, "seed": 47 },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_utime", "device": "a", "path": "big.bin", "mtime": 1700000000000000000 },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "assert_response", "path": "result.up", "equals": 0 },
+      { "op": "drive_mkdir", "device": "a", "path": "archive" },
+      { "op": "drive_rename", "device": "a", "from": "big.bin", "to": "archive/big.bin" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_counters", "device": "a" },
+      { "op": "assert_response", "path": "result.bytes_up", "at_most": 17825792 },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "archive/big.bin", "same_as": "{root:a}/archive/big.bin" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "big.bin", "absent": true },
+      { "op": "drive_check", "check": "trash_empty", "device": "b" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "one byte changed in a 256 MiB file sends about one chunk",
+    "description": "DEGOO-012 (sync-chaos perf-delta-upload): a 1-character change re-uploaded the whole file. Rules E7 and I1: a 1-byte change sends at most a few 4 MiB chunks (the counter is cumulative: the first upload plus at most 16 MiB).",
+    "steps": [
+      { "op": "drive_create", "remote": "r2", "encrypted": false },
+      { "op": "drive_open", "device": "c", "remote": "r2" },
+      { "op": "drive_pair", "device": "c" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "c", "path": "disk.img", "size": 268435456, "seed": 48 },
+      { "op": "drive_sync", "device": "c", "timeout_ms": 600000 },
+      { "op": "drive_patch", "device": "c", "path": "disk.img", "offset": 100000000, "hex": "ff" },
+      { "op": "drive_sync", "device": "c", "timeout_ms": 600000 },
+      { "op": "drive_counters", "device": "c" },
+      { "op": "assert_response", "path": "result.bytes_up", "at_most": 285212672 },
+      { "op": "drive_check", "check": "remote_file", "key": "disk.img", "same_as": "{root:c}/disk.img" },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

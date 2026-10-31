@@ -1,0 +1,19 @@
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<title>CSS Test: Counter-increment before 'counter' use</title>
+<meta name="assert" content="A counter is used after an increment."/>
+<style>
+div:before
+            {
+                content: counter(chapter);
+                counter-increment: chapter 5;
+            }
+</style>
+</head>
+<body>
+        <p>Test passes if there is a number '5' below.</p>
+        <div></div>
+    
+
+</body>
+</html>

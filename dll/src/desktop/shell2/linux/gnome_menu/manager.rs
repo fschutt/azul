@@ -35,8 +35,9 @@ pub struct GnomeMenuManager {
     menu_groups: Arc<Mutex<HashMap<u32, DbusMenuGroup>>>,
     actions: Arc<Mutex<HashMap<String, DbusAction>>>,
 
-    // Hash of the menu last pushed via `sync_menu`, so an unchanged menu is
-    // not re-converted and re-registered on every relayout.
+    // What the menu last pushed via `sync_menu` showed
+    // (`Menu::get_structure_hash`): an equal menu only re-registers its
+    // actions, whose callbacks carry the app's new data.
     last_menu_hash: Cell<Option<u64>>,
 }
 
@@ -165,6 +166,11 @@ impl GnomeMenuManager {
 
         debug_log("All DBus interfaces registered successfully");
 
+        // GNOME Shell's Start / Activate calls arrive on this socket: put it
+        // in the run loops' wait set. Without it the exporter was served only
+        // when some window event happened to wake the loop.
+        crate::desktop::loop_waker::watch_dbus_connection(&dbus_lib, connection);
+
         Ok(Self {
             app_name: app_name.to_string(),
             bus_name,
@@ -199,17 +205,21 @@ impl GnomeMenuManager {
     /// [`MenuConversion::extract_actions`]) and registers it via
     /// [`update_menu`](Self::update_menu) / [`register_actions`](Self::register_actions).
     ///
-    /// The conversion + registration is skipped when the menu is byte-for-byte
-    /// identical (by [`Menu::get_hash`](azul_core::menu::Menu::get_hash)) to the
-    /// previously synced one, so this is cheap to call on every relayout.
+    /// A menu that shows the same items as the previously synced one (by
+    /// [`Menu::get_structure_hash`](azul_core::menu::Menu::get_structure_hash))
+    /// keeps its groups and only re-registers its actions: an app builds its
+    /// bar again with fresh callback data in every layout pass, and the old
+    /// actions would run the previous pass's data. So this is cheap to call
+    /// on every relayout.
     pub fn sync_menu(&self, menu: &azul_core::menu::Menu) -> Result<(), GnomeMenuError> {
-        let hash = menu.get_hash();
+        let hash = menu.get_structure_hash();
+        let actions = MenuConversion::extract_actions(menu)?;
         if self.last_menu_hash.get() == Some(hash) {
+            self.register_actions(actions)?;
             return Ok(());
         }
 
         let groups = MenuConversion::convert_menu(menu)?;
-        let actions = MenuConversion::extract_actions(menu)?;
 
         self.update_menu(groups)?;
         self.register_actions(actions)?;
@@ -316,8 +326,9 @@ impl GnomeMenuManager {
     /// method calls from GNOME Shell.
     pub fn process_messages(&self) {
         unsafe {
-            // Non-blocking message processing
-            (self.dbus_lib.dbus_connection_read_write_dispatch)(self.connection, 0);
+            // Non-blocking: read once, dispatch until the queue is empty
+            // (`read_write_dispatch` handled one message per call).
+            crate::desktop::shell2::linux::dbus::drain_connection(&self.dbus_lib, self.connection);
         }
     }
 }

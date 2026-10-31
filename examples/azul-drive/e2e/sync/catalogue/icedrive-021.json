@@ -1,0 +1,41 @@
+[
+  {
+    "name": "ten folders come down at once while one object is cut short: that file is listed and absent, the other nine are whole",
+    "description": "ICEDRIVE-021 (Icedrive): multi-folder downloads were packed into archives that some reported as corrupt. Rules A5, S15 and O1: AzDrive brings a tree down file by file, each checked against its hash before it is renamed in; a cut object is listed (hash-mismatch) and never shows as success. sync-chaos res-truncated-download.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "f01/data.bin", "size": 50000, "seed": 101 },
+      { "op": "drive_write", "device": "a", "path": "f02/data.bin", "size": 50000, "seed": 102 },
+      { "op": "drive_write", "device": "a", "path": "f03/data.bin", "size": 50000, "seed": 103 },
+      { "op": "drive_write", "device": "a", "path": "f04/data.bin", "size": 50000, "seed": 104 },
+      { "op": "drive_write", "device": "a", "path": "f05/data.bin", "size": 50000, "seed": 105 },
+      { "op": "drive_write", "device": "a", "path": "f06/data.bin", "size": 50000, "seed": 106 },
+      { "op": "drive_write", "device": "a", "path": "f07/data.bin", "size": 50000, "seed": 107 },
+      { "op": "drive_write", "device": "a", "path": "f08/data.bin", "size": 50000, "seed": 108 },
+      { "op": "drive_write", "device": "a", "path": "f09/data.bin", "size": 50000, "seed": 109 },
+      { "op": "drive_write", "device": "a", "path": "f10/data.bin", "size": 50000, "seed": 110 },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_tamper", "remote": "r", "action": "truncate_blob", "key": "f05/data.bin", "keep": 25000 },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_sync", "device": "b", "expect": "any" },
+      { "op": "drive_check", "check": "problem", "device": "b", "code": "hash-mismatch", "key": "f05/data.bin" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "f05/data.bin", "absent": true },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "f01/data.bin", "same_as": "{root:a}/f01/data.bin" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "f10/data.bin", "same_as": "{root:a}/f10/data.bin" },
+      { "op": "drive_check", "check": "files_count", "device": "b", "count": 9 },
+      { "op": "drive_check", "check": "no_temp_files", "device": "b" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "the web app's server-built ZIP archives",
+    "description": "ICEDRIVE-021 (Icedrive): the archive Icedrive's web app builds on its server.",
+    "not_applicable": "a ZIP built by the provider's web server is no folder-sync behaviour: AzDrive brings folders down file by file, which the first test covers",
+    "steps": []
+  }
+]

@@ -29,7 +29,7 @@ use azul_css::props::style::StyleTransformOrigin;
 
 use crate::{
     dom::{DomId, NodeId},
-    resources::{OpacityKey, TransformKey},
+    resources::{ColorKey, OpacityKey, TransformKey},
     styled_dom::StyledDom,
     transform::{ComputedTransform3D, RotationMode, INITIALIZED, USE_AVX, USE_SSE},
 };
@@ -66,6 +66,44 @@ pub struct GpuValueCache {
     pub anim_transform_keys: HashMap<NodeId, TransformKey>,
     /// Current animation transform values (keyed by node ID).
     pub anim_current_transform_values: HashMap<NodeId, ComputedTransform3D>,
+    /// STICKY transform keys (keyed by node ID): one per `position: sticky`
+    /// box, minted by `synchronize`, so its display list wraps the box in a
+    /// reference frame. A channel of its own for the reason the animation
+    /// channel has one: `synchronize` owns the CSS map.
+    pub sticky_transform_keys: HashMap<NodeId, TransformKey>,
+    /// Current sticky translations (keyed by node ID): how far a scroll
+    /// since the layout pass moved the box from where that pass placed it.
+    /// The identity right after layout; written per frame by the layout
+    /// crate's `GpuStateManager::update_scrollbar_transforms`.
+    pub sticky_current_transform_values: HashMap<NodeId, ComputedTransform3D>,
+    /// The cursor's SHEEN over a material (keyed by the material's node): the
+    /// transform that moves the sheen's highlight to the cursor. A channel of
+    /// its own, minted by the layout window for a window `WebRender` draws; the
+    /// display list opens a sheen layer over a material exactly where its node
+    /// has both sheen keys.
+    pub sheen_transform_keys: HashMap<NodeId, TransformKey>,
+    /// Where each sheen's highlight sits now: a translation to the cursor,
+    /// logical px from the material's top-left.
+    pub sheen_current_transform_values: HashMap<NodeId, ComputedTransform3D>,
+    /// The sheen's eased strength, bound as the opacity of its layer.
+    pub sheen_opacity_keys: HashMap<NodeId, OpacityKey>,
+    /// Each sheen's eased strength now, 0 (none) to 1.
+    pub sheen_current_opacity_values: HashMap<NodeId, f32>,
+    /// The light the sheens shine in: the window's material light's colour
+    /// and intensity, which the layer bakes into its highlight's stops (so it
+    /// is in the emission fingerprint: a new colour is a new list). `None`
+    /// until the layout window sets it: the default light's.
+    pub sheen_light: Option<(azul_css::props::basic::ColorU, f32)>,
+    /// BACKGROUND COLOUR keys (keyed by node ID): one per node whose solid
+    /// `background` colour fades. The display list binds the node's
+    /// background rect to it (`DisplayList::color_bindings`), so each frame
+    /// of the fade is a property value - `WebRender`'s colour binding of a
+    /// rect, the CPU renderer's bound colour - instead of a new list. Kept
+    /// by the layout window: minted when a fade starts, released by the
+    /// display-list build after it settled.
+    pub color_keys: HashMap<NodeId, ColorKey>,
+    /// The colour each bound background shows now.
+    pub current_color_values: HashMap<NodeId, azul_css::props::basic::ColorU>,
     /// Animation opacity keys (keyed by node ID).
     pub anim_opacity_keys: HashMap<NodeId, OpacityKey>,
     /// Current animation opacity values (keyed by node ID).
@@ -110,6 +148,67 @@ impl GpuValueCache {
         Self::default()
     }
 
+    /// The reference frame the display list opens for `node`, as its key
+    /// and the matrix it is painted with now - or `None` when it opens none.
+    ///
+    /// THE rule, shared by the display-list builder (which emits a
+    /// `PushReferenceFrame` exactly when this is `Some`), the hit tester and
+    /// every "where is it on screen" question: the CSS `transform` channel
+    /// first, then the ANIMATION channel - an engine-driven transition (a
+    /// FLIP slide, a keyframe transform) moves a node that has no CSS
+    /// `transform` of its own - then the STICKY channel, a `position:
+    /// sticky` box following its scroller. A key without a value opens
+    /// nothing. A sticky box with a transform of its own keeps the
+    /// transform and is placed where its layout pass stuck it.
+    #[must_use]
+    pub fn reference_frame_of(&self, node: NodeId) -> Option<(TransformKey, ComputedTransform3D)> {
+        self.css_transform_keys
+            .get(&node)
+            .zip(self.css_current_transform_values.get(&node))
+            .or_else(|| {
+                self.anim_transform_keys
+                    .get(&node)
+                    .zip(self.anim_current_transform_values.get(&node))
+            })
+            .or_else(|| {
+                self.sticky_transform_keys
+                    .get(&node)
+                    .zip(self.sticky_current_transform_values.get(&node))
+            })
+            .map(|(key, transform)| (*key, *transform))
+    }
+
+    /// [`Self::reference_frame_of`] for a node laid out at `size` (its border
+    /// box, logical px): the CSS channel's matrix is resolved against that
+    /// box. The cache holds what the PREVIOUS pass's sizes gave, and nothing
+    /// is known before a node's first layout, so a percentage origin (the
+    /// default `50% 50%`) would pivot at the corner. The display list is
+    /// built after layout, so it bakes this pass's matrix: a renderer that
+    /// reads the list's own value (a `VirtualView`'s list on the CPU, a
+    /// screenshot) draws the same as one that reads the live value.
+    #[must_use]
+    pub fn reference_frame_at(
+        &self,
+        styled_dom: &StyledDom,
+        node: NodeId,
+        size: (f32, f32),
+    ) -> Option<(TransformKey, ComputedTransform3D)> {
+        let css = self
+            .css_transform_keys
+            .get(&node)
+            .filter(|_| self.css_current_transform_values.contains_key(&node))
+            .zip(Self::css_transform_of(styled_dom, node, size));
+        css.map(|(key, transform)| (*key, transform))
+            .or_else(|| self.reference_frame_of(node))
+    }
+
+    /// The matrix `node` is painted with now ([`Self::reference_frame_of`]),
+    /// `None` when it is painted untransformed.
+    #[must_use]
+    pub fn painted_transform_of(&self, node: NodeId) -> Option<ComputedTransform3D> {
+        self.reference_frame_of(node).map(|(_, transform)| transform)
+    }
+
     /// Fingerprint of the KEY POPULATION the display-list builder consumes —
     /// which nodes carry which transform/opacity keys, and (for the channels
     /// the builder `zip`s with their value map) whether a value exists.
@@ -143,7 +242,12 @@ impl GpuValueCache {
                 + self.transform_keys.len()
                 + self.h_transform_keys.len()
                 + self.scrollbar_v_opacity_keys.len()
-                + self.scrollbar_h_opacity_keys.len(),
+                + self.scrollbar_h_opacity_keys.len()
+                + self.opacity_keys.len()
+                + self.current_opacity_values.len()
+                + self.sticky_transform_keys.len()
+                + self.sheen_transform_keys.len()
+                + self.sheen_opacity_keys.len(),
         );
         for (n, k) in &self.css_transform_keys {
             entries.push((0, n.index() as u64, k.id as u64));
@@ -177,6 +281,37 @@ impl GpuValueCache {
         for n in self.anim_current_opacity_values.keys() {
             entries.push((9, n.index() as u64, 0));
         }
+        // So does the CSS `opacity` channel: `PushOpacity` binds a node's CSS
+        // key when it has no animation key (an `opacity` tween then steps by
+        // value alone, `refresh_opacity_value_of`).
+        for (n, k) in &self.opacity_keys {
+            entries.push((10, n.index() as u64, k.id as u64));
+        }
+        for n in self.current_opacity_values.keys() {
+            entries.push((11, n.index() as u64, 0));
+        }
+        // A sticky box opens a reference frame exactly when it has a key
+        // (its value always exists with it).
+        for (n, k) in &self.sticky_transform_keys {
+            entries.push((12, n.index() as u64, k.id as u64));
+        }
+        // A material opens its sheen layer exactly when it has both keys.
+        for (n, k) in &self.sheen_transform_keys {
+            entries.push((13, n.index() as u64, k.id as u64));
+        }
+        for (n, k) in &self.sheen_opacity_keys {
+            entries.push((14, n.index() as u64, k.id as u64));
+        }
+        // A background rect is bound to a colour key exactly when its node
+        // has one (`color_keys`).
+        for (n, k) in &self.color_keys {
+            entries.push((16, n.index() as u64, k.id as u64));
+        }
+        // ...in the colour of the window's light, baked into its stops.
+        if let Some((c, intensity)) = self.sheen_light {
+            let rgba = u64::from(u32::from_be_bytes([c.r, c.g, c.b, c.a]));
+            entries.push((15, rgba, u64::from(intensity.to_bits())));
+        }
         entries.sort_unstable();
         // FNV-1a over the sorted entry words. Hand-rolled because this file
         // builds under no_std (where `HashMap` above is really `BTreeMap` and
@@ -192,6 +327,98 @@ impl GpuValueCache {
         // An empty population must not collide with "no cache entry" sentinels
         // downstream; FNV_OFFSET is a fine non-zero value for it.
         h
+    }
+
+    /// Every value a display list can BIND, by key id: `on_transform` for
+    /// each transform key with a value (scrollbar thumbs, CSS `transform`,
+    /// the animation channel), `on_opacity` for each opacity key with a value
+    /// (scrollbar fades of `dom_id`, CSS `opacity`, the animation channel).
+    ///
+    /// THE one "current animated values by key" source. The CPU renderer
+    /// (`cpurender::extract_gpu_values`) and `WebRender`'s dynamic properties
+    /// (`wr_translate2::synchronize_gpu_values`) both read it, so a value that
+    /// changes without a display-list rebuild - an animation tick - reaches
+    /// both backends the same way.
+    pub fn for_each_bound_value(
+        &self,
+        dom_id: DomId,
+        mut on_transform: impl FnMut(usize, &ComputedTransform3D),
+        mut on_opacity: impl FnMut(usize, f32),
+    ) {
+        for (node_id, key) in &self.transform_keys {
+            if let Some(value) = self.current_transform_values.get(node_id) {
+                on_transform(key.id, value);
+            }
+        }
+        for (node_id, key) in &self.h_transform_keys {
+            if let Some(value) = self.h_current_transform_values.get(node_id) {
+                on_transform(key.id, value);
+            }
+        }
+        // The ANIMATION channel is separate from the CSS one because
+        // `synchronize` owns `css_transform_keys` and evicts anything not
+        // backed by a CSS `transform`; by key id the two are
+        // indistinguishable, which is the intent.
+        for (node_id, key) in &self.anim_transform_keys {
+            if let Some(value) = self.anim_current_transform_values.get(node_id) {
+                on_transform(key.id, value);
+            }
+        }
+        for (node_id, key) in &self.css_transform_keys {
+            if let Some(value) = self.css_current_transform_values.get(node_id) {
+                on_transform(key.id, value);
+            }
+        }
+        for (node_id, key) in &self.sticky_transform_keys {
+            if let Some(value) = self.sticky_current_transform_values.get(node_id) {
+                on_transform(key.id, value);
+            }
+        }
+        for (node_id, key) in &self.sheen_transform_keys {
+            if let Some(value) = self.sheen_current_transform_values.get(node_id) {
+                on_transform(key.id, value);
+            }
+        }
+        for (node_id, key) in &self.sheen_opacity_keys {
+            if let Some(&value) = self.sheen_current_opacity_values.get(node_id) {
+                on_opacity(key.id, value);
+            }
+        }
+        for (node_id, key) in &self.anim_opacity_keys {
+            if let Some(&value) = self.anim_current_opacity_values.get(node_id) {
+                on_opacity(key.id, value);
+            }
+        }
+        for (node_id, key) in &self.opacity_keys {
+            if let Some(&value) = self.current_opacity_values.get(node_id) {
+                on_opacity(key.id, value);
+            }
+        }
+        for ((d, node_id), key) in &self.scrollbar_v_opacity_keys {
+            if *d == dom_id {
+                if let Some(&value) = self.scrollbar_v_opacity_values.get(&(*d, *node_id)) {
+                    on_opacity(key.id, value);
+                }
+            }
+        }
+        for ((d, node_id), key) in &self.scrollbar_h_opacity_keys {
+            if *d == dom_id {
+                if let Some(&value) = self.scrollbar_h_opacity_values.get(&(*d, *node_id)) {
+                    on_opacity(key.id, value);
+                }
+            }
+        }
+    }
+
+    /// Every bound background colour, by key id: `on_color` for each colour
+    /// key with a value ([`Self::color_keys`]) - the colour twin of
+    /// [`Self::for_each_bound_value`], read by both renderers.
+    pub fn for_each_bound_color(&self, mut on_color: impl FnMut(usize, azul_css::props::basic::ColorU)) {
+        for (node_id, key) in &self.color_keys {
+            if let Some(&value) = self.current_color_values.get(node_id) {
+                on_color(key.id, value);
+            }
+        }
     }
 
     /// Synchronizes the cache with the current `StyledDom`, generating change events
@@ -228,10 +455,57 @@ impl GpuValueCache {
         let opacity_key_changes = self.compute_opacity_events(styled_dom);
         self.apply_opacity_events(&opacity_key_changes);
 
+        self.sync_sticky_keys(styled_dom);
+
         GpuEventChanges {
             transform_key_changes,
             opacity_key_changes,
             scrollbar_opacity_changes: Vec::new(), // Filled by separate synchronization
+        }
+    }
+
+    /// Gives every `position: sticky` node of `styled_dom` a key in the
+    /// sticky channel (its value the identity until a scroll moves the box)
+    /// and drops the keys of nodes that are no longer sticky. Read from the
+    /// compact cache where it exists (one byte per node); a node in an
+    /// interaction state, or a DOM without the cache, walks the cascade.
+    fn sync_sticky_keys(&mut self, styled_dom: &StyledDom) {
+        use azul_css::props::layout::LayoutPosition;
+
+        let cache = styled_dom.get_css_property_cache();
+        let node_data = styled_dom.node_data.as_container();
+        let states = styled_dom.styled_nodes.as_container();
+        let mut sticky: Vec<NodeId> = Vec::new();
+        for index in 0..node_data.len() {
+            let node = NodeId::new(index);
+            let state = &states[node].styled_node_state;
+            let position = match cache.compact_cache.as_ref() {
+                Some(cc) if state.is_normal() => cc.get_position(index),
+                _ => cache
+                    .get_position(&node_data[node], &node, state)
+                    .and_then(|p| p.get_property().copied())
+                    .unwrap_or_default(),
+            };
+            if position == LayoutPosition::Sticky {
+                sticky.push(node);
+            }
+        }
+        if sticky.is_empty() && self.sticky_transform_keys.is_empty() {
+            return;
+        }
+        self.sticky_transform_keys.retain(|node, _| sticky.contains(node));
+        self.sticky_current_transform_values
+            .retain(|node, _| sticky.contains(node));
+        for node in sticky {
+            let mut fresh = false;
+            self.sticky_transform_keys.entry(node).or_insert_with(|| {
+                fresh = true;
+                TransformKey::unique()
+            });
+            if fresh {
+                self.sticky_current_transform_values
+                    .insert(node, ComputedTransform3D::IDENTITY);
+            }
         }
     }
 
@@ -318,6 +592,65 @@ impl GpuValueCache {
             }
         }
         changed
+    }
+
+    /// One node's [`Self::refresh_transform_values`]: re-read `node`'s CSS
+    /// `transform` from the cascade (its user override first) and publish it
+    /// under the key it ALREADY has, with percentages resolved against
+    /// `size` (its border box, logical px).
+    ///
+    /// The per-frame channel of a `transform` tween: the reference frame
+    /// exists (the key was minted by `synchronize`), only its matrix moves,
+    /// and both compositors read the matrix live from here - no layout, no
+    /// display-list rebuild. Returns `false` and changes nothing when the
+    /// node has no key, or no longer resolves to a transform: that is a
+    /// change of the key POPULATION, which only a display-list build can
+    /// show (`synchronize` then adds or removes the key).
+    pub fn refresh_transform_value_of(
+        &mut self,
+        styled_dom: &StyledDom,
+        node_id: NodeId,
+        size: (f32, f32),
+    ) -> bool {
+        if node_id.index() >= styled_dom.node_data.len()
+            || !self.css_transform_keys.contains_key(&node_id)
+        {
+            return false;
+        }
+        let Some(fresh) = Self::css_transform_of(styled_dom, node_id, size) else {
+            return false;
+        };
+        self.css_current_transform_values.insert(node_id, fresh);
+        true
+    }
+
+    /// The `opacity` twin of [`Self::refresh_transform_value_of`]: re-read
+    /// `node`'s CSS `opacity` from the cascade (its user override first) and
+    /// publish it under the key it ALREADY has - the per-frame channel of an
+    /// `opacity` tween, read live by both compositors through the key the
+    /// display list's `PushOpacity` binds. Returns that key, or `None` and
+    /// changes nothing when the node has no key or no longer resolves to an
+    /// opacity (a change of the key population: only a display-list build
+    /// can show it).
+    pub fn refresh_opacity_value_of(
+        &mut self,
+        styled_dom: &StyledDom,
+        node_id: NodeId,
+    ) -> Option<OpacityKey> {
+        if node_id.index() >= styled_dom.node_data.len() {
+            return None;
+        }
+        let key = *self.opacity_keys.get(&node_id)?;
+        let node_data = &styled_dom.node_data.as_container()[node_id];
+        let state = &styled_dom.styled_nodes.as_container()[node_id].styled_node_state;
+        let value = styled_dom
+            .get_css_property_cache()
+            .get_opacity(node_data, &node_id, state)?
+            .get_property()?
+            .inner
+            .normalized();
+        self.current_opacity_values.insert(node_id, value);
+        Some(key)
     }
 
     fn compute_transform_events(

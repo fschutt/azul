@@ -3,6 +3,8 @@
 //! Mirrors `core::num::ParseFloatError` and `core::num::ParseIntError` for FFI use,
 //! and provides generic invalid-value error wrappers.
 
+use alloc::string::ToString;
+
 use crate::corety::AzString;
 
 /// Simple "invalid value" error, used for basic parsing failures

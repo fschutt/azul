@@ -69,6 +69,9 @@ pub fn generate_wrappers(ir: &CodegenIR) -> String {
     // DERIVE_HELPER) and called from each type's metatype line.
     out.push_str(DERIVE_HELPER);
 
+    // What `:with{}` / `set_<field>()` need to know about every field.
+    emit_field_tables(&mut out, ir);
+
     // Unit-only enums become flat constant tables.
     out.push_str("-- ------------------------------------------------------------------\n");
     out.push_str("-- Unit-only enums (constant tables)\n");
@@ -314,10 +317,31 @@ fn emit_struct_wrapper(out: &mut String, ir: &CodegenIR, s: &StructDef) {
     //   window.window_state.title = azul._az_string('...')
     // in favor of
     //   window:with({ window_state = { title = 'Hello World' } })
+    //
+    // The C type name tells `_apply_opts` each field's type (`azul._az_ft`),
+    // so a heap-owning field's old value is released and the new one is
+    // deep-copied in instead of aliased.
     out.push_str(&format!(
-        "    function {}_methods:with(opts) azul._apply_opts(self, opts); return self end\n",
-        class
+        "    function {}_methods:with(opts) azul._apply_opts(self, opts, '{}'); return self end\n",
+        class, c_name
     ));
+
+    // Typed accessors `get_<field>()` / `set_<field>(v)`. An api.json
+    // method of the same name wins (the field stays writable through
+    // `:with{}` and direct cdata access).
+    let mut taken: std::collections::BTreeSet<String> = funcs
+        .iter()
+        .map(|f| sanitize_lua_ident(&f.method_name))
+        .collect();
+    for n in ["with", "to_lua_string", "to_lua_array", "clone", "hash", "cmp", "partial_cmp", "toString"] {
+        taken.insert(n.to_string());
+    }
+    for func in &funcs {
+        if let Some((smart, _)) = super::super::managed_host_invoker::smart_callback_setter_info(func) {
+            taken.insert(smart);
+        }
+    }
+    let accessor_count = emit_field_accessors(out, ir, s, &mut taken);
 
     // AzString gets a `:to_lua_string()` method that decodes the
     // wrapped UTF-8 bytes into a Lua string. LuaJIT's `ffi.string`
@@ -415,7 +439,7 @@ fn emit_struct_wrapper(out: &mut String, ir: &CodegenIR, s: &StructDef) {
 
     // Phase I.1.8 (Lua): `#vec` when this is a Vec wrapper. Decided by
     // the ptr/len/cap layout, never by the name.
-    let is_vec = s.fields.len() == 4
+    let is_vec = crate::codegen::v2::ir::is_vec_field_count(s.fields.iter().map(|f| f.name.as_str()))
         && s.fields[0].name == "ptr"
         && s.fields[1].name == "len"
         && s.fields[2].name == "cap"
@@ -425,7 +449,7 @@ fn emit_struct_wrapper(out: &mut String, ir: &CodegenIR, s: &StructDef) {
     // exports support (`__gc`, `__eq`, `__lt`, `__le`, `__tostring`,
     // `__len`), all built by `_az_derive`. A type with neither methods nor
     // derives has nothing to attach.
-    if method_count > 0 || !syms.is_empty() || is_vec {
+    if method_count > 0 || accessor_count > 0 || !syms.is_empty() || is_vec {
         emit_metatype(out, class, &c_name, &syms, is_vec, is_string);
     }
     out.push_str("end\n");
@@ -442,6 +466,205 @@ fn emit_struct_wrapper(out: &mut String, ir: &CodegenIR, s: &StructDef) {
         }
     }
     out.push_str("}\n\n");
+}
+
+// ============================================================================
+// Field access
+// ============================================================================
+
+/// The C type name the cdef knows a field type by.
+fn lua_c_type(name: &str) -> String {
+    format!("Az{}", name.trim())
+}
+
+/// `key` as a table key in Lua source: bare, or `['key']` when it is a Lua
+/// keyword (`self.end` / `{ end = 1 }` do not parse).
+fn lua_key(key: &str) -> String {
+    if sanitize_lua_ident(key) == key {
+        key.to_string()
+    } else {
+        format!("['{}']", key)
+    }
+}
+
+/// `self.key`, or `self['key']` for a Lua keyword.
+fn lua_index(obj: &str, key: &str) -> String {
+    if sanitize_lua_ident(key) == key {
+        format!("{}.{}", obj, key)
+    } else {
+        format!("{}['{}']", obj, key)
+    }
+}
+
+/// `get_<field>()` / `set_<field>(v)` on a struct's methods table (the
+/// shared contract in `field_access`). Direct cdata access stays: reading
+/// `opts.window_state` is a live VIEW (a reference cdata, never finalized),
+/// so `opts.window_state:set_title('x')` writes into `opts`. The accessors
+/// add what direct access cannot do safely:
+///
+/// - `get_<f>()`: an independent value - a Lua string for the String
+///   class (decoded, the field is not consumed), a deep copy armed with its
+///   finalizer for a heap-owning type, a plain copy for a POD struct;
+/// - `set_<f>(v)`: `azul._set_field` - a Lua string becomes a fresh
+///   AzString, any other value is deep-copied in (`azul._take`, so the
+///   caller's value is never aliased), and the field's old value is
+///   released first.
+///
+/// Returns the number of methods emitted.
+fn emit_field_accessors(
+    out: &mut String,
+    ir: &CodegenIR,
+    s: &StructDef,
+    taken: &mut std::collections::BTreeSet<String>,
+) -> usize {
+    use super::super::field_access::{accessible_fields, FieldShape};
+    let config = super::super::config::CodegenConfig::c_header();
+    let class = &s.name;
+    let mut n = 0;
+    for (f, shape) in accessible_fields(s, ir, &config) {
+        let key = super::super::lang_c::escape_cpp_keyword_for_c(&f.name);
+        let get = sanitize_lua_ident(&format!("get_{}", f.name));
+        let set = sanitize_lua_ident(&format!("set_{}", f.name));
+        let field = lua_index("self", &key);
+        // An Option field reads as nil / the value (a copy) and is written
+        // from nil / the value.
+        if let (Some((ct, map)), FieldShape::Value { delete, clone, .. }) =
+            (lua_option(&f.type_name, ir), &shape)
+        {
+            let copy = match (delete, clone) {
+                (None, _) => Some(format!("ffi.new('{}', {})", ct, field)),
+                (Some(_), Some(c)) => Some(format!("C.{}({})", c.c_name, field)),
+                (Some(_), None) => None,
+            };
+            if let Some(copy) = copy {
+                if taken.insert(get.clone()) {
+                    out.push_str(&format!(
+                        "    function {}_methods:{}() return ({}):to_opt() end\n",
+                        class, get, copy
+                    ));
+                    n += 1;
+                }
+            }
+            if taken.insert(set.clone()) {
+                // The new option is a fresh value: it is written as it is, after
+                // the old one is released.
+                let release = delete
+                    .as_ref()
+                    .map(|d| format!("C.{}({}); ", d.c_name, field))
+                    .unwrap_or_default();
+                out.push_str(&format!(
+                    "    function {}_methods:{}(v) local nv = azul._opt_in('{}', v, {}); {}{} = nv; return self end\n",
+                    class, set, ct, map, release, field
+                ));
+                n += 1;
+            }
+            continue;
+        }
+        let getter: Option<String> = match &shape {
+            FieldShape::Prim { .. } | FieldShape::UnitEnum { .. } => Some(field.clone()),
+            FieldShape::Str { .. } => Some(format!("azul._read_string({})", field)),
+            FieldShape::Value { delete: Some(d), clone: Some(c), .. } => Some(format!(
+                "ffi.gc(C.{}({}), C.{})",
+                c.c_name, field, d.c_name
+            )),
+            FieldShape::Value { name, delete: None, .. } => {
+                Some(format!("ffi.new('{}', {})", lua_c_type(name), field))
+            }
+            // Heap-owning without a deep copy: a copy would be freed twice.
+            FieldShape::Value { .. } => None,
+        };
+        let setter = match &shape {
+            FieldShape::Prim { .. } | FieldShape::UnitEnum { .. } => format!("{} = v", field),
+            FieldShape::Str { name, .. } | FieldShape::Value { name, .. } => format!(
+                "azul._set_field(self, '{}', '{}', v)",
+                key,
+                lua_c_type(name)
+            ),
+        };
+        if let Some(body) = getter {
+            if taken.insert(get.clone()) {
+                out.push_str(&format!(
+                    "    function {}_methods:{}() return {} end\n",
+                    class, get, body
+                ));
+                n += 1;
+            }
+        }
+        if taken.insert(set.clone()) {
+            out.push_str(&format!(
+                "    function {}_methods:{}(v) {}; return self end\n",
+                class, set, setter
+            ));
+            n += 1;
+        }
+    }
+    n
+}
+
+/// The runtime tables `azul._apply_opts` / `azul._set_field` / `azul._take`
+/// read: per struct, the C type of every String / struct / union field
+/// (`azul._az_ft.AzFullWindowState = { title = 'AzString', ... }`), and
+/// per type its `_delete` / `_clone` export. Emitted in chunks of small
+/// functions so the main chunk stays under the per-function constant limit.
+fn emit_field_tables(out: &mut String, ir: &CodegenIR) {
+    use super::super::field_access::{accessible_fields, FieldShape};
+    let config = super::super::config::CodegenConfig::c_header();
+    out.push_str("-- ------------------------------------------------------------------\n");
+    out.push_str("-- Field types (struct -> { field = C type }) and the _delete / _clone\n");
+    out.push_str("-- export of every heap-owning type: what :with{} and set_<field>() use\n");
+    out.push_str("-- to release a field's old value and deep-copy the new one in.\n");
+    out.push_str("-- ------------------------------------------------------------------\n");
+    out.push_str("azul._az_ft = {}\nazul._az_delete = {}\nazul._az_clone = {}\n");
+    let mut lines: Vec<String> = Vec::new();
+    for s in &ir.structs {
+        if !should_emit_struct(s) {
+            continue;
+        }
+        let entries: Vec<String> = accessible_fields(s, ir, &config)
+            .into_iter()
+            .filter_map(|(f, shape)| match shape {
+                FieldShape::Str { name, .. } | FieldShape::Value { name, .. } => Some(format!(
+                    "{} = '{}'",
+                    lua_key(&super::super::lang_c::escape_cpp_keyword_for_c(&f.name)),
+                    lua_c_type(&name)
+                )),
+                _ => None,
+            })
+            .collect();
+        if !entries.is_empty() {
+            lines.push(format!(
+                "azul._az_ft.{} = {{ {} }}",
+                lua_c_type(&s.name),
+                entries.join(", ")
+            ));
+        }
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    for f in &ir.functions {
+        let table = match f.kind {
+            FunctionKind::Delete => "_az_delete",
+            FunctionKind::DeepCopy => "_az_clone",
+            _ => continue,
+        };
+        if !seen.insert((table, f.class_name.clone())) {
+            continue;
+        }
+        lines.push(format!(
+            "azul.{}.{} = '{}'",
+            table,
+            lua_c_type(&f.class_name),
+            f.c_name
+        ));
+    }
+    for chunk in lines.chunks(200) {
+        out.push_str("do (function()\n");
+        for l in chunk {
+            out.push_str(l);
+            out.push('\n');
+        }
+        out.push_str("end)() end\n");
+    }
+    out.push('\n');
 }
 
 // ============================================================================
@@ -832,11 +1055,7 @@ fn emit_instance_method(
     // Phase I.5.5 (Lua): Option/Result auto-unwrap at the wrapper
     // boundary. Routes through the per-cdata `:to_opt()` / `:unwrap()`
     // methods emitted by A.1.4 via ffi.metatype.
-    let unwrap_call = match func.return_type.as_deref().map(str::trim) {
-        Some(rt) if rt.starts_with("Option") => Some(":to_opt()"),
-        Some(rt) if rt.starts_with("Result") => Some(":unwrap()"),
-        _ => None,
-    };
+    let unwrap_call = lua_unwrap_call(func, ir);
 
     let needs_consume = consumed_self || !consumed_arg_indices.is_empty();
 
@@ -1230,6 +1449,41 @@ fn is_owned_refany_arg(a: &FunctionArg, ir: &CodegenIR) -> bool {
 /// post-call `azul._consume`; the value is reassigned onto the visible
 /// variable so the (defensive) consume line emitted for owned deletable
 /// args sees the same cdata the C call consumed.
+/// An owned Option argument: its C type and the function a non-nil value
+/// goes through before it becomes the Some (`azul._az_string` for text).
+fn lua_option_arg(a: &FunctionArg, ir: &CodegenIR) -> Option<(String, &'static str)> {
+    if !matches!(a.ref_kind, ArgRefKind::Owned) {
+        return None;
+    }
+    lua_option(&a.type_name, ir)
+}
+
+fn lua_option(t: &str, ir: &CodegenIR) -> Option<(String, &'static str)> {
+    let t = t.trim();
+    let payload = ir.option_payload(t)?;
+    ir.variant_constructor(t, "None")?;
+    ir.variant_constructor(t, "Some")?;
+    let map = if ir
+        .find_struct(payload)
+        .is_some_and(|s| matches!(s.category, TypeCategory::String))
+    {
+        "azul._az_string"
+    } else {
+        "azul._identity"
+    };
+    Some((format!("Az{}", t), map))
+}
+
+/// `:to_opt()` / `:unwrap()` for a function returning an Option / Result
+/// mirror (by shape): `nil` or the value, the value or a raised error.
+fn lua_unwrap_call(func: &FunctionDef, ir: &CodegenIR) -> Option<&'static str> {
+    let rt = func.return_type.as_deref()?.trim();
+    if ir.option_payload(rt).is_some() {
+        return Some(":to_opt()");
+    }
+    ir.result_payloads(rt).map(|_| ":unwrap()")
+}
+
 fn emit_arg_coercions(
     out: &mut String,
     indent: &str,
@@ -1238,7 +1492,12 @@ fn emit_arg_coercions(
     ir: &CodegenIR,
 ) {
     for (i, a) in args.iter().enumerate() {
-        if is_az_string_owned_arg(a, ir) {
+        if let Some((ct, map)) = lua_option_arg(a, ir) {
+            out.push_str(&format!(
+                "{indent}{n} = azul._opt_in('{ct}', {n}, {map})\n",
+                n = names[i]
+            ));
+        } else if is_az_string_owned_arg(a, ir) {
             out.push_str(&format!("{indent}{n} = azul._az_string({n})\n", n = names[i]));
         } else if is_owned_refany_arg(a, ir) {
             out.push_str(&format!("{indent}{n} = azul._refany_arg({n})\n", n = names[i]));
@@ -1272,8 +1531,12 @@ fn emit_static_method(out: &mut String, lua_method: &str, func: &FunctionDef, ir
     // When the func has Owned `String` args, switch from the varargs
     // passthrough to an enumerated form so we can route each through
     // `azul._az_string`.
-    let has_az_string = func.args.iter().any(|a| is_az_string_owned_arg(a, ir));
+    let has_az_string = func.args.iter().any(|a| is_az_string_owned_arg(a, ir))
+        || func.args.iter().any(|a| lua_option_arg(a, ir).is_some());
     let has_refany = func.args.iter().any(|a| is_owned_refany_arg(a, ir));
+    // An Option / Result return comes back as nil / the value (`:to_opt()`)
+    // or the value / a raised error (`:unwrap()`), which free the shell.
+    let unwrap_call = lua_unwrap_call(func, ir);
 
     // Ownership plumbing (mirrors emit_instance_method):
     // * armed return  — owned by-value C returns never see the metatype __gc (LuaJIT arms it only
@@ -1281,18 +1544,22 @@ fn emit_static_method(out: &mut String, lua_method: &str, func: &FunctionDef, ir
     // * consumed args — owned by-value args of deletable types transfer their bytes to Rust; disarm
     //   the (possibly armed) cdata after the call so its finalizer can't double-free Rust-owned
     //   memory.
-    let ret_fin = func
-        .return_type
-        .as_deref()
-        .and_then(|t| lua_finalizer_for(t, ir));
+    let ret_fin = if unwrap_call.is_some() {
+        None
+    } else {
+        func.return_type
+            .as_deref()
+            .and_then(|t| lua_finalizer_for(t, ir))
+    };
     let consumable = lua_consumable_arg_indices(func, ir);
 
     if !has_callback_arg(func) && !has_az_string && !has_refany && consumable.is_empty() {
-        out.push_str(&format!(
-            "    {} = function(...) return {} end,\n",
-            lua_method,
-            lua_arm(&format!("C.{}(...)", func.c_name), &ret_fin)
-        ));
+        let call = format!("C.{}(...)", func.c_name);
+        let ret = match unwrap_call {
+            Some(u) => format!("({}){}", call, u),
+            None => lua_arm(&call, &ret_fin),
+        };
+        out.push_str(&format!("    {} = function(...) return {} end,\n", lua_method, ret));
         return;
     }
 
@@ -1326,7 +1593,10 @@ fn emit_static_method(out: &mut String, lua_method: &str, func: &FunctionDef, ir
             for i in &consumable {
                 out.push_str(&format!("        azul._consume({})\n", visible[*i]));
             }
-            out.push_str("        return _ret\n");
+            match unwrap_call {
+                Some(u) => out.push_str(&format!("        return _ret{}\n", u)),
+                None => out.push_str("        return _ret\n"),
+            }
         }
         out.push_str("    end,\n");
         return;

@@ -1,0 +1,876 @@
+//! Big uploads to a bucket ([`S3Drive`]): multipart uploads in parts of [`PART_SIZE`],
+//! [`PARALLEL_PARTS`] in flight at once - on a slow uplink smaller parts, one at a time
+//! ([`plan_parts`], from what the drive's uploads measured: [`LinkEstimate`]).
+//!
+//! - A streamed body ([`Drive::put_from`], [`Drive::put_from_if`]) is read a few parts ahead
+//!   (at most [`PARALLEL_PARTS`] in memory), and read to its end before the upload is completed:
+//!   a reader that checks what it read (a sync's BLAKE3) stops a wrong upload by failing at its
+//!   end. A body of one part or less is one PUT. A failed upload is aborted: a reader cannot be
+//!   read again, so nothing could resume it. With a resume folder the upload keeps a record
+//!   there while it runs, locked by the uploading process: an abort that was refused (the
+//!   credentials ran out) or never sent (the app was killed) leaves the record, and the next
+//!   sweep aborts the upload.
+//! - A local file ([`Drive::put_file`]) is read part by part where each part lies, and its
+//!   upload outlives the app: with a resume folder ([`S3Drive::with_resume_dir`], or the app's
+//!   [`set_resume_folder`]) a state file per upload keeps the upload id, the parts' ETags, and
+//!   the file's size, date and the BLAKE3 of its first MiB. The next upload of the same file to
+//!   the same key asks the service which parts it holds (ListParts) and sends only the missing
+//!   ones. An upload that is stale ([`STALE_AFTER_SECS`]) or whose file changed is aborted and
+//!   started again - it is never completed with parts of two versions - and so is one whose
+//!   file changed while it was sent. [`S3Drive::abort_stale_uploads`] sweeps the ones nobody
+//!   resumes; every new multipart upload of the drive sweeps first.
+//! - A conditional upload (`If-None-Match: *`, `If-Match`) asks its condition when it is
+//!   completed (S3 checks it on CompleteMultipartUpload): a 412 is [`DriveError::Conflict`],
+//!   and its parts are aborted.
+//!
+//! Blocking, like every drive call; the parts travel on threads of their own.
+
+use std::{
+    collections::BTreeMap,
+    fs::{self, File},
+    io::{Read, Seek, SeekFrom, Write},
+    path::{Path, PathBuf},
+    sync::{
+        atomic::{AtomicU64, AtomicUsize, Ordering},
+        Mutex, MutexGuard, PoisonError, RwLock,
+    },
+};
+
+use serde::{Deserialize, Serialize};
+
+pub use crate::s3::{PARALLEL_PARTS, PART_SIZE};
+use crate::{
+    checked::{CheckedUpload, FileCheck},
+    local::write_atomically,
+    s3::S3Drive,
+    BytesPerSec, DriveError, Precondition,
+};
+
+/// An unfinished upload older than this is not resumed: aborted and started again (buckets
+/// commonly drop unfinished uploads after a week).
+pub const STALE_AFTER_SECS: u64 = 6 * 24 * 3600;
+/// How much of a file's start its state file checks by BLAKE3 (with its size and date).
+pub const PREFIX_CHECK_BYTES: u64 = 1024 * 1024;
+/// The most parts of one upload (S3's limit).
+pub const MAX_PARTS: usize = 10_000;
+/// The version of a state file this code writes.
+const STATE_VERSION: u32 = 1;
+/// The smallest part S3 takes (all but the last): 5 MiB.
+pub const MIN_PART_SIZE: usize = 5 * 1024 * 1024;
+/// Below this (2 Mbit/s) an upload sends one part at a time: parallel parts would only split a
+/// link this slow, and each would take longer to send again when it is lost.
+pub const SLOW_LINK: BytesPerSec = BytesPerSec(250_000);
+/// What one part should take on the measured link: a lost part costs about this to send again.
+pub const PART_SECS: u64 = 60;
+/// Uploads smaller than this measure the latency more than the link: they are not counted.
+pub const MEASURE_FROM: usize = 1024 * 1024;
+
+/// The part size and the parts in flight of an upload over a link of `link` bytes a second
+/// (`None`: not measured yet), for a drive of parts of up to `ceiling` bytes, `parallel` at
+/// once: each part about [`PART_SECS`] of its share of the link, in whole MiB, at least
+/// [`MIN_PART_SIZE`] (or `ceiling`, when that is less); one part at a time below
+/// [`SLOW_LINK`].
+#[must_use]
+pub fn plan_parts(link: Option<BytesPerSec>, ceiling: usize, parallel: usize) -> (usize, usize) {
+    const MIB: usize = 1024 * 1024;
+    let parallel = parallel.max(1);
+    let ceiling = ceiling.max(1);
+    let Some(link) = link else {
+        return (ceiling, parallel);
+    };
+    let parallel = if link < SLOW_LINK { 1 } else { parallel };
+    let share = link.0 / parallel as u64;
+    let fits = usize::try_from(share.saturating_mul(PART_SECS)).unwrap_or(usize::MAX);
+    let floor = MIN_PART_SIZE.min(ceiling);
+    ((fits / MIB * MIB).clamp(floor, ceiling), parallel)
+}
+
+/// The uplink as a drive's uploads measured it: a running average of what each upload of
+/// [`MEASURE_FROM`] bytes or more moved, times the uploads that shared the link with it.
+#[derive(Debug, Default)]
+pub struct LinkEstimate {
+    /// Bytes a second; `None` before the first sample.
+    rate: Mutex<Option<f64>>,
+}
+
+impl LinkEstimate {
+    /// An upload of `bytes` took `took`, `sharing` uploads in flight at once (itself included).
+    pub fn sample(&self, bytes: usize, took: std::time::Duration, sharing: usize) {
+        if bytes < MEASURE_FROM {
+            return;
+        }
+        let secs = took.as_secs_f64().max(0.001);
+        let sample = bytes as f64 * sharing.max(1) as f64 / secs;
+        let mut rate = lock(&self.rate);
+        // New samples count for a third: one slow part does not halve the next upload's parts.
+        *rate = Some(rate.map_or(sample, |old| old * 0.7 + sample * 0.3));
+    }
+
+    /// The link's bytes a second; `None` before the first sample.
+    #[must_use]
+    pub fn rate(&self) -> Option<BytesPerSec> {
+        lock(&self.rate).map(|rate| BytesPerSec(rate.round() as u64))
+    }
+}
+
+/// The resume folder of every bucket that names none ([`set_resume_folder`]).
+static RESUME_FOLDER: RwLock<Option<PathBuf>> = RwLock::new(None);
+
+/// Keeps the state files of resumable uploads in `folder` (the app's cache: AzDrive's
+/// `<cache>/AzDrive/uploads`) for every bucket opened without a folder of its own; `None`:
+/// uploads are not resumable.
+pub fn set_resume_folder(folder: Option<PathBuf>) {
+    *RESUME_FOLDER
+        .write()
+        .unwrap_or_else(PoisonError::into_inner) = folder;
+}
+
+/// The folder [`set_resume_folder`] set.
+#[must_use]
+pub fn resume_folder() -> Option<PathBuf> {
+    RESUME_FOLDER
+        .read()
+        .unwrap_or_else(PoisonError::into_inner)
+        .clone()
+}
+
+fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// Runs `job(0)`, `job(1)`, ... `job(count - 1)` on up to `parallel` threads; the answers in
+/// index order, or the first error (no job starts after one failed).
+pub fn in_parallel<T: Send, E: Send>(
+    count: usize,
+    parallel: usize,
+    job: impl Fn(usize) -> Result<T, E> + Sync,
+) -> Result<Vec<T>, E> {
+    let next = AtomicUsize::new(0);
+    let failed = std::sync::atomic::AtomicBool::new(false);
+    let slots: Mutex<Vec<Option<Result<T, E>>>> = Mutex::new((0..count).map(|_| None).collect());
+    let workers = parallel.max(1).min(count.max(1));
+    std::thread::scope(|scope| {
+        for _ in 0..workers {
+            scope.spawn(|| loop {
+                if failed.load(Ordering::SeqCst) {
+                    break;
+                }
+                let i = next.fetch_add(1, Ordering::SeqCst);
+                if i >= count {
+                    break;
+                }
+                let result = job(i);
+                if result.is_err() {
+                    failed.store(true, Ordering::SeqCst);
+                }
+                lock(&slots)[i] = Some(result);
+            });
+        }
+    });
+    // A slot stays empty only when a job failed: then that error is the answer.
+    let mut out = Vec::with_capacity(count);
+    let mut first_error = None;
+    for slot in slots.into_inner().unwrap_or_else(PoisonError::into_inner) {
+        match slot {
+            Some(Ok(value)) => out.push(value),
+            Some(Err(e)) => {
+                if first_error.is_none() {
+                    first_error = Some(e);
+                }
+            }
+            None => {}
+        }
+    }
+    match first_error {
+        Some(e) => Err(e),
+        None => Ok(out),
+    }
+}
+
+/// One part the service holds of an upload (ListParts).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UploadedPart {
+    /// From 1.
+    pub number: usize,
+    /// As the service sent it (quotes included).
+    pub etag: String,
+    pub size: u64,
+}
+
+/// What a file looked like when its upload started.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Fingerprint {
+    size: u64,
+    /// Nanoseconds since 1970 (0 when the system does not say).
+    modified_ns: u64,
+    /// BLAKE3 of the first [`PREFIX_CHECK_BYTES`].
+    prefix_blake3: String,
+}
+
+/// The fingerprint of the file at `path` (an upload the user chose, so a link is followed),
+/// opened without waiting at a FIFO or a device; an error when it is no regular file.
+fn fingerprint(path: &Path) -> Result<Fingerprint, DriveError> {
+    let mut options = File::options();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NONBLOCK);
+    }
+    let file = options.open(path)?;
+    if !file.metadata()?.is_file() {
+        return Err(DriveError::Io(format!(
+            "{} is no regular file",
+            path.display()
+        )));
+    }
+    fingerprint_of(&file)
+}
+
+/// The fingerprint of an open file: its size and time from the handle, the BLAKE3 of its first
+/// bytes read from its start.
+fn fingerprint_of(file: &File) -> Result<Fingerprint, DriveError> {
+    let meta = file.metadata()?;
+    let mut prefix = Vec::new();
+    let mut from_start = file.try_clone()?;
+    from_start.seek(SeekFrom::Start(0))?;
+    from_start
+        .take(PREFIX_CHECK_BYTES)
+        .read_to_end(&mut prefix)?;
+    Ok(Fingerprint {
+        size: meta.len(),
+        modified_ns: crate::checked::modified_ns(&meta),
+        prefix_blake3: blake3::hash(&prefix).to_hex().to_string(),
+    })
+}
+
+/// The BLAKE3 of a whole open file, read from its start.
+fn hash_whole(file: &File) -> std::io::Result<String> {
+    let mut from_start = file.try_clone()?;
+    from_start.seek(SeekFrom::Start(0))?;
+    crate::checked::hash_file(from_start)
+}
+
+/// The state file of one upload of a file.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct UploadState {
+    version: u32,
+    endpoint: String,
+    bucket: String,
+    key: String,
+    /// The file, as this computer names it.
+    source: String,
+    size: u64,
+    modified_ns: u64,
+    prefix_blake3: String,
+    part_size: u64,
+    upload_id: String,
+    /// When the upload started, in seconds since 1970.
+    started_at: u64,
+    /// The parts sent: number -> ETag (as the service sent it).
+    parts: BTreeMap<usize, String>,
+}
+
+impl UploadState {
+    fn fingerprint(&self) -> Fingerprint {
+        Fingerprint {
+            size: self.size,
+            modified_ns: self.modified_ns,
+            prefix_blake3: self.prefix_blake3.clone(),
+        }
+    }
+
+    fn is_stale(&self, now: u64) -> bool {
+        now.saturating_sub(self.started_at) > STALE_AFTER_SECS
+    }
+}
+
+/// The state file of the upload of `source` to `key` of the drive's bucket.
+fn state_path(folder: &Path, drive: &S3Drive, key: &str, source: &Path) -> PathBuf {
+    let config = drive.config();
+    let name = format!(
+        "{}\n{}\n{}\n{}",
+        config.endpoint,
+        config.bucket,
+        key,
+        source.display()
+    );
+    let hash = blake3::hash(name.as_bytes()).to_hex();
+    folder.join(format!("upload-{}.json", &hash.as_str()[..32]))
+}
+
+fn read_state(path: &Path) -> Option<UploadState> {
+    let text = fs::read(path).ok()?;
+    serde_json::from_slice::<UploadState>(&text)
+        .ok()
+        .filter(|state| state.version == STATE_VERSION)
+}
+
+/// Best effort: an upload whose state cannot be written is still sent, just not resumable.
+fn write_state(path: &Path, state: &UploadState) {
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    if let Ok(text) = serde_json::to_vec_pretty(state) {
+        let _ = write_atomically(path, &text);
+    }
+}
+
+/// The record of a streamed upload under way (`stream-<hash of the upload id>.json` in the
+/// resume folder). A stream cannot be resumed, so the record only names the upload to abort:
+/// the uploading process holds the file locked while it sends, and a sweep that can lock it
+/// knows the upload's process is done with it - killed, or its abort refused.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct StreamRecord {
+    version: u32,
+    endpoint: String,
+    bucket: String,
+    key: String,
+    upload_id: String,
+    /// When the upload started, in seconds since 1970 (for a person reading the folder).
+    started_at: u64,
+}
+
+/// A streamed upload's record, held (locked) while the upload runs.
+struct HeldStream {
+    path: PathBuf,
+    /// Open and locked for as long as the upload runs; dropping it lets the lock go.
+    file: File,
+}
+
+/// Where the record of the streamed upload `upload_id` lives.
+fn stream_record_path(folder: &Path, upload_id: &str) -> PathBuf {
+    let hash = blake3::hash(upload_id.as_bytes()).to_hex();
+    folder.join(format!("stream-{}.json", &hash.as_str()[..32]))
+}
+
+/// Whether `path` is a streamed upload's record (not a file upload's state file).
+fn is_stream_record(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.starts_with("stream-") && name.ends_with(".json"))
+}
+
+/// Records the streamed upload `upload_id` of `key` and locks the record for as long as the
+/// returned handle lives; `None` without a resume folder, or when the record cannot be made
+/// (best effort: the upload is sent all the same).
+fn hold_stream(drive: &S3Drive, key: &str, upload_id: &str) -> Option<HeldStream> {
+    let folder = drive.resume_dir()?;
+    fs::create_dir_all(&folder).ok()?;
+    let path = stream_record_path(&folder, upload_id);
+    let record = StreamRecord {
+        version: STATE_VERSION,
+        endpoint: drive.config().endpoint.clone(),
+        bucket: drive.config().bucket.clone(),
+        key: key.to_string(),
+        upload_id: upload_id.to_string(),
+        started_at: drive.now(),
+    };
+    // Written and locked under a name no sweep reads, then renamed: a sweep never finds the
+    // record unlocked or half written (the lock stays with the file through the rename).
+    let draft = path.with_extension("json.draft");
+    let mut file = File::options()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(&draft)
+        .ok()?;
+    let written = file.lock().is_ok()
+        && serde_json::to_vec_pretty(&record)
+            .ok()
+            .is_some_and(|text| file.write_all(&text).is_ok())
+        && fs::rename(&draft, &path).is_ok();
+    if !written {
+        drop(file);
+        let _ = fs::remove_file(&draft);
+        return None;
+    }
+    Some(HeldStream { path, file })
+}
+
+/// Lets the record go; it is removed when the upload is `done` with (completed, or aborted),
+/// and kept for a later sweep otherwise.
+fn release_stream(held: Option<HeldStream>, done: bool) {
+    if let Some(HeldStream { path, file }) = held {
+        drop(file);
+        if done {
+            let _ = fs::remove_file(&path);
+        }
+    }
+}
+
+/// Whether `e` says the service no longer knows the upload.
+fn upload_gone(e: &DriveError) -> bool {
+    match e {
+        DriveError::NotFound { .. } => true,
+        DriveError::Service(service) => service.code == "NoSuchUpload" || service.status == 404,
+        _ => false,
+    }
+}
+
+/// Whether `e` says the service cannot list an upload's parts (then the state file is trusted).
+fn cannot_list(e: &DriveError) -> bool {
+    matches!(e, DriveError::Service(service)
+        if service.status == 501 || service.status == 405 || service.code == "NotImplemented")
+}
+
+/// Up to `size` bytes of `body` (fewer only where it ends).
+pub(crate) fn read_part(body: &mut dyn Read, size: usize) -> Result<Vec<u8>, DriveError> {
+    let mut part = Vec::with_capacity(size.min(PART_SIZE));
+    (&mut *body).take(size as u64).read_to_end(&mut part)?;
+    Ok(part)
+}
+
+/// The bytes `[offset, offset + len)` of an upload's file: from the file a checked upload holds
+/// open (`held`, one part's read at a time), else from `path` opened again.
+fn read_at(
+    path: &Path,
+    held: Option<&Mutex<File>>,
+    offset: u64,
+    len: usize,
+) -> Result<Vec<u8>, DriveError> {
+    let mut bytes = vec![0u8; len];
+    match held {
+        Some(file) => {
+            let mut file = lock(file);
+            file.seek(SeekFrom::Start(offset))?;
+            file.read_exact(&mut bytes)?;
+        }
+        None => {
+            let mut file = File::open(path)?;
+            file.seek(SeekFrom::Start(offset))?;
+            file.read_exact(&mut bytes)?;
+        }
+    }
+    Ok(bytes)
+}
+
+/// The part numbers and their ETags, in order, as CompleteMultipartUpload names them.
+fn numbered(parts: &BTreeMap<usize, String>) -> Vec<(usize, String)> {
+    parts.iter().map(|(n, e)| (*n, e.clone())).collect()
+}
+
+/// Uploads `body` to `key`: one PUT (conditional with `condition`) when it is one part or less,
+/// else a multipart upload of parts read a few ahead and sent several at once, completed (with
+/// `condition`) after the body ended; aborted when anything fails. The bytes sent and the new
+/// version's ETag, when the service said it.
+pub(crate) fn upload_stream(
+    drive: &S3Drive,
+    key: &str,
+    body: &mut dyn Read,
+    condition: Option<&Precondition>,
+) -> Result<(u64, Option<String>), DriveError> {
+    let (part_size, parallel) = drive.upload_plan();
+    let first = read_part(body, part_size)?;
+    let second = if first.len() < part_size {
+        Vec::new()
+    } else {
+        read_part(body, part_size)?
+    };
+    if second.is_empty() {
+        let n = first.len() as u64;
+        let etag = match condition {
+            Some(condition) => crate::Drive::put_if(drive, key, &first, condition)?,
+            None => drive.put_object(key, first)?,
+        };
+        return Ok((n, etag));
+    }
+    abort_stale(drive);
+    let upload = drive.start_multipart(key)?;
+    let held = hold_stream(drive, key, &upload);
+    let plan = (part_size, parallel);
+    match stream_parts(drive, key, &upload, plan, vec![first, second], body, condition) {
+        Ok(done) => {
+            release_stream(held, true);
+            Ok(done)
+        }
+        Err(e) => {
+            let aborted = match drive.abort_multipart(key, &upload) {
+                Ok(()) => true,
+                Err(gone) => upload_gone(&gone),
+            };
+            release_stream(held, aborted);
+            Err(e)
+        }
+    }
+}
+
+/// The parts of a streamed upload - `batch`, then what `body` still reads - in the upload's
+/// `(part size, parallel parts)`, a batch of up to that many parts at a time, then the
+/// completion.
+fn stream_parts(
+    drive: &S3Drive,
+    key: &str,
+    upload: &str,
+    (part_size, parallel): (usize, usize),
+    mut batch: Vec<Vec<u8>>,
+    body: &mut dyn Read,
+    condition: Option<&Precondition>,
+) -> Result<(u64, Option<String>), DriveError> {
+    let mut parts: BTreeMap<usize, String> = BTreeMap::new();
+    let mut written = 0u64;
+    let mut ended = false;
+    loop {
+        while !ended && batch.len() < parallel {
+            let part = read_part(body, part_size)?;
+            ended = part.len() < part_size;
+            if !part.is_empty() {
+                batch.push(part);
+            }
+        }
+        if batch.is_empty() {
+            break;
+        }
+        let first = parts.len() + 1;
+        if first + batch.len() - 1 > MAX_PARTS {
+            return Err(DriveError::Unsupported(format!(
+                "{key}: an upload of more than {MAX_PARTS} parts of {part_size} bytes"
+            )));
+        }
+        written += batch.iter().map(|p| p.len() as u64).sum::<u64>();
+        let slots: Vec<Mutex<Option<Vec<u8>>>> =
+            batch.drain(..).map(|p| Mutex::new(Some(p))).collect();
+        let etags = in_parallel(slots.len(), parallel, |i| {
+            let bytes = lock(&slots[i]).take().unwrap_or_default();
+            drive.upload_part(key, upload, first + i, bytes)
+        })?;
+        for (i, etag) in etags.into_iter().enumerate() {
+            parts.insert(first + i, etag);
+        }
+        if ended {
+            // Read to its end: a checking reader has had its say before the completion.
+            break;
+        }
+    }
+    let etag = drive.complete_multipart(key, upload, &numbered(&parts), condition)?;
+    Ok((written, etag))
+}
+
+/// Uploads the file `path` to `key` (see the module): one PUT for a file of one part or less;
+/// otherwise a multipart upload that resumes from its state file in the drive's resume folder.
+/// `progress` hears the bytes the service holds so far, from the parts' threads.
+pub(crate) fn upload_file(
+    drive: &S3Drive,
+    key: &str,
+    path: &Path,
+    condition: Option<&Precondition>,
+    progress: &(dyn Fn(u64) + Sync),
+) -> Result<(u64, Option<String>), DriveError> {
+    match upload_file_with(drive, key, path, condition, progress, None)? {
+        FileUpload::Done(written, etag) => Ok((written, etag)),
+        FileUpload::Changed => Err(DriveError::Io(format!(
+            "{} changed while it was uploaded; it is sent again next time",
+            path.display()
+        ))),
+    }
+}
+
+/// [`upload_file`] of a file that must be the one `check` describes: as scanned when the upload
+/// starts, and hashed whole once more before it completes ([`crate::Drive::put_file_checked`]).
+pub(crate) fn upload_file_checked(
+    drive: &S3Drive,
+    key: &str,
+    path: &Path,
+    check: &FileCheck,
+    progress: &(dyn Fn(u64) + Sync),
+) -> Result<CheckedUpload, DriveError> {
+    match upload_file_with(drive, key, path, None, progress, Some(check))? {
+        FileUpload::Done(written, _) => Ok(CheckedUpload::Sent(written)),
+        FileUpload::Changed => Ok(CheckedUpload::Changed),
+    }
+}
+
+/// How an upload of a file ended.
+enum FileUpload {
+    /// The bytes sent, and the new version's entity tag when the service said it.
+    Done(u64, Option<String>),
+    /// The file is not the one whose parts were sent (or not the checked one): nothing was
+    /// completed, and the upload was aborted.
+    Changed,
+}
+
+fn upload_file_with(
+    drive: &S3Drive,
+    key: &str,
+    path: &Path,
+    condition: Option<&Precondition>,
+    progress: &(dyn Fn(u64) + Sync),
+    check: Option<&FileCheck>,
+) -> Result<FileUpload, DriveError> {
+    // A checked upload (a sync's file) opens its file once and reads only that handle: a link
+    // or a FIFO swapped in under its name is never opened, another file never read.
+    let held = match check {
+        Some(c) => match crate::checked::open_checked(path, c)? {
+            Some(file) => Some(Mutex::new(file)),
+            None => return Ok(FileUpload::Changed),
+        },
+        None => None,
+    };
+    let before = match &held {
+        Some(file) => fingerprint_of(&lock(file))?,
+        None => fingerprint(path)?,
+    };
+    if check.is_some_and(|c| c.size != before.size || c.modified_ns != before.modified_ns) {
+        return Ok(FileUpload::Changed);
+    }
+    let size = before.size;
+    let (planned, parallel) = drive.upload_plan();
+    let folder = drive.resume_dir();
+    let state_file = folder.as_deref().map(|f| state_path(f, drive, key, path));
+    let kept = state_file.as_deref().and_then(read_state);
+    // An upload of this very file that is kept goes on in its own part size: its parts are
+    // sent in it. A new one takes the planned size, big enough for MAX_PARTS parts.
+    let part_size = kept
+        .as_ref()
+        .filter(|old| {
+            old.key == key && old.bucket == drive.config().bucket && old.fingerprint() == before
+        })
+        .map_or(planned as u64, |old| old.part_size)
+        .max(size.div_ceil(MAX_PARTS as u64))
+        .max(1);
+    if size <= part_size {
+        let bytes = match &held {
+            Some(file) => read_at(
+                path,
+                Some(file),
+                0,
+                usize::try_from(size).unwrap_or(usize::MAX),
+            )?,
+            None => fs::read(path)?,
+        };
+        if check.is_some_and(|c| !c.names(&bytes)) {
+            return Ok(FileUpload::Changed);
+        }
+        let etag = match condition {
+            Some(condition) => crate::Drive::put_if(drive, key, &bytes, condition)?,
+            None => drive.put_object(key, bytes)?,
+        };
+        progress(size);
+        return Ok(FileUpload::Done(size, etag));
+    }
+    let count = usize::try_from(size.div_ceil(part_size)).unwrap_or(usize::MAX);
+    if count > MAX_PARTS {
+        return Err(DriveError::Unsupported(format!(
+            "{key}: an upload of more than {MAX_PARTS} parts of {part_size} bytes"
+        )));
+    }
+    let now = drive.now();
+    let mut state = None;
+    if let Some(old) = kept {
+        let same = old.key == key
+            && old.bucket == drive.config().bucket
+            && old.part_size == part_size
+            && old.fingerprint() == before;
+        if same && !old.is_stale(now) {
+            match drive.list_parts(key, &old.upload_id) {
+                Ok(held) => {
+                    // The parts the service holds, whole: what the state file names and what was
+                    // sent before the state file was written.
+                    let mut resumed = old.clone();
+                    resumed.parts = held
+                        .into_iter()
+                        .filter(|p| p.number >= 1 && p.number <= count)
+                        .filter(|p| {
+                            let start = (p.number as u64 - 1) * part_size;
+                            p.size == part_size.min(size - start)
+                        })
+                        .map(|p| (p.number, p.etag))
+                        .collect();
+                    state = Some(resumed);
+                }
+                Err(e) if cannot_list(&e) => state = Some(old),
+                Err(e) if upload_gone(&e) => {}
+                Err(e) => return Err(e),
+            }
+        } else {
+            let _ = drive.abort_multipart(&old.key, &old.upload_id);
+        }
+        if state.is_none() {
+            if let Some(file) = &state_file {
+                let _ = fs::remove_file(file);
+            }
+        }
+    }
+    let state = match state {
+        Some(state) => state,
+        None => {
+            abort_stale(drive);
+            let upload_id = drive.start_multipart(key)?;
+            let state = UploadState {
+                version: STATE_VERSION,
+                endpoint: drive.config().endpoint.clone(),
+                bucket: drive.config().bucket.clone(),
+                key: key.to_string(),
+                source: path.display().to_string(),
+                size,
+                modified_ns: before.modified_ns,
+                prefix_blake3: before.prefix_blake3.clone(),
+                part_size,
+                upload_id,
+                started_at: now,
+                parts: BTreeMap::new(),
+            };
+            if let Some(file) = &state_file {
+                write_state(file, &state);
+            }
+            state
+        }
+    };
+    let upload_id = state.upload_id.clone();
+    let forget = |state_file: &Option<PathBuf>| {
+        if let Some(file) = state_file {
+            let _ = fs::remove_file(file);
+        }
+    };
+    // The bytes the parts of an earlier run already sent (`held` is the checked file's handle).
+    let resumed: u64 = state
+        .parts
+        .keys()
+        .map(|n| part_size.min(size - (*n as u64 - 1) * part_size))
+        .sum();
+    progress(resumed);
+    let missing: Vec<usize> = (1..=count)
+        .filter(|n| !state.parts.contains_key(n))
+        .collect();
+    let sent = AtomicU64::new(resumed);
+    let shared = Mutex::new(state);
+    let result = in_parallel(missing.len(), parallel, |i| {
+        let number = missing[i];
+        let start = (number as u64 - 1) * part_size;
+        let len = part_size.min(size - start);
+        let bytes = read_at(
+            path,
+            held.as_ref(),
+            start,
+            usize::try_from(len).unwrap_or(usize::MAX),
+        )?;
+        let etag = drive.upload_part(key, &upload_id, number, bytes)?;
+        {
+            let mut state = lock(&shared);
+            state.parts.insert(number, etag);
+            if let Some(file) = &state_file {
+                write_state(file, &state);
+            }
+        }
+        progress(sent.fetch_add(len, Ordering::SeqCst) + len);
+        Ok::<(), DriveError>(())
+    });
+    let state = shared.into_inner().unwrap_or_else(PoisonError::into_inner);
+    if let Err(e) = result {
+        // With a state file the next upload resumes; without one nothing could.
+        if state_file.is_none() {
+            let _ = drive.abort_multipart(key, &upload_id);
+        }
+        return Err(e);
+    }
+    // The file must still be the one whose parts were sent - checked, its bytes hashed whole
+    // once more, as the parts of an earlier run were read before this one started.
+    let named = check.is_none_or(|c| {
+        held.as_ref()
+            .is_some_and(|file| hash_whole(&lock(file)).is_ok_and(|hash| hash == c.blake3))
+    });
+    let after = match &held {
+        Some(file) => fingerprint_of(&lock(file))?,
+        None => fingerprint(path)?,
+    };
+    if !named || after != before {
+        let _ = drive.abort_multipart(key, &upload_id);
+        forget(&state_file);
+        return Ok(FileUpload::Changed);
+    }
+    match drive.complete_multipart(key, &upload_id, &numbered(&state.parts), condition) {
+        Ok(etag) => {
+            forget(&state_file);
+            Ok(FileUpload::Done(size, etag))
+        }
+        Err(e) => {
+            if matches!(e, DriveError::Conflict { .. }) || state_file.is_none() {
+                let _ = drive.abort_multipart(key, &upload_id);
+                forget(&state_file);
+            } else if upload_gone(&e) {
+                forget(&state_file);
+            }
+            Err(e)
+        }
+    }
+}
+
+/// Aborts the unfinished uploads of `drive`'s bucket in its resume folder that will not be
+/// resumed - a file upload that is stale, or whose file is gone or changed; a streamed upload
+/// no process holds any more - and forgets them; how many.
+pub(crate) fn abort_stale(drive: &S3Drive) -> usize {
+    let Some(folder) = drive.resume_dir() else {
+        return 0;
+    };
+    let Ok(entries) = fs::read_dir(&folder) else {
+        return 0;
+    };
+    let now = drive.now();
+    let config = drive.config();
+    let mut aborted = 0;
+    for entry in entries.filter_map(Result::ok) {
+        let path = entry.path();
+        if path.extension().is_none_or(|e| e != "json") {
+            continue;
+        }
+        if is_stream_record(&path) {
+            aborted += usize::from(abort_dead_stream(drive, &path));
+            continue;
+        }
+        let Some(state) = read_state(&path) else {
+            continue;
+        };
+        if state.endpoint != config.endpoint || state.bucket != config.bucket {
+            continue;
+        }
+        let unchanged =
+            fingerprint(Path::new(&state.source)).is_ok_and(|now| now == state.fingerprint());
+        if unchanged && !state.is_stale(now) {
+            continue;
+        }
+        match drive.abort_multipart(&state.key, &state.upload_id) {
+            Ok(()) => {}
+            Err(e) if upload_gone(&e) => {}
+            // No answer: tried again at the next sweep.
+            Err(_) => continue,
+        }
+        let _ = fs::remove_file(&path);
+        aborted += 1;
+    }
+    aborted
+}
+
+/// Aborts the streamed upload the record at `path` names when no process holds the record any
+/// more (an upload under way keeps it locked) and it is of `drive`'s bucket; whether it did.
+fn abort_dead_stream(drive: &S3Drive, path: &Path) -> bool {
+    let Ok(mut file) = File::options().read(true).write(true).open(path) else {
+        return false;
+    };
+    if file.try_lock().is_err() {
+        return false;
+    }
+    let mut text = Vec::new();
+    let record = file
+        .read_to_end(&mut text)
+        .ok()
+        .and_then(|_| serde_json::from_slice::<StreamRecord>(&text).ok());
+    let Some(record) = record else {
+        // Cut off while it was written (the app died at once): it names no upload.
+        drop(file);
+        let _ = fs::remove_file(path);
+        return false;
+    };
+    let config = drive.config();
+    if record.endpoint != config.endpoint || record.bucket != config.bucket {
+        return false;
+    }
+    match drive.abort_multipart(&record.key, &record.upload_id) {
+        Ok(()) => {}
+        Err(e) if upload_gone(&e) => {}
+        // No answer, or refused: tried again at the next sweep.
+        Err(_) => return false,
+    }
+    drop(file);
+    let _ = fs::remove_file(path);
+    true
+}

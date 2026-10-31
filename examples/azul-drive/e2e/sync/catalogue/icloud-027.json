@@ -1,0 +1,27 @@
+{
+  "name": "'Free up space' on a file the drive has not acknowledged is refused; the bytes stay until the upload landed",
+  "description": "ICLOUD-027 (sync-chaos placeholder-evict-only-uploaded): 'Free up space' on a 15-hour workbook that had never uploaded made it unopenable and it never reached iCloud. Rule P13 (lesson 4, never drop the only copy): eviction is refused for any file whose upload the drive has not acknowledged with a matching hash; after the upload it works, and the uploads that were stuck go up.",
+  "steps": [
+    { "op": "drive_create", "remote": "r", "encrypted": false },
+    { "op": "drive_open", "device": "a", "remote": "r" },
+    { "op": "drive_pair", "device": "a" },
+    { "op": "drive_wait_idle" },
+    { "op": "drive_fault", "device": "a", "refuse_ops": ["put", "put_if"] },
+    { "op": "drive_write", "device": "a", "path": "Budget.xlsx", "size": 200000, "seed": 73 },
+    { "op": "drive_sync", "device": "a", "expect": "any" },
+    { "op": "drive_check", "check": "remote_file", "key": "Budget.xlsx", "absent": true },
+    { "op": "drive_evict", "device": "a", "path": "Budget.xlsx" },
+    { "op": "assert_response", "path": "result.evicted", "len": 0 },
+    { "op": "drive_check", "check": "file", "device": "a", "path": "Budget.xlsx", "size": 200000 },
+    { "op": "drive_states", "device": "a" },
+    { "op": "assert_response", "path": "result.files[\"Budget.xlsx\"].cloud_only", "equals": false },
+    { "op": "drive_write", "device": "a", "path": "test.txt", "text": "a new test file" },
+    { "op": "drive_fault", "device": "a", "clear": true },
+    { "op": "drive_sync", "device": "a" },
+    { "op": "drive_check", "check": "remote_file", "key": "Budget.xlsx", "same_as": "{root:a}/Budget.xlsx" },
+    { "op": "drive_check", "check": "remote_file", "key": "test.txt", "text": "a new test file" },
+    { "op": "drive_evict", "device": "a", "path": "Budget.xlsx" },
+    { "op": "assert_response", "path": "result.evicted", "len": 1 },
+    { "op": "drive_cleanup" }
+  ]
+}

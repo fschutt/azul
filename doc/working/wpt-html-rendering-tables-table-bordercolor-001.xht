@@ -1,0 +1,28 @@
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<title>Test for table bordercolor attribute behaving like border-color property</title>
+<meta name="assert" content="bordercolor is treated as a presentation hint, equivalent to setting the border-color property"/>
+<style>
+  table { margin: 5px }
+</style>
+</head>
+<body><table bordercolor="red">
+  <tbody><tr><td>I should not have a border.</td>
+</tr></tbody></table>
+<table style="border-color: red">
+  <tbody><tr><td>I should not have a border.</td>
+</tr></tbody></table>
+<table bordercolor="red" style="border-width: 10px">
+  <tbody><tr><td>I should not have a border.</td>
+</tr></tbody></table>
+<table style="border-color: red; border-width: 10px">
+  <tbody><tr><td>I should not have a border.</td>
+</tr></tbody></table>
+<table bordercolor="lime" style="border-style: solid">
+  <tbody><tr><td>I should have a border.</td>
+</tr></tbody></table>
+<table style="border-color: lime; border-style: solid">
+  <tbody><tr><td>I should have a border.</td>
+</tr></tbody></table>
+</body>
+</html>

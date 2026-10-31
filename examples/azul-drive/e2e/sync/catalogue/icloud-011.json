@@ -1,0 +1,72 @@
+[
+  {
+    "name": "bytes that do not match the file's hash are never written: the old version stays",
+    "description": "ICLOUD-011 (sync-chaos sec-wrong-bytes): iCloud for Windows wrote corrupt videos and strangers' videos into users' libraries. Rules S15, M2 and A5: every download is checked against its hash; a mismatch is listed (hash-mismatch) and the old version stays.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "video.mov", "text": "v1" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_write", "device": "a", "path": "video.mov", "text": "v2, the genuine one" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_tamper", "remote": "r", "action": "corrupt_blob", "key": "video.mov" },
+      { "op": "drive_sync", "device": "b", "expect": "any" },
+      { "op": "drive_check", "check": "problem", "device": "b", "code": "hash-mismatch", "key": "video.mov" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "video.mov", "text": "v1" },
+      { "op": "drive_check", "check": "no_temp_files", "device": "b" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "two accounts in one app never see each other's files",
+    "description": "ICLOUD-011 (sync-chaos sec-never-mix-accounts): rule M2: responses are keyed by account; a file of one drive never reaches a folder paired with another.",
+    "steps": [
+      { "op": "drive_create", "remote": "mine", "encrypted": true },
+      { "op": "drive_create", "remote": "theirs", "encrypted": true },
+      { "op": "drive_open", "device": "c", "remote": "mine" },
+      { "op": "drive_open", "device": "e", "remote": "theirs" },
+      { "op": "drive_pair", "device": "c" },
+      { "op": "drive_pair", "device": "e" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "e", "path": "Videos/match.mov", "text": "a stranger's video" },
+      { "op": "drive_write", "device": "c", "path": "Videos/family.mov", "text": "our own video" },
+      { "op": "drive_sync", "device": "e" },
+      { "op": "drive_sync", "device": "c" },
+      { "op": "drive_sync", "device": "c" },
+      { "op": "drive_check", "check": "file", "device": "c", "path": "Videos/match.mov", "absent": true },
+      { "op": "drive_check", "check": "files_count", "device": "c", "glob": "Videos/*", "count": 1 },
+      { "op": "drive_check", "check": "file", "device": "e", "path": "Videos/family.mov", "absent": true },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "another account's stored object served for this file fails its authentication and is never written",
+    "description": "ICLOUD-011: a derivative from another account served to this one. Rules M2, I1 and S15: an object sealed under another drive's key fails to open; the file is listed, never written.",
+    "steps": [
+      { "op": "drive_create", "remote": "mine2", "encrypted": true },
+      { "op": "drive_create", "remote": "theirs2", "encrypted": true },
+      { "op": "drive_open", "device": "f", "remote": "mine2" },
+      { "op": "drive_open", "device": "g", "remote": "mine2" },
+      { "op": "drive_open", "device": "h", "remote": "theirs2" },
+      { "op": "drive_pair", "device": "f" },
+      { "op": "drive_pair", "device": "g" },
+      { "op": "drive_pair", "device": "h" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "h", "path": "Videos/match.mov", "text": "a stranger's video" },
+      { "op": "drive_write", "device": "f", "path": "Videos/family.mov", "text": "our own video" },
+      { "op": "drive_sync", "device": "h" },
+      { "op": "drive_sync", "device": "f" },
+      { "op": "drive_tamper", "remote": "mine2", "action": "graft_blob", "key": "Videos/family.mov", "from_remote": "theirs2", "from_key": "Videos/match.mov" },
+      { "op": "drive_sync", "device": "g", "expect": "any" },
+      { "op": "drive_check", "check": "problem", "device": "g", "code_any": ["hash-mismatch", "remote-entry-unreadable"], "key": "Videos/family.mov" },
+      { "op": "drive_check", "check": "file", "device": "g", "path": "Videos/family.mov", "absent": true },
+      { "op": "drive_check", "check": "no_temp_files", "device": "g" },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

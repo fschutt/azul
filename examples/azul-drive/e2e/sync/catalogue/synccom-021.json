@@ -1,0 +1,37 @@
+[
+  {
+    "name": "the sync state that names every file is readable by its owner only, and the encrypted drive never holds a file name",
+    "description": "SYNCCOM-021 (Sync.com): un-redacted file names were written to mobile logs and sent in crash reports. Rule S19 (sync-chaos sec-local-secrets-hygiene): state 0700/0600; I1: names never reach the server in plaintext.",
+    "steps": [
+      { "op": "drive_harness" },
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "medical/canary-diagnosis-7f3a.pdf", "text": "private" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_rm", "device": "a", "path": "medical/canary-diagnosis-7f3a.pdf" },
+      { "op": "drive_write", "device": "a", "path": "x.txt", "text": "x" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "state_private", "device": "a" },
+      { "op": "drive_check", "check": "remote_never_has", "marker": "canary-diagnosis-7f3a" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "no log, crash report or telemetry payload holds a file name",
+    "description": "SYNCCOM-021 (Sync.com): file names in logs and Sentry reports. Rule S19: file names never go into logs or crash reports.",
+    "steps": [
+      { "op": "drive_harness" },
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "medical/canary-diagnosis-7f3a.pdf", "text": "private" },
+      { "op": "drive_sync", "device": "a", "crash_at": "after-commit", "expect": "crash" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "logs_never_have", "device": "a", "marker": "canary-diagnosis-7f3a" },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

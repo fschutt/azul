@@ -3,8 +3,9 @@
 use alloc::string::{String, ToString};
 use core::num::ParseFloatError;
 
+#[cfg(feature = "codegen")]
+use crate::codegen::format::FormatAsRustCode;
 use crate::{
-    codegen::format::FormatAsRustCode,
     corety::AzString,
     props::{
         basic::{
@@ -742,6 +743,7 @@ impl PrintAsCssValue for LayoutAlignSelf {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl FormatAsRustCode for LayoutAlignSelf {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!(
@@ -847,6 +849,7 @@ impl PrintAsCssValue for LayoutFlexBasis {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl FormatAsRustCode for LayoutFlexBasis {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {

@@ -21,7 +21,7 @@ use crate::{
     text3::{
         cache::{
             BidiDirection, BidiLevel, FontManager, FontSelector, FontVariantCaps,
-            FontVariantLigatures, FontVariantNumeric, Glyph, GlyphOrientation, GlyphSource,
+            FontVariantLigatures, Glyph, GlyphOrientation, GlyphSource,
             LayoutError, LayoutFontMetrics, ParsedFontTrait, Point, ShallowClone, StyleProperties,
             TextCombineUpright, TextDecoration, TextOrientation, VerticalMetrics, WritingMode,
         },
@@ -83,6 +83,7 @@ impl PathLoader {
                 weight: rust_fontconfig::FcWeight::Normal,
                 style: crate::text3::cache::FontStyle::Normal,
                 unicode_ranges: Vec::new(),
+                optical_size: 0,
             })
         })?;
         let arc_owned = Arc::<[u8]>::from(font_bytes);
@@ -221,6 +222,19 @@ impl ParsedFontTrait for FontRef {
 
     fn get_space_width(&self) -> Option<usize> {
         crate::font_ref_to_parsed_font(self).get_space_width()
+    }
+
+    fn has_gsub_feature(&self, script: Script, tag: [u8; 4]) -> bool {
+        crate::font_ref_to_parsed_font(self)
+            .has_gsub_feature_tag(to_opentype_script_tag(script), u32::from_be_bytes(tag))
+    }
+
+    fn weight_class(&self) -> Option<u16> {
+        // 0: the face has no OS/2 table and does not say.
+        let weight = crate::font_ref_to_parsed_font(self)
+            .pdf_font_metrics
+            .us_weight_class;
+        (weight > 0).then_some(weight)
     }
 }
 
@@ -533,7 +547,7 @@ fn build_feature_mask_for_script(script: Script) -> FeatureMask {
 /// Maps the layout engine's `Script` enum to an OpenType script tag `u32`.
 #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant
                                   // (or cross-type bindings that can't merge)
-const fn to_opentype_script_tag(script: Script) -> u32 {
+pub(crate) const fn to_opentype_script_tag(script: Script) -> u32 {
     use Script::{
         Arabic, Bengali, Cyrillic, Devanagari, Ethiopic, Georgian, Greek, Gujarati, Gurmukhi,
         Hangul, Hebrew, Hiragana, Kannada, Katakana, Khmer, Latin, Malayalam, Mandarin, Myanmar,
@@ -590,6 +604,49 @@ fn parse_font_feature(feature_str: &str) -> Option<(u32, u32)> {
     Some((tag, value))
 }
 
+/// What one run is shaped with: the GSUB features the script turns on by
+/// default (`mask`), the ones the style asks for on top (`features`), and
+/// whether the face's kerning applies.
+struct FeatureSelection {
+    mask: FeatureMask,
+    features: Vec<FeatureInfo>,
+    kerning: bool,
+}
+
+/// The features a run in `script` under `style` is shaped with, the way
+/// Chrome stacks them: the script's defaults, without the optional
+/// ligatures (`liga`, `clig`) where the text is tracked (CSS Text 3 s8.2: a
+/// non-zero letter-spacing should not join letters), then the
+/// `font-variant-*` features, then `font-feature-settings`, which has the
+/// last word - `0` turns a feature off, one the script turns on by default
+/// or `kern` included, `1` or more turns it on (more picks an alternate).
+fn select_features(script: Script, style: &StyleProperties) -> FeatureSelection {
+    let mut mask = build_feature_mask_for_script(script);
+    if style.letter_spacing.resolve_px(style.font_size_px) != 0.0 {
+        mask.remove(Feature::LIGA | Feature::CLIG);
+    }
+    let mut features = Vec::new();
+    add_variant_features(style, &mut features);
+    let mut kerning = true;
+    for (tag, value) in style.font_features.iter().filter_map(|s| parse_font_feature(s)) {
+        features.retain(|f: &FeatureInfo| f.feature_tag != tag);
+        if value == 0 {
+            mask.remove(FeatureMask::from_tag(tag));
+            kerning &= tag != u32::from_be_bytes(*b"kern");
+        } else {
+            features.push(FeatureInfo {
+                feature_tag: tag,
+                alternate: (value > 1).then_some(value as usize),
+            });
+        }
+    }
+    FeatureSelection {
+        mask,
+        features,
+        kerning,
+    }
+}
+
 /// A helper to add OpenType features based on CSS `font-variant-*` properties.
 fn add_variant_features(style: &StyleProperties, features: &mut Vec<FeatureInfo>) {
     // Helper to add a feature that is simply "on".
@@ -631,17 +688,10 @@ fn add_variant_features(style: &StyleProperties, features: &mut Vec<FeatureInfo>
         FontVariantCaps::Normal => {}
     }
 
-    // Numeric
-    match style.font_variant_numeric {
-        FontVariantNumeric::LiningNums => add_on(b"lnum"),
-        FontVariantNumeric::OldstyleNums => add_on(b"onum"),
-        FontVariantNumeric::ProportionalNums => add_on(b"pnum"),
-        FontVariantNumeric::TabularNums => add_on(b"tnum"),
-        FontVariantNumeric::DiagonalFractions => add_on(b"frac"),
-        FontVariantNumeric::StackedFractions => add_on(b"afrc"),
-        FontVariantNumeric::Ordinal => add_on(b"ordn"),
-        FontVariantNumeric::SlashedZero => add_on(b"zero"),
-        FontVariantNumeric::Normal => {}
+    // Numeric: every feature the value asks for - it combines groups
+    // (`tabular-nums slashed-zero` is `tnum` AND `zero`).
+    for tag in style.font_variant_numeric.opentype_features() {
+        add_on(&tag);
     }
 }
 
@@ -749,6 +799,292 @@ const fn to_opentype_lang_tag(lang: hyphenation::Language) -> u32 {
     u32::from_be_bytes(tag_bytes)
 }
 
+/// The piece of `text` each shaped glyph stands for, as `(start, len)` in bytes.
+///
+/// The shaper does not carry source offsets, so they are rebuilt by walking the
+/// text in logical order while each glyph consumes the characters it was
+/// shaped from (a ligature carries all of its components). A glyph that a
+/// one-to-many substitution split off its letter carries a copy of the
+/// letter's characters but consumes none: it belongs to the letter it came
+/// from, which the shaper keeps right before it, in a right-to-left run too.
+/// A glyph without characters consumes nothing and belongs to the character
+/// it stands in front of. So does a dotted circle the shaper inserted to carry
+/// a broken syllable (see [`inserted_dotted_circle`]), except when the shaper
+/// moved the vowel sign it carries in front of it: then it belongs to that.
+fn source_spans(infos: &[gpos::Info], text: &str) -> Vec<(usize, usize)> {
+    let mut spans = Vec::with_capacity(infos.len());
+    let mut cursor = 0usize;
+    // Where the last glyph that consumed text starts.
+    let mut last_start: Option<usize> = None;
+    for info in infos {
+        let start = cursor.min(text.len());
+        let rest = text.get(start..).unwrap_or("");
+        let consumed_before = last_start.and_then(|s| text.get(s..start)).unwrap_or("");
+        let inserted = inserted_dotted_circle(&info.glyph.unicodes, rest, consumed_before);
+        let len: usize = info
+            .glyph
+            .unicodes
+            .iter()
+            .skip(usize::from(inserted))
+            .map(|c| c.len_utf8())
+            .sum();
+        if info.glyph.multi_subst_dup() {
+            spans.push((last_start.unwrap_or(start), 0));
+        } else if len == 0 {
+            let at = match last_start {
+                Some(before)
+                    if inserted && !rest.chars().next().is_some_and(continues_a_character) =>
+                {
+                    before
+                }
+                _ => start,
+            };
+            spans.push((at, 0));
+        } else {
+            cursor = (cursor + len).min(text.len());
+            last_start = Some(start);
+            spans.push((start, len));
+        }
+    }
+    spans
+}
+
+/// Whether a glyph's first character is a dotted circle (U+25CC) the shaper
+/// inserted to carry a vowel sign or mark that has no base, rather than one
+/// of the text.
+///
+/// The text has no dotted circle where the glyph is then: not at the cursor
+/// (`rest`), and not in what the glyph before consumed (`consumed_before`),
+/// which is where the text's own dotted circle went when the shaper moved a
+/// vowel sign drawn before its base in front of it.
+fn inserted_dotted_circle(unicodes: &[char], rest: &str, consumed_before: &str) -> bool {
+    unicodes.first() == Some(&allsorts::DOTTED_CIRCLE)
+        && !rest.starts_with(allsorts::DOTTED_CIRCLE)
+        && !consumed_before.contains(allsorts::DOTTED_CIRCLE)
+}
+
+/// Whether `ch` continues the character before it instead of starting one of
+/// its own, as a combining mark or a vowel sign does, by the grapheme rules.
+fn continues_a_character(ch: char) -> bool {
+    use unicode_segmentation::UnicodeSegmentation;
+    let mut pair = String::with_capacity(8);
+    pair.push('a');
+    pair.push(ch);
+    pair.graphemes(true).nth(1).is_none()
+}
+
+/// How far one glyph moves the pen and where it is drawn from the pen.
+///
+/// Pixels, with y pointing up.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct GlyphPlacement {
+    advance: f32,
+    offset_x: f32,
+    offset_y: f32,
+}
+
+/// Where GPOS puts each glyph, also the ones it attaches to other glyphs:
+/// marks on their base or on another mark, overprinting marks and cursive
+/// joins.
+///
+/// `advances` are the glyphs' own pen advances and `kernings` what the pen
+/// moves on top of them, both in pixels, and `scale` turns font units into
+/// pixels. An offset counts from where the pen stands at the glyph while the
+/// glyphs are drawn in visual order, which for a right-to-left run is `infos`
+/// backwards: a mark that follows its base in `infos` is drawn before it.
+#[allow(clippy::cast_precision_loss)] // GPOS distances are font units, far inside f32's exact range
+fn resolve_placements(
+    infos: &[gpos::Info],
+    advances: &[f32],
+    kernings: &[f32],
+    scale: f32,
+    direction: BidiDirection,
+) -> Vec<GlyphPlacement> {
+    let units = |value: i16| f32::from(value) * scale;
+    let mut placed: Vec<GlyphPlacement> = infos
+        .iter()
+        .zip(advances)
+        .map(|(info, &advance)| {
+            let (offset_x, offset_y) = match info.placement {
+                gpos::Placement::Distance(x, y) => (x as f32 * scale, y as f32 * scale),
+                // The mark's anchor onto its base's, counted from the base's
+                // origin, which `attach_marks` adds once the bases are placed.
+                gpos::Placement::MarkAnchor(_, base_anchor, mark_anchor) => (
+                    units(base_anchor.x) - units(mark_anchor.x),
+                    units(base_anchor.y) - units(mark_anchor.y),
+                ),
+                gpos::Placement::None
+                | gpos::Placement::MarkOverprint(_)
+                | gpos::Placement::CursiveAnchor(..) => (0.0, 0.0),
+            };
+            GlyphPlacement {
+                advance,
+                offset_x,
+                offset_y,
+            }
+        })
+        .collect();
+    join_cursive(infos, &mut placed, scale, direction);
+    attach_marks(infos, &mut placed, kernings, direction);
+    placed
+}
+
+/// Joins the glyphs a cursive attachment links, the exit anchor of one onto
+/// the entry anchor of the next.
+///
+/// Along the line the advances between the two anchors change so the pen goes
+/// from the exit straight to the entry. Across the line one glyph of the pair
+/// moves: with the lookup's right-to-left flag the first one, so a chain hangs
+/// from its last glyph, without it the second one. A glyph that moves takes
+/// along every glyph that hangs from it.
+fn join_cursive(
+    infos: &[gpos::Info],
+    placed: &mut [GlyphPlacement],
+    scale: f32,
+    direction: BidiDirection,
+) {
+    let units = |value: i16| f32::from(value) * scale;
+    // The glyph each glyph hangs from across the line.
+    let mut parents: Vec<Option<usize>> = vec![None; placed.len()];
+    let mut joined = false;
+    for (first, info) in infos.iter().enumerate().take(placed.len()) {
+        let gpos::Placement::CursiveAnchor(second, right_to_left, entry, exit) = info.placement
+        else {
+            continue;
+        };
+        if second <= first || second >= placed.len() {
+            continue;
+        }
+        joined = true;
+        if direction.is_rtl() {
+            let shift = units(exit.x) + placed[first].offset_x;
+            placed[first].advance -= shift;
+            placed[first].offset_x -= shift;
+            placed[second].advance = units(entry.x) + placed[second].offset_x;
+        } else {
+            placed[first].advance = units(exit.x) + placed[first].offset_x;
+            let shift = units(entry.x) + placed[second].offset_x;
+            placed[second].advance -= shift;
+            placed[second].offset_x -= shift;
+        }
+        let (child, hangs_from, rise) = if right_to_left {
+            (first, second, units(entry.y) - units(exit.y))
+        } else {
+            (second, first, units(exit.y) - units(entry.y))
+        };
+        reverse_cursive_chain(&mut parents, placed, child, hangs_from);
+        parents[child] = Some(hangs_from);
+        placed[child].offset_y = rise;
+    }
+    if joined {
+        settle_cursive_chains(&parents, placed);
+    }
+}
+
+/// Turns the chain `child` already hangs from around before `child` hangs
+/// from `new_parent`, so the glyphs it hung from hang from it instead.
+fn reverse_cursive_chain(
+    parents: &mut [Option<usize>],
+    placed: &mut [GlyphPlacement],
+    child: usize,
+    new_parent: usize,
+) {
+    if parents[child].is_none() {
+        return;
+    }
+    // The old chain upwards from `child`, up to its top or to `new_parent`.
+    let mut chain = vec![child];
+    let mut node = child;
+    while let Some(above) = parents[node].take() {
+        if above == new_parent {
+            break;
+        }
+        chain.push(above);
+        node = above;
+    }
+    // Each glyph now hangs from the one that hung from it, by the opposite
+    // of that glyph's rise; the top of the old chain goes first, while the
+    // rises below it are still the old ones.
+    for pair in chain.windows(2).rev() {
+        let (below, above) = (pair[0], pair[1]);
+        parents[above] = Some(below);
+        placed[above].offset_y = -placed[below].offset_y;
+    }
+}
+
+/// Adds to each glyph that hangs from another the offset across the line of
+/// the one it hangs from, down each chain from the glyph it hangs from last.
+fn settle_cursive_chains(parents: &[Option<usize>], placed: &mut [GlyphPlacement]) {
+    let mut settled = vec![false; placed.len()];
+    let mut path = Vec::new();
+    for start in 0..placed.len() {
+        // Climb to a glyph whose offset is final: a settled one or one that
+        // hangs from nothing. The length check stops a chain that loops.
+        let mut node = start;
+        while !settled[node] {
+            path.push(node);
+            match parents[node] {
+                Some(above) if path.len() <= placed.len() => node = above,
+                _ => break,
+            }
+        }
+        // Then settle the glyphs on the way back down.
+        while let Some(below) = path.pop() {
+            if let Some(above) = parents[below] {
+                if settled[above] {
+                    placed[below].offset_y += placed[above].offset_y;
+                }
+            }
+            settled[below] = true;
+        }
+    }
+}
+
+/// Puts each mark at its base's origin plus the offset its anchors give it,
+/// and an overprinting mark onto its base with no advance of its own.
+///
+/// A base comes before its mark in `infos`, so it is placed by the time its
+/// mark is, also when the base is a mark itself. Left to right the pen has
+/// passed the base and the glyphs between them when it reaches the mark;
+/// right to left it reaches the mark first and still has the mark and the
+/// glyphs between them to pass before the base.
+fn attach_marks(
+    infos: &[gpos::Info],
+    placed: &mut [GlyphPlacement],
+    kernings: &[f32],
+    direction: BidiDirection,
+) {
+    /// How far the pen moves over `glyphs`.
+    fn pen_moves(
+        placed: &[GlyphPlacement],
+        kernings: &[f32],
+        glyphs: impl Iterator<Item = usize>,
+    ) -> f32 {
+        glyphs
+            .map(|index| placed[index].advance + kernings.get(index).copied().unwrap_or(0.0))
+            .sum()
+    }
+    for (mark, info) in infos.iter().enumerate().take(placed.len()) {
+        match info.placement {
+            gpos::Placement::MarkAnchor(base, ..) if base < mark => {
+                let pen_to_base = if direction.is_rtl() {
+                    pen_moves(placed, kernings, base + 1..=mark)
+                } else {
+                    -pen_moves(placed, kernings, base..mark)
+                };
+                placed[mark].offset_x += placed[base].offset_x + pen_to_base;
+                placed[mark].offset_y += placed[base].offset_y;
+            }
+            gpos::Placement::MarkOverprint(base) if base < mark => {
+                placed[mark].advance = 0.0;
+                placed[mark].offset_x = placed[base].offset_x;
+                placed[mark].offset_y = placed[base].offset_y;
+            }
+            _ => {}
+        }
+    }
+}
+
 /// Internal shaping implementation - the single source of truth for text shaping.
 /// Both `FontRef` and `ParsedFont` use this function.
 #[allow(
@@ -773,24 +1109,13 @@ fn shape_text_internal(
     #[cfg(not(feature = "text_layout_hyphenation"))]
     let lang_tag = 0u32;
 
-    // +spec:text-alignment-spacing:4357e6 - non-zero letter-spacing should disable optional
-    // ligatures; allsorts API is additive-only so default liga cannot be disabled here
     // +spec:text-alignment-spacing:24d624 - cursive script letter-spacing behavior is advisory
     // (outside CSS scope per spec note)
-    let mut user_features: Vec<FeatureInfo> = style
-        .font_features
-        .iter()
-        .filter_map(|s| parse_font_feature(s))
-        .map(|(tag, value)| FeatureInfo {
-            feature_tag: tag,
-            alternate: if value > 1 {
-                Some(value as usize)
-            } else {
-                None
-            },
-        })
-        .collect();
-    add_variant_features(style, &mut user_features);
+    let FeatureSelection {
+        mask: feature_mask,
+        features: user_features,
+        kerning: apply_kerning,
+    } = select_features(script, style);
 
     let opt_gdef = parsed_font.opt_gdef_table.as_deref();
 
@@ -833,7 +1158,6 @@ fn shape_text_internal(
         // replaced the mask with `empty()` whenever ANY font-feature/font-variant
         // was set, which silently disabled default ligatures/contextual-alternates
         // for Latin-family text (ScriptType::Default only re-adds CCMP|RLIG|LOCL).
-        let feature_mask = build_feature_mask_for_script(script);
         let custom_features: &[FeatureInfo] = user_features.as_slice();
 
         let dotted_circle_index = parsed_font
@@ -861,8 +1185,6 @@ fn shape_text_internal(
             .opt_kern_table
             .as_ref()
             .map(|kt| kt.as_borrowed());
-        let apply_kerning = true; // Always enable GPOS kern feature (not just when legacy kern
-                                  // table exists)
         gpos::apply(
             gpos,
             opt_gdef,
@@ -885,8 +1207,10 @@ fn shape_text_internal(
             .opt_kern_table
             .as_ref()
             .map(|kt| kt.as_borrowed());
-        gpos::apply_fallback(kern_table, script_tag, &mut infos)
-            .map_err(|e| LayoutError::ShapingError(e.to_string()))?;
+        if apply_kerning {
+            gpos::apply_fallback(kern_table, script_tag, &mut infos)
+                .map_err(|e| LayoutError::ShapingError(e.to_string()))?;
+        }
     }
 
     let font_size = style.font_size_px;
@@ -896,6 +1220,13 @@ fn shape_text_internal(
         FALLBACK_SCALE
     };
 
+    // The face's own tracking at this size (its AAT `trak` table: Apple's
+    // system faces), as CoreText and Chrome add it to each glyph's advance.
+    let tracking = parsed_font
+        .tracking
+        .as_ref()
+        .map_or(0.0, |t| t.at(font_size) * scale_factor);
+
     let font_hash = parsed_font.get_hash();
     let font_metrics = LayoutFontMetrics {
         ascent: parsed_font.font_metrics.ascent,
@@ -904,37 +1235,15 @@ fn shape_text_internal(
         units_per_em: parsed_font.font_metrics.units_per_em,
         x_height: parsed_font.font_metrics.x_height,
         cap_height: parsed_font.font_metrics.cap_height,
+        browser_ascent_boost: parsed_font.font_metrics.browser_ascent_boost,
     };
     let style_arc = Arc::new(style.clone());
     let bidi_level = BidiLevel::new(u8::from(direction.is_rtl()));
 
-    let mut shaped_glyphs = Vec::new();
-    // Reconstruct source byte spans by walking the source text in logical order,
-    // consuming each glyph's `unicodes`. This replaces the removed liga_component_pos
-    // byte-offset overload. A ligature glyph carries ALL of its component chars in
-    // `unicodes`, so its span covers every merged component (fixing the ligature
-    // logical_byte_len that previously reported only the first component's length).
-    // Multiple-substitution duplicates (MULTI_SUBST_DUP) and unicode-less inserted
-    // glyphs share the current cursor position and do not advance it.
-    let mut byte_cursor = 0usize;
-    for info in &infos {
-        let uni_len: usize = info.glyph.unicodes.iter().map(|c| c.len_utf8()).sum();
-        let (byte_index, byte_len) = if info.glyph.multi_subst_dup() || uni_len == 0 {
-            (byte_cursor.min(text.len()), 0)
-        } else {
-            let start = byte_cursor.min(text.len());
-            byte_cursor = (byte_cursor + uni_len).min(text.len());
-            (start, uni_len)
-        };
-        let cluster = byte_index as u32;
-        let source_char = info
-            .glyph
-            .unicodes
-            .first()
-            .copied()
-            .or_else(|| text.get(byte_index..).and_then(|s| s.chars().next()))
-            .unwrap_or('\u{FFFD}');
-
+    let spans = source_spans(&infos, text);
+    // Each glyph's own advance, before GPOS attaches glyphs to each other.
+    let mut advances = Vec::with_capacity(infos.len());
+    for (info, &(_, byte_len)) in infos.iter().zip(&spans) {
         let base_advance = parsed_font.get_horizontal_advance(info.glyph.glyph_index);
         // Layout uses LINEAR (design-space) advances, like Chrome/Blink and
         // CoreText: with sub-pixel text positioning the rasterizer places
@@ -971,16 +1280,33 @@ fn shape_text_internal(
                     |hinted| hinted * font_size / f32::from(ppem),
                 )
         };
-        let kerning = f32::from(info.kerning) * scale_factor;
+        // Tracking goes on every glyph that starts a piece of the text and
+        // has an advance of its own - not on a zero-width mark, nor on a
+        // multiple-substitution duplicate (HarfBuzz tracks per grapheme).
+        advances.push(if byte_len > 0 && base_advance > 0 {
+            advance + tracking
+        } else {
+            advance
+        });
+    }
+    let kernings: Vec<f32> = infos
+        .iter()
+        .map(|info| f32::from(info.kerning) * scale_factor)
+        .collect();
+    let placements = resolve_placements(&infos, &advances, &kernings, scale_factor, direction);
 
-        let (offset_x_units, offset_y_units) =
-            if let gpos::Placement::Distance(x, y) = info.placement {
-                (x, y)
-            } else {
-                (0, 0)
-            };
-        let offset_x = offset_x_units as f32 * scale_factor;
-        let offset_y = offset_y_units as f32 * scale_factor;
+    let mut shaped_glyphs = Vec::with_capacity(infos.len());
+    for (((info, &(byte_index, byte_len)), placement), &kerning) in
+        infos.iter().zip(&spans).zip(&placements).zip(&kernings)
+    {
+        let cluster = byte_index as u32;
+        let source_char = info
+            .glyph
+            .unicodes
+            .first()
+            .copied()
+            .or_else(|| text.get(byte_index..).and_then(|s| s.chars().next()))
+            .unwrap_or('\u{FFFD}');
 
         let vert = parsed_font.get_vertical_metrics(info.glyph.glyph_index);
         let glyph = Glyph {
@@ -994,11 +1320,11 @@ fn shape_text_internal(
             logical_byte_len: byte_len,
             content_index: 0,
             cluster,
-            advance,
+            advance: placement.advance,
             kerning,
             offset: Point {
-                x: offset_x,
-                y: offset_y,
+                x: placement.offset_x,
+                y: placement.offset_y,
             },
             vertical_advance: vert.as_ref().map_or(0.0, |v| v.advance * font_size),
             vertical_origin_y: vert.as_ref().map_or(0.0, |v| v.origin_y * font_size),
@@ -2200,6 +2526,37 @@ mod autotest_generated {
     // add_variant_features (other)
     // -----------------------------------------------------------------
 
+    /// `font-variant-numeric` (CSS Fonts 4 s6.7) reaches the shaper: the text
+    /// under `tabular-nums slashed-zero` is shaped with the OpenType `tnum`
+    /// and `zero` features - the figures of a time column line up. The
+    /// property did not exist: the declaration was dropped as unknown and
+    /// every digit kept its proportional advance (AzMusic's durations).
+    #[test]
+    fn a_run_under_font_variant_numeric_tabular_nums_is_shaped_with_tnum() {
+        use azul_core::{
+            dom::{Dom, NodeId},
+            styled_dom::StyledDom,
+        };
+
+        let mut dom = Dom::create_body().with_child(
+            Dom::create_p_with_text("10:41")
+                .with_css("font-variant-numeric: tabular-nums slashed-zero;"),
+        );
+        let styled = StyledDom::create(&mut dom, azul_css::css::Css::empty());
+        // body (0) > p (1) > text (2): the text inherits it from the <p>.
+        let style = crate::solver3::getters::get_style_properties(
+            &styled,
+            NodeId::new(2),
+            None,
+            azul_css::props::basic::PhysicalSize::new(800.0, 600.0),
+        );
+        let mut features = Vec::new();
+        add_variant_features(&style, &mut features);
+        let tags: Vec<[u8; 4]> = features.iter().map(|f| f.feature_tag.to_be_bytes()).collect();
+        assert!(tags.contains(b"tnum"), "tabular-nums must shape with `tnum`: {tags:?}");
+        assert!(tags.contains(b"zero"), "slashed-zero must shape with `zero`: {tags:?}");
+    }
+
     #[test]
     fn add_variant_features_maps_css_variants_to_opentype_tags() {
         let tags = |style: &StyleProperties| -> Vec<u32> {
@@ -2232,7 +2589,10 @@ mod autotest_generated {
 
         let combined = StyleProperties {
             font_variant_ligatures: FontVariantLigatures::Discretionary,
-            font_variant_numeric: FontVariantNumeric::TabularNums,
+            font_variant_numeric: crate::text3::cache::FontVariantNumeric {
+                tabular_nums: true,
+                ..Default::default()
+            },
             font_variant_caps: FontVariantCaps::TitlingCaps,
             ..StyleProperties::default()
         };
@@ -2270,16 +2630,31 @@ mod autotest_generated {
             FontVariantCaps::Unicase,
             FontVariantCaps::TitlingCaps,
         ];
+        use crate::text3::cache::FontVariantNumeric;
+        let one = |set: fn(&mut FontVariantNumeric)| {
+            let mut value = FontVariantNumeric::NORMAL;
+            set(&mut value);
+            value
+        };
         let numeric = [
-            FontVariantNumeric::Normal,
-            FontVariantNumeric::LiningNums,
-            FontVariantNumeric::OldstyleNums,
-            FontVariantNumeric::ProportionalNums,
-            FontVariantNumeric::TabularNums,
-            FontVariantNumeric::DiagonalFractions,
-            FontVariantNumeric::StackedFractions,
-            FontVariantNumeric::Ordinal,
-            FontVariantNumeric::SlashedZero,
+            FontVariantNumeric::NORMAL,
+            one(|v| v.lining_nums = true),
+            one(|v| v.oldstyle_nums = true),
+            one(|v| v.proportional_nums = true),
+            one(|v| v.tabular_nums = true),
+            one(|v| v.diagonal_fractions = true),
+            one(|v| v.stacked_fractions = true),
+            one(|v| v.ordinal = true),
+            one(|v| v.slashed_zero = true),
+            // The widest value the grammar allows: one per group, both flags.
+            FontVariantNumeric {
+                oldstyle_nums: true,
+                tabular_nums: true,
+                stacked_fractions: true,
+                ordinal: true,
+                slashed_zero: true,
+                ..FontVariantNumeric::NORMAL
+            },
         ];
 
         // a pre-existing feature must survive: the helper appends, never clears
@@ -2300,9 +2675,10 @@ mod autotest_generated {
                     add_variant_features(&style, &mut features);
                     assert_eq!(features[0].feature_tag, sentinel.feature_tag);
                     assert_eq!(features[0].alternate, Some(7));
-                    // at most 2 (caps) + 1 (ligature) + 1 (numeric) new tags
+                    // at most 2 (caps) + 1 (ligature) + 5 (numeric: one per
+                    // group, ordinal, slashed-zero) new tags
                     assert!(
-                        features.len() <= 5,
+                        features.len() <= 9,
                         "{l:?}/{c:?}/{n:?} emitted too many features"
                     );
                     for f in &features[1..] {
@@ -2422,5 +2798,165 @@ mod autotest_generated {
         // shallow_clone shares the same underlying face
         let cloned = font_ref.shallow_clone();
         assert_eq!(cloned.get_hash(), font_ref.get_hash());
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::float_cmp)] // the placements are sums of small whole numbers, exact in f32
+mod gpos_attachments {
+    use allsorts::{gpos, gsub, layout::Anchor};
+
+    use super::{resolve_placements, GlyphPlacement};
+    use crate::text3::cache::BidiDirection;
+
+    /// `count` plain glyphs, as the shaper hands them to positioning.
+    fn infos(count: u16) -> Vec<gpos::Info> {
+        let glyphs = (1..=count)
+            .map(|glyph_index| gsub::RawGlyph {
+                unicodes: tinyvec::tiny_vec![[char; 1] => 'a'],
+                glyph_index,
+                liga_component_pos: 0,
+                glyph_origin: gsub::GlyphOrigin::Char('a'),
+                flags: gsub::RawGlyphFlags::empty(),
+                extra_data: (),
+                variation: None,
+            })
+            .collect();
+        gpos::Info::init_from_glyphs(None, glyphs)
+    }
+
+    const fn anchor(x: i16, y: i16) -> Anchor {
+        Anchor { x, y }
+    }
+
+    /// The placements at one pixel per font unit, with no kerning.
+    fn place(
+        infos: &[gpos::Info],
+        advances: &[f32],
+        direction: BidiDirection,
+    ) -> Vec<GlyphPlacement> {
+        resolve_placements(infos, advances, &vec![0.0; advances.len()], 1.0, direction)
+    }
+
+    fn offsets(placed: &[GlyphPlacement]) -> Vec<(f32, f32)> {
+        placed.iter().map(|p| (p.offset_x, p.offset_y)).collect()
+    }
+
+    fn advances(placed: &[GlyphPlacement]) -> Vec<f32> {
+        placed.iter().map(|p| p.advance).collect()
+    }
+
+    #[test]
+    fn a_mark_left_to_right_steps_back_over_its_base() {
+        // The pen has passed the 500-unit base when it reaches the mark.
+        let mut infos = infos(2);
+        infos[1].placement = gpos::Placement::MarkAnchor(0, anchor(300, 700), anchor(50, 0));
+        let placed = place(&infos, &[500.0, 0.0], BidiDirection::Ltr);
+        assert_eq!(
+            offsets(&placed)[1],
+            (250.0 - 500.0, 700.0),
+            "the mark's anchor should land on the base's, 500 units back"
+        );
+    }
+
+    #[test]
+    fn a_mark_right_to_left_lands_on_its_base_without_stepping_back() {
+        // Drawn right to left the mark comes first, at the base's pen position.
+        let mut infos = infos(2);
+        infos[1].placement = gpos::Placement::MarkAnchor(0, anchor(300, 700), anchor(50, 0));
+        let placed = place(&infos, &[500.0, 0.0], BidiDirection::Rtl);
+        assert_eq!(
+            offsets(&placed)[1],
+            (250.0, 700.0),
+            "the mark's anchor should land on the base's"
+        );
+    }
+
+    #[test]
+    fn a_mark_on_a_mark_adds_the_offset_of_the_mark_below_it() {
+        // Noto Sans Arabic's "بِ": the dot hangs on the beh, the kasra on the dot.
+        let mut infos = infos(3);
+        infos[1].placement = gpos::Placement::MarkAnchor(0, anchor(486, -25), anchor(76, -2));
+        infos[2].placement = gpos::Placement::MarkAnchor(1, anchor(76, -188), anchor(142, 0));
+        let placed = place(&infos, &[993.0, 0.0, 0.0], BidiDirection::Rtl);
+        assert_eq!(
+            offsets(&placed),
+            [(0.0, 0.0), (410.0, -23.0), (344.0, -211.0)],
+            "the kasra should hang from the dot where the dot itself hangs"
+        );
+    }
+
+    #[test]
+    fn an_overprinting_mark_takes_its_bases_offset_and_gives_up_its_advance() {
+        let mut infos = infos(2);
+        infos[0].placement = gpos::Placement::Distance(10, 20);
+        infos[1].placement = gpos::Placement::MarkOverprint(0);
+        let placed = place(&infos, &[500.0, 300.0], BidiDirection::Ltr);
+        assert_eq!(offsets(&placed)[1], (10.0, 20.0), "the mark should move with its base");
+        assert_eq!(advances(&placed)[1], 0.0, "the mark should not move the pen");
+    }
+
+    #[test]
+    fn a_right_to_left_cursive_chain_hangs_from_its_last_glyph() {
+        // Three glyphs joined exit to entry under a right-to-left lookup:
+        // each glyph moves onto the next one, the last stays on the baseline,
+        // so the first carries both rises. Drawn right to left (glyph 2 at
+        // pen 0, glyph 1 at 380, glyph 0 at 760) every exit then meets the
+        // entry it joins: (380, 50) and (760, 50).
+        let mut infos = infos(3);
+        infos[0].placement =
+            gpos::Placement::CursiveAnchor(1, true, anchor(400, 100), anchor(0, 130));
+        infos[1].placement =
+            gpos::Placement::CursiveAnchor(2, true, anchor(380, 50), anchor(20, 100));
+        let placed = place(&infos, &[500.0, 400.0, 380.0], BidiDirection::Rtl);
+        assert_eq!(
+            offsets(&placed),
+            [(0.0, -80.0), (-20.0, -50.0), (0.0, 0.0)],
+            "each glyph should rise onto the entry of the one after it"
+        );
+        assert_eq!(
+            advances(&placed),
+            [500.0, 380.0, 380.0],
+            "the pen should go from each entry straight to the exit it joins"
+        );
+    }
+
+    #[test]
+    fn a_left_to_right_cursive_chain_hangs_from_its_first_glyph() {
+        // The same chain left to right without the right-to-left flag: each
+        // glyph moves onto the one before it. Drawn at pens 0, 480 and 860,
+        // every entry meets the exit it joins: (480, 130) and (860, 130).
+        let mut infos = infos(3);
+        infos[0].placement =
+            gpos::Placement::CursiveAnchor(1, false, anchor(10, 100), anchor(480, 130));
+        infos[1].placement =
+            gpos::Placement::CursiveAnchor(2, false, anchor(0, 50), anchor(390, 100));
+        let placed = place(&infos, &[500.0, 400.0, 380.0], BidiDirection::Ltr);
+        assert_eq!(
+            offsets(&placed),
+            [(0.0, 0.0), (-10.0, 30.0), (0.0, 80.0)],
+            "each glyph should rise onto the exit of the one before it"
+        );
+        assert_eq!(
+            advances(&placed),
+            [480.0, 380.0, 380.0],
+            "the pen should go from each exit straight to the entry it joins"
+        );
+    }
+
+    #[test]
+    fn a_mark_on_a_cursively_joined_letter_moves_with_the_letter() {
+        // Glyph 0 joins glyph 2 (the join skips the mark between them) and
+        // goes 30 units down; its mark goes down with it.
+        let mut infos = infos(3);
+        infos[0].placement =
+            gpos::Placement::CursiveAnchor(2, true, anchor(400, 100), anchor(0, 130));
+        infos[1].placement = gpos::Placement::MarkAnchor(0, anchor(250, 600), anchor(50, 0));
+        let placed = place(&infos, &[500.0, 0.0, 400.0], BidiDirection::Rtl);
+        assert_eq!(
+            offsets(&placed)[1],
+            (200.0, 570.0),
+            "the mark should sit on its letter after the letter moved"
+        );
     }
 }

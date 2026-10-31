@@ -1,0 +1,27 @@
+{
+  "name": "a device without the drive key (a forgotten passphrase) changes nothing; the recovery code gives every file back",
+  "description": "DEGOO-011 (sync-chaos crypto-keys-and-recovery): Degoo's Top Secret files were lost for good with a forgotten passphrase. Rules I1 and D5: the recovery code made at the drive's creation unwraps the drive key, every encrypted file decrypts again; a device without the key reads nothing and deletes nothing meanwhile.",
+  "steps": [
+    { "op": "drive_create", "remote": "r", "encrypted": true },
+    { "op": "drive_open", "device": "a", "remote": "r" },
+    { "op": "drive_pair", "device": "a" },
+    { "op": "drive_wait_idle" },
+    { "op": "drive_write", "device": "a", "path": "Top Secret/passport.pdf", "size": 50000, "seed": 46 },
+    { "op": "drive_write", "device": "a", "path": "Top Secret/notes.txt", "text": "only for me" },
+    { "op": "drive_sync", "device": "a" },
+    { "op": "drive_open", "device": "c", "remote": "r", "joined": false },
+    { "op": "drive_pair", "device": "c" },
+    { "op": "drive_wait_idle", "device": "c" },
+    { "op": "drive_sync", "device": "c", "expect": "any" },
+    { "op": "drive_check", "check": "problem", "device": "c", "code_any": ["sign-in-needed", "remote-index-unreadable", "remote-entry-unreadable"] },
+    { "op": "drive_check", "check": "files_count", "device": "c", "count": 0 },
+    { "op": "drive_check", "check": "remote_count", "count": 2 },
+    { "op": "drive_check", "check": "file", "device": "a", "path": "Top Secret/notes.txt", "text": "only for me" },
+    { "op": "drive_recover", "device": "c" },
+    { "op": "drive_sync", "device": "c" },
+    { "op": "drive_check", "check": "file", "device": "c", "path": "Top Secret/notes.txt", "text": "only for me" },
+    { "op": "drive_check", "check": "file", "device": "c", "path": "Top Secret/passport.pdf", "same_as": "{root:a}/Top Secret/passport.pdf" },
+    { "op": "drive_check", "check": "remote_never_has", "marker": "only for me" },
+    { "op": "drive_cleanup" }
+  ]
+}

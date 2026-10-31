@@ -1,0 +1,59 @@
+[
+  {
+    "name": "after an update with a stale sign-in the device says 'sign in again' and keeps its own tree: never empty, never acting on it",
+    "description": "MAGENTA-007 (MagentaCLOUD iOS app after an update): after forced re-logins the app showed none of the user's files, only two folders 'that are not mine'. Rules E6, D6 and M2: a refused sign-in is a named state (sign-in-needed), the tree here stays as it was, and nothing is deleted or downloaded until the drive answers for this account. sync-chaos mobile-restore, sec-never-mix-accounts.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": true },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "docs/one.txt", "text": "one" },
+      { "op": "drive_write", "device": "a", "path": "docs/two.txt", "text": "two" },
+      { "op": "drive_write", "device": "a", "path": "docs/three.txt", "text": "three" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_fault", "device": "a", "auth_failed": true },
+      { "op": "drive_restart", "device": "a" },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "sign-in-needed", "when": "last" },
+      { "op": "drive_check", "check": "files_count", "device": "a", "glob": "docs/*", "count": 3 },
+      { "op": "drive_check", "check": "trash_empty", "device": "a" },
+      { "op": "drive_status", "device": "a" },
+      { "op": "assert_response", "path": "result.status", "not_contains": "up-to-date" },
+      { "op": "drive_fault", "device": "a", "clear": true },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "assert_response", "path": "result.up", "equals": 0 },
+      { "op": "assert_response", "path": "result.down", "equals": 0 },
+      { "op": "drive_check", "check": "files_count", "device": "a", "glob": "docs/*", "count": 3 },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "two accounts on one computer, both restarted: each folder holds only its own account's files",
+    "description": "MAGENTA-007: another account's folders shown after an update. Rule M2: responses are keyed by account and a foreign one never reaches a folder.",
+    "steps": [
+      { "op": "drive_create", "remote": "r1" },
+      { "op": "drive_create", "remote": "r2" },
+      { "op": "drive_open", "device": "a", "remote": "r1" },
+      { "op": "drive_open", "device": "c", "remote": "r2" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "c" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "mine.txt", "text": "account one" },
+      { "op": "drive_write", "device": "c", "path": "theirs.txt", "text": "account two" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "c" },
+      { "op": "drive_restart", "device": "a" },
+      { "op": "drive_restart", "device": "c" },
+      { "op": "drive_tamper", "remote": "r2", "action": "put", "key": "new-in-two.txt", "text": "only for account two" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "c" },
+      { "op": "drive_check", "check": "file", "device": "a", "path": "theirs.txt", "absent": true },
+      { "op": "drive_check", "check": "file", "device": "a", "path": "new-in-two.txt", "absent": true },
+      { "op": "drive_check", "check": "file", "device": "c", "path": "new-in-two.txt", "text": "only for account two" },
+      { "op": "drive_check", "check": "file", "device": "c", "path": "mine.txt", "absent": true },
+      { "op": "drive_check", "check": "remote_file", "remote": "r1", "key": "new-in-two.txt", "absent": true },
+      { "op": "drive_check", "check": "remote_file", "remote": "r2", "key": "mine.txt", "absent": true },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

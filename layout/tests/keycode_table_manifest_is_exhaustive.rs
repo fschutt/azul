@@ -36,9 +36,11 @@
 //! These are real per-platform gaps, not artifacts of the manifest. They are
 //! recorded as `0` so they are visible in a diff the moment someone closes one:
 //!
-//! - **F13..F24 are macOS-and-X11 dead.** Only Win32 maps them. macOS has the keycodes (`0x69` F13,
-//!   `0x6B` F14, `0x71` F15, `0x6A` F16, `0x40` F17 ...) and X11 has `XK_F13..XK_F24`
-//!   (`0xFFCA..0xFFD5`); neither table lists them.
+//! - **F21..F24 are macOS-dead, and F13..F24 X11-dead.** Win32 maps all of them. macOS maps F13..F20
+//!   (`0x69` F13, `0x6B` F14, `0x71` F15, `0x6A` F16, `0x40` F17, `0x4F` F18, `0x50` F19, `0x5A`
+//!   F20 - Apple keyboards stop at F19/F20, and the Carbon global-hotkey backend inverts this table,
+//!   so a missing arm read `KeyNotMappable` for the common summon key F13). X11 has
+//!   `XK_F13..XK_F24` (`0xFFCA..0xFFD5`), which its table does not list.
 //! - **Win32 has no `NumpadEnter` and no `NumpadEquals`.** Win32 delivers the keypad Enter as
 //!   `VK_RETURN` with the extended-key bit set in `lParam`, so it arrives as plain `Return` and
 //!   nothing can tell the two apart.
@@ -149,14 +151,14 @@ const MANIFEST: &[(&str, u8, u8, u8)] = &[
     ("F10",                1,   1,   1),
     ("F11",                1,   1,   1),
     ("F12",                1,   1,   1),
-    ("F13",                0,   0,   1),
-    ("F14",                0,   0,   1),
-    ("F15",                0,   0,   1),
-    ("F16",                0,   0,   1),
-    ("F17",                0,   0,   1),
-    ("F18",                0,   0,   1),
-    ("F19",                0,   0,   1),
-    ("F20",                0,   0,   1),
+    ("F13",                1,   0,   1),
+    ("F14",                1,   0,   1),
+    ("F15",                1,   0,   1),
+    ("F16",                1,   0,   1),
+    ("F17",                1,   0,   1),
+    ("F18",                1,   0,   1),
+    ("F19",                1,   0,   1),
+    ("F20",                1,   0,   1),
     ("F21",                0,   0,   1),
     ("F22",                0,   0,   1),
     ("F23",                0,   0,   1),

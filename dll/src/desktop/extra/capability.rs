@@ -35,6 +35,41 @@ pub struct PlatformCapability {
     pub reason: AzString,
 }
 
+/// [`PlatformCapability::scheduled_notifications`] on `os`
+/// (`std::env::consts::OS`), given what
+/// [`PlatformCapability::notifications`] answered there.
+///
+/// The backends that keep a delivery time themselves are the ones
+/// `desktop::notifications`' `Backend::schedules_itself` names:
+/// UNUserNotificationCenter (macOS, iOS) and a WinRT toast (Windows - not the
+/// `Shell_NotifyIconW` balloon it falls back to). Everywhere else (the
+/// freedesktop server, the Flatpak portal, Android until its alarm receiver
+/// exists) the notification service holds the notification and posts it when
+/// due, which works only while the process runs. Without notifications there
+/// is no scheduling either, for the same reason.
+fn scheduling_of(os: &str, notifications: PlatformCapability) -> PlatformCapability {
+    if !notifications.available {
+        return notifications;
+    }
+    let schedules = match os {
+        "macos" | "ios" => true,
+        "windows" => notifications.backend.as_str().starts_with("WinRT toast"),
+        _ => false,
+    };
+    if schedules {
+        return notifications;
+    }
+    PlatformCapability {
+        available: false,
+        reason: AzString::from(format!(
+            "{} cannot schedule a notification: one with a delivery time is held by the app and \
+             shown when it is due, only while the app runs",
+            notifications.backend.as_str()
+        )),
+        backend: notifications.backend,
+    }
+}
+
 #[inline]
 fn cap(available: bool, backend: &'static str, reason: &'static str) -> PlatformCapability {
     PlatformCapability {
@@ -368,6 +403,27 @@ impl PlatformCapability {
         }
     }
 
+    /// Probe system-wide (global) hotkeys - what
+    /// `LayoutCallbackInfo::add_global_hotkey` declares.
+    ///
+    /// macOS: Carbon `RegisterEventHotKey`, no permission needed. Windows:
+    /// `RegisterHotKey`. Linux under X11: `XGrabKey` (needs `$DISPLAY`).
+    /// Linux under Wayland: the xdg-desktop-portal `GlobalShortcuts`
+    /// interface, asked for REAL (one D-Bus round trip, cached) - vanilla
+    /// setups without a backend implementing it report `false` with the
+    /// reason. iOS / Android / web: `false`. A headless run reports the
+    /// simulation. Pure: probing installs nothing and grabs nothing.
+    /// `available` is about the platform; a combination can still be
+    /// refused (another app owns it) when it is declared.
+    pub fn global_hotkeys() -> PlatformCapability {
+        let probe = crate::desktop::global_hotkey::probe();
+        PlatformCapability {
+            available: probe.available,
+            backend: AzString::from_const_str(probe.backend),
+            reason: AzString::from(probe.reason),
+        }
+    }
+
     /// Probe the secret keyring. Backend presence; the actual store may still be
     /// locked/absent (delivered async as `KeyringResult::Unavailable`).
     pub fn keyring() -> PlatformCapability {
@@ -408,14 +464,42 @@ impl PlatformCapability {
         }
     }
 
-    /// Probe hardware video decode for real (see
-    /// [`crate::desktop::extra::video_codec::provision`]): on Apple/Android the
-    /// built-in system codec, on Linux/Windows a live Vulkan
-    /// `VK_KHR_video_decode_h264` device-extension probe. When unavailable, the
-    /// reason notes whether a driver install could enable it (the full command
-    /// list lives in `ProvisionPlan`).
+    /// Probe native desktop notifications (`CallbackInfo::post_notification`).
+    /// macOS: `UNUserNotificationCenter`, available only when the process runs
+    /// from a `.app` bundle with a `CFBundleIdentifier` (an unbundled binary
+    /// reports `false` and says why - UN would abort it). Linux: a real query
+    /// of `org.freedesktop.Notifications` on the session bus (cached 10 s).
+    /// Windows: a notification-area balloon (no buttons, one at a time).
+    /// Headless, mobile and web: `false`.
+    pub fn notifications() -> PlatformCapability {
+        crate::desktop::notifications::probe()
+    }
+
+    /// Probe whether a notification with a delivery time
+    /// (`Notification::deliver_at`) is SCHEDULED with the OS - shown at its
+    /// time even while the app is not running.
+    pub fn scheduled_notifications() -> PlatformCapability {
+        scheduling_of(std::env::consts::OS, Self::notifications())
+    }
+
+    /// Probe H.264 decode as `VideoDecoder` does it in THIS build: unavailable
+    /// where the build has no decode engine (whatever the GPU could do), else
+    /// the hardware probe (see
+    /// [`crate::desktop::extra::video_codec::provision`]): VideoToolbox on
+    /// Apple, on Linux/Windows a live Vulkan `VK_KHR_video_decode_h264`
+    /// device-extension probe. When unavailable, the reason says whether the
+    /// build or the machine is missing it, and whether a driver install could
+    /// enable it (the full command list lives in `ProvisionPlan`).
     pub fn video_codec() -> PlatformCapability {
-        let p = crate::desktop::extra::video_codec::provision::probe_hw_decode();
+        use crate::desktop::extra::video_codec;
+        if let Err(why) = video_codec::decode_engine() {
+            return PlatformCapability {
+                available: false,
+                backend: video_codec::VideoEncoder::backend_name(),
+                reason: AzString::from(format!("this build cannot decode H.264: {why}")),
+            };
+        }
+        let p = video_codec::provision::probe_hw_decode();
         let reason = if p.available {
             AzString::from_const_str("")
         } else if p.can_remediate {
@@ -431,5 +515,57 @@ impl PlatformCapability {
             backend: AzString::from_const_str(p.backend),
             reason,
         }
+    }
+}
+
+#[cfg(test)]
+mod scheduling_tests {
+    use azul_css::AzString;
+
+    use super::{scheduling_of, PlatformCapability};
+
+    fn notifications(available: bool, backend: &str) -> PlatformCapability {
+        PlatformCapability {
+            available,
+            backend: AzString::from(backend.to_string()),
+            reason: AzString::from(if available { "" } else { "no server" }.to_string()),
+        }
+    }
+
+    /// CLOCK9: an alarm app must know whether a scheduled notification fires
+    /// while it is closed. UNUserNotificationCenter and a WinRT toast keep
+    /// the delivery time themselves; the freedesktop server, the portal,
+    /// Android (until its alarm receiver exists) and the Windows balloon
+    /// cannot - the process holds the notification and shows it when due,
+    /// only while it runs (desktop/notifications/mod.rs).
+    #[test]
+    fn scheduled_notifications_capability_says_whether_the_backend_can_schedule() {
+        let can =
+            |os: &str, backend: &str| scheduling_of(os, notifications(true, backend)).available;
+        assert!(can("macos", "UNUserNotificationCenter"));
+        assert!(can("ios", "UNUserNotificationCenter"));
+        assert!(can("windows", "WinRT toast (AppUserModelID azul.app)"));
+        assert!(!can("windows", "Shell_NotifyIconW balloon (NIF_INFO)"));
+        assert!(!can("linux", "org.freedesktop.Notifications (D-Bus)"));
+        assert!(!can(
+            "linux",
+            "org.freedesktop.portal.Notification (Flatpak)"
+        ));
+        assert!(!can(
+            "android",
+            "NotificationManager (AzulNotifications.java)"
+        ));
+
+        // Held, not scheduled: the reason says so.
+        let held = scheduling_of(
+            "linux",
+            notifications(true, "org.freedesktop.Notifications (D-Bus)"),
+        );
+        assert!(held.reason.as_str().contains("while"), "{:?}", held.reason);
+
+        // No notifications at all: no scheduling, for the same reason.
+        let none = scheduling_of("macos", notifications(false, "UNUserNotificationCenter"));
+        assert!(!none.available);
+        assert_eq!(none.reason.as_str(), "no server");
     }
 }

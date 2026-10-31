@@ -1,0 +1,158 @@
+[
+  {
+    "code": "unavailable",
+    "status": 503,
+    "s3": "SlowDown",
+    "retry_after": 0
+  },
+  {
+    "code": "maintenance",
+    "status": 503,
+    "s3": "ServiceUnavailable",
+    "retry_after": 30
+  },
+  {
+    "code": "quota_exceeded",
+    "status": 403,
+    "s3": "QuotaExceeded",
+    "retry_after": null
+  },
+  {
+    "code": "read_only_unpaid",
+    "status": 403,
+    "s3": "AccessDenied",
+    "retry_after": null
+  },
+  {
+    "code": "credentials_revoked",
+    "status": 403,
+    "s3": "InvalidAccessKeyId",
+    "retry_after": null
+  },
+  {
+    "code": "object_too_large",
+    "status": 400,
+    "s3": "EntityTooLarge",
+    "retry_after": null
+  },
+  {
+    "code": "name_conflict",
+    "status": 412,
+    "s3": "PreconditionFailed",
+    "retry_after": null
+  },
+  {
+    "code": "link_blocked",
+    "status": 403,
+    "s3": "AccessDenied",
+    "retry_after": null
+  },
+  {
+    "code": "integrity",
+    "status": 500,
+    "s3": "InternalError",
+    "retry_after": null
+  },
+  {
+    "code": "delete_paused",
+    "status": 503,
+    "s3": "SlowDown",
+    "retry_after": 5
+  },
+  {
+    "code": "wrong_block",
+    "status": 301,
+    "s3": "PermanentRedirect",
+    "retry_after": null
+  },
+  {
+    "code": "internal",
+    "status": 500,
+    "s3": "InternalError",
+    "retry_after": null
+  },
+  {
+    "code": "drive_banned",
+    "status": 403,
+    "s3": "AccessDenied",
+    "retry_after": null
+  },
+  {
+    "code": "session_expired",
+    "status": 403,
+    "s3": "ExpiredToken",
+    "retry_after": null
+  },
+  {
+    "code": "clock_skew",
+    "status": 403,
+    "s3": "RequestTimeTooSkewed",
+    "retry_after": null
+  },
+  {
+    "code": "map_stale",
+    "status": 409,
+    "s3": "AzlinMapStale",
+    "retry_after": null
+  },
+  {
+    "code": "credentials_stale",
+    "status": 403,
+    "s3": "AccessDenied",
+    "retry_after": null
+  },
+  {
+    "code": "lockdown_pending",
+    "status": 403,
+    "s3": "AccessDenied",
+    "retry_after": null
+  },
+  {
+    "code": "client_too_old",
+    "status": 426,
+    "s3": "AzlinClientTooOld",
+    "retry_after": null
+  },
+  {
+    "code": "recovery_key_required",
+    "status": 403,
+    "s3": "AccessDenied",
+    "retry_after": null
+  },
+  {
+    "code": "last_recovery_key",
+    "status": 409,
+    "s3": "OperationAborted",
+    "retry_after": null
+  },
+  {
+    "code": "bad_challenge",
+    "status": 401,
+    "s3": "AccessDenied",
+    "retry_after": null
+  },
+  {
+    "code": "read_only_lockdown",
+    "status": 403,
+    "s3": "AccessDenied",
+    "retry_after": null
+  },
+  {
+    "code": "read_only_operator",
+    "status": 403,
+    "s3": "AccessDenied",
+    "retry_after": null
+  },
+  {
+    "code": "drive_archived",
+    "status": 403,
+    "s3": "AccessDenied",
+    "retry_after": null
+  },
+  {
+    "code": "read_only_moving",
+    "status": 403,
+    "s3": "AccessDenied",
+    "retry_after": null
+  }
+]

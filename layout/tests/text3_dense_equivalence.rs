@@ -14,8 +14,8 @@ use azul_layout::{
     parsed_font_to_font_ref,
     text3::{
         cache::{
-            create_logical_items, perform_fragment_layout, reorder_logical_items,
-            shape_visual_items, AvailableSpace, BidiDirection, BreakCursor, FontStack,
+            create_logical_items, perform_fragment_layout, split_into_bidi_runs,
+            shape_bidi_runs, AvailableSpace, BidiDirection, BreakCursor, FontStack,
             InlineBorderInfo, InlineContent, LoadedFonts, ShapedItem, StyleProperties, StyledRun,
             UnicodeBidi, UnifiedConstraints, UnifiedLayout,
         },
@@ -66,13 +66,13 @@ fn layout_of_content(
 ) -> (UnifiedLayout, Vec<InlineContent>, LoadedFonts<FontRef>) {
     let logical = create_logical_items(&content, &[], &mut None);
     let visual =
-        reorder_logical_items(&logical, BidiDirection::Ltr, UnicodeBidi::Normal, &mut None)
+        split_into_bidi_runs(&logical, BidiDirection::Ltr, UnicodeBidi::Normal, &mut None)
             .expect("bidi");
     let mut loaded: LoadedFonts<FontRef> = LoadedFonts::new();
     loaded.insert(FontId::new(), font_ref.clone());
     let chain: HashMap<_, FontFallbackChain> = HashMap::new();
     let fc = FcFontCache::default();
-    let shaped = shape_visual_items(&visual, &chain, &fc, &loaded, &mut None).expect("shape");
+    let shaped = shape_bidi_runs(&visual, &chain, &fc, &loaded, &mut None).expect("shape");
     let constraints = UnifiedConstraints {
         available_width: AvailableSpace::Definite(width),
         ..UnifiedConstraints::default()
@@ -590,13 +590,13 @@ fn override_segmented_run_offsets_are_item_relative_and_dense_text_correct() {
     let content = vec![styled(input, &font_ref, 0, None, |_| {})];
     let logical = create_logical_items(&content, &overrides, &mut None);
     let visual =
-        reorder_logical_items(&logical, BidiDirection::Ltr, UnicodeBidi::Normal, &mut None)
+        split_into_bidi_runs(&logical, BidiDirection::Ltr, UnicodeBidi::Normal, &mut None)
             .expect("bidi");
     let mut loaded: LoadedFonts<FontRef> = LoadedFonts::new();
     loaded.insert(FontId::new(), font_ref.clone());
     let chain: HashMap<_, FontFallbackChain> = HashMap::new();
     let fc = FcFontCache::default();
-    let shaped = shape_visual_items(&visual, &chain, &fc, &loaded, &mut None).expect("shape");
+    let shaped = shape_bidi_runs(&visual, &chain, &fc, &loaded, &mut None).expect("shape");
     let constraints = UnifiedConstraints {
         available_width: AvailableSpace::Definite(400.0),
         ..UnifiedConstraints::default()
@@ -646,8 +646,10 @@ fn override_segmented_run_offsets_are_item_relative_and_dense_text_correct() {
 }
 
 /// (d4) The dense cursor helpers must agree with the sparse walks they
-/// replace — last-cluster cursor and IFC-wide byte-offset resolution,
-/// over the full corpus incl. wrapped + ligature cases. These pin the
+/// replace — the last-cluster cursor, over the full corpus incl. wrapped +
+/// ligature cases. (The IFC-wide byte-offset resolver it also pinned is
+/// gone: byte offsets are read in a block's content,
+/// `BlockContent::caret_at`.) These pin the
 /// helpers DIRECTLY (window-plumbing coverage is separate — the in-situ
 /// verify asserts there were silent for lack of dense-bearing fixtures,
 /// the same vacuous-NC class d3 hit).
@@ -678,62 +680,6 @@ fn dense_cursor_helpers_agree_with_the_sparse_walks() {
             sparse_last,
             "last-cluster cursor ({text:?})"
         );
-
-        // byte_offset_to_cursor vs the sparse accumulation walk, at every
-        // boundary offset the sparse walk produces.
-        let mut acc = 0u32;
-        let mut offsets = vec![0u32];
-        for it in &layout.items {
-            if let ShapedItem::Cluster(c) = &it.item {
-                acc += c.text().len() as u32;
-                offsets.push(acc);
-            }
-        }
-        offsets.push(acc + 100); // past the end
-        for off in offsets {
-            let sparse = {
-                let mut cur = 0u32;
-                let mut found = None;
-                if off == 0 {
-                    found = layout.items.iter().find_map(|it| match &it.item {
-                        ShapedItem::Cluster(c) => Some(TextCursor {
-                            cluster_id: c.source_cluster_id,
-                            affinity: CursorAffinity::Trailing,
-                        }),
-                        _ => None,
-                    });
-                } else {
-                    for it in &layout.items {
-                        if let ShapedItem::Cluster(c) = &it.item {
-                            let end = cur + c.text().len() as u32;
-                            if off >= cur && off <= end {
-                                found = Some(TextCursor {
-                                    cluster_id: c.source_cluster_id,
-                                    affinity: CursorAffinity::Trailing,
-                                });
-                                break;
-                            }
-                            cur = end;
-                        }
-                    }
-                    if found.is_none() {
-                        found = layout.items.iter().rev().find_map(|it| match &it.item {
-                            ShapedItem::Cluster(c) => Some(TextCursor {
-                                cluster_id: c.source_cluster_id,
-                                affinity: CursorAffinity::Trailing,
-                            }),
-                            _ => None,
-                        });
-                    }
-                }
-                found
-            };
-            assert_eq!(
-                dense.byte_offset_to_cursor(off),
-                sparse,
-                "byte offset {off} ({text:?})"
-            );
-        }
     }
 }
 
@@ -1061,6 +1007,7 @@ fn dense_positioned_cluster_reads_the_baseline_not_the_top() {
             ascent: 0.0,
             descent: 0.0,
             cap_height: None,
+            browser_ascent_boost: false,
             x_height: None,
             line_gap: 0.0,
             units_per_em: 0,
@@ -1076,6 +1023,7 @@ fn dense_positioned_cluster_reads_the_baseline_not_the_top() {
         y: 40.0,
         script: azul_layout::text3::script::Script::Latin,
         direction: BidiDirection::Ltr,
+        bidi_level: azul_layout::text3::cache::BidiLevel::paragraph(BidiDirection::Ltr),
     });
     d.lines.push(LineRecord {
         clusters: (0, 1),
@@ -1243,6 +1191,7 @@ fn ligature_cluster_records_its_full_byte_length() {
         ascent: 0.0,
         descent: 0.0,
         cap_height: None,
+        browser_ascent_boost: false,
         x_height: None,
         line_gap: 0.0,
         units_per_em: 0,
@@ -1276,6 +1225,7 @@ fn ligature_cluster_records_its_full_byte_length() {
         flags: ClusterFlags(0),
         advance: 10.0,
         direction: BidiDirection::Ltr,
+        bidi_level: azul_layout::text3::cache::BidiLevel::paragraph(BidiDirection::Ltr),
         style: style.clone(),
         marker_position_outside: None,
         is_first_fragment: false,

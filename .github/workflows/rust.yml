@@ -30,6 +30,11 @@ on:
         type: boolean
         required: false
         default: false
+      mail_corpus:
+        description: 'Also compare the mail corpus against headless Chrome (layout boxes; report artifact)'
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
@@ -91,6 +96,9 @@ jobs:
 
       - name: Release contracts (naming, widget wiring, sparse checkout, api.json)
         run: python3 scripts/preflight_contracts.py
+
+      - name: Public tree (no credentials, no agent notes)
+        run: python3 scripts/check_public_tree.py --self-test && python3 scripts/check_public_tree.py
 
       - name: Backends must not touch content state
         run: |
@@ -276,6 +284,53 @@ jobs:
           fi
           ls -la target/release/azul-doc* || true
 
+
+
+      - name: Upload the azul-doc binary
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: azul-doc-bin-${{ runner.os }}
+          path: |
+            target/release/azul-doc
+            target/release/azul-doc.exe
+          retention-days: 1
+          if-no-files-found: error
+
+      - name: Pack the generated bindings into one file
+        # One tar: the consumers unpack it (.github/actions/codegen-tree); a zip of the
+        # tree's 15,847 files ran Windows out of file handles while it was unpacked.
+        shell: bash
+        run: tar -cf codegen-tree.tar -C target/codegen .
+
+      - name: Upload the generated bindings
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: codegen-tree-${{ runner.os }}
+          path: codegen-tree.tar
+          retention-days: 1
+          if-no-files-found: error
+
+  bindings_syntax_linux:
+    # The generated bindings compile-checked on their own runner, from the tree the
+    # Linux codegen job uploads. Inside that job the check (gfortran alone takes
+    # minutes over the Fortran binding's facade modules) pushed generation, the
+    # toolchain installs and the check past its 30-minute budget, and its
+    # cancellation held back every job that needs the generated tree. The check
+    # still gates the run; it no longer gates the jobs that only need the tree.
+    name: Compile-check the generated bindings (Linux)
+    needs: [codegen_linux]
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Download the generated bindings
+        uses: ./.github/actions/codegen-tree
+        with:
+          os: Linux
+
       - name: Install binding toolchains (best effort)
         # The derive gate proves a NAME is present in a generated binding; it
         # cannot prove the binding COMPILES, because it greps text and a broken
@@ -340,25 +395,6 @@ jobs:
         shell: bash
         run: bash scripts/check.sh --only binding-syntax
 
-
-      - name: Upload the azul-doc binary
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: azul-doc-bin-${{ runner.os }}
-          path: |
-            target/release/azul-doc
-            target/release/azul-doc.exe
-          retention-days: 1
-          if-no-files-found: error
-
-      - name: Upload the generated bindings
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: codegen-tree-${{ runner.os }}
-          path: target/codegen
-          retention-days: 1
-          if-no-files-found: error
-
   codegen_macos:
     name: Generate bindings (macOS)
     needs: [content_state_lint, documentation_paths]
@@ -416,11 +452,17 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
+      - name: Pack the generated bindings into one file
+        # One tar: the consumers unpack it (.github/actions/codegen-tree); a zip of the
+        # tree's 15,847 files ran Windows out of file handles while it was unpacked.
+        shell: bash
+        run: tar -cf codegen-tree.tar -C target/codegen .
+
       - name: Upload the generated bindings
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: codegen-tree-${{ runner.os }}
-          path: target/codegen
+          path: codegen-tree.tar
           retention-days: 1
           if-no-files-found: error
 
@@ -481,11 +523,17 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
+      - name: Pack the generated bindings into one file
+        # One tar: the consumers unpack it (.github/actions/codegen-tree); a zip of the
+        # tree's 15,847 files ran Windows out of file handles while it was unpacked.
+        shell: bash
+        run: tar -cf codegen-tree.tar -C target/codegen .
+
       - name: Upload the generated bindings
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: codegen-tree-${{ runner.os }}
-          path: target/codegen
+          path: codegen-tree.tar
           retention-days: 1
           if-no-files-found: error
 
@@ -516,6 +564,54 @@ jobs:
 
       - name: Check no std Instant::now() in WASM-compatible crates
         run: STRICT_WASM_CFG=1 bash scripts/check_wasm_instant.sh
+
+  layout_feature_check:
+    # azul-layout in every feature set a consumer turns on (printpdf builds it
+    # with default-features = false). It needs no generated bindings, so it runs
+    # beside check_crates: in the Feature Matrix Check, which waits for the
+    # bindings, it was skipped whenever a bindings job failed or was cancelled.
+    needs: [supply_chain_preflight]
+    name: azul-layout feature sets (printpdf)
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 40
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
+        with:
+          toolchain: 1.91.0
+
+      - name: Check azul-layout with every consumer's feature set
+        run: ./scripts/check_layout_features.sh
+
+  no_std_check:
+    # azul-css and azul-core without their `std` feature, built for a bare-metal
+    # target that has no std at all: a crate in their dependency graph that
+    # links std fails the build here, not in a user's firmware. A 64-bit target,
+    # because the ids of fonts, images and windows are 64-bit atomics, which
+    # 32-bit microcontrollers (thumbv7em) do not have.
+    needs: [supply_chain_preflight]
+    name: no_std check (azul-css, azul-core)
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
+        with:
+          toolchain: 1.91.0
+          targets: aarch64-unknown-none
+
+      - name: Check azul-css and azul-core without std
+        run: |
+          cargo check -p azul-css --no-default-features --target aarch64-unknown-none
+          cargo check -p azul-core --no-default-features --target aarch64-unknown-none
 
   autofix_check:
     # Validates api.json drift using autofix.
@@ -603,22 +699,25 @@ jobs:
         # itself and still print [ok]; it now fails instead. The bug-class
         # tests (codegen::v2::bug_classes) read it too, so it comes BEFORE the
         # test step: they fail on a missing tree rather than skip.
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: ./.github/actions/codegen-tree
         with:
-          name: codegen-tree-${{ runner.os }}
-          path: target/codegen
+          os: ${{ runner.os }}
 
       - name: Run azul-doc tests
+        # Release: the tests generate every binding from the whole API, which
+        # unoptimised ran past the job's 30 minutes. azul-doc's release
+        # profile (Cargo.toml) builds it at -O1 in many codegen units, so the
+        # build costs little more than a debug one.
         run: |
           set -o pipefail
-          cargo test -p azul-doc --bins --no-fail-fast 2>&1 | tee azul-doc-tests.txt
+          cargo test -r -p azul-doc --bins --no-fail-fast 2>&1 | tee azul-doc-tests.txt
           ./scripts/zero_test_guard.sh --strict azul-doc-tests.txt
 
       - name: Double-drop invariant + guide links (azul-doc)
         run: azul-doc check
 
   dll_tests:
-    # Runs azul-dll unit tests and feature checks. Also tests AzPaint, AzMaps, AzWriter and AzReview.
+    # Runs azul-dll unit tests and feature checks, and the unit tests of the example apps and their crates, a step each.
     name: DLL tests + feature check
     needs: [content_state_lint, documentation_paths, clippy, check_crates, codegen_linux]
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
@@ -644,10 +743,9 @@ jobs:
         run: sudo apt-get update -qq || true && sudo apt-get install -y libv4l-dev fonts-dejavu-core
 
       - name: Download generated bindings (built once by codegen_linux)
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: ./.github/actions/codegen-tree
         with:
-          name: codegen-tree-${{ runner.os }}
-          path: target/codegen
+          os: ${{ runner.os }}
 
       - name: Run DLL tests
         run: |
@@ -701,6 +799,376 @@ jobs:
           cargo test -p AzReview --lib --no-fail-fast 2>&1 | tee azul-review-tests.txt
           ./scripts/zero_test_guard.sh --strict azul-review-tests.txt
 
+      - name: Run AzMeet tests
+        env:
+          AZ_LINK_PATH: ${{ runner.temp }}/azul-cabi
+        run: |
+          set -o pipefail
+          cargo test -p AzMeet --lib --no-fail-fast 2>&1 | tee azul-meet-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-meet-tests.txt
+
+      - name: Run azul-calendar-core tests
+        run: |
+          set -o pipefail
+          cargo test -p azul-calendar-core --no-fail-fast 2>&1 | tee azul-calendar-core-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-calendar-core-tests.txt
+
+      - name: Run AzCalendar tests
+        env:
+          AZ_LINK_PATH: ${{ runner.temp }}/azul-cabi
+        run: |
+          set -o pipefail
+          cargo test -p AzCalendar --lib --no-fail-fast 2>&1 | tee azul-calendar-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-calendar-tests.txt
+
+      - name: Run azul-storage tests (and the local S3 test server's)
+        run: |
+          set -o pipefail
+          # With the encryption (AZL1, the keys, the drive index's wiring, drops, shares,
+          # rotation): what every app ships. The plain build must still compile.
+          cargo test -p azul-storage --features encryption --no-fail-fast 2>&1 | tee azul-storage-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-storage-tests.txt
+          cargo check -p azul-storage --tests
+          python3 examples/azul-drive/scripts/test_s3_server.py
+
+      - name: Run AzDrive tests
+        env:
+          AZ_LINK_PATH: ${{ runner.temp }}/azul-cabi
+        run: |
+          set -o pipefail
+          cargo test -p AzDrive --lib --no-fail-fast 2>&1 | tee azul-drive-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-drive-tests.txt
+          # The encryption is a default feature; the build without it must still compile.
+          cargo check -p AzDrive --lib --tests --no-default-features
+
+      - name: Run AzShells tests
+        env:
+          AZ_LINK_PATH: ${{ runner.temp }}/azul-cabi
+        run: |
+          set -o pipefail
+          cargo test -p AzShells --lib --no-fail-fast 2>&1 | tee azul-shells-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-shells-tests.txt
+
+      - name: Run azul-appkit tests
+        run: |
+          set -o pipefail
+          cargo test -p azul-appkit --no-fail-fast 2>&1 | tee azul-appkit-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-appkit-tests.txt
+
+      - name: Run azul-pim tests
+        run: |
+          set -o pipefail
+          cargo test -p azul-pim --no-fail-fast 2>&1 | tee azul-pim-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-pim-tests.txt
+
+      - name: Run azul-icons-haiku tests
+        run: |
+          set -o pipefail
+          cargo test -p azul-icons-haiku --no-fail-fast 2>&1 | tee azul-icons-haiku-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-icons-haiku-tests.txt
+
+      - name: Run azlin-contract tests
+        run: |
+          set -o pipefail
+          cargo test -p azlin-contract --no-fail-fast 2>&1 | tee azlin-contract-tests.txt
+          ./scripts/zero_test_guard.sh --strict azlin-contract-tests.txt
+
+      - name: Run azcloud-kit tests
+        run: |
+          set -o pipefail
+          # state-db: the sync's SQLite base and the azsync CLI the sync chaos harness drives.
+          cargo test -p azcloud-kit --features encryption,state-db --no-fail-fast 2>&1 | tee azcloud-kit-tests.txt
+          ./scripts/zero_test_guard.sh --strict azcloud-kit-tests.txt
+          cargo check -p azcloud-kit --tests
+
+      # The client-side compression azul-storage seals: deflate rebuilt bit for bit, Lepton,
+      # the codecs, and the format 1 golden vectors that must decode forever.
+      - name: Run azlin-preflate and azlin-compress tests
+        run: |
+          set -o pipefail
+          cargo test -p azlin-preflate -p azlin-compress --no-fail-fast 2>&1 | tee azlin-compress-tests.txt
+          ./scripts/zero_test_guard.sh --strict azlin-compress-tests.txt
+
+      # The fake providers of the local stacks are a feature (a build without it cannot be
+      # pointed at a fake): the tests run with it, so the dev registry is tested too.
+      - name: Run azul-pay tests
+        run: |
+          set -o pipefail
+          cargo test -p azul-pay --features fake-providers --no-fail-fast 2>&1 | tee azul-pay-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-pay-tests.txt
+
+      # The methods registry and the payment sandbox, a loopback-only test stand-in for the
+      # providers (its rules - loopback only, test data only, never in a release - are tests too).
+      - name: Run azul-pay-methods tests
+        run: |
+          set -o pipefail
+          cargo test -p azul-pay-methods --no-fail-fast 2>&1 | tee azul-pay-methods-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-pay-methods-tests.txt
+
+      - name: Run azul-pay-sandbox tests
+        run: |
+          set -o pipefail
+          cargo test -p azul-pay-sandbox --no-fail-fast 2>&1 | tee azul-pay-sandbox-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-pay-sandbox-tests.txt
+
+      - name: Run azul-search tests
+        run: |
+          set -o pipefail
+          cargo test -p azul-search --no-fail-fast 2>&1 | tee azul-search-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-search-tests.txt
+
+      - name: Run azul-search-index tests
+        run: |
+          set -o pipefail
+          cargo test -p azul-search-index --no-fail-fast 2>&1 | tee azul-search-index-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-search-index-tests.txt
+
+      - name: Run azul-termkit tests
+        env:
+          AZ_LINK_PATH: ${{ runner.temp }}/azul-cabi
+        run: |
+          set -o pipefail
+          cargo test -p azul-termkit --lib --no-fail-fast 2>&1 | tee azul-termkit-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-termkit-tests.txt
+
+      - name: Run AzBuilder tests
+        env:
+          AZ_LINK_PATH: ${{ runner.temp }}/azul-cabi
+        run: |
+          set -o pipefail
+          cargo test -p AzBuilder --lib --no-fail-fast 2>&1 | tee azul-builder-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-builder-tests.txt
+
+      - name: Run AzWidgets tests
+        env:
+          AZ_LINK_PATH: ${{ runner.temp }}/azul-cabi
+        run: |
+          set -o pipefail
+          cargo test -p AzWidgets --lib --no-fail-fast 2>&1 | tee azul-widgets-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-widgets-tests.txt
+
+      - name: Run AzCalculator tests
+        env:
+          AZ_LINK_PATH: ${{ runner.temp }}/azul-cabi
+        run: |
+          set -o pipefail
+          cargo test -p AzCalculator --lib --no-fail-fast 2>&1 | tee azul-calculator-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-calculator-tests.txt
+
+      - name: Run azul-contacts-core tests
+        run: |
+          set -o pipefail
+          cargo test -p azul-contacts-core --no-fail-fast 2>&1 | tee azul-contacts-core-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-contacts-core-tests.txt
+
+      - name: Run AzContacts tests
+        env:
+          AZ_LINK_PATH: ${{ runner.temp }}/azul-cabi
+        run: |
+          set -o pipefail
+          cargo test -p AzContacts --lib --no-fail-fast 2>&1 | tee azul-contacts-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-contacts-tests.txt
+
+      - name: Run AzSetup tests
+        env:
+          AZ_LINK_PATH: ${{ runner.temp }}/azul-cabi
+        run: |
+          set -o pipefail
+          cargo test -p AzSetup --lib --no-fail-fast 2>&1 | tee azul-setup-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-setup-tests.txt
+
+      - name: Run AzNotes tests
+        env:
+          AZ_LINK_PATH: ${{ runner.temp }}/azul-cabi
+        run: |
+          set -o pipefail
+          cargo test -p AzNotes --lib --no-fail-fast 2>&1 | tee azul-notes-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-notes-tests.txt
+
+      - name: Run AzVideoCut tests
+        env:
+          AZ_LINK_PATH: ${{ runner.temp }}/azul-cabi
+        run: |
+          set -o pipefail
+          cargo test -p AzVideoCut --lib --no-fail-fast 2>&1 | tee azul-videocut-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-videocut-tests.txt
+
+      - name: Run AzShow tests
+        env:
+          AZ_LINK_PATH: ${{ runner.temp }}/azul-cabi
+        run: |
+          set -o pipefail
+          cargo test -p AzShow --lib --no-fail-fast 2>&1 | tee azul-show-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-show-tests.txt
+
+      - name: Run AzPhoto tests
+        env:
+          AZ_LINK_PATH: ${{ runner.temp }}/azul-cabi
+        run: |
+          set -o pipefail
+          cargo test -p AzPhoto --lib --no-fail-fast 2>&1 | tee azul-photo-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-photo-tests.txt
+
+      - name: Run AzSheets tests
+        env:
+          AZ_LINK_PATH: ${{ runner.temp }}/azul-cabi
+        run: |
+          set -o pipefail
+          cargo test --release -p AzSheets --lib --no-fail-fast 2>&1 | tee azul-sheets-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-sheets-tests.txt
+
+      - name: Run AzTasks tests
+        env:
+          AZ_LINK_PATH: ${{ runner.temp }}/azul-cabi
+        run: |
+          set -o pipefail
+          cargo test -p AzTasks --lib --no-fail-fast 2>&1 | tee azul-tasks-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-tasks-tests.txt
+
+      - name: Run azul-mail-core tests
+        run: |
+          set -o pipefail
+          # The encryption is a default feature (the mail drive's encrypted path, its drops); the
+          # build without it must still compile.
+          cargo test -p azul-mail-core --no-fail-fast 2>&1 | tee azul-mail-core-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-mail-core-tests.txt
+          cargo check -p azul-mail-core --tests --no-default-features
+
+      - name: Run azul-bridge tests
+        run: |
+          set -o pipefail
+          cargo test -p azul-bridge --no-fail-fast 2>&1 | tee azul-bridge-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-bridge-tests.txt
+          cargo check -p azul-bridge --tests --no-default-features
+
+      - name: Run AzMail tests (and the local IMAP test server's)
+        env:
+          AZ_LINK_PATH: ${{ runner.temp }}/azul-cabi
+        run: |
+          set -o pipefail
+          cargo test -p AzMail --lib --no-fail-fast 2>&1 | tee azul-mail-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-mail-tests.txt
+          # The encryption is a default feature; the build without it must still compile.
+          cargo check -p AzMail --lib --tests --no-default-features
+          python3 examples/azul-mail/scripts/test_imap_server.py
+
+      - name: Run AzDashboard tests
+        env:
+          AZ_LINK_PATH: ${{ runner.temp }}/azul-cabi
+        run: |
+          set -o pipefail
+          cargo test -p AzDashboard --lib --no-fail-fast 2>&1 | tee azul-dashboard-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-dashboard-tests.txt
+
+      - name: Run AzTerm tests
+        env:
+          AZ_LINK_PATH: ${{ runner.temp }}/azul-cabi
+        run: |
+          set -o pipefail
+          cargo test -p AzTerm --lib --no-fail-fast 2>&1 | tee azul-term-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-term-tests.txt
+
+      - name: Run AzPdf tests
+        env:
+          AZ_LINK_PATH: ${{ runner.temp }}/azul-cabi
+        run: |
+          set -o pipefail
+          cargo test -p AzPdf --lib --no-fail-fast 2>&1 | tee azul-pdf-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-pdf-tests.txt
+
+      - name: Run AzClock tests
+        env:
+          AZ_LINK_PATH: ${{ runner.temp }}/azul-cabi
+        run: |
+          set -o pipefail
+          cargo test -p AzClock --lib --no-fail-fast 2>&1 | tee azul-clock-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-clock-tests.txt
+
+      - name: Run AzReader tests
+        env:
+          AZ_LINK_PATH: ${{ runner.temp }}/azul-cabi
+        run: |
+          set -o pipefail
+          cargo test -p AzReader --lib --no-fail-fast 2>&1 | tee azul-reader-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-reader-tests.txt
+
+      - name: Run AzMusic tests
+        env:
+          AZ_LINK_PATH: ${{ runner.temp }}/azul-cabi
+        run: |
+          set -o pipefail
+          cargo test -p AzMusic --lib --no-fail-fast 2>&1 | tee azul-music-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-music-tests.txt
+
+      - name: Run AzPlayer tests
+        env:
+          AZ_LINK_PATH: ${{ runner.temp }}/azul-cabi
+        run: |
+          set -o pipefail
+          cargo test -p AzPlayer --lib --no-fail-fast 2>&1 | tee azul-player-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-player-tests.txt
+
+      - name: Run AzCode tests
+        env:
+          AZ_LINK_PATH: ${{ runner.temp }}/azul-cabi
+        run: |
+          set -o pipefail
+          cargo test -p AzCode --lib --no-fail-fast 2>&1 | tee azul-code-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-code-tests.txt
+
+      - name: Run AzPasswordManager tests
+        env:
+          AZ_LINK_PATH: ${{ runner.temp }}/azul-cabi
+        run: |
+          set -o pipefail
+          cargo test -p AzPasswordManager --lib --no-fail-fast 2>&1 | tee azul-password-manager-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-password-manager-tests.txt
+
+      - name: Run AzMonitor tests
+        env:
+          AZ_LINK_PATH: ${{ runner.temp }}/azul-cabi
+        run: |
+          set -o pipefail
+          cargo test -p AzMonitor --lib --no-fail-fast 2>&1 | tee azul-monitor-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-monitor-tests.txt
+
+      - name: Run AzNews tests (and the local feed server's)
+        env:
+          AZ_LINK_PATH: ${{ runner.temp }}/azul-cabi
+        run: |
+          set -o pipefail
+          cargo test -p AzNews --lib --no-fail-fast 2>&1 | tee azul-news-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-news-tests.txt
+          python3 examples/azul-news/scripts/test_feed_server.py
+
+      - name: Run AzERP tests
+        env:
+          AZ_LINK_PATH: ${{ runner.temp }}/azul-cabi
+        run: |
+          set -o pipefail
+          cargo test -p AzERP --lib --no-fail-fast 2>&1 | tee azul-erp-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-erp-tests.txt
+
+      - name: Run AzInstallManager tests
+        env:
+          AZ_LINK_PATH: ${{ runner.temp }}/azul-cabi
+        run: |
+          set -o pipefail
+          cargo test -p AzInstallManager --lib --no-fail-fast 2>&1 | tee azul-installmgr-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-installmgr-tests.txt
+
+      - name: Run azul-routing tests
+        run: |
+          set -o pipefail
+          cargo test -p azul-routing --features http --no-fail-fast 2>&1 | tee azul-routing-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-routing-tests.txt
+
+      - name: Run azul-fonts-calmet tests
+        run: |
+          set -o pipefail
+          cargo test -p azul-fonts-calmet --no-fail-fast 2>&1 | tee azul-fonts-calmet-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-fonts-calmet-tests.txt
+
       - name: Check azul-dll (release feature set)
         run: cargo check -p azul-dll --no-default-features --features "link-static,logging,ico,tga,hdr,webp,pnm,gif,png,tiff,bmp,a11y"
 
@@ -724,10 +1192,9 @@ jobs:
         run: sudo apt-get update -qq || true && sudo apt-get install -y libv4l-dev
 
       - name: Download generated bindings (built once by codegen_linux)
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: ./.github/actions/codegen-tree
         with:
-          name: codegen-tree-${{ runner.os }}
-          path: target/codegen
+          os: ${{ runner.os }}
 
       - name: Double-drop runtime gate (appconfig_double_drop)
         run: cargo run -r -p azul-dll --example appconfig_double_drop --features link-static
@@ -751,10 +1218,9 @@ jobs:
           toolchain: 1.91.0
 
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: ./.github/actions/codegen-tree
         with:
-          name: codegen-tree-${{ runner.os }}
-          path: target/codegen
+          os: ${{ runner.os }}
 
       - name: Check azul-dll with a11y enabled (default)
         run: cargo check -p azul-dll --no-default-features --features "link-static,logging,a11y"
@@ -777,24 +1243,8 @@ jobs:
       - name: Check azul-dll with link-dynamic (no internal crates)
         run: cargo check -p azul-dll --no-default-features --features "link-dynamic"
 
-      - name: Check azul-layout with various features
-        run: |
-          cargo check -p azul-layout --no-default-features
-          cargo check -p azul-layout --no-default-features --features "text_layout"
-          cargo check -p azul-layout --no-default-features --features "font_loading"
-          cargo check -p azul-layout --no-default-features --features "svg"
-          cargo check -p azul-layout --no-default-features --features "xml"
-          cargo check -p azul-layout --no-default-features --features "text_layout,font_loading,svg,xml"
-
-      # printpdf's exact azul-layout surface (its `html` feature): text layout,
-      # hyphenation, font loading, xml, pdf - and NO cpurender/svg. No other
-      # combination in this matrix enables `pdf` or `text_layout_hyphenation`,
-      # which is how the missing cpurender gates on `tray_icon` and
-      # `rasterize_svg_clip_to_r8` only surfaced in printpdf's own build.
-      # Keep in sync with printpdf/Cargo.toml (`text_layout`,
-      # `text_layout_hyphenation`, `html` feature lists).
-      - name: Check azul-layout with printpdf's feature set (no cpurender)
-        run: cargo check -p azul-layout --no-default-features --features "std,text_layout,text_layout_hyphenation,font_loading,xml,pdf"
+      # azul-layout's own feature sets (printpdf's among them) are the
+      # layout_feature_check job's: scripts/check_layout_features.sh.
 
   dll_windows_unit_tests:
     # Runs Windows backend unit tests.
@@ -813,10 +1263,9 @@ jobs:
           toolchain: 1.91.0
 
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: ./.github/actions/codegen-tree
         with:
-          name: codegen-tree-${{ runner.os }}
-          path: target/codegen
+          os: ${{ runner.os }}
 
       - name: azul-dll unit tests
         shell: bash
@@ -835,6 +1284,37 @@ jobs:
             echo "::error::no desktop::extra::iroh::engine::* test ran - the iroh transport is compiled out."
             exit 1
           fi
+
+  wasm32_check:
+    # azul-dll for wasm32, as soon as the bindings are generated and gated by nothing else: the
+    # generated C-ABI bodies must resolve through `azul_dll::unified` there too (the desktop
+    # module does not exist on wasm), and a body that does not fails the run at once.
+    name: wasm32 check (azul-dll)
+    needs: [codegen_linux]
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
+        with:
+          toolchain: 1.91.0
+          targets: wasm32-unknown-unknown
+
+      - name: Download generated bindings (built once per OS)
+        uses: ./.github/actions/codegen-tree
+        with:
+          os: ${{ runner.os }}
+
+      - name: Check the engine crates and azul-dll for wasm32
+        run: |
+          cargo check --target wasm32-unknown-unknown -p azul-css
+          cargo check --target wasm32-unknown-unknown -p azul-core
+          cargo check --target wasm32-unknown-unknown -p azul-layout --no-default-features --features "text_layout,svg,xml"
+          cargo check --target wasm32-unknown-unknown -p azul-dll --no-default-features --features "link-static,logging"
 
   cross_compile_check:
     # Cross-compile cargo check for 32-bit and exotic targets.
@@ -890,9 +1370,6 @@ jobs:
             runner: macos-14
             check_build_dll: true
             macos_deployment_target: "11.0"
-          - target: wasm32-unknown-unknown
-            runner: ubuntu-22.04
-            check_build_dll: false
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -904,10 +1381,9 @@ jobs:
           targets: ${{ matrix.target }}
 
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: ./.github/actions/codegen-tree
         with:
-          name: codegen-tree-${{ runner.os }}
-          path: target/codegen
+          os: ${{ runner.os }}
 
       # `cargo check` runs build scripts, and ring - the crypto provider under the iroh transport -
       # compiles C for the TARGET, so these targets need a cross C compiler even though this job
@@ -1006,6 +1482,11 @@ jobs:
             artifact_name: azul-macos-x86_64
             use_cross: false
             artifact_ext: dylib
+            # Intel Macs: the oldest macOS rustc 1.91 builds for (it raises anything lower to
+            # 10.12: its std calls clock_gettime, 10.12). Without it the C parts (cc-rs) target
+            # the runner's own macOS, and the Intel demos linked against this libazul.a would not
+            # start on an older Intel Mac.
+            macos_deployment_target: "10.12"
           - target: powerpc64-unknown-linux-gnu
             runner: ubuntu-22.04
             artifact_name: azul-linux-ppc64
@@ -1038,10 +1519,10 @@ jobs:
           path: |
             target/${{ matrix.target }}/prod-release
             target/codegen
-          key: cross-build-${{ env.CACHE_BUST }}-${{ matrix.target }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('css/src/**/*.rs', 'core/src/**/*.rs', 'layout/src/**/*.rs', 'dll/src/**/*.rs', 'dll/build.rs') }}
+          key: cross-build-${{ env.CACHE_BUST }}-${{ matrix.target }}${{ matrix.macos_deployment_target && format('-macos{0}', matrix.macos_deployment_target) || '' }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('css/src/**/*.rs', 'core/src/**/*.rs', 'layout/src/**/*.rs', 'dll/src/**/*.rs', 'dll/build.rs') }}
           restore-keys: |
-            cross-build-${{ env.CACHE_BUST }}-${{ matrix.target }}-${{ hashFiles('Cargo.lock') }}-
-            cross-build-${{ env.CACHE_BUST }}-${{ matrix.target }}-
+            cross-build-${{ env.CACHE_BUST }}-${{ matrix.target }}${{ matrix.macos_deployment_target && format('-macos{0}', matrix.macos_deployment_target) || '' }}-${{ hashFiles('Cargo.lock') }}-
+            cross-build-${{ env.CACHE_BUST }}-${{ matrix.target }}${{ matrix.macos_deployment_target && format('-macos{0}', matrix.macos_deployment_target) || '' }}-
 
       - name: Validate build cache
         id: cache-valid
@@ -1079,10 +1560,9 @@ jobs:
         run: cargo install cross --git https://github.com/cross-rs/cross --rev 8c1a8aa4b661711f4b7b6ac07c2e8929ce2f7d27 --locked  # v0.2.5 tree, the rev CI resolved on 2026-09-07
 
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: ./.github/actions/codegen-tree
         with:
-          name: codegen-tree-${{ runner.os }}
-          path: target/codegen
+          os: ${{ runner.os }}
 
       - name: Build with cross (Linux cross-arch)
         if: steps.cache-valid.outputs.skip != 'true' && matrix.use_cross
@@ -1094,6 +1574,7 @@ jobs:
         if: steps.cache-valid.outputs.skip != 'true' && !matrix.use_cross
         env:
           RUSTFLAGS: ${{ matrix.rustflags || '' }}
+          MACOSX_DEPLOYMENT_TARGET: ${{ matrix.macos_deployment_target || '' }}
         run: cargo build --profile prod-release --target ${{ matrix.target }} -p azul-dll --features="build-dll"
 
       - name: Strip static lib (bitcode + debug)
@@ -1252,9 +1733,9 @@ jobs:
         run: rustup toolchain link rust9x "$(pwd)/rust9x/build/x86_64-pc-windows-msvc/stage1"
 
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: ./azul/.github/actions/codegen-tree
         with:
-          name: codegen-tree-${{ runner.os }}
+          os: ${{ runner.os }}
           path: azul/target/codegen
 
       - name: Build azul with rust9x (i686, WinXP+)
@@ -1304,6 +1785,11 @@ jobs:
           restore-keys: |
             test-lib-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
             test-lib-${{ env.CACHE_BUST }}-${{ runner.os }}-
+
+      # The layout tests take Chrome's numbers for 16px Arial; on Linux azul draws
+      # Arial in its metric-compatible Liberation Sans, as Chrome does.
+      - name: Install the fonts the layout tests measure
+        run: sudo apt-get update -qq || true && sudo apt-get install -y fonts-liberation fonts-dejavu-core
 
       - name: Run workspace lib + integration tests (debug-assertions + overflow-checks ON)
         env:
@@ -1377,10 +1863,9 @@ jobs:
         with:
           toolchain: 1.91.0
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: ./.github/actions/codegen-tree
         with:
-          name: codegen-tree-${{ runner.os }}
-          path: target/codegen
+          os: ${{ runner.os }}
 
       - name: Download the azul-doc binary
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -1429,6 +1914,168 @@ jobs:
             doc/target/reftest/results.json
             doc/target/reftest/reftest_img/
           retention-days: 30
+          if-no-files-found: warn
+
+  wpt_reference:
+    # Web-platform-tests reference comparisons: reftests (test page vs reference
+    # page, both rendered by azul's CPU renderer - no browser) and the editing
+    # cases, from tests/wpt/. Red only on a REGRESSION (a case that fails and is
+    # not in tests/wpt/*_expectations.txt) or an UNEXPECTED PASS (a listed case
+    # that passes: take it off the list). See scripts/REFCI_2026_09_30.md.
+    name: WPT Reference Comparisons (reftests + editing)
+    needs: [content_state_lint, documentation_paths, clippy, check_crates]
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
+        with:
+          toolchain: 1.91.0
+
+      - name: Rust build cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target/release/deps
+            target/release/build
+            target/release/.fingerprint
+          key: wpt-reference-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('css/src/**/*.rs', 'core/src/**/*.rs', 'layout/src/**/*.rs') }}
+          restore-keys: |
+            wpt-reference-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+            wpt-reference-${{ env.CACHE_BUST }}-${{ runner.os }}-
+
+      # Test and reference are painted by the SAME engine with the SAME fonts,
+      # so any installed font family will do; the pages need some.
+      - name: Install fonts
+        run: |
+          sudo apt-get update -qq || true
+          sudo apt-get install -y fonts-dejavu-core fonts-noto-core fonts-noto-mono
+          fc-cache -f
+
+      - name: Run the WPT reftest and editing suites
+        env:
+          AZ_WPT_OUT: target/wpt
+          AZ_WPT_SHOW: "40"
+        run: |
+          set -o pipefail
+          cargo test --release -p azul-layout --features wpt_tests --test wpt 2>&1 | tee wpt.txt
+          ./scripts/zero_test_guard.sh --strict wpt.txt
+
+      - name: Upload results (TSVs, suggested expectations, diff images)
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: wpt-reference-results
+          path: target/wpt/
+          retention-days: 14
+          if-no-files-found: warn
+
+  frame_budgets:
+    # The layout tests' frame-time budgets (`*_fits_its_time_budget*`): a
+    # release build, one test at a time, AZ_TIMING=1 - beside the whole suite
+    # a frame's CPU time grows by half, so test_lib only reports the times.
+    # scripts/frame_budgets.sh is the same run on a developer's machine.
+    name: Frame-time budgets (release, one test at a time)
+    needs: [content_state_lint, documentation_paths, clippy, check_crates]
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
+        with:
+          toolchain: 1.91.0
+
+      - name: Rust build cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target/release/deps
+            target/release/build
+            target/release/.fingerprint
+          key: frame-budgets-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('css/src/**/*.rs', 'core/src/**/*.rs', 'layout/src/**/*.rs') }}
+          restore-keys: |
+            frame-budgets-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+            frame-budgets-${{ env.CACHE_BUST }}-${{ runner.os }}-
+
+      # The measured pages set text; the layout tests take Arial's metrics
+      # from Liberation Sans on Linux, as test_lib does.
+      - name: Install the fonts the layout tests measure
+        run: sudo apt-get update -qq || true && sudo apt-get install -y fonts-liberation fonts-dejavu-core
+
+      - name: Check the frame-time budgets
+        run: ./scripts/frame_budgets.sh
+
+  mail_corpus_vs_chrome:
+    # OPTIONAL, on demand (workflow_dispatch with mail_corpus = true): every mail
+    # of tests/mail_corpus/ through AzMail's sanitizer, rendered by headless
+    # Chrome and by azul headless (the debug server's `mount` op), their layout
+    # boxes compared element by element (scripts/refci/mail_boxes.py). The
+    # report is an artifact; the job fails only when a mail could not be
+    # processed at all. Not a gate: fonts and text metrics differ between the
+    # two engines, so the box tolerances are wide and the value is in the
+    # report's "first divergence" per mail.
+    name: Mail corpus vs Chrome (layout boxes)
+    needs: [content_state_lint, documentation_paths, clippy, check_crates, codegen_linux]
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.mail_corpus == 'true'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
+        with:
+          toolchain: 1.91.0
+
+      - name: Install dependencies (Linux)
+        run: sudo apt-get update -qq || true && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev fonts-dejavu-core fonts-noto-core
+
+      - name: Download generated bindings (built once per OS)
+        uses: ./.github/actions/codegen-tree
+        with:
+          os: ${{ runner.os }}
+
+      - name: Setup Chrome
+        uses: browser-actions/setup-chrome@48ad923757ca74d66703209fe939badbdf80f2f4 # v2.2.0
+        with:
+          chrome-version: "150"
+
+      - name: Build the dylib with the debug server, AzMail and its sanitizer
+        run: |
+          set -o pipefail
+          cargo build --release -p azul-dll --features build-dll,debug-server 2>&1 | tail -3
+          mkdir -p target/azul-lib
+          cp target/release/libazul.so target/azul-lib/
+          AZ_LINK_PATH=$PWD/target/azul-lib cargo build --release -p AzMail --bin AzMail --bin azmail-sanitize 2>&1 | tail -3
+
+      - name: Compare the corpus
+        env:
+          CHROME: chrome
+          AZUL_APP: target/release/AzMail
+          AZUL_LIB_DIR: target/azul-lib
+        # Unbuffered: each mail's line reaches the log as it is done, also when the job ends early.
+        run: python3 -u scripts/refci/mail_boxes.py --out target/refci/mail
+
+      - name: Upload the report
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: mail-corpus-vs-chrome
+          path: target/refci/mail/
+          retention-days: 14
           if-no-files-found: warn
 
   coverage:
@@ -1532,10 +2179,9 @@ jobs:
           cargo +nightly-2026-09-03 miri setup
 
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: ./.github/actions/codegen-tree
         with:
-          name: codegen-tree-${{ runner.os }}
-          path: target/codegen
+          os: ${{ runner.os }}
 
       - name: Build azul-dll (debug)
         run: cargo build -p azul-dll --features build-dll
@@ -1688,10 +2334,9 @@ jobs:
         uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
 
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: ./.github/actions/codegen-tree
         with:
-          name: codegen-tree-${{ runner.os }}
-          path: target/codegen
+          os: ${{ runner.os }}
 
       - name: Build azul-dll (debug, build-once-per-ABI)
         run: cargo build -p azul-dll --features build-dll
@@ -1715,6 +2360,14 @@ jobs:
           cd examples/c
           clang -I. hello-world.c -L../../target/debug -lazul \
             -Wl,-rpath,@executable_path/../../target/debug -o hw-clang
+
+      # A program built against this azul.h / azul17.hpp aborts before main,
+      # naming both hashes, when the libazul it loads reports another ABI
+      # hash, and runs when the hash matches (doc/src/codegen/v2/abi_guard.rs).
+      # (Windows: the hello-world steps compile and link the MSVC arm.)
+      - name: ABI guard - C / C++ refuse a libazul with another ABI hash
+        if: runner.os != 'Windows'
+        run: python3 scripts/abi_guard_e2e.py --only c,cpp --codegen target/codegen
 
       - name: Compile + link C hello-world (Windows)
         if: runner.os == 'Windows'
@@ -1746,10 +2399,9 @@ jobs:
           sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libxext-dev python3
 
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: ./.github/actions/codegen-tree
         with:
-          name: codegen-tree-${{ runner.os }}
-          path: target/codegen
+          os: ${{ runner.os }}
 
       - name: Build azul-dll (release, with debug-server)
         run: cargo build --release -p azul-dll --features build-dll,debug-server
@@ -1758,7 +2410,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          cargo test -p azul-dll --test xml_to_rust_compilation --test kitchen_sink_integration --features xml 2>&1 | tee xml-codegen-tests.txt
+          cargo test -p azul-core --features codegen --test export_page_codegen --test dom_fragment_codegen 2>&1 | tee xml-codegen-tests.txt
           ./scripts/zero_test_guard.sh --strict xml-codegen-tests.txt
 
       - name: Run export-code E2E (export live page -> compile 4 languages)
@@ -1850,10 +2502,9 @@ jobs:
         run: brew install coreutils
 
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: ./.github/actions/codegen-tree
         with:
-          name: codegen-tree-${{ runner.os }}
-          path: target/codegen
+          os: ${{ runner.os }}
 
       - name: Validate C header syntax (Linux)
         if: steps.cache-valid.outputs.skip != 'true' && matrix.os == 'ubuntu-22.04'
@@ -2079,10 +2730,9 @@ jobs:
         run: brew install coreutils
 
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: ./.github/actions/codegen-tree
         with:
-          name: codegen-tree-${{ runner.os }}
-          path: target/codegen
+          os: ${{ runner.os }}
 
       - name: Build azuldbg (debug-server swap-in)
         if: steps.cache-valid.outputs.skip != 'true'
@@ -2179,10 +2829,9 @@ jobs:
         run: brew install coreutils
 
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: ./.github/actions/codegen-tree
         with:
-          name: codegen-tree-${{ runner.os }}
-          path: target/codegen
+          os: ${{ runner.os }}
 
       - name: Build Python extension
         if: steps.cache-valid.outputs.skip != 'true'
@@ -2283,10 +2932,9 @@ jobs:
         run: sudo apt-get update -qq || true && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev
 
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: ./.github/actions/codegen-tree
         with:
-          name: codegen-tree-${{ runner.os }}
-          path: target/codegen
+          os: ${{ runner.os }}
 
       - name: Download the lean libazul
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -2465,10 +3113,17 @@ jobs:
   build_demos:
     # Builds demos linking dynamically to the prebuilt static libazul.
     # Uses fingerprinting to reuse existing release binaries if source has not changed.
-    name: Build Demo Apps (${{ matrix.os }})
-    needs: [build_binaries, codegen_linux, codegen_macos, codegen_windows]
+    name: Build Demo Apps (${{ matrix.label }})
+    # cross_build_binaries makes the x86_64 libazul.a the Intel macOS demos link against. It
+    # runs on master and tags only, so this job runs whether it ran or not (!cancelled()), and
+    # the Intel leg skips itself where it did not.
+    needs: [build_binaries, cross_build_binaries, codegen_linux, codegen_macos, codegen_windows]
     timeout-minutes: 30
-    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
+    if: >-
+      !cancelled()
+      && needs.build_binaries.result == 'success' && needs.codegen_linux.result == 'success'
+      && needs.codegen_macos.result == 'success' && needs.codegen_windows.result == 'success'
+      && (github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website')
     continue-on-error: true
     runs-on: ${{ matrix.os }}
     strategy:
@@ -2476,35 +3131,64 @@ jobs:
       matrix:
         include:
           - os: ubuntu-22.04
+            label: Linux
             os_suffix: linux
             bin_ext: ""
             artifact_name: azul-demos-ubuntu
             dll_artifact: azul-linux-amd64
+          # macos-14 is an Apple Silicon runner: its own builds are arm64 only (M1 and later;
+          # an Intel Mac says "bad CPU type in executable"). The Intel demos are built on it
+          # for x86_64, against the x86_64 libazul.a of cross_build_binaries.
           - os: macos-14
+            label: macOS (M1+)
             os_suffix: macos
             bin_ext: ""
             artifact_name: azul-demos-macos
             dll_artifact: azul-macos-amd64
+          - os: macos-14
+            label: macOS (Intel)
+            os_suffix: macos-intel
+            bin_ext: ""
+            artifact_name: azul-demos-macos-intel
+            dll_artifact: azul-macos-x86_64
+            target: x86_64-apple-darwin
+            macos_deployment_target: "10.12"
           - os: windows-2022
+            label: Windows
             os_suffix: windows
             bin_ext: ".exe"
             artifact_name: azul-demos-windows
             dll_artifact: azul-windows-amd64
     steps:
+      - name: Does this leg run
+        id: gate
+        shell: bash
+        run: |
+          # the Intel macOS demos link the x86_64 libazul.a of cross_build_binaries (master and tags)
+          if [ "${{ matrix.target }}" = "x86_64-apple-darwin" ] && [ "${{ needs.cross_build_binaries.result }}" != "success" ]; then
+            echo "::notice::no x86_64 libazul.a in this run (cross_build_binaries: ${{ needs.cross_build_binaries.result }}): no Intel macOS demos"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Checkout repository
+        if: steps.gate.outputs.run == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install Rust
+        if: steps.gate.outputs.run == 'true'
         uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
           toolchain: 1.91.0
+          targets: ${{ matrix.target || '' }}
 
       - name: Install clang + deps (Linux)
-        if: matrix.os == 'ubuntu-22.04'
+        if: steps.gate.outputs.run == 'true' && matrix.os == 'ubuntu-22.04'
         run: sudo apt-get update -qq || true && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev
 
       - name: Install MinGW (Windows)
-        if: matrix.os == 'windows-2022'
+        if: steps.gate.outputs.run == 'true' && matrix.os == 'windows-2022'
         shell: bash
         run: |
           if command -v gcc >/dev/null 2>&1; then
@@ -2525,24 +3209,27 @@ jobs:
           exit 1
 
       - name: Install coreutils (macOS)
-        if: matrix.os == 'macos-14'
+        if: steps.gate.outputs.run == 'true' && matrix.os == 'macos-14'
         run: brew install coreutils
 
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        if: steps.gate.outputs.run == 'true'
+        uses: ./.github/actions/codegen-tree
         with:
-          name: codegen-tree-${{ runner.os }}
-          path: target/codegen
+          os: ${{ runner.os }}
 
       - name: Download prebuilt libazul (static .a for self-contained demos)
+        if: steps.gate.outputs.run == 'true'
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: ${{ matrix.dll_artifact }}
           path: libazul-prebuilt
 
       - name: Build demos (best-effort)
+        if: steps.gate.outputs.run == 'true'
         env:
           CARGO_PROFILE_RELEASE_LTO: "off"
+          MACOSX_DEPLOYMENT_TARGET: ${{ matrix.macos_deployment_target || '' }}
           GH_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
         shell: bash
@@ -2580,7 +3267,7 @@ jobs:
           failed=()
           reused=()
           built=()
-          for demo in AzWidgets AzMaps AzPaint AzMeet AzWriter; do
+          for demo in AzWidgets AzMaps AzPaint AzMeet AzWriter AzBuilder; do
             demo_dir=""
             for cand in "examples/$demo" "demos/$demo" "$demo"; do
               [ -d "$cand" ] && { demo_dir="$cand"; break; }
@@ -2609,7 +3296,8 @@ jobs:
             else
               echo "=== Building $demo on ${{ matrix.os }} (no published fingerprint) ==="
             fi
-            if cargo build --release -p "$demo" \
+            # (a leg with a target builds for it: the Intel macOS one, on an Apple Silicon runner)
+            if cargo build --release -p "$demo" ${{ matrix.target && format('--target {0}', matrix.target) || '' }} \
                  --message-format=json-render-diagnostics > "demo-build-$demo.json"; then
               exe="$(python3 scripts/cargo_bin_path.py "demo-build-$demo.json" "$demo")" || exe=""
               if [ -n "$exe" ] && command -v cygpath >/dev/null 2>&1; then
@@ -2644,11 +3332,12 @@ jobs:
           fi
 
       - name: Stage demo binaries
+        if: steps.gate.outputs.run == 'true'
         shell: bash
         run: |
           mkdir -p demos-staging
           staged=()
-          for demo in AzWidgets AzMaps AzPaint AzMeet AzWriter; do
+          for demo in AzWidgets AzMaps AzPaint AzMeet AzWriter AzBuilder; do
             src="$(sed -n "s|^${demo}=||p" demo-exe-paths.txt 2>/dev/null | tail -1 || true)"
             if [ -n "$src" ] && [ -f "$src" ]; then
               dst="demos-staging/${demo}-${{ matrix.os_suffix }}${{ matrix.bin_ext }}"
@@ -2665,6 +3354,24 @@ jobs:
               missing_staged=1
             fi
           done
+          # (an Intel leg must not ship an arm64 binary: the Mac it is for says "bad CPU type";
+          # nor one that asks for a newer macOS than the release page promises)
+          if [ -n "${{ matrix.target }}" ] && command -v lipo >/dev/null 2>&1; then
+            for f in demos-staging/*; do
+              case "$f" in *.json) continue;; esac
+              archs=$(lipo -archs "$f" 2>/dev/null || echo "?")
+              minos=$(otool -l "$f" | awk '/LC_VERSION_MIN_MACOSX/ {v=1} v && $1 == "version" {print $2; exit}
+                                          /LC_BUILD_VERSION/ {b=1} b && $1 == "minos" {print $2; exit}')
+              echo "  $f: $archs, macOS $minos and later"
+              case "${{ matrix.target }}" in
+                x86_64-apple-darwin) [ "$archs" = "x86_64" ] || { echo "::error::$f is '$archs', not x86_64"; exit 1; } ;;
+              esac
+              if [ -n "${{ matrix.macos_deployment_target }}" ] && [ "$minos" != "${{ matrix.macos_deployment_target }}" ]; then
+                echo "::error::$f needs macOS $minos, not ${{ matrix.macos_deployment_target }}"
+                exit 1
+              fi
+            done
+          fi
           ls -la demos-staging/ || echo "No demos staged"
           echo "=== demo staging summary (${{ matrix.os }}) ==="
           echo "  staged: ${staged[*]:-none}"
@@ -2675,6 +3382,7 @@ jobs:
           python3 -c 'import json,sys; out=sys.argv[1]; e=dict(l.strip().split("=",1) for l in open(sys.argv[2]) if "=" in l); json.dump(e, open(out,"w"), indent=2, sort_keys=True); print("wrote", out, len(e), "fingerprints")' "demos-staging/demo-build-manifest-${{ matrix.os_suffix }}.json" "$manifest_lines"
 
       - name: Upload demo binaries
+        if: steps.gate.outputs.run == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ matrix.artifact_name }}
@@ -2686,7 +3394,11 @@ jobs:
     # Builds the debug-server DLL and codegen bindings once per OS for the E2E matrix.
     name: Build E2E DLL (${{ matrix.os }})
     needs: [content_state_lint, documentation_paths, clippy, check_crates, codegen_linux, codegen_macos, codegen_windows]
-    timeout-minutes: 60
+    # On the 3-core macOS runner a cold build of the DLL (~20 min) and then
+    # the Python extension (~40 min) takes about an hour. The cache below is
+    # saved only by a job that completes, so a limit under the cold build
+    # time keeps every later run cold as well.
+    timeout-minutes: 90
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
     strategy:
       fail-fast: false
@@ -2703,7 +3415,7 @@ jobs:
         with:
           path: |
             target/release
-            target/pyext-e2e/release
+            target/pyext-e2e/pyext-e2e
           key: e2e-dll-${{ env.CACHE_BUST }}-${{ matrix.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('css/src/**/*.rs', 'core/src/**/*.rs', 'layout/src/**/*.rs', 'dll/src/**/*.rs', 'dll/build.rs') }}
           restore-keys: |
             e2e-dll-${{ env.CACHE_BUST }}-${{ matrix.os }}-${{ hashFiles('Cargo.lock') }}-
@@ -2716,17 +3428,19 @@ jobs:
           if [ "${{ steps.build-cache.outputs.cache-hit }}" != "true" ]; then
             echo "skip=false" >> "$GITHUB_OUTPUT"; exit 0
           fi
+          # The dll, and on Linux and macOS the Python extension too: a cache restored by a key
+          # prefix may come from a run that kept the extension elsewhere.
           case "${{ matrix.os }}" in
-            ubuntu-22.04) F="target/release/libazul.so" ;;
-            macos-14)     F="target/release/libazul.dylib" ;;
-            windows-2022) F="target/release/azul.dll" ;;
+            ubuntu-22.04) F="target/release/libazul.so";    P="target/pyext-e2e/pyext-e2e/libazul.so" ;;
+            macos-14)     F="target/release/libazul.dylib"; P="target/pyext-e2e/pyext-e2e/libazul.dylib" ;;
+            windows-2022) F="target/release/azul.dll";      P="$F" ;;
           esac
-          if [ -f "$F" ]; then
-            echo "Cache valid - $F exists"
+          if [ -f "$F" ] && [ -f "$P" ]; then
+            echo "Cache valid - $F and $P exist"
             echo "skip=true" >> "$GITHUB_OUTPUT"
           else
-            echo "::warning::Cache restored but $F missing - rebuilding"
-            rm -rf target/release target/pyext-e2e/release
+            echo "::warning::Cache restored but $F or $P missing - rebuilding"
+            rm -rf target/release target/pyext-e2e/pyext-e2e
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
@@ -2751,14 +3465,25 @@ jobs:
         run: rm -rf target/codegen
 
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: ./.github/actions/codegen-tree
         with:
-          name: codegen-tree-${{ runner.os }}
-          path: target/codegen
+          os: ${{ runner.os }}
 
       - name: Build azul-dll (release, dynamic, debug-server)
         if: steps.cache-valid.outputs.skip != 'true'
         run: cargo build --release -p azul-dll --features build-dll,debug-server,alloc-stats
+
+      # The Python extension below is a second build of the whole tree in a folder of its own.
+      # The release build's intermediate files are not needed past here (only its library is):
+      # they go before it, and the step logs the disk around that.
+      - name: Free the release build's intermediate files
+        if: steps.cache-valid.outputs.skip != 'true' && matrix.os != 'windows-2022'
+        shell: bash
+        run: |
+          df -h .
+          du -sh target/release 2>/dev/null || true
+          rm -rf target/release/deps target/release/build target/release/incremental target/release/.fingerprint
+          df -h .
 
       # Same Python as the e2e leg's `Set up Python` (the extension is built
       # against this interpreter; the image default moves between image releases).
@@ -2768,17 +3493,37 @@ jobs:
           python-version: '3.12'
       - name: Build python extension (debug-server, for e2e)
         if: steps.cache-valid.outputs.skip != 'true' && matrix.os != 'windows-2022'
-        run: cargo build --release -p azul-dll --lib --features python-extension,debug-server --target-dir target/pyext-e2e
+        # The pyext-e2e profile (Cargo.toml): -O1, no debuginfo - the extension is a test artifact.
+        # The runner's memory and disk are logged every 30 s while it builds: the Linux runner
+        # was shut down half way through this compile, and the log says which of the two ran out.
+        shell: bash
+        run: |
+          (
+            while sleep 30; do
+              if command -v free >/dev/null; then
+                mem=$(free -m | awk 'NR==2{printf "mem used %s/%s MB, ", $3, $2} NR==3{printf "swap %s/%s MB, ", $3, $2}')
+              else
+                mem=$(vm_stat | awk '/Pages free|Swapouts/ {printf "%s ", $0}')
+              fi
+              rss=$(ps -axo rss=,comm= 2>/dev/null | awk '/rustc/ {s+=$1} END {print int(s/1024) " MB in rustc"}')
+              echo "[resources] $(date +%T) $mem$rss, disk $(df -h . | awk 'NR==2{print $4}') free"
+            done
+          ) &
+          monitor=$!
+          cargo build --profile pyext-e2e -p azul-dll --lib --features python-extension,debug-server --target-dir target/pyext-e2e
+          kill $monitor
 
       - name: Stage DLL + codegen artifact
         shell: bash
         run: |
           set -euo pipefail
-          rm -rf e2e-dll && mkdir -p e2e-dll/release e2e-dll/codegen
-          cp -a target/codegen/. e2e-dll/codegen/
+          rm -rf e2e-dll && mkdir -p e2e-dll/release
+          # The tree as one tar (see .github/actions/codegen-tree: unpacking its 15,847 files
+          # from the artifact's zip ran Windows out of file handles).
+          tar -cf e2e-dll/codegen.tar -C target/codegen .
           if [ "${{ matrix.os }}" != "windows-2022" ]; then
-            cp target/pyext-e2e/release/libazul.dylib e2e-dll/release/azul-pyext.so 2>/dev/null \
-              || cp target/pyext-e2e/release/libazul.so e2e-dll/release/azul-pyext.so
+            cp target/pyext-e2e/pyext-e2e/libazul.dylib e2e-dll/release/azul-pyext.so 2>/dev/null \
+              || cp target/pyext-e2e/pyext-e2e/libazul.so e2e-dll/release/azul-pyext.so
           fi
           if [ "${{ matrix.os }}" = "macos-14" ]; then
             cp target/release/libazul.dylib e2e-dll/release/
@@ -2878,13 +3623,14 @@ jobs:
             exit 1
           fi
           echo "expected $expected scenario(s); $summary"
-          counts=$(sed -n 's/.*[.] \([0-9]*\) passed; \([0-9]*\) failed; \([0-9]*\) xfailed; \([0-9]*\) xpassed.*/\1 \2 \3 \4/p' <<<"$summary")
+          # A scenario gated off this host (`only_on`) is SKIPPED: counted, never a gate failure.
+          counts=$(sed -n 's/.*[.] \([0-9]*\) passed; \([0-9]*\) failed; \([0-9]*\) xfailed; \([0-9]*\) xpassed; \([0-9]*\) skipped.*/\1 \2 \3 \4 \5/p' <<<"$summary")
           if [ -z "$counts" ]; then
             echo "::error::could not parse the e2e summary line: $summary" >&2
             exit 1
           fi
           set -- $counts
-          total=$(( $1 + $2 + $3 + $4 ))
+          total=$(( $1 + $2 + $3 + $4 + $5 ))
           if [ "$total" -ne "$expected" ]; then
             echo "::error::e2e accounted for $total scenario(s) but $expected were selected" >&2
             exit 1
@@ -3231,7 +3977,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p target/release target/codegen
-          cp -a e2e-dll/codegen/. target/codegen/
+          tar -xf e2e-dll/codegen.tar -C target/codegen
           cp -a e2e-dll/release/. target/release/
           if [ -f target/release/azul-pyext.so ]; then
             mv target/release/azul-pyext.so examples/python/azul.so
@@ -3614,7 +4360,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p target/release target/codegen
-          cp -a e2e-dll/codegen/. target/codegen/
+          tar -xf e2e-dll/codegen.tar -C target/codegen
           cp -a e2e-dll/release/. target/release/
           if [ -f target/release/azul-pyext.so ]; then
             mv target/release/azul-pyext.so examples/python/azul.so
@@ -3746,10 +4492,9 @@ jobs:
         run: rm -rf target/codegen
 
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: ./.github/actions/codegen-tree
         with:
-          name: codegen-tree-${{ runner.os }}
-          path: target/codegen
+          os: ${{ runner.os }}
 
       - name: Set up Android NDK
         if: steps.cache-valid.outputs.skip != 'true' && startsWith(matrix.label, 'android')
@@ -3856,10 +4601,9 @@ jobs:
           toolchain: 1.91.0
           targets: aarch64-apple-ios, aarch64-apple-ios-sim
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: ./.github/actions/codegen-tree
         with:
-          name: codegen-tree-${{ runner.os }}
-          path: target/codegen
+          os: ${{ runner.os }}
 
       - name: Import Apple signing cert (optional)
         if: ${{ env.HAVE_APPLE_CERT == 'true' }}
@@ -3927,7 +4671,7 @@ jobs:
           mkdir -p mobile-apps
           ios_failed=()
           ios_built=()
-          for demo in AzWidgets AzMaps AzPaint AzMeet AzWriter; do
+          for demo in AzWidgets AzMaps AzPaint AzMeet AzWriter AzBuilder; do
             for tgt in aarch64-apple-ios aarch64-apple-ios-sim; do
               echo "=== iOS .app: $demo ($tgt) ==="
               suffix="ios"; [ "$tgt" = "aarch64-apple-ios-sim" ] && suffix="ios-sim"
@@ -4017,10 +4761,9 @@ jobs:
         with:
           ndk-version: r27
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: ./.github/actions/codegen-tree
         with:
-          name: codegen-tree-${{ runner.os }}
-          path: target/codegen
+          os: ${{ runner.os }}
 
       - name: Build cdylib demos as APKs
         shell: bash
@@ -4033,7 +4776,7 @@ jobs:
           export CARGO_TARGET_AARCH64_LINUX_ANDROID_AR="$NDKBIN/llvm-ar"
           BT="$ANDROID_SDK_ROOT/build-tools/34.0.0"
           mkdir -p mobile-apps
-          for demo in AzMaps AzPaint AzWidgets AzMeet AzWriter; do
+          for demo in AzMaps AzPaint AzWidgets AzMeet AzWriter AzBuilder; do
             echo "=== Android APK: $demo ==="
             AZ_ANDROID_NO_DEPLOY=1 \
               bash scripts/build-android.sh aarch64-linux-android "$demo" "com.azul.${demo//-/_}" "$demo"
@@ -4407,10 +5150,9 @@ jobs:
           toolchain: 1.91.0
 
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: ./.github/actions/codegen-tree
         with:
-          name: codegen-tree-${{ runner.os }}
-          path: target/codegen
+          os: ${{ runner.os }}
 
       - name: Download the azul-doc binary
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -4480,7 +5222,7 @@ jobs:
     # Deploys to GitHub Pages. Merges all artifacts into the website tree.
     name: Deploy to GitHub Pages
     if: github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
-    needs: [test_lib, test_heavy, miri, build_binaries, cross_build_binaries, build_rust9x, build_linux_packages, build_website_skeleton, coverage, build_demos, docs_pdf, build_mobile, build_mobile_apps, build_mobile_apps_android, e2e_native, e2e_native_expensive, e2e_headless, ffi_safety_tests, pypi, npm, rubygems, nuget, maven-central]
+    needs: [test_lib, test_heavy, miri, wasm32_check, build_binaries, cross_build_binaries, build_rust9x, build_linux_packages, build_website_skeleton, coverage, build_demos, docs_pdf, build_mobile, build_mobile_apps, build_mobile_apps_android, e2e_native, e2e_native_expensive, e2e_headless, ffi_safety_tests, pypi, npm, rubygems, nuget, maven-central]
     runs-on: ubuntu-22.04
     permissions:
       contents: write
@@ -4686,6 +5428,13 @@ jobs:
         with:
           name: azul-demos-macos
           path: artifacts-demos-macos
+
+      - name: Download macOS (Intel) demo binaries
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        continue-on-error: true
+        with:
+          name: azul-demos-macos-intel
+          path: artifacts-demos-macos-intel
 
       - name: Download Windows demo binaries
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -4916,7 +5665,7 @@ jobs:
           find artifacts-windows-rust9x -name "azul.lib" -exec cp {} "$RELEASE_DIR/azul.rust9x.lib" \; 2>/dev/null || true
 
           mkdir -p "$RELEASE_DIR/demos"
-          for demodir in artifacts-demos-linux artifacts-demos-macos artifacts-demos-windows; do
+          for demodir in artifacts-demos-linux artifacts-demos-macos artifacts-demos-macos-intel artifacts-demos-windows; do
             if [ -d "$demodir" ]; then
               find "$demodir" -type f -exec cp {} "$RELEASE_DIR/demos/" \; 2>/dev/null || true
             fi
@@ -5836,10 +6585,9 @@ jobs:
         with:
           toolchain: 1.91.0
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: ./.github/actions/codegen-tree
         with:
-          name: codegen-tree-${{ runner.os }}
-          path: target/codegen
+          os: ${{ runner.os }}
 
       - name: Cache cargo-geiger
         id: cache-cargo-geiger
@@ -5982,10 +6730,9 @@ jobs:
           sudo ln -sf /usr/bin/clang-18 /usr/local/bin/clang
           clang --version | head -1
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: ./.github/actions/codegen-tree
         with:
-          name: codegen-tree-${{ runner.os }}
-          path: target/codegen
+          os: ${{ runner.os }}
 
       - name: Build azul-dll (debug)
         run: cargo build -p azul-dll --features build-dll
@@ -6132,10 +6879,9 @@ jobs:
         with:
           toolchain: 1.91.0
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: ./.github/actions/codegen-tree
         with:
-          name: codegen-tree-${{ runner.os }}
-          path: target/codegen
+          os: ${{ runner.os }}
 
       - name: cargo tree (generate crate lists)
         continue-on-error: true
@@ -6323,7 +7069,8 @@ jobs:
     name: crates.io (azul-css / azul-core / azul-layout)
     if: github.event.inputs.run_mode == 'deploy'
     runs-on: ubuntu-22.04
-    needs: publish_safety
+    # A published azul-layout must build in printpdf's feature sets too.
+    needs: [publish_safety, layout_feature_check]
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -6404,10 +7151,9 @@ jobs:
         run: sudo apt-get update -qq || true && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev
 
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: ./.github/actions/codegen-tree
         with:
-          name: codegen-tree-${{ runner.os }}
-          path: target/codegen
+          os: ${{ runner.os }}
 
       - name: Stage pyproject.toml at workspace root
         run: |
@@ -6500,10 +7246,9 @@ jobs:
           submodules: recursive
 
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: ./.github/actions/codegen-tree
         with:
-          name: codegen-tree-${{ runner.os }}
-          path: target/codegen
+          os: ${{ runner.os }}
 
       - name: Download the Linux native lib (x64)
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -7122,10 +7867,9 @@ jobs:
         run: sudo apt-get update -qq || true && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev lua5.1 luarocks
 
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: ./.github/actions/codegen-tree
         with:
-          name: codegen-tree-${{ runner.os }}
-          path: target/codegen
+          os: ${{ runner.os }}
 
       - name: Assemble rock
         run: |

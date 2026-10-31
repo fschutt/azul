@@ -668,6 +668,12 @@ pub type eglGetProcAddress = unsafe extern "C" fn(*const c_char) -> *const c_voi
 pub type eglDestroySurface = unsafe extern "C" fn(EGLDisplay, EGLSurface) -> u32;
 pub type eglDestroyContext = unsafe extern "C" fn(EGLDisplay, EGLContext) -> u32;
 pub type eglTerminate = unsafe extern "C" fn(EGLDisplay) -> u32;
+pub type eglGetCurrentDisplay = unsafe extern "C" fn() -> EGLDisplay;
+pub type eglGetCurrentContext = unsafe extern "C" fn() -> EGLContext;
+pub type eglGetCurrentSurface = unsafe extern "C" fn(i32) -> EGLSurface;
+/// eglGetCurrentSurface: the surface bound for drawing, and for reading.
+pub const EGL_DRAW: i32 = 0x3059;
+pub const EGL_READ: i32 = 0x305A;
 
 // XKB types
 #[repr(C)]
@@ -1356,6 +1362,58 @@ pub const ShapeSet: c_int = 0;
 /// `ordering`: rects sorted by y, then x, non-overlapping bands - what
 /// the alpha scan produces.
 pub const YXBanded: c_int = 3;
+
+// MIT-SHM (libXext, <X11/extensions/XShm.h>) - the CPU present's upload from
+// a SysV shared memory segment the server attaches (`common::x11_host`'s
+// MIT-SHM section has the decisions).
+/// Server-side id of an attached segment (an XID).
+pub type ShmSeg = c_ulong;
+/// `XShmSegmentInfo`: filled by the client (`shmid`, `shmaddr`, `readOnly`),
+/// `shmseg` by `XShmAttach`.
+#[repr(C)]
+pub struct XShmSegmentInfo {
+    pub shmseg: ShmSeg,
+    pub shmid: c_int,
+    pub shmaddr: *mut c_char,
+    /// `Bool`: the server may only read the segment.
+    pub readOnly: c_int,
+}
+/// `Bool XShmQueryExtension(Display*)`
+pub type XShmQueryExtension = unsafe extern "C" fn(*mut Display) -> c_int;
+/// `int XShmGetEventBase(Display*)` - `ShmCompletion` arrives as base + 0.
+pub type XShmGetEventBase = unsafe extern "C" fn(*mut Display) -> c_int;
+/// `XImage* XShmCreateImage(Display*, Visual*, depth, format, data, shminfo,
+/// width, height)`
+pub type XShmCreateImage = unsafe extern "C" fn(
+    *mut Display,
+    *mut c_void,
+    c_uint,
+    c_int,
+    *mut c_char,
+    *mut XShmSegmentInfo,
+    c_uint,
+    c_uint,
+) -> *mut XImage;
+/// `Bool XShmAttach(Display*, XShmSegmentInfo*)` / `XShmDetach`.
+pub type XShmAttach = unsafe extern "C" fn(*mut Display, *mut XShmSegmentInfo) -> c_int;
+pub type XShmDetach = unsafe extern "C" fn(*mut Display, *mut XShmSegmentInfo) -> c_int;
+/// `Bool XShmPutImage(Display*, Drawable, GC, XImage*, src_x, src_y, dst_x,
+/// dst_y, src_width, src_height, Bool send_event)`
+pub type XShmPutImage = unsafe extern "C" fn(
+    *mut Display,
+    Drawable,
+    GC,
+    *mut XImage,
+    c_int,
+    c_int,
+    c_int,
+    c_int,
+    c_uint,
+    c_uint,
+    c_int,
+) -> c_int;
+/// Offset of the `ShmCompletion` event from `XShmGetEventBase`.
+pub const ShmCompletion: c_int = 0;
 
 // XRender function types
 pub type XRenderFindVisualFormat =

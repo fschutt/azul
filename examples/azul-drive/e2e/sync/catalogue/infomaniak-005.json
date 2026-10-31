@@ -1,0 +1,62 @@
+[
+  {
+    "name": "Backup/a.txt and backup/a.txt on the drive reach a disk that ignores case: one comes down, the other is listed, deterministic and quiet",
+    "description": "INFOMANIAK-005 (Infomaniak): a directory already present under the same name in another case made the server answer 500 FileNameConflict, and rclone then refused every delete. Rules P1 and O1: the folder committed first is the one here, the other file is listed (name-collision) and stays on the drive; nothing is overwritten; the passes settle. sync-chaos port-case-collision-remote.",
+    "only_on": ["macos", "windows"],
+    "steps": [
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_tamper", "remote": "r", "action": "put", "key": "Backup/a.txt", "text": "upper" },
+      { "op": "drive_tamper", "remote": "r", "action": "put", "key": "backup/a.txt", "text": "lower" },
+      { "op": "drive_tamper", "remote": "r", "action": "put", "key": "\u00dcbersicht/n.txt", "text": "composed" },
+      { "op": "drive_tamper", "remote": "r", "action": "put", "key": "U\u0308bersicht/n.txt", "text": "decomposed" },
+      { "op": "drive_sync", "device": "b", "expect": "any" },
+      { "op": "drive_sync", "device": "b", "expect": "any" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "Backup/a.txt", "text": "upper" },
+      { "op": "drive_check", "check": "files_count", "device": "b", "glob": "?ackup/a.txt", "count": 1 },
+      { "op": "drive_check", "check": "problem", "device": "b", "code": "name-collision", "key": "backup/a.txt" },
+      { "op": "drive_check", "check": "problem", "device": "b", "code": "name-collision", "key": "U\u0308bersicht/n.txt" },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "backup/a.txt", "text": "lower" },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "U\u0308bersicht/n.txt", "text": "decomposed" },
+      { "op": "drive_check", "check": "trash_empty", "device": "b" },
+      { "op": "drive_sync", "device": "b", "expect": "any" },
+      { "op": "drive_check", "check": "last_pass_quiet", "device": "b" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "one file over quota does not stop the deletes of the same pass: they reach the drive, the file waits and is listed",
+    "description": "INFOMANIAK-005 (Infomaniak): after the error, rclone refused to delete old files ('not deleting files as there were IO errors') and the quota filled. Rules E4 and E6: a per-file failure is per file; the deletes and the files that fit go through, the one that does not fit is listed (quota-exceeded) and the local file is untouched.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "old1.txt", "text": "old 1" },
+      { "op": "drive_write", "device": "a", "path": "old2.txt", "text": "old 2" },
+      { "op": "drive_write", "device": "a", "path": "old3.txt", "text": "old 3" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_fault", "remote": "r", "quota_bytes": 1000000 },
+      { "op": "drive_write", "device": "a", "path": "big.bin", "size": 2000000, "seed": 381 },
+      { "op": "drive_write", "device": "a", "path": "small.txt", "text": "fits" },
+      { "op": "drive_rm", "device": "a", "path": "old1.txt" },
+      { "op": "drive_rm", "device": "a", "path": "old2.txt" },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "quota-exceeded", "key": "big.bin" },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "old1.txt", "absent": true },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "old2.txt", "absent": true },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "old3.txt", "text": "old 3" },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "small.txt", "text": "fits" },
+      { "op": "drive_check", "check": "file", "device": "a", "path": "big.bin", "size": 2000000 },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "old1.txt", "absent": true },
+      { "op": "drive_check", "check": "trash_has", "device": "b", "text": "old 1" },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

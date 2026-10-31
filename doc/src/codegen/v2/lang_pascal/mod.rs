@@ -63,6 +63,7 @@ pub mod constants;
 pub mod functions;
 pub mod lpi;
 pub mod managed;
+pub mod options;
 pub mod types;
 pub mod values;
 pub mod wrappers;
@@ -153,6 +154,10 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
     //    (the class wrappers above cover only the types that own memory).
     values::generate_value_interface(&mut builder, ir, config);
 
+    // 8. AzTryGetSome / AzTryGetOk / AzTryGetErr: reading an Option or a
+    //    Result without spelling its tag.
+    options::generate_option_interface(&mut builder, ir, config);
+
     // === implementation section ===
     builder.blank();
     builder.line("implementation");
@@ -167,6 +172,7 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
 
     // Value-layer bodies (one forwarding call each).
     values::generate_value_implementation(&mut builder, ir, config);
+    options::generate_option_implementation(&mut builder, ir, config);
 
     // Unit initialisation block — FPU mask, ABI self-check, releaser +
     // invoker stub registration.

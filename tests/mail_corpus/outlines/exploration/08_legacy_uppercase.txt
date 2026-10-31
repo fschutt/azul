@@ -1,0 +1,2 @@
+head: 
+body: center{font[face=Verdana size=4 color=#003366]{b{"Club Newsletter"}}} p{"Dear member," br " the " u{"annual meeting"} " is on " font[color=RED]{"Friday"} ". "} p{"Agenda: "} ol{li{"Welcome "} li{"Budget & fees "} li{"Any other business "}} table[border=1 cellpadding=4 width=300]{tbody{tr{td[nowrap=]{"Start"} td[align=RIGHT]{"19:00"}} tr{td[nowrap=]{"End"} td[align=RIGHT]{"21:00"}}}} p{strike{"Old venue"} tt{"Room 4"} " © Club   – see you! "}

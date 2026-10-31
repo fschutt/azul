@@ -77,7 +77,7 @@ use crate::{
     },
     menu::Menu,
     prop_cache::{CssPropertyCache, CssPropertyCachePtr},
-    refany::RefAny,
+    refany::{RefAny, RefAnyHolder},
     resources::{Au, ImageCache, ImageRef, ImmediateFontId, RendererResources},
     style::{
         construct_html_cascade_tree, matches_html_element, rule_ends_with, CascadeInfo,
@@ -144,6 +144,27 @@ pub struct ActiveChange {
     pub deactivated: Vec<NodeId>,
     /// Nodes that were activated (mouse down)
     pub activated: Vec<NodeId>,
+}
+
+/// Whether `state` has the interaction state `ty` raised; `false` for the
+/// states a node does not change on its own (`:disabled`, `:checked`, ...).
+pub(crate) const fn state_is_raised(
+    state: &StyledNodeState,
+    ty: azul_css::dynamic_selector::PseudoStateType,
+) -> bool {
+    use azul_css::dynamic_selector::PseudoStateType as P;
+    match ty {
+        P::Hover => state.hover,
+        P::Active => state.active,
+        P::Focus => state.focused,
+        P::FocusVisible => state.focus_visible,
+        P::SeatFocus => state.seat_focused,
+        P::FocusWithin => state.focus_within,
+        P::Dragging => state.dragging,
+        P::DragOver => state.drag_over,
+        P::Backdrop => state.backdrop,
+        _ => false,
+    }
 }
 
 /// Result of a restyle operation, indicating what needs to be updated
@@ -235,6 +256,10 @@ pub struct StyledNodeState {
     /// A NON-primary pointer seat focuses this node (`:seat-focus`,
     /// 9b-ii-a-i-d-iii-a). Independent of `focused`, which is the primary's.
     pub seat_focused: bool,
+    /// The node's focus should be SEEN (`:focus-visible`): it came from the
+    /// keyboard or assistive technology, not a click. Raised only with
+    /// `focused`, from `FocusManager::focus_is_visible`; focus rings read it.
+    pub focus_visible: bool,
 }
 
 impl fmt::Debug for StyledNodeState {
@@ -248,6 +273,9 @@ impl fmt::Debug for StyledNodeState {
         }
         if self.focused {
             v.push("focused");
+        }
+        if self.focus_visible {
+            v.push("focus_visible");
         }
         if self.disabled {
             v.push("disabled");
@@ -297,6 +325,7 @@ impl StyledNodeState {
             drag_over: false,
             placeholder: false,
             seat_focused: false,
+            focus_visible: false,
         }
     }
 
@@ -316,6 +345,7 @@ impl StyledNodeState {
             9 => self.dragging,
             10 => self.drag_over,
             11 => self.seat_focused,
+            12 => self.focus_visible,
             _ => false,
         }
     }
@@ -339,6 +369,7 @@ impl StyledNodeState {
             // so a `::placeholder` rule silently never applied.
             && !self.placeholder
             && !self.seat_focused
+            && !self.focus_visible
     }
 
     /// Create from `PseudoStateFlags`
@@ -359,6 +390,7 @@ impl StyledNodeState {
             drag_over: flags.drag_over,
             placeholder: flags.placeholder,
             seat_focused: flags.seat_focused,
+            focus_visible: flags.focus_visible,
         }
     }
 }
@@ -865,13 +897,31 @@ impl NodeHierarchyItemVec {
 
 impl NodeDataContainerRef<'_, NodeHierarchyItem> {
     /// Returns the number of descendant nodes under the given parent.
+    ///
+    /// Descendants are contiguous after the node in pre-order, so they end
+    /// where the first node that is NOT below it starts: the node's next
+    /// sibling - or, for a last child, the next sibling of its nearest
+    /// ancestor that has one; the end of the tree only when no ancestor does.
+    /// (The end of the tree was taken for every last child, so a node closing
+    /// its parent's children claimed every node after it: a Switch's colour
+    /// fade, patched over its "subtree", recoloured the switches below it.)
     #[inline]
     #[must_use]
     pub fn subtree_len(&self, parent_id: NodeId) -> usize {
         let self_item_index = parent_id.index();
-        let next_item_index = self[parent_id]
-            .next_sibling_id()
-            .map_or_else(|| self.len(), |s| s.index());
+        let mut node = parent_id;
+        let mut next_item_index = self.len();
+        // At most one step per node: a malformed parent chain cannot loop.
+        for _ in 0..self.len() {
+            if let Some(next) = self[node].next_sibling_id() {
+                next_item_index = next.index();
+                break;
+            }
+            match self[node].parent_id() {
+                Some(parent) if parent.index() < self.len() => node = parent,
+                _ => break,
+            }
+        }
         // saturating: a malformed FastDom can leave next_sibling <= parent,
         // which would underflow-panic the subtraction.
         next_item_index
@@ -1041,6 +1091,14 @@ impl Default for StyledDom {
     }
 }
 
+impl RefAnyHolder for StyledDom {
+    fn for_each_refany(&mut self, visit: &mut dyn FnMut(&mut RefAny)) {
+        for node in self.node_data.as_mut() {
+            node.for_each_refany(visit);
+        }
+    }
+}
+
 /// Per-field heap-byte breakdown of a `StyledDom`.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct StyledDomMemoryReport {
@@ -1164,6 +1222,19 @@ impl StyledDom {
         css: Css,
         context: Option<azul_css::dynamic_selector::DynamicSelectorContext>,
     ) -> Self {
+        Self::create_with_context_inheriting(dom, css, context, Vec::new())
+    }
+
+    /// [`Self::create_with_context`] for a DOM whose root inherits from a
+    /// HOST outside it (`inherited_from_host`, see
+    /// [`CssPropertyCache::inherited_from_host`]): the first cascade already
+    /// hands the host's values down - no second pass.
+    fn create_with_context_inheriting(
+        dom: &mut Dom,
+        css: Css,
+        context: Option<azul_css::dynamic_selector::DynamicSelectorContext>,
+        inherited_from_host: Vec<(CssPropertyType, crate::prop_cache::CssPropertyWithOrigin)>,
+    ) -> Self {
         use core::mem;
 
         let mut swap_dom = Dom::create_body();
@@ -1209,7 +1280,13 @@ impl StyledDom {
             .collect::<Vec<NodeHierarchyItem>>()
             .into();
 
-        Self::create_from_compact_dom(compact_dom, css, node_hierarchy, context)
+        Self::create_from_compact_dom(
+            compact_dom,
+            css,
+            node_hierarchy,
+            context,
+            inherited_from_host,
+        )
     }
 
     /// Creates a `StyledDom` from a `FastDom` (arena-based DOM).
@@ -1289,7 +1366,13 @@ impl StyledDom {
         // 4. Delegate to create() which handles cascade, UA CSS, etc. We need a mutable Dom to pass
         //    to create(), but we already have CompactDom. Instead, inline the cascade logic from
         //    create() with our CompactDom.
-        Self::create_from_compact_dom(compact_dom, combined_css, node_hierarchy_items, None)
+        Self::create_from_compact_dom(
+            compact_dom,
+            combined_css,
+            node_hierarchy_items,
+            None,
+            Vec::new(),
+        )
     }
 
     /// Internal: creates `StyledDom` from a `CompactDom` + CSS + pre-built hierarchy items.
@@ -1299,14 +1382,44 @@ impl StyledDom {
     #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch
                                      // (one branch per input variant)
     fn create_from_compact_dom(
-        compact_dom: CompactDom,
+        mut compact_dom: CompactDom,
         mut css: Css,
         node_hierarchy: NodeHierarchyItemVec,
         context: Option<azul_css::dynamic_selector::DynamicSelectorContext>,
+        inherited_from_host: Vec<(CssPropertyType, crate::prop_cache::CssPropertyWithOrigin)>,
     ) -> Self {
         use crate::dom::EventFilter;
 
         static CASCADE_BREAKDOWN: crate::sync::OnceLock<bool> = crate::sync::OnceLock::new();
+
+        // The `::before` / `::after` nodes the stylesheet's `content` rules
+        // make join the tree first: everything below reads the final arena.
+        let node_hierarchy: NodeHierarchyItemVec =
+            if crate::generated_content::insert_generated_nodes(&mut compact_dom, &mut css) {
+                compact_dom
+                    .node_hierarchy
+                    .as_ref()
+                    .internal
+                    .iter()
+                    .map(|i| (*i).into())
+                    .collect::<Vec<NodeHierarchyItem>>()
+                    .into()
+            } else {
+                node_hierarchy
+            };
+
+        // HTML's presentational hints (`<table width cellpadding>`, `<td
+        // bgcolor align nowrap>`): the attributes the XML loaders keep on
+        // the node become inline declarations in front of each element's
+        // own style, before the cascade reads any node data. Every way to a
+        // `StyledDom` passes here (both loaders, a built `Dom`). The hints are
+        // CSS declarations, so without the CSS parser there are none.
+        #[cfg(feature = "css_parser")]
+        crate::xml::attributes::apply_presentational_hints(
+            &mut compact_dom.node_data.internal,
+            node_hierarchy.as_container().internal,
+        );
+
         let cascade_dbg = *CASCADE_BREAKDOWN.get_or_init(crate::profile::memory_enabled);
 
         let node_count = compact_dom.len();
@@ -1330,6 +1443,10 @@ impl StyledDom {
         // builder (and `compute_inherited_values`) evaluate — answers for the
         // window this DOM is about to be shown in. See `create_with_context`.
         css_property_cache.dynamic_context = context.map(Box::new);
+        // What the root inherits from a host outside this DOM, installed
+        // before the cascade for the same reason: every stage reads it where
+        // it reads a parent (`CssPropertyCache::inherited_from_host`).
+        css_property_cache.inherited_from_host = inherited_from_host;
 
         let html_tree = construct_html_cascade_tree(
             &compact_dom.node_hierarchy.as_ref(),
@@ -1347,12 +1464,14 @@ impl StyledDom {
 
         let non_leaf_nodes: ParentWithNodeDepthVec = non_leaf_nodes.into();
 
+        // A new DOM's nodes are in no interaction state yet.
         let _restyle_tag_ids = css_property_cache.restyle(
             &mut css,
             &compact_dom.node_data.as_ref(),
             &node_hierarchy,
             &non_leaf_nodes,
             &html_tree.as_ref(),
+            &[],
         );
 
         // Retain the author stylesheet on the cache (this used to `drop(css)` to
@@ -1368,10 +1487,15 @@ impl StyledDom {
         // a different layout for the desktop renderer; computed_values
         // is the "tall" form that the web renderer's CSS emitter
         // (`emit_css_from_cache`) walks per node.
-        css_property_cache.apply_ua_css(compact_dom.node_data.as_ref().internal);
+        css_property_cache.apply_ua_css_in_tree(
+            compact_dom.node_data.as_ref().internal,
+            node_hierarchy.as_container().internal,
+        );
+        // A new DOM has every node at rest: no state to inherit from.
         css_property_cache.compute_inherited_values(
             node_hierarchy.as_container().internal,
             compact_dom.node_data.as_ref().internal,
+            &[],
         );
 
         let prev_font_hashes: Vec<u64> = css_property_cache
@@ -1382,9 +1506,18 @@ impl StyledDom {
         let compact = css_property_cache.build_compact_cache_with_inheritance(
             compact_dom.node_data.as_ref().internal,
             node_hierarchy.as_container().internal,
+            &[],
             &prev_font_hashes,
         );
         css_property_cache.compact_cache = Some(compact);
+        // The generated nodes' text, from what the cascade resolved (before
+        // the prune drops the entries the counters read).
+        crate::generated_content::fill_generated_text(
+            &mut compact_dom.node_data.internal,
+            node_hierarchy.as_container().internal,
+            &css_property_cache,
+            &[],
+        );
         let pre_prune = if cascade_dbg {
             Some(css_property_cache.memory_breakdown())
         } else {
@@ -1475,6 +1608,9 @@ impl StyledDom {
         #[cfg(feature = "table_layout")]
         if let Err(_e) = crate::dom_table::generate_anonymous_table_elements(&mut styled_dom) {}
 
+        // A DOM born in an inactive window is `:backdrop` from its first frame.
+        styled_dom.sync_backdrop_state();
+
         styled_dom
     }
 
@@ -1497,8 +1633,41 @@ impl StyledDom {
     /// the first pass — see [`Self::create_with_context`].
     #[must_use]
     pub fn create_from_dom_with_context(
+        dom: Dom,
+        context: Option<azul_css::dynamic_selector::DynamicSelectorContext>,
+    ) -> Self {
+        Self::create_from_dom_with_user_sheets(dom, context, &[])
+    }
+
+    /// [`Self::create_from_dom_with_context`] with USER-origin stylesheets:
+    /// the end user's rice (`azul_css::rice`), which addresses the whole
+    /// window rather than the subtree of a node. They are appended after the
+    /// DOM's own sheets and never scoped - hung on the root `Dom` instead, a
+    /// rice's `* { ... }` at or above `rule_priority::INLINE` would be scoped
+    /// to the root node alone (`scope_inline_css`). Their rules carry their
+    /// own priorities and conditions (`@theme(<theme>)`).
+    #[must_use]
+    pub fn create_from_dom_with_user_sheets(
+        dom: Dom,
+        context: Option<azul_css::dynamic_selector::DynamicSelectorContext>,
+        user_sheets: &[Css],
+    ) -> Self {
+        Self::create_from_dom_inheriting(dom, context, user_sheets, Vec::new())
+    }
+
+    /// [`Self::create_from_dom_with_user_sheets`] for a DOM HOSTED by a node
+    /// of another one - the content of a `VirtualView`: its root inherits
+    /// `inherited_from_host` (the host's values,
+    /// [`CssPropertyCache::inherited_values_for_hosted_dom`]) as any element
+    /// inherits from its parent, from the first cascade on. Empty = a
+    /// document of its own, exactly
+    /// [`Self::create_from_dom_with_user_sheets`].
+    #[must_use]
+    pub fn create_from_dom_inheriting(
         mut dom: Dom,
         context: Option<azul_css::dynamic_selector::DynamicSelectorContext>,
+        user_sheets: &[Css],
+        inherited_from_host: Vec<(CssPropertyType, crate::prop_cache::CssPropertyWithOrigin)>,
     ) -> Self {
         use azul_css::css::Css;
 
@@ -1513,6 +1682,9 @@ impl StyledDom {
         // 1. Collect all CSS objects from the recursive Dom tree (now scoped)
         let mut all_css = Vec::new();
         collect_css_from_dom(&dom, &mut all_css);
+        // ... and the user-origin sheets after them, unscoped (already past
+        // `scope_inline_css`, which only walks the DOM's own sheets).
+        all_css.extend(user_sheets.iter().cloned());
 
         // 2. Merge all CSS objects into one combined Css
         let mut combined_css = if all_css.is_empty() {
@@ -1534,7 +1706,7 @@ impl StyledDom {
         strip_css_from_dom(&mut dom);
 
         // 4. Use existing StyledDom::create to flatten + cascade
-        Self::create_with_context(&mut dom, combined_css, context)
+        Self::create_with_context_inheriting(&mut dom, combined_css, context, inherited_from_host)
     }
 
     /// Appends another `StyledDom` as a child to the `self.root`
@@ -1710,17 +1882,151 @@ impl StyledDom {
             .as_ref()
             .map(|c| c.prev_font_hashes.clone())
             .unwrap_or_default();
+        let states = self.node_states();
         let compact = self
             .css_property_cache
             .downcast_mut()
             .build_compact_cache_with_inheritance(
                 self.node_data.as_container().internal,
                 self.node_hierarchy.as_container().internal,
+                &states,
                 &prev_font_hashes,
             );
         self.css_property_cache.downcast_mut().compact_cache = Some(compact);
         let cache = self.css_property_cache.downcast_mut();
         cache.cascade_epoch = cache.cascade_epoch.wrapping_add(1);
+    }
+
+    /// The state every node is in (hover, focus, active, ...), in node order:
+    /// what the inheritance passes resolve a node's own declarations under.
+    #[must_use]
+    pub fn node_states(&self) -> Vec<StyledNodeState> {
+        self.styled_nodes
+            .as_ref()
+            .iter()
+            .map(|n| n.styled_node_state)
+            .collect()
+    }
+
+    /// Inheritance computed again for the states the nodes are in now, after
+    /// a state change moved a value a node hands to its children
+    /// (`.bar:hover { color: red }` reaching the text in the bar): the
+    /// inherited values, the compact cache, the resolved font sizes.
+    pub fn recompute_inheritance_for_states(&mut self) {
+        let states = self.node_states();
+        self.css_property_cache
+            .downcast_mut()
+            .compute_inherited_values(
+                self.node_hierarchy.as_container().internal,
+                self.node_data.as_container().internal,
+                &states,
+            );
+        self.recompute_inheritance_and_compact_cache();
+        self.css_property_cache
+            .downcast_mut()
+            .invalidate_resolved_font_sizes();
+    }
+
+    /// Whether `node`'s subtree ends where the arena ends: it is the root, or
+    /// the last child of a node that is. Only such a node can take a new last
+    /// child at the end of the arena, which keeps the arena in document order
+    /// (a node's first child is the node after it).
+    #[must_use]
+    pub fn is_on_rightmost_spine(&self, node: NodeId) -> bool {
+        let hierarchy = self.node_hierarchy.as_container();
+        let mut at = self.root.into_crate_internal().unwrap_or(NodeId::ZERO);
+        loop {
+            if at == node {
+                return true;
+            }
+            match hierarchy[at].last_child_id() {
+                Some(last) => at = last,
+                None => return false,
+            }
+        }
+    }
+
+    /// Appends `child` as the last child of `parent`, which must be on the
+    /// rightmost spine ([`Self::is_on_rightmost_spine`]); false, and nothing
+    /// changed, when it is not. The child keeps its own cascade until the
+    /// next restyle.
+    pub fn append_under_rightmost(&mut self, parent: NodeId, child: Self) -> bool {
+        if !self.is_on_rightmost_spine(parent) {
+            return false;
+        }
+        let root = self.root.into_crate_internal().unwrap_or(NodeId::ZERO);
+        let new_id = NodeId::new(self.node_data.as_ref().len());
+        let root_last_before = self.node_hierarchy.as_container()[root].last_child_id();
+        let parent_last_before = self.node_hierarchy.as_container()[parent].last_child_id();
+        let index_in_parent = parent.az_children(&self.node_hierarchy.as_container()).count();
+        // `append_child` hangs the child under the root; it then moves to
+        // `parent`, which the spine puts right before it in document order.
+        self.append_child(child);
+        if parent != root {
+            let mut h = self.node_hierarchy.as_container_mut();
+            h[root].last_child = NodeId::into_raw(&root_last_before);
+            if let Some(last) = root_last_before {
+                h[last].next_sibling = NodeId::into_raw(&None);
+            }
+            h[new_id].parent = NodeId::into_raw(&Some(parent));
+            h[new_id].previous_sibling = NodeId::into_raw(&parent_last_before);
+            h[new_id].next_sibling = NodeId::into_raw(&None);
+            if let Some(last) = parent_last_before {
+                h[last].next_sibling = NodeId::into_raw(&Some(new_id));
+            }
+            h[parent].last_child = NodeId::into_raw(&Some(new_id));
+        }
+        let cascade = self.cascade_info.as_mut();
+        if let Some(last) = parent_last_before {
+            cascade[last.index()].is_last_child = false;
+        }
+        cascade[new_id.index()].index_in_parent = u32::try_from(index_in_parent).unwrap_or(u32::MAX);
+        cascade[new_id.index()].is_last_child = true;
+        // The parents by depth follow the new tree: in document order a
+        // parent comes before its children, so one pass gives every depth.
+        let hierarchy = self.node_hierarchy.as_container();
+        let mut depth = vec![0_usize; hierarchy.len()];
+        let mut parents = Vec::new();
+        for i in 0..hierarchy.len() {
+            let id = NodeId::new(i);
+            if let Some(p) = hierarchy[id].parent_id().filter(|p| p.index() < i) {
+                depth[i] = depth[p.index()] + 1;
+            }
+            if hierarchy[id].last_child_id().is_some() {
+                parents.push(ParentWithNodeDepth {
+                    depth: depth[i],
+                    node_id: NodeHierarchyItemId::from_crate_internal(Some(id)),
+                });
+            }
+        }
+        parents.sort_by_key(|p| p.depth);
+        let parents: ParentWithNodeDepthVec = parents.into();
+        self.non_leaf_nodes = parents;
+        true
+    }
+
+    /// Inserts `node`, made by a callback at runtime, as the last child of
+    /// `parent`, styled as if the styled DOM had been created with it: the
+    /// retained author style sheet reaches it, it gets the `::marker`,
+    /// `::before` and `::after` that sheet makes for it, and it inherits from
+    /// its parent. A parent that is not on the rightmost spine cannot take a
+    /// child at the end of the arena: the node then goes under the root and
+    /// false is returned.
+    pub fn insert_runtime_child(&mut self, parent: NodeId, node: NodeData) -> bool {
+        let mut dom = Dom::create_node(crate::dom::NodeType::Div);
+        dom.root = node;
+        let styled = Self::create(&mut dom, Css::empty());
+        let root = self.root.into_crate_internal().unwrap_or(NodeId::ZERO);
+        let new_id = NodeId::new(self.node_data.as_ref().len());
+        let placed = self.is_on_rightmost_spine(parent);
+        let parent = if placed { parent } else { root };
+        // The root is always on the spine.
+        self.append_under_rightmost(parent, styled);
+        self.extend_author_scopes_for_appended(new_id, parent);
+        self.append_generated_nodes_of(new_id);
+        self.restyle_retained();
+        self.recompute_inheritance_and_compact_cache();
+        placed
     }
 
     /// Re-applies CSS styles to the existing DOM structure.
@@ -1807,7 +2113,15 @@ impl StyledDom {
             .downcast_mut()
             .retained_author_css
             .clone();
-        if css.is_empty() {
+        // An empty sheet has nothing to re-match - unless the nodes' own
+        // styles define or read custom properties, which only the cascade's
+        // variable pass resolves (an inserted node's `var()` included).
+        if css.is_empty()
+            && !crate::custom_property_cascade::needs_variable_pass(
+                &css,
+                self.node_data.as_container().internal,
+            )
+        {
             return;
         }
         self.restyle(css);
@@ -1818,18 +2132,117 @@ impl StyledDom {
         // the STALE `compact_cache` (display/overflow reads) and are intentionally
         // discarded — we regenerate them below AFTER the compact cache and
         // inheritance have been recomputed (audit styled_dom.rs:1404/1426).
+        // The states the nodes are in now: a rule that names a state left of
+        // its subject (`.btn:hover .ink`) holds by them.
+        let states: Vec<StyledNodeState> = self
+            .styled_nodes
+            .as_container()
+            .internal
+            .iter()
+            .map(|n| n.styled_node_state)
+            .collect();
         let _stale_tag_ids = self.css_property_cache.downcast_mut().restyle(
             &mut css,
             &self.node_data.as_container(),
             &self.node_hierarchy,
             &self.non_leaf_nodes,
             &self.cascade_info.as_container(),
+            &states,
         );
 
         // Keep the stylesheet for later structural restyles (inserted nodes).
         self.css_property_cache.downcast_mut().retained_author_css = css;
 
         self.recascade_ua_inheritance_and_compact();
+        // `content` and the counters may have moved with the cascade.
+        self.refill_generated_text();
+        // The new sheet may add or drop `:backdrop` rules.
+        self.sync_backdrop_state();
+    }
+
+    /// Re-seed what this DOM's root inherits from the node that hosts it
+    /// ([`CssPropertyCache::inherited_from_host`]) and re-run the cascade it
+    /// feeds - the HOST's values moved: its DOM was restyled (a `color` of
+    /// its own or of an ancestor changed), the window switched light / dark
+    /// and the host's UA colour with it. A `VirtualView`'s DOM is kept
+    /// across relayouts of an unchanged host, so nothing else would ever
+    /// tell it.
+    ///
+    /// The whole cascade, not just its tail: the root's `cascaded_props`
+    /// carry the old values, and only the author cascade's inheritance walk
+    /// rebuilds them. Returns `false`, re-running nothing, when `values` is
+    /// what the DOM already inherits - the common relayout.
+    pub fn set_inherited_from_host(
+        &mut self,
+        values: Vec<(CssPropertyType, crate::prop_cache::CssPropertyWithOrigin)>,
+    ) -> bool {
+        if self.get_css_property_cache().inherited_from_host == values {
+            return false;
+        }
+        cascade_trace(|| "inherited-from-host values changed: RESTYLED".to_string());
+        self.css_property_cache.downcast_mut().inherited_from_host = values;
+        let css = self
+            .get_css_property_cache()
+            .retained_author_css
+            .clone();
+        self.restyle(css);
+        true
+    }
+
+    /// Feed `:backdrop` (GTK: the window is not the active one) into the
+    /// per-node state every getter reads.
+    ///
+    /// It is a WINDOW state, so no event raises it on a node the way a
+    /// pointer raises `:hover`: the window's activation reaches the DOM as the
+    /// cascade context (`DynamicSelectorContext::window_focused`, which
+    /// `LayoutWindow::apply_window_activation` offers on every activation
+    /// change). The flag goes up, while the window is inactive, only on the
+    /// nodes that declare or inherit a `:backdrop` value - a raised flag takes
+    /// a node off the resting-state fast paths (`StyledNodeState::is_normal`),
+    /// which every other node keeps.
+    pub fn sync_backdrop_state(&mut self) {
+        use azul_css::dynamic_selector::{DynamicSelector, PseudoStateType};
+
+        let flags: Vec<bool> = {
+            let cache = self.get_css_property_cache();
+            let inactive = cache
+                .dynamic_context
+                .as_deref()
+                .is_some_and(|ctx| !ctx.window_focused);
+            let node_data = self.node_data.as_container();
+            (0..self.node_count())
+                .map(|i| {
+                    inactive
+                        && (cache
+                            .css_props
+                            .get_slice(i)
+                            .iter()
+                            .any(|p| p.state == PseudoStateType::Backdrop)
+                            || cache
+                                .cascaded_props
+                                .get_slice(i)
+                                .iter()
+                                .any(|p| p.state == PseudoStateType::Backdrop)
+                            || node_data.internal.get(i).is_some_and(|nd| {
+                                nd.style.iter_inline_properties().any(|(_, conds)| {
+                                    conds.as_slice().iter().any(|c| {
+                                        matches!(
+                                            c,
+                                            DynamicSelector::PseudoState(
+                                                PseudoStateType::Backdrop
+                                            )
+                                        )
+                                    })
+                                })
+                            }))
+                })
+                .collect()
+        };
+        for (i, backdrop) in flags.into_iter().enumerate() {
+            if let Some(styled) = self.styled_nodes.as_container_mut().get_mut(NodeId::new(i)) {
+                styled.styled_node_state.backdrop = backdrop;
+            }
+        }
     }
 
     /// The context-dependent tail of [`Self::restyle`], on its own: UA
@@ -1849,16 +2262,19 @@ impl StyledDom {
 
         // Apply UA CSS properties before computing inheritance (strips and
         // re-answers its own previous entries, see `apply_ua_css`).
-        self.css_property_cache
-            .downcast_mut()
-            .apply_ua_css(self.node_data.as_container().internal);
+        self.css_property_cache.downcast_mut().apply_ua_css_in_tree(
+            self.node_data.as_container().internal,
+            self.node_hierarchy.as_container().internal,
+        );
 
         // Compute inherited values after restyle and apply_ua_css (resolves em, %, etc.)
+        let states = self.node_states();
         self.css_property_cache
             .downcast_mut()
             .compute_inherited_values(
                 self.node_hierarchy.as_container().internal,
                 self.node_data.as_container().internal,
+                &states,
             );
 
         // The old compact_cache was built from the pre-restyle CSS. If we do not
@@ -1880,6 +2296,7 @@ impl StyledDom {
             .build_compact_cache_with_inheritance(
                 self.node_data.as_container().internal,
                 self.node_hierarchy.as_container().internal,
+                &states,
                 &prev_font_hashes,
             );
         self.css_property_cache.downcast_mut().compact_cache = Some(compact);
@@ -1960,6 +2377,159 @@ impl StyledDom {
         )
     }
 
+    /// `:focus-within` on/off for `nodes`.
+    #[must_use]
+    pub fn restyle_nodes_focus_within(&mut self, nodes: &[NodeId], on: bool) -> RestyleNodes {
+        self.restyle_nodes_state(
+            nodes,
+            on,
+            |state, val| state.focus_within = val,
+            azul_css::dynamic_selector::PseudoStateType::FocusWithin,
+        )
+    }
+
+    /// `node` and its ancestors up to the root, `node` first; empty for an
+    /// id outside this DOM.
+    fn self_and_ancestors(&self, node: NodeId) -> Vec<NodeId> {
+        let hierarchy = self.node_hierarchy.as_container();
+        let mut chain = Vec::new();
+        let mut next = (node.index() < hierarchy.len()).then_some(node);
+        while let Some(n) = next {
+            chain.push(n);
+            next = hierarchy[n].parent_id();
+        }
+        chain
+    }
+
+    /// Raises `:focus-within` on `focused`, its ancestors and their parts,
+    /// flag by flag and without a restyle: for a DOM built at rest that the
+    /// window hands its runtime states before the layout (the focus, the
+    /// hovered nodes). [`Self::restyle_for_raised_states`] then lets the
+    /// rules that read those states see them.
+    pub fn raise_focus_within(&mut self, focused: NodeId) {
+        let chain = self.self_and_ancestors(focused);
+        let chain = self.with_parts(chain);
+        let mut nodes = self.styled_nodes.as_container_mut();
+        for node in chain {
+            if let Some(styled) = nodes.get_mut(node) {
+                styled.styled_node_state.focus_within = true;
+            }
+        }
+    }
+
+    /// Re-runs the cascade when one of its rules names, left of its subject,
+    /// a state some node is in now (`.btn:hover .ink`, `.frame:focus-within
+    /// .ring`). Such a rule holds by the states the cascade saw; a DOM built
+    /// at rest and given its states flag by flag afterwards has not seen them.
+    /// A DOM without such rules, or with none of their states raised, costs a
+    /// pass over its states. Returns whether the cascade ran.
+    pub fn restyle_for_raised_states(&mut self) -> bool {
+        use azul_css::dynamic_selector::PseudoStateType as P;
+        let mask = self.get_css_property_cache().left_state_mask;
+        if mask == 0 {
+            return false;
+        }
+        let states = [
+            P::Hover,
+            P::Active,
+            P::Focus,
+            P::FocusVisible,
+            P::FocusWithin,
+            P::SeatFocus,
+            P::Dragging,
+            P::DragOver,
+        ];
+        let raised = self
+            .styled_nodes
+            .as_container()
+            .internal
+            .iter()
+            .fold(0_u32, |bits, node| {
+                states
+                    .iter()
+                    .filter(|ty| state_is_raised(&node.styled_node_state, **ty))
+                    .fold(bits, |bits, ty| bits | crate::style::state_bit(*ty))
+            });
+        if mask & raised == 0 {
+            return false;
+        }
+        let css = self.get_css_property_cache().retained_author_css.clone();
+        self.restyle(css);
+        true
+    }
+
+    /// Which nodes drop and which take `:focus-within` when the focus moves
+    /// from `lost` to `gained`: the two ancestor chains without the part
+    /// they share, which holds the focus before and after.
+    fn focus_within_change(
+        &self,
+        lost: Option<NodeId>,
+        gained: Option<NodeId>,
+    ) -> (Vec<NodeId>, Vec<NodeId>) {
+        let old_chain = lost.map(|n| self.self_and_ancestors(n)).unwrap_or_default();
+        let new_chain = gained
+            .map(|n| self.self_and_ancestors(n))
+            .unwrap_or_default();
+        let dropped = old_chain
+            .iter()
+            .copied()
+            .filter(|n| !new_chain.contains(n))
+            .collect();
+        let taken = new_chain
+            .iter()
+            .copied()
+            .filter(|n| !old_chain.contains(n))
+            .collect();
+        (dropped, taken)
+    }
+
+    /// `:focus-visible` on/off for `nodes`.
+    #[must_use]
+    pub fn restyle_nodes_focus_visible(&mut self, nodes: &[NodeId], visible: bool) -> RestyleNodes {
+        self.restyle_nodes_state(
+            nodes,
+            visible,
+            |state, val| state.focus_visible = val,
+            azul_css::dynamic_selector::PseudoStateType::FocusVisible,
+        )
+    }
+
+    /// Whether `node`'s focus is SEEN changed (`:focus-visible`): a focus
+    /// that came from the keyboard rings, one from a click does not. Called
+    /// after the focus restyle with the focus manager's answer; the result
+    /// is classified like [`Self::restyle_on_state_change`]'s, to be merged
+    /// into it.
+    #[must_use]
+    pub fn restyle_on_focus_visibility(&mut self, node: NodeId, visible: bool) -> RestyleResult {
+        let mut result = RestyleResult {
+            gpu_only_changes: true,
+            ..RestyleResult::default()
+        };
+        for (node_id, props) in self.restyle_nodes_focus_visible(&[node], visible) {
+            for change in &props {
+                let prop_type = change.current_prop.get_type();
+                let scope = prop_type.relayout_scope(true);
+                if scope > result.max_relayout_scope {
+                    result.max_relayout_scope = scope;
+                }
+                if scope != RelayoutScope::None {
+                    result.needs_layout = true;
+                    result.gpu_only_changes = false;
+                }
+                if !prop_type.is_gpu_only_property() {
+                    result.gpu_only_changes = false;
+                }
+                result.needs_display_list = true;
+            }
+            result
+                .changed_nodes
+                .entry(node_id)
+                .or_default()
+                .extend(props);
+        }
+        result
+    }
+
     /// `:seat-focus` on/off for `nodes` (9b-ii-a-i-d-iii-a).
     pub fn restyle_nodes_seat_focus(&mut self, nodes: &[NodeId], on: bool) -> RestyleNodes {
         self.restyle_nodes_state(
@@ -2016,7 +2586,31 @@ impl StyledDom {
         result
     }
 
+    /// `nodes` and every node drawn as part of one of them
+    /// (`NodeData::is_part_of_parent`), the parts of parts included: the
+    /// nodes a state change of `nodes` reaches. Ids must be in range.
+    #[must_use]
+    pub fn with_parts(&self, nodes: Vec<NodeId>) -> Vec<NodeId> {
+        let hierarchy = self.node_hierarchy.as_container();
+        let node_data = self.node_data.as_container();
+        let mut out = nodes;
+        let mut next = 0;
+        while next < out.len() {
+            let host = out[next];
+            next += 1;
+            let mut child = hierarchy[host].first_child_id(host);
+            while let Some(c) = child {
+                if node_data[c].is_part_of_parent() && !out.contains(&c) {
+                    out.push(c);
+                }
+                child = hierarchy[c].next_sibling_id();
+            }
+        }
+        out
+    }
+
     /// Generic restyle method parameterized by the state field and pseudo-state type.
+    #[allow(clippy::too_many_lines)] // one pass per state change: collect, restyle, diff, report
     fn restyle_nodes_state(
         &mut self,
         nodes: &[NodeId],
@@ -2034,6 +2628,34 @@ impl StyledDom {
             .copied()
             .filter(|nid| nid.index() < node_count)
             .collect();
+        // A node's parts change state with it, as `::before` / `::after` do.
+        let mut nodes = self.with_parts(nodes);
+        if !new_state_value {
+            // A part the pointer leaves for its host keeps the host's state:
+            // it drops the state only with its host. Parts of parts follow,
+            // so this repeats until nothing more is held.
+            let hierarchy = self.node_hierarchy.as_container();
+            let node_data = self.node_data.as_container();
+            let styled_nodes = self.styled_nodes.as_container();
+            loop {
+                let held = nodes.iter().position(|n| {
+                    node_data[*n].is_part_of_parent()
+                        && hierarchy[*n].parent_id().is_some_and(|host| {
+                            !nodes.contains(&host)
+                                && state_is_raised(
+                                    &styled_nodes[host].styled_node_state,
+                                    pseudo_state_type,
+                                )
+                        })
+                });
+                match held {
+                    Some(i) => {
+                        nodes.remove(i);
+                    }
+                    None => break,
+                }
+            }
+        }
 
         // save the old node state
         let old_node_states = nodes
@@ -2067,9 +2689,8 @@ impl StyledDom {
                 ).collect();
                 let keys_inline: Vec<CssPropertyType> = {
                     use azul_css::dynamic_selector::DynamicSelector;
-                    node_data[*node_id]
-                        .style
-                        .iter_inline_properties()
+                    css_property_cache
+                        .inline_properties(&node_data[*node_id], node_id.index())
                         .filter_map(|(prop, conds)| {
                             let matches = conds.as_slice().iter().any(|c| {
                                 matches!(c, DynamicSelector::PseudoState(pst) if *pst == pseudo_state_type)
@@ -2133,7 +2754,180 @@ impl StyledDom {
             })
             .collect::<Vec<_>>();
 
-        v.into_iter().collect()
+        let mut changes: RestyleNodes = v.into_iter().collect();
+        self.restyle_left_state_rules(&nodes, &old_node_states, pseudo_state_type, &mut changes);
+        // A generated node whose `content` follows the state (`.go:hover::after`)
+        // shows another text now.
+        let content_moved = {
+            let node_data = self.node_data.as_container();
+            changes.iter().any(|(node, props)| {
+                node_data[*node].is_generated_content()
+                    && props
+                        .iter()
+                        .any(|c| c.current_prop.get_type() == CssPropertyType::Content)
+            })
+        };
+        if content_moved {
+            self.refill_generated_text();
+        }
+        changes
+    }
+
+    /// What a state change of `changed` restyles through the rules that name
+    /// the state LEFT of their subject (`.btn:hover .ink` for a hovered
+    /// `.btn`, `.anchor:hover + .tip`), merged into `out`.
+    ///
+    /// Such a rule holds by the state its anchor was in when the cascade ran,
+    /// so the cascade runs again, whole: the rule can set any property on any
+    /// node it selects, and inheritance hands it further down. That happens
+    /// only when the stylesheet names this state left of a subject and one of
+    /// the changed nodes can anchor such a compound; any other state change
+    /// costs a bit test. The nodes in reach (below an anchor, below its
+    /// parent with a sibling combinator) compare what they resolved before
+    /// and after, for the properties the anchored rules declare.
+    #[allow(clippy::too_many_lines)] // one pass: find anchors, snapshot, re-cascade, compare
+    fn restyle_left_state_rules(
+        &mut self,
+        changed: &[NodeId],
+        old_states: &[StyledNodeState],
+        state: azul_css::dynamic_selector::PseudoStateType,
+        out: &mut RestyleNodes,
+    ) {
+        let bit = crate::style::state_bit(state);
+        if changed.is_empty() || self.get_css_property_cache().left_state_mask & bit == 0 {
+            return;
+        }
+
+        // The rules a changed node can anchor, and what they declare. A
+        // custom property defined there can feed any property.
+        let mut anchors: Vec<NodeId> = Vec::new();
+        let mut prop_types: Vec<CssPropertyType> = Vec::new();
+        let mut every_type = false;
+        let mut siblings = false;
+        {
+            let cache = self.get_css_property_cache();
+            let node_data = self.node_data.as_container();
+            let cascade_info = self.cascade_info.as_container();
+            for rule in cache.retained_author_css.rules.as_ref() {
+                if crate::style::left_state_bits(&rule.path) & bit == 0 {
+                    continue;
+                }
+                let mut anchored = false;
+                for n in changed {
+                    if crate::style::can_anchor(
+                        &rule.path,
+                        state,
+                        *n,
+                        cascade_info[*n],
+                        &node_data[*n],
+                    ) {
+                        anchored = true;
+                        if !anchors.contains(n) {
+                            anchors.push(*n);
+                        }
+                    }
+                }
+                if !anchored {
+                    continue;
+                }
+                siblings |= crate::style::has_sibling_combinator(&rule.path);
+                for declaration in rule.declarations.as_ref() {
+                    match declaration.get_type() {
+                        Some(ty) if !prop_types.contains(&ty) => prop_types.push(ty),
+                        Some(_) => {}
+                        None => every_type = true,
+                    }
+                }
+            }
+        }
+        if anchors.is_empty() {
+            return;
+        }
+        if every_type {
+            prop_types = CssPropertyType::ALL.to_vec();
+        }
+
+        let reach: Vec<NodeId> = {
+            let hierarchy = self.node_hierarchy.as_container();
+            let mut roots: Vec<NodeId> = anchors
+                .iter()
+                .map(|a| {
+                    if siblings {
+                        hierarchy[*a].parent_id().unwrap_or(*a)
+                    } else {
+                        *a
+                    }
+                })
+                .collect();
+            roots.sort();
+            roots.dedup();
+            let mut reach = Vec::new();
+            for root in roots {
+                let last = (root.index() + hierarchy.subtree_len(root)).min(hierarchy.len() - 1);
+                reach.extend((root.index() + 1..=last).map(NodeId::new));
+            }
+            reach.sort();
+            reach.dedup();
+            reach
+        };
+        // A changed node in reach resolved under the state it just left.
+        let state_before = |node: NodeId, now: StyledNodeState| {
+            changed
+                .iter()
+                .position(|c| *c == node)
+                .and_then(|i| old_states.get(i).copied())
+                .unwrap_or(now)
+        };
+
+        let before: Vec<Option<CssProperty>> = {
+            let cache = self.get_css_property_cache();
+            let node_data = self.node_data.as_container();
+            let styled = self.styled_nodes.as_container();
+            let mut before = Vec::with_capacity(reach.len() * prop_types.len());
+            for node in &reach {
+                let then = state_before(*node, styled[*node].styled_node_state);
+                for ty in &prop_types {
+                    before.push(
+                        cache
+                            .get_property_slow(&node_data[*node], node, &then, ty)
+                            .cloned(),
+                    );
+                }
+            }
+            before
+        };
+
+        let css = self.get_css_property_cache().retained_author_css.clone();
+        self.restyle(css);
+
+        let cache = self.get_css_property_cache();
+        let node_data = self.node_data.as_container();
+        let styled = self.styled_nodes.as_container();
+        let mut before = before.into_iter();
+        for node in &reach {
+            let now = styled[*node].styled_node_state;
+            let then = state_before(*node, now);
+            for ty in &prop_types {
+                let old = before.next().flatten();
+                let new = cache.get_property_slow(&node_data[*node], node, &now, ty);
+                // The node's own state change may have reported this
+                // property already, against the same starting value: the
+                // comparison here covers both changes, so it replaces it.
+                let entry = out.entry(*node).or_default();
+                entry.retain(|c| c.current_prop.get_type() != *ty);
+                if old.as_ref() != new {
+                    entry.push(ChangedCssProperty {
+                        previous_state: then,
+                        previous_prop: old.unwrap_or_else(|| CssProperty::auto(*ty)),
+                        current_state: now,
+                        current_prop: new.map_or_else(|| CssProperty::auto(*ty), Clone::clone),
+                    });
+                }
+                if entry.is_empty() {
+                    out.remove(node);
+                }
+            }
+        }
     }
 
     /// Unified entry point for all CSS restyle operations.
@@ -2153,6 +2947,20 @@ impl StyledDom {
     pub fn restyle_on_state_change(
         &mut self,
         focus_changes: Option<FocusChange>,
+        hover_changes: Option<HoverChange>,
+        active_changes: Option<ActiveChange>,
+    ) -> RestyleResult {
+        let within = focus_changes.map(|f| (f.lost_focus, f.gained_focus));
+        self.restyle_states(focus_changes, within, hover_changes, active_changes)
+    }
+
+    /// [`Self::restyle_on_state_change`] with `:focus-within` following
+    /// `within` (`(lost, gained)`), which for a focus inside a hosted
+    /// `VirtualView` is the view's host rather than a node of this DOM.
+    fn restyle_states(
+        &mut self,
+        focus_changes: Option<FocusChange>,
+        within: Option<(Option<NodeId>, Option<NodeId>)>,
         hover_changes: Option<HoverChange>,
         active_changes: Option<ActiveChange>,
     ) -> RestyleResult {
@@ -2207,11 +3015,28 @@ impl StyledDom {
         // 1. Process focus changes
         if let Some(focus) = focus_changes {
             if let Some(old) = focus.lost_focus {
+                // A node that loses focus loses its seen focus with it.
+                let changes = self.restyle_nodes_focus_visible(&[old], false);
+                process_changes(changes);
                 let changes = self.restyle_nodes_focus(&[old], false);
                 process_changes(changes);
             }
             if let Some(new) = focus.gained_focus {
                 let changes = self.restyle_nodes_focus(&[new], true);
+                process_changes(changes);
+            }
+        }
+        // `:focus-within` follows the focus up the tree: the chain the focus
+        // left drops it, the chain it entered takes it, and the ancestors
+        // both share keep it without a restyle.
+        if let Some((lost, gained)) = within {
+            let (dropped, taken) = self.focus_within_change(lost, gained);
+            if !dropped.is_empty() {
+                let changes = self.restyle_nodes_focus_within(&dropped, false);
+                process_changes(changes);
+            }
+            if !taken.is_empty() {
+                let changes = self.restyle_nodes_focus_within(&taken, true);
                 process_changes(changes);
             }
         }
@@ -2252,7 +3077,32 @@ impl StyledDom {
             result.gpu_only_changes = false;
         }
 
+        // A state that moves an INHERITED value moves it for every descendant
+        // that does not declare its own: they read it from the inheritance
+        // passes, which resolve each node under the state it is in.
+        if result
+            .changed_nodes
+            .values()
+            .flatten()
+            .any(|c| c.current_prop.get_type().is_inheritable())
+        {
+            self.recompute_inheritance_for_states();
+        }
+
         result
+    }
+
+    /// A focus change of this DOM where `:focus-within` follows other nodes
+    /// than `:focus`: `within` is `(lost, gained)` for `:focus-within` - the
+    /// host of a `VirtualView` whose content held or holds the focus, in the
+    /// DOM that hosts the view (`LayoutWindow::focus_change_per_dom`).
+    #[must_use]
+    pub fn restyle_on_focus_change(
+        &mut self,
+        focus: FocusChange,
+        within: (Option<NodeId>, Option<NodeId>),
+    ) -> RestyleResult {
+        self.restyle_states(Some(focus), Some(within), None, None)
     }
 
     /// Overrides CSS properties for a single node from user code (typically a
@@ -2271,80 +3121,59 @@ impl StyledDom {
         node_id: &NodeId,
         new_properties: &[CssProperty],
     ) -> RestyleNodes {
-        let mut map = BTreeMap::default();
+        let overrides: Vec<(NodeId, CssProperty)> = new_properties
+            .iter()
+            .map(|prop| (*node_id, prop.clone()))
+            .collect();
+        self.restyle_user_properties(&overrides)
+    }
 
-        if new_properties.is_empty() {
-            return map;
-        }
-
+    /// [`Self::restyle_user_property`] for a batch of `(node, property)`
+    /// overrides, in order (a later one of the same node and property wins):
+    /// every override is written, then the cascade's derived tables are
+    /// rebuilt ONCE. A rebuild walks the whole DOM, so the restyles of one
+    /// change - the fades a hover or a rebuild starts, each holding its node
+    /// at its start value - pay it once instead of once per override. The
+    /// changes are measured against the cascade before the batch.
+    pub fn restyle_user_properties(&mut self, overrides: &[(NodeId, CssProperty)]) -> RestyleNodes {
+        let mut map: RestyleNodes = BTreeMap::default();
         let node_count = self.node_data.as_ref().len();
-        if node_id.index() >= node_count {
+        let overrides: Vec<&(NodeId, CssProperty)> = overrides
+            .iter()
+            .filter(|(node_id, _)| node_id.index() < node_count)
+            .collect();
+        if overrides.is_empty() {
             return map;
         }
 
-        let node_data = self.node_data.as_container();
-        let node_data = &node_data[*node_id];
-
-        let node_states = &self.styled_nodes.as_container();
-        let old_node_state = &node_states[*node_id].styled_node_state;
-
-        let changes: Vec<ChangedCssProperty> = {
+        {
             let css_property_cache = self.get_css_property_cache();
-
-            new_properties
-                .iter()
-                .filter_map(|new_prop| {
-                    let old_prop = css_property_cache.get_property_slow(
-                        node_data,
+            let node_data = self.node_data.as_container();
+            let node_states = self.styled_nodes.as_container();
+            for (node_id, new_prop) in &overrides {
+                let old_node_state = &node_states[*node_id].styled_node_state;
+                let old_prop = css_property_cache
+                    .get_property_slow(
+                        &node_data[*node_id],
                         node_id,
                         old_node_state,
                         &new_prop.get_type(),
-                    );
-
-                    let old_prop = old_prop
-                        .map_or_else(|| CssProperty::auto(new_prop.get_type()), Clone::clone);
-
-                    if old_prop == *new_prop {
-                        None
-                    } else {
-                        Some(ChangedCssProperty {
-                            previous_state: *old_node_state,
-                            previous_prop: old_prop,
-                            // overriding a user property does not change the state
-                            current_state: *old_node_state,
-                            current_prop: new_prop.clone(),
-                        })
-                    }
-                })
-                .collect()
-        };
-
-        let css_property_cache_mut = self.get_css_property_cache_mut();
-
-        // user_overridden_properties is built lazily (empty after StyledDom
-        // construction). Grow to cover this node_id before indexing so the
-        // override path works on any DOM, not just ones that already have
-        // overrides from a prior mutation.
-        if css_property_cache_mut.user_overridden_properties.len() < node_count {
-            css_property_cache_mut
-                .user_overridden_properties
-                .resize(node_count, Vec::new());
-        }
-
-        for new_prop in new_properties {
-            let prop_type = new_prop.get_type();
-            let vec = &mut css_property_cache_mut.user_overridden_properties[node_id.index()];
-            if new_prop.is_initial() {
-                // CssProperty::Initial = remove overridden property
-                if let Ok(idx) = vec.binary_search_by_key(&prop_type, |(k, _)| *k) {
-                    vec.remove(idx);
-                }
-            } else {
-                match vec.binary_search_by_key(&prop_type, |(k, _)| *k) {
-                    Ok(idx) => vec[idx].1 = new_prop.clone(),
-                    Err(idx) => vec.insert(idx, (prop_type, new_prop.clone())),
+                    )
+                    .map_or_else(|| CssProperty::auto(new_prop.get_type()), Clone::clone);
+                if old_prop != *new_prop {
+                    map.entry(*node_id).or_default().push(ChangedCssProperty {
+                        previous_state: *old_node_state,
+                        previous_prop: old_prop,
+                        // overriding a user property does not change the state
+                        current_state: *old_node_state,
+                        current_prop: new_prop.clone(),
+                    });
                 }
             }
+        }
+
+        for (node_id, new_prop) in &overrides {
+            self.set_user_property_override_fast(node_id, core::slice::from_ref(new_prop));
         }
 
         // The compact cache is a precomputed per-node array that the layout
@@ -2375,11 +3204,30 @@ impl StyledDom {
         // visible (found by the css_anim_perf_transition damage law). The
         // per-tick animation channel avoids this whole fn via
         // `set_user_property_override_fast` + display-list patching.
-        if new_properties
+        //
+        // The rebuild is UNCONDITIONAL. It used to be gated on
+        // `can_trigger_relayout() || is_inheritable()`, which reads as "only
+        // geometry and inheritance need the projection refreshed" - but the
+        // compact cache also serves PAINT-ONLY properties that are neither:
+        // `opacity`, the four border colours and radii, and the presence bits
+        // for `background`, `box-shadow`, `transform`, `clip-path`,
+        // `text-decoration` and the scrollbar rules. For those the override
+        // was recorded, reported as changed, and then ignored by the display
+        // list, which reads the cache - so a tooltip revealed by patching
+        // `opacity: 0 -> 1` resolved to 1 in every query and still drew
+        // nothing. A presence bit is worse than a stale value: `has_background
+        // == false` means the slow path is never consulted at all, so a
+        // background patched onto a node that had none can never appear.
+        // Enumerating the served set here would be a list that rots against
+        // `compact.rs`; the invariant the cache owes is simply that it agrees
+        // with the override layer it is a projection of.
+        self.recompute_inheritance_and_compact_cache();
+        // The font phase is the one consumer that is genuinely about
+        // inheritance and geometry, so it keeps its narrower gate.
+        if overrides
             .iter()
-            .any(|p| p.get_type().can_trigger_relayout() || p.get_type().is_inheritable())
+            .any(|(_, p)| p.get_type().can_trigger_relayout() || p.get_type().is_inheritable())
         {
-            self.recompute_inheritance_and_compact_cache();
             self.get_css_property_cache_mut()
                 .invalidate_resolved_font_sizes();
         }
@@ -2389,10 +3237,6 @@ impl StyledDom {
         // changes what the display list paints without touching geometry.
         let cache = self.get_css_property_cache_mut();
         cache.cascade_epoch = cache.cascade_epoch.wrapping_add(1);
-
-        if !changes.is_empty() {
-            map.insert(*node_id, changes);
-        }
 
         map
     }
@@ -2437,6 +3281,17 @@ impl StyledDom {
         // table and dropped every conditional declaration, and only a
         // re-run can tell whether the real context agrees.
         let theme_changed;
+        let activation_changed;
+        // A resize that flips no condition: every condition answers as it
+        // did, so the cascade would select what it selected (`vw` / `%`
+        // lengths are layout's, resolved against the new size there).
+        let unflipped_resize = self
+            .get_css_property_cache()
+            .dynamic_context
+            .as_deref()
+            .is_some_and(|old| {
+                old.differs_only_in_viewport(&context) && !self.resize_flips_a_condition(old, &context)
+            });
         {
             let cache = self.get_css_property_cache_mut();
             let same = cache.dynamic_context.as_deref() == Some(&context);
@@ -2447,11 +3302,18 @@ impl StyledDom {
             theme_changed = cache
                 .dynamic_context
                 .as_deref()
-                .is_none_or(|c| c.theme != context.theme);
+                .is_none_or(|c| c.mode != context.mode);
+            activation_changed = cache
+                .dynamic_context
+                .as_deref()
+                .is_none_or(|c| c.window_focused != context.window_focused);
             cache.dynamic_context = Some(Box::new(context));
             // A new generation even when nothing below re-runs: a context
             // change is a cascade input, and the DL cache keys on this.
             cache.cascade_epoch = cache.cascade_epoch.wrapping_add(1);
+        }
+        if unflipped_resize {
+            return;
         }
         // Author-css @-rule conditions are baked at CASCADE time (restyle
         // drops non-matching rule blocks), so a context change must re-run
@@ -2467,11 +3329,25 @@ impl StyledDom {
             .as_ref()
             .iter()
             .any(azul_css::css::CssRuleBlock::depends_on_dynamic_context);
-        if author_conditional {
-            // Full: author cascade + the tail. (`restyle_retained` is a no-op
-            // for an empty sheet, but an empty sheet has no conditional
-            // rules, so this arm is never reached with one.)
-            self.restyle_retained();
+        // Custom properties are resolved by the author cascade too (its
+        // variable pass), so a node's OWN conditional `--name` definition or
+        // `env()` needs the full re-run even with an EMPTY author sheet -
+        // which `restyle_retained` would skip.
+        let variables_conditional = self.get_css_property_cache().variables_depend_on_context;
+        // `.window:backdrop .title`: a rule that names the window's
+        // activation left of its subject was matched under the old one.
+        let backdrop_left = activation_changed
+            && self.get_css_property_cache().left_state_mask
+                & crate::style::state_bit(azul_css::dynamic_selector::PseudoStateType::Backdrop)
+                != 0;
+        if author_conditional || variables_conditional || backdrop_left {
+            // Full: author cascade (variables included) + the tail;
+            // `restyle` ends with the `:backdrop` sync (S2).
+            let css = self
+                .get_css_property_cache()
+                .retained_author_css
+                .clone();
+            self.restyle(css);
             return;
         }
         let needs_recascade = theme_changed
@@ -2483,6 +3359,66 @@ impl StyledDom {
         if needs_recascade {
             self.recascade_ua_inheritance_and_compact();
         }
+        // The window's activation is part of this context: `:backdrop`
+        // follows it (a (de)activation alone re-runs nothing above).
+        self.sync_backdrop_state();
+    }
+
+    /// Whether a resize from `old` to `new` (contexts that differ only in the
+    /// viewport, [`DynamicSelectorContext::differs_only_in_viewport`]) can
+    /// change a condition's answer in this DOM: it crosses one of the DOM's
+    /// viewport thresholds ([`Self::viewport_breakpoints`]), or the DOM has a
+    /// condition on the viewport's shape and the shape changed. A custom
+    /// property defined under a condition counts as flipped, as its
+    /// conditions are not harvested.
+    /// Whether offering `context` would change what the cascade selects: any
+    /// change but a resize that crosses no threshold a condition of this DOM
+    /// names. (`set_dynamic_selector_context` still starts a new cascade
+    /// generation for such a resize: the display-list cache keys on it.)
+    #[must_use]
+    pub fn context_moves_the_cascade(
+        &self,
+        context: &azul_css::dynamic_selector::DynamicSelectorContext,
+    ) -> bool {
+        self.get_css_property_cache()
+            .dynamic_context
+            .as_deref()
+            .is_none_or(|old| {
+                old != context
+                    && (!old.differs_only_in_viewport(context)
+                        || self.resize_flips_a_condition(old, context))
+            })
+    }
+
+    fn resize_flips_a_condition(
+        &self,
+        old: &azul_css::dynamic_selector::DynamicSelectorContext,
+        new: &azul_css::dynamic_selector::DynamicSelectorContext,
+    ) -> bool {
+        use azul_css::dynamic_selector::viewport_threshold_crossed;
+        let cache = self.get_css_property_cache();
+        if cache.variables_depend_on_context {
+            return true;
+        }
+        let Some((widths, heights)) = self.viewport_breakpoints() else {
+            return true;
+        };
+        if viewport_threshold_crossed(&widths, old.viewport_width, new.viewport_width)
+            || viewport_threshold_crossed(&heights, old.viewport_height, new.viewport_height)
+        {
+            return true;
+        }
+        let shape_conditions = cache.retained_author_css.depends_on_viewport_shape()
+            || cache
+                .compact_cache
+                .as_ref()
+                .is_some_and(|cc| cc.inline_viewport_shape);
+        shape_conditions
+            && (old.viewport_width.to_bits() != new.viewport_width.to_bits()
+                || old.viewport_height.to_bits() != new.viewport_height.to_bits()
+                || old.orientation != new.orientation
+                || old.container_width.to_bits() != new.container_width.to_bits()
+                || old.container_height.to_bits() != new.container_height.to_bits())
     }
 
     /// The viewport-size thresholds (widths, heights, logical px) at which
@@ -3266,9 +4202,12 @@ pub fn collect_nodes_in_document_order(
 
 /// Check if two `StyledDom`s are structurally equivalent for layout purposes.
 ///
-/// Returns `true` if the DOMs have the same structure, node types, classes,
-/// IDs, inline styles, and callback event registrations - meaning the
-/// layout output would be identical.
+/// Returns `true` if the DOMs have the same structure, node stylesheets
+/// (`Dom::with_css`, compared through the author CSS the cascade ran with)
+/// and states, and their nodes compare alike in every field the table of a
+/// node's fields compares (`crate::layout_inputs::NodeField`): their types,
+/// handlers' events, styles, flags, attributes, SVG data, accessibility,
+/// menus and keys - meaning the layout output would be identical.
 ///
 /// Image callback nodes are compared by function pointer and `RefAny` type ID
 /// rather than heap pointer, since each `layout()` call creates new `ImageRef`
@@ -3279,8 +4218,6 @@ pub fn collect_nodes_in_document_order(
 /// texture content changed, not the DOM structure).
 #[must_use]
 pub fn is_layout_equivalent(old: &StyledDom, new: &StyledDom) -> bool {
-    use crate::{dom::NodeType, resources::DecodedImage};
-
     // Quick check: node count must match
     let old_nodes = old.node_data.as_ref();
     let new_nodes = new.node_data.as_ref();
@@ -3298,86 +4235,35 @@ pub fn is_layout_equivalent(old: &StyledDom, new: &StyledDom) -> bool {
         return false;
     }
 
-    // Per-node comparison
-    for (old_node, new_node) in old_nodes.iter().zip(new_nodes.iter()) {
-        // Compare node type discriminant
-        if core::mem::discriminant(&old_node.node_type)
-            != core::mem::discriminant(&new_node.node_type)
-        {
-            return false;
-        }
+    // Per node, every field the table of a node's fields says is compared
+    // (`NodeField::reads_alike`): its type (an image callback by its
+    // function and the type of its data), its handlers' events, its style,
+    // flags, attributes, SVG data, accessibility, menus, key. What is carried
+    // instead, the caller puts onto the DOM it keeps
+    // (`crate::diff::carry_fresh_values`).
+    let fields_alike = |old_node: &NodeData, new_node: &NodeData| {
+        crate::layout_inputs::NodeField::ALL
+            .into_iter()
+            .all(|field| field.reads_alike(old_node, new_node))
+    };
+    if !old_nodes
+        .iter()
+        .zip(new_nodes.iter())
+        .all(|(old_node, new_node)| fields_alike(old_node, new_node))
+    {
+        return false;
+    }
 
-        // Compare node type content (with special handling for image callbacks)
-        match (&old_node.node_type, &new_node.node_type) {
-            (NodeType::Image(old_img), NodeType::Image(new_img)) => {
-                match (old_img.get_data(), new_img.get_data()) {
-                    (DecodedImage::Callback(old_cb), DecodedImage::Callback(new_cb)) => {
-                        // Compare callback function pointer (stable across frames)
-                        if old_cb.callback.cb != new_cb.callback.cb {
-                            return false;
-                        }
-                        // Compare RefAny type ID (not instance pointer)
-                        if old_cb.refany.get_type_id() != new_cb.refany.get_type_id() {
-                            return false;
-                        }
-                    }
-                    _ => {
-                        // Raw images / GL textures: compare by pointer identity
-                        if old_img != new_img {
-                            return false;
-                        }
-                    }
-                }
-            }
-            _ => {
-                if old_node.node_type != new_node.node_type {
-                    return false;
-                }
-            }
-        }
-
-        // Compare IDs and classes (now stored in attributes as AttributeType::Id/Class)
-        {
-            use crate::dom::AttributeType;
-            let old_ids_classes: Vec<_> = old_node
-                .attributes()
-                .as_ref()
-                .iter()
-                .filter(|a| matches!(a, AttributeType::Id(_) | AttributeType::Class(_)))
-                .collect();
-            let new_ids_classes: Vec<_> = new_node
-                .attributes()
-                .as_ref()
-                .iter()
-                .filter(|a| matches!(a, AttributeType::Id(_) | AttributeType::Class(_)))
-                .collect();
-            if old_ids_classes != new_ids_classes {
-                return false;
-            }
-        }
-
-        // Compare inline CSS (direct layout input)
-        if old_node.style != new_node.style {
-            return false;
-        }
-
-        // Compare callback event types (affects hit-test tags)
-        // We compare only event types, not function pointers or data
-        let old_cbs = old_node.callbacks.as_ref();
-        let new_cbs = new_node.callbacks.as_ref();
-        if old_cbs.len() != new_cbs.len() {
-            return false;
-        }
-        for (old_cb, new_cb) in old_cbs.iter().zip(new_cbs.iter()) {
-            if old_cb.event != new_cb.event {
-                return false;
-            }
-        }
-
-        // Compare attributes (some affect layout, e.g. colspan)
-        if old_node.attributes().as_ref() != new_node.attributes().as_ref() {
-            return false;
-        }
+    // Compare the author CSS the cascade ran with. The sheets nodes carry
+    // (`Dom::with_css`, scoped to their subtrees) are collected into it, not
+    // into `NodeData::style`, so a rebuild that changed only such a value
+    // (a zoomed grid's `height: 72px` for `48px`) is compared here or nowhere.
+    // A difference in scope ranges alone cannot occur: the hierarchies are
+    // equal by now, and the scopes are derived from it.
+    if old.get_css_property_cache().retained_author_css
+        != new.get_css_property_cache().retained_author_css
+    {
+        return false;
     }
 
     // Compare styled node states (hover/focus/active flags affect CSS resolution)
@@ -3396,3 +4282,35 @@ pub fn is_layout_equivalent(old: &StyledDom, new: &StyledDom) -> bool {
 #[cfg(test)]
 #[path = "styled_dom_test.rs"]
 mod styled_dom_test;
+
+#[cfg(feature = "std")]
+std::thread_local! {
+    /// Rebuilds of a DOM's compact cache and inheritance tables on this
+    /// thread ([`compact_cache_rebuilds_on_this_thread`]).
+    static COMPACT_CACHE_REBUILDS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
+/// Count one build of a DOM's compact cache (the compact builder calls it).
+pub(crate) fn count_compact_cache_rebuild() {
+    #[cfg(feature = "std")]
+    COMPACT_CACHE_REBUILDS.with(|n| n.set(n.get() + 1));
+}
+
+/// How many times this thread built a DOM's compact cache (with its
+/// inheritance tables).
+///
+/// Every cascade, restyle and override refresh ends in one ([`StyledDom::recompute_inheritance_and_compact_cache`],
+/// `StyledDom::restyle`). Each walks the whole DOM, so a change pays it once
+/// at most, and a change no style depends on not at all; the tests that keep
+/// it so read this count. Always 0 without `std`.
+#[must_use]
+pub fn compact_cache_rebuilds_on_this_thread() -> usize {
+    #[cfg(feature = "std")]
+    {
+        COMPACT_CACHE_REBUILDS.with(core::cell::Cell::get)
+    }
+    #[cfg(not(feature = "std"))]
+    {
+        0
+    }
+}

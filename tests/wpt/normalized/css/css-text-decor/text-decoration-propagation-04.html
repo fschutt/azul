@@ -1,0 +1,24 @@
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<title>CSS Test: text-decoration propagation</title>
+<style>
+div { margin: 1em 0 }
+</style>
+</head>
+<body><div style="text-decoration: underline">
+  lorem
+  <div style="text-decoration: overline">
+    ipsum
+  </div>
+  dolor
+  <div style="text-decoration: overline">
+    sit
+    <div style="text-decoration: line-through">
+      amet
+    </div>
+    consectetur
+  </div>
+  adipiscing
+</div>
+</body>
+</html>

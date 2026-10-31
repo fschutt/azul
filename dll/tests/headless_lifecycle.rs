@@ -474,18 +474,21 @@ fn a_mount_callback_asking_for_refresh_gets_another_layout_pass() {
 /// toggle does nothing" could sit unnoticed on six of the seven backends.
 #[test]
 fn a_theme_switch_changes_the_theme_and_requests_a_frame() {
-    use azul_core::window::WindowTheme;
+    use azul_core::window::DarkLightMode;
 
+    if azul_css::dynamic_selector::mode_pinned_by_env().is_some() {
+        return; // AZ_MODE outranks the desktop: the window must NOT follow it
+    }
     let counters = Counters::new();
     let mut window = make_window(counters);
     window
         .regenerate_layout()
         .expect("regenerate_layout must succeed");
 
-    let before = window.common.current_window_state().theme;
+    let before = window.common.current_window_state().mode;
     let switch_to = match before {
-        WindowTheme::DarkMode => WindowTheme::LightMode,
-        WindowTheme::LightMode => WindowTheme::DarkMode,
+        DarkLightMode::Dark => DarkLightMode::Light,
+        DarkLightMode::Light => DarkLightMode::Dark,
     };
 
     assert!(
@@ -493,7 +496,7 @@ fn a_theme_switch_changes_the_theme_and_requests_a_frame() {
         "set_system_theme reported no change while switching from {before:?} to {switch_to:?}",
     );
     assert_eq!(
-        window.common.current_window_state().theme,
+        window.common.current_window_state().mode,
         switch_to,
         "the window kept its old theme after a switch, so prefers-color-scheme styling would \
          still evaluate against {before:?}",
@@ -518,7 +521,7 @@ fn re_asserting_the_current_theme_costs_nothing() {
         .regenerate_layout()
         .expect("regenerate_layout must succeed");
 
-    let current = window.common.current_window_state().theme;
+    let current = window.common.current_window_state().mode;
     // Retire whatever the initial layout raised, so the assertion below is about
     // the no-op switch and not about leftover startup state.
     let epoch = window.common.regen_epoch();
@@ -540,10 +543,10 @@ fn re_asserting_the_current_theme_costs_nothing() {
 /// at creation, in the one constructor every backend goes through.
 #[test]
 fn window_create_options_theme_seeds_the_initial_window_theme() {
-    use azul_core::window::{OptionWindowTheme, WindowTheme};
+    use azul_core::window::{OptionDarkLightMode, DarkLightMode};
 
-    if azul_css::dynamic_selector::theme_pinned_by_env().is_some() {
-        return; // AZ_THEME outranks the request; nothing to compare
+    if azul_css::dynamic_selector::mode_pinned_by_env().is_some() {
+        return; // AZ_MODE outranks the request; nothing to compare
     }
 
     let counters = Counters::new();
@@ -557,7 +560,7 @@ fn window_create_options_theme_seeds_the_initial_window_theme() {
         ctx: azul_core::refany::OptionRefAny::None,
     };
     // The window state still says LightMode (its default) — the REQUEST wins.
-    options.theme = OptionWindowTheme::Some(WindowTheme::DarkMode);
+    options.mode = OptionDarkLightMode::Some(DarkLightMode::Dark);
 
     let window = HeadlessWindow::new(
         options,
@@ -571,8 +574,8 @@ fn window_create_options_theme_seeds_the_initial_window_theme() {
     .expect("HeadlessWindow construction must succeed");
 
     assert_eq!(
-        window.common.current_window_state().theme,
-        WindowTheme::DarkMode,
+        window.common.current_window_state().mode,
+        DarkLightMode::Dark,
         "the requested theme must seed the window at creation"
     );
 }

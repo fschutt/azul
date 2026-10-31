@@ -10,26 +10,26 @@ use alloc::{
 use core::fmt;
 
 // Import all property types from their new locations.
+#[cfg(feature = "codegen")]
+use crate::codegen::format::FormatAsRustCode;
 // wildcard imports: this is the property aggregator module that pulls in every
 // property type from its sub-modules; enumerating them all explicitly would be
 // unmaintainable and defeats the purpose of the per-category modules.
 #[allow(clippy::wildcard_imports)]
 use crate::{
-    codegen::format::FormatAsRustCode,
     props::{
         basic::{
-            color::{parse_css_color, ColorU, CssColorParseError, CssColorParseErrorOwned},
+            color::{ColorOrSystem, ColorU, CssColorParseError, CssColorParseErrorOwned},
             font::{
-                parse_style_font_family, CssStyleFontFamilyParseError,
-                CssStyleFontFamilyParseErrorOwned, StyleFontFamilyVec, *,
+                CssStyleFontFamilyParseError, CssStyleFontFamilyParseErrorOwned,
+                StyleFontFamilyVec, *,
             },
             length::{parse_float_value, parse_percentage_value, FloatValue, PercentageValue},
             pixel::{
                 parse_pixel_value, CssPixelValueParseError, CssPixelValueParseErrorOwned,
                 PixelValue,
             },
-            DurationParseError, DurationParseErrorOwned, InterpolateResolver, InvalidValueErrOwned,
-            PercentageParseError,
+            InterpolateResolver, InvalidValueErrOwned, PercentageParseError,
         },
         formatter::PrintAsCssValue,
         layout::{
@@ -48,8 +48,13 @@ use crate::{
     css::{BoxOrStatic, CssPropertyValue},
     props::basic::{error::InvalidValueErr, pixel::PixelValueWithAuto},
 };
+#[cfg(feature = "parser")]
+use crate::props::basic::{
+    color::parse_color_or_system, font::parse_style_font_family, DurationParseError,
+    DurationParseErrorOwned,
+};
 
-const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &str); 31] = [
+const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &str); 33] = [
     (CombinedCssPropertyType::BorderRadius, "border-radius"),
     (CombinedCssPropertyType::Overflow, "overflow"),
     (
@@ -82,6 +87,8 @@ const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &str); 31] = [
     // +spec:writing-modes:798cca - inset-block/inset-inline shorthand properties
     (CombinedCssPropertyType::InsetBlock, "inset-block"),
     (CombinedCssPropertyType::InsetInline, "inset-inline"),
+    (CombinedCssPropertyType::ListStyle, "list-style"),
+    (CombinedCssPropertyType::FontVariant, "font-variant"),
     // SVG's `fill` IS a background: an SVG shape's box is clipped to its own
     // geometry, so filling the box fills the shape. Aliasing it here rather
     // than adding a parallel paint model is what lets all three spellings -
@@ -105,7 +112,7 @@ const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &str); 31] = [
     (CombinedCssPropertyType::BorderWidth, "stroke-width"),
 ];
 
-const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 196] = [
+const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 207] = [
     (CssPropertyType::Display, "display"),
     (CssPropertyType::Float, "float"),
     (CssPropertyType::BoxSizing, "box-sizing"),
@@ -141,6 +148,9 @@ const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 196] = [
     (CssPropertyType::TextIndent, "text-indent"),
     (CssPropertyType::InitialLetter, "initial-letter"),
     (CssPropertyType::LineClamp, "line-clamp"),
+    // Chrome clamps only through the prefixed spelling (with `display:
+    // -webkit-box`); azul clamps any block container either way.
+    (CssPropertyType::LineClamp, "-webkit-line-clamp"),
     (CssPropertyType::HangingPunctuation, "hanging-punctuation"),
     (CssPropertyType::TextCombineUpright, "text-combine-upright"),
     (CssPropertyType::UnicodeBidi, "unicode-bidi"),
@@ -217,6 +227,14 @@ const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 196] = [
     (CssPropertyType::BackgroundPosition, "background-position"),
     (CssPropertyType::BackgroundSize, "background-size"),
     (CssPropertyType::BackgroundRepeat, "background-repeat"),
+    (CssPropertyType::BackgroundClip, "background-clip"),
+    (CssPropertyType::FontVariantNumeric, "font-variant-numeric"),
+    (CssPropertyType::FontVariantCaps, "font-variant-caps"),
+    (CssPropertyType::FontFeatureSettings, "font-feature-settings"),
+    (CssPropertyType::CounterSet, "counter-set"),
+    (CssPropertyType::Quotes, "quotes"),
+    (CssPropertyType::BackgroundOrigin, "background-origin"),
+    (CssPropertyType::BackgroundColor, "background-color"),
     (
         CssPropertyType::BorderTopLeftRadius,
         "border-top-left-radius",
@@ -308,6 +326,10 @@ const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 196] = [
         CssPropertyType::SpatialNavigationContain,
         "spatial-navigation-contain",
     ),
+    (
+        CssPropertyType::SpatialNavigationFunction,
+        "spatial-navigation-function",
+    ),
     (CssPropertyType::Animation, "animation"),
     (CssPropertyType::AnimationIn, "-azul-animation-in"),
     (CssPropertyType::AnimationOut, "-azul-animation-out"),
@@ -355,6 +377,7 @@ const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 196] = [
     (CssPropertyType::ListStyleType, "list-style-type"),
     (CssPropertyType::ListStylePosition, "list-style-position"),
     (CssPropertyType::StringSet, "string-set"),
+    (CssPropertyType::Zoom, "zoom"),
     // CSS 2.1 table properties (value parsers already exist; these key-map
     // entries make them reachable from stylesheet text via parser2).
     (CssPropertyType::TableLayout, "table-layout"),
@@ -431,6 +454,7 @@ pub type StyleBackfaceVisibilityValue = CssPropertyValue<StyleBackfaceVisibility
 pub type StyleAppRegionValue = CssPropertyValue<StyleAppRegion>;
 pub type StyleSpatialNavigationActionValue = CssPropertyValue<StyleSpatialNavigationAction>;
 pub type StyleSpatialNavigationContainValue = CssPropertyValue<StyleSpatialNavigationContain>;
+pub type StyleSpatialNavigationFunctionValue = CssPropertyValue<StyleSpatialNavigationFunction>;
 pub type StyleMixBlendModeValue = CssPropertyValue<StyleMixBlendMode>;
 pub type StyleFilterVecValue = CssPropertyValue<StyleFilterVec>;
 pub type StyleBackgroundContentValue = CssPropertyValue<StyleBackgroundContent>;
@@ -541,6 +565,14 @@ pub type CounterIncrementValue = CssPropertyValue<CounterIncrement>;
 pub type StyleListStyleTypeValue = CssPropertyValue<StyleListStyleType>;
 pub type StyleListStylePositionValue = CssPropertyValue<StyleListStylePosition>;
 pub type StringSetValue = CssPropertyValue<StringSet>;
+pub type StyleZoomValue = CssPropertyValue<StyleZoom>;
+pub type StyleBackgroundClipVecValue = CssPropertyValue<StyleBackgroundClipVec>;
+pub type StyleFontVariantNumericValue = CssPropertyValue<StyleFontVariantNumeric>;
+pub type StyleFontVariantCapsValue = CssPropertyValue<StyleFontVariantCaps>;
+pub type StyleFontFeatureSettingsValue = CssPropertyValue<StyleFontFeatureSettings>;
+pub type CounterSetValue = CssPropertyValue<CounterSet>;
+pub type StyleQuotesValue = CssPropertyValue<StyleQuotes>;
+pub type StyleBackgroundOriginVecValue = CssPropertyValue<StyleBackgroundOriginVec>;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct CssKeyMap {
@@ -557,9 +589,44 @@ impl CssKeyMap {
     }
 }
 
-/// Returns a map useful for parsing the keys of CSS stylesheets
+#[cfg(test)]
+std::thread_local! {
+    /// How many times this thread built the property-name maps: the work counter the parser's
+    /// tests read, so a parse that builds them again shows up as a count, not as a time.
+    pub(crate) static KEY_MAP_BUILDS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
+/// The maps of every CSS property name, for parsing the keys of stylesheets.
+///
+/// Built on first use and kept for the life of the process, so a parse only
+/// looks its keys up (inline styles are parsed for every row a list renders).
+#[cfg(feature = "std")]
+#[must_use]
+pub fn css_key_map() -> &'static CssKeyMap {
+    static MAP: std::sync::OnceLock<CssKeyMap> = std::sync::OnceLock::new();
+    MAP.get_or_init(build_css_key_map)
+}
+
+/// Returns a map useful for parsing the keys of CSS stylesheets: a copy of
+/// [`css_key_map`], for a caller that wants its own.
+///
+/// Without `std` there is no process-wide cell to keep the maps in, so each
+/// call builds them.
 #[must_use]
 pub fn get_css_key_map() -> CssKeyMap {
+    #[cfg(feature = "std")]
+    {
+        css_key_map().clone()
+    }
+    #[cfg(not(feature = "std"))]
+    {
+        build_css_key_map()
+    }
+}
+
+fn build_css_key_map() -> CssKeyMap {
+    #[cfg(test)]
+    KEY_MAP_BUILDS.with(|n| n.set(n.get() + 1));
     CssKeyMap {
         non_shorthands: CSS_PROPERTY_KEY_MAP.iter().map(|(v, k)| (*k, *v)).collect(),
         shorthands: COMBINED_CSS_PROPERTIES_KEY_MAP
@@ -586,8 +653,8 @@ pub enum CombinedCssPropertyType {
     BorderWidth,
     Padding,
     BoxShadow,
-    BackgroundColor, // BackgroundContent::Color
-    BackgroundImage, // BackgroundContent::Image
+    BackgroundColor, // CssPropertyType::BackgroundColor
+    BackgroundImage, // CssPropertyType::BackgroundContent
     Background,
     Flex,
     Grid,
@@ -604,6 +671,13 @@ pub enum CombinedCssPropertyType {
     /// `inset-inline` shorthand: sets `inset-inline-start` + `inset-inline-end`
     /// (maps to `left` + `right` in horizontal-tb writing mode)
     InsetInline,
+    /// `list-style` shorthand: sets `list-style-type` + `list-style-position`
+    /// (`list-style-image` is not supported and ignored)
+    ListStyle,
+    /// `font-variant` shorthand: sets `font-variant-numeric` +
+    /// `font-variant-caps`; the keywords of the other `font-variant-*`
+    /// longhands, which azul has not, set nothing
+    FontVariant,
 }
 
 impl fmt::Display for CombinedCssPropertyType {
@@ -821,6 +895,7 @@ pub enum CssProperty {
     AppRegion(StyleAppRegionValue),
     SpatialNavigationAction(StyleSpatialNavigationActionValue),
     SpatialNavigationContain(StyleSpatialNavigationContainValue),
+    SpatialNavigationFunction(StyleSpatialNavigationFunctionValue),
     MixBlendMode(StyleMixBlendModeValue),
     Filter(StyleFilterVecValue),
     BackdropFilter(StyleFilterVecValue),
@@ -856,6 +931,20 @@ pub enum CssProperty {
     ListStyleType(StyleListStyleTypeValue),
     ListStylePosition(StyleListStylePositionValue),
     StringSet(StringSetValue),
+    Zoom(StyleZoomValue),
+    /// One box per background layer, in the layers' paint order (the bottom
+    /// layer's first, like `BackgroundContent`'s).
+    BackgroundClip(StyleBackgroundClipVecValue),
+    FontVariantNumeric(StyleFontVariantNumericValue),
+    FontVariantCaps(StyleFontVariantCapsValue),
+    FontFeatureSettings(StyleFontFeatureSettingsValue),
+    CounterSet(CounterSetValue),
+    Quotes(StyleQuotesValue),
+    BackgroundOrigin(StyleBackgroundOriginVecValue),
+    /// `background-color`: the colour under every background layer (a
+    /// `Color` or a `SystemColor`), apart from `BackgroundContent` so a later
+    /// `background-image` keeps it.
+    BackgroundColor(StyleBackgroundContentValue),
 }
 
 impl_option!(
@@ -1084,6 +1173,7 @@ pub enum CssPropertyType {
     AppRegion,
     SpatialNavigationAction,
     SpatialNavigationContain,
+    SpatialNavigationFunction,
     MixBlendMode,
     Filter,
     BackdropFilter,
@@ -1119,6 +1209,15 @@ pub enum CssPropertyType {
     ListStyleType,
     ListStylePosition,
     StringSet,
+    Zoom,
+    BackgroundClip,
+    FontVariantNumeric,
+    FontVariantCaps,
+    FontFeatureSettings,
+    CounterSet,
+    Quotes,
+    BackgroundOrigin,
+    BackgroundColor,
 }
 
 impl CssPropertyType {
@@ -1283,6 +1382,7 @@ impl CssPropertyType {
         Self::AppRegion,
         Self::SpatialNavigationAction,
         Self::SpatialNavigationContain,
+        Self::SpatialNavigationFunction,
         Self::MixBlendMode,
         Self::Filter,
         Self::BackdropFilter,
@@ -1318,6 +1418,15 @@ impl CssPropertyType {
         Self::ListStyleType,
         Self::ListStylePosition,
         Self::StringSet,
+        Self::Zoom,
+        Self::BackgroundClip,
+        Self::FontVariantNumeric,
+        Self::FontVariantCaps,
+        Self::FontFeatureSettings,
+        Self::CounterSet,
+        Self::Quotes,
+        Self::BackgroundOrigin,
+        Self::BackgroundColor,
     ];
 
     /// Returns an iterator over all CSS property types.
@@ -1510,6 +1619,7 @@ impl CssPropertyType {
             Self::AppRegion => "-azul-app-region",
             Self::SpatialNavigationAction => "spatial-navigation-action",
             Self::SpatialNavigationContain => "spatial-navigation-contain",
+            Self::SpatialNavigationFunction => "spatial-navigation-function",
             Self::MixBlendMode => "mix-blend-mode",
             Self::Filter => "filter",
             Self::BackdropFilter => "backdrop-filter",
@@ -1560,6 +1670,15 @@ impl CssPropertyType {
             Self::ListStyleType => "list-style-type",
             Self::ListStylePosition => "list-style-position",
             Self::StringSet => "string-set",
+            Self::Zoom => "zoom",
+            Self::BackgroundClip => "background-clip",
+            Self::FontVariantNumeric => "font-variant-numeric",
+            Self::FontVariantCaps => "font-variant-caps",
+            Self::FontFeatureSettings => "font-feature-settings",
+            Self::CounterSet => "counter-set",
+            Self::Quotes => "quotes",
+            Self::BackgroundOrigin => "background-origin",
+            Self::BackgroundColor => "background-color",
         }
     }
 
@@ -1571,16 +1690,21 @@ impl CssPropertyType {
     #[must_use]
     pub const fn is_inheritable(&self) -> bool {
         use self::CssPropertyType::{
-            BorderCollapse, BorderSpacing, CaptionSide, Cursor, Direction, EmptyCells, FontFamily,
-            FontSize, FontStyle, FontWeight, HangingPunctuation, HyphenationLanguage, Hyphens,
+            BorderCollapse, BorderSpacing, CaptionSide, Cursor, Direction, EmptyCells,
+            FontFamily, FontFeatureSettings, FontSize, FontStyle, FontVariantCaps,
+            FontVariantNumeric, FontWeight, HangingPunctuation, HyphenationLanguage, Hyphens,
             LetterSpacing, LineBreak, LineHeight, ListStylePosition, ListStyleType, Orphans,
-            OverflowWrap, TabSize, TextAlign, TextAlignLast, TextColor, TextCombineUpright,
+            OverflowWrap, Quotes, TabSize, TextAlign, TextAlignLast, TextColor, TextCombineUpright,
             TextDecoration, TextIndent, TextJustify, TextOrientation, TextTransform, UserSelect,
             Visibility, WhiteSpace, Widows, WordBreak, WordSpacing, WritingMode,
         };
         match self {
             // Font properties
             FontFamily | FontSize | FontWeight | FontStyle | LineHeight | LetterSpacing | WordSpacing | TextIndent |
+            FontVariantNumeric | FontVariantCaps | FontFeatureSettings |
+
+            // Generated content: the marks of open-quote and close-quote
+            Quotes |
 
             // Text properties
             TextColor | TextAlign | TextJustify | TextDecoration | WhiteSpace | Direction | Hyphens | TabSize |
@@ -1680,15 +1804,15 @@ impl CssPropertyType {
     pub const fn can_trigger_relayout(&self) -> bool {
         use self::CssPropertyType::{
             Animation, AnimationIn, AnimationOut, AppRegion, BackdropFilter, BackfaceVisibility,
-            BackgroundContent, BackgroundPosition, BackgroundRepeat, BackgroundSize,
+            BackgroundColor, BackgroundContent, BackgroundPosition, BackgroundRepeat, BackgroundSize,
             BorderBottomColor, BorderBottomLeftRadius, BorderBottomRightRadius, BorderBottomStyle,
             BorderLeftColor, BorderLeftStyle, BorderRightColor, BorderRightStyle, BorderTopColor,
             BorderTopLeftRadius, BorderTopRightRadius, BorderTopStyle, BoxDecorationBreak,
             BoxShadowBottom, BoxShadowLeft, BoxShadowRight, BoxShadowTop, Clip, ColumnRuleColor,
             ColumnRuleStyle, Cursor, Filter, MixBlendMode, Opacity, PerspectiveOrigin,
             ScrollbarButton, ScrollbarCorner, ScrollbarResizer, ScrollbarThumb, ScrollbarTrack,
-            SpatialNavigationAction, SpatialNavigationContain, TextColor, TextShadow, Transform,
-            TransformOrigin,
+            SpatialNavigationAction, SpatialNavigationContain, SpatialNavigationFunction, TextColor,
+            TextShadow, Transform, TransformOrigin,
         };
 
         // Since the border can be larger than the content,
@@ -1702,6 +1826,7 @@ impl CssPropertyType {
             TextColor
             | Cursor
             | BackgroundContent
+            | BackgroundColor
             | BackgroundPosition
             | BackgroundSize
             | BackgroundRepeat
@@ -1752,6 +1877,7 @@ impl CssPropertyType {
             // why they have to be named.
             | SpatialNavigationAction
             | SpatialNavigationContain
+            | SpatialNavigationFunction
         )
     }
 
@@ -1779,18 +1905,22 @@ impl CssPropertyType {
     /// (has inline formatting context membership). When true, font/text
     /// property changes trigger IFC-only relayout instead of being ignored.
     #[must_use]
+    // One classification table over every property type, one arm per scope:
+    // splitting it would scatter the table, not shorten it.
+    #[allow(clippy::too_many_lines)]
     pub const fn relayout_scope(&self, node_is_ifc_member: bool) -> RelayoutScope {
         use CssPropertyType::{
             AlignmentBaseline, Animation, AnimationIn, AnimationOut, AppRegion, BackdropFilter,
-            BackfaceVisibility, BackgroundContent, BackgroundPosition, BackgroundRepeat,
-            BackgroundSize, BaselineSource, BorderBottomColor, BorderBottomLeftRadius,
+            BackfaceVisibility, BackgroundClip, BackgroundColor, BackgroundContent, BackgroundOrigin,
+            BackgroundPosition, BackgroundRepeat, BackgroundSize, BaselineSource, BorderBottomColor, BorderBottomLeftRadius,
             BorderBottomRightRadius, BorderBottomStyle, BorderBottomWidth, BorderLeftColor,
             BorderLeftStyle, BorderLeftWidth, BorderRightColor, BorderRightStyle, BorderRightWidth,
             BorderTopColor, BorderTopLeftRadius, BorderTopRightRadius, BorderTopStyle,
             BorderTopWidth, BoxDecorationBreak, BoxShadowBottom, BoxShadowLeft, BoxShadowRight,
             BoxShadowTop, BoxSizing, CaretAnimationDuration, CaretColor, CaretWidth, Clip,
             ColumnRuleColor, ColumnRuleStyle, Cursor, Direction, DominantBaseline, Filter,
-            FontFamily, FontSize, FontStyle, FontWeight, HangingPunctuation, Height,
+            FontFamily, FontFeatureSettings, FontSize, FontStyle, FontVariantCaps,
+            FontVariantNumeric, FontWeight, HangingPunctuation, Height,
             HyphenationLanguage, Hyphens, InitialLetter, InitialLetterAlign, InitialLetterWrap,
             LetterSpacing, LineBreak, LineClamp, LineFitEdge, LineHeight, MaxHeight, MaxWidth,
             MinHeight, MinWidth, MixBlendMode, ObjectFit, ObjectPosition, Opacity,
@@ -1798,7 +1928,8 @@ impl CssPropertyType {
             PaddingLeft, PaddingRight, PaddingTop, PerspectiveOrigin, ScrollbarButton,
             ScrollbarCorner, ScrollbarGutter, ScrollbarResizer, ScrollbarThumb, ScrollbarTrack,
             ScrollbarVisibility, ScrollbarWidth, SelectionBackgroundColor, SelectionColor,
-            SelectionRadius, SpatialNavigationAction, SpatialNavigationContain, TabSize, TextAlign,
+            SelectionRadius, SpatialNavigationAction, SpatialNavigationContain,
+            SpatialNavigationFunction, TabSize, TextAlign,
             TextAlignLast, TextBoxEdge, TextBoxTrim, TextColor, TextCombineUpright, TextDecoration,
             TextIndent, TextJustify, TextOrientation, TextOverflow, TextShadow, Transform,
             TransformOrigin, UnicodeBidi, VerticalAlign, WhiteSpace, Width, WordBreak, WordSpacing,
@@ -1811,6 +1942,9 @@ impl CssPropertyType {
             | BackgroundPosition
             | BackgroundSize
             | BackgroundRepeat
+            | BackgroundClip
+            | BackgroundOrigin
+            | BackgroundColor
             | BorderTopColor
             | BorderRightColor
             | BorderLeftColor
@@ -1865,13 +1999,14 @@ impl CssPropertyType {
             // fallthrough here is `Full`, so being unlisted would cost a whole
             // layout pass per declaration.
             | SpatialNavigationAction
-            | SpatialNavigationContain => RelayoutScope::None,
+            | SpatialNavigationContain
+            | SpatialNavigationFunction => RelayoutScope::None,
 
             // Font/text properties — IFC-only if inside inline context,
             // otherwise no layout impact (block with only block children
             // inherits but doesn't directly reflow).
-            FontFamily | FontSize | FontWeight | FontStyle | LetterSpacing | WordSpacing
-            | LineHeight | TextAlign | TextJustify | TextIndent | WhiteSpace | TabSize
+            FontFamily | FontSize | FontWeight | FontStyle | FontVariantNumeric | FontVariantCaps
+            | FontFeatureSettings | LetterSpacing | WordSpacing | LineHeight | TextAlign | TextJustify | TextIndent | WhiteSpace | TabSize
             | Hyphens | WordBreak | OverflowWrap | LineBreak | TextAlignLast | TextOrientation
             | HyphenationLanguage | TextCombineUpright | TextDecoration | HangingPunctuation
             | InitialLetter | LineClamp | Direction | VerticalAlign | UnicodeBidi | TextBoxTrim
@@ -1906,6 +2041,7 @@ impl CssPropertyType {
 
 // -- PARSING --
 
+#[cfg(feature = "parser")]
 /// Master error type that aggregates all possible CSS parsing errors.
 #[derive(Clone, PartialEq)]
 pub enum CssParsingError<'a> {
@@ -2052,6 +2188,7 @@ pub enum CssParsingError<'a> {
     AppRegion(CssAppRegionParseError<'a>),
     SpatialNavigationAction(CssSpatialNavigationActionParseError<'a>),
     SpatialNavigationContain(CssSpatialNavigationContainParseError<'a>),
+    SpatialNavigationFunction(CssSpatialNavigationFunctionParseError<'a>),
     MixBlendMode(MixBlendModeParseError<'a>),
 
     // Fragmentation
@@ -2081,8 +2218,10 @@ pub enum CssParsingError<'a> {
     ListStyleType(StyleListStyleTypeParseError<'a>),
     ListStylePosition(StyleListStylePositionParseError<'a>),
     StringSet,
+    Zoom(ZoomParseError<'a>),
 }
 
+#[cfg(feature = "parser")]
 /// Owned version of `CssParsingError`.
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
@@ -2230,6 +2369,7 @@ pub enum CssParsingErrorOwned {
     AppRegion(CssAppRegionParseErrorOwned),
     SpatialNavigationAction(CssSpatialNavigationActionParseErrorOwned),
     SpatialNavigationContain(CssSpatialNavigationContainParseErrorOwned),
+    SpatialNavigationFunction(CssSpatialNavigationFunctionParseErrorOwned),
     MixBlendMode(MixBlendModeParseErrorOwned),
 
     // Fragmentation
@@ -2259,11 +2399,14 @@ pub enum CssParsingErrorOwned {
     ListStyleType(StyleListStyleTypeParseErrorOwned),
     ListStylePosition(StyleListStylePositionParseErrorOwned),
     StringSet,
+    Zoom(ZoomParseErrorOwned),
 }
 
 // -- PARSING ERROR IMPLEMENTATIONS --
 
+#[cfg(feature = "parser")]
 impl_debug_as_display!(CssParsingError<'a>);
+#[cfg(feature = "parser")]
 impl_display! { CssParsingError<'a>, {
     CaretColor(e) => format!("Invalid caret-color: {}", e),
     CaretAnimationDuration(e) => format!("Invalid caret-animation-duration: {}", e),
@@ -2334,6 +2477,7 @@ impl_display! { CssParsingError<'a>, {
     AppRegion(e) => format!("Invalid app-region: {}", e),
     SpatialNavigationAction(e) => format!("Invalid spatial-navigation-action: {}", e),
     SpatialNavigationContain(e) => format!("Invalid spatial-navigation-contain: {}", e),
+    SpatialNavigationFunction(e) => format!("Invalid spatial-navigation-function: {}", e),
     MixBlendMode(e) => format!("Invalid mix-blend-mode: {}", e),
     TextColor(e) => format!("Invalid text color: {}", e),
     FontSize(e) => format!("Invalid font-size: {}", e),
@@ -2404,13 +2548,16 @@ impl_display! { CssParsingError<'a>, {
     ListStyleType(e) => format!("Invalid list-style-type: {}", e),
     ListStylePosition(e) => format!("Invalid list-style-position: {}", e),
     StringSet => "Failed to parse string-set property",
+    Zoom(e) => format!("Invalid zoom: {}", e),
 }}
 
 // From impls for CssParsingError
+#[cfg(feature = "parser")]
 impl_from!(
     DurationParseError<'a>,
     CssParsingError::CaretAnimationDuration
 );
+#[cfg(feature = "parser")]
 impl<'a> From<crate::props::basic::animation::StyleAnimationParseError<'a>>
     for CssParsingError<'a>
 {
@@ -2418,64 +2565,90 @@ impl<'a> From<crate::props::basic::animation::StyleAnimationParseError<'a>>
         CssParsingError::Animation(e)
     }
 }
+#[cfg(feature = "parser")]
 impl_from!(CssBorderParseError<'a>, CssParsingError::Border);
+#[cfg(feature = "parser")]
 impl_from!(CssBorderRadiusParseError<'a>, CssParsingError::BorderRadius);
+#[cfg(feature = "parser")]
 impl_from!(LayoutPaddingParseError<'a>, CssParsingError::Padding);
+#[cfg(feature = "parser")]
 impl_from!(LayoutMarginParseError<'a>, CssParsingError::Margin);
+#[cfg(feature = "parser")]
 impl_from!(CssShadowParseError<'a>, CssParsingError::BoxShadow);
+#[cfg(feature = "parser")]
 impl_from!(CssColorParseError<'a>, CssParsingError::Color);
+#[cfg(feature = "parser")]
 impl_from!(CssPixelValueParseError<'a>, CssParsingError::PixelValue);
+#[cfg(feature = "parser")]
 impl_from!(
     CssStyleFontFamilyParseError<'a>,
     CssParsingError::FontFamily
 );
+#[cfg(feature = "parser")]
 impl_from!(CssFontWeightParseError<'a>, CssParsingError::FontWeight);
+#[cfg(feature = "parser")]
 impl_from!(CssFontStyleParseError<'a>, CssParsingError::FontStyle);
+#[cfg(feature = "parser")]
 impl_from!(
     StyleInitialLetterParseError<'a>,
     CssParsingError::InitialLetter
 );
+#[cfg(feature = "parser")]
 impl_from!(StyleLineClampParseError<'a>, CssParsingError::LineClamp);
+#[cfg(feature = "parser")]
 impl_from!(
     StyleHangingPunctuationParseError<'a>,
     CssParsingError::HangingPunctuation
 );
+#[cfg(feature = "parser")]
 impl_from!(
     StyleTextCombineUprightParseError<'a>,
     CssParsingError::TextCombineUpright
 );
+#[cfg(feature = "parser")]
 impl_from!(StyleUnicodeBidiParseError<'a>, CssParsingError::UnicodeBidi);
+#[cfg(feature = "parser")]
 impl_from!(StyleTextBoxTrimParseError<'a>, CssParsingError::TextBoxTrim);
+#[cfg(feature = "parser")]
 impl_from!(StyleTextBoxEdgeParseError<'a>, CssParsingError::TextBoxEdge);
+#[cfg(feature = "parser")]
 impl_from!(
     StyleDominantBaselineParseError<'a>,
     CssParsingError::DominantBaseline
 );
+#[cfg(feature = "parser")]
 impl_from!(
     StyleAlignmentBaselineParseError<'a>,
     CssParsingError::AlignmentBaseline
 );
+#[cfg(feature = "parser")]
 impl_from!(
     StyleBaselineSourceParseError<'a>,
     CssParsingError::BaselineSource
 );
+#[cfg(feature = "parser")]
 impl_from!(StyleLineFitEdgeParseError<'a>, CssParsingError::LineFitEdge);
+#[cfg(feature = "parser")]
 impl_from!(
     StyleInitialLetterAlignParseError<'a>,
     CssParsingError::InitialLetterAlign
 );
+#[cfg(feature = "parser")]
 impl_from!(
     StyleInitialLetterWrapParseError<'a>,
     CssParsingError::InitialLetterWrap
 );
+#[cfg(feature = "parser")]
 impl_from!(
     StyleScrollbarGutterParseError<'a>,
     CssParsingError::ScrollbarGutter
 );
+#[cfg(feature = "parser")]
 impl_from!(
     StyleOverflowClipMarginParseError<'a>,
     CssParsingError::OverflowClipMargin
 );
+#[cfg(feature = "parser")]
 impl_from!(StyleClipRectParseError<'a>, CssParsingError::Clip);
 
 // Manual From implementation for StyleExclusionMarginParseError (no lifetime)
@@ -2493,269 +2666,372 @@ impl From<StyleHyphenationLanguageParseError> for CssParsingError<'_> {
         CssParsingError::HyphenationLanguage(e)
     }
 }
+#[cfg(feature = "parser")]
 impl_from!(FlexGrowParseError<'a>, CssParsingError::FlexGrow);
+#[cfg(feature = "parser")]
 impl_from!(FlexShrinkParseError<'a>, CssParsingError::FlexShrink);
+#[cfg(feature = "parser")]
 impl_from!(CssBackgroundParseError<'a>, CssParsingError::Background);
+#[cfg(feature = "parser")]
 impl_from!(
     CssBackgroundPositionParseError<'a>,
     CssParsingError::BackgroundPosition
 );
+#[cfg(feature = "parser")]
 impl_from!(OpacityParseError<'a>, CssParsingError::Opacity);
+#[cfg(feature = "parser")]
 impl_from!(StyleVisibilityParseError<'a>, CssParsingError::Visibility);
+#[cfg(feature = "parser")]
 impl_from!(
     LayoutScrollbarWidthParseError<'a>,
     CssParsingError::LayoutScrollbarWidth
 );
+#[cfg(feature = "parser")]
 impl_from!(
     StyleScrollbarColorParseError<'a>,
     CssParsingError::StyleScrollbarColor
 );
+#[cfg(feature = "parser")]
 impl_from!(
     OverscrollBehaviorParseError<'a>,
     CssParsingError::OverscrollBehavior
 );
+#[cfg(feature = "parser")]
 impl_from!(
     ScrollbarVisibilityModeParseError<'a>,
     CssParsingError::ScrollbarVisibilityMode
 );
+#[cfg(feature = "parser")]
 impl_from!(
     ScrollbarFadeDelayParseError<'a>,
     CssParsingError::ScrollbarFadeDelay
 );
+#[cfg(feature = "parser")]
 impl_from!(
     ScrollbarFadeDurationParseError<'a>,
     CssParsingError::ScrollbarFadeDuration
 );
+#[cfg(feature = "parser")]
 impl_from!(CssStyleTransformParseError<'a>, CssParsingError::Transform);
+#[cfg(feature = "parser")]
 impl_from!(
     CssStyleTransformOriginParseError<'a>,
     CssParsingError::TransformOrigin
 );
+#[cfg(feature = "parser")]
 impl_from!(
     CssStylePerspectiveOriginParseError<'a>,
     CssParsingError::PerspectiveOrigin
 );
+#[cfg(feature = "parser")]
 impl_from!(CssStyleFilterParseError<'a>, CssParsingError::Filter);
 
 // Layout dimensions
+#[cfg(feature = "parser")]
 impl_from!(LayoutWidthParseError<'a>, CssParsingError::LayoutWidth);
+#[cfg(feature = "parser")]
 impl_from!(LayoutHeightParseError<'a>, CssParsingError::LayoutHeight);
+#[cfg(feature = "parser")]
 impl_from!(
     LayoutMinWidthParseError<'a>,
     CssParsingError::LayoutMinWidth
 );
+#[cfg(feature = "parser")]
 impl_from!(
     LayoutMinHeightParseError<'a>,
     CssParsingError::LayoutMinHeight
 );
+#[cfg(feature = "parser")]
 impl_from!(
     LayoutMaxWidthParseError<'a>,
     CssParsingError::LayoutMaxWidth
 );
+#[cfg(feature = "parser")]
 impl_from!(
     LayoutMaxHeightParseError<'a>,
     CssParsingError::LayoutMaxHeight
 );
 
 // Layout position
+#[cfg(feature = "parser")]
 impl_from!(
     LayoutPositionParseError<'a>,
     CssParsingError::LayoutPosition
 );
+#[cfg(feature = "parser")]
 impl_from!(LayoutTopParseError<'a>, CssParsingError::LayoutTop);
+#[cfg(feature = "parser")]
 impl_from!(LayoutRightParseError<'a>, CssParsingError::LayoutRight);
+#[cfg(feature = "parser")]
 impl_from!(LayoutLeftParseError<'a>, CssParsingError::LayoutLeft);
+#[cfg(feature = "parser")]
 impl_from!(
     LayoutInsetBottomParseError<'a>,
     CssParsingError::LayoutInsetBottom
 );
+#[cfg(feature = "parser")]
 impl_from!(LayoutZIndexParseError<'a>, CssParsingError::LayoutZIndex);
 
 // Layout flex
+#[cfg(feature = "parser")]
 impl_from!(FlexWrapParseError<'a>, CssParsingError::FlexWrap);
+#[cfg(feature = "parser")]
 impl_from!(FlexDirectionParseError<'a>, CssParsingError::FlexDirection);
+#[cfg(feature = "parser")]
 impl_from!(FlexBasisParseError<'a>, CssParsingError::FlexBasis);
+#[cfg(feature = "parser")]
 impl_from!(
     JustifyContentParseError<'a>,
     CssParsingError::JustifyContent
 );
+#[cfg(feature = "parser")]
 impl_from!(AlignItemsParseError<'a>, CssParsingError::AlignItems);
+#[cfg(feature = "parser")]
 impl_from!(AlignContentParseError<'a>, CssParsingError::AlignContent);
 
 // Layout grid
+#[cfg(feature = "parser")]
 impl_from!(GridParseError<'a>, CssParsingError::Grid);
+#[cfg(feature = "parser")]
 impl_from!(GridAutoFlowParseError<'a>, CssParsingError::GridAutoFlow);
+#[cfg(feature = "parser")]
 impl_from!(JustifySelfParseError<'a>, CssParsingError::JustifySelf);
+#[cfg(feature = "parser")]
 impl_from!(JustifyItemsParseError<'a>, CssParsingError::JustifyItems);
 // pixel value impl_from already exists earlier; avoid duplicate impl
 // impl_from!(CssPixelValueParseError<'a>, CssParsingError::PixelValue);
+#[cfg(feature = "parser")]
 impl_from!(AlignSelfParseError<'a>, CssParsingError::AlignSelf);
 
 // Layout wrapping
+#[cfg(feature = "parser")]
 impl_from!(
     LayoutWritingModeParseError<'a>,
     CssParsingError::LayoutWritingMode
 );
+#[cfg(feature = "parser")]
 impl_from!(LayoutClearParseError<'a>, CssParsingError::LayoutClear);
 
 // Layout overflow
+#[cfg(feature = "parser")]
 impl_from!(
     LayoutOverflowParseError<'a>,
     CssParsingError::LayoutOverflow
 );
 
 // Border radius individual corners
+#[cfg(feature = "parser")]
 impl_from!(
     StyleBorderTopLeftRadiusParseError<'a>,
     CssParsingError::BorderTopLeftRadius
 );
+#[cfg(feature = "parser")]
 impl_from!(
     StyleBorderTopRightRadiusParseError<'a>,
     CssParsingError::BorderTopRightRadius
 );
+#[cfg(feature = "parser")]
 impl_from!(
     StyleBorderBottomLeftRadiusParseError<'a>,
     CssParsingError::BorderBottomLeftRadius
 );
+#[cfg(feature = "parser")]
 impl_from!(
     StyleBorderBottomRightRadiusParseError<'a>,
     CssParsingError::BorderBottomRightRadius
 );
 
 // Border style
+#[cfg(feature = "parser")]
 impl_from!(CssBorderStyleParseError<'a>, CssParsingError::BorderStyle);
 
 // Effects
+#[cfg(feature = "parser")]
 impl_from!(
     CssBackfaceVisibilityParseError<'a>,
     CssParsingError::BackfaceVisibility
 );
+#[cfg(feature = "parser")]
 impl_from!(CssAppRegionParseError<'a>, CssParsingError::AppRegion);
+#[cfg(feature = "parser")]
 impl_from!(
     CssSpatialNavigationActionParseError<'a>,
     CssParsingError::SpatialNavigationAction
 );
+#[cfg(feature = "parser")]
 impl_from!(
     CssSpatialNavigationContainParseError<'a>,
     CssParsingError::SpatialNavigationContain
 );
+#[cfg(feature = "parser")]
+impl_from!(
+    CssSpatialNavigationFunctionParseError<'a>,
+    CssParsingError::SpatialNavigationFunction
+);
+#[cfg(feature = "parser")]
 impl_from!(MixBlendModeParseError<'a>, CssParsingError::MixBlendMode);
 
 // Text/Style properties
+#[cfg(feature = "parser")]
 impl_from!(StyleTextColorParseError<'a>, CssParsingError::TextColor);
+#[cfg(feature = "parser")]
 impl_from!(CssStyleFontSizeParseError<'a>, CssParsingError::FontSize);
+#[cfg(feature = "parser")]
 impl_from!(StyleTextAlignParseError<'a>, CssParsingError::TextAlign);
+#[cfg(feature = "parser")]
 impl_from!(TextJustifyParseError<'a>, CssParsingError::TextJustify);
+#[cfg(feature = "parser")]
 impl_from!(
     StyleLetterSpacingParseError<'a>,
     CssParsingError::LetterSpacing
 );
+#[cfg(feature = "parser")]
 impl_from!(StyleWordSpacingParseError<'a>, CssParsingError::WordSpacing);
+#[cfg(feature = "parser")]
 impl_from!(StyleTabSizeParseError<'a>, CssParsingError::TabSize);
+#[cfg(feature = "parser")]
 impl_from!(StyleWhiteSpaceParseError<'a>, CssParsingError::WhiteSpace);
+#[cfg(feature = "parser")]
 impl_from!(StyleHyphensParseError<'a>, CssParsingError::Hyphens);
+#[cfg(feature = "parser")]
 impl_from!(StyleWordBreakParseError<'a>, CssParsingError::WordBreak);
+#[cfg(feature = "parser")]
 impl_from!(
     StyleOverflowWrapParseError<'a>,
     CssParsingError::OverflowWrap
 );
+#[cfg(feature = "parser")]
 impl_from!(StyleLineBreakParseError<'a>, CssParsingError::LineBreak);
+#[cfg(feature = "parser")]
 impl_from!(
     StyleTextOverflowParseError<'a>,
     CssParsingError::TextOverflow
 );
+#[cfg(feature = "parser")]
 impl_from!(StyleObjectFitParseError<'a>, CssParsingError::ObjectFit);
+#[cfg(feature = "parser")]
 impl_from!(
     StyleObjectPositionParseError<'a>,
     CssParsingError::ObjectPosition
 );
+#[cfg(feature = "parser")]
 impl_from!(StyleAspectRatioParseError<'a>, CssParsingError::AspectRatio);
+#[cfg(feature = "parser")]
 impl_from!(
     StyleTextOrientationParseError<'a>,
     CssParsingError::TextOrientation
 );
+#[cfg(feature = "parser")]
 impl_from!(
     StyleTextAlignLastParseError<'a>,
     CssParsingError::TextAlignLast
 );
+#[cfg(feature = "parser")]
 impl_from!(
     StyleTextTransformParseError<'a>,
     CssParsingError::TextTransform
 );
+#[cfg(feature = "parser")]
 impl_from!(StyleDirectionParseError<'a>, CssParsingError::Direction);
+#[cfg(feature = "parser")]
 impl_from!(StyleUserSelectParseError<'a>, CssParsingError::UserSelect);
+#[cfg(feature = "parser")]
 impl_from!(
     StyleTextDecorationParseError<'a>,
     CssParsingError::TextDecoration
 );
+#[cfg(feature = "parser")]
 impl_from!(CursorParseError<'a>, CssParsingError::Cursor);
 
 // Layout basic properties
+#[cfg(feature = "parser")]
 impl_from!(LayoutDisplayParseError<'a>, CssParsingError::LayoutDisplay);
+#[cfg(feature = "parser")]
 impl_from!(LayoutFloatParseError<'a>, CssParsingError::LayoutFloat);
+#[cfg(feature = "parser")]
 impl_from!(
     LayoutBoxSizingParseError<'a>,
     CssParsingError::LayoutBoxSizing
 );
 
 // DTP properties
+#[cfg(feature = "parser")]
 impl_from!(PageBreakParseError<'a>, CssParsingError::PageBreak);
+#[cfg(feature = "parser")]
 impl_from!(BreakInsideParseError<'a>, CssParsingError::BreakInside);
+#[cfg(feature = "parser")]
 impl_from!(WidowsParseError<'a>, CssParsingError::Widows);
+#[cfg(feature = "parser")]
 impl_from!(OrphansParseError<'a>, CssParsingError::Orphans);
+#[cfg(feature = "parser")]
 impl_from!(
     BoxDecorationBreakParseError<'a>,
     CssParsingError::BoxDecorationBreak
 );
+#[cfg(feature = "parser")]
 impl_from!(ColumnCountParseError<'a>, CssParsingError::ColumnCount);
+#[cfg(feature = "parser")]
 impl_from!(ColumnWidthParseError<'a>, CssParsingError::ColumnWidth);
+#[cfg(feature = "parser")]
 impl_from!(ColumnSpanParseError<'a>, CssParsingError::ColumnSpan);
+#[cfg(feature = "parser")]
 impl_from!(ColumnFillParseError<'a>, CssParsingError::ColumnFill);
+#[cfg(feature = "parser")]
 impl_from!(
     ColumnRuleWidthParseError<'a>,
     CssParsingError::ColumnRuleWidth
 );
+#[cfg(feature = "parser")]
 impl_from!(
     ColumnRuleStyleParseError<'a>,
     CssParsingError::ColumnRuleStyle
 );
+#[cfg(feature = "parser")]
 impl_from!(
     ColumnRuleColorParseError<'a>,
     CssParsingError::ColumnRuleColor
 );
+#[cfg(feature = "parser")]
 impl_from!(FlowIntoParseError<'a>, CssParsingError::FlowInto);
+#[cfg(feature = "parser")]
 impl_from!(FlowFromParseError<'a>, CssParsingError::FlowFrom);
 
+#[cfg(feature = "parser")]
 impl<'a> From<InvalidValueErr<'a>> for CssParsingError<'a> {
     fn from(e: InvalidValueErr<'a>) -> Self {
         CssParsingError::InvalidValue(e)
     }
 }
 
+#[cfg(feature = "parser")]
 impl From<PercentageParseError> for CssParsingError<'_> {
     fn from(e: PercentageParseError) -> Self {
         CssParsingError::Percentage(e)
     }
 }
 
+#[cfg(feature = "parser")]
 impl From<StyleLineHeightParseError> for CssParsingError<'_> {
     fn from(e: StyleLineHeightParseError) -> Self {
         CssParsingError::LineHeight(e)
     }
 }
 
+#[cfg(feature = "parser")]
 impl<'a> From<StyleTextIndentParseError<'a>> for CssParsingError<'a> {
     fn from(e: StyleTextIndentParseError<'a>) -> Self {
         CssParsingError::TextIndent(e)
     }
 }
 
+#[cfg(feature = "parser")]
 impl<'a> From<StyleVerticalAlignParseError<'a>> for CssParsingError<'a> {
     fn from(e: StyleVerticalAlignParseError<'a>) -> Self {
         CssParsingError::VerticalAlign(e)
     }
 }
 
+#[cfg(feature = "parser")]
 impl CssParsingError<'_> {
     #[allow(clippy::too_many_lines)]
     // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per
@@ -2903,6 +3179,9 @@ impl CssParsingError<'_> {
             CssParsingError::SpatialNavigationContain(e) => {
                 CssParsingErrorOwned::SpatialNavigationContain(e.to_contained())
             }
+            CssParsingError::SpatialNavigationFunction(e) => {
+                CssParsingErrorOwned::SpatialNavigationFunction(e.to_contained())
+            }
             CssParsingError::BackfaceVisibility(e) => {
                 CssParsingErrorOwned::BackfaceVisibility(e.to_contained())
             }
@@ -3035,12 +3314,14 @@ impl CssParsingError<'_> {
                 CssParsingErrorOwned::ListStylePosition(e.to_contained())
             }
             CssParsingError::StringSet => CssParsingErrorOwned::StringSet,
+            CssParsingError::Zoom(e) => CssParsingErrorOwned::Zoom(e.to_contained()),
             CssParsingError::FontWeight(e) => CssParsingErrorOwned::FontWeight(e.to_contained()),
             CssParsingError::FontStyle(e) => CssParsingErrorOwned::FontStyle(e.to_contained()),
         }
     }
 }
 
+#[cfg(feature = "parser")]
 impl CssParsingErrorOwned {
     #[allow(clippy::too_many_lines)]
     // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per
@@ -3130,6 +3411,9 @@ impl CssParsingErrorOwned {
             Self::SpatialNavigationContain(e) => {
                 CssParsingError::SpatialNavigationContain(e.to_shared())
             }
+            Self::SpatialNavigationFunction(e) => {
+                CssParsingError::SpatialNavigationFunction(e.to_shared())
+            }
             Self::BackfaceVisibility(e) => CssParsingError::BackfaceVisibility(e.to_shared()),
             Self::MixBlendMode(e) => CssParsingError::MixBlendMode(e.to_shared()),
             Self::TextColor(e) => CssParsingError::TextColor(e.to_shared()),
@@ -3199,11 +3483,84 @@ impl CssParsingErrorOwned {
             Self::ListStyleType(e) => CssParsingError::ListStyleType(e.to_shared()),
             Self::ListStylePosition(e) => CssParsingError::ListStylePosition(e.to_shared()),
             Self::StringSet => CssParsingError::StringSet,
+            Self::Zoom(e) => CssParsingError::Zoom(e.to_shared()),
             Self::FontWeight(e) => CssParsingError::FontWeight(e.to_shared()),
             Self::FontStyle(e) => CssParsingError::FontStyle(e.to_shared()),
             Self::VerticalAlign(e) => CssParsingError::VerticalAlign(e.to_shared()),
         }
     }
+}
+
+/// Whether a bare `auto` belongs to `key`'s grammar and is read as the generic
+/// [`CssProperty::auto`].
+///
+/// `auto` is NOT a CSS-wide keyword (those are `initial`, `inherit`, `unset`
+/// and `revert`), so it must not be accepted on every property: where the
+/// grammar lacks it, `parse_css_property` hands the bare `auto` to the
+/// property's own parser, which rejects it, and the declaration is dropped
+/// instead of overriding an earlier valid one.
+///
+/// Listed: every property whose grammar has `auto` and that is not already
+/// in `parse_css_property`'s `has_typed_auto` list (those parse `auto`
+/// through their own typed parser). A missing entry here silently drops a
+/// valid `auto`, so add new properties with care.
+#[cfg(feature = "parser")]
+const fn grammar_accepts_bare_auto(key: CssPropertyType) -> bool {
+    use self::CssPropertyType as T;
+    matches!(
+        key,
+        // Box sizes and insets: `auto` is the initial value.
+        T::Width
+            | T::Height
+            | T::MinWidth
+            | T::MinHeight
+            | T::Top
+            | T::Right
+            | T::Bottom
+            | T::Left
+            | T::MarginTop
+            | T::MarginRight
+            | T::MarginBottom
+            | T::MarginLeft
+            | T::ZIndex
+            // Flex / grid / box alignment.
+            | T::FlexBasis
+            | T::AlignSelf
+            | T::JustifySelf
+            | T::GridTemplateColumns // `auto` is a one-track <track-list>
+            | T::GridTemplateRows
+            | T::GridAutoColumns
+            | T::GridAutoRows
+            | T::GridColumn
+            | T::GridRow
+            // Multi-column, fragmentation, tables.
+            | T::ColumnCount
+            | T::ColumnWidth
+            | T::ColumnFill
+            | T::BreakBefore
+            | T::BreakAfter
+            | T::BreakInside
+            | T::TableLayout
+            // Text and inline layout.
+            | T::TextJustify
+            | T::TextBoxEdge
+            | T::TextDecoration // the shorthand's `text-decoration-thickness: auto`
+            | T::DominantBaseline
+            | T::BaselineSource
+            | T::InitialLetterAlign
+            | T::CaretColor
+            // UI, scrolling, clipping, shapes.
+            | T::Cursor
+            | T::BackgroundSize
+            | T::ScrollbarGutter
+            | T::ScrollbarWidth
+            | T::ScrollbarColor
+            | T::ScrollbarVisibility
+            | T::Clip
+            | T::ShapeInside
+            | T::SpatialNavigationAction
+            | T::SpatialNavigationContain
+    )
 }
 
 #[cfg(feature = "parser")]
@@ -3253,14 +3610,33 @@ pub fn parse_css_property(
         CssPropertyType::TextDecoration | // text-decoration: none is a typed value
         CssPropertyType::OverscrollBehaviorX | // see the auto list above
         CssPropertyType::OverscrollBehaviorY |
-        CssPropertyType::ObjectFit // object-fit: none means StyleObjectFit::None
+        CssPropertyType::ObjectFit | // object-fit: none means StyleObjectFit::None
+        // border-*-style: none is BorderStyle::None. As the CSS-wide keyword
+        // it read back as "no value": the compact cache kept the style a
+        // lower layer set (a UA `inset`, a shorthand's `solid`).
+        CssPropertyType::BorderTopStyle |
+        CssPropertyType::BorderRightStyle |
+        CssPropertyType::BorderBottomStyle |
+        CssPropertyType::BorderLeftStyle |
+        // list-style-type: none means StyleListStyleType::None (no marker);
+        // as the CSS-wide `None` it read back as "no value" and the item got
+        // the initial disc
+        CssPropertyType::ListStyleType |
+        // quotes: none writes no marks; read back as "no value" it took the
+        // initial `auto`, the marks of the language
+        CssPropertyType::Quotes
     );
 
     Ok(match value {
-        "auto" if !has_typed_auto => CssProperty::auto(key),
+        // Only where the grammar has `auto`; elsewhere the property's own
+        // parser sees it (and rejects it) - see `grammar_accepts_bare_auto`.
+        "auto" if !has_typed_auto && grammar_accepts_bare_auto(key) => CssProperty::auto(key),
         "none" if !has_typed_none => CssProperty::none(key),
         "initial" => CssProperty::initial(key),
         "inherit" => CssProperty::inherit(key),
+        // The other CSS-wide keywords every property takes; the cascade resolves them.
+        "unset" => css_property_from_type!(key, Unset),
+        "revert" => css_property_from_type!(key, Revert),
         value => match key {
             CssPropertyType::CaretColor => parse_caret_color(value)?.into(),
             CssPropertyType::CaretWidth => parse_caret_width(value)?.into(),
@@ -3529,6 +3905,9 @@ pub fn parse_css_property(
             CssPropertyType::SpatialNavigationContain => {
                 parse_style_spatial_navigation_contain(value)?.into()
             }
+            CssPropertyType::SpatialNavigationFunction => {
+                parse_style_spatial_navigation_function(value)?.into()
+            }
 
             CssPropertyType::MixBlendMode => parse_style_mix_blend_mode(value)?.into(),
             CssPropertyType::Filter => CssProperty::Filter(parse_style_filter_vec(value)?.into()),
@@ -3607,6 +3986,26 @@ pub fn parse_css_property(
                     .map_err(|()| CssParsingError::Counter)?
                     .into(),
             ),
+            CssPropertyType::CounterSet => CssProperty::CounterSet(
+                parse_counter_set(value)
+                    .map_err(|()| CssParsingError::Counter)?
+                    .into(),
+            ),
+            CssPropertyType::Quotes => CssProperty::Quotes(
+                parse_style_quotes(value)
+                    .map_err(|()| CssParsingError::GenericParseError)?
+                    .into(),
+            ),
+            CssPropertyType::BackgroundOrigin => CssProperty::BackgroundOrigin(
+                parse_style_background_origin_multiple(value)
+                    .map_err(|_| CssParsingError::GenericParseError)?
+                    .into(),
+            ),
+            CssPropertyType::BackgroundColor => {
+                CssProperty::BackgroundColor(CssPropertyValue::Exact(background_color_layer(
+                    parse_color_or_system(value)?,
+                )))
+            }
             CssPropertyType::ListStyleType => CssProperty::ListStyleType(
                 parse_style_list_style_type(value)
                     .map_err(CssParsingError::ListStyleType)?
@@ -3620,6 +4019,31 @@ pub fn parse_css_property(
             CssPropertyType::StringSet => CssProperty::StringSet(
                 parse_string_set(value)
                     .map_err(|()| CssParsingError::StringSet)?
+                    .into(),
+            ),
+            CssPropertyType::Zoom => CssProperty::Zoom(
+                parse_style_zoom(value)
+                    .map_err(CssParsingError::Zoom)?
+                    .into(),
+            ),
+            CssPropertyType::BackgroundClip => CssProperty::BackgroundClip(
+                parse_style_background_clip_multiple(value)
+                    .map_err(|_| CssParsingError::GenericParseError)?
+                    .into(),
+            ),
+            CssPropertyType::FontVariantNumeric => CssProperty::FontVariantNumeric(
+                parse_style_font_variant_numeric(value)
+                    .map_err(|_| CssParsingError::GenericParseError)?
+                    .into(),
+            ),
+            CssPropertyType::FontVariantCaps => CssProperty::FontVariantCaps(
+                parse_style_font_variant_caps(value)
+                    .map_err(|_| CssParsingError::GenericParseError)?
+                    .into(),
+            ),
+            CssPropertyType::FontFeatureSettings => CssProperty::FontFeatureSettings(
+                parse_style_font_feature_settings(value)
+                    .map_err(|_| CssParsingError::GenericParseError)?
                     .into(),
             ),
             CssPropertyType::TableLayout => CssProperty::TableLayout(
@@ -3649,6 +4073,15 @@ pub fn parse_css_property(
             ),
         },
     })
+}
+
+#[cfg(feature = "parser")]
+/// The `background-color` value of a parsed colour.
+const fn background_color_layer(value: ColorOrSystem) -> StyleBackgroundContent {
+    match value {
+        ColorOrSystem::Color(color) => StyleBackgroundContent::Color(color),
+        ColorOrSystem::System(system) => StyleBackgroundContent::SystemColor(system),
+    }
 }
 
 /// Parses a combined CSS property or a CSS property shorthand, for example "margin"
@@ -3694,7 +4127,7 @@ pub fn parse_combined_css_property(
         Background, BackgroundColor, BackgroundImage, Border, BorderBottom, BorderColor,
         BorderLeft, BorderRadius, BorderRight, BorderStyle, BorderTop, BorderWidth, BoxShadow,
         ColumnRule, Columns, Flex, Font, Gap, Grid, GridArea, GridGap, InsetBlock, InsetInline,
-        Margin, Overflow, OverscrollBehavior, Padding, TextBox,
+        FontVariant, ListStyle, Margin, Overflow, OverscrollBehavior, Padding, TextBox,
     };
 
     macro_rules! convert_value {
@@ -3821,9 +4254,9 @@ pub fn parse_combined_css_property(
                 CssPropertyType::BoxShadowBottom,
             ]
         }
-        BackgroundColor | BackgroundImage | Background => {
-            vec![CssPropertyType::BackgroundContent]
-        }
+        BackgroundColor => vec![CssPropertyType::BackgroundColor],
+        BackgroundImage => vec![CssPropertyType::BackgroundContent],
+        Background => vec![CssPropertyType::BackgroundContent, CssPropertyType::BackgroundColor],
         Flex => {
             vec![
                 CssPropertyType::FlexGrow,
@@ -3868,12 +4301,42 @@ pub fn parse_combined_css_property(
         InsetInline => {
             vec![CssPropertyType::Left, CssPropertyType::Right]
         }
+        ListStyle => {
+            vec![
+                CssPropertyType::ListStyleType,
+                CssPropertyType::ListStylePosition,
+            ]
+        }
+        FontVariant => {
+            vec![
+                CssPropertyType::FontVariantNumeric,
+                CssPropertyType::FontVariantCaps,
+            ]
+        }
     };
 
     // For Overflow, "auto" is a typed value (LayoutOverflow::Auto), not the generic CSS keyword,
     // so we must not intercept it here and let the specific parser handle it below.
     let has_typed_auto = matches!(key, Overflow);
-    let has_typed_none = false; // Currently no combined properties have typed "none"
+    // `list-style: none` is the TYPE `none` (no marker), not the CSS keyword.
+    // So is the `none` of a border: `border: none` is `border-style: none`
+    // with the initial width and colour (CSS Backgrounds 3 s4.4, what
+    // `parse_style_border` makes of it). Expanded as the CSS-wide keyword it
+    // set all twelve longhands to "no value": the compact cache kept the
+    // style a lower layer set (an `<hr>`'s UA `inset`) and read the width as
+    // undeclared - `medium` - so `border: none; border-top: 1px solid` drew
+    // a 1 + 3 px rule (Chrome 1).
+    let has_typed_none = matches!(
+        key,
+        ListStyle
+            | Border
+            | BorderTop
+            | BorderRight
+            | BorderBottom
+            | BorderLeft
+            | BorderStyle
+            | FontVariant
+    );
 
     match value {
         "auto" if !has_typed_auto => return Ok(keys.into_iter().map(CssProperty::auto).collect()),
@@ -3883,6 +4346,18 @@ pub fn parse_combined_css_property(
         }
         "inherit" => {
             return Ok(keys.into_iter().map(CssProperty::inherit).collect());
+        }
+        "unset" => {
+            return Ok(keys
+                .into_iter()
+                .map(|key| css_property_from_type!(key, Unset))
+                .collect());
+        }
+        "revert" => {
+            return Ok(keys
+                .into_iter()
+                .map(|key| css_property_from_type!(key, Revert))
+                .collect());
         }
         _ => {}
     }
@@ -3986,30 +4461,42 @@ pub fn parse_combined_css_property(
         Border => {
             let border = parse_style_border(value)?;
             Ok(vec![
-                CssProperty::BorderTopColor(
+                CssProperty::BorderTopColor(if border.color_given {
                     StyleBorderTopColor {
                         inner: border.border_color,
                     }
-                    .into(),
-                ),
-                CssProperty::BorderRightColor(
+                    .into()
+                } else {
+                    // No colour: reset to the initial `currentcolor`.
+                    CssPropertyValue::Initial
+                }),
+                CssProperty::BorderRightColor(if border.color_given {
                     StyleBorderRightColor {
                         inner: border.border_color,
                     }
-                    .into(),
-                ),
-                CssProperty::BorderLeftColor(
+                    .into()
+                } else {
+                    // No colour: reset to the initial `currentcolor`.
+                    CssPropertyValue::Initial
+                }),
+                CssProperty::BorderLeftColor(if border.color_given {
                     StyleBorderLeftColor {
                         inner: border.border_color,
                     }
-                    .into(),
-                ),
-                CssProperty::BorderBottomColor(
+                    .into()
+                } else {
+                    // No colour: reset to the initial `currentcolor`.
+                    CssPropertyValue::Initial
+                }),
+                CssProperty::BorderBottomColor(if border.color_given {
                     StyleBorderBottomColor {
                         inner: border.border_color,
                     }
-                    .into(),
-                ),
+                    .into()
+                } else {
+                    // No colour: reset to the initial `currentcolor`.
+                    CssPropertyValue::Initial
+                }),
                 CssProperty::BorderTopStyle(
                     StyleBorderTopStyle {
                         inner: border.border_style,
@@ -4063,12 +4550,15 @@ pub fn parse_combined_css_property(
         BorderLeft => {
             let border = parse_style_border(value)?;
             Ok(vec![
-                CssProperty::BorderLeftColor(
+                CssProperty::BorderLeftColor(if border.color_given {
                     StyleBorderLeftColor {
                         inner: border.border_color,
                     }
-                    .into(),
-                ),
+                    .into()
+                } else {
+                    // No colour: reset to the initial `currentcolor`.
+                    CssPropertyValue::Initial
+                }),
                 CssProperty::BorderLeftStyle(
                     StyleBorderLeftStyle {
                         inner: border.border_style,
@@ -4086,12 +4576,15 @@ pub fn parse_combined_css_property(
         BorderRight => {
             let border = parse_style_border(value)?;
             Ok(vec![
-                CssProperty::BorderRightColor(
+                CssProperty::BorderRightColor(if border.color_given {
                     StyleBorderRightColor {
                         inner: border.border_color,
                     }
-                    .into(),
-                ),
+                    .into()
+                } else {
+                    // No colour: reset to the initial `currentcolor`.
+                    CssPropertyValue::Initial
+                }),
                 CssProperty::BorderRightStyle(
                     StyleBorderRightStyle {
                         inner: border.border_style,
@@ -4109,12 +4602,15 @@ pub fn parse_combined_css_property(
         BorderTop => {
             let border = parse_style_border(value)?;
             Ok(vec![
-                CssProperty::BorderTopColor(
+                CssProperty::BorderTopColor(if border.color_given {
                     StyleBorderTopColor {
                         inner: border.border_color,
                     }
-                    .into(),
-                ),
+                    .into()
+                } else {
+                    // No colour: reset to the initial `currentcolor`.
+                    CssPropertyValue::Initial
+                }),
                 CssProperty::BorderTopStyle(
                     StyleBorderTopStyle {
                         inner: border.border_style,
@@ -4132,12 +4628,15 @@ pub fn parse_combined_css_property(
         BorderBottom => {
             let border = parse_style_border(value)?;
             Ok(vec![
-                CssProperty::BorderBottomColor(
+                CssProperty::BorderBottomColor(if border.color_given {
                     StyleBorderBottomColor {
                         inner: border.border_color,
                     }
-                    .into(),
-                ),
+                    .into()
+                } else {
+                    // No colour: reset to the initial `currentcolor`.
+                    CssPropertyValue::Initial
+                }),
                 CssProperty::BorderBottomStyle(
                     StyleBorderBottomStyle {
                         inner: border.border_style,
@@ -4210,35 +4709,65 @@ pub fn parse_combined_css_property(
             ])
         }
         BoxShadow => {
-            let box_shadow = parse_style_box_shadow(value)?;
+            // One shadow or a list: the node's four shadow slots hold up to
+            // four, the first of the list in the slot painted on top.
+            let list = parse_style_box_shadow_list(value)?;
+            let Some([left, right, top, bottom]) = box_shadow_slots(&list) else {
+                return Err(CssShadowParseError::TooManyOrTooFewComponents(value).into());
+            };
             Ok(vec![
-                CssProperty::BoxShadowLeft(CssPropertyValue::Exact(BoxOrStatic::heap(box_shadow))),
-                CssProperty::BoxShadowRight(CssPropertyValue::Exact(BoxOrStatic::heap(box_shadow))),
-                CssProperty::BoxShadowTop(CssPropertyValue::Exact(BoxOrStatic::heap(box_shadow))),
-                CssProperty::BoxShadowBottom(CssPropertyValue::Exact(BoxOrStatic::heap(
-                    box_shadow,
-                ))),
+                CssProperty::BoxShadowLeft(CssPropertyValue::Exact(BoxOrStatic::heap(left))),
+                CssProperty::BoxShadowRight(CssPropertyValue::Exact(BoxOrStatic::heap(right))),
+                CssProperty::BoxShadowTop(CssPropertyValue::Exact(BoxOrStatic::heap(top))),
+                CssProperty::BoxShadowBottom(CssPropertyValue::Exact(BoxOrStatic::heap(bottom))),
             ])
         }
         BackgroundColor => {
-            let color = parse_css_color(value)?;
-            let vec: StyleBackgroundContentVec = vec![StyleBackgroundContent::Color(color)].into();
-            Ok(vec![CssProperty::BackgroundContent(
-                CssPropertyValue::Exact(vec),
-            )])
+            // Its own property: a later `background-image` (even `none`)
+            // leaves the colour standing. A `system:` keyword stays a
+            // reference; the getters resolve it against the theme the
+            // cascade evaluated.
+            Ok(vec![CssProperty::BackgroundColor(CssPropertyValue::Exact(
+                background_color_layer(parse_color_or_system(value)?),
+            ))])
         }
         BackgroundImage => {
-            let background_content = parse_style_background_content(value)?;
-            let vec: StyleBackgroundContentVec = vec![background_content].into();
+            // One image per layer, as `background-clip` and the other
+            // per-layer lists count them.
+            let vec = parse_style_background_content_multiple(value)?;
             Ok(vec![CssProperty::BackgroundContent(
                 CssPropertyValue::Exact(vec),
             )])
         }
         Background => {
-            let background_content = parse_style_background_content_multiple(value)?;
-            Ok(vec![CssProperty::BackgroundContent(
-                CssPropertyValue::Exact(background_content),
-            )])
+            // A layer may name its box (`<image> padding-box`): the shorthand
+            // then sets `background-origin` and `background-clip` as well, one
+            // box per layer.
+            let layers = parse_style_background_layers(value)?;
+            // The shorthand sets `background-color` too: the final layer's
+            // colour, else transparent.
+            let colour = layers
+                .colour
+                .unwrap_or(StyleBackgroundContent::Color(ColorU::TRANSPARENT));
+            let mut props = vec![
+                CssProperty::BackgroundContent(CssPropertyValue::Exact(layers.contents)),
+                CssProperty::BackgroundColor(CssPropertyValue::Exact(colour)),
+            ];
+            if let Some((origins, clips)) = layers.boxes {
+                props.push(CssProperty::BackgroundOrigin(CssPropertyValue::Exact(origins)));
+                props.push(CssProperty::BackgroundClip(CssPropertyValue::Exact(clips)));
+            }
+            // So does a layer that names its position, size or repeat.
+            if let Some(positions) = layers.positions {
+                props.push(CssProperty::BackgroundPosition(CssPropertyValue::Exact(positions)));
+            }
+            if let Some(sizes) = layers.sizes {
+                props.push(CssProperty::BackgroundSize(CssPropertyValue::Exact(sizes)));
+            }
+            if let Some(repeats) = layers.repeats {
+                props.push(CssProperty::BackgroundRepeat(CssPropertyValue::Exact(repeats)));
+            }
+            Ok(props)
         }
         Flex => {
             // parse shorthand into grow/shrink/basis
@@ -4491,7 +5020,167 @@ pub fn parse_combined_css_property(
                 CssProperty::Right(end.into()),
             ])
         }
+        // CSS Lists 3: `list-style: <type> || <position> || <image>`, each at
+        // most once, in any order; an omitted one is reset to its initial value
+        // (`disc`, `outside`); `none` is the type. An image (`url(..)`) is not
+        // supported and ignored.
+        ListStyle => {
+            let mut list_type = None;
+            let mut position = None;
+            for part in value.split_whitespace() {
+                if position.is_none() {
+                    if let Ok(p) = parse_style_list_style_position(part) {
+                        position = Some(p);
+                        continue;
+                    }
+                }
+                if list_type.is_none() {
+                    if let Ok(t) = parse_style_list_style_type(part) {
+                        list_type = Some(t);
+                        continue;
+                    }
+                }
+                if part.starts_with("url(") {
+                    continue;
+                }
+                return Err(CssParsingError::InvalidValue(InvalidValueErr(value)));
+            }
+            Ok(vec![
+                CssProperty::ListStyleType(CssPropertyValue::Exact(list_type.unwrap_or_default())),
+                CssProperty::ListStylePosition(CssPropertyValue::Exact(
+                    position.unwrap_or_default(),
+                )),
+            ])
+        }
+        // CSS Fonts 4 s6.11: `normal | none | [ <common-lig-values> || ... ||
+        // <numeric-figure-values> || ... || <caps-values> || ... ]`. `none`
+        // is the ligatures' `none`; both reset every longhand. The numeric
+        // keywords go to `font-variant-numeric`, which checks its own groups,
+        // one caps keyword to `font-variant-caps`; the keywords of the
+        // longhands azul has not are taken and set nothing.
+        FontVariant => {
+            let reset = || {
+                vec![
+                    CssProperty::FontVariantNumeric(CssPropertyValue::Exact(
+                        StyleFontVariantNumeric::NORMAL,
+                    )),
+                    CssProperty::FontVariantCaps(CssPropertyValue::Exact(
+                        StyleFontVariantCaps::Normal,
+                    )),
+                ]
+            };
+            let trimmed = value.trim();
+            if trimmed.eq_ignore_ascii_case("normal") || trimmed.eq_ignore_ascii_case("none") {
+                return Ok(reset());
+            }
+            let invalid = || CssParsingError::InvalidValue(InvalidValueErr(value));
+            let mut numeric: Vec<&str> = Vec::new();
+            let mut caps = None;
+            let mut other: Vec<String> = Vec::new();
+            for word in words_outside_parentheses(trimmed) {
+                if let Ok(c) = parse_style_font_variant_caps(word) {
+                    if caps.is_some() || c == StyleFontVariantCaps::Normal
+                    {
+                        return Err(invalid());
+                    }
+                    caps = Some(c);
+                } else if parse_style_font_variant_numeric(word).is_ok()
+                    && !word.eq_ignore_ascii_case("normal")
+                {
+                    numeric.push(word);
+                } else if is_font_variant_keyword_without_longhand(word) {
+                    let lower = word.to_ascii_lowercase();
+                    if other.contains(&lower) {
+                        return Err(invalid());
+                    }
+                    other.push(lower);
+                } else {
+                    return Err(invalid());
+                }
+            }
+            if numeric.is_empty() && caps.is_none() && other.is_empty() {
+                return Err(invalid());
+            }
+            let numeric = if numeric.is_empty() {
+                StyleFontVariantNumeric::NORMAL
+            } else {
+                parse_style_font_variant_numeric(&numeric.join(" "))
+                    .map_err(|_| invalid())?
+            };
+            Ok(vec![
+                CssProperty::FontVariantNumeric(CssPropertyValue::Exact(numeric)),
+                CssProperty::FontVariantCaps(CssPropertyValue::Exact(caps.unwrap_or_default())),
+            ])
+        }
     }
+}
+
+/// Whether `word` is a keyword of a `font-variant-*` longhand azul has not -
+/// `font-variant-ligatures`, `-east-asian`, `-position`, `-alternates` - which
+/// the `font-variant` shorthand takes and which set nothing.
+fn is_font_variant_keyword_without_longhand(word: &str) -> bool {
+    const KEYWORDS: &[&str] = &[
+        "common-ligatures",
+        "no-common-ligatures",
+        "discretionary-ligatures",
+        "no-discretionary-ligatures",
+        "historical-ligatures",
+        "no-historical-ligatures",
+        "contextual",
+        "no-contextual",
+        "jis78",
+        "jis83",
+        "jis90",
+        "jis04",
+        "simplified",
+        "traditional",
+        "full-width",
+        "proportional-width",
+        "ruby",
+        "sub",
+        "super",
+        "historical-forms",
+    ];
+    const FUNCTIONS: &[&str] = &[
+        "stylistic(",
+        "styleset(",
+        "character-variant(",
+        "swash(",
+        "ornaments(",
+        "annotation(",
+    ];
+    KEYWORDS.iter().any(|k| word.eq_ignore_ascii_case(k))
+        || FUNCTIONS.iter().any(|f| {
+            word.len() > f.len()
+                && word.ends_with(')')
+                && word.get(..f.len()).is_some_and(|start| start.eq_ignore_ascii_case(f))
+        })
+}
+
+/// The words of `value` split at whitespace outside parentheses, so a
+/// function's arguments (`styleset(ss01, ss02)`) stay one word.
+fn words_outside_parentheses(value: &str) -> Vec<&str> {
+    let mut words = Vec::new();
+    let mut depth = 0usize;
+    let mut start: Option<usize> = None;
+    for (i, c) in value.char_indices() {
+        match c {
+            '(' => depth += 1,
+            ')' => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+        if c.is_ascii_whitespace() && depth == 0 {
+            if let Some(s) = start.take() {
+                words.push(&value[s..i]);
+            }
+        } else if start.is_none() {
+            start = Some(i);
+        }
+    }
+    if let Some(s) = start {
+        words.push(&value[s..]);
+    }
+    words
 }
 
 // Re-add the From implementations for convenience
@@ -4634,6 +5323,10 @@ impl_from_css_prop!(
     StyleSpatialNavigationContain,
     CssProperty::SpatialNavigationContain
 );
+impl_from_css_prop!(
+    StyleSpatialNavigationFunction,
+    CssProperty::SpatialNavigationFunction
+);
 impl_from_css_prop!(StyleMixBlendMode, CssProperty::MixBlendMode);
 impl_from_css_prop!(StyleHyphens, CssProperty::Hyphens);
 impl_from_css_prop!(StyleWordBreak, CssProperty::WordBreak);
@@ -4673,11 +5366,47 @@ impl_from_css_prop!(CounterIncrement, CssProperty::CounterIncrement);
 impl_from_css_prop!(StyleListStyleType, CssProperty::ListStyleType);
 impl_from_css_prop!(StyleListStylePosition, CssProperty::ListStylePosition);
 impl_from_css_prop!(StringSet, CssProperty::StringSet);
+impl_from_css_prop!(StyleZoom, CssProperty::Zoom);
+impl_from_css_prop!(StyleBackgroundClipVec, CssProperty::BackgroundClip);
+impl_from_css_prop!(StyleFontVariantNumeric, CssProperty::FontVariantNumeric);
+impl_from_css_prop!(StyleFontVariantCaps, CssProperty::FontVariantCaps);
+impl_from_css_prop!(StyleFontFeatureSettings, CssProperty::FontFeatureSettings);
+impl_from_css_prop!(CounterSet, CssProperty::CounterSet);
+impl_from_css_prop!(StyleQuotes, CssProperty::Quotes);
+impl_from_css_prop!(StyleBackgroundOriginVec, CssProperty::BackgroundOrigin);
 impl_from_css_prop!(LayoutTableLayout, CssProperty::TableLayout);
 impl_from_css_prop!(StyleBorderCollapse, CssProperty::BorderCollapse);
 impl_from_css_prop!(LayoutBorderSpacing, CssProperty::BorderSpacing);
 impl_from_css_prop!(StyleCaptionSide, CssProperty::CaptionSide);
 impl_from_css_prop!(StyleEmptyCells, CssProperty::EmptyCells);
+
+/// The colour a `background-color` value shows: its colour, or the
+/// transparent of no background for a value that names none (`auto`, `none`,
+/// `initial`, `unset`); `None` for one that cannot be read without the
+/// cascade (`inherit`, `revert`) or is no colour.
+const fn background_colour_or_none(v: &CssPropertyValue<StyleBackgroundContent>) -> Option<ColorU> {
+    match v {
+        CssPropertyValue::Exact(StyleBackgroundContent::Color(c)) => Some(*c),
+        CssPropertyValue::Auto
+        | CssPropertyValue::None
+        | CssPropertyValue::Initial
+        | CssPropertyValue::Unset => Some(ColorU::TRANSPARENT),
+        _ => None,
+    }
+}
+
+/// A shadow property's value on its way from `from` to `to` at `t`
+/// ([`crate::props::style::box_shadow::interpolate_shadow`]): `none`, a
+/// keyword or no value is no shadow, and no shadow is `none`.
+fn tween_shadow_value(
+    from: &StyleBoxShadowValue,
+    to: &StyleBoxShadowValue,
+    t: f32,
+) -> StyleBoxShadowValue {
+    let shadow = |v: &StyleBoxShadowValue| v.get_property().map(|s| **s);
+    interpolate_shadow(shadow(from).as_ref(), shadow(to).as_ref(), t)
+        .map_or(CssPropertyValue::None, |s| CssPropertyValue::Exact(BoxOrStatic::heap(s)))
+}
 
 impl CssProperty {
     #[must_use]
@@ -4832,6 +5561,7 @@ impl CssProperty {
             Self::AppRegion(v) => v.get_css_value_fmt(),
             Self::SpatialNavigationAction(v) => v.get_css_value_fmt(),
             Self::SpatialNavigationContain(v) => v.get_css_value_fmt(),
+            Self::SpatialNavigationFunction(v) => v.get_css_value_fmt(),
             Self::MixBlendMode(v) => v.get_css_value_fmt(),
             Self::Filter(v) => v.get_css_value_fmt(),
             Self::BackdropFilter(v) => v.get_css_value_fmt(),
@@ -4877,6 +5607,15 @@ impl CssProperty {
             Self::ListStyleType(v) => v.get_css_value_fmt(),
             Self::ListStylePosition(v) => v.get_css_value_fmt(),
             Self::StringSet(v) => v.get_css_value_fmt(),
+            Self::Zoom(v) => v.get_css_value_fmt(),
+            Self::BackgroundClip(v) => v.get_css_value_fmt(),
+            Self::FontVariantNumeric(v) => v.get_css_value_fmt(),
+            Self::FontVariantCaps(v) => v.get_css_value_fmt(),
+            Self::FontFeatureSettings(v) => v.get_css_value_fmt(),
+            Self::CounterSet(v) => v.get_css_value_fmt(),
+            Self::Quotes(v) => v.get_css_value_fmt(),
+            Self::BackgroundOrigin(v) => v.get_css_value_fmt(),
+            Self::BackgroundColor(v) => v.get_css_value_fmt(),
             Self::TableLayout(v) => v.get_css_value_fmt(),
             Self::BorderCollapse(v) => v.get_css_value_fmt(),
             Self::BorderSpacing(v) => v.get_css_value_fmt(),
@@ -4915,10 +5654,14 @@ impl CssProperty {
         let t = t.clamp(0.0, 1.0);
 
         match (self, other) {
+            // Colours mix premultiplied, as CSS mixes them: an ink or an edge
+            // that comes in from `transparent` keeps its hue on the way.
             (Self::TextColor(col_start), Self::TextColor(col_end)) => {
                 let col_start = col_start.get_property().copied().unwrap_or_default();
                 let col_end = col_end.get_property().copied().unwrap_or_default();
-                Self::text_color(col_start.interpolate(&col_end, t))
+                Self::text_color(StyleTextColor {
+                    inner: col_start.inner.interpolate_premultiplied(col_end.inner, t),
+                })
             }
             (Self::FontSize(fs_start), Self::FontSize(fs_end)) => {
                 let fs_start = fs_start.get_property().copied().unwrap_or_default();
@@ -5085,22 +5828,30 @@ impl CssProperty {
             (Self::BorderTopColor(start), Self::BorderTopColor(end)) => {
                 let start = start.get_property().copied().unwrap_or_default();
                 let end = end.get_property().copied().unwrap_or_default();
-                Self::BorderTopColor(CssPropertyValue::Exact(start.interpolate(&end, t)))
+                Self::BorderTopColor(CssPropertyValue::Exact(StyleBorderTopColor {
+                    inner: start.inner.interpolate_premultiplied(end.inner, t),
+                }))
             }
             (Self::BorderRightColor(start), Self::BorderRightColor(end)) => {
                 let start = start.get_property().copied().unwrap_or_default();
                 let end = end.get_property().copied().unwrap_or_default();
-                Self::BorderRightColor(CssPropertyValue::Exact(start.interpolate(&end, t)))
+                Self::BorderRightColor(CssPropertyValue::Exact(StyleBorderRightColor {
+                    inner: start.inner.interpolate_premultiplied(end.inner, t),
+                }))
             }
             (Self::BorderLeftColor(start), Self::BorderLeftColor(end)) => {
                 let start = start.get_property().copied().unwrap_or_default();
                 let end = end.get_property().copied().unwrap_or_default();
-                Self::BorderLeftColor(CssPropertyValue::Exact(start.interpolate(&end, t)))
+                Self::BorderLeftColor(CssPropertyValue::Exact(StyleBorderLeftColor {
+                    inner: start.inner.interpolate_premultiplied(end.inner, t),
+                }))
             }
             (Self::BorderBottomColor(start), Self::BorderBottomColor(end)) => {
                 let start = start.get_property().copied().unwrap_or_default();
                 let end = end.get_property().copied().unwrap_or_default();
-                Self::BorderBottomColor(CssPropertyValue::Exact(start.interpolate(&end, t)))
+                Self::BorderBottomColor(CssPropertyValue::Exact(StyleBorderBottomColor {
+                    inner: start.inner.interpolate_premultiplied(end.inner, t),
+                }))
             }
             (Self::BorderTopWidth(start), Self::BorderTopWidth(end)) => {
                 let start = start.get_property().copied().unwrap_or_default();
@@ -5127,6 +5878,11 @@ impl CssProperty {
                 let end = end.get_property().copied().unwrap_or_default();
                 Self::Opacity(CssPropertyValue::Exact(start.interpolate(&end, t)))
             }
+            (Self::Zoom(start), Self::Zoom(end)) => {
+                let start = start.get_property().copied().unwrap_or_default();
+                let end = end.get_property().copied().unwrap_or_default();
+                Self::Zoom(CssPropertyValue::Exact(start.interpolate(&end, t)))
+            }
             (Self::TransformOrigin(start), Self::TransformOrigin(end)) => {
                 let start = start.get_property().copied().unwrap_or_default();
                 let end = end.get_property().copied().unwrap_or_default();
@@ -5137,44 +5893,91 @@ impl CssProperty {
                 let end = end.get_property().copied().unwrap_or_default();
                 Self::PerspectiveOrigin(CssPropertyValue::Exact(start.interpolate(&end, t)))
             }
-            // A single solid colour on both ends is a colour, and a colour
-            // tweens (a switch track fading between its off and on colours).
-            // Gradients, images, layers and unresolved system colours still
-            // take the half-way jump below.
-            (Self::BackgroundContent(start), Self::BackgroundContent(end)) => {
-                use crate::props::style::background::StyleBackgroundContent as B;
-                let solid = |v: &StyleBackgroundContentVecValue| match v
-                    .get_property()
-                    .map(StyleBackgroundContentVec::as_slice)
-                {
-                    Some([B::Color(c)]) => Some(*c),
-                    _ => None,
-                };
-                match (solid(start), solid(end)) {
-                    (Some(a), Some(b)) => {
-                        Self::background_content(vec![B::Color(a.interpolate(&b, t))].into())
-                    }
-                    _ => {
-                        if t > 0.5 {
-                            other.clone()
-                        } else {
-                            self.clone()
-                        }
-                    }
+            // A face tweens layer by layer (a solid colour is the one-layer
+            // case, flora's gradient faces and stones the rest), fades in a
+            // layer it adds, and cross-fades into a face of another shape
+            // (`interpolate_background_layers`). No value is no layer: a
+            // background fades in from `none` and out to it. Only a face that
+            // cannot fade (an image) switches half way.
+            // A colour tweens; a `system:` one (unresolved) switches half way.
+            // No colour is the transparent the property starts out as, so a
+            // hover colour fades out to no background and in from it.
+            (Self::BackgroundColor(start), Self::BackgroundColor(end))
+                if matches!(
+                    (start, end),
+                    (CssPropertyValue::Exact(StyleBackgroundContent::Color(_)), _)
+                        | (_, CssPropertyValue::Exact(StyleBackgroundContent::Color(_)))
+                ) =>
+            {
+                match (background_colour_or_none(start), background_colour_or_none(end)) {
+                    (Some(a), Some(b)) => Self::background_color(StyleBackgroundContent::Color(
+                        a.interpolate_premultiplied(b, t),
+                    )),
+                    _ if t > 0.5 => other.clone(),
+                    _ => self.clone(),
                 }
             }
+            (Self::BackgroundContent(start), Self::BackgroundContent(end)) => {
+                // A fn, not a closure: the returned slice borrows the argument
+                // (closures get no input-to-output lifetime elision).
+                fn layers(v: &StyleBackgroundContentVecValue) -> &[StyleBackgroundContent] {
+                    match v.get_property() {
+                        Some(layers) => layers.as_slice(),
+                        None => &[],
+                    }
+                }
+                match interpolate_background_layers(
+                    layers(start),
+                    layers(end),
+                    t,
+                ) {
+                    Some(mid) => Self::background_content(mid.into()),
+                    None if t > 0.5 => other.clone(),
+                    None => self.clone(),
+                }
+            }
+            // A shadow slot tweens its shadow, fades one in or out, or fades
+            // an inset shadow into an outset one through no shadow
+            // (`interpolate_shadow`): flora's glow, its lip, its pressed well,
+            // its keyboard ring.
+            (Self::BoxShadowLeft(start), Self::BoxShadowLeft(end)) => {
+                Self::BoxShadowLeft(tween_shadow_value(start, end, t))
+            }
+            (Self::BoxShadowRight(start), Self::BoxShadowRight(end)) => {
+                Self::BoxShadowRight(tween_shadow_value(start, end, t))
+            }
+            (Self::BoxShadowTop(start), Self::BoxShadowTop(end)) => {
+                Self::BoxShadowTop(tween_shadow_value(start, end, t))
+            }
+            (Self::BoxShadowBottom(start), Self::BoxShadowBottom(end)) => {
+                Self::BoxShadowBottom(tween_shadow_value(start, end, t))
+            }
+            (Self::TextShadow(start), Self::TextShadow(end)) => {
+                Self::TextShadow(tween_shadow_value(start, end, t))
+            }
+            // Two lists of the same functions tween function by function, and
+            // `none` / no value stands for the identity of the other side's
+            // (`interpolate_transform_lists`): a chevron turned by a seeded
+            // transition TURNS. Lists that do not pair up keep the half-way
+            // switch below.
+            (Self::Transform(start), Self::Transform(end)) => {
+                let from: &[StyleTransform] = match start.get_property() {
+                    Some(list) => list.as_ref(),
+                    None => &[],
+                };
+                let to: &[StyleTransform] = match end.get_property() {
+                    Some(list) => list.as_ref(),
+                    None => &[],
+                };
+                interpolate_transform_lists(from, to, t).map_or_else(
+                    || if t > 0.5 { other.clone() } else { self.clone() },
+                    |list| {
+                        Self::Transform(CssPropertyValue::Exact(StyleTransformVec::from_vec(list)))
+                    },
+                )
+            }
             /*
-            animate transform:
-            CssProperty::Transform(CssPropertyValue<StyleTransformVec>),
-
-            animate box shadow:
-            CssProperty::BoxShadowLeft(CssPropertyValue<StyleBoxShadow>),
-            CssProperty::BoxShadowRight(CssPropertyValue<StyleBoxShadow>),
-            CssProperty::BoxShadowTop(CssPropertyValue<StyleBoxShadow>),
-            CssProperty::BoxShadowBottom(CssPropertyValue<StyleBoxShadow>),
-
             animate background:
-            CssProperty::BackgroundContent(CssPropertyValue<StyleBackgroundContentVec>),
             CssProperty::BackgroundPosition(CssPropertyValue<StyleBackgroundPositionVec>),
             CssProperty::BackgroundSize(CssPropertyValue<StyleBackgroundSizeVec>),
             */
@@ -5186,6 +5989,217 @@ impl CssProperty {
                     self.clone()
                 }
             }
+        }
+    }
+
+    /// The CSS-wide keyword (`initial`, `inherit`, `unset`, `revert`) this declaration's value
+    /// is, if it is one.
+    #[allow(clippy::too_many_lines)] // one arm per property
+    #[allow(clippy::match_same_arms)] // one arm per property in variant order, as `get_type` has
+    #[must_use]
+    pub const fn css_wide_keyword(&self) -> Option<crate::css::CssWideKeyword> {
+        match self {
+            Self::CaretColor(v) => v.css_wide_keyword(),
+            Self::CaretWidth(v) => v.css_wide_keyword(),
+            Self::CaretAnimationDuration(v) => v.css_wide_keyword(),
+            Self::Animation(v) => v.css_wide_keyword(),
+            Self::AnimationIn(v) => v.css_wide_keyword(),
+            Self::AnimationOut(v) => v.css_wide_keyword(),
+            Self::SelectionBackgroundColor(v) => v.css_wide_keyword(),
+            Self::SelectionColor(v) => v.css_wide_keyword(),
+            Self::SelectionRadius(v) => v.css_wide_keyword(),
+            Self::TextJustify(v) => v.css_wide_keyword(),
+            Self::TextColor(v) => v.css_wide_keyword(),
+            Self::FontSize(v) => v.css_wide_keyword(),
+            Self::FontFamily(v) => v.css_wide_keyword(),
+            Self::FontWeight(v) => v.css_wide_keyword(),
+            Self::FontStyle(v) => v.css_wide_keyword(),
+            Self::TextAlign(v) => v.css_wide_keyword(),
+            Self::VerticalAlign(v) => v.css_wide_keyword(),
+            Self::LetterSpacing(v) => v.css_wide_keyword(),
+            Self::TextIndent(v) => v.css_wide_keyword(),
+            Self::InitialLetter(v) => v.css_wide_keyword(),
+            Self::LineClamp(v) => v.css_wide_keyword(),
+            Self::HangingPunctuation(v) => v.css_wide_keyword(),
+            Self::TextCombineUpright(v) => v.css_wide_keyword(),
+            Self::UnicodeBidi(v) => v.css_wide_keyword(),
+            Self::TextBoxTrim(v) => v.css_wide_keyword(),
+            Self::TextBoxEdge(v) => v.css_wide_keyword(),
+            Self::DominantBaseline(v) => v.css_wide_keyword(),
+            Self::AlignmentBaseline(v) => v.css_wide_keyword(),
+            Self::BaselineSource(v) => v.css_wide_keyword(),
+            Self::LineFitEdge(v) => v.css_wide_keyword(),
+            Self::InitialLetterAlign(v) => v.css_wide_keyword(),
+            Self::InitialLetterWrap(v) => v.css_wide_keyword(),
+            Self::ScrollbarGutter(v) => v.css_wide_keyword(),
+            Self::OverflowClipMargin(v) => v.css_wide_keyword(),
+            Self::Clip(v) => v.css_wide_keyword(),
+            Self::ExclusionMargin(v) => v.css_wide_keyword(),
+            Self::HyphenationLanguage(v) => v.css_wide_keyword(),
+            Self::LineHeight(v) => v.css_wide_keyword(),
+            Self::WordSpacing(v) => v.css_wide_keyword(),
+            Self::TabSize(v) => v.css_wide_keyword(),
+            Self::Cursor(v) => v.css_wide_keyword(),
+            Self::Display(v) => v.css_wide_keyword(),
+            Self::Float(v) => v.css_wide_keyword(),
+            Self::BoxSizing(v) => v.css_wide_keyword(),
+            Self::Width(v) => v.css_wide_keyword(),
+            Self::Height(v) => v.css_wide_keyword(),
+            Self::MinWidth(v) => v.css_wide_keyword(),
+            Self::MinHeight(v) => v.css_wide_keyword(),
+            Self::MaxWidth(v) => v.css_wide_keyword(),
+            Self::MaxHeight(v) => v.css_wide_keyword(),
+            Self::Position(v) => v.css_wide_keyword(),
+            Self::Top(v) => v.css_wide_keyword(),
+            Self::Right(v) => v.css_wide_keyword(),
+            Self::Left(v) => v.css_wide_keyword(),
+            Self::Bottom(v) => v.css_wide_keyword(),
+            Self::ZIndex(v) => v.css_wide_keyword(),
+            Self::FlexWrap(v) => v.css_wide_keyword(),
+            Self::FlexDirection(v) => v.css_wide_keyword(),
+            Self::FlexGrow(v) => v.css_wide_keyword(),
+            Self::FlexShrink(v) => v.css_wide_keyword(),
+            Self::FlexBasis(v) => v.css_wide_keyword(),
+            Self::JustifyContent(v) => v.css_wide_keyword(),
+            Self::AlignItems(v) => v.css_wide_keyword(),
+            Self::AlignContent(v) => v.css_wide_keyword(),
+            Self::ColumnGap(v) => v.css_wide_keyword(),
+            Self::RowGap(v) => v.css_wide_keyword(),
+            Self::GridTemplateColumns(v) => v.css_wide_keyword(),
+            Self::GridTemplateRows(v) => v.css_wide_keyword(),
+            Self::GridAutoColumns(v) => v.css_wide_keyword(),
+            Self::GridAutoRows(v) => v.css_wide_keyword(),
+            Self::GridColumn(v) => v.css_wide_keyword(),
+            Self::GridAutoFlow(v) => v.css_wide_keyword(),
+            Self::JustifySelf(v) => v.css_wide_keyword(),
+            Self::JustifyItems(v) => v.css_wide_keyword(),
+            Self::Gap(v) => v.css_wide_keyword(),
+            Self::GridGap(v) => v.css_wide_keyword(),
+            Self::AlignSelf(v) => v.css_wide_keyword(),
+            Self::Font(v) => v.css_wide_keyword(),
+            Self::GridRow(v) => v.css_wide_keyword(),
+            Self::GridTemplateAreas(v) => v.css_wide_keyword(),
+            Self::WritingMode(v) => v.css_wide_keyword(),
+            Self::Clear(v) => v.css_wide_keyword(),
+            Self::BackgroundContent(v) => v.css_wide_keyword(),
+            Self::BackgroundPosition(v) => v.css_wide_keyword(),
+            Self::BackgroundSize(v) => v.css_wide_keyword(),
+            Self::BackgroundRepeat(v) => v.css_wide_keyword(),
+            Self::OverflowX(v) => v.css_wide_keyword(),
+            Self::OverflowY(v) => v.css_wide_keyword(),
+            Self::OverflowBlock(v) => v.css_wide_keyword(),
+            Self::OverflowInline(v) => v.css_wide_keyword(),
+            Self::PaddingTop(v) => v.css_wide_keyword(),
+            Self::PaddingLeft(v) => v.css_wide_keyword(),
+            Self::PaddingRight(v) => v.css_wide_keyword(),
+            Self::PaddingBottom(v) => v.css_wide_keyword(),
+            Self::PaddingInlineStart(v) => v.css_wide_keyword(),
+            Self::PaddingInlineEnd(v) => v.css_wide_keyword(),
+            Self::MarginTop(v) => v.css_wide_keyword(),
+            Self::MarginLeft(v) => v.css_wide_keyword(),
+            Self::MarginRight(v) => v.css_wide_keyword(),
+            Self::MarginBottom(v) => v.css_wide_keyword(),
+            Self::BorderTopLeftRadius(v) => v.css_wide_keyword(),
+            Self::BorderTopRightRadius(v) => v.css_wide_keyword(),
+            Self::BorderBottomLeftRadius(v) => v.css_wide_keyword(),
+            Self::BorderBottomRightRadius(v) => v.css_wide_keyword(),
+            Self::BorderTopColor(v) => v.css_wide_keyword(),
+            Self::BorderRightColor(v) => v.css_wide_keyword(),
+            Self::BorderLeftColor(v) => v.css_wide_keyword(),
+            Self::BorderBottomColor(v) => v.css_wide_keyword(),
+            Self::BorderTopStyle(v) => v.css_wide_keyword(),
+            Self::BorderRightStyle(v) => v.css_wide_keyword(),
+            Self::BorderLeftStyle(v) => v.css_wide_keyword(),
+            Self::BorderBottomStyle(v) => v.css_wide_keyword(),
+            Self::BorderTopWidth(v) => v.css_wide_keyword(),
+            Self::BorderRightWidth(v) => v.css_wide_keyword(),
+            Self::BorderLeftWidth(v) => v.css_wide_keyword(),
+            Self::BorderBottomWidth(v) => v.css_wide_keyword(),
+            Self::BoxShadowLeft(v) => v.css_wide_keyword(),
+            Self::BoxShadowRight(v) => v.css_wide_keyword(),
+            Self::BoxShadowTop(v) => v.css_wide_keyword(),
+            Self::BoxShadowBottom(v) => v.css_wide_keyword(),
+            Self::ScrollbarTrack(v) => v.css_wide_keyword(),
+            Self::ScrollbarThumb(v) => v.css_wide_keyword(),
+            Self::ScrollbarButton(v) => v.css_wide_keyword(),
+            Self::ScrollbarCorner(v) => v.css_wide_keyword(),
+            Self::ScrollbarResizer(v) => v.css_wide_keyword(),
+            Self::ScrollbarWidth(v) => v.css_wide_keyword(),
+            Self::OverscrollBehaviorX(v) => v.css_wide_keyword(),
+            Self::OverscrollBehaviorY(v) => v.css_wide_keyword(),
+            Self::ScrollbarColor(v) => v.css_wide_keyword(),
+            Self::ScrollbarVisibility(v) => v.css_wide_keyword(),
+            Self::ScrollbarFadeDelay(v) => v.css_wide_keyword(),
+            Self::ScrollbarFadeDuration(v) => v.css_wide_keyword(),
+            Self::Opacity(v) => v.css_wide_keyword(),
+            Self::Visibility(v) => v.css_wide_keyword(),
+            Self::Transform(v) => v.css_wide_keyword(),
+            Self::PerspectiveOrigin(v) => v.css_wide_keyword(),
+            Self::TransformOrigin(v) => v.css_wide_keyword(),
+            Self::BackfaceVisibility(v) => v.css_wide_keyword(),
+            Self::AppRegion(v) => v.css_wide_keyword(),
+            Self::SpatialNavigationAction(v) => v.css_wide_keyword(),
+            Self::SpatialNavigationContain(v) => v.css_wide_keyword(),
+            Self::SpatialNavigationFunction(v) => v.css_wide_keyword(),
+            Self::MixBlendMode(v) => v.css_wide_keyword(),
+            Self::Filter(v) => v.css_wide_keyword(),
+            Self::BackdropFilter(v) => v.css_wide_keyword(),
+            Self::TextShadow(v) => v.css_wide_keyword(),
+            Self::WhiteSpace(v) => v.css_wide_keyword(),
+            Self::Hyphens(v) => v.css_wide_keyword(),
+            Self::WordBreak(v) => v.css_wide_keyword(),
+            Self::OverflowWrap(v) => v.css_wide_keyword(),
+            Self::LineBreak(v) => v.css_wide_keyword(),
+            Self::TextOverflow(v) => v.css_wide_keyword(),
+            Self::ObjectFit(v) => v.css_wide_keyword(),
+            Self::ObjectPosition(v) => v.css_wide_keyword(),
+            Self::AspectRatio(v) => v.css_wide_keyword(),
+            Self::TextOrientation(v) => v.css_wide_keyword(),
+            Self::TextAlignLast(v) => v.css_wide_keyword(),
+            Self::TextTransform(v) => v.css_wide_keyword(),
+            Self::Direction(v) => v.css_wide_keyword(),
+            Self::UserSelect(v) => v.css_wide_keyword(),
+            Self::TextDecoration(v) => v.css_wide_keyword(),
+            Self::BreakBefore(v) => v.css_wide_keyword(),
+            Self::BreakAfter(v) => v.css_wide_keyword(),
+            Self::BreakInside(v) => v.css_wide_keyword(),
+            Self::Orphans(v) => v.css_wide_keyword(),
+            Self::Widows(v) => v.css_wide_keyword(),
+            Self::BoxDecorationBreak(v) => v.css_wide_keyword(),
+            Self::ColumnCount(v) => v.css_wide_keyword(),
+            Self::ColumnWidth(v) => v.css_wide_keyword(),
+            Self::ColumnSpan(v) => v.css_wide_keyword(),
+            Self::ColumnFill(v) => v.css_wide_keyword(),
+            Self::ColumnRuleWidth(v) => v.css_wide_keyword(),
+            Self::ColumnRuleStyle(v) => v.css_wide_keyword(),
+            Self::ColumnRuleColor(v) => v.css_wide_keyword(),
+            Self::FlowInto(v) => v.css_wide_keyword(),
+            Self::FlowFrom(v) => v.css_wide_keyword(),
+            Self::ShapeOutside(v) => v.css_wide_keyword(),
+            Self::ShapeInside(v) => v.css_wide_keyword(),
+            Self::ClipPath(v) => v.css_wide_keyword(),
+            Self::ShapeMargin(v) => v.css_wide_keyword(),
+            Self::ShapeImageThreshold(v) => v.css_wide_keyword(),
+            Self::Content(v) => v.css_wide_keyword(),
+            Self::CounterReset(v) => v.css_wide_keyword(),
+            Self::CounterIncrement(v) => v.css_wide_keyword(),
+            Self::ListStyleType(v) => v.css_wide_keyword(),
+            Self::ListStylePosition(v) => v.css_wide_keyword(),
+            Self::StringSet(v) => v.css_wide_keyword(),
+            Self::Zoom(v) => v.css_wide_keyword(),
+            Self::BackgroundClip(v) => v.css_wide_keyword(),
+            Self::FontVariantNumeric(v) => v.css_wide_keyword(),
+            Self::FontVariantCaps(v) => v.css_wide_keyword(),
+            Self::FontFeatureSettings(v) => v.css_wide_keyword(),
+            Self::CounterSet(v) => v.css_wide_keyword(),
+            Self::Quotes(v) => v.css_wide_keyword(),
+            Self::BackgroundOrigin(v) => v.css_wide_keyword(),
+            Self::BackgroundColor(v) => v.css_wide_keyword(),
+            Self::TableLayout(v) => v.css_wide_keyword(),
+            Self::BorderCollapse(v) => v.css_wide_keyword(),
+            Self::BorderSpacing(v) => v.css_wide_keyword(),
+            Self::CaptionSide(v) => v.css_wide_keyword(),
+            Self::EmptyCells(v) => v.css_wide_keyword(),
         }
     }
 
@@ -5338,6 +6352,7 @@ impl CssProperty {
             Self::AppRegion(_) => CssPropertyType::AppRegion,
             Self::SpatialNavigationAction(_) => CssPropertyType::SpatialNavigationAction,
             Self::SpatialNavigationContain(_) => CssPropertyType::SpatialNavigationContain,
+            Self::SpatialNavigationFunction(_) => CssPropertyType::SpatialNavigationFunction,
             Self::MixBlendMode(_) => CssPropertyType::MixBlendMode,
             Self::Filter(_) => CssPropertyType::Filter,
             Self::BackdropFilter(_) => CssPropertyType::BackdropFilter,
@@ -5383,6 +6398,15 @@ impl CssProperty {
             Self::ListStyleType(_) => CssPropertyType::ListStyleType,
             Self::ListStylePosition(_) => CssPropertyType::ListStylePosition,
             Self::StringSet(_) => CssPropertyType::StringSet,
+            Self::Zoom(_) => CssPropertyType::Zoom,
+            Self::BackgroundClip(_) => CssPropertyType::BackgroundClip,
+            Self::FontVariantNumeric(_) => CssPropertyType::FontVariantNumeric,
+            Self::FontVariantCaps(_) => CssPropertyType::FontVariantCaps,
+            Self::FontFeatureSettings(_) => CssPropertyType::FontFeatureSettings,
+            Self::CounterSet(_) => CssPropertyType::CounterSet,
+            Self::Quotes(_) => CssPropertyType::Quotes,
+            Self::BackgroundOrigin(_) => CssPropertyType::BackgroundOrigin,
+            Self::BackgroundColor(_) => CssPropertyType::BackgroundColor,
             Self::TableLayout(_) => CssPropertyType::TableLayout,
             Self::BorderCollapse(_) => CssPropertyType::BorderCollapse,
             Self::BorderSpacing(_) => CssPropertyType::BorderSpacing,
@@ -5869,6 +6893,23 @@ impl CssProperty {
         Self::CounterIncrement(CssPropertyValue::Exact(input))
     }
     #[must_use]
+    pub const fn counter_set(input: CounterSet) -> Self {
+        Self::CounterSet(CssPropertyValue::Exact(input))
+    }
+    #[must_use]
+    pub const fn quotes(input: StyleQuotes) -> Self {
+        Self::Quotes(CssPropertyValue::Exact(input))
+    }
+    #[must_use]
+    pub const fn background_origin(input: StyleBackgroundOriginVec) -> Self {
+        Self::BackgroundOrigin(CssPropertyValue::Exact(input))
+    }
+    /// `background-color`: `input` is a `Color` or a `SystemColor`.
+    #[must_use]
+    pub const fn background_color(input: StyleBackgroundContent) -> Self {
+        Self::BackgroundColor(CssPropertyValue::Exact(input))
+    }
+    #[must_use]
     pub const fn list_style_type(input: StyleListStyleType) -> Self {
         Self::ListStyleType(CssPropertyValue::Exact(input))
     }
@@ -5879,6 +6920,27 @@ impl CssProperty {
     #[must_use]
     pub const fn string_set(input: StringSet) -> Self {
         Self::StringSet(CssPropertyValue::Exact(input))
+    }
+    #[must_use]
+    pub const fn zoom(input: StyleZoom) -> Self {
+        Self::Zoom(CssPropertyValue::Exact(input))
+    }
+    /// `background-clip`: one box per layer, in the layers' paint order.
+    #[must_use]
+    pub const fn background_clip(input: StyleBackgroundClipVec) -> Self {
+        Self::BackgroundClip(CssPropertyValue::Exact(input))
+    }
+    #[must_use]
+    pub const fn font_variant_numeric(input: StyleFontVariantNumeric) -> Self {
+        Self::FontVariantNumeric(CssPropertyValue::Exact(input))
+    }
+    #[must_use]
+    pub const fn font_variant_caps(input: StyleFontVariantCaps) -> Self {
+        Self::FontVariantCaps(CssPropertyValue::Exact(input))
+    }
+    #[must_use]
+    pub const fn font_feature_settings(input: StyleFontFeatureSettings) -> Self {
+        Self::FontFeatureSettings(CssPropertyValue::Exact(input))
     }
     #[must_use]
     pub const fn table_layout(input: LayoutTableLayout) -> Self {
@@ -6558,6 +7620,16 @@ impl CssProperty {
     }
 
     #[must_use]
+    pub const fn as_spatial_navigation_function(
+        &self,
+    ) -> Option<&StyleSpatialNavigationFunctionValue> {
+        match self {
+            Self::SpatialNavigationFunction(f) => Some(f),
+            _ => None,
+        }
+    }
+
+    #[must_use]
     pub const fn as_app_region(&self) -> Option<&StyleAppRegionValue> {
         match self {
             Self::AppRegion(f) => Some(f),
@@ -7121,6 +8193,34 @@ impl CssProperty {
         }
     }
     #[must_use]
+    pub const fn as_counter_set(&self) -> Option<&CounterSetValue> {
+        match self {
+            Self::CounterSet(f) => Some(f),
+            _ => None,
+        }
+    }
+    #[must_use]
+    pub const fn as_quotes(&self) -> Option<&StyleQuotesValue> {
+        match self {
+            Self::Quotes(f) => Some(f),
+            _ => None,
+        }
+    }
+    #[must_use]
+    pub const fn as_background_origin(&self) -> Option<&StyleBackgroundOriginVecValue> {
+        match self {
+            Self::BackgroundOrigin(f) => Some(f),
+            _ => None,
+        }
+    }
+    #[must_use]
+    pub const fn as_background_color(&self) -> Option<&StyleBackgroundContentValue> {
+        match self {
+            Self::BackgroundColor(f) => Some(f),
+            _ => None,
+        }
+    }
+    #[must_use]
     pub const fn as_list_style_type(&self) -> Option<&StyleListStyleTypeValue> {
         match self {
             Self::ListStyleType(f) => Some(f),
@@ -7138,6 +8238,41 @@ impl CssProperty {
     pub const fn as_string_set(&self) -> Option<&StringSetValue> {
         match self {
             Self::StringSet(f) => Some(f),
+            _ => None,
+        }
+    }
+    #[must_use]
+    pub const fn as_zoom(&self) -> Option<&StyleZoomValue> {
+        match self {
+            Self::Zoom(f) => Some(f),
+            _ => None,
+        }
+    }
+    #[must_use]
+    pub const fn as_background_clip(&self) -> Option<&StyleBackgroundClipVecValue> {
+        match self {
+            Self::BackgroundClip(f) => Some(f),
+            _ => None,
+        }
+    }
+    #[must_use]
+    pub const fn as_font_variant_numeric(&self) -> Option<&StyleFontVariantNumericValue> {
+        match self {
+            Self::FontVariantNumeric(f) => Some(f),
+            _ => None,
+        }
+    }
+    #[must_use]
+    pub const fn as_font_variant_caps(&self) -> Option<&StyleFontVariantCapsValue> {
+        match self {
+            Self::FontVariantCaps(f) => Some(f),
+            _ => None,
+        }
+    }
+    #[must_use]
+    pub const fn as_font_feature_settings(&self) -> Option<&StyleFontFeatureSettingsValue> {
+        match self {
+            Self::FontFeatureSettings(f) => Some(f),
             _ => None,
         }
     }
@@ -7268,11 +8403,14 @@ impl CssProperty {
             ScrollbarResizer, ScrollbarThumb, ScrollbarTrack, ScrollbarVisibility, ScrollbarWidth,
             SelectionBackgroundColor, SelectionColor, SelectionRadius, ShapeImageThreshold,
             ShapeInside, ShapeMargin, ShapeOutside, SpatialNavigationAction,
-            SpatialNavigationContain, StringSet, TabSize, TableLayout, TextAlign, TextAlignLast,
+            SpatialNavigationContain, SpatialNavigationFunction, StringSet, TabSize, TableLayout,
+            TextAlign, TextAlignLast,
             TextBoxEdge, TextBoxTrim, TextColor, TextCombineUpright, TextDecoration, TextIndent,
             TextJustify, TextOrientation, TextOverflow, TextShadow, TextTransform, Top, Transform,
             TransformOrigin, UnicodeBidi, UserSelect, VerticalAlign, Visibility, WhiteSpace,
             Widows, Width, WordBreak, WordSpacing, WritingMode, ZIndex,
+            Zoom, BackgroundClip, FontVariantNumeric, FontVariantCaps, FontFeatureSettings, CounterSet,
+            Quotes, BackgroundOrigin, BackgroundColor,
         };
         match self {
             CaretColor(c) => c.is_initial(),
@@ -7411,6 +8549,7 @@ impl CssProperty {
             AppRegion(c) => c.is_initial(),
             SpatialNavigationAction(c) => c.is_initial(),
             SpatialNavigationContain(c) => c.is_initial(),
+            SpatialNavigationFunction(c) => c.is_initial(),
             BackfaceVisibility(c) => c.is_initial(),
             MixBlendMode(c) => c.is_initial(),
             Filter(c) => c.is_initial(),
@@ -7457,6 +8596,15 @@ impl CssProperty {
             ListStyleType(c) => c.is_initial(),
             ListStylePosition(c) => c.is_initial(),
             StringSet(c) => c.is_initial(),
+            Zoom(c) => c.is_initial(),
+            BackgroundClip(c) => c.is_initial(),
+            FontVariantNumeric(c) => c.is_initial(),
+            FontVariantCaps(c) => c.is_initial(),
+            FontFeatureSettings(c) => c.is_initial(),
+            CounterSet(c) => c.is_initial(),
+            Quotes(c) => c.is_initial(),
+            BackgroundOrigin(c) => c.is_initial(),
+            BackgroundColor(c) => c.is_initial(),
             TableLayout(c) => c.is_initial(),
             BorderCollapse(c) => c.is_initial(),
             BorderSpacing(c) => c.is_initial(),
@@ -7874,6 +9022,22 @@ impl CssProperty {
         Self::CounterIncrement(CounterIncrementValue::Exact(input))
     }
     #[must_use]
+    pub const fn const_counter_set(input: CounterSet) -> Self {
+        Self::CounterSet(CounterSetValue::Exact(input))
+    }
+    #[must_use]
+    pub const fn const_quotes(input: StyleQuotes) -> Self {
+        Self::Quotes(StyleQuotesValue::Exact(input))
+    }
+    #[must_use]
+    pub const fn const_background_origin(input: StyleBackgroundOriginVec) -> Self {
+        Self::BackgroundOrigin(StyleBackgroundOriginVecValue::Exact(input))
+    }
+    #[must_use]
+    pub const fn const_background_color(input: StyleBackgroundContent) -> Self {
+        Self::BackgroundColor(StyleBackgroundContentValue::Exact(input))
+    }
+    #[must_use]
     pub const fn const_list_style_type(input: StyleListStyleType) -> Self {
         Self::ListStyleType(StyleListStyleTypeValue::Exact(input))
     }
@@ -7884,6 +9048,26 @@ impl CssProperty {
     #[must_use]
     pub const fn const_string_set(input: StringSet) -> Self {
         Self::StringSet(StringSetValue::Exact(input))
+    }
+    #[must_use]
+    pub const fn const_zoom(input: StyleZoom) -> Self {
+        Self::Zoom(StyleZoomValue::Exact(input))
+    }
+    #[must_use]
+    pub const fn const_background_clip(input: StyleBackgroundClipVec) -> Self {
+        Self::BackgroundClip(StyleBackgroundClipVecValue::Exact(input))
+    }
+    #[must_use]
+    pub const fn const_font_variant_numeric(input: StyleFontVariantNumeric) -> Self {
+        Self::FontVariantNumeric(StyleFontVariantNumericValue::Exact(input))
+    }
+    #[must_use]
+    pub const fn const_font_variant_caps(input: StyleFontVariantCaps) -> Self {
+        Self::FontVariantCaps(StyleFontVariantCapsValue::Exact(input))
+    }
+    #[must_use]
+    pub const fn const_font_feature_settings(input: StyleFontFeatureSettings) -> Self {
+        Self::FontFeatureSettings(StyleFontFeatureSettingsValue::Exact(input))
     }
     #[must_use]
     pub const fn const_table_layout(input: LayoutTableLayout) -> Self {
@@ -7913,6 +9097,7 @@ impl CssProperty {
 #[allow(clippy::too_many_lines)]
 // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per
 // property/variant)
+#[cfg(feature = "codegen")]
 #[must_use]
 pub fn format_static_css_prop(prop: &CssProperty, tabs: usize) -> String {
     match prop {
@@ -8392,6 +9577,10 @@ pub fn format_static_css_prop(prop: &CssProperty, tabs: usize) -> String {
             "CssProperty::SpatialNavigationContain({})",
             print_css_property_value(p, tabs, "StyleSpatialNavigationContain")
         ),
+        CssProperty::SpatialNavigationFunction(p) => format!(
+            "CssProperty::SpatialNavigationFunction({})",
+            print_css_property_value(p, tabs, "StyleSpatialNavigationFunction")
+        ),
         CssProperty::AppRegion(p) => format!(
             "CssProperty::AppRegion({})",
             print_css_property_value(p, tabs, "StyleAppRegion")
@@ -8652,6 +9841,42 @@ pub fn format_static_css_prop(prop: &CssProperty, tabs: usize) -> String {
             "CssProperty::StringSet({})",
             print_css_property_value(p, tabs, "StringSet")
         ),
+        CssProperty::Zoom(p) => format!(
+            "CssProperty::Zoom({})",
+            print_css_property_value(p, tabs, "StyleZoom")
+        ),
+        CssProperty::BackgroundClip(p) => format!(
+            "CssProperty::BackgroundClip({})",
+            print_css_property_value(p, tabs, "StyleBackgroundClipVec")
+        ),
+        CssProperty::FontVariantNumeric(p) => format!(
+            "CssProperty::FontVariantNumeric({})",
+            print_css_property_value(p, tabs, "StyleFontVariantNumeric")
+        ),
+        CssProperty::FontVariantCaps(p) => format!(
+            "CssProperty::FontVariantCaps({})",
+            print_css_property_value(p, tabs, "StyleFontVariantCaps")
+        ),
+        CssProperty::FontFeatureSettings(p) => format!(
+            "CssProperty::FontFeatureSettings({})",
+            print_css_property_value(p, tabs, "StyleFontFeatureSettings")
+        ),
+        CssProperty::CounterSet(p) => format!(
+            "CssProperty::CounterSet({})",
+            print_css_property_value(p, tabs, "CounterSet")
+        ),
+        CssProperty::Quotes(p) => format!(
+            "CssProperty::Quotes({})",
+            print_css_property_value(p, tabs, "StyleQuotes")
+        ),
+        CssProperty::BackgroundOrigin(p) => format!(
+            "CssProperty::BackgroundOrigin({})",
+            print_css_property_value(p, tabs, "StyleBackgroundOriginVec")
+        ),
+        CssProperty::BackgroundColor(p) => format!(
+            "CssProperty::BackgroundColor({})",
+            print_css_property_value(p, tabs, "StyleBackgroundContent")
+        ),
         CssProperty::TableLayout(p) => format!(
             "CssProperty::TableLayout({})",
             print_css_property_value(p, tabs, "LayoutTableLayout")
@@ -8683,6 +9908,7 @@ pub fn format_static_css_prop(prop: &CssProperty, tabs: usize) -> String {
     }
 }
 
+#[cfg(feature = "codegen")]
 fn print_css_property_value<T: FormatAsRustCode>(
     prop_val: &CssPropertyValue<T>,
     tabs: usize,
@@ -9344,7 +10570,7 @@ mod autotest_generated {
     }
 
     #[test]
-    fn interpolate_a_solid_background_colour_tweens_and_a_gradient_jumps() {
+    fn interpolate_a_solid_background_colour_tweens_and_a_stopless_gradient_jumps() {
         use crate::props::style::background::{LinearGradient, StyleBackgroundContent as B};
         let r = resolver();
         let solid = |c: ColorU| CssProperty::background_content(vec![B::Color(c)].into());
@@ -9375,12 +10601,45 @@ mod autotest_generated {
             "the half-way colour lies between the ends, got {c:?}"
         );
 
-        // A gradient has no colour to tween: it keeps the nearer endpoint.
+        // A gradient without stops paints nothing and has nothing to fade
+        // (a gradient WITH stops fades - `background_face_tween_tests`): it
+        // keeps the nearer endpoint.
         let gradient = CssProperty::background_content(
             vec![B::LinearGradient(LinearGradient::default())].into(),
         );
         assert_eq!(solid(off).interpolate(&gradient, 0.25, &r), solid(off));
         assert_eq!(solid(off).interpolate(&gradient, 0.75, &r), gradient);
+    }
+
+    #[test]
+    fn a_background_colour_fades_to_and_from_no_background() {
+        use crate::props::style::background::StyleBackgroundContent as B;
+        let r = resolver();
+        let blue = ColorU {
+            r: 11,
+            g: 94,
+            b: 215,
+            a: 255,
+        };
+        let colour = CssProperty::background_color(B::Color(blue));
+        let unset = CssProperty::auto(CssPropertyType::BackgroundColor);
+        // A tab whose hover colour goes away when the pointer leaves: the
+        // colour fades out to the transparent a background without one
+        // shows, hue kept, instead of the tween holding no value for its whole
+        // duration (which restyled the tab on every frame and showed nothing).
+        for (from, to, alpha) in [(&colour, &unset, 191), (&unset, &colour, 64)] {
+            let quarter = from.interpolate(to, 0.25, &r);
+            let CssProperty::BackgroundColor(CssPropertyValue::Exact(B::Color(c))) = quarter else {
+                panic!("expected a colour a quarter of the way, got {quarter:?}");
+            };
+            assert!(
+                c.a.abs_diff(alpha) <= 1 && (c.r, c.g, c.b) == (11, 94, 215),
+                "a quarter of the way the colour shows at alpha {alpha}, got {c:?}"
+            );
+        }
+        // The ends are the ends.
+        assert_eq!(colour.interpolate(&unset, 1.0, &r), unset);
+        assert_eq!(unset.interpolate(&colour, 0.0, &r), unset);
     }
 
     #[test]
@@ -9779,6 +11038,978 @@ mod autotest_generated {
                 format!("{round_tripped}"),
                 "{} error lost information in to_contained()",
                 t.to_str()
+            );
+        }
+    }
+}
+
+/// A `transform` tweens: two lists of the same functions interpolate
+/// function by function (CSS Transforms 1, section 9), and `none` stands for
+/// the identity of the other side's functions. It used to hold its start value
+/// until the midpoint and then jump, so a chevron turned on open / close
+/// flipped half way through the tween instead of turning.
+#[cfg(test)]
+mod transform_tween_tests {
+    use super::*;
+    use crate::props::basic::{
+        angle::AngleValue, animation::AnimationInterpolationFunction, pixel::PixelValue,
+    };
+
+    fn linear() -> InterpolateResolver {
+        InterpolateResolver {
+            interpolate_func: AnimationInterpolationFunction::Linear,
+            parent_rect_width: 100.0,
+            parent_rect_height: 100.0,
+            current_rect_width: 100.0,
+            current_rect_height: 100.0,
+        }
+    }
+
+    fn transform(list: Vec<StyleTransform>) -> CssProperty {
+        CssProperty::const_transform(StyleTransformVec::from_vec(list))
+    }
+
+    fn rotate(deg: isize) -> CssProperty {
+        transform(vec![StyleTransform::Rotate(AngleValue::const_deg(deg))])
+    }
+
+    fn functions(p: &CssProperty) -> Vec<StyleTransform> {
+        match p {
+            CssProperty::Transform(v) => v
+                .get_property()
+                .map(|l| l.as_ref().to_vec())
+                .unwrap_or_default(),
+            other => panic!("not a transform: {other:?}"),
+        }
+    }
+
+    fn degrees(p: &CssProperty) -> f32 {
+        match functions(p).as_slice() {
+            [StyleTransform::Rotate(a)] => a.to_degrees_raw(),
+            other => panic!("expected one rotate(), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_rotation_turns_through_the_angles_between() {
+        let r = linear();
+        let (closed, open) = (rotate(0), rotate(180));
+        for (t, want) in [(0.25, 45.0), (0.5, 90.0), (0.75, 135.0)] {
+            let got = degrees(&closed.interpolate(&open, t, &r));
+            assert!((got - want).abs() < 0.01, "t={t}: {got} deg, want {want}");
+        }
+        // ...and back, the same way round (no shortest-path folding).
+        let got = degrees(&open.interpolate(&closed, 0.25, &r));
+        assert!((got - 135.0).abs() < 0.01, "closing, t=0.25: {got}");
+    }
+
+    #[test]
+    fn a_rotation_past_a_full_turn_is_not_folded() {
+        let got = degrees(&rotate(0).interpolate(&rotate(720), 0.5, &linear()));
+        assert!((got - 360.0).abs() < 0.01, "half of two turns is one turn, got {got}");
+    }
+
+    /// No declared transform (`none`, or no value at all - what a transition
+    /// seeded from a node without one starts at) tweens from the identity.
+    #[test]
+    fn none_tweens_from_the_identity_of_the_other_side() {
+        let r = linear();
+        let none = CssProperty::auto(CssPropertyType::Transform);
+        let got = degrees(&none.interpolate(&rotate(180), 0.25, &r));
+        assert!((got - 45.0).abs() < 0.01, "none -> rotate(180deg) at 1/4: {got}");
+        let got = degrees(&rotate(180).interpolate(&none, 0.25, &r));
+        assert!((got - 135.0).abs() < 0.01, "rotate(180deg) -> none at 1/4: {got}");
+    }
+
+    #[test]
+    fn matching_translations_tween_per_function() {
+        let from = transform(vec![
+            StyleTransform::TranslateX(PixelValue::px(0.0)),
+            StyleTransform::Rotate(AngleValue::const_deg(0)),
+        ]);
+        let to = transform(vec![
+            StyleTransform::TranslateX(PixelValue::px(10.0)),
+            StyleTransform::Rotate(AngleValue::const_deg(90)),
+        ]);
+        match functions(&from.interpolate(&to, 0.5, &linear())).as_slice() {
+            [StyleTransform::TranslateX(x), StyleTransform::Rotate(a)] => {
+                assert!((x.number.get() - 5.0).abs() < 0.01, "{x:?}");
+                assert!((a.to_degrees_raw() - 45.0).abs() < 0.01, "{a:?}");
+            }
+            other => panic!("the function list must keep its shape: {other:?}"),
+        }
+    }
+
+    /// Lists of different functions have no per-function tween: they keep
+    /// the old discrete half-way switch (CSS would decompose the matrices; a
+    /// turn is not ambiguous there, but a mixed list is a different feature).
+    #[test]
+    fn mismatched_lists_still_switch_half_way() {
+        let r = linear();
+        let turn = rotate(90);
+        let shift = transform(vec![StyleTransform::TranslateY(PixelValue::px(10.0))]);
+        assert_eq!(turn.interpolate(&shift, 0.25, &r), turn);
+        assert_eq!(turn.interpolate(&shift, 0.75, &r), shift);
+    }
+}
+
+/// A face that changes between two GRADIENTS of the same shape fades stop by
+/// stop (ANIM8, 2026-10-03). flora's buttons are gradient faces (a paper face
+/// that hovers to a lighter paper, a stone with a streak), and a background
+/// tween understood only one solid colour: anything else held its start face
+/// until the midpoint and then jumped - a declared hover fade that snapped
+/// half way. Layers pair up one to one: colour with colour, a gradient with a
+/// gradient of the same kind and number of stops, whose colours AND positions
+/// tween (CSS Images 4); a colour pairs with a gradient as that gradient in
+/// one colour. Faces that do not pair up cross-fade, the way a browser fades
+/// one picture into another.
+///
+/// flora's blue stone - the primary button - is six layers, three of them
+/// radial, and its streak moves its stops on hover: until the user saw it
+/// ("it switches immediately to the hover state without interpolating the
+/// gradient, glow, etc.", 2026-10-07) only linear gradients with stops in
+/// place paired, and the stone held its face and jumped.
+#[cfg(test)]
+mod background_face_tween_tests {
+    use super::*;
+    use crate::props::{
+        basic::{
+            angle::AngleValue,
+            animation::AnimationInterpolationFunction,
+            color::{ColorOrSystem, ColorU},
+            direction::{Direction, DirectionCorner, DirectionCorners},
+            length::PercentageValue,
+            pixel::PixelValue,
+        },
+        style::background::{
+            BackgroundPositionHorizontal, BackgroundPositionVertical, ExtendMode, LinearGradient,
+            NormalizedLinearColorStop, NormalizedLinearColorStopVec, RadialGradient,
+            RadialGradientSize, Shape, StyleBackgroundContent as B, StyleBackgroundPosition,
+        },
+    };
+
+    fn linear() -> InterpolateResolver {
+        InterpolateResolver {
+            interpolate_func: AnimationInterpolationFunction::Linear,
+            parent_rect_width: 100.0,
+            parent_rect_height: 100.0,
+            current_rect_width: 100.0,
+            current_rect_height: 100.0,
+        }
+    }
+
+    fn rgb(r: u8, g: u8, b: u8) -> ColorU {
+        ColorU { r, g, b, a: 255 }
+    }
+
+    /// A top-to-bottom face, `top` at 0 % and `bottom` at `at` %.
+    fn face(top: ColorU, bottom: ColorU, at: isize) -> B {
+        B::LinearGradient(LinearGradient {
+            direction: Direction::FromTo(DirectionCorners {
+                dir_from: DirectionCorner::Top,
+                dir_to: DirectionCorner::Bottom,
+            }),
+            extend_mode: ExtendMode::Clamp,
+            stops: NormalizedLinearColorStopVec::from_vec(vec![
+                NormalizedLinearColorStop::new(PercentageValue::const_new(0), top),
+                NormalizedLinearColorStop::new(PercentageValue::const_new(at), bottom),
+            ]),
+        })
+    }
+
+    fn background(layers: Vec<B>) -> CssProperty {
+        CssProperty::background_content(layers.into())
+    }
+
+    #[test]
+    fn two_faces_of_the_same_shape_tween_layer_by_layer() {
+        let rest = background(vec![
+            face(rgb(0, 0, 0), rgb(100, 100, 100), 100),
+            B::Color(rgb(200, 0, 0)),
+        ]);
+        let hover = background(vec![
+            face(rgb(200, 200, 200), rgb(0, 0, 0), 100),
+            B::Color(rgb(0, 0, 200)),
+        ]);
+        assert_eq!(
+            rest.interpolate(&hover, 0.5, &linear()),
+            background(vec![
+                face(rgb(100, 100, 100), rgb(50, 50, 50), 100),
+                B::Color(rgb(100, 0, 100)),
+            ]),
+            "half way, every stop and every colour layer is half way"
+        );
+        assert_eq!(rest.interpolate(&hover, 0.0, &linear()), rest);
+        assert_eq!(rest.interpolate(&hover, 1.0, &linear()), hover);
+    }
+
+    fn stops_of(stops: &[(isize, ColorU)]) -> NormalizedLinearColorStopVec {
+        NormalizedLinearColorStopVec::from_vec(
+            stops
+                .iter()
+                .map(|(at, c)| NormalizedLinearColorStop::new(PercentageValue::const_new(*at), *c))
+                .collect(),
+        )
+    }
+
+    /// A linear gradient raked at `deg` degrees.
+    fn raked(deg: isize, stops: &[(isize, ColorU)]) -> B {
+        B::LinearGradient(LinearGradient {
+            direction: Direction::Angle(AngleValue::const_deg(deg)),
+            extend_mode: ExtendMode::Clamp,
+            stops: stops_of(stops),
+        })
+    }
+
+    /// An elliptical radial gradient centred at (`x` %, `y` %).
+    fn radial_at(x: isize, y: isize, stops: &[(isize, ColorU)]) -> B {
+        B::RadialGradient(RadialGradient {
+            shape: Shape::Ellipse,
+            size: RadialGradientSize::FarthestCorner,
+            position: StyleBackgroundPosition {
+                horizontal: BackgroundPositionHorizontal::Exact(PixelValue::const_percent(x)),
+                vertical: BackgroundPositionVertical::Exact(PixelValue::const_percent(y)),
+            },
+            extend_mode: ExtendMode::Clamp,
+            stops: stops_of(stops),
+        })
+    }
+
+    /// The layers of a `background` value.
+    fn layers_of(p: &CssProperty) -> Vec<B> {
+        match p {
+            CssProperty::BackgroundContent(v) => v
+                .get_property()
+                .map(|l| l.as_ref().to_vec())
+                .unwrap_or_default(),
+            other => panic!("not a background: {other:?}"),
+        }
+    }
+
+    /// `(offset in %, colour)` of every stop of a linear or radial layer.
+    fn stops(layer: &B) -> Vec<(f32, ColorU)> {
+        let of = |s: &[NormalizedLinearColorStop]| {
+            s.iter()
+                .map(|s| match s.color {
+                    ColorOrSystem::Color(c) => (s.offset.normalized() * 100.0, c),
+                    ColorOrSystem::System(_) => panic!("a system colour in a tweened stop"),
+                })
+                .collect::<Vec<_>>()
+        };
+        match layer {
+            B::LinearGradient(g) => of(g.stops.as_ref()),
+            B::RadialGradient(g) => of(g.stops.as_ref()),
+            other => panic!("not a linear or radial gradient: {other:?}"),
+        }
+    }
+
+    fn near(a: f32, b: f32) -> bool {
+        (a - b).abs() < 0.01
+    }
+
+    /// `c` at strength `a` (255 is opaque).
+    fn alpha(c: ColorU, a: u8) -> ColorU {
+        ColorU { a, ..c }
+    }
+
+    #[test]
+    fn faces_whose_stops_moved_tween_the_stop_positions_too() {
+        let r = linear();
+        let one = background(vec![face(rgb(0, 0, 0), rgb(100, 100, 100), 100)]);
+        let moved = background(vec![face(rgb(200, 200, 200), rgb(0, 0, 0), 50)]);
+        let mid = one.interpolate(&moved, 0.5, &r);
+        let [layer] = layers_of(&mid)
+            .try_into()
+            .expect("one layer, as on both ends");
+        let s = stops(&layer);
+        assert_eq!(s.len(), 2, "two stops, as on both ends: {s:?}");
+        assert!(
+            near(s[0].0, 0.0) && near(s[1].0, 75.0),
+            "the stop half way from 100% to 50%: {s:?}"
+        );
+        assert_eq!((s[0].1, s[1].1), (rgb(100, 100, 100), rgb(50, 50, 50)));
+    }
+
+    #[test]
+    fn a_stone_of_radial_layers_tweens_every_layer_and_its_streak_moves() {
+        // flora's stone, cut down to two of its six layers: the radial gem
+        // (the same at rest and hovered) and the specular streak, which
+        // brightens AND widens under the pointer (flora.css's
+        // `.btn-primary:hover::before`).
+        let gem = radial_at(
+            30,
+            12,
+            &[
+                (0, rgb(122, 147, 198)),
+                (48, rgb(47, 74, 133)),
+                (100, rgb(30, 50, 96)),
+            ],
+        );
+        let sheen = ColorU::new(255, 248, 215, 0);
+        let rest = background(vec![
+            gem.clone(),
+            raked(
+                115,
+                &[
+                    (6, sheen),
+                    (15, alpha(sheen, 51)),
+                    (22, alpha(sheen, 15)),
+                    (32, sheen),
+                ],
+            ),
+        ]);
+        let hover = background(vec![
+            gem.clone(),
+            raked(
+                115,
+                &[
+                    (4, sheen),
+                    (14, alpha(sheen, 87)),
+                    (23, alpha(sheen, 26)),
+                    (34, sheen),
+                ],
+            ),
+        ]);
+        let mid = rest.interpolate(&hover, 0.5, &linear());
+        let layers = layers_of(&mid);
+        assert_eq!(
+            layers.len(),
+            2,
+            "every layer pairs with its twin: {layers:?}"
+        );
+        assert_eq!(
+            layers[0], gem,
+            "a layer that does not change stays as it is"
+        );
+        let s = stops(&layers[1]);
+        let offsets: Vec<f32> = s.iter().map(|(at, _)| *at).collect();
+        assert!(
+            near(offsets[0], 5.0)
+                && near(offsets[1], 14.5)
+                && near(offsets[2], 22.5)
+                && near(offsets[3], 33.0),
+            "half way, every stop is half way to where the hovered streak has it: {offsets:?}"
+        );
+        assert_eq!(s[1].1, alpha(sheen, 69), "and half as much brighter: {s:?}");
+    }
+
+    #[test]
+    fn two_radial_gradients_tween_their_colours_and_their_centre() {
+        let rest = background(vec![radial_at(
+            30,
+            12,
+            &[(0, rgb(200, 0, 0)), (100, rgb(0, 0, 0))],
+        )]);
+        let lit = background(vec![radial_at(
+            40,
+            20,
+            &[(0, rgb(0, 200, 0)), (100, rgb(0, 0, 100))],
+        )]);
+        let mid = rest.interpolate(&lit, 0.5, &linear());
+        let [layer] = layers_of(&mid).try_into().expect("one layer");
+        let B::RadialGradient(g) = &layer else {
+            panic!("a radial gradient stays radial: {layer:?}");
+        };
+        assert_eq!(
+            (g.position.horizontal, g.position.vertical),
+            (
+                BackgroundPositionHorizontal::Exact(PixelValue::const_percent(35)),
+                BackgroundPositionVertical::Exact(PixelValue::const_percent(16)),
+            ),
+            "the light moves half way"
+        );
+        let s = stops(&layer);
+        assert_eq!((s[0].1, s[1].1), (rgb(100, 100, 0), rgb(0, 0, 50)), "{s:?}");
+    }
+
+    #[test]
+    fn a_colour_fades_into_a_gradient_and_back() {
+        // flat's neutral button on a dark desktop rests on the desktop's
+        // button face (one colour) and hovers to Office's gradient.
+        let r = linear();
+        let solid = background(vec![B::Color(rgb(100, 0, 0))]);
+        let gradient = background(vec![face(rgb(200, 0, 0), rgb(0, 0, 100), 100)]);
+        let half = background(vec![face(rgb(150, 0, 0), rgb(50, 0, 50), 100)]);
+        assert_eq!(
+            solid.interpolate(&gradient, 0.5, &r),
+            half,
+            "the colour is the gradient's shape in one colour, and that shape tweens"
+        );
+        assert_eq!(
+            gradient.interpolate(&solid, 0.5, &r),
+            half,
+            "and back the same way"
+        );
+    }
+
+    #[test]
+    fn faces_of_another_layer_count_cross_fade() {
+        let r = linear();
+        let one = face(rgb(0, 0, 0), rgb(100, 100, 100), 100);
+        let two = vec![
+            face(rgb(200, 200, 200), rgb(0, 0, 0), 100),
+            B::Color(rgb(0, 0, 200)),
+        ];
+        let mid = background(vec![one.clone()]).interpolate(&background(two), 0.5, &r);
+        let layers = layers_of(&mid);
+        assert_eq!(
+            layers.len(),
+            3,
+            "the new face lies over the old one: {layers:?}"
+        );
+        assert_eq!(
+            layers[0], one,
+            "the new face is opaque, so the old one stays whole under it"
+        );
+        let s = stops(&layers[1]);
+        assert_eq!(
+            (s[0].1, s[1].1),
+            (ColorU::new(200, 200, 200, 128), ColorU::new(0, 0, 0, 128))
+        );
+        assert_eq!(
+            layers[2],
+            B::Color(ColorU::new(0, 0, 200, 128)),
+            "every new layer at half strength"
+        );
+    }
+
+    #[test]
+    fn a_cross_fade_into_a_translucent_face_fades_the_old_face_out() {
+        // A linear and a radial gradient have no stops in common: the old
+        // face goes as the new one comes, or it would show through the new
+        // face at the end and jump away when the tween is over.
+        let r = linear();
+        let paper = face(rgb(250, 250, 250), rgb(230, 230, 230), 100);
+        let glow = radial_at(
+            50,
+            50,
+            &[
+                (0, ColorU::new(255, 255, 0, 200)),
+                (100, ColorU::new(255, 255, 0, 0)),
+            ],
+        );
+        let mid = background(vec![paper]).interpolate(&background(vec![glow]), 0.5, &r);
+        let layers = layers_of(&mid);
+        assert_eq!(layers.len(), 2, "{layers:?}");
+        let old = stops(&layers[0]);
+        assert_eq!(
+            (old[0].1.a, old[1].1.a),
+            (128, 128),
+            "the old face at half strength: {old:?}"
+        );
+        let new = stops(&layers[1]);
+        assert_eq!(
+            (new[0].1.a, new[1].1.a),
+            (100, 0),
+            "the new face at half strength: {new:?}"
+        );
+    }
+
+    #[test]
+    fn a_layer_the_hover_adds_fades_in_and_out() {
+        let r = linear();
+        let paper = face(rgb(250, 250, 250), rgb(230, 230, 230), 100);
+        let rest = background(vec![paper.clone()]);
+        let lit = background(vec![
+            paper.clone(),
+            B::Color(ColorU::new(255, 255, 255, 100)),
+        ]);
+        let half = background(vec![paper, B::Color(ColorU::new(255, 255, 255, 50))]);
+        assert_eq!(rest.interpolate(&lit, 0.5, &r), half);
+        assert_eq!(lit.interpolate(&rest, 0.5, &r), half);
+    }
+
+    #[test]
+    fn a_background_fades_in_from_none() {
+        let r = linear();
+        let none = CssProperty::auto(CssPropertyType::BackgroundContent);
+        let wash = background(vec![B::Color(ColorU::new(180, 135, 44, 20))]);
+        assert_eq!(
+            none.interpolate(&wash, 0.5, &r),
+            background(vec![B::Color(ColorU::new(180, 135, 44, 10))])
+        );
+        assert_eq!(
+            wash.interpolate(&none, 0.5, &r),
+            background(vec![B::Color(ColorU::new(180, 135, 44, 10))])
+        );
+    }
+
+    #[test]
+    fn faces_of_images_keep_the_half_way_switch() {
+        // An image has no colour to fade: a face made of one switches half
+        // way, as a discrete property does.
+        let r = linear();
+        let a = background(vec![B::Image(AzString::from_const_str("a.png"))]);
+        let b = background(vec![B::Image(AzString::from_const_str("b.png"))]);
+        assert_eq!(a.interpolate(&b, 0.25, &r), a);
+        assert_eq!(a.interpolate(&b, 0.75, &r), b);
+    }
+}
+
+/// A box shadow tweens (CSS Backgrounds 3 s7.1, "a shadow list"): two
+/// shadows tween every length and their colour, and a slot with no shadow
+/// takes a transparent shadow of zero size as its twin, so a shadow that
+/// comes or goes fades in or out. An inset shadow has no outset twin: it
+/// fades out through nothing, and the other comes in.
+///
+/// flora's hover glow is two shadows - the gold rim and the bloom off the
+/// stone - and its pressed well, its lip and its keyboard ring are shadows
+/// too. A shadow had no interpolation: every one of them held, then jumped.
+#[cfg(test)]
+mod shadow_tween_tests {
+    use super::*;
+    use crate::props::{
+        basic::{
+            animation::AnimationInterpolationFunction,
+            color::ColorU,
+            pixel::{PixelValue, PixelValueNoPercent},
+        },
+        style::box_shadow::{BoxShadowClipMode, StyleBoxShadow},
+    };
+
+    fn linear() -> InterpolateResolver {
+        InterpolateResolver {
+            interpolate_func: AnimationInterpolationFunction::Linear,
+            parent_rect_width: 100.0,
+            parent_rect_height: 100.0,
+            current_rect_width: 100.0,
+            current_rect_height: 100.0,
+        }
+    }
+
+    fn px(v: f32) -> PixelValueNoPercent {
+        PixelValueNoPercent {
+            inner: PixelValue::px(v),
+        }
+    }
+
+    /// `[inset] 0 <y>px <blur>px <spread>px <color>`.
+    fn shadow(y: f32, blur: f32, spread: f32, color: ColorU, inset: bool) -> StyleBoxShadow {
+        StyleBoxShadow {
+            offset_x: px(0.0),
+            offset_y: px(y),
+            blur_radius: px(blur),
+            spread_radius: px(spread),
+            clip_mode: if inset {
+                BoxShadowClipMode::Inset
+            } else {
+                BoxShadowClipMode::Outset
+            },
+            color,
+        }
+    }
+
+    /// The shadow a shadow property holds, `None` for none.
+    fn shown(p: &CssProperty) -> Option<StyleBoxShadow> {
+        match p {
+            CssProperty::BoxShadowLeft(v)
+            | CssProperty::BoxShadowRight(v)
+            | CssProperty::BoxShadowTop(v)
+            | CssProperty::BoxShadowBottom(v)
+            | CssProperty::TextShadow(v) => v.get_property().map(|s| **s),
+            other => panic!("not a shadow: {other:?}"),
+        }
+    }
+
+    /// `(y, blur, spread)` of `s` in px, and whether its lengths are `want`.
+    fn lengths_are(s: &StyleBoxShadow, want: (f32, f32, f32)) -> bool {
+        let near = |a: PixelValueNoPercent, b: f32| (a.inner.number.get() - b).abs() < 0.01;
+        near(s.offset_x, 0.0)
+            && near(s.offset_y, want.0)
+            && near(s.blur_radius, want.1)
+            && near(s.spread_radius, want.2)
+    }
+
+    /// flora's gold rim: `0 0 0 1px rgba(214, 197, 140, .55)`, here 2px.
+    const GOLD: ColorU = ColorU::new(214, 197, 140, 140);
+
+    #[test]
+    fn a_glow_fades_in_from_no_shadow_and_out_again() {
+        let r = linear();
+        let rim = CssProperty::box_shadow_left(shadow(0.0, 0.0, 2.0, GOLD, false));
+        for none in [
+            CssProperty::auto(CssPropertyType::BoxShadowLeft),
+            CssProperty::none(CssPropertyType::BoxShadowLeft),
+        ] {
+            for mid in [
+                none.interpolate(&rim, 0.5, &r),
+                rim.interpolate(&none, 0.5, &r),
+            ] {
+                let s = shown(&mid).expect("half way, the glow is half there");
+                assert!(lengths_are(&s, (0.0, 0.0, 1.0)), "half its spread: {s:?}");
+                assert_eq!(
+                    s.color,
+                    ColorU::new(214, 197, 140, 70),
+                    "half its strength, in its own colour"
+                );
+                assert_eq!(s.clip_mode, BoxShadowClipMode::Outset);
+            }
+        }
+    }
+
+    #[test]
+    fn two_shadows_tween_every_length_and_their_colour() {
+        // flora's stone under the pointer: the cast shadow becomes the bloom.
+        let cast = CssProperty::box_shadow_bottom(shadow(
+            1.0,
+            2.0,
+            0.0,
+            ColorU::new(48, 45, 38, 36),
+            false,
+        ));
+        let bloom = CssProperty::box_shadow_bottom(shadow(
+            0.0,
+            14.0,
+            0.0,
+            ColorU::new(214, 197, 140, 82),
+            false,
+        ));
+        let s = shown(&cast.interpolate(&bloom, 0.5, &linear())).expect("a shadow");
+        assert!(lengths_are(&s, (0.5, 8.0, 0.0)), "{s:?}");
+        // The colours mix premultiplied, as CSS mixes them: each weighed by
+        // its alpha, so the stronger gold leads (a plain mix of the channels
+        // would be 131, 121, 89).
+        assert_eq!(s.color, ColorU::new(163, 151, 109, 59));
+    }
+
+    #[test]
+    fn a_colour_that_comes_from_transparent_keeps_its_hue() {
+        // A hover wash over a transparent rest (a toolbar key, a list row, a
+        // tab): half way it is the wash at half strength, not a darker grey
+        // dragged toward transparent's black.
+        use crate::props::style::background::StyleBackgroundContent as B;
+        let r = linear();
+        let fill = |c: ColorU| CssProperty::background_content(vec![B::Color(c)].into());
+        let wash = ColorU::new(204, 232, 255, 255);
+        assert_eq!(
+            fill(ColorU::TRANSPARENT).interpolate(&fill(wash), 0.5, &r),
+            fill(ColorU::new(204, 232, 255, 128)),
+            "half way, the wash at half strength"
+        );
+        let edge = |c: ColorU| {
+            CssProperty::BorderTopColor(CssPropertyValue::Exact(StyleBorderTopColor { inner: c }))
+        };
+        assert_eq!(
+            edge(ColorU::TRANSPARENT).interpolate(&edge(wash), 0.5, &r),
+            edge(ColorU::new(204, 232, 255, 128)),
+            "an edge that is there, transparent, at rest comes in in its own colour"
+        );
+    }
+
+    #[test]
+    fn an_inset_and_an_outset_shadow_fade_through_no_shadow() {
+        let r = linear();
+        let well =
+            CssProperty::box_shadow_top(shadow(2.0, 6.0, 0.0, ColorU::new(0, 0, 0, 120), true));
+        let lift =
+            CssProperty::box_shadow_top(shadow(4.0, 8.0, 0.0, ColorU::new(0, 0, 0, 60), false));
+        let early = shown(&well.interpolate(&lift, 0.25, &r)).expect("the well, going");
+        assert_eq!(early.clip_mode, BoxShadowClipMode::Inset);
+        assert!(lengths_are(&early, (1.0, 3.0, 0.0)), "{early:?}");
+        assert_eq!(
+            early.color.a, 60,
+            "half way to nothing at a quarter of the way"
+        );
+        let late = shown(&well.interpolate(&lift, 0.75, &r)).expect("the lift, coming");
+        assert_eq!(late.clip_mode, BoxShadowClipMode::Outset);
+        assert!(lengths_are(&late, (2.0, 4.0, 0.0)), "{late:?}");
+        assert_eq!(late.color.a, 30);
+    }
+
+    #[test]
+    fn a_text_shadow_tweens_like_a_box_shadow() {
+        let r = linear();
+        let none = CssProperty::auto(CssPropertyType::TextShadow);
+        let cut = CssProperty::TextShadow(CssPropertyValue::Exact(BoxOrStatic::heap(shadow(
+            1.0,
+            1.0,
+            0.0,
+            ColorU::new(0, 0, 0, 78),
+            false,
+        ))));
+        let s = shown(&none.interpolate(&cut, 0.5, &r)).expect("half there");
+        assert!(lengths_are(&s, (0.5, 0.5, 0.0)), "{s:?}");
+        assert_eq!(s.color, ColorU::new(0, 0, 0, 39));
+    }
+}
+
+/// `font-variant-numeric` (CSS Fonts 4 s6.7): `normal | [ <numeric-figure-values>
+/// || <numeric-spacing-values> || <numeric-fraction-values> || ordinal ||
+/// slashed-zero ]`, inherited. It was not a property at all - the declaration
+/// was dropped as unknown - although the shaper supports the OpenType
+/// features (`lnum`, `onum`, `pnum`, `tnum`, `frac`, `afrc`, `ordn`, `zero`).
+#[cfg(test)]
+mod font_variant_numeric_tests {
+    use super::*;
+
+    fn property_type() -> CssPropertyType {
+        CssPropertyType::from_str("font-variant-numeric", &CssKeyMap::get())
+            .expect("font-variant-numeric is a CSS property")
+    }
+
+    #[test]
+    fn font_variant_numeric_is_an_inherited_property() {
+        let ty = property_type();
+        assert_eq!(ty.to_str(), "font-variant-numeric");
+        assert!(ty.is_inheritable(), "font-variant-numeric is inherited");
+    }
+
+    #[test]
+    fn font_variant_numeric_parses_each_group_once_and_prints_back() {
+        let ty = property_type();
+        for (input, printed) in [
+            ("tabular-nums", "tabular-nums"),
+            ("normal", "normal"),
+            ("lining-nums", "lining-nums"),
+            ("oldstyle-nums", "oldstyle-nums"),
+            ("proportional-nums", "proportional-nums"),
+            ("diagonal-fractions", "diagonal-fractions"),
+            ("stacked-fractions", "stacked-fractions"),
+            ("ordinal", "ordinal"),
+            ("slashed-zero", "slashed-zero"),
+            // `||`: any order, printed in the grammar's.
+            ("slashed-zero tabular-nums", "tabular-nums slashed-zero"),
+            (
+                "ordinal slashed-zero diagonal-fractions tabular-nums oldstyle-nums",
+                "oldstyle-nums tabular-nums diagonal-fractions ordinal slashed-zero",
+            ),
+            ("  Tabular-Nums  ", "tabular-nums"),
+        ] {
+            let prop = parse_css_property(ty, input)
+                .unwrap_or_else(|e| panic!("`{input}` must parse: {e:?}"));
+            assert_eq!(prop.get_type(), ty, "`{input}`");
+            assert_eq!(prop.value(), printed, "`{input}`");
+        }
+    }
+
+    #[test]
+    fn font_variant_numeric_rejects_two_values_of_one_group() {
+        let ty = property_type();
+        for bad in [
+            "lining-nums oldstyle-nums",
+            "proportional-nums tabular-nums",
+            "diagonal-fractions stacked-fractions",
+            "tabular-nums tabular-nums",
+            "ordinal ordinal",
+            "normal tabular-nums",
+            "tabular",
+            "",
+        ] {
+            assert!(
+                parse_css_property(ty, bad).is_err(),
+                "`{bad}` is not a font-variant-numeric value"
+            );
+        }
+    }
+}
+
+/// The `font-variant` shorthand (CSS Fonts 4 s6.11): `normal | none | [
+/// <common-lig-values> || ... || <numeric-figure-values> || ... ||
+/// <caps-values> || ... ]`, each longhand at most once and the ones left out
+/// reset. Azul has `font-variant-numeric` and `font-variant-caps`; the
+/// keywords of the others are taken and set nothing, so a declaration that
+/// names them still applies. The shorthand was not parsed at all: `font-variant:
+/// small-caps` was dropped as unknown.
+#[cfg(test)]
+mod font_variant_shorthand_tests {
+    use super::*;
+
+    fn expand(value: &str) -> Result<Vec<String>, ()> {
+        let key = CombinedCssPropertyType::from_str("font-variant", &CssKeyMap::get())
+            .expect("font-variant is a shorthand");
+        parse_combined_css_property(key, value)
+            .map(|props| {
+                props
+                    .iter()
+                    .map(|p| format!("{}: {}", p.get_type().to_str(), p.value()))
+                    .collect()
+            })
+            .map_err(|_| ())
+    }
+
+    #[test]
+    fn font_variant_sets_the_caps_and_the_numeric_forms() {
+        assert_eq!(
+            expand("small-caps tabular-nums"),
+            Ok(vec![
+                "font-variant-numeric: tabular-nums".to_string(),
+                "font-variant-caps: small-caps".to_string(),
+            ])
+        );
+        assert_eq!(
+            expand("Small-Caps"),
+            Ok(vec![
+                "font-variant-numeric: normal".to_string(),
+                "font-variant-caps: small-caps".to_string(),
+            ]),
+            "a longhand left out is reset, keywords ignore case"
+        );
+        assert_eq!(
+            expand("oldstyle-nums slashed-zero"),
+            Ok(vec![
+                "font-variant-numeric: oldstyle-nums slashed-zero".to_string(),
+                "font-variant-caps: normal".to_string(),
+            ])
+        );
+        for reset in ["normal", "none"] {
+            assert_eq!(
+                expand(reset),
+                Ok(vec![
+                    "font-variant-numeric: normal".to_string(),
+                    "font-variant-caps: normal".to_string(),
+                ]),
+                "`{reset}`"
+            );
+        }
+    }
+
+    #[test]
+    fn font_variant_takes_the_keywords_of_the_longhands_azul_has_not() {
+        assert_eq!(
+            expand("no-common-ligatures all-small-caps jis78 super styleset(ss01, ss02)"),
+            Ok(vec![
+                "font-variant-numeric: normal".to_string(),
+                "font-variant-caps: all-small-caps".to_string(),
+            ])
+        );
+    }
+
+    #[test]
+    fn font_variant_rejects_what_is_not_its_value() {
+        for bad in [
+            "small-caps all-small-caps",
+            "lining-nums oldstyle-nums",
+            "normal small-caps",
+            "none tabular-nums",
+            "small-caps small-caps",
+            "bold",
+            "",
+        ] {
+            assert!(expand(bad).is_err(), "`{bad}` is no font-variant value");
+        }
+    }
+}
+
+/// `font-feature-settings` (CSS Fonts 4 s6.12): `normal | <feature-tag-value>#`
+/// where `<feature-tag-value> = <opentype-tag> [ <integer [0,inf]> | on | off ]?`,
+/// inherited. The tag is a quoted string of four printable ASCII characters,
+/// case-sensitive; a missing value means 1, `on` 1 and `off` 0; a tag given
+/// twice takes its last value. AzDrive asks for `tnum` (the size and date
+/// columns), `dlig` and `ss01` this way.
+#[cfg(test)]
+mod font_feature_settings_tests {
+    use super::*;
+
+    fn property_type() -> CssPropertyType {
+        CssPropertyType::from_str("font-feature-settings", &CssKeyMap::get())
+            .expect("font-feature-settings is a CSS property")
+    }
+
+    #[test]
+    fn font_feature_settings_is_an_inherited_property() {
+        let ty = property_type();
+        assert_eq!(ty.to_str(), "font-feature-settings");
+        assert!(ty.is_inheritable(), "font-feature-settings is inherited");
+    }
+
+    #[test]
+    fn font_feature_settings_parses_tags_with_their_values_and_prints_them_back() {
+        let ty = property_type();
+        for (input, printed) in [
+            ("normal", "normal"),
+            ("  NORMAL  ", "normal"),
+            ("\"tnum\"", "\"tnum\""),
+            ("'tnum'", "\"tnum\""),
+            ("\"tnum\" 1", "\"tnum\""),
+            ("\"tnum\" on", "\"tnum\""),
+            ("\"liga\" 0", "\"liga\" 0"),
+            ("\"liga\" OFF", "\"liga\" 0"),
+            ("\"salt\" 2", "\"salt\" 2"),
+            ("\"ss01\", \"dlig\"", "\"ss01\", \"dlig\""),
+            ("\"tnum\",\"liga\" 0", "\"tnum\", \"liga\" 0"),
+            // A tag given twice takes its last value, where it last stands.
+            ("\"liga\" 0, \"tnum\", \"liga\"", "\"tnum\", \"liga\""),
+        ] {
+            let prop = parse_css_property(ty, input)
+                .unwrap_or_else(|e| panic!("`{input}` must parse: {e:?}"));
+            assert_eq!(prop.get_type(), ty, "`{input}`");
+            assert_eq!(prop.value(), printed, "`{input}`");
+        }
+    }
+
+    #[test]
+    fn font_feature_settings_rejects_what_is_not_a_list_of_four_letter_tags() {
+        let ty = property_type();
+        for bad in [
+            "tnum",
+            "\"tnu\"",
+            "\"tnums\"",
+            "\"t\u{e9}st\"",
+            "\"tnum\" -1",
+            "\"tnum\" 1.5",
+            "\"tnum\" yes",
+            "\"tnum\" 1 2",
+            "normal, \"tnum\"",
+            "\"tnum\",",
+            ", \"tnum\"",
+            "",
+        ] {
+            assert!(
+                parse_css_property(ty, bad).is_err(),
+                "`{bad}` is not a font-feature-settings value"
+            );
+        }
+    }
+}
+
+/// `font-variant-caps` (CSS Fonts 4 s6.6): `normal | small-caps |
+/// all-small-caps | petite-caps | all-petite-caps | unicase | titling-caps`,
+/// inherited. AzDrive's capitals (tab buttons, group titles, caps headers)
+/// are `all-small-caps` in the design.
+#[cfg(test)]
+mod font_variant_caps_tests {
+    use super::*;
+
+    fn property_type() -> CssPropertyType {
+        CssPropertyType::from_str("font-variant-caps", &CssKeyMap::get())
+            .expect("font-variant-caps is a CSS property")
+    }
+
+    #[test]
+    fn font_variant_caps_is_an_inherited_property() {
+        let ty = property_type();
+        assert_eq!(ty.to_str(), "font-variant-caps");
+        assert!(ty.is_inheritable(), "font-variant-caps is inherited");
+    }
+
+    #[test]
+    fn font_variant_caps_parses_every_keyword_and_prints_it_back() {
+        let ty = property_type();
+        for keyword in [
+            "normal",
+            "small-caps",
+            "all-small-caps",
+            "petite-caps",
+            "all-petite-caps",
+            "unicase",
+            "titling-caps",
+        ] {
+            let prop = parse_css_property(ty, keyword)
+                .unwrap_or_else(|e| panic!("`{keyword}` must parse: {e:?}"));
+            assert_eq!(prop.get_type(), ty, "`{keyword}`");
+            assert_eq!(prop.value(), keyword);
+        }
+        let prop = parse_css_property(ty, "  All-Small-Caps ").expect("case-insensitive");
+        assert_eq!(prop.value(), "all-small-caps");
+    }
+
+    #[test]
+    fn font_variant_caps_rejects_anything_else() {
+        let ty = property_type();
+        for bad in ["small", "small-caps all-small-caps", "smcp", ""] {
+            assert!(
+                parse_css_property(ty, bad).is_err(),
+                "`{bad}` is not a font-variant-caps value"
             );
         }
     }

@@ -1,0 +1,57 @@
+[
+  {
+    "name": "a corpus with a 0-byte file, odd names and a 5 MB file comes down byte for byte, under the same names",
+    "description": "DEGOO-008 (sync-chaos port-sparse-zero-byte): Degoo's downloads produced 0-byte files and wrong names. Rules P7 and A5: every file arrives with the size and hash of the upload, a 0-byte file is a real 0-byte file, names are kept exactly.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "empty.txt", "text": "" },
+      { "op": "drive_write", "device": "a", "path": "Rechnung M\u00e4rz 2024.pdf", "size": 70000, "seed": 42 },
+      { "op": "drive_write", "device": "a", "path": "deep/er/notes (final).txt", "text": "the notes" },
+      { "op": "drive_write", "device": "a", "path": "big.mov", "size": 5000000, "seed": 43 },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "assert_response", "path": "result.down", "equals": 4 },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "empty.txt", "size": 0 },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "Rechnung M\u00e4rz 2024.pdf", "same_as": "{root:a}/Rechnung M\u00e4rz 2024.pdf" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "deep/er/notes (final).txt", "text": "the notes" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "big.mov", "same_as": "{root:a}/big.mov" },
+      { "op": "drive_check", "check": "remote_file", "key": "empty.txt", "text": "" },
+      { "op": "drive_check", "check": "converged" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "last_pass_quiet", "device": "b" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "a short or empty body from the server is refused: the old version stays, no 0-byte file appears",
+    "description": "DEGOO-008 (sync-chaos res-truncated-download): rules A5 and S15: a body that does not match the hash is never written as the file; it is listed as hash-mismatch, an existing file keeps its old version and a new one does not appear.",
+    "steps": [
+      { "op": "drive_create", "remote": "r2", "encrypted": false },
+      { "op": "drive_open", "device": "c", "remote": "r2" },
+      { "op": "drive_open", "device": "d", "remote": "r2" },
+      { "op": "drive_pair", "device": "c" },
+      { "op": "drive_pair", "device": "d" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "c", "path": "video.mp4", "size": 300000, "seed": 9 },
+      { "op": "drive_sync", "device": "c" },
+      { "op": "drive_sync", "device": "d" },
+      { "op": "drive_write", "device": "c", "path": "video.mp4", "size": 300000, "seed": 10 },
+      { "op": "drive_write", "device": "c", "path": "new.mov", "size": 200000, "seed": 11 },
+      { "op": "drive_sync", "device": "c" },
+      { "op": "drive_tamper", "remote": "r2", "action": "truncate_blob", "key": "video.mp4", "keep": 200000 },
+      { "op": "drive_tamper", "remote": "r2", "action": "truncate_blob", "key": "new.mov", "keep": 0 },
+      { "op": "drive_sync", "device": "d", "expect": "any" },
+      { "op": "drive_check", "check": "problem", "device": "d", "code": "hash-mismatch", "key": "video.mp4" },
+      { "op": "drive_check", "check": "problem", "device": "d", "code": "hash-mismatch", "key": "new.mov" },
+      { "op": "drive_check", "check": "file", "device": "d", "path": "video.mp4", "size": 300000 },
+      { "op": "drive_check", "check": "file", "device": "d", "path": "new.mov", "absent": true },
+      { "op": "drive_check", "check": "no_temp_files", "device": "d" },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

@@ -2,6 +2,8 @@
 //! vertex buffer abstractions, and FFI-safe GL type aliases for the C/Python API.
 
 #![allow(unused_variables)]
+#[cfg(not(feature = "std"))]
+use crate::float_math::FloatMath as _;
 use alloc::{
     boxed::Box,
     rc::Rc,
@@ -2978,9 +2980,21 @@ impl GlStateSave {
             gl::VERTEX_ARRAY_BINDING,
             (&mut s.current_vertex_array_object[..]).into(),
         );
-        gl_context.get_integer_v(gl::RENDERBUFFER, (&mut s.current_renderbuffers[..]).into());
-        gl_context.get_integer_v(gl::FRAMEBUFFER, (&mut s.current_framebuffers[..]).into());
-        gl_context.get_integer_v(gl::TEXTURE_2D, (&mut s.current_texture_2d[..]).into());
+        // The `*_BINDING` names: asking for `GL_FRAMEBUFFER` / `GL_TEXTURE_2D`
+        // is an error in a core profile and answers nothing, so the restore
+        // would bind 0 under whoever had something bound.
+        gl_context.get_integer_v(
+            gl::RENDERBUFFER_BINDING,
+            (&mut s.current_renderbuffers[..]).into(),
+        );
+        gl_context.get_integer_v(
+            gl::FRAMEBUFFER_BINDING,
+            (&mut s.current_framebuffers[..]).into(),
+        );
+        gl_context.get_integer_v(
+            gl::TEXTURE_BINDING_2D,
+            (&mut s.current_texture_2d[..]).into(),
+        );
 
         s
     }
@@ -2993,7 +3007,7 @@ impl GlStateSave {
         }
         gl_context.bind_framebuffer(gl::FRAMEBUFFER, self.current_framebuffers[0] as u32);
         gl_context.bind_texture(gl::TEXTURE_2D, self.current_texture_2d[0] as u32);
-        gl_context.bind_buffer(gl::RENDERBUFFER, self.current_renderbuffers[0] as u32);
+        gl_context.bind_renderbuffer(gl::RENDERBUFFER, self.current_renderbuffers[0] as u32);
         gl_context.bind_vertex_array(self.current_vertex_array_object[0] as u32);
         gl_context.bind_buffer(
             gl::ELEMENT_ARRAY_BUFFER,
@@ -3112,8 +3126,13 @@ impl Texture {
         let textures = gl_context.gen_textures(1);
         let texture_id = textures.as_ref()[0];
 
+        // Put back what was bound: whoever bound it (WebRender, a canvas
+        // callback) expects it there.
         let mut current_texture_2d = [0_i32];
-        gl_context.get_integer_v(gl::TEXTURE_2D, (&mut current_texture_2d[..]).into());
+        gl_context.get_integer_v(
+            gl::TEXTURE_BINDING_2D,
+            (&mut current_texture_2d[..]).into(),
+        );
 
         gl_context.bind_texture(gl::TEXTURE_2D, texture_id);
         gl_context.tex_image_2d(

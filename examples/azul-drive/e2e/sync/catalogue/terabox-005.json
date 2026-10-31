@@ -1,0 +1,53 @@
+[
+  {
+    "name": "a big file that does not change while it is read for upload is never reported as changed; a real change during the read is",
+    "description": "TERABOX-005 (TeraBox): uploads past ~80 GB failed with 'the file has changed' although it had not. Rule A6 (fstat before and after the read: only a real change of size, mtime, ctime or link count counts). sync-chaos res-growing-file, port-huge-file.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_setting", "device": "b", "name": "auto_download", "value": "everything" },
+      { "op": "drive_write", "device": "a", "path": "huge.bin", "size": 33554432, "seed": 5 },
+      { "op": "drive_sync", "device": "a", "pause_at": "mid-read" },
+      { "op": "drive_cont", "device": "a" },
+      { "op": "drive_wait", "device": "a" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "changed-during-sync", "absent": true },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "huge.bin", "same_as": "{root:a}/huge.bin" },
+      { "op": "drive_write", "device": "a", "path": "second.bin", "size": 8388608, "seed": 6 },
+      { "op": "drive_sync", "device": "a", "pause_at": "mid-read" },
+      { "op": "drive_overwrite_in_place", "device": "a", "path": "second.bin", "size": 8388608, "seed": 7 },
+      { "op": "drive_cont", "device": "a" },
+      { "op": "drive_wait", "device": "a", "expect": "any" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "changed-during-sync", "key": "second.bin" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "second.bin", "same_as": "{root:a}/second.bin" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "huge.bin", "same_as": "{root:a}/huge.bin" },
+      { "op": "drive_check", "check": "converged" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "a 6 GiB file is streamed both ways, never held in memory",
+    "description": "TERABOX-005 (TeraBox), the size itself. Rule P8 (huge files stream in parts both ways and resume). sync-chaos port-huge-file.",
+    "pending": "heavy, run by hand: drive_sparse exists; the test moves a 6 GiB file each way (about 13 GB free on the disk of the sandbox), more than an E2E batch may take",
+    "expect": "fail",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_sparse", "device": "a", "path": "backup.tar", "size": 6442450944, "data_at": 5368709120, "text": "past four gibibytes" },
+      { "op": "drive_sync", "device": "a", "timeout_ms": 1800000 },
+      { "op": "drive_sync", "device": "b", "timeout_ms": 1800000 },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "backup.tar", "same_as": "{root:a}/backup.tar" },
+      { "op": "drive_check", "check": "no_temp_files", "device": "b" },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

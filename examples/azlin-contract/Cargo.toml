@@ -1,0 +1,27 @@
+[package]
+name = "azlin-contract"
+version = "0.1.0"
+edition = "2021"
+authors = ["Felix Schuett <felix.schuett@maps4print.com>"]
+license = "MIT"
+description = """
+    What the Azlin apps and the Azlin services say to each other, in one place:
+    the contract version and the client's hello, the ids and units on the wire,
+    the idempotency key, deadlines and the error codes the nodes and the token
+    server answer with. Both sides build on these types, so a change on one side
+    that the other does not know fails to compile, or fails the golden fixtures,
+    instead of failing at run time. Serde only: it builds for the token
+    server's Worker (wasm32) and on the services' pinned Rust.
+"""
+publish = false
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+# The golden fixtures are JSON (already in Cargo.lock).
+serde_json = "1"
+
+[lib]
+name = "azlin_contract"
+path = "src/lib.rs"

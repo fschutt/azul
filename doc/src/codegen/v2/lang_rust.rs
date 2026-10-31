@@ -180,6 +180,11 @@ impl LanguageGenerator for RustGenerator {
         let functions = self.generate_functions(ir, config)?;
         builder.raw(&functions);
 
+        // ABI guard: the library's `AzAbi_getHash` export, or the binding's
+        // check against it (`abi_guard`).
+        builder.line("// --- ABI Guard ---");
+        builder.raw(&super::abi_guard::rust_items(ir, config));
+
         // End module wrappers
         builder.dedent();
         builder.line("} // mod dll");
@@ -631,8 +636,11 @@ impl RustGenerator {
             builder.line("/// Returns a RAII guard to the inner value if types match.");
             builder.line("/// ");
             builder.line("/// The guard holds a shared borrow; drop it when done.");
-            builder.line(&"pub fn downcast_ref<T: 'static>(&mut self) -> Option<azul_core::refany::Ref<'_, \
-                 T>> {".to_string());
+            builder.line(
+                &"pub fn downcast_ref<T: 'static>(&mut self) -> Option<azul_core::refany::Ref<'_, \
+                 T>> {"
+                    .to_string(),
+            );
             builder.indent();
             builder.line("use core::mem::transmute;");
             builder.line("unsafe {");
@@ -650,8 +658,11 @@ impl RustGenerator {
                 .line("/// Returns a RAII guard to mutably borrow the inner value if types match.");
             builder.line("/// ");
             builder.line("/// The guard holds an exclusive borrow; drop it when done.");
-            builder.line(&"pub fn downcast_mut<T: 'static>(&mut self) -> \
-                 Option<azul_core::refany::RefMut<'_, T>> {".to_string());
+            builder.line(
+                &"pub fn downcast_mut<T: 'static>(&mut self) -> \
+                 Option<azul_core::refany::RefMut<'_, T>> {"
+                    .to_string(),
+            );
             builder.indent();
             builder.line("use core::mem::transmute;");
             builder.line("unsafe {");
@@ -672,11 +683,20 @@ impl RustGenerator {
         // Generate for ALL builds - always use AzString_copyFromBytes to avoid leaking struct
         // details
 
+        // Both impls are constructors that enter libazul: in a binding they
+        // check its ABI first (`abi_guard`; `RefAny::new` reaches libazul
+        // through here before anything else does).
+        let string_from_checks =
+            super::abi_guard::rust_wrapper_checks(config, FunctionKind::Constructor);
+
         // From<&str> for AzString
         builder.line(&format!("impl From<&str> for {}String {{", prefix));
         builder.indent();
         builder.line("fn from(s: &str) -> Self {");
         builder.indent();
+        if string_from_checks {
+            builder.line(super::abi_guard::RUST_CHECK_CALL);
+        }
         builder.line(&format!(
             "unsafe {{ {}(s.as_ptr(), 0, s.len()) }}",
             // allow-api-name: building an AzString from Rust bytes IS the
@@ -697,6 +717,9 @@ impl RustGenerator {
         builder.indent();
         builder.line("fn from(s: alloc::string::String) -> Self {");
         builder.indent();
+        if string_from_checks {
+            builder.line(super::abi_guard::RUST_CHECK_CALL);
+        }
         builder.line(&format!(
             "unsafe {{ {}(s.as_ptr(), 0, s.len()) }}",
             // allow-api-name: building an AzString from Rust bytes IS the
@@ -712,6 +735,37 @@ impl RustGenerator {
         // AzString convenience methods for ergonomic API - generate for ALL builds
         builder.line(&format!("impl {}String {{", prefix));
         builder.indent();
+
+        // from_const_str() - the const constructor azul's own AzString has
+        // (css/src/corety.rs): an app names each CSS class / id ONCE as a
+        // `const` (wave-6 prefix ruling). The bytes are 'static, so the vec
+        // is never freed (NoDestructor) and nothing enters libazul.
+        builder.line("/// A string over `'static` bytes, usable in a `const`:");
+        builder.line("/// `const ROW: AzString = AzString::from_const_str(\"__azapp_row\");`.");
+        builder.line("/// The bytes are borrowed, never copied or freed.");
+        builder.line("#[inline]");
+        builder.line("#[must_use]");
+        builder.line("pub const fn from_const_str(s: &'static str) -> Self {");
+        builder.indent();
+        builder.line("Self {");
+        builder.indent();
+        // allow-api-name: the String's own layout (a U8Vec), as `as_str`
+        // below reads it; a const fn cannot call `copyFromBytes`.
+        builder.line(&format!("vec: {}U8Vec {{", prefix));
+        builder.indent();
+        builder.line("ptr: s.as_ptr(),");
+        builder.line("len: s.len(),");
+        builder.line("cap: s.len(),");
+        // allow-api-name: 'static bytes are never freed.
+        builder.line(&format!("destructor: {}U8VecDestructor::NoDestructor,", prefix));
+        builder.line("flags: 0,");
+        builder.dedent();
+        builder.line("},");
+        builder.dedent();
+        builder.line("}");
+        builder.dedent();
+        builder.line("}");
+        builder.blank();
 
         // as_str() - returns &str by reinterpreting the bytes
         builder.line("/// Returns the string as a `&str` slice.");
@@ -900,6 +954,9 @@ impl RustGenerator {
         // the Option helpers so Result enums aren't second-class.
         self.generate_result_convenience_methods(&mut builder, ir, config);
 
+        // `Update::with` / `with_result`: `?` inside a callback on stable Rust.
+        self.generate_callback_return_helpers(&mut builder, ir, config);
+
         // Generate Vec<T> convenience methods
         self.generate_vec_convenience_methods(&mut builder, ir, config);
 
@@ -931,7 +988,10 @@ impl RustGenerator {
         let mut by_class: BTreeMap<&str, Vec<(String, &ConstantDef)>> = BTreeMap::new();
         for c in &ir.constants {
             if let Some((class, _)) = c.name.split_once('_') {
-                by_class.entry(class).or_default().push((c.member_name(), c));
+                by_class
+                    .entry(class)
+                    .or_default()
+                    .push((c.member_name(), c));
             }
         }
         for (class, constants) in by_class {
@@ -1105,32 +1165,11 @@ impl RustGenerator {
         builder.blank();
     }
 
-    /// Generate automatic From<A> for B implementations when A::method(self) -> B exists
-    ///
-    /// This finds all methods that:
-    /// 1. Take owned self (consume the value)
-    /// 2. Return a different type than the class they belong to
-    ///
-    /// For each such method, we generate:
-    /// ```ignore
-    /// impl From<A> for B {
-    ///     fn from(v: A) -> B {
-    ///         v.method_name()
-    ///     }
-    /// }
-    /// ```
-    ///
-    /// This allows ergonomic conversions like: `let dom: Dom = button.into();`
-    fn generate_auto_from_impls(
-        &self,
-        builder: &mut CodeBuilder,
-        ir: &CodegenIR,
-        config: &CodegenConfig,
-    ) {
-        use std::collections::BTreeMap;
-
-        let prefix = &config.type_prefix;
-
+    /// Every `(from, to)` pair that gets an `impl From<from> for to` built on
+    /// one of `from`'s own methods: an owned-`self` method with no other
+    /// argument returning another type. Other emitters that would add a
+    /// `From` impl check this map first, since a second impl is E0119.
+    fn auto_from_pairs(ir: &CodegenIR) -> BTreeMap<(String, String), &str> {
         // For each conversion pair, track which method to use.
         // If multiple methods exist for the same conversion, we use the first one found.
         //
@@ -1202,6 +1241,33 @@ impl RustGenerator {
             conversion_methods.entry(key).or_insert(&func.method_name);
         }
 
+        conversion_methods
+    }
+
+    /// Generate automatic From<A> for B implementations when A::method(self) -> B exists
+    ///
+    /// This finds all methods that:
+    /// 1. Take owned self (consume the value)
+    /// 2. Return a different type than the class they belong to
+    ///
+    /// For each such method, we generate:
+    /// ```ignore
+    /// impl From<A> for B {
+    ///     fn from(v: A) -> B {
+    ///         v.method_name()
+    ///     }
+    /// }
+    /// ```
+    ///
+    /// This allows ergonomic conversions like: `let dom: Dom = button.into();`
+    fn generate_auto_from_impls(
+        &self,
+        builder: &mut CodeBuilder,
+        ir: &CodegenIR,
+        config: &CodegenConfig,
+    ) {
+        let conversion_methods = Self::auto_from_pairs(ir);
+
         // Generate the From impls, in sorted (from_type, to_type) order.
         //
         // No second dedup pass here: `conversion_methods` is KEYED by exactly that
@@ -1241,6 +1307,7 @@ impl RustGenerator {
         config: &CodegenConfig,
     ) {
         let prefix = &config.type_prefix;
+        let auto_from = Self::auto_from_pairs(ir);
 
         // Find all Option types in the IR
         for enum_def in &ir.enums {
@@ -1347,17 +1414,79 @@ impl RustGenerator {
             builder.line("}");
             builder.blank();
 
-            // Into<Option<T>> for OptionT
+            // `Option::from(x)` and `x.into()` both reach the std Option. A
+            // `From` (not only an `Into`) is what generic code and `?` on a
+            // std Option need, and it gives the `Into` for free.
             builder.line(&format!(
-                "impl Into<Option<{}>> for {} {{",
-                prefixed_inner, prefixed_name
+                "impl From<{}> for Option<{}> {{",
+                prefixed_name, prefixed_inner
             ));
             builder.indent();
-            builder.line(&format!("fn into(self) -> Option<{}> {{", prefixed_inner));
+            builder.line(&format!("fn from(o: {}) -> Self {{", prefixed_name));
             builder.indent();
-            builder.line("self.into_option()");
+            builder.line("o.into_option()");
             builder.dedent();
             builder.line("}");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+
+            // A bare value where an Option is asked for: `Some` of it, so a
+            // call site writes `path` instead of `OptionFilePath::Some(path)`.
+            // Skipped where the inner type already converts into this Option
+            // through one of its own methods (a second impl is E0119).
+            if !auto_from.contains_key(&(inner_type.clone(), enum_def.name.clone())) {
+                builder.line(&format!(
+                    "impl From<{}> for {} {{",
+                    prefixed_inner, prefixed_name
+                ));
+                builder.indent();
+                builder.line(&format!("fn from(v: {}) -> Self {{", prefixed_inner));
+                builder.indent();
+                builder.line(&format!("{}::Some(v)", prefixed_name));
+                builder.dedent();
+                builder.line("}");
+                builder.dedent();
+                builder.line("}");
+                builder.blank();
+            }
+
+            // Nightly `?` straight on the FFI Option, inside any function that
+            // returns a std Option or a callback's return enum.
+            builder.line("#[cfg(feature = \"try-trait\")]");
+            builder.line(&format!("impl core::ops::Try for {} {{", prefixed_name));
+            builder.indent();
+            builder.line(&format!("type Output = {};", prefixed_inner));
+            builder.line("type Residual = Option<core::convert::Infallible>;");
+            builder.line(&format!(
+                "fn from_output(v: {}) -> Self {{ {}::Some(v) }}",
+                prefixed_inner, prefixed_name
+            ));
+            builder.line(&format!(
+                "fn branch(self) -> core::ops::ControlFlow<Self::Residual, {}> {{",
+                prefixed_inner
+            ));
+            builder.indent();
+            builder.line("match self.into_option() {");
+            builder.indent();
+            builder.line("Some(v) => core::ops::ControlFlow::Continue(v),");
+            builder.line("None => core::ops::ControlFlow::Break(None),");
+            builder.dedent();
+            builder.line("}");
+            builder.dedent();
+            builder.line("}");
+            builder.dedent();
+            builder.line("}");
+            builder.line("#[cfg(feature = \"try-trait\")]");
+            builder.line(&format!(
+                "impl core::ops::FromResidual<Option<core::convert::Infallible>> for {} {{",
+                prefixed_name
+            ));
+            builder.indent();
+            builder.line(&format!(
+                "fn from_residual(_: Option<core::convert::Infallible>) -> Self {{ {}::None }}",
+                prefixed_name
+            ));
             builder.dedent();
             builder.line("}");
             builder.blank();
@@ -1546,19 +1675,177 @@ impl RustGenerator {
             builder.line("}");
             builder.blank();
 
-            // Into<Result<T, E>> for ResultTE (mirrors the Option codegen's
-            // explicit Into impl; delegates to into_result()).
+            // `Result::from(r)` and `r.into()` both reach the std Result, the
+            // same way the Option mirrors reach the std Option.
             builder.line(&format!(
-                "impl Into<Result<{}, {}>> for {} {{",
-                ok_ty, err_ty, prefixed_name
+                "impl From<{}> for Result<{}, {}> {{",
+                prefixed_name, ok_ty, err_ty
+            ));
+            builder.indent();
+            builder.line(&format!("fn from(r: {}) -> Self {{", prefixed_name));
+            builder.indent();
+            builder.line("r.into_result()");
+            builder.dedent();
+            builder.line("}");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+
+            // Nightly `?` straight on the FFI Result: inside a function that
+            // returns a std Result the error converts with `From`, inside a
+            // callback it is logged and the callback does nothing.
+            builder.line("#[cfg(feature = \"try-trait\")]");
+            builder.line(&format!("impl core::ops::Try for {} {{", prefixed_name));
+            builder.indent();
+            builder.line(&format!("type Output = {};", ok_ty));
+            builder.line(&format!(
+                "type Residual = Result<core::convert::Infallible, {}>;",
+                err_ty
+            ));
+            builder.line(&format!(
+                "fn from_output(v: {ok_ty}) -> Self {{ Self::from(Result::<{ok_ty}, {err_ty}>::Ok(v)) }}"
+            ));
+            builder.line(&format!(
+                "fn branch(self) -> core::ops::ControlFlow<Self::Residual, {}> {{",
+                ok_ty
+            ));
+            builder.indent();
+            builder.line("match self.into_result() {");
+            builder.indent();
+            builder.line("Ok(v) => core::ops::ControlFlow::Continue(v),");
+            builder.line("Err(e) => core::ops::ControlFlow::Break(Err(e)),");
+            builder.dedent();
+            builder.line("}");
+            builder.dedent();
+            builder.line("}");
+            builder.dedent();
+            builder.line("}");
+            builder.line("#[cfg(feature = \"try-trait\")]");
+            builder.line(&format!(
+                "impl core::ops::FromResidual<Result<core::convert::Infallible, {}>> for {} {{",
+                err_ty, prefixed_name
             ));
             builder.indent();
             builder.line(&format!(
-                "fn into(self) -> Result<{}, {}> {{",
-                ok_ty, err_ty
+                "fn from_residual(r: Result<core::convert::Infallible, {}>) -> Self {{",
+                err_ty
             ));
             builder.indent();
-            builder.line("self.into_result()");
+            builder.line("match r {");
+            builder.indent();
+            builder.line(&format!(
+                "Err(e) => Self::from(Result::<{ok_ty}, {err_ty}>::Err(e)),"
+            ));
+            builder.line("Ok(never) => match never {},");
+            builder.dedent();
+            builder.line("}");
+            builder.dedent();
+            builder.line("}");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+        }
+    }
+
+    /// `with` / `with_result` on every unit enum a callback returns
+    /// (`Update`), so a callback can use `?` on stable Rust:
+    ///
+    /// ```ignore
+    /// extern "C" fn on_pick(mut data: RefAny, _info: CallbackInfo, result: RefAny) -> Update {
+    ///     Update::with(|| {
+    ///         let picked = FileOpenResult::downcast(result).into_option()?;
+    ///         let path = Option::from(picked.path)?;
+    ///         Some(Update::RefreshDom)
+    ///     })
+    /// }
+    /// ```
+    ///
+    /// A missing value answers with the enum's first variant, which is what
+    /// the engine itself answers when a callback is skipped (`DoNothing`).
+    /// With the `try-trait` feature (nightly) the same `?` works directly in
+    /// the callback body, through the `FromResidual` impls emitted here.
+    fn generate_callback_return_helpers(
+        &self,
+        builder: &mut CodeBuilder,
+        ir: &CodegenIR,
+        config: &CodegenConfig,
+    ) {
+        for enum_def in ir.callback_return_unit_enums() {
+            let Some(first) = enum_def.variants.first() else {
+                continue;
+            };
+            let name = config.apply_prefix(&enum_def.name);
+            let fallback = format!("{}::{}", name, first.name);
+
+            builder.line(&format!("impl {} {{", name));
+            builder.indent();
+            builder.line(
+                "/// Runs `f`, where `?` on a missing value means there is nothing to do: a",
+            );
+            builder.line(&format!(
+                "/// `None` answers `{}`, as the engine does for a skipped callback.",
+                fallback
+            ));
+            builder.line("#[inline]");
+            builder.line(&format!(
+                "pub fn with<F: FnOnce() -> Option<{name}>>(f: F) -> {name} {{"
+            ));
+            builder.indent();
+            builder.line(&format!("f().unwrap_or({})", fallback));
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+            builder.line(
+                "/// Runs `f`, where `?` on an error means the callback gives up: the error is",
+            );
+            builder.line(&format!(
+                "/// written to stderr and the answer is `{}`.",
+                fallback
+            ));
+            builder.line(&format!(
+                "pub fn with_result<E: core::fmt::Debug, F: FnOnce() -> Result<{name}, E>>(f: F) -> {name} {{"
+            ));
+            builder.indent();
+            builder.line("match f() {");
+            builder.indent();
+            builder.line("Ok(v) => v,");
+            builder.line("Err(e) => {");
+            builder.indent();
+            builder.line("std::eprintln!(\"azul: a callback failed: {:?}\", e);");
+            builder.line(&fallback);
+            builder.dedent();
+            builder.line("}");
+            builder.dedent();
+            builder.line("}");
+            builder.dedent();
+            builder.line("}");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+
+            builder.line("#[cfg(feature = \"try-trait\")]");
+            builder.line(&format!(
+                "impl core::ops::FromResidual<Option<core::convert::Infallible>> for {} {{",
+                name
+            ));
+            builder.indent();
+            builder.line(&format!(
+                "fn from_residual(_: Option<core::convert::Infallible>) -> Self {{ {} }}",
+                fallback
+            ));
+            builder.dedent();
+            builder.line("}");
+            builder.line("#[cfg(feature = \"try-trait\")]");
+            builder.line(&format!(
+                "impl<E: core::fmt::Debug> core::ops::FromResidual<Result<core::convert::Infallible, E>> for {} {{",
+                name
+            ));
+            builder.indent();
+            builder.line("fn from_residual(r: Result<core::convert::Infallible, E>) -> Self {");
+            builder.indent();
+            builder.line("let Err(e) = r;");
+            builder.line("std::eprintln!(\"azul: a callback failed: {:?}\", e);");
+            builder.line(&fallback);
             builder.dedent();
             builder.line("}");
             builder.dedent();
@@ -1648,8 +1935,11 @@ impl RustGenerator {
             // that are NOT part of the C-API (as_slice_mut, get_mut, iter, iter_mut, etc.)
 
             // get_mut()
-            builder.line(&"/// Returns a mutable reference to an element at the given index, or `None` if \
-                 out of bounds.".to_string());
+            builder.line(
+                &"/// Returns a mutable reference to an element at the given index, or `None` if \
+                 out of bounds."
+                    .to_string(),
+            );
             builder.line("#[inline]");
             builder.line(&format!(
                 "pub fn get_mut(&mut self, index: usize) -> Option<&mut {}> {{",
@@ -1867,6 +2157,8 @@ impl RustGenerator {
                     builder.line("ptr,");
                     builder.line("len,");
                     builder.line("cap,");
+                    builder.line("flags: 0,");
+
                     builder.line(&format!(
                         "destructor: {}::External({} as {}),",
                         prefixed_destructor, drop_fn_name, destructor_fn_type
@@ -1875,6 +2167,18 @@ impl RustGenerator {
                     builder.line("}");
                     builder.dedent();
                     builder.line("}");
+                    builder.dedent();
+                    builder.line("}");
+                    builder.blank();
+
+                    // The name azul's own crates use (`impl_vec!`'s `from_vec`):
+                    // app code is written against both sides.
+                    builder.line(&format!("impl {} {{", prefixed_name));
+                    builder.indent();
+                    builder.line(&format!(
+                        "pub fn from_vec(v: alloc::vec::Vec<{}>) -> Self {{ Self::from(v) }}",
+                        prefixed_inner
+                    ));
                     builder.dedent();
                     builder.line("}");
                     builder.blank();
@@ -2304,13 +2608,22 @@ impl RustGenerator {
             format!("<{}>", generic_params.join(", "))
         };
 
+        // A binding's constructors and static methods check the loaded
+        // libazul's ABI hash before entering it (`abi_guard`).
+        let abi_check = if super::abi_guard::rust_wrapper_checks(config, func.kind) {
+            format!("{} ", super::abi_guard::RUST_CHECK_CALL)
+        } else {
+            String::new()
+        };
+
         // Generate the method
         builder.line(&format!(
-            "pub fn {}{}({}){} {{ unsafe {{ {}({}) }} }}",
+            "pub fn {}{}({}){} {{ {}unsafe {{ {}({}) }} }}",
             method_name,
             generics,
             args.join(", "),
             return_type,
+            abi_check,
             c_func_name,
             call_args.join(", ")
         ));
@@ -2395,6 +2708,10 @@ impl RustGenerator {
         let functions = self.generate_functions(ir, config)?;
         builder.raw(&functions);
         builder.blank();
+
+        // ABI guard: the method impls below call `az_abi_check()`.
+        builder.line("// --- ABI Guard ---");
+        builder.raw(&super::abi_guard::rust_items(ir, config));
 
         // Trait implementations (if using derive, they're already on types)
         if !matches!(config.trait_impl_mode, TraitImplMode::UsingDerive) {
@@ -3753,6 +4070,11 @@ impl RustGenerator {
             builder.indent();
             builder.line(&format!("fn default() -> {name} {{"));
             builder.indent();
+            // `X::default()` can be a program's first call into libazul: it
+            // checks the ABI first, as `X::create_default()` does (`abi_guard`).
+            if super::abi_guard::rust_wrapper_checks(config, FunctionKind::Default) {
+                builder.line(super::abi_guard::RUST_CHECK_CALL);
+            }
             builder.line(&format!("unsafe {{ {}() }}", sym("createDefault")));
             builder.dedent();
             builder.line("}");
@@ -4163,7 +4485,14 @@ impl RustGenerator {
                 raw
             })
             .collect();
-        Self::emit_byref_twin(builder, &raw_def, ir, config, export_feature, is_export_only);
+        Self::emit_byref_twin(
+            builder,
+            &raw_def,
+            ir,
+            config,
+            export_feature,
+            is_export_only,
+        );
         let mut ctx_def = raw_def.clone();
         ctx_def.c_name = format!("{}WithCtx", func.c_name);
         ctx_def.args = Vec::with_capacity(func.args.len() + 1);
@@ -4179,10 +4508,24 @@ impl RustGenerator {
                 ctx_def.args.push(c);
             }
         }
-        Self::emit_byref_twin(builder, &ctx_def, ir, config, export_feature, is_export_only);
+        Self::emit_byref_twin(
+            builder,
+            &ctx_def,
+            ir,
+            config,
+            export_feature,
+            is_export_only,
+        );
         let mut struct_def = func.clone();
         struct_def.c_name = format!("{}Struct", func.c_name);
-        Self::emit_byref_twin(builder, &struct_def, ir, config, export_feature, is_export_only);
+        Self::emit_byref_twin(
+            builder,
+            &struct_def,
+            ir,
+            config,
+            export_feature,
+            is_export_only,
+        );
     }
 
     /// Splice `prologue` (a sequence of `let` statements) just inside

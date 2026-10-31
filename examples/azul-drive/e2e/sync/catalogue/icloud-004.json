@@ -1,0 +1,58 @@
+[
+  {
+    "name": "a folder moved out of the root: the delete is held, then applied into the other device's trash, and the moved copy is whole",
+    "description": "ICLOUD-004 (sync-chaos placeholder-write-back): dragging a folder out of iCloud Drive removed it from the cloud while the moved copy held only stubs. Rules D1, D2 and D5: emptying a folder is a held mass delete; once confirmed, other devices move their copies into the trash and the drive keeps the versions; the moved folder holds the real bytes.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "proj/a.txt", "text": "file a" },
+      { "op": "drive_write", "device": "a", "path": "proj/b.bin", "size": 300000, "seed": 50 },
+      { "op": "drive_write", "device": "a", "path": "proj/c.txt", "text": "file c" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_rename", "device": "a", "from": "proj", "to": "{run}/proj-moved" },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "mass-delete-held" },
+      { "op": "drive_check", "check": "remote_count", "glob": "proj/*", "count": 3 },
+      { "op": "drive_answer", "device": "a", "question": "mass_delete", "delete_too": true },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "trash_has", "device": "b", "text": "file a" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "proj/a.txt", "absent": true },
+      { "op": "drive_check", "check": "kept", "texts": ["file a", "file c"] },
+      { "op": "drive_read", "path": "{run}/proj-moved/b.bin" },
+      { "op": "assert_response", "path": "result.size", "equals": 300000 },
+      { "op": "drive_read", "path": "{run}/proj-moved/a.txt" },
+      { "op": "assert_response", "path": "result.text", "equals": "file a" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "a folder holding cloud-only files moved out of the root: the drive keeps those files until the moved bytes are real",
+    "description": "ICLOUD-004: the not-downloaded files. Rules P13 and D6: bytes are dropped only after the drive acknowledged them; a cloud-only file moved out of the root without its bytes (the OS moved only the stand-in) stays on the drive even after the user confirms the folder's delete.",
+    "steps": [
+      { "op": "drive_create", "remote": "r2", "encrypted": false },
+      { "op": "drive_open", "device": "c", "remote": "r2" },
+      { "op": "drive_open", "device": "d", "remote": "r2" },
+      { "op": "drive_pair", "device": "c" },
+      { "op": "drive_pair", "device": "d" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "c", "path": "proj/a.txt", "text": "file a" },
+      { "op": "drive_write", "device": "c", "path": "proj/b.bin", "size": 300000, "seed": 51 },
+      { "op": "drive_sync", "device": "c" },
+      { "op": "drive_sync", "device": "d" },
+      { "op": "drive_evict", "device": "c", "path": "proj/b.bin" },
+      { "op": "drive_rename", "device": "c", "from": "proj", "to": "{run}/proj-moved" },
+      { "op": "drive_sync", "device": "c", "expect": "any" },
+      { "op": "drive_answer", "device": "c", "question": "mass_delete", "delete_too": true },
+      { "op": "drive_sync", "device": "c", "expect": "any" },
+      { "op": "drive_check", "check": "remote_file", "key": "proj/b.bin", "same_as": "{root:d}/proj/b.bin" },
+      { "op": "drive_check", "check": "kept_live", "texts": ["file a"] },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

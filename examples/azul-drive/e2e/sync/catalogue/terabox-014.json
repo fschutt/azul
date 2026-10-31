@@ -1,0 +1,72 @@
+[
+  {
+    "name": "restoring a whole backup onto a fresh device, cut twice part way: each pass goes on from where the last stopped, the total stays within twice the data",
+    "description": "TERABOX-014 (TeraBox): slow downloads and a sleeping phone restarting the download from zero. Rules E5 (transfers resume) and A5 (each file appears only complete). sync-chaos mobile-restore (pending there), res-netem-lossy-link.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_many", "device": "a", "dir": "backup", "count": 20, "size": 65536, "seed": 14 },
+      { "op": "drive_write", "device": "a", "path": "backup/video.mov", "size": 4194304, "seed": 15 },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_open", "device": "c", "remote": "r" },
+      { "op": "drive_crash_at", "device": "c", "point": "after-rename" },
+      { "op": "drive_pair", "device": "c" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_sync", "device": "c", "crash_at": "after-rename", "expect": "crash" },
+      { "op": "drive_sync", "device": "c" },
+      { "op": "drive_check", "check": "converged" },
+      { "op": "drive_check", "check": "no_temp_files", "device": "c" },
+      { "op": "drive_status", "device": "c" },
+      { "op": "assert_response", "path": "result.crashes", "equals": 2 },
+      { "op": "drive_counters", "device": "c" },
+      { "op": "assert_response", "path": "result.bytes_down", "at_most": 11010048 },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "a restore paused for an hour (the device asleep) goes on after the wake and every file arrives intact",
+    "description": "TERABOX-014 (TeraBox): a sleeping phone restarts the download. Rule E2 (a frozen pass re-checks before it writes) and A5.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_many", "device": "a", "dir": "backup", "count": 10, "size": 65536, "seed": 16 },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b", "pause_at": "download-start" },
+      { "op": "drive_clock", "device": "b", "jump": 3600 },
+      { "op": "drive_cont", "device": "b" },
+      { "op": "drive_wait", "device": "b", "expect": "any" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "converged" },
+      { "op": "drive_check", "check": "no_temp_files", "device": "b" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "a single big download cut in the middle resumes by byte range instead of starting over",
+    "description": "TERABOX-014 (TeraBox), the catalogue's byte-range resume. Rule E5 (parts resume) and P8.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_setting", "device": "b", "name": "auto_download", "value": "everything" },
+      { "op": "drive_write", "device": "a", "path": "video.mov", "size": 33554432, "seed": 17 },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b", "crash_at": "mid-download", "expect": "crash" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "video.mov", "same_as": "{root:a}/video.mov" },
+      { "op": "drive_counters", "device": "b" },
+      { "op": "assert_response", "path": "result.bytes_down", "at_most": 50331648 },
+      { "op": "drive_check", "check": "no_temp_files", "device": "b" },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

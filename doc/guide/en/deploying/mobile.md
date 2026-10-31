@@ -351,6 +351,12 @@ macOS (only the final iOS *signing* prefers a Mac, and even that has the
 
 `build-android.sh` and `build-ios.sh` run steps 1–4 end to end.
 
+**The app's id.** `azul-doc mobile build` / `mobile run` name the iOS bundle id and the Android
+package after `--package`, else the crate's `[package.metadata.bundle] identifier`, else
+`com.azul.<crate>`. On a phone that id wins over the app's `AppConfig::app_id`; set both to the
+same string (a different `app_id` is logged as a warning). See
+[App identity](../system/windowing.md#app-identity).
+
 ## Local testing
 
 There are four rungs here, and each proves something the one below it cannot.

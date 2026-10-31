@@ -152,19 +152,30 @@ pub fn pump(lw: &mut LayoutWindow) -> bool {
     }
 
     // Keyring: same request → native backend → parked-result shape.
-    let keyring_requests = azul_layout::managers::keyring::drain_keyring_requests();
+    let keyring_requests = azul_layout::managers::keyring::drain_keyring_requests_in();
     if !keyring_requests.is_empty() {
         lw.keyring_manager
             .mark_requests_dispatched(keyring_requests.len() as u32);
         changed = true;
     }
-    for req in &keyring_requests {
-        crate::desktop::extra::keyring::request(req);
+    for (namespace, req) in &keyring_requests {
+        crate::desktop::extra::keyring::request(namespace, req);
     }
-    for result in azul_layout::managers::keyring::drain_keyring_results() {
+    // Only the answers this window waits for: another window's pass leaves them for it.
+    let awaited = usize::try_from(lw.keyring_manager.in_flight).unwrap_or(usize::MAX);
+    for result in azul_layout::managers::keyring::drain_keyring_results_up_to(awaited) {
         lw.keyring_manager.set_last_result(result);
         changed = true;
     }
+
+    // Native notifications: hand queued posts / withdrawals to the backend
+    // (nothing is started while nothing is queued). Here as well as in the
+    // run loops' notification pump because THIS runs on every target - on
+    // mobile, where no run loop pumps notifications, it is what turns a post
+    // into a logged `Failed` instead of silence. Events are NOT delivered
+    // here: a delivery needs a window to invoke against, which the run loops
+    // have and this pass does not.
+    crate::desktop::notifications::dispatch_queued_requests();
 
     // Eyedropper: only the results addressed to THIS window's requests (the
     // loupe / system sampler answers by request id; another window's pick
@@ -215,6 +226,9 @@ pub fn desired_interval_ms(lw: &LayoutWindow) -> Option<u64> {
         // unrelated event before being shown.
         || azul_layout::managers::biometric::has_queued_requests()
         || azul_layout::managers::keyring::has_queued_requests()
+        // A notification posted by a DoNothing callback must not wait for
+        // an unrelated event to reach the OS.
+        || azul_layout::managers::notification::has_queued_requests()
         || lw.eyedropper_manager.has_pending_async()
         // Resumable-API requests (file dialogs, device lists, ...) completed or still pending.
         || azul_layout::request::has_work()
@@ -267,6 +281,14 @@ pub fn timer_interval_ms(timer: &azul_layout::timer::Timer) -> Option<u64> {
 /// MWA-B12: one-shot wake-up timer — fires once after `delay_ms`, causing
 /// `invoke_expired_timers` to run an event pass (see LONG_PRESS_TIMER_ID),
 /// then self-terminates via its callback.
+///
+/// The DELAY is what makes it fire after `delay_ms`: `Timer::invoke` admits
+/// a timer that has never run at once unless it has a delay, and this one
+/// used to carry the span as its interval only, so the first timer pass of
+/// any kind ran it — on X11 and Wayland the pass on the loop turn right
+/// after the press. The interval stays the same span so the platform timer
+/// (`Timer::tick_millis`) wakes the loop once, at the deadline, instead of
+/// every 10 ms until then.
 #[must_use]
 pub fn make_one_shot_pass_timer(delay_ms: u64) -> azul_layout::timer::Timer {
     use azul_core::{
@@ -278,16 +300,18 @@ pub fn make_one_shot_pass_timer(delay_ms: u64) -> azul_layout::timer::Timer {
         timer::{Timer, TimerCallbackType},
     };
 
+    let span = AzulDuration::System(SystemTimeDiff {
+        secs: delay_ms / 1000,
+        nanos: ((delay_ms % 1000) * 1_000_000) as u32,
+    });
     let external = ExternalSystemCallbacks::rust_internal();
     Timer::create(
         RefAny::new(()),
         one_shot_pass_marker_callback as TimerCallbackType,
         external.get_system_time_fn,
     )
-    .with_interval(AzulDuration::System(SystemTimeDiff {
-        secs: delay_ms / 1000,
-        nanos: ((delay_ms % 1000) * 1_000_000) as u32,
-    }))
+    .with_delay(span)
+    .with_interval(span)
 }
 
 extern "C" fn one_shot_pass_marker_callback(

@@ -15,10 +15,13 @@
 //!
 //! VB6 calling-convention quirks:
 //!
-//! - VB6 cannot pass user-defined types by value to a `Declare`. UDT arguments must always be
-//!   passed `ByRef` (i.e. as a pointer). Functions whose C signature takes a struct by value (i.e.
-//!   `ArgRefKind::Owned` over a struct type) get flagged with `' SKIPPED: cannot pass UDT ByVal —
-//!   workaround required`.
+//! - VB6 cannot pass or return user-defined types by value in a `Declare`. A function that does
+//!   either is declared and called through the `<symbol>Byref` twin libazul exports for exactly
+//!   such FFIs (aggregates by pointer - VB6's `ByRef` - and the result through a leading
+//!   out-pointer): [`uses_byref_twin`], [`declared_symbol`], [`call_lines`].
+//! - VB6 `Declare` is stdcall; libazul's exports are cdecl. On 32-bit x86 they differ in who pops
+//!   the arguments, so a call with arguments raises "Bad DLL calling convention" (error 49) unless
+//!   the 32-bit libazul exports stdcall entry points - see the F1 report.
 //! - Pointer arguments are passed `ByVal ... As Long` (Long-as-pointer).
 //! - `String` arguments default to `ByVal ... As String` so VB6 auto-marshals to ANSI. For
 //!   UTF-8-correct paths the user must use `Long`-as-pointer plus `StrPtr` / `CopyMemory` — but we
@@ -31,6 +34,7 @@ use super::{
         config::CodegenConfig,
         generator::CodeBuilder,
         ir::{ArgRefKind, CodegenIR, FunctionDef, FunctionKind, TypeCategory},
+        managed_host_invoker::managed_c_symbol,
     },
     idiomatic_method_name, map_type_to_vb6, sanitize_comment, sanitize_identifier, LIB_NAME,
 };
@@ -122,6 +126,59 @@ fn should_emit_function(func: &FunctionDef, ir: &CodegenIR, config: &CodegenConf
     true
 }
 
+/// Does `func` pass an aggregate by value or return one? A VB6 `Declare` can
+/// do neither, so such a function is declared and called through the
+/// `<symbol>Byref` twin libazul exports (the one azul.h declares): owned
+/// aggregates by pointer (still CONSUMED, like the by-value call), the
+/// result through a leading out-pointer. "Aggregate" is
+/// [`CodegenIR::is_value_aggregate`] - the predicate the twins are emitted
+/// by; a unit enum is an int and stays ByVal.
+pub(super) fn uses_byref_twin(func: &FunctionDef, ir: &CodegenIR) -> bool {
+    func.args
+        .iter()
+        .any(|a| a.ref_kind == ArgRefKind::Owned && ir.is_value_aggregate(&a.type_name))
+        || func
+            .return_type
+            .as_deref()
+            .is_some_and(|r| ir.is_value_aggregate(r))
+}
+
+/// The C symbol VB6 declares for `func`: the `Byref` twin (of the managed
+/// symbol, the literal api.json signature) or the function itself.
+pub(super) fn declared_symbol(func: &FunctionDef, ir: &CodegenIR) -> String {
+    if uses_byref_twin(func, ir) {
+        format!("{}Byref", managed_c_symbol(func))
+    } else {
+        func.c_name.clone()
+    }
+}
+
+/// VB6 statements that call `func` with `args` (VB6 expressions, one per
+/// `func.args` entry, in order) and, if it returns a value, store it in
+/// `result`. Through the Byref twin the result variable is its first
+/// argument (a UDT can be passed ByRef); otherwise it is an assignment.
+pub(super) fn call_lines(
+    func: &FunctionDef,
+    ir: &CodegenIR,
+    args: &[String],
+    result: Option<&str>,
+) -> Vec<String> {
+    let symbol = declared_symbol(func, ir);
+    let returns = func.return_type.is_some();
+    if uses_byref_twin(func, ir) {
+        let mut all: Vec<String> = Vec::with_capacity(args.len() + 1);
+        if returns {
+            all.push(result.unwrap_or("ret_").to_string());
+        }
+        all.extend(args.iter().cloned());
+        return vec![format!("{} {}", symbol, all.join(", "))];
+    }
+    match (returns, result) {
+        (true, Some(r)) => vec![format!("{} = {}({})", r, symbol, args.join(", "))],
+        _ => vec![format!("{} {}", symbol, args.join(", "))],
+    }
+}
+
 fn emit_external(builder: &mut CodeBuilder, func: &FunctionDef, ir: &CodegenIR) {
     if !func.doc.is_empty() {
         for d in &func.doc {
@@ -129,56 +186,31 @@ fn emit_external(builder: &mut CodeBuilder, func: &FunctionDef, ir: &CodegenIR) 
         }
     }
 
-    let mut skipped_udt_byval = false;
-    let args: Vec<String> = func
-        .args
-        .iter()
-        .map(|a| {
-            let (clause, vb_ty) = arg_clause_and_type(&a.ref_kind, &a.type_name, ir);
-            // Detect UDT-by-value (the one shape VB6 cannot Declare).
-            if a.ref_kind == ArgRefKind::Owned
-                && (ir.find_struct(&a.type_name).is_some() || ir.find_enum(&a.type_name).is_some())
-            {
-                skipped_udt_byval = true;
-            }
-            format!("{} {} As {}", clause, sanitize_identifier(&a.name), vb_ty)
-        })
-        .collect();
-
-    let arg_str = args.join(", ");
-    let alias = &func.c_name;
-
-    if skipped_udt_byval {
-        builder.line(&format!(
-            "' SKIPPED: {} takes a UDT ByVal — VB6 Declare cannot pass user-defined types ByVal.",
-            func.c_name
-        ));
-        builder.line("' Workaround: write a C-side shim that takes the struct ByRef, or copy");
-        builder.line("' the struct into a Byte() buffer and pass StrPtr-style.");
+    let byref = uses_byref_twin(func, ir);
+    let symbol = declared_symbol(func, ir);
+    let mut args: Vec<String> = Vec::with_capacity(func.args.len() + 1);
+    if let (true, Some(ret)) = (byref, &func.return_type) {
+        // The twin's out-pointer for the result.
+        args.push(format!("ByRef ret_ As {}", map_type_to_vb6(ret, ir)));
     }
+    for a in &func.args {
+        let (clause, vb_ty) = arg_clause_and_type(&a.ref_kind, &a.type_name, ir);
+        args.push(format!("{} {} As {}", clause, sanitize_identifier(&a.name), vb_ty));
+    }
+    let arg_str = args.join(", ");
 
-    match &func.return_type {
-        Some(ret) => {
+    match (&func.return_type, byref) {
+        (Some(ret), false) => {
             let vb_ret = map_type_to_vb6(ret, ir);
-            // SKIPPED: returning a UDT by value from a Declare is also forbidden in VB6.
-            if ir.find_struct(ret.trim()).is_some() || ir.find_enum(ret.trim()).is_some() {
-                builder.line(&format!(
-                    "' SKIPPED: {} returns a UDT ByVal — VB6 Declare cannot return UDTs.",
-                    func.c_name
-                ));
-                builder.line(
-                    "' Workaround: write a C-side shim that writes the struct via an out-pointer.",
-                );
-            }
             builder.line(&format!(
                 "Public Declare Function {} Lib \"{}\" Alias \"{}\" ({}) As {}",
-                func.c_name, LIB_NAME, alias, arg_str, vb_ret
+                symbol, LIB_NAME, symbol, arg_str, vb_ret
             ));
         }
-        None => {
+        _ => {
             builder.line(&format!(
                 "Public Declare Sub {} Lib \"{}\" Alias \"{}\" ({})",
-                func.c_name, LIB_NAME, alias, arg_str
+                symbol, LIB_NAME, symbol, arg_str
             ));
         }
     }
@@ -188,11 +220,11 @@ fn emit_external(builder: &mut CodeBuilder, func: &FunctionDef, ir: &CodegenIR) 
 ///
 /// VB6 rules:
 ///   - Pointer args (`*const`/`*mut`/`&`/`&mut`)  → `ByVal ... As Long`.
-///   - Primitives by value (Long, Single, etc.)   → `ByVal ... As <T>`.
-///   - UDT by value                                → `ByRef ... As <T>` (VB6 cannot pass UDTs ByVal
-///     in Declare; the C side must accept them ByRef — the externals layer flags this as SKIPPED if
-///     the C side really does want by-value).
-fn arg_clause_and_type(
+///   - Primitives and unit enums by value          → `ByVal ... As <T>`.
+///   - An aggregate by value                       → `ByRef ... As <T>`: VB6 passes it as a
+///     pointer, which is what the `Byref` twin this binding declares for such a function takes
+///     (see [`uses_byref_twin`]).
+pub(super) fn arg_clause_and_type(
     ref_kind: &ArgRefKind,
     type_name: &str,
     ir: &CodegenIR,
@@ -200,12 +232,7 @@ fn arg_clause_and_type(
     match ref_kind {
         ArgRefKind::Owned => {
             let vb_ty = map_type_to_vb6(type_name, ir);
-            // VB6 cannot pass UDTs ByVal in Declare. Pass ByRef for UDTs
-            // (this changes the C ABI shape — caller must verify) and
-            // ByVal for primitives.
-            let is_udt = ir.find_struct(type_name.trim()).is_some()
-                || ir.find_enum(type_name.trim()).is_some();
-            if is_udt {
+            if ir.is_value_aggregate(type_name) {
                 ("ByRef", vb_ty)
             } else {
                 ("ByVal", vb_ty)
@@ -276,25 +303,11 @@ fn emit_module_wrapper(builder: &mut CodeBuilder, func: &FunctionDef, ir: &Codeg
     let pretty_method = idiomatic_method_name(&func.method_name);
     let wrapper_name = format!("{}_{}", pretty_class, pretty_method);
 
-    let mut skipped = false;
     let args: Vec<(String, String, String)> = func
         .args
         .iter()
         .map(|a| {
-            let (clause, vb_ty) = match a.ref_kind {
-                ArgRefKind::Owned => {
-                    let vb = map_type_to_vb6(&a.type_name, ir);
-                    let is_udt = ir.find_struct(a.type_name.trim()).is_some()
-                        || ir.find_enum(a.type_name.trim()).is_some();
-                    if is_udt {
-                        skipped = true;
-                        ("ByRef", vb)
-                    } else {
-                        ("ByVal", vb)
-                    }
-                }
-                _ => ("ByVal", "Long".to_string()),
-            };
+            let (clause, vb_ty) = arg_clause_and_type(&a.ref_kind, &a.type_name, ir);
             let nm = sanitize_identifier(&a.name);
             (clause.to_string(), nm, vb_ty)
         })
@@ -306,34 +319,31 @@ fn emit_module_wrapper(builder: &mut CodeBuilder, func: &FunctionDef, ir: &Codeg
         .collect();
     let call_args: Vec<String> = args.iter().map(|(_, n, _)| n.clone()).collect();
     let sig_args_str = sig_args.join(", ");
-    let call_args_str = call_args.join(", ");
-
-    if skipped {
-        builder.line(&format!(
-            "' SKIPPED: wrapper {} — argument is UDT ByVal, see Declare for details",
-            wrapper_name
-        ));
-    }
 
     match &func.return_type {
         Some(ret) => {
+            // A VB6 Function may return a UDT (only a Declare cannot); the
+            // result lands in a local first, which the Byref twin fills.
             let vb_ret = map_type_to_vb6(ret, ir);
             builder.line(&format!(
                 "Public Function {} ({}) As {}",
                 wrapper_name, sig_args_str, vb_ret
             ));
             builder.indent();
-            builder.line(&format!(
-                "{} = {}({})",
-                wrapper_name, func.c_name, call_args_str
-            ));
+            builder.line(&format!("Dim r_ As {}", vb_ret));
+            for l in call_lines(func, ir, &call_args, Some("r_")) {
+                builder.line(&l);
+            }
+            builder.line(&format!("{} = r_", wrapper_name));
             builder.dedent();
             builder.line("End Function");
         }
         None => {
             builder.line(&format!("Public Sub {} ({})", wrapper_name, sig_args_str));
             builder.indent();
-            builder.line(&format!("{} {}", func.c_name, call_args_str));
+            for l in call_lines(func, ir, &call_args, None) {
+                builder.line(&l);
+            }
             builder.dedent();
             builder.line("End Sub");
         }

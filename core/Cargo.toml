@@ -18,10 +18,15 @@ resolver = "2"
 autoexamples = false
 
 [dependencies]
-azul-css                = { version = "0.0.16", path = "../css", default-features = false, features = ["parser"] }
-libm                    = { version = "0.2.2",   default-features = false                   }
+# `azul_css::codegen` (the IR and the per-language printers) only with this
+# crate's own `codegen` feature below; `GetHash` comes from the ungated
+# `azul_css::hash` everywhere. Its parser comes with `css_parser`, its std
+# with `std`.
+azul-css                = { version = "0.0.16", path = "../css", default-features = false }
+libm                   = { version = "0.2.2",   default-features = false                   }
 gl-context-loader       = { version = "0.1.9", default-features = false }
-rust-fontconfig = { version = ">=5.0, <5.1", default-features = false, features = ["std"] }
+# The system font cache the callbacks hand out (feature `system_fonts`).
+rust-fontconfig = { version = ">=5.0.1, <5.1", default-features = false, features = ["std"], optional = true }
 serde                   = { version = "1.0", features = ["derive"], optional = true }
 # `float_roundtrip`: without it serde_json parses floats "best effort" (a plain
 # f64 multiply by a POW10 table entry), which is NOT exact: `Json::parse` then
@@ -36,11 +41,19 @@ url                     = { version = "2.5", default-features = false, optional 
 # Default: std + CSS parser
 default = ["std", "serde-json"]
 
-# Standard library support (includes CSS parser)
-std = ["css_parser"]
+# Standard library support: the environment, threads, time, the CSS parser
+# and the system font cache. Without it the crate is `no_std` + `alloc`.
+std = ["css_parser", "system_fonts", "azul-css/std"]
 
-# CSS parser support
+# CSS parser support: CSS text (`Dom::with_css`, `<style>`), the XML / HTML
+# loaders and the builtin elements, which render through them. azul-css's
+# parser links std (its tokenizer azul-simplecss has no no_std mode).
 css_parser = ["azul-css/parser"]
+
+# The system font cache (rust-fontconfig's `FcFontCache`) in the callback
+# infos and the font resource updates. rust-fontconfig links std even with
+# its default features off.
+system_fonts = ["dep:rust-fontconfig"]
 
 # Web-lift diagnostic/shim hooks (the native→wasm remill pipeline). Enables
 # `#[cfg(feature = "web_lift")]` code in azul-core. Pure additive; native
@@ -48,7 +61,7 @@ css_parser = ["azul-css/parser"]
 web_lift = []
 
 # Font parsing/introspection (adds allsorts via rust-fontconfig, heavier)
-font_parsing = ["rust-fontconfig/parsing"]
+font_parsing = ["system_fonts", "rust-fontconfig/parsing"]
 
 # Serde support for ComponentDataModel and related types
 serde-json = ["dep:serde", "dep:serde_json"]
@@ -57,5 +70,65 @@ serde-json = ["dep:serde", "dep:serde_json"]
 # type + accessors are always available; this only adds the parser. Requires std.
 url = ["dep:url", "std"]
 
+# Markup / a DOM / component libraries -> source code in every binding language
+# (`azul_core::codegen`): the DOM half of the code generator, the twin of
+# azul-css's `codegen` feature (the CSS half, whose IR and printers it uses).
+# Off by default; enabled by azul-layout's `codegen` feature (AzBuilder's code
+# export, the debug server). Its tests: `cargo test -p azul-core --features codegen`.
+codegen = ["azul-css/codegen"]
+
+# `TrustRoots::certificates`: the trusted roots as certificates, for a TLS client to build its
+# root store from. Turned on by azul-layout's `http`, the dll's `iroh` and the apps' own clients.
+tls-roots = ["dep:rustls-pki-types", "dep:webpki-root-certs", "dep:webpki"]
+
+# Throwaway certificate authorities and a loopback TLS server (`tls_testing`) for the tests of
+# what a TLS client trusts; never part of an app. Its tests: `cargo test -p azul-core
+# --features tls-testing`.
+tls-testing = ["tls-roots", "std", "dep:rustls", "dep:rustls-rustcrypto", "dep:ed25519-dalek"]
+
+# The trusted roots as certificates (`TrustRoots::certificates`, feature `tls-roots`), the form
+# every TLS client of azul and its apps builds its root store from: PEM parsing, Mozilla's roots
+# as whole certificates (ureq's, iroh's and reqwest's stores take certificates, not trust
+# anchors) and a certificate's public key, which a distrusted root is matched by. All three are
+# in Cargo.lock already (through rustls, ureq and rustls-platform-verifier); no build script.
+# Not on wasm: a browser's `fetch` trusts the browser's roots.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+rustls-pki-types = { version = "1.15", default-features = false, features = ["alloc"], optional = true }
+webpki-root-certs = { version = "1.0.9", optional = true }
+webpki = { package = "rustls-webpki", version = "0.103", default-features = false, features = ["alloc"], optional = true }
+# The test server of `tls-testing` (rustls with the pure-Rust provider azul's HTTP client uses)
+# and the throwaway certificates' signatures. Tests only; in Cargo.lock already.
+rustls = { version = "0.23", default-features = false, features = ["std", "tls12", "logging"], optional = true }
+rustls-rustcrypto = { package = "rustls-rustcrypto-azul", version = "0.1.0", optional = true }
+ed25519-dalek = { version = "2.2", default-features = false, optional = true }
+
 [dev-dependencies]
 proptest = "1.11.0"
+
+# The code generator's tests need the `codegen` feature. With
+# `required-features`, a plain `cargo test -p azul-core` SKIPS them instead of
+# failing to build them.
+[[test]]
+name = "dom_fragment_codegen"
+path = "tests/dom_fragment_codegen.rs"
+required-features = ["codegen"]
+
+[[test]]
+name = "export_page_codegen"
+path = "tests/export_page_codegen.rs"
+required-features = ["codegen"]
+
+[[test]]
+name = "codegen_components"
+path = "tests/codegen_components.rs"
+required-features = ["codegen"]
+
+[[test]]
+name = "codegen_attributes"
+path = "tests/codegen_attributes.rs"
+required-features = ["codegen"]
+
+[[test]]
+name = "codegen_project"
+path = "tests/codegen_project.rs"
+required-features = ["codegen"]

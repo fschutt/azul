@@ -9,7 +9,7 @@ pub mod decode {
     use core::fmt;
 
     use azul_core::resources::{RawImage, RawImageFormat};
-    use azul_css::{impl_option, impl_option_inner, impl_result, impl_result_inner, U8Vec};
+    use azul_css::{impl_option, impl_result, U8Vec};
     use image::{
         error::{ImageError, LimitError, LimitErrorKind},
         DynamicImage,
@@ -105,6 +105,27 @@ pub mod decode {
         let result = decode_raw_image_from_any_bytes(bytes.as_ref());
         crate::request::complete(data, on_result, ImageDecodeResult { result })
     }
+
+    /// The picture of a `data:` URI (`data:image/png;base64,...`, the form
+    /// an `<img src>` or an SVG `<image href>` embeds one in): decoded ONCE
+    /// per distinct URI - a page DOM rebuilt as it scrolls back into view
+    /// shows the same `ImageRef` again - and remembered for the last
+    /// [`DATA_URI_MEMO`] URIs. `None` for another URI or a picture that does
+    /// not decode.
+    #[must_use]
+    pub fn data_uri_image(uri: &str) -> Option<azul_core::resources::ImageRef> {
+        static MEMO: crate::data_uri::UriMemo<azul_core::resources::ImageRef> =
+            crate::data_uri::UriMemo::new(DATA_URI_MEMO);
+        MEMO.get_or_make(uri, |bytes| match decode_raw_image_from_any_bytes(&bytes) {
+            ResultRawImageDecodeImageError::Ok(raw) => {
+                azul_core::resources::ImageRef::new_rawimage(raw)
+            }
+            ResultRawImageDecodeImageError::Err(_) => None,
+        })
+    }
+
+    /// How many decoded `data:` URI pictures [`data_uri_image`] remembers.
+    pub const DATA_URI_MEMO: usize = 64;
 
     /// Decodes image bytes in any supported format into a [`RawImage`].
     ///
@@ -500,7 +521,7 @@ pub mod encode {
     use std::io::Cursor;
 
     use azul_core::resources::{RawImage, RawImageFormat};
-    use azul_css::{impl_result, impl_result_inner, U8Vec};
+    use azul_css::{impl_result, U8Vec};
     #[cfg(feature = "bmp")]
     use image::codecs::bmp::BmpEncoder;
     #[cfg(feature = "gif")]
@@ -563,7 +584,26 @@ pub mod encode {
             RawImageFormat::RGBA16 => image::ColorType::Rgba16,
             RawImageFormat::RGBF32 => image::ColorType::Rgb32F,
             RawImageFormat::RGBAF32 => image::ColorType::Rgba32F,
+            // No encoder takes YCbCr planes: NV12 is converted to RGBA8
+            // first (`nv12_as_rgba`), so this is the colour type of the
+            // converted bytes.
+            RawImageFormat::NV12Rec601Video
+            | RawImageFormat::NV12Rec601Full
+            | RawImageFormat::NV12Rec709Video
+            | RawImageFormat::NV12Rec709Full => image::ColorType::Rgba8,
         }
+    }
+
+    /// An NV12 image as RGBA8, for the encoders (none takes YCbCr planes).
+    /// `None` for every other format, or an NV12 buffer of the wrong length.
+    /// The conversion is the one YCbCr table
+    /// (`azul_core::resources::YuvCoefficients`).
+    #[allow(dead_code)] // only the encoders behind the image-format features call it
+    fn nv12_as_rgba(image: &RawImage, pixels: &[u8]) -> Option<Vec<u8>> {
+        if !image.data_format.is_nv12() {
+            return None;
+        }
+        azul_core::resources::nv12_to_rgba(pixels, image.width, image.height, image.data_format)
     }
 
     fn bgr_to_rgb_swap(pixels: &[u8], format: RawImageFormat) -> Option<Vec<u8>> {
@@ -653,8 +693,16 @@ pub mod encode {
                             return ResultU8VecEncodeImageError::Err(EncodeImageError::InvalidData);
                         };
 
-                    let swapped = bgr_to_rgb_swap(pixels.as_ref(), image.data_format);
-                    let pixel_bytes = swapped.as_deref().unwrap_or(pixels.as_ref());
+                    let nv12 = nv12_as_rgba(image, pixels.as_ref());
+                    let swapped = if nv12.is_some() {
+                        None
+                    } else {
+                        bgr_to_rgb_swap(pixels.as_ref(), image.data_format)
+                    };
+                    let pixel_bytes = nv12
+                        .as_deref()
+                        .or(swapped.as_deref())
+                        .unwrap_or(pixels.as_ref());
 
                     if let Err(e) = encoder.encode(
                         pixel_bytes,
@@ -684,7 +732,7 @@ pub mod encode {
     encode_func!(encode_pnm, PnmEncoder, "pnm");
 
     #[cfg(feature = "png")]
-    #[must_use] 
+    #[must_use]
     pub fn encode_png(image: &RawImage) -> ResultU8VecEncodeImageError {
         use image::ImageEncoder;
 
@@ -703,8 +751,16 @@ pub mod encode {
                     return ResultU8VecEncodeImageError::Err(EncodeImageError::InvalidData);
                 };
 
-            let swapped = bgr_to_rgb_swap(pixels.as_ref(), image.data_format);
-            let pixel_bytes = swapped.as_deref().unwrap_or_else(|| pixels.as_ref());
+            let nv12 = nv12_as_rgba(image, pixels.as_ref());
+            let swapped = if nv12.is_some() {
+                None
+            } else {
+                bgr_to_rgb_swap(pixels.as_ref(), image.data_format)
+            };
+            let pixel_bytes = nv12
+                .as_deref()
+                .or(swapped.as_deref())
+                .unwrap_or_else(|| pixels.as_ref());
 
             if let Err(e) = encoder.write_image(
                 pixel_bytes,
@@ -726,7 +782,7 @@ pub mod encode {
     }
 
     #[cfg(feature = "jpeg")]
-    #[must_use] 
+    #[must_use]
     pub fn encode_jpeg(image: &RawImage, quality: u8) -> ResultU8VecEncodeImageError {
         let Ok(width) = u32::try_from(image.width) else { return ResultU8VecEncodeImageError::Err(EncodeImageError::DimensionError) };
         let Ok(height) = u32::try_from(image.height) else { return ResultU8VecEncodeImageError::Err(EncodeImageError::DimensionError) };
@@ -738,7 +794,13 @@ pub mod encode {
             let Some(pixels) = image.pixels.get_u8_vec_ref() else {
                     return ResultU8VecEncodeImageError::Err(EncodeImageError::InvalidData);
                 };
-            let Some((pixel_bytes, color)) = jpeg_pixels(pixels.as_ref(), image.data_format) else {
+            // A video frame (NV12) reaches the JPEG fallback as RGBA8 first.
+            let nv12 = nv12_as_rgba(image, pixels.as_ref());
+            let (source, source_format) = match nv12.as_deref() {
+                Some(rgba) => (rgba, RawImageFormat::RGBA8),
+                None => (pixels.as_ref(), image.data_format),
+            };
+            let Some((pixel_bytes, color)) = jpeg_pixels(source, source_format) else {
                 return ResultU8VecEncodeImageError::Err(EncodeImageError::InvalidData);
             };
 
@@ -947,6 +1009,11 @@ pub mod encode {
                     | RawImageFormat::BGRA8
                     | RawImageFormat::RGBA16
                     | RawImageFormat::RGBAF32 => 4,
+                    // Not in ALL_FORMATS (encoded as the RGBA8 it converts to).
+                    RawImageFormat::NV12Rec601Video
+                    | RawImageFormat::NV12Rec601Full
+                    | RawImageFormat::NV12Rec709Video
+                    | RawImageFormat::NV12Rec709Full => 4,
                 };
                 assert_eq!(channels, want, "channel count mismatch for {f:?}");
             }

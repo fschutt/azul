@@ -1,0 +1,16 @@
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<title>A td element with the nowrap attribute should unconditionally apply white-space:nowrap</title>
+<style>
+table { border-spacing: 0; }
+td { width: 10px; padding: 0; }
+div { display: inline-block; background: green; width: 50px; height: 100px; }
+</style>
+</head>
+<body><table>
+  <tbody><tr><td nowrap="">
+    <div></div><div></div>
+  </td>
+</tr></tbody></table>
+</body>
+</html>

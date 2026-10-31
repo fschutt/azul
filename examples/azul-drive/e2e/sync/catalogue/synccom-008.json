@@ -1,0 +1,75 @@
+[
+  {
+    "name": "SYNCCOM-008: a file rewritten in place while it is read for upload never reaches the drive torn; a file deleted while read is not committed",
+    "description": "SYNCCOM-008 (Sync.com): an interrupted and resumed upload left the file unable to open on any device. Rules A6, E5 (changed-during-sync). sync-chaos res-changed-while-uploading.",
+    "steps": [
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "big.txt", "fill": "A", "size": 300000 },
+      { "op": "drive_sync_bg", "device": "a", "pause_at": "mid-read" },
+      { "op": "drive_overwrite_in_place", "device": "a", "path": "big.txt", "fill": "B", "size": 300000 },
+      { "op": "drive_cont", "device": "a" },
+      { "op": "drive_wait", "device": "a", "expect": "any" },
+      { "op": "drive_check", "check": "remote_count", "remote": "r", "count": 0 },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "big.txt", "uniform": true, "same_as": "{root:a}/big.txt" },
+      { "op": "drive_write", "device": "a", "path": "gone.txt", "fill": "C", "size": 300000 },
+      { "op": "drive_sync_bg", "device": "a", "pause_at": "mid-read" },
+      { "op": "drive_rm", "device": "a", "path": "gone.txt" },
+      { "op": "drive_cont", "device": "a" },
+      { "op": "drive_wait", "device": "a", "expect": "any" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "changed-during-sync", "key": "big.txt" },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "gone.txt", "absent": true },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "big.txt", "uniform": true },
+      { "op": "drive_check", "check": "last_pass_quiet", "device": "a" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "SYNCCOM-008: the connection drops in the middle of 20 uploads: the index never names a missing object and the next pass finishes",
+    "description": "SYNCCOM-008 (Sync.com): network drop mid-upload. Rules E5, A7. sync-chaos res-partition-mid-transfer.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_many", "device": "a", "dir": "up", "count": 20, "text_prefix": "part" },
+      { "op": "drive_fault", "device": "a", "cut_after_ops": 8 },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_check", "check": "remote_consistent", "remote": "r" },
+      { "op": "drive_fault", "device": "a", "clear": true },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code_any": ["remote-offline", "transient"] },
+      { "op": "drive_check", "check": "remote_count", "remote": "r", "glob": "up/*", "count": 20 },
+      { "op": "drive_check", "check": "remote_consistent", "remote": "r" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "SYNCCOM-008: an upload killed after its object and modified before the retry commits exactly one whole local version",
+    "description": "SYNCCOM-008 (Sync.com): kill at random points during a multi-part upload and modify the file between attempts. Rules E8, A6, E5.",
+    "steps": [
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "doc.bin", "fill": "A", "size": 6000000 },
+      { "op": "drive_sync", "device": "a", "crash_at": "after-blob", "expect": "crash" },
+      { "op": "drive_overwrite_in_place", "device": "a", "path": "doc.bin", "fill": "B", "size": 6000000 },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "doc.bin", "uniform": true, "same_as": "{root:a}/doc.bin" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "doc.bin", "same_as": "{root:a}/doc.bin" },
+      { "op": "drive_check", "check": "no_temp_files", "device": "a" },
+      { "op": "drive_check", "check": "remote_consistent", "remote": "r" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "last_pass_quiet", "device": "a" },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

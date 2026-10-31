@@ -1,0 +1,62 @@
+[
+  {
+    "name": "SYNCCOM-004: a file moved between folders while the other device was off is moved there too: in B only, nothing sent again",
+    "description": "SYNCCOM-004 (Sync.com): with the Mac off, a move A/f -> B/f on the iPhone made the item appear in both A and B on the Mac. Rules A3 (a move by content identity), E1 (offline changes merge on reconnect). sync-chaos res-offline-edits-reconnect, merge-rename-compose.",
+    "steps": [
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "A/f.txt", "text": "the file that moves" },
+      { "op": "drive_write", "device": "a", "path": "B/other.txt", "text": "other" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_fault", "device": "a", "partition": true },
+      { "op": "drive_rename", "device": "b", "from": "A/f.txt", "to": "B/f.txt" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_fault", "device": "a", "clear": true },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "assert_response", "path": "result.up", "equals": 0 },
+      { "op": "drive_check", "check": "file", "device": "a", "path": "A/f.txt", "absent": true },
+      { "op": "drive_check", "check": "file", "device": "a", "path": "B/f.txt", "text": "the file that moves" },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "A/f.txt", "absent": true },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "B/f.txt", "text": "the file that moves" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "A/f.txt", "absent": true },
+      { "op": "drive_check", "check": "trash_empty", "device": "a" },
+      { "op": "drive_check", "check": "converged" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "last_pass_quiet", "device": "a" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "SYNCCOM-004: a folder of 30 files renamed is a move on both sides: no mass-delete question, nothing in any trash",
+    "description": "SYNCCOM-004 (Sync.com): moves turned into duplicates. Rules A3, D1 (a renamed folder is a move, not a delete). sync-chaos merge-rename-folder-is-move.",
+    "steps": [
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_many", "device": "a", "dir": "old", "count": 30, "text_prefix": "page" },
+      { "op": "drive_write", "device": "a", "path": "readme.txt", "text": "stays" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_rename", "device": "a", "from": "old", "to": "new" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "remote_count", "remote": "r", "glob": "new/*", "count": 30 },
+      { "op": "drive_check", "check": "remote_count", "remote": "r", "glob": "old/*", "count": 0 },
+      { "op": "drive_check", "check": "files_count", "device": "b", "glob": "new/*", "count": 30 },
+      { "op": "drive_check", "check": "files_count", "device": "b", "glob": "old/*", "count": 0 },
+      { "op": "drive_check", "check": "trash_empty", "device": "b" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "mass-delete-held", "absent": true },
+      { "op": "drive_check", "check": "converged" },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

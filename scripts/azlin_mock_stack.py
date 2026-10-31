@@ -1,0 +1,3189 @@
+#!/usr/bin/env python3
+"""A local stand-in for the Azlin stack - the token server and the S3 balancer - for the apps' tests.
+
+No Rust cluster, no cloud, no pip: Python's standard library only.
+
+- S3: AzDrive's stdlib test server (examples/azul-drive/scripts/s3_server.py): SigV4 checked, path
+  style, ListObjectsV2 / Get (Range) / Put / Copy / Delete / Head, one access key. HeadBucket
+  answers as an Azlin node (SRV17): x-azlin-used-bytes (the bucket's stored bytes) and
+  x-azlin-quota-bytes (the quota of the drive's tier); a write that would pass that quota (the
+  stored bytes, the parts of unfinished uploads and the write, less what it replaces) is 403
+  QuotaExceeded with x-azlin-error quota_exceeded, as a node answers it.
+- The token server: the routes of azlin-token (azul-apps iso/crates/azlin-token, drives.rs) the apps
+  use, answering the same JSON:
+
+    POST /v1/drives {"name": ..., "tier": ...}      201 the drive bundle (a development token
+                                                    server's sign-up: no payment)
+    POST /v1/drives/<id>/credentials                200 a new bundle with a NEW drive token and
+        Authorization: Bearer <drive token>         family_expires_at; until the new token is
+                                                    presented the old one may ask again (a lost
+                                                    answer), after that it is dead: using it
+                                                    again revokes the
+                                                    whole family (401 token_reuse), after
+                                                    which every token of it is refused (401
+                                                    credentials_revoked); a recovery-pending
+                                                    family gets none until its lockdown's 48 h
+                                                    are over (403 lockdown_pending, D42) - then
+                                                    the drive is handed over to it (every other
+                                                    family revoked; finish_pending_lockdowns)
+    GET /health, GET /v1/health
+    GET /v1/tiers[?country=XX]                      200 the price ladder (tiers.rs: sizes, cents
+                                                    a month / a year, the methods) in the
+                                                    country's currency where the signed ladder
+                                                    has its row (PLN, CHF, GBP, USD, JPY, BRL),
+                                                    else EUR; 403 blocked_country for a
+                                                    country no checkout may come from
+    POST /v1/checkout {"tier", "months", "method",  201 a checkout: its pay_url, its amount
+                       "claim_key"}                 (400 claim_key_required without the key)
+    GET /v1/checkout/<id>                           200 pending | approved (the drive bundle
+                                                    SEALED to the claim key as "sealed_signup",
+                                                    to every poll for 30 days) | declined |
+                                                    expired
+    POST /v1/checkout/<id>/pay {"card_number"}      200 the test provider: 4242 4242 4242 4242
+                                                    approves (the drive is made), others decline
+    POST /v1/checkout {"tier", "months",            201 cash by post (cash contract v1; 400
+                       "method": "cash",            cash_unavailable after set_cash(False), and
+                       "claim_key"}                 GET /v1/tiers lists cash only while it is
+                                                    taken): awaiting_cash with its amount,
+                                                    currency, the activation code AZC1-...
+                                                    (scripts/azlin_cash.py: the id's 16 bytes,
+                                                    MAC'd with the token server's test key
+                                                    azlin_cash.MOCK_KEY), the address to post to
+                                                    and an end 60 days on; its poll answers
+                                                    awaiting_cash (the code, the address and the
+                                                    end again) until the operator's switch -
+                                                    activate_cash(id): approved, the drive sealed
+                                                    to its claim key; reject_cash(id, reason):
+                                                    rejected with the reason - and expired after
+                                                    its end
+    GET /v1/pay/<id>                                200 the payment page (HTML)
+    GET /v1/tokens/keys                             200 the period tokens' issuer keys: one per
+                                                    tier, of this year (SPKI PEM)
+    POST /v1/tokens/issue {"checkout_id",           200 one blind signature per blinded message
+        "issue_key", "key_id",                      and the schedule, one month a month from the
+        "blinded": ["<base64>"]}                    approval (400 issue_key_required /
+                                                    key_id_required, 403 issue_key_wrong, 404
+                                                    no_such_checkout, 409 not_paid /
+                                                    already_issued / not_due with the schedule;
+                                                    409 key_changed with the current key_id and
+                                                    its key for a key other than this or last
+                                                    year's, nothing counted); the identical
+                                                    request again (same key_id, messages, order)
+                                                    the same answer, counted once
+    POST /v1/drives/<id>/redeem {"tier", "year",    200 the drive's period a month longer, the
+        "nonce", "signature", "randomizer"}         same token again from the same drive the
+                                                    same 200 (400 bad_token / wrong_tier, 409
+                                                    token_used from another drive); the
+        Authorization: Bearer <drive token>         drive token is checked, not spent - the one
+                                                    the family rotated from last counts too
+    GET /v1/drives/<id>                             200 the drive's tier, quota and period and a
+        Authorization: Bearer <drive token>         pending recovery-key lockdown (a read: the
+                                                    previous token counts too; an older one is a
+                                                    reuse); a banned drive (ban contract v1, the
+                                                    switch ban(id, reason, grace_secs)): status
+                                                    banned, ban_reason, ban_until, read-only -
+                                                    its credentials carry the same, its grants
+                                                    (members, keys, recovery, restore, redeem, a
+                                                    voucher on it) are 403 drive_banned, its
+                                                    public links revoked, its bucket refuses
+                                                    writes and links (x-azlin-error
+                                                    drive_banned); past the end every route of it
+                                                    is 403 drive_banned (with ban_reason and
+                                                    ban_until) and its bucket refuses reads too
+    POST /v1/drives/<id>/recovery                   200 {"ok", "key_id", "label"}: the drive's
+        {"recovery_pubkey", "label"?, a drive       only recovery key from now on (Ed25519,
+        token; once it has one: "nonce",            standard base64; scripts/azlin_ed25519.py);
+        "signature", "key_id"?}                     once the drive has a key, signed by a current
+                                                    one over recovery:<drive>:<new key>:<nonce>
+                                                    (403 recovery_key_required without)
+    GET /v1/drives/<id>/recovery_keys               200 {"keys": [{"key_id", "label",
+        Authorization: Bearer <drive token>         "recovery_pubkey", "created_at",
+                                                    "verified"}]} (a key from before: rk_legacy)
+    POST /v1/drives/<id>/recovery_keys              201 the key; signed by a current key over
+        {"recovery_pubkey", "label", "nonce",       recovery-add:<drive>:<recovery_pubkey>:<nonce>
+        "signature", "key_id"?}, a drive token      (409 recovery_key_exists,
+                                                    too_many_recovery_keys - 10)
+    DELETE /v1/drives/<id>/recovery_keys/<key_id>   200 {"removed"}; signed over
+        {"nonce", "signature", "key_id"?}, a token  recovery-remove:<drive>:<key_id>:<nonce> (409
+                                                    last_recovery_key, 404 no_such_key)
+    POST /v1/recovery/challenge                     200 {"challenge": "rc1.<expires>.<random>.
+                                                    <mac>", "expires_at"}: 5 minutes
+    POST /v1/recovery/lookup {"recovery_pubkey",    200 {"drives": [{"drive_id", "key_id"}]} (none
+        "challenge", "signature"}                   for a key nobody registered); the signature
+                                                    over recovery-lookup:<challenge> (401
+                                                    bad_challenge, 401 unauthorized, 503
+                                                    not_verified). Both recovery routes: 20 per
+                                                    10 minutes per address (429 rate_limited)
+    A recovery-pending family (D42) gets 403        on every drive-token route but the status
+        {"error": "lockdown_pending", "message",    (credentials, members, keys, a token
+        "pending_until"}                            lockdown, recovery, recovery_keys, restore,
+                                                    redeem, vouchers with a drive): nothing
+                                                    written, the token not rotated; its GET
+                                                    /v1/drives/<id> is {"id", "status":
+                                                    "lockdown_pending", "lockdown_pending_until",
+                                                    "you"} only. Every signup and refresh answer
+                                                    names lockdown_pending_until
+    POST /v1/drives/<id>/lockdown                   with a drive token: every other family
+        {"nonce", "signature"} or a drive token     revoked, a new one for the caller (200, a
+                                                    bundle) - a pending recovery-key lockdown
+                                                    and its family left as they are (F12; the
+                                                    pending family itself: 403
+                                                    lockdown_pending); with the recovery key's
+                                                    signature over lockdown:<drive>:<nonce>: 202
+                                                    {pending_until, drive_token} - frozen for
+                                                    48 h, a `recovery-pending` family (401 a bad
+                                                    signature, 409 nonce_used, 400
+                                                    no_recovery_key)
+    POST /v1/drives/<id>/claim {"ticket"}, NO       201 {"member": "pickup-<n>", "drive_token",
+        token                                       "claims_left"}: a paid drive picked up on
+                                                    another computer gets a token family of its
+                                                    own by the ticket its sealed sign-up carries
+                                                    ("claim": {"ticket", "max": 3,
+                                                    "window_days": 30}); 401 another ticket or a
+                                                    drive without one, 409 claims_used after
+                                                    three, 410 claim_expired 30 days after the
+                                                    first, 403 drive_banned
+    POST /v1/drives/<id>/lockdown/cancel            200 {"cancelled": true}: signed by one of the
+        {"nonce", "signature", "key_id"?}, NO       drive's recovery keys over
+        token (F12)                                 lockdown-cancel:<drive>:<nonce> (403
+                                                    recovery_key_required without a signature,
+                                                    401 another key's, 409 no_pending_lockdown).
+                                                    A device's lockdown leaves a pending recovery
+                                                    alone
+    POST /v1/vouchers/redeem {"code", "drive_id"?,  with a drive (its token, a read): 200 the days
+        "tier"?}                                    added (months and value pro rata); without:
+                                                    201 a new drive's sign-up; 400
+                                                    voucher_invalid / voucher_too_small. The
+                                                    codes it takes: add_voucher(code, months,
+                                                    value_cents, tier)
+
+  With fake payment providers (`--providers`, `set_providers`; CHECKOUT-PLAN §3.11, §4.2 - see
+  "The fake payment providers" below for their pages and webhooks):
+
+    GET /v1/checkout/options?tier&months&country    200 for the buyer's country: the methods a
+        &currency&surfaces                          fake has on AND routed there, in its order of
+                                                    use (`rank`), priced in its currency, each
+                                                    with `needs_identity` (what its provider
+                                                    learns of the payer) and `identity_in_app`
+                                                    (the part the app asks for), `preferred` on
+                                                    the cheaper route; the price with the
+                                                    country's VAT, the legal texts (404 without
+                                                    providers: the v1 checkout; 403
+                                                    blocked_country)
+    POST /v1/checkout {..., "provider", "method",   201 + provider, method, surface (a fields page
+                       "surface", "vat_country",    with its client secret, a hosted page, a page
+                       "withdrawal_consent",        for the browser), return pages, expires_at,
+                       "payer"?}                    the amount in the country's currency; 400
+                                                    payer_required where the method asks the app
+                                                    for the payer's details (they are never kept)
+    POST /v1/checkout/<id>/surface {"kind"}         200 the same checkout on another surface
+    POST /v1/checkout/<id>/abandon                  200 the provider session expires
+                                                    (expired); a paid checkout - approved, or
+                                                    a session the payer paid whose webhook has
+                                                    not come yet - is 409 checkout_paid and
+                                                    stays, the webhook approves it (routes.rs
+                                                    `session_complete`); 502
+                                                    provider_unavailable after the switch
+                                                    fail_abandon(n): nothing changed
+    POST /v1/webhook/<provider>                     200 a signed provider webhook (each event once)
+    GET /fields/fake-stripe/v1, /fake-*/...,        the fakes' pages; /return/ok|cancel|pending;
+        /_bridge/...                                the bridge (204)
+
+  The claim (CLAIM CONTRACT v1, scripts/azlin_claim.py): a checkout names the standard padded
+  base64 of the X25519 public key the app made for it; the approved checkout's sign-up is sealed
+  to it (X25519 + HKDF-SHA256 "azlin-claim-v1" + ChaCha20-Poly1305, the checkout id as associated
+  data), so only that app opens it - however late it asks, from another process, after a
+  restart. The plaintext `signup` of earlier token servers is gone. The sealed sign-up carries
+  `period_tokens: {"checkout_id", "months", "issue_key"}` (AZLINSEC17 F24): the checkout's months
+  as blind-signed period tokens (RFC 9474, scripts/azlin_period.py), issued only against that key
+  (the mock keeps its hash) - the checkout id alone issues nothing.
+
+  Not azlin-token's: a fake OAuth 2.0 token endpoint for the consumer clouds' sign-ins
+  (AzDrive's Connect data source > Google Drive / Dropbox / OneDrive, AUTHSESSION17), so a test
+  signs in without a provider:
+
+    POST /oauth/<provider>/token                    200 RFC 6749 tokens (access_token,
+        application/x-www-form-urlencoded:          refresh_token, expires_in, token_type
+        grant_type=authorization_code, code,        Bearer). The code must be the one the headless
+        code_verifier, redirect_uri, client_id      sign-in fake hands out for the verifier:
+                                                    e2e-<BASE64URL(SHA256(verifier))>
+                                                    (AZ_AUTH_SESSION_REDIRECT=
+                                                    {redirect_uri}?code=e2e-{code_challenge}&
+                                                    state={state}) - so PKCE S256 is checked;
+                                                    the client id OAUTH_CLIENT_ID (401
+                                                    invalid_client), 400 invalid_grant else
+        grant_type=refresh_token, refresh_token,    200 a new access token (onedrive also a new
+        client_id                                   refresh token: it rotates); 400
+                                                    invalid_grant for one it did not issue
+
+  Its errors are RFC 6749's {"error", "error_description"}; every request is in
+  `state.oauth_requests` (grant, client, redirect URI, whether the code or the refresh token
+  was good).
+
+  Every call's hello (x-azlin-client) and idempotency key (x-azlin-idempotency) are logged with
+  it (`requests()`: `client`, `idempotency`), never required - as the token server reads them
+  until the version minimum. The node codes' statuses and S3 codes are the contract crate's
+  (scripts/azlin_contract.py reads its fixtures).
+
+  Errors are {"error": "<code>", "message": "<sentence>"} with azlin-token's codes (no_such_drive,
+  unauthorized, token_reuse, credentials_revoked, bad_tier, no_such_checkout, claim_key_required,
+  bad_claim_key, issue_key_required, issue_key_wrong, not_paid, already_issued, bad_token,
+  wrong_tier, token_used, not_found). Ids look like the real ones: drives d_<base32>, buckets d-<base32>,
+  tokens dt_<family>.<generation>.<random>. The S3 credentials are the S3 server's one key with
+  a session token and an expiry --ttl seconds ahead (the real token server: 12 hours, derived per
+  drive).
+
+Every bundle (sign-up, refresh) names the drive's node list and failover URLs as the real token
+server does: each ready node's `name`, `url` (and `public_url`), `ipv4`, `ready` and - when the node
+runs iroh - `iroh_id` and `iroh_addrs` (its `ip:port` sockets, the fixed UDP port), and `failover`
+(the failover domains' URLs). The mock's one node is its S3 server; `--node URL[,IP...]` lists
+others instead (an E2E's unresolvable names with the addresses they are reached at), `--iroh-id` /
+`--iroh-addr` give the first node an iroh endpoint, `--failover-url` fills the failover list.
+
+scripts/azlin_token_conformance.py runs the same HTTP checks against this server and the real one
+(`azctl dev up --processes`), so the two cannot drift apart unnoticed.
+
+Usage:
+
+    python3 scripts/azlin_mock_stack.py [--token-port 8081] [--s3-port 9000] [--root DIR]
+        [--ttl 43200] [--host 127.0.0.1] [--node URL[,IP...]]... [--iroh-id ID]
+        [--iroh-addr IP:PORT]... [--failover-url URL]...
+
+It prints `AZLIN_MOCK_TOKEN_URL <url>` and `AZLIN_MOCK_S3_URL <url>` once both listen (port 0 picks
+free ports). As a module:
+
+    stack = azlin_mock_stack.start(root)             # free ports
+    stack.token_url, stack.s3_url, stack.s3          # the s3_server.Server (requests(), ...)
+    stack.stop()
+"""
+import argparse
+import base64
+import calendar
+import hashlib
+import hmac
+import html
+import http.server
+import ipaddress
+import json
+import os
+import secrets
+import sys
+import tempfile
+import threading
+import time
+import urllib.parse
+import urllib.error
+import urllib.parse
+import urllib.request
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+REPO = os.path.abspath(os.path.join(HERE, '..'))
+sys.path.insert(0, os.path.join(REPO, 'examples', 'azul-drive', 'scripts'))
+sys.path.insert(0, HERE)
+
+import azlin_cash  # noqa: E402
+import azlin_claim  # noqa: E402
+import azlin_ed25519  # noqa: E402
+import azlin_period  # noqa: E402
+import azlin_contract  # noqa: E402
+import s3_server  # noqa: E402
+
+# The tiers azlin-token knows (tiers.rs): id, bytes, cents a month, cents a year; a sign-up
+# without one gets the first.
+TIER_LADDER = [
+    ('100GB', 100_000_000_000, 99, 990),
+    ('500GB', 500_000_000_000, 299, 2990),
+    ('1TB', 1_000_000_000_000, 499, 4990),
+    ('2TB', 2_000_000_000_000, 899, 8990),
+    ('6TB', 6_000_000_000_000, 1999, 19990),
+    ('12TB', 12_000_000_000_000, 3499, 34990),
+]
+TIERS = {tier: quota for tier, quota, _, _ in TIER_LADDER}
+DEFAULT_TIER = '100GB'
+# What a checkout takes (payments.rs), and the test provider's cards: the first approves, the
+# second declines.
+METHODS = ['sepa', 'bank_transfer', 'prepaid', 'voucher', 'app_store', 'card']
+PREPAY_MONTHS = [1, 3, 6, 12, 24]
+APPROVING_CARD = '4242424242424242'
+DECLINING_CARD = '4000000000000002'
+# The fake OAuth token endpoint's one client id, and the providers it answers for.
+OAUTH_CLIENT_ID = 'azdrive-e2e-client'
+OAUTH_PROVIDERS = ('google', 'dropbox', 'onedrive')
+# How long an approved checkout keeps its sealed sign-up (then it answers "expired").
+SEALED_KEEP_SECS = 30 * 86400
+# How long a recovery-key lockdown waits for the recovery code to cancel it, and how long
+# deletes pause after a lockdown.
+LOCKDOWN_PENDING_SECS = 48 * 3600
+# How long the device a lockdown revoked may ask again for the grant whose answer it lost
+# (drives.rs LOCKDOWN_REPEAT_SECS).
+LOCKDOWN_REPEAT_SECS = 600
+# A drive's recovery keys (recovery.rs): at most ten, labels of 64 characters; the key from
+# before several keys, and the label it and a replacement without one get.
+RECOVERY_KEYS_MAX = 10
+RECOVERY_LABEL_MAX = 64
+RECOVERY_LEGACY_KEY_ID = 'rk_legacy'
+RECOVERY_KIT_LABEL = 'recovery code'
+# The lookup by recovery key: its challenge's life, the rate limit of both routes per address.
+RECOVERY_CHALLENGE_SECS = 300
+RECOVERY_RATE_LIMIT = 20
+RECOVERY_RATE_WINDOW_SECS = 600
+LOCKDOWN_DELETE_PAUSE_SECS = 24 * 3600
+# A paid drive's pick-ups by its claim ticket (SRV17): at most this many, within this long of the
+# first.
+CLAIMS_MAX = 3
+CLAIM_WINDOW_SECS = 30 * 86400
+# A prepay's months are issued one a month from its approval (azlin_contract::INSTALMENT_SECS).
+INSTALMENT_SECS = 30 * 86400
+# Cash by post (cash contract v1): how long a cash checkout waits for its letter, and the address
+# its slip names - a made-up test operator's.
+CASH_KEEP_SECS = 60 * 86400
+CASH_MAIL_TO = {'name': 'Azlin Test Operator',
+                'lines': ['Postfach 10 20 30', '12345 Teststadt', 'Germany']}
+# A development token server's test vouchers (azlin-proto's voucher module): never used up.
+TEST_VOUCHERS = {
+    'AZLIN-TEST-1M': {'months': 1, 'value_cents': 0, 'tier': None},
+    'AZLIN-TEST-EUR10': {'months': 0, 'value_cents': 1000, 'tier': None},
+}
+
+# ==== The fake payment providers (CHECKOUT-PLAN §4.2) ====
+#
+# One fake per provider shape, with the shape's pages, redirects and signed webhooks - not its
+# look. They exist only when the stack is started with `--providers` (or after
+# `stack.token.state.set_providers([...])`): without them the token server has no payment
+# options (GET /v1/checkout/options answers 404) and the apps pay on the v1 page. The apps'
+# registry (azul-pay, feature `fake-providers`) knows the same ids, and takes them only from a
+# token server on this computer.
+#
+#   fake-stripe      card: our fields page /fields/fake-stripe/v1 (plain inputs taking Stripe's
+#                    test cards, talking to the app through /_bridge/ navigations), a hosted
+#                    page /fake-stripe/c/pay/cs_test_<ref>, the browser; webhooks signed with
+#                    Stripe's scheme (Stripe-Signature: t=..,v1=HMAC-SHA256(secret, "t.body"))
+#   fake-gocardless  SEPA Direct Debit: a Billing Request Flow page /fake-gocardless/flow/BRQ<ref>
+#                    taking a test IBAN; webhooks with Webhook-Signature (HMAC-SHA256 of the body)
+#   fake-paypal      PayPal: a login + approve page on "localhost" (another host than the other
+#                    fakes': the system browser only); webhooks with x-provider-signature
+#   fake-mor         a merchant of record's hosted checkout /fake-mor/checkout/<ref> (opt-in)
+#   fake-dlocal      dLocal's shape (opt-in): Pix, Boleto, OXXO in the browser only; its API wants
+#                    the payer's name, email and national ID in the checkout request (the app
+#                    asks for them; nothing of them is kept), its page /fake-dlocal/pay/<ref>
+#
+# fake-stripe's local methods: BLIK's page takes any six digits but 000000; P24, iDEAL, EPS,
+# TWINT and Wero are test pages to authorize or fail (Stripe's own test pages' choice).
+#
+# The return pages /return/ok, /return/cancel, /return/pending and the bridge /_bridge/... live
+# on the token server's host (pay.azlin.io's stand-in). A provider only ever sees the
+# checkout's random `provider_ref` (pr_...), never the checkout id.
+FAKE_PROVIDERS = ('fake-stripe', 'fake-gocardless', 'fake-paypal', 'fake-mor', 'fake-dlocal')
+# What `set_providers` may offer: the fakes, and cash by post (no fake: Azlin's own, on paper).
+OFFERABLE = FAKE_PROVIDERS + ('cash',)
+# The providers a stack started with `--providers` without a list offers.
+DEFAULT_PROVIDERS = ('fake-stripe', 'fake-gocardless', 'fake-paypal')
+# Each fake's methods the operator switched on, and their surfaces, best first (the gate: a method
+# no provider here has on is never offered). fake-stripe carries Stripe's local methods of the
+# stack's countries on its hosted page (BLIK's code, TWINT's QR) or in the browser (a bank's
+# login); fake-dlocal is dLocal's shape - its API wants the payer's name, email and national ID
+# in the merchant's request and its pages are never framed.
+PROVIDER_METHODS = {
+    'fake-stripe': {'card': ['fields', 'page', 'browser'], 'blik': ['page', 'browser'],
+                    'p24': ['browser'], 'twint': ['page', 'browser'], 'ideal': ['browser'],
+                    'eps': ['browser'], 'wero': ['browser']},
+    'fake-gocardless': {'sepa_debit': ['page', 'browser']},
+    'fake-paypal': {'paypal': ['browser']},
+    'fake-mor': {'card': ['page', 'browser']},
+    'fake-dlocal': {'pix': ['browser'], 'boleto': ['browser'], 'oxxo': ['browser']},
+    'cash': {'cash': ['paper']},
+}
+# How each method settles (the app waits, or checks back in days).
+METHOD_SETTLES = {'sepa_debit': 'days', 'p24': 'days', 'boleto': 'days', 'oxxo': 'days',
+                  'cash': 'post'}
+# How long a method's code, QR code or voucher lives (minutes).
+METHOD_EXPIRES = {'blik': 2, 'pix': 60, 'oxxo': 7200, 'boleto': 4320}
+# What a method tells its provider about the payer (`needs_identity`, wherever it is typed) and
+# the part the provider wants in the merchant's request (`identity_in_app`: the app asks for
+# exactly these, they come once with the checkout and are never kept here) - the shape of
+# azlin-token's options (PAYCUR23).
+METHOD_IDENTITY = {
+    ('fake-stripe', 'card'): (['name'], []),
+    ('fake-mor', 'card'): (['name', 'email'], []),
+    ('fake-gocardless', 'sepa_debit'): (['name', 'email'], []),
+    ('fake-dlocal', 'pix'): (['name', 'email', 'national_id'], ['name', 'email', 'national_id']),
+    ('fake-dlocal', 'boleto'): (['name', 'email', 'national_id'],
+                                ['name', 'email', 'national_id']),
+    ('fake-dlocal', 'oxxo'): (['name', 'email', 'national_id'], ['name', 'email', 'national_id']),
+}
+# The methods people in each country pay with, most used first (the payment methods registry's
+# order of use, azul-apps iso/crates/azul-pay-methods): what the options offer for a buyer there,
+# in this order; `*` for every other country.
+COUNTRY_METHODS = {
+    'DE': ['paypal', 'sepa_debit', 'card', 'wero'],
+    'AT': ['eps', 'card', 'paypal', 'sepa_debit'],
+    'NL': ['ideal', 'card', 'paypal', 'sepa_debit'],
+    'FR': ['card', 'paypal', 'wero', 'sepa_debit'],
+    'PL': ['blik', 'p24', 'card', 'paypal'],
+    'CH': ['twint', 'card', 'paypal'],
+    'BR': ['pix', 'card', 'boleto'],
+    'MX': ['card', 'oxxo'],
+    '*': ['card', 'paypal'],
+}
+# Each country's currency where the stack's signed ladder has a row in it; every other country
+# pays in euros.
+COUNTRY_CURRENCY = {'PL': 'PLN', 'CH': 'CHF', 'LI': 'CHF', 'GB': 'GBP', 'US': 'USD', 'JP': 'JPY',
+                    'BR': 'BRL'}
+# The ladder's rows in other currencies, frozen when it was signed: per tier the price of a month
+# and of a year in the currency's minor units (the yen has none: 160 is 160 yen).
+LADDER_ROWS = {
+    'PLN': {'100GB': (449, 4490), '500GB': (1299, 12990), '1TB': (2149, 21490),
+            '2TB': (3899, 38990), '6TB': (8599, 85990), '12TB': (14999, 149990)},
+    'CHF': {'100GB': (99, 990), '500GB': (299, 2990), '1TB': (499, 4990), '2TB': (849, 8490),
+            '6TB': (1899, 18990), '12TB': (3299, 32990)},
+    'GBP': {'100GB': (89, 890), '500GB': (259, 2590), '1TB': (429, 4290), '2TB': (779, 7790),
+            '6TB': (1729, 17290), '12TB': (2999, 29990)},
+    'USD': {'100GB': (99, 990), '500GB': (329, 3290), '1TB': (549, 5490), '2TB': (979, 9790),
+            '6TB': (2199, 21990), '12TB': (3799, 37990)},
+    'JPY': {'100GB': (160, 1600), '500GB': (480, 4800), '1TB': (800, 8000), '2TB': (1450, 14500),
+            '6TB': (3200, 32000), '12TB': (5600, 56000)},
+    'BRL': {'100GB': (590, 5900), '500GB': (1790, 17900), '1TB': (2990, 29900),
+            '2TB': (5390, 53900), '6TB': (11990, 119900), '12TB': (20990, 209900)},
+}
+# VAT per country (permille; the stack's few, else Germany's).
+VAT_RATES = {'PL': 230, 'CH': 81, 'AT': 200, 'NL': 210, 'FR': 200, 'BR': 0, 'US': 0, 'GB': 200,
+             'JP': 100, 'MX': 160}
+# Countries no checkout may come from - where EU sanctions forbid the sale (azlin-tax's
+# jurisdictions table; Iran, Syria and Cuba are sold to): the options, the tier list and a
+# checkout refuse them 403 blocked_country with azlin-token's sentence.
+NOT_SERVED = {'BY', 'KP', 'RU'}
+NOT_SERVED_SENTENCE = 'Azlin Storage cannot be sold to %s (EU sanctions)'
+# BLIK's test codes (Stripe's: any six digits pay); this one is refused, for a declined try.
+DECLINING_BLIK = '000000'
+PROVIDER_KINDS = {'fake-mor': 'merchant_of_record'}
+# The local webhook secrets (no real provider's).
+WEBHOOK_SECRETS = {
+    'fake-stripe': 'whsec_local_fake_stripe',
+    'fake-gocardless': 'local-fake-gocardless-webhook-secret',
+    'fake-paypal': 'local-fake-paypal-webhook-secret',
+    'fake-mor': 'local-fake-mor-webhook-secret',
+    'fake-dlocal': 'local-fake-dlocal-webhook-secret',
+}
+# Stripe's libraries' default tolerance for a webhook's timestamp.
+STRIPE_TOLERANCE_SECS = 300
+# The test IBANs of the fake GoCardless: the first is mandated, the second fails.
+APPROVING_IBAN = 'DE89370400440532013000'
+DECLINING_IBAN = 'DE62370400440532013001'
+# Where SEPA Direct Debit is offered (the fake GoCardless's countries).
+SEPA_COUNTRIES = {
+    'AT', 'BE', 'BG', 'CY', 'CZ', 'DE', 'DK', 'EE', 'ES', 'FI', 'FR', 'GR', 'HR', 'HU', 'IE',
+    'IT', 'LT', 'LU', 'LV', 'MT', 'NL', 'PL', 'PT', 'RO', 'SE', 'SI', 'SK', 'IS', 'LI', 'NO',
+    'CH', 'GB', 'MC', 'SM', 'VA', 'AD',
+}
+VAT_PERMILLE = 190
+
+# The fake Stripe's fields page: plain inputs, no script but its own; the inputs (publishable
+# key, client secret, locale, look) come in the fragment; it tells the app through main-frame
+# navigations to /_bridge/<message> (which the app cancels) and hears the app's commands as new
+# fragments (hashchange).
+FIELDS_PAGE = """<!doctype html>
+<html><head><meta charset="utf-8"><title>Fake Stripe card fields</title>
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'">
+<style>
+body { margin: 0; padding: 8px; font: 14px system-ui, sans-serif; background: transparent; }
+input { box-sizing: border-box; width: 100%; margin: 0 0 8px 0; padding: 8px; font: inherit;
+        border: 1px solid #b8b8b8; border-radius: 4px; }
+.row { display: flex; gap: 8px; }
+</style></head>
+<body>
+<input id="number" placeholder="Card number (4242 4242 4242 4242)" autocomplete="cc-number">
+<div class="row"><input id="exp" placeholder="MM / YY"><input id="cvc" placeholder="CVC"></div>
+<script>
+(function () {
+  var inputs = new URLSearchParams(location.hash.slice(1));
+  var secret = inputs.get('cs');
+  var queue = [];
+  function flush() {
+    if (!queue.length) { return; }
+    location.href = queue.shift();
+    if (queue.length) { setTimeout(flush, 150); }
+  }
+  function bridge(message, args) {
+    var query = new URLSearchParams(args || {}).toString();
+    queue.push('/_bridge/' + message + (query ? '?' + query : ''));
+    if (queue.length === 1) { setTimeout(flush, 0); }
+  }
+  function digits() { return document.getElementById('number').value.replace(/\\D/g, ''); }
+  function brand(n) {
+    if (/^4/.test(n)) { return 'visa'; }
+    if (/^5[1-5]/.test(n)) { return 'mastercard'; }
+    if (/^3[47]/.test(n)) { return 'amex'; }
+    return 'unknown';
+  }
+  var last = '';
+  function changed() {
+    var n = digits();
+    var complete = n.length >= 15 && document.getElementById('exp').value.length >= 4 &&
+                   document.getElementById('cvc').value.length >= 3;
+    var now = brand(n) + (complete ? '1' : '0');
+    if (now === last) { return; }
+    last = now;
+    bridge('brand', {v: brand(n)});
+    bridge('complete', {v: complete ? '1' : '0'});
+  }
+  ['number', 'exp', 'cvc'].forEach(function (id) {
+    document.getElementById(id).addEventListener('input', changed);
+  });
+  window.addEventListener('hashchange', function () {
+    var cmd = new URLSearchParams(location.hash.slice(1));
+    if (cmd.get('cmd') === 'reset') { location.reload(); return; }
+    if (cmd.get('cmd') !== 'confirm') { return; }
+    fetch('/fake-stripe/confirm', {method: 'POST', headers: {'content-type': 'application/json'},
+      body: JSON.stringify({client_secret: secret, card_number: digits(), name: cmd.get('name')})})
+      .then(function (r) { return r.json(); })
+      .then(function (answer) {
+        var args = {v: answer.result};
+        if (answer.code) { args.code = answer.code; }
+        if (answer.last4) { bridge('last4', {v: answer.last4}); }
+        if (answer.message) { bridge('error', {code: answer.code, message: answer.message}); }
+        bridge('result', args);
+      });
+  });
+  bridge('ready');
+})();
+</script></body></html>
+"""
+
+
+def page(title, body):
+    """A plain page of a fake provider."""
+    return ('<!doctype html><html><head><meta charset="utf-8"><title>%s</title><style>body '
+            '{ font: 15px system-ui, sans-serif; margin: 24px; } input, button { font: inherit; '
+            'padding: 6px; }</style></head><body><h1>%s</h1>%s</body></html>'
+            % (html.escape(title), html.escape(title), body))
+
+
+def currency_of(country):
+    """The currency a buyer in `country` pays in: the country's where the ladder has a row in it,
+    else the euro."""
+    return COUNTRY_CURRENCY.get((country or '').strip().upper(), 'EUR')
+
+
+def check_served(country):
+    """Refuses a buyer from a country no checkout may come from (403 blocked_country)."""
+    code = (country or '').strip().upper()
+    if code in NOT_SERVED:
+        raise ApiError(403, 'blocked_country', NOT_SERVED_SENTENCE % code)
+
+
+def ladder_prices(tier, currency):
+    """A tier's (month, year) prices in `currency`'s minor units: its frozen row, else euros."""
+    row = LADDER_ROWS.get(currency)
+    if row is not None:
+        return row[tier]
+    return next((m, y) for t, _, m, y in TIER_LADDER if t == tier)
+
+
+def tier_list(cash=False, country=''):
+    """GET /v1/tiers[?country=XX] as azlin-token answers it (tiers.rs `ladder`): priced in the
+    buyer's country's currency where the signed ladder has that row; `cash` among the methods
+    only where the server takes cash by post."""
+    currency = currency_of(country)
+    return {
+        'tiers': [{'id': tier, 'quota_bytes': quota,
+                   'price_cents_month': ladder_prices(tier, currency)[0],
+                   'price_cents_year': ladder_prices(tier, currency)[1], 'currency': currency,
+                   'first_month_free': True, 'prepay_months': PREPAY_MONTHS}
+                  for tier, quota, _, _ in TIER_LADDER],
+        'methods': METHODS + (['cash'] if cash else []),
+        'legal': {
+            'withdrawal_consent': 'I agree that the service starts immediately and acknowledge '
+                                  'that I lose my right of withdrawal once the service has begun.',
+            'sepa_prenotification': 'The amount will be debited from your account on the 1st of '
+                                    'each month; the first debit follows the free month.',
+            'small_amount_invoice': True,
+        },
+    }
+
+
+def price_cents(tier, months, currency='EUR'):
+    """A tier's price for `months` months in `currency` (payments: the yearly price per 12
+    months)."""
+    month, year = ladder_prices(tier, currency)
+    return (months // 12) * year + (months % 12) * month
+
+
+def month_worth(tier):
+    """A tier's month in euro cents, a twelfth of its year (blind.rs: what a tier change and
+    a month of another tier are credited by)."""
+    return max(price_cents(tier, 12) // 12, 1)
+
+
+def money_text(amount, currency):
+    """`amount` minor units of `currency` as a fake provider's page writes it: `PLN 4.49`,
+    `JPY 160` (the yen has no minor unit)."""
+    if currency in ('JPY', 'KRW', 'CLP', 'ISK', 'VND'):
+        return '%s %d' % (currency, amount)
+    return '%s %d.%02d' % ((currency,) + divmod(amount, 100))
+
+
+def payer_problem(identity, payer):
+    """What is missing of the payer's details a method asks the app for (a sentence), or None."""
+    in_app = identity[1] if identity else []
+    if not in_app:
+        return None
+    payer = payer if isinstance(payer, dict) else {}
+    missing = [f for f in in_app if not str(payer.get(f) or '').strip()]
+    if missing:
+        return 'this payment method needs the payer\'s %s' % ', '.join(missing)
+    if 'email' in in_app and '@' not in str(payer.get('email')):
+        return 'the payer\'s email address is no email address'
+    return None
+DEFAULT_TTL = 12 * 3600
+REGION = s3_server.DEFAULT_REGION
+ACCESS_KEY = 'AZLINMOCKKEY'
+SECRET_KEY = 'azlin-mock-secret-key'
+
+
+def oauth_code_for(code_verifier):
+    """The authorization code the headless sign-in fake hands out for `code_verifier`:
+    e2e-<BASE64URL(SHA256(verifier))>, its PKCE S256 challenge."""
+    digest = hashlib.sha256(code_verifier.encode('ascii', 'replace')).digest()
+    return 'e2e-' + base64.urlsafe_b64encode(digest).rstrip(b'=').decode('ascii')
+
+
+def b32(raw):
+    """azlin_proto::b32: lowercase, unpadded base32."""
+    return base64.b32encode(raw).decode('ascii').rstrip('=').lower()
+
+
+def random_id(prefix):
+    return prefix + b32(secrets.token_bytes(16))
+
+
+def rfc3339(unix):
+    return time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(unix))
+
+
+def token_hash(token):
+    return hashlib.sha256(token.encode('utf-8')).hexdigest()
+
+
+# The node code of each read-only reason (azlin-contract read_only.rs, fixtures/read_only_why.json).
+READ_ONLY_CODES = {e['why']: e['code'] for e in azlin_contract.fixture('read_only_why.json')}
+
+
+class ApiError(Exception):
+    def __init__(self, status, code, message, extra=None):
+        super().__init__(message)
+        self.status, self.code, self.message = status, code, message
+        # More fields of the error answer (key_changed's key_id and public_key_pem).
+        self.extra = extra or {}
+
+
+def node_entry(name, url, addresses=None, iroh_id=None, iroh_addrs=()):
+    """One node of a bundle's list, as the real token server names it: `name`, `url` and
+    `public_url`, `ipv4` / `ipv6` (`addresses`; by default the URL's host when it is an IP
+    address), `ready`, and with an iroh endpoint `iroh_id` and `iroh_addrs`."""
+    node = {'name': name, 'url': url, 'public_url': url, 'ready': True}
+    if addresses is None:
+        host = urllib.parse.urlsplit(url).hostname or ''
+        addresses = [host]
+    for address in addresses:
+        try:
+            ip = ipaddress.ip_address(address.strip('[]'))
+        except ValueError:
+            continue
+        node.setdefault('ipv%d' % ip.version, str(ip))
+    if iroh_id:
+        node['iroh_id'] = iroh_id
+        node['iroh_addrs'] = list(iroh_addrs)
+    return node
+
+
+def parse_node(text, index):
+    """`URL[,IP...]` as a node entry named n<index>."""
+    url, *addresses = [part.strip() for part in text.split(',')]
+    return node_entry('n%d' % index, url, addresses if addresses else None)
+
+
+class TokenState:
+    """The drives and their token families, in memory (the real one keeps them in Turso)."""
+
+    def __init__(self, s3, s3_url, ttl):
+        self.s3 = s3
+        self.s3_url = s3_url
+        self.ttl = ttl
+        self.lock = threading.Lock()
+        # Signs HeadBucket's count of a bucket's bytes (usage_proof), as a node's identity does.
+        self.usage_key = secrets.token_bytes(32)
+        # The cluster map the token server trusts and the nodes hold (set_map_epoch); None: no
+        # map yet, so no request is told its map is stale.
+        self.map = None
+        # The node list and the failover URLs every bundle names (set_nodes).
+        self.nodes = [node_entry('n1', s3_url)]
+        self.failover = []
+        self.drives = {}
+        self.families = {}
+        self.checkouts = {}
+        self.base_url = ''
+        # Seconds an approved checkout keeps its sealed sign-up (a test may shorten it).
+        self.sealed_keep = SEALED_KEEP_SECS
+        # The period tokens' issuer key (one test key for every tier and year) and the hashes of
+        # the redeemed tokens' messages.
+        self.issuer = (azlin_period.MOCK_N, azlin_period.MOCK_E, azlin_period.MOCK_D)
+        self.redeemed = {}
+        # The answers of POST /v1/tokens/issue by checkout and request hash: the identical
+        # request again gets the same signatures, counted once (F37).
+        self.issue_answers = {}
+        # The vouchers it takes (add_voucher): code -> months, value, tier.
+        self.vouchers = {}
+        # The restore requests: id -> drive, bucket, prefix, as_of, status, objects, error,
+        # done_at.
+        self.restores = {}
+        # The first answers of the grants (idempotent.rs): (scope, key, caller) -> {'status',
+        # 'body'} and, for an answer with a drive token, the 'family' a repeat rotates once more.
+        self.kept_answers = {}
+        # The fake payment providers offered (none: no payment options, the v1 checkout).
+        self.providers = []
+        # Checkout ids by their provider reference (what the providers see).
+        self.by_ref = {}
+        # Webhook event ids already applied, per provider (each counts once).
+        self.events_seen = set()
+        # Every webhook that arrived: provider, event id, verified, what it did.
+        self.webhooks = []
+        # The checkouts abandoned (POST /v1/checkout/<id>/abandon), in order.
+        self.abandoned = []
+        # How many abandons from now on the provider does not answer (fail_abandon).
+        self.abandon_failures = 0
+        # The fake providers' webhooks held back (hold_webhooks): a payment taken whose webhook
+        # is late. None: each is sent at once.
+        self.held_webhooks = None
+        # The fake OAuth token endpoint: every request (POST /oauth/<provider>/token), and the
+        # refresh tokens it issued, by token -> provider.
+        self.oauth_requests = []
+        self.oauth_refresh = {}
+        # Seconds the token server's clock is ahead of this computer's (advance): a test lets
+        # a recovery-key lockdown's 48 h pass without waiting.
+        self.clock_offset = 0
+        # The lookup challenges' MAC key, and the recovery routes' rate windows per address.
+        self.challenge_secret = secrets.token_bytes(32)
+        self.rate = {}
+        # The key cash checkouts' activation codes are MAC'd with (the token server's test key);
+        # cash by post is taken while it is set (set_cash): without it, as a token server whose
+        # configuration names no cash key or address, 400 cash_unavailable.
+        self.cash_key = azlin_cash.MOCK_KEY
+
+    def set_cash(self, on):
+        """The operator's configuration (a test's switch): cash by post taken (the test key, the
+        test operator's address) or not."""
+        with self.lock:
+            self.cash_key = azlin_cash.MOCK_KEY if on else None
+
+    def oauth_token(self, provider, form):
+        """The fake OAuth token endpoint (see the module documentation): (status, answer)."""
+        def refused(status, error, description):
+            return status, {'error': error, 'error_description': description}
+
+        grant = form.get('grant_type', '')
+        record = {'provider': provider, 'grant_type': grant,
+                  'client_id': form.get('client_id', ''),
+                  'redirect_uri': form.get('redirect_uri', ''), 'ok': False}
+        with self.lock:
+            self.oauth_requests.append(record)
+            if provider not in OAUTH_PROVIDERS:
+                return refused(404, 'not_found', 'no OAuth provider %r here' % provider)
+            if form.get('client_id') != OAUTH_CLIENT_ID:
+                return refused(401, 'invalid_client', 'unknown client')
+            if grant == 'authorization_code':
+                verifier = form.get('code_verifier', '')
+                if not verifier or form.get('code') != oauth_code_for(verifier):
+                    return refused(400, 'invalid_grant',
+                                   'the code was not issued for this code_verifier')
+                if not form.get('redirect_uri'):
+                    return refused(400, 'invalid_request', 'redirect_uri is missing')
+                refresh = 'e2e-refresh-%s-%s' % (provider, secrets.token_hex(8))
+                self.oauth_refresh[refresh] = provider
+                record['ok'] = True
+                record['refresh_token'] = refresh
+                return 200, {'access_token': 'e2e-access-' + secrets.token_hex(8),
+                             'refresh_token': refresh, 'expires_in': 3600,
+                             'token_type': 'Bearer', 'scope': 'e2e'}
+            if grant == 'refresh_token':
+                refresh = form.get('refresh_token', '')
+                record['refresh_token'] = refresh
+                if self.oauth_refresh.get(refresh) != provider:
+                    return refused(400, 'invalid_grant', 'unknown refresh token')
+                record['ok'] = True
+                answer = {'access_token': 'e2e-access-' + secrets.token_hex(8),
+                          'expires_in': 3600, 'token_type': 'Bearer'}
+                if provider == 'onedrive':
+                    rotated = 'e2e-refresh-%s-%s' % (provider, secrets.token_hex(8))
+                    del self.oauth_refresh[refresh]
+                    self.oauth_refresh[rotated] = provider
+                    answer['refresh_token'] = rotated
+                return 200, answer
+            return refused(400, 'unsupported_grant_type', 'grant_type %r' % grant)
+
+    def set_providers(self, providers):
+        """Offers the fake payment providers `providers` (ids of FAKE_PROVIDERS, and `cash`) from
+        now on."""
+        unknown = [p for p in providers if p not in OFFERABLE]
+        if unknown:
+            raise ValueError('no such fake provider: %s' % ', '.join(unknown))
+        with self.lock:
+            self.providers = list(providers)
+
+    @property
+    def login_url(self):
+        """The fake provider logins' base: this computer under another name (localhost)."""
+        return self.base_url.replace('127.0.0.1', 'localhost', 1)
+
+    def new_token(self, family):
+        state = self.families[family]
+        token = 'dt_%s.%d.%s' % (family, state['generation'],
+                                 base64.urlsafe_b64encode(secrets.token_bytes(24))
+                                 .decode('ascii').rstrip('='))
+        state['current'] = token_hash(token)
+        return token
+
+    def set_nodes(self, nodes, failover=()):
+        """Every bundle from now on names `nodes` (dicts as node_entry makes them) and the
+        failover URLs `failover`."""
+        with self.lock:
+            self.nodes = [dict(n) for n in nodes]
+            self.failover = list(failover)
+
+    def bundle(self, drive, token):
+        now = int(time.time())
+        return {
+            'drive': {
+                'id': drive['id'],
+                'name': drive['name'],
+                'location': {
+                    'kind': 's3',
+                    'endpoint': self.s3_url,
+                    'region': REGION,
+                    'bucket': drive['bucket'],
+                    'path_style': True,
+                    'auth': {'type': 'azlin', 'drive_id': drive['id'],
+                             'account_url': self.base_url},
+                },
+            },
+            'credentials': {
+                'access_key_id': ACCESS_KEY,
+                'secret_access_key': SECRET_KEY,
+                'session_token': 'azlin-mock-' + secrets.token_hex(12),
+                'expires_at': rfc3339(now + self.ttl),
+            },
+            'failover': list(self.failover),
+            'nodes': [dict(n) for n in self.nodes],
+            'quota_bytes': drive['quota_bytes'],
+            'read_only': self.read_only_why(drive) is not None,
+            'read_only_reason': self.read_only_why(drive),
+            'map': dict(self.map) if self.map else None,
+            'period_until': rfc3339(drive['period_until']),
+            # every device sees a pending recovery-key lockdown at its refresh (F12)
+            'lockdown_pending_until': (rfc3339(drive['lockdown_pending_until'])
+                                       if drive.get('lockdown_pending_until') else None),
+            'drive_token': token,
+            'tier': drive['tier'],
+            **self.ban_fields(drive),
+        }
+
+    def signup(self, body):
+        tier = str(body.get('tier') or DEFAULT_TIER).strip().upper().replace(' ', '')
+        if tier not in TIERS:
+            raise ApiError(400, 'bad_tier', 'unknown tier')
+        name = body.get('name') or 'Azlin Storage'
+        recovery = self.pubkey_of(body) if 'recovery_pubkey' in body else None
+        with self.lock:
+            drive_id = random_id('d_')
+            drive = {
+                'id': drive_id,
+                'bucket': 'd-' + drive_id[2:],
+                'name': name,
+                'tier': tier,
+                'quota_bytes': TIERS[tier],
+                'period_until': int(time.time()) + 30 * 86400,
+            }
+            if recovery:
+                # its first recovery key (the dev signup's recovery_pubkey)
+                drive['recovery_keys'] = [self.new_recovery_key(recovery, RECOVERY_KIT_LABEL)]
+            self.s3.store.create_bucket(drive['bucket'])
+            self.drives[drive_id] = drive
+            token = self.new_family(drive_id, 'owner')
+            return self.bundle(drive, token)
+
+    def new_family(self, drive_id, member):
+        """A new token family of `drive_id` for `member`: its first token. The caller holds the
+        lock."""
+        family = random_id('f_')
+        # a day's start only (D37), as drive_members' added_at
+        day = int(time.time()) // 86400 * 86400
+        self.families[family] = {'drive': drive_id, 'member': member, 'generation': 0,
+                                 'current': '', 'used': [], 'revoked': None, 'added_at': day,
+                                 'current_used': False}
+        return self.new_token(family)
+
+    def checkout(self, body):
+        """POST /v1/checkout (payments.rs `create_checkout`): a checkout to pay on its page, its
+        sign-up to be sealed to the `claim_key` it names."""
+        tier = str(body.get('tier') or '').strip().upper().replace(' ', '')
+        if tier not in TIERS:
+            raise ApiError(400, 'bad_tier', 'unknown tier')
+        method = body.get('method') or 'sepa'
+        provider = body.get('provider')
+        country = str(body.get('vat_country') or '').strip().upper()
+        check_served(country)
+        if method == 'cash' or provider == 'cash':
+            return self.cash_checkout(body, tier)
+        surface = None
+        currency = 'EUR'
+        if provider:
+            # Claim contract v1, extended: a checkout through a provider (CHECKOUT-PLAN §3.11),
+            # in the buyer's country's currency, for a method routed for that country.
+            if provider not in self.providers:
+                raise ApiError(400, 'bad_provider', 'this token server offers no such provider')
+            surfaces = PROVIDER_METHODS[provider].get(method)
+            routed = method in COUNTRY_METHODS.get(country or 'DE', COUNTRY_METHODS['*'])
+            if surfaces is None or not routed:
+                raise ApiError(400, 'bad_method', '%s takes no %s here' % (provider, method))
+            surface = body.get('surface') or surfaces[0]
+            if surface not in surfaces:
+                raise ApiError(400, 'surface_unavailable',
+                               '%s cannot show %s for %s' % (provider, surface, method))
+            if body.get('withdrawal_consent') is not True:
+                raise ApiError(400, 'consent_required', 'the order needs the consent')
+            # The payer's details go to the provider with this one request, where it wants
+            # them; nothing of them is kept, logged or answered.
+            problem = payer_problem(METHOD_IDENTITY.get((provider, method)), body.get('payer'))
+            if problem:
+                raise ApiError(400, 'payer_required', problem)
+            currency = currency_of(country)
+        elif method not in METHODS:
+            raise ApiError(400, 'bad_method', 'unknown payment method')
+        months = body.get('months', 1)
+        if months not in PREPAY_MONTHS:
+            raise ApiError(400, 'bad_months', 'prepay 1, 3, 6, 12 or 24 months')
+        if method == 'bank_transfer' and months < 12:
+            raise ApiError(400, 'bad_method', 'bank transfer is for yearly plans')
+        claim_key = body.get('claim_key')
+        if not claim_key:
+            raise ApiError(400, 'claim_key_required',
+                           'a checkout names the claim key its sign-up is sealed to')
+        try:
+            azlin_claim.claim_key_bytes(str(claim_key))
+        except ValueError as e:
+            raise ApiError(400, 'bad_claim_key', str(e))
+        amount = price_cents(tier, months, currency)
+        renewal = self.renewal_of(body, tier)
+        with self.lock:
+            checkout_id = random_id('ck_')
+            provider_ref = random_id('pr_')
+            self.checkouts[checkout_id] = {'tier': tier, 'method': method, 'months': months,
+                                           'amount': amount, 'status': 'pending',
+                                           'claim_key': str(claim_key), 'sealed_signup': None,
+                                           'approved_at': None, 'provider': provider,
+                                           'provider_ref': provider_ref,
+                                           'client_secret': 'pi_%s_secret_%s' % (
+                                               provider_ref[3:], secrets.token_hex(8)),
+                                           'surface': surface, 'currency': currency,
+                                           'vat_country': body.get('vat_country'),
+                                           'abandoned': False}
+            self.checkouts[checkout_id].update(renewal)
+            self.take_lock(checkout_id)
+            self.by_ref[provider_ref] = checkout_id
+        answer = {'checkout_id': checkout_id,
+                  'pay_url': '%s/v1/pay/%s' % (self.base_url, checkout_id),
+                  'tier': tier, 'method': method, 'months': months, 'amount_cents': amount,
+                  'currency': currency, 'vat_country': body.get('vat_country'),
+                  'first_month_free': True, 'withdrawal_consent_required': True, 'mock': True}
+        if provider:
+            answer.update({'provider': provider, 'surface': self.surface_of(checkout_id, surface),
+                           'return': self.returns(),
+                           'expires_at': rfc3339(int(time.time()) + 3600)})
+        return answer
+
+    def renewal_of(self, body, tier):
+        """What a checkout buys besides a new drive (payments.rs): `renews` names an earlier
+        paid checkout of the same tier by its issue key (its price lock, used once); `"grant":
+        "period_tokens"` buys period tokens only. A dict for the checkout's record (empty for a
+        new drive)."""
+        renews = body.get('renews')
+        if renews:
+            earlier_id = str(renews.get('checkout_id') or '')
+            with self.lock:
+                earlier = self.checkouts.get(earlier_id)
+                if earlier is None:
+                    raise ApiError(404, 'no_such_checkout', 'unknown checkout')
+                if earlier.get('status') != 'approved':
+                    raise ApiError(409, 'not_paid', 'the earlier checkout was not paid')
+                key = str(renews.get('issue_key') or '')
+                if azlin_period.issue_key_hash(key) != earlier.get('issue_key_hash'):
+                    raise ApiError(403, 'lock_key_wrong', "not the earlier checkout's issue key")
+                if earlier['tier'] != tier:
+                    raise ApiError(400, 'lock_tier', 'a renewal keeps its tier')
+                used = earlier.get('renewed_by')
+                if used and self.checkouts.get(used, {}).get('status') == 'approved':
+                    raise ApiError(409, 'lock_used', "this checkout's price lock was used")
+            return {'renewal': True, 'renewal_of': earlier_id}
+        if body.get('grant') == 'period_tokens':
+            return {'renewal': True, 'renewal_of': None}
+        return {}
+
+    def take_lock(self, checkout_id):
+        """The renewal `checkout_id` takes its earlier checkout's lock. The caller holds the
+        lock of the stack."""
+        earlier = self.checkouts[checkout_id].get('renewal_of')
+        if earlier:
+            self.checkouts[earlier]['renewed_by'] = checkout_id
+
+    def cash_checkout(self, body, tier):
+        """POST /v1/checkout {"method": "cash"} (cash contract v1): a checkout awaiting its
+        letter - its activation code, the address to post the cash to, its end; sealed to the
+        claim key it names once the operator activates it."""
+        months = body.get('months', 1)
+        if months not in PREPAY_MONTHS:
+            raise ApiError(400, 'bad_months', 'prepay 1, 3, 6, 12 or 24 months')
+        if self.cash_key is None:
+            raise ApiError(400, 'cash_unavailable', 'this server takes no cash by post')
+        provider = body.get('provider')
+        if provider is not None:
+            if provider != 'cash' or 'cash' not in self.providers:
+                raise ApiError(400, 'bad_provider', 'this token server offers no such provider')
+            if body.get('method') not in (None, 'cash'):
+                raise ApiError(400, 'bad_method', 'cash by post takes cash')
+            if body.get('withdrawal_consent') is not True:
+                raise ApiError(400, 'consent_required', 'the order needs the consent')
+        claim_key = body.get('claim_key')
+        if not claim_key:
+            raise ApiError(400, 'claim_key_required',
+                           'a checkout names the claim key its sign-up is sealed to')
+        try:
+            azlin_claim.claim_key_bytes(str(claim_key))
+        except ValueError as e:
+            raise ApiError(400, 'bad_claim_key', str(e))
+        amount = price_cents(tier, months)
+        renewal = self.renewal_of(body, tier)
+        with self.lock:
+            checkout_id = random_id('ck_')
+            code = azlin_cash.activation_code(checkout_id, amount, 'EUR', self.cash_key)
+            ends = self.now() + CASH_KEEP_SECS
+            self.checkouts[checkout_id] = {'tier': tier, 'method': 'cash', 'months': months,
+                                           'amount': amount, 'status': 'awaiting_cash',
+                                           'claim_key': str(claim_key), 'sealed_signup': None,
+                                           'approved_at': None, 'provider': None,
+                                           'provider_ref': None, 'activation_code': code,
+                                           'expires_at': ends, 'abandoned': False,
+                                           'vat_country': body.get('vat_country')}
+            self.checkouts[checkout_id].update(renewal)
+            self.take_lock(checkout_id)
+        answer = {'checkout_id': checkout_id, 'status': 'awaiting_cash', 'tier': tier,
+                  'method': 'cash', 'months': months, 'amount_cents': amount, 'currency': 'EUR',
+                  'activation_code': code,
+                  'mail_to': {'name': CASH_MAIL_TO['name'], 'lines': list(CASH_MAIL_TO['lines'])},
+                  'expires_at': rfc3339(ends), 'mock': True}
+        if provider:
+            answer['provider'] = provider
+        return answer
+
+    def cash_ended(self, checkout):
+        """A cash checkout nobody activated is expired at its end. The caller holds the lock."""
+        if checkout.get('status') == 'awaiting_cash' and self.now() >= checkout['expires_at']:
+            checkout['status'] = 'expired'
+
+    def activate_cash(self, checkout_id):
+        """The operator's AzCtl (a test's switch): the letter arrived with the right cash - the
+        cash checkout is approved, its drive made and sealed to its claim key. Its status now."""
+        with self.lock:
+            checkout = self.checkouts.get(checkout_id)
+            if checkout is None or checkout.get('method') != 'cash':
+                raise ValueError('no cash checkout %s' % checkout_id)
+            self.cash_ended(checkout)
+        return self.approve(checkout_id)
+
+    def reject_cash(self, checkout_id, reason):
+        """The operator's AzCtl (a test's switch): the letter's cash is not taken - the checkout
+        is rejected with `reason`. Its status now."""
+        with self.lock:
+            checkout = self.checkouts.get(checkout_id)
+            if checkout is None or checkout.get('method') != 'cash':
+                raise ValueError('no cash checkout %s' % checkout_id)
+            self.cash_ended(checkout)
+            if checkout['status'] == 'awaiting_cash':
+                checkout['status'] = 'rejected'
+                checkout['reason'] = reason
+            return checkout['status']
+
+    # ---- A ban with a grace period (ban contract v1) ----
+
+    def ban(self, drive_id, reason, grace_secs):
+        """The operator's ban (a test's switch): `drive_id` banned for `reason`, its files
+        readable for `grace_secs` more (by the server's clock); its public links revoked at once,
+        its bucket refusing writes and links. The ban's end (seconds since 1970)."""
+        with self.lock:
+            drive = self.drives[drive_id]
+            until = self.now() + int(grace_secs)
+            drive['ban'] = {'reason': reason, 'until': until}
+            stamp = int(time.time())
+            for link in drive.setdefault('public_links', {}).values():
+                link['revoked_at'] = link['revoked_at'] or stamp
+        self.s3.ban_bucket(drive['bucket'], until, now=self.now)
+        return until
+
+    def ban_fields(self, drive):
+        """What the status and the credentials of a banned drive add."""
+        ban = drive.get('ban')
+        if not ban:
+            return {}
+        return {'status': 'banned', 'ban_reason': ban['reason'],
+                'ban_until': rfc3339(ban['until']), 'read_only': True}
+
+    def check_ban(self, drive, write=False):
+        """A banned drive's refusals (the caller holds the lock): past its end every route of it,
+        a write (a grant) at once."""
+        ban = drive.get('ban')
+        if not ban:
+            return
+        extra = {'ban_reason': ban['reason'], 'ban_until': rfc3339(ban['until'])}
+        if self.now() >= ban['until']:
+            raise ApiError(403, 'drive_banned', 'this drive was closed after its ban', extra)
+        if write:
+            raise ApiError(403, 'drive_banned', 'this drive is banned: it takes nothing new',
+                           extra)
+
+    # ---- The payment options and the fake providers ----
+
+    def returns(self):
+        """The return pages (pay.azlin.io's stand-in: this server)."""
+        return {'success': self.base_url + '/return/ok',
+                'cancel': self.base_url + '/return/cancel',
+                'pending': self.base_url + '/return/pending'}
+
+    def checkout_options(self, query):
+        """GET /v1/checkout/options (CHECKOUT-PLAN §3.11) for the buyer's declared country: only
+        the methods a provider here has switched on AND that are routed for that country, in the
+        country's order of use (`rank`), each priced in the country's currency (the ladder's
+        frozen row; the euro where it has none), with what it tells about the payer
+        (`needs_identity`, `identity_in_app`); the cheaper route of a method two providers carry
+        is `preferred`. 403 blocked_country for a country no checkout may come from; 404 without
+        providers (an older token server: the apps pay on the v1 page)."""
+        if not self.providers:
+            raise ApiError(404, 'not_found', 'this token server has no payment options')
+        first = lambda key, default='': (query.get(key) or [default])[0]  # noqa: E731
+        tier = first('tier').strip().upper()
+        try:
+            months = int(first('months', '1'))
+        except ValueError:
+            raise ApiError(400, 'bad_months', 'months is no number')
+        country = first('country', 'DE').strip().upper()
+        check_served(country)
+        currency = currency_of(country)
+        wanted = COUNTRY_METHODS.get(country, COUNTRY_METHODS['*'])
+        amount = price_cents(tier, months, currency) if tier in TIERS else None
+        per_provider = {}
+        preferred_taken = set()
+        for rank, method in enumerate(wanted):
+            for provider in self.providers:
+                surfaces = PROVIDER_METHODS.get(provider, {}).get(method)
+                if surfaces is None or provider == 'cash':
+                    continue
+                # A direct debit in euros only; a bank transfer for a year or more.
+                if method == 'sepa_debit' and currency != 'EUR':
+                    continue
+                offered = {'method': method, 'provider_type': method, 'surfaces': list(surfaces),
+                           'settles': METHOD_SETTLES.get(method, 'instant'), 'recurring': False,
+                           'rank': rank, 'expires_minutes': METHOD_EXPIRES.get(method, 0),
+                           'preferred': method not in preferred_taken}
+                preferred_taken.add(method)
+                if amount is not None:
+                    offered['amount_cents'] = amount
+                    offered['currency'] = currency
+                learns, in_app = METHOD_IDENTITY.get((provider, method), ([], []))
+                offered['needs_identity'] = list(learns)
+                offered['identity_in_app'] = list(in_app)
+                per_provider.setdefault(provider, []).append(offered)
+        offers = []
+        for provider in self.providers:
+            if provider == 'cash':
+                # Cash by post: no pages, no origins - a slip on paper (in euros, cash contract
+                # v1); it asks nothing about the payer.
+                offers.append({'provider': 'cash', 'kind': 'processor', 'methods': [
+                    {'method': 'cash', 'surfaces': ['paper'], 'settles': 'post',
+                     'recurring': False}]})
+                continue
+            methods = per_provider.get(provider)
+            if not methods:
+                continue
+            offer = {'provider': provider, 'kind': PROVIDER_KINDS.get(provider, 'processor'),
+                     'default': provider == 'fake-gocardless',
+                     'origins': ['localhost'] if provider == 'fake-paypal' else ['127.0.0.1'],
+                     'return': self.returns(), 'methods': methods}
+            if provider == 'fake-stripe':
+                offer['fields_page'] = self.base_url + '/fields/fake-stripe/v1'
+            offers.append(offer)
+        out = {'country': country, 'currency': currency, 'offers': offers,
+               'legal': {'withdrawal_consent': 'I ask Azlin to start the service now. If I '
+                                               'withdraw, I pay for the service provided until '
+                                               'then.',
+                         'terms_url': self.base_url + '/terms'}}
+        if amount is not None:
+            rate = VAT_RATES.get(country, VAT_PERMILLE)
+            out['price'] = {'amount_cents': amount, 'currency': currency,
+                            'vat_rate_permille': rate,
+                            'vat_cents': round(amount * rate / (1000 + rate)),
+                            'vat_included': True}
+        return out
+
+    def surface_of(self, checkout_id, kind):
+        """What the checkout `checkout_id` shows on the surface `kind`."""
+        checkout = self.checkouts[checkout_id]
+        provider, ref = checkout['provider'], checkout['provider_ref']
+        if kind == 'fields':
+            return {'kind': 'fields', 'page': self.base_url + '/fields/%s/v1' % provider,
+                    'publishable_key': 'pk_test_fake_local',
+                    'client_secret': checkout['client_secret']}
+        urls = {
+            'fake-stripe': '%s/fake-stripe/c/pay/cs_test_%s' % (self.base_url, ref),
+            'fake-gocardless': '%s/fake-gocardless/flow/BRQ%s' % (self.base_url, ref),
+            'fake-paypal': '%s/fake-paypal/checkoutnow?token=%s' % (self.login_url, ref),
+            'fake-mor': '%s/fake-mor/checkout/%s' % (self.base_url, ref),
+            'fake-dlocal': '%s/fake-dlocal/pay/%s' % (self.base_url, ref),
+        }
+        return {'kind': kind, 'url': urls[provider]}
+
+    def checkout_surface(self, checkout_id, body):
+        """POST /v1/checkout/<id>/surface: the same checkout (the same provider session) on
+        another of its method's surfaces."""
+        with self.lock:
+            checkout = self.checkouts.get(checkout_id)
+            if checkout is None:
+                raise ApiError(404, 'no_such_checkout', 'unknown checkout')
+            if not checkout.get('provider'):
+                raise ApiError(409, 'surface_unavailable', 'a v1 checkout has its pay_url only')
+            if checkout['status'] != 'pending':
+                raise ApiError(409, 'checkout_closed', 'the checkout is %s' % checkout['status'])
+            kind = (body or {}).get('kind')
+            if kind not in PROVIDER_METHODS[checkout['provider']][checkout['method']]:
+                raise ApiError(409, 'surface_unavailable', 'no %s for this checkout' % kind)
+            checkout['surface'] = kind
+        return {'checkout_id': checkout_id, 'surface': self.surface_of(checkout_id, kind),
+                'return': self.returns()}
+
+    def fail_abandon(self, count=1):
+        """A test's switch: the next `count` abandons find the provider not answering (502
+        provider_unavailable, the session not expired, nothing changed)."""
+        with self.lock:
+            self.abandon_failures = count
+
+    def hold_webhooks(self, on=True):
+        """A test's switch: the fake providers' webhooks wait until `release_webhooks` (a
+        payment taken at the provider whose webhook comes late); off sends the held ones."""
+        if on:
+            with self.lock:
+                if self.held_webhooks is None:
+                    self.held_webhooks = []
+            return []
+        return self.release_webhooks(stop=True)
+
+    def release_webhooks(self, stop=False):
+        """Sends the held webhooks in order: their HTTP statuses."""
+        with self.lock:
+            held, self.held_webhooks = self.held_webhooks or [], None if stop else []
+        return [self.send_webhook(*args) for args in held]
+
+    def abandon(self, checkout_id):
+        """POST /v1/checkout/<id>/abandon: the provider session expires (the popover closed
+        before paying): nobody can pay it any more (200 `expired`; one that ended before says
+        how: `declined`, `reversed`, `rejected`; a letter of cash waits: `pending`). A paid
+        checkout - approved, or a session the payer paid whose webhook is still on its way - is
+        refused as 409 `checkout_paid`: its drive comes, its claim key must stay."""
+        with self.lock:
+            checkout = self.checkouts.get(checkout_id)
+            if checkout is None:
+                raise ApiError(404, 'no_such_checkout', 'unknown checkout')
+            self.abandoned.append(checkout_id)
+            status = checkout['status']
+            if status == 'approved':
+                raise ApiError(409, 'checkout_paid', 'the checkout was paid: its drive comes '
+                               "with the payment's confirmation")
+            if status in ('expired', 'declined', 'reversed', 'rejected'):
+                return {'checkout_id': checkout_id, 'status': status}
+            if status != 'pending':
+                return {'checkout_id': checkout_id, 'status': 'pending'}
+            if checkout.get('provider') and self.abandon_failures > 0:
+                self.abandon_failures -= 1
+                raise ApiError(502, 'provider_unavailable', 'the payment provider did not '
+                               'answer; try again or pick another way to pay')
+            if checkout.get('provider_paid'):
+                raise ApiError(409, 'checkout_paid', 'the checkout was paid: its drive comes '
+                               "with the payment's confirmation")
+            checkout['abandoned'] = True
+            checkout['status'] = 'expired'
+            return {'checkout_id': checkout_id, 'status': checkout['status']}
+
+    def checkout_of_ref(self, provider_ref):
+        with self.lock:
+            checkout_id = self.by_ref.get(provider_ref)
+            return checkout_id, self.checkouts.get(checkout_id) if checkout_id else None
+
+    def provider_pays(self, checkout_id, paid=True):
+        """The fake provider took (or refused) the payment of `checkout_id`: it sends its signed
+        webhook to this token server (a real HTTP request), which approves or declines."""
+        checkout = self.checkouts[checkout_id]
+        return self.send_webhook(checkout['provider'], checkout['provider_ref'], paid)
+
+    def send_webhook(self, provider, provider_ref, paid, created=None, event_id=None):
+        """`provider`'s webhook for the payment `provider_ref`, signed with its scheme and
+        posted to /v1/webhook/<provider>: the HTTP status."""
+        with self.lock:
+            checkout_id = self.by_ref.get(provider_ref)
+            if paid and checkout_id in self.checkouts:
+                # Paid at the provider: an abandon no longer expires its session.
+                self.checkouts[checkout_id]['provider_paid'] = True
+            if self.held_webhooks is not None:
+                self.held_webhooks.append((provider, provider_ref, paid, created, event_id))
+                return 202
+        created = int(time.time()) if created is None else created
+        secret = WEBHOOK_SECRETS[provider].encode('utf-8')
+        if provider == 'fake-stripe':
+            event = {'id': event_id or random_id('evt_'), 'created': created,
+                     'type': 'payment_intent.succeeded' if paid
+                     else 'payment_intent.payment_failed',
+                     'data': {'object': {'metadata': {'provider_ref': provider_ref}}}}
+            raw = json.dumps(event).encode('utf-8')
+            mac = hmac.new(secret, b'%d.' % created + raw, hashlib.sha256).hexdigest()
+            headers = {'Stripe-Signature': 't=%d,v1=%s' % (created, mac)}
+        elif provider == 'fake-gocardless':
+            event = {'events': [{'id': event_id or random_id('EV'), 'created_at': rfc3339(created),
+                                 'resource_type': 'billing_requests',
+                                 'action': 'fulfilled' if paid else 'failed',
+                                 'metadata': {'provider_ref': provider_ref}}]}
+            raw = json.dumps(event).encode('utf-8')
+            headers = {'Webhook-Signature': hmac.new(secret, raw, hashlib.sha256).hexdigest()}
+        else:
+            event = {'id': event_id or random_id('WH-'), 'create_time': rfc3339(created),
+                     'event_type': 'CHECKOUT.ORDER.APPROVED' if paid else 'PAYMENT.CAPTURE.DENIED',
+                     'resource': {'custom_id': provider_ref}}
+            raw = json.dumps(event).encode('utf-8')
+            headers = {'x-provider-signature': hmac.new(secret, raw, hashlib.sha256).hexdigest()}
+        headers['Content-Type'] = 'application/json'
+        request = urllib.request.Request(self.base_url + '/v1/webhook/' + provider, data=raw,
+                                         headers=headers, method='POST')
+        try:
+            with urllib.request.urlopen(request, timeout=10) as reply:
+                return reply.status
+        except urllib.error.HTTPError as e:
+            return e.code
+
+    def webhook(self, provider, headers, raw):
+        """POST /v1/webhook/<provider>: the provider's signature checked with its scheme, each
+        event id applied once, the payment approved or declined by its provider reference -
+        payer data is never read."""
+        secret = WEBHOOK_SECRETS.get(provider)
+        if provider not in self.providers or secret is None:
+            raise ApiError(404, 'not_found', 'no webhook for %s' % provider)
+        secret = secret.encode('utf-8')
+        try:
+            body = json.loads(raw.decode('utf-8'))
+        except ValueError:
+            raise ApiError(400, 'bad_body', 'the webhook is not JSON')
+        if provider == 'fake-stripe':
+            parts = dict(p.split('=', 1) for p in (headers.get('Stripe-Signature') or '')
+                         .split(',') if '=' in p)
+            try:
+                stamp = int(parts.get('t', ''))
+            except ValueError:
+                raise ApiError(401, 'bad_signature', 'no timestamp')
+            want = hmac.new(secret, b'%d.' % stamp + raw, hashlib.sha256).hexdigest()
+            if not hmac.compare_digest(want, parts.get('v1', '')):
+                raise ApiError(401, 'bad_signature', 'the signature does not match')
+            if abs(time.time() - stamp) > STRIPE_TOLERANCE_SECS:
+                raise ApiError(401, 'stale_signature', 'the timestamp is outside the tolerance')
+            ref = (((body.get('data') or {}).get('object') or {}).get('metadata') or {}) \
+                .get('provider_ref')
+            events = [(body.get('id'), body.get('type') == 'payment_intent.succeeded', ref)]
+        else:
+            name = 'Webhook-Signature' if provider == 'fake-gocardless' else 'x-provider-signature'
+            want = hmac.new(secret, raw, hashlib.sha256).hexdigest()
+            if not hmac.compare_digest(want, headers.get(name) or ''):
+                raise ApiError(401, 'bad_signature', 'the signature does not match')
+            if provider == 'fake-gocardless':
+                events = [(e.get('id'), e.get('action') == 'fulfilled',
+                           (e.get('metadata') or {}).get('provider_ref'))
+                          for e in body.get('events') or []]
+            else:
+                events = [(body.get('id'), body.get('event_type') == 'CHECKOUT.ORDER.APPROVED',
+                           (body.get('resource') or {}).get('custom_id'))]
+        applied = 0
+        for event_id, paid, ref in events:
+            key = (provider, event_id)
+            with self.lock:
+                again = key in self.events_seen
+                self.events_seen.add(key)
+            checkout_id, _ = self.checkout_of_ref(ref)
+            what = 'replayed' if again else ('unknown' if checkout_id is None else
+                                             ('approved' if paid else 'declined'))
+            self.webhooks.append({'provider': provider, 'event': event_id, 'outcome': what})
+            if again or checkout_id is None:
+                continue
+            if paid:
+                self.approve(checkout_id)
+            else:
+                self.decline(checkout_id, 'the provider declined the payment')
+            applied += 1
+        return {'received': len(events), 'applied': applied}
+
+    def provider_confirm(self, body):
+        """POST /fake-stripe/confirm, the fake Stripe's API of its fields page: a test card
+        approves (and the webhook follows), the declining card is declined in the fields (the
+        checkout stays open for another try)."""
+        secret = str((body or {}).get('client_secret') or '')
+        with self.lock:
+            checkout_id = next((cid for cid, c in self.checkouts.items()
+                                if c.get('client_secret') == secret and secret), None)
+        if checkout_id is None:
+            return {'result': 'failed', 'code': 'resource_missing'}
+        card = ''.join(c for c in str(body.get('card_number') or '') if c.isdigit())
+        if card != APPROVING_CARD:
+            return {'result': 'failed', 'code': 'card_declined',
+                    'message': 'Your card was declined.'}
+        self.provider_pays(checkout_id, True)
+        return {'result': 'succeeded', 'last4': card[-4:]}
+
+    def provider_page(self, path, query):
+        """A fake provider's own page (GET): (status, html) or None for no such page."""
+        segments = path.split('/')
+        if segments[:3] == ['fake-stripe', 'c', 'pay'] and len(segments) == 4:
+            ref = segments[3][len('cs_test_'):]
+            _, checkout = self.checkout_of_ref(ref)
+            method = (checkout or {}).get('method')
+            # Stripe's hosted page of a local method: BLIK asks for the code from the banking
+            # app; a bank login or a QR code is a test page with the outcome to choose.
+            if method == 'blik':
+                return self.pay_form(ref, 'Fake Stripe: BLIK', 'blik_code',
+                                     'The 6-digit code from your banking app', '123456')
+            if method in ('p24', 'ideal', 'eps', 'twint', 'wero'):
+                return self.pay_form(ref, 'Fake Stripe: %s test payment' % method, 'action',
+                                     'authorize or fail', 'authorize')
+            return self.pay_form(ref, 'Fake Stripe Checkout', 'card_number', 'Card number',
+                                 '4242 4242 4242 4242', extra=(
+                                     '<p><a href="%s/fake-paypal/checkoutnow?token=%s">Pay with '
+                                     'PayPal</a></p>' % (self.login_url, html.escape(ref))))
+        if segments[:2] == ['fake-dlocal', 'pay'] and len(segments) == 3:
+            # The payer's details came with the checkout (the app asked for them): the page
+            # asks for nothing but the outcome.
+            return self.pay_form(segments[2], 'Fake dLocal: test payment', 'action',
+                                 'authorize or fail', 'authorize')
+        if segments[:2] == ['fake-gocardless', 'flow'] and len(segments) == 3:
+            return self.pay_form(segments[2][len('BRQ'):], 'Fake GoCardless: set up a Direct '
+                                 'Debit', 'iban', 'IBAN', APPROVING_IBAN)
+        if segments == ['fake-paypal', 'checkoutnow']:
+            ref = (query.get('token') or [''])[0]
+            return self.pay_form(ref, 'Fake PayPal: log in and approve', 'email', 'Email',
+                                 'buyer@example.com')
+        if segments[:2] == ['fake-mor', 'checkout'] and len(segments) == 3:
+            return self.pay_form(segments[2], 'Fake MoR Inc.: checkout', 'card_number',
+                                 'Card number', '4242 4242 4242 4242')
+        return None
+
+    def pay_form(self, ref, title, field, label, example, extra=''):
+        checkout_id, checkout = self.checkout_of_ref(ref)
+        if checkout is None:
+            return 404, page('No such payment', '<p>This payment does not exist.</p>')
+        body = ('<form method="post"><label>%s <input name="%s" value="%s"></label> '
+                '<button>Pay %s</button></form><p><a href="%s/return/cancel">Cancel</a></p>%s'
+                % (html.escape(label), field, html.escape(example),
+                   money_text(checkout['amount'], checkout.get('currency') or 'EUR'),
+                   self.base_url, extra))
+        return 200, page(title, body)
+
+    def provider_post(self, path, query, form):
+        """A fake provider's page posted (its Pay): (status, location or html)."""
+        segments = path.split('/')
+        form = dict(form)
+        form.setdefault('token', (query.get('token') or [''])[0])
+        if segments[:3] == ['fake-stripe', 'c', 'pay'] and len(segments) == 4:
+            ref = segments[3][len('cs_test_'):]
+            if 'blik_code' in form:
+                code = (form.get('blik_code') or '').strip()
+                ok = len(code) == 6 and code.isdigit() and code != DECLINING_BLIK
+            elif 'action' in form:
+                ok = form.get('action') == 'authorize'
+            else:
+                ok = ''.join(c for c in (form.get('card_number') or '')
+                             if c.isdigit()) == APPROVING_CARD
+        elif segments[:2] == ['fake-dlocal', 'pay'] and len(segments) == 3:
+            ref, ok = segments[2], form.get('action') == 'authorize'
+        elif segments[:2] == ['fake-gocardless', 'flow'] and len(segments) == 3:
+            ref = segments[2][len('BRQ'):]
+            ok = (form.get('iban') or '').replace(' ', '').upper() == APPROVING_IBAN
+        elif segments == ['fake-paypal', 'checkoutnow']:
+            ref, ok = form.get('token') or '', True
+        elif segments[:2] == ['fake-mor', 'checkout'] and len(segments) == 3:
+            ref = segments[2]
+            ok = ''.join(c for c in (form.get('card_number') or '') if c.isdigit()) \
+                == APPROVING_CARD
+        else:
+            return None
+        checkout_id, checkout = self.checkout_of_ref(ref)
+        if checkout is None:
+            return 404, page('No such payment', '<p>This payment does not exist.</p>')
+        if not ok:
+            return 200, page('Declined', '<p>The payment was declined. <a href="javascript:'
+                             'history.back()">Try again</a> or <a href="%s/return/cancel">'
+                             'cancel</a>.</p>' % self.base_url)
+        self.provider_pays(checkout_id, True)
+        return 303, self.base_url + '/return/ok'
+
+    def checkout_status(self, checkout_id):
+        """GET /v1/checkout/<id>: pending | approved (the sign-up sealed to the claim key, to
+        every poll until it is `sealed_keep` seconds old) | declined | expired."""
+        with self.lock:
+            checkout = self.checkouts.get(checkout_id)
+            if checkout is None:
+                raise ApiError(404, 'no_such_checkout', 'unknown checkout')
+            self.cash_ended(checkout)
+            out = {'checkout_id': checkout_id, 'status': checkout['status'],
+                   'tier': checkout['tier'], 'months': checkout['months'],
+                   'amount_cents': checkout['amount']}
+            if checkout['status'] == 'approved':
+                if time.time() - checkout['approved_at'] > self.sealed_keep:
+                    out['status'] = 'expired'
+                else:
+                    out['sealed_signup'] = checkout['sealed_signup']
+            if checkout['status'] in ('declined', 'rejected') and checkout.get('reason'):
+                out['reason'] = checkout['reason']
+            if checkout.get('provider'):
+                out['settles'] = 'days' if checkout['method'] == 'sepa_debit' else 'instant'
+            # Cash by post: its end; while it awaits the cash the code and the address again
+            # (an app that lost its page prints it anew).
+            if checkout.get('method') == 'cash':
+                out['expires_at'] = rfc3339(checkout['expires_at'])
+                if checkout['status'] == 'awaiting_cash' and self.cash_key is not None:
+                    out['activation_code'] = checkout['activation_code']
+                    out['mail_to'] = {'name': CASH_MAIL_TO['name'],
+                                      'lines': list(CASH_MAIL_TO['lines'])}
+            return out
+
+    def pay(self, checkout_id, body):
+        """POST /v1/checkout/<id>/pay (the test provider's page posts here): the approving card
+        (or `prepaid`) makes the drive and seals its sign-up to the checkout's claim key,
+        anything else declines."""
+        with self.lock:
+            checkout = self.checkouts.get(checkout_id)
+            if checkout is None:
+                raise ApiError(404, 'no_such_checkout', 'unknown checkout')
+            if checkout['status'] != 'pending':
+                return {'status': checkout['status']}
+        card = ''.join(c for c in str(body.get('card_number') or '') if c.isdigit())
+        if card == APPROVING_CARD or body.get('prepaid') is True:
+            return {'status': self.approve(checkout_id)}
+        reason = 'declined' if card == DECLINING_CARD else 'no payment details'
+        self.decline(checkout_id, reason)
+        return {'status': 'declined', 'reason': reason}
+
+    def approve(self, checkout_id):
+        """A pending checkout paid: its drive made, its sign-up sealed to its claim key (an
+        abandoned or settled checkout stays as it is). Its status now."""
+        with self.lock:
+            checkout = self.checkouts[checkout_id]
+            if checkout['status'] not in ('pending', 'awaiting_cash') or checkout.get('abandoned'):
+                return checkout['status']
+            tier = checkout['tier']
+        issue_key, issue_key_hash = azlin_period.new_issue_key()
+        if checkout.get('renewal'):
+            # A renewal or a tokens-only checkout: months for a drive the app has, no drive.
+            signup = {'renewal_of': checkout.get('renewal_of'), 'grant': 'period_tokens',
+                      'tier': tier, 'period_tokens': {'checkout_id': checkout_id,
+                                                      'months': checkout['months'],
+                                                      'issue_key': issue_key}}
+            sealed = azlin_claim.seal(json.dumps(signup).encode('utf-8'), checkout['claim_key'],
+                                      checkout_id)
+            with self.lock:
+                checkout['status'] = 'approved'
+                checkout['sealed_signup'] = sealed
+                checkout['approved_at'] = self.now()
+                checkout['issue_key_hash'] = issue_key_hash
+                checkout['tokens_issued'] = 0
+            return 'approved'
+        bundle = self.signup({'tier': tier, 'name': 'Azlin Storage'})
+        # The key the period tokens are issued against, sealed with the drive (F24); the
+        # checkout keeps its hash only.
+        bundle['period_tokens'] = {'checkout_id': checkout_id, 'months': checkout['months'],
+                                   'issue_key': issue_key}
+        # Each pick-up of the paid drive claims a token family of its own with this ticket
+        # (SRV17's drive_claims): three within 30 days of the first; the drive keeps its hash.
+        ticket = base64.urlsafe_b64encode(secrets.token_bytes(32)).decode('ascii').rstrip('=')
+        bundle['claim'] = {'ticket': ticket, 'max': CLAIMS_MAX,
+                           'window_days': CLAIM_WINDOW_SECS // 86400}
+        with self.lock:
+            self.drives[bundle['drive']['id']]['claim'] = {
+                'ticket_hash': token_hash(ticket), 'claims': 0, 'until': None}
+        sealed = azlin_claim.seal(json.dumps(bundle).encode('utf-8'), checkout['claim_key'],
+                                  checkout_id)
+        with self.lock:
+            checkout['status'] = 'approved'
+            checkout['sealed_signup'] = sealed
+            checkout['approved_at'] = self.now()
+            checkout['issue_key_hash'] = issue_key_hash
+            checkout['tokens_issued'] = 0
+        return 'approved'
+
+    def decline(self, checkout_id, reason):
+        with self.lock:
+            checkout = self.checkouts[checkout_id]
+            if checkout['status'] == 'pending':
+                checkout['status'] = 'declined'
+                checkout['reason'] = reason
+            return checkout['status']
+
+    def issuer_keys(self):
+        """GET /v1/tokens/keys (blind.rs `keys`): the issuer key of every tier, this year."""
+        n, e, _ = self.issuer
+        year = time.gmtime().tm_year
+        pem = azlin_period.public_key_pem(n, e)
+        return {'keys': [{'tier': tier, 'year': year, 'key_id': '%s/%d' % (tier, year),
+                          'public_key_pem': pem} for tier, _, _, _ in TIER_LADDER]}
+
+    def issue(self, body):
+        """POST /v1/tokens/issue (blind.rs `issue`): blind signatures of a paid checkout's period
+        tokens, against the issue key of its sealed sign-up, for the `key_id` the messages were
+        blinded for (this year's or last year's; another: 409 key_changed, nothing counted), up
+        to its months in all, one a month from its approval (more than is due: 409 not_due with the
+        schedule); the identical request again gets the same answer, counted once."""
+        checkout_id = body.get('checkout_id')
+        if not isinstance(checkout_id, str):
+            raise ApiError(400, 'bad_request', 'checkout_id required')
+        blinded = [b for b in (body.get('blinded') or []) if isinstance(b, str)]
+        if not 1 <= len(blinded) <= azlin_period.MAX_BLINDED:
+            raise ApiError(400, 'bad_request', '1 to 24 blinded messages')
+        issue_key = body.get('issue_key')
+        if not isinstance(issue_key, str):
+            raise ApiError(400, 'issue_key_required',
+                           'issue_key required: period_tokens.issue_key of the sealed signup')
+        key_id = body.get('key_id')
+        if not isinstance(key_id, str):
+            raise ApiError(400, 'key_id_required',
+                           'key_id required: the key the messages are blinded for')
+        n, e, d = self.issuer
+        pem = azlin_period.public_key_pem(n, e)
+        with self.lock:
+            checkout = self.checkouts.get(checkout_id)
+            if checkout is None:
+                raise ApiError(404, 'no_such_checkout', 'unknown checkout')
+            if checkout['status'] != 'approved':
+                raise ApiError(409, 'not_paid', 'the checkout is not approved')
+            if not azlin_period.issue_key_ok(checkout.get('issue_key_hash'), issue_key):
+                raise ApiError(403, 'issue_key_wrong', "not this checkout's issue key")
+            tier = checkout['tier']
+            request = hashlib.sha256(('%s\n%s\n%s' % (checkout_id, key_id, ','.join(blinded)))
+                                     .encode('utf-8')).hexdigest()
+            earlier = self.issue_answers.get((checkout_id, request))
+            issued, months = checkout['tokens_issued'], checkout['months']
+            approved_at = int(checkout.get('approved_at') or self.now())
+
+            def schedule(count):
+                # azlin_contract::IssueSchedule: one month a month from the approval
+                out = {'months': months, 'issued': count}
+                if count < months:
+                    out['next_issue_at'] = rfc3339(approved_at + count * INSTALMENT_SECS)
+                return out
+            if earlier is not None:
+                return {'tier': tier, 'key_id': earlier[0], 'public_key_pem': pem,
+                        'blind_signatures': earlier[1], 'schedule': schedule(issued)}
+            if issued + len(blinded) > months:
+                raise ApiError(409, 'already_issued',
+                               '%d of %d tokens already issued' % (issued, months))
+            due = min(months, 1 + max(0, self.now() - approved_at) // INSTALMENT_SECS)
+            if issued + len(blinded) > due:
+                raise ApiError(409, 'not_due', 'the next month is not due yet',
+                               {'schedule': schedule(issued)})
+            year = time.gmtime().tm_year
+            if key_id not in ('%s/%d' % (tier, year), '%s/%d' % (tier, year - 1)):
+                raise ApiError(409, 'key_changed', 'blind the messages for this key '
+                               '(GET /v1/tokens/keys)',
+                               {'key_id': '%s/%d' % (tier, year), 'public_key_pem': pem})
+            try:
+                signatures = [azlin_period.blind_sign(n, d, b) for b in blinded]
+            except ValueError as err:
+                raise ApiError(400, 'bad_request', 'blind sign: %s' % err)
+            checkout['tokens_issued'] = issued + len(signatures)
+            self.issue_answers[(checkout_id, request)] = (key_id, signatures)
+            answer = {'tier': tier, 'key_id': key_id, 'public_key_pem': pem,
+                      'blind_signatures': signatures, 'schedule': schedule(issued + len(signatures))}
+        return answer
+
+    def authenticate(self, drive_id, bearer, previous_ok=False):
+        """drives.rs `authenticate`: the drive and its family's CURRENT token, not spent (a
+        rotated one is a reuse: the family is revoked) - on a read (`previous_ok`:
+        `authenticate_read`, F37) the token the family rotated from last too. The caller holds
+        the lock."""
+        return self.family_of(drive_id, bearer, previous_ok)[0]
+
+    def family_of(self, drive_id, bearer, previous_ok=False):
+        """`authenticate`: the drive and the family of the token (a recovery-key lockdown
+        whose 48 hours are over applied first, as the token server's tick would have)."""
+        drive = self.drives.get(drive_id)
+        if drive is not None:
+            self.finish_lockdown(drive, self.now())
+        if drive is None:
+            raise ApiError(404, 'no_such_drive', 'unknown drive')
+        if not bearer or not bearer.startswith('dt_'):
+            raise ApiError(401, 'unauthorized', 'a drive token is required')
+        state = self.families.get(bearer[3:].split('.')[0])
+        if state is None or state['drive'] != drive_id:
+            raise ApiError(401, 'unauthorized', 'unknown token')
+        if state['revoked']:
+            raise ApiError(401, 'credentials_revoked', 'this device was removed from the drive')
+        digest = token_hash(bearer)
+        rotated_from_last = bool(state['used']) and digest == state['used'][-1]
+        # the token rotated from last while the current one was never presented: the answer of
+        # that refresh was lost, not a reuse (drives.rs `Presented::LostAnswer`)
+        lost_answer = rotated_from_last and not state.get('current_used', True)
+        if digest == state['current'] or lost_answer or (previous_ok and rotated_from_last):
+            self.check_ban(drive)
+            if digest == state['current']:
+                state['current_used'] = True
+            return drive, state
+        if digest in state['used']:
+            state['revoked'] = 'reuse'
+            raise ApiError(401, 'token_reuse',
+                           'an old token was reused: the device must sign in again')
+        raise ApiError(401, 'unauthorized', 'unknown token')
+
+    def redeem(self, drive_id, bearer, body):
+        """POST /v1/drives/<id>/redeem (blind.rs `redeem`): one period token, one month more."""
+        n, e, _ = self.issuer
+        with self.lock:
+            drive, state = self.family_of(drive_id, bearer, previous_ok=True)
+            self.not_pending(drive, state)
+            self.check_ban(drive, write=True)
+            token = {key: body.get(key) for key in ('tier', 'year', 'nonce', 'signature',
+                                                    'randomizer')}
+            if token['tier'] not in TIERS:
+                raise ApiError(400, 'wrong_tier', 'the token is for another tier')
+            if not isinstance(token['year'], int) or not isinstance(token['nonce'], str) \
+                    or not azlin_period.verify(n, e, token):
+                raise ApiError(400, 'bad_token', 'the token signature does not verify')
+            used = hashlib.sha256(azlin_period.token_message(
+                token['tier'], token['year'], token['nonce']).encode('utf-8')).hexdigest()
+            if used in self.redeemed:
+                # blind.rs: the drive that redeemed it gets the same 200 (a lost answer asked
+                # again), any other drive 409
+                if self.redeemed[used] != drive_id:
+                    raise ApiError(409, 'token_used', 'this token was already redeemed')
+                return {'period_until': rfc3339(drive['period_until'])}
+            now = int(time.time())
+            tomorrow = (now // 86400 + 1) * 86400
+            answer = {}
+            if token['tier'] != drive['tier'] and body.get('change_tier'):
+                # decision 5: bigger at once, the remaining days credited at the new price;
+                # smaller at the period's end and only when the stored bytes fit
+                old, new = drive['tier'], token['tier']
+                if TIERS[new] > TIERS[old]:
+                    left = max(drive['period_until'] - tomorrow, 0)
+                    credited = left * month_worth(old) // month_worth(new)
+                    drive['period_until'] = tomorrow + credited + 30 * 86400
+                    answer['credited_days'] = credited // 86400
+                else:
+                    if drive['period_until'] - now > 7 * 86400:
+                        raise ApiError(409, 'change_not_due', 'a smaller tier at the period end',
+                                       {'from': rfc3339(drive['period_until'] - 7 * 86400)})
+                    stored = self.node_count(drive['bucket'], body.get('usage_proof'), now)
+                    if stored is None:
+                        raise ApiError(400, 'stored_bytes_required',
+                                       "a node's fresh signed count of the drive's bytes")
+                    if stored > TIERS[new]:
+                        raise ApiError(409, 'does_not_fit', 'free space first',
+                                       {'stored': stored, 'quota': TIERS[new]})
+                    drive['period_until'] = max(drive['period_until'], tomorrow) + 30 * 86400
+                drive['tier'] = new
+                drive['quota_bytes'] = TIERS[new]
+                answer['tier'] = new
+            elif token['tier'] != drive['tier']:
+                # a month of another tier (left from before a change): worth its price here
+                days = 30 * month_worth(token['tier']) // month_worth(drive['tier'])
+                drive['period_until'] = max(drive['period_until'], tomorrow) + max(days, 1) * 86400
+            else:
+                drive['period_until'] = max(drive['period_until'], tomorrow) + 30 * 86400
+            self.redeemed[used] = drive_id
+            answer['period_until'] = rfc3339(drive['period_until'])
+            return answer
+
+    def info(self, drive_id, bearer):
+        """GET /v1/drives/<id> (drives.rs `info`, a read: the previous token too): with the
+        members that have a live family (drives.rs `members`) and `you`, the caller's."""
+        with self.lock:
+            self.finish_pending_lockdowns_locked(self.now())
+            drive, state = self.family_of(drive_id, bearer, previous_ok=True)
+            pending = drive.get('lockdown_pending_until')
+            if state.get('member') == 'recovery-pending':
+                # its lockdown's status only (D42): no tier, quota or the owner's devices
+                return {'id': drive['id'], 'status': 'lockdown_pending',
+                        'lockdown_pending_until': rfc3339(pending) if pending else None,
+                        'you': state['member']}
+            read_only = pending is not None or bool(drive.get('read_only'))
+            added = {}
+            live = {}
+            for family in self.families.values():
+                if family['drive'] == drive_id and not family['revoked']:
+                    member = family.get('member', 'owner')
+                    added[member] = min(added.get(member, family.get('added_at', 0)),
+                                        family.get('added_at', 0))
+                    live[member] = live.get(member, 0) + 1
+            members = [{'member': member, 'role': 'member', 'added_at': rfc3339(added[member]),
+                        'state': 'active', 'devices': live[member]}
+                       for member in sorted(added)]
+            return {'id': drive['id'], 'tier': drive['tier'],
+                    'quota_bytes': drive['quota_bytes'], 'read_only': read_only,
+                    'read_only_reason': self.read_only_why(drive),
+                    'status': 'active', 'period_until': rfc3339(drive['period_until']),
+                    'lockdown_pending_until': rfc3339(pending) if pending else None,
+                    'you': state.get('member', 'owner'), 'members': members,
+                    'usage_bytes': None, **self.ban_fields(drive)}
+
+    def usage_proof(self, bucket, held, at=None):
+        """The node's signed count of `bucket`'s bytes (HeadBucket's x-azlin-usage-proof,
+        azlin-proto usage.rs): `<node id>.<at>.<held>.<signature>`, here an HMAC with the
+        stack's own key in place of the node's Ed25519 identity."""
+        at = int(time.time()) if at is None else at
+        msg = f'{bucket}.{held}.{at}'.encode()
+        sig = base64.b64encode(hmac.new(self.usage_key, msg, hashlib.sha256).digest()).decode()
+        return f'1.{at}.{held}.{sig}'
+
+    def node_count(self, bucket, proof, now):
+        """The bytes `proof` says `bucket` holds, when the node signed it within 15 minutes
+        (USAGE_PROOF_MAX_AGE_SECS); None otherwise. The app's own figure decides nothing."""
+        parts = str(proof or '').split('.', 3)
+        if len(parts) != 4 or not all(p.lstrip('-').isdigit() for p in parts[:3]):
+            return None
+        at, held = int(parts[1]), int(parts[2])
+        if held < 0 or at > now + 60 or now - at > 15 * 60:
+            return None
+        if not hmac.compare_digest(self.usage_proof(bucket, held, at), str(proof)):
+            return None
+        return held
+
+    def quota_of_bucket(self, bucket):
+        """The quota of the drive whose bucket `bucket` is (its tier's, in stored bytes); None
+        for a bucket of no drive."""
+        with self.lock:
+            for drive in self.drives.values():
+                if drive.get('bucket') == bucket:
+                    return drive.get('quota_bytes')
+        return None
+
+    def set_read_only(self, drive_id, read_only=True, why='unpaid'):
+        """A test's switch: drive `drive_id` takes no writes for `why` (`unpaid` past its grace,
+        `lockdown_pending`, `operator`) - its status and refresh say `read_only` and
+        `read_only_reason`, and the node refuses writes with that reason's code."""
+        with self.lock:
+            drive = self.drives[drive_id]
+            drive['read_only'] = bool(read_only)
+            drive['read_only_reason'] = why if read_only else None
+
+    def read_only_why(self, drive):
+        """Why `drive` takes no writes (buckets.read_only_reason), None while it takes them: a
+        pending recovery-key lockdown freezes it too. The caller holds the lock."""
+        if drive.get('lockdown_pending_until'):
+            return 'lockdown_pending'
+        if drive.get('read_only'):
+            return drive.get('read_only_reason') or 'unpaid'
+        return None
+
+    def read_only_code(self, bucket):
+        """The node code a write to `bucket` gets (read_only.rs: each reason its code), None
+        while the drive takes writes."""
+        with self.lock:
+            for drive in self.drives.values():
+                if drive.get('bucket') == bucket:
+                    why = self.read_only_why(drive)
+                    return READ_ONLY_CODES.get(why) if why else None
+        return None
+
+    def set_map_epoch(self, epoch, hash_hex=None):
+        """A test's switch: the cluster map the token server trusts and the nodes hold moves to
+        `epoch` (refresh and sign-up name it in `map`); a request naming an older one in
+        x-azlin-map is answered 409 map_stale with the node's epoch and hash."""
+        with self.lock:
+            self.map = {'cluster': 'mock', 'epoch': int(epoch),
+                        'hash': hash_hex or hashlib.sha256(b'map %d' % int(epoch)).hexdigest()}
+
+    def node_front(self, headers, bucket):
+        """s3d's `Front::call`: an app below the minimum gets 426 client_too_old (with
+        x-azlin-min-contract), a request naming an older map epoch than the node's 409
+        map_stale (with the node's `epoch hash` in x-azlin-map); None lets it go on."""
+        hello = headers.get(azlin_contract.CLIENT_HEADER)
+        if hello is not None and azlin_contract.below_minimum(hello):
+            error = self.s3.node_failure('client_too_old', 'this app is too old for this service')
+            error.headers['x-azlin-min-contract'] = str(azlin_contract.min_contract())
+            return error
+        asked = (headers.get('x-azlin-map') or '').strip()
+        with self.lock:
+            held = self.map
+        if held is not None and asked.isdigit() and int(asked) < held['epoch']:
+            error = self.s3.node_failure('map_stale', 'the map is newer: fetch it and send again')
+            error.headers['x-azlin-map'] = '%d %s' % (held['epoch'], held['hash'])
+            return error
+        return None
+
+    def set_recovery(self, drive_id, bearer, body, key=None):
+        """POST /v1/drives/<id>/recovery (recovery.rs `set_only`, a grant): the drive's only
+        recovery key from now on (an Ed25519 public key, standard base64) - once the drive has
+        one, signed by a current key over recovery:<drive>:<new key>:<nonce> (F12 option C)."""
+        with self.lock:
+            drive = self.owner_call(drive_id, bearer, grant=True)
+            self.check_ban(drive, write=True)
+            caller = 'family:' + bearer[3:].split('.')[0]
+            kept = self.kept('recovery_key', key, caller)
+            if kept is not None:
+                return self.answer_again(drive_id, kept)[1]
+            public = self.pubkey_of(body)
+            label = self.label_of(body, RECOVERY_KIT_LABEL)
+            self.key_consent(drive, body, 'recovery:%s:%s'
+                             % (drive_id, body.get('recovery_pubkey') or ''))
+            made = self.new_recovery_key(public, label)
+            drive['recovery_keys'] = [made]
+            drive.pop('recovery_pubkey', None)
+            answer = {'ok': True, 'key_id': made['key_id'], 'label': made['label']}
+            self.keep('recovery_key', key, caller, {'status': 200, 'body': answer})
+            return answer
+
+    def lockdown(self, drive_id, bearer, body, key=None):
+        """POST /v1/drives/<id>/lockdown (drives.rs `lockdown`): by the recovery key
+        (`{"nonce", "signature"}` over `lockdown:<drive>:<nonce>`) the drive is frozen for 48 h
+        and a new `recovery-pending` family made (202); by a drive token every other family is
+        revoked at once and the caller gets a new one (200, a bundle). With the idempotency key
+        `key` a lockdown whose answer was lost is answered again: to the device it revoked
+        (its token, within 10 minutes), or signed anew by the recovery key - its family
+        rotated once more."""
+        with self.lock:
+            drive = self.drives.get(drive_id)
+            if drive is None:
+                raise ApiError(404, 'no_such_drive', 'unknown drive')
+            if 'signature' not in body:
+                asking = (bearer or '')[3:].split('.')[0] if (bearer or '').startswith('dt_') \
+                    else ''
+                kept = self.kept('lockdown', key, 'family:' + asking)
+                if kept is not None:
+                    state = self.families.get(asking)
+                    revoked_at = (state or {}).get('revoked_at')
+                    if state is None or token_hash(bearer) != state['current'] \
+                            or revoked_at is None \
+                            or self.now() - revoked_at > LOCKDOWN_REPEAT_SECS:
+                        raise ApiError(401, 'credentials_revoked',
+                                       'this device was removed from the drive')
+                    _, again = self.answer_again(drive_id, kept)
+                    return 200, self.bundle(drive, again['drive_token'])
+                _, state = self.family_of(drive_id, bearer)
+                # the pending device's token locks nothing down: that would hand it the drive
+                self.not_pending(drive, state)
+                # every family (the caller's too: it gets the new one), key and link at once -
+                # but not a pending recovery-key lockdown's: the recovery key wins (F12), its
+                # 48 h and its freeze stay
+                self.revoke_all(drive, lambda family: family.get('member') != 'recovery-pending')
+                member = state.get('member', 'owner')
+                token = self.new_family(drive_id, member)
+                self.keep('lockdown', key, 'family:' + asking,
+                          {'family': token[3:].split('.')[0], 'generation': 0, 'status': 200,
+                           'body': {'member': member}})
+                return 200, self.bundle(drive, token)
+            # signed by any of the drive's recovery keys (the one key_id names, when given)
+            signer = self.find_signer(drive, body, 'lockdown:%s' % drive_id)
+            caller = 'recovery:%s:%s' % (drive_id, signer['key_id'])
+            kept = self.kept('lockdown', key, caller)
+            self.nonce_once(drive, str(body.get('nonce') or ''))
+            if kept is not None:
+                return self.answer_again(drive_id, kept)
+            token = self.new_family(drive_id, 'recovery-pending')
+            drive['lockdown_pending_until'] = self.now() + LOCKDOWN_PENDING_SECS
+            answer = {'pending_until': rfc3339(drive['lockdown_pending_until']),
+                      'note': 'the recovery code can cancel within 48 h; the drive is '
+                              'read-only meanwhile'}
+            self.keep('lockdown', key, caller,
+                      {'family': token[3:].split('.')[0], 'generation': 0, 'status': 202, 'body': answer})
+            return 202, dict(answer, drive_token=token)
+
+    def kept(self, scope, key, caller):
+        """idempotent.rs `Once::kept`: the first answer of the request `key` of `caller` in
+        `scope`, when it came before (none for a request without a key). The caller holds the
+        lock."""
+        return self.kept_answers.get((scope, key, caller)) if key else None
+
+    def keep(self, scope, key, caller, answer):
+        """Keeps `answer` as the first answer of the request (written with the grant)."""
+        if key:
+            self.kept_answers[(scope, key, caller)] = answer
+
+    def answer_again(self, drive_id, kept):
+        """drives.rs `answer_again`: (status, answer) of a grant asked again - an answer without
+        a token as it was, one with a token family as that family rotated once more (and kept at
+        its new generation): 401 when it was revoked meanwhile, 409 already_answered when its
+        token was used or refreshed (the first answer did arrive). The caller holds the lock."""
+        if 'family' not in kept:
+            return kept['status'], dict(kept['body'])
+        state = self.families.get(kept['family'])
+        if state is None or state['drive'] != drive_id or state['revoked']:
+            raise ApiError(401, 'credentials_revoked', 'the grant of this request was revoked')
+        if state.get('current_used', True) or state['generation'] != kept['generation']:
+            raise ApiError(409, azlin_contract.ALREADY_ANSWERED,
+                           'this request was answered before and its grant is in use')
+        state['used'] = (state['used'] + [state['current']])[-20:]
+        state['generation'] += 1
+        state['current_used'] = False
+        kept['generation'] = state['generation']
+        return kept['status'], dict(kept['body'], drive_token=self.new_token(kept['family']))
+
+    def revoke_all(self, drive, which):
+        """drives.rs's lockdown: the drive's families `which` takes, every access key and public
+        link of its bucket revoked; deletes paused for a day. The caller holds the lock."""
+        now = int(time.time())
+        for family in self.families.values():
+            if family['drive'] == drive['id'] and which(family) and not family['revoked']:
+                family['revoked'] = 'lockdown'
+                family['revoked_at'] = self.now()
+        for key in drive.setdefault('access_keys', {}).values():
+            key['revoked_at'] = key['revoked_at'] or now
+        for link in drive.setdefault('public_links', {}).values():
+            link['revoked_at'] = link['revoked_at'] or now
+        drive['lockdown_until'] = now + LOCKDOWN_DELETE_PAUSE_SECS
+
+    def finish_pending_lockdowns(self, now=None):
+        """drives.rs's `finish_pending_lockdowns` (the tick): a recovery-key lockdown past its 48
+        hours revokes every family but the recovering one, which becomes the owner's, and every
+        key and link."""
+        with self.lock:
+            self.finish_pending_lockdowns_locked(self.now() if now is None else now)
+
+    def finish_pending_lockdowns_locked(self, now):
+        """[`finish_pending_lockdowns`] for a caller that holds the lock (the routes run it
+        first, as the server's upkeep would have by then)."""
+        for drive in self.drives.values():
+            self.finish_lockdown(drive, now)
+
+    def finish_lockdown(self, drive, now):
+        """`drive`'s recovery-key lockdown, when its 48 hours are over. The caller holds the
+        lock."""
+        until = drive.get('lockdown_pending_until')
+        if not until or until > now:
+            return
+        self.revoke_all(drive, lambda family: family.get('member') != 'recovery-pending')
+        for family in self.families.values():
+            if family['drive'] == drive['id'] and family.get('member') == 'recovery-pending' \
+                    and not family['revoked']:
+                family['member'] = 'owner'
+        drive['lockdown_pending_until'] = None
+        drive['lockdown_completed'] = now
+
+    def claim(self, drive_id, body, key=None):
+        """POST /v1/drives/<id>/claim {"ticket"} (drives.rs `claim`, no drive token): a token
+        family of the claiming computer's own for a paid drive, by the ticket of its sealed
+        sign-up - 201 {member, drive_token, claims_left}; 401 another ticket or a drive without
+        one (a development sign-up, a drive from before the tickets), 403 drive_banned, 409
+        claims_used after three, 410 claim_expired 30 days after the first."""
+        ticket = body.get('ticket')
+        with self.lock:
+            drive = self.drives.get(drive_id)
+            if drive is None:
+                raise ApiError(404, 'no_such_drive', 'unknown drive')
+            claim = drive.get('claim')
+            if not claim or not isinstance(ticket, str) or not ticket \
+                    or not hmac.compare_digest(token_hash(ticket), claim['ticket_hash']):
+                raise ApiError(401, 'unauthorized', 'unknown claim ticket')
+            ban = drive.get('ban')
+            if ban:
+                raise ApiError(403, 'drive_banned', 'this drive is banned',
+                               {'ban_reason': ban['reason'], 'ban_until': rfc3339(ban['until'])})
+            # the same pick-up asked again (its answer was lost): the same family, counted once
+            caller = 'ticket:' + claim['ticket_hash']
+            kept = self.kept('claim', key, caller)
+            if kept is not None:
+                return self.answer_again(drive_id, kept)[1]
+            if claim['claims'] >= CLAIMS_MAX:
+                raise ApiError(409, 'claims_used',
+                               'this drive was picked up %d times already' % CLAIMS_MAX)
+            now = self.now()
+            if claim['until'] is not None and now >= claim['until']:
+                raise ApiError(410, 'claim_expired',
+                               'the pick-ups of this drive ended 30 days after the first')
+            claim['claims'] += 1
+            if claim['until'] is None:
+                claim['until'] = now // 86400 * 86400 + CLAIM_WINDOW_SECS
+            # each pick-up a member of its own (drives.rs `claim`): removable without the others
+            member = 'pickup-%d' % claim['claims']
+            token = self.new_family(drive_id, member)
+            answer = {'member': member, 'claims_left': CLAIMS_MAX - claim['claims']}
+            self.keep('claim', key, caller,
+                      {'family': token[3:].split('.')[0], 'generation': 0, 'status': 201, 'body': answer})
+            return dict(answer, drive_token=token)
+
+    def add_member(self, drive_id, bearer, body, key=None):
+        """POST /v1/drives/<id>/members (a grant): a token family for another device; asked
+        again with the same key, the same member (its family rotated once more)."""
+        with self.lock:
+            drive, state = self.family_of(drive_id, bearer)
+            self.not_pending(drive, state)
+            self.check_ban(drive, write=True)
+            caller = 'family:' + bearer[3:].split('.')[0]
+            kept = self.kept('add_member', key, caller)
+            if kept is not None:
+                return self.answer_again(drive_id, kept)[1]
+            member = body.get('member') or random_id('m_')
+            token = self.new_family(drive_id, member)
+            self.keep('add_member', key, caller,
+                      {'family': token[3:].split('.')[0], 'generation': 0, 'status': 201,
+                       'body': {'member': member}})
+            return {'member': member, 'drive_token': token}
+
+    def remove_member(self, drive_id, bearer, member, key=None):
+        """DELETE /v1/drives/<id>/members/<member> (a grant, drives.rs `remove_member`): the
+        member's families revoked; never the caller's own (409 own_member), 404 no_such_member
+        for one without a live family. Asked again with the same key, the same answer."""
+        with self.lock:
+            drive, state = self.family_of(drive_id, bearer)
+            self.not_pending(drive, state)
+            caller = 'family:' + bearer[3:].split('.')[0]
+            kept = self.kept('remove_member', key, caller)
+            if kept is not None:
+                return kept['body']
+            if member == state.get('member', 'owner'):
+                raise ApiError(409, 'own_member', "this device's own member: remove it from "
+                               'another device, or lock the drive down')
+            families = [f for f in self.families.values()
+                        if f['drive'] == drive_id and f.get('member') == member
+                        and not f['revoked']]
+            if not families:
+                raise ApiError(404, 'no_such_member', 'the drive has no such device')
+            now = self.now()
+            for family in families:
+                family['revoked'] = 'removed'
+                family['revoked_at'] = now
+            body = {'removed': member, 'removed_at': rfc3339(now)}
+            self.keep('remove_member', key, caller, {'status': 200, 'body': body})
+            return body
+
+    def create_key(self, drive_id, bearer, body):
+        """POST /v1/drives/<id>/keys (a grant): a long-lived access key of the bucket."""
+        with self.lock:
+            drive, state = self.family_of(drive_id, bearer)
+            self.not_pending(drive, state)
+            self.check_ban(drive, write=True)
+            days = max(1, min(366, int(body.get('expires_days') or 365)))
+            akid = 'AZK' + b32(secrets.token_bytes(10)).upper()
+            expires_at = int(time.time()) + days * 86400
+            drive.setdefault('access_keys', {})[akid] = {
+                'perms': body.get('perms') or 'rw', 'expires_at': expires_at, 'revoked_at': None}
+            return {'access_key_id': akid,
+                    'secret_access_key': base64.urlsafe_b64encode(secrets.token_bytes(30))
+                    .decode('ascii').rstrip('='),
+                    'perms': body.get('perms') or 'rw', 'expires_at': rfc3339(expires_at)}
+
+    def revoke_key(self, drive_id, bearer, key):
+        """DELETE /v1/drives/<id>/keys/<key> (a grant)."""
+        with self.lock:
+            drive, state = self.family_of(drive_id, bearer)
+            self.not_pending(drive, state)
+            found = drive.setdefault('access_keys', {}).get(key)
+            if found is None:
+                raise ApiError(404, 'no_such_key', 'unknown key')
+            found['revoked_at'] = found['revoked_at'] or int(time.time())
+            return {'revoked': key}
+
+    def add_public_link(self, drive_id):
+        """A public link of the drive's bucket (the switch: the token server makes none itself,
+        its lockdown revokes them); its id."""
+        with self.lock:
+            link = random_id('l_')
+            self.drives[drive_id].setdefault('public_links', {})[link] = {'revoked_at': None}
+            return link
+
+    def restore(self, drive_id, bearer, body, key=None):
+        """POST /v1/drives/<id>/restore (drives.rs `restore`, a grant): the drive's objects under
+        `prefix` as they were at `as_of` (RFC 3339, or seconds) - queued at the token server and
+        applied by the node (here: at once, by the S3 store's versions); 202 `queued`."""
+        with self.lock:
+            drive, state = self.family_of(drive_id, bearer)
+            self.not_pending(drive, state)
+        prefix = str(body.get('prefix') or body.get('key') or '')
+        as_of = body.get('as_of')
+        if isinstance(as_of, (int, float)) and not isinstance(as_of, bool):
+            as_of = int(as_of)
+        elif isinstance(as_of, str):
+            try:
+                as_of = calendar.timegm(time.strptime(as_of.split('.')[0].rstrip('Z'),
+                                                      '%Y-%m-%dT%H:%M:%S'))
+            except ValueError:
+                raise ApiError(400, 'bad_request', 'as_of must be RFC 3339') from None
+        else:
+            raise ApiError(400, 'bad_request', 'as_of required')
+        with self.lock:
+            drive = self.authenticate(drive_id, bearer)
+            self.check_ban(drive, write=True)
+            # the same request again (its answer was lost): queued once
+            caller = 'family:' + bearer[3:].split('.')[0]
+            kept = self.kept('restore', key, caller)
+            if kept is not None:
+                return self.answer_again(drive_id, kept)[1]
+            request = random_id('r_')
+            self.keep('restore', key, caller,
+                      {'status': 202, 'body': {'request_id': request, 'status': 'queued'}})
+            self.restores[request] = {'drive': drive_id, 'bucket': drive['bucket'],
+                                      'prefix': prefix, 'as_of': as_of, 'status': 'queued',
+                                      'objects': None, 'error': None, 'done_at': None}
+        # The node's part, outside the token server's lock.
+        try:
+            objects = self.s3.store.restore(drive['bucket'], prefix, as_of)
+            error, status = None, 'done'
+        except (OSError, ValueError) as e:
+            objects, error, status = None, str(e), 'failed'
+        with self.lock:
+            self.restores[request].update(status=status, objects=objects, error=error,
+                                          done_at=int(time.time()))
+        return {'request_id': request, 'status': 'queued'}
+
+    def restore_status(self, drive_id, bearer, request):
+        """GET /v1/drives/<id>/restore/<request> (drives.rs `restore_status`, a read)."""
+        with self.lock:
+            drive, state = self.family_of(drive_id, bearer, previous_ok=True)
+            self.not_pending(drive, state)
+            found = self.restores.get(request)
+            if found is None or found['drive'] != drive_id:
+                raise ApiError(404, 'not_found', 'unknown restore request')
+            return {'request_id': request, 'status': found['status'],
+                    'objects': found['objects'], 'error': found['error'],
+                    'done_at': rfc3339(found['done_at']) if found['done_at'] else None}
+
+    def lockdown_cancel(self, drive_id, body):
+        """POST /v1/drives/<id>/lockdown/cancel (drives.rs `lockdown_cancel`, F12 option 1 + C:
+        the recovery code always wins): one of the drive's recovery keys - never a device's
+        token - calls a pending recovery-key lockdown off, signing
+        lockdown-cancel:<drive>:<nonce>."""
+        with self.lock:
+            drive = self.drives.get(drive_id)
+            if drive is None:
+                raise ApiError(404, 'no_such_drive', 'unknown drive')
+            self.finish_lockdown(drive, self.now())
+            self.signed_by(drive, body, 'lockdown-cancel:%s' % drive_id)
+            if not drive.get('lockdown_pending_until'):
+                raise ApiError(409, 'no_pending_lockdown', 'no recovery-key lockdown is pending')
+            for other in self.families.values():
+                if other['drive'] == drive_id and other.get('member') == 'recovery-pending':
+                    other['revoked'] = other['revoked'] or 'lockdown_cancelled'
+            drive['lockdown_pending_until'] = None
+            return {'cancelled': True}
+
+    # ==== Recovery keys (recovery.rs, D51, F12) and the pending family (D42) ====
+
+    def pending_error(self, drive):
+        """drives.rs `lockdown_pending`: what a recovery-pending family gets."""
+        until = drive.get('lockdown_pending_until')
+        return ApiError(403, 'lockdown_pending',
+                        'the drive is handed over when its 48 h notice ends',
+                        {'pending_until': rfc3339(until) if until else None})
+
+    def not_pending(self, drive, state):
+        """drives.rs `not_pending`: refuses a recovery-pending family, after its token was
+        checked and before anything is written or rotated."""
+        if state.get('member') == 'recovery-pending':
+            raise self.pending_error(drive)
+
+    def owner_call(self, drive_id, bearer, grant):
+        """recovery.rs `owner_call`: the drive of a call that lists (a read) or changes (a
+        grant) its recovery keys - never the pending family's. The caller holds the lock."""
+        drive, state = self.family_of(drive_id, bearer, previous_ok=not grant)
+        self.not_pending(drive, state)
+        return drive
+
+    @staticmethod
+    def canonical_key(public):
+        """An Ed25519 public key as standard base64 with padding; None when it is none."""
+        try:
+            raw = base64.b64decode(str(public) + '=' * (-len(str(public)) % 4), validate=True)
+        except (ValueError, TypeError):
+            return None
+        return base64.b64encode(raw).decode('ascii') if len(raw) == 32 else None
+
+    def pubkey_of(self, body):
+        public = body.get('recovery_pubkey')
+        if not isinstance(public, str):
+            raise ApiError(400, 'bad_request', 'recovery_pubkey (Ed25519, base64) required')
+        canonical = self.canonical_key(public)
+        if canonical is None:
+            raise ApiError(400, 'bad_request', 'not an Ed25519 public key')
+        return canonical
+
+    @staticmethod
+    def label_of(body, default):
+        label = body.get('label')
+        label = (label if isinstance(label, str) else '').strip()
+        if len(label) > RECOVERY_LABEL_MAX or any(ord(c) < 32 for c in label):
+            raise ApiError(400, 'bad_request', 'label: up to 64 characters, no control characters')
+        return label or default
+
+    def new_recovery_key(self, public, label):
+        """A key row of `recovery_keys`, dated by the day (D37), MAC'd (verified)."""
+        return {'key_id': random_id('rk_'), 'label': label, 'recovery_pubkey': public,
+                'created_at': self.now() // 86400 * 86400, 'verified': True}
+
+    def keys_of(self, drive):
+        """recovery.rs `keys_of`: the key from before (`recovery_pubkey`, rk_legacy) first, then
+        the rows by id. The caller holds the lock."""
+        keys = []
+        if drive.get('recovery_pubkey'):
+            keys.append({'key_id': RECOVERY_LEGACY_KEY_ID, 'label': RECOVERY_KIT_LABEL,
+                         'recovery_pubkey': drive['recovery_pubkey'], 'created_at': None,
+                         'verified': drive.get('recovery_verified', True), 'legacy': True})
+        keys.extend(sorted(drive.setdefault('recovery_keys', []), key=lambda k: k['key_id']))
+        return keys
+
+    @staticmethod
+    def key_json(key):
+        created = key.get('created_at')
+        return {'key_id': key['key_id'], 'label': key['label'],
+                'recovery_pubkey': key['recovery_pubkey'],
+                'created_at': rfc3339(created) if created is not None else None,
+                'verified': bool(key.get('verified', True))}
+
+    def nonce_once(self, drive, nonce):
+        """drives.rs `recovery_nonce_once`: 16 to 128 characters, each once per drive."""
+        if not 16 <= len(nonce) <= 128:
+            raise ApiError(400, 'bad_request', 'nonce: 16 to 128 characters, new for every request')
+        used = drive.setdefault('recovery_nonces', set())
+        if nonce in used:
+            raise ApiError(409, 'nonce_used', 'this lockdown request was used before')
+        used.add(nonce)
+
+    def find_signer(self, drive, body, what):
+        """recovery.rs `find_signer`: the drive's key (the one `key_id` names, when given) that
+        signed `<what>:<nonce>` - 400 no_recovery_key without any, 401 when none did, 503
+        not_verified for one not MAC'd yet. The nonce is not counted here."""
+        keys = self.keys_of(drive)
+        if not keys:
+            raise ApiError(400, 'no_recovery_key', 'no recovery key registered')
+        nonce = str(body.get('nonce') or '')
+        signature = str(body.get('signature') or '')
+        wanted = body.get('key_id')
+        message = ('%s:%s' % (what, nonce)).encode('utf-8')
+        for key in keys:
+            if wanted is not None and key['key_id'] != wanted:
+                continue
+            if azlin_ed25519.verify_b64(key['recovery_pubkey'], message, signature):
+                if not key.get('verified', True):
+                    raise ApiError(503, 'not_verified',
+                                   'this recovery key is not verified yet; try again later')
+                return key
+        raise ApiError(401, 'unauthorized', 'bad recovery signature')
+
+    def signed_by(self, drive, body, what):
+        """recovery.rs `signed_by`: 403 recovery_key_required without a signature; else the key
+        that signed it, its nonce counted once."""
+        if 'signature' not in body:
+            raise ApiError(403, 'recovery_key_required',
+                           "this takes a signature by one of the drive's recovery keys")
+        key = self.find_signer(drive, body, what)
+        self.nonce_once(drive, str(body.get('nonce') or ''))
+        return key
+
+    def key_consent(self, drive, body, what):
+        """recovery.rs `key_consent`: a drive with keys changes them only with one's signature;
+        its first key takes the token alone."""
+        if self.keys_of(drive):
+            self.signed_by(drive, body, what)
+
+    def recovery_keys(self, drive_id, bearer):
+        """GET /v1/drives/<id>/recovery_keys (a read)."""
+        with self.lock:
+            drive = self.owner_call(drive_id, bearer, grant=False)
+            return {'keys': [self.key_json(k) for k in self.keys_of(drive)]}
+
+    def add_recovery_key(self, drive_id, bearer, body, key=None):
+        """POST /v1/drives/<id>/recovery_keys (a grant, signed over
+        recovery-add:<drive>:<recovery_pubkey>:<nonce>): 201 the key; asked again with the same
+        idempotency key, the same answer."""
+        with self.lock:
+            drive = self.owner_call(drive_id, bearer, grant=True)
+            caller = 'family:' + bearer[3:].split('.')[0]
+            kept = self.kept('recovery_key', key, caller)
+            if kept is not None:
+                return self.answer_again(drive_id, kept)[1]
+            public = self.pubkey_of(body)
+            label = self.label_of(body, '')
+            keys = self.keys_of(drive)
+            if any(self.canonical_key(k['recovery_pubkey']) == public for k in keys):
+                raise ApiError(409, 'recovery_key_exists',
+                               'this key is a recovery key of the drive already')
+            if len(keys) >= RECOVERY_KEYS_MAX:
+                raise ApiError(409, 'too_many_recovery_keys',
+                               'a drive has at most 10 recovery keys; remove one first')
+            self.key_consent(drive, body, 'recovery-add:%s:%s'
+                             % (drive_id, body.get('recovery_pubkey') or ''))
+            made = self.new_recovery_key(public, label)
+            drive.setdefault('recovery_keys', []).append(made)
+            self.keep('recovery_key', key, caller, {'status': 201, 'body': self.key_json(made)})
+            return self.key_json(made)
+
+    def remove_recovery_key(self, drive_id, bearer, key_id, body, key=None):
+        """DELETE /v1/drives/<id>/recovery_keys/<key_id> (a grant, signed over
+        recovery-remove:<drive>:<key_id>:<nonce>): never the last key; asked again with the
+        same idempotency key, the same answer."""
+        with self.lock:
+            drive = self.owner_call(drive_id, bearer, grant=True)
+            caller = 'family:' + bearer[3:].split('.')[0]
+            kept = self.kept('recovery_key', key, caller)
+            if kept is not None:
+                return self.answer_again(drive_id, kept)[1]
+            keys = self.keys_of(drive)
+            target = next((k for k in keys if k['key_id'] == key_id), None)
+            if target is None:
+                raise ApiError(404, 'no_such_key', 'unknown recovery key')
+            if len(keys) <= 1:
+                raise ApiError(409, 'last_recovery_key',
+                               "the drive's last recovery key stays; add another first")
+            self.key_consent(drive, body, 'recovery-remove:%s:%s' % (drive_id, key_id))
+            if target.get('legacy'):
+                drive.pop('recovery_pubkey', None)
+            else:
+                drive['recovery_keys'] = [k for k in drive.get('recovery_keys', [])
+                                          if k['key_id'] != key_id]
+            self.keep('recovery_key', key, caller, {'status': 200, 'body': {'removed': key_id}})
+            return {'removed': key_id}
+
+    def unverify_recovery_keys(self, drive_id):
+        """A test's switch: the drive's recovery keys lose their MAC (a lookup or a signature
+        by one is then 503 not_verified)."""
+        with self.lock:
+            drive = self.drives[drive_id]
+            drive['recovery_verified'] = False
+            for key in drive.setdefault('recovery_keys', []):
+                key['verified'] = False
+
+    def rate_limited(self, scope, address):
+        """lib.rs `rate_limited`: 20 requests per 10 minutes per address and scope."""
+        with self.lock:
+            now = self.now()
+            start, count = self.rate.get((scope, address), (now, 0))
+            if now - start > RECOVERY_RATE_WINDOW_SECS:
+                start, count = now, 0
+            count += 1
+            self.rate[(scope, address)] = (start, count)
+            return count > RECOVERY_RATE_LIMIT
+
+    def challenge_mac(self, expires, nonce):
+        digest = hmac.new(self.challenge_secret, ('recovery_challenge|%d|%s' % (expires, nonce))
+                          .encode('utf-8'), hashlib.sha256).digest()
+        return base64.urlsafe_b64encode(digest).decode('ascii').rstrip('=')
+
+    def recovery_challenge(self):
+        """POST /v1/recovery/challenge (recovery.rs `challenge`): `rc1.<expires>.<random>.<mac>`,
+        good for 5 minutes; nothing stored."""
+        expires = self.now() + RECOVERY_CHALLENGE_SECS
+        nonce = base64.urlsafe_b64encode(secrets.token_bytes(18)).decode('ascii').rstrip('=')
+        return {'challenge': 'rc1.%d.%s.%s' % (expires, nonce, self.challenge_mac(expires, nonce)),
+                'expires_at': rfc3339(expires)}
+
+    def challenge_ok(self, challenge):
+        parts = challenge.split('.', 3)
+        if len(parts) != 4 or parts[0] != 'rc1':
+            return False
+        try:
+            expires = int(parts[1])
+        except ValueError:
+            return False
+        now = self.now()
+        if expires <= now or expires > now + RECOVERY_CHALLENGE_SECS:
+            return False
+        return hmac.compare_digest(self.challenge_mac(expires, parts[2]), parts[3])
+
+    def recovery_lookup(self, body):
+        """POST /v1/recovery/lookup (recovery.rs `lookup`): the drives `recovery_pubkey` is a
+        recovery key of, for the caller who signed `recovery-lookup:<challenge>` with it. The
+        challenge and the signature are checked before the drives are looked at."""
+        challenge = str(body.get('challenge') or '')
+        if not self.challenge_ok(challenge):
+            raise ApiError(401, 'bad_challenge',
+                           'a challenge of POST /v1/recovery/challenge, at most 5 minutes old')
+        public = self.canonical_key(body.get('recovery_pubkey') or '')
+        message = ('recovery-lookup:%s' % challenge).encode('utf-8')
+        if public is None or not azlin_ed25519.verify_b64(public, message,
+                                                          str(body.get('signature') or '')):
+            raise ApiError(401, 'unauthorized', 'bad recovery signature')
+        with self.lock:
+            found = []
+            for drive in self.drives.values():
+                if drive.get('deleted'):
+                    continue
+                for key in self.keys_of(drive):
+                    if self.canonical_key(key['recovery_pubkey']) == public:
+                        if not key.get('verified', True):
+                            raise ApiError(503, 'not_verified',
+                                           'this recovery key is not verified yet; try again '
+                                           'later')
+                        found.append((drive['id'], key['key_id']))
+            return {'drives': [{'drive_id': d, 'key_id': k} for d, k in sorted(set(found))]}
+
+    def now(self):
+        """The token server's clock: this computer's, `clock_offset` ahead."""
+        return int(time.time()) + self.clock_offset
+
+    def advance(self, secs):
+        """Moves the token server's clock `secs` ahead (a lockdown's 48 h in a test)."""
+        with self.lock:
+            self.clock_offset += int(secs)
+            self.finish_pending_lockdowns_locked(self.now())
+
+    def add_voucher(self, code, months=1, value_cents=0, tier=None):
+        """A voucher the mock takes (an E2E's switch): `months` and a value in cents, for
+        `tier` (None: any)."""
+        with self.lock:
+            self.vouchers[code.strip().upper()] = {'months': months, 'value_cents': value_cents,
+                                                   'tier': tier}
+
+    def redeem_voucher(self, bearer, body, key=None):
+        """POST /v1/vouchers/redeem (payments.rs `redeem_voucher`): on a drive (`drive_id`, its
+        token - a read) the days it adds (its months, its value pro rata); without one a new
+        drive of its tier (201, the sign-up). Redeemed once."""
+        code = body.get('code')
+        if not isinstance(code, str):
+            raise ApiError(400, 'bad_request', 'code required')
+        drive_id = body.get('drive_id')
+        with self.lock:
+            drive = None
+            if drive_id:
+                drive, state = self.family_of(drive_id, bearer, previous_ok=True)
+                self.not_pending(drive, state)
+            # the caller: the drive's family, or for a new drive whoever holds the code
+            if drive is not None:
+                caller = 'family:' + (bearer or '')[3:].split('.')[0]
+            else:
+                caller = 'voucher:' + code.strip().upper()
+            kept = self.kept('voucher', key, caller)
+            if kept is not None and drive is not None:
+                return 200, dict(kept['body'], period_until=rfc3339(drive['period_until']))
+            if kept is not None:
+                # drives.rs `signup_again`: the drive it made, its family rotated once more
+                made = self.drives[kept['body']['drive']]
+                status, again = self.answer_again(made['id'], kept)
+                bundle = self.bundle(made, again['drive_token'])
+                bundle['period_until'] = rfc3339(made['period_until'])
+                return status, bundle
+            if drive is not None:
+                self.check_ban(drive, write=True)
+            # Codes in any case (payments.rs normalizes them); a development server's test
+            # codes are never used up.
+            normalized = code.strip().upper()
+            voucher = self.vouchers.get(normalized) or TEST_VOUCHERS.get(normalized)
+            if voucher is None:
+                raise ApiError(400, 'voucher_invalid', 'this voucher is not valid')
+            tier = drive['tier'] if drive else (voucher['tier'] or body.get('tier') or DEFAULT_TIER)
+            if tier not in TIERS:
+                raise ApiError(400, 'bad_tier', 'unknown tier')
+            cents_month = next(m for t, _, m, _ in TIER_LADDER if t == tier)
+            days = 30 * voucher['months'] + voucher['value_cents'] * 30 // cents_month
+            if days == 0:
+                raise ApiError(400, 'voucher_too_small',
+                               'this voucher is worth less than a day of this tier; it was not '
+                               'redeemed')
+            self.vouchers.pop(normalized, None)
+            if drive is not None:
+                tomorrow = (int(time.time()) // 86400 + 1) * 86400
+                drive['period_until'] = max(drive['period_until'], tomorrow) + days * 86400
+                added = {'months_added': days // 30, 'days_added': days}
+                self.keep('voucher', key, caller, {'status': 200, 'body': added})
+                return 200, dict(added, period_until=rfc3339(drive['period_until']))
+        bundle = self.signup({'tier': tier, 'name': 'Azlin Storage'})
+        with self.lock:
+            made = self.drives[bundle['drive']['id']]
+            made['period_until'] += days * 86400
+            bundle['period_until'] = rfc3339(made['period_until'])
+            token = bundle['drive_token']
+            self.keep('voucher', key, caller,
+                      {'family': token[3:].split('.')[0], 'generation': 0, 'status': 201,
+                       'body': {'drive': made['id']}})
+        return 201, bundle
+
+    def refresh(self, drive_id, bearer):
+        with self.lock:
+            self.finish_pending_lockdowns_locked(self.now())
+            drive = self.drives.get(drive_id)
+            if drive is None:
+                raise ApiError(404, 'no_such_drive', 'unknown drive')
+            if not bearer:
+                raise ApiError(401, 'unauthorized', 'a drive token is required')
+            if not bearer.startswith('dt_'):
+                raise ApiError(401, 'unauthorized', 'malformed drive token')
+            family = bearer[3:].split('.')[0]
+            state = self.families.get(family)
+            if state is None or state['drive'] != drive_id:
+                raise ApiError(401, 'unauthorized', 'unknown token')
+            if state['revoked']:
+                raise ApiError(401, 'credentials_revoked', 'this device was removed from the drive')
+            if state.get('member') == 'recovery-pending':
+                # D42: the drive (its bucket, so its recovery wrap) is handed over only when the
+                # notice ends; the owner's devices may cancel meanwhile.
+                raise self.pending_error(drive)
+            # A banned drive's credentials until its end, never after (ban contract v1).
+            self.check_ban(drive)
+            digest = token_hash(bearer)
+            lost_answer = (bool(state['used']) and digest == state['used'][-1]
+                           and not state.get('current_used', True))
+            if digest == state['current'] or lost_answer:
+                if lost_answer:
+                    # the lost token is spent; the held one stays the one rotated from last
+                    state['used'] = (state['used'][:-1] + [state['current'], digest])[-20:]
+                else:
+                    state['used'] = (state['used'] + [state['current']])[-20:]
+                state['generation'] += 1
+                state['current_used'] = False
+                answer = self.bundle(drive, self.new_token(family))
+                day = int(time.time()) // 86400 * 86400
+                expires = day + 90 * 86400
+                if drive.get('period_until'):
+                    expires = max(expires, drive['period_until'] + 14 * 86400)
+                answer['family_expires_at'] = {'at': rfc3339(expires), 'kind': 'family_idle'}
+                return answer
+            if digest in state['used']:
+                # A rotated token used again: it leaked. The whole family is revoked.
+                state['revoked'] = 'reuse'
+                raise ApiError(401, 'token_reuse',
+                               'an old token was reused: the device must sign in again')
+            raise ApiError(401, 'unauthorized', 'unknown token')
+
+
+class TokenHandler(http.server.BaseHTTPRequestHandler):
+    protocol_version = 'HTTP/1.1'
+    server_version = 'azlin-token-mock/1'
+
+    def log_message(self, fmt, *args):
+        if self.server.verbose:
+            sys.stderr.write('[azlin-token-mock] %s\n' % (fmt % args))
+
+    def answer(self, status, value):
+        body = json.dumps(value).encode('utf-8')
+        self.send_response(status)
+        self.send_header('Content-Type', 'application/json')
+        self.send_header('Cache-Control', 'no-store')
+        self.send_header('Content-Length', str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+        # Read and logged, never required (as the token server does until the version
+        # minimum): the client's hello and the call's idempotency key.
+        self.server.record({'method': self.command, 'path': self.path, 'status': status,
+                            'client': self.headers.get(azlin_contract.CLIENT_HEADER),
+                            'idempotency': self.headers.get(azlin_contract.IDEMPOTENCY_HEADER)})
+
+    def raw_body(self):
+        length = int(self.headers.get('Content-Length') or 0)
+        return self.rfile.read(length) if length else b''
+
+    def body(self):
+        raw = self.raw_body()
+        if not raw:
+            return {}
+        try:
+            value = json.loads(raw.decode('utf-8'))
+        except ValueError:
+            return None
+        return value if isinstance(value, dict) else None
+
+    def html_page(self, status, text):
+        body = text.encode('utf-8')
+        self.send_response(status)
+        self.send_header('Content-Type', 'text/html; charset=utf-8')
+        self.send_header('Cache-Control', 'no-store')
+        self.send_header('Content-Length', str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+        self.server.record({'method': self.command, 'path': self.path, 'status': status})
+
+    def redirect(self, location):
+        self.send_response(303)
+        self.send_header('Location', location)
+        self.send_header('Content-Length', '0')
+        self.end_headers()
+        self.server.record({'method': self.command, 'path': self.path, 'status': 303})
+
+    def fake_provider_route(self, state, path, query):
+        """The fake providers' pages, the return pages and the bridge; whether it answered."""
+        if self.command == 'GET' and path.startswith('_bridge/'):
+            # The app cancels these before they load; a browser that gets here sees nothing.
+            self.send_response(204)
+            self.send_header('Content-Length', '0')
+            self.end_headers()
+            self.server.record({'method': self.command, 'path': self.path, 'status': 204})
+            return True
+        if self.command == 'GET' and path in ('return/ok', 'return/cancel', 'return/pending'):
+            words = {'return/ok': 'Payment received. AzDrive adds your drive in a moment; you '
+                                  'can close this tab.',
+                     'return/cancel': 'The payment was cancelled; nothing was charged.',
+                     'return/pending': 'The payment is on its way. AzDrive adds the drive when '
+                                       'the bank confirms.'}
+            self.html_page(200, page('Azlin', '<p>%s</p>' % html.escape(words[path])))
+            return True
+        if self.command == 'GET' and path.startswith('fields/'):
+            if path != 'fields/fake-stripe/v1' or 'fake-stripe' not in state.providers:
+                self.html_page(404, page('Not found', '<p>No such fields page.</p>'))
+            else:
+                self.html_page(200, FIELDS_PAGE)
+            return True
+        provider = path.split('/', 1)[0]
+        if provider not in FAKE_PROVIDERS:
+            return False
+        if provider not in state.providers:
+            self.html_page(404, page('Not found', '<p>This provider is not offered.</p>'))
+            return True
+        if self.command == 'POST' and path == 'fake-stripe/confirm':
+            self.answer(200, state.provider_confirm(self.body() or {}))
+            return True
+        if self.command == 'GET':
+            shown = state.provider_page(path, query)
+            if shown is None:
+                return False
+            self.html_page(*shown)
+            return True
+        if self.command == 'POST':
+            form = {k: v[0] for k, v in urllib.parse.parse_qs(
+                self.raw_body().decode('utf-8', 'replace')).items()}
+            done = state.provider_post(path, query, form)
+            if done is None:
+                return False
+            status, what = done
+            if status == 303:
+                self.redirect(what)
+            else:
+                self.html_page(status, what)
+            return True
+        return False
+
+    def idempotency(self):
+        """The call's idempotency key (`x-azlin-idempotency`), or None; 400 for one that is no
+        key (as the token server, idempotent.rs `Once::of`)."""
+        value = self.headers.get(azlin_contract.IDEMPOTENCY_HEADER)
+        if value is None:
+            # an app names every grant; only a caller that is no app (no hello) may leave the
+            # key out
+            if self.headers.get(azlin_contract.CLIENT_HEADER) is not None:
+                raise ApiError(400, azlin_contract.IDEMPOTENCY_REQUIRED,
+                               'a grant needs its x-azlin-idempotency key')
+            return None
+        if not azlin_contract.is_idempotency_key(value):
+            raise ApiError(400, 'bad_request', 'x-azlin-idempotency: 22 characters of base64url')
+        return value.strip()
+
+    def bearer(self):
+        value = self.headers.get('Authorization') or ''
+        for prefix in ('Bearer ', 'bearer '):
+            if value.startswith(prefix):
+                return value[len(prefix):].strip()
+        return None
+
+    def route(self):
+        state = self.server.state
+        # the token server's router: an app below the minimum is told to update, before
+        # anything else; no hello is no app and goes on
+        hello = self.headers.get(azlin_contract.CLIENT_HEADER)
+        if hello is not None and azlin_contract.below_minimum(hello):
+            raise ApiError(426, 'client_too_old', 'this app is too old for this service: update it',
+                           {'min_contract': azlin_contract.min_contract()})
+        path, _, query_text = self.path.partition('?')
+        path = path.strip('/')
+        query = urllib.parse.parse_qs(query_text)
+        segments = path.split('/') if path else []
+        if self.fake_provider_route(state, path, query):
+            return
+        if self.command == 'GET' and segments == ['v1', 'checkout', 'options']:
+            self.answer(200, state.checkout_options(query))
+            return
+        if self.command == 'POST' and len(segments) == 4 and segments[:2] == ['v1', 'checkout'] \
+                and segments[3] == 'surface':
+            self.answer(200, state.checkout_surface(segments[2], self.body() or {}))
+            return
+        if self.command == 'POST' and len(segments) == 4 and segments[:2] == ['v1', 'checkout'] \
+                and segments[3] == 'abandon':
+            self.raw_body()
+            self.answer(200, state.abandon(segments[2]))
+            return
+        if self.command == 'POST' and len(segments) == 3 and segments[:2] == ['v1', 'webhook']:
+            self.answer(200, state.webhook(segments[2], self.headers, self.raw_body()))
+            return
+        if self.command == 'GET' and segments in (['health'], ['v1', 'health']):
+            body = b'ok\n'
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/plain')
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if self.command == 'GET' and segments == ['v1', 'tiers']:
+            country = (query.get('country') or [''])[0]
+            check_served(country)
+            self.answer(200, tier_list(cash=state.cash_key is not None, country=country))
+            return
+        if self.command == 'POST' and segments == ['v1', 'drives']:
+            body = self.body()
+            self.answer(201, state.signup(body or {}))
+            return
+        if self.command == 'POST' and segments == ['v1', 'checkout']:
+            self.answer(201, state.checkout(self.body() or {}))
+            return
+        if self.command == 'GET' and len(segments) == 3 and segments[:2] == ['v1', 'checkout']:
+            self.answer(200, state.checkout_status(segments[2]))
+            return
+        if self.command == 'POST' and len(segments) == 4 and segments[:2] == ['v1', 'checkout'] \
+                and segments[3] == 'pay':
+            self.answer(200, state.pay(segments[2], self.body() or {}))
+            return
+        if self.command == 'GET' and len(segments) == 3 and segments[:2] == ['v1', 'pay']:
+            page = ('<!doctype html><title>Azlin mock payment</title><h1>Mock payment for '
+                    'checkout %s</h1><p>POST JSON to /v1/checkout/%s/pay: {"card_number": '
+                    '"4242 4242 4242 4242"} approves.</p>' % (segments[2], segments[2]))
+            body = page.encode('utf-8')
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/html; charset=utf-8')
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            self.server.record({'method': self.command, 'path': self.path, 'status': 200})
+            return
+        if self.command == 'POST' and len(segments) == 4 and segments[:2] == ['v1', 'drives'] \
+                and segments[3] == 'credentials':
+            self.body()
+            self.answer(200, state.refresh(segments[2], self.bearer()))
+            return
+        if self.command == 'GET' and segments == ['v1', 'tokens', 'keys']:
+            self.answer(200, state.issuer_keys())
+            return
+        if self.command == 'POST' and segments == ['v1', 'tokens', 'issue']:
+            self.answer(200, state.issue(self.body() or {}))
+            return
+        if self.command == 'POST' and len(segments) == 4 and segments[:2] == ['v1', 'drives'] \
+                and segments[3] == 'redeem':
+            self.answer(200, state.redeem(segments[2], self.bearer(), self.body() or {}))
+            return
+        if self.command == 'GET' and len(segments) == 3 and segments[:2] == ['v1', 'drives']:
+            self.answer(200, state.info(segments[2], self.bearer()))
+            return
+        if self.command == 'POST' and len(segments) == 4 and segments[:2] == ['v1', 'drives'] \
+                and segments[3] == 'recovery':
+            self.answer(200, state.set_recovery(segments[2], self.bearer(), self.body() or {},
+                                                self.idempotency()))
+            return
+        if self.command == 'POST' and len(segments) == 4 and segments[:2] == ['v1', 'drives'] \
+                and segments[3] == 'lockdown':
+            self.answer(*state.lockdown(segments[2], self.bearer(), self.body() or {},
+                                        self.idempotency()))
+            return
+        if self.command == 'POST' and segments[:2] == ['v1', 'drives'] and len(segments) == 5 \
+                and segments[3:] == ['lockdown', 'cancel']:
+            self.answer(200, state.lockdown_cancel(segments[2], self.body() or {}))
+            return
+        if self.command == 'POST' and len(segments) == 4 and segments[:2] == ['v1', 'drives'] \
+                and segments[3] == 'restore':
+            self.answer(202, state.restore(segments[2], self.bearer(), self.body() or {},
+                                           self.idempotency()))
+            return
+        if self.command == 'GET' and len(segments) == 5 and segments[:2] == ['v1', 'drives'] \
+                and segments[3] == 'restore':
+            self.answer(200, state.restore_status(segments[2], self.bearer(), segments[4]))
+            return
+        if self.command == 'POST' and len(segments) == 4 and segments[:2] == ['v1', 'drives'] \
+                and segments[3] == 'claim':
+            self.answer(201, state.claim(segments[2], self.body() or {}, self.idempotency()))
+            return
+        if self.command == 'POST' and len(segments) == 4 and segments[:2] == ['v1', 'drives'] \
+                and segments[3] == 'members':
+            self.answer(201, state.add_member(segments[2], self.bearer(), self.body() or {},
+                                              self.idempotency()))
+            return
+        if self.command == 'DELETE' and len(segments) == 5 and segments[:2] == ['v1', 'drives'] \
+                and segments[3] == 'members':
+            self.answer(200, state.remove_member(segments[2], self.bearer(), segments[4],
+                                                 self.idempotency()))
+            return
+        if self.command == 'POST' and len(segments) == 4 and segments[:2] == ['v1', 'drives'] \
+                and segments[3] == 'keys':
+            self.answer(201, state.create_key(segments[2], self.bearer(), self.body() or {}))
+            return
+        if self.command == 'DELETE' and len(segments) == 5 and segments[:2] == ['v1', 'drives'] \
+                and segments[3] == 'keys':
+            self.answer(200, state.revoke_key(segments[2], self.bearer(), segments[4]))
+            return
+        if self.command == 'GET' and len(segments) == 4 and segments[:2] == ['v1', 'drives'] \
+                and segments[3] == 'recovery_keys':
+            self.answer(200, state.recovery_keys(segments[2], self.bearer()))
+            return
+        if self.command == 'POST' and len(segments) == 4 and segments[:2] == ['v1', 'drives'] \
+                and segments[3] == 'recovery_keys':
+            self.answer(201, state.add_recovery_key(segments[2], self.bearer(),
+                                                    self.body() or {}, self.idempotency()))
+            return
+        if self.command == 'DELETE' and len(segments) == 5 and segments[:2] == ['v1', 'drives'] \
+                and segments[3] == 'recovery_keys':
+            self.answer(200, state.remove_recovery_key(segments[2], self.bearer(), segments[4],
+                                                       self.body() or {}, self.idempotency()))
+            return
+        if self.command == 'POST' and segments in (['v1', 'recovery', 'challenge'],
+                                                   ['v1', 'recovery', 'lookup']):
+            body = self.body() or {}
+            if state.rate_limited('recovery', self.client_address[0]):
+                raise ApiError(429, 'rate_limited', 'too many recovery requests from this address')
+            if segments[2] == 'challenge':
+                self.answer(200, state.recovery_challenge())
+            else:
+                self.answer(200, state.recovery_lookup(body))
+            return
+        if self.command == 'POST' and segments == ['v1', 'vouchers', 'redeem']:
+            self.answer(*state.redeem_voucher(self.bearer(), self.body() or {}, self.idempotency()))
+            return
+        if self.command == 'POST' and len(segments) == 3 and segments[0] == 'oauth' \
+                and segments[2] == 'token':
+            raw = self.raw_body().decode('utf-8', 'replace')
+            form = {k: v[0] for k, v in
+                    urllib.parse.parse_qs(raw, keep_blank_values=True).items()}
+            status, value = state.oauth_token(segments[1], form)
+            self.answer(status, value)
+            return
+        raise ApiError(404, 'not_found', 'no route for %s /%s' % (self.command, path))
+
+    def handle_any(self):
+        try:
+            self.route()
+        except ApiError as e:
+            self.answer(e.status, dict({'error': e.code, 'message': e.message}, **e.extra))
+
+    do_GET = handle_any
+    do_POST = handle_any
+    do_DELETE = handle_any
+
+
+class TokenServer(http.server.ThreadingHTTPServer):
+    daemon_threads = True
+
+    def __init__(self, address, state, verbose=False):
+        super().__init__(address, TokenHandler)
+        self.state = state
+        self.verbose = verbose
+        self._log = []
+        self._log_lock = threading.Lock()
+        self._thread = None
+
+    @property
+    def url(self):
+        host, port = self.server_address[:2]
+        return 'http://%s:%d' % (host, port)
+
+    def record(self, entry):
+        with self._log_lock:
+            self._log.append(entry)
+
+    def requests(self):
+        with self._log_lock:
+            return list(self._log)
+
+    def start_background(self):
+        self._thread = threading.Thread(target=self.serve_forever, name='azlin-token-mock',
+                                        daemon=True)
+        self._thread.start()
+        return self
+
+    def stop(self):
+        self.shutdown()
+        self.server_close()
+        if self._thread:
+            self._thread.join(timeout=5)
+
+
+class Stack:
+    """The two servers of one mock stack."""
+
+    def __init__(self, token, s3):
+        self.token = token
+        self.s3 = s3
+
+    @property
+    def token_url(self):
+        return self.token.url
+
+    @property
+    def s3_url(self):
+        return self.s3.url
+
+    def stop(self):
+        self.token.stop()
+        self.s3.stop()
+
+
+def start(root, host='127.0.0.1', token_port=0, s3_port=0, ttl=DEFAULT_TTL, verbose=False,
+          providers=(), nodes=None, failover=()):
+    """Both servers on `host` (port 0: a free one), serving in background threads; the S3 objects
+    live under `root/<bucket>/<key>`; the fake payment providers `providers` offered (none: no
+    payment options, the v1 checkout); the bundles' node list `nodes` (node_entry dicts; none:
+    the S3 server as node n1) and failover URLs `failover`."""
+    s3 = s3_server.start(root, host=host, port=s3_port, access_key=ACCESS_KEY,
+                         secret_key=SECRET_KEY, region=REGION, verbose=verbose,
+                         keep_versions=True)
+    state = TokenState(s3, s3.url, ttl)
+    if nodes is not None or failover:
+        state.set_nodes(nodes if nodes is not None else state.nodes, failover)
+    # SRV17: the node answers HeadBucket with the stored bytes and the quota of the drive's tier,
+    # and keeps every write to that quota as a node does (parts of unfinished uploads count).
+    s3.space_quota = state.quota_of_bucket
+    s3.usage_proof = state.usage_proof
+    s3.front = state.node_front
+    s3.read_only_of = state.read_only_code
+    s3.enforce_quota = True
+    # The node codes' statuses and S3 codes: the contract crate's.
+    s3.azlin_errors = azlin_contract.azlin_errors()
+    state.set_providers(providers)
+    token = TokenServer((host, token_port), state, verbose).start_background()
+    state.base_url = token.url
+    return Stack(token, s3)
+
+
+def self_test():
+    """The mock's lockdown as drives.rs does it (`--self-test`): by a drive token every family,
+    access key and public link of the drive at once, the caller in a new family; by the recovery
+    key nothing for 48 hours, then the same except the recovering device's family, which is the
+    owner's from then on."""
+    import azlin_client  # noqa: PLC0415 - only for the self-test
+    stack = start(tempfile.mkdtemp(prefix='azlin-mock-selftest-'))
+    try:
+        client = azlin_client.TokenClient(stack.token_url)
+        state = stack.token.state
+        _, bundle, _ = client.signup('self-test')
+        drive_id, owner = bundle['drive']['id'], bundle['drive_token']
+        path = '/v1/drives/%s' % drive_id
+        status, member, _ = client.call('POST', path + '/members', {'member': 'laptop'},
+                                        bearer=owner)
+        assert status == 201 and member['member'] == 'laptop', (status, member)
+        status, key, _ = client.call('POST', path + '/keys', {'perms': 'r'}, bearer=owner)
+        assert status == 201 and key['access_key_id'].startswith('AZK'), (status, key)
+        link = state.add_public_link(drive_id)
+        status, locked, _ = client.call('POST', path + '/lockdown', {}, bearer=owner)
+        assert status == 200 and locked['drive_token'] not in (owner, member['drive_token'])
+        drive = state.drives[drive_id]
+        assert drive['access_keys'][key['access_key_id']]['revoked_at'], 'the key is revoked'
+        assert drive['public_links'][link]['revoked_at'], 'the link is revoked'
+        assert drive['lockdown_until'] > time.time(), 'deletes paused'
+        assert client.refresh(drive_id, member['drive_token'])[0] == 401, 'the member is out'
+        assert client.refresh(drive_id, owner)[0] == 401, "the caller's old family is out"
+        assert client.refresh(drive_id, locked['drive_token'])[0] == 200, 'its new one works'
+        # SRV17: the drive's node answers HeadBucket with its stored bytes and the tier's quota.
+        s3 = s3_server.Client(stack.s3_url, ACCESS_KEY, SECRET_KEY, REGION)
+        state.s3.store.write(drive['bucket'], 'data/x', b'0123456789')
+        status, headers, _ = s3.request('HEAD', drive['bucket'], '')
+        assert status == 200 and headers.get('x-azlin-used-bytes') == '10', (status, headers)
+        assert headers.get('x-azlin-quota-bytes') == str(drive['quota_bytes']), headers
+        print('ok: HeadBucket names the stored bytes and the quota of the drive\'s tier')
+        # The version minimum, the key an app's grant needs, the map epoch, why a drive is
+        # read-only: as the token server and the nodes answer them.
+        token = locked['drive_token']
+        old_app = {azlin_contract.CLIENT_HEADER: 'azdrive/0.1.0; contract=%d'
+                   % (azlin_contract.min_contract() - 1)}
+        status, value, _ = client.call('GET', path, bearer=token, headers=old_app)
+        assert status == 426 and value['error'] == 'client_too_old', (status, value)
+        assert value['min_contract'] == azlin_contract.min_contract(), value
+        status, headers, _ = s3.request('HEAD', drive['bucket'], '', headers=old_app)
+        assert status == 426 and headers.get('x-azlin-error') == 'client_too_old', (status, headers)
+        app = {azlin_contract.CLIENT_HEADER: azlin_contract.client_hello('azdrive', '0.3.0')}
+        status, value, _ = client.call('POST', path + '/members', {'member': 'tablet'},
+                                       bearer=token, headers=app)
+        assert status == 400 and value['error'] == azlin_contract.IDEMPOTENCY_REQUIRED, value
+        assert status == 400 and not any(f.get('member') == 'tablet'
+                                         for f in state.families.values()), 'nothing granted'
+        state.set_map_epoch(7)
+        status, value, _ = client.refresh(drive_id, token)
+        assert status == 200 and value['map']['epoch'] == 7, (status, value)
+        token = value['drive_token']
+        status, headers, _ = s3.request('HEAD', drive['bucket'], '', headers={'x-azlin-map': '6'})
+        assert status == 409 and headers.get('x-azlin-error') == 'map_stale', (status, headers)
+        assert headers.get('x-azlin-map', '').startswith('7 '), headers
+        assert s3.request('HEAD', drive['bucket'], '', headers={'x-azlin-map': '7'})[0] == 200
+        state.set_read_only(drive_id, why='operator')
+        status, value, _ = client.call('GET', path, bearer=token)
+        assert value['read_only'] and value['read_only_reason'] == 'operator', value
+        status, headers, _ = s3.request('PUT', drive['bucket'], 'data/y', body=b'y')
+        assert status == 403 and headers.get('x-azlin-error') == 'read_only_operator', headers
+        state.set_read_only(drive_id, False)
+        assert s3.request('PUT', drive['bucket'], 'data/y', body=b'y')[0] == 200
+        print('ok: the minimum (426), an app\'s unkeyed grant (400), the map epoch (409), '
+              'the read-only reason\'s code')
+        # By the recovery key.
+        _, bundle, _ = client.signup('self-test-recovery')
+        drive_id, owner = bundle['drive']['id'], bundle['drive_token']
+        path = '/v1/drives/%s' % drive_id
+        secret, public = azlin_ed25519.new_key()
+        client.call('POST', path + '/recovery', {'recovery_pubkey': public}, bearer=owner)
+        _, key, _ = client.call('POST', path + '/keys', {}, bearer=owner)
+        link = state.add_public_link(drive_id)
+        nonce = '0123456789abcdef0123456789abcdef'
+        message = ('lockdown:%s:%s' % (drive_id, nonce)).encode('utf-8')
+        status, pending, _ = client.call('POST', path + '/lockdown',
+                                         {'nonce': nonce,
+                                          'signature': azlin_ed25519.sign_b64(secret, message)})
+        assert status == 202, (status, pending)
+        drive = state.drives[drive_id]
+        assert not drive['access_keys'][key['access_key_id']]['revoked_at'], 'nothing yet'
+        assert client.call('GET', path, bearer=owner)[0] == 200, 'the owner reads meanwhile'
+        state.finish_pending_lockdowns(time.time() + LOCKDOWN_PENDING_SECS + 1)
+        assert drive['access_keys'][key['access_key_id']]['revoked_at'], 'then the key'
+        assert drive['public_links'][link]['revoked_at'], 'then the link'
+        assert client.call('GET', path, bearer=owner)[0] == 401, "then the owner's device"
+        assert client.refresh(drive_id, pending['drive_token'])[0] == 200, 'the recovering one'
+        assert any(f['member'] == 'owner' and not f['revoked'] for f in state.families.values()
+                   if f['drive'] == drive_id), 'its family is the owner now'
+        print('ok: a lockdown revokes every family, key and link (by the recovery key after '
+              '48 h, the recovering family made the owner)')
+    finally:
+        stack.stop()
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
+    parser.add_argument('--host', default='127.0.0.1')
+    parser.add_argument('--token-port', type=int, default=0,
+                        help='the token server (azctl dev up: 8081; default: a free port)')
+    parser.add_argument('--s3-port', type=int, default=0,
+                        help='the S3 balancer (azctl dev up: 9000; default: a free port)')
+    parser.add_argument('--root', help='where the S3 objects live (default: a new temporary folder)')
+    parser.add_argument('--ttl', type=int, default=DEFAULT_TTL,
+                        help='seconds the S3 credentials of a bundle are valid (default 12 h)')
+    parser.add_argument('--verbose', action='store_true')
+    parser.add_argument('--providers', nargs='?', const=','.join(DEFAULT_PROVIDERS), default='',
+                        help='offer fake payment providers (comma-separated, of %s; without a '
+                             'list: %s)' % (', '.join(FAKE_PROVIDERS), ','.join(DEFAULT_PROVIDERS)))
+    parser.add_argument('--self-test', action='store_true',
+                        help="check the mock's own lockdown semantics and exit")
+    parser.add_argument('--node', action='append', default=[], metavar='URL[,IP...]',
+                        help="a node the bundles list, in order (instead of the S3 server), "
+                             "with the addresses it is reached at when its name does not resolve")
+    parser.add_argument('--iroh-id', help="the first node's iroh endpoint id (iroh_id)")
+    parser.add_argument('--iroh-addr', action='append', default=[], metavar='IP:PORT',
+                        help="the first node's iroh sockets (iroh_addrs)")
+    parser.add_argument('--failover-url', action='append', default=[], metavar='URL',
+                        help="a failover URL the bundles list")
+    args = parser.parse_args(argv)
+    if args.self_test:
+        self_test()
+        return
+    root = args.root or tempfile.mkdtemp(prefix='azlin-mock-s3-')
+    providers = [p for p in args.providers.split(',') if p]
+    stack = start(root, args.host, args.token_port, args.s3_port, args.ttl, args.verbose,
+                  providers)
+    nodes = [parse_node(text, i + 1) for i, text in enumerate(args.node)] or [
+        dict(n) for n in stack.token.state.nodes]
+    if args.iroh_id:
+        nodes[0]['iroh_id'] = args.iroh_id
+        nodes[0]['iroh_addrs'] = list(args.iroh_addr)
+    stack.token.state.set_nodes(nodes, args.failover_url)
+    print('AZLIN_MOCK_TOKEN_URL %s' % stack.token_url, flush=True)
+    print('AZLIN_MOCK_S3_URL %s' % stack.s3_url, flush=True)
+    print('[azlin-mock] token server %s, S3 %s, objects in %s' % (stack.token_url, stack.s3_url,
+                                                                    root), file=sys.stderr)
+    try:
+        while True:
+            time.sleep(3600)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        stack.stop()
+
+
+if __name__ == '__main__':
+    main()

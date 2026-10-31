@@ -1,0 +1,68 @@
+[
+  {
+    "name": "no stored object of an encrypted drive holds a file's plaintext",
+    "description": "KOOFR-013 (Koofr desktop pointed at a Vault Safe Box): it downloaded ciphertext with random names and uploaded local files unencrypted into the encrypted folder. Rules I1 and S15: an encrypted drive holds only AZL1 objects; plaintext never reaches it and a client without the key syncs nothing. sync-chaos crypto-no-plaintext-no-dedup.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": true },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "secret.txt", "text": "{secret}" },
+      { "op": "drive_write", "device": "a", "path": "marker.txt", "text": "PLAINTEXT-MARKER-KOOFR-013" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "remote_never_has" },
+      { "op": "drive_check", "check": "remote_never_has", "marker": "PLAINTEXT-MARKER-KOOFR-013" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "marker.txt", "text": "PLAINTEXT-MARKER-KOOFR-013" },
+      { "op": "drive_check", "check": "converged" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "a plaintext object written into an encrypted drive past its key is listed and never written as a file",
+    "description": "KOOFR-013 (Koofr desktop pointed at a Vault Safe Box): it downloaded ciphertext with random names and uploaded local files unencrypted into the encrypted folder. Rules I1 and S15: an encrypted drive holds only AZL1 objects; plaintext never reaches it and a client without the key syncs nothing. sync-chaos crypto-no-plaintext-no-dedup.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": true },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "ok.txt", "text": "ok" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_tamper", "remote": "r", "action": "raw_put", "key": "web-upload.txt", "text": "PLAINTEXT FROM THE WEB" },
+      { "op": "drive_sync", "device": "b", "expect": "any" },
+      { "op": "drive_index", "device": "b" },
+      { "op": "assert_response", "path": "result.files", "not_contains": "web-upload" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "web-upload.txt", "absent": true },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "ok.txt", "text": "ok" },
+      { "op": "drive_check", "check": "trash_empty", "device": "b" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "a client without the drive key uploads no plaintext and downloads no ciphertext",
+    "description": "KOOFR-013 (Koofr desktop pointed at a Vault Safe Box): it downloaded ciphertext with random names and uploaded local files unencrypted into the encrypted folder. Rules I1 and S15: an encrypted drive holds only AZL1 objects; plaintext never reaches it and a client without the key syncs nothing. sync-chaos crypto-no-plaintext-no-dedup.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": true },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "ok.txt", "text": "ok" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_open", "device": "k", "remote": "r", "joined": false },
+      { "op": "drive_pair", "device": "k" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "k", "path": "local.txt", "text": "PLAINTEXT-MARKER-KEYLESS" },
+      { "op": "drive_sync", "device": "k", "expect": "any" },
+      { "op": "drive_check", "check": "problem", "device": "k", "code_any": ["sign-in-needed", "update-needed", "remote-entry-unreadable"] },
+      { "op": "drive_check", "check": "remote_never_has", "marker": "PLAINTEXT-MARKER-KEYLESS" },
+      { "op": "drive_check", "check": "file", "device": "k", "path": "ok.txt", "absent": true },
+      { "op": "drive_check", "check": "file", "device": "k", "path": "local.txt", "text": "PLAINTEXT-MARKER-KEYLESS" },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

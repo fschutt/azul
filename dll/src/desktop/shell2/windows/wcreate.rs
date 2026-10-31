@@ -177,10 +177,28 @@ pub fn create_hwnd(
         // parent HWND as its owner) stays above its owner, hides and minimises
         // with it, and must not get a taskbar button of its own.
         let owned_popup = !parent.is_null() && style == WS_POPUP;
+        // An owned FRAMED window (a dialog window) keeps its caption and, owned,
+        // gets no taskbar button either - unless WS_EX_APPWINDOW asked for one.
         let style_ex = if owned_popup {
             super::dlopen::constants::WS_EX_TOOLWINDOW | WS_EX_ACCEPTFILES
+        } else if !parent.is_null() {
+            WS_EX_ACCEPTFILES
         } else {
             WS_EX_APPWINDOW | WS_EX_ACCEPTFILES
+        };
+        // A popup that LEAVES focus on its invoker (a combobox's list) must
+        // never become the active window: a click in it does not activate it
+        // (and `Win32Window::show_command` shows it without activation), so
+        // the owner keeps every key and forwards the list's navigation keys
+        // (`common::transient::parent_key_route`). Activated, it took the
+        // keys typed while it was open, and they were lost.
+        let style_ex = if owned_popup
+            && !crate::desktop::shell2::common::transient::popup_takes_focus(
+                &options.window_state,
+            ) {
+            style_ex | super::dlopen::constants::WS_EX_NOACTIVATE
+        } else {
+            style_ex
         };
 
         let hwnd = (win32.user32.CreateWindowExW)(

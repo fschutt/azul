@@ -7,6 +7,11 @@
 //! - `inset(top right bottom left [round radius])`
 //! - `path(svg-path-data)`
 
+use alloc::{
+    string::{String, ToString},
+    vec::Vec,
+};
+
 use crate::shape::{CssShape, ShapePoint};
 
 /// Error type for shape parsing failures

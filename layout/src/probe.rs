@@ -63,13 +63,14 @@ mod imp {
     /// A 5 s resize drag alone is ~375 relayouts × hundreds of spans.
     ///
     /// 0 = uninitialized (resolve from `AZ_PROFILE` on first probe),
-    /// 1 = recording, 2 = off.
+    /// 1 = recording (asked for by `AZ_PROFILE`), 2 = off, 3 = recording
+    /// for a caller that drains the buffer itself (`set_recording(true)`).
     static RECORDING: AtomicU8 = AtomicU8::new(0);
 
     #[inline]
     fn recording() -> bool {
         match RECORDING.load(Ordering::Relaxed) {
-            1 => true,
+            1 | 3 => true,
             2 => false,
             _ => {
                 // First probe anywhere resolves the mode once. Any profile
@@ -86,7 +87,15 @@ mod imp {
     }
 
     pub(super) fn set_recording(on: bool) {
+        RECORDING.store(if on { 3 } else { 2 }, Ordering::Relaxed);
+    }
+
+    pub(super) fn record_as_profile(on: bool) {
         RECORDING.store(if on { 1 } else { 2 }, Ordering::Relaxed);
+    }
+
+    pub(super) fn drained_by_its_caller() -> bool {
+        RECORDING.load(Ordering::Relaxed) == 3
     }
 
     /// RAII guard that records its name + elapsed nanos on drop.
@@ -446,6 +455,14 @@ mod imp {
     pub(super) const fn set_recording(_on: bool) {}
 
     #[inline]
+    pub(super) const fn record_as_profile(_on: bool) {}
+
+    #[inline]
+    pub(super) const fn drained_by_its_caller() -> bool {
+        false
+    }
+
+    #[inline]
     pub(super) const fn sample_rss(_label: &'static str, _bytes: u64) {}
 
     #[inline]
@@ -520,11 +537,40 @@ impl Probe {
     /// resolution. Tests use this (they assert on drained events without
     /// setting env vars); a debug server could too. Flipping mid-span only
     /// perturbs the saturating depth counter, never memory safety.
+    ///
+    /// Switching it ON says the caller drains the buffer itself (a test, the
+    /// telemetry bridge): see [`Probe::drained_by_its_caller`].
     #[inline]
     // const only in the no-`probe` stub config; enabled `imp::` calls are non-const
     #[allow(clippy::missing_const_for_fn)]
     pub fn set_recording(on: bool) {
         imp::set_recording(on);
+    }
+
+    /// Records as `AZ_PROFILE` would ask for it: on with no caller draining
+    /// the buffer (only the CPU report and the frame pumps empty it), or off.
+    /// What a test of the buffer's bounds needs; [`Probe::set_recording`] is
+    /// for a caller that reads the spans itself.
+    #[doc(hidden)]
+    #[inline]
+    // const only in the no-`probe` stub config; enabled `imp::` calls are non-const
+    #[allow(clippy::missing_const_for_fn)]
+    pub fn record_as_profile(on: bool) {
+        imp::record_as_profile(on);
+    }
+
+    /// Whether recording is on because a caller switched it on
+    /// ([`Probe::set_recording`]) and drains the buffer itself - not because
+    /// `AZ_PROFILE` asked for it. A layout pass with no CPU report empties the
+    /// buffer at its end (nothing else would, with `AZ_PROFILE=memory`); it
+    /// must leave it to such a caller, whose spans it would otherwise throw
+    /// away before the caller can read them.
+    #[inline]
+    // const only in the no-`probe` stub config; enabled `imp::` calls are non-const
+    #[allow(clippy::missing_const_for_fn)]
+    #[must_use]
+    pub fn drained_by_its_caller() -> bool {
+        imp::drained_by_its_caller()
     }
 
     /// Record an RSS checkpoint with the given label + byte count. The
@@ -685,13 +731,19 @@ pub fn print_drained_events(label: &str, events: &[Event]) {
         .collect();
     rows.sort_by(|a, b| b.2.cmp(&a.2));
 
-    eprintln!("[CPU] === {label} ({} phases) ===", rows.len());
-    eprintln!(
+    // The report goes out in one write: a line per write cost the pass that
+    // prints it ~40 us a line, half of what a profiled frame measured.
+    use core::fmt::Write as _;
+    let mut out = String::with_capacity(96 * (rows.len() + rss_marks.len() + 3));
+    let _ = writeln!(out, "[CPU] === {label} ({} phases) ===", rows.len());
+    let _ = writeln!(
+        out,
         "[CPU] {:<28}  {:>5}  {:>10}  {:>9}  {:>9}  {:>9}",
         "phase", "n", "total(µs)", "avg(µs)", "p99(µs)", "max(µs)"
     );
     for (name, n, total, avg, p99, max) in &rows {
-        eprintln!(
+        let _ = writeln!(
+            out,
             "[CPU] {:<28}  {:>5}  {:>10.1}  {:>9.2}  {:>9.2}  {:>9.2}",
             name,
             n,
@@ -702,7 +754,7 @@ pub fn print_drained_events(label: &str, events: &[Event]) {
         );
     }
     if !rss_marks.is_empty() {
-        eprintln!("[CPU]   -- RSS checkpoints (wall-clock order) --");
+        let _ = writeln!(out, "[CPU]   -- RSS checkpoints (wall-clock order) --");
         let mut prev: Option<u64> = None;
         for (lbl, bytes) in &rss_marks {
             let delta = prev
@@ -715,7 +767,8 @@ pub fn print_drained_events(label: &str, events: &[Event]) {
                     }
                 })
                 .unwrap_or_default();
-            eprintln!(
+            let _ = writeln!(
+                out,
                 "[CPU]   {:<28}  {:.2} MiB{}",
                 lbl,
                 *bytes as f64 / 1_048_576.0,
@@ -724,6 +777,7 @@ pub fn print_drained_events(label: &str, events: &[Event]) {
             prev = Some(*bytes);
         }
     }
+    eprint!("{out}");
 }
 
 /// Convenience wrapper: sample the process's **current** resident set
@@ -794,6 +848,41 @@ fn peak_rss_bytes_self() -> u64 {
     }
 }
 
+std::thread_local! {
+    /// How often this thread asked the allocator to return freed pages.
+    static ALLOCATOR_PURGES: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
+}
+
+/// How often this thread asked the allocator to return its freed pages to
+/// the system ([`hint_purge_allocator`]): what a test of a frame's work counts.
+#[doc(hidden)]
+#[must_use]
+pub fn allocator_purges_on_this_thread() -> u64 {
+    ALLOCATOR_PURGES.with(core::cell::Cell::get)
+}
+
+std::thread_local! {
+    /// A layout pass of this thread freed memory since it was last handed back.
+    static FREED_MEMORY_OWED: core::cell::Cell<bool> = const { core::cell::Cell::new(false) };
+}
+
+/// A layout pass dropped its transient allocations (intrinsic sizes, the old
+/// tree): the memory goes back to the system once the window is idle
+/// ([`return_freed_memory`]), not in the frame. Handing pages back walks the
+/// allocator's free lists and unmaps pages the next frame faults in again.
+pub fn note_freed_memory() {
+    FREED_MEMORY_OWED.with(|owed| owed.set(true));
+}
+
+/// Hand the memory this thread's layout passes freed back to the system,
+/// once: what a window does when it goes idle (its frame pump stopped, its
+/// event loop is about to wait).
+pub fn return_freed_memory() {
+    if FREED_MEMORY_OWED.with(|owed| owed.replace(false)) {
+        hint_purge_allocator();
+    }
+}
+
 /// Ask the active global allocator to return freed pages to the OS.
 ///
 /// - With `allocator_mimalloc` feature: calls `mi_collect(true)`, which aggressively returns pages
@@ -810,6 +899,7 @@ fn peak_rss_bytes_self() -> u64 {
 // jemalloc / macOS `malloc_zone_pressure_relief` bodies call non-const fns
 #[allow(clippy::missing_const_for_fn)]
 pub fn hint_purge_allocator() {
+    ALLOCATOR_PURGES.with(|n| n.set(n.get() + 1));
     #[cfg(feature = "allocator_mimalloc")]
     {
         // Aggressive purge — returns arenas to the OS when possible.

@@ -50,8 +50,8 @@ use crate::{
             get_writing_mode, MultiValue,
         },
         layout_tree::{
-            get_display_type, is_block_level, AnonymousBoxType, DirtyFlag, LayoutNode,
-            LayoutNodeHot, LayoutTreeBuilder, SubtreeHash,
+            get_display_type, in_flow_block_level_mask, AnonymousBoxType, DirtyFlag, LayoutNode,
+            LayoutNodeHot, LayoutTreeBuilder, SubtreeHash, TextStyleKey,
         },
         positioning::get_position_type,
         scrollbar::ScrollbarRequirements,
@@ -135,6 +135,12 @@ pub struct SizingCacheEntry {
 pub struct LayoutCacheEntry {
     /// The available size that was provided as input.
     pub available_size: LogicalSize,
+    /// The measurement slot of the containing block it was laid out in
+    /// ([`NodeCache::classify_size_key`]). With `available_size` it names
+    /// the constraint: a min-content and a max-content block flatten to the
+    /// same size, and a lookup or [`NodeCache::holds`] that compared the
+    /// sizes alone took one for the other.
+    pub size_slot: usize,
     /// The computed border-box size (output).
     pub result_size: LogicalSize,
     /// Content overflow size (for scrolling).
@@ -185,6 +191,70 @@ pub struct NodeCache {
     /// `<html>` that also holds a menu bar resolved against the viewport in
     /// the full pass and against the taller html in the partial one.
     pub last_containing_block: Option<super::geometry::ContainingBlock>,
+
+    /// Whether this node's subtree still holds what its last FINAL layout
+    /// (taffy `RunMode::PerformLayout`, through the taffy bridge) wrote: its
+    /// children's used sizes and offsets, its inline layout, its scrollbar
+    /// geometry.
+    ///
+    /// Taffy memoises a final layout by its inputs alone, but in the bridge a
+    /// measure of the same node (`ComputeSize`) writes the same state: every
+    /// `compute_child_layout` stores the size it answered as the node's
+    /// `used_size`, `compute_non_flex_layout` re-flows the inline content and
+    /// re-places the children at the measure's constraints. So a final served
+    /// from taffy's cache after a measure of the node COMPUTED something in
+    /// between kept the measure's state: a stretched flex item painted at its
+    /// hypothetical (content) width, a column's text at the width of its
+    /// min-content probe. Cleared by every computation of the node, set by
+    /// its final computation; a `PerformLayout` cache hit requires it
+    /// (`TaffyBridge::cache_get`). Taffy's caches survive every pass - the
+    /// resize fast path keeps the tree, and a reconciled tree's clones carry
+    /// theirs (`LayoutTreeBuilder::clone_node_from_old`) - and this field
+    /// rides the `cache_map` remap with them, so a clean node's final layout
+    /// is served across passes exactly while its subtree still holds it.
+    pub final_layout_current: bool,
+
+    /// The second way of this node's taffy measurement cache
+    /// (`LayoutNodeWarm::taffy_cache`) - see
+    /// [`super::taffy_bridge::TaffyMeasureSpill`]. Allocated only for a node
+    /// one of whose measurement slot classes was stored into twice since its
+    /// taffy cache was last empty; never read while that cache is empty, and
+    /// dropped by the first store into it after it was emptied.
+    pub taffy_measure_spill: Option<Box<super::taffy_bridge::TaffyMeasureSpill>>,
+
+    /// One bit per taffy measurement slot class stored into since the node's
+    /// taffy cache was last empty - what tells a second store into a class
+    /// (an eviction) from the first. Reset with `taffy_measure_spill`.
+    pub taffy_slots_stored: u16,
+
+    /// The widths a flex ROW - or a flex column whose width does not follow
+    /// its height - answered to width-only questions (a parent asking how
+    /// wide it is - its max-content width, its width at a known height) - see
+    /// [`super::taffy_bridge::TaffyWidthOnlyAnswers`]. Such an
+    /// answer runs the whole row algorithm and stays out of taffy's own cache
+    /// (whose key ignores the axis), so without this every re-layout of the
+    /// row's parent ran it again, and marked the row's final layout stale. The
+    /// same validity as `taffy_measure_spill`: never read while the node's
+    /// taffy cache is empty, dropped by the first store into it after it was
+    /// emptied, and by [`Self::clear`].
+    pub taffy_width_only: Option<Box<super::taffy_bridge::TaffyWidthOnlyAnswers>>,
+
+    /// Whether this node's subtree lays out alike at every definite height
+    /// it is given (`lays_out_alike_at_every_given_height`), once decided.
+    /// Read by the cache key of [`calculate_layout_for_subtree`] (such a
+    /// subtree's layout is kept by the width of its containing block) and by
+    /// a flex row's width-only answers. A property of the subtree's styles and
+    /// shape alone, so [`Self::clear`] forgets it: a dirty mark of the node or
+    /// of anything below it clears the node.
+    pub free_of_given_height: Option<bool>,
+
+    /// Whether the width this node answers when its parent asks how wide it
+    /// is comes out the same at every definite height it is given
+    /// (`answers_its_width_alike_at_every_given_height`), once decided. Read
+    /// by the width-only answers of the taffy bridge, which drop the heights
+    /// from the question of such a node. Forgotten by [`Self::clear`], like
+    /// `free_of_given_height`.
+    pub width_free_of_given_height: Option<bool>,
 }
 
 impl Default for NodeCache {
@@ -194,6 +264,12 @@ impl Default for NodeCache {
             layout_entry: None,
             is_empty: true, // fresh cache is empty/dirty
             last_containing_block: None,
+            final_layout_current: false,
+            taffy_measure_spill: None,
+            taffy_slots_stored: 0,
+            taffy_width_only: None,
+            free_of_given_height: None,
+            width_free_of_given_height: None,
         }
     }
 }
@@ -207,6 +283,12 @@ impl NodeCache {
         self.measure_entries = [None, None, None, None, None, None, None, None, None];
         self.layout_entry = None;
         self.is_empty = true;
+        self.final_layout_current = false;
+        self.taffy_measure_spill = None;
+        self.taffy_slots_stored = 0;
+        self.taffy_width_only = None;
+        self.free_of_given_height = None;
+        self.width_free_of_given_height = None;
     }
 
     /// Compute the deterministic slot index from constraint dimensions.
@@ -214,10 +296,9 @@ impl NodeCache {
     /// This is Taffy's slot selection scheme: given whether width/height are
     /// "known" (definite constraint provided by parent) and what type of
     /// constraint applies to the unknown dimension(s), we get a unique slot 0–8.
-    ///
-    /// TODO(superplan): currently unused — the layout cache only ever touches
-    /// slot 0 (see the `get_size(0, ..)` / `store_size(0, ..)` call sites). This
-    /// is the intended entry point for wiring the full 9-slot scheme.
+    /// A known axis is a length, and its type does not matter; an unknown one
+    /// is a min-content or a max-content constraint (a definite type counts
+    /// as max-content), and the two give a box different sizes.
     #[must_use]
     pub fn slot_index(
         width_known: bool,
@@ -228,14 +309,14 @@ impl NodeCache {
         match (width_known, height_known) {
             (true, true) => 0,
             (true, false) => {
-                if width_type == AvailableWidthType::MinContent {
+                if height_type == AvailableWidthType::MinContent {
                     2
                 } else {
                     1
                 }
             }
             (false, true) => {
-                if height_type == AvailableWidthType::MinContent {
+                if width_type == AvailableWidthType::MinContent {
                     4
                 } else {
                     3
@@ -249,10 +330,13 @@ impl NodeCache {
         }
     }
 
-    /// Classify a CONCRETE containing-block size into (measurement slot,
-    /// canonicalized key). The call sites only have resolved `f32`s — the
-    /// availability enums are gone by this depth — so "indefinite" is
-    /// detected by value: non-finite or the ≥1e9 sentinel family.
+    /// Classify the cache key `size` of containing block `block` (its
+    /// flattened size, or what `cache_key_block` made of it) into
+    /// (measurement slot, canonicalized key). An axis is indefinite by value
+    /// - non-finite or the ≥1e9 sentinel family - and the block's typed axis
+    /// says which constraint stands in for it: a min-content and a
+    /// max-content measure flatten to the same size, and only the slot tells
+    /// them apart.
     ///
     /// WHY THIS EXISTS (2026-08-08, measured on big.md): with everything
     /// collapsed onto slot 0, ~507 nodes were each sized TWICE per pass —
@@ -265,23 +349,44 @@ impl NodeCache {
     /// epsilon compare meaningful (`INFINITY - INFINITY` is NaN, which
     /// fails every `<` test and would turn a same-key lookup into a miss).
     #[must_use]
-    pub fn classify_size_key(containing_block_size: LogicalSize) -> (usize, LogicalSize) {
-        const INDEFINITE: f32 = 1.0e9;
-        let w = containing_block_size.width;
-        let h = containing_block_size.height;
-        let w_known = w.is_finite() && w.abs() < INDEFINITE;
-        let h_known = h.is_finite() && h.abs() < INDEFINITE;
-        let slot = Self::slot_index(
-            w_known,
-            h_known,
-            AvailableWidthType::Definite,
-            AvailableWidthType::Definite,
-        );
-        let key = LogicalSize {
-            width: if w_known { w } else { f32::MAX },
-            height: if h_known { h } else { f32::MAX },
+    pub fn classify_size_key(
+        block: &super::geometry::ContainingBlock,
+        size: LogicalSize,
+    ) -> (usize, LogicalSize) {
+        let constraint = |axis: crate::text3::cache::AvailableSpace| match axis {
+            crate::text3::cache::AvailableSpace::MinContent => AvailableWidthType::MinContent,
+            crate::text3::cache::AvailableSpace::MaxContent => AvailableWidthType::MaxContent,
+            crate::text3::cache::AvailableSpace::Definite(_) => AvailableWidthType::Definite,
         };
+        // The key holds an indefinite axis as `f32::MAX`.
+        let key = Self::canonical_size_key(size);
+        let slot = Self::slot_index(
+            key.width < f32::MAX,
+            key.height < f32::MAX,
+            constraint(block.width),
+            constraint(block.height),
+        );
         (slot, key)
+    }
+
+    /// `size` with each indefinite axis (non-finite or ≥1e9) as `f32::MAX`:
+    /// the size half of a [`Self::classify_size_key`] key.
+    #[must_use]
+    pub fn canonical_size_key(size: LogicalSize) -> LogicalSize {
+        const INDEFINITE: f32 = 1.0e9;
+        let known = |v: f32| v.is_finite() && v.abs() < INDEFINITE;
+        LogicalSize {
+            width: if known(size.width) {
+                size.width
+            } else {
+                f32::MAX
+            },
+            height: if known(size.height) {
+                size.height
+            } else {
+                f32::MAX
+            },
+        }
     }
 
     /// Look up a sizing cache entry, implementing Taffy's "result matches request"
@@ -289,12 +394,23 @@ impl NodeCache {
     /// (common in Pass1→Pass2 transitions), it's still a cache hit.
     #[must_use]
     pub fn get_size(&self, slot: usize, known_dims: LogicalSize) -> Option<&SizingCacheEntry> {
+        self.find_size(slot, known_dims).map(|(_, entry)| entry)
+    }
+
+    /// [`Self::get_size`], with the slot the entry answered from: a result
+    /// that matches the request may be answered from another slot.
+    #[must_use]
+    pub fn find_size(
+        &self,
+        slot: usize,
+        known_dims: LogicalSize,
+    ) -> Option<(usize, &SizingCacheEntry)> {
         if let Some(entry) = self.measure_entries[slot].as_ref() {
             // Exact match on input constraints
             if (known_dims.width - entry.available_size.width).abs() < CACHE_SIZE_EPSILON
                 && (known_dims.height - entry.available_size.height).abs() < CACHE_SIZE_EPSILON
             {
-                return Some(entry);
+                return Some((slot, entry));
             }
         }
         // "Result matches request" — if the caller provides the result size
@@ -305,11 +421,14 @@ impl NodeCache {
         // and the matching entry may live in ANY slot — pass 1 stored its
         // result under the measure-constraint slot, not the definite one.
         if known_dims.width < 1.0e9 && known_dims.height < 1.0e9 {
-            for entry in self.measure_entries.iter().flatten() {
+            for (found_in, entry) in self.measure_entries.iter().enumerate() {
+                let Some(entry) = entry.as_ref() else {
+                    continue;
+                };
                 if (known_dims.width - entry.result_size.width).abs() < CACHE_SIZE_EPSILON
                     && (known_dims.height - entry.result_size.height).abs() < CACHE_SIZE_EPSILON
                 {
-                    return Some(entry);
+                    return Some((found_in, entry));
                 }
             }
         }
@@ -322,11 +441,15 @@ impl NodeCache {
         self.is_empty = false;
     }
 
-    /// Look up the full layout cache entry.
+    /// Look up the full layout cache entry for containing block `known_dims`
+    /// of measurement slot `slot` (both from [`Self::classify_size_key`]'s
+    /// inputs: the slot tells a min-content from a max-content block of the
+    /// same flattened size).
     #[must_use]
-    pub fn get_layout(&self, known_dims: LogicalSize) -> Option<&LayoutCacheEntry> {
+    pub fn get_layout(&self, slot: usize, known_dims: LogicalSize) -> Option<&LayoutCacheEntry> {
         let entry = self.layout_entry.as_ref()?;
-        if (known_dims.width - entry.available_size.width).abs() < CACHE_SIZE_EPSILON
+        if entry.size_slot == slot
+            && (known_dims.width - entry.available_size.width).abs() < CACHE_SIZE_EPSILON
             && (known_dims.height - entry.available_size.height).abs() < CACHE_SIZE_EPSILON
         {
             return Some(entry);
@@ -344,6 +467,20 @@ impl NodeCache {
     pub fn store_layout(&mut self, entry: LayoutCacheEntry) {
         self.layout_entry = Some(entry);
         self.is_empty = false;
+    }
+
+    /// Does the subtree still hold the layout computed for the sizing key
+    /// `(slot, key)` (a [`Self::classify_size_key`] key)? Every computation
+    /// of the node stores its layout slot, so the slot names what its
+    /// children's sizes and offsets were last laid out for.
+    #[must_use]
+    pub fn holds(&self, slot: usize, key: LogicalSize) -> bool {
+        self.layout_entry.as_ref().is_some_and(|l| {
+            let laid_out_for = Self::canonical_size_key(l.available_size);
+            l.size_slot == slot
+                && (laid_out_for.width - key.width).abs() < CACHE_SIZE_EPSILON
+                && (laid_out_for.height - key.height).abs() < CACHE_SIZE_EPSILON
+        })
     }
 }
 
@@ -369,6 +506,49 @@ impl LayoutCacheMap {
         self.entries.resize_with(tree_len, NodeCache::default);
     }
 
+    /// The caches of `old_tree`'s nodes, each moved to where the reconcile
+    /// put its node in `new_tree`. The new tree numbers its nodes anew (a
+    /// node added or dropped before another shifts it), so an entry follows
+    /// its node's identity, never its index: a node of a DOM node by that
+    /// node's id, an anonymous box only into the box the reconcile carried it
+    /// into (`carried`, [`ReconciliationResult::carried_indices`]). Every
+    /// other new node starts with an empty entry and is laid out anew - an
+    /// anonymous block built around another run of words is such a node,
+    /// even though nothing inside it is dirty.
+    #[must_use]
+    pub fn remapped(
+        mut self,
+        old_tree: &LayoutTree,
+        new_tree: &LayoutTree,
+        carried: &HashMap<usize, usize>,
+    ) -> Self {
+        let mut remapped = Self::default();
+        remapped.resize_to_tree(new_tree.nodes.len());
+        let mut hand_over = |old: usize, new: usize| {
+            if old < self.entries.len() && new < remapped.entries.len() {
+                remapped.entries[new] = core::mem::take(&mut self.entries[old]);
+            }
+        };
+        for (dom_id, new_indices) in &new_tree.dom_to_layout {
+            let Some(old_indices) = old_tree.dom_to_layout.get(dom_id) else {
+                continue;
+            };
+            for (new_idx, old_idx) in new_indices.iter().zip(old_indices) {
+                hand_over(old_idx.index(), new_idx.index());
+            }
+        }
+        for (&old_idx, &new_idx) in carried {
+            let anonymous = new_tree
+                .nodes
+                .get(new_idx)
+                .is_some_and(|n| n.dom_node_id.is_none());
+            if anonymous {
+                hand_over(old_idx, new_idx);
+            }
+        }
+        remapped
+    }
+
     /// O(1) lookup by layout tree index.
     #[inline]
     #[must_use]
@@ -382,36 +562,79 @@ impl LayoutCacheMap {
         &mut self.entries[node_index]
     }
 
-    /// Invalidate a node and propagate dirty flags upward through ancestors.
+    /// Invalidate a node and every ancestor.
     ///
-    /// Implements Taffy's early-stop optimization: propagation halts at the
-    /// first ancestor whose cache is already empty (i.e., already dirty).
-    /// This prevents redundant O(depth) propagation when multiple children
-    /// of the same parent are dirtied.
+    /// An EMPTY entry says nothing about the ancestors: a flex / grid item
+    /// laid out by taffy never gets an entry, nor does a node the reconcile
+    /// built fresh. Taffy's early stop ("an empty ancestor is already dirty")
+    /// left a flex container's layout slot in place, which served the old
+    /// child positions and never laid the fresh item out (a dragged slider's
+    /// thumb vanished, FIX9 1.6). The early stop survives in
+    /// [`Self::mark_dirty_all`], keyed by what that call cleared.
     pub fn mark_dirty(&mut self, node_index: usize, tree: &[LayoutNodeHot]) {
-        if node_index >= self.entries.len() {
-            return;
-        }
-        let cache = &mut self.entries[node_index];
-        if cache.is_empty {
-            return; // Already dirty → ancestors are too
-        }
-        cache.clear();
+        self.mark_dirty_all(core::iter::once(node_index), tree);
+    }
 
-        // Propagate upward (Taffy's early-stop optimization)
-        let mut current = tree.get(node_index).and_then(|n| n.parent);
-        while let Some(parent_idx) = current {
-            if parent_idx >= self.entries.len() {
-                break;
+    /// [`Self::mark_dirty`] for many nodes: every ancestor chain is walked
+    /// once - a walk stops at a node an earlier walk of THIS call cleared, so
+    /// the whole batch costs O(nodes), not O(nodes x depth).
+    pub fn mark_dirty_all(
+        &mut self,
+        nodes: impl IntoIterator<Item = usize>,
+        tree: &[LayoutNodeHot],
+    ) {
+        let mut cleared = alloc::vec![false; self.entries.len()];
+        for node_index in nodes {
+            let mut current = Some(node_index);
+            while let Some(idx) = current {
+                if idx >= self.entries.len() || cleared[idx] {
+                    break;
+                }
+                cleared[idx] = true;
+                self.entries[idx].clear();
+                current = tree.get(idx).and_then(|n| n.parent);
             }
-            let parent_cache = &mut self.entries[parent_idx];
-            if parent_cache.is_empty {
-                break; // Stop early — ancestor already dirty
-            }
-            parent_cache.clear();
-            current = tree.get(parent_idx).and_then(|n| n.parent);
         }
     }
+}
+
+/// What [`LayoutCache::overrides_only_hint`] claims about a DOM: when the
+/// latch was armed it had this many nodes, this cascade epoch (every restyle
+/// and every override write through `restyle_user_property` moves it) and
+/// these interaction states (hover, focus, active, ... - the one input of the
+/// reconcile's fingerprints that changes without either). A pass handed a DOM
+/// with another stamp was changed since, and reconciles.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OverridesOnlyStamp {
+    /// `node_data.len()` of the DOM.
+    pub node_count: usize,
+    /// `CssPropertyCache::cascade_epoch` of the DOM.
+    pub cascade_epoch: u64,
+    /// A hash of every node's `StyledNodeState`, in node order.
+    pub states_hash: u64,
+}
+
+impl OverridesOnlyStamp {
+    /// The stamp of `styled_dom` as it is now (one pass over its states).
+    #[must_use]
+    pub fn of(styled_dom: &StyledDom) -> Self {
+        let mut h = DefaultHasher::new();
+        for node in styled_dom.styled_nodes.as_container().internal {
+            node.styled_node_state.hash(&mut h);
+        }
+        Self {
+            node_count: styled_dom.node_data.as_ref().len(),
+            cascade_epoch: styled_dom.get_css_property_cache().cascade_epoch,
+            states_hash: h.finish(),
+        }
+    }
+}
+
+/// `tree` as a pass's own tree: moved out of the `Arc` when nothing else
+/// holds it, copied when the window still holds the previous result.
+#[must_use]
+pub fn unshare(tree: alloc::sync::Arc<LayoutTree>) -> LayoutTree {
+    alloc::sync::Arc::try_unwrap(tree).unwrap_or_else(|shared| (*shared).clone())
 }
 
 /// The persistent cache that holds the layout state between frames.
@@ -421,17 +644,51 @@ impl LayoutCacheMap {
 #[derive(Debug, Clone, Default)]
 pub struct LayoutCache {
     /// The fully laid-out tree from the previous frame. This is our primary cache.
-    pub tree: Option<LayoutTree>,
+    ///
+    /// Shared with the window's result for the DOM
+    /// (`DomLayoutResult::layout_tree`): handing the result a copy of every
+    /// node was a fixed cost of every pass. A pass takes it back as its own
+    /// with [`unshare`]: moved when the window dropped its result first (a
+    /// relayout of the same DOM does), copied only while the old result is
+    /// still held.
+    pub tree: Option<alloc::sync::Arc<LayoutTree>>,
     /// One-shot latch: the next `layout_document` call is a RESIZE-ONLY
     /// relayout of the SAME `StyledDom` object (set by the dll's
     /// `incremental_relayout_for_resize`, consumed unconditionally at entry).
     /// Skips reconcile + `cache_map` remap wholesale — see the Step-1 branch
     /// in `layout_document` for the contract and the dom-id sanity guard.
     pub resize_only_hint: bool,
-    /// Census: did the LAST `layout_document` take the resize-only
-    /// reconcile-skip branch? The external observable that distinguishes
-    /// "skipped the walk" from "walked and found everything clean" (both
-    /// produce identical pixels and identical reuse censuses).
+    /// One-shot latch: since the last pass only user OVERRIDES moved - the
+    /// frame of a layout-property tween (`LayoutWindow::tick_animations`
+    /// arms it) - so the next `layout_document` may take the retained tree
+    /// as it is: the reconcile reads node data and interaction states, and an
+    /// override is neither, so it would rebuild exactly the retained tree
+    /// (4.4 ms of every `AzWidgets` knob frame, for nothing). Taken at the next
+    /// pass's entry and honoured only while the stamp still describes the
+    /// DOM handed in (`OverridesOnlyStamp::of`); the css dirt of the pass
+    /// names what to lay out again.
+    pub overrides_only_hint: Option<OverridesOnlyStamp>,
+    /// The CSS diff for the next PAGED pass on this cache
+    /// (`paged_layout`), which has no `css_dirty` argument of its own: a
+    /// caller that keeps a paged cache across restyles puts the restyled
+    /// nodes here, and the paged reconcile builds them fresh with the new
+    /// cascade's box props, as `layout_document`'s does. Taken by the pass.
+    pub paged_css_dirty: Vec<(NodeId, azul_css::props::property::RelayoutScope)>,
+    /// The runtime font registry's generation this cache was laid out at
+    /// (`text3::fontreg::generation`): when a face is registered, the next
+    /// pass drops the tree and lays the document out cold.
+    pub font_epoch: u64,
+    /// Whether the retained tree was laid out with overlay content that
+    /// shapes the layout (`ContentOverlay::shapes_layout`: an edited text, a
+    /// pending structure). Its boxes then differ from what the DOM alone
+    /// says, so a pass the DOM diff calls unchanged still reconciles: the
+    /// overlay entry may have been retired meanwhile (the app's re-render
+    /// caught up) and the tree would keep showing it.
+    pub laid_out_with_overlay: bool,
+    /// Census: did the LAST `layout_document` take a reconcile-skip branch
+    /// (resize-only or overrides-only)? The external observable that
+    /// distinguishes "skipped the walk" from "walked and found everything
+    /// clean" (both produce identical pixels and identical reuse censuses).
     pub last_reconcile_was_skipped: bool,
     /// The last reconcile RAN and preserved the tree's structure exactly —
     /// zero fresh nodes, zero drops, indices stable. Content changes (a text
@@ -508,7 +765,8 @@ pub struct LayoutCache {
     /// arm; consumed (taken) by `reconcile_and_invalidate`.
     pub dom_diff_clean: Option<Vec<bool>>,
     /// Census: fingerprint computations skipped via `dom_diff_clean` in the
-    /// LAST reconcile — the external observable for the channel's tests.
+    /// LAST pass — the external observable for the channel's tests. A pass
+    /// the diff proved unchanged skips the reconcile and counts every node.
     pub last_fingerprint_skips: usize,
     /// Presentation hint of the LAST pass, set ONLY when the DL patch fired:
     /// the dominant translation + exceptions. The CPU compositor turns it
@@ -516,6 +774,15 @@ pub struct LayoutCache {
     /// spirit — the consumer must guard against re-application on the SAME
     /// display list (buffers-held retries re-run the present path).
     pub last_patch_move: Option<super::display_list::PatchMoveSummary>,
+    /// Counts the passes that placed the nodes again (each one that
+    /// computed or dropped [`Self::last_patch_move`]).
+    pub layout_seq: u64,
+    /// The [`Self::layout_seq`] the move of [`Self::last_patch_move`] starts
+    /// from. A CPU frame blits by the move only when the frame it shows is
+    /// that pass's (`CpuBackend::presented_layout_seq`): a list built again
+    /// for the same layout (a caret blink, a content patch) still moves
+    /// from there, and a move already presented never moves twice.
+    pub last_patch_move_from_seq: u64,
     /// Reconciliation census of the LAST pass: how many nodes were CLONED
     /// from the previous tree (warm shaped-text + intrinsic caches carried
     /// forward) vs built FRESH (no warm data). This pair is what makes cache
@@ -680,13 +947,11 @@ impl LayoutCache {
         self.last_full_build_seq = self.build_seq;
         self.last_build_was_patched = false;
         self.last_patch_damage = None;
-        // The mover blit belongs to the PATCHED list it was computed for; a
-        // full emission invalidates it exactly like the patch rects. Callers
-        // used to clear this themselves (regenerate_display_list_for_dom
-        // does), but the Step-1.1 cache-hit and early-exit paths called only
-        // this function and left a stale TranslateHint armed - neutralized
-        // today by the Arc-pointer guard, but nothing pinned that.
-        self.last_patch_move = None;
+        // The move hint is NOT dropped: it describes how the nodes moved
+        // between two layout passes, whatever list is built from the second,
+        // and a CPU frame takes it only while it still shows the first
+        // (`last_patch_move_from_seq`). Dropping it here dropped every move
+        // of a layout tween whose frame rebuilt its list.
         self.patch_damage_log.clear();
     }
 
@@ -752,7 +1017,7 @@ impl LayoutCache {
     /// Approximate heap bytes retained by this `LayoutCache`.
     #[must_use]
     pub fn memory_report(&self) -> Solver3CacheMemoryReport {
-        let tree_report = self.tree.as_ref().map(LayoutTree::memory_report);
+        let tree_report = self.tree.as_deref().map(LayoutTree::memory_report);
         let tree_bytes = tree_report
             .as_ref()
             .map_or(0, super::layout_tree::LayoutTreeMemoryReport::total_bytes);
@@ -763,6 +1028,12 @@ impl LayoutCache {
             if let Some(le) = &e.layout_entry {
                 cache_map_bytes +=
                     le.child_positions.capacity() * size_of::<(usize, LogicalPosition)>();
+            }
+            if e.taffy_measure_spill.is_some() {
+                cache_map_bytes += size_of::<super::taffy_bridge::TaffyMeasureSpill>();
+            }
+            if e.taffy_width_only.is_some() {
+                cache_map_bytes += size_of::<super::taffy_bridge::TaffyWidthOnlyAnswers>();
             }
         }
         let cached_dl = self
@@ -818,10 +1089,35 @@ pub struct ReconciliationResult {
     /// exists: an edited text run, a same-count replace), instead of the
     /// whole intrinsic-dirty ancestor chain whose items are unchanged.
     pub fresh_indices: BTreeSet<usize>,
+    /// The INDICES of the nodes CLONED from the previous tree that became a
+    /// hit-test target or stopped being one (a handler, a tab stop, a context
+    /// menu came or went,
+    /// [`azul_core::diff::NodeDataFingerprint::hit_test_target`]). They are
+    /// laid out as before, but the items they painted hold the hit-test
+    /// area of what they were: the display-list patch re-emits them, as it
+    /// does `fresh_indices`.
+    pub retargeted: BTreeSet<usize>,
     /// Fingerprint computations skipped because the pre-cascade DOM diff
     /// proved the node (and its ancestors) unchanged. See
     /// `LayoutCache::dom_diff_clean`.
     pub fingerprint_skips: usize,
+    /// Where the nodes this reconcile CARRIED over from the previous tree
+    /// went: old layout index -> new layout index, for every clone and every
+    /// matched anonymous block. A carried node keeps what the previous tree
+    /// wrote into it, and some of that names other nodes by their OLD index
+    /// (a text node's `ifc_membership` names its IFC root); the reconcile
+    /// re-points those through this map.
+    pub carried_indices: HashMap<usize, usize>,
+    /// INPUT of the walk, set by [`reconcile_and_invalidate_restyled`]
+    /// before it starts: the DOM nodes whose own computed style moved in a
+    /// layout-affecting way this pass (the CSS diff's entries with a scope
+    /// above `RelayoutScope::None`). `reconcile_recursive` builds each of
+    /// them FRESH, as a `DirtyFlag::Layout` node: a clone carries the box
+    /// props (margins, padding, borders), computed style and formatting
+    /// context resolved from the OLD cascade, which no dirty mark refreshes
+    /// (LAYOUTPERF8 bug B: a block whose stylesheet margin changed kept the
+    /// old one).
+    pub css_relayout: BTreeSet<NodeId>,
 }
 
 impl ReconciliationResult {
@@ -852,53 +1148,163 @@ impl ReconciliationResult {
 /// decided by its container's flex algorithm, and its siblings' slots move
 /// with it. The same holds for an INLINE-LEVEL box (an inline-block, an
 /// inline replaced element): its box sits on a line the parent's inline
-/// formatting context lays out, and a size change re-breaks that line.
+/// formatting context lays out, and a size change re-breaks that line. And
+/// for a PART OF A TABLE (a cell, a row, a row group, a column, the caption):
+/// the table's grid decides its size and place, and a cell's span or content
+/// moves every column and row of the grid.
 /// Promote such a root to its container, walking up through nested
 /// containers (a flex item inside a flex item; an inline-block inside a
-/// flex row). Block-flow siblings need no promotion: `reposition_clean_subtrees`
+/// flex row; a cell up through its row and row group to the table).
+/// Block-flow siblings need no promotion: `reposition_clean_subtrees`
 /// re-stacks them after the root is re-solved.
 ///
-/// `node` yields a node's parent and formatting context; the reconcile calls
-/// this on its tree builder, the css-dirty channel on the built tree - the
-/// two producers of layout roots, which used to disagree (only the reconcile
-/// promoted, so a `width` change delivered through the css-dirty channel
-/// re-solved a flex item in place while its siblings kept their slots).
+/// Nor can anything inside a MULTI-COLUMN container's flow: the container
+/// cuts its content into columns (`multicol::plan_columns`), so a size
+/// change anywhere in it can move every box into another column - and
+/// re-stacking block-flow siblings would pile the columns into one. Such a
+/// root goes to the outermost multi-column container around it.
+///
+/// `node` yields a node's parent, its formatting context and whether it is
+/// a multi-column container; the reconcile calls this on its tree builder,
+/// the css-dirty channel on the built tree - the two producers of layout
+/// roots, which used to disagree (only the reconcile promoted, so a `width`
+/// change delivered through the css-dirty channel re-solved a flex item in
+/// place while its siblings kept their slots).
 pub(crate) fn promote_layout_roots_to_containers(
     roots: &BTreeSet<usize>,
-    node: impl Fn(usize) -> Option<(Option<usize>, FormattingContext)>,
+    node: impl Fn(usize) -> Option<(Option<usize>, FormattingContext, bool)>,
 ) -> BTreeSet<usize> {
     roots
         .iter()
         .map(|&idx| {
             let mut root = idx;
-            while let Some((Some(parent), own_fc)) = node(root) {
-                let parent_fc = node(parent).map(|(_, fc)| fc);
-                // Inline-level by its OWN context (an inline box, an
-                // inline-block) — or by where it SITS: a box whose parent
-                // establishes an inline formatting context is on one of that
-                // context's lines whatever it establishes itself (an
-                // `inline-flex` button, an `inline-grid`, a replaced element).
-                // The own-context test alone missed exactly those: an
-                // inline-flex button dirtied by a colour twin was re-solved
-                // as its own root, under a definite containing-block height
-                // the line would never have given it, and grew by its
-                // line-height.
-                let inline_level = matches!(
-                    own_fc,
-                    FormattingContext::Inline | FormattingContext::InlineBlock
-                ) || matches!(parent_fc, Some(FormattingContext::Inline));
-                let parent_is_flex_or_grid = matches!(
-                    parent_fc,
-                    Some(FormattingContext::Flex | FormattingContext::Grid)
-                );
-                if !inline_level && !parent_is_flex_or_grid {
-                    break;
+            loop {
+                root = lift_to_slot_container(root, &node);
+                // The outermost multi-column container around it, if any.
+                let mut outermost = None;
+                let mut cursor = root;
+                while let Some((Some(parent), _, _)) = node(cursor) {
+                    if node(parent).is_some_and(|(_, _, multicol)| multicol) {
+                        outermost = Some(parent);
+                    }
+                    cursor = parent;
                 }
-                root = parent;
+                match outermost {
+                    Some(container) => root = container,
+                    None => break,
+                }
             }
             root
         })
         .collect()
+}
+
+/// The layout roots with no ancestor among them: a root's pass lays out its
+/// whole subtree, so a root below another one needs no pass of its own.
+/// `parent_of` yields a node's parent. The one cleanup for both producers of
+/// layout roots (the reconcile and the css-dirty fold of `layout_document`).
+pub(crate) fn outermost_layout_roots(
+    roots: &BTreeSet<usize>,
+    parent_of: impl Fn(usize) -> Option<usize>,
+) -> BTreeSet<usize> {
+    roots
+        .iter()
+        .copied()
+        .filter(|&idx| {
+            let mut current = parent_of(idx);
+            // A parent chain is at most as long as the tree; the bound
+            // keeps a corrupt (cyclic) chain from hanging the pass.
+            let mut guard = 0usize;
+            while let Some(p_idx) = current {
+                if roots.contains(&p_idx) {
+                    return false;
+                }
+                guard += 1;
+                if guard > 1 << 20 {
+                    break;
+                }
+                current = parent_of(p_idx);
+            }
+            true
+        })
+        .collect()
+}
+
+/// Where a layout root that came out another size must be laid out again
+/// from: up through its ancestors whose height follows their content (no
+/// definite `height`), to the child of the first one with a definite
+/// height, or to the tree root. `idx` itself when its parent's height is
+/// definite: re-stacking its siblings is then all that moves.
+#[must_use]
+pub(crate) fn root_for_resized(tree: &LayoutTree, idx: usize) -> usize {
+    use azul_css::props::layout::LayoutHeight;
+
+    let mut root = idx;
+    // A parent chain is at most as long as the tree; the bound keeps a
+    // corrupt (cyclic) chain from hanging the pass.
+    for _ in 0..tree.nodes.len() {
+        let Some(parent) = tree.get(LayoutNodeId::new(root)).and_then(|n| n.parent) else {
+            break;
+        };
+        let definite = tree
+            .warm(LayoutNodeId::new(parent))
+            .is_some_and(|w| match &w.computed_style.height {
+                Some(LayoutHeight::Px(v)) => v.to_percent().is_none(),
+                _ => false,
+            });
+        if definite {
+            break;
+        }
+        root = parent;
+    }
+    root
+}
+
+/// [`promote_layout_roots_to_containers`]' flex / grid / inline-level lift
+/// of one root.
+pub(crate) fn lift_to_slot_container(
+    idx: usize,
+    node: &impl Fn(usize) -> Option<(Option<usize>, FormattingContext, bool)>,
+) -> usize {
+    let mut root = idx;
+    while let Some((Some(parent), own_fc, _)) = node(root) {
+        let parent_fc = node(parent).map(|(_, fc, _)| fc);
+        // Inline-level by its OWN context (an inline box, an
+        // inline-block) — or by where it SITS: a box whose parent
+        // establishes an inline formatting context is on one of that
+        // context's lines whatever it establishes itself (an
+        // `inline-flex` button, an `inline-grid`, a replaced element).
+        // The own-context test alone missed exactly those: an
+        // inline-flex button dirtied by a colour twin was re-solved
+        // as its own root, under a definite containing-block height
+        // the line would never have given it, and grew by its
+        // line-height.
+        let inline_level = matches!(
+            own_fc,
+            FormattingContext::Inline | FormattingContext::InlineBlock
+        ) || matches!(parent_fc, Some(FormattingContext::Inline));
+        let parent_is_flex_or_grid = matches!(
+            parent_fc,
+            Some(FormattingContext::Flex | FormattingContext::Grid)
+        );
+        // A part of a table (a cell, a row, a row group, a column, the
+        // caption) is sized and placed by its table's grid: a cell's span or
+        // content moves every column and row of it.
+        let parent_is_a_table_part = matches!(
+            parent_fc,
+            Some(
+                FormattingContext::Table
+                    | FormattingContext::TableRowGroup
+                    | FormattingContext::TableRow
+                    | FormattingContext::TableColumnGroup
+            )
+        );
+        if !inline_level && !parent_is_flex_or_grid && !parent_is_a_table_part {
+            break;
+        }
+        root = parent;
+    }
+    root
 }
 
 /// After dirty subtrees are laid out, this repositions their clean siblings
@@ -1169,7 +1575,7 @@ fn layout_relevant_child_count(
 ) -> usize {
     use super::{
         getters::{get_display_property, MultiValue},
-        layout_tree::{is_block_level, is_whitespace_only_text},
+        layout_tree::is_whitespace_only_text,
     };
 
     let parent_display = match get_display_property(styled_dom, Some(parent_id)) {
@@ -1194,14 +1600,17 @@ fn layout_relevant_child_count(
             | LayoutDisplay::InlineGrid
     );
 
-    let has_any_block_child = children.iter().any(|&id| is_block_level(styled_dom, id));
+    // In-flow block-level children only (CSS 2.2 s9.2.1.1, the builders'
+    // `in_flow_block_level_mask`).
+    let block_level = in_flow_block_level_mask(styled_dom, children);
+    let has_any_block_child = block_level.iter().any(|&b| b);
 
     let mut count = 0usize;
     // When parent has any block child, whitespace-only inline runs
     // surrounding blocks collapse. We approximate that by skipping
     // whitespace text whenever any block sibling exists.
     let collapse_inline_whitespace = has_any_block_child;
-    for &id in children {
+    for (&id, &is_block) in children.iter().zip(&block_level) {
         // display:none drops
         let display = match get_display_property(styled_dom, Some(id)) {
             MultiValue::Exact(d) => d,
@@ -1215,10 +1624,7 @@ fn layout_relevant_child_count(
             continue;
         }
         // Whitespace-only inline run collapse when mixed with blocks.
-        if collapse_inline_whitespace
-            && !is_block_level(styled_dom, id)
-            && is_whitespace_only_text(styled_dom, id)
-        {
+        if collapse_inline_whitespace && !is_block && is_whitespace_only_text(styled_dom, id) {
             continue;
         }
         count += 1;
@@ -1226,6 +1632,9 @@ fn layout_relevant_child_count(
     count
 }
 
+/// [`reconcile_and_invalidate_restyled`] without a CSS diff (the paged
+/// layout's reconcile).
+///
 /// # Errors
 ///
 /// Returns a `LayoutError` if layout reconciliation fails.
@@ -1233,13 +1642,73 @@ pub fn reconcile_and_invalidate<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     cache: &LayoutCache,
     viewport: LogicalRect,
+    dom_diff_clean: Option<Vec<bool>>,
+) -> Result<(LayoutTree, ReconciliationResult)> {
+    reconcile_and_invalidate_restyled(ctx, cache, viewport, dom_diff_clean, &[])
+}
+
+/// How the reconcile reads the style of a text node under a restyled box
+/// ([`TextStyleKey::of`]): the pass's style memo and what sizes resolve
+/// against.
+#[derive(Debug)]
+pub struct TextStyleReader<'a> {
+    styles: &'a mut crate::solver3::getters::StyleCache,
+    system_style: Option<&'a std::sync::Arc<azul_css::system::SystemStyle>>,
+    viewport: azul_css::props::basic::PhysicalSize,
+}
+
+/// Whether the styles an IFC root broke its lines with (`laid_out_with`;
+/// `None` for a node never laid out as one) are not what the cascade says
+/// now for `style_dom_id`, the element the root takes its style from.
+fn line_style_moved(
+    laid_out_with: Option<&fc::LineStyle>,
+    styled_dom: &StyledDom,
+    style_dom_id: NodeId,
+    text_styles: &mut TextStyleReader<'_>,
+) -> bool {
+    laid_out_with.is_some_and(|old| {
+        let now = fc::LineStyle::of(
+            styled_dom,
+            style_dom_id,
+            text_styles.styles,
+            text_styles.system_style,
+            text_styles.viewport,
+        );
+        let moved = *old != now;
+        if moved {
+            drop(crate::probe::Probe::span("recon_line_restyled"));
+        }
+        moved
+    })
+}
+
+/// Reconciles the new DOM against the cached tree. `css_dirty` is this
+/// pass's CSS diff (`layout_document`'s): a node whose own computed style
+/// moved in a layout-affecting way is built fresh
+/// ([`ReconciliationResult::css_relayout`]).
+///
+/// # Errors
+///
+/// Returns a `LayoutError` if layout reconciliation fails.
+pub fn reconcile_and_invalidate_restyled<T: ParsedFontTrait>(
+    ctx: &mut LayoutContext<'_, T>,
+    cache: &LayoutCache,
+    viewport: LogicalRect,
     // GRANULAR DIFF (see LayoutCache::dom_diff_clean) — taken by the
     // caller (this fn only has &cache) and moved in.
     dom_diff_clean: Option<Vec<bool>>,
+    css_dirty: &[(NodeId, azul_css::props::property::RelayoutScope)],
 ) -> Result<(LayoutTree, ReconciliationResult)> {
     let _probe_outer = crate::probe::Probe::span("reconcile_and_invalidate");
     let mut new_tree_builder = LayoutTreeBuilder::new(ctx.viewport_size);
-    let mut recon_result = ReconciliationResult::default();
+    let mut recon_result = ReconciliationResult {
+        css_relayout: css_dirty
+            .iter()
+            .filter(|(_, scope)| *scope != azul_css::props::property::RelayoutScope::None)
+            .map(|(node, _)| *node)
+            .collect(),
+        ..Default::default()
+    };
     // A viewport SIZE change invalidates every VIEWPORT-DEPENDENT computed
     // size — and nothing else. The old code dropped the ENTIRE cached tree
     // here (`old_tree = None`), which made every node reconcile as brand-new
@@ -1268,7 +1737,7 @@ pub fn reconcile_and_invalidate<T: ParsedFontTrait>(
     //     size; reconciliation merely decides what that pass may REUSE (shaped runs, intrinsic
     //     widths), not whether it runs.
     let viewport_resized = cache.viewport.is_none_or(|v| v.size != viewport.size);
-    let old_tree = cache.tree.as_ref();
+    let old_tree = cache.tree.as_deref();
 
     if viewport_resized {
         recon_result.layout_roots.insert(0); // Root is always index 0
@@ -1282,6 +1751,14 @@ pub fn reconcile_and_invalidate<T: ParsedFontTrait>(
     let clean_slice: Option<&[bool]> = dom_diff_clean
         .as_deref()
         .filter(|c| c.len() == ctx.styled_dom.node_data.as_ref().len());
+    let mut text_styles = TextStyleReader {
+        styles: &mut ctx.style_cache,
+        system_style: ctx.system_style.as_ref(),
+        viewport: azul_css::props::basic::PhysicalSize::new(
+            ctx.viewport_size.width,
+            ctx.viewport_size.height,
+        ),
+    };
     let root_idx = reconcile_recursive(
         ctx.styled_dom,
         root_dom_id,
@@ -1291,8 +1768,10 @@ pub fn reconcile_and_invalidate<T: ParsedFontTrait>(
         &mut new_tree_builder,
         &mut recon_result,
         ctx.debug_messages,
-        false, // the root has no ancestor whose restyle could reach it
+        // The root has no ancestor whose change could reach it.
+        InheritedChange::default(),
         clean_slice,
+        &mut text_styles,
     )?;
 
     // A dirty FLEX / GRID ITEM cannot be laid out on its own: its size is
@@ -1304,31 +1783,24 @@ pub fn reconcile_and_invalidate<T: ParsedFontTrait>(
     // painted 64 px into a 36 px slot, over the widget beneath it. (The
     // `reposition_clean_subtrees` comment always claimed the parent would
     // "already be a layout root"; now it is.)
+    let any_columns = crate::solver3::multicol::dom_declares_columns(ctx.styled_dom);
     let promoted_layout_roots =
         promote_layout_roots_to_containers(&recon_result.layout_roots, |idx| {
-            new_tree_builder
-                .get(idx)
-                .map(|n| (n.parent, n.formatting_context))
+            new_tree_builder.get(idx).map(|n| {
+                (
+                    n.parent,
+                    n.formatting_context,
+                    any_columns
+                        && crate::solver3::multicol::is_multicol_box(ctx.styled_dom, n.dom_node_id),
+                )
+            })
         });
     recon_result.layout_roots = promoted_layout_roots;
 
     // Clean up layout roots: if a parent is a layout root, its children don't need to be.
-    let final_layout_roots = recon_result
-        .layout_roots
-        .iter()
-        .filter(|&&idx| {
-            let mut current = new_tree_builder.get(idx).and_then(|n| n.parent);
-            while let Some(p_idx) = current {
-                if recon_result.layout_roots.contains(&p_idx) {
-                    return false;
-                }
-                current = new_tree_builder.get(p_idx).and_then(|n| n.parent);
-            }
-            true
-        })
-        .copied()
-        .collect();
-    recon_result.layout_roots = final_layout_roots;
+    recon_result.layout_roots = outermost_layout_roots(&recon_result.layout_roots, |idx| {
+        new_tree_builder.get(idx).and_then(|n| n.parent)
+    });
 
     new_tree_builder.apply_split_previews(ctx.content_overlay, ctx.styled_dom);
     let new_tree = new_tree_builder.build(root_idx);
@@ -1442,6 +1914,267 @@ fn is_whitespace_only_inline_run(
     true // All nodes are whitespace-only text
 }
 
+// ==== TABLES: anonymous table objects (CSS 2.2 17.2.1) ====
+
+/// A table-structural parent, as CSS 2.2 17.2.1 sorts its children: the
+/// kind of box it takes as a child, everything else being wrapped in
+/// anonymous table boxes ([`reconcile_table_children`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TableParent {
+    /// `table` / `inline-table`: row groups, rows, columns, column groups
+    /// and captions.
+    Table,
+    /// `table-row-group` / `-header-group` / `-footer-group`: rows.
+    RowGroup,
+    /// `table-row`: cells.
+    Row,
+}
+
+impl TableParent {
+    const fn of(display: LayoutDisplay) -> Option<Self> {
+        match display {
+            LayoutDisplay::Table | LayoutDisplay::InlineTable => Some(Self::Table),
+            LayoutDisplay::TableRowGroup
+            | LayoutDisplay::TableHeaderGroup
+            | LayoutDisplay::TableFooterGroup => Some(Self::RowGroup),
+            LayoutDisplay::TableRow => Some(Self::Row),
+            _ => None,
+        }
+    }
+
+    /// Is a child of this display one of the boxes this parent takes?
+    fn takes(self, child: LayoutDisplay) -> bool {
+        match self {
+            Self::Table => crate::solver3::layout_tree::is_proper_table_child(child),
+            Self::RowGroup => child == LayoutDisplay::TableRow,
+            Self::Row => child == LayoutDisplay::TableCell,
+        }
+    }
+}
+
+/// Reconcile the DOM child `child_dom_id` as a child of the layout node
+/// `parent_idx` (its old layout node found by DOM id anywhere in the old
+/// tree: an anonymous box above it has no DOM id to be matched by) and
+/// record its subtree hash.
+#[allow(clippy::too_many_arguments)] // reconcile_recursive's own state, passed through
+/// The old layout node a child of a reconciled parent is matched with: the
+/// parent's direct old child of the same DOM node, or - for a child that sat
+/// in a box the parent's layout built around it (an anonymous block holding
+/// an inline run, an anonymous table box) - that DOM node's first layout
+/// node anywhere in the old tree.
+///
+/// The ONE lookup for such children. The run that ENDS a box after a block
+/// used the direct-children map alone and never found its children (they
+/// are in the anonymous block, not under the parent): they were rebuilt
+/// fresh by every reconcile, and every relayout re-laid out their ancestors
+/// up to the root - `AzWidgets`' form column, which ends with its "Send the
+/// raw form" button, on every switch-knob frame.
+fn old_layout_index_of(
+    old_children_by_dom: &BTreeMap<NodeId, usize>,
+    old_tree: Option<&LayoutTree>,
+    dom_id: NodeId,
+) -> Option<usize> {
+    old_children_by_dom.get(&dom_id).copied().or_else(|| {
+        old_tree
+            .and_then(|t| t.dom_to_layout.get(&dom_id))
+            .and_then(|v| v.first().copied().map(LayoutNodeId::index))
+    })
+}
+
+fn reconcile_child_under(
+    styled_dom: &StyledDom,
+    child_dom_id: NodeId,
+    parent_idx: usize,
+    old_children_by_dom: &BTreeMap<NodeId, usize>,
+    old_tree: Option<&LayoutTree>,
+    new_tree_builder: &mut LayoutTreeBuilder,
+    recon: &mut ReconciliationResult,
+    debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+    ancestor: InheritedChange,
+    dom_diff_clean: Option<&[bool]>,
+    new_child_hashes: &mut Vec<u64>,
+    text_styles: &mut TextStyleReader<'_>,
+) -> Result<usize> {
+    let old_child_idx = old_layout_index_of(old_children_by_dom, old_tree, child_dom_id);
+    let child_idx = reconcile_recursive(
+        styled_dom,
+        child_dom_id,
+        old_child_idx,
+        Some(parent_idx),
+        old_tree,
+        new_tree_builder,
+        recon,
+        debug_messages,
+        ancestor,
+        dom_diff_clean,
+        text_styles,
+    )?;
+    if let Some(child_node) = new_tree_builder.get(child_idx) {
+        new_child_hashes.push(child_node.subtree_hash.0);
+    }
+    Ok(child_idx)
+}
+
+/// The children of a table-structural parent (`parent_idx`, DOM node
+/// `parent_dom_id`) that are not all of the kind it takes, with the
+/// anonymous table boxes CSS 2.2 17.2.1 rule 2 puts around the others:
+///
+/// - a run of consecutive children a table or row group does not take goes into an anonymous
+///   `table-row`;
+/// - inside a row (the real one or that anonymous one) a run of consecutive non-cells goes into
+///   an anonymous `table-cell`, a block container (its inline runs in anonymous inline wrappers,
+///   whitespace-only ones dropped, like any block container's).
+///
+/// Built by the reconciler only, the layout's tree builder, these were
+/// missing: a `display: block` `<td>` in a row (the mailgun "container")
+/// was a direct child of the row, the grid skipped it as no cell, and its
+/// whole subtree had no box.
+#[allow(clippy::too_many_arguments)] // reconcile_recursive's own state, passed through
+fn reconcile_table_children(
+    parent: TableParent,
+    children: &[NodeId],
+    styled_dom: &StyledDom,
+    parent_dom_id: NodeId,
+    parent_idx: usize,
+    old_children_by_dom: &BTreeMap<NodeId, usize>,
+    old_tree: Option<&LayoutTree>,
+    new_tree_builder: &mut LayoutTreeBuilder,
+    recon: &mut ReconciliationResult,
+    debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+    ancestor: InheritedChange,
+    dom_diff_clean: Option<&[bool]>,
+    new_child_hashes: &mut Vec<u64>,
+    text_styles: &mut TextStyleReader<'_>,
+) -> Result<()> {
+    let display_of = |id: NodeId| get_display_type(styled_dom, id);
+    let mut i = 0;
+    while i < children.len() {
+        if parent.takes(display_of(children[i])) {
+            reconcile_child_under(
+                styled_dom,
+                children[i],
+                parent_idx,
+                old_children_by_dom,
+                old_tree,
+                new_tree_builder,
+                recon,
+                debug_messages,
+                ancestor,
+                dom_diff_clean,
+                new_child_hashes,
+                text_styles,
+            )?;
+            i += 1;
+            continue;
+        }
+        let run_start = i;
+        while i < children.len() && !parent.takes(display_of(children[i])) {
+            i += 1;
+        }
+        let run = &children[run_start..i];
+        let row_idx = match parent {
+            TableParent::Row => parent_idx,
+            TableParent::Table | TableParent::RowGroup => new_tree_builder.create_anonymous_node(
+                parent_idx,
+                AnonymousBoxType::TableRow,
+                FormattingContext::TableRow,
+            ),
+        };
+        let mut j = 0;
+        while j < run.len() {
+            if display_of(run[j]) == LayoutDisplay::TableCell {
+                reconcile_child_under(
+                    styled_dom,
+                    run[j],
+                    row_idx,
+                    old_children_by_dom,
+                    old_tree,
+                    new_tree_builder,
+                    recon,
+                    debug_messages,
+                    ancestor,
+                    dom_diff_clean,
+                    new_child_hashes,
+                    text_styles,
+                )?;
+                j += 1;
+                continue;
+            }
+            let cell_start = j;
+            while j < run.len() && display_of(run[j]) != LayoutDisplay::TableCell {
+                j += 1;
+            }
+            let cell_idx = new_tree_builder.create_anonymous_node(
+                row_idx,
+                AnonymousBoxType::TableCell,
+                FormattingContext::TableCell,
+            );
+            // The anonymous cell is a block container: its block-level
+            // children as they are, each run of inline-level ones in an
+            // anonymous inline wrapper (none for collapsible whitespace).
+            // An inline holding a block is split around it (CSS 2.2 s9.2.1.1).
+            let split_content = super::layout_tree::split_inlines_around_blocks(
+                styled_dom,
+                run[cell_start..j].to_vec(),
+            );
+            let content = &split_content[..];
+            let block_level = in_flow_block_level_mask(styled_dom, content);
+            let mut k = 0;
+            while k < content.len() {
+                if block_level[k] {
+                    reconcile_child_under(
+                        styled_dom,
+                        content[k],
+                        cell_idx,
+                        old_children_by_dom,
+                        old_tree,
+                        new_tree_builder,
+                        recon,
+                        debug_messages,
+                        ancestor,
+                        dom_diff_clean,
+                        new_child_hashes,
+                        text_styles,
+                    )?;
+                    k += 1;
+                    continue;
+                }
+                let inline_start = k;
+                while k < content.len() && !block_level[k] {
+                    k += 1;
+                }
+                let inline_run: Vec<(usize, NodeId)> =
+                    (inline_start..k).map(|n| (n, content[n])).collect();
+                if is_whitespace_only_inline_run(styled_dom, &inline_run, parent_dom_id) {
+                    continue;
+                }
+                let wrapper_idx = new_tree_builder.create_anonymous_node(
+                    cell_idx,
+                    AnonymousBoxType::InlineWrapper,
+                    FormattingContext::Inline,
+                );
+                for &(_, inline_dom_id) in &inline_run {
+                    reconcile_child_under(
+                        styled_dom,
+                        inline_dom_id,
+                        wrapper_idx,
+                        old_children_by_dom,
+                        old_tree,
+                        new_tree_builder,
+                        recon,
+                        debug_messages,
+                        ancestor,
+                        dom_diff_clean,
+                        new_child_hashes,
+                        text_styles,
+                    )?;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Ordinal-match a freshly created anonymous inline wrapper to the old
 /// parent's Nth anon wrapper and, when the run's children are IDENTICAL
 /// (same dom ids, same order), carry the warm caches forward.
@@ -1454,30 +2187,54 @@ fn is_whitespace_only_inline_run(
 /// re-collections per resize with a bit-identical DOM, ~12 ms). The ordinal
 /// IS the identity: wrappers exist only for inline runs, runs are ordered by
 /// child position, so the Nth wrapper under a node corresponds to the Nth run
-/// — the same matching `layout_document`'s `cache_map` remap already performs
-/// post-hoc for the size caches.
+/// - once its run holds the same children. The match is also what hands the
+/// wrapper its size cache: `layout_document`'s `cache_map` remap moves an
+/// anonymous box's entry only along `carried_indices`, so a wrapper that is
+/// not matched starts with an empty one and is laid out anew.
 ///
-/// Only SELF-VALIDATING or content-derived caches are carried:
-/// `inline_content_cache` re-validates itself against the subtree
-/// fingerprint, and `intrinsic_sizes` are content-derived with the children
-/// verified identical. Layout-derived state (`inline_layout_result`, used
-/// sizes, baselines) stays `None` and re-derives through the CB-size-keyed
-/// caches like any other clean node.
+/// A matched wrapper IS its old self, as a clean clone is, and carries what a
+/// clone carries: the content-derived caches (`inline_content_cache`
+/// re-validates itself against the subtree fingerprint, `intrinsic_sizes`
+/// with the children verified identical) AND the layout it last produced -
+/// its inline layout and the measures kept beside it, used size, offset in
+/// its parent, baseline, overflow, scrollbars and escaped margins.
 ///
-/// "Self-validating" is not the whole story, and the gap is worth naming: a
-/// collection containing an atomic inline child also STANDS FOR that child's
-/// layout, because the collection call is what sizes it — and that layout is
-/// exactly the layout-derived state the line above deliberately drops. The
-/// fingerprint cannot see this; it describes content, not whether anything has
-/// been laid out. `layout_ifc` therefore re-checks that precondition where it
-/// USES the cache (`atomic_inline_children_are_laid_out`), which is the only
-/// place that can know, and the reason this function can go on carrying the
-/// cache for the case it was measured on.
+/// The layout half used to stay `None`, on the assumption that it
+/// "re-derives through the CB-size-keyed caches like any other clean node".
+/// It does not: those caches are what let a clean box NOT be laid out again,
+/// and a clean box is exactly the one whose wrapper nothing visits. A block
+/// page whose box restyled lost the text beside the block in its sibling -
+/// the sibling was skipped (its parent only re-stacks it), its wrapper was
+/// new and empty, and the display list painted no inline layout for it
+/// (the prebuilt azul-doc e2e runner: 3 text runs before, 2 after); a flex
+/// item served from its kept measurements skips its wrapper the same way.
+/// When the wrapper IS laid out again (a dirty child, a changed width), the
+/// carried inline layout is re-validated where it is used: `layout_ifc`
+/// reuses it only at the same width and the same content hash.
+///
+/// "Self-validating" is not the whole story for the collection, and the gap
+/// is worth naming: a collection containing an atomic inline child also
+/// STANDS FOR that child's layout, because the collection call is what sizes
+/// it. The fingerprint cannot see this; it describes content, not whether
+/// anything has been laid out. `layout_ifc` therefore re-checks that
+/// precondition where it USES the cache (`atomic_inline_children_are_laid_out`),
+/// which is the only place that can know - and the same check keeps the
+/// carried inline layout honest: by the time `layout_ifc` could reuse it, the
+/// atomic children it places are laid out (carried by their own clones, or
+/// measured by a fresh collection).
+///
+/// The wrapper breaks its lines with the styles of its element,
+/// `style_dom_id`. When a restyle on or above the element (`subtree.restyled`)
+/// moved them (`fc::LineStyle`), the wrapper is not matched: it keeps nothing
+/// and is laid out anew, as an element that is an IFC root is built anew
+/// (`reconcile_node`). Nor is it under an element whose subtree is built
+/// fresh (`subtree.rebuilt`).
 ///
 /// Returns whether the wrapper matched; the caller folds `!matched` into
 /// `children_are_different` instead of flipping it unconditionally. A DIRTY
 /// child inside a matched run still invalidates through that child's own
 /// `mark_dirty` propagation — matching the wrapper never masks content edits.
+/// A match is recorded in `recon.carried_indices`.
 fn try_reuse_anon_wrapper(
     old_tree: Option<&LayoutTree>,
     old_parent_idx: Option<usize>,
@@ -1485,10 +2242,19 @@ fn try_reuse_anon_wrapper(
     inline_run: &[(usize, NodeId)],
     new_tree_builder: &mut LayoutTreeBuilder,
     anon_idx: usize,
+    recon: &mut ReconciliationResult,
+    styled_dom: &StyledDom,
+    style_dom_id: NodeId,
+    subtree: InheritedChange,
+    text_styles: &mut TextStyleReader<'_>,
 ) -> bool {
     let (Some(t), Some(op)) = (old_tree, old_parent_idx) else {
         return false;
     };
+    // Its run is built fresh: what the old block laid out is not that run.
+    if subtree.rebuilt {
+        return false;
+    }
     // Children live on the TREE (hot/warm/cold split), not the node struct.
     let Some(old_anon) = t
         .children(op)
@@ -1515,6 +2281,20 @@ fn try_reuse_anon_wrapper(
     if !ids_match {
         return false;
     }
+    let laid_out_with = t
+        .cold(LayoutNodeId::new(old_anon))
+        .and_then(|cold| cold.line_style.clone());
+    if subtree.restyled
+        && line_style_moved(
+            laid_out_with.as_deref(),
+            styled_dom,
+            style_dom_id,
+            text_styles,
+        )
+    {
+        // Unmatched, it is handed no cache and measured and laid out anew.
+        return false;
+    }
     if let (Some(old_warm), Some(new_node)) = (
         t.warm(LayoutNodeId::new(old_anon)),
         new_tree_builder.get_mut(anon_idx),
@@ -1527,7 +2307,24 @@ fn try_reuse_anon_wrapper(
             .inline_content_cache
             .clone_from(&old_warm.inline_content_cache);
         new_node.intrinsic_sizes = old_warm.intrinsic_sizes;
+        // The layout it last produced (see the doc comment).
+        new_node.used_size = t.get(LayoutNodeId::new(old_anon)).and_then(|h| h.used_size);
+        new_node
+            .inline_layout_result
+            .clone_from(&old_warm.inline_layout_result);
+        new_node
+            .inline_measure_layouts
+            .clone_from(&old_warm.inline_measure_layouts);
+        new_node.baseline = old_warm.baseline;
+        new_node.relative_position = old_warm.relative_position;
+        new_node.overflow_content_size = old_warm.overflow_content_size;
+        new_node.scrollbar_info = old_warm.scrollbar_info;
+        new_node.escaped_top_margin = old_warm.escaped_top_margin;
+        new_node.escaped_bottom_margin = old_warm.escaped_bottom_margin;
+        // The styles that inline layout was broken with.
+        new_node.line_style = laid_out_with;
     }
+    recon.carried_indices.insert(old_anon, anon_idx);
     true
 }
 
@@ -1546,11 +2343,480 @@ pub fn reconcile_recursive(
     new_tree_builder: &mut LayoutTreeBuilder,
     recon: &mut ReconciliationResult,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
-    ancestor_style_changed: bool,
+    ancestor: InheritedChange,
     // GRANULAR DIFF: per-NodeId "self+ancestors unchanged on both
     // pre-cascade tiers". None = no diff available (full fingerprinting).
     dom_diff_clean: Option<&[bool]>,
+    text_styles: &mut TextStyleReader<'_>,
 ) -> Result<usize> {
+    let ReconciledNode {
+        new_node_idx,
+        subtree,
+        new_fingerprint,
+        dirty_flag,
+        new_children_dom_ids,
+        old_children_indices,
+        old_children_by_dom,
+        mut children_are_different,
+        mut new_child_hashes,
+    } = reconcile_node(
+        styled_dom,
+        new_dom_id,
+        old_tree_idx,
+        new_parent_idx,
+        old_tree,
+        new_tree_builder,
+        recon,
+        debug_messages,
+        ancestor,
+        dom_diff_clean,
+        text_styles,
+    )?;
+
+    // +spec:display-property:42f9c0 - anonymous block boxes wrap inline runs when block container
+    // has mixed block/inline children CSS 2.2 Section 9.2.1.1: Anonymous Block Boxes
+    // When a block container has mixed block/inline children, we must:
+    // 1. Wrap consecutive inline children in anonymous block boxes
+    // 2. Leave block-level children as direct children
+
+    // Only IN-FLOW block-level children split the inline content: an
+    // absolutely positioned block goes with the inline run around it (the
+    // fresh tree's rule, `in_flow_block_level_mask`).
+    let block_level = in_flow_block_level_mask(styled_dom, &new_children_dom_ids);
+    let has_block_child = block_level.iter().any(|&b| b);
+
+    // CSS Flexbox §4 / Grid §6: every in-flow child of a flex/grid container
+    // becomes a (blockified) flex/grid item. Anonymous-block wrapping of inline
+    // runs is a BLOCK-container concept and must NOT apply here — otherwise an
+    // inline-level child (e.g. an <img> with flex-grow, default display
+    // inline-block) gets wrapped in an anonymous IFC block, so it's no longer a
+    // direct flex item and its flex-grow is ignored (laid out 300×0). Processing
+    // each child directly lets `blockify_node_display` (in create_node_from_dom)
+    // see the flex/grid parent and blockify the child into a real flex item.
+    let parent_is_flex_or_grid = matches!(
+        get_display_type(styled_dom, new_dom_id),
+        LayoutDisplay::Flex
+            | LayoutDisplay::InlineFlex
+            | LayoutDisplay::Grid
+            | LayoutDisplay::InlineGrid
+    );
+
+    // CSS 2.2 17.2.1 rule 2: a table, row group or row with a child that is
+    // not of the kind it takes gets anonymous table boxes around such
+    // children - a block `<td>` in a row, a cell straight under a table.
+    let table_fixup = TableParent::of(get_display_type(styled_dom, new_dom_id)).filter(|parent| {
+        new_children_dom_ids
+            .iter()
+            .any(|&id| !parent.takes(get_display_type(styled_dom, id)))
+    });
+
+    if let Some(parent) = table_fixup {
+        reconcile_table_children(
+            parent,
+            &new_children_dom_ids,
+            styled_dom,
+            new_dom_id,
+            new_node_idx,
+            &old_children_by_dom,
+            old_tree,
+            new_tree_builder,
+            recon,
+            debug_messages,
+            subtree,
+            dom_diff_clean,
+            &mut new_child_hashes,
+            text_styles,
+        )?;
+        // The anonymous boxes are made anew on every pass (they have no DOM
+        // id to be matched by): the parent's layout is redone.
+        children_are_different = true;
+    } else if !has_block_child || parent_is_flex_or_grid {
+        // All children are inline (block container) OR the parent is a flex/grid
+        // container (all children are direct items) — no anonymous boxes needed.
+        // Process each child directly.
+        for (i, &new_child_dom_id) in new_children_dom_ids.iter().enumerate() {
+            // css-flexbox-1 section 4 / css-grid-1 section 6: an anonymous
+            // flex/grid item that contains only white space is not rendered.
+            // Without this, every newline between a grid container's <div>
+            // children became a real grid item and consumed an auto-placement
+            // cell (grid-minmax-fr-001 rendered 0-height phantom items and
+            // pushed real items into implicit rows).
+            if parent_is_flex_or_grid
+                && super::layout_tree::is_whitespace_only_text(styled_dom, new_child_dom_id)
+            {
+                continue;
+            }
+            // DOM-ID match rather than positional — tree builder
+            // may have dropped some DOM children (whitespace text
+            // nodes) so positional drift mis-aligns the cache.
+            // DOM-id match only: positional fallback would align
+            // anonymous wrappers against real DOM nodes and trigger
+            // spurious fingerprint mismatches (see fp_diff dump).
+            let old_child_idx = old_children_by_dom.get(&new_child_dom_id).copied();
+
+            let reconciled_child_idx = reconcile_recursive(
+                styled_dom,
+                new_child_dom_id,
+                old_child_idx,
+                Some(new_node_idx),
+                old_tree,
+                new_tree_builder,
+                recon,
+                debug_messages,
+                subtree,
+                dom_diff_clean,
+                text_styles,
+            )?;
+            if let Some(child_node) = new_tree_builder.get(reconciled_child_idx) {
+                new_child_hashes.push(child_node.subtree_hash.0);
+            }
+
+            if old_tree.and_then(|t| {
+                t.cold(LayoutNodeId::new(old_child_idx?))
+                    .map(|n| n.subtree_hash)
+            }) != new_tree_builder
+                .get(reconciled_child_idx)
+                .map(|n| n.subtree_hash)
+            {
+                children_are_different = true;
+            }
+        }
+    } else {
+        // Mixed content: block and inline children
+        // We must create anonymous block boxes around consecutive inline runs
+
+        if let Some(msgs) = debug_messages.as_mut() {
+            msgs.push(LayoutDebugMessage::info(format!(
+                "[reconcile_recursive] Mixed content in node {}: creating anonymous IFC wrappers",
+                new_dom_id.index()
+            )));
+        }
+
+        let mut inline_run: Vec<(usize, NodeId)> = Vec::new(); // (dom_child_index, dom_id)
+                                                               // Which inline run (== which
+                                                               // anon-wrapper ordinal) we're on —
+                                                               // the
+                                                               // identity try_reuse_anon_wrapper
+                                                               // matches against the old tree.
+        let mut anon_ordinal: usize = 0;
+
+        for (i, &new_child_dom_id) in new_children_dom_ids.iter().enumerate() {
+            if block_level[i] {
+                // End current inline run if any
+                if !inline_run.is_empty() {
+                    // CSS 2.2 § 9.2.2.1: If the inline run consists entirely of
+                    // whitespace-only text nodes (and white-space doesn't preserve it),
+                    // skip creating the anonymous IFC wrapper. This prevents inter-block
+                    // whitespace from creating empty blocks that take up vertical space.
+                    // +spec:display-property:bef3fc - anonymous blocks of only collapsible
+                    // whitespace removed from rendering tree
+                    if is_whitespace_only_inline_run(styled_dom, &inline_run, new_dom_id) {
+                        if let Some(msgs) = debug_messages.as_mut() {
+                            msgs.push(LayoutDebugMessage::info(format!(
+                                "[reconcile_recursive] Skipping whitespace-only inline run ({} \
+                                 nodes) between blocks in node {}",
+                                inline_run.len(),
+                                new_dom_id.index()
+                            )));
+                        }
+                        inline_run.clear();
+                    } else {
+                        // Create anonymous IFC wrapper for the inline run
+                        // This wrapper establishes an Inline Formatting Context
+                        let anon_idx = new_tree_builder.create_anonymous_node(
+                            new_node_idx,
+                            AnonymousBoxType::InlineWrapper,
+                            FormattingContext::Inline, // IFC for inline content
+                        );
+                        let anon_reused = try_reuse_anon_wrapper(
+                            old_tree,
+                            old_tree_idx,
+                            anon_ordinal,
+                            &inline_run,
+                            new_tree_builder,
+                            anon_idx,
+                            recon,
+                            styled_dom,
+                            new_dom_id,
+                            subtree,
+                            text_styles,
+                        );
+                        anon_ordinal += 1;
+
+                        if let Some(msgs) = debug_messages.as_mut() {
+                            msgs.push(LayoutDebugMessage::info(format!(
+                                "[reconcile_recursive] Created anonymous IFC wrapper \
+                                 (layout_idx={}) for {} inline children: {:?}",
+                                anon_idx,
+                                inline_run.len(),
+                                inline_run
+                                    .iter()
+                                    .map(|(_, id)| id.index())
+                                    .collect::<Vec<_>>()
+                            )));
+                        }
+
+                        // Process each inline child under the anonymous wrapper
+                        #[allow(clippy::iter_with_drain)]
+                        // accumulator Vec reused across runs; drain(..) empties it while retaining
+                        // the allocation
+                        for (pos, inline_dom_id) in inline_run.drain(..) {
+                            // Inline children live under the anon wrapper
+                            // in the old tree, so the parent's direct
+                            // `old_children_by_dom` map won't hit them; the
+                            // lookup falls through to the whole old tree.
+                            let old_child_idx =
+                                old_layout_index_of(&old_children_by_dom, old_tree, inline_dom_id);
+                            let reconciled_child_idx = reconcile_recursive(
+                                styled_dom,
+                                inline_dom_id,
+                                old_child_idx,
+                                Some(anon_idx), // Parent is the anonymous wrapper
+                                old_tree,
+                                new_tree_builder,
+                                recon,
+                                debug_messages,
+                                subtree,
+                                dom_diff_clean,
+                                text_styles,
+                            )?;
+                            if let Some(child_node) = new_tree_builder.get(reconciled_child_idx) {
+                                new_child_hashes.push(child_node.subtree_hash.0);
+                            }
+                        }
+
+                        // NOTE: We intentionally do NOT unconditionally
+                        // mark the anonymous wrapper as intrinsic_dirty
+                        // here. If any of the inline children are
+                        // themselves dirty, their own `mark_dirty` call
+                        // propagates upward through this wrapper, so
+                        // wrappers whose content is unchanged keep their
+                        // cached layout. `children_are_different` flips the
+                        // parent to layout-dirty ONLY when the wrapper is
+                        // genuinely new / its run changed — the previous
+                        // unconditional `= true` here re-dirtied every
+                        // paragraph's parent on every reconcile (see
+                        // try_reuse_anon_wrapper).
+                        if !anon_reused {
+                            if env_flag!("AZ_RECON_DEBUG") {
+                                eprintln!(
+                                    "[recon] mid-loop wrapper ord {} NOT reused (run len {})",
+                                    anon_ordinal - 1,
+                                    inline_run.len()
+                                );
+                            }
+                            children_are_different = true;
+                        }
+                    } // end else (non-whitespace run)
+                }
+
+                // Process block-level child directly under parent
+                let old_child_idx = old_children_by_dom
+                    .get(&new_child_dom_id)
+                    .copied()
+                    .or_else(|| old_children_indices.get(i).copied());
+                let reconciled_child_idx = reconcile_recursive(
+                    styled_dom,
+                    new_child_dom_id,
+                    old_child_idx,
+                    Some(new_node_idx),
+                    old_tree,
+                    new_tree_builder,
+                    recon,
+                    debug_messages,
+                    subtree,
+                    dom_diff_clean,
+                    text_styles,
+                )?;
+                if let Some(child_node) = new_tree_builder.get(reconciled_child_idx) {
+                    new_child_hashes.push(child_node.subtree_hash.0);
+                }
+
+                if old_tree.and_then(|t| {
+                    t.cold(LayoutNodeId::new(old_child_idx?))
+                        .map(|n| n.subtree_hash)
+                }) != new_tree_builder
+                    .get(reconciled_child_idx)
+                    .map(|n| n.subtree_hash)
+                {
+                    if env_flag!("AZ_RECON_DEBUG") {
+                        eprintln!(
+                            "[recon] block child dom {:?} under parent dom {:?} hash MISMATCH \
+                             warm_pass={} old_idx={:?} (old {:?} vs new {:?})",
+                            new_child_dom_id.index(),
+                            new_dom_id.index(),
+                            old_tree.is_some(),
+                            old_child_idx,
+                            old_tree.and_then(|t| t
+                                .cold(LayoutNodeId::new(old_child_idx.unwrap_or(usize::MAX)))
+                                .map(|n| n.subtree_hash)),
+                            new_tree_builder
+                                .get(reconciled_child_idx)
+                                .map(|n| n.subtree_hash),
+                        );
+                    }
+                    children_are_different = true;
+                }
+            } else {
+                // Inline-level child - add to current run
+                inline_run.push((i, new_child_dom_id));
+            }
+        }
+
+        // Process any remaining inline run at the end
+        if !inline_run.is_empty() {
+            // CSS 2.2 § 9.2.2.1: Skip whitespace-only trailing inline runs
+            if is_whitespace_only_inline_run(styled_dom, &inline_run, new_dom_id) {
+                if let Some(msgs) = debug_messages.as_mut() {
+                    msgs.push(LayoutDebugMessage::info(format!(
+                        "[reconcile_recursive] Skipping trailing whitespace-only inline run ({} \
+                         nodes) in node {}",
+                        inline_run.len(),
+                        new_dom_id.index()
+                    )));
+                }
+                // Don't create a wrapper — just drop the run
+            } else {
+                let anon_idx = new_tree_builder.create_anonymous_node(
+                    new_node_idx,
+                    AnonymousBoxType::InlineWrapper,
+                    FormattingContext::Inline, // IFC for inline content
+                );
+                let anon_reused = try_reuse_anon_wrapper(
+                    old_tree,
+                    old_tree_idx,
+                    anon_ordinal,
+                    &inline_run,
+                    new_tree_builder,
+                    anon_idx,
+                    recon,
+                    styled_dom,
+                    new_dom_id,
+                    subtree,
+                    text_styles,
+                );
+                anon_ordinal += 1;
+
+                if let Some(msgs) = debug_messages.as_mut() {
+                    msgs.push(LayoutDebugMessage::info(format!(
+                        "[reconcile_recursive] Created trailing anonymous IFC wrapper \
+                         (layout_idx={}) for {} inline children: {:?}",
+                        anon_idx,
+                        inline_run.len(),
+                        inline_run
+                            .iter()
+                            .map(|(_, id)| id.index())
+                            .collect::<Vec<_>>()
+                    )));
+                }
+
+                #[allow(clippy::iter_with_drain)]
+                // accumulator Vec reused across runs; drain(..) empties it while retaining the
+                // allocation
+                for (pos, inline_dom_id) in inline_run.drain(..) {
+                    // In the anonymous block, not under the parent: the same
+                    // lookup as the runs before a block (`old_layout_index_of`).
+                    let old_child_idx =
+                        old_layout_index_of(&old_children_by_dom, old_tree, inline_dom_id);
+                    let reconciled_child_idx = reconcile_recursive(
+                        styled_dom,
+                        inline_dom_id,
+                        old_child_idx,
+                        Some(anon_idx),
+                        old_tree,
+                        new_tree_builder,
+                        recon,
+                        debug_messages,
+                        subtree,
+                        dom_diff_clean,
+                        text_styles,
+                    )?;
+                    if let Some(child_node) = new_tree_builder.get(reconciled_child_idx) {
+                        new_child_hashes.push(child_node.subtree_hash.0);
+                    }
+                }
+
+                // See note in main mixed-content branch: rely on
+                // children's own mark_dirty to propagate upward rather
+                // than invalidating the whole wrapper each reconcile.
+                if !anon_reused {
+                    if env_flag!("AZ_RECON_DEBUG") {
+                        eprintln!(
+                            "[recon] trailing wrapper ord {} NOT reused",
+                            anon_ordinal - 1
+                        );
+                    }
+                    children_are_different = true;
+                }
+            } // end else (non-whitespace trailing run)
+        }
+    }
+
+    classify_reconciled_node(
+        new_tree_builder,
+        recon,
+        new_dom_id,
+        new_node_idx,
+        new_fingerprint,
+        new_child_hashes,
+        dirty_flag,
+        children_are_different,
+    );
+
+    Ok(new_node_idx)
+}
+
+/// What moved above a node that its own data does not show: what
+/// [`reconcile_recursive`] hands each child down.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct InheritedChange {
+    /// A style the node may inherit moved: an ancestor's inline CSS, classes,
+    /// state or content language
+    /// ([`NodeDataFingerprint::may_restyle_descendants`]). The node's text
+    /// and line styles are compared with the ones it was laid out with.
+    pub restyled: bool,
+    /// Something the node reads from an ancestor moved, or a new ancestor
+    /// states it ([`NodeDataFingerprint::rebuilds_descendants`]): the node
+    /// is built fresh.
+    pub rebuilt: bool,
+}
+
+/// What [`reconcile_node`] decided about one node before its children are
+/// reconciled.
+struct ReconciledNode {
+    new_node_idx: usize,
+    subtree: InheritedChange,
+    new_fingerprint: NodeDataFingerprint,
+    dirty_flag: DirtyFlag,
+    new_children_dom_ids: Vec<NodeId>,
+    old_children_indices: Vec<usize>,
+    old_children_by_dom: BTreeMap<NodeId, usize>,
+    children_are_different: bool,
+    new_child_hashes: Vec<u64>,
+}
+
+/// [`reconcile_recursive`] for the node itself, before its children: its
+/// fingerprint against the old tree's and what is dirty, the node built fresh or
+/// cloned from the old tree (and its `::marker`), and the children the layout
+/// tree will hold, matched by DOM id against the old tree's.
+///
+/// Out of line, so that none of its locals is on the stack while
+/// `reconcile_recursive` recurses into the children: a debug build keeps every
+/// local of a function in its frame, and one frame is on the stack per DOM level.
+#[inline(never)]
+fn reconcile_node(
+    styled_dom: &StyledDom,
+    new_dom_id: NodeId,
+    old_tree_idx: Option<usize>,
+    new_parent_idx: Option<usize>,
+    old_tree: Option<&LayoutTree>,
+    new_tree_builder: &mut LayoutTreeBuilder,
+    recon: &mut ReconciliationResult,
+    debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+    ancestor: InheritedChange,
+    dom_diff_clean: Option<&[bool]>,
+    text_styles: &mut TextStyleReader<'_>,
+) -> Result<ReconciledNode> {
     // Cache the env check in a `OnceLock<bool>`: this branch
     // fires once per dirty node (hundreds on cold layout),
     // and a direct `env::var` is a mutex + hashmap lookup
@@ -1619,7 +2885,6 @@ pub fn reconcile_recursive(
             )
         }
     };
-
     // Compare fingerprints to determine what changed (Layout, Paint, or Nothing).
     let dirty_flag = old_cold.map_or_else(
         || {
@@ -1673,39 +2938,99 @@ pub fn reconcile_recursive(
     // A node re-cascades its descendants when the parts of its fingerprint
     // that can change a COMPUTED INHERITED value move: inline CSS (declares
     // them), ids/classes (select the rules that declare them), and the
-    // styled state (:hover/:focus/:active variants). Content, callbacks and
-    // attributes cannot, so a plain text edit still invalidates only its
-    // own node and the incremental-edit path is untouched.
-    let own_style_changed = old_cold.is_none_or(|old_c| {
-        let old_fp = &old_c.node_data_fingerprint;
-        old_fp.inline_css_hash != new_fingerprint.inline_css_hash
-            || old_fp.ids_classes_hash != new_fingerprint.ids_classes_hash
-            || old_fp.state_hash != new_fingerprint.state_hash
-    });
-    let subtree_style_changed = ancestor_style_changed || own_style_changed;
-
-    // An ancestor's restyle forces a REBUILD rather than a clone: the clone
-    // is what carries the stale inline layout, so marking it paint-dirty
-    // would repaint the wrong colour rather than re-resolve it.
+    // styled state (:hover/:focus/:active variants). The `lang` attribute is
+    // inherited too: the content language every line below hyphenates in
+    // (`fc::LineStyle`). Content, callbacks and the attributes its own box is
+    // laid out from (a cell's span, an SVG text's `x`) are the node's own, so
+    // a plain text edit still invalidates only its own node and the
+    // incremental-edit path is untouched.
     //
-    // Only TEXT nodes need it. The staleness lives in shaped glyphs, which
-    // only text produces; every other node re-reads its own computed style
-    // from the cascade when the display list is built, and the cascade is
-    // already correct (verified: the deactivated tab's DIV painted the right
-    // background while its text child painted the old colour). Restricting
-    // the rebuild to text nodes keeps the cost off the rest of the tree.
-    // Measured (layout/tests/frame_perf.rs, release), baseline / unrestricted
-    // / text-only:
-    //   idle    19.35 / 20.11 / 19.25 ms
-    //   resize  33.59 / 35.19 / 33.01 ms
-    //   cold   140.97 / 148.01 / 137.12 ms
-    // i.e. the unrestricted form cost 4-5%; restricted to text it is flat.
-    let dirty_flag =
-        if ancestor_style_changed && matches!(node_data.get_node_type(), NodeType::Text(_)) {
-            DirtyFlag::Layout
-        } else {
-            dirty_flag
+    // The CSS diff of this pass names the nodes whose computed style moved
+    // with the fingerprint untouched (another stylesheet, a dynamic
+    // selector): such a node is restyled too, and is built fresh below.
+    //
+    // What the boxes below a node read from it without inheriting it as a
+    // style (the legacy `align`, an SVG group's `transform` and stroke, an
+    // `<svg>`'s `viewBox`) reaches into layouts and paths no style comparison
+    // looks at: when it moves, or a node new to the tree states it, every
+    // node below is built fresh.
+    let css_relayout_here = recon.css_relayout.contains(&new_dom_id);
+    let own_style_changed = css_relayout_here
+        || old_cold.is_none_or(|old_c| {
+            old_c
+                .node_data_fingerprint
+                .may_restyle_descendants(&new_fingerprint)
+        });
+    let subtree = InheritedChange {
+        restyled: ancestor.restyled || own_style_changed,
+        rebuilt: ancestor.rebuilt
+            || old_cold.map_or_else(
+                || new_fingerprint.reaches_descendants(),
+                |old_c| {
+                    old_c
+                        .node_data_fingerprint
+                        .rebuilds_descendants(&new_fingerprint)
+                },
+            ),
+    };
+
+    // A text node under a restyled ancestor is REBUILT rather than cloned
+    // when the style it is laid out with moved: the clone carries the shaped
+    // glyphs, so marking it paint-dirty would repaint the old colour rather
+    // than re-resolve it. Every other node re-reads its own computed style
+    // from the cascade when the display list is built.
+    //
+    // Whether it moved is read, not assumed: the text's style now
+    // (`TextStyleKey`) against the one it was laid out with. A restyle that
+    // reaches no text property - a hover on a toolbar, a class flip on a
+    // ribbon that only recolours its background - keeps every label's shaped
+    // lines (the AzDrive ribbon rebuilt and re-shaped ~120 labels on every
+    // hover). A text node without a key yet is rebuilt, and gets one.
+    //
+    // A node the CSS diff restyled in a layout-affecting way is rebuilt
+    // fresh as well (`ReconciliationResult::css_relayout`): its clone would
+    // keep the box props, computed style and formatting context of the old
+    // cascade, and be re-solved with them.
+    // The key read this pass, for a fresh node to keep (a clone keeps its own).
+    let mut text_style_now: Option<std::sync::Arc<TextStyleKey>> = None;
+    let text_restyled = ancestor.restyled
+        && matches!(node_data.get_node_type(), NodeType::Text(_))
+        && {
+            let now = TextStyleKey::of(
+                styled_dom,
+                new_dom_id,
+                text_styles.styles,
+                text_styles.system_style,
+                text_styles.viewport,
+            );
+            match old_cold.and_then(|c| c.text_style.as_ref()) {
+                Some(old) if **old == now => {
+                    text_style_now = Some(std::sync::Arc::clone(old));
+                    false
+                }
+                _ => {
+                    text_style_now = Some(std::sync::Arc::new(now));
+                    true
+                }
+            }
         };
+    // An IFC root is built anew, too, when the styles its lines were broken
+    // with moved (`fc::LineStyle`). Most of them are inherited: a
+    // `word-break` or `text-align` set on an ancestor reaches the root while
+    // the root and its text keep their own data, and a kept root would serve
+    // its old lines from its size cache.
+    let line_restyled = subtree.restyled
+        && line_style_moved(
+            old_cold.and_then(|c| c.line_style.as_deref()),
+            styled_dom,
+            new_dom_id,
+            text_styles,
+        );
+    let dirty_flag = if css_relayout_here || text_restyled || line_restyled || ancestor.rebuilt {
+        DirtyFlag::Layout
+    } else {
+        dirty_flag
+    };
 
     let is_dirty = dirty_flag >= DirtyFlag::Paint;
 
@@ -1726,6 +3051,9 @@ pub fn reconcile_recursive(
             debug_messages,
         );
         recon.fresh_indices.insert(idx);
+        if let Some(node) = new_tree_builder.get_mut(idx) {
+            node.text_style = text_style_now;
+        }
         // Blockify replaced/inline flex-or-grid items (CSS Display 3 §2.7). The
         // full `process_node` build does this; this incremental path called
         // `create_node_from_dom` directly and skipped it, so a flex-item <img>
@@ -1747,11 +3075,64 @@ pub fn reconcile_recursive(
         // different (or, after the DOM shrank, a nonexistent) node.
         let mut idx =
             new_tree_builder.clone_node_from_old(&old_full_node, new_parent_idx, Some(new_dom_id));
-        // If paint-only change, update the fingerprint and dirty flag
-        if dirty_flag == DirtyFlag::Paint {
+        // A node that became a hit-test target, or stopped being one (a
+        // handler, a tab stop, a context menu came or went), is laid out as
+        // it was, but the items it keeps hold the hit-test area of what it
+        // was: the display list paints it anew (`retargeted`).
+        let retargeted = old_cold.is_some_and(|old_c| {
+            old_c.node_data_fingerprint.hit_test_target != new_fingerprint.hit_test_target
+        });
+        if retargeted {
+            recon.retargeted.insert(idx);
+        }
+        // A node painted anew takes the fingerprint it is painted from, and
+        // a paint-only change its dirty flag.
+        if dirty_flag == DirtyFlag::Paint || retargeted {
             if let Some(cloned) = new_tree_builder.get_mut(idx) {
                 cloned.node_data_fingerprint = new_fingerprint;
-                cloned.dirty_flag = DirtyFlag::Paint;
+                if dirty_flag == DirtyFlag::Paint {
+                    cloned.dirty_flag = DirtyFlag::Paint;
+                }
+            }
+        }
+        if let Some(old_idx) = old_tree_idx {
+            recon.carried_indices.insert(old_idx, idx);
+        }
+        // Paired by POSITION with an old node of another identity (the
+        // fallback above): the clone carries that node's measurements, while
+        // `layout_document`'s `cache_map` remap hands it the per-node cache -
+        // and `final_layout_current` - of its own id. The two must describe
+        // the same node for a memoised final layout to be served.
+        let paired_by_position = old_full_node.dom_node_id != Some(new_dom_id);
+        if let Some(cloned) = new_tree_builder.get_mut(idx) {
+            // The clone keeps its flex measurements (`clone_node_from_old`) -
+            // unless a restyle on it or above it may have moved what it
+            // INHERITS (a font size, an `em` padding): no dirty mark reaches a
+            // clean descendant of a restyled node, and its measurements would
+            // describe the old values. Such a node is laid out again, as every
+            // clone was before; so is a node paired by position.
+            if subtree.restyled || paired_by_position {
+                cloned.taffy_cache.clear();
+                cloned.measured_content_sizes = (None, None);
+            }
+            // A text node names the IFC root it was laid out in by the OLD
+            // tree's index. Re-point it at that root's place in this tree (the
+            // root is an ancestor, so it was reconciled first); a root that was
+            // built fresh is laid out again this pass and re-registers its
+            // members, so until then the membership names nothing.
+            let old_root = cloned
+                .ifc_membership
+                .as_ref()
+                .map(|m| m.ifc_root_layout_index);
+            if let Some(old_root) = old_root {
+                match recon.carried_indices.get(&old_root).copied() {
+                    Some(new_root) => {
+                        if let Some(m) = cloned.ifc_membership.as_mut() {
+                            m.ifc_root_layout_index = new_root;
+                        }
+                    }
+                    None => cloned.ifc_membership = None,
+                }
             }
         }
         idx
@@ -1770,7 +3151,10 @@ pub fn reconcile_recursive(
         use crate::solver3::getters::get_display_property;
         let display = get_display_property(styled_dom, Some(new_dom_id)).exact();
 
-        if matches!(display, Some(LayoutDisplay::ListItem)) {
+        if matches!(
+            display,
+            Some(LayoutDisplay::ListItem | LayoutDisplay::InlineBlockListItem)
+        ) {
             // Create ::marker pseudo-element for this list-item
             new_tree_builder.create_marker_pseudo_element(styled_dom, new_dom_id, new_node_idx);
         }
@@ -1782,24 +3166,44 @@ pub fn reconcile_recursive(
     // CSS 2.2 §17.2.1: Filter whitespace-only text nodes from table structural elements
     // (table, row-group, row). Without this, the reconciler sees them as "inline" children
     // mixed with block-level <td>/<th>, triggering incorrect anonymous IFC wrapping.
-    // The layout tree builder already does this via should_skip_for_table_structure().
+    // The layout tree builder applies the same rule (`table_relevant_children`).
     {
         use super::getters::{get_display_property, MultiValue};
         let parent_display = match get_display_property(styled_dom, Some(new_dom_id)) {
             MultiValue::Exact(d) => d,
             _ => LayoutDisplay::Block,
         };
-        if matches!(
+        // Only whitespace BETWEEN table-internal boxes is irrelevant; beside
+        // an inline-level child it is a space of the anonymous cell that
+        // wraps them (`reconcile_table_children`).
+        new_children_dom_ids = super::layout_tree::table_relevant_children(
+            styled_dom,
             parent_display,
-            LayoutDisplay::Table
+            new_children_dom_ids,
+        );
+        // CSS 2.2 s9.2.1.1: in a block container an inline box that holds a
+        // block is split around it - its children take its place (the fresh
+        // tree's `process_block_children` does the same). Flex / grid items
+        // and table parts are not block containers' children.
+        if !matches!(
+            parent_display,
+            LayoutDisplay::Flex
+                | LayoutDisplay::InlineFlex
+                | LayoutDisplay::Grid
+                | LayoutDisplay::InlineGrid
+                | LayoutDisplay::Table
                 | LayoutDisplay::InlineTable
                 | LayoutDisplay::TableRowGroup
                 | LayoutDisplay::TableHeaderGroup
                 | LayoutDisplay::TableFooterGroup
                 | LayoutDisplay::TableRow
+                | LayoutDisplay::TableColumnGroup
+                | LayoutDisplay::TableColumn
+                | LayoutDisplay::Contents
+                | LayoutDisplay::None
         ) {
-            new_children_dom_ids
-                .retain(|&id| !super::layout_tree::is_whitespace_only_text(styled_dom, id));
+            new_children_dom_ids =
+                super::layout_tree::split_inlines_around_blocks(styled_dom, new_children_dom_ids);
         }
     }
 
@@ -1870,7 +3274,7 @@ pub fn reconcile_recursive(
     let new_layout_relevant_count =
         layout_relevant_child_count(styled_dom, &new_children_dom_ids, new_dom_id);
 
-    if std::env::var_os("AZ_RECON_DEBUG").is_some()
+    if env_flag!("AZ_RECON_DEBUG")
         && old_tree.is_some()
         && new_layout_relevant_count != old_layout_relevant_count
     {
@@ -1886,346 +3290,32 @@ pub fn reconcile_recursive(
     let mut children_are_different = new_layout_relevant_count != old_layout_relevant_count;
     let mut new_child_hashes = Vec::new();
 
-    // +spec:display-property:42f9c0 - anonymous block boxes wrap inline runs when block container
-    // has mixed block/inline children CSS 2.2 Section 9.2.1.1: Anonymous Block Boxes
-    // When a block container has mixed block/inline children, we must:
-    // 1. Wrap consecutive inline children in anonymous block boxes
-    // 2. Leave block-level children as direct children
+    Ok(ReconciledNode {
+        new_node_idx,
+        subtree,
+        new_fingerprint,
+        dirty_flag,
+        new_children_dom_ids,
+        old_children_indices,
+        old_children_by_dom,
+        children_are_different,
+        new_child_hashes,
+    })
+}
 
-    let has_block_child = new_children_dom_ids
-        .iter()
-        .any(|&id| is_block_level(styled_dom, id));
-
-    // CSS Flexbox §4 / Grid §6: every in-flow child of a flex/grid container
-    // becomes a (blockified) flex/grid item. Anonymous-block wrapping of inline
-    // runs is a BLOCK-container concept and must NOT apply here — otherwise an
-    // inline-level child (e.g. an <img> with flex-grow, default display
-    // inline-block) gets wrapped in an anonymous IFC block, so it's no longer a
-    // direct flex item and its flex-grow is ignored (laid out 300×0). Processing
-    // each child directly lets `blockify_node_display` (in create_node_from_dom)
-    // see the flex/grid parent and blockify the child into a real flex item.
-    let parent_is_flex_or_grid = matches!(
-        get_display_type(styled_dom, new_dom_id),
-        LayoutDisplay::Flex
-            | LayoutDisplay::InlineFlex
-            | LayoutDisplay::Grid
-            | LayoutDisplay::InlineGrid
-    );
-
-    if !has_block_child || parent_is_flex_or_grid {
-        // All children are inline (block container) OR the parent is a flex/grid
-        // container (all children are direct items) — no anonymous boxes needed.
-        // Process each child directly.
-        for (i, &new_child_dom_id) in new_children_dom_ids.iter().enumerate() {
-            // css-flexbox-1 section 4 / css-grid-1 section 6: an anonymous
-            // flex/grid item that contains only white space is not rendered.
-            // Without this, every newline between a grid container's <div>
-            // children became a real grid item and consumed an auto-placement
-            // cell (grid-minmax-fr-001 rendered 0-height phantom items and
-            // pushed real items into implicit rows).
-            if parent_is_flex_or_grid
-                && super::layout_tree::is_whitespace_only_text(styled_dom, new_child_dom_id)
-            {
-                continue;
-            }
-            // DOM-ID match rather than positional — tree builder
-            // may have dropped some DOM children (whitespace text
-            // nodes) so positional drift mis-aligns the cache.
-            // DOM-id match only: positional fallback would align
-            // anonymous wrappers against real DOM nodes and trigger
-            // spurious fingerprint mismatches (see fp_diff dump).
-            let old_child_idx = old_children_by_dom.get(&new_child_dom_id).copied();
-
-            let reconciled_child_idx = reconcile_recursive(
-                styled_dom,
-                new_child_dom_id,
-                old_child_idx,
-                Some(new_node_idx),
-                old_tree,
-                new_tree_builder,
-                recon,
-                debug_messages,
-                subtree_style_changed,
-                dom_diff_clean,
-            )?;
-            if let Some(child_node) = new_tree_builder.get(reconciled_child_idx) {
-                new_child_hashes.push(child_node.subtree_hash.0);
-            }
-
-            if old_tree.and_then(|t| {
-                t.cold(LayoutNodeId::new(old_child_idx?))
-                    .map(|n| n.subtree_hash)
-            }) != new_tree_builder
-                .get(reconciled_child_idx)
-                .map(|n| n.subtree_hash)
-            {
-                children_are_different = true;
-            }
-        }
-    } else {
-        // Mixed content: block and inline children
-        // We must create anonymous block boxes around consecutive inline runs
-
-        if let Some(msgs) = debug_messages.as_mut() {
-            msgs.push(LayoutDebugMessage::info(format!(
-                "[reconcile_recursive] Mixed content in node {}: creating anonymous IFC wrappers",
-                new_dom_id.index()
-            )));
-        }
-
-        let mut inline_run: Vec<(usize, NodeId)> = Vec::new(); // (dom_child_index, dom_id)
-                                                               // Which inline run (== which
-                                                               // anon-wrapper ordinal) we're on —
-                                                               // the
-                                                               // identity try_reuse_anon_wrapper
-                                                               // matches against the old tree.
-        let mut anon_ordinal: usize = 0;
-
-        for (i, &new_child_dom_id) in new_children_dom_ids.iter().enumerate() {
-            if is_block_level(styled_dom, new_child_dom_id) {
-                // End current inline run if any
-                if !inline_run.is_empty() {
-                    // CSS 2.2 § 9.2.2.1: If the inline run consists entirely of
-                    // whitespace-only text nodes (and white-space doesn't preserve it),
-                    // skip creating the anonymous IFC wrapper. This prevents inter-block
-                    // whitespace from creating empty blocks that take up vertical space.
-                    // +spec:display-property:bef3fc - anonymous blocks of only collapsible
-                    // whitespace removed from rendering tree
-                    if is_whitespace_only_inline_run(styled_dom, &inline_run, new_dom_id) {
-                        if let Some(msgs) = debug_messages.as_mut() {
-                            msgs.push(LayoutDebugMessage::info(format!(
-                                "[reconcile_recursive] Skipping whitespace-only inline run ({} \
-                                 nodes) between blocks in node {}",
-                                inline_run.len(),
-                                new_dom_id.index()
-                            )));
-                        }
-                        inline_run.clear();
-                    } else {
-                        // Create anonymous IFC wrapper for the inline run
-                        // This wrapper establishes an Inline Formatting Context
-                        let anon_idx = new_tree_builder.create_anonymous_node(
-                            new_node_idx,
-                            AnonymousBoxType::InlineWrapper,
-                            FormattingContext::Inline, // IFC for inline content
-                        );
-                        let anon_reused = try_reuse_anon_wrapper(
-                            old_tree,
-                            old_tree_idx,
-                            anon_ordinal,
-                            &inline_run,
-                            new_tree_builder,
-                            anon_idx,
-                        );
-                        anon_ordinal += 1;
-
-                        if let Some(msgs) = debug_messages.as_mut() {
-                            msgs.push(LayoutDebugMessage::info(format!(
-                                "[reconcile_recursive] Created anonymous IFC wrapper \
-                                 (layout_idx={}) for {} inline children: {:?}",
-                                anon_idx,
-                                inline_run.len(),
-                                inline_run
-                                    .iter()
-                                    .map(|(_, id)| id.index())
-                                    .collect::<Vec<_>>()
-                            )));
-                        }
-
-                        // Process each inline child under the anonymous wrapper
-                        #[allow(clippy::iter_with_drain)]
-                        // accumulator Vec reused across runs; drain(..) empties it while retaining
-                        // the allocation
-                        for (pos, inline_dom_id) in inline_run.drain(..) {
-                            // Inline children live under the anon wrapper
-                            // in the old tree, so the parent's direct
-                            // `old_children_by_dom` map won't hit them.
-                            // Fall through to the global `dom_to_layout`
-                            // map; we don't care which anon wrapper they
-                            // were under, only that their cold data
-                            // (fingerprint) gets matched correctly.
-                            let old_child_idx = old_children_by_dom
-                                .get(&inline_dom_id)
-                                .copied()
-                                .or_else(|| {
-                                    old_tree
-                                        .and_then(|t| t.dom_to_layout.get(&inline_dom_id))
-                                        .and_then(|v| v.first().copied().map(LayoutNodeId::index))
-                                });
-                            let reconciled_child_idx = reconcile_recursive(
-                                styled_dom,
-                                inline_dom_id,
-                                old_child_idx,
-                                Some(anon_idx), // Parent is the anonymous wrapper
-                                old_tree,
-                                new_tree_builder,
-                                recon,
-                                debug_messages,
-                                subtree_style_changed,
-                                dom_diff_clean,
-                            )?;
-                            if let Some(child_node) = new_tree_builder.get(reconciled_child_idx) {
-                                new_child_hashes.push(child_node.subtree_hash.0);
-                            }
-                        }
-
-                        // NOTE: We intentionally do NOT unconditionally
-                        // mark the anonymous wrapper as intrinsic_dirty
-                        // here. If any of the inline children are
-                        // themselves dirty, their own `mark_dirty` call
-                        // propagates upward through this wrapper, so
-                        // wrappers whose content is unchanged keep their
-                        // cached layout. `children_are_different` flips the
-                        // parent to layout-dirty ONLY when the wrapper is
-                        // genuinely new / its run changed — the previous
-                        // unconditional `= true` here re-dirtied every
-                        // paragraph's parent on every reconcile (see
-                        // try_reuse_anon_wrapper).
-                        if !anon_reused {
-                            if std::env::var_os("AZ_RECON_DEBUG").is_some() {
-                                eprintln!(
-                                    "[recon] mid-loop wrapper ord {} NOT reused (run len {})",
-                                    anon_ordinal - 1,
-                                    inline_run.len()
-                                );
-                            }
-                            children_are_different = true;
-                        }
-                    } // end else (non-whitespace run)
-                }
-
-                // Process block-level child directly under parent
-                let old_child_idx = old_children_by_dom
-                    .get(&new_child_dom_id)
-                    .copied()
-                    .or_else(|| old_children_indices.get(i).copied());
-                let reconciled_child_idx = reconcile_recursive(
-                    styled_dom,
-                    new_child_dom_id,
-                    old_child_idx,
-                    Some(new_node_idx),
-                    old_tree,
-                    new_tree_builder,
-                    recon,
-                    debug_messages,
-                    subtree_style_changed,
-                    dom_diff_clean,
-                )?;
-                if let Some(child_node) = new_tree_builder.get(reconciled_child_idx) {
-                    new_child_hashes.push(child_node.subtree_hash.0);
-                }
-
-                if old_tree.and_then(|t| {
-                    t.cold(LayoutNodeId::new(old_child_idx?))
-                        .map(|n| n.subtree_hash)
-                }) != new_tree_builder
-                    .get(reconciled_child_idx)
-                    .map(|n| n.subtree_hash)
-                {
-                    if std::env::var_os("AZ_RECON_DEBUG").is_some() {
-                        eprintln!(
-                            "[recon] block child dom {:?} under parent dom {:?} hash MISMATCH \
-                             warm_pass={} old_idx={:?} (old {:?} vs new {:?})",
-                            new_child_dom_id.index(),
-                            new_dom_id.index(),
-                            old_tree.is_some(),
-                            old_child_idx,
-                            old_tree.and_then(|t| t
-                                .cold(LayoutNodeId::new(old_child_idx.unwrap_or(usize::MAX)))
-                                .map(|n| n.subtree_hash)),
-                            new_tree_builder
-                                .get(reconciled_child_idx)
-                                .map(|n| n.subtree_hash),
-                        );
-                    }
-                    children_are_different = true;
-                }
-            } else {
-                // Inline-level child - add to current run
-                inline_run.push((i, new_child_dom_id));
-            }
-        }
-
-        // Process any remaining inline run at the end
-        if !inline_run.is_empty() {
-            // CSS 2.2 § 9.2.2.1: Skip whitespace-only trailing inline runs
-            if is_whitespace_only_inline_run(styled_dom, &inline_run, new_dom_id) {
-                if let Some(msgs) = debug_messages.as_mut() {
-                    msgs.push(LayoutDebugMessage::info(format!(
-                        "[reconcile_recursive] Skipping trailing whitespace-only inline run ({} \
-                         nodes) in node {}",
-                        inline_run.len(),
-                        new_dom_id.index()
-                    )));
-                }
-                // Don't create a wrapper — just drop the run
-            } else {
-                let anon_idx = new_tree_builder.create_anonymous_node(
-                    new_node_idx,
-                    AnonymousBoxType::InlineWrapper,
-                    FormattingContext::Inline, // IFC for inline content
-                );
-                let anon_reused = try_reuse_anon_wrapper(
-                    old_tree,
-                    old_tree_idx,
-                    anon_ordinal,
-                    &inline_run,
-                    new_tree_builder,
-                    anon_idx,
-                );
-                anon_ordinal += 1;
-
-                if let Some(msgs) = debug_messages.as_mut() {
-                    msgs.push(LayoutDebugMessage::info(format!(
-                        "[reconcile_recursive] Created trailing anonymous IFC wrapper \
-                         (layout_idx={}) for {} inline children: {:?}",
-                        anon_idx,
-                        inline_run.len(),
-                        inline_run
-                            .iter()
-                            .map(|(_, id)| id.index())
-                            .collect::<Vec<_>>()
-                    )));
-                }
-
-                #[allow(clippy::iter_with_drain)]
-                // accumulator Vec reused across runs; drain(..) empties it while retaining the
-                // allocation
-                for (pos, inline_dom_id) in inline_run.drain(..) {
-                    let old_child_idx = old_children_by_dom.get(&inline_dom_id).copied();
-                    let reconciled_child_idx = reconcile_recursive(
-                        styled_dom,
-                        inline_dom_id,
-                        old_child_idx,
-                        Some(anon_idx),
-                        old_tree,
-                        new_tree_builder,
-                        recon,
-                        debug_messages,
-                        subtree_style_changed,
-                        dom_diff_clean,
-                    )?;
-                    if let Some(child_node) = new_tree_builder.get(reconciled_child_idx) {
-                        new_child_hashes.push(child_node.subtree_hash.0);
-                    }
-                }
-
-                // See note in main mixed-content branch: rely on
-                // children's own mark_dirty to propagate upward rather
-                // than invalidating the whole wrapper each reconcile.
-                if !anon_reused {
-                    if std::env::var_os("AZ_RECON_DEBUG").is_some() {
-                        eprintln!(
-                            "[recon] trailing wrapper ord {} NOT reused",
-                            anon_ordinal - 1
-                        );
-                    }
-                    children_are_different = true;
-                }
-            } // end else (non-whitespace trailing run)
-        }
-    }
-
+/// [`reconcile_recursive`] after the children: the node's subtree hash, and the
+/// dirty set it goes into. Out of line for the same reason as [`reconcile_node`].
+#[inline(never)]
+fn classify_reconciled_node(
+    new_tree_builder: &mut LayoutTreeBuilder,
+    recon: &mut ReconciliationResult,
+    new_dom_id: NodeId,
+    new_node_idx: usize,
+    new_fingerprint: NodeDataFingerprint,
+    new_child_hashes: Vec<u64>,
+    dirty_flag: DirtyFlag,
+    children_are_different: bool,
+) {
     // After reconciling children, calculate this node's full subtree hash.
     // Use a combined hash of the fingerprint fields for the subtree hash.
     let node_self_hash = {
@@ -2243,7 +3333,7 @@ pub fn reconcile_recursive(
     if dirty_flag >= DirtyFlag::Layout || children_are_different {
         // Runtime-gated classification trace: names WHY a node went dirty,
         // which is the question every reconcile investigation starts with.
-        if std::env::var_os("AZ_RECON_DEBUG").is_some() {
+        if env_flag!("AZ_RECON_DEBUG") {
             eprintln!(
                 "[recon] intrinsic_dirty += layout_idx {} (dom {:?}, flag {:?}, children_diff {})",
                 new_node_idx,
@@ -2258,7 +3348,344 @@ pub fn reconcile_recursive(
         recon.paint_dirty.insert(new_node_idx);
     }
 
-    Ok(new_node_idx)
+}
+
+/// Whether a box whose `height` is auto hands its OWN containing block's
+/// height on to its children - their percentage heights resolve against it -
+/// or an indefinite height, against which a percentage height computes to
+/// `auto` (CSS 2.2 10.5).
+///
+/// Indefinite, as in Chrome's standards mode, for a box whose height really
+/// is decided by its content: an in-flow `display: block` (`list-item`,
+/// `flow-root`) box of a DOM node, in horizontal writing, that is not the
+/// root and sits in a block container. Mail templates' `body { height: 100% }`
+/// (`AzMail` maps it onto the paper `div`) then makes the paper as tall as the
+/// mail, not one window tall with the mail running on below its background
+/// (MAILENG6 item 2).
+///
+/// Every other auto-height box keeps forwarding, because its height is
+/// decided by its surroundings or azul relies on it:
+/// - the root: the window (azul's root carries no `height: 100%` of its own,
+///   and an app's `body > div { height: 100% }` fills the window through it);
+/// - a flex or grid item (CSS Flexbox 9.8: a stretched item's size is
+///   definite; a split pane's pane, `PANE_BASE`), and an anonymous box (Chrome
+///   skips those for percentages too);
+/// - an absolutely positioned box (inset-sized, `top: 0; bottom: 0`, the map
+///   widget), a float, a table box (CSS 2.2 17.5.3), an inline-block, and a
+///   box in vertical writing (its `height` is the inline size).
+pub(crate) fn forwards_containing_block_height(tree: &LayoutTree, node_index: usize) -> bool {
+    let id = LayoutNodeId::new(node_index);
+    let (Some(node), Some(warm)) = (tree.get(id), tree.warm(id)) else {
+        return true;
+    };
+    let Some(parent) = node.parent else {
+        return true;
+    };
+    if node.dom_node_id.is_none() {
+        return true;
+    }
+    let style = &warm.computed_style;
+    let content_sized_block = matches!(
+        style.display,
+        LayoutDisplay::Block | LayoutDisplay::ListItem | LayoutDisplay::FlowRoot
+    ) && matches!(
+        style.position,
+        LayoutPosition::Static | LayoutPosition::Relative | LayoutPosition::Sticky
+    ) && style.float == azul_css::props::layout::LayoutFloat::None
+        && style.writing_mode == LayoutWritingMode::HorizontalTb;
+    let parent = LayoutNodeId::new(parent);
+    let in_a_block_container = tree.get(parent).is_some_and(|p| {
+        !matches!(
+            p.formatting_context,
+            FormattingContext::Flex | FormattingContext::Grid
+        )
+    }) && tree.warm(parent).is_some_and(|w| {
+        !matches!(
+            w.computed_style.display,
+            LayoutDisplay::Flex
+                | LayoutDisplay::InlineFlex
+                | LayoutDisplay::Grid
+                | LayoutDisplay::InlineGrid
+        )
+    });
+    !(content_sized_block && in_a_block_container)
+}
+
+/// Whether the layout of `node_index`'s subtree comes out the same at every
+/// definite height it is given: the height of the containing block its
+/// parent hands it, the space a flex container lets it take. Nothing in such
+/// a subtree is sized against that height or placed in it, so a box that
+/// only got another height around it keeps its layout - the rows of a list
+/// inside a flex item when a ribbon above grows and the item gets shorter -
+/// and a flex row's width does not follow the height it is stretched to.
+///
+/// Decided box by box and conservatively
+/// ([`box_alike_at_every_given_height`]); a subtree is free when every box in
+/// it is. A document that declares `shape-inside` or `shape-outside` is free
+/// nowhere (its shapes are drawn into the available height), nor is one that
+/// uses viewport units anywhere (a resize keeps the per-node cache, and a
+/// length in viewport units moves with the window whatever height a box is
+/// given - the same gate as the pure-measure cache of the taffy bridge).
+/// Memoised in `NodeCache::free_of_given_height`.
+pub(crate) fn lays_out_alike_at_every_given_height(
+    map: &mut LayoutCacheMap,
+    tree: &LayoutTree,
+    styled_dom: &StyledDom,
+    node_index: usize,
+) -> bool {
+    alike_at_every_given_height(map, tree, styled_dom, node_index, AlikeAtEveryHeight::Layout)
+}
+
+/// Whether the width `node_index` answers when its parent asks how wide it
+/// is comes out the same at every definite height it is given. True of every
+/// subtree that lays out alike ([`lays_out_alike_at_every_given_height`]),
+/// and of one that would but for its scroll containers: whether a scroll
+/// container shows its bar depends on its height, but the bar is taken from
+/// inside its box (`compute_scrollbar_info` narrows its content box), so its
+/// own width does not follow its height. `AzDrive`'s row holding the
+/// navigation pane and the folder list - two scroll containers - is asked
+/// its width at a new height on every frame of the ribbon opening above it.
+/// Read only by the width-only answers of the taffy bridge, never by a cache
+/// of a whole layout. Memoised in `NodeCache::width_free_of_given_height`.
+pub(crate) fn answers_its_width_alike_at_every_given_height(
+    map: &mut LayoutCacheMap,
+    tree: &LayoutTree,
+    styled_dom: &StyledDom,
+    node_index: usize,
+) -> bool {
+    alike_at_every_given_height(map, tree, styled_dom, node_index, AlikeAtEveryHeight::Width)
+}
+
+/// What a subtree keeps at every definite height it is given: its whole
+/// layout, or the width it answers. Each has a memo of its own in
+/// `NodeCache`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AlikeAtEveryHeight {
+    /// [`lays_out_alike_at_every_given_height`].
+    Layout,
+    /// [`answers_its_width_alike_at_every_given_height`].
+    Width,
+}
+
+impl AlikeAtEveryHeight {
+    const fn memo(self, entry: &NodeCache) -> Option<bool> {
+        match self {
+            Self::Layout => entry.free_of_given_height,
+            Self::Width => entry.width_free_of_given_height,
+        }
+    }
+
+    const fn remember(self, entry: &mut NodeCache, free: bool) {
+        match self {
+            Self::Layout => entry.free_of_given_height = Some(free),
+            Self::Width => entry.width_free_of_given_height = Some(free),
+        }
+    }
+}
+
+/// The walk behind [`lays_out_alike_at_every_given_height`] and
+/// [`answers_its_width_alike_at_every_given_height`].
+fn alike_at_every_given_height(
+    map: &mut LayoutCacheMap,
+    tree: &LayoutTree,
+    styled_dom: &StyledDom,
+    node_index: usize,
+    question: AlikeAtEveryHeight,
+) -> bool {
+    use azul_css::compact_cache::{DOM_HAS_SHAPE_INSIDE, DOM_HAS_SHAPE_OUTSIDE};
+
+    let Some(entry) = map.entries.get(node_index) else {
+        return false;
+    };
+    if let Some(known) = question.memo(entry) {
+        return known;
+    }
+    let free_nowhere = styled_dom
+        .css_property_cache
+        .ptr
+        .compact_cache
+        .as_ref()
+        .is_none_or(|cc| {
+            cc.uses_viewport_units
+                || cc.dom_declared_flags & (DOM_HAS_SHAPE_INSIDE | DOM_HAS_SHAPE_OUTSIDE) != 0
+        });
+    if free_nowhere {
+        question.remember(&mut map.entries[node_index], false);
+        return false;
+    }
+    // Post-order without recursion: a box is decided once its children are.
+    // A child outside the cache map is never decided, and its parent is not
+    // free.
+    let mut stack: Vec<(usize, bool)> = vec![(node_index, false)];
+    while let Some((idx, children_decided)) = stack.pop() {
+        if map
+            .entries
+            .get(idx)
+            .is_none_or(|e| question.memo(e).is_some())
+        {
+            continue;
+        }
+        if children_decided {
+            let free = tree.children(idx).iter().all(|&child| {
+                map.entries.get(child).and_then(|e| question.memo(e)) == Some(true)
+            });
+            question.remember(&mut map.entries[idx], free);
+        } else if box_alike_at_every_given_height(tree, styled_dom, idx, question) {
+            stack.push((idx, true));
+            for &child in tree.children(idx) {
+                if map
+                    .entries
+                    .get(child)
+                    .is_some_and(|e| question.memo(e).is_none())
+                {
+                    stack.push((child, false));
+                }
+            }
+        } else {
+            question.remember(&mut map.entries[idx], false);
+        }
+    }
+    question.memo(&map.entries[node_index]) == Some(true)
+}
+
+/// [`alike_at_every_given_height`] for one box, its children aside. Not
+/// free: a box whose `height`, `min-height`, `max-height` or `flex-basis` is
+/// a percentage or a `calc()`; a table box, a grid or a grid item (their
+/// algorithms size rows and tracks into the space); an absolutely
+/// positioned, fixed or sticky box (inset into a containing block); a
+/// replaced element (its size follows its aspect); a wrapping flex container
+/// or a multi-column box (they break their lines and columns in the space); a
+/// box with an aspect ratio or in a vertical writing mode. A scroll container
+/// keeps the height it is given and shows its bar at some heights only, so
+/// its layout is not free - its width is (see
+/// [`answers_its_width_alike_at_every_given_height`]). An anonymous box has
+/// no style: its children decide.
+fn box_alike_at_every_given_height(
+    tree: &LayoutTree,
+    styled_dom: &StyledDom,
+    node_index: usize,
+    question: AlikeAtEveryHeight,
+) -> bool {
+    use azul_css::props::{
+        basic::{PixelValue, SizeMetric},
+        layout::{flex::LayoutFlexBasis, LayoutFlexWrap},
+        style::effects::StyleAspectRatio,
+    };
+
+    let id = LayoutNodeId::new(node_index);
+    let (Some(node), Some(warm)) = (tree.get(id), tree.warm(id)) else {
+        return false;
+    };
+    let sized_by_its_surroundings = |fc: FormattingContext| {
+        matches!(
+            fc,
+            FormattingContext::Table
+                | FormattingContext::TableRowGroup
+                | FormattingContext::TableRow
+                | FormattingContext::TableCell
+                | FormattingContext::TableColumnGroup
+                | FormattingContext::TableCaption
+                | FormattingContext::Grid
+                | FormattingContext::OutOfFlow(_)
+        )
+    };
+    if sized_by_its_surroundings(node.formatting_context)
+        || node
+            .parent
+            .and_then(|p| tree.get(LayoutNodeId::new(p)))
+            .is_some_and(|p| sized_by_its_surroundings(p.formatting_context))
+    {
+        return false;
+    }
+    let Some(dom_id) = node.dom_node_id else {
+        return true;
+    };
+    let style = &warm.computed_style;
+    let scrolls = matches!(
+        style.overflow_x,
+        LayoutOverflow::Scroll | LayoutOverflow::Auto
+    ) || matches!(
+        style.overflow_y,
+        LayoutOverflow::Scroll | LayoutOverflow::Auto
+    );
+    if !matches!(
+        style.position,
+        LayoutPosition::Static | LayoutPosition::Relative
+    ) || style.writing_mode != LayoutWritingMode::HorizontalTb
+        || (scrolls && question == AlikeAtEveryHeight::Layout)
+    {
+        return false;
+    }
+    let reads_the_space = |pv: &PixelValue| pv.metric == SizeMetric::Percent;
+    let height_reads_the_space = match &style.height {
+        None | Some(LayoutHeight::Auto | LayoutHeight::MinContent | LayoutHeight::MaxContent) => {
+            false
+        }
+        Some(LayoutHeight::Px(pv) | LayoutHeight::FitContent(pv)) => reads_the_space(pv),
+        Some(LayoutHeight::Calc(_)) => true,
+    };
+    if height_reads_the_space
+        || style
+            .min_height
+            .as_ref()
+            .is_some_and(|m| reads_the_space(&m.inner))
+        || style
+            .max_height
+            .as_ref()
+            .is_some_and(|m| reads_the_space(&m.inner))
+    {
+        return false;
+    }
+    let node_data = &styled_dom.node_data.as_container()[dom_id];
+    if node_data.is_sized_replaced_node()
+        || super::multicol::is_multicol_box(styled_dom, Some(dom_id))
+    {
+        return false;
+    }
+    let state = &styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
+    let cache = styled_dom.get_css_property_cache();
+    let declared = |ty: CssPropertyType| cache.get_property(node_data, &dom_id, state, &ty);
+    let wraps = matches!(
+        declared(CssPropertyType::FlexWrap),
+        Some(CssProperty::FlexWrap(v))
+            if matches!(v.get_property(), Some(LayoutFlexWrap::Wrap | LayoutFlexWrap::WrapReverse))
+    );
+    let basis_reads_the_space = matches!(
+        declared(CssPropertyType::FlexBasis),
+        Some(CssProperty::FlexBasis(v))
+            if matches!(v.get_property(), Some(LayoutFlexBasis::Exact(pv)) if reads_the_space(pv))
+    );
+    let has_an_aspect_ratio = matches!(
+        declared(CssPropertyType::AspectRatio),
+        Some(CssProperty::AspectRatio(v)) if matches!(v.get_property(), Some(StyleAspectRatio::Ratio(_)))
+    );
+    !(wraps || basis_reads_the_space || has_an_aspect_ratio)
+}
+
+/// The containing block `node_index`'s layout is cached under: the one it is
+/// laid out in, or - for a subtree that lays out alike at every definite
+/// height ([`lays_out_alike_at_every_given_height`]) - that block with its
+/// definite height replaced by one key for all of them. A block that changed
+/// only its height then finds the layout it holds. The key is negative, so
+/// the cache's "result matches request" rule never takes it for a laid-out
+/// size, and an indefinite height keeps a key of its own: a flex column
+/// sizes itself differently in a definite and an indefinite space.
+fn cache_key_block<T: ParsedFontTrait>(
+    ctx: &mut LayoutContext<'_, T>,
+    tree: &LayoutTree,
+    node_index: usize,
+    block: LogicalSize,
+) -> LogicalSize {
+    const INDEFINITE: f32 = 1.0e9;
+    let definite = block.height.is_finite() && block.height.abs() < INDEFINITE;
+    if !definite {
+        return block;
+    }
+    let styled_dom = ctx.styled_dom;
+    if !lays_out_alike_at_every_given_height(&mut ctx.cache_map, tree, styled_dom, node_index) {
+        return block;
+    }
+    LogicalSize::new(block.width, -1.0)
 }
 
 /// Result of `prepare_layout_context`: contains the layout constraints and
@@ -2300,14 +3727,32 @@ fn prepare_layout_context<'a, T: ParsedFontTrait>(
     // This size is based on the node's CSS properties (width, height, etc.) and
     // its containing block. If height is 'auto', this is a temporary value.
     let intrinsic = warm.intrinsic_sizes.unwrap_or_default();
-    let final_used_size = calculate_used_size_for_node(
-        ctx.styled_dom,
-        dom_id, // Now Option<NodeId>
-        cb,
-        intrinsic,
-        &node.box_props.unpack(),
-        &ctx.viewport_size,
-    )?;
+    // A TABLE CELL's size is the table's to decide: its final layout
+    // (`fc::layout_cell_for_height`) writes the column width into `used_size`
+    // before laying the cell out, and a measurement clears it first. Re-
+    // deriving it here gave the cell its intrinsic max-content width
+    // (`calculate_used_size_for_node`'s TableCell arm), and that became its
+    // children's available width: a 600px table in an 800px cell had 600px
+    // to be centred in (`<td align="center">`, `margin: 0 auto`) and stayed
+    // at the cell's left edge.
+    let table_cell_size = node
+        .used_size
+        .filter(|s| {
+            matches!(node.formatting_context, FormattingContext::TableCell)
+                && s.width.is_finite()
+                && s.height.is_finite()
+        });
+    let final_used_size = match table_cell_size {
+        Some(size) => size,
+        None => calculate_used_size_for_node(
+            ctx.styled_dom,
+            dom_id, // Now Option<NodeId>
+            cb,
+            intrinsic,
+            &node.box_props.unpack(),
+            &ctx.viewport_size,
+        )?,
+    };
 
     // Phase 2: Layout children using a formatting context
     // Use pre-computed styles from LayoutNodeWarm instead of repeated lookups
@@ -2316,8 +3761,15 @@ fn prepare_layout_context<'a, T: ParsedFontTrait>(
     let display = warm.computed_style.display;
     let overflow_y = warm.computed_style.overflow_y;
 
-    // Check if height is auto (no explicit height set)
-    let height_is_auto = warm.computed_style.height.is_none();
+    // Check if height is auto (no explicit height set), or a percentage that
+    // computes to auto against this box's indefinite containing block (CSS
+    // 2.2 10.5): its used height is only a placeholder until its content is
+    // laid out, never a height its children's percentages resolve against.
+    let height_is_auto = super::sizing::height_is_auto_for_children(
+        node.formatting_context,
+        warm.computed_style.height.as_ref(),
+        cb.height.is_definite(),
+    );
 
     let available_size_for_children = if height_is_auto {
         // Height is auto - use containing block size as available size
@@ -2327,14 +3779,20 @@ fn prepare_layout_context<'a, T: ParsedFontTrait>(
         // the containing block, not from the element's own intrinsic size.
         // CSS 2.2 § 10.3.1: Inline, non-replaced elements use containing block width.
         let available_width = match display {
-            LayoutDisplay::Inline => containing_block_size.width,
+            LayoutDisplay::Inline | LayoutDisplay::InlineListItem => containing_block_size.width,
             _ => inner_size.width,
         };
 
         LogicalSize {
             width: available_width,
-            // Use containing block height!
-            height: containing_block_size.height,
+            // The containing block's height where this box's own height is
+            // decided by its surroundings, an indefinite one where its
+            // content decides it (`forwards_containing_block_height`).
+            height: if forwards_containing_block_height(tree, node_index) {
+                containing_block_size.height
+            } else {
+                f32::INFINITY
+            },
         }
     } else {
         // Height is explicit - use inner size (after padding/border)
@@ -2360,6 +3818,7 @@ fn prepare_layout_context<'a, T: ParsedFontTrait>(
         containing_block_size,
         available_width_type: Text3AvailableSpace::Definite(available_size_for_children.width),
         fragmentainer: None,
+        column_flow: None,
     };
 
     Ok(PreparedLayoutContext {
@@ -2395,8 +3854,22 @@ pub fn compute_scrollbar_info_core<T: ParsedFontTrait>(
         return ScrollbarRequirements::default();
     }
 
-    let overflow_x = get_overflow_x(ctx.styled_dom, dom_id, styled_node_state);
-    let overflow_y = get_overflow_y(ctx.styled_dom, dom_id, styled_node_state);
+    // CSS Overflow 3 §3.3: on the ROOT element, `visible` is applied to the
+    // VIEWPORT as `auto` (and `clip` as `hidden`) - that is what scrolls a
+    // page taller than the window. The rule belongs to the SCROLLPORT
+    // decision only: the root's own clip, hit testing and pagination keep
+    // reading the declared value.
+    let is_viewport_root =
+        crate::solver3::scrollbar::is_viewport_scroller(ctx.styled_dom.dom_id, dom_id);
+    let viewport_rule = |v| {
+        if is_viewport_root {
+            crate::solver3::getters::apply_viewport_overflow_rule(dom_id, v)
+        } else {
+            v
+        }
+    };
+    let overflow_x = viewport_rule(get_overflow_x(ctx.styled_dom, dom_id, styled_node_state));
+    let overflow_y = viewport_rule(get_overflow_y(ctx.styled_dom, dom_id, styled_node_state));
 
     // Resolve the full scrollbar style **once** and reuse it
     // across the rest of this function + any further calls from
@@ -2410,7 +3883,15 @@ pub fn compute_scrollbar_info_core<T: ParsedFontTrait>(
     // on the same (dom_id, state) are a HashMap hit.
     let scrollbar_style =
         crate::solver3::getters::get_scrollbar_style_cached(ctx, dom_id, styled_node_state);
-    let scrollbar_width_px = scrollbar_style.reserve_width_px;
+    // The VIEWPORT's scrollbar is an OVERLAY: it is drawn at the window edge
+    // over the page instead of reserving a gutter. Reserving one would make
+    // every page that overflows by a pixel reflow to a narrower viewport -
+    // and a layout that only overflows BECAUSE of that gutter oscillates.
+    let scrollbar_width_px = if is_viewport_root {
+        0.0
+    } else {
+        scrollbar_style.reserve_width_px
+    };
 
     let mut reqs = fc::check_scrollbar_necessity(
         content_size,
@@ -2420,6 +3901,15 @@ pub fn compute_scrollbar_info_core<T: ParsedFontTrait>(
         scrollbar_width_px,
     );
     reqs.visual_width_px = scrollbar_style.visual_width_px;
+    // "Does this axis scroll" (`needs_*`, above) and "is a bar DRAWN there"
+    // are two questions: `scrollbar-width: none` scrolls without one. The
+    // second is answered here, once, from the style the painter reads - the
+    // scroll manager, the GPU thumb and the paint all take it from
+    // `ScrollbarRequirements::presence`.
+    reqs.bar_kind = crate::solver3::scrollbar::ScrollbarKind::from_style(
+        &scrollbar_style,
+        is_viewport_root,
+    );
 
     // +spec:overflow:e90f12 - scrollbar-gutter reserves space independently of scrollbar presence
     // +spec:overflow:e8a828 - scrollbar-gutter affects gutter presence at the box's inline edges
@@ -2558,10 +4048,9 @@ pub fn apply_content_scroll_necessity(
         .get(dom_id)
         .map(|n| n.styled_node_state)
         .unwrap_or_default();
-    let raw_overflow_x = get_overflow_x(styled_dom, dom_id, &node_state);
-    let raw_overflow_y = get_overflow_y(styled_dom, dom_id, &node_state);
-    let overflow_x = raw_overflow_x.resolve_computed(&raw_overflow_y);
-    let overflow_y = raw_overflow_y.resolve_computed(&raw_overflow_x);
+    // Computed values (CSS Overflow 3 §3.1), like every other reader.
+    let overflow_x = get_overflow_x(styled_dom, dom_id, &node_state);
+    let overflow_y = get_overflow_y(styled_dom, dom_id, &node_state);
 
     let raise_horizontal = !reqs.needs_horizontal
         && overflow_x.allows_user_scrolling()
@@ -2591,6 +4080,26 @@ fn compute_scrollbar_info<T: ParsedFontTrait>(
     final_used_size: LogicalSize,
     writing_mode: LayoutWritingMode,
 ) -> ScrollbarRequirements {
+    // THE ROOT SCROLLS THE VIEWPORT (CSS Overflow 3 §3.3), not its own box:
+    // the root has `height: auto` and grows to its content, so measured
+    // against itself it can never overflow and a page taller than the window
+    // had nothing to scroll. Its scrollport is the window and what has to fit
+    // in it is the root's MARGIN box - the UA's 8px body margins alone put
+    // 16px past the bottom edge.
+    if crate::solver3::scrollbar::is_viewport_scroller(ctx.styled_dom.dom_id, dom_id) {
+        let content = crate::solver3::scrollbar::viewport_scroll_extent(
+            content_size,
+            final_used_size,
+            &box_props.margin,
+        );
+        return compute_scrollbar_info_core(
+            ctx,
+            dom_id,
+            styled_node_state,
+            content,
+            ctx.viewport_size,
+        );
+    }
     let container_size = box_props.inner_size(final_used_size, writing_mode);
     compute_scrollbar_info_core(ctx, dom_id, styled_node_state, content_size, container_size)
 }
@@ -2766,6 +4275,56 @@ fn process_inflow_child<T: ParsedFontTrait>(
     reflow_needed_for_scrollbars: bool,
     float_cache: &HashMap<usize, fc::FloatingContext>,
 ) -> Result<()> {
+    // Debug logging
+    {
+        let child_node = tree
+            .get(LayoutNodeId::new(child_index))
+            .ok_or(LayoutError::InvalidTree)?;
+        let child_absolute_pos = LogicalPosition::new(
+            self_content_box_pos.x + child_relative_pos.x,
+            self_content_box_pos.y + child_relative_pos.y,
+        );
+        log_child_positioning(
+            ctx,
+            child_index,
+            child_node,
+            self_content_box_pos,
+            child_relative_pos,
+            child_absolute_pos,
+        );
+    }
+    place_inflow_child(
+        tree,
+        child_index,
+        child_relative_pos,
+        self_content_box_pos,
+        writing_mode,
+        is_flex_or_grid,
+        calculated_positions,
+    )
+}
+
+/// Puts the in-flow child `child_index` where its parent's formatting
+/// context placed it, `child_relative_pos` from the parent's content box at
+/// `self_content_box_pos`, and its descendants with it, from the layout
+/// they already have.
+///
+/// The solver places every in-flow child here once its parent is laid out,
+/// and a relayout after an edit places an inline formatting context's
+/// atomic inlines here too, so both put a box where the other would.
+///
+/// # Errors
+///
+/// Returns `LayoutError::InvalidTree` if `child_index` is no node of `tree`.
+pub(crate) fn place_inflow_child(
+    tree: &mut LayoutTree,
+    child_index: usize,
+    child_relative_pos: LogicalPosition,
+    self_content_box_pos: LogicalPosition,
+    writing_mode: LayoutWritingMode,
+    is_flex_or_grid: bool,
+    calculated_positions: &mut super::PositionVec,
+) -> Result<()> {
     // Set relative position on child
     // child_relative_pos is [CoordinateSpace::Parent] - relative to parent's content-box
     let child_warm = tree
@@ -2780,21 +4339,6 @@ fn process_inflow_child<T: ParsedFontTrait>(
         self_content_box_pos.x + child_relative_pos.x,
         self_content_box_pos.y + child_relative_pos.y,
     );
-
-    // Debug logging
-    {
-        let child_node = tree
-            .get(LayoutNodeId::new(child_index))
-            .ok_or(LayoutError::InvalidTree)?;
-        log_child_positioning(
-            ctx,
-            child_index,
-            child_node,
-            self_content_box_pos,
-            child_relative_pos,
-            child_absolute_pos,
-        );
-    }
 
     // calculated_positions stores [CoordinateSpace::Window] - absolute positions
     super::pos_set(calculated_positions, child_index, child_absolute_pos);
@@ -2889,14 +4433,17 @@ pub(super) fn position_bfc_child_descendants(
 /// Processes out-of-flow children (absolute/fixed positioned elements).
 ///
 /// Out-of-flow elements don't appear in `layout_output.positions` but still need
-/// a static position for when no explicit offsets are specified. This sets their
-/// static position to the parent's content-box origin.
+/// a static position for when no explicit offsets are specified: the one the
+/// formatting context recorded (`LayoutOutput::static_positions`, relative to
+/// the parent's content box - where the box would have been in the flow),
+/// else the parent's content-box origin.
 fn process_out_of_flow_children<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &mut LayoutTree,
     text_cache: &mut TextLayoutCache,
     node_index: usize,
     self_content_box_pos: LogicalPosition,
+    static_positions: &BTreeMap<usize, LogicalPosition>,
     cb: &super::geometry::ContainingBlock,
     calculated_positions: &mut super::PositionVec,
     reflow_needed_for_scrollbars: &mut bool,
@@ -2928,9 +4475,38 @@ fn process_out_of_flow_children<T: ParsedFontTrait>(
         if position_type != LayoutPosition::Absolute && position_type != LayoutPosition::Fixed {
             continue;
         }
+        // A `::marker` box carries its LIST ITEM's DOM node, so an
+        // absolutely positioned item made its marker look positioned too.
+        // Every marker is laid out by its item's flow: one that rides the
+        // item's first line with that line, one with no line box at the
+        // item's content start (`fc::layout_bfc`).
+        if fc::is_marker_box(tree, child_index) {
+            continue;
+        }
 
-        // Set static position to parent's content-box origin
-        super::pos_set(calculated_positions, child_index, self_content_box_pos);
+        // Its static position: where the parent's flow would have put it,
+        // else the parent's content-box origin.
+        let static_pos = static_positions
+            .get(&child_index)
+            .map_or(self_content_box_pos, |rel| {
+                LogicalPosition::new(
+                    self_content_box_pos.x + rel.x,
+                    self_content_box_pos.y + rel.y,
+                )
+            });
+        super::pos_set(calculated_positions, child_index, static_pos);
+        // ...and kept relative to the parent like an in-flow child's: a
+        // parent laid out at a provisional origin and moved afterwards
+        // re-derives its children from `relative_position`
+        // (`position_bfc_child_descendants`), which put the box back at the
+        // parent's content-box origin - over the paragraph before it (WPT
+        // css/CSS2/tables/height-table-cell-001). Only a recorded one: a
+        // flex / grid container's taffy already wrote its children's.
+        if let Some(rel) = static_positions.get(&child_index) {
+            if let Some(warm) = tree.warm_mut(LayoutNodeId::new(child_index)) {
+                warm.relative_position = Some(*rel);
+            }
+        }
 
         // Perform full layout for the absolutely positioned child so its
         // inline_layout_result is populated (text rendering needs this).
@@ -2940,7 +4516,7 @@ fn process_out_of_flow_children<T: ParsedFontTrait>(
             tree,
             text_cache,
             child_index,
-            self_content_box_pos,
+            static_pos,
             cb,
             calculated_positions,
             reflow_needed_for_scrollbars,
@@ -3034,6 +4610,14 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
     // Legacy flattened view for the cache keys and the not-yet-migrated
     // consumers in this body; the typed `cb` travels to sizing and recursion.
     let containing_block_size = cb.flattened();
+    // What the node's layout is cached under: the block, or for a subtree
+    // that lays out alike at every definite height, the block's width alone
+    // (`cache_key_block`). Fragment passes are never cached.
+    let cache_key_size = if fragment.is_none() && node_index < ctx.cache_map.entries.len() {
+        cache_key_block(ctx, tree, node_index, containing_block_size)
+    } else {
+        containing_block_size
+    };
     // [g147b az-web-lift DIAG] per-node calculate_layout_for_subtree entry (0x60980+slot): records
     // the last compute_mode that reached this node (PerformLayout=2 wins, runs after
     // ComputeSize=1). If a div shows 0x...0002 here but its layout_formatting_context marker
@@ -3090,10 +4674,21 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
                 // visit (indefinite height) and the final visit (definite
                 // height) land in different slots, so neither evicts the
                 // other — the slot-0 collapse made every visit a miss.
-                let (size_slot, size_key) = NodeCache::classify_size_key(containing_block_size);
-                let sizing_hit = ctx.cache_map.entries[node_index]
-                    .get_size(size_slot, size_key)
-                    .copied();
+                let (size_slot, size_key) = NodeCache::classify_size_key(cb, cache_key_size);
+                // This is the node's layout (its parent's Pass 1; the children
+                // are only positioned after), and whatever it leaves behind
+                // may be what the page keeps - a final layout further up can
+                // be served from a cache that a pass inside a MEASURE filled.
+                // So a hit must describe what the subtree holds now
+                // ([`NodeCache::holds`]). AzContacts' search field, measured
+                // at 148 px and then at 6 px by its flex-grow block's probes,
+                // was served the 148 px entry by the block's final layout and
+                // kept the 6 px input the last probe had laid out inside it.
+                let entry = &ctx.cache_map.entries[node_index];
+                let sizing_hit = entry
+                    .find_size(size_slot, size_key)
+                    .filter(|&(found_in, hit)| entry.holds(found_in, hit.available_size))
+                    .map(|(_, hit)| *hit);
                 if let Some(cached_sizing) = sizing_hit {
                     // SIZING CACHE HIT — set used_size and return immediately.
                     // No child positioning needed in ComputeSize mode.
@@ -3110,7 +4705,7 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
                 }
                 // Fall through to layout slot check
                 let layout_hit = ctx.cache_map.entries[node_index]
-                    .get_layout(containing_block_size)
+                    .get_layout(size_slot, cache_key_size)
                     .cloned();
                 if let Some(cached_layout) = layout_hit {
                     // Layout slot hit in ComputeSize mode — extract size only
@@ -3178,8 +4773,9 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
             }
             ComputeMode::PerformLayout => {
                 // PerformLayout: check layout slot (the single "full layout" slot)
+                let (size_slot, _) = NodeCache::classify_size_key(cb, cache_key_size);
                 let layout_hit = ctx.cache_map.entries[node_index]
-                    .get_layout(containing_block_size)
+                    .get_layout(size_slot, cache_key_size)
                     .cloned();
                 if let Some(cached_layout) = layout_hit {
                     drop(crate::probe::Probe::span("pos_cache_hit"));
@@ -3203,6 +4799,27 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
                     let self_content_box_pos =
                         calculate_content_box_pos(containing_block_pos, &box_props);
 
+                    // A flex or grid container's items were laid out by taffy
+                    // together with the container: their sizes and positions
+                    // are in the tree (the miss path only positions them,
+                    // `process_inflow_child`). Re-laying an item out on its own
+                    // through `calculate_layout_for_subtree` treated it as a
+                    // block with an auto height, so a `flex-grow: 1` pane that
+                    // is itself a flex container shrank to its content on the
+                    // second pass of a page (tests/flex_items_keep_the_size_
+                    // their_container_gave_them.rs, C).
+                    let items_laid_out_by_taffy =
+                        tree.get(LayoutNodeId::new(node_index)).is_some_and(|n| {
+                            matches!(
+                                n.formatting_context,
+                                FormattingContext::Flex | FormattingContext::Grid
+                            )
+                        });
+
+                    let laid_out_by_table = tree
+                        .get(LayoutNodeId::new(node_index))
+                        .is_some_and(|n| matches!(n.formatting_context, FormattingContext::Table));
+
                     // Apply cached child positions and recurse
                     let result_size = cached_layout.result_size;
                     for (child_index, child_relative_pos) in &cached_layout.child_positions {
@@ -3211,6 +4828,49 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
                             self_content_box_pos.y + child_relative_pos.y,
                         );
                         super::pos_set(calculated_positions, *child_index, child_abs_pos);
+
+                        // A table's children (its row groups, rows, column
+                        // groups, caption) were placed by the table algorithm
+                        // together with the table, and everything below them
+                        // carries its relative position (fc.rs
+                        // `place_table_grid_boxes`): position them, never lay
+                        // a row group out again as a block of its own.
+                        if laid_out_by_table {
+                            if let Some(child_warm) = tree.warm_mut(LayoutNodeId::new(*child_index))
+                            {
+                                child_warm.relative_position = Some(*child_relative_pos);
+                            }
+                            let child_bp = tree
+                                .get(LayoutNodeId::new(*child_index))
+                                .map(|c| c.box_props.unpack())
+                                .unwrap_or_default();
+                            position_bfc_child_descendants(
+                                tree,
+                                *child_index,
+                                calculate_content_box_pos(child_abs_pos, &child_bp),
+                                calculated_positions,
+                            );
+                            continue;
+                        }
+
+                        if items_laid_out_by_taffy {
+                            if let Some(child_warm) = tree.warm_mut(LayoutNodeId::new(*child_index))
+                            {
+                                child_warm.relative_position = Some(*child_relative_pos);
+                            }
+                            let (child_bp, child_used_size) = tree
+                                .get(LayoutNodeId::new(*child_index))
+                                .map(|c| (c.box_props.unpack(), c.used_size.unwrap_or_default()))
+                                .unwrap_or_default();
+                            position_flex_child_descendants(
+                                tree,
+                                *child_index,
+                                calculate_content_box_pos(child_abs_pos, &child_bp),
+                                child_bp.inner_size(child_used_size, writing_mode),
+                                calculated_positions,
+                            )?;
+                            continue;
+                        }
 
                         let inner = box_props.inner_size(result_size, writing_mode);
                         // Subtract scrollbar reservation from the available size
@@ -3294,6 +4954,17 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
         slot.clone_from(&layout_result.outgoing_token);
     }
     let content_size = layout_result.output.overflow_size;
+    // A descendant discovered a space-reserving scrollbar while being sized
+    // against the unreserved width. Hand the need to the document-level loop.
+    if layout_result.scrollbar_reflow_needed {
+        *reflow_needed_for_scrollbars = true;
+    }
+    // Whether the pass that reflow runs has to lay this node out again: a
+    // scrollbar in its in-flow subtree (here), its own (Phase 3) or one under
+    // an out-of-flow child (Phase 7) asked for it, so what this visit computes
+    // is the layout from BEFORE that gutter - never to be served from the
+    // cache (see the store at the end).
+    let mut superseded_by_reflow = layout_result.scrollbar_reflow_needed;
 
     // If layout_formatting_context adjusted this node's used_size (e.g.
     // layout_flex_grid auto-applying box-sizing:border-box on the root),
@@ -3340,8 +5011,41 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
         )
     });
 
-    if should_use_content_height(&css_height) {
+    // CSS 2.2 10.5: a percentage height against a containing block whose
+    // height is not definite (it depends on content) computes to `auto` -
+    // the box is as tall as its content, exactly like an auto height. Sizing
+    // (`calculate_used_size_for_node`) could only give it a pre-layout
+    // estimate (`intrinsic.max_content_height`, 0 where the intrinsic pass
+    // short-circuits); the laid-out content decides here.
+    let percentage_height_is_auto = super::sizing::percentage_height_computes_to_auto(
+        css_height.as_exact(),
+        cb.height.is_definite(),
+    );
+
+    // A scroll container keeps the height it was given only where its
+    // height is someone else's answer: a flex or grid item (the container's
+    // algorithm sized it, and a scroll container's automatic minimum size is
+    // 0) and an out-of-flow box (its insets did). In block flow - a page's
+    // box, the root of a popover - an auto height is the content's height,
+    // clamped by max-height below, and only what exceeds THAT scrolls (CSS
+    // 2.2 10.6.3, 10.7). Taking the containing block's leftover instead
+    // collapsed an `overflow: auto` box with nothing above it to 0 px.
+    let height_given_from_outside = dom_id.is_some_and(|id| {
+        super::layout_tree::is_out_of_flow_positioned(ctx.styled_dom, id)
+    }) || tree
+        .get(LayoutNodeId::new(node_index))
+        .and_then(|n| n.parent)
+        .and_then(|p| tree.get(LayoutNodeId::new(p)))
+        .is_some_and(|p| {
+            matches!(
+                p.formatting_context,
+                FormattingContext::Flex | FormattingContext::Grid
+            )
+        });
+
+    if should_use_content_height(&css_height) || percentage_height_is_auto {
         let skip_expansion = scrolls_vertically
+            && height_given_from_outside
             && containing_block_size.height.is_finite()
             && containing_block_size.height > 0.0;
 
@@ -3353,6 +5057,52 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
                 node_index,
                 writing_mode,
             )?;
+            // CSS 2.2 10.7: the content height is only the TENTATIVE auto
+            // height - `max-height`, then `min-height`, clamp it. The sizing
+            // pass clamped the pre-layout placeholder, and the content-based
+            // height above replaces that placeholder with the larger of the
+            // two, so without this a `max-height: 0; overflow: hidden` mail
+            // preheader stood as tall as its text. Not for the table boxes:
+            // min/max-height on tables, rows, row groups and cells is
+            // undefined in CSS 2.2 (17.5.3), and Chrome ignores max-height
+            // there; nor for an inline box, which has no height property
+            // (by its `display`: `FormattingContext::Inline` is also a BLOCK
+            // that establishes an inline formatting context - the preheader
+            // div itself).
+            let clamps = tree.get(LayoutNodeId::new(node_index)).is_some_and(|n| {
+                !matches!(
+                    n.formatting_context,
+                    FormattingContext::Table
+                        | FormattingContext::TableRowGroup
+                        | FormattingContext::TableRow
+                        | FormattingContext::TableCell
+                        | FormattingContext::TableColumnGroup
+                )
+            });
+            let inline_box = dom_id.is_some_and(|id| {
+                matches!(
+                    get_display_property(ctx.styled_dom, Some(id)),
+                    MultiValue::Exact(LayoutDisplay::Inline)
+                )
+            });
+            if let (true, false, Some(id)) = (clamps, inline_box, dom_id) {
+                let horizontal = matches!(writing_mode, LayoutWritingMode::HorizontalTb);
+                let cb_extent = if horizontal {
+                    cb.height.definite()
+                } else {
+                    cb.width.definite()
+                };
+                let clamped = super::sizing::clamp_auto_block_size(
+                    ctx.styled_dom,
+                    id,
+                    &styled_node_state,
+                    final_used_size.main(writing_mode),
+                    cb_extent.unwrap_or(f32::NAN),
+                    &box_props,
+                    horizontal,
+                );
+                final_used_size = final_used_size.with_main(writing_mode, clamped);
+            }
         }
     }
 
@@ -3371,8 +5121,22 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
         )
     });
 
-    if check_scrollbar_change(tree, node_index, &scrollbar_info, skip_scrollbar_check) {
+    // A reflow is for laying the children out again inside a box that
+    // CHANGED SIZE. If this node's formatting context already took exactly
+    // this gutter out of their containing block - which `overflow: scroll`
+    // does on the very first pass, the bar being there whether or not
+    // anything overflows - there is nothing to lay out again, and asking for
+    // a pass anyway made every document holding a `scroll` box do its whole
+    // layout twice and re-damage what the first pass had already painted.
+    let gutter_already_taken = (scrollbar_info.scrollbar_width
+        - layout_result.reserved_scrollbar_width)
+        .abs()
+        < 0.01;
+    if !gutter_already_taken
+        && check_scrollbar_change(tree, node_index, &scrollbar_info, skip_scrollbar_check)
+    {
         *reflow_needed_for_scrollbars = true;
+        superseded_by_reflow = true;
     }
 
     let merged_scrollbar_info = scrollbar_info;
@@ -3460,17 +5224,23 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
     // Phase 7: Process out-of-flow children (absolute/fixed). The node's own
     // used size is resolved by now, so the abs-pos containing block is
     // definite regardless of the constraint this node was measured under.
+    let mut out_of_flow_reflow = false;
     process_out_of_flow_children(
         ctx,
         tree,
         text_cache,
         node_index,
         self_content_box_pos,
+        &layout_result.output.static_positions,
         &super::geometry::ContainingBlock::definite(inner_size_after_scrollbars),
         calculated_positions,
-        reflow_needed_for_scrollbars,
+        &mut out_of_flow_reflow,
         float_cache,
     )?;
+    if out_of_flow_reflow {
+        *reflow_needed_for_scrollbars = true;
+        superseded_by_reflow = true;
+    }
 
     // === STORE RESULT IN PER-NODE CACHE (Taffy-inspired 9+1 slot cache) ===
     // Store both the full layout entry and a sizing measurement entry.
@@ -3478,16 +5248,41 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
     // Fragment passes never store (NG rule, same as the hit-side gate above:
     // fragment geometry would poison the continuous cache).
     if fragment.is_none() && node_index < ctx.cache_map.entries.len() {
+        // ...nor does a visit whose layout the scrollbar reflow replaces, and
+        // it drops what an earlier one stored: the subtree no longer holds
+        // that. The pass that reserves the gutter has to REACH the box that
+        // asked for it, and a cache hit on the way served the layout from
+        // before the gutter instead. A layout hit of the box itself (its own
+        // key, or a cached parent's content box as large as the box - a
+        // full-width box in the body) brought back the content measured at
+        // the full width and the horizontal bar decided from it, while the
+        // children were laid out again inside the gutter; a size hit of an
+        // ancestor laid nothing out again at all. Not cached, the box and
+        // every ancestor it reported to are laid out again (their siblings
+        // still hit), the box inside its gutter (CSS 2.2 §11.1.1), and its
+        // bars are decided from what overflows THAT layout.
+        if superseded_by_reflow {
+            ctx.cache_map.get_mut(node_index).clear();
+            return Ok(());
+        }
         let warm_ref = tree.warm(LayoutNodeId::new(node_index));
         let baseline = warm_ref.and_then(|n| n.baseline);
         let escaped_top = warm_ref.and_then(|n| n.escaped_top_margin);
         let escaped_bottom = warm_ref.and_then(|n| n.escaped_bottom_margin);
 
+        // The measurement slot matching THIS constraint shape (same
+        // classification as the lookup — the measure visit and the final
+        // visit must land in different slots or they evict each other every
+        // pass). The canonicalized key replaces the raw containing block so an
+        // indefinite axis compares equal next time.
+        let (size_slot, size_key) = NodeCache::classify_size_key(cb, cache_key_size);
+
         // Store in the layout slot (PerformLayout result)
         ctx.cache_map
             .get_mut(node_index)
             .store_layout(LayoutCacheEntry {
-                available_size: containing_block_size,
+                available_size: cache_key_size,
+                size_slot,
                 result_size: final_used_size,
                 content_size,
                 child_positions: child_positions_for_cache,
@@ -3496,12 +5291,7 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
                 scrollbar_info: merged_scrollbar_info,
             });
 
-        // Also store in the measurement slot matching THIS constraint shape
-        // (same classification as the lookup — the measure visit and the
-        // final visit must land in different slots or they evict each other
-        // every pass). The canonicalized key replaces the raw containing
-        // block so an indefinite axis compares equal next time.
-        let (size_slot, size_key) = NodeCache::classify_size_key(containing_block_size);
+        // Also store in that measurement slot.
         ctx.cache_map.get_mut(node_index).store_size(
             size_slot,
             SizingCacheEntry {
@@ -3578,7 +5368,7 @@ fn position_flex_child_descendants(
 /// Checks if the given CSS height value should use content-based sizing
 #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant
                                   // (or cross-type bindings that can't merge)
-fn should_use_content_height(css_height: &MultiValue<LayoutHeight>) -> bool {
+const fn should_use_content_height(css_height: &MultiValue<LayoutHeight>) -> bool {
     match css_height {
         MultiValue::Auto | MultiValue::Initial | MultiValue::Inherit => {
             // Auto/Initial/Inherit height should use content-based sizing
@@ -3589,16 +5379,13 @@ fn should_use_content_height(css_height: &MultiValue<LayoutHeight>) -> bool {
                 // Auto height should use content-based sizing
                 true
             }
-            LayoutHeight::Px(px) => {
-                // Check if it's zero or if it has explicit value
-                // If it's a percentage or em, it's not auto
-                use azul_css::props::basic::{pixel::PixelValue, SizeMetric};
-                px == &PixelValue::zero()
-                    || (px.metric != SizeMetric::Px
-                        && px.metric != SizeMetric::Percent
-                        && px.metric != SizeMetric::Em
-                        && px.metric != SizeMetric::Rem)
-            }
+            // Every length is a definite height, zero and the viewport,
+            // print and font units included: sizing resolved it. A closed
+            // panel's `height: 0px` stood as tall as its content, and
+            // `height: 100vh` grew with it like a min-height. (A percentage
+            // against an indefinite containing block is the caller's
+            // `percentage_height_computes_to_auto`.)
+            LayoutHeight::Px(_) => false,
             LayoutHeight::MinContent | LayoutHeight::MaxContent | LayoutHeight::FitContent(_) => {
                 // These are content-based, so they should use the content size
                 true
@@ -3632,6 +5419,21 @@ fn apply_content_based_height(
     let node = tree
         .get(LayoutNodeId::new(node_index))
         .ok_or(LayoutError::InvalidTree)?;
+    // A flex or grid container's auto size is its lines' or tracks' (CSS
+    // Flexbox 1 §9.4, Grid 1 §12): what taffy computed, and what
+    // `layout_flex_grid` already made the used size of every container but the
+    // root. `content_size` is taffy's SCROLLABLE overflow - it also holds an
+    // item that overhangs by a negative margin or is shifted by `position:
+    // relative` - and growing to it made a row 2 px taller than its line for a
+    // selected tab reaching down over its strip's rule (the rule moved down
+    // with it and stayed visible under the tab). The overflow still scrolls.
+    if matches!(
+        node.formatting_context,
+        FormattingContext::Flex | FormattingContext::Grid
+    ) && node.parent.is_some()
+    {
+        return Ok(used_size);
+    }
     let node_props = node.box_props.unpack();
     // `content_size` is `LayoutOutput::overflow_size`, and that is NOT the
     // same extent in every formatting context (`atomic_inline_auto_height`
@@ -3674,15 +5476,13 @@ fn calculate_subtree_hash(node_self_hash: u64, child_hashes: &[u64]) -> SubtreeH
     SubtreeHash(hasher.finish())
 }
 
-/// Computes CSS counter values for all nodes in the layout tree.
-///
-/// This function traverses the tree in document order and processes counter-reset
-/// and counter-increment properties. The computed values are stored in cache.counters.
-///
-/// CSS counters work with a stack-based scoping model:
-/// - `counter-reset` creates a new scope and sets the counter to a value
-/// - `counter-increment` increments the counter in the current scope
-/// - When leaving a subtree, counter scopes are popped
+/// The number of every list item, for the markers layout makes, keyed
+/// `(layout node, "list-item")`: what `fc::list_markers` reads. The numbers
+/// come from the one counter walk the document's generated content counts
+/// with (`azul_core::generated_content::list_item_numbers`: resets, `<ol
+/// start / reversed>`, `<li value>`, `counter-increment`, inline list items
+/// too); a box shares its element's number (a list item's `::marker` box
+/// carries the item's DOM node).
 #[allow(clippy::implicit_hasher)] // internal helper; only ever called with the default-hasher
                                   // HashMap/HashSet
 pub fn compute_counters(
@@ -3690,195 +5490,16 @@ pub fn compute_counters(
     tree: &LayoutTree,
     counters: &mut HashMap<(usize, String), i32>,
 ) {
-    // Track counter stacks: counter_name -> Vec<value>
-    // Each entry in the Vec represents a nested scope
-    let mut counter_stacks: HashMap<String, Vec<i32>> = HashMap::new();
-
-    // Stack to track which counters were reset at each tree level
-    // When we pop back up the tree, we need to pop these counter scopes
-    let mut scope_stack: Vec<Vec<String>> = Vec::new();
-
-    compute_counters_recursive(
-        styled_dom,
-        tree,
-        tree.root,
-        counters,
-        &mut counter_stacks,
-        &mut scope_stack,
-    );
-}
-
-#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine
-                                 // (one branch per case)
-fn compute_counters_recursive(
-    styled_dom: &StyledDom,
-    tree: &LayoutTree,
-    node_idx: usize,
-    counters: &mut HashMap<(usize, String), i32>,
-    counter_stacks: &mut HashMap<String, Vec<i32>>,
-    scope_stack: &mut Vec<Vec<String>>,
-) {
-    let Some(node) = tree.get(LayoutNodeId::new(node_idx)) else {
-        return;
-    };
-
-    // Skip pseudo-elements (::marker, ::before, ::after) for counter processing
-    // Pseudo-elements inherit counter values from their parent element
-    // but don't participate in counter-reset or counter-increment themselves
-    if tree
-        .warm(LayoutNodeId::new(node_idx))
-        .and_then(|w| w.pseudo_element.as_ref())
-        .is_some()
-    {
-        // Store the parent's counter values for this pseudo-element
-        // so it can be looked up during marker text generation
-        if let Some(parent_idx) = node.parent {
-            // Copy all counter values from parent to this pseudo-element
-            let parent_counters: Vec<_> = counters
-                .iter()
-                .filter(|((idx, _), _)| *idx == parent_idx)
-                .map(|((_, name), &value)| (name.clone(), value))
-                .collect();
-
-            for (counter_name, value) in parent_counters {
-                counters.insert((node_idx, counter_name), value);
-            }
-        }
-
-        // Don't recurse to children of pseudo-elements
-        // (pseudo-elements shouldn't have children in normal circumstances)
+    let numbers = azul_core::generated_content::list_item_numbers(styled_dom);
+    if numbers.is_empty() {
         return;
     }
-
-    // Only process real DOM nodes, not anonymous boxes
-    let Some(dom_id) = node.dom_node_id else {
-        // For anonymous boxes, just recurse to children
-        for &child_idx in tree.children(node_idx) {
-            compute_counters_recursive(
-                styled_dom,
-                tree,
-                child_idx,
-                counters,
-                counter_stacks,
-                scope_stack,
-            );
-        }
-        return;
-    };
-
-    let node_data = &styled_dom.node_data.as_container()[dom_id];
-    let node_state = &styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
-    let cache = &styled_dom.css_property_cache.ptr;
-
-    // Track which counters we reset at this level (for cleanup later)
-    let mut reset_counters_at_this_level = Vec::new();
-
-    // CSS Lists §3: display: list-item automatically increments the "list-item" counter
-    // Check if this is a list-item
-    let display = {
-        use crate::solver3::getters::get_display_property;
-        get_display_property(styled_dom, Some(dom_id)).exact()
-    };
-    let is_list_item = matches!(display, Some(LayoutDisplay::ListItem));
-
-    // FAST PATH: almost no nodes declare counter-reset/counter-increment.
-    // Single-bit check in compact cache lets us skip two cascade walks per node.
-    let has_counter_css = node_state.is_normal()
-        && cache
-            .compact_cache
-            .as_ref()
-            .is_none_or(|cc| cc.has_counter(dom_id.index()));
-
-    // Process counter-reset (now properly typed)
-    let counter_reset = if has_counter_css {
-        cache
-            .get_counter_reset(node_data, &dom_id, node_state)
-            .and_then(|v| v.get_property())
-    } else {
-        None
-    };
-
-    if let Some(counter_reset) = counter_reset {
-        let counter_name_str = counter_reset.counter_name.as_str();
-        if counter_name_str != "none" {
-            let counter_name = counter_name_str.to_string();
-            let reset_value = counter_reset.value;
-
-            // Reset the counter by pushing a new scope
-            counter_stacks
-                .entry(counter_name.clone())
-                .or_default()
-                .push(reset_value);
-            reset_counters_at_this_level.push(counter_name);
-        }
-    }
-
-    // Process counter-increment (now properly typed)
-    let counter_inc = if has_counter_css {
-        cache
-            .get_counter_increment(node_data, &dom_id, node_state)
-            .and_then(|v| v.get_property())
-    } else {
-        None
-    };
-
-    if let Some(counter_inc) = counter_inc {
-        let counter_name_str = counter_inc.counter_name.as_str();
-        if counter_name_str != "none" {
-            let counter_name = counter_name_str.to_string();
-            let inc_value = counter_inc.value;
-
-            // Increment the counter in the current scope
-            let stack = counter_stacks.entry(counter_name).or_default();
-            if stack.is_empty() {
-                // Auto-initialize if counter doesn't exist
-                stack.push(inc_value);
-            } else if let Some(current) = stack.last_mut() {
-                *current += inc_value;
-            }
-        }
-    }
-
-    // CSS Lists §3: display: list-item automatically increments "list-item" counter
-    if is_list_item {
-        let counter_name = "list-item".to_string();
-        let stack = counter_stacks.entry(counter_name).or_default();
-        if stack.is_empty() {
-            // Auto-initialize if counter doesn't exist
-            stack.push(1);
-        } else if let Some(current) = stack.last_mut() {
-            *current += 1;
-        }
-    }
-
-    // Store the current counter values for this node
-    for (counter_name, stack) in counter_stacks.iter() {
-        if let Some(&value) = stack.last() {
-            counters.insert((node_idx, counter_name.clone()), value);
-        }
-    }
-
-    // Push scope tracking for cleanup
-    scope_stack.push(reset_counters_at_this_level.clone());
-
-    // Recurse to children
-    for &child_idx in tree.children(node_idx) {
-        compute_counters_recursive(
-            styled_dom,
-            tree,
-            child_idx,
-            counters,
-            counter_stacks,
-            scope_stack,
-        );
-    }
-
-    // Pop counter scopes that were created at this level
-    if let Some(reset_counters) = scope_stack.pop() {
-        for counter_name in reset_counters {
-            if let Some(stack) = counter_stacks.get_mut(&counter_name) {
-                stack.pop();
-            }
+    for idx in 0..tree.nodes.len() {
+        let Some(dom_id) = tree.get(LayoutNodeId::new(idx)).and_then(|n| n.dom_node_id) else {
+            continue;
+        };
+        if let Some(&value) = numbers.get(&dom_id) {
+            counters.insert((idx, "list-item".to_string()), value);
         }
     }
 }
@@ -3925,6 +5546,7 @@ mod autotest_generated {
     fn layout_entry(available: LogicalSize, result: LogicalSize) -> LayoutCacheEntry {
         LayoutCacheEntry {
             available_size: available,
+            size_slot: 0,
             result_size: result,
             content_size: result,
             child_positions: Vec::new(),
@@ -4062,7 +5684,7 @@ mod autotest_generated {
             assert!(c.get_size(slot, size(0.0, 0.0)).is_none());
             assert!(c.get_size(slot, size(100.0, 100.0)).is_none());
         }
-        assert!(c.get_layout(size(0.0, 0.0)).is_none());
+        assert!(c.get_layout(0, size(0.0, 0.0)).is_none());
     }
 
     #[test]
@@ -4226,14 +5848,55 @@ mod autotest_generated {
         c.store_layout(layout_entry(size(800.0, 600.0), size(800.0, 123.0)));
         assert!(!c.is_empty);
 
-        assert!(c.get_layout(size(800.0, 600.0)).is_some());
+        assert!(c.get_layout(0, size(800.0, 600.0)).is_some());
         // "Result matches request" applies to the layout slot too.
         let hit = c
-            .get_layout(size(800.0, 123.0))
+            .get_layout(0, size(800.0, 123.0))
             .expect("result-matches-request");
         assert_eq!(hit.result_size, size(800.0, 123.0));
-        assert!(c.get_layout(size(400.0, 300.0)).is_none());
-        assert!(c.get_layout(size(f32::NAN, f32::NAN)).is_none());
+        assert!(c.get_layout(0, size(400.0, 300.0)).is_none());
+        assert!(c.get_layout(0, size(f32::NAN, f32::NAN)).is_none());
+    }
+
+    #[test]
+    fn a_layout_answers_only_the_constraint_it_was_laid_out_under() {
+        use crate::{solver3::geometry::ContainingBlock, text3::cache::AvailableSpace};
+        // A box measured at the finite sentinel width a table cell's measure
+        // flattens to, in a 600 px tall block, as a min-content and as a
+        // max-content constraint.
+        let sentinel = size(f32::MAX / 2.0, 600.0);
+        let min_content = ContainingBlock::from_axes(
+            AvailableSpace::MinContent,
+            AvailableSpace::Definite(600.0),
+            sentinel,
+        );
+        let max_content = ContainingBlock::from_axes(
+            AvailableSpace::MaxContent,
+            AvailableSpace::Definite(600.0),
+            sentinel,
+        );
+        let (min_slot, min_key) = NodeCache::classify_size_key(&min_content, sentinel);
+        let (max_slot, max_key) = NodeCache::classify_size_key(&max_content, sentinel);
+        assert_eq!(min_key, max_key, "both constraints flatten to one size");
+        assert_ne!(min_slot, max_slot, "and land in two slots");
+
+        let mut c = NodeCache::default();
+        c.store_layout(LayoutCacheEntry {
+            size_slot: max_slot,
+            ..layout_entry(sentinel, size(420.0, 30.0))
+        });
+        c.store_size(max_slot, sizing_entry(max_key, size(420.0, 30.0)));
+        assert!(c.get_layout(max_slot, sentinel).is_some());
+        assert!(c.holds(max_slot, max_key));
+        assert!(
+            c.get_layout(min_slot, sentinel).is_none(),
+            "a max-content layout does not answer a min-content measure"
+        );
+        assert!(c.get_size(min_slot, min_key).is_none());
+        assert!(
+            !c.holds(min_slot, min_key),
+            "the subtree holds the max-content layout, not a min-content one"
+        );
     }
 
     #[test]
@@ -4251,7 +5914,7 @@ mod autotest_generated {
         assert!(c.layout_entry.is_none());
         assert!(c.measure_entries.iter().all(Option::is_none));
         assert!(c.get_size(0, size(10.0, 10.0)).is_none());
-        assert!(c.get_layout(size(10.0, 10.0)).is_none());
+        assert!(c.get_layout(0, size(10.0, 10.0)).is_none());
 
         // Clearing twice is harmless.
         c.clear();
@@ -4295,32 +5958,30 @@ mod autotest_generated {
     #[test]
     fn slot_index_collapses_definite_and_maxcontent_onto_one_slot() {
         use AvailableWidthType::{Definite, MaxContent, MinContent};
-        // Documented: "MaxContent/Definite vs MinContent" share a slot.
+        // Documented: on the unknown axis "MaxContent/Definite vs MinContent"
+        // share a slot.
         assert_eq!(
             NodeCache::slot_index(true, false, Definite, Definite),
-            NodeCache::slot_index(true, false, MaxContent, Definite)
+            NodeCache::slot_index(true, false, Definite, MaxContent)
         );
         assert_ne!(
             NodeCache::slot_index(true, false, Definite, Definite),
-            NodeCache::slot_index(true, false, MinContent, Definite)
+            NodeCache::slot_index(true, false, Definite, MinContent)
         );
     }
 
     #[test]
-    fn slot_index_keys_the_single_unknown_axis_off_the_known_axis_type() {
+    fn slot_index_keys_the_single_unknown_axis_off_its_own_constraint() {
         use AvailableWidthType::{Definite, MinContent};
-        // BEHAVIOUR PIN (deviates from Taffy): when only the width is known, the
-        // slot is chosen from `width_type` — the type of the *known* axis — even
-        // though the doc comment says it keys off "the unknown dimension(s)".
-        // Taffy keys slot 1/2 off the height (the unknown axis) here. Same for
-        // the mirrored (false, true) case, which keys off `height_type`.
-        // Consequence: the height's MinContent-ness cannot select slot 2 at all,
-        // so a MinContent and a Definite height measurement would collide in a
-        // single slot once slots 1-8 are wired up (they are unused today).
-        assert_eq!(NodeCache::slot_index(true, false, Definite, MinContent), 1);
-        assert_eq!(NodeCache::slot_index(true, false, MinContent, Definite), 2);
-        assert_eq!(NodeCache::slot_index(false, true, MinContent, Definite), 3);
-        assert_eq!(NodeCache::slot_index(false, true, Definite, MinContent), 4);
+        // As in Taffy: with only the width known, the height's constraint
+        // picks slot 1 or 2, and the mirrored case keys off the width's. The
+        // known axis is a length, whatever its type says: keyed off it, a
+        // min-content and a max-content measure of the unknown axis would
+        // share one slot.
+        assert_eq!(NodeCache::slot_index(true, false, Definite, MinContent), 2);
+        assert_eq!(NodeCache::slot_index(true, false, MinContent, Definite), 1);
+        assert_eq!(NodeCache::slot_index(false, true, MinContent, Definite), 4);
+        assert_eq!(NodeCache::slot_index(false, true, Definite, MinContent), 3);
     }
 
     // ==================================================================
@@ -4395,37 +6056,43 @@ mod autotest_generated {
     }
 
     #[test]
-    fn cachemap_mark_dirty_stops_at_the_first_dirty_ancestor() {
-        // 0 (clean) <- 1 (already dirty) <- 2 (clean)
+    fn cachemap_mark_dirty_all_walks_a_shared_ancestor_chain_once() {
+        // 0 <- 1 <- {2, 3}: the second walk stops at 1, which the first
+        // walk of the same call cleared.
+        let tree = vec![plain(None), plain(Some(0)), plain(Some(1)), plain(Some(1))];
+        let mut m = LayoutCacheMap::default();
+        m.resize_to_tree(4);
+        for i in 0..4 {
+            m.get_mut(i)
+                .store_size(0, sizing_entry(size(1.0, 1.0), size(1.0, 1.0)));
+        }
+
+        m.mark_dirty_all([2, 3], &tree);
+
+        assert!(m.entries.iter().all(|e| e.is_empty));
+    }
+
+    /// A flex item laid out by taffy never gets an entry of its own, and
+    /// neither does a node the reconcile built fresh: an EMPTY entry says
+    /// nothing about its ancestors. Stopping there left the flex container's
+    /// layout slot in place, which served the old child positions and never
+    /// laid the fresh item out - a dragged slider's thumb vanished
+    /// (`dragging_the_slider_leaves_no_thumb_behind`, FIX9 1.6, 2026-10-05).
+    #[test]
+    fn cachemap_mark_dirty_on_a_node_with_no_entry_still_clears_its_ancestors() {
+        // 0 (block) <- 1 (flex container, laid out) <- 2 (flex item, no entry)
         let tree = vec![plain(None), plain(Some(0)), plain(Some(1))];
         let mut m = LayoutCacheMap::default();
         m.resize_to_tree(3);
         m.get_mut(0)
             .store_size(0, sizing_entry(size(1.0, 1.0), size(1.0, 1.0)));
-        m.get_mut(2)
+        m.get_mut(1)
             .store_size(0, sizing_entry(size(1.0, 1.0), size(1.0, 1.0)));
 
         m.mark_dirty(2, &tree);
 
-        assert!(m.get(2).is_empty);
-        assert!(m.get(1).is_empty);
-        // Early stop: the grandparent keeps its cached entry.
-        assert!(!m.get(0).is_empty);
-    }
-
-    #[test]
-    fn cachemap_mark_dirty_on_an_already_dirty_node_leaves_ancestors_alone() {
-        let tree = vec![plain(None), plain(Some(0))];
-        let mut m = LayoutCacheMap::default();
-        m.resize_to_tree(2);
-        m.get_mut(0)
-            .store_size(0, sizing_entry(size(1.0, 1.0), size(1.0, 1.0)));
-        // entry 1 is fresh → already dirty
-
-        m.mark_dirty(1, &tree);
-
-        assert!(m.get(1).is_empty);
-        assert!(!m.get(0).is_empty);
+        assert!(m.get(1).is_empty, "the container lays its items out again");
+        assert!(m.get(0).is_empty);
     }
 
     #[test]
@@ -4656,7 +6323,7 @@ mod autotest_generated {
     #[test]
     fn reset_incremental_drops_reuse_state_keeps_the_rest_and_is_idempotent() {
         let mut cache = LayoutCache {
-            tree: Some(build_tree(vec![plain(None)], warm_default(1), &[vec![]])),
+            tree: Some(build_tree(vec![plain(None)], warm_default(1), &[vec![]]).into()),
             ..Default::default()
         };
         cache.cache_map.resize_to_tree(2);
@@ -4863,40 +6530,31 @@ mod autotest_generated {
     }
 
     #[test]
-    fn should_use_content_height_treats_zero_px_as_content_based() {
-        // BEHAVIOUR PIN: `height: 0px` is indistinguishable from `auto` here, so
-        // an explicitly zero-height box falls back to content sizing.
-        assert!(should_use_content_height(&MultiValue::Exact(
+    fn a_zero_height_is_a_definite_height_not_auto() {
+        assert!(!should_use_content_height(&MultiValue::Exact(
             LayoutHeight::Px(PixelValue::zero())
         )));
-        assert!(should_use_content_height(&MultiValue::Exact(
-            LayoutHeight::Px(PixelValue::px(0.0))
-        )));
-        // ...but `height: 0%` is NOT (its metric is Percent, not Px).
         assert!(!should_use_content_height(&MultiValue::Exact(
-            LayoutHeight::Px(PixelValue::percent(0.0))
+            LayoutHeight::Px(PixelValue::px(0.0))
         )));
     }
 
     #[test]
-    fn should_use_content_height_treats_non_px_metrics_as_content_based() {
-        // BEHAVIOUR PIN (suspected bug): only Px/Percent/Em/Rem are recognised as
-        // definite. Every other metric — pt, vh, vw, cm, in, mm — is reported as
-        // content-based, so `height: 100vh` behaves like a *minimum* height (see
-        // apply_content_based_height, which takes max(used, content)) instead of
-        // a definite one.
+    fn a_height_in_any_length_unit_is_definite() {
         for metric in [
             SizeMetric::Pt,
             SizeMetric::Vh,
             SizeMetric::Vw,
+            SizeMetric::Vmin,
+            SizeMetric::Vmax,
             SizeMetric::Cm,
             SizeMetric::Mm,
             SizeMetric::In,
         ] {
             let pv = PixelValue::from_metric(metric, 100.0);
             assert!(
-                should_use_content_height(&MultiValue::Exact(LayoutHeight::Px(pv))),
-                "{metric:?} is currently treated as content-based"
+                !should_use_content_height(&MultiValue::Exact(LayoutHeight::Px(pv))),
+                "{metric:?} is a definite height"
             );
         }
     }
@@ -5202,6 +6860,7 @@ mod autotest_generated {
         ScrollbarRequirements {
             needs_horizontal: h,
             needs_vertical: v,
+            bar_kind: crate::solver3::scrollbar::ScrollbarKind::Classic,
             scrollbar_width: w,
             scrollbar_height: w,
             visual_width_px: w,
@@ -5999,6 +7658,86 @@ mod autotest_generated {
         assert!(
             counters.is_empty(),
             "no counter-reset/increment → no counters"
+        );
+    }
+
+    /// `body(0) > ol(1) > [ li(2), li(3) > ol(4) > [ li(5), li(6) ] ]`, the
+    /// layout tree numbered like the DOM.
+    fn nested_lists() -> (StyledDom, LayoutTree) {
+        let sd = styled(
+            Dom::create_body().with_child(
+                Dom::create_ol()
+                    .with_child(Dom::create_li())
+                    .with_child(
+                        Dom::create_li().with_child(
+                            Dom::create_ol()
+                                .with_child(Dom::create_li())
+                                .with_child(Dom::create_li()),
+                        ),
+                    ),
+            ),
+            "",
+        );
+        let node = |parent: Option<usize>, dom: usize| {
+            hot(
+                parent,
+                Some(NodeId::new(dom)),
+                Some(size(100.0, 10.0)),
+                &zero_box_props(),
+            )
+        };
+        let tree = build_tree(
+            vec![
+                node(None, 0),
+                node(Some(0), 1),
+                node(Some(1), 2),
+                node(Some(1), 3),
+                node(Some(3), 4),
+                node(Some(4), 5),
+                node(Some(4), 6),
+            ],
+            warm_default(7),
+            &[vec![1], vec![2, 3], vec![], vec![4], vec![5, 6], vec![], vec![]],
+        );
+        (sd, tree)
+    }
+
+    fn list_item_value(counters: &HashMap<(usize, String), i32>, node: usize) -> Option<i32> {
+        counters.get(&(node, "list-item".to_string())).copied()
+    }
+
+    /// A list keeps its numbering while the pointer is over it (or it holds
+    /// the focus): a pseudo-state changes which declarations apply, never
+    /// whether the list's own `counter-reset` (the UA sheet's, here) counts.
+    /// CSS Lists 3 section 4.4: `ol` / `ul` reset `list-item`, so the inner
+    /// list counts 1, 2 again in every state.
+    #[test]
+    fn a_hovered_list_keeps_its_numbering() {
+        let (mut sd, tree) = nested_lists();
+        let mut at_rest: HashMap<(usize, String), i32> = HashMap::new();
+        compute_counters(&sd, &tree, &mut at_rest);
+        assert_eq!(
+            (list_item_value(&at_rest, 5), list_item_value(&at_rest, 6)),
+            (Some(1), Some(2)),
+            "premise: at rest the inner list counts from 1"
+        );
+
+        {
+            let mut nodes = sd.styled_nodes.as_container_mut();
+            nodes[NodeId::new(4)].styled_node_state.hover = true;
+            nodes[NodeId::new(5)].styled_node_state.focused = true;
+        }
+        let mut hovered: HashMap<(usize, String), i32> = HashMap::new();
+        compute_counters(&sd, &tree, &mut hovered);
+        assert_eq!(
+            (list_item_value(&hovered, 5), list_item_value(&hovered, 6)),
+            (Some(1), Some(2)),
+            "the hovered inner list still resets list-item (it continued the outer list's count)"
+        );
+        assert_eq!(
+            (list_item_value(&hovered, 2), list_item_value(&hovered, 3)),
+            (Some(1), Some(2)),
+            "the outer list is untouched by the inner one's state"
         );
     }
 }

@@ -1,0 +1,22 @@
+[
+  {
+    "why": "unpaid",
+    "code": "read_only_unpaid"
+  },
+  {
+    "why": "lockdown_pending",
+    "code": "read_only_lockdown"
+  },
+  {
+    "why": "operator",
+    "code": "read_only_operator"
+  },
+  {
+    "why": "archived",
+    "code": "drive_archived"
+  },
+  {
+    "why": "moving",
+    "code": "read_only_moving"
+  }
+]

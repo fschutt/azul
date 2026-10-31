@@ -1,0 +1,6894 @@
+# methods.toml: the payment methods people pay with, country by country, and the providers that carry them.
+#
+# Read from the providers' documentation 2026-10-15 to 2026-10-17 (each entry lists its sources). Facts only, at
+# provider and country level: nothing here is tied to one app's prices, tiers or policy, so any app can use the file. Fees are list prices for a merchant in Germany.
+#
+# Format 2 (azul-pay-methods parses it and refuses any other format; a country's list is everything its payers are
+# offered). Four kinds of table: [[provider]], [[method]], [[route]], [[country]].
+# EVERY entry has EVERY key of its kind, in this order. Unknown values are "" (strings), 0 or -1 (numbers, as noted),
+# false (booleans) or [] (lists); they are never omitted. New keys may be added at the end of an entry later; existing
+# keys never change their meaning (`format` is raised when one must).
+#
+# Amounts are strings "<ISO 4217 code> <decimal>" ("EUR 0.25"), parsed into minor units. Percentages are integer basis
+# points (160 = 1.60 %), so every reader computes the same cents.
+#
+# [[provider]] - a payment provider
+#   id                 string  stable id; adapters and test fakes name it ("fake-stripe" serves the routes of "stripe")
+#   name               string  display name
+#   kind               string  processor | aggregator | merchant_of_record
+#   onboarding         string  self_serve | sales | invite | closed  (for a business in merchant_countries)
+#   merchant_countries list    ISO 3166-1 alpha-2 codes where a business may sign up; ["*"] = anywhere
+#   origins            list    hosts its pages may navigate to inside an app's webview; [] = none known, so its pages
+#                              open in the system browser only
+#   webhook            string  stripe_signature | gocardless_signature | mollie_fetch | paypal_verify | komoju_secret |
+#                              unknown
+#   payout             string  one line: the currencies and the way money reaches the merchant
+#   docs               string  the provider's method overview
+#   sources            list    URLs
+#
+# [[method]] - what a payer chooses (the pill)
+#   id          string  stable id, the same across providers
+#   name        string  descriptive text only; apps and test fakes never show a logo or wordmark from this file
+#   family      string  card | wallet | bank_redirect | bank_debit | realtime | bnpl | voucher | bank_transfer
+#   flow        string  what the payer does: fields | redirect | qr | code | push | voucher | debit | transfer
+#   handoff     string  where the payer finishes: none | phone_qr | phone_push | bank_app | bank_login |
+#                       provider_login | store_cash | bank_transfer
+#   countries   list    payer countries; ["*"] = anywhere
+#   currencies  list    ISO 4217 codes the method is paid in; ["*"] = most
+#
+# [[route]] - one way to accept a method: a (method, provider) pair
+#   method              string  a method id
+#   provider            string  a provider id
+#   provider_type       string  the provider's own id for it (Stripe payment_method_types value, Mollie method,
+#                               GoCardless scheme, dLocal payment_method_id)
+#   status              string  ga | preview | invite | sales | verify
+#   merchant_countries  list    [] = the provider's list; else only these merchant countries may use the route
+#   currencies          list    presentment currencies of this route
+#   adaptive            bool    payable on a session priced in another currency, converted by the provider (one-off)
+#   adaptive_recurring  bool    the same for recurring charges
+#   recurring           string  none | mandate | via_sepa_debit | send_invoice
+#                               mandate: later charges without the payer; via_sepa_debit: the first payment creates a
+#                               SEPA Direct Debit mandate; send_invoice: the payer pays each period again (prepaid)
+#   recurring_cap       string  the largest recurring charge ("INR 15000"); "" = none known
+#   min, max            string  amount limits; "" = the provider's default
+#   expires_minutes     integer how long a code, QR or voucher lives; 0 = not applicable
+#   settles             string  instant | minutes | days  (when the outcome is known)
+#   surfaces            list    where an app may show it, best first: sheet | iban | fields | page | browser.
+#                               A login (handoff bank_login or provider_login) or webview = forbidden / discouraged is
+#                               ["browser"] (or ["sheet", "browser"]); a provider without origins is browser-only.
+#   webview             string  allowed | discouraged | forbidden  (the provider's or the scheme's rule)
+#   fee_known           bool    false: no public list price (contract)
+#   fee_bps             integer percentage part in basis points
+#   fee_fixed           string  fixed part per payment ("" = none)
+#   fee_cap             string  the most one payment costs ("" = no cap)
+#   fee_note            string  other fee facts, one line
+#   refund_days         integer how long a payment can be refunded; 0 = no refunds; -1 = unknown
+#   disputes            string  none | chargeback | claims | bank | unknown
+#   payer_data          list    what the provider's own page asks the payer: name | email | phone | tax_id | national_id |
+#                               address. The payer types it there; the merchant's server never sees it.
+#   test_inputs         list    the provider's documented test data, as { field, value, outcome, note, after_minutes };
+#                               outcome is succeeded | failed | requires_action | disputed; after_minutes is how long
+#                               the provider takes to decide (0 = at once). Test fakes accept these inputs only, and
+#                               fake exactly the routes that have a succeeded row.
+#   sources             list    URLs
+#   read_on             string  date the sources were read
+#   note                string  anything else, one line
+#   request_data        list    what the provider's API wants in the merchant's own request (the same names as
+#                               payer_data): the app asks the payer for exactly these, the merchant's server passes
+#                               them on in that one request and keeps none of them. Together with payer_data it is
+#                               the personal data the route needs (an app says so before the payer picks it).
+#
+# [[country]] - what people pay with
+#   code       string  ISO 3166-1 alpha-2; "*" = every country without its own entry
+#   name       string  English name
+#   currency   string  the local currency
+#   mix        table   e-commerce value share in percent: wallets, a2a, bnpl, crypto, credit, debit, cash ({} = unknown;
+#                      "<1 %" is 0). Card-funded wallets count as wallets, as in the source.
+#   mix_year   integer the year the mix describes; 0 = no mix
+#   prefer     list    the methods payers of the country are offered, most used first: an app shows these and only
+#                      these, in this order (a method that serves the country but is not listed is not offered there).
+#                      From the research's usage shares (PAYMENT-METHODS.md §3: who pays with what, then the routes
+#                      the research names for recurring plans); every euro-area list ends with SEPA Direct Debit,
+#                      which every euro account can be debited by (Regulation (EU) 260/2012).
+#   sources    list    URLs
+
+format = 2
+read_on = "2026-10-17"
+
+# ---- providers
+
+[[provider]]
+id = "stripe"
+name = "Stripe"
+kind = "processor"
+onboarding = "self_serve"
+merchant_countries = ["AU", "AT", "BE", "BR", "BG", "CA", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GI", "GR", "HK", "HU", "IE", "IT", "JP", "LV", "LI", "LT", "LU", "MY", "MT", "MX", "NL", "NZ", "NO", "PL", "PT", "RO", "SG", "SK", "SI", "ES", "SE", "CH", "TH", "AE", "GB", "US"]
+origins = ["checkout.stripe.com", "hooks.stripe.com", "js.stripe.com"]
+webhook = "stripe_signature"
+payout = "in the account's currency (EUR for EU accounts)"
+docs = "https://docs.stripe.com/payments/payment-methods/payment-method-support"
+sources = ["https://stripe.com/global", "https://docs.stripe.com/payments/payment-methods/payment-method-support"]
+
+[[provider]]
+id = "gocardless"
+name = "GoCardless"
+kind = "processor"
+onboarding = "self_serve"
+merchant_countries = ["AU", "AT", "BE", "BG", "CA", "HR", "CY", "CZ", "DK", "FI", "FR", "DE", "HU", "IT", "LU", "MT", "NL", "NZ", "NO", "PL", "PT", "IE", "RO", "SK", "SI", "ZA", "ES", "SE", "CH", "GB", "US"]
+origins = ["pay.gocardless.com", "pay-sandbox.gocardless.com"]
+webhook = "gocardless_signature"
+payout = "home currency; other schemes converted at payout (FX feature)"
+docs = "https://docs.gocardless.com/docs/api-reference/schemes"
+sources = ["https://gocardless.com/faq/merchants/international-payments/", "https://docs.gocardless.com/docs/api-reference/schemes", "https://docs.gocardless.com/docs/collect-payments/managing-payments/fx"]
+
+[[provider]]
+id = "mollie"
+name = "Mollie"
+kind = "processor"
+onboarding = "self_serve"
+merchant_countries = ["AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GR", "HU", "IS", "IE", "IT", "LV", "LI", "LT", "LU", "MT", "NL", "NO", "PL", "PT", "RO", "SK", "SI", "ES", "SE", "CH", "GB"]
+origins = ["www.mollie.com"]
+webhook = "mollie_fetch"
+payout = "EUR (and other currencies on request)"
+docs = "https://docs.mollie.com/docs/payment-methods"
+sources = ["https://docs.mollie.com/docs/payment-methods", "https://www.mollie.com/de/pricing"]
+
+[[provider]]
+id = "paypal"
+name = "PayPal"
+kind = "processor"
+onboarding = "self_serve"
+merchant_countries = ["*"]
+origins = []
+webhook = "paypal_verify"
+payout = "PayPal balance, withdrawn to a bank account"
+docs = "https://www.paypal.com/de/business/paypal-business-fees"
+sources = ["https://www.paypal.com/de/business/paypal-business-fees"]
+
+[[provider]]
+id = "komoju"
+name = "KOMOJU"
+kind = "processor"
+onboarding = "self_serve"
+merchant_countries = ["*"]
+origins = []
+webhook = "komoju_secret"
+payout = "JPY, USD or EUR, also to a bank account outside Japan"
+docs = "https://docs.komoju.com/en/docs/introduction/supported-payment-types.md"
+sources = ["https://docs.komoju.com/en/docs/introduction/supported-payment-types.md", "https://en.komoju.com/cross-border-payment-solutions/komoju-vs-stripe/"]
+
+[[provider]]
+id = "ebanx"
+name = "EBANX"
+kind = "processor"
+onboarding = "sales"
+merchant_countries = ["*"]
+origins = []
+webhook = "ebanx_query"
+payout = "cross-border model: converted and remitted to the merchant's country"
+docs = "https://docs.ebanx.com/docs/get-started/api-operability.md"
+sources = ["https://docs.ebanx.com/docs/get-started/api-operability.md", "https://docs.ebanx.com/docs/pay-in/processing/payment-page.md", "https://docs.ebanx.com/docs/pay-in/management/status-and-retrieval/payment-notifications.md"]
+
+[[provider]]
+id = "dlocal"
+name = "dLocal"
+kind = "processor"
+onboarding = "sales"
+merchant_countries = ["*"]
+origins = []
+webhook = "dlocal_signature"
+payout = "settled abroad"
+docs = "https://docs.dlocal.com/llms.txt"
+sources = ["https://docs.dlocal.com/llms.txt", "https://docs.dlocal.com/docs/integrate-checkout", "https://docs.dlocal.com/reference/payins-security", "https://docs.dlocal.com/docs/embedding-dlocal-payment-pages"]
+
+[[provider]]
+id = "adyen"
+name = "Adyen"
+kind = "processor"
+onboarding = "sales"
+merchant_countries = ["*"]
+origins = []
+webhook = "unknown"
+payout = "merchant's currency"
+docs = "https://docs.adyen.com/payment-methods/"
+sources = ["https://docs.adyen.com/payment-methods/"]
+
+[[provider]]
+id = "razorpay"
+name = "Razorpay (Import)"
+kind = "processor"
+onboarding = "invite"
+merchant_countries = ["*"]
+origins = []
+webhook = "unknown"
+payout = "USD, EUR or SGD within two business days"
+docs = "https://razorpay.com/blog/how-global-businesses-can-offer-upi-payments-to-indian-customers/"
+sources = ["https://razorpay.com/blog/how-global-businesses-can-offer-upi-payments-to-indian-customers/"]
+
+[[provider]]
+id = "xendit"
+name = "Xendit"
+kind = "processor"
+onboarding = "sales"
+merchant_countries = ["*"]
+origins = []
+webhook = "unknown"
+payout = "settled to a head-office account"
+docs = "https://www.xendit.co/en/products/all-payment-methods/"
+sources = ["https://www.xendit.co/en/products/all-payment-methods/"]
+
+[[provider]]
+id = "antom"
+name = "Antom (Alipay+)"
+kind = "processor"
+onboarding = "sales"
+merchant_countries = ["*"]
+origins = []
+webhook = "unknown"
+payout = ""
+docs = "https://docs.antom.com/ac/pm/overview.md"
+sources = ["https://docs.antom.com/ac/pm/overview.md"]
+
+[[provider]]
+id = "mercadopago"
+name = "Mercado Pago (cross border)"
+kind = "processor"
+onboarding = "sales"
+merchant_countries = ["*"]
+origins = []
+webhook = "unknown"
+payout = "USD only"
+docs = "https://www.mercadopago.com.mx/developers/en/docs/resources/localization/crossborder-integration"
+sources = ["https://www.mercadopago.com.mx/developers/en/docs/resources/localization/crossborder-integration"]
+
+[[provider]]
+id = "flutterwave"
+name = "Flutterwave"
+kind = "processor"
+onboarding = "self_serve"
+merchant_countries = ["NG", "GH", "KE", "ZA", "UG", "TZ", "RW", "ZM", "CM", "CI", "GB", "US", "AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GR", "HU", "IS", "IE", "IT", "LV", "LI", "LT", "LU", "MT", "NL", "NO", "PL", "PT", "RO", "SK", "SI", "ES", "SE"]
+origins = []
+webhook = "unknown"
+payout = ""
+docs = "https://flutterwave.com/gb/support/payment-methods/payment-channels"
+sources = ["https://flutterwave.com/gb/support/payment-methods/payment-channels"]
+
+[[provider]]
+id = "paystack"
+name = "Paystack"
+kind = "processor"
+onboarding = "self_serve"
+merchant_countries = ["NG", "GH", "ZA", "KE"]
+origins = []
+webhook = "unknown"
+payout = "local currency"
+docs = "https://support.paystack.com/en/articles/2130562"
+sources = ["https://support.paystack.com/en/articles/2130562"]
+
+# ---- methods
+
+[[method]]
+id = "card"
+name = "Card"
+family = "card"
+flow = "fields"
+handoff = "none"
+countries = ["*"]
+currencies = ["*"]
+
+[[method]]
+id = "apple_pay"
+name = "Apple Pay"
+family = "wallet"
+flow = "fields"
+handoff = "none"
+countries = ["*"]
+currencies = ["*"]
+
+[[method]]
+id = "google_pay"
+name = "Google Pay"
+family = "wallet"
+flow = "redirect"
+handoff = "provider_login"
+countries = ["*"]
+currencies = ["*"]
+
+[[method]]
+id = "link"
+name = "Link"
+family = "wallet"
+flow = "redirect"
+handoff = "provider_login"
+countries = ["*"]
+currencies = ["*"]
+
+[[method]]
+id = "paypal"
+name = "PayPal"
+family = "wallet"
+flow = "redirect"
+handoff = "provider_login"
+countries = ["*"]
+currencies = ["AUD", "CAD", "CHF", "CZK", "DKK", "EUR", "GBP", "HKD", "NOK", "NZD", "PLN", "SEK", "SGD", "USD"]
+
+[[method]]
+id = "amazon_pay"
+name = "Amazon Pay"
+family = "wallet"
+flow = "redirect"
+handoff = "provider_login"
+countries = ["*"]
+currencies = ["AUD", "CHF", "DKK", "EUR", "GBP", "HKD", "JPY", "NOK", "NZD", "SEK", "USD", "ZAR"]
+
+[[method]]
+id = "klarna"
+name = "Klarna"
+family = "bnpl"
+flow = "redirect"
+handoff = "provider_login"
+countries = ["AU", "AT", "BE", "CA", "CZ", "DK", "FI", "FR", "GR", "DE", "IE", "IT", "NL", "NZ", "NO", "PL", "PT", "RO", "ES", "SE", "CH", "GB", "US"]
+currencies = ["AUD", "CAD", "CHF", "CZK", "DKK", "EUR", "GBP", "NOK", "NZD", "PLN", "RON", "SEK", "USD"]
+
+[[method]]
+id = "sepa_debit"
+name = "SEPA Direct Debit"
+family = "bank_debit"
+flow = "debit"
+handoff = "none"
+countries = ["AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GR", "HU", "IS", "IE", "IT", "LV", "LI", "LT", "LU", "MT", "NL", "NO", "PL", "PT", "RO", "SK", "SI", "ES", "SE", "CH", "GB", "MC", "SM", "VA", "AD"]
+currencies = ["EUR"]
+
+[[method]]
+id = "bacs_debit"
+name = "Bacs Direct Debit"
+family = "bank_debit"
+flow = "debit"
+handoff = "none"
+countries = ["GB"]
+currencies = ["GBP"]
+
+[[method]]
+id = "autogiro"
+name = "Autogiro"
+family = "bank_debit"
+flow = "debit"
+handoff = "none"
+countries = ["SE"]
+currencies = ["SEK"]
+
+[[method]]
+id = "betalingsservice"
+name = "Betalingsservice"
+family = "bank_debit"
+flow = "debit"
+handoff = "none"
+countries = ["DK"]
+currencies = ["DKK"]
+
+[[method]]
+id = "becs_debit"
+name = "BECS Direct Debit"
+family = "bank_debit"
+flow = "debit"
+handoff = "none"
+countries = ["AU"]
+currencies = ["AUD"]
+
+[[method]]
+id = "becs_nz_debit"
+name = "BECS Direct Debit (New Zealand)"
+family = "bank_debit"
+flow = "debit"
+handoff = "none"
+countries = ["NZ"]
+currencies = ["NZD"]
+
+[[method]]
+id = "pad_debit"
+name = "Pre-authorized debit (Canada)"
+family = "bank_debit"
+flow = "debit"
+handoff = "none"
+countries = ["CA"]
+currencies = ["CAD"]
+
+[[method]]
+id = "us_bank_account"
+name = "ACH Direct Debit"
+family = "bank_debit"
+flow = "debit"
+handoff = "bank_login"
+countries = ["US"]
+currencies = ["USD"]
+
+[[method]]
+id = "bank_transfer"
+name = "Bank transfer"
+family = "bank_transfer"
+flow = "transfer"
+handoff = "bank_transfer"
+countries = ["AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GR", "HU", "IS", "IE", "IT", "LV", "LI", "LT", "LU", "MT", "NL", "NO", "PL", "PT", "RO", "SK", "SI", "ES", "SE", "GB", "US", "JP", "MX"]
+currencies = ["EUR", "GBP", "USD", "JPY", "MXN"]
+
+[[method]]
+id = "ideal"
+name = "iDEAL | Wero"
+family = "bank_redirect"
+flow = "redirect"
+handoff = "bank_login"
+countries = ["NL"]
+currencies = ["EUR"]
+
+[[method]]
+id = "wero"
+name = "Wero"
+family = "realtime"
+flow = "qr"
+handoff = "phone_qr"
+countries = ["DE", "FR", "BE"]
+currencies = ["EUR"]
+
+[[method]]
+id = "bancontact"
+name = "Bancontact"
+family = "bank_redirect"
+flow = "redirect"
+handoff = "bank_login"
+countries = ["BE"]
+currencies = ["EUR"]
+
+[[method]]
+id = "eps"
+name = "EPS"
+family = "bank_redirect"
+flow = "redirect"
+handoff = "bank_login"
+countries = ["AT"]
+currencies = ["EUR"]
+
+[[method]]
+id = "p24"
+name = "Przelewy24"
+family = "bank_redirect"
+flow = "redirect"
+handoff = "bank_login"
+countries = ["PL"]
+currencies = ["PLN", "EUR"]
+
+[[method]]
+id = "blik"
+name = "BLIK"
+family = "realtime"
+flow = "code"
+handoff = "bank_app"
+countries = ["PL"]
+currencies = ["PLN"]
+
+[[method]]
+id = "twint"
+name = "TWINT"
+family = "wallet"
+flow = "qr"
+handoff = "phone_qr"
+countries = ["CH"]
+currencies = ["CHF"]
+
+[[method]]
+id = "swish"
+name = "Swish"
+family = "realtime"
+flow = "qr"
+handoff = "phone_qr"
+countries = ["SE"]
+currencies = ["SEK"]
+
+[[method]]
+id = "mobilepay"
+name = "MobilePay"
+family = "wallet"
+flow = "push"
+handoff = "phone_push"
+countries = ["DK", "FI"]
+currencies = ["DKK", "EUR", "NOK", "SEK"]
+
+[[method]]
+id = "vipps"
+name = "Vipps"
+family = "wallet"
+flow = "push"
+handoff = "phone_push"
+countries = ["NO"]
+currencies = ["NOK"]
+
+[[method]]
+id = "mb_way"
+name = "MB WAY"
+family = "wallet"
+flow = "push"
+handoff = "phone_push"
+countries = ["PT"]
+currencies = ["EUR"]
+
+[[method]]
+id = "multibanco"
+name = "Multibanco"
+family = "voucher"
+flow = "voucher"
+handoff = "store_cash"
+countries = ["PT"]
+currencies = ["EUR"]
+
+[[method]]
+id = "bizum"
+name = "Bizum"
+family = "realtime"
+flow = "push"
+handoff = "phone_push"
+countries = ["ES"]
+currencies = ["EUR"]
+
+[[method]]
+id = "satispay"
+name = "Satispay"
+family = "wallet"
+flow = "redirect"
+handoff = "provider_login"
+countries = ["IT"]
+currencies = ["EUR"]
+
+[[method]]
+id = "revolut_pay"
+name = "Revolut Pay"
+family = "wallet"
+flow = "qr"
+handoff = "phone_qr"
+countries = ["AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GR", "HU", "IS", "IE", "IT", "LV", "LI", "LT", "LU", "MT", "NL", "NO", "PL", "PT", "RO", "SK", "SI", "ES", "SE", "GB"]
+currencies = ["EUR", "GBP", "RON", "HUF", "PLN", "DKK"]
+
+[[method]]
+id = "pay_by_bank"
+name = "Pay by Bank"
+family = "bank_redirect"
+flow = "redirect"
+handoff = "bank_login"
+countries = ["GB", "AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GR", "HU", "IS", "IE", "IT", "LV", "LI", "LT", "LU", "MT", "NL", "NO", "PL", "PT", "RO", "SK", "SI", "ES", "SE"]
+currencies = ["GBP", "EUR"]
+
+[[method]]
+id = "mybank"
+name = "MyBank"
+family = "bank_redirect"
+flow = "redirect"
+handoff = "bank_login"
+countries = ["IT"]
+currencies = ["EUR"]
+
+[[method]]
+id = "bancomat_pay"
+name = "BANCOMAT Pay"
+family = "wallet"
+flow = "push"
+handoff = "phone_push"
+countries = ["IT"]
+currencies = ["EUR"]
+
+[[method]]
+id = "kbc"
+name = "KBC/CBC Payment Button"
+family = "bank_redirect"
+flow = "redirect"
+handoff = "bank_login"
+countries = ["BE"]
+currencies = ["EUR"]
+
+[[method]]
+id = "belfius"
+name = "Belfius Pay Button"
+family = "bank_redirect"
+flow = "redirect"
+handoff = "bank_login"
+countries = ["BE"]
+currencies = ["EUR"]
+
+[[method]]
+id = "upi"
+name = "UPI"
+family = "realtime"
+flow = "qr"
+handoff = "phone_qr"
+countries = ["IN"]
+currencies = ["INR"]
+
+[[method]]
+id = "netbanking_in"
+name = "Netbanking (India)"
+family = "bank_redirect"
+flow = "redirect"
+handoff = "bank_login"
+countries = ["IN"]
+currencies = ["INR"]
+
+[[method]]
+id = "pix"
+name = "Pix"
+family = "realtime"
+flow = "qr"
+handoff = "phone_qr"
+countries = ["BR"]
+currencies = ["BRL"]
+
+[[method]]
+id = "boleto"
+name = "Boleto"
+family = "voucher"
+flow = "voucher"
+handoff = "store_cash"
+countries = ["BR"]
+currencies = ["BRL"]
+
+[[method]]
+id = "alipay"
+name = "Alipay"
+family = "wallet"
+flow = "redirect"
+handoff = "provider_login"
+countries = ["CN"]
+currencies = ["CNY", "EUR", "USD", "GBP", "HKD", "JPY", "SGD", "AUD", "CAD", "NZD", "MYR"]
+
+[[method]]
+id = "alipay_hk"
+name = "AlipayHK"
+family = "wallet"
+flow = "redirect"
+handoff = "provider_login"
+countries = ["HK"]
+currencies = ["HKD"]
+
+[[method]]
+id = "wechat_pay"
+name = "WeChat Pay"
+family = "wallet"
+flow = "qr"
+handoff = "phone_qr"
+countries = ["CN", "HK"]
+currencies = ["CNY", "EUR", "USD", "GBP", "HKD", "JPY", "SGD", "AUD", "CAD", "DKK", "NOK", "SEK", "CHF"]
+
+[[method]]
+id = "kr_card"
+name = "Korean card"
+family = "card"
+flow = "redirect"
+handoff = "bank_login"
+countries = ["KR"]
+currencies = ["KRW"]
+
+[[method]]
+id = "kakao_pay"
+name = "Kakao Pay"
+family = "wallet"
+flow = "redirect"
+handoff = "provider_login"
+countries = ["KR"]
+currencies = ["KRW"]
+
+[[method]]
+id = "naver_pay"
+name = "Naver Pay"
+family = "wallet"
+flow = "redirect"
+handoff = "provider_login"
+countries = ["KR"]
+currencies = ["KRW"]
+
+[[method]]
+id = "payco"
+name = "PAYCO"
+family = "wallet"
+flow = "redirect"
+handoff = "provider_login"
+countries = ["KR"]
+currencies = ["KRW"]
+
+[[method]]
+id = "samsung_pay"
+name = "Samsung Pay"
+family = "wallet"
+flow = "redirect"
+handoff = "provider_login"
+countries = ["KR"]
+currencies = ["KRW"]
+
+[[method]]
+id = "konbini"
+name = "Konbini (convenience store)"
+family = "voucher"
+flow = "voucher"
+handoff = "store_cash"
+countries = ["JP"]
+currencies = ["JPY"]
+
+[[method]]
+id = "paypay"
+name = "PayPay"
+family = "wallet"
+flow = "redirect"
+handoff = "provider_login"
+countries = ["JP"]
+currencies = ["JPY"]
+
+[[method]]
+id = "au_pay"
+name = "au PAY"
+family = "wallet"
+flow = "redirect"
+handoff = "provider_login"
+countries = ["JP"]
+currencies = ["JPY"]
+
+[[method]]
+id = "merpay"
+name = "Merpay"
+family = "wallet"
+flow = "redirect"
+handoff = "provider_login"
+countries = ["JP"]
+currencies = ["JPY"]
+
+[[method]]
+id = "pay_easy"
+name = "Pay-easy"
+family = "bank_transfer"
+flow = "voucher"
+handoff = "bank_transfer"
+countries = ["JP"]
+currencies = ["JPY"]
+
+[[method]]
+id = "paidy"
+name = "Paidy"
+family = "bnpl"
+flow = "redirect"
+handoff = "provider_login"
+countries = ["JP"]
+currencies = ["JPY"]
+
+[[method]]
+id = "oxxo"
+name = "OXXO"
+family = "voucher"
+flow = "voucher"
+handoff = "store_cash"
+countries = ["MX"]
+currencies = ["MXN"]
+
+[[method]]
+id = "spei"
+name = "SPEI"
+family = "bank_transfer"
+flow = "transfer"
+handoff = "bank_transfer"
+countries = ["MX"]
+currencies = ["MXN"]
+
+[[method]]
+id = "mercado_pago"
+name = "Mercado Pago"
+family = "wallet"
+flow = "redirect"
+handoff = "provider_login"
+countries = ["MX", "AR", "BR", "CL", "CO", "UY"]
+currencies = ["MXN", "ARS", "BRL", "CLP", "COP", "UYU"]
+
+[[method]]
+id = "pse"
+name = "PSE"
+family = "bank_redirect"
+flow = "redirect"
+handoff = "bank_login"
+countries = ["CO"]
+currencies = ["COP"]
+
+[[method]]
+id = "nequi"
+name = "Nequi"
+family = "wallet"
+flow = "push"
+handoff = "phone_push"
+countries = ["CO"]
+currencies = ["COP"]
+
+[[method]]
+id = "efecty"
+name = "Efecty"
+family = "voucher"
+flow = "voucher"
+handoff = "store_cash"
+countries = ["CO"]
+currencies = ["COP"]
+
+[[method]]
+id = "yape"
+name = "Yape"
+family = "wallet"
+flow = "push"
+handoff = "phone_push"
+countries = ["PE"]
+currencies = ["PEN"]
+
+[[method]]
+id = "pagoefectivo"
+name = "PagoEfectivo"
+family = "voucher"
+flow = "voucher"
+handoff = "store_cash"
+countries = ["PE"]
+currencies = ["PEN"]
+
+[[method]]
+id = "webpay"
+name = "Webpay"
+family = "bank_redirect"
+flow = "redirect"
+handoff = "bank_login"
+countries = ["CL"]
+currencies = ["CLP"]
+
+[[method]]
+id = "khipu"
+name = "Khipu"
+family = "bank_redirect"
+flow = "redirect"
+handoff = "bank_login"
+countries = ["CL"]
+currencies = ["CLP"]
+
+[[method]]
+id = "paynow"
+name = "PayNow"
+family = "realtime"
+flow = "qr"
+handoff = "phone_qr"
+countries = ["SG"]
+currencies = ["SGD"]
+
+[[method]]
+id = "grabpay"
+name = "GrabPay"
+family = "wallet"
+flow = "redirect"
+handoff = "provider_login"
+countries = ["SG", "MY", "PH"]
+currencies = ["SGD", "MYR", "PHP"]
+
+[[method]]
+id = "promptpay"
+name = "PromptPay"
+family = "realtime"
+flow = "qr"
+handoff = "phone_qr"
+countries = ["TH"]
+currencies = ["THB"]
+
+[[method]]
+id = "fpx"
+name = "FPX"
+family = "bank_redirect"
+flow = "redirect"
+handoff = "bank_login"
+countries = ["MY"]
+currencies = ["MYR"]
+
+[[method]]
+id = "touch_n_go"
+name = "Touch 'n Go eWallet"
+family = "wallet"
+flow = "redirect"
+handoff = "provider_login"
+countries = ["MY"]
+currencies = ["MYR"]
+
+[[method]]
+id = "duitnow"
+name = "DuitNow QR"
+family = "realtime"
+flow = "qr"
+handoff = "phone_qr"
+countries = ["MY"]
+currencies = ["MYR"]
+
+[[method]]
+id = "gcash"
+name = "GCash"
+family = "wallet"
+flow = "redirect"
+handoff = "provider_login"
+countries = ["PH"]
+currencies = ["PHP"]
+
+[[method]]
+id = "maya"
+name = "Maya"
+family = "wallet"
+flow = "redirect"
+handoff = "provider_login"
+countries = ["PH"]
+currencies = ["PHP"]
+
+[[method]]
+id = "gopay"
+name = "GoPay"
+family = "wallet"
+flow = "redirect"
+handoff = "provider_login"
+countries = ["ID"]
+currencies = ["IDR"]
+
+[[method]]
+id = "ovo"
+name = "OVO"
+family = "wallet"
+flow = "push"
+handoff = "phone_push"
+countries = ["ID"]
+currencies = ["IDR"]
+
+[[method]]
+id = "dana"
+name = "DANA"
+family = "wallet"
+flow = "redirect"
+handoff = "provider_login"
+countries = ["ID"]
+currencies = ["IDR"]
+
+[[method]]
+id = "qris"
+name = "QRIS"
+family = "realtime"
+flow = "qr"
+handoff = "phone_qr"
+countries = ["ID"]
+currencies = ["IDR"]
+
+[[method]]
+id = "momo"
+name = "MoMo"
+family = "wallet"
+flow = "redirect"
+handoff = "provider_login"
+countries = ["VN"]
+currencies = ["VND"]
+
+[[method]]
+id = "zalopay"
+name = "ZaloPay"
+family = "wallet"
+flow = "redirect"
+handoff = "provider_login"
+countries = ["VN"]
+currencies = ["VND"]
+
+[[method]]
+id = "mpesa"
+name = "M-PESA"
+family = "wallet"
+flow = "push"
+handoff = "phone_push"
+countries = ["KE"]
+currencies = ["KES"]
+
+[[method]]
+id = "airtel_money"
+name = "Airtel Money"
+family = "wallet"
+flow = "push"
+handoff = "phone_push"
+countries = ["KE"]
+currencies = ["KES"]
+
+[[method]]
+id = "opay"
+name = "OPay"
+family = "wallet"
+flow = "redirect"
+handoff = "provider_login"
+countries = ["NG"]
+currencies = ["NGN"]
+
+[[method]]
+id = "ng_bank_transfer"
+name = "Bank transfer (Nigeria)"
+family = "bank_transfer"
+flow = "transfer"
+handoff = "bank_transfer"
+countries = ["NG"]
+currencies = ["NGN"]
+
+[[method]]
+id = "ozow"
+name = "Ozow"
+family = "bank_redirect"
+flow = "redirect"
+handoff = "bank_login"
+countries = ["ZA"]
+currencies = ["ZAR"]
+
+[[method]]
+id = "capitec_pay"
+name = "Capitec Pay"
+family = "realtime"
+flow = "push"
+handoff = "phone_push"
+countries = ["ZA"]
+currencies = ["ZAR"]
+
+[[method]]
+id = "fawry"
+name = "Fawry"
+family = "voucher"
+flow = "voucher"
+handoff = "store_cash"
+countries = ["EG"]
+currencies = ["EGP"]
+
+# ---- routes (a method through one provider)
+
+[[route]]
+method = "card"
+provider = "stripe"
+provider_type = "card"
+status = "ga"
+merchant_countries = []
+currencies = ["*"]
+adaptive = true
+adaptive_recurring = true
+recurring = "mandate"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["fields", "page", "browser"]
+webview = "allowed"
+fee_known = true
+fee_bps = 150
+fee_fixed = "EUR 0.25"
+fee_cap = ""
+fee_note = "EEA standard cards; premium EEA 2.8 %, UK 2.5 %, international 3.15 %, +2 % currency conversion"
+refund_days = 180
+disputes = "chargeback"
+payer_data = []
+test_inputs = [
+  { field = "card_number", value = "4242424242424242", outcome = "succeeded", note = "Visa", after_minutes = 0 },
+  { field = "card_number", value = "4000000000000002", outcome = "failed", note = "generic_decline", after_minutes = 0 },
+  { field = "card_number", value = "4000002500003155", outcome = "requires_action", note = "3-D Secure required", after_minutes = 0 },
+]
+sources = ["https://docs.stripe.com/payments/cards/overview", "https://docs.stripe.com/payments/payment-methods/payment-method-support", "https://stripe.com/de/pricing/local-payment-methods"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "apple_pay"
+provider = "stripe"
+provider_type = "card"
+status = "ga"
+merchant_countries = []
+currencies = ["*"]
+adaptive = true
+adaptive_recurring = true
+recurring = "mandate"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["sheet", "browser"]
+webview = "allowed"
+fee_known = true
+fee_bps = 150
+fee_fixed = "EUR 0.25"
+fee_cap = ""
+fee_note = "the card's rate"
+refund_days = 180
+disputes = "chargeback"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.stripe.com/apple-pay", "https://docs.stripe.com/payments/payment-methods/payment-method-support", "https://stripe.com/de/pricing/local-payment-methods"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "google_pay"
+provider = "stripe"
+provider_type = "card"
+status = "ga"
+merchant_countries = []
+currencies = ["*"]
+adaptive = true
+adaptive_recurring = true
+recurring = "mandate"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = true
+fee_bps = 150
+fee_fixed = "EUR 0.25"
+fee_cap = ""
+fee_note = "the card's rate; needs popups"
+refund_days = 180
+disputes = "chargeback"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.stripe.com/google-pay", "https://docs.stripe.com/elements/express-checkout-element", "https://docs.stripe.com/payments/payment-methods/payment-method-support", "https://stripe.com/de/pricing/local-payment-methods"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "link"
+provider = "stripe"
+provider_type = "link"
+status = "ga"
+merchant_countries = []
+currencies = ["*"]
+adaptive = true
+adaptive_recurring = true
+recurring = "mandate"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = true
+fee_bps = 150
+fee_fixed = "EUR 0.25"
+fee_cap = ""
+fee_note = "the card's rate; a login, not supported in in-app webviews"
+refund_days = 180
+disputes = "chargeback"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.stripe.com/elements/express-checkout-element", "https://docs.stripe.com/payments/payment-methods/payment-method-support", "https://stripe.com/de/pricing/local-payment-methods"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "paypal"
+provider = "stripe"
+provider_type = "paypal"
+status = "ga"
+merchant_countries = []
+currencies = ["AUD", "CAD", "CHF", "CZK", "DKK", "EUR", "GBP", "HKD", "NOK", "NZD", "PLN", "SEK", "SGD", "USD"]
+adaptive = true
+adaptive_recurring = false
+recurring = "mandate"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "forbidden"
+fee_known = true
+fee_bps = 319
+fee_fixed = "EUR 0.49"
+fee_cap = ""
+fee_note = "PayPal's own 2.99 % + 0.39 plus Stripe's 0.2 % + 0.10; +1.29 % UK, +1.99 % other markets"
+refund_days = 180
+disputes = "claims"
+payer_data = []
+test_inputs = [
+  { field = "action", value = "authorize", outcome = "succeeded", note = "the provider's test payment page", after_minutes = 0 },
+  { field = "action", value = "fail", outcome = "failed", note = "the provider's test payment page", after_minutes = 0 },
+]
+sources = ["https://docs.stripe.com/payments/paypal", "https://www.paypal.com/de/business/paypal-business-fees", "https://docs.stripe.com/payments/payment-methods/payment-method-support", "https://stripe.com/de/pricing/local-payment-methods"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "amazon_pay"
+provider = "stripe"
+provider_type = "amazon_pay"
+status = "ga"
+merchant_countries = ["AT", "BE", "CH", "CY", "DE", "DK", "ES", "FR", "GB", "HU", "IE", "IT", "LU", "NL", "PT", "SE", "US"]
+currencies = ["AUD", "CHF", "DKK", "EUR", "GBP", "HKD", "JPY", "NOK", "NZD", "SEK", "USD", "ZAR"]
+adaptive = true
+adaptive_recurring = false
+recurring = "mandate"
+recurring_cap = ""
+min = "EUR 0.50"
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = true
+fee_bps = 150
+fee_fixed = "EUR 0.25"
+fee_cap = ""
+fee_note = "non-card funding; dispute 20 EUR"
+refund_days = 90
+disputes = "chargeback"
+payer_data = []
+test_inputs = [
+  { field = "action", value = "authorize", outcome = "succeeded", note = "the provider's test payment page", after_minutes = 0 },
+  { field = "action", value = "fail", outcome = "failed", note = "the provider's test payment page", after_minutes = 0 },
+]
+sources = ["https://docs.stripe.com/payments/amazon-pay", "https://docs.stripe.com/elements/express-checkout-element", "https://docs.stripe.com/payments/payment-methods/payment-method-support", "https://stripe.com/de/pricing/local-payment-methods"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "klarna"
+provider = "stripe"
+provider_type = "klarna"
+status = "ga"
+merchant_countries = []
+currencies = ["AUD", "CAD", "CHF", "CZK", "DKK", "EUR", "GBP", "NOK", "NZD", "PLN", "RON", "SEK", "USD"]
+adaptive = true
+adaptive_recurring = false
+recurring = "mandate"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = true
+fee_bps = 299
+fee_fixed = "EUR 0.35"
+fee_cap = ""
+fee_note = "BE, DE, NL, AT, CH 2.99 % + 0.35; Nordics 2.99 % + 0.40; FR, GR, IE, IT, PL, PT, RO, ES, CZ, UK 4.99 % + 0.40; US, CA 5.99 % + 0.30"
+refund_days = -1
+disputes = "claims"
+payer_data = ["name", "email"]
+test_inputs = []
+sources = ["https://docs.stripe.com/payments/klarna", "https://docs.stripe.com/payments/payment-methods/payment-method-support", "https://stripe.com/de/pricing/local-payment-methods"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "sepa_debit"
+provider = "stripe"
+provider_type = "sepa_debit"
+status = "ga"
+merchant_countries = []
+currencies = ["EUR"]
+adaptive = true
+adaptive_recurring = false
+recurring = "mandate"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "days"
+surfaces = ["iban", "fields", "page", "browser"]
+webview = "allowed"
+fee_known = true
+fee_bps = 0
+fee_fixed = "EUR 0.35"
+fee_cap = ""
+fee_note = "dispute 15, failure 3.50"
+refund_days = 180
+disputes = "bank"
+payer_data = ["name", "email"]
+test_inputs = [
+  { field = "iban", value = "AT611904300234573201", outcome = "succeeded", note = "processing then succeeded", after_minutes = 0 },
+  { field = "iban", value = "AT861904300235473202", outcome = "failed", note = "processing then failed", after_minutes = 0 },
+  { field = "iban", value = "AT591904300235473203", outcome = "disputed", note = "succeeded then disputed", after_minutes = 0 },
+]
+sources = ["https://docs.stripe.com/payments/sepa-debit", "https://docs.stripe.com/payments/payment-methods/payment-method-support", "https://stripe.com/de/pricing/local-payment-methods"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "us_bank_account"
+provider = "stripe"
+provider_type = "us_bank_account"
+status = "ga"
+merchant_countries = []
+currencies = ["USD"]
+adaptive = false
+adaptive_recurring = false
+recurring = "mandate"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "days"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = true
+fee_bps = 80
+fee_fixed = ""
+fee_cap = "EUR 5.00"
+fee_note = "+1.25 per instant verification; dispute 15, failure 4"
+refund_days = -1
+disputes = "bank"
+payer_data = ["name", "email"]
+test_inputs = []
+sources = ["https://docs.stripe.com/payments/ach-direct-debit", "https://docs.stripe.com/payments/payment-methods/payment-method-support", "https://stripe.com/de/pricing/local-payment-methods"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "bank_transfer"
+provider = "stripe"
+provider_type = "customer_balance"
+status = "ga"
+merchant_countries = []
+currencies = ["EUR", "GBP", "USD", "JPY", "MXN"]
+adaptive = false
+adaptive_recurring = false
+recurring = "send_invoice"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "days"
+surfaces = ["page", "browser"]
+webview = "allowed"
+fee_known = true
+fee_bps = 50
+fee_fixed = ""
+fee_cap = "EUR 5.00"
+fee_note = "SEPA, GBP and USD transfers 0.5 % capped at 5; USD +15 per transfer"
+refund_days = -1
+disputes = "none"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.stripe.com/payments/bank-transfers", "https://docs.stripe.com/payments/payment-methods/payment-method-support", "https://stripe.com/de/pricing/local-payment-methods"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "ideal"
+provider = "stripe"
+provider_type = "ideal"
+status = "ga"
+merchant_countries = []
+currencies = ["EUR"]
+adaptive = true
+adaptive_recurring = false
+recurring = "via_sepa_debit"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "forbidden"
+fee_known = true
+fee_bps = 0
+fee_fixed = "EUR 0.29"
+fee_cap = ""
+fee_note = ""
+refund_days = 180
+disputes = "none"
+payer_data = []
+test_inputs = [
+  { field = "action", value = "authorize", outcome = "succeeded", note = "the provider's test payment page", after_minutes = 0 },
+  { field = "action", value = "fail", outcome = "failed", note = "the provider's test payment page", after_minutes = 0 },
+]
+sources = ["https://docs.stripe.com/payments/ideal", "https://docs.stripe.com/payments/payment-methods/payment-method-support", "https://stripe.com/de/pricing/local-payment-methods"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "wero"
+provider = "stripe"
+provider_type = "wero"
+status = "ga"
+merchant_countries = []
+currencies = ["EUR"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = "EUR 0.50"
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["page", "browser"]
+webview = "allowed"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "VERIFY: only iDEAL | Wero 0.29 is on the price page"
+refund_days = 730
+disputes = "none"
+payer_data = []
+test_inputs = [
+  { field = "action", value = "authorize", outcome = "succeeded", note = "the provider's test payment page", after_minutes = 0 },
+  { field = "action", value = "fail", outcome = "failed", note = "the provider's test payment page", after_minutes = 0 },
+]
+sources = ["https://docs.stripe.com/payments/wero", "https://docs.stripe.com/payments/payment-methods/payment-method-support", "https://stripe.com/de/pricing/local-payment-methods"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "bancontact"
+provider = "stripe"
+provider_type = "bancontact"
+status = "ga"
+merchant_countries = []
+currencies = ["EUR"]
+adaptive = true
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = "EUR 0.50"
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = true
+fee_bps = 140
+fee_fixed = "EUR 0.25"
+fee_cap = ""
+fee_note = ""
+refund_days = 730
+disputes = "none"
+payer_data = []
+test_inputs = [
+  { field = "action", value = "authorize", outcome = "succeeded", note = "the provider's test payment page", after_minutes = 0 },
+  { field = "action", value = "fail", outcome = "failed", note = "the provider's test payment page", after_minutes = 0 },
+]
+sources = ["https://docs.stripe.com/payments/bancontact", "https://docs.stripe.com/payments/payment-methods/payment-method-support", "https://stripe.com/de/pricing/local-payment-methods"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "eps"
+provider = "stripe"
+provider_type = "eps"
+status = "ga"
+merchant_countries = []
+currencies = ["EUR"]
+adaptive = true
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = "EUR 1.00"
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = true
+fee_bps = 160
+fee_fixed = "EUR 0.25"
+fee_cap = ""
+fee_note = ""
+refund_days = 180
+disputes = "none"
+payer_data = []
+test_inputs = [
+  { field = "action", value = "authorize", outcome = "succeeded", note = "the provider's test payment page", after_minutes = 0 },
+  { field = "action", value = "fail", outcome = "failed", note = "the provider's test payment page", after_minutes = 0 },
+]
+sources = ["https://docs.stripe.com/payments/eps", "https://docs.stripe.com/payments/payment-methods/payment-method-support", "https://stripe.com/de/pricing/local-payment-methods"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "p24"
+provider = "stripe"
+provider_type = "p24"
+status = "ga"
+merchant_countries = []
+currencies = ["PLN", "EUR"]
+adaptive = true
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = "EUR 0.50"
+max = ""
+expires_minutes = 0
+settles = "days"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = true
+fee_bps = 220
+fee_fixed = "EUR 0.25"
+fee_cap = ""
+fee_note = ""
+refund_days = 180
+disputes = "none"
+payer_data = []
+test_inputs = [
+  { field = "action", value = "authorize", outcome = "succeeded", note = "the provider's test payment page", after_minutes = 0 },
+  { field = "action", value = "fail", outcome = "failed", note = "the provider's test payment page", after_minutes = 0 },
+]
+sources = ["https://docs.stripe.com/payments/p24", "https://docs.stripe.com/payments/payment-methods/payment-method-support", "https://stripe.com/de/pricing/local-payment-methods"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "blik"
+provider = "stripe"
+provider_type = "blik"
+status = "ga"
+merchant_countries = []
+currencies = ["PLN"]
+adaptive = true
+adaptive_recurring = false
+recurring = "mandate"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 2
+settles = "minutes"
+surfaces = ["page", "browser"]
+webview = "allowed"
+fee_known = true
+fee_bps = 160
+fee_fixed = "EUR 0.25"
+fee_cap = ""
+fee_note = ""
+refund_days = 395
+disputes = "claims"
+payer_data = []
+test_inputs = [
+  { field = "code", value = "123456", outcome = "succeeded", note = "any 6 digits", after_minutes = 0 },
+  { field = "email", value = "expired_code@example.com", outcome = "failed", note = "code_expired", after_minutes = 0 },
+  { field = "email", value = "customer_declined@example.com", outcome = "failed", note = "customer_declined", after_minutes = 0 },
+  { field = "email", value = "customer_timeout@example.com", outcome = "failed", note = "payment_method_provider_timeout", after_minutes = 1 },
+]
+sources = ["https://docs.stripe.com/payments/blik", "https://docs.stripe.com/payments/blik/accept-a-payment", "https://docs.stripe.com/payments/payment-methods/payment-method-support", "https://stripe.com/de/pricing/local-payment-methods"]
+read_on = "2026-10-17"
+note = "Elements on Checkout Sessions does not offer BLIK: use the hosted page"
+request_data = []
+
+[[route]]
+method = "twint"
+provider = "stripe"
+provider_type = "twint"
+status = "ga"
+merchant_countries = []
+currencies = ["CHF"]
+adaptive = true
+adaptive_recurring = false
+recurring = "mandate"
+recurring_cap = ""
+min = ""
+max = "CHF 5000"
+expires_minutes = 0
+settles = "instant"
+surfaces = ["page", "browser"]
+webview = "allowed"
+fee_known = true
+fee_bps = 260
+fee_fixed = "EUR 0.25"
+fee_cap = ""
+fee_note = ""
+refund_days = 180
+disputes = "bank"
+payer_data = []
+test_inputs = [
+  { field = "action", value = "authorize", outcome = "succeeded", note = "the provider's test payment page", after_minutes = 0 },
+  { field = "action", value = "fail", outcome = "failed", note = "the provider's test payment page", after_minutes = 0 },
+]
+sources = ["https://docs.stripe.com/payments/twint", "https://docs.stripe.com/payments/payment-methods/payment-method-support", "https://stripe.com/de/pricing/local-payment-methods"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "swish"
+provider = "stripe"
+provider_type = "swish"
+status = "ga"
+merchant_countries = []
+currencies = ["SEK"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = "SEK 3"
+max = "SEK 150000"
+expires_minutes = 3
+settles = "instant"
+surfaces = ["page", "browser"]
+webview = "allowed"
+fee_known = true
+fee_bps = 100
+fee_fixed = "EUR 0.30"
+fee_cap = "EUR 0.70"
+fee_note = ""
+refund_days = 365
+disputes = "none"
+payer_data = []
+test_inputs = [
+  { field = "action", value = "authorize", outcome = "succeeded", note = "the provider's test payment page", after_minutes = 0 },
+  { field = "action", value = "fail", outcome = "failed", note = "the provider's test payment page", after_minutes = 0 },
+]
+sources = ["https://docs.stripe.com/payments/swish", "https://docs.stripe.com/payments/swish/accept-a-payment", "https://docs.stripe.com/payments/payment-methods/payment-method-support", "https://stripe.com/de/pricing/local-payment-methods"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "mobilepay"
+provider = "stripe"
+provider_type = "mobilepay"
+status = "ga"
+merchant_countries = []
+currencies = ["DKK", "EUR", "NOK", "SEK"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["page", "browser"]
+webview = "allowed"
+fee_known = true
+fee_bps = 150
+fee_fixed = "EUR 0.36"
+fee_cap = ""
+fee_note = ""
+refund_days = -1
+disputes = "chargeback"
+payer_data = ["phone"]
+test_inputs = [
+  { field = "action", value = "authorize", outcome = "succeeded", note = "the provider's test payment page", after_minutes = 0 },
+  { field = "action", value = "fail", outcome = "failed", note = "the provider's test payment page", after_minutes = 0 },
+]
+sources = ["https://docs.stripe.com/payments/mobilepay", "https://docs.stripe.com/payments/payment-methods/payment-method-support", "https://stripe.com/de/pricing/local-payment-methods"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "vipps"
+provider = "stripe"
+provider_type = "vipps"
+status = "ga"
+merchant_countries = []
+currencies = ["NOK"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["page", "browser"]
+webview = "allowed"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "VERIFY: not on the DE price page"
+refund_days = -1
+disputes = "chargeback"
+payer_data = ["phone"]
+test_inputs = [
+  { field = "action", value = "authorize", outcome = "succeeded", note = "the provider's test payment page", after_minutes = 0 },
+  { field = "action", value = "fail", outcome = "failed", note = "the provider's test payment page", after_minutes = 0 },
+]
+sources = ["https://docs.stripe.com/payments/vipps", "https://docs.stripe.com/payments/payment-methods/payment-method-support", "https://stripe.com/de/pricing/local-payment-methods"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "mb_way"
+provider = "stripe"
+provider_type = "mb_way"
+status = "ga"
+merchant_countries = []
+currencies = ["EUR"]
+adaptive = true
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = "EUR 0.50"
+max = "EUR 5000"
+expires_minutes = 0
+settles = "instant"
+surfaces = ["page", "browser"]
+webview = "allowed"
+fee_known = true
+fee_bps = 150
+fee_fixed = "EUR 0.25"
+fee_cap = ""
+fee_note = ""
+refund_days = -1
+disputes = "claims"
+payer_data = ["phone"]
+test_inputs = [
+  { field = "phone", value = "+351911111112", outcome = "succeeded", note = "after about 30 seconds", after_minutes = 1 },
+  { field = "phone", value = "+351911111113", outcome = "failed", note = "payment_method_not_available", after_minutes = 0 },
+  { field = "phone", value = "+351911111114", outcome = "failed", note = "payment_method_provider_decline", after_minutes = 0 },
+  { field = "phone", value = "+351911111115", outcome = "failed", note = "payment_intent_payment_attempt_expired", after_minutes = 0 },
+  { field = "phone", value = "+351911111116", outcome = "failed", note = "payment_method_customer_decline", after_minutes = 0 },
+]
+sources = ["https://docs.stripe.com/payments/mb-way", "https://docs.stripe.com/payments/mb-way/accept-a-payment", "https://docs.stripe.com/payments/payment-methods/payment-method-support", "https://stripe.com/de/pricing/local-payment-methods"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "multibanco"
+provider = "stripe"
+provider_type = "multibanco"
+status = "ga"
+merchant_countries = []
+currencies = ["EUR"]
+adaptive = false
+adaptive_recurring = false
+recurring = "send_invoice"
+recurring_cap = ""
+min = "EUR 0.50"
+max = "EUR 99999"
+expires_minutes = 0
+settles = "days"
+surfaces = ["page", "browser"]
+webview = "allowed"
+fee_known = true
+fee_bps = 295
+fee_fixed = "EUR 0.25"
+fee_cap = ""
+fee_note = ""
+refund_days = 365
+disputes = "none"
+payer_data = ["email"]
+test_inputs = [
+  { field = "email", value = "succeed_immediately@example.com", outcome = "succeeded", note = "paid at once", after_minutes = 0 },
+  { field = "email", value = "customer@example.com", outcome = "succeeded", note = "paid after about 3 minutes", after_minutes = 3 },
+  { field = "email", value = "expire_immediately@example.com", outcome = "failed", note = "expires at once", after_minutes = 0 },
+  { field = "email", value = "expire_with_delay@example.com", outcome = "failed", note = "expires before it is paid", after_minutes = 3 },
+  { field = "email", value = "fill_never@example.com", outcome = "failed", note = "never paid", after_minutes = 3 },
+]
+sources = ["https://docs.stripe.com/payments/multibanco", "https://docs.stripe.com/payments/multibanco/accept-a-payment", "https://docs.stripe.com/payments/payment-methods/payment-method-support", "https://stripe.com/de/pricing/local-payment-methods"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "bizum"
+provider = "stripe"
+provider_type = "bizum"
+status = "ga"
+merchant_countries = []
+currencies = ["EUR"]
+adaptive = true
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = "EUR 0.50"
+max = "EUR 5000"
+expires_minutes = 0
+settles = "instant"
+surfaces = ["page", "browser"]
+webview = "allowed"
+fee_known = true
+fee_bps = 150
+fee_fixed = "EUR 0.25"
+fee_cap = ""
+fee_note = ""
+refund_days = -1
+disputes = "claims"
+payer_data = ["phone"]
+test_inputs = [
+  { field = "action", value = "authorize", outcome = "succeeded", note = "the provider's test payment page", after_minutes = 0 },
+  { field = "action", value = "fail", outcome = "failed", note = "the provider's test payment page", after_minutes = 0 },
+]
+sources = ["https://docs.stripe.com/payments/bizum", "https://docs.stripe.com/payments/payment-methods/payment-method-support", "https://stripe.com/de/pricing/local-payment-methods"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "satispay"
+provider = "stripe"
+provider_type = "satispay"
+status = "ga"
+merchant_countries = []
+currencies = ["EUR"]
+adaptive = true
+adaptive_recurring = false
+recurring = "mandate"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "VERIFY: not on the DE price page"
+refund_days = -1
+disputes = "claims"
+payer_data = []
+test_inputs = [
+  { field = "action", value = "authorize", outcome = "succeeded", note = "the provider's test payment page", after_minutes = 0 },
+  { field = "action", value = "fail", outcome = "failed", note = "the provider's test payment page", after_minutes = 0 },
+]
+sources = ["https://docs.stripe.com/payments/satispay", "https://docs.stripe.com/payments/payment-methods/payment-method-support", "https://stripe.com/de/pricing/local-payment-methods"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "revolut_pay"
+provider = "stripe"
+provider_type = "revolut_pay"
+status = "ga"
+merchant_countries = []
+currencies = ["EUR", "GBP", "RON", "HUF", "PLN", "DKK"]
+adaptive = true
+adaptive_recurring = false
+recurring = "mandate"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["page", "browser"]
+webview = "allowed"
+fee_known = true
+fee_bps = 150
+fee_fixed = "EUR 0.25"
+fee_cap = ""
+fee_note = ""
+refund_days = 180
+disputes = "claims"
+payer_data = []
+test_inputs = [
+  { field = "action", value = "authorize", outcome = "succeeded", note = "the provider's test payment page", after_minutes = 0 },
+  { field = "action", value = "fail", outcome = "failed", note = "the provider's test payment page", after_minutes = 0 },
+]
+sources = ["https://docs.stripe.com/payments/revolut-pay", "https://docs.stripe.com/payments/payment-methods/payment-method-support", "https://stripe.com/de/pricing/local-payment-methods"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "pay_by_bank"
+provider = "stripe"
+provider_type = "pay_by_bank"
+status = "ga"
+merchant_countries = ["GB"]
+currencies = ["GBP"]
+adaptive = true
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = true
+fee_bps = 50
+fee_fixed = "EUR 0.25"
+fee_cap = "EUR 5.00"
+fee_note = ""
+refund_days = -1
+disputes = "none"
+payer_data = []
+test_inputs = [
+  { field = "action", value = "authorize", outcome = "succeeded", note = "the provider's test payment page", after_minutes = 0 },
+  { field = "action", value = "fail", outcome = "failed", note = "the provider's test payment page", after_minutes = 0 },
+]
+sources = ["https://docs.stripe.com/payments/pay-by-bank", "https://docs.stripe.com/payments/payment-methods/payment-method-support", "https://stripe.com/de/pricing/local-payment-methods"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "upi"
+provider = "stripe"
+provider_type = "upi"
+status = "ga"
+merchant_countries = []
+currencies = ["INR"]
+adaptive = true
+adaptive_recurring = false
+recurring = "mandate"
+recurring_cap = "INR 15000"
+min = "INR 1"
+max = "INR 100000"
+expires_minutes = 5
+settles = "instant"
+surfaces = ["page", "browser"]
+webview = "allowed"
+fee_known = true
+fee_bps = 200
+fee_fixed = ""
+fee_cap = ""
+fee_note = ""
+refund_days = 60
+disputes = "bank"
+payer_data = []
+test_inputs = [
+  { field = "action", value = "authorize", outcome = "succeeded", note = "the provider's test payment page", after_minutes = 0 },
+  { field = "action", value = "fail", outcome = "failed", note = "the provider's test payment page", after_minutes = 0 },
+]
+sources = ["https://docs.stripe.com/payments/upi", "https://docs.stripe.com/payments/upi/accept-a-payment", "https://docs.stripe.com/payments/payment-methods/payment-method-support", "https://stripe.com/de/pricing/local-payment-methods"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "pix"
+provider = "stripe"
+provider_type = "pix"
+status = "ga"
+merchant_countries = []
+currencies = ["BRL"]
+adaptive = true
+adaptive_recurring = false
+recurring = "mandate"
+recurring_cap = ""
+min = "BRL 0.50"
+max = ""
+expires_minutes = 60
+settles = "instant"
+surfaces = ["page", "browser"]
+webview = "allowed"
+fee_known = true
+fee_bps = 200
+fee_fixed = ""
+fee_cap = ""
+fee_note = "cross-border via EBANX; Brazil's 3.5 % IOF is paid by the payer unless amount_includes_iof=always"
+refund_days = 90
+disputes = "claims"
+payer_data = ["email"]
+test_inputs = [
+  { field = "email", value = "succeed_immediately@example.com", outcome = "succeeded", note = "paid at once", after_minutes = 0 },
+  { field = "email", value = "customer@example.com", outcome = "succeeded", note = "paid after about 3 minutes", after_minutes = 3 },
+  { field = "email", value = "expire_immediately@example.com", outcome = "failed", note = "expires at once", after_minutes = 0 },
+  { field = "email", value = "expire_with_delay@example.com", outcome = "failed", note = "expires before it is paid", after_minutes = 3 },
+  { field = "email", value = "fill_never@example.com", outcome = "failed", note = "never paid", after_minutes = 3 },
+]
+sources = ["https://docs.stripe.com/payments/pix", "https://docs.stripe.com/payments/pix/accept-a-payment", "https://docs.stripe.com/payments/payment-methods/payment-method-support", "https://stripe.com/de/pricing/local-payment-methods"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "boleto"
+provider = "stripe"
+provider_type = "boleto"
+status = "ga"
+merchant_countries = ["BR"]
+currencies = ["BRL"]
+adaptive = false
+adaptive_recurring = false
+recurring = "mandate"
+recurring_cap = ""
+min = "BRL 5.00"
+max = "BRL 49999.99"
+expires_minutes = 4320
+settles = "days"
+surfaces = ["page", "browser"]
+webview = "allowed"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = ""
+refund_days = 0
+disputes = "none"
+payer_data = ["name", "email", "tax_id"]
+test_inputs = []
+sources = ["https://docs.stripe.com/payments/boleto", "https://docs.stripe.com/payments/payment-methods/payment-method-support", "https://stripe.com/de/pricing/local-payment-methods"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "alipay"
+provider = "stripe"
+provider_type = "alipay"
+status = "ga"
+merchant_countries = []
+currencies = ["CNY", "EUR", "USD", "GBP", "HKD", "JPY", "SGD", "AUD", "CAD", "NZD", "MYR"]
+adaptive = true
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = true
+fee_bps = 290
+fee_fixed = "EUR 0.25"
+fee_cap = ""
+fee_note = ""
+refund_days = 90
+disputes = "none"
+payer_data = []
+test_inputs = [
+  { field = "action", value = "authorize", outcome = "succeeded", note = "the provider's test payment page", after_minutes = 0 },
+  { field = "action", value = "fail", outcome = "failed", note = "the provider's test payment page", after_minutes = 0 },
+]
+sources = ["https://docs.stripe.com/payments/alipay", "https://docs.stripe.com/payments/payment-methods/payment-method-support", "https://stripe.com/de/pricing/local-payment-methods"]
+read_on = "2026-10-17"
+note = "recurring: private preview"
+request_data = []
+
+[[route]]
+method = "wechat_pay"
+provider = "stripe"
+provider_type = "wechat_pay"
+status = "ga"
+merchant_countries = []
+currencies = ["CNY", "EUR", "USD", "GBP", "HKD", "JPY", "SGD", "AUD", "CAD", "DKK", "NOK", "SEK", "CHF"]
+adaptive = true
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["page", "browser"]
+webview = "allowed"
+fee_known = true
+fee_bps = 290
+fee_fixed = "EUR 0.25"
+fee_cap = ""
+fee_note = ""
+refund_days = 180
+disputes = "none"
+payer_data = []
+test_inputs = [
+  { field = "action", value = "authorize", outcome = "succeeded", note = "the provider's test payment page", after_minutes = 0 },
+  { field = "action", value = "fail", outcome = "failed", note = "the provider's test payment page", after_minutes = 0 },
+]
+sources = ["https://docs.stripe.com/payments/wechat-pay", "https://docs.stripe.com/payments/wechat-pay/accept-a-payment", "https://docs.stripe.com/payments/payment-methods/payment-method-support", "https://stripe.com/de/pricing/local-payment-methods"]
+read_on = "2026-10-17"
+note = "recurring: private preview"
+request_data = []
+
+[[route]]
+method = "kr_card"
+provider = "stripe"
+provider_type = "kr_card"
+status = "ga"
+merchant_countries = ["AT", "BE", "CY", "DE", "DK", "EE", "ES", "FI", "FR", "GB", "GR", "HK", "HR", "HU", "IE", "IT", "JP", "LT", "LU", "LV", "MT", "NL", "PT", "SE", "SI", "SK", "US"]
+currencies = ["KRW"]
+adaptive = true
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = "KRW 100"
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = true
+fee_bps = 310
+fee_fixed = "EUR 0.25"
+fee_cap = ""
+fee_note = "South Korean payment methods"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = [
+  { field = "action", value = "authorize", outcome = "succeeded", note = "the provider's test payment page", after_minutes = 0 },
+  { field = "action", value = "fail", outcome = "failed", note = "the provider's test payment page", after_minutes = 0 },
+]
+sources = ["https://docs.stripe.com/payments/kakao-pay", "https://docs.stripe.com/payments/kr-card", "https://docs.stripe.com/payments/payment-methods/payment-method-support", "https://stripe.com/de/pricing/local-payment-methods"]
+read_on = "2026-10-17"
+note = "recurring: VERIFY"
+request_data = []
+
+[[route]]
+method = "kakao_pay"
+provider = "stripe"
+provider_type = "kakao_pay"
+status = "ga"
+merchant_countries = ["AT", "BE", "CY", "DE", "DK", "EE", "ES", "FI", "FR", "GB", "GR", "HK", "HR", "HU", "IE", "IT", "JP", "LT", "LU", "LV", "MT", "NL", "PT", "SE", "SI", "SK", "US"]
+currencies = ["KRW"]
+adaptive = true
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = "KRW 100"
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = true
+fee_bps = 310
+fee_fixed = "EUR 0.25"
+fee_cap = ""
+fee_note = "South Korean payment methods"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = [
+  { field = "action", value = "authorize", outcome = "succeeded", note = "the provider's test payment page", after_minutes = 0 },
+  { field = "action", value = "fail", outcome = "failed", note = "the provider's test payment page", after_minutes = 0 },
+]
+sources = ["https://docs.stripe.com/payments/kakao-pay", "https://docs.stripe.com/payments/kr-card", "https://docs.stripe.com/payments/payment-methods/payment-method-support", "https://stripe.com/de/pricing/local-payment-methods"]
+read_on = "2026-10-17"
+note = "recurring: VERIFY"
+request_data = []
+
+[[route]]
+method = "naver_pay"
+provider = "stripe"
+provider_type = "naver_pay"
+status = "ga"
+merchant_countries = ["AT", "BE", "CY", "DE", "DK", "EE", "ES", "FI", "FR", "GB", "GR", "HK", "HR", "HU", "IE", "IT", "JP", "LT", "LU", "LV", "MT", "NL", "PT", "SE", "SI", "SK", "US"]
+currencies = ["KRW"]
+adaptive = true
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = "KRW 100"
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = true
+fee_bps = 310
+fee_fixed = "EUR 0.25"
+fee_cap = ""
+fee_note = "South Korean payment methods"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = [
+  { field = "action", value = "authorize", outcome = "succeeded", note = "the provider's test payment page", after_minutes = 0 },
+  { field = "action", value = "fail", outcome = "failed", note = "the provider's test payment page", after_minutes = 0 },
+]
+sources = ["https://docs.stripe.com/payments/kakao-pay", "https://docs.stripe.com/payments/kr-card", "https://docs.stripe.com/payments/payment-methods/payment-method-support", "https://stripe.com/de/pricing/local-payment-methods"]
+read_on = "2026-10-17"
+note = "recurring: VERIFY"
+request_data = []
+
+[[route]]
+method = "payco"
+provider = "stripe"
+provider_type = "payco"
+status = "ga"
+merchant_countries = ["AT", "BE", "CY", "DE", "DK", "EE", "ES", "FI", "FR", "GB", "GR", "HK", "HR", "HU", "IE", "IT", "JP", "LT", "LU", "LV", "MT", "NL", "PT", "SE", "SI", "SK", "US"]
+currencies = ["KRW"]
+adaptive = true
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = "KRW 100"
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = true
+fee_bps = 310
+fee_fixed = "EUR 0.25"
+fee_cap = ""
+fee_note = "South Korean payment methods"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = [
+  { field = "action", value = "authorize", outcome = "succeeded", note = "the provider's test payment page", after_minutes = 0 },
+  { field = "action", value = "fail", outcome = "failed", note = "the provider's test payment page", after_minutes = 0 },
+]
+sources = ["https://docs.stripe.com/payments/kakao-pay", "https://docs.stripe.com/payments/kr-card", "https://docs.stripe.com/payments/payment-methods/payment-method-support", "https://stripe.com/de/pricing/local-payment-methods"]
+read_on = "2026-10-17"
+note = "recurring: VERIFY"
+request_data = []
+
+[[route]]
+method = "samsung_pay"
+provider = "stripe"
+provider_type = "samsung_pay"
+status = "ga"
+merchant_countries = ["AT", "BE", "CY", "DE", "DK", "EE", "ES", "FI", "FR", "GB", "GR", "HK", "HR", "HU", "IE", "IT", "JP", "LT", "LU", "LV", "MT", "NL", "PT", "SE", "SI", "SK", "US"]
+currencies = ["KRW"]
+adaptive = true
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = "KRW 100"
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = true
+fee_bps = 310
+fee_fixed = "EUR 0.25"
+fee_cap = ""
+fee_note = "South Korean payment methods"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = [
+  { field = "action", value = "authorize", outcome = "succeeded", note = "the provider's test payment page", after_minutes = 0 },
+  { field = "action", value = "fail", outcome = "failed", note = "the provider's test payment page", after_minutes = 0 },
+]
+sources = ["https://docs.stripe.com/payments/kakao-pay", "https://docs.stripe.com/payments/kr-card", "https://docs.stripe.com/payments/payment-methods/payment-method-support", "https://stripe.com/de/pricing/local-payment-methods"]
+read_on = "2026-10-17"
+note = "recurring: VERIFY"
+request_data = []
+
+[[route]]
+method = "konbini"
+provider = "stripe"
+provider_type = "konbini"
+status = "ga"
+merchant_countries = ["JP"]
+currencies = ["JPY"]
+adaptive = false
+adaptive_recurring = false
+recurring = "send_invoice"
+recurring_cap = ""
+min = "JPY 120"
+max = "JPY 300000"
+expires_minutes = 0
+settles = "days"
+surfaces = ["page", "browser"]
+webview = "allowed"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = ""
+refund_days = -1
+disputes = "none"
+payer_data = ["email"]
+test_inputs = [
+  { field = "email", value = "succeed_immediately@test.com", outcome = "succeeded", note = "paid at once", after_minutes = 0 },
+  { field = "email", value = "customer@test.com", outcome = "succeeded", note = "paid after about 3 minutes", after_minutes = 3 },
+  { field = "email", value = "expire_immediately@test.com", outcome = "failed", note = "expires at once", after_minutes = 0 },
+  { field = "email", value = "expire_with_delay@test.com", outcome = "failed", note = "expires before it is paid", after_minutes = 3 },
+  { field = "email", value = "fill_never@test.com", outcome = "failed", note = "never paid", after_minutes = 3 },
+]
+sources = ["https://docs.stripe.com/payments/konbini", "https://docs.stripe.com/payments/konbini/accept-a-payment", "https://docs.stripe.com/payments/payment-methods/payment-method-support", "https://stripe.com/de/pricing/local-payment-methods"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "paypay"
+provider = "stripe"
+provider_type = "paypay"
+status = "ga"
+merchant_countries = ["JP"]
+currencies = ["JPY"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = "JPY 50"
+max = "JPY 1000000"
+expires_minutes = 60
+settles = "instant"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = ""
+refund_days = 365
+disputes = "none"
+payer_data = []
+test_inputs = [
+  { field = "action", value = "authorize", outcome = "succeeded", note = "the provider's test payment page", after_minutes = 0 },
+  { field = "action", value = "fail", outcome = "failed", note = "the provider's test payment page", after_minutes = 0 },
+]
+sources = ["https://docs.stripe.com/payments/paypay", "https://docs.stripe.com/payments/payment-methods/payment-method-support", "https://stripe.com/de/pricing/local-payment-methods"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "oxxo"
+provider = "stripe"
+provider_type = "oxxo"
+status = "ga"
+merchant_countries = ["CA", "MX", "SG", "US"]
+currencies = ["MXN"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = "MXN 10"
+max = "MXN 10000"
+expires_minutes = 7200
+settles = "days"
+surfaces = ["page", "browser"]
+webview = "allowed"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = ""
+refund_days = 0
+disputes = "none"
+payer_data = ["name", "email"]
+test_inputs = [
+  { field = "email", value = "succeed_immediately@test.com", outcome = "succeeded", note = "paid at once", after_minutes = 0 },
+  { field = "email", value = "customer@test.com", outcome = "succeeded", note = "paid after about 3 minutes", after_minutes = 3 },
+  { field = "email", value = "expire_immediately@test.com", outcome = "failed", note = "expires at once", after_minutes = 0 },
+  { field = "email", value = "expire_with_delay@test.com", outcome = "failed", note = "expires before it is paid", after_minutes = 3 },
+  { field = "email", value = "fill_never@test.com", outcome = "failed", note = "never paid", after_minutes = 3 },
+]
+sources = ["https://docs.stripe.com/payments/oxxo", "https://docs.stripe.com/payments/oxxo/accept-a-payment", "https://docs.stripe.com/payments/payment-methods/payment-method-support", "https://stripe.com/de/pricing/local-payment-methods"]
+read_on = "2026-10-17"
+note = "EEA, CH and GB accounts: private preview"
+request_data = []
+
+[[route]]
+method = "paynow"
+provider = "stripe"
+provider_type = "paynow"
+status = "ga"
+merchant_countries = ["SG"]
+currencies = ["SGD"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 60
+settles = "instant"
+surfaces = ["page", "browser"]
+webview = "allowed"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "1.3 % for SG accounts"
+refund_days = 90
+disputes = "none"
+payer_data = []
+test_inputs = [
+  { field = "action", value = "authorize", outcome = "succeeded", note = "the provider's test payment page", after_minutes = 0 },
+  { field = "action", value = "fail", outcome = "failed", note = "the provider's test payment page", after_minutes = 0 },
+]
+sources = ["https://docs.stripe.com/payments/paynow", "https://docs.stripe.com/payments/payment-methods/payment-method-support", "https://stripe.com/de/pricing/local-payment-methods"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "promptpay"
+provider = "stripe"
+provider_type = "promptpay"
+status = "ga"
+merchant_countries = ["TH"]
+currencies = ["THB"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["page", "browser"]
+webview = "allowed"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = ""
+refund_days = -1
+disputes = "none"
+payer_data = []
+test_inputs = [
+  { field = "action", value = "authorize", outcome = "succeeded", note = "the provider's test payment page", after_minutes = 0 },
+  { field = "action", value = "fail", outcome = "failed", note = "the provider's test payment page", after_minutes = 0 },
+]
+sources = ["https://docs.stripe.com/payments/promptpay", "https://docs.stripe.com/payments/payment-methods/payment-method-support", "https://stripe.com/de/pricing/local-payment-methods"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "fpx"
+provider = "stripe"
+provider_type = "fpx"
+status = "ga"
+merchant_countries = ["MY"]
+currencies = ["MYR"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "days"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = ""
+refund_days = 60
+disputes = "none"
+payer_data = []
+test_inputs = [
+  { field = "action", value = "authorize", outcome = "succeeded", note = "the provider's test payment page", after_minutes = 0 },
+  { field = "action", value = "fail", outcome = "failed", note = "the provider's test payment page", after_minutes = 0 },
+]
+sources = ["https://docs.stripe.com/payments/fpx", "https://docs.stripe.com/payments/payment-methods/payment-method-support", "https://stripe.com/de/pricing/local-payment-methods"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "grabpay"
+provider = "stripe"
+provider_type = "grabpay"
+status = "ga"
+merchant_countries = ["MY", "SG"]
+currencies = ["MYR", "SGD"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = ""
+refund_days = 90
+disputes = "none"
+payer_data = []
+test_inputs = [
+  { field = "action", value = "authorize", outcome = "succeeded", note = "the provider's test payment page", after_minutes = 0 },
+  { field = "action", value = "fail", outcome = "failed", note = "the provider's test payment page", after_minutes = 0 },
+]
+sources = ["https://docs.stripe.com/payments/grabpay", "https://docs.stripe.com/payments/payment-methods/payment-method-support", "https://stripe.com/de/pricing/local-payment-methods"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "sepa_debit"
+provider = "gocardless"
+provider_type = "sepa_core"
+status = "ga"
+merchant_countries = []
+currencies = ["EUR"]
+adaptive = false
+adaptive_recurring = false
+recurring = "mandate"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "days"
+surfaces = ["page", "browser"]
+webview = "allowed"
+fee_known = true
+fee_bps = 100
+fee_fixed = "EUR 0.20"
+fee_cap = "EUR 1.00"
+fee_note = "Standard plan; failure and chargeback fees apply"
+refund_days = -1
+disputes = "bank"
+payer_data = ["name", "email", "address"]
+test_inputs = [
+  { field = "iban", value = "DE89370400440532013000", outcome = "succeeded", note = "German test IBAN", after_minutes = 0 },
+  { field = "iban", value = "FR1420041010050500013M02606", outcome = "succeeded", note = "French test IBAN", after_minutes = 0 },
+]
+sources = ["https://docs.gocardless.com/docs/api-reference/schemes", "https://gocardless.com/de-de/preise/", "https://docs.gocardless.com/docs/developer-resources/test-bank-details"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "bacs_debit"
+provider = "gocardless"
+provider_type = "bacs"
+status = "ga"
+merchant_countries = []
+currencies = ["GBP"]
+adaptive = false
+adaptive_recurring = false
+recurring = "mandate"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "days"
+surfaces = ["page", "browser"]
+webview = "allowed"
+fee_known = true
+fee_bps = 200
+fee_fixed = "EUR 0.20"
+fee_cap = ""
+fee_note = "international payment, converted at payout"
+refund_days = -1
+disputes = "bank"
+payer_data = ["name", "email", "address"]
+test_inputs = [
+  { field = "sort_code_account", value = "200000 55779911", outcome = "succeeded", note = "Bacs / Faster Payments", after_minutes = 0 },
+]
+sources = ["https://docs.gocardless.com/docs/api-reference/schemes", "https://gocardless.com/de-de/preise/", "https://docs.gocardless.com/docs/developer-resources/test-bank-details", "https://docs.gocardless.com/docs/collect-payments/managing-payments/fx"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "autogiro"
+provider = "gocardless"
+provider_type = "autogiro"
+status = "ga"
+merchant_countries = []
+currencies = ["SEK"]
+adaptive = false
+adaptive_recurring = false
+recurring = "mandate"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "days"
+surfaces = ["page", "browser"]
+webview = "allowed"
+fee_known = true
+fee_bps = 200
+fee_fixed = "EUR 0.20"
+fee_cap = ""
+fee_note = "international payment, converted at payout"
+refund_days = -1
+disputes = "bank"
+payer_data = ["name", "email", "address"]
+test_inputs = [
+  { field = "clearing_account_personnummer", value = "5491 0000003 198112289874", outcome = "succeeded", note = "Autogiro", after_minutes = 0 },
+]
+sources = ["https://docs.gocardless.com/docs/api-reference/schemes", "https://gocardless.com/de-de/preise/", "https://docs.gocardless.com/docs/developer-resources/test-bank-details", "https://docs.gocardless.com/docs/collect-payments/managing-payments/fx"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "betalingsservice"
+provider = "gocardless"
+provider_type = "betalingsservice"
+status = "ga"
+merchant_countries = []
+currencies = ["DKK"]
+adaptive = false
+adaptive_recurring = false
+recurring = "mandate"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "days"
+surfaces = ["page", "browser"]
+webview = "allowed"
+fee_known = true
+fee_bps = 200
+fee_fixed = "EUR 0.20"
+fee_cap = ""
+fee_note = "international payment, converted at payout"
+refund_days = -1
+disputes = "bank"
+payer_data = ["name", "email", "address"]
+test_inputs = [
+  { field = "reg_account_cpr", value = "345 3179681 0101701234", outcome = "succeeded", note = "Betalingsservice", after_minutes = 0 },
+]
+sources = ["https://docs.gocardless.com/docs/api-reference/schemes", "https://gocardless.com/de-de/preise/", "https://docs.gocardless.com/docs/developer-resources/test-bank-details", "https://docs.gocardless.com/docs/collect-payments/managing-payments/fx"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "becs_debit"
+provider = "gocardless"
+provider_type = "becs"
+status = "ga"
+merchant_countries = []
+currencies = ["AUD"]
+adaptive = false
+adaptive_recurring = false
+recurring = "mandate"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "days"
+surfaces = ["page", "browser"]
+webview = "allowed"
+fee_known = true
+fee_bps = 200
+fee_fixed = "EUR 0.20"
+fee_cap = ""
+fee_note = "international payment, converted at payout"
+refund_days = -1
+disputes = "bank"
+payer_data = ["name", "email", "address"]
+test_inputs = [
+  { field = "bsb_account", value = "082-082 012345678", outcome = "succeeded", note = "BECS / PayTo", after_minutes = 0 },
+]
+sources = ["https://docs.gocardless.com/docs/api-reference/schemes", "https://gocardless.com/de-de/preise/", "https://docs.gocardless.com/docs/developer-resources/test-bank-details", "https://docs.gocardless.com/docs/collect-payments/managing-payments/fx"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "becs_nz_debit"
+provider = "gocardless"
+provider_type = "becs_nz"
+status = "ga"
+merchant_countries = []
+currencies = ["NZD"]
+adaptive = false
+adaptive_recurring = false
+recurring = "mandate"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "days"
+surfaces = ["page", "browser"]
+webview = "allowed"
+fee_known = true
+fee_bps = 200
+fee_fixed = "EUR 0.20"
+fee_cap = ""
+fee_note = "international payment, converted at payout"
+refund_days = -1
+disputes = "bank"
+payer_data = ["name", "email", "address"]
+test_inputs = [
+  { field = "bank_branch_account", value = "12 3113 0003869-00", outcome = "succeeded", note = "BECS NZ", after_minutes = 0 },
+]
+sources = ["https://docs.gocardless.com/docs/api-reference/schemes", "https://gocardless.com/de-de/preise/", "https://docs.gocardless.com/docs/developer-resources/test-bank-details", "https://docs.gocardless.com/docs/collect-payments/managing-payments/fx"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "pad_debit"
+provider = "gocardless"
+provider_type = "pad"
+status = "ga"
+merchant_countries = []
+currencies = ["CAD"]
+adaptive = false
+adaptive_recurring = false
+recurring = "mandate"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "days"
+surfaces = ["page", "browser"]
+webview = "allowed"
+fee_known = true
+fee_bps = 200
+fee_fixed = "EUR 0.20"
+fee_cap = ""
+fee_note = "international payment, converted at payout"
+refund_days = -1
+disputes = "bank"
+payer_data = ["name", "email", "address"]
+test_inputs = [
+  { field = "institution_transit_account", value = "0003 00006 1234567", outcome = "succeeded", note = "PAD", after_minutes = 0 },
+]
+sources = ["https://docs.gocardless.com/docs/api-reference/schemes", "https://gocardless.com/de-de/preise/", "https://docs.gocardless.com/docs/developer-resources/test-bank-details", "https://docs.gocardless.com/docs/collect-payments/managing-payments/fx"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "us_bank_account"
+provider = "gocardless"
+provider_type = "ach"
+status = "ga"
+merchant_countries = []
+currencies = ["USD"]
+adaptive = false
+adaptive_recurring = false
+recurring = "mandate"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "days"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = true
+fee_bps = 200
+fee_fixed = "EUR 0.20"
+fee_cap = ""
+fee_note = "international payment, converted at payout"
+refund_days = -1
+disputes = "bank"
+payer_data = ["name", "email", "address"]
+test_inputs = [
+  { field = "routing_account", value = "026073150 2715500356", outcome = "succeeded", note = "ACH checking", after_minutes = 0 },
+]
+sources = ["https://docs.gocardless.com/docs/api-reference/schemes", "https://gocardless.com/de-de/preise/", "https://docs.gocardless.com/docs/developer-resources/test-bank-details", "https://docs.gocardless.com/docs/collect-payments/managing-payments/fx"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "ideal"
+provider = "mollie"
+provider_type = "ideal"
+status = "ga"
+merchant_countries = []
+currencies = ["EUR"]
+adaptive = false
+adaptive_recurring = false
+recurring = "via_sepa_debit"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "forbidden"
+fee_known = true
+fee_bps = 0
+fee_fixed = "EUR 0.42"
+fee_cap = ""
+fee_note = ""
+refund_days = -1
+disputes = "none"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.mollie.com/docs/payment-methods", "https://www.mollie.com/de/pricing", "https://docs.mollie.com/docs/recurring-payments"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "bancontact"
+provider = "mollie"
+provider_type = "bancontact"
+status = "ga"
+merchant_countries = []
+currencies = ["EUR"]
+adaptive = false
+adaptive_recurring = false
+recurring = "via_sepa_debit"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = true
+fee_bps = 140
+fee_fixed = "EUR 0.25"
+fee_cap = ""
+fee_note = ""
+refund_days = -1
+disputes = "none"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.mollie.com/docs/payment-methods", "https://www.mollie.com/de/pricing", "https://docs.mollie.com/docs/recurring-payments"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "eps"
+provider = "mollie"
+provider_type = "eps"
+status = "ga"
+merchant_countries = []
+currencies = ["EUR"]
+adaptive = false
+adaptive_recurring = false
+recurring = "via_sepa_debit"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = true
+fee_bps = 150
+fee_fixed = "EUR 0.25"
+fee_cap = ""
+fee_note = ""
+refund_days = -1
+disputes = "none"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.mollie.com/docs/payment-methods", "https://www.mollie.com/de/pricing", "https://docs.mollie.com/docs/recurring-payments"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "kbc"
+provider = "mollie"
+provider_type = "kbc"
+status = "ga"
+merchant_countries = []
+currencies = ["EUR"]
+adaptive = false
+adaptive_recurring = false
+recurring = "via_sepa_debit"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = ""
+refund_days = -1
+disputes = "none"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.mollie.com/docs/payment-methods", "https://www.mollie.com/de/pricing", "https://docs.mollie.com/docs/recurring-payments"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "belfius"
+provider = "mollie"
+provider_type = "belfius"
+status = "ga"
+merchant_countries = []
+currencies = ["EUR"]
+adaptive = false
+adaptive_recurring = false
+recurring = "via_sepa_debit"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = ""
+refund_days = -1
+disputes = "none"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.mollie.com/docs/payment-methods", "https://www.mollie.com/de/pricing", "https://docs.mollie.com/docs/recurring-payments"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "pay_by_bank"
+provider = "mollie"
+provider_type = "paybybank"
+status = "ga"
+merchant_countries = []
+currencies = ["EUR"]
+adaptive = false
+adaptive_recurring = false
+recurring = "via_sepa_debit"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = true
+fee_bps = 45
+fee_fixed = "EUR 0.25"
+fee_cap = ""
+fee_note = ""
+refund_days = -1
+disputes = "none"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.mollie.com/docs/payment-methods", "https://www.mollie.com/de/pricing", "https://docs.mollie.com/docs/recurring-payments"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "mybank"
+provider = "mollie"
+provider_type = "mybank"
+status = "ga"
+merchant_countries = []
+currencies = ["EUR"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = ""
+refund_days = -1
+disputes = "none"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.mollie.com/docs/payment-methods", "https://www.mollie.com/de/pricing"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "bancomat_pay"
+provider = "mollie"
+provider_type = "bancomatpay"
+status = "ga"
+merchant_countries = []
+currencies = ["EUR"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = true
+fee_bps = 150
+fee_fixed = "EUR 0.25"
+fee_cap = ""
+fee_note = ""
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.mollie.com/docs/payment-methods", "https://www.mollie.com/de/pricing"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "blik"
+provider = "mollie"
+provider_type = "blik"
+status = "ga"
+merchant_countries = []
+currencies = ["PLN"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = true
+fee_bps = 160
+fee_fixed = "EUR 0.25"
+fee_cap = ""
+fee_note = ""
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.mollie.com/docs/payment-methods", "https://www.mollie.com/de/pricing"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "p24"
+provider = "mollie"
+provider_type = "przelewy24"
+status = "ga"
+merchant_countries = []
+currencies = ["PLN", "EUR"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = true
+fee_bps = 220
+fee_fixed = "EUR 0.25"
+fee_cap = ""
+fee_note = ""
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.mollie.com/docs/payment-methods", "https://www.mollie.com/de/pricing"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "twint"
+provider = "mollie"
+provider_type = "twint"
+status = "ga"
+merchant_countries = []
+currencies = ["CHF"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = true
+fee_bps = 230
+fee_fixed = "EUR 0.25"
+fee_cap = ""
+fee_note = ""
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.mollie.com/docs/payment-methods", "https://www.mollie.com/de/pricing"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "swish"
+provider = "mollie"
+provider_type = "swish"
+status = "ga"
+merchant_countries = []
+currencies = ["SEK"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = true
+fee_bps = 125
+fee_fixed = "EUR 0.25"
+fee_cap = ""
+fee_note = ""
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.mollie.com/docs/payment-methods", "https://www.mollie.com/de/pricing"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "mobilepay"
+provider = "mollie"
+provider_type = "mobilepay"
+status = "ga"
+merchant_countries = []
+currencies = ["DKK", "EUR", "NOK", "SEK"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = true
+fee_bps = 180
+fee_fixed = "EUR 0.25"
+fee_cap = ""
+fee_note = ""
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.mollie.com/docs/payment-methods", "https://www.mollie.com/de/pricing"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "vipps"
+provider = "mollie"
+provider_type = "vipps"
+status = "ga"
+merchant_countries = []
+currencies = ["NOK"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = true
+fee_bps = 180
+fee_fixed = "EUR 0.25"
+fee_cap = ""
+fee_note = ""
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.mollie.com/docs/payment-methods", "https://www.mollie.com/de/pricing"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "mb_way"
+provider = "mollie"
+provider_type = "mbway"
+status = "ga"
+merchant_countries = []
+currencies = ["EUR"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = true
+fee_bps = 150
+fee_fixed = "EUR 0.25"
+fee_cap = ""
+fee_note = ""
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.mollie.com/docs/payment-methods", "https://www.mollie.com/de/pricing"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "multibanco"
+provider = "mollie"
+provider_type = "multibanco"
+status = "ga"
+merchant_countries = []
+currencies = ["EUR"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = true
+fee_bps = 210
+fee_fixed = "EUR 0.35"
+fee_cap = ""
+fee_note = ""
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.mollie.com/docs/payment-methods", "https://www.mollie.com/de/pricing"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "satispay"
+provider = "mollie"
+provider_type = "satispay"
+status = "ga"
+merchant_countries = []
+currencies = ["EUR"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = true
+fee_bps = 150
+fee_fixed = "EUR 0.25"
+fee_cap = ""
+fee_note = ""
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.mollie.com/docs/payment-methods", "https://www.mollie.com/de/pricing"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "card"
+provider = "mollie"
+provider_type = "creditcard"
+status = "ga"
+merchant_countries = []
+currencies = ["*"]
+adaptive = false
+adaptive_recurring = false
+recurring = "mandate"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = true
+fee_bps = 180
+fee_fixed = "EUR 0.25"
+fee_cap = ""
+fee_note = "EEA consumer cards; EEA business 2.90 %, non-EEA 3.25 %"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.mollie.com/docs/payment-methods", "https://www.mollie.com/de/pricing", "https://docs.mollie.com/docs/recurring-payments"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "paypal"
+provider = "paypal"
+provider_type = "paypal"
+status = "ga"
+merchant_countries = []
+currencies = ["AUD", "CAD", "CHF", "CZK", "DKK", "EUR", "GBP", "HKD", "NOK", "NZD", "PLN", "SEK", "SGD", "USD"]
+adaptive = false
+adaptive_recurring = false
+recurring = "mandate"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "forbidden"
+fee_known = true
+fee_bps = 299
+fee_fixed = "EUR 0.39"
+fee_cap = ""
+fee_note = "+1.29 % UK, +1.99 % other markets; micropayment rate 4.99 % + 0.09 on application; dispute 14"
+refund_days = 180
+disputes = "claims"
+payer_data = []
+test_inputs = []
+sources = ["https://www.paypal.com/de/business/paypal-business-fees"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "konbini"
+provider = "komoju"
+provider_type = "konbini"
+status = "ga"
+merchant_countries = []
+currencies = ["JPY"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = "JPY 300000"
+expires_minutes = 0
+settles = "days"
+surfaces = ["browser"]
+webview = "allowed"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = ["name", "email"]
+test_inputs = [
+  { field = "action", value = "authorize", outcome = "succeeded", note = "KOMOJU's test mode: Simulate Capture on the payment in its dashboard captures it", after_minutes = 0 },
+  { field = "action", value = "fail", outcome = "failed", note = "KOMOJU's test mode: the payment cancelled", after_minutes = 0 },
+]
+sources = ["https://docs.komoju.com/en/docs/introduction/supported-payment-types.md", "https://en.komoju.com/cross-border-payment-solutions/komoju-vs-stripe/", "https://help.komoju.com/hc/en-us/articles/4747518192798-What-Can-I-Do-in-Test-Mode", "https://docs.komoju.com/en/docs/integration-guides/direct-integrations/payments-api/payment-details"]
+read_on = "2026-10-17"
+note = "without a Japanese entity: FamilyMart, Lawson, Ministop, Daily Yamazaki, Seicomart (not 7-Eleven)"
+request_data = []
+
+[[route]]
+method = "paypay"
+provider = "komoju"
+provider_type = "paypay"
+status = "ga"
+merchant_countries = []
+currencies = ["JPY"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = "JPY 1000000"
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = [
+  { field = "action", value = "authorize", outcome = "succeeded", note = "KOMOJU's test mode: the deposit simulation page's button captures it", after_minutes = 0 },
+  { field = "action", value = "fail", outcome = "failed", note = "KOMOJU's test mode: the payment cancelled", after_minutes = 0 },
+]
+sources = ["https://docs.komoju.com/en/docs/introduction/supported-payment-types.md", "https://en.komoju.com/cross-border-payment-solutions/komoju-vs-stripe/", "https://help.komoju.com/hc/en-us/articles/4747518192798-What-Can-I-Do-in-Test-Mode", "https://docs.komoju.com/en/docs/integration-guides/direct-integrations/payments-api/payment-details"]
+read_on = "2026-10-17"
+note = "max per 24 hours; without a JP entity per KOMOJU's comparison page (VERIFY)"
+request_data = []
+
+[[route]]
+method = "au_pay"
+provider = "komoju"
+provider_type = "aupay"
+status = "ga"
+merchant_countries = []
+currencies = ["JPY"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = [
+  { field = "action", value = "authorize", outcome = "succeeded", note = "KOMOJU's test mode: the deposit simulation page's button captures it", after_minutes = 0 },
+  { field = "action", value = "fail", outcome = "failed", note = "KOMOJU's test mode: the payment cancelled", after_minutes = 0 },
+]
+sources = ["https://docs.komoju.com/en/docs/introduction/supported-payment-types.md", "https://en.komoju.com/cross-border-payment-solutions/komoju-vs-stripe/", "https://help.komoju.com/hc/en-us/articles/4747518192798-What-Can-I-Do-in-Test-Mode", "https://docs.komoju.com/en/docs/integration-guides/direct-integrations/payments-api/payment-details"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "merpay"
+provider = "komoju"
+provider_type = "merpay"
+status = "ga"
+merchant_countries = []
+currencies = ["JPY"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = "JPY 1000000"
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = [
+  { field = "action", value = "authorize", outcome = "succeeded", note = "KOMOJU's test mode: the deposit simulation page's button captures it", after_minutes = 0 },
+  { field = "action", value = "fail", outcome = "failed", note = "KOMOJU's test mode: the payment cancelled", after_minutes = 0 },
+]
+sources = ["https://docs.komoju.com/en/docs/introduction/supported-payment-types.md", "https://en.komoju.com/cross-border-payment-solutions/komoju-vs-stripe/", "https://help.komoju.com/hc/en-us/articles/4747518192798-What-Can-I-Do-in-Test-Mode", "https://docs.komoju.com/en/docs/integration-guides/direct-integrations/payments-api/payment-details"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "pay_easy"
+provider = "komoju"
+provider_type = "pay_easy"
+status = "ga"
+merchant_countries = []
+currencies = ["JPY"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = "JPY 999999"
+expires_minutes = 0
+settles = "days"
+surfaces = ["browser"]
+webview = "allowed"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = [
+  { field = "action", value = "authorize", outcome = "succeeded", note = "KOMOJU's test mode: Simulate Capture on the payment in its dashboard captures it", after_minutes = 0 },
+  { field = "action", value = "fail", outcome = "failed", note = "KOMOJU's test mode: the payment cancelled", after_minutes = 0 },
+]
+sources = ["https://docs.komoju.com/en/docs/introduction/supported-payment-types.md", "https://en.komoju.com/cross-border-payment-solutions/komoju-vs-stripe/", "https://help.komoju.com/hc/en-us/articles/4747518192798-What-Can-I-Do-in-Test-Mode", "https://docs.komoju.com/en/docs/integration-guides/direct-integrations/payments-api/payment-details"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "paidy"
+provider = "komoju"
+provider_type = "paidy"
+status = "ga"
+merchant_countries = []
+currencies = ["JPY"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = "JPY 1000000"
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = [
+  { field = "action", value = "authorize", outcome = "succeeded", note = "KOMOJU's test mode: the deposit simulation page's button captures it", after_minutes = 0 },
+  { field = "action", value = "fail", outcome = "failed", note = "KOMOJU's test mode: the payment cancelled", after_minutes = 0 },
+]
+sources = ["https://docs.komoju.com/en/docs/introduction/supported-payment-types.md", "https://en.komoju.com/cross-border-payment-solutions/komoju-vs-stripe/", "https://help.komoju.com/hc/en-us/articles/4747518192798-What-Can-I-Do-in-Test-Mode", "https://docs.komoju.com/en/docs/integration-guides/direct-integrations/payments-api/payment-details"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "bank_transfer"
+provider = "komoju"
+provider_type = "bank_transfer"
+status = "ga"
+merchant_countries = []
+currencies = ["JPY"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "days"
+surfaces = ["browser"]
+webview = "allowed"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = [
+  { field = "action", value = "authorize", outcome = "succeeded", note = "KOMOJU's test mode: Simulate Capture on the payment in its dashboard captures it", after_minutes = 0 },
+  { field = "action", value = "fail", outcome = "failed", note = "KOMOJU's test mode: the payment cancelled", after_minutes = 0 },
+]
+sources = ["https://docs.komoju.com/en/docs/introduction/supported-payment-types.md", "https://en.komoju.com/cross-border-payment-solutions/komoju-vs-stripe/", "https://help.komoju.com/hc/en-us/articles/4747518192798-What-Can-I-Do-in-Test-Mode", "https://docs.komoju.com/en/docs/integration-guides/direct-integrations/payments-api/payment-details"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "kakao_pay"
+provider = "komoju"
+provider_type = "kakaopay"
+status = "ga"
+merchant_countries = []
+currencies = ["KRW"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = "KRW 1"
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.komoju.com/en/docs/introduction/supported-payment-types.md", "https://en.komoju.com/cross-border-payment-solutions/komoju-vs-stripe/"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "naver_pay"
+provider = "komoju"
+provider_type = "naverpay"
+status = "ga"
+merchant_countries = []
+currencies = ["KRW"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = "KRW 1"
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.komoju.com/en/docs/introduction/supported-payment-types.md", "https://en.komoju.com/cross-border-payment-solutions/komoju-vs-stripe/"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "payco"
+provider = "komoju"
+provider_type = "payco"
+status = "ga"
+merchant_countries = []
+currencies = ["KRW"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = "KRW 1"
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.komoju.com/en/docs/introduction/supported-payment-types.md", "https://en.komoju.com/cross-border-payment-solutions/komoju-vs-stripe/"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "kr_card"
+provider = "komoju"
+provider_type = "credit_card"
+status = "ga"
+merchant_countries = []
+currencies = ["KRW"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = "KRW 1"
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.komoju.com/en/docs/introduction/supported-payment-types.md", "https://en.komoju.com/cross-border-payment-solutions/komoju-vs-stripe/"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "alipay_hk"
+provider = "komoju"
+provider_type = "alipay_hk"
+status = "ga"
+merchant_countries = []
+currencies = ["HKD"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.komoju.com/en/docs/introduction/supported-payment-types.md", "https://en.komoju.com/cross-border-payment-solutions/komoju-vs-stripe/"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "fpx"
+provider = "komoju"
+provider_type = "fpx"
+status = "ga"
+merchant_countries = []
+currencies = ["MYR"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = "MYR 30000"
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.komoju.com/en/docs/introduction/supported-payment-types.md", "https://en.komoju.com/cross-border-payment-solutions/komoju-vs-stripe/"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "touch_n_go"
+provider = "komoju"
+provider_type = "tng"
+status = "ga"
+merchant_countries = []
+currencies = ["MYR"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.komoju.com/en/docs/introduction/supported-payment-types.md", "https://en.komoju.com/cross-border-payment-solutions/komoju-vs-stripe/"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "gcash"
+provider = "komoju"
+provider_type = "gcash"
+status = "ga"
+merchant_countries = []
+currencies = ["PHP"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.komoju.com/en/docs/introduction/supported-payment-types.md", "https://en.komoju.com/cross-border-payment-solutions/komoju-vs-stripe/"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "dana"
+provider = "komoju"
+provider_type = "dana"
+status = "ga"
+merchant_countries = []
+currencies = ["IDR"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.komoju.com/en/docs/introduction/supported-payment-types.md", "https://en.komoju.com/cross-border-payment-solutions/komoju-vs-stripe/"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "ovo"
+provider = "komoju"
+provider_type = "ovo"
+status = "ga"
+merchant_countries = []
+currencies = ["IDR"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = "IDR 10000"
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "allowed"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.komoju.com/en/docs/introduction/supported-payment-types.md", "https://en.komoju.com/cross-border-payment-solutions/komoju-vs-stripe/"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "blik"
+provider = "komoju"
+provider_type = "blik"
+status = "ga"
+merchant_countries = []
+currencies = ["PLN"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = "PLN 10000"
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "allowed"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.komoju.com/en/docs/introduction/supported-payment-types.md", "https://en.komoju.com/cross-border-payment-solutions/komoju-vs-stripe/"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "p24"
+provider = "komoju"
+provider_type = "przelewy24"
+status = "ga"
+merchant_countries = []
+currencies = ["PLN", "EUR"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = "PLN 55000"
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.komoju.com/en/docs/introduction/supported-payment-types.md", "https://en.komoju.com/cross-border-payment-solutions/komoju-vs-stripe/"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "pix"
+provider = "ebanx"
+provider_type = "pix"
+status = "sales"
+merchant_countries = []
+currencies = ["BRL"]
+adaptive = false
+adaptive_recurring = false
+recurring = "mandate"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "allowed"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = ["tax_id", "phone", "address"]
+test_inputs = [
+  { field = "action", value = "authorize", outcome = "succeeded", note = "EBANX's sandbox confirms the payment (CO)", after_minutes = 0 },
+  { field = "action", value = "fail", outcome = "failed", note = "EBANX's sandbox cancels the payment (CA)", after_minutes = 0 },
+]
+sources = ["https://docs.ebanx.com/docs/get-started/api-operability.md", "https://docs.ebanx.com/docs/pay-in/dev-tools/sandbox-simulation/test-customer-data"]
+read_on = "2026-10-17"
+note = ""
+request_data = ["name", "email"]
+
+[[route]]
+method = "boleto"
+provider = "ebanx"
+provider_type = "boleto"
+status = "sales"
+merchant_countries = []
+currencies = ["BRL"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "days"
+surfaces = ["browser"]
+webview = "allowed"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = 0
+disputes = "unknown"
+payer_data = ["tax_id", "phone", "address"]
+test_inputs = [
+  { field = "action", value = "authorize", outcome = "succeeded", note = "EBANX's sandbox confirms the payment (CO)", after_minutes = 0 },
+  { field = "action", value = "fail", outcome = "failed", note = "EBANX's sandbox cancels the payment (CA)", after_minutes = 0 },
+]
+sources = ["https://docs.ebanx.com/docs/get-started/api-operability.md", "https://docs.ebanx.com/docs/pay-in/dev-tools/sandbox-simulation/test-customer-data"]
+read_on = "2026-10-17"
+note = ""
+request_data = ["name", "email"]
+
+[[route]]
+method = "oxxo"
+provider = "ebanx"
+provider_type = "oxxo"
+status = "sales"
+merchant_countries = []
+currencies = ["MXN"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "days"
+surfaces = ["browser"]
+webview = "allowed"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = [
+  { field = "action", value = "authorize", outcome = "succeeded", note = "EBANX's sandbox confirms the payment (CO)", after_minutes = 0 },
+  { field = "action", value = "fail", outcome = "failed", note = "EBANX's sandbox cancels the payment (CA)", after_minutes = 0 },
+]
+sources = ["https://docs.ebanx.com/docs/get-started/api-operability.md", "https://docs.ebanx.com/docs/pay-in/dev-tools/sandbox-simulation/test-customer-data"]
+read_on = "2026-10-17"
+note = ""
+request_data = ["name", "email"]
+
+[[route]]
+method = "spei"
+provider = "ebanx"
+provider_type = "spei"
+status = "sales"
+merchant_countries = []
+currencies = ["MXN"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "minutes"
+surfaces = ["browser"]
+webview = "allowed"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.ebanx.com/docs/get-started/api-operability.md"]
+read_on = "2026-10-17"
+note = ""
+request_data = ["name", "email"]
+
+[[route]]
+method = "mercado_pago"
+provider = "ebanx"
+provider_type = "mercadopago"
+status = "sales"
+merchant_countries = []
+currencies = ["MXN", "ARS", "BRL", "CLP", "COP", "UYU"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.ebanx.com/docs/get-started/api-operability.md"]
+read_on = "2026-10-17"
+note = ""
+request_data = ["name", "email"]
+
+[[route]]
+method = "pse"
+provider = "ebanx"
+provider_type = "pse"
+status = "sales"
+merchant_countries = []
+currencies = ["COP"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.ebanx.com/docs/get-started/api-operability.md"]
+read_on = "2026-10-17"
+note = ""
+request_data = ["name", "email"]
+
+[[route]]
+method = "nequi"
+provider = "ebanx"
+provider_type = "nequi"
+status = "sales"
+merchant_countries = []
+currencies = ["COP"]
+adaptive = false
+adaptive_recurring = false
+recurring = "mandate"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "allowed"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.ebanx.com/docs/get-started/api-operability.md"]
+read_on = "2026-10-17"
+note = ""
+request_data = ["name", "email"]
+
+[[route]]
+method = "efecty"
+provider = "ebanx"
+provider_type = "efecty"
+status = "sales"
+merchant_countries = []
+currencies = ["COP"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "days"
+surfaces = ["browser"]
+webview = "allowed"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.ebanx.com/docs/get-started/api-operability.md"]
+read_on = "2026-10-17"
+note = ""
+request_data = ["name", "email"]
+
+[[route]]
+method = "yape"
+provider = "ebanx"
+provider_type = "yape"
+status = "sales"
+merchant_countries = []
+currencies = ["PEN"]
+adaptive = false
+adaptive_recurring = false
+recurring = "mandate"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "allowed"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.ebanx.com/docs/get-started/api-operability.md"]
+read_on = "2026-10-17"
+note = ""
+request_data = ["name", "email"]
+
+[[route]]
+method = "pagoefectivo"
+provider = "ebanx"
+provider_type = "pagoefectivo"
+status = "sales"
+merchant_countries = []
+currencies = ["PEN"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "days"
+surfaces = ["browser"]
+webview = "allowed"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.ebanx.com/docs/get-started/api-operability.md"]
+read_on = "2026-10-17"
+note = ""
+request_data = ["name", "email"]
+
+[[route]]
+method = "webpay"
+provider = "ebanx"
+provider_type = "webpay"
+status = "sales"
+merchant_countries = []
+currencies = ["CLP"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.ebanx.com/docs/get-started/api-operability.md"]
+read_on = "2026-10-17"
+note = ""
+request_data = ["name", "email"]
+
+[[route]]
+method = "upi"
+provider = "ebanx"
+provider_type = "upi"
+status = "sales"
+merchant_countries = []
+currencies = ["INR"]
+adaptive = false
+adaptive_recurring = false
+recurring = "mandate"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "allowed"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.ebanx.com/docs/get-started/api-operability.md"]
+read_on = "2026-10-17"
+note = ""
+request_data = ["name", "email"]
+
+[[route]]
+method = "mpesa"
+provider = "ebanx"
+provider_type = "mpesa"
+status = "sales"
+merchant_countries = []
+currencies = ["KES"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "allowed"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.ebanx.com/docs/get-started/api-operability.md"]
+read_on = "2026-10-17"
+note = ""
+request_data = ["name", "email"]
+
+[[route]]
+method = "airtel_money"
+provider = "ebanx"
+provider_type = "airtel_money"
+status = "sales"
+merchant_countries = []
+currencies = ["KES"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "allowed"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.ebanx.com/docs/get-started/api-operability.md"]
+read_on = "2026-10-17"
+note = ""
+request_data = ["name", "email"]
+
+[[route]]
+method = "opay"
+provider = "ebanx"
+provider_type = "opay"
+status = "sales"
+merchant_countries = []
+currencies = ["NGN"]
+adaptive = false
+adaptive_recurring = false
+recurring = "mandate"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.ebanx.com/docs/get-started/api-operability.md"]
+read_on = "2026-10-17"
+note = ""
+request_data = ["name", "email"]
+
+[[route]]
+method = "ng_bank_transfer"
+provider = "ebanx"
+provider_type = "bank_transfer"
+status = "sales"
+merchant_countries = []
+currencies = ["NGN"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "minutes"
+surfaces = ["browser"]
+webview = "allowed"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.ebanx.com/docs/get-started/api-operability.md"]
+read_on = "2026-10-17"
+note = ""
+request_data = ["name", "email"]
+
+[[route]]
+method = "ozow"
+provider = "ebanx"
+provider_type = "ozow"
+status = "sales"
+merchant_countries = []
+currencies = ["ZAR"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.ebanx.com/docs/get-started/api-operability.md"]
+read_on = "2026-10-17"
+note = ""
+request_data = ["name", "email"]
+
+[[route]]
+method = "capitec_pay"
+provider = "ebanx"
+provider_type = "capitec_pay"
+status = "sales"
+merchant_countries = []
+currencies = ["ZAR"]
+adaptive = false
+adaptive_recurring = false
+recurring = "mandate"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "allowed"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.ebanx.com/docs/get-started/api-operability.md"]
+read_on = "2026-10-17"
+note = ""
+request_data = ["name", "email"]
+
+[[route]]
+method = "mpesa"
+provider = "dlocal"
+provider_type = "SF"
+status = "sales"
+merchant_countries = []
+currencies = ["KES"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "forbidden"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.dlocal.com/llms.txt"]
+read_on = "2026-10-17"
+note = ""
+request_data = ["name", "email", "national_id"]
+
+[[route]]
+method = "airtel_money"
+provider = "dlocal"
+provider_type = "AN"
+status = "sales"
+merchant_countries = []
+currencies = ["KES"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "forbidden"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.dlocal.com/llms.txt"]
+read_on = "2026-10-17"
+note = ""
+request_data = ["name", "email", "national_id"]
+
+[[route]]
+method = "upi"
+provider = "dlocal"
+provider_type = "UI"
+status = "sales"
+merchant_countries = []
+currencies = ["INR"]
+adaptive = false
+adaptive_recurring = false
+recurring = "mandate"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "forbidden"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.dlocal.com/llms.txt"]
+read_on = "2026-10-17"
+note = "recurring id IR"
+request_data = ["name", "email", "national_id"]
+
+[[route]]
+method = "netbanking_in"
+provider = "dlocal"
+provider_type = "NB"
+status = "sales"
+merchant_countries = []
+currencies = ["INR"]
+adaptive = false
+adaptive_recurring = false
+recurring = "mandate"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "forbidden"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.dlocal.com/llms.txt"]
+read_on = "2026-10-17"
+note = "recurring id NZ"
+request_data = ["name", "email", "national_id"]
+
+[[route]]
+method = "pix"
+provider = "dlocal"
+provider_type = "PQ"
+status = "sales"
+merchant_countries = []
+currencies = ["BRL"]
+adaptive = false
+adaptive_recurring = false
+recurring = "mandate"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "forbidden"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = [
+  { field = "action", value = "authorize", outcome = "succeeded", note = "dLocal's sandbox tools set the payment PAID", after_minutes = 0 },
+  { field = "action", value = "fail", outcome = "failed", note = "dLocal's sandbox tools set the payment REJECTED", after_minutes = 0 },
+]
+sources = ["https://docs.dlocal.com/llms.txt", "https://docs.dlocal.com/docs/make-a-test-payment"]
+read_on = "2026-10-17"
+note = "Pix Automatico id XA"
+request_data = ["name", "email", "national_id"]
+
+[[route]]
+method = "boleto"
+provider = "dlocal"
+provider_type = "BL"
+status = "sales"
+merchant_countries = []
+currencies = ["BRL"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "days"
+surfaces = ["browser"]
+webview = "forbidden"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = 0
+disputes = "unknown"
+payer_data = []
+test_inputs = [
+  { field = "action", value = "authorize", outcome = "succeeded", note = "dLocal's sandbox tools set the payment PAID", after_minutes = 0 },
+  { field = "action", value = "fail", outcome = "failed", note = "dLocal's sandbox tools set the payment REJECTED", after_minutes = 0 },
+]
+sources = ["https://docs.dlocal.com/llms.txt", "https://docs.dlocal.com/docs/make-a-test-payment"]
+read_on = "2026-10-17"
+note = ""
+request_data = ["name", "email", "national_id"]
+
+[[route]]
+method = "oxxo"
+provider = "dlocal"
+provider_type = "OX"
+status = "sales"
+merchant_countries = []
+currencies = ["MXN"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "days"
+surfaces = ["browser"]
+webview = "forbidden"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = [
+  { field = "action", value = "authorize", outcome = "succeeded", note = "dLocal's sandbox tools set the payment PAID", after_minutes = 0 },
+  { field = "action", value = "fail", outcome = "failed", note = "dLocal's sandbox tools set the payment REJECTED", after_minutes = 0 },
+]
+sources = ["https://docs.dlocal.com/llms.txt", "https://docs.dlocal.com/docs/make-a-test-payment"]
+read_on = "2026-10-17"
+note = ""
+request_data = ["name", "email", "national_id"]
+
+[[route]]
+method = "spei"
+provider = "dlocal"
+provider_type = "SE"
+status = "sales"
+merchant_countries = []
+currencies = ["MXN"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "forbidden"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.dlocal.com/llms.txt"]
+read_on = "2026-10-17"
+note = ""
+request_data = ["name", "email", "national_id"]
+
+[[route]]
+method = "mercado_pago"
+provider = "dlocal"
+provider_type = "MP"
+status = "sales"
+merchant_countries = []
+currencies = ["MXN", "ARS", "BRL", "CLP", "COP", "UYU"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "forbidden"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.dlocal.com/llms.txt"]
+read_on = "2026-10-17"
+note = ""
+request_data = ["name", "email", "national_id"]
+
+[[route]]
+method = "pse"
+provider = "dlocal"
+provider_type = "PC"
+status = "sales"
+merchant_countries = []
+currencies = ["COP"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "forbidden"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.dlocal.com/llms.txt"]
+read_on = "2026-10-17"
+note = ""
+request_data = ["name", "email", "national_id"]
+
+[[route]]
+method = "nequi"
+provider = "dlocal"
+provider_type = "QP"
+status = "sales"
+merchant_countries = []
+currencies = ["COP"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "forbidden"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.dlocal.com/llms.txt"]
+read_on = "2026-10-17"
+note = ""
+request_data = ["name", "email", "national_id"]
+
+[[route]]
+method = "efecty"
+provider = "dlocal"
+provider_type = "EY"
+status = "sales"
+merchant_countries = []
+currencies = ["COP"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "days"
+surfaces = ["browser"]
+webview = "forbidden"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.dlocal.com/llms.txt"]
+read_on = "2026-10-17"
+note = ""
+request_data = ["name", "email", "national_id"]
+
+[[route]]
+method = "yape"
+provider = "dlocal"
+provider_type = "YP"
+status = "sales"
+merchant_countries = []
+currencies = ["PEN"]
+adaptive = false
+adaptive_recurring = false
+recurring = "mandate"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "forbidden"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.dlocal.com/llms.txt"]
+read_on = "2026-10-17"
+note = "recurring id YE"
+request_data = ["name", "email", "national_id"]
+
+[[route]]
+method = "pagoefectivo"
+provider = "dlocal"
+provider_type = "EF"
+status = "sales"
+merchant_countries = []
+currencies = ["PEN"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "days"
+surfaces = ["browser"]
+webview = "forbidden"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.dlocal.com/llms.txt"]
+read_on = "2026-10-17"
+note = ""
+request_data = ["name", "email", "national_id"]
+
+[[route]]
+method = "webpay"
+provider = "dlocal"
+provider_type = "WP"
+status = "sales"
+merchant_countries = []
+currencies = ["CLP"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "forbidden"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.dlocal.com/llms.txt"]
+read_on = "2026-10-17"
+note = ""
+request_data = ["name", "email", "national_id"]
+
+[[route]]
+method = "khipu"
+provider = "dlocal"
+provider_type = "IO"
+status = "sales"
+merchant_countries = []
+currencies = ["CLP"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "forbidden"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.dlocal.com/llms.txt"]
+read_on = "2026-10-17"
+note = ""
+request_data = ["name", "email", "national_id"]
+
+[[route]]
+method = "gcash"
+provider = "dlocal"
+provider_type = "GC"
+status = "sales"
+merchant_countries = []
+currencies = ["PHP"]
+adaptive = false
+adaptive_recurring = false
+recurring = "mandate"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "forbidden"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.dlocal.com/llms.txt"]
+read_on = "2026-10-17"
+note = "recurring id RG"
+request_data = ["name", "email", "national_id"]
+
+[[route]]
+method = "maya"
+provider = "dlocal"
+provider_type = "PM"
+status = "sales"
+merchant_countries = []
+currencies = ["PHP"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "forbidden"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.dlocal.com/llms.txt"]
+read_on = "2026-10-17"
+note = ""
+request_data = ["name", "email", "national_id"]
+
+[[route]]
+method = "grabpay"
+provider = "dlocal"
+provider_type = "GY"
+status = "sales"
+merchant_countries = []
+currencies = ["PHP"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "forbidden"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.dlocal.com/llms.txt"]
+read_on = "2026-10-17"
+note = ""
+request_data = ["name", "email", "national_id"]
+
+[[route]]
+method = "ovo"
+provider = "dlocal"
+provider_type = "OV"
+status = "sales"
+merchant_countries = []
+currencies = ["IDR"]
+adaptive = false
+adaptive_recurring = false
+recurring = "mandate"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "forbidden"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.dlocal.com/llms.txt"]
+read_on = "2026-10-17"
+note = ""
+request_data = ["name", "email", "national_id"]
+
+[[route]]
+method = "dana"
+provider = "dlocal"
+provider_type = "DN"
+status = "sales"
+merchant_countries = []
+currencies = ["IDR"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "forbidden"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.dlocal.com/llms.txt"]
+read_on = "2026-10-17"
+note = ""
+request_data = ["name", "email", "national_id"]
+
+[[route]]
+method = "qris"
+provider = "dlocal"
+provider_type = "QR"
+status = "sales"
+merchant_countries = []
+currencies = ["IDR"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "forbidden"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.dlocal.com/llms.txt"]
+read_on = "2026-10-17"
+note = ""
+request_data = ["name", "email", "national_id"]
+
+[[route]]
+method = "momo"
+provider = "dlocal"
+provider_type = "VQ"
+status = "sales"
+merchant_countries = []
+currencies = ["VND"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "forbidden"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.dlocal.com/llms.txt"]
+read_on = "2026-10-17"
+note = ""
+request_data = ["name", "email", "national_id"]
+
+[[route]]
+method = "zalopay"
+provider = "dlocal"
+provider_type = "ZW"
+status = "sales"
+merchant_countries = []
+currencies = ["VND"]
+adaptive = false
+adaptive_recurring = false
+recurring = "mandate"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "forbidden"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.dlocal.com/llms.txt"]
+read_on = "2026-10-17"
+note = "recurring id ZA"
+request_data = ["name", "email", "national_id"]
+
+[[route]]
+method = "opay"
+provider = "dlocal"
+provider_type = "OW"
+status = "sales"
+merchant_countries = []
+currencies = ["NGN"]
+adaptive = false
+adaptive_recurring = false
+recurring = "mandate"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "forbidden"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.dlocal.com/llms.txt"]
+read_on = "2026-10-17"
+note = "recurring id OP"
+request_data = ["name", "email", "national_id"]
+
+[[route]]
+method = "ng_bank_transfer"
+provider = "dlocal"
+provider_type = "IO"
+status = "sales"
+merchant_countries = []
+currencies = ["NGN"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "forbidden"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.dlocal.com/llms.txt"]
+read_on = "2026-10-17"
+note = ""
+request_data = ["name", "email", "national_id"]
+
+[[route]]
+method = "ozow"
+provider = "dlocal"
+provider_type = "IO"
+status = "sales"
+merchant_countries = []
+currencies = ["ZAR"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "forbidden"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.dlocal.com/llms.txt"]
+read_on = "2026-10-17"
+note = ""
+request_data = ["name", "email", "national_id"]
+
+[[route]]
+method = "capitec_pay"
+provider = "dlocal"
+provider_type = "ZC"
+status = "sales"
+merchant_countries = []
+currencies = ["ZAR"]
+adaptive = false
+adaptive_recurring = false
+recurring = "mandate"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "forbidden"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.dlocal.com/llms.txt"]
+read_on = "2026-10-17"
+note = "recurring id ZR"
+request_data = ["name", "email", "national_id"]
+
+[[route]]
+method = "fawry"
+provider = "dlocal"
+provider_type = "FW"
+status = "sales"
+merchant_countries = []
+currencies = ["EGP"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "days"
+surfaces = ["browser"]
+webview = "forbidden"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.dlocal.com/llms.txt"]
+read_on = "2026-10-17"
+note = ""
+request_data = ["name", "email", "national_id"]
+
+[[route]]
+method = "konbini"
+provider = "dlocal"
+provider_type = "KB"
+status = "sales"
+merchant_countries = []
+currencies = ["JPY"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "days"
+surfaces = ["browser"]
+webview = "forbidden"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.dlocal.com/llms.txt"]
+read_on = "2026-10-17"
+note = ""
+request_data = ["name", "email", "national_id"]
+
+[[route]]
+method = "pay_easy"
+provider = "dlocal"
+provider_type = "DP"
+status = "sales"
+merchant_countries = []
+currencies = ["JPY"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "days"
+surfaces = ["browser"]
+webview = "forbidden"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.dlocal.com/llms.txt"]
+read_on = "2026-10-17"
+note = ""
+request_data = ["name", "email", "national_id"]
+
+[[route]]
+method = "au_pay"
+provider = "dlocal"
+provider_type = "AY"
+status = "sales"
+merchant_countries = []
+currencies = ["JPY"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "forbidden"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.dlocal.com/llms.txt"]
+read_on = "2026-10-17"
+note = ""
+request_data = ["name", "email", "national_id"]
+
+[[route]]
+method = "paynow"
+provider = "adyen"
+provider_type = "paynow"
+status = "sales"
+merchant_countries = []
+currencies = ["SGD"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "Interchange++ / contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.adyen.com/payment-methods/paynow/"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "promptpay"
+provider = "adyen"
+provider_type = "promptpay"
+status = "sales"
+merchant_countries = []
+currencies = ["THB"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "Interchange++ / contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.adyen.com/payment-methods/promptpay/"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "duitnow"
+provider = "adyen"
+provider_type = "duitnow"
+status = "sales"
+merchant_countries = []
+currencies = ["MYR"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "Interchange++ / contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.adyen.com/payment-methods/duitnow/"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "gcash"
+provider = "adyen"
+provider_type = "gcash"
+status = "sales"
+merchant_countries = []
+currencies = ["PHP"]
+adaptive = false
+adaptive_recurring = false
+recurring = "mandate"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "Interchange++ / contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.adyen.com/payment-methods/gcash/"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "dana"
+provider = "adyen"
+provider_type = "dana"
+status = "sales"
+merchant_countries = []
+currencies = ["IDR"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "Interchange++ / contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.adyen.com/payment-methods/dana/"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "gopay"
+provider = "adyen"
+provider_type = "gopay"
+status = "sales"
+merchant_countries = []
+currencies = ["IDR"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "Interchange++ / contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.adyen.com/payment-methods/gopay/"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "touch_n_go"
+provider = "adyen"
+provider_type = "touchngo"
+status = "sales"
+merchant_countries = []
+currencies = ["MYR"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "Interchange++ / contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.adyen.com/payment-methods/touchngo/"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "momo"
+provider = "adyen"
+provider_type = "momo_wallet"
+status = "sales"
+merchant_countries = []
+currencies = ["VND"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "Interchange++ / contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.adyen.com/payment-methods/momo-wallet/"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "grabpay"
+provider = "adyen"
+provider_type = "grabpay_SG"
+status = "sales"
+merchant_countries = []
+currencies = ["SGD", "MYR", "PHP"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "Interchange++ / contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.adyen.com/payment-methods/grabpay/"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "konbini"
+provider = "adyen"
+provider_type = "econtext_seven_eleven"
+status = "sales"
+merchant_countries = []
+currencies = ["JPY"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "days"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "Interchange++ / contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.adyen.com/payment-methods/econtext-konbini/"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "paypay"
+provider = "adyen"
+provider_type = "paypay"
+status = "sales"
+merchant_countries = []
+currencies = ["JPY"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "Interchange++ / contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.adyen.com/payment-methods/paypay/"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "kakao_pay"
+provider = "adyen"
+provider_type = "kakaopay"
+status = "sales"
+merchant_countries = []
+currencies = ["KRW"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "Interchange++ / contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.adyen.com/payment-methods/kakaopay/"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "oxxo"
+provider = "adyen"
+provider_type = "oxxo"
+status = "sales"
+merchant_countries = []
+currencies = ["MXN"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "days"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "Interchange++ / contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.adyen.com/payment-methods/oxxo/"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "boleto"
+provider = "adyen"
+provider_type = "boletobancario"
+status = "sales"
+merchant_countries = []
+currencies = ["BRL"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "days"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "Interchange++ / contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://docs.adyen.com/payment-methods/boleto-bancario/"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "upi"
+provider = "razorpay"
+provider_type = "upi"
+status = "invite"
+merchant_countries = []
+currencies = ["INR"]
+adaptive = false
+adaptive_recurring = false
+recurring = "mandate"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "allowed"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract; UPI needs extra approval"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://razorpay.com/blog/how-global-businesses-can-offer-upi-payments-to-indian-customers/", "https://razorpay.com/docs/us/payments/international-payments"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "netbanking_in"
+provider = "razorpay"
+provider_type = "netbanking"
+status = "invite"
+merchant_countries = []
+currencies = ["INR"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://razorpay.com/blog/how-global-businesses-can-offer-upi-payments-to-indian-customers/"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "qris"
+provider = "xendit"
+provider_type = "QRIS"
+status = "sales"
+merchant_countries = []
+currencies = ["IDR"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "allowed"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://www.xendit.co/en/products/all-payment-methods/"]
+read_on = "2026-10-17"
+note = "provider_type and availability per market: VERIFY"
+request_data = []
+
+[[route]]
+method = "gcash"
+provider = "xendit"
+provider_type = "GCASH"
+status = "sales"
+merchant_countries = []
+currencies = ["PHP"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://www.xendit.co/en/products/all-payment-methods/"]
+read_on = "2026-10-17"
+note = "provider_type and availability per market: VERIFY"
+request_data = []
+
+[[route]]
+method = "maya"
+provider = "xendit"
+provider_type = "MAYA"
+status = "sales"
+merchant_countries = []
+currencies = ["PHP"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://www.xendit.co/en/products/all-payment-methods/"]
+read_on = "2026-10-17"
+note = "provider_type and availability per market: VERIFY"
+request_data = []
+
+[[route]]
+method = "ovo"
+provider = "xendit"
+provider_type = "OVO"
+status = "sales"
+merchant_countries = []
+currencies = ["IDR"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "allowed"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://www.xendit.co/en/products/all-payment-methods/"]
+read_on = "2026-10-17"
+note = "provider_type and availability per market: VERIFY"
+request_data = []
+
+[[route]]
+method = "dana"
+provider = "xendit"
+provider_type = "DANA"
+status = "sales"
+merchant_countries = []
+currencies = ["IDR"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://www.xendit.co/en/products/all-payment-methods/"]
+read_on = "2026-10-17"
+note = "provider_type and availability per market: VERIFY"
+request_data = []
+
+[[route]]
+method = "gopay"
+provider = "xendit"
+provider_type = "GOPAY"
+status = "sales"
+merchant_countries = []
+currencies = ["IDR"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://www.xendit.co/en/products/all-payment-methods/"]
+read_on = "2026-10-17"
+note = "provider_type and availability per market: VERIFY"
+request_data = []
+
+[[route]]
+method = "promptpay"
+provider = "xendit"
+provider_type = "PROMPTPAY"
+status = "sales"
+merchant_countries = []
+currencies = ["THB"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "allowed"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://www.xendit.co/en/products/all-payment-methods/"]
+read_on = "2026-10-17"
+note = "provider_type and availability per market: VERIFY"
+request_data = []
+
+[[route]]
+method = "paynow"
+provider = "xendit"
+provider_type = "PAYNOW"
+status = "sales"
+merchant_countries = []
+currencies = ["SGD"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "allowed"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://www.xendit.co/en/products/all-payment-methods/"]
+read_on = "2026-10-17"
+note = "provider_type and availability per market: VERIFY"
+request_data = []
+
+[[route]]
+method = "mercado_pago"
+provider = "mercadopago"
+provider_type = "checkout_pro"
+status = "sales"
+merchant_countries = []
+currencies = ["MXN", "ARS", "BRL", "CLP", "COP", "UYU"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "discouraged"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "contract; USD payouts"
+refund_days = -1
+disputes = "unknown"
+payer_data = []
+test_inputs = []
+sources = ["https://www.mercadopago.com.mx/developers/en/docs/resources/localization/crossborder-integration"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+[[route]]
+method = "mpesa"
+provider = "flutterwave"
+provider_type = "mpesa"
+status = "verify"
+merchant_countries = []
+currencies = ["KES"]
+adaptive = false
+adaptive_recurring = false
+recurring = "none"
+recurring_cap = ""
+min = ""
+max = ""
+expires_minutes = 0
+settles = "instant"
+surfaces = ["browser"]
+webview = "allowed"
+fee_known = false
+fee_bps = 0
+fee_fixed = ""
+fee_cap = ""
+fee_note = "2.9 % for Kenyan merchants; a foreign company: VERIFY"
+refund_days = -1
+disputes = "unknown"
+payer_data = ["phone"]
+test_inputs = []
+sources = ["https://developer.flutterwave.com/docs/m-pesa", "https://flutterwave.com/ke/pricing"]
+read_on = "2026-10-17"
+note = ""
+request_data = []
+
+# ---- countries (what people pay with, most used first)
+
+[[country]]
+code = "*"
+name = "Any other country"
+currency = ""
+mix = {}
+mix_year = 0
+prefer = ["card", "paypal", "apple_pay", "google_pay"]
+sources = []
+
+[[country]]
+code = "DE"
+name = "Germany"
+currency = "EUR"
+mix = { wallets = 35, a2a = 26, bnpl = 20, crypto = 0, credit = 10, debit = 6, cash = 4 }
+mix_year = 2024
+prefer = ["paypal", "sepa_debit", "card", "klarna", "wero", "apple_pay", "google_pay", "bank_transfer"]
+sources = ["https://offers.worldpayglobal.com/rs/850-JOA-856/images/GPR25.pdf"]
+
+[[country]]
+code = "AT"
+name = "Austria"
+currency = "EUR"
+mix = {}
+mix_year = 0
+prefer = ["eps", "card", "paypal", "sepa_debit", "klarna", "apple_pay", "google_pay"]
+sources = ["https://docs.stripe.com/payments/eps"]
+
+[[country]]
+code = "NL"
+name = "Netherlands"
+currency = "EUR"
+mix = { wallets = 11, a2a = 67, bnpl = 10, crypto = 0, credit = 8, debit = 3, cash = 2 }
+mix_year = 2024
+prefer = ["ideal", "card", "paypal", "klarna", "sepa_debit", "apple_pay"]
+sources = ["https://offers.worldpayglobal.com/rs/850-JOA-856/images/GPR25.pdf"]
+
+[[country]]
+code = "BE"
+name = "Belgium"
+currency = "EUR"
+mix = { wallets = 21, a2a = 23, bnpl = 12, crypto = 0, credit = 12, debit = 29, cash = 3 }
+mix_year = 2024
+prefer = ["bancontact", "card", "wero", "kbc", "belfius", "paypal", "klarna", "sepa_debit"]
+sources = ["https://offers.worldpayglobal.com/rs/850-JOA-856/images/GPR25.pdf"]
+
+[[country]]
+code = "FR"
+name = "France"
+currency = "EUR"
+mix = { wallets = 34, a2a = 11, bnpl = 5, crypto = 0, credit = 21, debit = 26, cash = 2 }
+mix_year = 2024
+prefer = ["card", "paypal", "apple_pay", "wero", "sepa_debit", "klarna", "google_pay"]
+sources = ["https://offers.worldpayglobal.com/rs/850-JOA-856/images/GPR25.pdf"]
+
+[[country]]
+code = "IT"
+name = "Italy"
+currency = "EUR"
+mix = { wallets = 40, a2a = 8, bnpl = 5, crypto = 0, credit = 19, debit = 25, cash = 3 }
+mix_year = 2024
+prefer = ["paypal", "card", "apple_pay", "bancomat_pay", "satispay", "mybank", "klarna", "sepa_debit"]
+sources = ["https://offers.worldpayglobal.com/rs/850-JOA-856/images/GPR25.pdf"]
+
+[[country]]
+code = "ES"
+name = "Spain"
+currency = "EUR"
+mix = { wallets = 34, a2a = 21, bnpl = 3, crypto = 0, credit = 16, debit = 23, cash = 3 }
+mix_year = 2024
+prefer = ["card", "bizum", "paypal", "apple_pay", "google_pay", "klarna", "sepa_debit"]
+sources = ["https://offers.worldpayglobal.com/rs/850-JOA-856/images/GPR25.pdf"]
+
+[[country]]
+code = "PT"
+name = "Portugal"
+currency = "EUR"
+mix = {}
+mix_year = 0
+prefer = ["mb_way", "multibanco", "card", "paypal", "apple_pay", "sepa_debit"]
+sources = ["https://docs.stripe.com/payments/mb-way", "https://docs.stripe.com/payments/multibanco"]
+
+[[country]]
+code = "PL"
+name = "Poland"
+currency = "PLN"
+mix = { wallets = 12, a2a = 70, bnpl = 3, crypto = 0, credit = 4, debit = 7, cash = 3 }
+mix_year = 2024
+prefer = ["blik", "p24", "card", "paypal", "apple_pay", "google_pay"]
+sources = ["https://offers.worldpayglobal.com/rs/850-JOA-856/images/GPR25.pdf"]
+
+[[country]]
+code = "IE"
+name = "Ireland"
+currency = "EUR"
+mix = { wallets = 40, a2a = 4, bnpl = 3, crypto = 0, credit = 18, debit = 33, cash = 2 }
+mix_year = 2024
+prefer = ["card", "apple_pay", "google_pay", "paypal", "revolut_pay", "sepa_debit"]
+sources = ["https://offers.worldpayglobal.com/rs/850-JOA-856/images/GPR25.pdf"]
+
+[[country]]
+code = "FI"
+name = "Finland"
+currency = "EUR"
+mix = { wallets = 26, a2a = 34, bnpl = 16, crypto = 0, credit = 6, debit = 12, cash = 5 }
+mix_year = 2024
+prefer = ["mobilepay", "card", "klarna", "paypal", "apple_pay", "sepa_debit"]
+sources = ["https://offers.worldpayglobal.com/rs/850-JOA-856/images/GPR25.pdf"]
+
+[[country]]
+code = "LU"
+name = "Luxembourg"
+currency = "EUR"
+mix = {}
+mix_year = 0
+prefer = ["card", "sepa_debit", "paypal", "revolut_pay", "apple_pay", "google_pay"]
+sources = ["https://offers.worldpayglobal.com/rs/850-JOA-856/images/GPR25.pdf", "https://docs.stripe.com/payments/payment-methods/payment-method-support", "https://eur-lex.europa.eu/eli/reg/2012/260/oj"]
+
+[[country]]
+code = "GR"
+name = "Greece"
+currency = "EUR"
+mix = {}
+mix_year = 0
+prefer = ["card", "sepa_debit", "paypal", "revolut_pay", "apple_pay", "google_pay"]
+sources = ["https://offers.worldpayglobal.com/rs/850-JOA-856/images/GPR25.pdf", "https://docs.stripe.com/payments/payment-methods/payment-method-support", "https://eur-lex.europa.eu/eli/reg/2012/260/oj"]
+
+[[country]]
+code = "CY"
+name = "Cyprus"
+currency = "EUR"
+mix = {}
+mix_year = 0
+prefer = ["card", "sepa_debit", "paypal", "revolut_pay", "apple_pay", "google_pay"]
+sources = ["https://offers.worldpayglobal.com/rs/850-JOA-856/images/GPR25.pdf", "https://docs.stripe.com/payments/payment-methods/payment-method-support", "https://eur-lex.europa.eu/eli/reg/2012/260/oj"]
+
+[[country]]
+code = "MT"
+name = "Malta"
+currency = "EUR"
+mix = {}
+mix_year = 0
+prefer = ["card", "sepa_debit", "paypal", "revolut_pay", "apple_pay", "google_pay"]
+sources = ["https://offers.worldpayglobal.com/rs/850-JOA-856/images/GPR25.pdf", "https://docs.stripe.com/payments/payment-methods/payment-method-support", "https://eur-lex.europa.eu/eli/reg/2012/260/oj"]
+
+[[country]]
+code = "SI"
+name = "Slovenia"
+currency = "EUR"
+mix = {}
+mix_year = 0
+prefer = ["card", "sepa_debit", "paypal", "revolut_pay", "apple_pay", "google_pay"]
+sources = ["https://offers.worldpayglobal.com/rs/850-JOA-856/images/GPR25.pdf", "https://docs.stripe.com/payments/payment-methods/payment-method-support", "https://eur-lex.europa.eu/eli/reg/2012/260/oj"]
+
+[[country]]
+code = "SK"
+name = "Slovakia"
+currency = "EUR"
+mix = {}
+mix_year = 0
+prefer = ["card", "sepa_debit", "paypal", "revolut_pay", "apple_pay", "google_pay"]
+sources = ["https://offers.worldpayglobal.com/rs/850-JOA-856/images/GPR25.pdf", "https://docs.stripe.com/payments/payment-methods/payment-method-support", "https://eur-lex.europa.eu/eli/reg/2012/260/oj"]
+
+[[country]]
+code = "HR"
+name = "Croatia"
+currency = "EUR"
+mix = {}
+mix_year = 0
+prefer = ["card", "sepa_debit", "paypal", "revolut_pay", "apple_pay", "google_pay"]
+sources = ["https://offers.worldpayglobal.com/rs/850-JOA-856/images/GPR25.pdf", "https://docs.stripe.com/payments/payment-methods/payment-method-support", "https://eur-lex.europa.eu/eli/reg/2012/260/oj"]
+
+[[country]]
+code = "EE"
+name = "Estonia"
+currency = "EUR"
+mix = {}
+mix_year = 0
+prefer = ["card", "sepa_debit", "paypal", "revolut_pay", "apple_pay", "google_pay"]
+sources = ["https://offers.worldpayglobal.com/rs/850-JOA-856/images/GPR25.pdf", "https://docs.stripe.com/payments/payment-methods/payment-method-support", "https://eur-lex.europa.eu/eli/reg/2012/260/oj"]
+
+[[country]]
+code = "LV"
+name = "Latvia"
+currency = "EUR"
+mix = {}
+mix_year = 0
+prefer = ["card", "sepa_debit", "paypal", "revolut_pay", "apple_pay", "google_pay"]
+sources = ["https://offers.worldpayglobal.com/rs/850-JOA-856/images/GPR25.pdf", "https://docs.stripe.com/payments/payment-methods/payment-method-support", "https://eur-lex.europa.eu/eli/reg/2012/260/oj"]
+
+[[country]]
+code = "LT"
+name = "Lithuania"
+currency = "EUR"
+mix = {}
+mix_year = 0
+prefer = ["card", "sepa_debit", "paypal", "revolut_pay", "apple_pay", "google_pay"]
+sources = ["https://offers.worldpayglobal.com/rs/850-JOA-856/images/GPR25.pdf", "https://docs.stripe.com/payments/payment-methods/payment-method-support", "https://eur-lex.europa.eu/eli/reg/2012/260/oj"]
+
+[[country]]
+code = "BG"
+name = "Bulgaria"
+currency = "EUR"
+mix = {}
+mix_year = 0
+prefer = ["card", "sepa_debit", "paypal", "revolut_pay", "apple_pay", "google_pay"]
+sources = ["https://offers.worldpayglobal.com/rs/850-JOA-856/images/GPR25.pdf", "https://docs.stripe.com/payments/payment-methods/payment-method-support", "https://eur-lex.europa.eu/eli/reg/2012/260/oj"]
+
+[[country]]
+code = "CZ"
+name = "Czechia"
+currency = "CZK"
+mix = {}
+mix_year = 0
+prefer = ["card", "revolut_pay", "paypal", "apple_pay", "google_pay"]
+sources = ["https://offers.worldpayglobal.com/rs/850-JOA-856/images/GPR25.pdf", "https://docs.stripe.com/payments/payment-methods/payment-method-support"]
+
+[[country]]
+code = "HU"
+name = "Hungary"
+currency = "HUF"
+mix = {}
+mix_year = 0
+prefer = ["card", "revolut_pay", "paypal", "apple_pay", "google_pay"]
+sources = ["https://offers.worldpayglobal.com/rs/850-JOA-856/images/GPR25.pdf", "https://docs.stripe.com/payments/payment-methods/payment-method-support"]
+
+[[country]]
+code = "RO"
+name = "Romania"
+currency = "RON"
+mix = {}
+mix_year = 0
+prefer = ["card", "revolut_pay", "paypal", "apple_pay", "google_pay"]
+sources = ["https://offers.worldpayglobal.com/rs/850-JOA-856/images/GPR25.pdf", "https://docs.stripe.com/payments/payment-methods/payment-method-support"]
+
+[[country]]
+code = "IS"
+name = "Iceland"
+currency = "ISK"
+mix = {}
+mix_year = 0
+prefer = ["card", "sepa_debit", "paypal", "apple_pay", "google_pay"]
+sources = ["https://offers.worldpayglobal.com/rs/850-JOA-856/images/GPR25.pdf", "https://docs.stripe.com/payments/payment-methods/payment-method-support"]
+
+[[country]]
+code = "LI"
+name = "Liechtenstein"
+currency = "CHF"
+mix = {}
+mix_year = 0
+prefer = ["card", "sepa_debit", "paypal", "apple_pay", "google_pay"]
+sources = ["https://offers.worldpayglobal.com/rs/850-JOA-856/images/GPR25.pdf", "https://docs.stripe.com/payments/payment-methods/payment-method-support"]
+
+[[country]]
+code = "DK"
+name = "Denmark"
+currency = "DKK"
+mix = { wallets = 41, a2a = 7, bnpl = 11, crypto = 0, credit = 15, debit = 24, cash = 1 }
+mix_year = 2024
+prefer = ["mobilepay", "card", "paypal", "apple_pay", "betalingsservice"]
+sources = ["https://offers.worldpayglobal.com/rs/850-JOA-856/images/GPR25.pdf"]
+
+[[country]]
+code = "SE"
+name = "Sweden"
+currency = "SEK"
+mix = { wallets = 18, a2a = 31, bnpl = 23, crypto = 0, credit = 10, debit = 17, cash = 1 }
+mix_year = 2024
+prefer = ["swish", "klarna", "card", "paypal", "apple_pay", "autogiro"]
+sources = ["https://offers.worldpayglobal.com/rs/850-JOA-856/images/GPR25.pdf"]
+
+[[country]]
+code = "NO"
+name = "Norway"
+currency = "NOK"
+mix = { wallets = 42, a2a = 1, bnpl = 18, crypto = 0, credit = 22, debit = 16, cash = 2 }
+mix_year = 2024
+prefer = ["vipps", "paypal", "card", "apple_pay", "google_pay", "klarna"]
+sources = ["https://offers.worldpayglobal.com/rs/850-JOA-856/images/GPR25.pdf"]
+
+[[country]]
+code = "CH"
+name = "Switzerland"
+currency = "CHF"
+mix = {}
+mix_year = 0
+prefer = ["twint", "card", "paypal", "apple_pay", "klarna"]
+sources = ["https://docs.stripe.com/payments/twint"]
+
+[[country]]
+code = "GB"
+name = "United Kingdom"
+currency = "GBP"
+mix = { wallets = 40, a2a = 5, bnpl = 7, crypto = 0, credit = 23, debit = 23, cash = 1 }
+mix_year = 2024
+prefer = ["card", "apple_pay", "paypal", "google_pay", "revolut_pay", "klarna", "bacs_debit"]
+sources = ["https://offers.worldpayglobal.com/rs/850-JOA-856/images/GPR25.pdf"]
+
+[[country]]
+code = "TR"
+name = "Turkey"
+currency = "TRY"
+mix = { wallets = 16, a2a = 16, bnpl = 1, crypto = 1, credit = 47, debit = 15, cash = 5 }
+mix_year = 2024
+prefer = ["card"]
+sources = ["https://offers.worldpayglobal.com/rs/850-JOA-856/images/GPR25.pdf"]
+
+[[country]]
+code = "US"
+name = "United States"
+currency = "USD"
+mix = {}
+mix_year = 0
+prefer = ["card", "apple_pay", "paypal", "google_pay", "amazon_pay", "link", "us_bank_account"]
+sources = ["https://offers.worldpayglobal.com/rs/850-JOA-856/images/GPR25.pdf"]
+
+[[country]]
+code = "CA"
+name = "Canada"
+currency = "CAD"
+mix = {}
+mix_year = 0
+prefer = ["card", "apple_pay", "google_pay", "paypal", "pad_debit"]
+sources = ["https://offers.worldpayglobal.com/rs/850-JOA-856/images/GPR25.pdf"]
+
+[[country]]
+code = "MX"
+name = "Mexico"
+currency = "MXN"
+mix = { wallets = 28, a2a = 7, bnpl = 1, crypto = 0, credit = 34, debit = 22, cash = 9 }
+mix_year = 2024
+prefer = ["card", "mercado_pago", "oxxo", "spei", "paypal"]
+sources = ["https://offers.worldpayglobal.com/rs/850-JOA-856/images/GPR25.pdf"]
+
+[[country]]
+code = "BR"
+name = "Brazil"
+currency = "BRL"
+mix = { wallets = 16, a2a = 41, bnpl = 1, crypto = 1, credit = 32, debit = 7, cash = 3 }
+mix_year = 2024
+prefer = ["pix", "card", "mercado_pago", "boleto"]
+sources = ["https://offers.worldpayglobal.com/rs/850-JOA-856/images/GPR25.pdf"]
+
+[[country]]
+code = "AR"
+name = "Argentina"
+currency = "ARS"
+mix = { wallets = 34, a2a = 14, bnpl = 1, crypto = 1, credit = 27, debit = 19, cash = 4 }
+mix_year = 2024
+prefer = ["mercado_pago", "card"]
+sources = ["https://offers.worldpayglobal.com/rs/850-JOA-856/images/GPR25.pdf"]
+
+[[country]]
+code = "CL"
+name = "Chile"
+currency = "CLP"
+mix = { wallets = 21, a2a = 21, bnpl = 1, crypto = 0, credit = 21, debit = 32, cash = 3 }
+mix_year = 2024
+prefer = ["card", "webpay", "khipu", "mercado_pago"]
+sources = ["https://offers.worldpayglobal.com/rs/850-JOA-856/images/GPR25.pdf"]
+
+[[country]]
+code = "CO"
+name = "Colombia"
+currency = "COP"
+mix = { wallets = 26, a2a = 28, bnpl = 1, crypto = 0, credit = 22, debit = 14, cash = 8 }
+mix_year = 2024
+prefer = ["nequi", "pse", "card", "paypal", "efecty"]
+sources = ["https://offers.worldpayglobal.com/rs/850-JOA-856/images/GPR25.pdf"]
+
+[[country]]
+code = "PE"
+name = "Peru"
+currency = "PEN"
+mix = { wallets = 8, a2a = 34, bnpl = 0, crypto = 0, credit = 21, debit = 25, cash = 12 }
+mix_year = 2024
+prefer = ["yape", "card", "pagoefectivo"]
+sources = ["https://offers.worldpayglobal.com/rs/850-JOA-856/images/GPR25.pdf"]
+
+[[country]]
+code = "CN"
+name = "China"
+currency = "CNY"
+mix = { wallets = 84, a2a = 2, bnpl = 4, crypto = 0, credit = 5, debit = 4, cash = 1 }
+mix_year = 2024
+prefer = ["alipay", "wechat_pay", "card"]
+sources = ["https://offers.worldpayglobal.com/rs/850-JOA-856/images/GPR25.pdf"]
+
+[[country]]
+code = "HK"
+name = "Hong Kong"
+currency = "HKD"
+mix = { wallets = 36, a2a = 15, bnpl = 1, crypto = 0, credit = 39, debit = 6, cash = 3 }
+mix_year = 2024
+prefer = ["card", "alipay_hk", "apple_pay", "paypal", "wechat_pay"]
+sources = ["https://offers.worldpayglobal.com/rs/850-JOA-856/images/GPR25.pdf"]
+
+[[country]]
+code = "TW"
+name = "Taiwan"
+currency = "TWD"
+mix = { wallets = 35, a2a = 5, bnpl = 1, crypto = 0, credit = 43, debit = 5, cash = 10 }
+mix_year = 2024
+prefer = ["card", "apple_pay"]
+sources = ["https://offers.worldpayglobal.com/rs/850-JOA-856/images/GPR25.pdf"]
+
+[[country]]
+code = "JP"
+name = "Japan"
+currency = "JPY"
+mix = { wallets = 25, a2a = 6, bnpl = 2, crypto = 0, credit = 55, debit = 4, cash = 8 }
+mix_year = 2024
+prefer = ["card", "paypay", "konbini", "au_pay", "merpay", "pay_easy", "apple_pay"]
+sources = ["https://offers.worldpayglobal.com/rs/850-JOA-856/images/GPR25.pdf"]
+
+[[country]]
+code = "KR"
+name = "South Korea"
+currency = "KRW"
+mix = { wallets = 32, a2a = 8, bnpl = 1, crypto = 0, credit = 51, debit = 7, cash = 1 }
+mix_year = 2024
+prefer = ["kr_card", "naver_pay", "kakao_pay", "samsung_pay", "payco"]
+sources = ["https://offers.worldpayglobal.com/rs/850-JOA-856/images/GPR25.pdf"]
+
+[[country]]
+code = "IN"
+name = "India"
+currency = "INR"
+mix = { wallets = 64, a2a = 4, bnpl = 3, crypto = 1, credit = 17, debit = 8, cash = 4 }
+mix_year = 2024
+prefer = ["upi", "card", "netbanking_in"]
+sources = ["https://offers.worldpayglobal.com/rs/850-JOA-856/images/GPR25.pdf"]
+
+[[country]]
+code = "SG"
+name = "Singapore"
+currency = "SGD"
+mix = { wallets = 39, a2a = 7, bnpl = 3, crypto = 1, credit = 37, debit = 12, cash = 1 }
+mix_year = 2024
+prefer = ["card", "apple_pay", "paypal", "paynow", "grabpay"]
+sources = ["https://offers.worldpayglobal.com/rs/850-JOA-856/images/GPR25.pdf"]
+
+[[country]]
+code = "MY"
+name = "Malaysia"
+currency = "MYR"
+mix = { wallets = 25, a2a = 37, bnpl = 4, crypto = 0, credit = 17, debit = 9, cash = 7 }
+mix_year = 2024
+prefer = ["fpx", "touch_n_go", "duitnow", "card", "grabpay"]
+sources = ["https://offers.worldpayglobal.com/rs/850-JOA-856/images/GPR25.pdf"]
+
+[[country]]
+code = "TH"
+name = "Thailand"
+currency = "THB"
+mix = { wallets = 30, a2a = 44, bnpl = 1, crypto = 0, credit = 11, debit = 6, cash = 7 }
+mix_year = 2024
+prefer = ["promptpay", "card"]
+sources = ["https://offers.worldpayglobal.com/rs/850-JOA-856/images/GPR25.pdf"]
+
+[[country]]
+code = "ID"
+name = "Indonesia"
+currency = "IDR"
+mix = { wallets = 42, a2a = 32, bnpl = 3, crypto = 0, credit = 6, debit = 6, cash = 11 }
+mix_year = 2024
+prefer = ["gopay", "ovo", "dana", "qris", "card"]
+sources = ["https://offers.worldpayglobal.com/rs/850-JOA-856/images/GPR25.pdf"]
+
+[[country]]
+code = "PH"
+name = "Philippines"
+currency = "PHP"
+mix = { wallets = 39, a2a = 12, bnpl = 2, crypto = 1, credit = 13, debit = 14, cash = 19 }
+mix_year = 2024
+prefer = ["gcash", "maya", "grabpay", "card"]
+sources = ["https://offers.worldpayglobal.com/rs/850-JOA-856/images/GPR25.pdf"]
+
+[[country]]
+code = "VN"
+name = "Vietnam"
+currency = "VND"
+mix = { wallets = 41, a2a = 23, bnpl = 1, crypto = 0, credit = 14, debit = 5, cash = 16 }
+mix_year = 2024
+prefer = ["momo", "zalopay", "card"]
+sources = ["https://offers.worldpayglobal.com/rs/850-JOA-856/images/GPR25.pdf"]
+
+[[country]]
+code = "AU"
+name = "Australia"
+currency = "AUD"
+mix = { wallets = 39, a2a = 4, bnpl = 15, crypto = 0, credit = 19, debit = 20, cash = 2 }
+mix_year = 2024
+prefer = ["card", "apple_pay", "paypal", "google_pay", "becs_debit"]
+sources = ["https://offers.worldpayglobal.com/rs/850-JOA-856/images/GPR25.pdf"]
+
+[[country]]
+code = "NZ"
+name = "New Zealand"
+currency = "NZD"
+mix = { wallets = 29, a2a = 9, bnpl = 13, crypto = 0, credit = 26, debit = 23, cash = 0 }
+mix_year = 2024
+prefer = ["card", "apple_pay", "paypal", "becs_nz_debit"]
+sources = ["https://offers.worldpayglobal.com/rs/850-JOA-856/images/GPR25.pdf"]
+
+[[country]]
+code = "AE"
+name = "United Arab Emirates"
+currency = "AED"
+mix = { wallets = 30, a2a = 12, bnpl = 2, crypto = 0, credit = 34, debit = 14, cash = 7 }
+mix_year = 2024
+prefer = ["card", "apple_pay", "paypal"]
+sources = ["https://offers.worldpayglobal.com/rs/850-JOA-856/images/GPR25.pdf"]
+
+[[country]]
+code = "SA"
+name = "Saudi Arabia"
+currency = "SAR"
+mix = { wallets = 33, a2a = 15, bnpl = 1, crypto = 0, credit = 12, debit = 29, cash = 9 }
+mix_year = 2024
+prefer = ["apple_pay", "card", "paypal"]
+sources = ["https://offers.worldpayglobal.com/rs/850-JOA-856/images/GPR25.pdf"]
+
+[[country]]
+code = "NG"
+name = "Nigeria"
+currency = "NGN"
+mix = { wallets = 12, a2a = 42, bnpl = 2, crypto = 1, credit = 3, debit = 29, cash = 11 }
+mix_year = 2024
+prefer = ["ng_bank_transfer", "card", "opay"]
+sources = ["https://offers.worldpayglobal.com/rs/850-JOA-856/images/GPR25.pdf"]
+
+[[country]]
+code = "KE"
+name = "Kenya"
+currency = "KES"
+mix = {}
+mix_year = 0
+prefer = ["mpesa", "card", "airtel_money"]
+sources = ["https://docs.dlocal.com/llms.txt", "https://docs.ebanx.com/docs/get-started/api-operability.md"]
+
+[[country]]
+code = "ZA"
+name = "South Africa"
+currency = "ZAR"
+mix = { wallets = 20, a2a = 30, bnpl = 2, crypto = 0, credit = 11, debit = 31, cash = 5 }
+mix_year = 2024
+prefer = ["card", "ozow", "capitec_pay"]
+sources = ["https://offers.worldpayglobal.com/rs/850-JOA-856/images/GPR25.pdf"]
+
+[[country]]
+code = "EG"
+name = "Egypt"
+currency = "EGP"
+mix = {}
+mix_year = 0
+prefer = ["card", "fawry"]
+sources = ["https://docs.dlocal.com/llms.txt"]
+

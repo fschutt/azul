@@ -1,0 +1,50 @@
+[
+  {
+    "name": "an index written by a newer (beta) client: the older device applies no delete, uploads nothing and asks to be updated",
+    "description": "ICLOUD-010 (sync-chaos delete-newer-format-readonly): iCloud data deleted or corrupted by beta devices spread to devices that never ran the beta. Rules A7, D6 and O1: while the index names a format feature this version does not know, nothing is changed anywhere, deletes from the newer client are not applied, and update-needed is listed.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "one.txt", "text": "one" },
+      { "op": "drive_write", "device": "a", "path": "two.txt", "text": "two" },
+      { "op": "drive_write", "device": "a", "path": "three.txt", "text": "three" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_tamper", "remote": "r", "action": "delete", "key": "one.txt" },
+      { "op": "drive_tamper", "remote": "r", "action": "features", "features": ["chunk-index-v2"] },
+      { "op": "drive_write", "device": "b", "path": "new.txt", "text": "written on the older client" },
+      { "op": "drive_rm", "device": "b", "path": "two.txt" },
+      { "op": "drive_sync", "device": "b", "expect": "any" },
+      { "op": "drive_check", "check": "problem", "device": "b", "code": "update-needed" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "one.txt", "text": "one" },
+      { "op": "drive_check", "check": "trash_empty", "device": "b" },
+      { "op": "drive_check", "check": "remote_file", "key": "two.txt", "text": "two" },
+      { "op": "drive_check", "check": "remote_file", "key": "new.txt", "absent": true },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "new.txt", "text": "written on the older client" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "a state folder written by a newer client version: the older one changes nothing and asks to be updated",
+    "description": "ICLOUD-010 (sync-chaos state-upgrade-migration): two client versions with different on-disk state formats. Rules D5 and A1: a newer state format met by an older client is refused read-only; no delete, no upload, update-needed listed.",
+    "steps": [
+      { "op": "drive_create", "remote": "r2", "encrypted": false },
+      { "op": "drive_open", "device": "c", "remote": "r2" },
+      { "op": "drive_pair", "device": "c" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "c", "path": "one.txt", "text": "one" },
+      { "op": "drive_sync", "device": "c" },
+      { "op": "drive_state_format", "device": "c", "version": "newer" },
+      { "op": "drive_restart", "device": "c" },
+      { "op": "drive_rm", "device": "c", "path": "one.txt" },
+      { "op": "drive_sync", "device": "c", "expect": "any" },
+      { "op": "drive_check", "check": "problem", "device": "c", "code_any": ["update-needed", "state-reset"] },
+      { "op": "drive_check", "check": "remote_file", "key": "one.txt", "text": "one" },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

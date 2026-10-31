@@ -1,0 +1,2 @@
+requires 'FFI::Platypus', '2.00';
+requires 'FFI::CheckLib';

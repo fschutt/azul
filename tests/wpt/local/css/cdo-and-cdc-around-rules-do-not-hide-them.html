@@ -1,0 +1,12 @@
+<!DOCTYPE html>
+<!-- azul's own reftest (MIT, like the rest of azul); WPT reftest format. -->
+<meta charset="utf-8">
+<title><!-- and --> around a stylesheet's rules do not hide the rules</title>
+<link rel="match" href="cdo-and-cdc-around-rules-do-not-hide-them-ref.html">
+<meta name="assert" content="CSS Syntax 3: CDO and CDC tokens at the top level of a stylesheet are ignored (Outlook wraps every stylesheet in them).">
+<style>
+<!--
+.box { width: 100px; height: 100px; background: green; }
+-->
+</style>
+<div class="box"></div>

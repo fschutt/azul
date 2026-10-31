@@ -1,12 +1,12 @@
 /**
  * Scrolling E2E Test
- * 
+ *
  * This example creates an overflowing body node to test:
  * 1. Automatic scrollbar display when content overflows
  * 2. Programmatic content scrolling via debug API
  * 3. Scroll position persistence across relayouts
- * 
- * Run with: AZUL_DEBUG=8765 ./scrolling
+ *
+ * Run with: AZ_DEBUG=8765 ./scrolling
  * Test with: curl -X POST http://localhost:8765/event -d '{"type":"scroll","x":200,"y":200,"delta_x":0,"delta_y":-100}'
  */
 
@@ -29,22 +29,22 @@ AZ_REFLECT(ScrollTestData, ScrollTestData_destructor);
 AzDom create_scroll_item(int index) {
     char buffer[128];
     int len = snprintf(buffer, sizeof(buffer), "Item %d - Scroll to see more content below", index);
-    
+
     AzString text = AzString_copyFromBytes(buffer, 0, len);
     AzDom item = AzDom_createDiv();
     AzDom_addChild(&item, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(text));
-    
+
     // Alternate background colors for visibility - use bright colors for debugging
     char style[256];
     const char* bg_color = (index % 2 == 0) ? "#ff9999" : "#99ff99";  // Red/Green alternating
-    int style_len = snprintf(style, sizeof(style), 
+    int style_len = snprintf(style, sizeof(style),
         "padding: 20px; margin: 5px; background-color: %s; "
         "border: 2px solid #000; border-radius: 4px; font-size: 16px;",
         bg_color);
-    
+
     AzString style_str = AzString_copyFromBytes(style, 0, style_len);
     item = AzDom_withCss(item, style_str);
-    
+
     return item;
 }
 
@@ -53,10 +53,10 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     if (!ScrollTestData_downcastRef(&data, &d)) {
         return AzDom_createBody();
     }
-    
+
     int item_count = d.ptr->item_count;
     ScrollTestDataRef_delete(&d);
-    
+
     // Create header
     AzString header_text = AzString_copyFromBytes("Scrolling Test - Overflowing Content", 0, 37);
     AzDom header = AzDom_createDiv();
@@ -65,16 +65,16 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         "padding: 15px; background-color: #4a90d9; color: white; "
         "font-size: 24px; font-weight: bold; text-align: center;", 0, 121);
     header = AzDom_withCss(header, header_style);
-    
+
     // Create scrollable container with many items
     AzDom scroll_container = AzDom_createDiv();
-    
+
     // Add many items to cause overflow
     for (int i = 1; i <= item_count; i++) {
         AzDom item = create_scroll_item(i);
         AzDom_addChild(&scroll_container, item);
     }
-    
+
     // Style the container with explicit height and overflow: auto
     // This should trigger automatic vertical scrollbar
     // Use bright yellow background to see container bounds clearly
@@ -82,7 +82,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         "height: 300px; overflow: auto; padding: 10px; background-color: #ffff00; "
         "border: 4px solid #ff00ff; margin: 10px;", 0, 116);
     scroll_container = AzDom_withCss(scroll_container, container_style);
-    
+
     // Create footer with scroll info
     AzString footer_text = AzString_copyFromBytes(
         "Use mouse wheel or drag scrollbar to scroll. Debug API: POST scroll event.", 0, 75);
@@ -92,13 +92,13 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         "padding: 10px; background-color: #f0f0f0; color: #666; "
         "font-size: 12px; text-align: center;", 0, 95);
     footer = AzDom_withCss(footer, footer_style);
-    
+
     // Build body with flex column layout
     AzDom body = AzDom_createBody();
     AzDom_addChild(&body, header);
     AzDom_addChild(&body, scroll_container);
     AzDom_addChild(&body, footer);
-    
+
     // Body style: full height flex column - cyan background to see body bounds
     // margin: 0 removes default browser margin, padding: 0 ensures no padding
     AzString body_style = AzString_copyFromBytes(
@@ -115,13 +115,13 @@ int main(int argc, char** argv) {
         item_count = atoi(argv[1]);
         if (item_count < 1) item_count = 50;
     }
-    
+
     printf("Scrolling Test\n");
     printf("==============\n");
     printf("Creating %d items to test scrolling\n", item_count);
     printf("\n");
     printf("To test with debug API:\n");
-    printf("  AZUL_DEBUG=8765 ./scrolling\n");
+    printf("  AZ_DEBUG=8765 ./scrolling\n");
     printf("\n");
     printf("Example commands:\n");
     printf("  # Get window state\n");
@@ -136,20 +136,20 @@ int main(int argc, char** argv) {
     printf("  # Take native screenshot\n");
     printf("  curl -X POST http://localhost:8765/event -d '{\"type\":\"take_native_screenshot\"}'\n");
     printf("\n");
-    
+
     ScrollTestData model = { .item_count = item_count };
     AzRefAny data = ScrollTestData_upcast(model);
-    
+
     AzWindowCreateOptions window = AzWindowCreateOptions_create(layout);
     AzString title = AzString_copyFromBytes("Scrolling Test", 0, 14);
     window.window_state.title = title;
     window.window_state.size.dimensions.width = 600.0;
     window.window_state.size.dimensions.height = 500.0;
-    
+
     AzAppConfig config = AzAppConfig_create();
     AzApp app = AzApp_create(data, config);
     AzApp_run(&app, window);
     AzApp_delete(&app);
-    
+
     return 0;
 }

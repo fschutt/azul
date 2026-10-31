@@ -8,10 +8,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-use azul_core::{
-    geom::{LogicalPosition, LogicalRect, LogicalSize},
-    window::{Monitor, MonitorId, MonitorVec, VideoMode, VideoModeVec},
-};
+use azul_core::window::{Monitor, MonitorId, MonitorVec, VideoMode, VideoModeVec};
+use azul_layout::placement::{DesktopScreen, ScreenPoint, ScreenRect, ScreenSize};
 use azul_css::{
     props::basic::{LayoutPoint, LayoutRect, LayoutSize},
     AzString, OptionString,
@@ -24,10 +22,11 @@ use crate::{desktop::shell2::common::debug_server::LogCategory, log_debug};
 pub struct DisplayInfo {
     /// Display name (e.g., "\\.\DISPLAY1" on Windows, ":0.0" on X11)
     pub name: String,
-    /// Physical bounds of the display in screen coordinates
-    pub bounds: LogicalRect,
-    /// Work area (bounds minus taskbars/panels)
-    pub work_area: LogicalRect,
+    /// Bounds of the display on the desktop, in screen units (physical px on
+    /// Windows and X11, points on macOS)
+    pub bounds: ScreenRect,
+    /// Work area (bounds minus taskbars/panels), in screen units
+    pub work_area: ScreenRect,
     /// DPI scale factor
     pub scale_factor: f32,
     /// Whether this is the primary display
@@ -96,6 +95,17 @@ static DISPLAY_MEMO: Mutex<Option<(Instant, Vec<DisplayInfo>)>> = Mutex::new(Non
 fn get_displays_uncached() -> Vec<DisplayInfo> {
     #[cfg(target_os = "windows")]
     return windows::get_displays();
+
+    // X11 on this Mac (`x11-macos`, `AZ_BACKEND=x11`): the monitors the X
+    // SERVER reports, in its own pixels. The AppKit list carries the backing
+    // scale (2.0 on a Retina panel), while XQuartz draws one X pixel per point
+    // unless told otherwise - so an X11 window sized from the AppKit list
+    // through `detect_initial_dpi` came up at twice the size it asked for, and
+    // placed against screens the X server does not have.
+    #[cfg(all(target_os = "macos", az_x11))]
+    if crate::desktop::shell2::common::x11_host::active() {
+        return linux::get_displays();
+    }
 
     #[cfg(target_os = "macos")]
     return macos::get_displays();
@@ -173,10 +183,23 @@ pub fn refresh_monitors() -> MonitorVec {
     get_monitors()
 }
 
+/// Every display's bounds and work area in screen units, the form a floating
+/// surface (tooltip, menu, popover) is placed against once its window's
+/// `WindowToScreen` has brought them into the window's own space.
+pub fn desktop_screens() -> Vec<DesktopScreen> {
+    get_displays()
+        .into_iter()
+        .map(|display| DesktopScreen {
+            bounds: display.bounds,
+            work_area: display.work_area,
+        })
+        .collect()
+}
+
 /// Get the display containing the given point
 ///
 /// Returns None if the point is not on any display.
-pub fn get_display_at_point(point: LogicalPosition) -> Option<DisplayInfo> {
+pub fn get_display_at_point(point: ScreenPoint) -> Option<DisplayInfo> {
     get_displays()
         .into_iter()
         .find(|display| display.bounds.contains(point))
@@ -193,16 +216,193 @@ pub fn get_display_at_point(point: LogicalPosition) -> Option<DisplayInfo> {
 /// - **macOS**: Uses NSScreen.screens and window frame
 /// - **X11/Wayland**: Uses window position to find containing display
 pub fn get_window_display(
-    window_position: LogicalPosition,
-    window_size: LogicalSize,
+    window_position: ScreenPoint,
+    window_size: ScreenSize,
 ) -> Option<DisplayInfo> {
     // Calculate window center
-    let center = LogicalPosition::new(
+    let center = ScreenPoint::new(
         window_position.x + window_size.width / 2.0,
         window_position.y + window_size.height / 2.0,
     );
 
     get_display_at_point(center)
+}
+
+/// What an X11 window manager publishes about the room its panels leave on the
+/// current desktop, in root-window pixels.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(crate) struct X11WorkAreas {
+    /// `_GTK_WORKAREAS_D<desktop>`: a work area per monitor (mutter).
+    pub per_monitor: Vec<ScreenRect>,
+    /// `_NET_WORKAREA` of the desktop: one rect over the whole root.
+    pub desktop: Option<ScreenRect>,
+    /// What the docks reserve (`_NET_WM_STRUT_PARTIAL`, or `_NET_WM_STRUT`),
+    /// read when neither of the above is published.
+    pub struts: Vec<X11Strut>,
+    /// The root window's size: the edges the struts are measured from.
+    pub root: ScreenSize,
+}
+
+/// The strips a dock reserves along the root window's edges, as EWMH's
+/// `_NET_WM_STRUT_PARTIAL` gives them: how far each strip reaches in from its
+/// edge of the ROOT window, and the range along that edge it covers (both ends
+/// included), all in root-window pixels.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub(crate) struct X11Strut {
+    pub left: f32,
+    pub right: f32,
+    pub top: f32,
+    pub bottom: f32,
+    pub left_start_y: f32,
+    pub left_end_y: f32,
+    pub right_start_y: f32,
+    pub right_end_y: f32,
+    pub top_start_x: f32,
+    pub top_end_x: f32,
+    pub bottom_start_x: f32,
+    pub bottom_end_x: f32,
+}
+
+impl X11Strut {
+    /// A strut from the twelve CARDINALs of `_NET_WM_STRUT_PARTIAL`, or the four
+    /// of the older `_NET_WM_STRUT`, whose strips cover their whole edge of a
+    /// root of `root` size. `None` for anything else.
+    #[allow(clippy::cast_precision_loss)] // root pixels
+    pub(crate) fn from_cardinals(values: &[i64], root: ScreenSize) -> Option<Self> {
+        let v = |i: usize| values[i] as f32;
+        match values.len() {
+            12 => Some(Self {
+                left: v(0),
+                right: v(1),
+                top: v(2),
+                bottom: v(3),
+                left_start_y: v(4),
+                left_end_y: v(5),
+                right_start_y: v(6),
+                right_end_y: v(7),
+                top_start_x: v(8),
+                top_end_x: v(9),
+                bottom_start_x: v(10),
+                bottom_end_x: v(11),
+            }),
+            4 => Some(Self {
+                left: v(0),
+                right: v(1),
+                top: v(2),
+                bottom: v(3),
+                left_start_y: 0.0,
+                left_end_y: root.height - 1.0,
+                right_start_y: 0.0,
+                right_end_y: root.height - 1.0,
+                top_start_x: 0.0,
+                top_end_x: root.width - 1.0,
+                bottom_start_x: 0.0,
+                bottom_end_x: root.width - 1.0,
+            }),
+            _ => None,
+        }
+    }
+}
+
+/// The monitor `bounds` less the strips the docks' `struts` reserve on it, for
+/// a root window of `root` size. A strip is measured from the ROOT's edge, so a
+/// dock on the inner edge of the right monitor of two reserves a strip that
+/// reaches across the whole left one; it is cut off the monitor its inner edge
+/// lies on - where the dock is - and only where its range along the edge meets
+/// that monitor.
+#[must_use]
+pub(crate) fn x11_strut_work_area(
+    bounds: ScreenRect,
+    root: ScreenSize,
+    struts: &[X11Strut],
+) -> ScreenRect {
+    let (mut left, mut top) = (bounds.origin.x, bounds.origin.y);
+    let (mut right, mut bottom) = (left + bounds.size.width, top + bounds.size.height);
+    let (monitor_left, monitor_top, monitor_right, monitor_bottom) = (left, top, right, bottom);
+    // Whether a strip's range along its edge (both ends included) meets the
+    // monitor's span along that edge.
+    let meets = |start: f32, end: f32, from: f32, to: f32| start < to && end >= from;
+    for strut in struts {
+        let inner_left = strut.left;
+        if strut.left > 0.0
+            && inner_left > monitor_left
+            && inner_left <= monitor_right
+            && meets(strut.left_start_y, strut.left_end_y, monitor_top, monitor_bottom)
+        {
+            left = left.max(inner_left);
+        }
+        let inner_right = root.width - strut.right;
+        if strut.right > 0.0
+            && inner_right >= monitor_left
+            && inner_right < monitor_right
+            && meets(strut.right_start_y, strut.right_end_y, monitor_top, monitor_bottom)
+        {
+            right = right.min(inner_right);
+        }
+        let inner_top = strut.top;
+        if strut.top > 0.0
+            && inner_top > monitor_top
+            && inner_top <= monitor_bottom
+            && meets(strut.top_start_x, strut.top_end_x, monitor_left, monitor_right)
+        {
+            top = top.max(inner_top);
+        }
+        let inner_bottom = root.height - strut.bottom;
+        if strut.bottom > 0.0
+            && inner_bottom >= monitor_top
+            && inner_bottom < monitor_bottom
+            && meets(strut.bottom_start_x, strut.bottom_end_x, monitor_left, monitor_right)
+        {
+            bottom = bottom.min(inner_bottom);
+        }
+    }
+    if right > left && bottom > top {
+        ScreenRect::new(ScreenPoint::new(left, top), ScreenSize::new(right - left, bottom - top))
+    } else {
+        bounds
+    }
+}
+
+/// The work area of one X11 monitor of `bounds`, in root-window pixels, as GTK
+/// works it out: the per-monitor work area the window manager publishes for the
+/// current desktop (`_GTK_WORKAREAS_D<desktop>`, mutter) that lies on the
+/// monitor; else the desktop's single `_NET_WORKAREA` rect cut to the monitor
+/// (right for the panels on the outer edges of the whole screen); else the
+/// monitor less the strips its docks' struts reserve on it; else the whole
+/// monitor - a desktop that publishes none of these keeps no panels clear.
+#[must_use]
+pub(crate) fn x11_monitor_work_area(bounds: ScreenRect, published: &X11WorkAreas) -> ScreenRect {
+    let gtk_workareas = &published.per_monitor;
+    let net_workarea = published.desktop;
+    let (left, top) = (bounds.origin.x, bounds.origin.y);
+    let (right, bottom) = (left + bounds.size.width, top + bounds.size.height);
+    let on_the_monitor = |r: &&ScreenRect| {
+        r.size.width > 0.0
+            && r.size.height > 0.0
+            && r.origin.x >= left
+            && r.origin.y >= top
+            && r.origin.x + r.size.width <= right
+            && r.origin.y + r.size.height <= bottom
+    };
+    if let Some(own) = gtk_workareas.iter().find(on_the_monitor) {
+        return *own;
+    }
+    if let Some(desktop) = net_workarea {
+        let cut_left = left.max(desktop.origin.x);
+        let cut_top = top.max(desktop.origin.y);
+        let cut_right = right.min(desktop.origin.x + desktop.size.width);
+        let cut_bottom = bottom.min(desktop.origin.y + desktop.size.height);
+        if cut_right > cut_left && cut_bottom > cut_top {
+            return ScreenRect::new(
+                ScreenPoint::new(cut_left, cut_top),
+                ScreenSize::new(cut_right - cut_left, cut_bottom - cut_top),
+            );
+        }
+    }
+    if !published.struts.is_empty() {
+        return x11_strut_work_area(bounds, published.root, &published.struts);
+    }
+    bounds
 }
 
 /// Get the primary display
@@ -293,9 +493,9 @@ mod windows {
 
             // Extract monitor bounds
             let rc_monitor = &monitor_info.rcMonitor;
-            let bounds = LogicalRect::new(
-                LogicalPosition::new(rc_monitor.left as f32, rc_monitor.top as f32),
-                LogicalSize::new(
+            let bounds = ScreenRect::new(
+                ScreenPoint::new(rc_monitor.left as f32, rc_monitor.top as f32),
+                ScreenSize::new(
                     (rc_monitor.right - rc_monitor.left) as f32,
                     (rc_monitor.bottom - rc_monitor.top) as f32,
                 ),
@@ -303,9 +503,9 @@ mod windows {
 
             // Extract work area (bounds minus taskbar)
             let rc_work = &monitor_info.rcWork;
-            let work_area = LogicalRect::new(
-                LogicalPosition::new(rc_work.left as f32, rc_work.top as f32),
-                LogicalSize::new(
+            let work_area = ScreenRect::new(
+                ScreenPoint::new(rc_work.left as f32, rc_work.top as f32),
+                ScreenSize::new(
                     (rc_work.right - rc_work.left) as f32,
                     (rc_work.bottom - rc_work.top) as f32,
                 ),
@@ -434,13 +634,13 @@ mod windows {
     fn fallback_displays() -> Vec<DisplayInfo> {
         vec![DisplayInfo {
             name: "Primary Monitor".to_string(),
-            bounds: LogicalRect::new(
-                LogicalPosition::zero(),
-                LogicalSize::new(1920.0, 1080.0),
+            bounds: ScreenRect::new(
+                ScreenPoint::new(0.0, 0.0),
+                ScreenSize::new(1920.0, 1080.0),
             ),
-            work_area: LogicalRect::new(
-                LogicalPosition::zero(),
-                LogicalSize::new(1920.0, 1040.0),
+            work_area: ScreenRect::new(
+                ScreenPoint::new(0.0, 0.0),
+                ScreenSize::new(1920.0, 1040.0),
             ),
             scale_factor: 1.0,
             is_primary: true,
@@ -497,22 +697,22 @@ mod macos {
 
             // macOS uses flipped coordinates (origin at bottom-left)
             // Convert to top-left origin
-            let bounds = LogicalRect::new(
-                LogicalPosition::new(
+            let bounds = ScreenRect::new(
+                ScreenPoint::new(
                     frame.origin.x as f32,
                     primary_screen_height - frame.origin.y as f32 - frame.size.height as f32,
                 ),
-                LogicalSize::new(frame.size.width as f32, frame.size.height as f32),
+                ScreenSize::new(frame.size.width as f32, frame.size.height as f32),
             );
 
-            let work_area = LogicalRect::new(
-                LogicalPosition::new(
+            let work_area = ScreenRect::new(
+                ScreenPoint::new(
                     visible_frame.origin.x as f32,
                     primary_screen_height
                         - visible_frame.origin.y as f32
                         - visible_frame.size.height as f32,
                 ),
-                LogicalSize::new(
+                ScreenSize::new(
                     visible_frame.size.width as f32,
                     visible_frame.size.height as f32,
                 ),
@@ -554,7 +754,10 @@ mod macos {
     }
 }
 
-#[cfg(all(target_os = "linux", not(target_arch = "wasm32")))]
+/// The Linux monitor list: X11 (XRandR) and Wayland. Also built wherever the
+/// X11 backend is (`az_x11`), where only its X11 half exists: on a macOS host
+/// running X11 it is the list the X11 windows are sized and placed against.
+#[cfg(all(az_x11, not(target_arch = "wasm32")))]
 mod linux {
     use super::*;
 
@@ -562,6 +765,7 @@ mod linux {
     /// to approximate the work area when the real value is unavailable.
     const FALLBACK_PANEL_HEIGHT: f32 = 24.0;
 
+    #[cfg(target_os = "linux")]
     pub fn get_displays() -> Vec<DisplayInfo> {
         // Try X11 first, then Wayland
         if std::env::var("WAYLAND_DISPLAY").is_ok() {
@@ -569,6 +773,12 @@ mod linux {
         } else {
             x11::get_displays()
         }
+    }
+
+    /// No Wayland off Linux: the X server is the only answer.
+    #[cfg(not(target_os = "linux"))]
+    pub fn get_displays() -> Vec<DisplayInfo> {
+        x11::get_displays()
     }
 
     mod x11 {
@@ -650,9 +860,147 @@ mod linux {
             }
         }
 
+        /// `XA_CARDINAL`, the type of the work-area properties.
+        const XA_CARDINAL: std::os::raw::c_ulong = 6;
+
+        /// The 32-bit values of the property `name` of type `kind` on `window`;
+        /// `None` when it does not exist or is empty.
+        unsafe fn window_cardinals(
+            xlib: &Xlib,
+            display: *mut crate::desktop::shell2::linux::x11::dlopen::Display,
+            window: crate::desktop::shell2::linux::x11::dlopen::Window,
+            name: &str,
+            kind: std::os::raw::c_ulong,
+        ) -> Option<Vec<i64>> {
+            let name = std::ffi::CString::new(name).ok()?;
+            unsafe {
+                let atom = (xlib.XInternAtom)(display, name.as_ptr(), 1); // only if it exists
+                if atom == 0 {
+                    return None;
+                }
+                let mut actual_type = 0;
+                let mut actual_format = 0;
+                let mut nitems = 0;
+                let mut bytes_after = 0;
+                let mut data: *mut u8 = ptr::null_mut();
+                let status = (xlib.XGetWindowProperty)(
+                    display,
+                    window,
+                    atom,
+                    0,
+                    1024,
+                    0, // delete = false
+                    kind,
+                    &mut actual_type,
+                    &mut actual_format,
+                    &mut nitems,
+                    &mut bytes_after,
+                    &mut data,
+                );
+                let mut values = Vec::new();
+                if status == 0 && !data.is_null() && actual_format == 32 {
+                    // 32-bit properties come back as an array of C `long`.
+                    let longs = std::slice::from_raw_parts(
+                        data as *const std::os::raw::c_long,
+                        nitems as usize,
+                    );
+                    values = longs.iter().map(|&v| i64::from(v)).collect();
+                }
+                if !data.is_null() {
+                    (xlib.XFree)(data as *mut c_void);
+                }
+                (!values.is_empty()).then_some(values)
+            }
+        }
+
+        /// Rects of four CARDINALs each (x, y, width, height), root pixels.
+        #[allow(clippy::cast_precision_loss)] // screen pixels
+        fn rects_of(values: &[i64]) -> Vec<ScreenRect> {
+            values
+                .chunks_exact(4)
+                .map(|r| {
+                    ScreenRect::new(
+                        ScreenPoint::new(r[0] as f32, r[1] as f32),
+                        ScreenSize::new(r[2] as f32, r[3] as f32),
+                    )
+                })
+                .collect()
+        }
+
+        /// `XA_WINDOW`, the type of `_NET_CLIENT_LIST`.
+        const XA_WINDOW: std::os::raw::c_ulong = 33;
+
+        /// The work areas the window manager publishes for the current desktop:
+        /// mutter's per-monitor `_GTK_WORKAREAS_D<desktop>` and the EWMH
+        /// `_NET_WORKAREA` rect, each as far as it is published, and - only
+        /// when neither is - the struts of the managed windows (the docks).
+        #[allow(clippy::cast_precision_loss, clippy::cast_sign_loss)] // root pixels, window ids
+        unsafe fn published_work_areas(
+            xlib: &Xlib,
+            display: *mut crate::desktop::shell2::linux::x11::dlopen::Display,
+            screen: i32,
+            root: crate::desktop::shell2::linux::x11::dlopen::Window,
+        ) -> X11WorkAreas {
+            unsafe {
+                let desktop =
+                    window_cardinals(xlib, display, root, "_NET_CURRENT_DESKTOP", XA_CARDINAL)
+                        .and_then(|v| v.first().copied())
+                        .and_then(|d| usize::try_from(d).ok())
+                        .unwrap_or(0);
+                let per_monitor = window_cardinals(
+                    xlib,
+                    display,
+                    root,
+                    &format!("_GTK_WORKAREAS_D{desktop}"),
+                    XA_CARDINAL,
+                )
+                .map(|v| rects_of(&v))
+                .unwrap_or_default();
+                let whole_desktop =
+                    window_cardinals(xlib, display, root, "_NET_WORKAREA", XA_CARDINAL)
+                        .and_then(|v| rects_of(&v).get(desktop).copied());
+                let root_size = ScreenSize::new(
+                    (xlib.XDisplayWidth)(display, screen) as f32,
+                    (xlib.XDisplayHeight)(display, screen) as f32,
+                );
+                let struts = if per_monitor.is_empty() && whole_desktop.is_none() {
+                    window_cardinals(xlib, display, root, "_NET_CLIENT_LIST", XA_WINDOW)
+                        .unwrap_or_default()
+                        .into_iter()
+                        .filter_map(|client| {
+                            let client = client as crate::desktop::shell2::linux::x11::dlopen::Window;
+                            window_cardinals(
+                                xlib,
+                                display,
+                                client,
+                                "_NET_WM_STRUT_PARTIAL",
+                                XA_CARDINAL,
+                            )
+                            .or_else(|| {
+                                window_cardinals(xlib, display, client, "_NET_WM_STRUT", XA_CARDINAL)
+                            })
+                            .and_then(|v| X11Strut::from_cardinals(&v, root_size))
+                        })
+                        .collect()
+                } else {
+                    Vec::new()
+                };
+                X11WorkAreas {
+                    per_monitor,
+                    desktop: whole_desktop,
+                    struts,
+                    root: root_size,
+                }
+            }
+        }
+
         fn try_xrandr_displays() -> Result<Vec<DisplayInfo>, ()> {
             use crate::desktop::shell2::{
-                common::{dlopen::load_first_available, DynamicLibrary},
+                common::{
+                    dlopen::load_first_available,
+                    x11_host::{candidates, X11Lib},
+                    DynamicLibrary,
+                },
                 linux::x11::dlopen::Library,
             };
 
@@ -666,8 +1014,7 @@ mod linux {
 
                 // Try to load XRandR library
                 let xrandr_lib =
-                    load_first_available::<Library>(&["libXrandr.so.2", "libXrandr.so"])
-                        .map_err(|_| ())?;
+                    load_first_available::<Library>(candidates(X11Lib::Xrandr)).map_err(|_| ())?;
 
                 // Load XRandR functions
                 let get_screen_resources: XRRGetScreenResourcesCurrentFn = xrandr_lib
@@ -693,6 +1040,7 @@ mod linux {
 
                 let resources = &*(resources_ptr as *const XRRScreenResourcesStruct);
                 let mut displays = Vec::new();
+                let published = published_work_areas(&xlib, display, screen, root);
 
                 // Calculate base DPI from screen size
                 let width_mm = (xlib.XDisplayWidthMM)(display, screen);
@@ -721,19 +1069,13 @@ mod linux {
                         continue;
                     }
 
-                    let bounds = LogicalRect::new(
-                        LogicalPosition::new(crtc_info.x as f32, crtc_info.y as f32),
-                        LogicalSize::new(crtc_info.width as f32, crtc_info.height as f32),
+                    let bounds = ScreenRect::new(
+                        ScreenPoint::new(crtc_info.x as f32, crtc_info.y as f32),
+                        ScreenSize::new(crtc_info.width as f32, crtc_info.height as f32),
                     );
 
-                    // Approximate work area (subtract 24px for panel)
-                    let work_area = LogicalRect::new(
-                        LogicalPosition::new(crtc_info.x as f32, crtc_info.y as f32),
-                        LogicalSize::new(
-                            crtc_info.width as f32,
-                            (crtc_info.height as f32 - FALLBACK_PANEL_HEIGHT).max(0.0),
-                        ),
-                    );
+                    // The monitor less the panels the window manager says are on it.
+                    let work_area = x11_monitor_work_area(bounds, &published);
 
                     // Get refresh rate from mode info
                     let refresh_rate = if crtc_info.mode != 0 {
@@ -829,21 +1171,17 @@ mod linux {
                 let avg_dpi = (dpi_x + dpi_y) / 2.0;
                 let scale_factor = avg_dpi / 96.0; // 96 DPI is the standard baseline
 
+                let root = (xlib.XRootWindow)(display, screen);
+                let published = published_work_areas(&xlib, display, screen, root);
                 (xlib.XCloseDisplay)(display);
 
-                let bounds = LogicalRect::new(
-                    LogicalPosition::zero(),
-                    LogicalSize::new(width_px as f32, height_px as f32),
+                let bounds = ScreenRect::new(
+                    ScreenPoint::new(0.0, 0.0),
+                    ScreenSize::new(width_px as f32, height_px as f32),
                 );
 
-                // Approximate work area by subtracting common panel height (24px)
-                let work_area = LogicalRect::new(
-                    LogicalPosition::zero(),
-                    LogicalSize::new(
-                        width_px as f32,
-                        (height_px as f32 - FALLBACK_PANEL_HEIGHT).max(0.0),
-                    ),
-                );
+                // The screen less the panels the window manager says are on it.
+                let work_area = x11_monitor_work_area(bounds, &published);
 
                 vec![DisplayInfo {
                     name: format!(":0.{}", screen),
@@ -862,11 +1200,11 @@ mod linux {
 
         fn fallback_display() -> Vec<DisplayInfo> {
             let bounds =
-                LogicalRect::new(LogicalPosition::zero(), LogicalSize::new(1920.0, 1080.0));
+                ScreenRect::new(ScreenPoint::new(0.0, 0.0), ScreenSize::new(1920.0, 1080.0));
 
-            let work_area = LogicalRect::new(
-                LogicalPosition::zero(),
-                LogicalSize::new(1920.0, 1080.0 - FALLBACK_PANEL_HEIGHT),
+            let work_area = ScreenRect::new(
+                ScreenPoint::new(0.0, 0.0),
+                ScreenSize::new(1920.0, 1080.0 - FALLBACK_PANEL_HEIGHT),
             );
 
             vec![DisplayInfo {
@@ -884,6 +1222,7 @@ mod linux {
         }
     }
 
+    #[cfg(target_os = "linux")]
     mod wayland {
         use std::{
             process::Command,
@@ -1027,14 +1366,14 @@ mod linux {
                 (1920, 1080)
             };
 
-            let bounds = LogicalRect::new(
-                LogicalPosition::zero(),
-                LogicalSize::new(width as f32, height as f32),
+            let bounds = ScreenRect::new(
+                ScreenPoint::new(0.0, 0.0),
+                ScreenSize::new(width as f32, height as f32),
             );
 
-            let work_area = LogicalRect::new(
-                LogicalPosition::zero(),
-                LogicalSize::new(
+            let work_area = ScreenRect::new(
+                ScreenPoint::new(0.0, 0.0),
+                ScreenSize::new(
                     width as f32,
                     (height as f32 - FALLBACK_PANEL_HEIGHT).max(0.0),
                 ),
@@ -1094,13 +1433,13 @@ mod linux {
                     .filter(|o| o.active)
                     .map(|o| DisplayInfo {
                         name: o.name.clone(),
-                        bounds: LogicalRect::new(
-                            LogicalPosition::new(o.rect.x, o.rect.y),
-                            LogicalSize::new(o.rect.width, o.rect.height),
+                        bounds: ScreenRect::new(
+                            ScreenPoint::new(o.rect.x, o.rect.y),
+                            ScreenSize::new(o.rect.width, o.rect.height),
                         ),
-                        work_area: LogicalRect::new(
-                            LogicalPosition::new(o.rect.x, o.rect.y),
-                            LogicalSize::new(
+                        work_area: ScreenRect::new(
+                            ScreenPoint::new(o.rect.x, o.rect.y),
+                            ScreenSize::new(
                                 o.rect.width,
                                 (o.rect.height - FALLBACK_PANEL_HEIGHT).max(0.0),
                             ),
@@ -1169,13 +1508,13 @@ mod linux {
                     .into_iter()
                     .map(|o| DisplayInfo {
                         name: o.name.clone(),
-                        bounds: LogicalRect::new(
-                            LogicalPosition::new(o.x, o.y),
-                            LogicalSize::new(o.width, o.height),
+                        bounds: ScreenRect::new(
+                            ScreenPoint::new(o.x, o.y),
+                            ScreenSize::new(o.width, o.height),
                         ),
-                        work_area: LogicalRect::new(
-                            LogicalPosition::new(o.x, o.y),
-                            LogicalSize::new(o.width, (o.height - FALLBACK_PANEL_HEIGHT).max(0.0)),
+                        work_area: ScreenRect::new(
+                            ScreenPoint::new(o.x, o.y),
+                            ScreenSize::new(o.width, (o.height - FALLBACK_PANEL_HEIGHT).max(0.0)),
                         ),
                         scale_factor: o.scale,
                         is_primary: o.focused,
@@ -1249,13 +1588,13 @@ mod linux {
                     .filter(|o| o.enabled)
                     .map(|o| DisplayInfo {
                         name: o.name.clone(),
-                        bounds: LogicalRect::new(
-                            LogicalPosition::new(o.geometry.x, o.geometry.y),
-                            LogicalSize::new(o.geometry.width, o.geometry.height),
+                        bounds: ScreenRect::new(
+                            ScreenPoint::new(o.geometry.x, o.geometry.y),
+                            ScreenSize::new(o.geometry.width, o.geometry.height),
                         ),
-                        work_area: LogicalRect::new(
-                            LogicalPosition::new(o.geometry.x, o.geometry.y),
-                            LogicalSize::new(
+                        work_area: ScreenRect::new(
+                            ScreenPoint::new(o.geometry.x, o.geometry.y),
+                            ScreenSize::new(
                                 o.geometry.width,
                                 (o.geometry.height - FALLBACK_PANEL_HEIGHT).max(0.0),
                             ),
@@ -1373,13 +1712,13 @@ mod linux {
                         if width > 0.0 && height > 0.0 {
                             displays.push(DisplayInfo {
                                 name,
-                                bounds: LogicalRect::new(
-                                    LogicalPosition::new(x, y),
-                                    LogicalSize::new(width, height),
+                                bounds: ScreenRect::new(
+                                    ScreenPoint::new(x, y),
+                                    ScreenSize::new(width, height),
                                 ),
-                                work_area: LogicalRect::new(
-                                    LogicalPosition::new(x, y),
-                                    LogicalSize::new(
+                                work_area: ScreenRect::new(
+                                    ScreenPoint::new(x, y),
+                                    ScreenSize::new(
                                         width,
                                         (height - FALLBACK_PANEL_HEIGHT).max(0.0),
                                     ),
@@ -1450,9 +1789,9 @@ static WAYLAND_OUTPUTS: Mutex<Option<Vec<WaylandOutput>>> = Mutex::new(None);
 #[cfg(all(target_os = "linux", not(target_arch = "wasm32")))]
 fn wayland_output_to_display(out: &WaylandOutput, is_primary: bool) -> DisplayInfo {
     let scale = if out.scale > 0 { out.scale } else { 1 };
-    let bounds = LogicalRect::new(
-        LogicalPosition::new(out.x as f32, out.y as f32),
-        LogicalSize::new(out.width as f32, out.height as f32),
+    let bounds = ScreenRect::new(
+        ScreenPoint::new(out.x as f32, out.y as f32),
+        ScreenSize::new(out.width as f32, out.height as f32),
     );
     let name = if out.name.is_empty() {
         alloc::format!("{} {}", out.make, out.model)
@@ -1617,6 +1956,112 @@ mod wayland_output_tests {
 }
 
 #[cfg(test)]
+mod x11_work_area_tests {
+    use super::*;
+
+    fn rect(x: f32, y: f32, w: f32, h: f32) -> ScreenRect {
+        ScreenRect::new(ScreenPoint::new(x, y), ScreenSize::new(w, h))
+    }
+
+    fn per_monitor(rects: &[ScreenRect]) -> X11WorkAreas {
+        X11WorkAreas {
+            per_monitor: rects.to_vec(),
+            ..X11WorkAreas::default()
+        }
+    }
+
+    /// Two 1920 x 1080 monitors side by side.
+    const ROOT: ScreenSize = ScreenSize::new(3840.0, 1080.0);
+
+    fn struts_only(struts: Vec<X11Strut>) -> X11WorkAreas {
+        X11WorkAreas {
+            struts,
+            root: ROOT,
+            ..X11WorkAreas::default()
+        }
+    }
+
+    /// With no published work area, the docks' struts are cut per monitor: a
+    /// top panel over the left monitor only, and a dock on the inner (left)
+    /// edge of the right monitor - whose strip, measured from the root's left
+    /// edge, spans the whole left monitor but is the right monitor's.
+    #[test]
+    fn an_x11_monitor_without_published_work_areas_is_cut_by_its_docks_struts() {
+        let top_panel = X11Strut::from_cardinals(&[0, 0, 32, 0, 0, 0, 0, 0, 0, 1919, 0, 0], ROOT)
+            .expect("twelve values are a partial strut");
+        let inner_dock =
+            X11Strut::from_cardinals(&[1984, 0, 0, 0, 0, 1079, 0, 0, 0, 0, 0, 0], ROOT)
+                .expect("twelve values are a partial strut");
+        let published = struts_only(vec![top_panel, inner_dock]);
+        assert_eq!(
+            x11_monitor_work_area(rect(0.0, 0.0, 1920.0, 1080.0), &published),
+            rect(0.0, 32.0, 1920.0, 1048.0),
+            "the left monitor loses its top panel, not the right monitor's dock"
+        );
+        assert_eq!(
+            x11_monitor_work_area(rect(1920.0, 0.0, 1920.0, 1080.0), &published),
+            rect(1984.0, 0.0, 1856.0, 1080.0),
+            "the right monitor loses the dock on its left edge, not the other monitor's panel"
+        );
+    }
+
+    /// The older `_NET_WM_STRUT` covers its whole edge: a 40 px bottom panel
+    /// leaves both monitors 1040 tall.
+    #[test]
+    fn a_full_edge_strut_cuts_every_monitor_along_that_edge() {
+        let bottom = X11Strut::from_cardinals(&[0, 0, 0, 40], ROOT).expect("four values are a strut");
+        let published = struts_only(vec![bottom]);
+        for x in [0.0, 1920.0] {
+            assert_eq!(
+                x11_monitor_work_area(rect(x, 0.0, 1920.0, 1080.0), &published),
+                rect(x, 0.0, 1920.0, 1040.0)
+            );
+        }
+        assert_eq!(X11Strut::from_cardinals(&[1, 2, 3], ROOT), None);
+    }
+
+    /// GNOME publishes a work area per monitor: a dock on the second monitor's
+    /// left edge is kept clear of on that monitor only.
+    #[test]
+    fn an_x11_monitor_works_inside_the_area_its_panels_leave() {
+        let gtk = [rect(0.0, 32.0, 1920.0, 1048.0), rect(1984.0, 0.0, 1856.0, 1080.0)];
+        assert_eq!(
+            x11_monitor_work_area(rect(1920.0, 0.0, 1920.0, 1080.0), &per_monitor(&gtk)),
+            rect(1984.0, 0.0, 1856.0, 1080.0)
+        );
+        assert_eq!(
+            x11_monitor_work_area(rect(0.0, 0.0, 1920.0, 1080.0), &per_monitor(&gtk)),
+            rect(0.0, 32.0, 1920.0, 1048.0)
+        );
+    }
+
+    /// Without per-monitor work areas, the desktop's one work area is cut to
+    /// each monitor: a 32 px top panel across two monitors leaves both 1048 tall.
+    #[test]
+    fn an_x11_monitor_without_its_own_work_area_is_cut_by_the_desktops() {
+        let desktop = Some(rect(0.0, 32.0, 3840.0, 1048.0));
+        assert_eq!(
+            x11_monitor_work_area(
+                rect(1920.0, 0.0, 1920.0, 1080.0),
+                &X11WorkAreas {
+                    desktop,
+                    ..X11WorkAreas::default()
+                }
+            ),
+            rect(1920.0, 32.0, 1920.0, 1048.0)
+        );
+    }
+
+    /// A window manager that publishes no work area keeps no panel clear: the
+    /// whole monitor is the work area, not the monitor less a guessed 24 px.
+    #[test]
+    fn an_x11_monitor_with_no_published_work_area_is_the_whole_monitor() {
+        let monitor = rect(0.0, 0.0, 2560.0, 1440.0);
+        assert_eq!(x11_monitor_work_area(monitor, &X11WorkAreas::default()), monitor);
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -1664,7 +2109,7 @@ mod tests {
 
         // Test point in the middle of the first display
         let first = &displays[0];
-        let center = LogicalPosition::new(
+        let center = ScreenPoint::new(
             first.bounds.origin.x + first.bounds.size.width / 2.0,
             first.bounds.origin.y + first.bounds.size.height / 2.0,
         );

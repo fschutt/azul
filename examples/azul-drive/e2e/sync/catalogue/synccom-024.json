@@ -1,0 +1,26 @@
+{
+  "name": "a link to a big folder lists exactly the files it was made with, each one readable; files added later from another device while the owner is offline are not in it, and nothing fails to decrypt",
+  "description": "SYNCCOM-024 (Sync.com): link recipients saw 'Failed Decryption' until the owner's client finished link encryption; links to big folders left files out. Rules M1/S14/I1 (sync-chaos share-links-and-revocation): share keys go with the upload's commit. A share link is a snapshot (azul-storage sharing.rs): files added to the folder after the link are not in it - never listed as an entry that fails to decrypt. A live folder link needs folder keys in the drive index (not built).",
+  "steps": [
+    { "op": "drive_harness" },
+    { "op": "drive_create", "remote": "r" },
+    { "op": "drive_open", "device": "a", "remote": "r" },
+    { "op": "drive_open", "device": "b", "remote": "r" },
+    { "op": "drive_pair", "device": "a" },
+    { "op": "drive_pair", "device": "b" },
+    { "op": "drive_wait_idle" },
+    { "op": "drive_many", "device": "a", "dir": "big", "count": 2000, "text_prefix": "file" },
+    { "op": "drive_sync", "device": "a" },
+    { "op": "drive_share_link", "device": "a", "path": "big", "name": "l" },
+    { "op": "drive_fault", "device": "a", "partition": true },
+    { "op": "drive_many", "device": "b", "dir": "big/added", "count": 100, "text_prefix": "added" },
+    { "op": "drive_sync", "device": "b" },
+    { "op": "drive_open_link", "link": "l" },
+    { "op": "assert_response", "path": "result.files", "len": 2000 },
+    { "op": "assert_response", "path": "result.available", "equals": true },
+    { "op": "assert_response", "path": "result.unreadable", "equals": 0 },
+    { "op": "assert_response", "path": "result", "not_contains": "decryption" },
+    { "op": "assert_response", "path": "result.files", "not_contains": "added" },
+    { "op": "drive_cleanup" }
+  ]
+}

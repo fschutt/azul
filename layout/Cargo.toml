@@ -55,8 +55,13 @@ autoexamples = true
 autotests = false
 
 [dependencies]
+# `codegen` only with this crate's `codegen` feature (below); layout's `GetHash`
+# imports use the ungated `azul_css::hash`.
 azul-css                = { version = "0.0.16", path = "../css", default-features = false, features = ["parser"] }
-azul-core               = { version = "0.0.16", path = "../core", default-features = false }
+# The parts of azul-core that need the CSS parser (above) or the system font
+# cache are on in every feature set, std or not: layout's loaders and callback
+# infos use them.
+azul-core              = { version = "0.0.16", path = "../core", default-features = false, features = ["css_parser", "system_fonts"] }
 # `pattern` form validation (11b-i-b). MINIMAL on purpose: only the string API,
 # no dependencies of its own. NOT optional-on-std, though -- regex-lite's own
 # lib.rs is `#[cfg(not(feature = "std"))] compile_error!("'std' is currently a
@@ -68,7 +73,7 @@ image                   = { version = "0.25", default-features = false, optional
 # Explicit override to disable SIMD features that were broken in older versions
 # See: https://github.com/image-rs/image/issues/2705
 zune-jpeg               = { version = "0.5", default-features = false, features = ["std"], optional = true }
-rust-fontconfig = { version = ">=5.0, <5.1", default-features = false, optional = true }
+rust-fontconfig = { version = ">=5.0.1, <5.1", default-features = false, optional = true }
 libc                    = { version = "0.2", default-features = false, optional = true }
 serde                   = { version = "1.0", features = ["derive"] }
 brotli-decompressor     = { version = "5", default-features = false, features = ["std"], optional = true }
@@ -136,9 +141,13 @@ material-icons = { version = "0.3", optional = true }
 # `json_parse(json_stringify(x)) != x`. See core/Cargo.toml.
 serde_json = { version = "1.0", default-features = false, features = ["std", "float_roundtrip"], optional = true }
 # Crash-report MAIL transport (EHLO SMTP client) — our own crate, published
-# on crates.io (0.1.0, owner fschutt), consumed from the registry like any
-# other dependency, so it is publish-safe for azul-layout.
-micromail = { version = "0.1.0", optional = true, default-features = false }
+# on crates.io (owner fschutt), consumed from the registry like any
+# other dependency, so it is publish-safe for azul-layout. 0.2 (the version
+# AzMail uses - one copy in the tree): `MIME-Version: 1.0`, dot-stuffing,
+# CRLF line ends, and STARTTLS only when the build can speak TLS.
+# `tls-rustcrypto` is the pure-Rust rustls provider the `http` feature (which
+# crash-mail implies through telemetry) already brings: STARTTLS for real.
+micromail = { version = "0.2.1", optional = true, default-features = false, features = ["tls-rustcrypto"] }
 # Digest verification of update downloads (already in the tree transitively).
 sha2 = { version = "0.10", optional = true }
 # Minisign SIGNATURE verification for update artifacts (pure Rust, zero deps).
@@ -150,6 +159,12 @@ spmc = { version = "0.3", optional = true }
 
 # Platform-specific user directories (home, config, cache, etc.)
 dirs = { version = "6.0", default-features = false, optional = true }
+
+# CommonMark reader of the shared rich-text editor (`widgets::rich_text::markdown`,
+# feature `rich_text_markdown`): the Markdown AzNotes and AzWriter store. The same
+# version and features the two apps already locked (supply-chain/config.toml
+# exemption, build-script-policy "audited").
+pulldown-cmark = { version = "0.9", default-features = false, optional = true }
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tfd = { version = "0.1", optional = true }
@@ -196,7 +211,7 @@ text3-suite-wip = []
 # atomic when not recording, and every real build (build-dll, telemetry)
 # wants them anyway - the only observability piece that stays opt-in is the
 # HTTP debug server (`e2e-server-http`), which opens a listening socket.
-default = ["std", "text_layout", "text_layout_hyphenation", "font_loading_multithreaded", "font_async_registry", "svg", "image_decoding", "cpurender", "a11y", "widgets", "extra", "icons", "probe"]
+default = ["std", "text_layout", "text_layout_hyphenation", "font_loading_multithreaded", "font_async_registry", "svg", "image_decoding", "cpurender", "a11y", "widgets", "extra", "icons", "probe", "materials"]
 
 # Fine-grained timing + RSS instrumentation. Enables `probe::Probe::span`
 # guards across the layout pipeline. Off by default — consumer crates
@@ -227,12 +242,17 @@ std = ["azul-core/std", "regex-lite?/std"]
 strfmt = ["dep:strfmt", "std"]
 
 # Widget support (button, text_input, checkbox, etc.)
-widgets = ["text_layout", "strfmt"]
+widgets = ["text_layout", "strfmt", "rich_text_markdown"]
+
+# The rich-text editor's Markdown READER (`RichTextDoc::from_markdown`); the
+# writers (Markdown, HTML, plain text) need no dependency.
+rich_text_markdown = ["dep:pulldown-cmark", "std"]
 
 # Extra APIs (native dialogs, file operations). The dialogs are resumable
 # (`FileDialog::open_file(.., data, on_result)`), so they need the callback
-# machinery of `text_layout`.
-extra = ["dep:tfd", "dep:dirs", "text_layout"]
+# machinery of `text_layout`. `libc` for `file::disk_space` (statfs /
+# statvfs) on unix; it is already in the tree through `probe`.
+extra = ["dep:tfd", "dep:dirs", "text_layout", "dep:libc", "dep:serde_json"]
 
 # Basic text shaping (unicode support, allsorts font parsing)
 # Requires font_loading for font discovery (FcFontCache)
@@ -245,6 +265,9 @@ text_layout = [
     "dep:tinyvec",
     "dep:unicode-segmentation",
     "dep:unicode-bidi",
+    # `text3::ui_fonts` unpacks the bundled EB Garamond (already in the graph
+    # through allsorts, which decodes WOFF2 with it).
+    "dep:brotli-decompressor",
     # `form` is the only consumer of regex-lite, and it is gated on this
     # feature. text_layout implies std, which regex-lite requires.
     "dep:regex-lite"
@@ -291,6 +314,12 @@ pnm = ["image_decoding", "image/pnm"]
 # XML parsing support (for SVG and font configs)
 xml = ["dep:roxmltree", "dep:xmlwriter", "dep:xmlparser"]
 
+# Markup / component libraries -> source code in every binding language
+# (`azul_core::codegen` lowers, `azul_css::codegen` prints). Forwards to both
+# crates' `codegen` features; `e2e-server` turns it on for AzBuilder's code
+# export (src/e2e/export.rs).
+codegen = ["azul-core/codegen", "azul-css/codegen"]
+
 # SVG rendering support (lyon for tessellation, agg-rust for CPU render)
 svg = [
     "dep:lyon",
@@ -311,6 +340,12 @@ a11y = ["dep:accesskit"]
 
 # macOS CoreText rendering comparison tests
 coretext_tests = ["dep:core-foundation", "dep:core-graphics", "dep:core-text", "cpurender"]
+
+# The web-platform-tests runner (tests/wpt/main.rs, `--test wpt`): reftests and
+# editing cases from tests/wpt/, gated by their known-failure lists. A feature so
+# that `cargo test --tests` does not run it on the dev profile; the `wpt_reference`
+# CI job and scripts/REFCI_2026_09_30.md name it explicitly.
+wpt_tests = ["std", "cpurender", "text_layout", "font_loading"]
 
 # ICU4X internationalization support (number/date/list formatting, pluralization)
 icu = ["dep:icu", "dep:icu_provider_blob", "dep:writeable", "std"]
@@ -333,7 +368,11 @@ icu_chrono = ["icu", "dep:chrono"]
 fluent = ["dep:fluent", "dep:fluent-syntax", "dep:unic-langid", "dep:intl-memoizer", "zip", "strfmt", "std"]
 
 # HTTP client support for downloading resources
-http = ["dep:ureq", "azul-core/url", "dep:rustls", "dep:rustls-rustcrypto", "dep:webpki-roots", "std"]
+http = ["dep:ureq", "azul-core/url", "azul-core/tls-roots", "dep:rustls", "dep:rustls-rustcrypto", "dep:webpki-roots", "std"]
+
+# Throwaway certificate authorities and a loopback TLS server for the tests of what a TLS
+# connection trusts (azul-core's `tls_testing`, re-exported); never part of an app.
+tls-testing = ["http", "azul-core/tls-testing"]
 
 # ZIP file manipulation (standalone, for C API)
 zip = ["dep:zip", "std"]
@@ -371,8 +410,21 @@ crash-mail = ["telemetry", "dep:micromail"]
 # runtime — the system package manager owns those updates.
 updater = ["std", "http", "dep:serde_json", "dep:sha2", "dep:minisign-verify"]
 
+# Sign-in sessions (OAuth 2.0 for native apps): PKCE's S256 challenge needs SHA-256 (sha2,
+# already in the tree through the updater and rustls-rustcrypto). See src/auth_session.rs.
+auth_session = ["std", "dep:sha2"]
+
 # Icon provider support (material icons, icon packs from fonts or ZIP files)
 icons = ["std", "zip", "dep:material-icons", "dep:brotli-decompressor"]
+
+# 2.5D MATERIALS: `builtin(leather)`, `builtin(bluejeans)`, `builtin(aluminium)`
+# in CSS - a 128 x 128 micro tile of each CC0 PBR set (albedo, normal,
+# roughness; ~27 KB for the three, brotli) and a CPU shader that lights it for
+# the rect it fills (bevel, fresnel, the window's light and god rays). See
+# `texture::materials` and assets/textures/README.md. On by default: the
+# flora tab strips are cut from leather and aluminium. The decompressor is the
+# one `text_layout` / `icons` already pull in.
+materials = ["std", "dep:brotli-decompressor"]
 
 # ─── E2E / debug-server op-dispatch (ported verbatim from the DLL) ───
 # The ~12k-line `src/e2e/full.rs` op-dispatch (process_debug_event, the
@@ -381,7 +433,7 @@ icons = ["std", "zip", "dep:material-icons", "dep:brotli-decompressor"]
 # path is host-agnostic (no networking, no OS coupling — those go through
 # `e2e::hooks`), so a headless library caller can run E2E JSON scenarios with
 # just this feature.
-e2e-server = ["std", "json", "cpurender", "zip", "widgets", "text_layout", "font_loading", "a11y", "xml", "dep:spmc"]
+e2e-server = ["std", "json", "cpurender", "zip", "widgets", "text_layout", "font_loading", "a11y", "xml", "codegen", "dep:spmc"]
 
 # Request transport for the debug server: the spmc channel, the debug timer and
 # `handle_event_request`. Opt-in ON TOP of `e2e-server`; the core op-dispatch and
@@ -432,6 +484,12 @@ required-features = ["telemetry"]
 [[test]]
 name = "all"
 path = "tests/all.rs"
+
+# Own process on purpose: it moves the process's app light, which every window
+# of a shared binary that draws a material would adopt at its next frame.
+[[test]]
+name = "a_new_app_light_relights_the_materials_of_a_window"
+path = "tests/a_new_app_light_relights_the_materials_of_a_window.rs"
 
 # Own process on purpose: forces AZ_TEXT_HINTING=0 (the macOS glyph mode)
 # before the first glyph renders, which the read-once caches would otherwise
@@ -536,19 +594,39 @@ path = "tests/virtualview_hit_matches_render.rs"
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 ureq = { version = "3.3", default-features = false, features = ["rustls-no-provider", "rustls-webpki-roots"], optional = true }
 rustls = { version = "0.23", default-features = false, features = ["std", "tls12", "logging"], optional = true }
-rustls-rustcrypto = { version = "0.0.2-alpha", optional = true }
+rustls-rustcrypto = { package = "rustls-rustcrypto-azul", version = "0.1.0", optional = true }
 webpki-roots = { version = "1.0", optional = true }
 
 [dev-dependencies]
 # Signing side of minisign — TESTS ONLY, to mint real signature vectors.
 minisign = "0.9"
+# The throwaway authorities and the TLS test server (azul-core's tls_testing), TESTS ONLY.
+azul-core = { version = "0.0.16", path = "../core", default-features = false, features = ["tls-testing"] }
 # The REAL accesskit consumer, TESTS ONLY: the a11y contract test feeds every
 # TreeUpdate the manager parks through the same crate whose invariant
 # `panic!`s abort a `panic = "abort"` release build.
 accesskit = "0.24"
 accesskit_consumer = "0.38"
 serde_json = { version = "1.0", default-features = false, features = ["std"] }
+# Calmet UI's bytes, TESTS ONLY (the shaping, small-caps, line-clamp and fallback tests are
+# measured on it): an app's typeface, registered the way an app registers it, never part of
+# the library. The bytes alone - no `azul` feature, no libazul.
+azul-fonts-calmet = { path = "../examples/azul-fonts-calmet" }
 
 [[bench]]
 name = "fast_dom_bench"
 harness = false
+
+[[test]]
+name = "xml_equivalence"
+path = "tests/xml_equivalence.rs"
+
+# Web-platform-tests reference comparisons (reftests + editing), a runner of its
+# own (`harness = false`: one compact summary, exit 1 only on a regression or an
+# unexpected pass). `required-features` keeps it out of plain `cargo test --tests`.
+# cargo test --release -p azul-layout --features wpt_tests --test wpt [-- reftest|editing] [filter]
+[[test]]
+name = "wpt"
+path = "tests/wpt/main.rs"
+harness = false
+required-features = ["wpt_tests"]

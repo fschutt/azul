@@ -25,7 +25,7 @@ static AzString str(const char* s) {
     return AzString_copyFromBytes((const uint8_t*)s, 0, strlen(s));
 }
 
-static AzDom div(const char* css) {
+static AzDom styled_div(const char* css) {
     AzDom d = AzDom_createDiv();
     AzDom_setCss(&d, str(css));
     return d;
@@ -102,7 +102,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         "display: flex; flex-direction: column; height: 100%; margin: 0; padding: 0; "
         "background: #eef1f5; font-family: sans-serif;"));
 
-    AzDom header = div(
+    AzDom header = styled_div(
         "display: flex; flex-direction: row; align-items: center; "
         "padding: 10px 14px; background: #2f3b4f; color: white;");
     AzDom_addChild(&header, label("Azul Maps",
@@ -111,12 +111,12 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzDom_addChild(&header, label(text, "font-size: 12px; color: #c7d0dc;"));
     AzDom_addChild(&body, header);
 
-    AzDom frame = div(
+    AzDom frame = styled_div(
         "flex-grow: 1; margin: 12px; border-radius: 14px; overflow: hidden; "
         "border: 1px solid #c3cad4; background: #dfe5ec; position: relative;");
     AzDom_addChild(&frame, map);
 
-    AzDom controls = div(
+    AzDom controls = styled_div(
         "position: absolute; left: 12px; top: 12px; display: flex; flex-direction: row;");
     AzDom_addChild(&controls, zoom_button("+", "Zoom in", AzRefAny_clone(&data), on_zoom_in));
     AzDom_addChild(&controls, zoom_button("-", "Zoom out", AzRefAny_clone(&data), on_zoom_out));

@@ -450,6 +450,62 @@ body.ui-landing {
 }
 .example-code > .copy-btn:hover { opacity: 1; background: rgba(232, 222, 198, 0.2); }
 
+/* ---- AzBuilder: the visual builder, right under the hero ----
+   A link in the hero points here; the section is the first thing below
+   the band, before the code examples. */
+.ui-hero-builder {
+    margin-top: 22px;
+    font-family: var(--font-serif);
+    font-size: 16px;
+    line-height: 1.5;
+    max-width: 540px;
+}
+.ui-builder {
+    padding: 80px 0;
+    border-bottom: 1px solid var(--color-border);
+}
+.ui-builder-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+    gap: 32px 48px;
+    align-items: center;
+}
+.ui-builder-kicker {
+    font-family: var(--font-caps);
+    font-variant: all-small-caps;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    color: var(--color-accent);
+    margin-bottom: 8px;
+}
+.ui-builder h2 {
+    font-family: var(--font-display);
+    font-size: 42px;
+    font-weight: 500;
+    line-height: 1.12;
+    letter-spacing: 0.015em;
+    margin-bottom: 20px;
+    color: var(--color-text);
+}
+.ui-builder .description {
+    font-family: var(--font-serif);
+    font-size: var(--fl-text);
+    line-height: 1.68;
+    color: var(--color-text-light);
+    margin-bottom: 28px;
+}
+.ui-builder .description p { margin-bottom: 14px; }
+.ui-builder .cta-buttons { display: flex; flex-wrap: wrap; gap: 12px; }
+.ui-builder-shot { margin: 0; min-width: 0; }
+.ui-builder-shot img {
+    width: 100%;
+    height: auto;
+    display: block;
+    border: 1px solid var(--fl-bd);
+    border-radius: var(--fl-r);
+    box-shadow: var(--fl-shadow-3);
+}
+
 /* ---- Footer ---- */
 .ui-footer a { color: var(--color-accent); }
 
@@ -464,6 +520,9 @@ body.ui-landing {
             "code";
         gap: 32px;
     }
+    /* minmax(0, …): a bare 1fr is minmax(auto, 1fr) and lets the
+       screenshot's intrinsic width push the page wider than a phone. */
+    .ui-builder-grid { grid-template-columns: minmax(0, 1fr); gap: 32px; }
 }
 /* Only now does the card go under the heading - and when it does it takes
    the full measure rather than sitting in the middle of an empty column. */
@@ -478,8 +537,12 @@ body.ui-landing {
     .feature-section { padding: 56px 0; }
     .feature-section h2.feature-title { font-size: 34px; }
     .feature-section .description { font-size: 16px; margin-bottom: 32px; }
+    .ui-builder { padding: 56px 0; }
+    .ui-builder h2 { font-size: 34px; }
+    .ui-builder .description { font-size: 16px; }
 }
 @media (max-width: 480px) {
     .ui-hero h1 { font-size: 34px; }
     .feature-section h2.feature-title { font-size: 28px; }
+    .ui-builder h2 { font-size: 28px; }
 }

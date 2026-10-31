@@ -1,0 +1,20 @@
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<title>CSS Test: Background clip and border painting order</title>
+<meta name="assert" content="The background is painted behind the border."/>
+<style>
+            div
+            {
+                width: 0;
+                border: 50px solid green;
+                background-color: red;
+            }
+        
+</style>
+</head>
+<body>
+        <p>Test passes if there is a green rectangle below and no red visible on the page.</p>
+        <div></div>
+    
+</body>
+</html>

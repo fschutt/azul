@@ -1,0 +1,71 @@
+[
+  {
+    "name": "unpairing and pairing again leaves excluded, never-uploaded folders in place",
+    "description": "ICLOUD-016 (sync-chaos delete-unpair-keeps-files, port-selective-sync): turning iCloud Drive off and on deleted local-only .nosync folders inside Documents. Rules D5 and P11: logout/unpair and a new pairing never remove a file, an excluded one least of all.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": ".azcloudignore", "text": "*.nosync/\n" },
+      { "op": "drive_write", "device": "a", "path": "Documents/a.txt", "text": "synced a" },
+      { "op": "drive_write", "device": "a", "path": "Documents/local.nosync/notes.txt", "text": "local-only notes" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_unpair", "device": "a" },
+      { "op": "drive_check", "check": "file", "device": "a", "path": "Documents/local.nosync/notes.txt", "text": "local-only notes" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_wait_idle", "device": "a" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "file", "device": "a", "path": "Documents/local.nosync/notes.txt", "text": "local-only notes" },
+      { "op": "drive_check", "check": "file", "device": "a", "path": "Documents/a.txt", "text": "synced a" },
+      { "op": "drive_check", "check": "trash_empty", "device": "a" },
+      { "op": "drive_check", "check": "remote_never_has", "marker": "local-only notes" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "another device deletes the parent folder: the synced files go to the trash, the excluded ones are never deleted",
+    "description": "ICLOUD-016: evicting or deleting the parent deleted its .nosync children. Rules D2, D6 and P11: a delete applies to the synced files only (into the trash); an excluded item the drive never saw is left in place or moved, never deleted.",
+    "steps": [
+      { "op": "drive_create", "remote": "r2", "encrypted": false },
+      { "op": "drive_open", "device": "c", "remote": "r2" },
+      { "op": "drive_open", "device": "d", "remote": "r2" },
+      { "op": "drive_pair", "device": "c" },
+      { "op": "drive_pair", "device": "d" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "c", "path": ".azcloudignore", "text": "*.nosync/\n" },
+      { "op": "drive_write", "device": "c", "path": "Documents/a.txt", "text": "synced a" },
+      { "op": "drive_write", "device": "c", "path": "Documents/b.txt", "text": "synced b" },
+      { "op": "drive_write", "device": "c", "path": "Documents/local.nosync/notes.txt", "text": "local-only notes" },
+      { "op": "drive_sync", "device": "c" },
+      { "op": "drive_sync", "device": "d" },
+      { "op": "drive_rmtree", "device": "d", "path": "Documents" },
+      { "op": "drive_sync", "device": "d", "expect": "any" },
+      { "op": "drive_answer", "device": "d", "question": "mass_delete", "delete_too": true },
+      { "op": "drive_sync", "device": "d" },
+      { "op": "drive_sync", "device": "c" },
+      { "op": "drive_check", "check": "file", "device": "c", "path": "Documents/a.txt", "absent": true },
+      { "op": "drive_check", "check": "trash_has", "device": "c", "text": "synced a" },
+      { "op": "drive_check", "check": "kept", "texts": ["local-only notes"] },
+      { "op": "drive_check", "check": "remote_never_has", "marker": "local-only notes" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "making a folder cloud-only never deletes the excluded items inside it",
+    "description": "ICLOUD-016: 'evicting the parent deletes .nosync children'. Rules P13 and P11: eviction drops only bytes the drive holds; an excluded child stays.",
+    "steps": [
+      { "op": "drive_create", "remote": "r3", "encrypted": false },
+      { "op": "drive_open", "device": "e", "remote": "r3" },
+      { "op": "drive_pair", "device": "e" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "e", "path": ".azcloudignore", "text": "*.nosync/\n" },
+      { "op": "drive_write", "device": "e", "path": "Documents/a.txt", "text": "synced a" },
+      { "op": "drive_write", "device": "e", "path": "Documents/local.nosync/notes.txt", "text": "local-only notes" },
+      { "op": "drive_sync", "device": "e" },
+      { "op": "drive_evict", "device": "e", "path": "Documents" },
+      { "op": "drive_check", "check": "file", "device": "e", "path": "Documents/local.nosync/notes.txt", "text": "local-only notes" },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

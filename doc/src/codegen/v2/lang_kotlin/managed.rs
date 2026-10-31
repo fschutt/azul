@@ -23,6 +23,11 @@ use super::{
     ffi_type_name, kotlin_class_name, user_enum_type_name, LIBRARY_NAME,
 };
 
+// `LayoutCallback` -> `layoutCallback`: the invoker/field naming used by both
+// the host-invoker object and the wrapper emitter (wrappers.rs imports it
+// from here). The one helper lives in `codegen::v2`.
+pub(super) use super::super::lower_first;
+
 /// Append the host-invoker block to the existing `Azul.kt` body.
 pub fn emit(builder: &mut CodeBuilder, ir: &CodegenIR) {
     builder.blank();
@@ -953,12 +958,3 @@ fn emit_kt_data_typed_invoker_sam(
     builder.blank();
 }
 
-/// `LayoutCallback` → `layoutCallback`: the invoker/field naming used by both
-/// the host-invoker object and the wrapper emitter.
-pub(super) fn lower_first(name: &str) -> String {
-    let mut chars = name.chars();
-    match chars.next() {
-        Some(c) => c.to_ascii_lowercase().to_string() + chars.as_str(),
-        None => String::new(),
-    }
-}

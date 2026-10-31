@@ -1,0 +1,32 @@
+{
+  "name": "the first download of 300 files cut at three points: files never seen here come down, none is deleted on the drive",
+  "description": "MAGENTA-011 (Nextcloud desktop 4.0.4 Flatpak): after a power loss during the initial download, files queued but incomplete were marked 'deleted locally' and deleted on the server. Rules D6, A4, A5 and E8: only a file fully here before can count as a local delete; a crash converges with no temp file and nothing lost. The real kill -9 and power cut stay sync-chaos res-kill9-random and port-power-cut; sync-chaos res-crash-points.",
+  "steps": [
+    { "op": "drive_create", "remote": "r", "encrypted": true },
+    { "op": "drive_open", "device": "a", "remote": "r" },
+    { "op": "drive_open", "device": "b", "remote": "r" },
+    { "op": "drive_pair", "device": "a" },
+    { "op": "drive_wait_idle" },
+    { "op": "drive_many", "device": "a", "dir": "data", "count": 300, "size": 512, "seed": 4 },
+    { "op": "drive_sync", "device": "a" },
+    { "op": "drive_crash_at", "device": "b", "point": "download-start" },
+    { "op": "drive_pair", "device": "b" },
+    { "op": "drive_wait_idle", "device": "b" },
+    { "op": "drive_status", "device": "b" },
+    { "op": "assert_response", "path": "result.crashes", "equals": 1 },
+    { "op": "drive_sync", "device": "b", "crash_at": "before-rename", "expect": "crash" },
+    { "op": "drive_sync", "device": "b", "crash_at": "after-rename", "expect": "crash" },
+    { "op": "drive_restart", "device": "b" },
+    { "op": "drive_sync", "device": "b" },
+    { "op": "drive_check", "check": "files_count", "device": "b", "glob": "data/*", "count": 300 },
+    { "op": "drive_check", "check": "remote_count", "glob": "data/*", "count": 300 },
+    { "op": "drive_check", "check": "no_temp_files", "device": "b" },
+    { "op": "drive_check", "check": "trash_empty", "device": "b" },
+    { "op": "drive_check", "check": "max_ops", "change": "trash", "device": "b", "max": 0 },
+    { "op": "drive_check", "check": "problem", "device": "b", "code": "mass-delete-held", "absent": true },
+    { "op": "drive_check", "check": "converged" },
+    { "op": "drive_sync", "device": "b" },
+    { "op": "drive_check", "check": "last_pass_quiet", "device": "b" },
+    { "op": "drive_cleanup" }
+  ]
+}

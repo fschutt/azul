@@ -1,0 +1,41 @@
+[
+  {
+    "name": "FILEN-027: a password database saved by another app with a safe-save replace reaches the drive",
+    "description": "FILEN-027 (Filen): KeePassium saved a .kdbx through the iOS File Provider and the write never reached the drive, with no error. Rules P10 (a safe save is one change), O1. sync-chaos placeholder-write-back (the whole-file half that v1 has).",
+    "steps": [
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "vault.kdbx", "text": "entries: 1" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_editor_save", "device": "a", "path": "vault.kdbx", "text": "entries: 2" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "vault.kdbx", "text": "entries: 2" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "vault.kdbx", "text": "entries: 2" },
+      { "op": "drive_check", "check": "conflict_copies", "device": "b", "path": "vault.kdbx", "count": 0 },
+      { "op": "drive_check", "check": "remote_count", "remote": "r", "count": 1 },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "FILEN-027: a write through an on-demand placeholder is uploaded like any save, or the user sees an error",
+    "description": "FILEN-027 (Filen): the File Provider extension dropped the write silently. Rule P13 (on-demand files are later work; when they come, a write through a placeholder uploads like any save). sync-chaos placeholder-write-back (pending).",
+    "steps": [
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_pair", "device": "a", "on_demand": true },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_tamper", "remote": "r", "action": "put", "key": "vault.kdbx", "text": "entries: 1", "writer": "other-pc" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_write_through_placeholder", "device": "a", "path": "vault.kdbx", "text": "entries: 2" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "vault.kdbx", "text": "entries: 2" },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

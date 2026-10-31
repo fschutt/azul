@@ -220,7 +220,8 @@ EXCL_KIND=""
 # ---------------------------------------------------------------------------
 # in_test_module FILE LINE
 #
-# True when LINE sits inside a `#[cfg(test)]` module. Such code is compiled into
+# True when LINE sits inside a test-only module: `#[cfg(test)]`, or an `all(..)` that requires
+# `test` (`#[cfg(all(test, unix))]`), as a top-level term. Such code is compiled into
 # NO artifact — not the wasm one, not any other — so a std clock call there can
 # never trap at runtime. Reporting it would leave this gate permanently red on a
 # finding nobody can act on, and a gate that cries wolf stops being read.
@@ -230,7 +231,7 @@ EXCL_KIND=""
 # ---------------------------------------------------------------------------
 in_test_module() {
   awk -v target="$2" '
-    /^[[:space:]]*#\[cfg\(test\)\]/ { pend = 1; next }
+    /^[[:space:]]*#\[cfg\((test\)|all\(([^()]*,[[:space:]]*)?test[[:space:]]*[,)])/ { pend = 1; next }
     pend && /mod[[:space:]]+[A-Za-z_][A-Za-z0-9_]*[[:space:]]*\{/ {
       pend = 0; depth = 0
       for (i = 1; i <= length($0); i++) {

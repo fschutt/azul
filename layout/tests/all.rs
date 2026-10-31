@@ -130,10 +130,44 @@ mod fakefont;
 
 // --- the registered integration tests, alphabetically ---
 
+#[path = "a_bold_request_draws_the_bold_instance_of_a_variable_font.rs"]
+mod a_bold_request_draws_the_bold_instance_of_a_variable_font;
+#[path = "a_caret_counts_bytes_in_its_own_block.rs"]
+mod a_caret_counts_bytes_in_its_own_block;
+#[path = "a_classic_thumb_stops_above_its_bottom_button.rs"]
+mod a_classic_thumb_stops_above_its_bottom_button;
+#[path = "a_context_menu_opens_from_a_secondary_press.rs"]
+mod a_context_menu_opens_from_a_secondary_press;
+#[path = "a_drag_selection_owns_the_scroll_of_its_field.rs"]
+mod a_drag_selection_owns_the_scroll_of_its_field;
+#[path = "a_hundred_and_twenty_nested_blocks_lay_out_on_a_two_megabyte_thread.rs"]
+mod a_hundred_and_twenty_nested_blocks_lay_out_on_a_two_megabyte_thread;
+#[path = "a_press_on_an_overflowing_field_selects.rs"]
+mod a_press_on_an_overflowing_field_selects;
+#[path = "a_scroll_box_scrolls_to_its_end_padding.rs"]
+mod a_scroll_box_scrolls_to_its_end_padding;
+#[path = "a_selection_drag_autoscrolls_the_box_its_text_scrolls_in.rs"]
+mod a_selection_drag_autoscrolls_the_box_its_text_scrolls_in;
+#[path = "a_selection_reveal_shows_its_focus_end.rs"]
+mod a_selection_reveal_shows_its_focus_end;
+#[path = "a_screen_reader_reads_a_host_with_paragraphs.rs"]
+mod a_screen_reader_reads_a_host_with_paragraphs;
 #[path = "abs_pos_anomalies.rs"]
 mod abs_pos_anomalies;
+#[path = "abspos_in_flex_containing_block.rs"]
+mod abspos_in_flex_containing_block;
+#[path = "accordion_animation.rs"]
+mod accordion_animation;
 #[path = "anonymous_nodes.rs"]
 mod anonymous_nodes;
+#[path = "app_caret_moves.rs"]
+mod app_caret_moves;
+#[path = "app_target.rs"]
+mod app_target;
+#[path = "azul_widgets_demo_follows_the_theme.rs"]
+mod azul_widgets_demo_follows_the_theme;
+#[path = "block_edge_keys.rs"]
+mod block_edge_keys;
 #[path = "block_merge_filter.rs"]
 mod block_merge_filter;
 #[path = "body_margin_vh.rs"]
@@ -146,12 +180,18 @@ mod cache_and_dirty_propagation;
 mod caption_positioning;
 #[path = "caret_follows_typing.rs"]
 mod caret_follows_typing;
+#[path = "caret_reveal_across_a_wrap.rs"]
+mod caret_reveal_across_a_wrap;
 #[path = "caret_reveal_and_session_identity.rs"]
 mod caret_reveal_and_session_identity;
 #[path = "caret_scroll_glide.rs"]
 mod caret_scroll_glide;
 #[path = "caret_tween.rs"]
 mod caret_tween;
+#[path = "carets_set_from_outside.rs"]
+mod carets_set_from_outside;
+#[path = "clean_pass_keeps_the_layout_cache.rs"]
+mod clean_pass_keeps_the_layout_cache;
 #[path = "click_into_a_virtual_view_page.rs"]
 mod click_into_a_virtual_view_page;
 #[path = "cpurender_image_probe.rs"]
@@ -160,6 +200,8 @@ mod cpurender_image_probe;
 mod cross_block_selection;
 #[path = "delete_keyed_to_caret_owner.rs"]
 mod delete_keyed_to_caret_owner;
+#[path = "damage_raster_reports_what_it_painted.rs"]
+mod damage_raster_reports_what_it_painted;
 #[path = "demo_layout_regressions.rs"]
 mod demo_layout_regressions;
 #[path = "display_list_ids.rs"]
@@ -194,10 +236,14 @@ mod float_and_scrollbar;
 mod float_integration;
 #[path = "focus_manager.rs"]
 mod focus_manager;
+#[path = "focus_ring_survives_full_relayout.rs"]
+mod focus_ring_survives_full_relayout;
 #[path = "focus_ring_tween.rs"]
 mod focus_ring_tween;
 #[path = "frame_perf.rs"]
 mod frame_perf;
+#[path = "global_hotkeys.rs"]
+mod global_hotkeys;
 #[path = "gpu_synchronize.rs"]
 mod gpu_synchronize;
 #[path = "h1_margin_em_resolution.rs"]
@@ -208,8 +254,16 @@ mod h1_p_margin_collapse;
 mod hover_manager;
 #[path = "icon_pipeline.rs"]
 mod icon_pipeline;
+#[path = "a_measured_dom_ends_where_its_scroll_box_ends.rs"]
+mod a_measured_dom_ends_where_its_scroll_box_ends;
+#[path = "a_table_column_is_as_wide_as_a_fit_content_box_of_the_same_text.rs"]
+mod a_table_column_is_as_wide_as_a_fit_content_box_of_the_same_text;
 #[path = "ifc_caching.rs"]
 mod ifc_caching;
+#[path = "ime_geometry_follows_the_fields_scroll.rs"]
+mod ime_geometry_follows_the_fields_scroll;
+#[path = "injected_chrome_takes_its_own_space.rs"]
+mod injected_chrome_takes_its_own_space;
 #[path = "inline_atomic_after_block.rs"]
 mod inline_atomic_after_block;
 
@@ -230,12 +284,18 @@ mod inline_block_text;
 mod inline_gradient_border;
 #[path = "integration_test_registry_is_exhaustive.rs"]
 mod integration_test_registry_is_exhaustive;
+#[path = "keyboard_selection_is_painted.rs"]
+mod keyboard_selection_is_painted;
 #[path = "keycode_table_manifest_is_exhaustive.rs"]
 mod keycode_table_manifest_is_exhaustive;
+#[path = "list_item_editing.rs"]
+mod list_item_editing;
 #[path = "list_marker_counter.rs"]
 mod list_marker_counter;
 #[path = "loaded_font_introspection.rs"]
 mod loaded_font_introspection;
+#[path = "materialized_inline_layout.rs"]
+mod materialized_inline_layout;
 #[path = "map_widget_fill.rs"]
 mod map_widget_fill;
 #[path = "margin_collapse_integration.rs"]
@@ -254,8 +314,40 @@ mod menubar_item_clip;
 mod mock_font_metrics;
 #[path = "multi_range_selection.rs"]
 mod multi_range_selection;
+#[path = "native_notifications.rs"]
+mod native_notifications;
+#[path = "drag_into_an_empty_line.rs"]
+mod drag_into_an_empty_line;
+#[path = "an_arrow_collapses_a_document_selection_like_a_click.rs"]
+mod an_arrow_collapses_a_document_selection_like_a_click;
+#[path = "an_svg_without_a_viewbox.rs"]
+mod an_svg_without_a_viewbox;
+#[path = "svg_transforms_place_their_shapes.rs"]
+mod svg_transforms_place_their_shapes;
+#[path = "svg_text_is_laid_out_through_its_svg.rs"]
+mod svg_text_is_laid_out_through_its_svg;
+#[path = "an_svg_draws_its_text_in_its_own_fonts.rs"]
+mod an_svg_draws_its_text_in_its_own_fonts;
+#[path = "an_svg_image_is_drawn_where_its_attributes_put_it.rs"]
+mod an_svg_image_is_drawn_where_its_attributes_put_it;
+#[path = "a_mask_clip_on_a_half_pixel.rs"]
+mod a_mask_clip_on_a_half_pixel;
+#[path = "a_padded_table_cell_stays_in_its_row.rs"]
+mod a_padded_table_cell_stays_in_its_row;
 #[path = "pagination_dom_breaks.rs"]
 mod pagination_dom_breaks;
+#[path = "pagination_fits_its_card.rs"]
+mod pagination_fits_its_card;
+#[path = "shaping_cache_keeps_the_run_it_is_hit_from.rs"]
+mod shaping_cache_keeps_the_run_it_is_hit_from;
+#[path = "caret_in_an_inline_editing_host.rs"]
+mod caret_in_an_inline_editing_host;
+#[path = "inline_media_follows_source_order.rs"]
+mod inline_media_follows_source_order;
+#[path = "fixed_size_widgets_sit_at_the_start.rs"]
+mod fixed_size_widgets_sit_at_the_start;
+#[path = "patched_opacity_reaches_the_paint.rs"]
+mod patched_opacity_reaches_the_paint;
 #[path = "pagination_perf.rs"]
 mod pagination_perf;
 #[path = "preedit_never_enters_the_text_store.rs"]
@@ -268,6 +360,8 @@ mod radio_group_geometry;
 mod regression_font_size_bugs;
 #[path = "resize_relayout_bug.rs"]
 mod resize_relayout_bug;
+#[path = "restored_caret_lands_in_its_text.rs"]
+mod restored_caret_lands_in_its_text;
 #[path = "ribbon_group_overlap.rs"]
 mod ribbon_group_overlap;
 #[path = "ribbon_tab_whitespace.rs"]
@@ -278,24 +372,48 @@ mod root_box_sizing_regression;
 mod run_remap;
 #[path = "safe_area_inset.rs"]
 mod safe_area_inset;
+#[path = "scroll_box_reserves_its_gutter.rs"]
+mod scroll_box_reserves_its_gutter;
+#[path = "scroll_chain.rs"]
+mod scroll_chain;
 #[path = "scroll_degenerate_ifc.rs"]
 mod scroll_degenerate_ifc;
 #[path = "scroll_id_identity.rs"]
 mod scroll_id_identity;
 #[path = "scroll_shift_ghost.rs"]
 mod scroll_shift_ghost;
+#[path = "a_box_after_an_inserted_one_keeps_its_own_style.rs"]
+mod a_box_after_an_inserted_one_keeps_its_own_style;
+#[path = "scrollbar_fade_during_drag.rs"]
+mod scrollbar_fade_during_drag;
+#[path = "scrollbar_presence.rs"]
+mod scrollbar_presence;
 #[path = "seat_text_session.rs"]
 mod seat_text_session;
+#[path = "select_all_covers_its_host.rs"]
+mod select_all_covers_its_host;
 #[path = "selection_handles.rs"]
 mod selection_handles;
+#[path = "selection_skips_unselectable_text.rs"]
+mod selection_skips_unselectable_text;
 #[path = "session_regression.rs"]
 mod session_regression;
+#[path = "shift_arrows_extend_a_document_selection.rs"]
+mod shift_arrows_extend_a_document_selection;
+#[path = "single_block_copy.rs"]
+mod single_block_copy;
+#[path = "spatial_navigation.rs"]
+mod spatial_navigation;
+#[path = "stale_document_selection.rs"]
+mod stale_document_selection;
 #[path = "statusbar_live_label.rs"]
 mod statusbar_live_label;
 #[path = "streaming_pages.rs"]
 mod streaming_pages;
 #[path = "struct_sizes.rs"]
 mod struct_sizes;
+#[path = "static_opacity_paints.rs"]
+mod static_opacity_paints;
 #[path = "subtree_relayout.rs"]
 mod subtree_relayout;
 #[path = "svg_paint.rs"]
@@ -306,6 +424,10 @@ mod svg_tessellation;
 mod switch_animation;
 #[path = "synthetic_events.rs"]
 mod synthetic_events;
+#[path = "system_colour_keywords.rs"]
+mod system_colour_keywords;
+#[path = "system_colours_in_every_colour_property.rs"]
+mod system_colours_in_every_colour_property;
 #[path = "table_cell_width.rs"]
 mod table_cell_width;
 #[path = "table_cell_width_diag.rs"]
@@ -374,6 +496,10 @@ mod text3_shaping_exact;
 mod text3_visual;
 #[path = "text_ack_survives_relayout.rs"]
 mod text_ack_survives_relayout;
+#[path = "text_beside_a_block_is_selectable.rs"]
+mod text_beside_a_block_is_selectable;
+#[path = "text_block_resolver.rs"]
+mod text_block_resolver;
 #[path = "text_edit_seam_regressions.rs"]
 mod text_edit_seam_regressions;
 #[path = "textarea_enter_repaint.rs"]
@@ -384,16 +510,36 @@ mod textinput_first_draw_and_focus;
 mod textinput_resize_selection;
 #[path = "textinput_seed_style.rs"]
 mod textinput_seed_style;
+#[path = "the_apps_rebuild_outranks_a_widgets_own_restyle.rs"]
+mod the_apps_rebuild_outranks_a_widgets_own_restyle;
+#[path = "the_layout_of_a_broad_corpus_matches_its_golden_dumps.rs"]
+mod the_layout_of_a_broad_corpus_matches_its_golden_dumps;
+#[path = "the_macos_titlebar_lines_up_with_its_traffic_lights.rs"]
+mod the_macos_titlebar_lines_up_with_its_traffic_lights;
 #[path = "theme_conditional_stylesheet.rs"]
 mod theme_conditional_stylesheet;
 #[path = "token_vs_slicer_differential.rs"]
 mod token_vs_slicer_differential;
+#[path = "tray_events.rs"]
+mod tray_events;
 #[path = "typed_script_font_fallback.rs"]
 mod typed_script_font_fallback;
+#[path = "typing_beside_a_block.rs"]
+mod typing_beside_a_block;
+#[path = "typing_into_a_formatted_paragraph.rs"]
+mod typing_into_a_formatted_paragraph;
+#[path = "typing_past_the_right_edge_reveals_the_newest_character.rs"]
+mod typing_past_the_right_edge_reveals_the_newest_character;
 #[path = "unresolved_family_render.rs"]
 mod unresolved_family_render;
 #[path = "variable_font_disk_path.rs"]
 mod variable_font_disk_path;
+#[path = "viewport_scroll_frame.rs"]
+mod viewport_scroll_frame;
+#[path = "viewport_scrollbar.rs"]
+mod viewport_scrollbar;
+#[path = "viewport_scrolls_its_overflow.rs"]
+mod viewport_scrolls_its_overflow;
 #[path = "virtual_view_natural_size.rs"]
 mod virtual_view_natural_size;
 #[path = "virtualized_view_manager.rs"]
@@ -422,3 +568,790 @@ mod xml_dom_embed;
 mod xml_no_text_duplication;
 #[path = "xml_self_closing.rs"]
 mod xml_self_closing;
+#[path = "zero_width_selection.rs"]
+mod zero_width_selection;
+#[path = "form_controls_become_widgets.rs"]
+mod form_controls_become_widgets;
+#[path = "flat_and_flora_widgets_follow_the_light_and_dark_theme.rs"]
+mod flat_and_flora_widgets_follow_the_light_and_dark_theme;
+#[path = "app_color_scheme_override.rs"]
+mod app_color_scheme_override;
+#[path = "app_theme_override.rs"]
+mod app_theme_override;
+#[path = "widgets_follow_the_app_theme.rs"]
+mod widgets_follow_the_app_theme;
+#[path = "a_theme_chain_ranks_its_blocks.rs"]
+mod a_theme_chain_ranks_its_blocks;
+#[path = "rice_styles_the_window.rs"]
+mod rice_styles_the_window;
+#[path = "a_tinted_raster_icon_is_tinted_inside_its_own_alpha.rs"]
+mod a_tinted_raster_icon_is_tinted_inside_its_own_alpha;
+#[path = "an_svg_icon_follows_the_colour_of_its_node.rs"]
+mod an_svg_icon_follows_the_colour_of_its_node;
+#[path = "user_icon_rules_follow_the_theme_chain.rs"]
+mod user_icon_rules_follow_the_theme_chain;
+#[path = "a_scroll_box_keeps_its_blit_on_a_scrolled_page.rs"]
+mod a_scroll_box_keeps_its_blit_on_a_scrolled_page;
+#[path = "a_layout_blit_repaints_the_scrollbar_it_dragged.rs"]
+mod a_layout_blit_repaints_the_scrollbar_it_dragged;
+#[path = "a_scrollbar_in_a_virtual_view_is_pressed_where_it_is_painted.rs"]
+mod a_scrollbar_in_a_virtual_view_is_pressed_where_it_is_painted;
+#[path = "a_grown_scroll_box_paints_its_thumb_from_the_layout_that_grew_it.rs"]
+mod a_grown_scroll_box_paints_its_thumb_from_the_layout_that_grew_it;
+#[path = "a_drag_autoscrolls_the_box_its_containing_block_scrolls_in.rs"]
+mod a_drag_autoscrolls_the_box_its_containing_block_scrolls_in;
+#[path = "a_thin_scrollbar_is_pressed_where_it_is_painted.rs"]
+mod a_thin_scrollbar_is_pressed_where_it_is_painted;
+#[path = "backdrop_follows_window_activation.rs"]
+mod backdrop_follows_window_activation;
+#[path = "a_box_shadow_paints_once.rs"]
+mod a_box_shadow_paints_once;
+#[path = "a_replaced_inline_style_follows_the_mode.rs"]
+mod a_replaced_inline_style_follows_the_mode;
+#[path = "a_clicked_control_takes_the_new_mode_after_a_scheme_switch.rs"]
+mod a_clicked_control_takes_the_new_mode_after_a_scheme_switch;
+#[path = "app_set_text_beats_typing.rs"]
+mod app_set_text_beats_typing;
+#[path = "an_app_names_itself_with_app_id.rs"]
+mod an_app_names_itself_with_app_id;
+#[path = "a_node_restyled_by_a_callback_resolves_its_hover_and_dark_rules.rs"]
+mod a_node_restyled_by_a_callback_resolves_its_hover_and_dark_rules;
+#[path = "ctrl_d_searches_for_the_whole_word.rs"]
+mod ctrl_d_searches_for_the_whole_word;
+#[path = "shift_down_off_a_paragraph_keeps_the_column.rs"]
+mod shift_down_off_a_paragraph_keeps_the_column;
+#[path = "text_after_a_line_break_is_edited_at_its_caret.rs"]
+mod text_after_a_line_break_is_edited_at_its_caret;
+#[path = "typing_after_collapsed_spaces_lands_at_the_caret.rs"]
+mod typing_after_collapsed_spaces_lands_at_the_caret;
+#[path = "a_list_item_caret_moves_with_the_apps_text.rs"]
+mod a_list_item_caret_moves_with_the_apps_text;
+#[path = "a_screen_reader_reads_inline_text_where_it_stands.rs"]
+mod a_screen_reader_reads_inline_text_where_it_stands;
+#[path = "a_reveal_scrolls_only_the_boxes_that_move_its_target.rs"]
+mod a_reveal_scrolls_only_the_boxes_that_move_its_target;
+#[path = "an_arrow_reads_the_action_of_the_scroll_box_it_is_painted_in.rs"]
+mod an_arrow_reads_the_action_of_the_scroll_box_it_is_painted_in;
+#[path = "a_spatial_navigation_container_is_a_scroll_box_its_node_is_painted_in.rs"]
+mod a_spatial_navigation_container_is_a_scroll_box_its_node_is_painted_in;
+#[path = "the_ime_caret_rect_is_where_the_raster_paints_the_caret.rs"]
+mod the_ime_caret_rect_is_where_the_raster_paints_the_caret;
+#[path = "a_layout_blit_repaints_what_is_painted_over_its_mover.rs"]
+mod a_layout_blit_repaints_what_is_painted_over_its_mover;
+#[path = "a_scrollbar_in_a_transformed_virtual_view_is_pressed_where_it_is_painted.rs"]
+mod a_scrollbar_in_a_transformed_virtual_view_is_pressed_where_it_is_painted;
+#[path = "a_nodes_own_hover_block_applies_only_when_hovered.rs"]
+mod a_nodes_own_hover_block_applies_only_when_hovered;
+#[path = "a_node_restyled_to_other_variables_resolves_them.rs"]
+mod a_node_restyled_to_other_variables_resolves_them;
+#[path = "a_full_width_rule_in_a_spanning_table_cell_renders.rs"]
+mod a_full_width_rule_in_a_spanning_table_cell_renders;
+#[path = "a_linear_gradient_puts_its_colours_where_css_says.rs"]
+mod a_linear_gradient_puts_its_colours_where_css_says;
+#[path = "a_scroll_area_under_a_fixed_header_reaches_its_whole_content.rs"]
+mod a_scroll_area_under_a_fixed_header_reaches_its_whole_content;
+#[path = "a_receipts_price_column_sits_beside_its_labels_under_a_full_width_rule.rs"]
+mod a_receipts_price_column_sits_beside_its_labels_under_a_full_width_rule;
+#[path = "a_heading_and_paragraph_in_an_indented_table_cell_paint_their_text.rs"]
+mod a_heading_and_paragraph_in_an_indented_table_cell_paint_their_text;
+#[path = "quote_bars_from_one_gradient_paint_each_colour_at_its_length.rs"]
+mod quote_bars_from_one_gradient_paint_each_colour_at_its_length;
+#[path = "a_window_paces_at_its_monitors_refresh_rate.rs"]
+mod a_window_paces_at_its_monitors_refresh_rate;
+#[path = "the_resize_fast_path_paints_what_a_relayout_paints.rs"]
+mod the_resize_fast_path_paints_what_a_relayout_paints;
+#[path = "a_link_in_mail_markup_keeps_where_it_points.rs"]
+mod a_link_in_mail_markup_keeps_where_it_points;
+#[path = "the_named_entities_mail_uses_decode_to_their_characters.rs"]
+mod the_named_entities_mail_uses_decode_to_their_characters;
+#[path = "a_stylesheet_wrapped_in_comment_markers_keeps_its_rules.rs"]
+mod a_stylesheet_wrapped_in_comment_markers_keeps_its_rules;
+#[path = "a_webview_is_a_replaced_element_its_backend_is_told_where_it_is.rs"]
+mod a_webview_is_a_replaced_element_its_backend_is_told_where_it_is;
+#[path = "a_webview_in_a_virtual_view_follows_the_views_re_renders.rs"]
+mod a_webview_in_a_virtual_view_follows_the_views_re_renders;
+#[path = "a_transformed_webview_tells_its_backend_how_its_page_is_mapped.rs"]
+mod a_transformed_webview_tells_its_backend_how_its_page_is_mapped;
+#[path = "a_composited_webviews_frames_are_drawn_in_its_box.rs"]
+mod a_composited_webviews_frames_are_drawn_in_its_box;
+#[path = "a_composited_webview_gets_the_input_aimed_at_its_page.rs"]
+mod a_composited_webview_gets_the_input_aimed_at_its_page;
+#[path = "mail_markup_gets_the_html_rendering_defaults.rs"]
+mod mail_markup_gets_the_html_rendering_defaults;
+#[path = "a_block_holding_only_a_line_break_is_one_line_tall.rs"]
+mod a_block_holding_only_a_line_break_is_one_line_tall;
+#[path = "a_list_marker_is_painted_inside_its_text_clip.rs"]
+mod a_list_marker_is_painted_inside_its_text_clip;
+#[path = "an_underline_covers_the_last_letter_of_its_run.rs"]
+mod an_underline_covers_the_last_letter_of_its_run;
+#[path = "a_click_on_a_link_inside_a_paragraph_reaches_the_link.rs"]
+mod a_click_on_a_link_inside_a_paragraph_reaches_the_link;
+#[path = "a_components_declared_arguments_reach_its_render_fn.rs"]
+mod a_components_declared_arguments_reach_its_render_fn;
+#[path = "a_table_cell_with_loose_text_and_a_block_paints_both.rs"]
+mod a_table_cell_with_loose_text_and_a_block_paints_both;
+#[path = "a_narrow_table_wraps_its_cells_to_fit.rs"]
+mod a_narrow_table_wraps_its_cells_to_fit;
+#[path = "common/editing_harness.rs"]
+mod editing_harness;
+#[path = "a_format_toggle_at_a_caret_styles_what_is_typed_next.rs"]
+mod a_format_toggle_at_a_caret_styles_what_is_typed_next;
+#[path = "a_plain_arrow_crosses_the_blocks_of_its_editing_host.rs"]
+mod a_plain_arrow_crosses_the_blocks_of_its_editing_host;
+#[path = "a_delete_across_blocks_keeps_the_surviving_runs.rs"]
+mod a_delete_across_blocks_keeps_the_surviving_runs;
+#[path = "a_rich_paste_inserts_formatting_and_blocks.rs"]
+mod a_rich_paste_inserts_formatting_and_blocks;
+#[path = "a_reset_editor_takes_the_apps_new_content.rs"]
+mod a_reset_editor_takes_the_apps_new_content;
+#[path = "enter_in_a_nested_quote_splits_the_paragraph_not_the_quote.rs"]
+mod enter_in_a_nested_quote_splits_the_paragraph_not_the_quote;
+#[path = "a_scrolled_virtual_view_is_repainted_where_its_content_moved.rs"]
+mod a_scrolled_virtual_view_is_repainted_where_its_content_moved;
+#[path = "a_detected_pinch_has_no_padding.rs"]
+mod a_detected_pinch_has_no_padding;
+#[path = "flex_items_keep_the_size_their_container_gave_them.rs"]
+mod flex_items_keep_the_size_their_container_gave_them;
+#[path = "common/table_markup.rs"]
+mod table_markup;
+#[path = "a_table_is_as_wide_as_its_content_and_container_allow.rs"]
+mod a_table_is_as_wide_as_its_content_and_container_allow;
+#[path = "row_groups_are_boxes_stacked_in_order.rs"]
+mod row_groups_are_boxes_stacked_in_order;
+#[path = "presentational_table_attributes_style_the_table.rs"]
+mod presentational_table_attributes_style_the_table;
+#[path = "percentage_and_fixed_columns_share_the_table_like_browsers.rs"]
+mod percentage_and_fixed_columns_share_the_table_like_browsers;
+#[path = "a_nested_table_widens_the_cell_that_holds_it.rs"]
+mod a_nested_table_widens_the_cell_that_holds_it;
+#[path = "a_render_image_callback_with_unchanged_inputs_is_not_invoked_again.rs"]
+mod a_render_image_callback_with_unchanged_inputs_is_not_invoked_again;
+#[path = "real_mail_html_parses_like_a_browser.rs"]
+mod real_mail_html_parses_like_a_browser;
+#[path = "the_two_xml_loaders_build_one_tree.rs"]
+mod the_two_xml_loaders_build_one_tree;
+#[path = "html_pasted_from_word_and_browsers_keeps_its_formatting.rs"]
+mod html_pasted_from_word_and_browsers_keeps_its_formatting;
+#[path = "builtin_html_elements_take_their_presentational_arguments.rs"]
+mod builtin_html_elements_take_their_presentational_arguments;
+#[path = "the_list_style_shorthand_sets_the_marker_type_and_position.rs"]
+mod the_list_style_shorthand_sets_the_marker_type_and_position;
+#[path = "a_cells_specified_width_is_its_columns_width.rs"]
+mod a_cells_specified_width_is_its_columns_width;
+#[path = "a_collapsed_table_shares_each_border_between_its_cells.rs"]
+mod a_collapsed_table_shares_each_border_between_its_cells;
+#[path = "a_separated_table_spaces_its_cells_and_paints_its_own_border.rs"]
+mod a_separated_table_spaces_its_cells_and_paints_its_own_border;
+#[path = "a_rows_height_is_its_tallest_cell_or_its_own_height.rs"]
+mod a_rows_height_is_its_tallest_cell_or_its_own_height;
+#[path = "a_fixed_table_takes_its_column_widths_from_its_first_row.rs"]
+mod a_fixed_table_takes_its_column_widths_from_its_first_row;
+#[path = "a_spanning_cells_width_is_spread_over_the_columns_it_spans.rs"]
+mod a_spanning_cells_width_is_spread_over_the_columns_it_spans;
+#[path = "an_acked_split_of_a_list_item_resumes_past_the_new_items_marker.rs"]
+mod an_acked_split_of_a_list_item_resumes_past_the_new_items_marker;
+#[path = "a_chat_field_keeps_its_width_while_text_is_typed.rs"]
+mod a_chat_field_keeps_its_width_while_text_is_typed;
+#[path = "a_partial_image_change_leaves_its_rect_for_the_renderer.rs"]
+mod a_partial_image_change_leaves_its_rect_for_the_renderer;
+#[path = "an_img_from_markup_shows_the_image_the_app_cached_under_its_src.rs"]
+mod an_img_from_markup_shows_the_image_the_app_cached_under_its_src;
+#[path = "content_clipped_by_an_overflow_hidden_box_adds_no_pages.rs"]
+mod content_clipped_by_an_overflow_hidden_box_adds_no_pages;
+#[path = "a_multicol_block_flows_its_children_through_its_columns.rs"]
+mod a_multicol_block_flows_its_children_through_its_columns;
+#[path = "a_percent_wide_inline_image_takes_its_share_of_the_line_box_container.rs"]
+mod a_percent_wide_inline_image_takes_its_share_of_the_line_box_container;
+#[path = "the_first_line_of_a_paragraph_starts_text_indent_further_in.rs"]
+mod the_first_line_of_a_paragraph_starts_text_indent_further_in;
+#[path = "a_line_height_in_points_sets_the_line_pitch.rs"]
+mod a_line_height_in_points_sets_the_line_pitch;
+#[path = "an_absolute_line_height_is_the_exact_line_pitch.rs"]
+mod an_absolute_line_height_is_the_exact_line_pitch;
+#[path = "a_line_height_in_em_or_percent_inherits_as_a_length.rs"]
+mod a_line_height_in_em_or_percent_inherits_as_a_length;
+#[path = "an_inline_block_inside_a_span_is_sized_by_its_own_css.rs"]
+mod an_inline_block_inside_a_span_is_sized_by_its_own_css;
+#[path = "a_text_edit_reports_the_formats_of_its_text.rs"]
+mod a_text_edit_reports_the_formats_of_its_text;
+#[path = "an_auto_height_block_stops_growing_at_its_max_height.rs"]
+mod an_auto_height_block_stops_growing_at_its_max_height;
+#[path = "a_gmail_quote_is_indented_by_its_ex_margin.rs"]
+mod a_gmail_quote_is_indented_by_its_ex_margin;
+#[path = "an_unresolved_img_from_markup_takes_no_space.rs"]
+mod an_unresolved_img_from_markup_takes_no_space;
+#[path = "a_blank_line_is_as_tall_as_a_line_of_text.rs"]
+mod a_blank_line_is_as_tall_as_a_line_of_text;
+#[path = "a_rich_text_editor_keeps_one_model_and_one_history.rs"]
+mod a_rich_text_editor_keeps_one_model_and_one_history;
+#[path = "text_beside_an_italic_or_bold_box_keeps_a_font.rs"]
+mod text_beside_an_italic_or_bold_box_keeps_a_font;
+#[path = "a_rows_stray_child_sits_in_an_anonymous_cell.rs"]
+mod a_rows_stray_child_sits_in_an_anonymous_cell;
+#[path = "an_inline_block_contributes_its_clamped_padded_width.rs"]
+mod an_inline_block_contributes_its_clamped_padded_width;
+#[path = "a_cells_vertical_align_counts_its_last_childs_bottom_margin.rs"]
+mod a_cells_vertical_align_counts_its_last_childs_bottom_margin;
+#[path = "a_line_break_ends_a_line_in_the_max_content.rs"]
+mod a_line_break_ends_a_line_in_the_max_content;
+#[path = "an_inline_block_in_a_cell_sits_where_its_line_puts_it.rs"]
+mod an_inline_block_in_a_cell_sits_where_its_line_puts_it;
+#[path = "a_space_between_a_tables_inline_children_is_kept.rs"]
+mod a_space_between_a_tables_inline_children_is_kept;
+#[path = "an_inline_tables_baseline_is_its_first_rows.rs"]
+mod an_inline_tables_baseline_is_its_first_rows;
+#[path = "a_captions_own_caption_side_places_it.rs"]
+mod a_captions_own_caption_side_places_it;
+#[path = "a_spanning_cells_percentage_is_shared_by_its_columns.rs"]
+mod a_spanning_cells_percentage_is_shared_by_its_columns;
+#[path = "a_right_to_left_tables_columns_run_from_the_right.rs"]
+mod a_right_to_left_tables_columns_run_from_the_right;
+#[path = "an_apps_shell_body_fills_its_window.rs"]
+mod an_apps_shell_body_fills_its_window;
+#[path = "a_normal_line_is_as_tall_as_chromes.rs"]
+mod a_normal_line_is_as_tall_as_chromes;
+#[path = "a_cell_of_only_inline_boxes_aligns_them_like_text.rs"]
+mod a_cell_of_only_inline_boxes_aligns_them_like_text;
+#[path = "a_right_to_left_collapsed_border_stays_on_its_side.rs"]
+mod a_right_to_left_collapsed_border_stays_on_its_side;
+#[path = "an_atomic_inline_inside_a_span_keeps_its_box.rs"]
+mod an_atomic_inline_inside_a_span_keeps_its_box;
+#[path = "a_percentage_height_in_an_auto_height_block_is_auto.rs"]
+mod a_percentage_height_in_an_auto_height_block_is_auto;
+#[path = "an_overflowing_line_overflows_past_its_end_edge.rs"]
+mod an_overflowing_line_overflows_past_its_end_edge;
+#[path = "a_virtual_views_child_dom_state_goes_with_its_host.rs"]
+mod a_virtual_views_child_dom_state_goes_with_its_host;
+#[path = "a_transformed_box_is_hit_where_it_is_painted.rs"]
+mod a_transformed_box_is_hit_where_it_is_painted;
+#[path = "a_rebuild_transitions_only_what_its_window_sees_change.rs"]
+mod a_rebuild_transitions_only_what_its_window_sees_change;
+#[path = "a_text_rasterises_into_a_raw_image.rs"]
+mod a_text_rasterises_into_a_raw_image;
+#[path = "an_image_patched_in_place_survives_a_cached_relayout.rs"]
+mod an_image_patched_in_place_survives_a_cached_relayout;
+#[path = "the_undo_keys_are_a_default_action_an_editor_can_veto.rs"]
+mod the_undo_keys_are_a_default_action_an_editor_can_veto;
+#[path = "typing_stays_with_its_field_when_another_page_replaces_it.rs"]
+mod typing_stays_with_its_field_when_another_page_replaces_it;
+#[path = "text_inside_an_opacity_group_keeps_its_colour.rs"]
+mod text_inside_an_opacity_group_keeps_its_colour;
+#[path = "a_text_indent_narrows_the_first_line.rs"]
+mod a_text_indent_narrows_the_first_line;
+#[path = "bolder_and_lighter_are_relative_to_the_parent_weight.rs"]
+mod bolder_and_lighter_are_relative_to_the_parent_weight;
+#[path = "a_line_height_is_the_line_pitch_on_screen.rs"]
+mod a_line_height_is_the_line_pitch_on_screen;
+#[path = "a_line_height_in_rem_or_viewport_units_is_the_pitch_on_screen.rs"]
+mod a_line_height_in_rem_or_viewport_units_is_the_pitch_on_screen;
+#[path = "a_positioned_box_paints_in_tree_order_with_stacking_contexts.rs"]
+mod a_positioned_box_paints_in_tree_order_with_stacking_contexts;
+#[path = "the_incremental_raster_paints_a_transformed_box_where_the_compositor_does.rs"]
+mod the_incremental_raster_paints_a_transformed_box_where_the_compositor_does;
+#[path = "a_box_painted_after_a_layer_shows_over_it_in_the_cpu_compositor.rs"]
+mod a_box_painted_after_a_layer_shows_over_it_in_the_cpu_compositor;
+#[path = "a_node_mid_slide_is_hit_where_it_is_painted.rs"]
+mod a_node_mid_slide_is_hit_where_it_is_painted;
+#[path = "a_css_id_image_registration_rebuilds_the_display_list_itself.rs"]
+mod a_css_id_image_registration_rebuilds_the_display_list_itself;
+#[path = "a_clipped_box_inside_a_scrolled_frame_shows_all_of_its_lines.rs"]
+mod a_clipped_box_inside_a_scrolled_frame_shows_all_of_its_lines;
+#[path = "a_sliding_box_moves_its_sliding_children_once.rs"]
+mod a_sliding_box_moves_its_sliding_children_once;
+#[path = "the_animation_channel_holds_only_what_an_animation_drives.rs"]
+mod the_animation_channel_holds_only_what_an_animation_drives;
+#[path = "a_chart_paints_its_series_through_the_svg_path.rs"]
+mod a_chart_paints_its_series_through_the_svg_path;
+#[path = "a_text_field_takes_the_font_size_its_app_gives_it.rs"]
+mod a_text_field_takes_the_font_size_its_app_gives_it;
+#[path = "a_stretched_flex_container_keeps_its_min_height.rs"]
+mod a_stretched_flex_container_keeps_its_min_height;
+#[path = "a_rich_text_editor_sets_its_line_height_and_scales_its_indents_with_its_text.rs"]
+mod a_rich_text_editor_sets_its_line_height_and_scales_its_indents_with_its_text;
+#[path = "a_slide_rails_thumbnails_line_up_with_and_without_a_badge.rs"]
+mod a_slide_rails_thumbnails_line_up_with_and_without_a_badge;
+#[path = "an_absolutely_positioned_child_does_not_split_its_parents_line.rs"]
+mod an_absolutely_positioned_child_does_not_split_its_parents_line;
+#[path = "a_block_inside_an_inline_splits_the_inline_around_it.rs"]
+mod a_block_inside_an_inline_splits_the_inline_around_it;
+#[path = "a_border_box_min_width_bounds_the_border_box.rs"]
+mod a_border_box_min_width_bounds_the_border_box;
+#[path = "a_fit_content_width_shrinks_to_its_content.rs"]
+mod a_fit_content_width_shrinks_to_its_content;
+#[path = "an_anonymous_table_cell_keeps_its_blocks_margins.rs"]
+mod an_anonymous_table_cell_keeps_its_blocks_margins;
+#[path = "a_block_taller_than_a_page_is_split_across_pages.rs"]
+mod a_block_taller_than_a_page_is_split_across_pages;
+#[path = "css_zoom_scales_the_lengths_of_its_subtree.rs"]
+mod css_zoom_scales_the_lengths_of_its_subtree;
+#[path = "text_after_a_nested_block_is_not_indented.rs"]
+mod text_after_a_nested_block_is_not_indented;
+#[path = "a_vertical_align_in_viewport_units_resolves_against_the_viewport.rs"]
+mod a_vertical_align_in_viewport_units_resolves_against_the_viewport;
+#[path = "an_inline_date_picker_fits_its_pane.rs"]
+mod an_inline_date_picker_fits_its_pane;
+#[path = "a_long_list_of_avatar_rows_lays_out_in_linear_time.rs"]
+mod a_long_list_of_avatar_rows_lays_out_in_linear_time;
+#[path = "a_short_list_in_a_shell_pane_fills_its_pane_from_the_top.rs"]
+mod a_short_list_in_a_shell_pane_fills_its_pane_from_the_top;
+#[path = "focusing_a_search_field_by_its_id_focuses_its_text.rs"]
+mod focusing_a_search_field_by_its_id_focuses_its_text;
+#[path = "a_button_fades_into_its_hover_face.rs"]
+mod a_button_fades_into_its_hover_face;
+#[path = "a_hovered_button_passes_through_the_faces_in_between.rs"]
+mod a_hovered_button_passes_through_the_faces_in_between;
+#[path = "a_rebuild_under_the_pointer_starts_no_transition.rs"]
+mod a_rebuild_under_the_pointer_starts_no_transition;
+#[path = "a_rebuild_slides_only_what_declares_a_move.rs"]
+mod a_rebuild_slides_only_what_declares_a_move;
+#[path = "a_rebuild_of_an_unchanged_page_costs_little.rs"]
+mod a_rebuild_of_an_unchanged_page_costs_little;
+#[path = "text_over_a_layer_is_not_stamped_on_its_ancestors_colour.rs"]
+mod text_over_a_layer_is_not_stamped_on_its_ancestors_colour;
+#[path = "an_inline_blocks_baseline_is_its_last_line_box.rs"]
+mod an_inline_blocks_baseline_is_its_last_line_box;
+#[path = "a_percentage_height_inline_block_in_an_auto_height_body_is_as_tall_as_its_content.rs"]
+mod a_percentage_height_inline_block_in_an_auto_height_body_is_as_tall_as_its_content;
+#[path = "a_cells_row_is_as_tall_as_its_content_at_the_column_width.rs"]
+mod a_cells_row_is_as_tall_as_its_content_at_the_column_width;
+#[path = "a_line_of_small_text_is_as_tall_as_its_line_box.rs"]
+mod a_line_of_small_text_is_as_tall_as_its_line_box;
+#[path = "spaces_at_a_lines_edges_do_not_widen_its_max_content.rs"]
+mod spaces_at_a_lines_edges_do_not_widen_its_max_content;
+#[path = "inline_blocks_in_a_right_to_left_line_run_from_the_right.rs"]
+mod inline_blocks_in_a_right_to_left_line_run_from_the_right;
+#[path = "an_hr_is_a_two_pixel_inset_rule_as_wide_as_its_block.rs"]
+mod an_hr_is_a_two_pixel_inset_rule_as_wide_as_its_block;
+#[path = "sans_serif_is_helvetica_on_macos_as_in_chrome.rs"]
+mod sans_serif_is_helvetica_on_macos_as_in_chrome;
+#[path = "a_line_holding_only_an_inline_block_is_as_tall_as_its_strut.rs"]
+mod a_line_holding_only_an_inline_block_is_as_tall_as_its_strut;
+#[path = "an_atomic_inline_sits_on_the_baseline_of_its_content.rs"]
+mod an_atomic_inline_sits_on_the_baseline_of_its_content;
+#[path = "common/painted.rs"]
+mod painted;
+#[path = "the_root_background_covers_the_whole_canvas.rs"]
+mod the_root_background_covers_the_whole_canvas;
+#[path = "an_inline_box_paints_its_border_padding_and_margin.rs"]
+mod an_inline_box_paints_its_border_padding_and_margin;
+#[path = "an_inline_block_sits_on_its_last_lines_baseline.rs"]
+mod an_inline_block_sits_on_its_last_lines_baseline;
+#[path = "a_single_stop_gradient_is_a_solid_colour.rs"]
+mod a_single_stop_gradient_is_a_solid_colour;
+#[path = "a_border_defaults_to_a_medium_width_in_the_text_colour.rs"]
+mod a_border_defaults_to_a_medium_width_in_the_text_colour;
+#[path = "a_box_shadow_follows_its_box_outside_or_inside.rs"]
+mod a_box_shadow_follows_its_box_outside_or_inside;
+#[path = "a_background_is_painted_within_its_background_clip.rs"]
+mod a_background_is_painted_within_its_background_clip;
+#[path = "a_background_color_survives_a_later_background_image.rs"]
+mod a_background_color_survives_a_later_background_image;
+#[path = "a_one_box_slide_does_not_re_lay_out_the_page.rs"]
+mod a_one_box_slide_does_not_re_lay_out_the_page;
+#[path = "a_virtual_view_leaves_its_hosts_font_chains_in_place.rs"]
+mod a_virtual_view_leaves_its_hosts_font_chains_in_place;
+#[path = "a_transform_tween_moves_no_box_and_rebuilds_no_list.rs"]
+mod a_transform_tween_moves_no_box_and_rebuilds_no_list;
+#[path = "a_face_fade_frame_is_patched_in_place.rs"]
+mod a_face_fade_frame_is_patched_in_place;
+#[path = "a_gradient_face_fade_frame_is_patched_in_place.rs"]
+mod a_gradient_face_fade_frame_is_patched_in_place;
+#[path = "a_rebuild_mid_glide_keeps_the_running_transition.rs"]
+mod a_rebuild_mid_glide_keeps_the_running_transition;
+#[path = "a_switchs_fade_leaves_the_switches_after_it_alone.rs"]
+mod a_switchs_fade_leaves_the_switches_after_it_alone;
+#[path = "a_layout_tween_frame_reuses_the_tree_and_patches_the_list.rs"]
+mod a_layout_tween_frame_reuses_the_tree_and_patches_the_list;
+#[path = "a_relayout_keeps_the_virtual_views_of_an_unchanged_host.rs"]
+mod a_relayout_keeps_the_virtual_views_of_an_unchanged_host;
+#[path = "an_animation_frame_sends_assistive_technology_only_what_moved.rs"]
+mod an_animation_frame_sends_assistive_technology_only_what_moved;
+// Needs the `telemetry` feature (the profiler buffer it checks lives there):
+// cargo test -p azul-layout --features telemetry --test all a_frame_pump
+#[cfg(feature = "telemetry")]
+#[path = "a_frame_pump_leaves_the_cpu_profiles_spans_for_its_report.rs"]
+mod a_frame_pump_leaves_the_cpu_profiles_spans_for_its_report;
+#[path = "system_ui_is_the_system_font_at_its_optical_size.rs"]
+mod system_ui_is_the_system_font_at_its_optical_size;
+#[path = "an_svg_paints_any_css_colour_and_nests_its_transforms.rs"]
+mod an_svg_paints_any_css_colour_and_nests_its_transforms;
+#[path = "an_svg_renders_at_the_size_its_fit_asks_for.rs"]
+mod an_svg_renders_at_the_size_its_fit_asks_for;
+#[path = "a_zoomed_box_paints_its_border_corners_and_shadow_zoomed.rs"]
+mod a_zoomed_box_paints_its_border_corners_and_shadow_zoomed;
+#[path = "hyphens_auto_hyphenates_in_the_language_of_the_lang_attribute.rs"]
+mod hyphens_auto_hyphenates_in_the_language_of_the_lang_attribute;
+#[path = "a_relatively_positioned_inline_box_moves_its_text.rs"]
+mod a_relatively_positioned_inline_box_moves_its_text;
+
+#[path = "a_presentational_attribute_loses_to_any_author_css.rs"]
+mod a_presentational_attribute_loses_to_any_author_css;
+
+#[path = "an_hvif_icon_is_drawn_at_its_size.rs"]
+mod an_hvif_icon_is_drawn_at_its_size;
+#[path = "an_hvif_icon_resolves_at_the_size_it_is_shown.rs"]
+mod an_hvif_icon_resolves_at_the_size_it_is_shown;
+#[path = "a_flora_icon_pack_draws_haiku_under_flora_and_material_under_flat.rs"]
+mod a_flora_icon_pack_draws_haiku_under_flora_and_material_under_flat;
+
+#[path = "a_flora_spin_recolours_only_the_accent.rs"]
+mod a_flora_spin_recolours_only_the_accent;
+
+#[path = "a_node_that_comes_in_is_drawn_from_its_first_keyframe.rs"]
+mod a_node_that_comes_in_is_drawn_from_its_first_keyframe;
+#[path = "a_virtual_views_content_inherits_from_its_host.rs"]
+mod a_virtual_views_content_inherits_from_its_host;
+#[path = "a_long_status_text_leaves_the_zoom_in_its_bar.rs"]
+mod a_long_status_text_leaves_the_zoom_in_its_bar;
+#[path = "a_line_too_long_for_its_box_ends_in_an_ellipsis.rs"]
+mod a_line_too_long_for_its_box_ends_in_an_ellipsis;
+#[path = "a_blocks_text_decoration_decorates_the_text_in_it.rs"]
+mod a_blocks_text_decoration_decorates_the_text_in_it;
+#[path = "an_inline_blocks_paint_belongs_to_its_own_node.rs"]
+mod an_inline_blocks_paint_belongs_to_its_own_node;
+#[path = "a_wheel_notch_scrolls_a_code_view_without_rebuilding_the_window.rs"]
+mod a_wheel_notch_scrolls_a_code_view_without_rebuilding_the_window;
+#[path = "the_first_background_layer_is_painted_on_top.rs"]
+mod the_first_background_layer_is_painted_on_top;
+#[path = "each_background_layer_is_clipped_to_its_own_box.rs"]
+mod each_background_layer_is_clipped_to_its_own_box;
+#[path = "a_flora_tab_in_a_narrow_column_holds_its_capitals.rs"]
+mod a_flora_tab_in_a_narrow_column_holds_its_capitals;
+#[path = "a_flora_tab_row_is_cut_from_the_websites_metal.rs"]
+mod a_flora_tab_row_is_cut_from_the_websites_metal;
+#[path = "a_flex_items_negative_margin_overhangs_its_row_without_growing_it.rs"]
+mod a_flex_items_negative_margin_overhangs_its_row_without_growing_it;
+#[path = "a_node_mounted_inside_a_virtual_view_hears_its_after_mount.rs"]
+mod a_node_mounted_inside_a_virtual_view_hears_its_after_mount;
+#[path = "a_ribbon_tab_wider_than_its_window_keeps_every_control_inside_it.rs"]
+mod a_ribbon_tab_wider_than_its_window_keeps_every_control_inside_it;
+#[path = "a_facts_row_in_a_card_keeps_its_words.rs"]
+mod a_facts_row_in_a_card_keeps_its_words;
+#[path = "an_absolutely_positioned_child_adds_nothing_to_its_paragraphs_width.rs"]
+mod an_absolutely_positioned_child_adds_nothing_to_its_paragraphs_width;
+#[path = "a_letter_spaced_line_is_aligned_by_its_spaced_width.rs"]
+mod a_letter_spaced_line_is_aligned_by_its_spaced_width;
+#[path = "a_clipped_or_covered_scroll_box_takes_no_pointer.rs"]
+mod a_clipped_or_covered_scroll_box_takes_no_pointer;
+#[path = "a_screen_reader_walks_the_tree_both_ways.rs"]
+mod a_screen_reader_walks_the_tree_both_ways;
+#[path = "a_screen_reader_reads_only_what_is_rendered.rs"]
+mod a_screen_reader_reads_only_what_is_rendered;
+#[path = "an_assistive_technology_never_sees_a_stale_tree.rs"]
+mod an_assistive_technology_never_sees_a_stale_tree;
+#[path = "the_accessibility_tree_speaks_the_apps_language.rs"]
+mod the_accessibility_tree_speaks_the_apps_language;
+#[path = "a_screen_reader_announces_a_controls_declared_name.rs"]
+mod a_screen_reader_announces_a_controls_declared_name;
+#[path = "tab_and_shift_tab_walk_the_rendered_stops_in_reading_order.rs"]
+mod tab_and_shift_tab_walk_the_rendered_stops_in_reading_order;
+#[path = "a_label_names_the_control_it_is_for.rs"]
+mod a_label_names_the_control_it_is_for;
+#[path = "a_screen_reader_reaches_the_controls_of_an_open_popover.rs"]
+mod a_screen_reader_reaches_the_controls_of_an_open_popover;
+#[path = "a_popover_fits_the_room_it_has.rs"]
+mod a_popover_fits_the_room_it_has;
+#[path = "a_rebuild_whose_view_shows_the_same_keeps_its_child.rs"]
+mod a_rebuild_whose_view_shows_the_same_keeps_its_child;
+#[path = "a_frame_does_not_hand_freed_memory_back_to_the_system.rs"]
+mod a_frame_does_not_hand_freed_memory_back_to_the_system;
+#[path = "an_auto_height_scroll_box_is_as_tall_as_its_content.rs"]
+mod an_auto_height_scroll_box_is_as_tall_as_its_content;
+#[path = "the_file_menu_sets_its_own_type_and_its_rows_grow_with_their_words.rs"]
+mod the_file_menu_sets_its_own_type_and_its_rows_grow_with_their_words;
+#[path = "a_collapsed_navigation_pane_leaves_no_space_behind.rs"]
+mod a_collapsed_navigation_pane_leaves_no_space_behind;
+#[path = "an_accordion_frame_does_not_re_lay_out_the_page.rs"]
+mod an_accordion_frame_does_not_re_lay_out_the_page;
+#[path = "a_date_pickers_rows_are_one_cell_tall.rs"]
+mod a_date_pickers_rows_are_one_cell_tall;
+#[path = "a_button_focused_by_a_click_shows_no_focus_ring.rs"]
+mod a_button_focused_by_a_click_shows_no_focus_ring;
+#[path = "a_dragged_thumb_scrolls_a_virtual_views_content.rs"]
+mod a_dragged_thumb_scrolls_a_virtual_views_content;
+#[path = "a_virtual_views_compositor_frame_scrolls_with_its_offset.rs"]
+mod a_virtual_views_compositor_frame_scrolls_with_its_offset;
+#[path = "a_max_width_capped_flex_column_holds_its_wrapped_content.rs"]
+mod a_max_width_capped_flex_column_holds_its_wrapped_content;
+#[path = "a_sliding_box_carries_its_positioned_children.rs"]
+mod a_sliding_box_carries_its_positioned_children;
+#[path = "an_em_size_on_a_flex_item_follows_its_own_font_size.rs"]
+mod an_em_size_on_a_flex_item_follows_its_own_font_size;
+#[path = "an_icons_own_stylesheet_sizes_its_picture.rs"]
+mod an_icons_own_stylesheet_sizes_its_picture;
+#[path = "a_reader_draws_its_pages_ahead_as_pictures.rs"]
+mod a_reader_draws_its_pages_ahead_as_pictures;
+#[path = "a_padded_span_in_a_flex_row_fits_its_text.rs"]
+mod a_padded_span_in_a_flex_row_fits_its_text;
+#[path = "a_press_on_an_image_over_text_selects_nothing.rs"]
+mod a_press_on_an_image_over_text_selects_nothing;
+#[path = "no_caret_is_painted_over_selected_text.rs"]
+mod no_caret_is_painted_over_selected_text;
+#[path = "a_press_beside_text_selects_from_the_nearest_character.rs"]
+mod a_press_beside_text_selects_from_the_nearest_character;
+#[path = "text_selection_follows_the_pointer_in_both_directions.rs"]
+mod text_selection_follows_the_pointer_in_both_directions;
+#[path = "a_column_of_cards_keeps_each_card_as_tall_as_its_content.rs"]
+mod a_column_of_cards_keeps_each_card_as_tall_as_its_content;
+#[path = "a_callback_image_in_a_background_layer_is_drawn_for_the_layers_rect.rs"]
+mod a_callback_image_in_a_background_layer_is_drawn_for_the_layers_rect;
+#[path = "a_leather_background_is_lit_leather_over_its_whole_box.rs"]
+mod a_leather_background_is_lit_leather_over_its_whole_box;
+#[path = "a_stylesheet_focus_visible_rule_rings_only_a_keyboard_focus.rs"]
+mod a_stylesheet_focus_visible_rule_rings_only_a_keyboard_focus;
+#[path = "a_widget_focused_by_a_click_shows_no_focus_ring.rs"]
+mod a_widget_focused_by_a_click_shows_no_focus_ring;
+#[path = "a_pressed_app_button_sinks_its_curves_with_its_face.rs"]
+mod a_pressed_app_button_sinks_its_curves_with_its_face;
+#[path = "a_tab_bar_takes_the_style_it_is_given.rs"]
+mod a_tab_bar_takes_the_style_it_is_given;
+#[path = "a_widget_page_rebuilt_unchanged_costs_less_than_a_fresh_layout.rs"]
+mod a_widget_page_rebuilt_unchanged_costs_less_than_a_fresh_layout;
+#[path = "a_marker_stands_where_the_ground_shows_its_place.rs"]
+mod a_marker_stands_where_the_ground_shows_its_place;
+#[path = "a_closing_window_hands_its_app_threads_to_a_window_that_stays_open.rs"]
+mod a_closing_window_hands_its_app_threads_to_a_window_that_stays_open;
+#[path = "a_rebuild_after_a_runtime_style_write_compares_only_the_written_node.rs"]
+mod a_rebuild_after_a_runtime_style_write_compares_only_the_written_node;
+#[path = "thread_cpu_clock.rs"]
+mod thread_cpu_clock;
+#[path = "a_rebuild_draws_a_waiting_entrance_without_a_second_display_list.rs"]
+mod a_rebuild_draws_a_waiting_entrance_without_a_second_display_list;
+#[path = "a_picture_scaled_down_by_max_width_and_max_height_keeps_its_proportions.rs"]
+mod a_picture_scaled_down_by_max_width_and_max_height_keeps_its_proportions;
+#[path = "a_padded_full_width_button_fills_its_column_and_no_more.rs"]
+mod a_padded_full_width_button_fills_its_column_and_no_more;
+#[path = "a_material_is_lit_per_device_pixel.rs"]
+mod a_material_is_lit_per_device_pixel;
+#[path = "a_window_is_lit_by_the_app_light.rs"]
+mod a_window_is_lit_by_the_app_light;
+#[path = "a_metal_reflects_the_desktop_and_a_bevel_follows_its_shape.rs"]
+mod a_metal_reflects_the_desktop_and_a_bevel_follows_its_shape;
+#[path = "calmet_ui_falls_back_per_code_point.rs"]
+mod calmet_ui_falls_back_per_code_point;
+#[path = "opentype_features_reach_the_shaper.rs"]
+mod opentype_features_reach_the_shaper;
+#[path = "small_capitals_are_synthesized_like_chrome.rs"]
+mod small_capitals_are_synthesized_like_chrome;
+#[path = "a_tracked_label_centres_once_its_last_tracking_is_given_back.rs"]
+mod a_tracked_label_centres_once_its_last_tracking_is_given_back;
+#[path = "line_clamp_ends_its_last_line_with_an_ellipsis.rs"]
+mod line_clamp_ends_its_last_line_with_an_ellipsis;
+#[path = "a_sticky_header_holds_while_its_list_scrolls.rs"]
+mod a_sticky_header_holds_while_its_list_scrolls;
+#[path = "a_drag_image_follows_the_pointer.rs"]
+mod a_drag_image_follows_the_pointer;
+#[path = "a_pane_and_the_ribbon_animate_their_size.rs"]
+mod a_pane_and_the_ribbon_animate_their_size;
+#[path = "tab_labels_sit_evenly_apart_in_every_tab_style.rs"]
+mod tab_labels_sit_evenly_apart_in_every_tab_style;
+#[path = "tab_buttons_are_22px_flora_buttons_in_a_28px_row.rs"]
+mod tab_buttons_are_22px_flora_buttons_in_a_28px_row;
+#[path = "a_ribbon_of_tab_buttons_is_one_leather_area_closed_by_a_golden_line.rs"]
+mod a_ribbon_of_tab_buttons_is_one_leather_area_closed_by_a_golden_line;
+#[path = "a_tab_bar_with_a_reveal_draws_no_tab_selected_while_its_panel_is_closed.rs"]
+mod a_tab_bar_with_a_reveal_draws_no_tab_selected_while_its_panel_is_closed;
+#[path = "a_painted_row_of_tab_buttons_shows_gold_edges_and_the_stone.rs"]
+mod a_painted_row_of_tab_buttons_shows_gold_edges_and_the_stone;
+#[path = "tab_buttons_and_leather_commands_answer_every_state.rs"]
+mod tab_buttons_and_leather_commands_answer_every_state;
+#[path = "a_pie_marker_paints_its_disc_and_wedge.rs"]
+mod a_pie_marker_paints_its_disc_and_wedge;
+#[path = "a_closing_window_never_waits_for_its_workers.rs"]
+mod a_closing_window_never_waits_for_its_workers;
+#[path = "an_accordion_tween_frame_builds_its_display_list_once.rs"]
+mod an_accordion_tween_frame_builds_its_display_list_once;
+#[path = "a_virtual_views_child_dom_lays_out_warm.rs"]
+mod a_virtual_views_child_dom_lays_out_warm;
+#[path = "a_workers_send_wakes_the_ui_thread.rs"]
+mod a_workers_send_wakes_the_ui_thread;
+#[path = "a_node_in_a_virtual_view_comes_in_with_its_animation.rs"]
+mod a_node_in_a_virtual_view_comes_in_with_its_animation;
+#[path = "a_layout_tween_frame_patches_its_nodes_compact_entry.rs"]
+mod a_layout_tween_frame_patches_its_nodes_compact_entry;
+#[path = "bold_text_in_a_face_without_a_bold_cut_is_drawn_bolder.rs"]
+mod bold_text_in_a_face_without_a_bold_cut_is_drawn_bolder;
+#[path = "a_background_image_is_sized_placed_and_repeated_as_css_says.rs"]
+mod a_background_image_is_sized_placed_and_repeated_as_css_says;
+#[path = "a_span_is_one_box_around_all_of_its_text.rs"]
+mod a_span_is_one_box_around_all_of_its_text;
+#[path = "a_parent_grows_with_its_restyled_child.rs"]
+mod a_parent_grows_with_its_restyled_child;
+#[path = "a_tweened_block_margin_moves_its_box_on_the_retained_tree.rs"]
+mod a_tweened_block_margin_moves_its_box_on_the_retained_tree;
+#[path = "a_superscript_rises_by_its_parent_inline_boxs_font_size.rs"]
+mod a_superscript_rises_by_its_parent_inline_boxs_font_size;
+#[path = "an_inline_boxs_edges_resolve_their_units_and_zoom.rs"]
+mod an_inline_boxs_edges_resolve_their_units_and_zoom;
+#[path = "an_inline_block_of_two_blocks_is_as_wide_as_the_wider_one.rs"]
+mod an_inline_block_of_two_blocks_is_as_wide_as_the_wider_one;
+#[path = "a_page_that_starts_inside_a_paragraph_names_its_text_node_and_byte.rs"]
+mod a_page_that_starts_inside_a_paragraph_names_its_text_node_and_byte;
+#[path = "a_font_registered_at_runtime_draws_the_text_that_names_it.rs"]
+mod a_font_registered_at_runtime_draws_the_text_that_names_it;
+#[path = "set_text_wraps_aligns_and_runs_right_to_left.rs"]
+mod set_text_wraps_aligns_and_runs_right_to_left;
+#[path = "focus_within_holds_on_every_ancestor_of_the_focused_node.rs"]
+mod focus_within_holds_on_every_ancestor_of_the_focused_node;
+#[path = "a_pseudo_class_on_an_ancestor_restyles_its_descendants.rs"]
+mod a_pseudo_class_on_an_ancestor_restyles_its_descendants;
+#[path = "before_and_after_generate_content.rs"]
+mod before_and_after_generate_content;
+#[path = "inline_list_items_carry_their_marker.rs"]
+mod inline_list_items_carry_their_marker;
+#[path = "an_svg_stroke_without_a_width_is_one_unit_wide.rs"]
+mod an_svg_stroke_without_a_width_is_one_unit_wide;
+#[path = "a_span_broken_around_a_block_draws_its_edges_on_its_first_and_last_part.rs"]
+mod a_span_broken_around_a_block_draws_its_edges_on_its_first_and_last_part;
+#[path = "a_relayout_that_changes_nothing_takes_the_retained_tree.rs"]
+mod a_relayout_that_changes_nothing_takes_the_retained_tree;
+#[path = "a_disabled_command_on_the_leather_has_grey_words_and_no_gold.rs"]
+mod a_disabled_command_on_the_leather_has_grey_words_and_no_gold;
+#[path = "a_virtual_views_child_dom_that_shrinks_lays_out_from_its_own_cache.rs"]
+mod a_virtual_views_child_dom_that_shrinks_lays_out_from_its_own_cache;
+#[path = "a_material_is_drawn_only_when_what_it_is_drawn_from_changes.rs"]
+mod a_material_is_drawn_only_when_what_it_is_drawn_from_changes;
+#[path = "a_cursor_over_the_leather_ribbon_costs_a_cpu_frame_nothing.rs"]
+mod a_cursor_over_the_leather_ribbon_costs_a_cpu_frame_nothing;
+#[path = "a_seek_bars_hover_tip_shows_while_the_pointer_is_over_its_trough.rs"]
+mod a_seek_bars_hover_tip_shows_while_the_pointer_is_over_its_trough;
+#[path = "common/calmet_lines.rs"]
+mod calmet_lines;
+#[path = "a_hyphenated_word_breaks_where_its_dictionary_breaks_it.rs"]
+mod a_hyphenated_word_breaks_where_its_dictionary_breaks_it;
+#[path = "a_word_beside_punctuation_breaks_where_the_bare_word_breaks.rs"]
+mod a_word_beside_punctuation_breaks_where_the_bare_word_breaks;
+#[path = "a_word_with_a_soft_hyphen_breaks_only_at_its_soft_hyphen.rs"]
+mod a_word_with_a_soft_hyphen_breaks_only_at_its_soft_hyphen;
+#[path = "a_balanced_paragraph_fits_wherever_the_wrapped_one_fits.rs"]
+mod a_balanced_paragraph_fits_wherever_the_wrapped_one_fits;
+#[path = "a_line_broken_at_a_soft_hyphen_ends_in_a_hyphen.rs"]
+mod a_line_broken_at_a_soft_hyphen_ends_in_a_hyphen;
+#[path = "a_line_breaks_after_a_hyphen_and_not_at_a_solidus.rs"]
+mod a_line_breaks_after_a_hyphen_and_not_at_a_solidus;
+#[path = "an_edit_re_wraps_its_paragraph_as_a_fresh_layout_does.rs"]
+mod an_edit_re_wraps_its_paragraph_as_a_fresh_layout_does;
+#[path = "a_hyphenated_words_min_content_is_its_widest_fragment_with_its_hyphen.rs"]
+mod a_hyphenated_words_min_content_is_its_widest_fragment_with_its_hyphen;
+#[path = "an_edit_in_a_vertical_paragraph_lays_out_as_a_fresh_layout_does.rs"]
+mod an_edit_in_a_vertical_paragraph_lays_out_as_a_fresh_layout_does;
+#[path = "an_edit_in_a_bidi_paragraph_lays_out_as_a_fresh_layout_does.rs"]
+mod an_edit_in_a_bidi_paragraph_lays_out_as_a_fresh_layout_does;
+#[path = "an_edit_before_an_inline_block_moves_it_as_a_fresh_layout_does.rs"]
+mod an_edit_before_an_inline_block_moves_it_as_a_fresh_layout_does;
+#[path = "an_edit_keeps_the_generated_content_of_its_paragraph.rs"]
+mod an_edit_keeps_the_generated_content_of_its_paragraph;
+#[path = "an_edit_replacing_a_letter_lays_out_as_a_fresh_layout_does.rs"]
+mod an_edit_replacing_a_letter_lays_out_as_a_fresh_layout_does;
+#[path = "an_edit_keeps_an_empty_inline_box_with_edges.rs"]
+mod an_edit_keeps_an_empty_inline_box_with_edges;
+#[path = "an_edit_in_an_svg_text_lays_it_out_at_its_svgs_scale.rs"]
+mod an_edit_in_an_svg_text_lays_it_out_at_its_svgs_scale;
+#[path = "an_edit_in_a_shrink_to_fit_editable_lays_it_out_at_its_fresh_width.rs"]
+mod an_edit_in_a_shrink_to_fit_editable_lays_it_out_at_its_fresh_width;
+#[path = "a_justified_line_with_letter_or_word_spacing_ends_on_its_box_edge.rs"]
+mod a_justified_line_with_letter_or_word_spacing_ends_on_its_box_edge;
+#[path = "a_paragraph_starting_with_a_word_another_paragraph_has_after_an_inline_draws_its_text.rs"]
+mod a_paragraph_starting_with_a_word_another_paragraph_has_after_an_inline_draws_its_text;
+#[path = "an_inline_block_inside_a_word_is_never_lost_to_hyphenation.rs"]
+mod an_inline_block_inside_a_word_is_never_lost_to_hyphenation;
+#[path = "common/paged_payload.rs"]
+mod paged_payload;
+#[path = "a_superscript_and_a_subscript_are_drawn_off_the_baseline_in_the_pdf_payload.rs"]
+mod a_superscript_and_a_subscript_are_drawn_off_the_baseline_in_the_pdf_payload;
+#[path = "a_balanced_paragraph_spaces_its_letters_and_words_as_any_paragraph.rs"]
+mod a_balanced_paragraph_spaces_its_letters_and_words_as_any_paragraph;
+#[path = "a_virtual_view_follows_its_windows_mode.rs"]
+mod a_virtual_view_follows_its_windows_mode;
+#[path = "focus_within_reaches_the_host_of_a_virtual_view.rs"]
+mod focus_within_reaches_the_host_of_a_virtual_view;
+#[path = "a_descendant_restyled_by_its_ancestors_hover_fades.rs"]
+mod a_descendant_restyled_by_its_ancestors_hover_fades;
+#[path = "a_laid_out_tree_is_shared_with_the_layout_cache.rs"]
+mod a_laid_out_tree_is_shared_with_the_layout_cache;
+#[path = "closing_the_last_window_never_waits_for_its_workers.rs"]
+mod closing_the_last_window_never_waits_for_its_workers;
+#[path = "a_css_wide_keyword_resolves_on_every_property.rs"]
+mod a_css_wide_keyword_resolves_on_every_property;
+#[path = "a_state_rule_wins_only_where_the_cascade_ranks_it.rs"]
+mod a_state_rule_wins_only_where_the_cascade_ranks_it;
+#[path = "an_appended_dom_keeps_its_stylesheet.rs"]
+mod an_appended_dom_keeps_its_stylesheet;
+#[path = "an_inline_flow_root_list_item_is_an_inline_block_with_a_marker.rs"]
+mod an_inline_flow_root_list_item_is_an_inline_block_with_a_marker;
+#[path = "a_rebuild_compares_a_changed_container_alone_by_its_own_types.rs"]
+mod a_rebuild_compares_a_changed_container_alone_by_its_own_types;
+#[path = "a_flex_gap_in_em_is_that_many_font_sizes.rs"]
+mod a_flex_gap_in_em_is_that_many_font_sizes;
+#[path = "one_counter_property_names_several_counters.rs"]
+mod one_counter_property_names_several_counters;
+#[path = "the_quotes_property_picks_the_quotation_marks.rs"]
+mod the_quotes_property_picks_the_quotation_marks;
+#[path = "the_search_hint_lies_inside_the_address_bars_search_box_in_every_theme.rs"]
+mod the_search_hint_lies_inside_the_address_bars_search_box_in_every_theme;
+#[path = "a_narrow_settings_window_keeps_every_control_whole_and_inside.rs"]
+mod a_narrow_settings_window_keeps_every_control_whole_and_inside;
+#[path = "a_string_list_style_type_is_the_marker.rs"]
+mod a_string_list_style_type_is_the_marker;
+#[path = "a_node_inserted_at_runtime_gets_its_generated_content.rs"]
+mod a_node_inserted_at_runtime_gets_its_generated_content;
+#[path = "a_marker_rule_styles_the_list_items_marker.rs"]
+mod a_marker_rule_styles_the_list_items_marker;
+#[path = "background_origin_places_the_image_in_its_box.rs"]
+mod background_origin_places_the_image_in_its_box;
+#[path = "a_scrolling_view_keeps_its_rows_when_its_box_gets_shorter.rs"]
+mod a_scrolling_view_keeps_its_rows_when_its_box_gets_shorter;
+#[path = "a_restyle_that_starts_many_fades_rebuilds_the_cascade_once.rs"]
+mod a_restyle_that_starts_many_fades_rebuilds_the_cascade_once;
+#[path = "a_resize_that_crosses_no_breakpoint_restyles_nothing.rs"]
+mod a_resize_that_crosses_no_breakpoint_restyles_nothing;
+#[path = "a_change_inside_a_transformed_box_is_damaged_where_it_is_painted.rs"]
+mod a_change_inside_a_transformed_box_is_damaged_where_it_is_painted;
+#[path = "a_box_that_pushes_a_list_down_sends_assistive_technology_one_node.rs"]
+mod a_box_that_pushes_a_list_down_sends_assistive_technology_one_node;
+#[path = "a_background_colour_fade_is_a_property_not_a_display_list.rs"]
+mod a_background_colour_fade_is_a_property_not_a_display_list;
+#[path = "an_incremental_cpu_frame_matches_a_full_redraw.rs"]
+mod an_incremental_cpu_frame_matches_a_full_redraw;
+#[path = "a_card_leaving_a_transformed_column_starts_where_it_was_painted.rs"]
+mod a_card_leaving_a_transformed_column_starts_where_it_was_painted;
+#[path = "a_box_sliding_inside_a_transformed_column_is_repainted_where_it_is.rs"]
+mod a_box_sliding_inside_a_transformed_column_is_repainted_where_it_is;
+#[path = "a_fixed_size_pane_keeps_its_width_through_a_resize.rs"]
+mod a_fixed_size_pane_keeps_its_width_through_a_resize;
+#[path = "a_hover_that_moves_no_text_style_keeps_the_labels_shaped.rs"]
+mod a_hover_that_moves_no_text_style_keeps_the_labels_shaped;
+#[path = "a_height_tween_re_emits_its_box_not_what_it_holds.rs"]
+mod a_height_tween_re_emits_its_box_not_what_it_holds;
+#[path = "a_growing_ribbon_lays_out_only_the_boxes_it_resizes.rs"]
+mod a_growing_ribbon_lays_out_only_the_boxes_it_resizes;
+#[path = "a_measured_label_flows_its_text_only_at_a_new_width.rs"]
+mod a_measured_label_flows_its_text_only_at_a_new_width;
+#[path = "a_label_re_wraps_when_a_line_breaking_style_it_inherits_changes.rs"]
+mod a_label_re_wraps_when_a_line_breaking_style_it_inherits_changes;
+#[path = "a_block_lays_its_lines_out_again_when_a_style_it_inherits_moves_them.rs"]
+mod a_block_lays_its_lines_out_again_when_a_style_it_inherits_moves_them;
+#[path = "a_paragraph_hyphenates_again_when_its_language_changes.rs"]
+mod a_paragraph_hyphenates_again_when_its_language_changes;
+#[path = "an_anonymous_block_around_other_words_is_laid_out_anew.rs"]
+mod an_anonymous_block_around_other_words_is_laid_out_anew;
+#[path = "an_svg_with_absurd_geometry_renders_in_bounded_time.rs"]
+mod an_svg_with_absurd_geometry_renders_in_bounded_time;
+#[path = "an_arabic_letter_keeps_its_dots_and_marks.rs"]
+mod an_arabic_letter_keeps_its_dots_and_marks;
+#[path = "a_dotted_circle_the_shaper_inserts_stands_for_no_text.rs"]
+mod a_dotted_circle_the_shaper_inserts_stands_for_no_text;
+#[path = "a_right_to_left_paragraph_breaks_its_lines_in_reading_order.rs"]
+mod a_right_to_left_paragraph_breaks_its_lines_in_reading_order;
+#[path = "a_noncharacter_in_html_text_keeps_its_page.rs"]
+mod a_noncharacter_in_html_text_keeps_its_page;
+#[path = "typed_and_pasted_text_is_read_by_the_input_rule.rs"]
+mod typed_and_pasted_text_is_read_by_the_input_rule;
+#[path = "an_attribute_change_lays_out_like_a_fresh_window.rs"]
+mod an_attribute_change_lays_out_like_a_fresh_window;
+#[path = "every_attribute_the_layout_reads_is_a_row_of_its_table.rs"]
+mod every_attribute_the_layout_reads_is_a_row_of_its_table;
+#[path = "a_text_in_a_generic_family_is_drawn_in_a_face_that_has_its_letters.rs"]
+mod a_text_in_a_generic_family_is_drawn_in_a_face_that_has_its_letters;
+#[path = "a_rebuild_that_changes_who_listens_hits_and_tags_like_a_fresh_window.rs"]
+mod a_rebuild_that_changes_who_listens_hits_and_tags_like_a_fresh_window;

@@ -400,6 +400,11 @@ fn compute_page_breaks_impl(
         } else {
             BreakKind::Avoided(naive)
         };
+        // A break that no longer moves past the last one (an f32 too large
+        // to move by a page) ends the pages: repeating it never would.
+        if adjusted <= prev_end {
+            break;
+        }
         breaks.push(PageBreakPosition {
             y: adjusted,
             kind,
@@ -582,6 +587,17 @@ fn collect_paragraph_lines(input: &PageBreakInput<'_>) -> Vec<ParagraphLines> {
 /// Snap a naive break Y up out of avoid-ranges and widow/orphan violations.
 /// Iterates to a fixpoint (a snap can land inside ANOTHER range) but never
 /// below `floor` — beyond the push budget the current candidate stands.
+///
+/// A snap goes to the top of the INNERMOST range containing `y` (the one
+/// starting lowest). From there the break only keeps climbing out of ranges
+/// that ENCLOSE the range it just left — their bottom reaches at least as far
+/// down — which is true nesting: a line inside a `break-inside: avoid` box.
+/// A range that merely overlaps the top edge of the range just left (the
+/// previous table row whose text clip runs a few pixels into this one, a box
+/// with a negative margin, collapsed borders) is a sibling, and a break at
+/// that edge is legitimate. Treating such overlaps as nesting made every row
+/// hand the break to the row above until the whole push budget was spent, so
+/// pages came out a third short (azul#478).
 fn snap_break_up(
     naive: f32,
     floor: f32,
@@ -590,20 +606,31 @@ fn snap_break_up(
     policy: &BreakPolicy,
 ) -> f32 {
     let mut y = naive;
+    // Bottom of the range the last avoid-snap left. Only a range reaching at
+    // least this far down encloses it and may pull the break further up.
+    // `None` = no snap yet, or widows/orphans moved `y` since.
+    let mut left_bottom: Option<f32> = None;
     // Bounded iterations: each snap strictly decreases y and range/paragraph
     // counts are finite; 32 covers any sane nesting without risking a loop.
     for _ in 0..32 {
         let mut moved = false;
 
-        for range in avoid_ranges {
-            // STRICTLY inside (a break AT an edge is fine).
-            if y > range.top + f32::EPSILON && y < range.bottom - f32::EPSILON {
-                let _ = range.node;
-                if range.top >= floor {
-                    y = range.top;
-                    moved = true;
-                } // else: budget exceeded — the naive break stands mid-range
-            }
+        // STRICTLY inside (a break AT an edge is fine); innermost = lowest top.
+        let innermost = avoid_ranges
+            .iter()
+            .filter(|range| y > range.top + f32::EPSILON && y < range.bottom - f32::EPSILON)
+            .filter(|range| match left_bottom {
+                Some(bottom) => range.bottom >= bottom - f32::EPSILON,
+                None => true,
+            })
+            .max_by(|a, b| a.top.total_cmp(&b.top));
+        if let Some(range) = innermost {
+            let _ = range.node;
+            if range.top >= floor {
+                y = range.top;
+                left_bottom = Some(range.bottom);
+                moved = true;
+            } // else: budget exceeded — the current candidate stands mid-range
         }
 
         if policy.widows_orphans {
@@ -622,6 +649,7 @@ fn snap_break_up(
                     // Too few lines kept: the whole paragraph moves.
                     if first_top >= floor {
                         y = first_top;
+                        left_bottom = None;
                         moved = true;
                     }
                 } else if after > 0 && after < para.widows {
@@ -633,6 +661,7 @@ fn snap_break_up(
                         .map_or(first_top, |(t, _)| *t);
                     if target < y && target >= floor {
                         y = target;
+                        left_bottom = None;
                         moved = true;
                     }
                 }
@@ -834,7 +863,13 @@ pub fn compute_page_breaks_from_forced(
         if normal <= 0.0 || normal.is_nan() {
             break;
         }
-        y += normal;
+        // Past 2^24 pages' worth of height an f32 no longer moves by one
+        // page: the breaks end there instead of repeating forever.
+        let next = y + normal;
+        if next <= y {
+            break;
+        }
+        y = next;
     }
 
     breaks.sort_by(|a, b| a.y.total_cmp(&b.y));
@@ -1157,6 +1192,36 @@ mod tests {
         )
     }
 
+    /// A document taller than an f32 can step through by pages (a fuzzer's
+    /// `height="1e12"` SVG) ends its breaks where a page no longer moves the
+    /// position, instead of pushing the same break forever.
+    #[test]
+    fn interval_breaks_end_where_an_f32_no_longer_moves_by_a_page() {
+        let breaks = compute_page_breaks_from_forced(&[], &constraints(3.0e7, 1.0), 1.0e12);
+        assert!(!breaks.is_empty(), "harness: the first page breaks");
+        assert!(
+            breaks.windows(2).all(|w| w[0].y < w[1].y),
+            "every break moves past the one before: {:?}",
+            ys(&breaks)
+        );
+    }
+
+    /// The same for the pass that moves breaks around boxes that avoid one.
+    #[test]
+    fn avoiding_breaks_end_where_an_f32_no_longer_moves_by_a_page() {
+        let (styled, dl) = avoid_fixture(vec![(rect_item(0.0, 1.0e12), None)]);
+        let policy = BreakPolicy {
+            honor_break_inside: true,
+            ..Default::default()
+        };
+        let breaks = breaks_with(&styled, &dl, &policy, 3.0e7, 1.0);
+        assert!(
+            breaks.windows(2).all(|w| w[0].y < w[1].y),
+            "every break moves past the one before: {:?}",
+            ys(&breaks)
+        );
+    }
+
     #[test]
     fn policy_off_is_byte_identical_to_the_plain_algorithm() {
         let (styled, dl) = avoid_fixture(vec![
@@ -1246,6 +1311,75 @@ mod tests {
         let breaks = breaks_with(&styled, &dl, &policy, 100.0, 100.0);
         assert_eq!(breaks[0].y, 90.0, "{breaks:?}");
         assert!(matches!(breaks[0].kind, BreakKind::Avoided(..)));
+    }
+
+    #[test]
+    fn overlapping_sibling_ranges_do_not_cascade() {
+        // azul#478. Table rows on a 20px pitch whose text clip rects run 3px
+        // into the next row (a 23px clip at the 3px padding offset — what a
+        // `td { padding: 3px }` table produces), so every row's range overlaps
+        // the top edge of the next. Page 110 cuts the row at 100..123: the
+        // break snaps to ITS top (100) and stops there. It must not go on
+        // because 100 lies inside the previous row's 80..103 — that row ends
+        // above the row just left, so it is a sibling, not an enclosing box.
+        // The old fixpoint took every such overlap as nesting and climbed row
+        // by row until the push budget (0.33 × page) was spent, cutting every
+        // page about a third short.
+        let mut items = vec![(rect_item(0.0, 400.0), None)];
+        for row in 0..15 {
+            items.push((text_item(20.0 * row as f32, 23.0), None));
+        }
+        let (styled, dl) = avoid_fixture(items);
+        let policy = BreakPolicy {
+            atomic_lines: true,
+            ..Default::default()
+        };
+        let breaks = breaks_with(&styled, &dl, &policy, 110.0, 110.0);
+        assert_eq!(breaks[0].y, 100.0, "one row up, not a cascade: {breaks:?}");
+        assert!(matches!(breaks[0].kind, BreakKind::Avoided(..)));
+        // Page 2 starts at 100 and is cut at 210 (row 200..223): 200 again.
+        assert_eq!(breaks[1].y, 200.0, "{breaks:?}");
+    }
+
+    #[test]
+    fn break_in_the_overlap_of_two_siblings_snaps_to_the_lower_one() {
+        // Rows 80..103 and 100..123 overlap on 100..103. A naive break at
+        // 102 is inside BOTH; the innermost (lowest-starting) range wins, so
+        // the break lands at 100 — not at 80, which would cost a whole row.
+        let (styled, dl) = avoid_fixture(vec![
+            (rect_item(0.0, 400.0), None),
+            (text_item(80.0, 23.0), None),
+            (text_item(100.0, 23.0), None),
+        ]);
+        let policy = BreakPolicy {
+            atomic_lines: true,
+            ..Default::default()
+        };
+        let breaks = breaks_with(&styled, &dl, &policy, 102.0, 102.0);
+        assert_eq!(breaks[0].y, 100.0, "{breaks:?}");
+    }
+
+    #[test]
+    fn nested_ranges_still_cascade_to_the_enclosing_box() {
+        // A `break-inside: avoid` box (node 1) at 75..140 holding lines at
+        // 90..106 and 106..122. Page 100 cuts the first line: the break snaps
+        // to the line top (90), and because the box ENCLOSES that line (it
+        // reaches below the line's bottom) the break keeps climbing to the
+        // box top (75, inside the 0.33 × 100 push budget). The sibling rule
+        // above must not stop true nesting.
+        let (styled, dl) = avoid_fixture(vec![
+            (rect_item(0.0, 400.0), None),
+            (rect_item(75.0, 65.0), Some(1)),
+            (text_item(90.0, 16.0), None),
+            (text_item(106.0, 16.0), None),
+        ]);
+        let policy = BreakPolicy {
+            honor_break_inside: true,
+            atomic_lines: true,
+            ..Default::default()
+        };
+        let breaks = breaks_with(&styled, &dl, &policy, 100.0, 100.0);
+        assert_eq!(breaks[0].y, 75.0, "{breaks:?}");
     }
 
     #[test]

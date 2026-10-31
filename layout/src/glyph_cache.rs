@@ -79,6 +79,37 @@ struct GlyphCellKey {
     /// the grayscale path, 3 for RGB LCD. Part of the key because the two
     /// produce completely different cell geometry for the same glyph.
     x_subsamples: u8,
+    /// How far each side of the outline was moved out for synthetic bold,
+    /// in 1/64 device pixels; 0 for the face as it is
+    /// (`crate::cpurender::embolden`).
+    embolden_64: u16,
+}
+
+/// A synthetic-bold strength in device pixels as the cell key holds it.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // clamped to the u16 range
+fn embolden_key(embolden_px: f32) -> u16 {
+    if embolden_px.is_finite() && embolden_px > 0.0 {
+        (embolden_px * 64.0).round().clamp(0.0, f32::from(u16::MAX)) as u16
+    } else {
+        0
+    }
+}
+
+/// The outline's vertices thickened by `embolden_64` (1/64 device px per
+/// side), with `px_per_unit` path units to the device pixel; `None` when
+/// the outline is drawn as it is.
+fn emboldened_vertices(
+    path: &PathStorage,
+    embolden_64: u16,
+    px_per_unit: f64,
+) -> Option<Vec<VertexD>> {
+    if embolden_64 == 0 || !px_per_unit.is_finite() || px_per_unit <= 0.0 {
+        return None;
+    }
+    let mut verts = path.vertices().to_vec();
+    let strength_units = f64::from(embolden_64) / 64.0 / px_per_unit;
+    crate::cpurender::embolden::embolden_vertices(&mut verts, strength_units);
+    Some(verts)
 }
 
 /// Result of a cache lookup: the path plus whether it's hinted (pixel coords) or not.
@@ -339,6 +370,38 @@ impl GlyphCache {
         is_hinted: bool,
         hint_correction: f32,
     ) -> Option<(&[CellAa], i32, i32)> {
+        self.get_or_build_cells_emboldened(
+            font_hash,
+            glyph_id,
+            ppem,
+            glyph_x,
+            glyph_y,
+            scale,
+            is_hinted,
+            hint_correction,
+            0.0,
+        )
+    }
+
+    /// [`Self::get_or_build_cells`] with the outline thickened by
+    /// `embolden_px` device pixels on each side first (synthetic bold, see
+    /// `crate::cpurender::embolden`); 0 draws the face as it is.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded graphics/coord/
+                                                                       // font/fixed-point cast
+    #[allow(clippy::too_many_arguments)]
+    pub fn get_or_build_cells_emboldened(
+        &mut self,
+        font_hash: u64,
+        glyph_id: u16,
+        ppem: u16,
+        glyph_x: f32,
+        glyph_y: f32,
+        scale: f32,
+        is_hinted: bool,
+        hint_correction: f32,
+        embolden_px: f32,
+    ) -> Option<(&[CellAa], i32, i32)> {
+        let embolden_64 = embolden_key(embolden_px);
         // Hinted outline built at integer ppem needs rescaling only when the
         // effective size is fractional (hint_correction != 1). Otherwise it stays
         // pixel-grid-snapped (rounded placement) as hinting intends.
@@ -388,6 +451,7 @@ impl GlyphCache {
             subpx_x,
             subpx_y,
             x_subsamples: 1,
+            embolden_64,
         };
 
         // Integer pixel offset — the cells are at sub-pixel origin, offset by int
@@ -447,10 +511,14 @@ impl GlyphCache {
                 // ConvCurve stage the rasterizer walks curve3 verbs as straight
                 // lines THROUGH the control points, which turns every bowl into a
                 // chiseled polygon — invisible at UI sizes, obvious "blocky" curves
-                // at 24px+ (Lorem-ipsum headline comparison vs Chrome).
+                // at 24px+ (Lorem-ipsum headline comparison vs Chrome). In
+                // synthetic bold the outline is thickened first: a hinted one is
+                // in device pixels already, an unhinted one in font units.
+                let px_per_unit = if is_hinted { 1.0 } else { f64::from(scale) };
+                let bold = emboldened_vertices(path, embolden_64, px_per_unit);
                 let mut src = agg_rust::conv_curve::ConvCurve::new(
                     agg_rust::conv_transform::ConvTransform::new(
-                        SliceVertexSource::new(path.vertices()),
+                        SliceVertexSource::new(bold.as_deref().unwrap_or_else(|| path.vertices())),
                         transform,
                     ),
                 );
@@ -504,7 +572,39 @@ impl GlyphCache {
         is_hinted: bool,
         hint_correction: f32,
     ) -> Option<(&[CellAa], i32, i32)> {
+        self.get_or_build_cells_lcd_emboldened(
+            font_hash,
+            glyph_id,
+            ppem,
+            glyph_x,
+            glyph_y,
+            scale,
+            is_hinted,
+            hint_correction,
+            0.0,
+        )
+    }
+
+    /// [`Self::get_or_build_cells_lcd`] with the outline thickened by
+    /// `embolden_px` device pixels on each side first (synthetic bold); 0
+    /// draws the face as it is.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded graphics/coord/
+                                                                       // font/fixed-point cast
+    #[allow(clippy::too_many_arguments)]
+    pub fn get_or_build_cells_lcd_emboldened(
+        &mut self,
+        font_hash: u64,
+        glyph_id: u16,
+        ppem: u16,
+        glyph_x: f32,
+        glyph_y: f32,
+        scale: f32,
+        is_hinted: bool,
+        hint_correction: f32,
+        embolden_px: f32,
+    ) -> Option<(&[CellAa], i32, i32)> {
         let _p = crate::probe::Probe::span("glyph_cache_lcd_lookup");
+        let embolden_64 = embolden_key(embolden_px);
 
         let rescale_hinted = is_hinted && (hint_correction - 1.0).abs() > 1e-4;
         let subpx = text_subpixel_enabled();
@@ -540,6 +640,7 @@ impl GlyphCache {
             subpx_x,
             subpx_y: 0,
             x_subsamples: 3,
+            embolden_64,
         };
 
         self.promote_or_rotate_cells(&cell_key);
@@ -582,9 +683,11 @@ impl GlyphCache {
                 // ConvCurve flattens the quadratic curve3 verbs adaptively;
                 // without it the rasterizer draws straight lines THROUGH the
                 // control points and every bowl renders as a chiseled polygon.
+                let px_per_unit = if is_hinted { 1.0 } else { f64::from(scale) };
+                let bold = emboldened_vertices(path, embolden_64, px_per_unit);
                 let mut src = agg_rust::conv_curve::ConvCurve::new(
                     agg_rust::conv_transform::ConvTransform::new(
-                        SliceVertexSource::new(path.vertices()),
+                        SliceVertexSource::new(bold.as_deref().unwrap_or_else(|| path.vertices())),
                         t,
                     ),
                 );

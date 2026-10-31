@@ -4,6 +4,8 @@
 //! Uses typed getters on CssPropertyCache (which cascade through all sources)
 //! to resolve each property for the "normal" state (all pseudo-states = false).
 
+#[cfg(not(feature = "std"))]
+use crate::float_math::FloatMath as _;
 use alloc::vec::Vec;
 use core::hash::{Hash, Hasher};
 
@@ -59,6 +61,7 @@ impl CssPropertyCache {
         node_data: &[NodeData],
         prev_font_hashes: &[u64],
     ) -> CompactLayoutCache {
+        crate::styled_dom::count_compact_cache_rebuild();
         let node_count = self.node_count;
         let default_state = StyledNodeState::default();
         let mut result = CompactLayoutCache::with_capacity(node_count);
@@ -403,31 +406,18 @@ impl CssPropertyCache {
                 }
             }
 
-            // Line-height. Parser convention: a NEGATIVE normalized() is an
-            // ABSOLUTE pixel line-height, a positive one a unitless multiple
-            // (or percentage) of font-size. The two need different i16
-            // scales:
-            //  - positive: multiple × 1000 (120% -> 1200; range up to ~32x)
-            //  - negative: -px × 10 (line-height: 40px -> -400; ±3276.7px)
-            // The old single ×1000 scale overflowed i16 for any absolute
-            // line-height above 32.76px, stored the SENTINEL, and the getter
-            // decoded that as "line-height: normal" - `line-height: 40px`
-            // was silently dropped on every normal-state node.
+            // Line-height (`encode_line_height`): a number as its factor, a
+            // length as px - an `em` / percentage against this node's font
+            // size when the slot holds px (an inherited one arrives computed
+            // from `computed_values`), the viewport units as "read the
+            // cascade".
             if let Some(val) = self.get_line_height(nd, &node_id, &default_state) {
                 if let Some(lh) = val.get_property() {
-                    let n = lh.inner.normalized();
-                    let stored = if n < 0.0 {
-                        // Absolute px: clamp to the representable range
-                        // instead of falling to the sentinel ("normal").
-                        ((n * 10.0).round() as i32).max(-32768)
-                    } else {
-                        (n * 1000.0).round() as i32
-                    };
-                    if stored >= -32768 && stored < i32::from(I16_SENTINEL_THRESHOLD) {
-                        result.tier2b_text[i].line_height = stored as i16;
-                    } else {
-                        result.tier2b_text[i].line_height = I16_SENTINEL;
-                    }
+                    let font_size_px = decode_pixel_value_u32(result.tier2_dims[i].font_size)
+                        .filter(|pv| pv.metric == SizeMetric::Px)
+                        .map(|pv| pv.number.get());
+                    result.tier2b_text[i].line_height =
+                        encode_line_height(lh, font_size_px, DEFAULT_LINE_HEIGHT_ROOT_PX);
                 }
             }
 
@@ -471,6 +461,42 @@ impl CssPropertyCache {
         result
     }
 
+    /// Writes `prop`, the value an override now gives `node`, into the node's compact
+    /// entries in place, for a property no other node takes from it (not inherited).
+    /// An override outranks every other source of the property, so this is what a
+    /// rebuild would encode for that field, and no other field or node changes: a
+    /// layout tween's frame then refreshes one node instead of rebuilding the compact
+    /// cache of the whole DOM. Returns false, having changed nothing, where a rebuild
+    /// is needed (an inherited property, no compact cache, a node outside it).
+    pub fn patch_compact_node_property(&mut self, node: NodeId, prop: &CssProperty) -> bool {
+        if prop.get_type().is_inheritable() {
+            return false;
+        }
+        let Some(cc) = self.compact_cache.as_mut() else {
+            return false;
+        };
+        let i = node.index();
+        let (Some(tier1), Some(dims), Some(cold), Some(text)) = (
+            cc.tier1_enums.get_mut(i),
+            cc.tier2_dims.get_mut(i),
+            cc.tier2_cold.get_mut(i),
+            cc.tier2b_text.get_mut(i),
+        ) else {
+            return false;
+        };
+        apply_css_property_to_compact(
+            prop,
+            tier1,
+            dims,
+            cold,
+            text,
+            &mut cc.font_hash_to_families,
+        );
+        cc.uses_viewport_units |= css_property_uses_viewport_units(prop);
+        update_dom_declared_flags(prop, &mut cc.dom_declared_flags);
+        true
+    }
+
     /// Build compact cache with inheritance in a single pass.
     ///
     /// Replaces the separate `compute_inherited_values()` + `build_compact_cache()` calls.
@@ -485,11 +511,13 @@ impl CssPropertyCache {
         &self,
         node_data: &[NodeData],
         node_hierarchy: &[crate::styled_dom::NodeHierarchyItem],
+        node_states: &[StyledNodeState],
         prev_font_hashes: &[u64],
     ) -> CompactLayoutCache {
         self.build_compact_cache_with_inheritance_debug(
             node_data,
             node_hierarchy,
+            node_states,
             prev_font_hashes,
             &mut None,
         )
@@ -504,12 +532,47 @@ impl CssPropertyCache {
         &self,
         node_data: &[NodeData],
         node_hierarchy: &[crate::styled_dom::NodeHierarchyItem],
+        node_states: &[StyledNodeState],
         prev_font_hashes: &[u64],
         debug_messages: &mut Option<Vec<azul_css::LayoutDebugMessage>>,
     ) -> CompactLayoutCache {
+        crate::styled_dom::count_compact_cache_rebuild();
         let node_count = self.node_count;
         let default_state = StyledNodeState::default();
         let mut result = CompactLayoutCache::with_capacity(node_count);
+
+        // A HOSTED DOM's root inherits from its host (`inherited_from_host`,
+        // a VirtualView's host): its values, encoded once, are the slots the
+        // root copies in Step 1 where any other node copies its parent's -
+        // and the font size and weight its own `em` / `bolder` resolve
+        // against. `None` for a document of its own.
+        let host_parent = (!self.inherited_from_host.is_empty()).then(|| {
+            let mut tier1: u64 = 0;
+            let mut dims = CompactNodeProps::default();
+            let mut cold = CompactNodePropsCold::default();
+            let mut text = CompactTextProps::default();
+            for (_, value) in &self.inherited_from_host {
+                apply_css_property_to_compact(
+                    &value.property,
+                    &mut tier1,
+                    &mut dims,
+                    &mut cold,
+                    &mut text,
+                    &mut result.font_hash_to_families,
+                );
+                // A rare text property the host hands down is as present in
+                // this DOM as one it declares (the readers skip the cascade
+                // walk for a type no node has).
+                update_dom_declared_flags(&value.property, &mut result.dom_declared_flags);
+            }
+            (tier1, dims, cold, text)
+        });
+        let root_parent_font_px = host_parent
+            .as_ref()
+            .and_then(|(_, dims, _, _)| decode_pixel_value_u32(dims.font_size))
+            .filter(|pv| pv.metric == SizeMetric::Px)
+            .map_or(16.0, |pv| pv.number.get());
+        let root_parent_tier1 = host_parent.as_ref().map(|(tier1, _, _, _)| *tier1);
 
         // Pre-encode global CSS properties (from `*` rules) into compact form.
         // These are applied as baseline for every node before inheritance.
@@ -715,9 +778,21 @@ impl CssPropertyCache {
             };
         }
 
+        // A node's inline declarations in cascade order (theme rank, then
+        // source order), refilled per node: Step 4 applies them in turn.
+        let mut inline_in_order = Vec::new();
+        let dyn_ctx = self.dynamic_context.as_deref();
+        let no_context_theme = dyn_ctx.is_none().then(crate::app_theme::current_theme);
+        let rank = |conds: &[azul_css::dynamic_selector::DynamicSelector]| {
+            crate::prop_cache::rank_of(dyn_ctx, no_context_theme.as_ref(), conds)
+        };
+
         for i in 0..node_count {
             let node_id = NodeId::new(i);
             let nd = &node_data[i];
+            // This node's own winning `line-height`, re-encoded once its font
+            // size is resolved (below).
+            let mut own_line_height = None;
 
             // Step 0: Apply UA CSS defaults first (lowest priority).
             // Then global `*` rules override UA (higher priority).
@@ -767,6 +842,16 @@ impl CssPropertyCache {
                     // Inheritable tier2b: all text properties
                     result.tier2b_text[i] = result.tier2b_text[pi];
                 }
+            } else if let Some((tier1, dims, cold, text)) = host_parent.as_ref() {
+                // The root of a HOSTED DOM copies its host's slots, exactly
+                // the inheritable ones a child copies from its parent above.
+                result.tier1_enums[i] = *tier1 & INHERITABLE_TIER1_MASK;
+                result.tier2_dims[i].font_size = dims.font_size;
+                result.tier2_cold[i].border_spacing_h = cold.border_spacing_h;
+                result.tier2_cold[i].border_spacing_v = cold.border_spacing_v;
+                result.tier2_cold[i].tab_size = cold.tab_size;
+                result.tier2_cold[i].cursor = cold.cursor;
+                result.tier2b_text[i] = *text;
             }
 
             {
@@ -798,13 +883,15 @@ impl CssPropertyCache {
             // path agree (theme-chain analysis 2026-09-12, R1/I4).
             apply_ua_css_to_compact(
                 nd,
-                i == 0,
+                i,
+                &self.inherited_from_host,
                 self.dynamic_context.as_deref(),
                 &mut result.tier1_enums[i],
                 &mut result.tier2_dims[i],
                 &mut result.tier2_cold[i],
                 &mut result.tier2b_text[i],
                 &mut result.font_hash_to_families,
+                &mut result.dom_declared_flags,
             );
 
             {
@@ -831,10 +918,23 @@ impl CssPropertyCache {
             // Per CSS spec, `*` matches all ELEMENTS. Text nodes are not elements —
             // they must only inherit from their parent. Without this check, `* { color: #666 }`
             // would overwrite the inherited `color: red` on a Text child of `<p>`,
-            // even though `<p>` correctly got red from `p { color: red }`.
-            if !nd.is_text_node() {
+            // even though `<p>` correctly got red from `p { color: red }`. Nor is a
+            // `::before`: the rules naming it style it, and it inherits from its host.
+            if crate::prop_cache::star_selects(nd) {
                 for prop in &self.global_css_props {
                     // (flag already accumulated in the has_global pre-pass)
+                    let Some(prop) = compact_value(
+                        self,
+                        i,
+                        prop,
+                        &mut result.tier1_enums[i],
+                        &mut result.tier2_dims[i],
+                        &mut result.tier2_cold[i],
+                        &mut result.tier2b_text[i],
+                        &mut own_line_height,
+                    ) else {
+                        continue;
+                    };
                     apply_css_property_to_compact(
                         prop,
                         &mut result.tier1_enums[i],
@@ -844,6 +944,7 @@ impl CssPropertyCache {
                         &mut result.font_hash_to_families,
                     );
                     update_dom_declared_flags(prop, &mut result.dom_declared_flags);
+                    note_line_height(prop, &mut own_line_height);
                 }
             }
 
@@ -864,7 +965,7 @@ impl CssPropertyCache {
                     d.margin_right
                 );
                 let n_props = self.css_props.get_slice(i).len();
-                let n_inline = nd.style.iter_inline_properties().count();
+                let n_inline = self.inline_properties(nd, i).count();
                 cascade_debug!(
                     "node[{}] css_props={} entries, inline={} entries",
                     i,
@@ -890,16 +991,29 @@ impl CssPropertyCache {
                 if prop.state != azul_css::dynamic_selector::PseudoStateType::Normal {
                     continue;
                 }
-                result.uses_viewport_units |= css_property_uses_viewport_units(&prop.property);
-                apply_css_property_to_compact(
+                let Some(prop) = compact_value(
+                    self,
+                    i,
                     &prop.property,
+                    &mut result.tier1_enums[i],
+                    &mut result.tier2_dims[i],
+                    &mut result.tier2_cold[i],
+                    &mut result.tier2b_text[i],
+                    &mut own_line_height,
+                ) else {
+                    continue;
+                };
+                result.uses_viewport_units |= css_property_uses_viewport_units(prop);
+                apply_css_property_to_compact(
+                    prop,
                     &mut result.tier1_enums[i],
                     &mut result.tier2_dims[i],
                     &mut result.tier2_cold[i],
                     &mut result.tier2b_text[i],
                     &mut result.font_hash_to_families,
                 );
-                update_dom_declared_flags(&prop.property, &mut result.dom_declared_flags);
+                update_dom_declared_flags(prop, &mut result.dom_declared_flags);
+                note_line_height(prop, &mut own_line_height);
             }
 
             {
@@ -922,7 +1036,17 @@ impl CssPropertyCache {
 
             // Scan inline CSS (node_data.style — typically 0-3 properties).
             // Inline CSS has highest specificity — applied last to override stylesheet.
-            for (prop, conds) in nd.style.iter_inline_properties() {
+            // In CASCADE ORDER, later overwriting earlier: a lower theme rank
+            // (`@theme(xyz:pink)` over `@theme(xyz)` over no block) applies
+            // later, source order among equals - the declaration
+            // `azul_css::css::winning_inline_in` picks on the slow path wins
+            // here - over the inline style AS RESOLVED (`var()` substituted).
+            azul_css::css::inline_in_cascade_order(
+                self.inline_properties(nd, i),
+                rank,
+                &mut inline_in_order,
+            );
+            for &(prop, conds) in &inline_in_order {
                 // Apply when the conditions hold for the RESTING state:
                 // pseudo-state conditions must be Normal, and every other
                 // condition (viewport/@media, theme, OS...) is evaluated
@@ -938,6 +1062,10 @@ impl CssPropertyCache {
                         }
                         non_pseudo => {
                             result.has_dynamic_conditions = true;
+                            result.inline_viewport_shape |=
+                                azul_css::dynamic_selector::depends_on_viewport_shape(
+                                    core::slice::from_ref(non_pseudo),
+                                );
                             // Harvest the thresholds this condition can flip
                             // at — the resize decision regenerates when the
                             // window crosses one (dedup/sort happens once,
@@ -957,14 +1085,28 @@ impl CssPropertyCache {
                                     .inline_viewport_h
                                     .extend(h.into_iter().map(f32::to_bits));
                             }
-                            self.dynamic_context
-                                .as_deref()
-                                .is_some_and(|ctx| non_pseudo.matches(ctx))
+                            crate::prop_cache::condition_holds(
+                                self.dynamic_context.as_deref(),
+                                no_context_theme.as_ref(),
+                                non_pseudo,
+                            )
                         }
                     });
                 if !is_normal {
                     continue;
                 }
+                let Some(prop) = compact_value(
+                    self,
+                    i,
+                    prop,
+                    &mut result.tier1_enums[i],
+                    &mut result.tier2_dims[i],
+                    &mut result.tier2_cold[i],
+                    &mut result.tier2b_text[i],
+                    &mut own_line_height,
+                ) else {
+                    continue;
+                };
                 result.uses_viewport_units |= css_property_uses_viewport_units(prop);
                 // Layout-critical props dispatched via single-variant `if let` (direct discriminant
                 // COMPARES, no indirect jump). apply_css_property_to_compact's ~100-arm `match`
@@ -1000,6 +1142,38 @@ impl CssPropertyCache {
                     );
                 }
                 update_dom_declared_flags(prop, &mut result.dom_declared_flags);
+                note_line_height(prop, &mut own_line_height);
+            }
+
+            // Step 4a: what a state the node is in declares for inherited
+            // properties (`CssPropertyCache::state_inherited_values`): the
+            // children copy this node's slots, so the text in a hovered bar
+            // takes the bar's `:hover` colour. A node at rest has none.
+            if let Some(state) = node_states.get(i) {
+                for state_prop in self.state_inherited_values(nd, i, state) {
+                    let Some(prop) = compact_value(
+                        self,
+                        i,
+                        &state_prop,
+                        &mut result.tier1_enums[i],
+                        &mut result.tier2_dims[i],
+                        &mut result.tier2_cold[i],
+                        &mut result.tier2b_text[i],
+                        &mut own_line_height,
+                    ) else {
+                        continue;
+                    };
+                    apply_css_property_to_compact(
+                        prop,
+                        &mut result.tier1_enums[i],
+                        &mut result.tier2_dims[i],
+                        &mut result.tier2_cold[i],
+                        &mut result.tier2b_text[i],
+                        &mut result.font_hash_to_families,
+                    );
+                    update_dom_declared_flags(prop, &mut result.dom_declared_flags);
+                    note_line_height(prop, &mut own_line_height);
+                }
             }
 
             // Step 4b: user-overridden properties (runtime patches via
@@ -1014,6 +1188,18 @@ impl CssPropertyCache {
             // single-variant `if let`s exist for the remill lift, see there).
             if let Some(user_props) = self.user_overridden_properties.get(i) {
                 for (_, prop) in user_props {
+                    let Some(prop) = compact_value(
+                        self,
+                        i,
+                        prop,
+                        &mut result.tier1_enums[i],
+                        &mut result.tier2_dims[i],
+                        &mut result.tier2_cold[i],
+                        &mut result.tier2b_text[i],
+                        &mut own_line_height,
+                    ) else {
+                        continue;
+                    };
                     result.uses_viewport_units |= css_property_uses_viewport_units(prop);
                     if let CssProperty::Width(v) = prop {
                         result.tier2_dims[i].width = encode_layout_width(v);
@@ -1042,13 +1228,43 @@ impl CssPropertyCache {
                         );
                     }
                     update_dom_declared_flags(prop, &mut result.dom_declared_flags);
+                    note_line_height(prop, &mut own_line_height);
                 }
             }
 
             // Resolve font-size from em/percent/pt/etc. to px.
             // CSS 2.1: inherited font-size is the COMPUTED (px) value, not the specified value.
             // Pre-order traversal guarantees parent's font_size is already resolved.
-            resolve_font_size_to_px(&mut result.tier2_dims, i, parent_id);
+            // A hosted root resolves against its host's size.
+            resolve_font_size_to_px_against(
+                &mut result.tier2_dims,
+                i,
+                parent_id,
+                root_parent_font_px,
+            );
+
+            // `bolder` / `lighter` compute against the parent's weight (CSS
+            // Fonts 4 s2.2): the children copy this slot in Step 1, so they
+            // inherit the number, not the keyword (which made every `<b>` and
+            // its text ask for 900, and a `<b>` in a `<b>` no bolder).
+            resolve_relative_font_weight(
+                &mut result.tier1_enums,
+                i,
+                parent_id,
+                root_parent_tier1,
+            );
+
+            // A `line-height` in `em` / `%` computes to a length against THIS
+            // node's font size, resolved just above (`rem` against the
+            // root's): the children copy this slot in Step 1, so they inherit
+            // the length, not the factor (CSS 2.2 s10.8.1).
+            if let Some(lh) = own_line_height {
+                result.tier2b_text[i].line_height = encode_line_height(
+                    &lh,
+                    Some(compact_font_size_px(&result.tier2_dims[i])),
+                    compact_font_size_px(&result.tier2_dims[0]),
+                );
+            }
 
             // Set populated bit
             if result.tier1_enums[i] != 0 {
@@ -1123,9 +1339,14 @@ pub const INHERITABLE_TIER1_MASK: u64 = (FONT_WEIGHT_MASK << FONT_WEIGHT_SHIFT)
     // against `is_inheritable()` — it was the only disagreement.
     | (WRITING_MODE_MASK << WRITING_MODE_SHIFT);
 
+#[allow(clippy::too_many_arguments)] // the node, its place, its five compact slots and the DOM's flags
 fn apply_ua_css_to_compact(
     node: &NodeData,
-    is_root: bool,
+    node_index: usize,
+    inherited_from_host: &[(
+        azul_css::props::property::CssPropertyType,
+        crate::prop_cache::CssPropertyWithOrigin,
+    )],
     ctx: Option<&azul_css::dynamic_selector::DynamicSelectorContext>,
     tier1: &mut u64,
     dims: &mut CompactNodeProps,
@@ -1135,12 +1356,21 @@ fn apply_ua_css_to_compact(
         u64,
         azul_css::props::basic::font::StyleFontFamilyVec,
     >,
+    dom_declared_flags: &mut u32,
 ) {
     // The ONE property-type list both cascade passes walk (`ua_css.rs`); the
-    // per-pass copies this replaced had drifted apart (see its doc).
+    // per-pass copies this replaced had drifted apart (see its doc). The
+    // document root's own defaults by the ONE rule the slow path shares
+    // (`takes_root_ua_default`: a hosted root inherits its host's instead).
+    // A UA default is as present in the DOM as a declaration (a `::marker`'s
+    // tabular numbers): the readers skip the cascade walk for a type no node
+    // has.
     for pt in crate::ua_css::UA_PROPERTY_TYPES {
+        let is_root =
+            crate::prop_cache::takes_root_ua_default(node_index, *pt, inherited_from_host);
         if let Some(ua_prop) = crate::ua_css::get_ua_default(node, is_root, *pt, ctx) {
             apply_css_property_to_compact(ua_prop, tier1, dims, cold, text, font_hash_map);
+            update_dom_declared_flags(ua_prop, dom_declared_flags);
         }
     }
 }
@@ -1148,10 +1378,56 @@ fn apply_ua_css_to_compact(
 /// Resolve a node's font-size from relative units (em, %, rem, pt) to absolute px.
 /// CSS 2.1: inherited font-size is the COMPUTED (px) value, not the specified value.
 /// Pre-order traversal guarantees parent's `font_size` is already resolved.
+/// Node `node_idx`'s tier-1 `font-weight` slot holding `bolder` / `lighter`
+/// becomes the weight it computes to against its parent's slot
+/// (`StyleFontWeight::computed`). A slot copied from the parent is already a
+/// number (the parent was computed first: pre-order arena), so a keyword here
+/// is always the node's OWN declaration.
+///
+/// `root_parent` is the tier-1 word a node WITHOUT a parent computes against:
+/// `None` (the `normal` weight) for a document's root, the host's slots for
+/// a hosted root (`CssPropertyCache::inherited_from_host`).
+fn resolve_relative_font_weight(
+    tier1: &mut [u64],
+    node_idx: usize,
+    parent_id: Option<NodeId>,
+    root_parent: Option<u64>,
+) {
+    let own = decode_font_weight(tier1[node_idx]);
+    if !own.is_relative() {
+        return;
+    }
+    let parent = parent_id
+        .map_or(root_parent, |pid| {
+            Some(pid.index()).filter(|&pi| pi < node_idx).map(|pi| tier1[pi])
+        })
+        .map_or(
+            azul_css::props::basic::font::StyleFontWeight::Normal,
+            decode_font_weight,
+        );
+    let encoded = u64::from(style_font_weight_to_u8(own.computed(parent)));
+    let mask = FONT_WEIGHT_MASK << FONT_WEIGHT_SHIFT;
+    tier1[node_idx] =
+        (tier1[node_idx] & !mask) | ((encoded & FONT_WEIGHT_MASK) << FONT_WEIGHT_SHIFT);
+}
+
 fn resolve_font_size_to_px(
     tier2_dims: &mut [CompactNodeProps],
     node_idx: usize,
     parent_id: Option<NodeId>,
+) {
+    resolve_font_size_to_px_against(tier2_dims, node_idx, parent_id, 16.0);
+}
+
+/// [`resolve_font_size_to_px`], a node WITHOUT a parent resolving its `em`
+/// and `%` against `root_parent_px`: the 16px initial value for a
+/// document's root, the host's computed size for a hosted root
+/// (`CssPropertyCache::inherited_from_host`).
+fn resolve_font_size_to_px_against(
+    tier2_dims: &mut [CompactNodeProps],
+    node_idx: usize,
+    parent_id: Option<NodeId>,
+    root_parent_px: f32,
 ) {
     let raw_fs = tier2_dims[node_idx].font_size;
     if raw_fs == U32_SENTINEL || raw_fs >= U32_SENTINEL_THRESHOLD {
@@ -1167,7 +1443,7 @@ fn resolve_font_size_to_px(
     // out-of-bounds parent ref cannot panic, and require `pid < node_idx` so a
     // forward reference falls back to the 16px CSS initial value instead of
     // reading an unresolved (still em/%) parent value.
-    let parent_font_size_px = parent_id.map_or(16.0, |pid| {
+    let parent_font_size_px = parent_id.map_or(root_parent_px, |pid| {
         let pi = pid.index();
         debug_assert!(
             pi < node_idx,
@@ -1209,6 +1485,67 @@ fn resolve_font_size_to_px(
     };
     tier2_dims[node_idx].font_size =
         encode_pixel_value_u32(&azul_css::props::basic::pixel::PixelValue::px(resolved_px));
+}
+
+/// The font size `rem` and an unknown font size fall back to: the CSS
+/// initial `medium`, 16px.
+const DEFAULT_LINE_HEIGHT_ROOT_PX: f32 = 16.0;
+
+/// Encode a `line-height` into its compact slot ([`decode_line_height`]).
+///
+/// `font_size_px` is the font size of the node that DECLARES the value: with
+/// it, an `em` or a percentage is computed to the px length its descendants
+/// inherit (CSS 2.2 s10.8.1 - they copy the slot); without it (`None`, a
+/// caller that does not know it yet) it is stored as its factor. A number is
+/// stored as the number (inherited as such), `rem` against
+/// `root_font_size_px`, and the viewport units - unknown here - as
+/// `I16_AUTO`: read the cascade.
+fn encode_line_height(
+    lh: &azul_css::props::style::text::StyleLineHeight,
+    font_size_px: Option<f32>,
+    root_font_size_px: f32,
+) -> i16 {
+    use azul_css::props::style::text::StyleLineHeight;
+    // A factor of the font size: the px it comes to when the size is known.
+    let of_font_size = |factor: f32| {
+        font_size_px.map_or_else(
+            || encode_line_height_factor(factor),
+            |fs| encode_line_height_px(factor * fs),
+        )
+    };
+    match lh {
+        StyleLineHeight::Normal => I16_SENTINEL,
+        StyleLineHeight::Number(n) => encode_line_height_factor(n.get()),
+        StyleLineHeight::Percentage(p) => of_font_size(p.normalized()),
+        StyleLineHeight::Length(l) => match l.metric {
+            SizeMetric::Vw | SizeMetric::Vh | SizeMetric::Vmin | SizeMetric::Vmax => I16_AUTO,
+            SizeMetric::Em => of_font_size(l.number.get()),
+            SizeMetric::Percent => of_font_size(l.number.get() / 100.0),
+            _ => encode_line_height_px(l.to_pixels_internal(0.0, 0.0, root_font_size_px)),
+        },
+    }
+}
+
+/// The resolved px font size in a node's compact `font_size` slot, the CSS
+/// initial 16px when it holds none.
+fn compact_font_size_px(dims: &CompactNodeProps) -> f32 {
+    decode_pixel_value_u32(dims.font_size)
+        .filter(|pv| pv.metric == SizeMetric::Px)
+        .map_or(DEFAULT_LINE_HEIGHT_ROOT_PX, |pv| pv.number.get())
+}
+
+/// Track a node's own winning `line-height` declaration while the builder
+/// applies its properties in cascade order: the last one with a value wins,
+/// as in [`apply_css_property_to_compact`].
+const fn note_line_height(
+    prop: &CssProperty,
+    own: &mut Option<azul_css::props::style::text::StyleLineHeight>,
+) {
+    if let CssProperty::LineHeight(v) = prop {
+        if let Some(lh) = v.get_property() {
+            *own = Some(*lh);
+        }
+    }
 }
 
 /// Does this property's value use a viewport-relative unit (vw/vh/vmin/vmax)?
@@ -1279,6 +1616,11 @@ fn css_property_uses_viewport_units(prop: &CssProperty) -> bool {
         CssProperty::WordSpacing(v) => inner(v),
         CssProperty::TextIndent(v) => inner(v),
         CssProperty::TabSize(v) => inner(v),
+        CssProperty::LineHeight(v) => matches!(
+            v,
+            CssPropertyValue::Exact(azul_css::props::style::text::StyleLineHeight::Length(p))
+                if pv(p)
+        ),
         _ => false,
     }
 }
@@ -1576,27 +1918,24 @@ fn apply_css_property_to_compact(
             }
         }
 
+        // A gap in px is kept as it is; one in em, rem or a percentage needs the node's font
+        // sizes or its box: the sentinel sends the layout to the cascade for it (0 would read
+        // as no gap at all).
         CssProperty::RowGap(v) => {
             if let Some(g) = v.get_property() {
-                if g.inner.metric == SizeMetric::Px {
-                    dims.row_gap = encode_resolved_px_i16(g.inner.number.get());
-                }
+                dims.row_gap = encode_gap_i16(g.inner);
             }
         }
         CssProperty::ColumnGap(v) => {
             if let Some(g) = v.get_property() {
-                if g.inner.metric == SizeMetric::Px {
-                    dims.column_gap = encode_resolved_px_i16(g.inner.number.get());
-                }
+                dims.column_gap = encode_gap_i16(g.inner);
             }
         }
         CssProperty::Gap(v) => {
             if let Some(g) = v.get_property() {
-                if g.inner.metric == SizeMetric::Px {
-                    let enc = encode_resolved_px_i16(g.inner.number.get());
-                    dims.row_gap = enc;
-                    dims.column_gap = enc;
-                }
+                let enc = encode_gap_i16(g.inner);
+                dims.row_gap = enc;
+                dims.column_gap = enc;
             }
         }
 
@@ -1691,13 +2030,16 @@ fn apply_css_property_to_compact(
 
         // Tier 2b text
         CssProperty::TextColor(v) => {
-            if let Some(color) = v.get_property() {
+            // A CSS-wide keyword (`initial`, `inherit`) is no colour this tier
+            // can hold: 0 sends the reader to the cascade, which resolves it,
+            // instead of keeping the colour inherited before it.
+            text.text_color = v.get_property().map_or(0, |color| {
                 let c = &color.inner;
-                text.text_color = (u32::from(c.r) << 24)
+                (u32::from(c.r) << 24)
                     | (u32::from(c.g) << 16)
                     | (u32::from(c.b) << 8)
-                    | u32::from(c.a);
-            }
+                    | u32::from(c.a)
+            });
         }
         CssProperty::FontFamily(v) => {
             if let Some(families) = v.get_property() {
@@ -1711,23 +2053,11 @@ fn apply_css_property_to_compact(
         }
         CssProperty::LineHeight(v) => {
             if let Some(lh) = v.get_property() {
-                // Split scale by SIGN (see the builder's line-height pre-pass
-                // and compact_cache.rs field doc): negative normalized =
-                // absolute px, stored as -px x 10; positive = multiple,
-                // stored x 1000. A single x1000 scale overflowed i16 for any
-                // absolute line-height above 32.76px and silently became
-                // "normal" via the sentinel.
-                let n = lh.inner.normalized();
-                let stored = if n < 0.0 {
-                    ((n * 10.0).round() as i32).max(-32768)
-                } else {
-                    (n * 1000.0).round() as i32
-                };
-                if stored >= -32768 && stored < i32::from(I16_SENTINEL_THRESHOLD) {
-                    text.line_height = stored as i16;
-                } else {
-                    text.line_height = I16_SENTINEL;
-                }
+                // No font size is known here: an `em` / percentage is stored
+                // as its factor for now, and the inheritance builder
+                // re-encodes the node's own declaration once its font size
+                // is resolved (`encode_line_height`).
+                text.line_height = encode_line_height(lh, None, DEFAULT_LINE_HEIGHT_ROOT_PX);
             }
         }
         CssProperty::LetterSpacing(v) => {
@@ -1826,6 +2156,11 @@ fn apply_css_property_to_compact(
                 cold.hot_flags |= HOT_FLAG_HAS_BACKGROUND;
             }
         }
+        CssProperty::BackgroundColor(v) => {
+            if v.get_property().is_some() {
+                cold.hot_flags |= HOT_FLAG_HAS_BACKGROUND;
+            }
+        }
         CssProperty::ClipPath(v) => {
             if v.get_property().is_some() {
                 cold.hot_flags |= HOT_FLAG_HAS_CLIP_PATH;
@@ -1892,6 +2227,11 @@ fn apply_css_property_to_compact(
                 cold.extra_flags |= EXTRA_FLAG_HAS_COUNTER;
             }
         }
+        CssProperty::CounterSet(v) => {
+            if v.get_property().is_some() {
+                cold.extra_flags |= EXTRA_FLAG_HAS_COUNTER;
+            }
+        }
         // Both break-before/after wrap PageBreakValue and set the has-break bit.
         CssProperty::BreakBefore(v) | CssProperty::BreakAfter(v) => {
             if v.get_property().is_some() {
@@ -1925,6 +2265,179 @@ fn apply_css_property_to_compact(
         }
 
         // Non-compact properties (background, etc.) — handled by get_property_slow fallback
+        _ => {}
+    }
+}
+
+/// Node `index`'s declaration `prop` as its compact slots take it: a CSS-wide keyword is the
+/// value it stands for ([`CssPropertyCache::css_wide_value_of`]); a keyword that stands for
+/// the initial value resets the property's slots instead and gives nothing to apply.
+#[allow(clippy::too_many_arguments)] // the declaration, its node and the node's slots
+fn compact_value<'a>(
+    cache: &'a CssPropertyCache,
+    index: usize,
+    prop: &'a CssProperty,
+    tier1: &mut u64,
+    dims: &mut CompactNodeProps,
+    cold: &mut CompactNodePropsCold,
+    text: &mut CompactTextProps,
+    own_line_height: &mut Option<azul_css::props::style::text::StyleLineHeight>,
+) -> Option<&'a CssProperty> {
+    if prop.css_wide_keyword().is_none() {
+        return Some(prop);
+    }
+    if let Some(value) = cache.css_wide_value_of(index, prop) {
+        return Some(value);
+    }
+    let ty = prop.get_type();
+    reset_compact_property(ty, tier1, dims, cold, text);
+    if ty == azul_css::props::property::CssPropertyType::LineHeight {
+        *own_line_height = None;
+    }
+    None
+}
+
+/// Puts the slots of property `ty` back to what a node that declares nothing and inherits
+/// nothing holds: the property's initial value as the readers know it. The presence bits
+/// (a background, a shadow, a transform, scrollbar rules...) stay: a set bit only sends the
+/// reader to the cascade, which answers the initial value then.
+#[allow(clippy::too_many_lines)] // one arm per property the compact slots hold
+#[allow(clippy::cast_possible_truncation)] // the writing-mode slot is three bits
+fn reset_compact_property(
+    ty: azul_css::props::property::CssPropertyType,
+    tier1: &mut u64,
+    dims: &mut CompactNodeProps,
+    cold: &mut CompactNodePropsCold,
+    text: &mut CompactTextProps,
+) {
+    use azul_css::props::property::CssPropertyType as T;
+
+    let initial_dims = CompactNodeProps::default();
+    let initial_cold = CompactNodePropsCold::default();
+    let initial_text = CompactTextProps::default();
+    // The physical overflow slot a logical one writes, as `apply_css_property_to_compact`
+    // maps it through the writing mode.
+    let vertical = {
+        let wm = ((*tier1 >> WRITING_MODE_SHIFT) & WRITING_MODE_MASK) as u8;
+        wm == layout_writing_mode_to_u8(
+            azul_css::props::layout::wrapping::LayoutWritingMode::VerticalRl,
+        ) || wm
+            == layout_writing_mode_to_u8(
+                azul_css::props::layout::wrapping::LayoutWritingMode::VerticalLr,
+            )
+    };
+    let mut clear = |shift: u32, mask: u64| *tier1 &= !(mask << shift);
+    let ty = match (ty, vertical) {
+        (T::OverflowBlock, true) | (T::OverflowInline, false) => T::OverflowX,
+        (T::OverflowBlock, false) | (T::OverflowInline, true) => T::OverflowY,
+        (other, _) => other,
+    };
+    match ty {
+        T::Display => clear(DISPLAY_SHIFT, DISPLAY_MASK),
+        T::Position => clear(POSITION_SHIFT, POSITION_MASK),
+        T::Float => clear(FLOAT_SHIFT, FLOAT_MASK),
+        T::OverflowX => clear(OVERFLOW_X_SHIFT, OVERFLOW_MASK),
+        T::OverflowY => clear(OVERFLOW_Y_SHIFT, OVERFLOW_MASK),
+        T::BoxSizing => clear(BOX_SIZING_SHIFT, BOX_SIZING_MASK),
+        T::FlexDirection => clear(FLEX_DIRECTION_SHIFT, FLEX_DIR_MASK),
+        T::FlexWrap => clear(FLEX_WRAP_SHIFT, FLEX_WRAP_MASK),
+        T::JustifyContent => clear(JUSTIFY_CONTENT_SHIFT, JUSTIFY_MASK),
+        T::AlignItems => clear(ALIGN_ITEMS_SHIFT, ALIGN_MASK),
+        T::AlignContent => clear(ALIGN_CONTENT_SHIFT, ALIGN_MASK),
+        T::WritingMode => clear(WRITING_MODE_SHIFT, WRITING_MODE_MASK),
+        T::Clear => clear(CLEAR_SHIFT, CLEAR_MASK),
+        T::FontWeight => clear(FONT_WEIGHT_SHIFT, FONT_WEIGHT_MASK),
+        T::FontStyle => clear(FONT_STYLE_SHIFT, FONT_STYLE_MASK),
+        T::TextAlign => clear(TEXT_ALIGN_SHIFT, TEXT_ALIGN_MASK),
+        T::Visibility => clear(VISIBILITY_SHIFT, VISIBILITY_MASK),
+        T::WhiteSpace => clear(WHITE_SPACE_SHIFT, WHITE_SPACE_MASK),
+        T::Direction => clear(DIRECTION_SHIFT, DIRECTION_MASK),
+        T::VerticalAlign => clear(VERTICAL_ALIGN_SHIFT, VERTICAL_ALIGN_MASK),
+        T::BorderCollapse => clear(BORDER_COLLAPSE_SHIFT, BORDER_COLLAPSE_MASK),
+        T::AlignSelf => clear(ALIGN_SELF_SHIFT, ALIGN_SELF_MASK),
+        T::JustifySelf => clear(JUSTIFY_SELF_SHIFT, JUSTIFY_SELF_MASK),
+        T::GridAutoFlow => clear(GRID_AUTO_FLOW_SHIFT, GRID_AUTO_FLOW_MASK),
+        T::JustifyItems => clear(JUSTIFY_ITEMS_SHIFT, JUSTIFY_ITEMS_MASK),
+        T::Cursor => cold.cursor = initial_cold.cursor,
+
+        T::Width => dims.width = initial_dims.width,
+        T::Height => dims.height = initial_dims.height,
+        T::MinWidth => dims.min_width = initial_dims.min_width,
+        T::MaxWidth => dims.max_width = initial_dims.max_width,
+        T::MinHeight => dims.min_height = initial_dims.min_height,
+        T::MaxHeight => dims.max_height = initial_dims.max_height,
+        T::FlexBasis => dims.flex_basis = initial_dims.flex_basis,
+        T::FontSize => dims.font_size = initial_dims.font_size,
+        T::PaddingTop => dims.padding_top = initial_dims.padding_top,
+        T::PaddingRight => dims.padding_right = initial_dims.padding_right,
+        T::PaddingBottom => dims.padding_bottom = initial_dims.padding_bottom,
+        T::PaddingLeft => dims.padding_left = initial_dims.padding_left,
+        T::MarginTop => dims.margin_top = initial_dims.margin_top,
+        T::MarginRight => dims.margin_right = initial_dims.margin_right,
+        T::MarginBottom => dims.margin_bottom = initial_dims.margin_bottom,
+        T::MarginLeft => dims.margin_left = initial_dims.margin_left,
+        T::BorderTopWidth => dims.border_top_width = initial_dims.border_top_width,
+        T::BorderRightWidth => dims.border_right_width = initial_dims.border_right_width,
+        T::BorderBottomWidth => dims.border_bottom_width = initial_dims.border_bottom_width,
+        T::BorderLeftWidth => dims.border_left_width = initial_dims.border_left_width,
+        T::Top => dims.top = initial_dims.top,
+        T::Right => dims.right = initial_dims.right,
+        T::Bottom => dims.bottom = initial_dims.bottom,
+        T::Left => dims.left = initial_dims.left,
+        T::FlexGrow => dims.flex_grow = initial_dims.flex_grow,
+        T::FlexShrink => dims.flex_shrink = initial_dims.flex_shrink,
+        T::RowGap => dims.row_gap = initial_dims.row_gap,
+        T::ColumnGap => dims.column_gap = initial_dims.column_gap,
+        T::Gap => {
+            dims.row_gap = initial_dims.row_gap;
+            dims.column_gap = initial_dims.column_gap;
+        }
+
+        T::GridColumn => {
+            cold.grid_col_start = initial_cold.grid_col_start;
+            cold.grid_col_end = initial_cold.grid_col_end;
+        }
+        T::GridRow => {
+            cold.grid_row_start = initial_cold.grid_row_start;
+            cold.grid_row_end = initial_cold.grid_row_end;
+        }
+        T::ZIndex => cold.z_index = initial_cold.z_index,
+        T::BorderTopStyle => cold.border_styles_packed &= !0x000F,
+        T::BorderRightStyle => cold.border_styles_packed &= !0x00F0,
+        T::BorderBottomStyle => cold.border_styles_packed &= !0x0F00,
+        T::BorderLeftStyle => cold.border_styles_packed &= !0xF000,
+        T::BorderTopColor => cold.border_top_color = initial_cold.border_top_color,
+        T::BorderRightColor => cold.border_right_color = initial_cold.border_right_color,
+        T::BorderBottomColor => cold.border_bottom_color = initial_cold.border_bottom_color,
+        T::BorderLeftColor => cold.border_left_color = initial_cold.border_left_color,
+        T::BorderSpacing => {
+            cold.border_spacing_h = initial_cold.border_spacing_h;
+            cold.border_spacing_v = initial_cold.border_spacing_v;
+        }
+        T::TabSize => cold.tab_size = initial_cold.tab_size,
+        T::BorderTopLeftRadius => {
+            cold.border_top_left_radius = initial_cold.border_top_left_radius;
+        }
+        T::BorderTopRightRadius => {
+            cold.border_top_right_radius = initial_cold.border_top_right_radius;
+        }
+        T::BorderBottomLeftRadius => {
+            cold.border_bottom_left_radius = initial_cold.border_bottom_left_radius;
+        }
+        T::BorderBottomRightRadius => {
+            cold.border_bottom_right_radius = initial_cold.border_bottom_right_radius;
+        }
+        T::Opacity => cold.opacity = initial_cold.opacity,
+        T::ScrollbarGutter => cold.hot_flags &= !HOT_FLAG_SCROLLBAR_GUTTER_MASK,
+
+        T::TextColor => text.text_color = initial_text.text_color,
+        T::FontFamily => text.font_family_hash = initial_text.font_family_hash,
+        T::LineHeight => text.line_height = initial_text.line_height,
+        T::LetterSpacing => text.letter_spacing = initial_text.letter_spacing,
+        T::WordSpacing => text.word_spacing = initial_text.word_spacing,
+        T::TextIndent => text.text_indent = initial_text.text_indent,
+
+        // Not in the slots, or a presence bit only: the cascade answers it.
         _ => {}
     }
 }
@@ -2007,6 +2520,26 @@ const fn update_dom_declared_flags(prop: &CssProperty, flags: &mut u32) {
         CssProperty::ShapeMargin(v) => {
             if v.get_property().is_some() {
                 *flags |= DOM_HAS_SHAPE_MARGIN;
+            }
+        }
+        CssProperty::FontVariantNumeric(v) => {
+            if v.get_property().is_some() {
+                *flags |= DOM_HAS_FONT_VARIANT_NUMERIC;
+            }
+        }
+        CssProperty::FontVariantCaps(v) => {
+            if v.get_property().is_some() {
+                *flags |= DOM_HAS_FONT_VARIANT_CAPS;
+            }
+        }
+        CssProperty::FontFeatureSettings(v) => {
+            if v.get_property().is_some() {
+                *flags |= DOM_HAS_FONT_FEATURE_SETTINGS;
+            }
+        }
+        CssProperty::TextOverflow(v) => {
+            if v.get_property().is_some() {
+                *flags |= DOM_HAS_TEXT_OVERFLOW;
             }
         }
         CssProperty::HyphenationLanguage(v) => {
@@ -2207,6 +2740,16 @@ fn encode_css_pixel_as_i16<T: HasInnerPixelValue>(val: &CssPropertyValue<T>) -> 
         _ => return I16_SENTINEL,
     };
     azul_css::compact_cache::encode_css_pixel_as_i16(&mapped)
+}
+
+/// A gap for the compact cache: px as it is, any other unit the sentinel (resolved from the
+/// cascade, with the node's font sizes).
+fn encode_gap_i16(gap: azul_css::props::basic::pixel::PixelValue) -> i16 {
+    if gap.metric == SizeMetric::Px {
+        encode_resolved_px_i16(gap.number.get())
+    } else {
+        I16_SENTINEL
+    }
 }
 
 /// Encode margin: same as `encode_css_pixel_as_i16` but Auto is a distinct value.

@@ -1,0 +1,20 @@
+{
+  "name": "the device's sync state (base, journal, logs, all of which name every file) is readable by its owner only",
+  "description": "JOTTA-025 (Jottacloud): jottad listened on 0.0.0.0 and its config and data folders had wrong permissions. AzDrive has no network control socket (its debug server exists only under AZ_DEBUG/AZ_E2E); the part that applies is rule S19 (the state folder 0700, its files 0600). sync-chaos sec-local-secrets-hygiene.",
+  "steps": [
+    { "op": "drive_create", "remote": "r", "encrypted": false },
+    { "op": "drive_open", "device": "a", "remote": "r" },
+    { "op": "drive_pair", "device": "a" },
+    { "op": "drive_wait_idle" },
+    { "op": "drive_write", "device": "a", "path": "medical/diagnosis.pdf", "text": "private" },
+    { "op": "drive_sync", "device": "a" },
+    { "op": "drive_rm", "device": "a", "path": "medical/diagnosis.pdf" },
+    { "op": "drive_write", "device": "a", "path": "x.txt", "text": "x" },
+    { "op": "drive_sync", "device": "a" },
+    { "op": "drive_check", "check": "state_private", "device": "a" },
+    { "op": "drive_restart", "device": "a" },
+    { "op": "drive_sync", "device": "a" },
+    { "op": "drive_check", "check": "state_private", "device": "a" },
+    { "op": "drive_cleanup" }
+  ]
+}

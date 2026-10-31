@@ -1,0 +1,32 @@
+{
+  "name": "a folder renamed while AzDrive was closed: one pass makes it a rename on the drive, no delete question, no loop",
+  "description": "KDRIVE-013 (kDrive): renaming 'crowd/' to 'crowds/' while the client was stopped made it loop forever on a database error. Rules A3, D1 and A2: the start scan finds the change; the same bytes under a new folder are a move on both sides, never a mass delete; the pass after it is quiet. sync-chaos merge-rename-folder-is-move.",
+  "steps": [
+    { "op": "drive_create", "remote": "r" },
+    { "op": "drive_open", "device": "a", "remote": "r" },
+    { "op": "drive_open", "device": "b", "remote": "r" },
+    { "op": "drive_pair", "device": "a" },
+    { "op": "drive_pair", "device": "b" },
+    { "op": "drive_wait_idle" },
+    { "op": "drive_many", "device": "a", "dir": "crowd", "count": 30, "text_prefix": "page" },
+    { "op": "drive_write", "device": "a", "path": "readme.txt", "text": "stays" },
+    { "op": "drive_sync", "device": "a" },
+    { "op": "drive_sync", "device": "b" },
+    { "op": "drive_rename", "device": "a", "from": "crowd", "to": "crowds" },
+    { "op": "drive_restart", "device": "a" },
+    { "op": "drive_sync", "device": "a" },
+    { "op": "drive_check", "check": "problem", "device": "a", "code": "mass-delete-held", "absent": true },
+    { "op": "drive_check", "check": "remote_count", "remote": "r", "glob": "crowds/*", "count": 30 },
+    { "op": "drive_check", "check": "remote_count", "remote": "r", "glob": "crowd/*", "count": 0 },
+    { "op": "drive_sync", "device": "b" },
+    { "op": "drive_check", "check": "files_count", "device": "b", "glob": "crowds/*", "count": 30 },
+    { "op": "drive_check", "check": "files_count", "device": "b", "glob": "crowd/*", "count": 0 },
+    { "op": "drive_check", "check": "trash_empty", "device": "b" },
+    { "op": "drive_sync", "device": "a" },
+    { "op": "drive_check", "check": "last_pass_quiet", "device": "a" },
+    { "op": "drive_sync", "device": "b" },
+    { "op": "drive_check", "check": "last_pass_quiet", "device": "b" },
+    { "op": "drive_check", "check": "converged" },
+    { "op": "drive_cleanup" }
+  ]
+}

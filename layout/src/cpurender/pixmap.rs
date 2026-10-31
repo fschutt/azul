@@ -17,6 +17,11 @@ use agg_rust::{
 };
 use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
 
+use crate::geometry_guard::{
+    add_svg_rings, target_bounds, BoundedPath, ClampBox, ClampedVertexSource, RingEnd,
+    COORD_LIMIT,
+};
+
 use super::*;
 
 pub const IDENTITY_EPSILON_F64: f64 = 0.0001;
@@ -63,11 +68,43 @@ pub fn blit_pixmap_clipped(
     opacity: f32,
     clip: Option<(i32, i32, i32, i32)>,
 ) {
+    let op = (opacity * 255.0).clamp(0.0, 255.0) as u32;
+    for_each_clipped_pixel(src, dst, px_x, px_y, clip, |below, layer| {
+        blend_over(below, layer, op);
+    });
+}
+
+/// [`blit_pixmap_clipped`] for a layer that already holds its backdrop - a
+/// plain layer seeded with its parent's pixels: its window replaces the
+/// pixels under it. Blended over them, a translucent backdrop (a translucent
+/// box inside an opacity group) would count twice.
+pub fn copy_pixmap_clipped(
+    src: &AzulPixmap,
+    dst: &mut AzulPixmap,
+    px_x: i32,
+    px_y: i32,
+    clip: Option<(i32, i32, i32, i32)>,
+) {
+    for_each_clipped_pixel(src, dst, px_x, px_y, clip, |below, layer| {
+        below.copy_from_slice(&layer);
+    });
+}
+
+/// Hands every pixel of `src` placed at (`px_x`, `px_y`) in `dst` that lands
+/// inside `dst` and the optional DEST-space clip `(x0, y0, x1, y1)` to
+/// `apply`, with the destination pixel to write.
+fn for_each_clipped_pixel(
+    src: &AzulPixmap,
+    dst: &mut AzulPixmap,
+    px_x: i32,
+    px_y: i32,
+    clip: Option<(i32, i32, i32, i32)>,
+    mut apply: impl FnMut(&mut [u8], [u8; 4]),
+) {
     let sw = src.width as i32;
     let sh = src.height as i32;
     let dw = dst.width as i32;
     let dh = dst.height as i32;
-    let op = (opacity * 255.0).clamp(0.0, 255.0) as u32;
 
     for sy in 0..sh {
         // saturating: px_y/px_x are caller-supplied device offsets that a large-but-legal
@@ -98,29 +135,40 @@ pub fn blit_pixmap_clipped(
                 continue;
             }
 
-            let sr = u32::from(src.data[si]);
-            let sg = u32::from(src.data[si + 1]);
-            let sb = u32::from(src.data[si + 2]);
-            let sa = (u32::from(src.data[si + 3]) * op) / 255;
-
-            if sa == 0 {
-                continue;
-            }
-            if sa == 255 {
-                dst.data[di] = sr as u8;
-                dst.data[di + 1] = sg as u8;
-                dst.data[di + 2] = sb as u8;
-                dst.data[di + 3] = 255;
-            } else {
-                let inv_sa = 255 - sa;
-                dst.data[di] = ((sr * sa + u32::from(dst.data[di]) * inv_sa) / 255) as u8;
-                dst.data[di + 1] = ((sg * sa + u32::from(dst.data[di + 1]) * inv_sa) / 255) as u8;
-                dst.data[di + 2] = ((sb * sa + u32::from(dst.data[di + 2]) * inv_sa) / 255) as u8;
-                dst.data[di + 3] =
-                    ((sa + u32::from(dst.data[di + 3]) * inv_sa / 255).min(255)) as u8;
-            }
+            let px = [src.data[si], src.data[si + 1], src.data[si + 2], src.data[si + 3]];
+            apply(&mut dst.data[di..di + 4], px);
         }
     }
+}
+
+/// Blends the layer pixel `src` over the pixel `dst` at the layer's opacity
+/// `op` (0-255): what a composited layer does to each pixel, and what an
+/// opacity group blended in place does with the pixels it painted, so both
+/// paint the same levels.
+///
+/// Layer pixels are premultiplied. AGG blends a colour at coverage `a` into a
+/// pixel as `colour * a + pixel * (1 - a)` in every channel, alpha included,
+/// which is source-over of premultiplied pixels: a layer cleared to
+/// transparent black holds each colour already multiplied by its alpha.
+/// Reading it as straight alpha multiplied the colour by its alpha a second
+/// time, and darkened everything translucent inside a group or a layer.
+#[inline]
+pub(crate) fn blend_over(dst: &mut [u8], src: [u8; 4], op: u32) {
+    let [red, green, blue, alpha] = src.map(u32::from);
+    // Rounded, not truncated: a faint pixel of the layer (a shadow's tail)
+    // under a group opacity keeps the level it paints.
+    let covered = (alpha * op + 127) / 255;
+    if covered == 0 {
+        return;
+    }
+    let kept = 255 - covered;
+    let over = |layer: u32, below: u8| {
+        ((layer * op + u32::from(below) * kept + 127) / 255).min(255) as u8
+    };
+    dst[0] = over(red, dst[0]);
+    dst[1] = over(green, dst[1]);
+    dst[2] = over(blue, dst[2]);
+    dst[3] = ((covered * 255 + u32::from(dst[3]) * kept + 127) / 255).min(255) as u8;
 }
 
 /// Blit `src` into `dst` through an affine map from SRC DEVICE-PIXEL
@@ -281,28 +329,11 @@ pub fn blit_pixmap_affine_clipped(
             let bot = lerp2(p01, p11, wx);
             let px = lerp2(top, bot, wy);
 
-            let sa = ((px[3] as u32) * op) / 255;
-            if sa == 0 {
-                continue;
-            }
             let di = ((dy * dw + dx) * 4) as usize;
             if di + 3 >= dst.data.len() {
                 continue;
             }
-            let (sr, sg, sb) = (px[0] as u32, px[1] as u32, px[2] as u32);
-            if sa >= 255 {
-                dst.data[di] = sr as u8;
-                dst.data[di + 1] = sg as u8;
-                dst.data[di + 2] = sb as u8;
-                dst.data[di + 3] = 255;
-            } else {
-                let inv_sa = 255 - sa;
-                dst.data[di] = ((sr * sa + u32::from(dst.data[di]) * inv_sa) / 255) as u8;
-                dst.data[di + 1] = ((sg * sa + u32::from(dst.data[di + 1]) * inv_sa) / 255) as u8;
-                dst.data[di + 2] = ((sb * sa + u32::from(dst.data[di + 2]) * inv_sa) / 255) as u8;
-                dst.data[di + 3] =
-                    ((sa + u32::from(dst.data[di + 3]) * inv_sa / 255).min(255)) as u8;
-            }
+            blend_over(&mut dst.data[di..di + 4], px.map(|v| v.round() as u8), op);
         }
     }
 }
@@ -462,28 +493,11 @@ pub fn blit_pixmap_projective_clipped(
             let bot = lerp2(fetch(x_lo, y_lo + 1), fetch(x_lo + 1, y_lo + 1), wx);
             let px = lerp2(top, bot, wy);
 
-            let sa = ((px[3] as u32) * op) / 255;
-            if sa == 0 {
-                continue;
-            }
             let di = ((dy * dw + dx) * 4) as usize;
             if di + 3 >= dst.data.len() {
                 continue;
             }
-            let (sr, sg, sb) = (px[0] as u32, px[1] as u32, px[2] as u32);
-            if sa >= 255 {
-                dst.data[di] = sr as u8;
-                dst.data[di + 1] = sg as u8;
-                dst.data[di + 2] = sb as u8;
-                dst.data[di + 3] = 255;
-            } else {
-                let inv_sa = 255 - sa;
-                dst.data[di] = ((sr * sa + u32::from(dst.data[di]) * inv_sa) / 255) as u8;
-                dst.data[di + 1] = ((sg * sa + u32::from(dst.data[di + 1]) * inv_sa) / 255) as u8;
-                dst.data[di + 2] = ((sb * sa + u32::from(dst.data[di + 2]) * inv_sa) / 255) as u8;
-                dst.data[di + 3] =
-                    ((sa + u32::from(dst.data[di + 3]) * inv_sa / 255).min(255)) as u8;
-            }
+            blend_over(&mut dst.data[di..di + 4], px.map(|v| v.round() as u8), op);
         }
     }
 }
@@ -1162,44 +1176,21 @@ impl AzRect {
 // AGG helper: fill a PathStorage with a solid color into an AzulPixmap
 // ============================================================================
 
-/// Wraps a `VertexSource` and clamps every coordinate to a finite range the AGG
-/// rasterizer can handle. A coordinate of ~1e30 (or ±inf) saturates the rasterizer's
-/// 24.8 fixed-point conversion to ~`i32::MAX` and makes its scanline sweep run once per
-/// row crossed — O(coordinate magnitude), i.e. an effective hang (>1GB RAM, spins
-/// forever) on a large-but-legal transform or an SVG numeric attribute. Anything far
-/// outside the target contributes no visible pixels, so clamping it to just off-screen
-/// is visually equivalent and bounds the work to the visible area.
-struct ClampVertexSource<'a> {
-    inner: &'a mut dyn VertexSource,
-    limit: f64,
-}
-
-impl VertexSource for ClampVertexSource<'_> {
-    fn rewind(&mut self, path_id: u32) {
-        self.inner.rewind(path_id);
-    }
-
-    fn vertex(&mut self, x: &mut f64, y: &mut f64) -> u32 {
-        let cmd = self.inner.vertex(x, y);
-        *x = if x.is_nan() {
-            0.0
-        } else {
-            x.clamp(-self.limit, self.limit)
-        };
-        *y = if y.is_nan() {
-            0.0
-        } else {
-            y.clamp(-self.limit, self.limit)
-        };
-        cmd
-    }
-}
-
-/// Coordinate clamp limit for a `w`×`h` target: far larger than any on-screen coordinate
-/// (so real geometry is untouched) yet small enough that the rasterizer's work stays
-/// bounded. Off-screen geometry gets pinned just outside the target.
-fn coord_clamp_limit(w: u32, h: u32) -> f64 {
-    (f64::from(w) + f64::from(h)).mul_add(4.0, 4096.0)
+/// Adds `path` to `ras` for a `w`×`h` target, the one way every fill reaches the
+/// rasterizer: its geometry clamped exactly to [`target_bounds`] with its non-finite
+/// vertices taken out ([`ClampedVertexSource`]), and the rasterizer clipped to the
+/// target (plus `clip`), which bounds its sweep to the visible area. Resets `ras`.
+pub(crate) fn add_path_for_target(
+    ras: &mut RasterizerScanlineAa,
+    path: &mut dyn VertexSource,
+    w: u32,
+    h: u32,
+    clip: Option<AzRect>,
+) {
+    let (clip_x0, clip_y0, clip_x1, clip_y1) = geometry_clip_box(clip, w, h);
+    ras.clip_box(clip_x0, clip_y0, clip_x1, clip_y1);
+    let mut clamped = ClampedVertexSource::new(path, target_bounds(w, h));
+    ras.add_path(&mut clamped, 0);
 }
 
 pub fn agg_fill_path(
@@ -1217,6 +1208,147 @@ pub fn agg_fill_path(
 /// scanline output to the clip region.  This handles scroll-frame clips,
 /// border-radius is TODO (would need a mask), transforms are handled by
 /// transforming the clip box through the inverse transform before setting it.
+/// The outline of a stroked SVG path as AGG walks it: the geometry flattened,
+/// dashed when the stroke has a pattern, then stroked with its caps and
+/// joins. One builder for the CPU renderer and the GPU mask, which must draw
+/// the same stroke.
+#[allow(missing_debug_implementations, clippy::large_enum_variant)] // AGG's pipeline types have no Debug; a short-lived stack value, never stored
+pub enum SvgStrokeOutline<'a> {
+    /// A solid stroke.
+    Solid(agg_rust::conv_stroke::ConvStroke<agg_rust::conv_curve::ConvCurve<&'a mut PathStorage>>),
+    /// A dashed one.
+    Dashed(
+        agg_rust::conv_stroke::ConvStroke<
+            agg_rust::conv_dash::ConvDash<agg_rust::conv_curve::ConvCurve<&'a mut PathStorage>>,
+        >,
+    ),
+}
+
+impl VertexSource for SvgStrokeOutline<'_> {
+    fn rewind(&mut self, path_id: u32) {
+        match self {
+            Self::Solid(stroke) => stroke.rewind(path_id),
+            Self::Dashed(stroke) => stroke.rewind(path_id),
+        }
+    }
+
+    fn vertex(&mut self, x: &mut f64, y: &mut f64) -> u32 {
+        match self {
+            Self::Solid(stroke) => stroke.vertex(x, y),
+            Self::Dashed(stroke) => stroke.vertex(x, y),
+        }
+    }
+}
+
+/// The widest stroke drawn, in device pixels: far wider than any mask or pixmap, while
+/// a round join on it stays a few thousand points (AGG steps round joins by angle, the
+/// finer the wider the stroke).
+const MAX_STROKE_WIDTH_PX: f64 = 1_048_576.0;
+
+/// How far a miter may reach from its corner, in device pixels. Stroke geometry is
+/// clamped to [`COORD_LIMIT`], so its clamped pieces run along that box's edge, millions
+/// of pixels out; reaching less than half that far, neither their stroke nor a miter at
+/// one of their corners comes near anything on screen.
+const MAX_STROKE_REACH_PX: f64 = 2_097_152.0;
+
+/// The most dashes one stroke is cut into. AGG's dasher walks dash by dash, so the
+/// work grows with the count; a pattern that fine against its path is drawn solid.
+const MAX_DASHES: f64 = 1_048_576.0;
+
+/// The length of `path`'s polygon, its curves' control points included: never less
+/// than the length of the curves themselves.
+fn polygon_length(path: &PathStorage) -> f64 {
+    let mut length = 0.0;
+    let mut last: Option<(f64, f64)> = None;
+    for i in 0..path.total_vertices() {
+        let (mut x, mut y) = (0.0, 0.0);
+        let cmd = path.vertex_idx(i, &mut x, &mut y);
+        if agg_rust::basics::is_move_to(cmd) {
+            last = Some((x, y));
+        } else if agg_rust::basics::is_vertex(cmd) {
+            if let Some((last_x, last_y)) = last {
+                length += (x - last_x).hypot(y - last_y);
+            }
+            last = Some((x, y));
+        }
+    }
+    length
+}
+
+/// The stroke of `geometry` (device pixels): `width` device pixels wide,
+/// with `outline`'s caps, joins and dashes, whose lengths are user units of
+/// `scale` device pixels each.
+///
+/// The width is held to `MAX_STROKE_WIDTH_PX` (a NaN width draws nothing), the miter
+/// to `MAX_STROKE_REACH_PX`, and a pattern of no length, or of more than
+/// `MAX_DASHES` dashes along the path, is drawn solid.
+pub fn svg_stroke_outline<'a>(
+    geometry: &'a mut PathStorage,
+    outline: &crate::solver3::display_list::StrokeOutline,
+    width: f64,
+    scale: f64,
+) -> SvgStrokeOutline<'a> {
+    use agg_rust::math_stroke::{LineCap, LineJoin};
+    use azul_core::svg::{SvgLineCap, SvgLineJoin};
+
+    fn configure<VS: VertexSource>(
+        stroke: &mut agg_rust::conv_stroke::ConvStroke<VS>,
+        outline: &crate::solver3::display_list::StrokeOutline,
+        width: f64,
+    ) {
+        let miter_limit = f64::from(outline.miter_limit)
+            .min(MAX_STROKE_REACH_PX / (width * 0.5).max(1.0))
+            .max(1.0);
+        stroke.set_width(width);
+        stroke.set_line_cap(match outline.cap {
+            SvgLineCap::Butt => LineCap::Butt,
+            SvgLineCap::Square => LineCap::Square,
+            SvgLineCap::Round => LineCap::Round,
+        });
+        stroke.set_line_join(match outline.join {
+            // SVG's `miter`: a bevel once the miter outgrows its limit - AGG's
+            // "revert". `miter-clip` cuts the miter off at the limit instead.
+            SvgLineJoin::Miter => LineJoin::MiterRevert,
+            SvgLineJoin::MiterClip => LineJoin::Miter,
+            SvgLineJoin::Round => LineJoin::Round,
+            SvgLineJoin::Bevel => LineJoin::Bevel,
+        });
+        stroke.set_miter_limit(miter_limit);
+    }
+
+    let width = if width.is_nan() {
+        0.0
+    } else {
+        width.min(MAX_STROKE_WIDTH_PX)
+    };
+    let period: f64 = outline
+        .dashes
+        .iter()
+        .map(|(dash, gap)| f64::from(dash + gap) * scale)
+        .sum();
+    // NaN, a period of no length or too many dashes all fail this.
+    let dashes_along = polygon_length(geometry) / period * outline.dashes.len() as f64;
+    let dashed_pattern = period > 0.0 && dashes_along <= MAX_DASHES;
+
+    // Flattened before stroking: `PathStorage` holds curves as COMMANDS, and
+    // the dasher and the stroker walk vertices.
+    let flattened = agg_rust::conv_curve::ConvCurve::new(geometry);
+    if outline.dashes.is_empty() || !dashed_pattern {
+        let mut stroke = agg_rust::conv_stroke::ConvStroke::new(flattened);
+        configure(&mut stroke, outline, width);
+        return SvgStrokeOutline::Solid(stroke);
+    }
+    let mut dashed = agg_rust::conv_dash::ConvDash::new(flattened);
+    for (dash, gap) in &outline.dashes {
+        dashed.add_dash(f64::from(*dash) * scale, f64::from(*gap) * scale);
+    }
+    // The dasher walks the offset dash by dash: folded into one period.
+    dashed.dash_start((f64::from(outline.dash_offset) * scale).rem_euclid(period));
+    let mut stroke = agg_rust::conv_stroke::ConvStroke::new(dashed);
+    configure(&mut stroke, outline, width);
+    SvgStrokeOutline::Dashed(stroke)
+}
+
 #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)] // bounded pixel/coord/colour/glyph cast
 #[allow(clippy::similar_names)] // clip-box coordinate names (clip_x0/y0/x1/y1)
 /// Build an agg path from SVG geometry, mapping every coordinate on the way.
@@ -1230,50 +1362,26 @@ pub fn agg_fill_path(
 /// One builder for both consumers - the clip-mask rasteriser and the stroke -
 /// because two copies of a curve-by-curve translation drift apart silently:
 /// the reader only sees the shape being wrong, never which copy did it.
+///
+/// The geometry is made safe for AGG on the way: a ring with a non-finite
+/// point is left out, and the rest is clamped exactly to `COORD_LIMIT` device
+/// pixels (`geometry_guard`), which nothing on screen ever reaches.
+/// `close_rings` closes each ring along its exact closing edge, as a fill
+/// does; a stroke passes `false`, an open path having no closing edge.
 pub fn svg_path_to_agg(
     path: &azul_core::svg::SvgMultiPolygon,
     mx: &dyn Fn(f32) -> f64,
     my: &dyn Fn(f32) -> f64,
+    close_rings: bool,
 ) -> PathStorage {
-    use azul_core::svg::SvgPathElement;
-
-    let mut out = PathStorage::new();
-    for ring in path.rings.as_ref() {
-        let mut first = true;
-        for item in ring.items.as_ref() {
-            match item {
-                SvgPathElement::Line(l) => {
-                    if first {
-                        out.move_to(mx(l.start.x), my(l.start.y));
-                        first = false;
-                    }
-                    out.line_to(mx(l.end.x), my(l.end.y));
-                }
-                SvgPathElement::QuadraticCurve(q) => {
-                    if first {
-                        out.move_to(mx(q.start.x), my(q.start.y));
-                        first = false;
-                    }
-                    out.curve3(mx(q.ctrl.x), my(q.ctrl.y), mx(q.end.x), my(q.end.y));
-                }
-                SvgPathElement::CubicCurve(c) => {
-                    if first {
-                        out.move_to(mx(c.start.x), my(c.start.y));
-                        first = false;
-                    }
-                    out.curve4(
-                        mx(c.ctrl_1.x),
-                        my(c.ctrl_1.y),
-                        mx(c.ctrl_2.x),
-                        my(c.ctrl_2.y),
-                        mx(c.end.x),
-                        my(c.end.y),
-                    );
-                }
-            }
-        }
-    }
-    out
+    let mut out = BoundedPath::new(ClampBox::around_origin(COORD_LIMIT));
+    let end = if close_rings {
+        RingEnd::Filled
+    } else {
+        RingEnd::Open
+    };
+    add_svg_rings(&mut out, path, &|p| (mx(p.x), my(p.y)), end);
+    out.finish()
 }
 
 /// The user-space -> device-pixel mapping for SVG geometry painted into
@@ -1299,6 +1407,28 @@ pub fn svg_user_space_mapping(
         ),
         _ => (dpi_factor, dpi_factor, 0.0, 0.0),
     }
+}
+
+/// The box the AA rasterizer clips a path's GEOMETRY to for the pixel clip
+/// `clip`: the clip grown by a margin, within the pixmap. Cutting the geometry
+/// exactly at the clip changes the coverage of the pixels along the cut by a
+/// step (the cut's own rounding), so a shape painted in two passes whose clips
+/// meet differed from one pass in the anti-aliased pixels along the seam;
+/// grown, the cut lies in pixels the pixel clip (`clip_box_i`) never writes.
+/// The geometric clip still bounds the sweep (the huge-coordinate guard).
+fn geometry_clip_box(clip: Option<AzRect>, w: u32, h: u32) -> (f64, f64, f64, f64) {
+    const MARGIN: f64 = 2.0;
+    clip.map_or_else(
+        || (0.0, 0.0, f64::from(w), f64::from(h)),
+        |c| {
+            (
+                (f64::from(c.x) - MARGIN).max(0.0),
+                (f64::from(c.y) - MARGIN).max(0.0),
+                (f64::from(c.x + c.width) + MARGIN).min(f64::from(w)),
+                (f64::from(c.y + c.height) + MARGIN).min(f64::from(h)),
+            )
+        },
+    )
 }
 
 pub fn agg_fill_path_clipped(
@@ -1331,31 +1461,7 @@ pub fn agg_fill_path_clipped(
     }
     let mut ras = RasterizerScanlineAa::new();
     ras.filling_rule(rule);
-    // Clip GEOMETRY to the target pixmap (intersected with any caller clip) before
-    // rasterizing. Without this, the scanline sweep runs once per row the path crosses,
-    // so a huge/infinite coordinate — reachable from a large-but-legal CSS transform or
-    // SVG attribute — is O(coordinate magnitude), i.e. an effective hang. Clamping the
-    // rasterizer's clip box bounds the work to the visible area.
-    let (clip_x0, clip_y0, clip_x1, clip_y1) = clip.map_or_else(
-        || (0.0, 0.0, f64::from(w), f64::from(h)),
-        |c| {
-            (
-                f64::from(c.x).max(0.0),
-                f64::from(c.y).max(0.0),
-                f64::from(c.x + c.width).min(f64::from(w)),
-                f64::from(c.y + c.height).min(f64::from(h)),
-            )
-        },
-    );
-    ras.clip_box(clip_x0, clip_y0, clip_x1, clip_y1);
-    // Clamp coordinates before rasterizing — see ClampVertexSource. This is the actual
-    // guard against the huge/infinite-coordinate hang (the rasterizer's own clip_box
-    // above does not bound the work for saturated fixed-point coords).
-    let mut clamped = ClampVertexSource {
-        inner: path,
-        limit: coord_clamp_limit(w, h),
-    };
-    ras.add_path(&mut clamped, 0);
+    add_path_for_target(&mut ras, path, w, h, clip);
     let mut sl = ScanlineU8::new();
     render_scanlines_aa_solid(&mut ras, &mut sl, &mut rb, color);
 }
@@ -1441,23 +1547,7 @@ pub fn agg_fill_gradient_clipped<G: GradientFunction>(
     }
     let mut ras = RasterizerScanlineAa::new();
     ras.filling_rule(FillingRule::NonZero);
-    let (clip_x0, clip_y0, clip_x1, clip_y1) = clip.map_or_else(
-        || (0.0, 0.0, f64::from(w), f64::from(h)),
-        |c| {
-            (
-                f64::from(c.x).max(0.0),
-                f64::from(c.y).max(0.0),
-                f64::from(c.x + c.width).min(f64::from(w)),
-                f64::from(c.y + c.height).min(f64::from(h)),
-            )
-        },
-    );
-    ras.clip_box(clip_x0, clip_y0, clip_x1, clip_y1);
-    let mut clamped = ClampVertexSource {
-        inner: path,
-        limit: coord_clamp_limit(w, h),
-    };
-    ras.add_path(&mut clamped, 0);
+    add_path_for_target(&mut ras, path, w, h, clip);
     let mut sl = ScanlineU8::new();
 
     let interp = SpanInterpolatorLinear::new(transform);
@@ -3088,10 +3178,11 @@ mod autotest_generated {
 
     #[test]
     fn blit_pixmap_half_alpha_blend_is_exact() {
-        let src = filled(1, 1, [200, 100, 50, 128]);
+        // (200, 100, 50) at alpha 128, premultiplied as a layer holds it:
+        // over transparent black it lands as it is.
+        let src = filled(1, 1, [100, 50, 25, 128]);
         let mut dst = filled(1, 1, CLEAR);
         blit_pixmap(&src, &mut dst, 0, 0, 1.0);
-        // sa = 128, inv = 127, dst starts at 0 => (c * 128) / 255
         assert_eq!(get(&dst, 0, 0), [100, 50, 25, 128]);
     }
 

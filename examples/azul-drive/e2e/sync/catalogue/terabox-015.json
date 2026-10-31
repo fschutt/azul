@@ -1,0 +1,24 @@
+{
+  "name": "a public share link is taken down alone, on a domain apart from the app, and the takedown deletes nothing",
+  "description": "TERABOX-015 (sync-chaos share-links-and-revocation): TeraBox's share domain became a malware channel (TA450 hosted payloads on share links). Rules S14 and M1: link abuse is handled per link, on a host apart from the app; a takedown ends that link only and never deletes the owner's file or another link.",
+  "steps": [
+    { "op": "drive_create", "remote": "r", "encrypted": true },
+    { "op": "drive_open", "device": "a", "remote": "r" },
+    { "op": "drive_pair", "device": "a" },
+    { "op": "drive_wait_idle" },
+    { "op": "drive_write", "device": "a", "path": "pub/invoice.zip", "size": 200000, "seed": 15 },
+    { "op": "drive_write", "device": "a", "path": "pub/brochure.pdf", "text": "a harmless brochure" },
+    { "op": "drive_sync", "device": "a" },
+    { "op": "drive_share_link", "device": "a", "path": "pub/invoice.zip" },
+    { "op": "assert_response", "path": "result.host", "not_equals": "azlin.io" },
+    { "op": "drive_share_link", "device": "a", "path": "pub/brochure.pdf" },
+    { "op": "drive_tamper", "remote": "r", "action": "takedown_link", "path": "pub/invoice.zip" },
+    { "op": "drive_check", "check": "share_link", "device": "a", "path": "pub/invoice.zip", "readable": false },
+    { "op": "drive_check", "check": "share_link", "device": "a", "path": "pub/brochure.pdf", "readable": true },
+    { "op": "drive_sync", "device": "a" },
+    { "op": "drive_check", "check": "file", "device": "a", "path": "pub/invoice.zip", "size": 200000 },
+    { "op": "drive_check", "check": "trash_empty", "device": "a" },
+    { "op": "drive_check", "check": "remote_count", "glob": "pub/*", "count": 2 },
+    { "op": "drive_cleanup" }
+  ]
+}

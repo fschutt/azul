@@ -24,6 +24,9 @@ use std::{
     },
 };
 
+#[cfg(feature = "fluent")]
+use crate::fluent::{translate_texts_in_dom, FluentLocalizerHandle};
+
 use azul_core::{
     callbacks::{FocusTarget, HidpiAdjustedBounds, Update, VirtualViewCallbackReason},
     dom::{
@@ -34,14 +37,14 @@ use azul_core::{
     gl::OptionGlContextPtr,
     gpu::{GpuScrollbarOpacityEvent, GpuValueCache},
     hit_test::{DocumentId, ScrollPosition, ScrollbarHitId},
-    refany::{OptionRefAny, RefAny},
+    refany::{OptionRefAny, RefAny, RefAnyHolder, Repointing},
     resources::{
-        Epoch, FontKey, GlTextureCache, IdNamespace, ImageCache, ImageMask, ImageRef, ImageRefHash,
-        OpacityKey, RendererResources, UpdateImageType,
+        BackgroundSlot, Epoch, FontKey, GlTextureCache, IdNamespace, ImageCache, ImageMask,
+        ImageRef, ImageRefHash, OpacityKey, RendererResources, UpdateImageType,
     },
     selection::{
         CursorAffinity, GraphemeClusterId, Selection, SelectionAnchor, SelectionFocus,
-        SelectionRange, SelectionState, TextCursor, TextSelection,
+        SelectionRange, SelectionState, TextBlock, TextCursor, TextSelection,
     },
     spaces::{
         BorderBoxLocal, ContentBoxLocal, ContentInset, Inclusivity, ScrollOffset,
@@ -94,6 +97,7 @@ use crate::{
     timer::Timer,
     window_state::{FullWindowState, WindowCreateOptions},
 };
+use azul_css::system::DarkLightMode;
 
 // Global atomic counters for generating unique IDs
 static DOCUMENT_ID_COUNTER: AtomicUsize = AtomicUsize::new(0);
@@ -152,11 +156,25 @@ fn new_id_namespace() -> IdNamespace {
     IdNamespace(id)
 }
 
+/// What a `VirtualView` callback measures item DOMs against: the window that
+/// invokes it, and what the view's content inherits from its host
+/// ([`LayoutWindow::inherited_values_of_host`]) - an item is measured in the
+/// font it will be laid out in, or the sizes it reports are the default
+/// serif's. Lives on the invoking frame for the length of the callback (the
+/// `ctx` of [`virtual_view_measure_dom_trampoline`]).
+#[cfg(feature = "std")]
+struct VirtualViewMeasureContext {
+    window: *const LayoutWindow,
+    inherited_from_host: azul_core::prop_cache::InheritedFromHost,
+}
+
 /// Trampoline for `VirtualViewCallbackInfo::measure_dom` /
 /// `measure_dom_shrink_to_fit` (headless item sizing): `ctx` is the invoking
-/// `LayoutWindow`, `dom` was `ManuallyDrop`'d by the caller and is moved out
-/// here exactly once. `mode` picks the extent (block root stretched to the
-/// box) or the shrink-to-fit (max-content width) answer.
+/// view's [`VirtualViewMeasureContext`], `dom` was `ManuallyDrop`'d by the
+/// caller and is moved out here exactly once. `mode` picks the extent (block
+/// root stretched to the box) or the shrink-to-fit (max-content width)
+/// answer. The DOM is styled as the view's own content is: inheriting from
+/// the view's host.
 #[cfg(feature = "std")]
 extern "C" fn virtual_view_measure_dom_trampoline(
     ctx: *mut core::ffi::c_void,
@@ -167,16 +185,30 @@ extern "C" fn virtual_view_measure_dom_trampoline(
     if ctx.is_null() || dom.is_null() {
         return LogicalSize::zero();
     }
-    // SAFETY: ctx is the LayoutWindow that constructed the callback info
-    // (same liveness contract as CallbackInfo's internal window pointer);
-    // both measure paths only need &self and work on scratch caches.
-    let lw = unsafe { &*(ctx as *const LayoutWindow) };
+    // SAFETY: ctx is the `VirtualViewMeasureContext` on the frame of the
+    // invoke that constructed the callback info, and its window the
+    // LayoutWindow running that invoke (same liveness contract as
+    // CallbackInfo's internal window pointer); both measure paths only need
+    // &self and work on scratch caches.
+    let measure = unsafe { &*(ctx as *const VirtualViewMeasureContext) };
+    if measure.window.is_null() {
+        return LogicalSize::zero();
+    }
+    let lw = unsafe { &*measure.window };
     let dom = unsafe { core::ptr::read(dom) };
+    let styled_dom = lw.style_user_dom_inheriting(
+        dom,
+        &lw.current_window_state,
+        FORM_SCOPE_MEASURE,
+        measure.inherited_from_host.clone(),
+    );
     match mode {
-        azul_core::callbacks::MeasureDomMode::Extent => lw.measure_dom(dom, available),
-        azul_core::callbacks::MeasureDomMode::ShrinkToFit => {
-            lw.measure_dom_shrink_to_fit(dom, available)
+        azul_core::callbacks::MeasureDomMode::Extent => {
+            lw.measure_styled_dom(&styled_dom, available)
         }
+        azul_core::callbacks::MeasureDomMode::ShrinkToFit => lw
+            .measure_styled_dom_shrink_to_fit(&styled_dom, available)
+            .unwrap_or_else(LogicalSize::zero),
     }
 }
 
@@ -340,6 +372,117 @@ pub fn system_natural_scroll() -> Option<bool> {
     }
 }
 
+/// App-global `AppConfig::mode`: the APP's light / dark MODE, which every
+/// window of the app shares. `App::create` publishes the startup value;
+/// `CallbackInfo::set_mode` switches it at runtime. `0` follows the desktop
+/// ("system"), `1` pins light, `2` pins dark.
+///
+/// Global, like the settings above, because the choice belongs to no window:
+/// a window opened AFTER a switch has to start in it, and window creation has
+/// no path back to the window whose callback switched. Each `LayoutWindow`
+/// mirrors it in [`LayoutWindow::mode`] - seeded from here when it is built,
+/// updated when the app switches - and the cascade reads the mirror, so a
+/// test (which never publishes anything here) can pin one window without
+/// touching the others running beside it.
+static APP_MODE: core::sync::atomic::AtomicU8 = core::sync::atomic::AtomicU8::new(0);
+
+/// Publish the app's mode choice (`None` follows the desktop).
+pub fn set_app_mode(mode: azul_core::window::OptionDarkLightMode) {
+    use azul_core::window::{OptionDarkLightMode, DarkLightMode};
+    let v = match mode {
+        OptionDarkLightMode::None => 0,
+        OptionDarkLightMode::Some(DarkLightMode::Light) => 1,
+        OptionDarkLightMode::Some(DarkLightMode::Dark) => 2,
+    };
+    APP_MODE.store(v, Ordering::Relaxed);
+}
+
+/// App-global language choice (`CallbackInfo::set_locale`; `None` follows the system's
+/// language), global like [`APP_MODE`] and for the same reason: a window built after a switch
+/// - a dialog - has to start in it ([`LayoutWindow::set_app_localization`] adopts it).
+static APP_LOCALE: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+/// Publish the app's language choice (`None`, or an empty tag: the system's language).
+pub fn set_app_locale(locale: Option<&str>) {
+    let chosen = locale
+        .map(str::trim)
+        .filter(|tag| !tag.is_empty())
+        .map(str::to_string);
+    *APP_LOCALE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = chosen;
+}
+
+/// The app's language choice; `None` follows the system's language.
+#[must_use]
+pub fn app_locale() -> Option<String> {
+    APP_LOCALE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clone()
+}
+
+/// The app's mode choice: `None` follows the desktop.
+#[must_use]
+pub fn app_mode() -> azul_core::window::OptionDarkLightMode {
+    use azul_core::window::{OptionDarkLightMode, DarkLightMode};
+    match APP_MODE.load(Ordering::Relaxed) {
+        1 => OptionDarkLightMode::Some(DarkLightMode::Light),
+        2 => OptionDarkLightMode::Some(DarkLightMode::Dark),
+        _ => OptionDarkLightMode::None,
+    }
+}
+
+/// THE mode decision (theme-chain invariant I1): the light / dark a window
+/// shows, given the app's mode and the window's OWN light / dark.
+///
+/// ```text
+/// AZ_MODE=light|dark   >  the app's choice  >  the window's own theme
+/// ```
+///
+/// The window's own theme is what the shells keep in
+/// `FullWindowState::theme` while the app follows the desktop: the desktop's
+/// theme, or the `WindowCreateOptions::theme` the window was created with
+/// until the desktop next changes. So the full order is env pin > app >
+/// window > desktop. The env pin outranks everything, or a screenshot run
+/// would follow whatever the app or the machine is set to.
+///
+/// Every place that turns "which theme?" into an answer calls this: the
+/// cascade context ([`LayoutWindow::dynamic_selector_context`]), a window's
+/// initial theme, the shells' desktop-theme adoption, the app's runtime
+/// switch and the `CallbackInfo` getters. It is idempotent - handing it a
+/// mode it already decided returns that mode - so a caller that is not
+/// sure whether its input was resolved yet may always resolve again.
+#[must_use]
+pub fn resolve_window_mode(
+    app: azul_core::window::OptionDarkLightMode,
+    window: DarkLightMode,
+) -> DarkLightMode {
+    resolve_window_mode_with(
+        azul_css::dynamic_selector::mode_pinned_by_env(),
+        app,
+        window,
+    )
+}
+
+/// [`resolve_window_mode`] with the `AZ_MODE` pin passed in rather than
+/// read from the environment - the testable core of the decision.
+#[must_use]
+pub const fn resolve_window_mode_with(
+    env: Option<DarkLightMode>,
+    app: azul_core::window::OptionDarkLightMode,
+    window: DarkLightMode,
+) -> DarkLightMode {
+    use azul_core::window::OptionDarkLightMode;
+    if let Some(pinned) = env {
+        return pinned;
+    }
+    match app {
+        OptionDarkLightMode::Some(pinned) => pinned,
+        OptionDarkLightMode::None => window,
+    }
+}
+
 /// App-global `AppConfig::expose_system_media_controls`, published the same way
 /// and for the same reason: the Linux media-key backend starts from a place
 /// with no path back to the `AppConfig` the app was built with.
@@ -418,9 +561,9 @@ pub extern "C" fn css_animation_timer_callback(
 /// Callback for the tooltip-delay timer.
 ///
 /// Fires once after `InputMetrics::hover_time_ms` has elapsed while a node with
-/// a tooltip-bearing attribute was continuously hovered. The callback looks up
-/// the `title` / `aria-label` / `alt` attribute on the currently-hovered node,
-/// emits a `ShowTooltip` `CallbackChange`, and terminates — a single-shot timer.
+/// a `title` attribute was continuously hovered. The callback looks up the
+/// `title` of the currently-hovered node, emits a `ShowTooltip`
+/// `CallbackChange` at the pointer, and terminates — a single-shot timer.
 /// Movement to a different node (or any hover loss) removes and re-adds the
 /// timer from the platform layer, so the callback itself never needs to
 /// reschedule.
@@ -435,21 +578,21 @@ pub extern "C" fn tooltip_delay_timer_callback(
     };
 
     let layout_window = info.callback_info.get_layout_window();
+    // The title of the hovered node's nearest titled ancestor, itself
+    // included (`LayoutWindow::title_owner`).
     let hover_node_id = layout_window
         .hover_manager
         .current_hover_node()
+        .and_then(|node_id| layout_window.title_owner(node_id))
         .map(|node_id| DomNodeId {
             dom: DomId { inner: 0 },
             node: NodeHierarchyItemId::from_crate_internal(Some(node_id)),
         });
 
     if let Some(dom_node_id) = hover_node_id {
-        // Priority: aria-label > alt > title (mirrors DOM get_accessible_label).
-        let tooltip_text = info
-            .callback_info
-            .get_node_attribute(dom_node_id, "aria-label")
-            .or_else(|| info.callback_info.get_node_attribute(dom_node_id, "alt"))
-            .or_else(|| info.callback_info.get_node_attribute(dom_node_id, "title"));
+        // As in Chrome, only the title is shown on hover: an aria-label names
+        // the node for a screen reader, an alt stands in for an image.
+        let tooltip_text = info.callback_info.get_node_attribute(dom_node_id, "title");
 
         if let Some(text) = tooltip_text {
             info.callback_info.show_tooltip(text);
@@ -751,6 +894,11 @@ pub const MAX_EVENT_RECURSION_DEPTH: usize = 7;
 /// `FrameReport::hit_depth_cap` rather than silently truncating.
 pub const MAX_LIFECYCLE_REGEN_PASSES: usize = 3;
 
+/// How many `StyleFontFamily::Ref` faces a window keeps without collecting
+/// the ones it no longer draws (`LayoutWindow::collect_embedded_fonts`): an
+/// app's own icon / brand fonts are never worth a scan.
+pub const EMBEDDED_FONTS_ALWAYS_KEPT: usize = 8;
+
 impl FrameReport {
     /// Zero the work counters + accumulated damage if `requested_generation`
     /// (this window's [`LayoutWindow::frame_report_reset_request`]) has moved
@@ -829,8 +977,9 @@ impl FrameReport {
 pub struct DomLayoutResult {
     /// The styled DOM that was laid out
     pub styled_dom: StyledDom,
-    /// The layout tree with computed sizes and positions
-    pub layout_tree: LayoutTree,
+    /// The layout tree with computed sizes and positions - the solver's
+    /// cached tree itself (`LayoutCache::tree`), shared, not a copy.
+    pub layout_tree: Arc<LayoutTree>,
     /// Absolute positions of all nodes
     pub calculated_positions: solver3::PositionVec,
     /// The viewport used for this layout
@@ -851,6 +1000,184 @@ pub struct DomLayoutResult {
     /// This allows us to map `WebRender` scroll IDs back to DOM nodes
     pub scroll_id_to_node_id: HashMap<u64, NodeId>,
 }
+
+impl RefAnyHolder for DomLayoutResult {
+    fn for_each_refany(&mut self, visit: &mut dyn FnMut(&mut RefAny)) {
+        self.styled_dom.for_each_refany(visit);
+    }
+}
+
+/// Whether `result` - a view's document, laid out for its box - lays out the
+/// same at any height of that box: its root is as tall as its content (no
+/// height, no min / max height, in flow), nothing in it is sized or placed
+/// by the viewport (no `vh` / `vmin` / `vmax` length, no fixed box) and no
+/// canvas background fills the box. A box that only changes height then
+/// needs neither a layout nor a display list of the document.
+fn lays_out_without_the_viewport_height(result: &DomLayoutResult) -> bool {
+    use azul_css::props::layout::LayoutPosition;
+
+    let tree = &result.layout_tree;
+    let Some(root) = tree.warm(LayoutNodeId::new(tree.root)) else {
+        return false;
+    };
+    let style = &root.computed_style;
+    let in_flow = matches!(style.position, LayoutPosition::Static | LayoutPosition::Relative);
+    if !in_flow || style.height.is_some() || style.min_height.is_some() || style.max_height.is_some()
+    {
+        return false;
+    }
+    let cache = &result.styled_dom.css_property_cache.ptr;
+    if cache.compact_cache.as_ref().is_none_or(|cc| cc.uses_viewport_units) {
+        return false;
+    }
+    if tree
+        .warm
+        .iter()
+        .any(|w| w.computed_style.position == LayoutPosition::Fixed)
+    {
+        return false;
+    }
+    let Some(root_dom) = tree.get(LayoutNodeId::new(tree.root)).and_then(|n| n.dom_node_id) else {
+        return false;
+    };
+    let state = result.styled_dom.styled_nodes.as_container()[root_dom].styled_node_state;
+    solver3::getters::get_background_contents(&result.styled_dom, root_dom, &state).is_empty()
+}
+
+impl DomLayoutResult {
+    /// The layout tree to write to after the pass (a text edit's reshape, a
+    /// scrollbar raised later). While the solver's cache still shares it, the
+    /// write goes to this result's own copy, so the cache keeps the tree its
+    /// next pass starts from, as it did when every pass handed over a copy.
+    pub fn layout_tree_mut(&mut self) -> &mut LayoutTree {
+        Arc::make_mut(&mut self.layout_tree)
+    }
+
+    /// Puts the atomic inline children of the inline formatting context at
+    /// `ifc_layout_index` where its lines put them (`positions`, from the
+    /// IFC's content box), and their descendants with them, as the solver
+    /// places every in-flow child once its parent is laid out
+    /// (`place_inflow_child`).
+    fn place_inline_children(
+        &mut self,
+        ifc_layout_index: usize,
+        positions: &BTreeMap<usize, LogicalPosition>,
+    ) -> solver3::Result<()> {
+        if positions.is_empty() {
+            return Ok(());
+        }
+        let tree = Arc::make_mut(&mut self.layout_tree);
+        let ifc = LayoutNodeId::new(ifc_layout_index);
+        let (Some(node), Some(&origin)) =
+            (tree.get(ifc), self.calculated_positions.get(ifc_layout_index))
+        else {
+            return Err(solver3::LayoutError::InvalidTree);
+        };
+        let edges = node.box_props.unpack();
+        let content_box = LogicalPosition::new(
+            origin.x + edges.border.left + edges.padding.left,
+            origin.y + edges.border.top + edges.padding.top,
+        );
+        let writing_mode = tree
+            .warm(ifc)
+            .map(|warm| warm.computed_style.writing_mode)
+            .unwrap_or_default();
+        for (&child, &position) in positions {
+            solver3::cache::place_inflow_child(
+                tree,
+                child,
+                position,
+                content_box,
+                writing_mode,
+                false,
+                &mut self.calculated_positions,
+            )?;
+        }
+        Ok(())
+    }
+}
+
+/// An inline formatting context as a relayout after an edit lays it out:
+/// the node its style comes from, and its atomic inline children by where
+/// the edited content holds them.
+#[derive(Debug)]
+struct EditedIfc {
+    dom_id: DomId,
+    root_style_node: NodeId,
+    child_map: HashMap<crate::text3::cache::ContentIndex, usize>,
+}
+
+/// Where generated content stands in its box's inline content: in front of
+/// the box's own content (a `::marker`, a `::before`) or behind it (an
+/// `::after`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GeneratedSide {
+    Front,
+    Back,
+}
+
+/// Which side of its box's own content `item`, an item of an inline
+/// formatting context's content, was generated on, when the layout
+/// collected it from generated content: a `::marker` item, or the text or
+/// the box of a `::marker`, `::before` or `::after` node.
+fn generated_side(styled_dom: &StyledDom, item: &InlineContent) -> Option<GeneratedSide> {
+    match item {
+        InlineContent::Marker { .. } => Some(GeneratedSide::Front),
+        other => generated_node_side(styled_dom, content_item_node(other)?),
+    }
+}
+
+/// Which side of its element's content the node `node` was generated on,
+/// when it is a `::marker`, `::before` or `::after` node or the text node
+/// one of them holds.
+fn generated_node_side(styled_dom: &StyledDom, node: NodeId) -> Option<GeneratedSide> {
+    let side_of = |node: NodeId| match styled_dom
+        .node_data
+        .as_container()
+        .get(node)
+        .map(azul_core::dom::NodeData::get_node_type)
+    {
+        Some(NodeType::Marker | NodeType::Before) => Some(GeneratedSide::Front),
+        Some(NodeType::After) => Some(GeneratedSide::Back),
+        _ => None,
+    };
+    side_of(node).or_else(|| {
+        let parent = styled_dom
+            .node_hierarchy
+            .as_container()
+            .get(node)?
+            .parent_id()?;
+        side_of(parent)
+    })
+}
+
+/// The DOM node an item of an inline formatting context's content was
+/// collected from: a text run's text node, an atomic inline's element.
+const fn content_item_node(item: &InlineContent) -> Option<NodeId> {
+    match item {
+        InlineContent::Text(run) => run.source_node_id,
+        other => atomic_item_node(other),
+    }
+}
+
+/// The DOM node an atomic inline item of an inline formatting context's
+/// content stands for: the inline-block, image or empty inline box with
+/// edges its layout collected it from.
+const fn atomic_item_node(item: &InlineContent) -> Option<NodeId> {
+    match item {
+        InlineContent::Shape(shape) => shape.source_node_id,
+        InlineContent::Image(crate::text3::cache::InlineImage {
+            source: crate::text3::cache::ImageSource::Node(node),
+            ..
+        }) => Some(*node),
+        _ => None,
+    }
+}
+
+/// The next window's key for the a11y lints (`LayoutWindow::dom_lint_scope`);
+/// 0 is a lint run outside any window.
+static NEXT_DOM_LINT_SCOPE: core::sync::atomic::AtomicU64 =
+    core::sync::atomic::AtomicU64::new(1);
 
 /// Bytes held by `layout_results`, published by the walk at the insert site so
 /// the `accounted / rss` line can say what it is missing. Cross-frame by
@@ -886,6 +1213,8 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         layout_results: _,
 
         // NOT WALKED, AND CAN GROW WITH CONTENT — these are the live gaps.
+        // One layout cache per live child DOM (a tree and its positions each).
+        child_layout_caches: _,
         // Named individually rather than folded into the list below, because
         // a coverage annotation claiming "everything else is small" is worse
         // than none when it is wrong.
@@ -918,6 +1247,21 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         recorded_size_queries: _,
         // A six-bit mask, keyed by nothing.
         recorded_style_dependencies: _,
+        // Two flags, one language, and the app's language list - bounded by
+        // the app's configuration, not by the document.
+        depends_on_locale: _,
+        depends_on_text_direction: _,
+        locale_override: _,
+        known_languages: _,
+        // One small enum, the app's mode choice.
+        mode: _,
+        // One short string, the app theme's name.
+        app_theme: _,
+        // One counter.
+        rice_generation: _,
+        // A handle (Arc) plus a u64: the manager it points at is the APP's,
+        // bounded by the app's accelerators, not by this window's document.
+        global_hotkeys: _,
         // One small entry per node animating RIGHT NOW, not per node in the
         // document, and `tick` removes an entry as soon as it settles. A
         // document ten times larger does not make this bigger; only ten times
@@ -941,6 +1285,15 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         pending_track_changes: _,
         tracks_sampled_since_tick: _,
         last_anim_tick: _,
+        // One id per culled live track, a subset of `live_tracks`; a bool.
+        culled_tracks: _,
+        content_changed_doms: _,
+        // The views' live tracks, bounded like `live_tracks`; a bool.
+        view_tracks: _,
+        view_tracks_hidden: _,
+        window_occluded: _,
+        root_display_list_gpu_fingerprint: _,
+        presented_frames: _,
         // Two u64 arrays sized by node count (~16 B/node) — noise next to
         // the tree; walked nowhere, listed so the destructure stays total.
         last_dom_fingerprints: _,
@@ -948,18 +1301,34 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
             fragmentation_context: _,
         image_cache: _,
         content_overlay: _,
+        image_callback_inputs: _,
+        // One small entry per background layer that declares a render
+        // callback: bounded by such layers.
+        background_callback_inputs: _,
+        // A subset of those layers, for the few frames a render takes.
+        background_callbacks_waiting: _,
+        // A light and a counter.
+        material_light: _,
+        background_frames_generation: _,
+        material_light_is_own: _,
+        app_light: _,
+        app_light_generation: _,
+        // One small entry per node drawing a material.
+        material_sheen: _,
         content_journal: _,
         caret_text_snapshot: _,
         scroll_manager: _,
         gesture_drag_manager: _,
         focus_manager: _,
         text_edit_manager: _,
-        last_revealed_caret_rect: _,
-        last_revealed_caret_key: _,
         // NOT WALKED: transient reconcile input, alive only between the
         // funnel's stash and the next re-materialization; typically empty at
         // report time.
         previous_child_arenas: _,
+        // NOT WALKED: alive within one pass only.
+        retired_child_results: _,
+        // NOT WALKED: a hash list per view.
+        child_dom_fingerprints: _,
         text_selection_drag_anchor: _,
         prev_left_down: _,
         file_drop_manager: _,
@@ -983,6 +1352,9 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         // One small entry per media node the app has driven, plus a queue
         // cleared every event pass. Bounded by players, not by document size.
         media_player_manager: _,
+        // One entry per mounted web view (32 navigation records at most),
+        // plus an op queue the shell drains every frame.
+        webviews: _,
         device_event_manager: _,
         hid_manager: _,
         haptic_manager: _,
@@ -992,13 +1364,20 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         laid_out_safe_area_insets: _,
         currently_dragging_thumb: _,
         pending_caret_restore: _,
+        pending_editor_reset: _,
         structural_history_suppression: _,
         pagination_dirty_from: _,
         font_stacks_hash: _,
         preedit_shaped_node: _,
         seat_preedit_shaped: _,
+        dom_lint_runs: _,
+        // One small entry per laid-out DOM.
+        dom_lint_stamps: _,
+        dom_lint_scope: _,
+        a11y_tree_updates: _,
         timers: _,
         threads: _,
+        thread_owners: _,
         renderer_resources: _,
         renderer_type: _,
         previous_window_state: _,
@@ -1022,15 +1401,27 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         // shares. Its bytes belong to the app's report, once, not to each
         // window that can reach it.
         icon_provider: _,
+        // NOT WALKED: bounded (`form_controls::MAX_REMEMBERED` entries of
+        // one small value each) and shared with the recorders it hands out.
+        #[cfg(feature = "widgets")]
+        form_control_memory: _,
+            #[cfg(feature = "fluent")]
+            fluent_localizer: _,
         last_laid_out_frame: _,
+        last_laid_out_mode: _,
         system_animations_override: _,
         monitors: _,
+        // Two numbers.
+        screen_mapping: _,
         input_interpreter: _,
         post_filter: _,
         custom_e2e_op: _,
+        e2e_commands: _,
         routes: _,
         // Transient CSS-diff staging — plain data, no Drop obligations.
         pending_css_dirty: _,
+        reconciled_dom: _,
+        host_lays_out: _,
         // One rect per NodeResized subscriber (a handful of widgets), not
         // the document.
         resize_watch: _,
@@ -1082,6 +1473,65 @@ pub struct TextChangesetResult {
     /// Whether the text size changed enough to require full re-layout
     /// (e.g., for scroll container recomputation)
     pub needs_relayout: bool,
+}
+
+/// What [`LayoutWindow::apply_pending_text_and_reveal`] did: the edits it
+/// landed and whether the caret reveal that follows a landed edit moved the
+/// view.
+#[derive(Debug)]
+pub struct LandedTextEdit {
+    /// The queued edits, applied ([`LayoutWindow::apply_text_changeset`]).
+    pub changeset: TextChangesetResult,
+    /// The pending reveal moved the view. Only an input issues one (a landed
+    /// edit, a caret op earlier in the same pass), so a pass that typed and
+    /// moved nothing reveals nothing.
+    pub revealed: bool,
+}
+
+/// An editor reset waiting for the app's new content
+/// ([`LayoutWindow::reset_editor_content`]): the host by its
+/// generation-stable key, and where the caret goes once the content is laid
+/// out.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct EditorReset {
+    host_key: u64,
+    caret_at_end: bool,
+}
+
+/// What [`LayoutWindow::paste_clipboard_content`] did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PasteOutcome {
+    /// Nothing: no editing focus, or nothing to paste.
+    Nothing,
+    /// Text at the caret(s): applied, or recorded to land with the pass's
+    /// text changeset.
+    Text,
+    /// A structural edit recorded for the app (a document selection
+    /// replaced, pasted blocks or links); its preview paints on the next
+    /// relayout.
+    Structural,
+}
+
+impl LandedTextEdit {
+    /// Whether any edit landed.
+    #[must_use]
+    pub const fn landed(&self) -> bool {
+        !self.changeset.dirty_nodes.is_empty()
+    }
+
+    /// The pass result the landing asks for: an incremental relayout when a
+    /// landed edit changed its text's extent, a display-list rebuild when
+    /// one landed without, and nothing when nothing landed.
+    pub const fn event_result(&self) -> azul_core::events::ProcessEventResult {
+        use azul_core::events::ProcessEventResult;
+        if !self.landed() {
+            ProcessEventResult::DoNothing
+        } else if self.changeset.needs_relayout {
+            ProcessEventResult::ShouldIncrementalRelayout
+        } else {
+            ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+        }
+    }
 }
 
 /// The E2E `mount` override for one window: the XML+CSS document the debug
@@ -1155,10 +1605,62 @@ pub enum TextEditNotify {
 /// multi-cursor paste). Replaces the three formerly hand-picked per-site id
 /// bands, which existed only so the sites could not collide.
 static CHANGESET_COUNTER: AtomicUsize = AtomicUsize::new(0);
-/// How many nodes [`LayoutWindow::ifc_candidate_children`] will visit looking
-/// for the box that owns an editable's inline layout. Editable subtrees are
-/// small; the bound only stops a malformed hierarchy from spinning.
+/// How many nodes a scan of an editable's subtree will visit - looking for
+/// the box that owns its inline layout ([`LayoutWindow::ifc_candidate_children`]).
+/// Editable subtrees are small; the bound only stops a malformed hierarchy
+/// from spinning.
 const IFC_CANDIDATE_SCAN_LIMIT: usize = 4096;
+
+/// A translation key a node declares for assistive technology (an
+/// `AzString::tr` name or description), in `language`. The accesskit tree
+/// and the iOS / Android element list both read through it, so every
+/// platform announces the same words.
+#[cfg(all(feature = "a11y", feature = "fluent"))]
+fn translate_a11y_key(localizer: &FluentLocalizerHandle, language: &str, key: &str) -> String {
+    localizer
+        .translate(
+            azul_css::AzString::from(language),
+            azul_css::AzString::from(key),
+            crate::fmt::FmtArgVec::new(),
+        )
+        .as_str()
+        .to_string()
+}
+
+/// `parent`'s children, in order.
+fn child_nodes(
+    hierarchy: &azul_core::id::NodeDataContainerRef<'_, azul_core::styled_dom::NodeHierarchyItem>,
+    parent: NodeId,
+) -> Vec<NodeId> {
+    let mut out = Vec::new();
+    let mut child = hierarchy.get(parent).and_then(|h| h.first_child_id(parent));
+    while let Some(c) = child {
+        out.push(c);
+        child = hierarchy
+            .get(c)
+            .and_then(azul_core::styled_dom::NodeHierarchyItem::next_sibling_id);
+    }
+    out
+}
+
+/// `node`'s index in its parent's child list: how many siblings precede it.
+fn sibling_index(
+    hierarchy: &azul_core::id::NodeDataContainerRef<'_, azul_core::styled_dom::NodeHierarchyItem>,
+    node: NodeId,
+) -> u32 {
+    let previous = |n: NodeId| {
+        hierarchy
+            .get(n)
+            .and_then(azul_core::styled_dom::NodeHierarchyItem::previous_sibling_id)
+    };
+    let mut index = 0;
+    let mut sibling = previous(node);
+    while let Some(s) = sibling {
+        index += 1;
+        sibling = previous(s);
+    }
+    index
+}
 
 #[allow(clippy::struct_excessive_bools)]
 /// A tear-off drag of an inline-docked `<transient-window>`, running in
@@ -1239,6 +1741,52 @@ pub struct LayoutWindow {
     /// which is read conservatively - see
     /// `SystemStyleDependencies::dom_depends_on_change`.
     pub recorded_style_dependencies: azul_core::callbacks::SystemStyleDependencies,
+    /// This window's place in its App's global-hotkey manager: the shared
+    /// handle and the window's sequence number. `regenerate_layout` hands
+    /// every `layout()` pass's declarations (`LayoutCallbackInfo::
+    /// add_global_hotkey`) to it; dropping the window forgets them.
+    pub global_hotkeys: crate::managers::global_hotkey::WindowHotkeys,
+    /// The last `layout()` call read `LayoutCallbackInfo::get_locale`: its
+    /// DOM depends on the locale, so a locale change rebuilds it.
+    pub depends_on_locale: bool,
+    /// The last `layout()` call read `LayoutCallbackInfo::is_rtl`: its DOM
+    /// depends on the text direction, so a direction change rebuilds it.
+    pub depends_on_text_direction: bool,
+    /// The language the app chose with `CallbackInfo::set_locale`, resolved
+    /// against [`Self::known_languages`]; `None` follows the system language.
+    /// See [`Self::active_language`].
+    pub locale_override: Option<azul_css::system::SystemLanguage>,
+    /// The app's known languages (`AppConfig::localization`): where a locale
+    /// chosen at runtime gets its right-to-left-ness from.
+    pub known_languages: azul_css::system::SystemLanguageVec,
+    /// The APP's light / dark MODE as this window applies it: `None`
+    /// follows the desktop ("system"), `Some` pins light / dark
+    /// (`AppConfig::mode`, `CallbackInfo::set_mode`).
+    ///
+    /// A mirror of the app-global [`app_mode`], seeded from it when the
+    /// window is built and updated when the app switches; the cascade reads
+    /// THIS through [`Self::window_mode_for`], never the global. See
+    /// [`resolve_window_mode`] for where it sits in the precedence.
+    pub mode: azul_core::window::OptionDarkLightMode,
+    /// The APP THEME this window's DOM is built under (`"flat"`, `"flora"`,
+    /// ...): what its cascade matches `@theme(<name>)` blocks against
+    /// ([`Self::dynamic_selector_context`]) and what its DOM builds read
+    /// (`azul_core::app_theme::current_theme`, entered around them).
+    ///
+    /// The app's choice (`azul_core::app_theme::app_theme`) as this window
+    /// last BUILT for it: seeded from the choice when the window is built,
+    /// brought up to it by the shells' `regenerate_layout` - a window whose
+    /// value lags the choice owes a rebuild (`RelayoutReason::ThemeChange`).
+    /// A theme change is never a restyle: a theme may change a widget's
+    /// structure. Tests set it per window without publishing the choice.
+    pub app_theme: AzString,
+    /// The rice generation (`azul_css::rice::generation`) this window's DOM
+    /// was last built under - the `AZ_RICING=watch` counterpart of
+    /// [`Self::app_theme`]: brought up to the loader's by the shells'
+    /// `regenerate_layout`, and a window whose value lags owes a rebuild
+    /// (`RelayoutReason::ThemeChange`), because a rice reload goes through
+    /// the app-theme rebuild path.
+    pub rice_generation: u64,
     /// Pre-cascade fingerprints of the LAST adopted user DOM (two tiers:
     /// structure vs style — see `azul_core::diff::DomFingerprints`). The
     /// produce side of `regenerate_layout` compares the fresh callback DOM
@@ -1308,6 +1856,48 @@ pub struct LayoutWindow {
     /// `None` while nothing animates, which is also what keeps the clock read
     /// off the idle path — see [`Self::tick_animations_now`].
     pub last_anim_tick: Option<Instant>,
+    /// Live tracks whose node nobody can see right now: scrolled out of its
+    /// clip, laid out nowhere (`display: none`), `visibility: hidden`, under
+    /// a fully transparent group, or in a window that shows nothing. They
+    /// keep their clock but are not sampled and ask for no frames. Refreshed
+    /// by [`Self::update_animation_culling`] at every driver tick and at the
+    /// end of every pass (USER ruling 2026-09-30: "cull refreshes for
+    /// animations if the changes aren't on-screen").
+    pub culled_tracks: BTreeSet<NodeId>,
+    /// The child DOMs (a `VirtualView`'s content) whose content changed since
+    /// they were laid out, by `set_node_text`. A view the relayout keeps
+    /// lays such a child out again (`follow_host_in_kept_view`); without it
+    /// the kept child showed the text it was laid out with.
+    pub content_changed_doms: BTreeSet<DomId>,
+    /// The live `-azul-animation-in` tracks of the nodes of child DOMs (`VirtualView`
+    /// content), by DOM. `live_tracks` holds the root's, whose identities the root's
+    /// reconciliation, exits and culling share. A view's tracks start when its nodes
+    /// enter (`start_view_enter_tracks`), are sampled with the root's
+    /// (`run_track_frames`) into the view's own GPU channels, and go with their DOM.
+    pub view_tracks: BTreeMap<DomId, BTreeMap<NodeId, AnimTrack>>,
+    /// The window cannot show the views' tracks (minimized, hidden or occluded; set
+    /// by [`Self::update_animation_culling`]): they keep their clocks, but are not
+    /// sampled and ask for no frame.
+    pub view_tracks_hidden: bool,
+    /// The window is fully covered (macOS `occlusionState` without the
+    /// visible bit). Set by the shell; every live track is culled while it
+    /// holds. Minimized and hidden windows need no flag - the window state
+    /// says so.
+    pub window_occluded: bool,
+    /// `GpuValueCache::dl_emission_fingerprint` of the cache the ROOT display
+    /// list in `layout_results` was built from - which nodes it binds to
+    /// which transform / opacity keys. While the live cache still has this
+    /// fingerprint, a rebuild would bind exactly the same keys, and an
+    /// animation tick that only moved VALUES can repaint the list as it is
+    /// ([`Self::animation_tick_is_values_only`]). `None` before the first
+    /// build.
+    pub root_display_list_gpu_fingerprint: Option<u64>,
+    /// Frames handed to a renderer on the paths that do not
+    /// [`Self::record_frame`] (the CPU backend of every shell, `WebRender`
+    /// transactions that request a frame). An atomic, because the CPU
+    /// renderer only borrows the window. See
+    /// [`Self::presented_frame_generation`].
+    pub presented_frames: core::sync::atomic::AtomicU64,
     /// The CSS DIFF of the most recent `begin_reconciliation`, waiting to be
     /// consumed by the NEXT layout pass of that DOM: node -> worst
     /// `RelayoutScope` across its changed properties (including `None` =
@@ -1320,7 +1910,25 @@ pub struct LayoutWindow {
         DomId,
         Vec<(NodeId, azul_css::props::property::RelayoutScope)>,
     )>,
+    /// The DOM [`Self::begin_reconciliation`] reconciled for the layout pass
+    /// that follows it; taken by that pass. A new DOM the funnel receives
+    /// without one is reconciled by the funnel itself
+    /// (`layout_and_generate_display_list_impl`).
+    pub reconciled_dom: Option<DomId>,
+    /// Set while a host that acts on the returned tiers applies a callback's
+    /// content changes ([`Self::apply_content_change_for_host`]): a CSS or
+    /// style write then only writes, and the one relayout (or display-list
+    /// rebuild) the tier asks the host for covers every write of the
+    /// callback. Unset - a test, an embedder reading the layout right after
+    /// a write - each write leaves the layout consistent at once.
+    pub host_lays_out: bool,
     pub layout_cache: Solver3LayoutCache,
+    /// The layout cache of each child DOM (`VirtualView` content), kept between its
+    /// passes as `layout_cache` is kept for the root: a view that renders again lays
+    /// out from what it had instead of cold (`AzPdf`'s page view paid a cold layout of
+    /// its whole page per re-render). Swapped into `layout_cache` for the child's pass
+    /// and out after it; dropped when the child DOM goes, and by `clear_caches`.
+    pub child_layout_caches: BTreeMap<DomId, Solver3LayoutCache>,
     /// Text layout cache for text3 (shaped glyphs, line breaks, etc.)
     pub text_cache: TextLayoutCache,
     /// Font manager for loading and caching fonts
@@ -1334,6 +1942,49 @@ pub struct LayoutWindow {
     /// overlay→DOM via [`crate::overlay::ResolvedContent`]; the ONLY writer is
     /// [`Self::apply_content_change`].
     pub content_overlay: crate::overlay::ContentOverlay,
+    /// What each `RenderImageCallback` node was last rendered FROM (its
+    /// declared image and its box). A frame invokes a callback only when these
+    /// changed, or when the app asked (`update_image_callback`,
+    /// `update_all_image_callbacks`) - a canvas at rest mints no new
+    /// `ImageRef` and repaints nothing (`AzReview` never idled, FB3).
+    pub image_callback_inputs: BTreeMap<(DomId, NodeId), ImageCallbackInputs>,
+    /// What each background layer that declares a render callback
+    /// (`background: url(id)` / `builtin(<name>)` naming a callback image)
+    /// was last drawn from. A frame asks the callback again only when these
+    /// changed ([`Self::invoke_background_image_callbacks_into_overlay`]); its
+    /// frame lives in the content overlay's background arm.
+    pub background_callback_inputs: BTreeMap<BackgroundSlot, BackgroundCallbackInputs>,
+    /// The background layers whose callback deferred its frame (a large
+    /// material drawn off the UI thread for a CPU window): asked again on
+    /// every frame until it answers, and while any waits the window asks for
+    /// frames ([`Self::needs_animation_frame`]).
+    pub background_callbacks_waiting: BTreeSet<BackgroundSlot>,
+    /// The window's own material light (`CallbackInfo::set_material_light`):
+    /// the light's colour, strength, ambient share and god rays for every
+    /// material here, and - once [`Self::material_light_is_own`] - its
+    /// direction too.
+    pub material_light: crate::texture::MaterialLight,
+    /// Bumped by every new [`Self::material_light`], every adopted app
+    /// light and every `update_all_image_callbacks`: a background frame
+    /// rendered under an older one renders again.
+    pub background_frames_generation: u64,
+    /// Whether the window set a light of its own
+    /// ([`Self::set_material_light`]): its direction then outranks the app's
+    /// one light here ([`Self::effective_light`]).
+    pub material_light_is_own: bool,
+    /// The app's light as this window last adopted it
+    /// ([`Self::adopt_app_light`]); read by the materials and the
+    /// light-following shadows through [`Self::effective_light`].
+    pub app_light: azul_core::light::Light,
+    /// The app light's change count at that adoption: a window whose count
+    /// lags adopts the light at its next frame (`u64::MAX` = never adopted).
+    pub app_light_generation: u64,
+    /// The cursor's sheen on each node that draws a built-in material in a
+    /// window `WebRender` draws (none where the CPU draws), eased on the
+    /// animation clock ([`Self::step_material_sheen`]) and drawn as a layer
+    /// over the material through its GPU values (the GPU cache's sheen
+    /// channel), never by drawing the material again.
+    pub material_sheen: crate::texture::sheen::MaterialSheen,
     /// Frame-scoped journal of applied content changes (what the RENDERER may
     /// still need: old images for backends compositing a not-fully-redrawn
     /// buffer, retention = swapchain depth). Fed by the same chokepoint;
@@ -1346,7 +1997,7 @@ pub struct LayoutWindow {
     /// applied through its model, a rewrite), and every caret is shifted
     /// across it. Engine edits refresh it at their chokepoint
     /// (`update_text_cache_after_edit`), so they never register as a change.
-    pub caret_text_snapshot: Option<(u64, Vec<InlineContent>)>,
+    pub caret_text_snapshot: Option<(u64, NodeId, Vec<InlineContent>)>,
     /// Cached layout results for all DOMs (root + virtualized views)
     pub layout_results: BTreeMap<DomId, DomLayoutResult>,
     /// Scroll state manager for all nodes across all DOMs
@@ -1357,31 +2008,6 @@ pub struct LayoutWindow {
     pub focus_manager: crate::managers::focus_cursor::FocusManager,
     /// Unified text editing manager (cursor + selection + dirty flag)
     pub text_edit_manager: crate::managers::text_edit::TextEditManager,
-    /// Caret rect the automatic reveal last acted on, in STATIC layout space.
-    ///
-    /// `scroll_focused_cursor_into_view` runs after EVERY successful layout,
-    /// and a layout happens whenever the user scrolls, hovers or resizes, or an
-    /// animation ticks. Revealing unconditionally meant that scrolling a page
-    /// containing a focused text field yanked the view straight back to the
-    /// caret — the user could not scroll away from their own cursor. The reveal
-    /// belongs to an EDIT or a caret MOVE, not to the frame.
-    ///
-    /// The caret's STATIC rect is exactly that signal: scrolling does not move
-    /// it (the reveal works in static coordinates and compares against a
-    /// scrolled `visible_area`), while typing, clicking and reflow do.
-    pub last_revealed_caret_rect: Option<LogicalRect>,
-    /// The caret's LOGICAL identity the automatic reveal last acted on:
-    /// `(contenteditable_key, primary cursor, document_text_revision)`.
-    ///
-    /// The static rect alone is not a caret-move signal inside a
-    /// `VirtualView`: scrolling re-materializes the page window, the nested
-    /// DOM is rebuilt and the page's content shifts within it, so the caret's
-    /// rect changes while the user did nothing but turn the wheel. The reveal
-    /// then dragged the view back to the caret on every wheel step. Like a
-    /// browser, the reveal belongs to a change of the CARET: a new cursor
-    /// position, an edit (the revision), or a different editable. The key
-    /// survives DOM rebuilds (`contenteditable_key` is stable across them).
-    pub last_revealed_caret_key: Option<(u64, TextCursor, u64)>,
     /// Anchor of an in-flight text-selection drag: where the PRESS that began
     /// it landed, latched — and only set when that press was on an editable.
     ///
@@ -1420,6 +2046,14 @@ pub struct LayoutWindow {
             Vec<azul_core::styled_dom::NodeHierarchyItem>,
         ),
     >,
+    /// The child results of the views a new generation did not keep, set
+    /// aside for the pass: a view whose callback builds the same DOM again
+    /// takes its child back ([`Self::reclaim_unchanged_child`]) instead of
+    /// having it styled and laid out anew. Dropped at the end of the pass.
+    pub retired_child_results: BTreeMap<DomId, DomLayoutResult>,
+    /// The fingerprints of the DOM each view's callback built last, by the
+    /// child's `DomId`: what tells an identical rebuild from a new one.
+    pub child_dom_fingerprints: BTreeMap<DomId, azul_core::diff::DomFingerprints>,
     /// `left_down` as of the previous input pass, so the press EDGE can be
     /// detected where the shell does not hand over the previous window state.
     pub prev_left_down: bool,
@@ -1498,6 +2132,11 @@ pub struct LayoutWindow {
     /// nothing on a schedule, so the app owns the media clock — and drained
     /// as an `EventProvider` into the six media events.
     pub media_player_manager: crate::managers::media_player::MediaPlayerManager,
+    /// The `<webview>`s of this window (`managers::webview`): which native
+    /// views exist, keyed by node; where they are this frame; the op queue
+    /// the shell's backend drains; the event each one last reported. The
+    /// shell says whether it has a backend (`WebViewPlatform`).
+    pub webviews: crate::managers::webview::WebViewManager,
     /// Application-level hotplug queue — devices and monitors arriving or
     /// leaving. Pushed by the platform shells, drained into the
     /// `ApplicationEventFilter` family.
@@ -1544,6 +2183,10 @@ pub struct LayoutWindow {
     unarmed_blink_timer: Option<Timer>,
     /// Threads running in the background for this window
     pub threads: BTreeMap<ThreadId, Thread>,
+    /// Which node each node-bound thread in `threads` belongs to, and the
+    /// orphans told to stop because their node unmounted
+    /// (`managers::thread_owner`).
+    pub thread_owners: crate::managers::thread_owner::ThreadOwnerManager,
     /// Currently loaded fonts and images present in this renderer (window)
     pub renderer_resources: RendererResources,
     /// Renderer type: Hardware-with-software-fallback, pure software or pure hardware renderer?
@@ -1563,8 +2206,9 @@ pub struct LayoutWindow {
     pub epoch: Epoch,
     /// Currently GL textures inside the active `CachedDisplayList`
     pub gl_texture_cache: GlTextureCache,
-    /// State for tracking scrollbar drag interaction
-    currently_dragging_thumb: Option<ScrollbarDragState>,
+    /// The scrollbar thumb the pointer holds: set and cleared by the press
+    /// router (`crate::press_router`), read with [`Self::scrollbar_drag`].
+    pub(crate) currently_dragging_thumb: Option<ScrollbarDragState>,
     /// Text input manager - centralizes all text editing logic
     pub text_input_manager: crate::managers::text_input::TextInputManager,
     /// The pending STRUCTURAL edit (Enter split / Backspace merge / wrap…),
@@ -1599,6 +2243,10 @@ pub struct LayoutWindow {
     /// generation (resolved + cleared at the tail of
     /// `layout_and_generate_display_list`).
     pending_caret_restore: Option<crate::managers::changeset::EditResumePoint>,
+    /// An editor whose content the app replaced from code
+    /// ([`Self::reset_editor_content`]), waiting for the generation that
+    /// carries the new content to put the caret at its end or start.
+    pending_editor_reset: Option<EditorReset>,
     /// Set by `undo_structural_edit`/`redo_structural_edit` so the ack of
     /// their re-recorded changeset routes history correctly instead of
     /// pushing a fresh undo entry (which would loop).
@@ -1669,6 +2317,17 @@ pub struct LayoutWindow {
     /// `None` in a window whose app registered no icons at all, and in the
     /// headless windows the tests build directly; both then cascade unchanged.
     pub icon_provider: Option<azul_core::icon::SharedIconProvider>,
+    /// The values users gave this window's REPLACED form controls (a raw
+    /// `<input type="checkbox">` became a `CheckBox`, see
+    /// `crate::form_controls`): written by the recorders the replacement
+    /// installs as each widget's change hook, read back by the next build so
+    /// a raw-input app - which stores none of it - keeps the user's check,
+    /// pick or text across its own rebuilds. Shared (`Arc` inside) with those
+    /// recorders.
+    #[cfg(feature = "widgets")]
+    pub form_control_memory: crate::form_controls::FormControlMemory,
+    #[cfg(feature = "fluent")]
+    pub fluent_localizer: Option<FluentLocalizerHandle>,
     /// The window frame the last layout pass ran under.
     ///
     /// A `VirtualView` callback can READ the live frame
@@ -1678,6 +2337,15 @@ pub struct LayoutWindow {
     /// fixed-size control's box exactly where it was, so `check_reinvoke` sees
     /// no reason. This is that reason.
     pub last_laid_out_frame: azul_core::window::WindowFrame,
+    /// The light / dark the last layout pass ran under, as the window's
+    /// cascade resolves it ([`Self::window_mode_for`]).
+    ///
+    /// The same reason as the frame above: a `VirtualView` callback reads
+    /// the mode (`VirtualViewCallbackInfo::window_mode`) and may build its DOM
+    /// from it - the map picks its tiles' look - but a switch to dark is a
+    /// restyle that keeps every view, so nothing else would render them
+    /// again and the map stays light in a dark window.
+    pub last_laid_out_mode: DarkLightMode,
     /// Per-window override of the app-global system-animation configuration
     /// (`set_global_system_animations`). `None` = use the global. Mostly for
     /// tests, which must not race the process-wide slot.
@@ -1686,6 +2354,11 @@ pub struct LayoutWindow {
     /// layer on monitor topology changes. Arc<Mutex> allows zero-cost sharing
     /// across all `CallbackInfoRefData` without cloning the Vec each time.
     pub monitors: Arc<std::sync::Mutex<MonitorVec>>,
+    /// How this window's logical content space lies on the screen, as its shell
+    /// last reported it: what the floating surfaces opened from it are measured
+    /// and placed against. `None` where the shell knows no screen coordinates
+    /// (Wayland, headless).
+    pub screen_mapping: Option<crate::placement::WindowToScreen>,
     /// XOR of all `tier2b.font_family_hash` values from the last resolved DOM.
     /// Used to skip font chain resolution on frames where the font requirements
     /// haven't changed (e.g. scroll-only frames).
@@ -1701,6 +2374,22 @@ pub struct LayoutWindow {
     /// Which node each non-primary seat's composition is spliced into
     /// (9b-ii-a-i-d-ii-c); the primary's is `preedit_shaped_node`.
     seat_preedit_shaped: BTreeMap<u64, (DomId, NodeId)>,
+    /// How many DOM lint passes ran (`dom_lint`'s four developer lints over
+    /// one DOM each) - observability for the "lint only what is new" rule.
+    pub dom_lint_runs: u64,
+    /// Per DOM, the arena (node data address, node count) the lints last
+    /// walked. A relayout of the SAME DOM - the retained `StyledDom` handed
+    /// back by value - keeps its arena and its findings, so it is not walked
+    /// again; a new generation, a re-rendered `VirtualView` child or any
+    /// other arena is.
+    dom_lint_stamps: BTreeMap<DomId, (usize, usize)>,
+    /// The window's own key for the a11y lints: they say each problem once
+    /// per window, not once per node or per pass ([`NEXT_DOM_LINT_SCOPE`]).
+    dom_lint_scope: u64,
+    /// How many accessibility passes ran (`update_a11y_tree`, which every
+    /// layout pass ends with) - so a shell can tell whether the tree is
+    /// already current after a regeneration (A11YPATCH8).
+    pub a11y_tree_updates: u64,
     /// Configurable input interpreter: maps raw events → `SystemChange` actions.
     /// Default: `default_input_interpreter` (standard desktop keybindings).
     /// Replace to implement vim, game controls, accessibility remaps, etc.
@@ -1711,6 +2400,10 @@ pub struct LayoutWindow {
     /// Application handler for E2E ops the engine does not implement.
     /// Mirrored from `AppConfig`, like `post_filter` and `input_interpreter`.
     pub custom_e2e_op: azul_core::events::CustomE2eOpCallback,
+    /// The app's E2E commands by name (`AppConfig::add_e2e_command`), copied
+    /// at window creation by [`Self::set_app_e2e`]. The debug server and the
+    /// scenario runner hand them every op no engine op takes.
+    pub e2e_commands: azul_core::events::E2eCommandVec,
     /// Registered routes from `AppConfig`.  Set once at window creation.
     /// Used by `CallbackChange::SwitchRoute` to look up layout callbacks.
     pub routes: azul_core::resources::RouteVec,
@@ -1718,6 +2411,73 @@ pub struct LayoutWindow {
     /// Initialized from system language at startup, can be overridden
     #[cfg(feature = "icu")]
     pub icu_localizer: IcuLocalizerHandle,
+}
+
+/// What a window keeps that can hold a clone of a node's data: its laid-out
+/// trees, the trees still leaving, the animation tracks, the timers and
+/// threads its handlers started, the unmount handlers waiting to run and the
+/// nodes its views were last invoked for.
+impl RefAnyHolder for LayoutWindow {
+    fn for_each_refany(&mut self, visit: &mut dyn FnMut(&mut RefAny)) {
+        let results = self.layout_results.values_mut();
+        for result in results.chain(self.retired_child_results.values_mut()) {
+            result.for_each_refany(visit);
+        }
+        for (nodes, _) in self.previous_child_arenas.values_mut() {
+            for node in nodes {
+                node.for_each_refany(visit);
+            }
+        }
+        for zombie in &mut self.zombies {
+            zombie.for_each_refany(visit);
+        }
+        let views = self.view_tracks.values_mut().flat_map(BTreeMap::values_mut);
+        for track in self.live_tracks.values_mut().chain(views) {
+            track.for_each_refany(visit);
+        }
+        for timer in self.timers.values_mut().chain(self.unarmed_blink_timer.as_mut()) {
+            timer.for_each_refany(visit);
+        }
+        for thread in self.threads.values_mut() {
+            thread.for_each_refany(visit);
+        }
+        for (callback, _) in &mut self.pending_unmount_invocations {
+            callback.for_each_refany(visit);
+        }
+        self.virtual_view_manager.for_each_refany(visit);
+    }
+}
+
+/// One DOM's part of a focus move (`LayoutWindow::focus_change_per_dom`):
+/// the nodes `:focus` moves between, and the nodes `:focus-within` follows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct DomFocusChange {
+    /// The node of this DOM that lost the focus.
+    pub lost: Option<NodeId>,
+    /// The node of this DOM that gained the focus.
+    pub gained: Option<NodeId>,
+    /// Where `:focus-within` leaves from: `lost`, or the host of the
+    /// `VirtualView` whose content held the focus.
+    pub lost_within: Option<NodeId>,
+    /// Where `:focus-within` goes to: `gained`, or the host of the view
+    /// whose content holds the focus now.
+    pub gained_within: Option<NodeId>,
+}
+
+/// A window that goes away stops the background workers it still has TOGETHER
+/// (`managers::thread_owner::stop_all`): every one is told `TerminateThread`
+/// first and they are waited for on one shared grace period. Dropping the
+/// `threads` map entry by entry made each worker's destructor wait for its
+/// worker before the next one even heard of it - a window closed in the SUM
+/// of its workers' stop times, on the UI thread. One place, so every shell's
+/// close path gets it. A window that closes while another stays open has
+/// handed its threads over before (`take_threads_for_heir`), so this waits
+/// only when the last window closes.
+impl Drop for LayoutWindow {
+    fn drop(&mut self) {
+        #[cfg(feature = "std")]
+        crate::managers::thread_owner::stop_all(&mut self.threads);
+    }
 }
 
 const fn default_duration_500ms() -> Duration {
@@ -1762,6 +2522,35 @@ fn copy_trace(msg: impl FnOnce() -> String) {
     );
     #[cfg(not(feature = "e2e-server"))]
     drop(msg);
+}
+
+
+/// An edited paragraph's logical items and the items they shaped into.
+type ShapedForRelayout = (Arc<Vec<crate::text3::cache::LogicalItem>>, Arc<Vec<ShapedItem>>);
+
+/// Whether the box at `index` fills its parent's content box: one the layout
+/// tree made for a text, or an anonymous wrapper. Neither has a width or
+/// edges of its own (CSS 2.2 s9.2.1.1), so a size taken from content belongs
+/// to the box it fills.
+fn fills_its_parent(styled_dom: &StyledDom, tree: &LayoutTree, index: usize) -> bool {
+    let Some(node) = tree.get(LayoutNodeId::new(index)) else {
+        return false;
+    };
+    if node.parent.is_none() {
+        return false;
+    }
+    let anonymous = tree
+        .cold(LayoutNodeId::new(index))
+        .and_then(|cold| cold.anonymous_type);
+    if matches!(anonymous, Some(solver3::layout_tree::AnonymousBoxType::InlineWrapper)) {
+        return true;
+    }
+    node.dom_node_id.is_some_and(|dom| {
+        matches!(
+            styled_dom.node_data.as_container()[dom].get_node_type(),
+            NodeType::Text(_)
+        )
+    })
 }
 
 impl LayoutWindow {
@@ -1950,9 +2739,34 @@ impl LayoutWindow {
         if self.layout_results.is_empty() {
             return true;
         }
-        if old.theme != new.theme {
+        if old.mode != new.mode {
+            // While the app pins its mode (or `AZ_MODE` does), the
+            // desktop's light / dark is not this window's: what `layout()`
+            // reads as the mode is the pin, and the pin did not move. Weigh
+            // the rest of the change - the palette, fonts, metrics - as if the
+            // desktop had kept its polarity.
+            let pinned = self.mode.is_some()
+                || azul_css::dynamic_selector::mode_pinned_by_env().is_some();
+            if pinned {
+                let mut same_polarity = new.clone();
+                same_polarity.mode = old.mode;
+                return self.system_style_change_needs_full_regeneration(old, &same_polarity);
+            }
             return true;
         }
+
+        // The OS language only reaches `layout()` while the app has not chosen
+        // its own (`set_locale`).
+        if self.locale_override.is_none() {
+            let change = LocaleChange {
+                locale_changed: old.language.id != new.language.id,
+                direction_changed: old.language.is_rtl != new.language.is_rtl,
+            };
+            if change.needs_new_dom(self.depends_on_locale, self.depends_on_text_direction) {
+                return true;
+            }
+        }
+
         self.recorded_style_dependencies
             .dom_depends_on_change(old, new)
     }
@@ -1984,6 +2798,26 @@ impl LayoutWindow {
         self.frame_report.as_of_generation(generation)
     }
 
+    /// A frame of this window went to its renderer (see
+    /// [`Self::presented_frames`]).
+    pub fn note_frame_presented(&self) {
+        self.presented_frames
+            .fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Moves whenever this window presents a frame, on every backend: the
+    /// recorded frames ([`Self::record_frame`]) plus the noted ones
+    /// ([`Self::note_frame_presented`]). While it stands still, what the
+    /// window shows has not changed - the debug server's native screenshot
+    /// is served from its cache on exactly that.
+    #[must_use]
+    pub fn presented_frame_generation(&self) -> u64 {
+        self.frame_report.frame_index.wrapping_add(
+            self.presented_frames
+                .load(Ordering::Relaxed),
+        )
+    }
+
     /// Record the damage of a freshly rendered frame on this window's report,
     /// applying any pending counter reset first.
     pub fn record_frame(&mut self, paint: FrameDamage, present: FrameDamage) {
@@ -2009,6 +2843,8 @@ impl LayoutWindow {
     pub fn from_font_manager(font_manager: FontManager<FontRef>) -> Self {
         Self {
             pending_css_dirty: None,
+            reconciled_dom: None,
+            host_lays_out: false,
             e2e_mount: E2eMountOverride::default(),
             #[cfg(feature = "e2e-server")]
             e2e_scratch: std::sync::Mutex::new(crate::e2e::E2eScratch::default()),
@@ -2017,6 +2853,22 @@ impl LayoutWindow {
             frame_report: FrameReport::default(),
             recorded_size_queries: (Vec::new(), false),
             recorded_style_dependencies: azul_core::callbacks::SystemStyleDependencies::empty(),
+            // Joins the App whose loop runs on this thread (`App::run` makes
+            // it current); a window built anywhere else gets a detached
+            // manager where every declaration reads `Unsupported`.
+            global_hotkeys: crate::managers::global_hotkey::WindowHotkeys::for_current_app(),
+            depends_on_locale: false,
+            depends_on_text_direction: false,
+            locale_override: None,
+            known_languages: azul_css::system::SystemLanguageVec::from_const_slice(&[]),
+            // The app's choice as it stands NOW: a window opened after a
+            // runtime switch starts in it.
+            mode: app_mode(),
+            // The app's theme as it stands NOW: a window opened after a
+            // runtime switch builds for it from its first layout.
+            app_theme: azul_core::app_theme::app_theme(),
+            // Likewise the rice as it stands NOW.
+            rice_generation: azul_css::rice::generation(),
             last_dom_fingerprints: None,
             frame_report_reset_request: core::sync::atomic::AtomicU64::new(0),
             #[cfg(feature = "pdf")]
@@ -2031,10 +2883,18 @@ impl LayoutWindow {
             transition_relayout: false,
             transition_patched: false,
             live_tracks: BTreeMap::new(),
+            view_tracks: BTreeMap::new(),
+            view_tracks_hidden: false,
             last_anim_tick: None,
+            culled_tracks: BTreeSet::new(),
+            content_changed_doms: BTreeSet::new(),
+            window_occluded: false,
+            root_display_list_gpu_fingerprint: None,
+            presented_frames: core::sync::atomic::AtomicU64::new(0),
             layout_cache: Solver3LayoutCache {
                 tree: None,
                 resize_only_hint: false,
+                overrides_only_hint: None,
                 last_reconcile_was_skipped: false,
                 last_reconcile_structure_preserved: false,
                 last_build_was_patched: false,
@@ -2044,10 +2904,15 @@ impl LayoutWindow {
                 patch_damage_log: Vec::new(),
                 last_dynamic_context: None,
                 last_cascade_epoch: 0,
+                paged_css_dirty: Vec::new(),
+                font_epoch: 0,
+                laid_out_with_overlay: false,
                 previous_sizes: Vec::new(),
                 dom_diff_clean: None,
                 last_fingerprint_skips: 0,
                 last_patch_move: None,
+            layout_seq: 0,
+            last_patch_move_from_seq: 0,
                 calculated_positions: Vec::new(),
                 viewport: None,
                 scroll_ids: HashMap::new(),
@@ -2063,10 +2928,21 @@ impl LayoutWindow {
                 last_reconcile_fresh: 0,
                 last_intrinsic_dirty: 0,
             },
+            child_layout_caches: BTreeMap::new(),
             text_cache: TextLayoutCache::new(),
             font_manager,
-            image_cache: ImageCache::default(),
+            // The built-in textures under their CSS names, in every window.
+            image_cache: crate::texture::image_cache_with_builtin_textures(),
             content_overlay: crate::overlay::ContentOverlay::default(),
+            image_callback_inputs: BTreeMap::new(),
+            background_callback_inputs: BTreeMap::new(),
+            background_callbacks_waiting: BTreeSet::new(),
+            material_light: crate::texture::MaterialLight::DEFAULT,
+            background_frames_generation: 0,
+            material_light_is_own: false,
+            app_light: azul_core::light::Light::DEFAULT,
+            app_light_generation: u64::MAX,
+            material_sheen: crate::texture::sheen::MaterialSheen::default(),
             content_journal: crate::overlay::ContentJournal::default(),
             caret_text_snapshot: None,
             layout_results: BTreeMap::new(),
@@ -2074,10 +2950,10 @@ impl LayoutWindow {
             gesture_drag_manager: crate::managers::gesture::GestureAndDragManager::new(),
             focus_manager: crate::managers::focus_cursor::FocusManager::new(),
             text_edit_manager: crate::managers::text_edit::TextEditManager::new(),
-            last_revealed_caret_rect: None,
-            last_revealed_caret_key: None,
             text_selection_drag_anchor: None,
             previous_child_arenas: BTreeMap::new(),
+            retired_child_results: BTreeMap::new(),
+            child_dom_fingerprints: BTreeMap::new(),
             prev_left_down: false,
             file_drop_manager: crate::managers::file_drop::FileDropManager::new(),
             clipboard_manager: crate::managers::clipboard::ClipboardManager::new(),
@@ -2101,6 +2977,7 @@ impl LayoutWindow {
             sensor_manager: crate::managers::sensors::SensorManager::new(),
             gamepad_manager: crate::managers::gamepad::GamepadManager::new(),
             media_player_manager: crate::managers::media_player::MediaPlayerManager::new(),
+            webviews: crate::managers::webview::WebViewManager::new(),
             device_event_manager: crate::managers::device_events::DeviceEventManager::new(),
             hid_manager: azul_core::hid::HidManager::new(),
             haptic_manager: azul_core::haptics::HapticManager::new(),
@@ -2112,6 +2989,7 @@ impl LayoutWindow {
             unarmed_blink_timer: None,
             system_animations_override: None,
             threads: BTreeMap::new(),
+            thread_owners: crate::managers::thread_owner::ThreadOwnerManager::default(),
             renderer_resources: RendererResources::default(),
             renderer_type: None,
             previous_window_state: None,
@@ -2127,6 +3005,7 @@ impl LayoutWindow {
             document_text_revision: 0,
             acked_text_revision: 0,
             pending_caret_restore: None,
+            pending_editor_reset: None,
             structural_history_suppression: None,
             pagination_dirty_from: None,
             undo_redo_manager: crate::managers::undo_redo::UndoRedoManager::new(),
@@ -2140,14 +3019,26 @@ impl LayoutWindow {
             pending_unmount_invocations: Vec::new(),
             system_style: None,
             icon_provider: None,
+            #[cfg(feature = "widgets")]
+            form_control_memory: crate::form_controls::FormControlMemory::default(),
+            #[cfg(feature = "fluent")]
+            fluent_localizer: None,
             last_laid_out_frame: azul_core::window::WindowFrame::Normal,
+            last_laid_out_mode: DarkLightMode::Light,
             monitors: Arc::new(std::sync::Mutex::new(MonitorVec::from_const_slice(&[]))),
+            screen_mapping: None,
             font_stacks_hash: 0,
             preedit_shaped_node: None,
             seat_preedit_shaped: BTreeMap::new(),
+            dom_lint_runs: 0,
+            dom_lint_stamps: BTreeMap::new(),
+            dom_lint_scope: NEXT_DOM_LINT_SCOPE
+                .fetch_add(1, Ordering::Relaxed),
+            a11y_tree_updates: 0,
             input_interpreter: azul_core::events::InputInterpreterCallback::default(),
             post_filter: azul_core::events::PostFilterCallback::default(),
             custom_e2e_op: azul_core::events::CustomE2eOpCallback::default(),
+            e2e_commands: azul_core::events::E2eCommandVec::from_const_slice(&[]),
             routes: azul_core::resources::RouteVec::from_const_slice(&[]),
             #[cfg(feature = "icu")]
             icu_localizer: IcuLocalizerHandle::default(),
@@ -2305,13 +3196,21 @@ impl LayoutWindow {
     /// [`Self::layout_new_generation`] distinction.
     fn layout_and_generate_display_list_impl(
         &mut self,
-        root_dom: StyledDom,
+        mut root_dom: StyledDom,
         window_state: &FullWindowState,
         renderer_resources: &RendererResources,
         system_callbacks: &ExternalSystemCallbacks,
         debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
         new_generation: bool,
     ) -> Result<(), solver3::LayoutError> {
+        // The display list is made under this window's light: shadows that
+        // follow the light read it (and where the window is, for a point
+        // light) while the scope lives.
+        self.adopt_app_light();
+        let _light = azul_core::light::LightScope::enter(
+            self.effective_light(),
+            [self.window_desktop_origin().x, self.window_desktop_origin().y],
+        );
         // E2E observability: this is the ONE funnel every layout pass goes
         // through — `regenerate_layout` and `incremental_relayout` in the
         // shells, `regenerate_layout()` and `relayout_only()` in the headless
@@ -2321,14 +3220,51 @@ impl LayoutWindow {
         self.sync_frame_report();
         self.frame_report.layout_passes = self.frame_report.layout_passes.saturating_add(1);
 
-        // A frame transition re-invokes every view, BEFORE this pass scans for
-        // them, so a view that renders from the frame is right in the same
-        // frame the window is maximized in. Without it the only path back is a
-        // full DOM rebuild, which a window-manager maximize (super+up, an edge
-        // snap, a tiling rule) does not necessarily cause - and then a
-        // maximized window keeps offering "maximize".
-        if self.last_laid_out_frame != window_state.flags.frame {
+        // A NEXT DOM handed in without the engine's reconciliation before it
+        // (an embedder, a test, a document export - the shells and the E2E
+        // runner call `begin_reconciliation` themselves) is reconciled here.
+        // A relayout of the DOM already laid out takes its result out of
+        // `layout_results` first, so an old result still in place means the
+        // DOM is the next one. Without the reconciliation a style change the
+        // reconcile's per-node fingerprint cannot see - a `Dom::with_css`
+        // sheet (selector-matched: the node's own inline style stays empty),
+        // another stylesheet over an identical tree - kept the old geometry,
+        // and focus, scroll and hover state stayed on the old NodeIds.
+        let reconciled_by_caller = self.reconciled_dom.take() == Some(DomId::ROOT_ID);
+        let pending_reconciliation = if !reconciled_by_caller
+            && self.layout_results.contains_key(&DomId::ROOT_ID)
+        {
+            let now = (system_callbacks.get_system_time_fn.cb)();
+            let mut pending = self.begin_reconciliation(DomId::ROOT_ID, &mut root_dom, now);
+            self.reconciled_dom = None;
+            // No reason is known here: nothing slides after a rebuild nobody
+            // asked to animate (the shells decide that per relayout reason).
+            pending.animate_moves = false;
+            Some(pending)
+        } else {
+            None
+        };
+
+        // A DOM the app just built is never an override-only frame of the
+        // one the tick looked at, however alike their stamps
+        // (`LayoutCache::overrides_only_hint`).
+        if new_generation {
+            self.layout_cache.overrides_only_hint = None;
+        }
+
+        // A frame or mode transition re-invokes every view, BEFORE this pass
+        // scans for them, so a view that renders from either is right in the
+        // same frame the window is maximized or turns dark in. Without it the
+        // only path back is a full DOM rebuild, which a window-manager
+        // maximize (super+up, an edge snap, a tiling rule) does not
+        // necessarily cause and a mode switch never does (it is a restyle) -
+        // and then a maximized window keeps offering "maximize", and a map
+        // in a dark window keeps its light tiles.
+        let mode = self.window_mode_for(window_state.mode);
+        if self.last_laid_out_frame != window_state.flags.frame || self.last_laid_out_mode != mode
+        {
             self.last_laid_out_frame = window_state.flags.frame;
+            self.last_laid_out_mode = mode;
             for (dom_id, node_id) in self.virtual_view_manager.all_view_keys() {
                 self.virtual_view_manager.force_reinvoke(dom_id, node_id);
             }
@@ -2357,12 +3293,27 @@ impl LayoutWindow {
             }
         }
 
+        // A RELAYOUT of the same DOM (an animation frame, a restyle, a
+        // resize) keeps every VirtualView whose host node is unchanged: its
+        // child result stays, its callback does not run again, and its own
+        // lifecycle decides (`check_reinvoke`: the box grew, an edge scroll;
+        // a box of another size re-renders it). Every relayout used to clear
+        // all child results and re-invoke every view - user code and a cold
+        // child layout per view per animation frame. A new generation (the
+        // app re-rendered from its model) re-renders every view, as before.
+        let (kept_views, kept_doms) = if new_generation {
+            (BTreeSet::new(), BTreeSet::new())
+        } else {
+            self.unchanged_virtual_views(&root_dom)
+        };
+
         // Stash every child dom's arena before the clear, so re-materialization
         // can reconcile against it (see `previous_child_arenas`). Rebuilt fresh
-        // each pass so a vanished host cannot leak a stale stash.
+        // each pass so a vanished host cannot leak a stale stash. A kept
+        // view's child stays live, where the reconcile finds it anyway.
         self.previous_child_arenas.clear();
         for (dom_id, result) in &self.layout_results {
-            if *dom_id == DomId::ROOT_ID {
+            if *dom_id == DomId::ROOT_ID || kept_doms.contains(dom_id) {
                 continue;
             }
             self.previous_child_arenas.insert(
@@ -2374,14 +3325,34 @@ impl LayoutWindow {
             );
         }
 
-        // Clear previous results for a full relayout
-        self.layout_results.clear();
+        // Clear previous results for a full relayout - all but the kept
+        // views' children. A child rendered again starts from fresh content,
+        // unless its view builds the very same DOM again: the others' results
+        // are set aside for this pass to take back.
+        self.retired_child_results.clear();
+        let retired: Vec<DomId> = self
+            .layout_results
+            .keys()
+            .copied()
+            .filter(|d| *d != DomId::ROOT_ID && !kept_doms.contains(d))
+            .collect();
+        for dom_id in retired {
+            if let Some(result) = self.layout_results.remove(&dom_id) {
+                self.retired_child_results.insert(dom_id, result);
+            }
+        }
+        self.layout_results
+            .retain(|dom_id, _| kept_doms.contains(dom_id));
+        self.content_changed_doms
+            .retain(|dom_id| kept_doms.contains(dom_id));
 
-        // CRITICAL: Reset VirtualView invocation flags so check_reinvoke() returns
-        // InitialRender for every tracked VirtualView. Without this, the VirtualViewManager
-        // still has was_invoked=true from the previous frame, so it skips
-        // re-invocation — but the child DOM was just destroyed by clear().
-        self.virtual_view_manager.reset_all_invocation_flags();
+        // CRITICAL: Reset the invocation flags of every view that was not
+        // kept, so check_reinvoke() returns InitialRender for it. Without
+        // this, the VirtualViewManager still has was_invoked=true from the
+        // previous frame, so it skips re-invocation — but the child DOM was
+        // just destroyed by the clear. The kept ones are CARRIED: their first
+        // check of this pass verifies the child still fits the box.
+        self.virtual_view_manager.carry_over_views(&kept_views);
 
         if let Some(msgs) = debug_messages.as_mut() {
             msgs.push(LayoutDebugMessage::info(format!(
@@ -2399,6 +3370,27 @@ impl LayoutWindow {
             system_callbacks,
             debug_messages,
         );
+        // What no view took back goes now.
+        self.retired_child_results.clear();
+        // A kept view this pass never reached (its host laid out no box for
+        // it any more - hidden by a restyle) keeps nothing: its child result
+        // goes, as the clear above took it before views were kept, and the
+        // view renders afresh when its box comes back.
+        // The views inside such a child go with it.
+        let mut unreached = self.virtual_view_manager.take_all_carried();
+        while let Some((host, node)) = unreached.pop() {
+            let _ = self.virtual_view_manager.force_reinvoke(host, node);
+            if let Some(nested) = self.virtual_view_manager.get_nested_dom_id(host, node) {
+                if self.layout_results.remove(&nested).is_some() {
+                    unreached.extend(
+                        self.virtual_view_manager
+                            .all_view_keys()
+                            .into_iter()
+                            .filter(|(inner_host, _)| *inner_host == nested),
+                    );
+                }
+            }
+        }
         // Mirror AFTER the build: the marker describes THIS pass's DL build
         // (patched splice vs full emission), not the previous one.
         self.frame_report.last_dl_build_patched = self.layout_cache.last_build_was_patched;
@@ -2457,6 +3449,12 @@ impl LayoutWindow {
                 if let Some(lr) = self.layout_results.get(&dom_id) {
                     // Split borrow: overlay and layout_results are separate fields.
                     let styled_dom = &lr.styled_dom;
+                    // A value the app SET (rendered something other than the
+                    // text the user typed over) beats the typing - only a DOM
+                    // the app just built can say so.
+                    if new_generation {
+                        self.content_overlay.gc_app_set_text(dom_id, styled_dom);
+                    }
                     self.content_overlay.gc_converged_text(dom_id, styled_dom);
                 }
             }
@@ -2475,8 +3473,12 @@ impl LayoutWindow {
         // of a fully synced paragraph: no overlay entry survives the GC).
         let mut restored_dom: Option<DomId> = None;
         if result.is_ok() {
-            if let Some(resume) = self.pending_caret_restore.take() {
-                restored_dom = self.restore_caret_from_resume_point(&resume);
+            restored_dom = self.place_pending_caret();
+            // The caret a structural edit (Enter split, merge, their undo)
+            // resumes at - or a reset editor's - is that edit's caret: show
+            // it, after this very layout.
+            if restored_dom.is_some() {
+                self.request_session_reveal();
             }
         }
 
@@ -2522,12 +3524,6 @@ impl LayoutWindow {
         // build.
         self.frame_report.last_dl_build_patched = self.layout_cache.last_build_was_patched;
 
-        // After successful layout, update the accessibility tree
-        #[cfg(feature = "a11y")]
-        if result.is_ok() {
-            self.update_a11y_tree();
-        }
-
         // PUBLISH BEFORE CONSUME. The reveal below clamps against
         // `ScrollManager`'s `content_rect`, and `find_scrollable_ancestor`
         // refuses a node that has no registered scroll state at all — but until
@@ -2541,6 +3537,16 @@ impl LayoutWindow {
         if result.is_ok() {
             let now = (system_callbacks.get_system_time_fn.cb)();
             crate::managers::scroll_registration::register_scroll_nodes(self, &now);
+            // The thumbs' GPU positions, from what registration just
+            // published - this layout's extent, the clamped offsets. The
+            // update made while the list was built read the PREVIOUS
+            // registration, and a full rebuild's frame (WebRender's included)
+            // presents without another: the thumb sat one layout behind the
+            // content it scrolls.
+            #[cfg(feature = "std")]
+            if !self.skip_gpu_sync {
+                let _ = self.refresh_scrollbar_transforms();
+            }
         }
 
         // After layout, automatically scroll cursor into view if there's a focused text input.
@@ -2557,10 +3563,23 @@ impl LayoutWindow {
                 .text_edit_manager
                 .multi_cursor
                 .as_ref()
-                .map_or(DomId::ROOT_ID, |mc| mc.node_id.dom);
+                .map_or(DomId::ROOT_ID, |mc| mc.block.dom());
             if self.scroll_focused_cursor_into_view() {
                 self.regenerate_display_list_for_dom(caret_dom);
             }
+        }
+
+        // After successful layout, update the accessibility tree - AFTER the
+        // scroll registration and the caret reveal above: a node's scroll
+        // surface (its actions, extents and offset) is read from the
+        // registered scroll states, which only the registration publishes and
+        // the reveal moves. Built before them, the tree described the
+        // PREVIOUS pass's scrolling: a page that grew past the window sent the
+        // screen reader a body that could not scroll, until some later pass
+        // happened to rebuild it.
+        #[cfg(feature = "a11y")]
+        if result.is_ok() {
+            self.update_a11y_tree();
         }
 
         // Every layout pass ends here — full rebuild, pre-cascade relayout,
@@ -2569,6 +3588,12 @@ impl LayoutWindow {
         if result.is_ok() {
             let dpi = window_state.size.get_hidpi_factor().inner.get();
             self.queue_resize_events_after_layout(system_callbacks, dpi);
+            // Every DOM of the window has its display list of this pass.
+            self.collect_embedded_fonts();
+            // The `<webview>`s these DOMs hold now: mounted, kept, navigated,
+            // destroyed - or, without a backend, told why not.
+            let now = (system_callbacks.get_system_time_fn.cb)();
+            self.reconcile_webviews(&now);
         }
 
         // PATCH VERIFY (`AZ_PATCH_VERIFY=1`): a PATCHED display list (the
@@ -2594,13 +3619,45 @@ impl LayoutWindow {
         // block (azul does not auto-wrap them in anonymous blocks the way
         // browsers do — state on a text node is inert). One warning per
         // unique finding per process; a correct app emits nothing.
+        //
+        // Only over a DOM that is NEW to the lints (ANIMFRAME8 s8): the ROOT
+        // of a new generation, a child DOM its VirtualView re-rendered this
+        // pass (not in `kept_doms`), or an arena that is not the one linted
+        // last (the first layout; a DOM swapped in through the relayout
+        // entry). A relayout of the retained DOM - an animation frame, a
+        // resize, a restyle - walked all four lints again for findings that
+        // cannot have changed.
         if result.is_ok() {
-            for lr in self.layout_results.values() {
+            for (dom_id, lr) in &self.layout_results {
+                let arena = lr.styled_dom.node_data.as_ref();
+                let stamp = (arena.as_ptr() as usize, arena.len());
+                let rendered_now = if *dom_id == DomId::ROOT_ID {
+                    new_generation
+                } else {
+                    !kept_doms.contains(dom_id)
+                };
+                if !rendered_now && self.dom_lint_stamps.get(dom_id) == Some(&stamp) {
+                    continue;
+                }
+                self.dom_lint_stamps.insert(*dom_id, stamp);
+                self.dom_lint_runs = self.dom_lint_runs.saturating_add(1);
                 crate::dom_lint::warn_text_without_block_container(&lr.styled_dom);
                 crate::dom_lint::warn_div_used_as_text_container(&lr.styled_dom);
-                crate::dom_lint::warn_interactive_without_accessibility(&lr.styled_dom);
-                crate::dom_lint::warn_a11y_shape(&lr.styled_dom);
+                crate::dom_lint::warn_interactive_without_accessibility_in(
+                    &lr.styled_dom,
+                    self.dom_lint_scope,
+                );
+                crate::dom_lint::warn_a11y_shape_in(&lr.styled_dom, self.dom_lint_scope);
+                crate::dom_lint::warn_composite_navigation(&lr.styled_dom);
             }
+            self.dom_lint_stamps
+                .retain(|dom_id, _| self.layout_results.contains_key(dom_id));
+        }
+
+        // The funnel's own reconciliation completes like the shells' does,
+        // once the new geometry exists (enters, exits, the animation keys).
+        if let (Ok(()), Some(pending)) = (&result, pending_reconciliation.as_ref()) {
+            self.finish_reconciliation(DomId::ROOT_ID, pending);
         }
 
         result
@@ -2675,41 +3732,36 @@ impl LayoutWindow {
         self.acked_text_revision = self.acked_text_revision.max(clamped);
     }
 
-    /// Every text edit the app has NOT yet acked: `(node, flattened text,
-    /// revision)`. One call inside a layout/VirtualView callback lets a
-    /// document app fold live typing back into its model, then ack the
-    /// highest revision it saw — closing the loop that previously did not
-    /// exist for character-level edits (the app model never heard typing).
+    /// Every text edit the app has NOT yet acked: the block element, its
+    /// flattened text, the revision and the inline formats of the text
+    /// (`DocumentTextEdit::runs`, over the element's own style). One call
+    /// inside a layout/VirtualView callback lets a document app fold live
+    /// typing back into its model, then ack the highest revision it saw —
+    /// closing the loop that previously did not exist for character-level
+    /// edits (the app model never heard typing). The formats are what the
+    /// text pipeline formats without the app - typing after a format toggle
+    /// at the caret, an inline formatted paste, typing into formatted text -
+    /// which the report flattened away: the apps lost that bold on their
+    /// next rebuild (`DEDUP_EDITORS` D1).
     #[must_use]
-    pub fn unsynced_text_edits(&self) -> Vec<(DomNodeId, String, u64)> {
+    pub fn unsynced_text_edits(&self) -> Vec<azul_core::selection::DocumentTextEdit> {
         self.content_overlay
             .iter_text()
             .filter(|(_, dirty)| dirty.revision > self.acked_text_revision)
-            .map(|(&(dom, node), dirty)| {
-                (
-                    DomNodeId {
-                        dom,
-                        node: NodeHierarchyItemId::from_crate_internal(Some(node)),
-                    },
-                    crate::overlay::flatten_inline_content(&dirty.content),
-                    dirty.revision,
+            .map(|(&(dom, node), dirty)| azul_core::selection::DocumentTextEdit {
+                node: DomNodeId {
+                    dom,
+                    node: NodeHierarchyItemId::from_crate_internal(Some(node)),
+                },
+                text: crate::overlay::flatten_inline_content(&dirty.content).into(),
+                revision: dirty.revision,
+                runs: crate::overlay::inline_content_formats(
+                    &dirty.content,
+                    &self.get_text_style_for_node(dom, node),
                 )
+                .into(),
             })
             .collect()
-    }
-
-    /// Flatten-length of one inline item — the SAME accounting
-    /// `overlay::flatten_inline_content` performs, so byte offsets built
-    /// from it index the exact string `get_node_text_content` returns.
-    fn inline_item_flat_len(item: &InlineContent) -> usize {
-        use crate::text3::cache::InlineContent as IC;
-        match item {
-            IC::Text(run) => run.text.len(),
-            IC::Space(_) | IC::LineBreak(_) | IC::Tab { .. } => 1,
-            IC::Ruby { base, .. } => base.iter().map(Self::inline_item_flat_len).sum(),
-            IC::Marker { run, .. } => run.text.len(),
-            IC::Image(_) | IC::Shape(_) => 0,
-        }
     }
 
     /// Resolve an engine `TextCursor` (cluster id + affinity) on `node` to
@@ -2720,6 +3772,11 @@ impl LayoutWindow {
     /// paths use (`cursor_byte_offset_in_run`), so a trailing cursor on a
     /// ZWJ emoji family or a decomposed `é` lands past the WHOLE cluster,
     /// and bidi text resolves in logical order (bytes, not visual x).
+    ///
+    /// The caret is read in its own numbering ([`Self::element_content`]):
+    /// in a list item its text is run 1, behind the `::marker`. Read against
+    /// the DOM's text alone, where the same text is run 0, every caret in a
+    /// list item came out at the end of the text.
     #[must_use]
     pub fn resolve_cursor_to_text_byte(
         &self,
@@ -2727,43 +3784,36 @@ impl LayoutWindow {
         node_id: NodeId,
         cursor: &TextCursor,
     ) -> u32 {
-        use crate::text3::cache::InlineContent as IC;
-        let content = self.get_text_before_textinput(dom_id, node_id);
-        let run_idx = cursor.cluster_id.source_run as usize;
-        let mut acc: usize = 0;
-        for (i, item) in content.iter().enumerate() {
-            if i == run_idx {
-                if let IC::Text(run) = item {
-                    acc += crate::text3::edit::cursor_byte_offset_in_run(&run.text, cursor);
-                }
-                return u32::try_from(acc).unwrap_or(u32::MAX);
-            }
-            acc += Self::inline_item_flat_len(item);
-        }
-        // Cursor past the content (stale session): clamp to the end.
-        u32::try_from(acc).unwrap_or(u32::MAX)
+        let at = self.element_content(dom_id, node_id).flat_byte_of(cursor);
+        u32::try_from(at.0).unwrap_or(u32::MAX)
     }
 
     /// The current selection as app-facing byte spans (see
     /// `CallbackInfo::get_document_selection` for the contract). Cross-block
-    /// selections yield one span per affected IFC root in document order;
-    /// otherwise each multi-cursor RANGE on the editing session's node
+    /// selections yield one span per affected text block in document order;
+    /// otherwise each multi-cursor RANGE in the editing session's block
     /// yields one span. Spans are normalized (`start <= end`, logical
     /// order) — a backward or RTL drag reads the same as a forward one.
+    ///
+    /// A span names the block's ELEMENT, whose text its bytes index; an
+    /// anonymous block has none and yields no span.
     #[must_use]
     pub fn document_selection_spans(&self) -> Vec<azul_core::selection::DocumentSelectionSpan> {
         use azul_core::selection::{DocumentSelectionSpan, Selection};
         let mut out = Vec::new();
         if let Some(cross) = &self.text_edit_manager.cross_block {
-            for (&node, ranges) in &cross.affected_nodes {
+            for (block, ranges) in &cross.affected_blocks {
+                let Some(node) = block.element_dom_node() else {
+                    continue;
+                };
+                let Some(node_id) = block.element() else {
+                    continue;
+                };
                 for range in ranges {
-                    let a = self.resolve_cursor_to_text_byte(cross.dom_id, node, &range.start);
-                    let b = self.resolve_cursor_to_text_byte(cross.dom_id, node, &range.end);
+                    let a = self.resolve_cursor_to_text_byte(node.dom, node_id, &range.start);
+                    let b = self.resolve_cursor_to_text_byte(node.dom, node_id, &range.end);
                     out.push(DocumentSelectionSpan {
-                        node: DomNodeId {
-                            dom: cross.dom_id,
-                            node: NodeHierarchyItemId::from_crate_internal(Some(node)),
-                        },
+                        node,
                         start_byte: a.min(b),
                         end_byte: a.max(b),
                     });
@@ -2772,15 +3822,16 @@ impl LayoutWindow {
             return out;
         }
         if let Some(mc) = &self.text_edit_manager.multi_cursor {
-            let Some(node_id) = mc.node_id.node.into_crate_internal() else {
+            let (Some(node), Some(node_id)) = (mc.block.element_dom_node(), mc.block.element())
+            else {
                 return out;
             };
             for sel in &mc.selections {
                 if let Selection::Range(range) = &sel.selection {
-                    let a = self.resolve_cursor_to_text_byte(mc.node_id.dom, node_id, &range.start);
-                    let b = self.resolve_cursor_to_text_byte(mc.node_id.dom, node_id, &range.end);
+                    let a = self.resolve_cursor_to_text_byte(node.dom, node_id, &range.start);
+                    let b = self.resolve_cursor_to_text_byte(node.dom, node_id, &range.end);
                     out.push(DocumentSelectionSpan {
-                        node: mc.node_id,
+                        node,
                         start_byte: a.min(b),
                         end_byte: a.max(b),
                     });
@@ -2791,15 +3842,17 @@ impl LayoutWindow {
     }
 
     /// The primary caret as an app-facing position, if an editing session
-    /// is active (see `CallbackInfo::get_document_caret`).
+    /// is active (see `CallbackInfo::get_document_caret`). `None` in an
+    /// anonymous block, which has no element whose text a byte could index.
     #[must_use]
     pub fn document_caret(&self) -> Option<azul_core::selection::DocumentPosition> {
         let mc = self.text_edit_manager.multi_cursor.as_ref()?;
-        let node_id = mc.node_id.node.into_crate_internal()?;
+        let node = mc.block.element_dom_node()?;
+        let node_id = mc.block.element()?;
         let cursor = self.text_edit_manager.get_primary_cursor()?;
         Some(azul_core::selection::DocumentPosition {
-            node: mc.node_id,
-            text_byte: self.resolve_cursor_to_text_byte(mc.node_id.dom, node_id, &cursor),
+            node,
+            text_byte: self.resolve_cursor_to_text_byte(node.dom, node_id, &cursor),
         })
     }
 
@@ -2817,17 +3870,7 @@ impl LayoutWindow {
         let mut cur = node.node.into_crate_internal()?;
         let mut path_rev: Vec<u32> = Vec::new();
         while cur != anc {
-            let mut index: u32 = 0;
-            let mut sib = hierarchy
-                .get(cur)
-                .and_then(azul_core::styled_dom::NodeHierarchyItem::previous_sibling_id);
-            while let Some(sn) = sib {
-                index += 1;
-                sib = hierarchy
-                    .get(sn)
-                    .and_then(azul_core::styled_dom::NodeHierarchyItem::previous_sibling_id);
-            }
-            path_rev.push(index);
+            path_rev.push(sibling_index(&hierarchy, cur));
             match hierarchy
                 .get(cur)
                 .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
@@ -2962,8 +4005,8 @@ impl LayoutWindow {
         focused_node: Option<DomNodeId>,
     ) -> Option<crate::default_actions::EditingQueryState> {
         let focus = focused_node?;
-        let node_id = focus.node.into_crate_internal()?;
-        let host = self.find_contenteditable_host(focus.dom, node_id)?;
+        let host = self.find_contenteditable_host(focus)?;
+        let host_node = host.node();
 
         // Plain-text editing contexts: a `<textarea>`, or a host whose AUTHOR
         // chose a newline-preserving `white-space` for it. There `"\n"` is the
@@ -2978,7 +4021,7 @@ impl LayoutWindow {
 
             use crate::solver3::getters::{get_white_space_property, MultiValue};
             let node_data = lr.styled_dom.node_data.as_container();
-            let Some(host_data) = node_data.get(host) else {
+            let Some(host_data) = node_data.get(host_node) else {
                 return false;
             };
             if matches!(host_data.node_type, NodeType::TextArea) {
@@ -2986,7 +4029,7 @@ impl LayoutWindow {
             }
             let author_declared = lr.styled_dom.get_css_property_cache().has_own_declaration(
                 host_data,
-                &host,
+                &host_node,
                 &CssPropertyType::WhiteSpace,
             );
             author_declared
@@ -2994,10 +4037,14 @@ impl LayoutWindow {
                     .styled_dom
                     .styled_nodes
                     .as_container()
-                    .get(host)
+                    .get(host_node)
                     .is_some_and(|n| {
                         matches!(
-                            get_white_space_property(&lr.styled_dom, host, &n.styled_node_state),
+                            get_white_space_property(
+                                &lr.styled_dom,
+                                host_node,
+                                &n.styled_node_state
+                            ),
                             MultiValue::Exact(
                                 StyleWhiteSpace::Pre
                                     | StyleWhiteSpace::PreWrap
@@ -3008,36 +4055,38 @@ impl LayoutWindow {
                     })
         });
 
-        // Caret at block start / end, judged against the CURRENT effective
-        // content (overlay-first via get_text_before_textinput). Conservative
-        // on multi-run content: a caret we cannot prove at the boundary keeps
-        // Backspace/Delete on the plain per-IFC text path — safe fallback.
-        let (at_start, at_end) = self
-            .cursor_of_seat(seat_id)
-            .map_or((false, false), |cursor| {
-                let content = self.get_text_before_textinput(focus.dom, node_id);
-                let at_start =
-                    cursor.cluster_id.source_run == 0 && cursor.cluster_id.start_byte_in_run == 0;
-                let last_text = content.iter().enumerate().rev().find_map(|(i, c)| {
-                    if let InlineContent::Text(run) = c {
-                        Some((
-                            u32::try_from(i).unwrap_or(u32::MAX),
-                            u32::try_from(run.text.len()).unwrap_or(u32::MAX),
-                        ))
-                    } else {
-                        None
-                    }
-                });
-                let at_end = match last_text {
-                    Some((last_run, last_len)) => {
-                        cursor.cluster_id.source_run >= last_run
-                            && cursor.cluster_id.start_byte_in_run >= last_len
-                    }
-                    // No text at all: the caret is at both boundaries.
-                    None => true,
-                };
-                (at_start, at_end)
-            });
+        // Caret at block start / end: by POSITION in the caret's OWN block
+        // (not the host's flattened text, not the raw cluster id). A
+        // selection is never at a boundary - Backspace and Delete delete it.
+        let session = if seat_id == azul_core::window::PRIMARY_POINTER_SEAT {
+            let document_selection = self
+                .text_edit_manager
+                .get_cross_block_selection()
+                .is_some_and(|cb| cb.dom_id == focus.dom);
+            self.text_edit_manager
+                .multi_cursor
+                .as_ref()
+                .filter(|mc| !document_selection && mc.block.dom() == focus.dom)
+                .and_then(|mc| Some((mc.block, mc.get_primary()?.selection)))
+        } else {
+            self.text_edit_manager
+                .seat_caret(seat_id)
+                .filter(|c| c.node.dom == focus.dom)
+                .map(|c| (c.block, c.selection()))
+        };
+        let (at_start, at_end) = session.map_or((false, false), |(caret_block, selection)| {
+            let Some(element) = self.edit_element(host.dom_node(), Some(caret_block)) else {
+                return (false, false);
+            };
+            let (content, generated) = self.element_content(focus.dom, element).into_parts();
+            let caret = match selection {
+                Selection::Cursor(c) => Some(c),
+                Selection::Range(r) => crate::text3::edit::collapsed_range_caret(&content, &r),
+            };
+            caret.map_or((false, false), |c| {
+                Self::caret_at_block_edges(&content, generated, c)
+            })
+        });
 
         Some(crate::default_actions::EditingQueryState {
             is_contenteditable: true,
@@ -3071,13 +4120,7 @@ impl LayoutWindow {
     /// consumers: raster, hit-test, and this.
     pub fn window_space_offset_of_dom(&self, dom_id: DomId) -> LogicalPosition {
         let resolve_scroll = |d: DomId, n: NodeId| self.scroll_manager.get_current_offset(d, n);
-        let resolve_transform = |d: DomId, n: NodeId| {
-            self.gpu_state_manager
-                .caches
-                .get(&d)
-                .and_then(|c| c.css_current_transform_values.get(&n))
-                .copied()
-        };
+        let resolve_transform = |d: DomId, n: NodeId| self.painted_transform_of(d, n);
         crate::headless::nested_dom_window_origin(
             &self.layout_results,
             dom_id,
@@ -3096,10 +4139,52 @@ impl LayoutWindow {
             .scroll_manager
             .get_current_offset(dom_id, node_id)
             .unwrap_or_else(LogicalPosition::zero);
+        // On the device pixel grid: a view's content is drawn at whole device
+        // pixels however far a smooth scroll has glided, so its text stays
+        // crisp and a frame moves its pixels by whole pixels - a CPU frame
+        // then moves the view's pixels and paints the strip that came in
+        // (`execute_virtual_view_shift`) instead of the whole view, which it
+        // did for every frame of a wheel glide (9.3 px, 8.9 px, ...).
+        let s = self.current_window_state.size.get_hidpi_factor().inner.get();
+        let snap = |v: f32| {
+            if s.is_finite() && s > 0.0 {
+                (v * s).round() / s
+            } else {
+                v
+            }
+        };
         LogicalPosition::new(
-            window_origin.x - current_offset.x,
-            window_origin.y - current_offset.y,
+            snap(window_origin.x - current_offset.x),
+            snap(window_origin.y - current_offset.y),
         )
+    }
+
+    /// How far a compositor that draws each `VirtualView`'s child dom in a
+    /// frame of its own scrolls that frame: one entry per mounted view, the
+    /// child dom and the offset.
+    ///
+    /// It is minus [`Self::virtual_view_content_offset`]: the child's
+    /// 0-relative content shows from the box's corner at `content_offset`,
+    /// and a frame scrolled by `s` draws its content at `-s`. `WebRender` draws
+    /// a child dom as an iframe pipeline at the host item's bounds, and
+    /// `wr_translate2::scroll_all_nodes` moves that pipeline's root scroll
+    /// frame by this on every frame, from the live scroll offset. Without it
+    /// the GPU moved the rows only when the view rendered a new window of
+    /// them, while the CPU raster, which reads `content_offset`, glided.
+    #[must_use]
+    pub fn virtual_view_frame_scroll_offsets(&self) -> Vec<(DomId, LogicalPosition)> {
+        self.virtual_view_manager
+            .all_view_keys()
+            .into_iter()
+            .filter_map(|(dom_id, node_id)| {
+                let child = self
+                    .virtual_view_manager
+                    .get_nested_dom_id(dom_id, node_id)
+                    .filter(|child| self.layout_results.contains_key(child))?;
+                let content = self.virtual_view_content_offset(dom_id, node_id);
+                Some((child, LogicalPosition::new(-content.x, -content.y)))
+            })
+            .collect()
     }
 
     /// Re-point the live display list's `VirtualView` item at the CURRENT
@@ -3155,10 +4240,13 @@ impl LayoutWindow {
     /// [`Self::compute_edit_resume_point`] stores. Two of the three used to
     /// pass a literal `0`, so the same editable opened by click and by focus
     /// carried two different session identities.
-    fn contenteditable_session_key(&self, dom_id: DomId, node_id: NodeId) -> u64 {
+    pub(crate) fn contenteditable_session_key(&self, dom_id: DomId, node_id: NodeId) -> u64 {
         let anchor = self
-            .find_contenteditable_host(dom_id, node_id)
-            .unwrap_or(node_id);
+            .find_contenteditable_host(DomNodeId {
+                dom: dom_id,
+                node: NodeHierarchyItemId::from_crate_internal(Some(node_id)),
+            })
+            .map_or(node_id, crate::text_block::EditHost::node);
         self.layout_results.get(&dom_id).map_or(0, |lr| {
             let node_data = lr.styled_dom.node_data.as_ref();
             // A focus request can name a node this generation's DOM does not
@@ -3176,26 +4264,25 @@ impl LayoutWindow {
         })
     }
 
-    /// The nearest self-or-ancestor node with `contenteditable` (the editing
-    /// host), if any.
-    #[must_use]
-    pub fn find_contenteditable_host(&self, dom_id: DomId, node_id: NodeId) -> Option<NodeId> {
-        let lr = self.layout_results.get(&dom_id)?;
-        let node_data = lr.styled_dom.node_data.as_container();
-        let hierarchy = lr.styled_dom.node_hierarchy.as_container();
-        let mut current = Some(node_id);
-        while let Some(nid) = current {
-            if node_data
-                .get(nid)
-                .is_some_and(azul_core::dom::NodeData::is_contenteditable)
-            {
-                return Some(nid);
-            }
-            current = hierarchy
-                .get(nid)
-                .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
+    /// Whether `node` is - or edits inside - a password field: the node or
+    /// the contenteditable host it sits in says `type=password` (the
+    /// attribute the soft keyboard reads, `crate::form::input_purpose`).
+    fn is_password_field(&self, node: DomNodeId) -> bool {
+        #[cfg(feature = "std")]
+        {
+            use crate::form::{input_purpose, InputPurpose};
+            let host = self
+                .find_contenteditable_host(node)
+                .map(crate::text_block::EditHost::dom_node);
+            core::iter::once(node)
+                .chain(host)
+                .any(|n| input_purpose(n, &self.layout_results) == InputPurpose::Password)
         }
-        None
+        #[cfg(not(feature = "std"))]
+        {
+            let _ = node;
+            false
+        }
     }
 
     /// The ONE commit point for a text-mutating edit: stores the styled
@@ -3233,10 +4320,17 @@ impl LayoutWindow {
             operation,
             timestamp,
         };
-        self.undo_redo_manager
-            .store_content_snapshot(changeset_id, pre_content, post_content);
-        self.undo_redo_manager
-            .record_operation_for_seat(changeset, pre_state, seat_id);
+        // A PASSWORD field keeps no history (GTK, Qt): its buffer holds the
+        // mask, so an undo would restore bullets its widget cannot map back
+        // onto the real value - screen and value would part ways - and a
+        // history of a secret is a leak waiting to happen. With nothing
+        // recorded, the undo shortcut finds nothing to undo there.
+        if !self.is_password_field(target) {
+            self.undo_redo_manager
+                .store_content_snapshot(changeset_id, pre_content, post_content);
+            self.undo_redo_manager
+                .record_operation_for_seat(changeset, pre_state, seat_id);
+        }
         if matches!(notify, TextEditNotify::QueueInput) {
             self.text_edit_manager
                 .pending_edit_notifications
@@ -3322,6 +4416,13 @@ impl LayoutWindow {
             return None;
         }
 
+        // The block the SEAT's caret is in (the primary's session block for
+        // seat 0): what the edit acts on.
+        let caret_block = if seat_id == azul_core::window::PRIMARY_POINTER_SEAT {
+            self.text_edit_manager.get_editing_block()
+        } else {
+            self.text_edit_manager.seat_caret(seat_id).map(|c| c.block)
+        };
         let (target, operation) = match action {
             DefaultAction::SplitBlockAtCursor { target } => {
                 let node_id = target.node.into_crate_internal()?;
@@ -3329,11 +4430,11 @@ impl LayoutWindow {
                 // the edit acts on the caret's BLOCK: Enter in
                 // `div[contenteditable] > p > text` splits the <p>, and the
                 // apply side (`apply_split`) is specified against exactly
-                // that shape — `host.children[i]` split at a position INSIDE
-                // it. Recording the host here made every Enter split block 0
-                // at boundary 0: a silent empty paragraph prepended, the
-                // caret unmoved (the AzWriter symptom).
-                let node_id = self.structural_edit_node(target.dom, node_id);
+                // that shape — the parent's `children[i]` split at a position
+                // INSIDE it. Recording the host here made every Enter split
+                // block 0 at boundary 0: a silent empty paragraph prepended,
+                // the caret unmoved (the AzWriter symptom).
+                let node_id = self.structural_edit_node(target.dom, node_id, caret_block);
                 let target = DomNodeId {
                     dom: target.dom,
                     node: NodeHierarchyItemId::from_crate_internal(Some(node_id)),
@@ -3354,7 +4455,7 @@ impl LayoutWindow {
                 // Same re-targeting as the split: Backspace at the start of a
                 // paragraph merges the caret's BLOCK with its previous
                 // sibling, not the host with whatever sits beside the host.
-                let node_id = self.structural_edit_node(target.dom, node_id);
+                let node_id = self.structural_edit_node(target.dom, node_id, caret_block);
                 let target = DomNodeId {
                     dom: target.dom,
                     node: NodeHierarchyItemId::from_crate_internal(Some(node_id)),
@@ -3375,7 +4476,7 @@ impl LayoutWindow {
             }
             DefaultAction::MergeWithNext { target } => {
                 let node_id = target.node.into_crate_internal()?;
-                let node_id = self.structural_edit_node(target.dom, node_id);
+                let node_id = self.structural_edit_node(target.dom, node_id, caret_block);
                 let target = DomNodeId {
                     dom: target.dom,
                     node: NodeHierarchyItemId::from_crate_internal(Some(node_id)),
@@ -3405,123 +4506,348 @@ impl LayoutWindow {
         Some(self.record_document_edit(changeset))
     }
 
-    /// The node a keyboard structural edit acts on: the DIRECT child of
-    /// `host` on the caret's ancestor chain, when that child is an ELEMENT
-    /// (the caret's block — the `<p>` of `div[contenteditable] > p > text`).
-    /// A flat host (its direct child at the caret IS a text leaf) and an
-    /// element-level caret keep the host itself: there the host's own child
-    /// list is the thing being split/merged.
-    fn structural_edit_node(&self, dom_id: DomId, host: NodeId) -> NodeId {
-        let Some(lr) = self.layout_results.get(&dom_id) else {
-            return host;
-        };
-        let hierarchy = lr.styled_dom.node_hierarchy.as_container();
-        let node_data = lr.styled_dom.node_data.as_container();
-        let Some(caret) = self
-            .text_edit_manager
-            .multi_cursor
-            .as_ref()
-            .filter(|mc| mc.node_id.dom == dom_id)
-            .and_then(|mc| mc.node_id.node.into_crate_internal())
+    /// The node a keyboard structural edit acts on: the ELEMENT of the
+    /// caret's block (`caret_block`) - the INNERMOST block container the
+    /// caret's text is in, the `<p>` of
+    /// `host > blockquote > blockquote > p > text` and the `<li>` of a list -
+    /// when it lies inside `host`. That
+    /// is the execCommand spec's "editable block": `insertParagraph` splits
+    /// it, `delete` at its start merges it with the block before it, inside
+    /// any number of containers. A flat host (the caret's block IS the host),
+    /// a caret in an anonymous block (loose text beside a block - no element
+    /// of its own to split) and a caret outside the host keep the host
+    /// itself: there the host's own child list is the thing being split /
+    /// merged.
+    ///
+    /// The host's DIRECT child on the caret's path, which this used to
+    /// return, is the outer quote of a nested one: Enter cloned the whole
+    /// quote and Backspace merged all of it into the block before it.
+    fn structural_edit_node(
+        &self,
+        dom_id: DomId,
+        host: NodeId,
+        caret_block: Option<TextBlock>,
+    ) -> NodeId {
+        let Some(element) = caret_block
+            .filter(|block| block.dom() == dom_id)
+            .and_then(|block| block.element())
         else {
             return host;
         };
-        if caret == host {
+        if element == host || !self.node_is_self_or_descendant(dom_id, element, host) {
             return host;
         }
-        // Walk the caret up to the direct child of `host`; a caret outside
-        // the host's subtree keeps the host.
-        let mut direct = caret;
-        loop {
-            match hierarchy
-                .get(direct)
-                .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
-            {
-                Some(p) if p == host => break,
-                Some(p) => direct = p,
-                None => return host,
-            }
-        }
-        let is_element = node_data
-            .get(direct)
-            .is_some_and(|n| !matches!(n.get_node_type(), NodeType::Text(_)));
-        if is_element {
-            direct
-        } else {
-            host
-        }
+        element
     }
 
-    /// The node a CHARACTER edit belongs to: walking up from the caret's
-    /// session node, the first ancestor (at or below `host`) that OWNS an
-    /// inline layout — the IFC root whose runs the caret's cluster ids
-    /// index. `host` itself when the session is absent, in another dom,
-    /// outside `host`, or when nothing below `host` owns an inline layout
-    /// (a flat editable: the host IS the IFC root).
+    /// The layout node whose inline layout an edit of `node_id` re-shapes:
+    /// its own, else the first among its descendants, the caret's block first
+    /// ([`Self::ifc_candidate_children`]). Shared by [`Self::reshape_text_node`]
+    /// and [`Self::element_content`], so the two agree on the block.
+    fn ifc_layout_index_for_edit(&self, dom_id: DomId, node_id: NodeId) -> Option<usize> {
+        let tree = &self.layout_results.get(&dom_id)?.layout_tree;
+        let owned_ifc = |n: NodeId| -> Option<usize> {
+            tree.dom_to_layout
+                .get(&n)?
+                .iter()
+                .find(|&&idx| {
+                    tree.warm(idx)
+                        .is_some_and(|w| w.inline_layout_result.is_some())
+                })
+                .map(|idx| idx.index())
+        };
+        owned_ifc(node_id).or_else(|| {
+            self.ifc_candidate_children(dom_id, node_id)
+                .into_iter()
+                .find_map(owned_ifc)
+        })
+    }
+
+    /// The generated items `solver3::fc` put among an IFC's own content, as
+    /// the IFC root's cached collection (`LayoutNodeWarm::inline_content_cache`)
+    /// holds them, in its order: a list item's `::marker`, and the items of
+    /// the `::before` and `::after` of the IFC's element and of every inline
+    /// box in it. Each with the side of its element's content it stands on
+    /// and the node it was laid out from (none for a `::marker` item).
     ///
-    /// EVERY commit that replaces a node's inline content has to key it here
-    /// (typing, Backspace/Delete, multi-cursor paste, undo/redo): the cursor
-    /// coordinates are per-IFC, a host-keyed blob painted the whole editable
-    /// as one line, and the app's text-sync API (`get_unsynced_text_edits`)
-    /// can only map an edit to its block when the node IS the block's IFC.
-    pub fn caret_text_target(&self, dom_id: DomId, host: NodeId) -> NodeId {
-        let Some(caret) = self
-            .text_edit_manager
-            .multi_cursor
-            .as_ref()
-            .filter(|mc| mc.node_id.dom == dom_id)
-            .and_then(|mc| mc.node_id.node.into_crate_internal())
-        else {
-            return host;
+    /// The edit model holds the document's text alone, and these go back
+    /// among it ([`Self::with_generated_ifc_content`]). `None` when the IFC
+    /// has no collection.
+    fn generated_ifc_items(
+        &self,
+        dom_id: DomId,
+        layout_index: usize,
+    ) -> Option<Vec<(GeneratedSide, Option<NodeId>, InlineContent)>> {
+        let layout_result = self.layout_results.get(&dom_id)?;
+        let collected = layout_result
+            .layout_tree
+            .warm(LayoutNodeId::new(layout_index))
+            .and_then(|w| w.inline_content_cache.as_deref())?;
+        let styled_dom = &layout_result.styled_dom;
+        Some(
+            collected
+                .content
+                .iter()
+                .filter_map(|item| {
+                    let side = generated_side(styled_dom, item)?;
+                    Some((side, content_item_node(item), item.clone()))
+                })
+                .collect(),
+        )
+    }
+
+    /// `text`, the edit model's content of the IFC at `layout_index`, with
+    /// the generated items its layout puts among it
+    /// ([`Self::generated_ifc_items`]) where the layout puts them, in place
+    /// of any it holds.
+    ///
+    /// A `::marker` item stands in front of everything; the items of a
+    /// `::before` or an `::after` in front of the first item that comes
+    /// behind them in document order. An item with no node of its own (a
+    /// `<br>`'s line break, a tab) is ordered by the item with a node in
+    /// front of it for a `::before` and by the one behind it for an
+    /// `::after`, so a `<br>` next to an element stays outside it. With no
+    /// item to order by, a `::before` stands in front of the text and an
+    /// `::after` behind it.
+    fn with_generated_ifc_content(
+        &self,
+        dom_id: DomId,
+        layout_index: usize,
+        text: Vec<InlineContent>,
+    ) -> Vec<InlineContent> {
+        let (Some(layout_result), Some(generated)) = (
+            self.layout_results.get(&dom_id),
+            self.generated_ifc_items(dom_id, layout_index),
+        ) else {
+            return text;
         };
-        if caret == host {
-            return host;
+        let styled_dom = &layout_result.styled_dom;
+        let text: Vec<InlineContent> = text
+            .into_iter()
+            .filter(|item| generated_side(styled_dom, item).is_none())
+            .collect();
+        let nodes: Vec<Option<NodeId>> = text.iter().map(content_item_node).collect();
+        let mut before_key: Vec<Option<NodeId>> = nodes
+            .iter()
+            .scan(None, |last, node| {
+                *last = node.or(*last);
+                Some(*last)
+            })
+            .collect();
+        let mut after_key: Vec<Option<NodeId>> = nodes
+            .iter()
+            .rev()
+            .scan(None, |next, node| {
+                *next = node.or(*next);
+                Some(*next)
+            })
+            .collect();
+        after_key.reverse();
+        // An item with no node in front of it (behind it) takes the node on
+        // its other side.
+        for (before, after) in before_key.iter_mut().zip(after_key.iter_mut()) {
+            if before.is_none() {
+                *before = *after;
+            }
+            if after.is_none() {
+                *after = *before;
+            }
         }
-        // Containment first: a caret outside the host's subtree keeps the host.
-        let Some(lr) = self.layout_results.get(&dom_id) else {
-            return host;
-        };
-        let hierarchy = lr.styled_dom.node_hierarchy.as_container();
-        {
-            let mut cur = caret;
-            loop {
-                match hierarchy
-                    .get(cur)
-                    .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
-                {
-                    Some(p) if p == host => break,
-                    Some(p) => cur = p,
-                    None => return host,
+        let goes_first = |side: GeneratedSide, node: Option<NodeId>, index: usize| {
+            let key = match side {
+                GeneratedSide::Front => before_key[index],
+                GeneratedSide::Back => after_key[index],
+            };
+            match (node, key) {
+                (None, _) => true,
+                (Some(node), Some(key)) => {
+                    is_before_in_document_order(&styled_dom.node_hierarchy, node, key)
                 }
+                // No item has a node to order by (a seeded empty run): a
+                // `::before` goes in front of the text, an `::after` behind.
+                (Some(_), None) => side == GeneratedSide::Front,
             }
-        }
-        // The shape-able owner: the nearest NON-TEXT ancestor with a layout
-        // node — the element whose IFC the edit re-shapes (`p` in the
-        // word-processor shape, the value node in a text widget). A bare
-        // text leaf is skipped even when a layout lookup resolves through
-        // it: `update_text_cache_after_edit` shapes at the ELEMENT, and a
-        // leaf-keyed entry painted nothing.
-        let node_data = lr.styled_dom.node_data.as_container();
-        let mut n = caret;
-        loop {
-            let is_text = node_data
-                .get(n)
-                .is_some_and(|d| matches!(d.get_node_type(), NodeType::Text(_)));
-            let has_layout = lr.layout_tree.dom_to_layout.contains_key(&n);
-            if !is_text && has_layout {
-                return n;
-            }
-            if n == host {
-                return host;
-            }
-            match hierarchy
-                .get(n)
-                .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
+        };
+        let mut out = Vec::with_capacity(text.len() + generated.len());
+        let mut generated = generated.into_iter().peekable();
+        for (index, item) in text.into_iter().enumerate() {
+            while generated
+                .peek()
+                .is_some_and(|&(side, node, _)| goes_first(side, node, index))
             {
-                Some(p) => n = p,
-                None => return host,
+                out.extend(generated.next().map(|(_, _, item)| item));
             }
+            out.push(item);
         }
+        out.extend(generated.map(|(_, _, item)| item));
+        out
+    }
+
+    /// The content a caret in `node_id`'s block indexes
+    /// ([`BlockContent`](crate::block_content::BlockContent)): the edit model
+    /// (`get_text_before_textinput`, the DOM's text alone) among the
+    /// generated items the layout numbers with it
+    /// ([`Self::with_generated_ifc_content`]) - a list item's `::marker` or
+    /// the element's `::before` in front, which makes its text run 1 to
+    /// every caret, a span's `::before` and `::after` around the span's.
+    ///
+    /// The generated items in front are the block's generated prefix; those
+    /// behind the text number after every caret of it and stay out. Edits
+    /// splice the items and store only the text (overlay, undo, the app's
+    /// sync API get the text); [`Self::reshape_text_node`] shapes the
+    /// generated items among it again, so the carets keep their numbering.
+    #[must_use]
+    pub fn element_content(
+        &self,
+        dom_id: DomId,
+        node_id: NodeId,
+    ) -> crate::block_content::BlockContent {
+        use crate::block_content::BlockContent;
+
+        let text = self.get_text_before_textinput(dom_id, node_id);
+        let Some(layout_result) = self.layout_results.get(&dom_id) else {
+            return BlockContent::new(text, 0);
+        };
+        let styled_dom = &layout_result.styled_dom;
+        let mut content = match self.ifc_layout_index_for_edit(dom_id, node_id) {
+            Some(idx) => self.with_generated_ifc_content(dom_id, idx, text),
+            None => text,
+        };
+        let generated = content
+            .iter()
+            .take_while(|item| generated_side(styled_dom, item).is_some())
+            .count();
+        let behind = content[generated..]
+            .iter()
+            .rev()
+            .take_while(|item| generated_side(styled_dom, item).is_some())
+            .count();
+        content.truncate(content.len() - behind);
+        // The flat text reads an inline-block's text where the box stands,
+        // and a generated item amid the text as nothing.
+        let readings = content
+            .iter()
+            .enumerate()
+            .skip(generated)
+            .filter_map(|(index, item)| {
+                if generated_side(styled_dom, item).is_some() {
+                    return Some((index, Vec::new()));
+                }
+                let reading = self.atomic_reading(dom_id, atomic_item_node(item)?)?;
+                Some((index, reading))
+            })
+            .collect();
+        BlockContent::new(content, generated).with_readings(readings)
+    }
+
+    /// What the atomic inline `node` reads as in its paragraph's flat text:
+    /// the text inside it, its own inline-blocks read the same way, as the
+    /// edit model holds it ([`Self::get_text_before_textinput`]). `None`
+    /// when it holds no text, or is walled off from the editable it sits in
+    /// ([`Self::is_walled_off_editable_subtree`]).
+    ///
+    /// The paragraph's content carries the box as one item, which is what
+    /// places it and what its carets number; its text is read in place, and
+    /// its own block holds the carets inside it.
+    fn atomic_reading(&self, dom_id: DomId, node: NodeId) -> Option<Vec<InlineContent>> {
+        let walled_off = self
+            .layout_results
+            .get(&dom_id)?
+            .styled_dom
+            .node_data
+            .as_ref()
+            .get(node.index())
+            .is_some_and(Self::is_walled_off_editable_subtree);
+        if walled_off {
+            return None;
+        }
+        let reading: Vec<InlineContent> = self
+            .get_text_before_textinput(dom_id, node)
+            .into_iter()
+            .flat_map(|item| {
+                match atomic_item_node(&item).and_then(|inner| self.atomic_reading(dom_id, inner)) {
+                    Some(inner) => inner,
+                    None => vec![item],
+                }
+            })
+            .collect();
+        let holds_text = reading
+            .iter()
+            .any(|item| crate::block_content::flat_len_of(item) > 0);
+        holds_text.then_some(reading)
+    }
+
+    /// How many bytes `item`, an item of an element's edit model, contributes
+    /// to its flat text: an atomic inline its text's
+    /// ([`Self::atomic_reading`]), as [`Self::element_content`] reads it.
+    fn reading_flat_len(&self, dom_id: DomId, item: &InlineContent) -> usize {
+        atomic_item_node(item)
+            .and_then(|node| self.atomic_reading(dom_id, node))
+            .map_or_else(
+                || crate::block_content::flat_len_of(item),
+                |reading| reading.iter().map(crate::block_content::flat_len_of).sum(),
+            )
+    }
+
+    /// Whether `a` and `b` are ONE caret position in `block`: equal as
+    /// positions, not as cluster ids - `Trailing` on a grapheme and `Leading`
+    /// on the next name the same place (`text3::edit::collapsed_range_caret`).
+    /// An anonymous block has no element content to measure positions in, so
+    /// there the ids are compared.
+    fn same_caret_position(&self, block: TextBlock, a: TextCursor, b: TextCursor) -> bool {
+        let Some(element) = block.element() else {
+            return a == b;
+        };
+        crate::text3::edit::collapsed_range_caret(
+            self.element_content(block.dom(), element).items(),
+            &SelectionRange { start: a, end: b },
+        )
+        .is_some()
+    }
+
+    /// Whether `cursor` sits at the very start / the very end of its block's
+    /// text, by POSITION in `content` - the carets' own numbering, whose first
+    /// `generated` items are not text ([`Self::element_content`]). An item
+    /// that holds nothing (an empty seed run) is not in the way; a character,
+    /// a line break or an image is - except the line break of an empty
+    /// paragraph: a block whose one item is a `<br>` (a rich-text editor's
+    /// `<p><br></p>`) has its one caret at both edges, like a block with no
+    /// item at all.
+    fn caret_at_block_edges(
+        content: &[InlineContent],
+        generated: usize,
+        cursor: TextCursor,
+    ) -> (bool, bool) {
+        use crate::text3::edit::cursor_byte_offset_in_run;
+        let cursor = crate::block_content::BlockContent::past_generated(cursor, generated);
+        let text = content.get(generated..).unwrap_or(&[]);
+        let empty = |item: &InlineContent| matches!(item, InlineContent::Text(t) if t.text.is_empty());
+        let blank = |items: &[InlineContent]| items.iter().all(empty);
+        let mut solid = text.iter().filter(|&item| !empty(item));
+        if matches!(
+            (solid.next(), solid.next()),
+            (None, _) | (Some(InlineContent::LineBreak(_)), None)
+        ) {
+            return (true, true);
+        }
+        let run = (cursor.cluster_id.source_run as usize).saturating_sub(generated);
+        let (at_item_start, at_item_end) = match text.get(run) {
+            Some(InlineContent::Text(t)) => {
+                let at = cursor_byte_offset_in_run(&t.text, &cursor);
+                (at == 0, at >= t.text.len())
+            }
+            Some(_) => (
+                cursor.affinity == CursorAffinity::Leading,
+                cursor.affinity == CursorAffinity::Trailing,
+            ),
+            // Past the content of a block with text: a stale caret, and no
+            // boundary.
+            None => return (false, false),
+        };
+        (
+            at_item_start && blank(&text[..run]),
+            at_item_end && blank(&text[run + 1..]),
+        )
     }
 
     /// The caret expressed as a STRUCTURAL position inside `node`: the index
@@ -3548,7 +4874,7 @@ impl LayoutWindow {
             self.text_edit_manager
                 .multi_cursor
                 .as_ref()
-                .and_then(|mc| mc.node_id.node.into_crate_internal())
+                .and_then(|mc| mc.block.element())
         } else {
             self.text_edit_manager
                 .seat_caret(seat_id)
@@ -3585,7 +4911,7 @@ impl LayoutWindow {
             let content = self.get_text_before_textinput(dom_id, node_id);
             let mut acc = 0usize;
             for (i, item) in content.iter().enumerate() {
-                let len = Self::inline_item_flat_len(item);
+                let len = self.reading_flat_len(dom_id, item);
                 let idx = u32::try_from(i).unwrap_or(u32::MAX);
                 if abs <= acc + len {
                     if matches!(item, IC::Text(_)) {
@@ -3607,16 +4933,7 @@ impl LayoutWindow {
         }
 
         // Index of that direct child among ALL children.
-        let mut index: u32 = 0;
-        let mut sib = hierarchy
-            .get(direct_child)
-            .and_then(azul_core::styled_dom::NodeHierarchyItem::previous_sibling_id);
-        while let Some(sn) = sib {
-            index += 1;
-            sib = hierarchy
-                .get(sn)
-                .and_then(azul_core::styled_dom::NodeHierarchyItem::previous_sibling_id);
-        }
+        let index = sibling_index(&hierarchy, direct_child);
 
         // Only a TEXT child carries a byte offset; anything else is a
         // boundary before/after it (after = caret at the child's end).
@@ -3650,19 +4967,10 @@ impl LayoutWindow {
         let Some(lr) = self.layout_results.get(&dom_id) else {
             return NodePosition::before_child(0);
         };
-        let hierarchy = lr.styled_dom.node_hierarchy.as_container();
         let node_data = lr.styled_dom.node_data.as_container();
-        let mut count: u32 = 0;
-        let mut last_child: Option<NodeId> = None;
-        let mut child = hierarchy.get(first).and_then(|n| n.first_child_id(first));
-        while let Some(c) = child {
-            count += 1;
-            last_child = Some(c);
-            child = hierarchy
-                .get(c)
-                .and_then(azul_core::styled_dom::NodeHierarchyItem::next_sibling_id);
-        }
-        let last_text_len = last_child.and_then(|c| {
+        let children = child_nodes(&lr.styled_dom.node_hierarchy.as_container(), first);
+        let count = u32::try_from(children.len()).unwrap_or(u32::MAX);
+        let last_text_len = children.last().and_then(|&c| {
             node_data.get(c).and_then(|n| match n.get_node_type() {
                 NodeType::Text(t) => Some(u32::try_from(t.as_str().len()).unwrap_or(u32::MAX)),
                 _ => None,
@@ -3674,83 +4982,93 @@ impl LayoutWindow {
         )
     }
 
-    /// The end-of-text cursor of an IFC root: the byte AFTER the last text
+    /// The end-of-text cursor of a text block: the byte AFTER the last text
     /// run's content (overlay-aware — sees uncommitted edits). `None` when
-    /// the node has no text runs.
-    fn node_text_end_cursor(&self, dom_id: DomId, node_id: NodeId) -> Option<TextCursor> {
+    /// the block has no text runs.
+    fn block_text_end_cursor(&self, block: TextBlock) -> Option<TextCursor> {
         // The LAYOUT knows the real grapheme clusters: end = Trailing on the
         // final cluster. A byte-length synthetic cursor (one past the last
         // cluster start) resolves to NOTHING in get_selection_rects and the
-        // whole node silently loses its highlight.
+        // whole block silently loses its highlight.
         // (d6) Dense-first: last_cluster_cursor IS the end cursor (pinned
         // against the sparse rev-scan over the corpus); sparse fallback.
-        self.get_dense_for_node(dom_id, node_id)
+        let tree = &self.layout_results.get(&block.dom())?.layout_tree;
+        let root = tree.text_block_root(block.key())?;
+        tree.get_dense_for_node(root)
             .and_then(|d| d.last_cluster_cursor())
             .or_else(|| {
-                self.get_node_inline_layout(dom_id, node_id)
+                tree.materialized_inline_layout_for_node(root)
                     .and_then(|layout| layout.end_cursor())
             })
     }
 
-    /// Establish a selection SPANNING MULTIPLE sibling blocks (AZUL-STILL-TODO
-    /// C9, v1): anchor and focus must be text-bearing IFC roots under the
-    /// same parent (the common contenteditable-container case). The
-    /// per-IFC ranges are precomputed here — anchor node from its cursor to
-    /// its text end, every sibling between fully, focus node from its start
-    /// to its cursor (mirrored for backward selections) — and stored
-    /// render-ready on the text-edit manager, where the display-list pass
-    /// picks them up through `build_text_selections_map`.
+    /// Establish a selection SPANNING MULTIPLE text blocks (AZUL-STILL-TODO
+    /// C9): anchor and focus are IFC roots of one DOM, and the selection
+    /// covers every text block between them in document order. The per-IFC
+    /// ranges are precomputed here — anchor node from its cursor to its text
+    /// end, every block between fully, focus node from its start to its
+    /// cursor (mirrored for backward selections) — and stored render-ready on
+    /// the text-edit manager, where the display-list pass picks them up
+    /// through `build_text_selections_map`.
     ///
-    /// Returns false (and changes nothing) when the two nodes are not
-    /// siblings, are the same node (single-node selection is
-    /// `MultiCursorState`'s job), or either has no text.
+    /// Returns false (and changes nothing) when the two are the same block
+    /// (single-block selection is `MultiCursorState`'s job), are in two
+    /// different DOMs, or either is not a laid-out text block.
     pub fn set_cross_block_selection(
         &mut self,
-        dom_id: DomId,
-        anchor_node: NodeId,
+        anchor: TextBlock,
         anchor_cursor: TextCursor,
-        focus_node: NodeId,
+        focus: TextBlock,
         focus_cursor: TextCursor,
     ) -> bool {
         use azul_core::selection::{
             CursorAffinity, GraphemeClusterId, SelectionAnchor, SelectionFocus, SelectionRange,
             TextCursor, TextSelection,
         };
-        if anchor_node == focus_node {
+        if anchor == focus || anchor.dom() != focus.dom() {
             return false;
         }
-        let is_forward = anchor_node.index() < focus_node.index();
-        let (first, first_cursor, last, last_cursor) = if is_forward {
-            (anchor_node, anchor_cursor, focus_node, focus_cursor)
-        } else {
-            (focus_node, focus_cursor, anchor_node, anchor_cursor)
+        let dom_id = anchor.dom();
+
+        // The blocks between the two ends IN DOCUMENT ORDER - every text
+        // block the selection passes over, wherever it sits in the tree.
+        //
+        // This used to walk the SIBLING chain and reject the selection the
+        // moment it ran off it, so a drag from a paragraph in one container
+        // into a paragraph in another - a heading in a wrapper, a list, two
+        // cards: every real document - was refused and the drag collapsed
+        // back to the anchor's paragraph.
+        //
+        // The direction is read off the SAME order the middles are sliced
+        // from: two definitions of "document order" in one function made a
+        // reversed slice (and a panic) possible wherever they disagreed.
+        // Selectable blocks only: the painter never highlights the others,
+        // and a selection must not hold (or copy) text it does not show.
+        let blocks = self.text_blocks(dom_id, crate::text_block::BlockFilter::SELECTABLE);
+        let index_of = |b: TextBlock| blocks.iter().position(|&x| x == b);
+        let (Some(i_anchor), Some(i_focus)) = (index_of(anchor), index_of(focus)) else {
+            return false; // an end that is not a text block of this dom
         };
+        let is_forward = i_anchor < i_focus;
+        let (first, first_cursor, last, last_cursor, i_first, i_last) = if is_forward {
+            (anchor, anchor_cursor, focus, focus_cursor, i_anchor, i_focus)
+        } else {
+            (focus, focus_cursor, anchor, anchor_cursor, i_focus, i_anchor)
+        };
+        let middles: Vec<TextBlock> = blocks[i_first + 1..i_last].to_vec();
 
-        // Walk first -> last along the sibling chain, collecting middles.
-        let mut middles: Vec<NodeId> = Vec::new();
-        let mut cur = first;
-        loop {
-            let Some(next) = self.block_sibling(dom_id, cur, true) else {
-                return false; // ran off the chain: not siblings
-            };
-            if next == last {
-                break;
-            }
-            middles.push(next);
-            cur = next;
-        }
-
-        let node_start = |_n: NodeId| TextCursor {
+        let block_start = TextCursor {
             cluster_id: GraphemeClusterId {
                 source_run: 0,
                 start_byte_in_run: 0,
             },
             affinity: CursorAffinity::Leading,
         };
+        // A block with no cluster (a blank line, an image) ends where it
+        // starts: inside the selection, with no text to highlight. The FIRST
+        // block used to be refused instead - no drag from a blank line.
+        let block_end = |b: TextBlock| self.block_text_end_cursor(b).unwrap_or(block_start);
 
-        let Some(first_end) = self.node_text_end_cursor(dom_id, first) else {
-            return false;
-        };
         // A cross-block selection contributes exactly ONE range per node; the
         // list carrier exists for the multi-cursor sessions of the other path.
         let mut affected = BTreeMap::new();
@@ -3758,28 +5076,22 @@ impl LayoutWindow {
             first,
             vec![SelectionRange {
                 start: first_cursor,
-                end: first_end,
+                end: block_end(first),
             }],
         );
         for &m in &middles {
-            // Text-less middles (images, rules) contribute a zero-width range
-            // at their start: they are INSIDE the selection (deleted by
-            // delete_cross_block_selection) but have no text to highlight.
-            let end = self
-                .node_text_end_cursor(dom_id, m)
-                .unwrap_or_else(|| node_start(m));
             affected.insert(
                 m,
                 vec![SelectionRange {
-                    start: node_start(m),
-                    end,
+                    start: block_start,
+                    end: block_end(m),
                 }],
             );
         }
         affected.insert(
             last,
             vec![SelectionRange {
-                start: node_start(last),
+                start: block_start,
                 end: last_cursor,
             }],
         );
@@ -3788,17 +5100,14 @@ impl LayoutWindow {
             .set_cross_block_selection(TextSelection {
                 dom_id,
                 anchor: SelectionAnchor {
-                    ifc_root_node_id: anchor_node,
+                    block: anchor,
                     cursor: anchor_cursor,
-                    char_bounds: LogicalRect::zero(),
-                    mouse_position: LogicalPosition::zero(),
                 },
                 focus: SelectionFocus {
-                    ifc_root_node_id: focus_node,
+                    block: focus,
                     cursor: focus_cursor,
-                    mouse_position: LogicalPosition::zero(),
                 },
-                affected_nodes: affected,
+                affected_blocks: affected,
                 // A drag across block boundaries is by definition the local
                 // user's own pointer, so it never carries a remote owner.
                 remote_ranges: BTreeMap::new(),
@@ -3812,158 +5121,133 @@ impl LayoutWindow {
     ///
     /// ```text
     /// ReplaceChildren {
-    ///     parent,
-    ///     start..end:   the whole [first ..= last] block range,
-    ///     content:      ONE merged block - the FIRST block's element
-    ///                   (its classes and inline styles survive, Word
-    ///                   semantics) holding first-kept-text + last-kept-text,
+    ///     parent:       the two ends' nearest common ancestor,
+    ///     start..end:   its children holding the FIRST to the LAST block,
+    ///     content:      those children rebuilt around ONE merged block - the
+    ///                   FIRST block's element (classes and inline styles
+    ///                   survive, Word semantics) holding what the first
+    ///                   block keeps before the selection and what the last
+    ///                   one keeps after it,
     /// }
     /// ```
     ///
+    /// ([`Self::document_selection_replacement`]; for two siblings simply
+    /// `[first ..= last]` replaced by the merged block.)
+    ///
     /// Atomicity is the point: the app applies or rejects the WHOLE edit,
     /// undo is one entry, and the overlay previews the merged paragraph
-    /// ahead of the app's re-render. The resume point puts the caret at
-    /// the JOIN byte inside the merged text. Rich intra-block spans are
-    /// flattened to plain text in v1 (single-text-run editables, the
-    /// common case, keep their block-level formatting).
+    /// ahead of the app's re-render. What the two ends keep keeps its
+    /// inline elements - rebuilt from their styled runs
+    /// ([`crate::rich_blocks`]): a `<b>` before the selection and an `<i>`
+    /// after it are both in the merged block. The resume point puts the
+    /// caret at the JOIN, inside the element it was cut in.
     ///
     /// Returns the changeset id, or `None` when no cross-block selection
-    /// is active / the selection could not be resolved.
+    /// is active / the selection could not be resolved - in which case the
+    /// selection is left exactly as it was.
     pub fn delete_cross_block_selection(&mut self) -> Option<u64> {
         self.replace_cross_block_selection("")
     }
 
     /// [`Self::delete_cross_block_selection`] with `insert` placed at the
-    /// join: the paste-over-selection primitive. The merged paragraph holds
-    /// `first-kept + insert + last-kept` and the caret resumes AFTER the
-    /// inserted text.
+    /// join: the type-over and paste-over-selection primitive. The merged
+    /// paragraph holds the first block's kept head, `insert` - in the style
+    /// of the text it follows, the selection's start (WPT
+    /// `editing/data/inserttext.js`) - and the last block's kept tail; the
+    /// caret resumes AFTER the inserted text.
     pub fn replace_cross_block_selection(&mut self, insert: &str) -> Option<u64> {
-        use crate::{
-            managers::changeset::{
-                DocOpReplaceChildren, DocumentChangeset, DocumentOperation, NodePosition,
-            },
-            text3::cache::InlineContent,
-        };
+        // A PEEK: the selection is consumed only once the edit exists, so a
+        // refusal below leaves it standing. The delete rebuilds the two ends'
+        // ELEMENTS; an anonymous block at either end has none to rebuild.
+        self.text_edit_manager.get_cross_block_selection()?;
+        let (first_block, first_cursor, first, last, last_cursor) = self.selection_ends()?;
+        let dom_id = first_block.dom();
 
-        let sel = self.text_edit_manager.take_cross_block_selection()?;
-        let dom_id = sel.dom_id;
-        let mut nodes: Vec<(NodeId, SelectionRange)> = sel
-            .affected_nodes
-            .iter()
-            .filter_map(|(n, r)| r.first().map(|r| (*n, *r)))
-            .collect();
-        if nodes.len() < 2 {
+        // What each end keeps, as styled items in its own numbering (a list
+        // item's text is run 1 behind its marker; a Trailing cursor cuts
+        // AFTER its grapheme).
+        let head = self.kept_block_items(dom_id, first, &first_cursor, true);
+        let tail = self.kept_block_items(dom_id, last, &last_cursor, false);
+        let (merged, join) = self.joined_block(dom_id, first, head, insert, last, &tail)?;
+        self.record_block_replacement(first_block, first_cursor, first, last, vec![merged], 0, join)
+    }
+
+    /// The ends of the primary's selection, for an edit that replaces what
+    /// it covers: `(first block, its cut, first element, last element, last
+    /// cut)` - a document selection's two ends, or the session's one block
+    /// twice, cut at its caret or at the two ends of its range (in the
+    /// block's own numbering). `None` without a session, or for an end in
+    /// an anonymous block (no element to rebuild).
+    fn selection_ends(&self) -> Option<(TextBlock, TextCursor, NodeId, NodeId, TextCursor)> {
+        if let Some(sel) = self.text_edit_manager.get_cross_block_selection() {
+            let mut blocks: Vec<(TextBlock, SelectionRange)> = sel
+                .affected_blocks
+                .iter()
+                .filter_map(|(b, r)| r.first().map(|r| (*b, *r)))
+                .collect();
+            if blocks.len() < 2 {
+                return None;
+            }
+            blocks.sort_by_key(|(b, _)| *b);
+            let (first_block, first_range) = blocks[0];
+            let (last_block, last_range) = *blocks.last()?;
+            return Some((
+                first_block,
+                first_range.start,
+                first_block.element()?,
+                last_block.element()?,
+                last_range.end,
+            ));
+        }
+        let mc = self.text_edit_manager.multi_cursor.as_ref()?;
+        if mc.local_len() != 1 {
             return None;
         }
-        nodes.sort_by_key(|(n, _)| n.index());
-        let (first, first_range) = nodes[0];
-        let (last, last_range) = *nodes.last().expect("len >= 2");
-
-        // Text kept from the FIRST block: everything before the range start
-        // (affinity-aware byte offsets — a Trailing cursor cuts AFTER its
-        // grapheme).
-        use crate::text3::edit::cursor_byte_offset_in_run;
-        let cut_run = first_range.start.cluster_id.source_run;
-        let mut first_kept = String::new();
-        for (i, c) in self
-            .get_text_before_textinput(dom_id, first)
-            .iter()
-            .enumerate()
-        {
-            let i = u32::try_from(i).unwrap_or(u32::MAX);
-            if let InlineContent::Text(run) = c {
-                match i.cmp(&cut_run) {
-                    core::cmp::Ordering::Less => first_kept.push_str(&run.text),
-                    core::cmp::Ordering::Equal => {
-                        let byte = cursor_byte_offset_in_run(&run.text, &first_range.start)
-                            .min(run.text.len());
-                        first_kept.push_str(&run.text[..byte]);
-                        break;
-                    }
-                    core::cmp::Ordering::Greater => {}
+        let block = mc.block;
+        let element = block.element()?;
+        let (start, end) = match mc.get_primary()?.selection {
+            Selection::Cursor(c) => (c, c),
+            Selection::Range(r) => {
+                let content = self.element_content(block.dom(), element);
+                // In document order, whichever way the range was made.
+                let a = content.flat_byte_of(&r.start);
+                let b = content.flat_byte_of(&r.end);
+                if a <= b {
+                    (r.start, r.end)
+                } else {
+                    (r.end, r.start)
                 }
             }
-        }
+        };
+        Some((block, start, element, element, end))
+    }
 
-        // Text kept from the LAST block: everything after the range end.
-        let cut_run = last_range.end.cluster_id.source_run;
-        let mut last_kept = String::new();
-        for (i, c) in self
-            .get_text_before_textinput(dom_id, last)
-            .iter()
-            .enumerate()
-        {
-            let i = u32::try_from(i).unwrap_or(u32::MAX);
-            if let InlineContent::Text(run) = c {
-                match i.cmp(&cut_run) {
-                    core::cmp::Ordering::Equal => {
-                        let byte = cursor_byte_offset_in_run(&run.text, &last_range.end)
-                            .min(run.text.len());
-                        last_kept.push_str(&run.text[byte..]);
-                    }
-                    core::cmp::Ordering::Greater => last_kept.push_str(&run.text),
-                    core::cmp::Ordering::Less => {}
-                }
-            }
-        }
-
-        let join_byte = u32::try_from(first_kept.len() + insert.len()).unwrap_or(u32::MAX);
-        let merged_text = {
-            let mut t = String::with_capacity(first_kept.len() + insert.len() + last_kept.len());
-            t.push_str(&first_kept);
-            t.push_str(insert);
-            t.push_str(&last_kept);
-            t
+    /// Record the `ReplaceChildren` that puts `blocks` where the blocks from
+    /// `first` to `last` stood ([`Self::document_selection_replacement`]),
+    /// the caret resuming in `blocks[join_block]` at `join` (its start when
+    /// `None`), and collapse the session onto `first_cursor` in `first_block`
+    /// until the app's render lands. The one recorder of a delete across
+    /// blocks, a type-over of one and a rich paste.
+    #[allow(clippy::too_many_arguments)]
+    fn record_block_replacement(
+        &mut self,
+        first_block: TextBlock,
+        first_cursor: TextCursor,
+        first: NodeId,
+        last: NodeId,
+        blocks: Vec<Dom>,
+        join_block: usize,
+        join: Option<crate::rich_blocks::InlinePosition>,
+    ) -> Option<u64> {
+        use crate::managers::changeset::{
+            DocOpReplaceChildren, DocumentChangeset, DocumentOperation, NodePosition,
         };
 
-        // Replacement subtree: the FIRST block's element with the merged text.
-        let (parent, start_idx, end_idx, replacement) = {
-            let lr = self.layout_results.get(&dom_id)?;
-            let hierarchy = lr.styled_dom.node_hierarchy.as_container();
-            let parent = hierarchy
-                .get(first)
-                .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)?;
-            let last_parent = hierarchy
-                .get(last)
-                .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)?;
-            if parent != last_parent {
-                return None; // invariant from set_cross_block_selection
-            }
-            let child_index_of = |target: NodeId| -> u32 {
-                let mut idx: u32 = 0;
-                let mut sib = hierarchy
-                    .get(target)
-                    .and_then(azul_core::styled_dom::NodeHierarchyItem::previous_sibling_id);
-                while let Some(sn) = sib {
-                    idx += 1;
-                    sib = hierarchy
-                        .get(sn)
-                        .and_then(azul_core::styled_dom::NodeHierarchyItem::previous_sibling_id);
-                }
-                idx
-            };
-            let start_idx = child_index_of(first);
-            let end_idx = child_index_of(last) + 1;
-            let mut root = lr.styled_dom.node_data.as_container()[first].clone();
-            // The clone carries the ELEMENT (type, classes, ids, inline css);
-            // its dataset/callback state stays with the app's re-render.
-            let _ = &mut root;
-            let replacement = Dom {
-                root,
-                // BARE text on purpose: `root` is a clone of the spanned BLOCK
-                // element, so these children are its INLINE content. Wrapping
-                // here produces <p><p>text</p></p> and the merge returns a
-                // block where the caller expects runs — the same inline case as
-                // document_edit.rs splitting and rejoining text.
-                children: alloc::vec![Dom::create_text_do_not_use_without_block_level_wrapper(
-                    merged_text
-                )]
-                .into(),
-                css: Vec::new().into(),
-                estimated_total_children: 1,
-            };
-            (parent, start_idx, end_idx, replacement)
-        };
+        let dom_id = first_block.dom();
+        // The ends need not share a parent: a document selection spans blocks
+        // in document order, wherever they sit (838adc974).
+        let (parent, start_idx, end_idx, replacement) =
+            self.document_selection_replacement(dom_id, first, last, blocks)?;
 
         let parent_dom_node = DomNodeId {
             dom: dom_id,
@@ -3982,9 +5266,26 @@ impl LayoutWindow {
             },
             &op,
         )?;
-        // Word caret behavior: land INSIDE the merged text at the join, not
-        // merely "before the replaced slot".
-        resume.position = NodePosition::in_text_child(0, join_byte);
+        // Word caret behavior: land INSIDE the block at the join, in the
+        // element the join is in - not merely "before the replaced slot",
+        // and not at a byte of the block's first text child. The blocks
+        // stand where `first` stood, one after the other.
+        let mut node_path = resume.node_path.as_ref().to_vec();
+        if let Some(last_index) = node_path.last_mut() {
+            *last_index = last_index.saturating_add(u32::try_from(join_block).unwrap_or(u32::MAX));
+        }
+        match join.map(|j| j.as_resume()) {
+            Some((path, position)) => {
+                node_path.extend_from_slice(&path);
+                resume.position = position;
+            }
+            None => resume.position = NodePosition::before_child(0),
+        }
+        resume.node_path = node_path.into();
+
+        // The edit exists: NOW the selection is consumed.
+        self.text_edit_manager.clear_cross_block_selection();
+        self.text_edit_manager.typing_style = None;
 
         // Pre-apply caret continuity: collapse onto the selection start.
         {
@@ -3997,11 +5298,8 @@ impl LayoutWindow {
             });
             self.text_edit_manager.multi_cursor =
                 Some(azul_core::selection::MultiCursorState::new_with_cursor(
-                    first_range.start,
-                    DomNodeId {
-                        dom: dom_id,
-                        node: NodeHierarchyItemId::from_crate_internal(Some(first)),
-                    },
+                    first_cursor,
+                    first_block,
                     key,
                 ));
         }
@@ -4012,6 +5310,430 @@ impl LayoutWindow {
 
         let changeset = DocumentChangeset::new(parent_dom_node, op, resume, Instant::now());
         Some(self.record_document_edit(changeset))
+    }
+
+    /// `node`'s element without its children, as a `Dom`: the clone carries
+    /// the ELEMENT (type, classes, ids, inline css); its dataset / callback
+    /// state stays with the app's re-render.
+    fn element_shell(&self, dom_id: DomId, node: NodeId) -> Option<Dom> {
+        let data = self
+            .layout_results
+            .get(&dom_id)?
+            .styled_dom
+            .node_data
+            .as_container()
+            .get(node)?
+            .clone();
+        Some(Dom {
+            root: data,
+            children: Vec::new().into(),
+            css: Vec::new().into(),
+            estimated_total_children: 0,
+        })
+    }
+
+    /// Paste `fragment` (the sanitized HTML flavour, [`crate::paste_html`])
+    /// over the primary's selection or at its caret, as ONE structural edit
+    /// for the app: the blocks that take the place of the caret's block (or
+    /// of the selected ones) - the browsers' `insertHTML` (WPT
+    /// `editing/data/inserthtml.js`):
+    ///
+    /// - inline content lands in the paragraph at the caret, between what it
+    ///   keeps before and after the cut (links included: an `<a>` is content
+    ///   the text pipeline cannot hold);
+    /// - a first pasted paragraph merges with the text before the caret, a
+    ///   last one with the text after it; every other block stands on its
+    ///   own between the two halves.
+    ///
+    /// The caret resumes after the pasted content. `None` when there is
+    /// nothing to paste into.
+    fn paste_fragment_structurally(
+        &mut self,
+        fragment: &crate::paste_html::PastedFragment,
+    ) -> Option<u64> {
+        use crate::{paste_html::PastedNode, rich_blocks::InlineTree};
+
+        let (first_block, first_cursor, first, last, last_cursor) = self.selection_ends()?;
+        let dom_id = first_block.dom();
+        let head = self.kept_block_items(dom_id, first, &first_cursor, true);
+        let tail = self.kept_block_items(dom_id, last, &last_cursor, false);
+
+        let nodes = &fragment.nodes;
+        let first_block_at = nodes.iter().position(PastedNode::is_block);
+        let last_block_at = nodes.iter().rposition(PastedNode::is_block);
+
+        // The inline content pasted into the head half: everything before the
+        // first block, plus a leading paragraph's content.
+        let mut head_tree = InlineTree::default();
+        self.push_block_items(&mut head_tree, dom_id, first, &head);
+        let inline_lead = &nodes[..first_block_at.unwrap_or(nodes.len())];
+        for node in inline_lead {
+            head_tree.push_dom(&node.to_dom());
+        }
+        let Some(first_at) = first_block_at else {
+            // Inline only: one block, the tail in it.
+            let join = head_tree.end();
+            self.push_block_items(&mut head_tree, dom_id, last, &tail);
+            let mut block = self.element_shell(dom_id, first)?;
+            for child in head_tree.into_doms() {
+                block.add_child(child);
+            }
+            return self.record_block_replacement(
+                first_block,
+                first_cursor,
+                first,
+                last,
+                vec![block],
+                0,
+                join,
+            );
+        };
+        let last_at = last_block_at.unwrap_or(first_at);
+        let mut middle_from = first_at;
+        let mut middle_to = last_at + 1;
+        if let PastedNode::Block(_, children) = &nodes[first_at] {
+            if nodes[first_at].is_inline_paragraph() {
+                for child in children {
+                    head_tree.push_dom(&child.to_dom());
+                }
+                middle_from = first_at + 1;
+            }
+        }
+        // The inline content pasted into the tail half: a trailing
+        // paragraph's content (a block other than the leading one), plus
+        // everything after the last block.
+        let mut tail_tree = InlineTree::default();
+        if last_at > first_at && nodes[last_at].is_inline_paragraph() {
+            if let PastedNode::Block(_, children) = &nodes[last_at] {
+                for child in children {
+                    tail_tree.push_dom(&child.to_dom());
+                }
+            }
+            middle_to = last_at;
+        }
+        for node in &nodes[last_at + 1..] {
+            tail_tree.push_dom(&node.to_dom());
+        }
+        let tail_join = tail_tree.end();
+        self.push_block_items(&mut tail_tree, dom_id, last, &tail);
+
+        let mut blocks: Vec<Dom> = Vec::new();
+        if !head_tree.is_empty() {
+            let mut block = self.element_shell(dom_id, first)?;
+            for child in head_tree.into_doms() {
+                block.add_child(child);
+            }
+            blocks.push(block);
+        }
+        for node in &nodes[middle_from..middle_to] {
+            blocks.push(node.to_dom());
+        }
+        let (join_block, join) = if tail_tree.is_empty() {
+            // Nothing after the paste: the caret at the end of its last
+            // block.
+            let index = blocks.len().saturating_sub(1);
+            let end = blocks.get(index).map(|b| {
+                crate::rich_blocks::InlinePosition::Before {
+                    path: Vec::new(),
+                    index: u32::try_from(b.children.as_ref().len()).unwrap_or(u32::MAX),
+                }
+            });
+            (index, end)
+        } else {
+            let mut block = self.element_shell(dom_id, last)?;
+            for child in tail_tree.into_doms() {
+                block.add_child(child);
+            }
+            blocks.push(block);
+            let index = blocks.len() - 1;
+            let join = tail_join.or(Some(crate::rich_blocks::InlinePosition::Before {
+                path: Vec::new(),
+                index: 0,
+            }));
+            (index, join)
+        };
+        if blocks.is_empty() {
+            return None;
+        }
+        self.record_block_replacement(
+            first_block,
+            first_cursor,
+            first,
+            last,
+            blocks,
+            join_block,
+            join,
+        )
+    }
+
+    /// Paste `text` with the formatting of `spans` at the primary's one
+    /// caret (over its range, in one block): the inline half of a rich paste
+    /// through the text pipeline, like typing - the overlay holds it, no app
+    /// model needed. Returns whether anything was inserted; the caller pastes
+    /// the plain text otherwise.
+    fn paste_inline_formatted(
+        &mut self,
+        text: &str,
+        spans: &[crate::text3::edit::FormatSpan],
+    ) -> bool {
+        use crate::{
+            block_content::BlockContent,
+            text3::edit::{delete_range, insert_formatted_text},
+        };
+
+        let Some((block, selections)) = self
+            .text_edit_manager
+            .multi_cursor
+            .as_ref()
+            .filter(|mc| mc.local_len() == 1)
+            .map(|mc| (mc.block, mc.to_selections()))
+        else {
+            return false;
+        };
+        let dom_id = block.dom();
+        let target = self
+            .focus_manager
+            .focused_node
+            .filter(|f| f.dom == dom_id)
+            .unwrap_or_else(|| block.container_dom_node());
+        let Some(node_id) = self.edit_element(target, Some(block)) else {
+            return false;
+        };
+        let (mut content, generated) = self.element_content(dom_id, node_id).into_parts();
+        self.seed_empty_run(dom_id, node_id, &mut content, generated);
+        let selections = BlockContent::selections_past_generated(selections, generated);
+        let (base, caret) = match selections.first() {
+            Some(Selection::Cursor(c)) => (content.clone(), *c),
+            Some(Selection::Range(r)) => delete_range(&content, r),
+            None => return false,
+        };
+        let (mut new_content, cursor) = insert_formatted_text(&base, &caret, text, spans);
+        if new_content == content {
+            return false;
+        }
+        // Undo and the overlay hold the text only; the reshape re-adds the
+        // generated items.
+        let text_before = content.get(generated..).unwrap_or(&[]);
+        let text_after = new_content.split_off(generated.min(new_content.len()));
+        self.record_paste_undo(target, node_id, text_before, &text_after, &selections);
+        if let Some(ref mut mc) = self.text_edit_manager.multi_cursor {
+            mc.update_from_edit_result(&[Selection::Cursor(cursor)]);
+        }
+        // The paste brought its own formatting; a typing style is over.
+        self.text_edit_manager.typing_style = None;
+        self.update_text_cache_after_edit(dom_id, node_id, text_after);
+        self.text_edit_manager.mark_dirty();
+        true
+    }
+
+    /// The block that joins `head` - what block `first` keeps before a cut -
+    /// `insert` and `tail` - what block `last` keeps after one: `first`'s
+    /// element around the three rebuilt as inline content
+    /// ([`crate::rich_blocks`]), and where the join (after `insert`) stands
+    /// in it. `insert` takes the style of the text it follows: it joins the
+    /// head's last text run, or - after a line break, or with no head text -
+    /// a run in that run's style (the block's own with no run at all).
+    fn joined_block(
+        &self,
+        dom_id: DomId,
+        first: NodeId,
+        mut head: Vec<InlineContent>,
+        insert: &str,
+        last: NodeId,
+        tail: &[InlineContent],
+    ) -> Option<(Dom, Option<crate::rich_blocks::InlinePosition>)> {
+        if !insert.is_empty() {
+            if let Some(InlineContent::Text(run)) = head.last_mut() {
+                let mut text = String::from(&*run.text);
+                text.push_str(insert);
+                run.text = Arc::from(text.as_str());
+            } else {
+                let (style, source_node_id) = head
+                    .iter()
+                    .rev()
+                    .find_map(|item| match item {
+                        InlineContent::Text(run) => {
+                            Some((run.style.clone(), run.source_node_id))
+                        }
+                        _ => None,
+                    })
+                    .unwrap_or_else(|| (self.get_text_style_for_node(dom_id, first), None));
+                head.push(InlineContent::Text(StyledRun {
+                    text: Arc::from(insert),
+                    style,
+                    logical_start_byte: 0,
+                    source_node_id,
+                }));
+            }
+        }
+        let mut tree = crate::rich_blocks::InlineTree::default();
+        self.push_block_items(&mut tree, dom_id, first, &head);
+        let join = tree.end();
+        self.push_block_items(&mut tree, dom_id, last, tail);
+        let mut block = self.element_shell(dom_id, first)?;
+        for child in tree.into_doms() {
+            block.add_child(child);
+        }
+        Some((block, join))
+    }
+
+    /// The `(parent, start, end, fragment)` of the `ReplaceChildren` that
+    /// replaces the blocks from `first` to `last` - a document selection's,
+    /// or `first` alone when the two are one block - with `merged`, the
+    /// blocks that take `first`'s place. `parent` is their nearest common
+    /// ancestor; of its children, the one holding `first` keeps what precedes
+    /// `first` plus `merged` in its place, the one holding `last` keeps what
+    /// follows `last` (and goes if that is nothing), and everything between
+    /// goes. The blocks of `merged` stand where `first` stood, one after the
+    /// other.
+    ///
+    /// The payload is a FRAGMENT - `document_edit::apply_replace` and the
+    /// overlay insert its CHILDREN and ignore its root. `None` when one block
+    /// contains the other.
+    fn document_selection_replacement(
+        &self,
+        dom_id: DomId,
+        first: NodeId,
+        last: NodeId,
+        merged: Vec<Dom>,
+    ) -> Option<(NodeId, u32, u32, Dom)> {
+        use azul_core::styled_dom::NodeHierarchyItem;
+
+        let lr = self.layout_results.get(&dom_id)?;
+        let hierarchy = lr.styled_dom.node_hierarchy.as_container();
+        let parent_of = |n: NodeId| hierarchy.get(n).and_then(NodeHierarchyItem::parent_id);
+        // An element without its children ([`Self::element_shell`]).
+        let element = |n: NodeId| self.element_shell(dom_id, n);
+
+        // One block: it alone is replaced, in its own parent.
+        if first == last {
+            let parent = parent_of(first)?;
+            let index = sibling_index(&hierarchy, first);
+            let mut fragment = Dom::create_div();
+            for block in merged {
+                fragment.add_child(block);
+            }
+            return Some((parent, index, index + 1, fragment));
+        }
+
+        // `first` and every ancestor above it.
+        let mut first_chain = vec![first];
+        let mut cur = first;
+        while let Some(p) = parent_of(cur) {
+            first_chain.push(p);
+            cur = p;
+        }
+        if first_chain.contains(&last) {
+            return None; // `last` contains `first`
+        }
+        // `last` up to (not including) the first ancestor it shares.
+        let mut last_side = vec![last];
+        let mut cur = last;
+        let common = loop {
+            let p = parent_of(cur)?;
+            if first_chain.contains(&p) {
+                break p;
+            }
+            last_side.push(p);
+            cur = p;
+        };
+        if common == first {
+            return None; // `first` contains `last`
+        }
+        let common_at = first_chain.iter().position(|&n| n == common)?;
+        let first_side = &first_chain[..common_at];
+        let first_top = *first_side.last()?;
+        let last_top = *last_side.last()?;
+
+        // `first`'s side, bottom-up: the merged blocks, then each container
+        // around them keeping only what came before `first`.
+        let mut heads = merged;
+        for pair in first_side.windows(2) {
+            let (inner, container) = (pair[0], pair[1]);
+            let mut rebuilt = element(container)?;
+            for c in child_nodes(&hierarchy, container) {
+                if c == inner {
+                    break;
+                }
+                rebuilt.add_child(self.live_subtree(dom_id, c));
+            }
+            for head in heads {
+                rebuilt.add_child(head);
+            }
+            heads = vec![rebuilt];
+        }
+
+        // `last`'s side, bottom-up: `last` itself is consumed, each container
+        // around it keeps only what came after it, and one left empty goes.
+        let mut tail: Option<Dom> = None;
+        for pair in last_side.windows(2) {
+            let (inner, container) = (pair[0], pair[1]);
+            let mut rebuilt = element(container)?;
+            if let Some(t) = tail.take() {
+                rebuilt.add_child(t);
+            }
+            let mut after = false;
+            for c in child_nodes(&hierarchy, container) {
+                if after {
+                    rebuilt.add_child(self.live_subtree(dom_id, c));
+                } else if c == inner {
+                    after = true;
+                }
+            }
+            tail = (!rebuilt.children.as_ref().is_empty()).then_some(rebuilt);
+        }
+
+        let mut fragment = Dom::create_div();
+        for head in heads {
+            fragment.add_child(head);
+        }
+        if let Some(t) = tail {
+            fragment.add_child(t);
+        }
+        Some((
+            common,
+            sibling_index(&hierarchy, first_top),
+            sibling_index(&hierarchy, last_top) + 1,
+            fragment,
+        ))
+    }
+
+    /// `node`'s subtree as a plain `Dom` WITH the typing the app has not
+    /// synced yet: an element the overlay holds edited text for gets it
+    /// rebuilt from its styled runs ([`crate::rich_blocks`]), its inline
+    /// elements and what typing formatted included. From the DOM alone, a
+    /// block kept by a delete would lose it.
+    fn live_subtree(&self, dom_id: DomId, node: NodeId) -> Dom {
+        let Some(lr) = self.layout_results.get(&dom_id) else {
+            return Dom::create_div();
+        };
+        let Some(data) = lr.styled_dom.node_data.as_container().get(node).cloned() else {
+            return Dom::create_div();
+        };
+        let edited = self.content_overlay.text_for_node(dom_id, node);
+        if let (Some(dirty), NodeType::Text(_)) = (edited, data.get_node_type()) {
+            return Dom::create_text_do_not_use_without_block_level_wrapper(
+                crate::overlay::flatten_inline_content(&dirty.content),
+            );
+        }
+        let mut out = Dom {
+            root: data,
+            children: Vec::new().into(),
+            css: Vec::new().into(),
+            estimated_total_children: 0,
+        };
+        if let Some(dirty) = edited {
+            let mut tree = crate::rich_blocks::InlineTree::default();
+            self.push_block_items(&mut tree, dom_id, node, &dirty.content);
+            for child in tree.into_doms() {
+                out.add_child(child);
+            }
+            return out;
+        }
+        for c in child_nodes(&lr.styled_dom.node_hierarchy.as_container(), node) {
+            out.add_child(self.live_subtree(dom_id, c));
+        }
+        out
     }
 
     /// The previous/next MERGE-ELIGIBLE block sibling of a node (C13).
@@ -4065,7 +5787,7 @@ impl LayoutWindow {
                 // Never merge across / into a page-break marker.
                 NodeType::PageBreak => return None,
                 // Replaced / embedded content has nothing to merge into.
-                NodeType::Image(_) | NodeType::VirtualView => return None,
+                NodeType::Image(_) | NodeType::VirtualView | NodeType::WebView(_) => return None,
                 _ => {}
             }
             // First real sibling found: eligible iff its computed display is
@@ -4104,7 +5826,8 @@ impl LayoutWindow {
         let lr = self.layout_results.get(&target.dom)?;
         let hierarchy_c = lr.styled_dom.node_hierarchy.as_container();
         let anchor = self
-            .find_contenteditable_host(target.dom, node_id)
+            .find_contenteditable_host(target)
+            .map(crate::text_block::EditHost::node)
             .or_else(|| {
                 hierarchy_c
                     .get(node_id)
@@ -4119,17 +5842,7 @@ impl LayoutWindow {
         let mut path_rev: Vec<u32> = Vec::new();
         let mut current = node_id;
         while current != anchor {
-            let mut index: u32 = 0;
-            let mut sib = hierarchy_c
-                .get(current)
-                .and_then(azul_core::styled_dom::NodeHierarchyItem::previous_sibling_id);
-            while let Some(sn) = sib {
-                index += 1;
-                sib = hierarchy_c
-                    .get(sn)
-                    .and_then(azul_core::styled_dom::NodeHierarchyItem::previous_sibling_id);
-            }
-            path_rev.push(index);
+            path_rev.push(sibling_index(&hierarchy_c, current));
             match hierarchy_c
                 .get(current)
                 .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
@@ -4364,22 +6077,28 @@ impl LayoutWindow {
     /// it is snapshotted, never diffed against another node's text.
     ///
     /// The same run-count limit as U3-a applies (see `run_text_changes`).
+    ///
+    /// Both texts are in the carets' own numbering ([`Self::element_content`],
+    /// the layout's generated items in front): diffed as the edit model, a
+    /// list item's text was run 0 while its carets name run 1, and the shift
+    /// went to a run no caret was in.
     fn shift_carets_across_generation(&mut self) {
         let Some((key, dom_id, node_id)) =
             self.text_edit_manager.multi_cursor.as_ref().and_then(|mc| {
-                Some((
-                    mc.contenteditable_key,
-                    mc.node_id.dom,
-                    mc.node_id.node.into_crate_internal()?,
-                ))
+                Some((mc.contenteditable_key, mc.block.dom(), mc.block.element()?))
             })
         else {
             self.caret_text_snapshot = None;
             return;
         };
-        let now = self.get_text_before_textinput(dom_id, node_id);
-        if let Some((snapshot_key, before)) = self.caret_text_snapshot.as_ref() {
-            if *snapshot_key == key {
+        let (now, _) = self.element_content(dom_id, node_id).into_parts();
+        // The snapshot is the text of ONE block: a session that moved to
+        // another block of the same host (an arrow across paragraphs, a
+        // click into the next one, a reset editor's caret) starts a new
+        // snapshot there - diffed against the old block's text, the two
+        // paragraphs' difference shifted a caret nothing had edited.
+        if let Some((snapshot_key, snapshot_node, before)) = self.caret_text_snapshot.as_ref() {
+            if *snapshot_key == key && *snapshot_node == node_id {
                 let changes = crate::text3::edit::run_text_diff(before, &now);
                 if !changes.is_empty() {
                     if let Some(mc) = self.text_edit_manager.multi_cursor.as_mut() {
@@ -4389,7 +6108,78 @@ impl LayoutWindow {
                 }
             }
         }
-        self.caret_text_snapshot = Some((key, now));
+        self.caret_text_snapshot = Some((key, node_id, now));
+    }
+
+    /// Whether the app's re-render has to be laid out even when its DOM
+    /// equals the one on screen: it retires the overlay text the app acked
+    /// and the structural previews (the screen would keep showing them over
+    /// the app's model), or an acked structural edit's caret waits for the
+    /// new generation of the DOM it was made in (a view's, which only a laid
+    /// out re-render renders again before the caret is placed).
+    #[must_use]
+    pub fn rebuild_must_lay_out(&self) -> bool {
+        self.pending_caret_restore.is_some()
+            || self
+                .content_overlay
+                .retires_with_a_new_generation(self.acked_text_revision)
+    }
+
+    /// [`Self::place_pending_caret`] for a rebuild that laid nothing out: the
+    /// shell's pre-cascade "layout unchanged" exit (the app rebuilt the same
+    /// DOM) never reaches the tail of a full layout that places it, so a reset
+    /// editor's caret ([`Self::reset_editor_content`]) waited for some later
+    /// full layout - while the focus the app gave the editor in the same
+    /// callback seeded the caret at the END of its text (`AzMail`'s reply: the
+    /// answer went under the quote). Rebuilds the display list of the DOM the
+    /// caret landed in and asks for the caret to be shown. Returns whether a
+    /// caret was placed.
+    pub fn place_pending_caret_without_layout(&mut self) -> bool {
+        let Some(dom_id) = self.place_pending_caret() else {
+            return false;
+        };
+        self.regenerate_display_list_for_dom(dom_id);
+        self.request_session_reveal();
+        true
+    }
+
+    /// Place the caret an earlier pass left for the generation just laid
+    /// out: an acked structural edit's resume point
+    /// ([`Self::restore_caret_from_resume_point`]), or a reset editor's
+    /// ([`Self::reset_editor_content`]) - at the end of its host's last
+    /// block, or at the start of its first, opened as a click opens a
+    /// session. Returns the DOM the caret landed in: its display list was
+    /// emitted with the old caret and has to be rebuilt. A request whose
+    /// host the new generation does not have is dropped.
+    fn place_pending_caret(&mut self) -> Option<DomId> {
+        if let Some(resume) = self.pending_caret_restore.take() {
+            if let Some(dom_id) = self.restore_caret_from_resume_point(&resume) {
+                return Some(dom_id);
+            }
+        }
+        let reset = self.pending_editor_reset.take()?;
+        let (dom_id, host) = self.find_host_by_contenteditable_key(reset.host_key)?;
+        let host_node = DomNodeId {
+            dom: dom_id,
+            node: NodeHierarchyItemId::from_crate_internal(Some(host)),
+        };
+        let blocks = self.text_blocks_within(host_node);
+        let block = if reset.caret_at_end {
+            blocks.last()
+        } else {
+            blocks.first()
+        }
+        .copied()?;
+        let caret = self.block_edge_caret(block, reset.caret_at_end)?;
+        let caret = self.caret_past_markers(block, caret);
+        self.open_session(
+            block,
+            SelectionRange {
+                start: caret,
+                end: caret,
+            },
+        );
+        Some(dom_id)
     }
 
     fn restore_caret_from_resume_point(
@@ -4462,20 +6252,36 @@ impl LayoutWindow {
             },
         );
 
-        let cursor = TextCursor {
-            cluster_id: GraphemeClusterId {
-                source_run: 0,
-                start_byte_in_run: byte,
-            },
-            affinity: CursorAffinity::Leading,
-        };
+        // The session lives on the text block the caret node's text is in; a
+        // boundary on a node with no block of its own (a container of blocks)
+        // opens it on the first block inside that node.
         let dom_node = DomNodeId {
             dom: dom_id,
             node: NodeHierarchyItemId::from_crate_internal(Some(caret_node)),
         };
+        let block = self
+            .text_block_of(dom_node)
+            .or_else(|| self.text_blocks_within(dom_node).first().copied())?;
+        // The byte indexes the caret node's OWN run in the block, which is run
+        // 0 only for the block's first text: `(run 0, byte)` put a caret
+        // meant for the text after a `<b>` or a `<br>` into the paragraph's
+        // first run. A node with no laid-out text keeps the block's start -
+        // the start of its TEXT: a list item's layout numbers its `::marker`
+        // first, and a caret on the marker is no caret in the item (an empty
+        // item resumed after Enter had nothing else to stand on).
+        let cursor = self
+            .caret_at_node_byte(block, caret_node, byte)
+            .unwrap_or(TextCursor {
+                cluster_id: GraphemeClusterId {
+                    source_run: 0,
+                    start_byte_in_run: byte,
+                },
+                affinity: CursorAffinity::Leading,
+            });
+        let cursor = self.caret_past_markers(block, cursor);
         self.text_edit_manager.multi_cursor = Some(MultiCursorState::new_with_cursor(
             cursor,
-            dom_node,
+            block,
             resume.anchor_key,
         ));
         Some(dom_id)
@@ -4598,8 +6404,11 @@ impl LayoutWindow {
         // `style_user_dom`, not a bare cascade: a measured DOM is a user DOM
         // like any other, and an `<icon>` left unresolved measures as an empty
         // node — so the item this sizes would be laid out at the icon's real
-        // size and measured without it.
-        let styled_dom = self.style_user_dom(dom);
+        // size and measured without it. Its form controls are replaced in a
+        // scope of their own: a throwaway DOM must neither read nor evict
+        // what the user gave the window's real controls.
+        let styled_dom =
+            self.style_user_dom_in_scope(dom, &self.current_window_state, FORM_SCOPE_MEASURE);
         self.measure_styled_dom(&styled_dom, available)
     }
 
@@ -4611,7 +6420,7 @@ impl LayoutWindow {
         available: LogicalSize,
     ) -> LogicalSize {
         self.scratch_layout(styled_dom, available)
-            .map_or_else(LogicalSize::zero, |cache| Self::scratch_extent(&cache))
+            .map_or_else(LogicalSize::zero, |cache| Self::scratch_extent(&cache, styled_dom))
     }
 
     /// [`Self::measure_styled_dom_shrink_to_fit`] for an unstyled user DOM
@@ -4620,7 +6429,8 @@ impl LayoutWindow {
     /// its materialized rect. A failed layout measures as zero.
     #[cfg(feature = "std")]
     pub fn measure_dom_shrink_to_fit(&self, dom: Dom, bound: LogicalSize) -> LogicalSize {
-        let styled_dom = self.style_user_dom(dom);
+        let styled_dom =
+            self.style_user_dom_in_scope(dom, &self.current_window_state, FORM_SCOPE_MEASURE);
         self.measure_styled_dom_shrink_to_fit(&styled_dom, bound)
             .unwrap_or_else(LogicalSize::zero)
     }
@@ -4649,14 +6459,14 @@ impl LayoutWindow {
             .and_then(|t| t.warm.get(t.root))
             .and_then(|w| w.intrinsic_sizes.map(|i| i.max_content_width));
         let Some(w) = max_content else {
-            return Some(Self::scratch_extent(&first));
+            return Some(Self::scratch_extent(&first, styled_dom));
         };
         let w = w.ceil().max(1.0);
         if w + 0.5 >= bound.width {
-            return Some(Self::scratch_extent(&first));
+            return Some(Self::scratch_extent(&first, styled_dom));
         }
         let second = self.scratch_layout(styled_dom, LogicalSize::new(w, bound.height))?;
-        Some(Self::scratch_extent(&second))
+        Some(Self::scratch_extent(&second, styled_dom))
     }
 
     /// Style + lay `styled_dom` out against `available` on fresh scratch
@@ -4670,6 +6480,7 @@ impl LayoutWindow {
         let mut scratch_cache = Solver3LayoutCache {
             tree: None,
             resize_only_hint: false,
+            overrides_only_hint: None,
             last_reconcile_was_skipped: false,
             last_reconcile_structure_preserved: false,
             last_build_was_patched: false,
@@ -4679,10 +6490,15 @@ impl LayoutWindow {
             patch_damage_log: Vec::new(),
             last_dynamic_context: None,
             last_cascade_epoch: 0,
+            paged_css_dirty: Vec::new(),
+            font_epoch: 0,
+            laid_out_with_overlay: false,
             previous_sizes: Vec::new(),
             dom_diff_clean: None,
             last_fingerprint_skips: 0,
             last_patch_move: None,
+            layout_seq: 0,
+            last_patch_move_from_seq: 0,
             calculated_positions: Vec::new(),
             viewport: None,
             scroll_ids: HashMap::new(),
@@ -4707,6 +6523,7 @@ impl LayoutWindow {
             &mut scratch_text,
             styled_dom,
             viewport,
+            LogicalRect::new(LogicalPosition::zero(), viewport.size),
             &self.font_manager,
             &BTreeMap::new(),
             &BTreeMap::new(),
@@ -4729,24 +6546,50 @@ impl LayoutWindow {
             &self.virtual_view_manager.materialized_sizes(),
         );
         layout_result.ok()?;
-        scratch_cache.tree.as_ref()?;
+        scratch_cache.tree.as_deref()?;
         Some(scratch_cache)
     }
 
-    /// Union of every node's absolute bounds = true content extent
-    /// (`root.used_size` alone can be clamped to the viewport).
-    fn scratch_extent(cache: &Solver3LayoutCache) -> LogicalSize {
-        let Some(tree) = cache.tree.as_ref() else {
+    /// The extent of what shows of `cache`'s layout of `styled_dom`: the union of
+    /// the boxes' absolute bounds (`root.used_size` alone can be clamped to the
+    /// viewport), where a box that scrolls or clips on an axis keeps its
+    /// content inside its own box on that axis. A list in a 260 px scroll box
+    /// needs 260 px, not the height of all its rows.
+    fn scratch_extent(cache: &Solver3LayoutCache, styled_dom: &StyledDom) -> LogicalSize {
+        use crate::solver3::getters::{get_overflow_x, get_overflow_y};
+        let Some(tree) = cache.tree.as_deref() else {
             return LogicalSize::zero();
         };
+        let states = styled_dom.styled_nodes.as_container();
         let mut max_x = 0.0f32;
         let mut max_y = 0.0f32;
-        for (idx, node) in tree.nodes.iter().enumerate() {
-            let Some(size) = node.used_size else { continue };
-            let pos = solver3::pos_get(&cache.calculated_positions, idx)
-                .unwrap_or(LogicalPosition::zero());
-            max_x = max_x.max(pos.x + size.width);
-            max_y = max_y.max(pos.y + size.height);
+        // (box, whether its right edge still reaches the extent, its bottom edge)
+        let mut stack = vec![(tree.root, true, true)];
+        while let Some((idx, reaches_x, reaches_y)) = stack.pop() {
+            let Some(node) = tree.nodes.get(idx) else { continue };
+            if let Some(size) = node.used_size {
+                let pos = solver3::pos_get(&cache.calculated_positions, idx)
+                    .unwrap_or(LogicalPosition::zero());
+                if reaches_x {
+                    max_x = max_x.max(pos.x + size.width);
+                }
+                if reaches_y {
+                    max_y = max_y.max(pos.y + size.height);
+                }
+            }
+            let (clips_x, clips_y) = node
+                .dom_node_id
+                .filter(|id| id.index() < states.len())
+                .map_or((false, false), |id| {
+                    let state = &states[id].styled_node_state;
+                    (
+                        get_overflow_x(styled_dom, id, state).is_clipped(),
+                        get_overflow_y(styled_dom, id, state).is_clipped(),
+                    )
+                });
+            for &child in tree.children(idx) {
+                stack.push((child, reaches_x && !clips_x, reaches_y && !clips_y));
+            }
         }
         LogicalSize::new(max_x, max_y)
     }
@@ -4787,9 +6630,232 @@ impl LayoutWindow {
         Some(rect)
     }
 
+    /// Whether node `node_id` of `dom_id` shows any pixel in the window right
+    /// now: the window is not minimized, and the node's box - moved into
+    /// viewport space - meets the window and every box it is clipped or
+    /// scrolled by (its [`ScrollChain`](crate::solver3::scroll_chain::ScrollChain)).
+    ///
+    /// The gate of a content update's frame request: a video frame on a tile
+    /// that is scrolled out of its box, below the window or in a minimized
+    /// window repaints nothing, so it asks for no frame. Conservative: a node
+    /// it cannot place (no layout yet, a child DOM of a virtual view) counts
+    /// as visible. (Occlusion by other windows is the platform frame pacer's
+    /// business: it stops frames for an occluded window altogether.)
+    #[must_use]
+    pub fn node_is_visible_in_window(&self, dom_id: DomId, node_id: NodeId) -> bool {
+        if self.current_window_state.flags.frame == azul_core::window::WindowFrame::Minimized {
+            return false;
+        }
+        if dom_id != DomId::ROOT_ID {
+            return true;
+        }
+        let dom_node = |node: NodeId| DomNodeId {
+            dom: dom_id,
+            node: NodeHierarchyItemId::from_crate_internal(Some(node)),
+        };
+        let Some(rect) = self.get_node_rect_in_viewport(dom_node(node_id)) else {
+            return true;
+        };
+        let size = self.current_window_state.size.dimensions;
+        let meets = |a: &LogicalRect, x0: f32, y0: f32, x1: f32, y1: f32| {
+            a.origin.x < x1
+                && a.origin.x + a.size.width > x0
+                && a.origin.y < y1
+                && a.origin.y + a.size.height > y0
+        };
+        // The visible part so far, as (x0, y0, x1, y1).
+        let (mut x0, mut y0, mut x1, mut y1) = (0.0_f32, 0.0_f32, size.width, size.height);
+        if !meets(&rect, x0, y0, x1, y1) {
+            return false;
+        }
+        let Some(lr) = self.layout_results.get(&dom_id) else {
+            return true;
+        };
+        let Some(chain) = solver3::scroll_chain::ScrollChain::of_node(
+            &lr.layout_tree,
+            &lr.styled_dom,
+            &lr.scroll_ids,
+            node_id,
+            Inclusivity::AncestorsOnly,
+        ) else {
+            return true;
+        };
+        for link in &chain.links {
+            let Some(clip) = self.get_node_rect_in_viewport(dom_node(link.node)) else {
+                continue;
+            };
+            x0 = x0.max(clip.origin.x);
+            y0 = y0.max(clip.origin.y);
+            x1 = x1.min(clip.origin.x + clip.size.width);
+            y1 = y1.min(clip.origin.y + clip.size.height);
+            if x1 <= x0 || y1 <= y0 || !meets(&rect, x0, y0, x1, y1) {
+                return false;
+            }
+        }
+        true
+    }
+
     /// Hand the accumulated popup diff to the backend, leaving it empty.
     pub fn take_transient_diff(&mut self) -> crate::transient::TransientDiff {
         core::mem::take(&mut self.pending_transient_diff)
+    }
+
+    /// Bring the window's `<webview>`s in line with the DOMs laid out
+    /// (`managers::webview`): every web view node of every dom, with its
+    /// config and its `src`, handed to the manager. Runs at the tail of every
+    /// layout pass; a view that cannot exist (no backend) is told why with a
+    /// `WebViewLoadFailed`, queued with the other lifecycle events.
+    pub fn reconcile_webviews(&mut self, now: &Instant) {
+        use azul_core::dom::NodeType;
+
+        let mut found = Vec::new();
+        for (dom_id, lr) in &self.layout_results {
+            for (i, nd) in lr.styled_dom.node_data.as_ref().iter().enumerate() {
+                if let NodeType::WebView(config) = nd.get_node_type() {
+                    found.push(crate::managers::webview::FoundWebView {
+                        node: DomNodeId {
+                            dom: *dom_id,
+                            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(i))),
+                        },
+                        config: *config,
+                        src: nd.get_attribute("src").unwrap_or_default(),
+                    });
+                }
+            }
+        }
+        if found.is_empty() && self.webviews.views().is_empty() {
+            return;
+        }
+        let events = self.webviews.reconcile(&found, now);
+        self.pending_lifecycle_events.extend(events);
+    }
+
+    /// Tell the `<webview>`s where the display lists put them this frame
+    /// (`crate::headless::painted_webviews`: the live scroll offsets, every
+    /// enclosing clip, the window's edges); a changed placement is queued
+    /// for the shell's backend. Called by the shells before they drain the
+    /// web view ops - after every layout and every scroll.
+    pub fn sync_webview_placements(&mut self) {
+        if self.webviews.views().is_empty() || !self.webviews.has_backend() {
+            return;
+        }
+        let viewport = self.current_window_state.size.dimensions;
+        let painted = crate::headless::painted_webviews(
+            &self.layout_results,
+            viewport,
+            &|d, n| self.scroll_manager.get_current_offset(d, n),
+            &|d, n| self.painted_transform_of(d, n),
+        );
+        self.webviews.sync_placements(&painted);
+        // A composited page hears the keyboard focus move to or from it.
+        let focused = self.focus_manager.get_focused_node().copied();
+        self.webviews.sync_focus(focused);
+    }
+
+    /// Route a pointer `event` at window point `at` to the composited
+    /// web view page it is aimed at - the one whose node is the topmost
+    /// under the pointer in the last hit test (nothing stacked above it), or
+    /// the one a press went to, until its release
+    /// (`WebViewManager::route_pointer`). Called by a compositing shell for
+    /// each pointer event, after its hit test; returns whether a page took
+    /// it. The window's own events for the web view's node still run.
+    pub fn route_webview_pointer(
+        &mut self,
+        at: LogicalPosition,
+        event: crate::managers::webview::WebViewPointer,
+    ) -> bool {
+        use crate::managers::hover::InputPointId;
+
+        if !self.webviews.is_composited() || self.webviews.views().is_empty() {
+            return false;
+        }
+        // The topmost regular hit and the point in its content box: a web
+        // view's content box IS its page, and the hit tester has already
+        // undone every scroll and transform above it.
+        let target = self
+            .hover_manager
+            .get_current(&InputPointId::Mouse)
+            .and_then(|hit| {
+                hit.hovered_nodes
+                    .iter()
+                    .flat_map(|(dom, test)| {
+                        test.regular_hit_test_nodes
+                            .iter()
+                            .map(move |(node, item)| (*dom, *node, item))
+                    })
+                    .min_by_key(|(_, _, item)| item.hit_depth)
+                    .map(|(dom, node, item)| {
+                        (
+                            DomNodeId {
+                                dom,
+                                node: NodeHierarchyItemId::from_crate_internal(Some(node)),
+                            },
+                            item.point_relative_to_item.get(),
+                        )
+                    })
+            });
+        self.webviews.route_pointer(target, at, event)
+    }
+
+    /// Route a key - in the shell's own codes, which only its backend reads
+    /// - to the composited web view page that has the keyboard focus.
+    /// Returns whether a page took it (the shell then leaves it out of the
+    /// window's own key handling).
+    pub fn route_webview_key(
+        &mut self,
+        native_key: u32,
+        native_scan: u32,
+        pressed: bool,
+        modifiers: azul_core::events::KeyModifiers,
+    ) -> bool {
+        let focused = self.focus_manager.get_focused_node().copied();
+        self.webviews.route_key(focused, native_key, native_scan, pressed, modifiers)
+    }
+
+    /// A composited backend's new `frame` of web view `id` - its page,
+    /// rendered offscreen - drawn at the view's content box from now on, as
+    /// an image of its node (the content overlay: it follows the node across
+    /// rebuilds and goes with it). The next frame replaces it in place, with
+    /// no layout and no rebuild of the list; only the first one rebuilds the
+    /// list of the view's DOM, which had no image for it yet.
+    ///
+    /// Returns what the window must do, as for every content change: `Paint`
+    /// (the patched list, repainted), `PaintHidden` (nothing of the view is
+    /// on screen), `RebuildDisplayList` for the first frame (the list was
+    /// rebuilt here; the GPU needs it whole), `Unchanged` for the same frame
+    /// again or a view that is gone.
+    pub fn set_webview_frame(
+        &mut self,
+        id: crate::managers::webview::WebViewId,
+        frame: &ImageRef,
+    ) -> crate::overlay::ContentDirtyTier {
+        use crate::{overlay::ContentDirtyTier, solver3::display_list::DisplayListItem};
+
+        let Some(node) = self.webviews.get(id).map(|view| view.node) else {
+            return ContentDirtyTier::Unchanged;
+        };
+        let Some(node_id) = node.node.into_crate_internal() else {
+            return ContentDirtyTier::Unchanged;
+        };
+        let tier = self
+            .apply_image_change(node.dom, node_id, frame, true, None)
+            .tier;
+        if tier == ContentDirtyTier::Unchanged {
+            return tier;
+        }
+        let drawn = self.layout_results.get(&node.dom).is_some_and(|lr| {
+            let list = &lr.display_list;
+            list.items.iter().enumerate().any(|(i, item)| {
+                matches!(item, DisplayListItem::Image { .. })
+                    && list.node_mapping.get(i).copied().flatten() == Some(node_id)
+            })
+        });
+        if !drawn {
+            // The first frame: the list has no image of the view to patch.
+            self.regenerate_display_list_for_dom(node.dom);
+            return ContentDirtyTier::RebuildDisplayList;
+        }
+        tier
     }
 
     /// The user dismissed the popup hanging off `source_node` (outside click,
@@ -5187,8 +7253,13 @@ impl LayoutWindow {
     /// a second, system-only context for the inherited text colour, which could
     /// disagree with the cascade's. One builder, used by both, is the fix.
     ///
-    /// `AZ_THEME` still outranks everything, or a pinned screenshot run would
-    /// follow the machine's theme again.
+    /// The app's mode ([`Self::mode`]) outranks the window's own light /
+    /// dark, and `AZ_MODE` outranks everything, or a pinned screenshot run
+    /// would follow the machine's mode again - both through the one
+    /// decision, [`Self::window_mode_for`]. The shells already write
+    /// the resolved theme into `window_state.theme`; resolving again here is
+    /// a no-op for them and keeps every other caller (a test, the E2E runner)
+    /// from bypassing the pin.
     #[must_use]
     pub fn dynamic_selector_context(
         &self,
@@ -5204,20 +7275,257 @@ impl LayoutWindow {
         let mut ctx = base
             .with_viewport(dims.width, dims.height)
             .with_safe_area(&self.safe_area_insets);
-        ctx.window_focused = window_state.flags.has_focus;
-        ctx.theme =
-            azul_css::dynamic_selector::theme_pinned_by_env().unwrap_or(match window_state.theme {
-                azul_core::window::WindowTheme::DarkMode => ThemeCondition::Dark,
-                azul_core::window::WindowTheme::LightMode => ThemeCondition::Light,
+        // Both focus flags, read through the one helper: every backend
+        // writes `window_focused`, only Win32 `flags.has_focus`.
+        ctx.window_focused = window_state.is_window_active();
+        ctx.mode = match self.window_mode_for(window_state.mode) {
+            DarkLightMode::Dark => DarkLightMode::Dark,
+            DarkLightMode::Light => DarkLightMode::Light,
+        };
+        // The APP theme beside the mode: `@theme(<name>)` blocks match this
+        // window's theme chain, `@theme(dark)` the mode above.
+        ctx.theme_chain = azul_css::dynamic_selector::app_theme_chain(self.app_theme.as_str());
+        // The `system:` palette follows the theme just chosen, not the
+        // desktop's: a window the app pins light on a dark desktop must not
+        // resolve `system:window-background` to the dark desktop's colour.
+        if let Some(style) = self.system_style.as_deref() {
+            ctx.system_colors = style.colors_for_theme(if ctx.mode == DarkLightMode::Dark {
+                DarkLightMode::Dark
+            } else {
+                DarkLightMode::Light
             });
+        }
+        // Under flora (or a spin of it) the room is flora's: the `system:`
+        // keywords name its tokens - the leaf, the field paper, the ink, the
+        // rules, the stone of the spin - so an app's own panes and text match
+        // the flora widgets around them (`widgets::themes::flora_palette`).
+        // Every other theme keeps the desktop's palette.
+        #[cfg(feature = "widgets")]
+        if let Some(palette) = crate::widgets::themes::flora_palette::for_chain(
+            ctx.theme_chain.as_slice(),
+            ctx.mode == DarkLightMode::Dark,
+        ) {
+            ctx.system_colors = palette;
+        }
         ctx
+    }
+
+    /// A focus move from `old` to `new`, DOM by DOM: node indices mean
+    /// something only inside their own DOM, so each DOM the move touches is
+    /// restyled with its own nodes. A focus inside a `VirtualView`'s content
+    /// is a focus within the view's host too, and within the host of the
+    /// view around that, up to the window's root: `:focus-within` follows
+    /// the host in every DOM above the focused one.
+    #[must_use]
+    pub fn focus_change_per_dom(
+        &self,
+        old: Option<DomNodeId>,
+        new: Option<DomNodeId>,
+    ) -> BTreeMap<DomId, DomFocusChange> {
+        let mut per_dom: BTreeMap<DomId, DomFocusChange> = BTreeMap::new();
+        if let Some((dom, node)) = old.and_then(|f| Some((f.dom, f.node.into_crate_internal()?))) {
+            per_dom.entry(dom).or_default().lost = Some(node);
+            for (dom, anchor) in self.focus_within_anchors(dom, node) {
+                per_dom.entry(dom).or_default().lost_within = Some(anchor);
+            }
+        }
+        if let Some((dom, node)) = new.and_then(|f| Some((f.dom, f.node.into_crate_internal()?))) {
+            per_dom.entry(dom).or_default().gained = Some(node);
+            for (dom, anchor) in self.focus_within_anchors(dom, node) {
+                per_dom.entry(dom).or_default().gained_within = Some(anchor);
+            }
+        }
+        // A DOM where `:focus-within` stays on the same node and `:focus`
+        // does not move has nothing to restyle.
+        per_dom.retain(|_, c| {
+            c.lost.is_some() || c.gained.is_some() || c.lost_within != c.gained_within
+        });
+        per_dom
+    }
+
+    /// The node `:focus-within` starts from in each DOM, for a focus on
+    /// `node` of `dom`: `node` itself, then the host of every `VirtualView`
+    /// around it, in the DOM that hosts it.
+    fn focus_within_anchors(&self, dom: DomId, node: NodeId) -> Vec<(DomId, NodeId)> {
+        let mut anchors = vec![(dom, node)];
+        let mut current = dom;
+        // Views nest a few levels at most; the bound keeps a corrupt map
+        // (a view hosting its own host) from looping.
+        while anchors.len() < 64 {
+            let Some((host_dom, host_node)) =
+                self.virtual_view_manager.host_of_nested_dom(current)
+            else {
+                break;
+            };
+            if host_dom == current {
+                break;
+            }
+            anchors.push((host_dom, host_node));
+            current = host_dom;
+        }
+        anchors
+    }
+
+    /// The light / dark this window shows when its own mode is `window`
+    /// (the desktop's, while the app follows it): the app's mode
+    /// ([`Self::mode`]) and the `AZ_MODE` pin applied - see
+    /// [`resolve_window_mode`], of which this is the per-window call.
+    #[must_use]
+    pub fn window_mode_for(
+        &self,
+        window: DarkLightMode,
+    ) -> DarkLightMode {
+        resolve_window_mode(self.mode, window)
+    }
+
+    /// Does a flip of this window's light / dark mode need its `layout()` to
+    /// run again, or only a restyle of the DOM it already has?
+    ///
+    /// The mode is paint-only (theme-chain invariant I6): every `@theme`
+    /// rule, `prefers-color-scheme` block, `system:` colour and UA default
+    /// re-resolves on a restyle of the retained `StyledDom`. What a restyle
+    /// cannot redo is a DOM that `layout()` built FROM the mode - so, like
+    /// `depends_on_locale` for a locale change, the answer is "did the last
+    /// `layout()` read it": `LayoutCallbackInfo::get_mode` records
+    /// [`SystemStyleDependency::Theme`](azul_core::callbacks::SystemStyleDependency::Theme),
+    /// `get_system_style` records `Everything`, which contains it.
+    ///
+    /// Reading the `LayoutCallbackInfo::theme` FIELD directly declares
+    /// nothing - the engine cannot see a field read - so a `layout()` that
+    /// branches on it must call `get_mode` instead.
+    ///
+    /// `true` as well while nothing has been laid out: there is no DOM to
+    /// restyle.
+    #[must_use]
+    pub fn mode_change_needs_new_dom(&self) -> bool {
+        self.layout_results.is_empty()
+            || self
+                .recorded_style_dependencies
+                .contains(azul_core::callbacks::SystemStyleDependency::Theme)
+    }
+
+    /// The window was activated or deactivated: mirror that into
+    /// `current_window_state` and rebuild what depends on it, without a
+    /// relayout.
+    ///
+    /// `current_window_state` is the copy the display-list build reads, and
+    /// only a LAYOUT pass refreshed it - an activation change is not one, so
+    /// the focus ring (painted only in an active window, see
+    /// `apply_text_tweens`) and every `:backdrop` declaration (the cascade
+    /// context carries the flag) kept answering for the old activation. The
+    /// context is re-offered to every laid-out DOM exactly as the layout
+    /// funnel does (a DOM without conditional styling pays one comparison),
+    /// then every list is rebuilt.
+    ///
+    /// Returns whether the activation changed, i.e. whether the caller owes
+    /// a present of the rebuilt lists.
+    pub fn apply_window_activation(&mut self, window_focused: bool, has_focus: bool) -> bool {
+        let before = self.current_window_state.is_window_active();
+        self.current_window_state.window_focused = window_focused;
+        self.current_window_state.flags.has_focus = has_focus;
+        if self.current_window_state.is_window_active() == before {
+            return false;
+        }
+        if !before {
+            // Every backend's activation goes through here, so this is the
+            // one place the global-hotkey owner rule ("the most recently
+            // focused declaring window") learns about focus.
+            self.global_hotkeys.note_focus();
+        }
+        let window_state = self.current_window_state.clone();
+        let ctx = self.dynamic_selector_context(&window_state);
+        let dom_ids: Vec<DomId> = self.layout_results.keys().copied().collect();
+        for dom_id in dom_ids {
+            if let Some(lr) = self.layout_results.get_mut(&dom_id) {
+                lr.styled_dom.set_dynamic_selector_context(ctx.clone());
+            }
+            self.regenerate_display_list_for_dom(dom_id);
+        }
+        true
+    }
+
+    /// The open `<transient-window>` popup that holds this window's keyboard,
+    /// if any: the most recently opened window that is a real popup - not
+    /// inline content of this window, not a torn-off palette (a window of
+    /// its own that the user clicks into).
+    ///
+    /// While one is open, focus STAYS on its invoker here (it is handed back
+    /// on close) but is not indicated - the popup rings its own control - and
+    /// a key this window receives belongs to the popup: X11 never gives an
+    /// override-redirect popup the input focus, so its keys land here and
+    /// the shell forwards them (`common::transient` in the dll).
+    ///
+    /// Only a popup that TAKES focus holds the keyboard
+    /// ([`crate::transient::transient_takes_focus`]): a combobox's list
+    /// leaves it with the field.
+    #[must_use]
+    pub fn transient_keyboard_owner(&self) -> Option<&crate::transient::OpenTransientWindow> {
+        let root = self
+            .layout_results
+            .get(&DomId::ROOT_ID)
+            .map(|r| &r.styled_dom);
+        self.transient_windows
+            .open_windows()
+            .iter()
+            .rev()
+            .find(|w| {
+                !w.is_inline()
+                    && w.torn.is_none()
+                    && root.is_none_or(|s| {
+                        crate::transient::transient_takes_focus(s, w.source_node)
+                    })
+            })
+    }
+
+    /// The open popup that LEAVES focus on its invoker (a combobox's list),
+    /// if any - the other half of [`Self::transient_keyboard_owner`]. Its
+    /// invoker keeps focus and ring; only the NAVIGATION keys this window
+    /// receives while it is open are the list's (the shell forwards those).
+    #[must_use]
+    pub fn transient_list_popup(&self) -> Option<&crate::transient::OpenTransientWindow> {
+        let root = &self.layout_results.get(&DomId::ROOT_ID)?.styled_dom;
+        self.transient_windows
+            .open_windows()
+            .iter()
+            .rev()
+            .find(|w| {
+                !w.is_inline()
+                    && w.torn.is_none()
+                    && !crate::transient::transient_takes_focus(root, w.source_node)
+            })
+    }
+
+    /// Rebuild the display list that carries (or should carry) the focus
+    /// ring, after something OUTSIDE a display-list build changed what the
+    /// ring gate answers - a popup taking or handing back the keyboard. The
+    /// transient reconcile and a dismissal both run after the pass's list was
+    /// built, so without this the ring stayed as that list left it. A no-op
+    /// without an indicated focus. Returns whether it rebuilt.
+    pub fn refresh_focus_ring(&mut self) -> bool {
+        if !self.focus_manager.focus_is_visible {
+            return false;
+        }
+        let Some(dom) = self.focus_manager.get_focused_node().map(|n| n.dom) else {
+            return false;
+        };
+        if !self.layout_results.contains_key(&dom) {
+            return false;
+        }
+        self.regenerate_display_list_for_dom(dom);
+        true
     }
 
     /// Measure the content of the `<transient-window>` at `source_node` for
     /// the popup the backend is about to open: the subtree is extracted with
     /// its resolved style baked in, given its own `DomId`, styled with this
     /// window's dynamic-selector context, and laid out on SCRATCH caches —
-    /// shrink-to-fit within the parent window (or at `requested`, if given).
+    /// shrink-to-fit within `room`, the most the popup's window may take on
+    /// the screen (or at `requested`, if given: the app's own size stands).
+    /// The content is never measured bigger than `room` (nor than the node's
+    /// own `max-width` / `max-height`); what does not fit scrolls in its
+    /// window ([`azul_core::transient::fit_root_to`]). A side of `room` that
+    /// is not finite (no screen to go by) leaves that side as it measures,
+    /// laid out against the parent window.
     ///
     /// Nothing is written into `layout_results`: the popup is a separate
     /// window that lays the same subtree out itself, and every consumer of
@@ -5231,6 +7539,7 @@ impl LayoutWindow {
         content_dom: DomId,
         requested: azul_core::geom::OptionLogicalSize,
         window_state: &FullWindowState,
+        room: LogicalSize,
     ) -> Option<LogicalSize> {
         use azul_core::geom::OptionLogicalSize;
 
@@ -5238,11 +7547,20 @@ impl LayoutWindow {
             return Some(sz);
         }
         let parent = self.layout_results.get(&DomId::ROOT_ID)?;
-        let dom = azul_core::transient::extract_subtree_as_dom(&parent.styled_dom, source_node)?;
+        let mut dom =
+            azul_core::transient::extract_subtree_as_dom(&parent.styled_dom, source_node)?;
+        azul_core::transient::fit_root_to(&mut dom, room);
         let mut styled = StyledDom::create_from_dom(dom);
         styled.dom_id = content_dom;
         styled.set_dynamic_selector_context(self.dynamic_selector_context(window_state));
-        self.measure_styled_dom_shrink_to_fit(&styled, window_state.size.dimensions)
+        let window = window_state.size.dimensions;
+        let side = |room: f32, window: f32| if room.is_finite() { room } else { window };
+        let bound = LogicalSize::new(side(room.width, window.width), side(room.height, window.height));
+        let measured = self.measure_styled_dom_shrink_to_fit(&styled, bound)?;
+        Some(LogicalSize::new(
+            measured.width.min(room.width),
+            measured.height.min(room.height),
+        ))
     }
 
     pub fn layout_dom_recursive(
@@ -5275,6 +7593,22 @@ impl LayoutWindow {
     /// window smaller than its insets collapses to zero rather than going
     /// negative. Only absolute (px) insets count - that is what every
     /// platform reports.
+    #[must_use]
+    /// What a document's canvas background covers: the whole window for the
+    /// ROOT document, whatever the safe area took from its layout viewport;
+    /// a child DOM's own viewport (placed by its host) otherwise.
+    const fn canvas_rect_for(
+        is_root: bool,
+        viewport: LogicalRect,
+        window_state: &FullWindowState,
+    ) -> LogicalRect {
+        if is_root {
+            LogicalRect::new(LogicalPosition::zero(), window_state.size.dimensions)
+        } else {
+            LogicalRect::new(LogicalPosition::zero(), viewport.size)
+        }
+    }
+
     #[must_use]
     pub fn inset_by_safe_area(
         full: &LogicalRect,
@@ -5330,10 +7664,11 @@ impl LayoutWindow {
         // `get_node_layout_rect` and the next incremental relayout then read
         // the child's tree instead of the root's (live bug: azul-maps' header
         // laid out 640x0/None → toolbar invisible and unclickable while the
-        // map child DOM rendered fine). Children lay out cold by design, so
-        // give a child a fresh scratch cache and restore the root's cache
-        // afterwards; the per-DOM snapshot lives in `layout_results`. Nested
-        // children stack their swaps.
+        // map child DOM rendered fine). So a child lays out in a cache of its
+        // own - the one its last render left, so an unchanged view lays out
+        // warm - and the root's cache is restored afterwards; the per-DOM
+        // snapshot lives in `layout_results`. Nested children stack their
+        // swaps.
         // [AZ-DIAG 2026-08-14 REVERT] web-lift: solveLayoutReal sees this Vec as
         // len=5/ptr=0xa03d300 but layout_dom_recursive_impl sees garbage. StyledDom
         // crosses TWO by-value calls; mark it HERE (the middle frame) to pin which
@@ -5349,7 +7684,27 @@ impl LayoutWindow {
         }
         let is_child_dom = styled_dom.dom_id.inner != 0;
         if is_child_dom {
-            let saved_root_cache = core::mem::take(&mut self.layout_cache);
+            // The child's own cache from its last pass (`child_layout_caches`), so an
+            // unchanged view lays out warm; the host's goes aside meanwhile.
+            let child_dom_id = styled_dom.dom_id;
+            let child_cache = self
+                .child_layout_caches
+                .remove(&child_dom_id)
+                .unwrap_or_default();
+            let saved_root_cache = core::mem::replace(&mut self.layout_cache, child_cache);
+            // The host's font chains, and the signature of the font stacks
+            // they were resolved for, survive the child's pass the same way.
+            // The font manager has ONE slot for each, a child's pass resolves
+            // its own into them, and the host's next pass then never matched
+            // its own signature: it re-resolved its whole page on every
+            // relayout (AzWidgets, three views: 2.2 ms of every switch-knob
+            // frame), and between passes the cache described the last view.
+            // The child resolves against an empty slot; afterwards the host's
+            // chains and signature are back, with the child's chains for the
+            // stacks only it uses kept beside them (text edited inside the
+            // view still finds its chains).
+            let host_font_chains = core::mem::take(&mut self.font_manager.font_chain_cache);
+            let host_font_sig = self.font_manager.last_resolved_font_stacks_sig.take();
             let result = self.layout_dom_recursive_sized_by_views(
                 styled_dom,
                 window_state,
@@ -5358,17 +7713,34 @@ impl LayoutWindow {
                 debug_messages,
                 child_viewport,
             );
-            self.layout_cache = saved_root_cache;
+            let child_cache = core::mem::replace(&mut self.layout_cache, saved_root_cache);
+            self.child_layout_caches.insert(child_dom_id, child_cache);
+            let view_font_chains =
+                core::mem::replace(&mut self.font_manager.font_chain_cache, host_font_chains);
+            for (key, chain) in view_font_chains {
+                self.font_manager
+                    .font_chain_cache
+                    .entry(key)
+                    .or_insert(chain);
+            }
+            self.font_manager.last_resolved_font_stacks_sig = host_font_sig;
             return result;
         }
-        self.layout_dom_recursive_sized_by_views(
+        let result = self.layout_dom_recursive_sized_by_views(
             styled_dom,
             window_state,
             renderer_resources,
             system_callbacks,
             debug_messages,
             child_viewport,
-        )
+        );
+        // The root's pass laid out every child DOM that is still shown; the caches of
+        // the others went with their views.
+        let live: BTreeSet<DomId> = self.layout_results.keys().copied().collect();
+        self.child_layout_caches
+            .retain(|dom_id, _| live.contains(dom_id));
+        self.view_tracks.retain(|dom_id, _| live.contains(dom_id));
+        result
     }
 
     /// One layout pass, then ONE more if a content-sized `VirtualView` in
@@ -5575,12 +7947,10 @@ impl LayoutWindow {
             styled_dom.dom_id
         };
 
-        // Children enter with a fresh scratch cache (see the wrapper above);
-        // reset_incremental() is kept as belt-and-braces for any direct
-        // callers and is a no-op on a fresh cache.
-        if dom_id != DomId::ROOT_ID {
-            self.layout_cache.reset_incremental();
-        }
+        // A child DOM enters with its own cache from its last render (the
+        // wrapper above swaps it in): the new DOM is an evolution of the one
+        // that cache laid out, as a rebuilt root DOM is of the root's, so it
+        // reconciles against it instead of laying out cold.
 
         // A child DOM's viewport is ITS OWN box (the VirtualView bounds),
         // not the window - percentages and the root's fill size resolve
@@ -5602,6 +7972,10 @@ impl LayoutWindow {
                 Self::inset_by_safe_area(&full, &self.safe_area_insets)
             }
         });
+        // The canvas background is painted under the WHOLE window, safe area
+        // included (CSS 2.2 §14.2 - the inset moves where the root is laid
+        // out, not what lies behind it). A child DOM keeps its own box.
+        let canvas_rect = Self::canvas_rect_for(child_viewport.is_none(), viewport, window_state);
 
         // Get the platform from system_style, falling back to compile-time detection
         let platform = self
@@ -5613,7 +7987,7 @@ impl LayoutWindow {
         // This must happen BEFORE layout_document() is called
         {
             use crate::{
-                solver3::getters::collect_and_resolve_font_chains_with_registration,
+                solver3::getters::collect_and_resolve_font_chains_with_registration_in_viewport,
                 text3::default::PathLoader,
             };
 
@@ -5656,11 +8030,48 @@ impl LayoutWindow {
                 // which is collision-resistant enough for our one-at-a-time
                 // "did this DOM's font stacks change" comparison and an
                 // order of magnitude cheaper than SipHash for ~300 nodes.
+                //
+                // A chain key is more than the families: the weight, the
+                // style and - for the optical size of a variable face - the
+                // font size pick its faces too, so each node's weight, style
+                // and specified font size go in beside its family hash. With
+                // the families alone a relayout that only changed sizes (a
+                // zoom) or weights kept the old chains, and the runs whose
+                // new key no chain had shaped to nothing (SYSUI8).
+                //
+                // A specified size in viewport units (`5vw`) is a different
+                // used size in every window: when the document has one, the
+                // viewport is a font requirement too (a resize re-collects
+                // the chains at the new optical size). The compact cache's
+                // font-size word cannot say so - the builder resolves every
+                // size to px (`resolve_font_size_to_px`; a `5vw` reads back
+                // as `5px` in any window) - so the gate is the document's
+                // viewport-unit flag, set from the declared values (font
+                // sizes included) at compact-build time: the one gate every
+                // viewport-keyed cache uses (`layout_ifc`, layout_document's
+                // Step 1.2).
                 let mut h: u64 = 0xcbf2_9ce4_8422_2325;
-                for &fh in &cc.prev_font_hashes {
-                    h = h.rotate_left(13) ^ fh;
+                let mut mix = |v: u64| {
+                    h = h.rotate_left(13) ^ v;
                     h = h.wrapping_mul(0x0100_0000_01b3);
+                };
+                for (i, &fh) in cc.prev_font_hashes.iter().enumerate() {
+                    mix(fh);
+                    if i < cc.tier1_enums.len() {
+                        mix(cc.get_font_weight(i) as u64);
+                        mix(cc.get_font_style(i) as u64);
+                    }
+                    if i < cc.tier2_dims.len() {
+                        mix(u64::from(cc.get_font_size_raw(i)));
+                    }
                 }
+                if cc.uses_viewport_units {
+                    mix(u64::from(viewport.size.width.to_bits()));
+                    mix(u64::from(viewport.size.height.to_bits()));
+                }
+                // A face the embedded-font GC dropped that this DOM still
+                // names (its text hidden) must be registered again.
+                mix(self.font_manager.embedded_fonts_dropped());
                 h
             });
 
@@ -5736,11 +8147,17 @@ impl LayoutWindow {
                 crate::probe::sample_peak_rss("rss:before_font_chain");
                 let mut chains = {
                     let _p = crate::probe::Probe::span("font_chain_resolve");
-                    collect_and_resolve_font_chains_with_registration(
+                    // The DOM's text is laid out in `viewport`: a `vw` font
+                    // size's chain is collected at the size the text asks for.
+                    collect_and_resolve_font_chains_with_registration_in_viewport(
                         &styled_dom,
                         &self.font_manager.fc_cache,
                         &self.font_manager,
                         &platform,
+                        azul_css::props::basic::PhysicalSize::new(
+                            viewport.size.width,
+                            viewport.size.height,
+                        ),
                     )
                 };
                 // [g80] localize where font_chain_cache drops to 0: chains right after
@@ -5968,32 +8385,27 @@ impl LayoutWindow {
                 let size = lr.layout_tree.nodes.get(idx.index())?.used_size?;
                 Some((size.width, size.height))
             };
-            let mut transform_opacity_events = self
-                .gpu_state_manager
-                .get_or_create_cache(dom_id)
-                .synchronize_with_sizes(&styled_dom, &previous_size);
-            // MWA-C-gpu_state: drop the PREVIOUS pass's events before
-            // merging this one's. `pending_changes` has zero drain call
-            // sites (both renderers re-read cache values via
-            // synchronize_gpu_values / from_gpu_cache instead), and
-            // merge() appends Vecs — so this accumulated every layout's
-            // events forever, an unbounded leak in any long-running app.
-            // The field stays as a same-pass event record until a consumer
-            // exists (see FOLLOW-UPS).
-            drop(self.gpu_state_manager.take_pending_changes());
-            self.gpu_state_manager
-                .pending_changes
-                .merge(&mut transform_opacity_events);
+            sync_css_gpu_values(
+                &mut self.gpu_state_manager,
+                dom_id,
+                &styled_dom,
+                &previous_size,
+            );
         }
-        // M12.7: in the headless web path the GPU cache is empty (sync skipped),
-        // and `.clone()` of an empty hashbrown table drives RawTable::clone's
-        // RawIterRange — which mis-lifts to wasm and loops forever. Use a fresh
-        // empty cache instead (geometry doesn't use it). Desktop unchanged.
-        let gpu_cache = if self.skip_gpu_sync {
-            GpuValueCache::default()
-        } else {
-            self.gpu_state_manager.get_or_create_cache(dom_id).clone()
-        };
+        // The GPU values this pass binds are BORROWED from the manager at the
+        // solve below (`gpu_cache_for_pass`): the whole cache - every key and
+        // value map of the DOM - used to be cloned here on every layout pass
+        // (ANIMFRAME8 s8). M12.7: the headless web path syncs no values and
+        // must not touch a hashbrown table (`.clone()` / a probe of an empty
+        // one mis-lifts to wasm and loops forever): it binds a fresh empty
+        // cache (geometry doesn't use it).
+        let empty_gpu_cache = GpuValueCache::default();
+        if !self.skip_gpu_sync {
+            let _ = self.gpu_state_manager.get_or_create_cache(dom_id);
+        }
+        if dom_id == DomId::ROOT_ID {
+            self.retain_running_color_keys();
+        }
 
         // A tween in flight forces the caret solid: the framework suppresses
         // blinking while the caret / selection is animating (user directive).
@@ -6089,17 +8501,20 @@ impl LayoutWindow {
             // Snapshotted BEFORE the closure: it borrows `self` immutably and
             // the layout cache above is already borrowed mutably.
             let virtual_view_sizes = virtual_view_sizes_snapshot;
+            let gpu_cache = gpu_cache_for_pass(&self.gpu_state_manager, dom_id, self.skip_gpu_sync)
+                .unwrap_or(&empty_gpu_cache);
             solver3::layout_tree::with_transient_docks(docks, || {
                 solver3::layout_document(
                     layout_cache,
                     text_cache,
                     &styled_dom,
                     viewport,
+                    canvas_rect,
                     font_manager,
                     &scroll_offsets,
                     &text_selections_map,
                     debug_messages,
-                    Some(&gpu_cache),
+                    Some(gpu_cache),
                     renderer_resources,
                     id_namespace,
                     dom_id,
@@ -6122,16 +8537,26 @@ impl LayoutWindow {
             })?
         };
 
-        // Hint the allocator to return freed pages after the layout pass
-        // drops its transient allocations (intrinsic sizing Vecs, etc.).
-        crate::probe::hint_purge_allocator();
+        // The key population this list binds (a cache hit inside
+        // `layout_document` serves a list keyed on the same fingerprint).
+        if dom_id == DomId::ROOT_ID {
+            self.root_display_list_gpu_fingerprint = Some(
+                gpu_cache_for_pass(&self.gpu_state_manager, dom_id, self.skip_gpu_sync)
+                    .unwrap_or(&empty_gpu_cache)
+                    .dl_emission_fingerprint(),
+            );
+        }
+
+        // The pass dropped its transient allocations (intrinsic sizing Vecs,
+        // etc.): handed back to the system when the window goes idle.
+        crate::probe::note_freed_memory();
 
         // The sizes exist now: resolve every CSS transform's percentages
         // against the node's REAL box (see `synchronize_with_sizes`). Both
         // compositors read these live values, so the correction is visible
         // in this very frame.
         if !self.skip_gpu_sync {
-            let tree = self.layout_cache.tree.as_ref();
+            let tree = self.layout_cache.tree.as_deref();
             let new_size = |node: NodeId| -> Option<(f32, f32)> {
                 let tree = tree?;
                 let idx = *tree.dom_to_layout.get(&node)?.first()?;
@@ -6377,9 +8802,9 @@ impl LayoutWindow {
                 tc.logical_items_entries
             );
             eprintln!(
-                "[MEM]   visual_items      {:>7} KiB  ({} entries)",
-                tc.visual_items_bytes / 1024,
-                tc.visual_items_entries
+                "[MEM]   bidi_runs      {:>7} KiB  ({} entries)",
+                tc.bidi_runs_bytes / 1024,
+                tc.bidi_runs_entries
             );
             eprintln!(
                 "[MEM]   shaped_items      {:>7} KiB  ({} entries)",
@@ -6691,14 +9116,20 @@ impl LayoutWindow {
         if *CPU_ENABLED.get_or_init(azul_core::profile::cpu_enabled) {
             let events = crate::probe::Probe::drain();
             crate::probe::print_drained_events("layout pass", &events);
-        } else {
+        } else if !crate::probe::Probe::drained_by_its_caller() {
             // Recording can be on without the cpu report consuming it (e.g.
-            // AZ_PROFILE=memory records RSS checkpoints; a debug server could
-            // flip `set_recording` at runtime). Whatever buffered this pass
-            // and was not drained above must be discarded HERE or it
-            // accumulates for the life of the thread — the exact leak the
+            // AZ_PROFILE=memory records RSS checkpoints). Whatever buffered
+            // this pass and was not drained above must be discarded HERE or
+            // it accumulates for the life of the thread — the exact leak the
             // probe recording gate exists to prevent. Clearing an empty Vec
             // is a no-op, so the plain-run cost is nil.
+            //
+            // Not when a caller switched recording on and drains the buffer
+            // itself (`Probe::set_recording(true)`: the telemetry bridge, a
+            // test counting a frame's spans): this used to empty it under
+            // them at the end of every DOM's pass, so the telemetry phase
+            // histogram never saw a layout span, and a test draining after
+            // a relayout read nothing at all.
             crate::probe::Probe::drop_events();
         }
 
@@ -6939,19 +9370,16 @@ impl LayoutWindow {
             }
         }
 
-        // Caret / selection tween post-pass: compare the freshly built caret /
-        // selection geometry against what the previous frame rendered and, if
-        // a tween is configured and in flight, PATCH the display-list items
-        // with interpolated rects (the solver's cached DL keeps the true
-        // geometry — Arc::make_mut copies before the patch, same contract as
-        // the VirtualView placeholder swap above).
-        {
-            let now = (system_callbacks.get_system_time_fn.cb)();
-            self.apply_text_tweens(dom_id, &mut display_list, now);
-        }
-
         // Store the final layout result for this DOM. `styled_dom` was passed
         // in by value, so we move it into the map without cloning.
+        //
+        // This happens BEFORE the tween post-pass below: that pass looks the
+        // focused node up in `layout_results` (its hierarchy, its enclosing
+        // scroll frame) to place the focus ring, and a full relayout cleared
+        // the map at its start. With the pass running first, every
+        // full-layout frame found no result and appended no ring - so a
+        // widget whose focus callback asks for a DOM refresh (AzWidgets'
+        // TextArea) ended each Tab press on a ring-less frame.
         self.layout_results.insert(
             dom_id,
             DomLayoutResult {
@@ -6964,6 +9392,27 @@ impl LayoutWindow {
                 scroll_id_to_node_id,
             },
         );
+
+        // Caret / selection tween post-pass: compare the freshly built caret /
+        // selection geometry against what the previous frame rendered and, if
+        // a tween is configured and in flight, PATCH the display-list items
+        // with interpolated rects (the solver's cached DL keeps the true
+        // geometry — Arc::make_mut copies before the patch, same contract as
+        // the VirtualView placeholder swap above). The list is taken out of
+        // the stored result for the pass and put back, so the Arc stays
+        // unique and the patch never deep-copies it.
+        {
+            let now = (system_callbacks.get_system_time_fn.cb)();
+            let mut display_list = self
+                .layout_results
+                .get_mut(&dom_id)
+                .map(|lr| core::mem::take(&mut lr.display_list))
+                .unwrap_or_default();
+            self.apply_text_tweens(dom_id, &mut display_list, now);
+            if let Some(lr) = self.layout_results.get_mut(&dom_id) {
+                lr.display_list = display_list;
+            }
+        }
 
         // PUBLISH-AFTER-CONSUME, closed: a VirtualView invoke above may have
         // published a new virtual size into the ScrollManager — an input the
@@ -7139,6 +9588,102 @@ impl LayoutWindow {
         moved
     }
 
+    /// Moves what follows the pointer in a node drag, through the GPU
+    /// transform values - no relayout, no callback per move: the drag image
+    /// a `DragStart` named (`CallbackInfo::set_drag_image`: the node with
+    /// that id, its border box put at the pointer plus the image's offset),
+    /// else the dragged node itself, by the pointer's way since the press.
+    ///
+    /// Both ride the ANIMATION channel: a DOM rebuild remaps it, the CSS
+    /// sync leaves it alone, and a keyed node is painted through a reference
+    /// frame as a stacking context of its own, so any box can follow. The
+    /// move that first keys a node asks for a display-list rebuild (the list
+    /// opens the frame only for a keyed node); every later one only
+    /// repaints. A drag image named after the first moves takes over: the
+    /// dragged node is released and stays in place.
+    pub fn update_drag_visual(&mut self) -> azul_core::events::ProcessEventResult {
+        use azul_core::events::ProcessEventResult;
+
+        let Some(ctx) = self.gesture_drag_manager.get_drag_context() else {
+            return ProcessEventResult::DoNothing;
+        };
+        let Some(node_drag) = ctx.as_node_drag() else {
+            return ProcessEventResult::DoNothing;
+        };
+        let dom_id = node_drag.dom_id;
+        let pointer = ctx.current_position();
+        let press = ctx.start_position();
+        let (node, x, y) = if let Some(image) = self.gesture_drag_manager.drag_image() {
+            let Some(layout_result) = self.layout_results.get(&dom_id) else {
+                return ProcessEventResult::DoNothing;
+            };
+            let Some(node) = layout_result
+                .styled_dom
+                .node_data
+                .as_ref()
+                .iter()
+                .position(|data| data.has_id(image.id.as_str()))
+                .map(NodeId::new)
+            else {
+                // Not rendered yet: the rebuild `DragStart` asked for brings it.
+                return ProcessEventResult::DoNothing;
+            };
+            let Some(rect) = self.get_node_layout_rect(DomNodeId {
+                dom: dom_id,
+                node: NodeHierarchyItemId::from_crate_internal(Some(node)),
+            }) else {
+                return ProcessEventResult::DoNothing;
+            };
+            (
+                node,
+                pointer.x + image.offset.x - rect.origin.x,
+                pointer.y + image.offset.y - rect.origin.y,
+            )
+        } else {
+            (node_drag.node_id, pointer.x - press.x, pointer.y - press.y)
+        };
+        let previous = self.gesture_drag_manager.drag_visual_node.replace((dom_id, node));
+        if let Some((old_dom, old)) = previous.filter(|p| *p != (dom_id, node)) {
+            if let Some(cache) = self.gpu_state_manager.caches.get_mut(&old_dom) {
+                cache.anim_transform_keys.remove(&old);
+                cache.anim_current_transform_values.remove(&old);
+            }
+        }
+        let cache = self.gpu_state_manager.get_or_create_cache(dom_id);
+        let keyed = cache.anim_transform_keys.contains_key(&node);
+        if !keyed {
+            cache
+                .anim_transform_keys
+                .insert(node, azul_core::resources::TransformKey::unique());
+        }
+        cache.anim_current_transform_values.insert(
+            node,
+            azul_core::transform::ComputedTransform3D::new_translation(x, y, 0.0),
+        );
+        if keyed && previous.is_some() {
+            ProcessEventResult::ShouldReRenderCurrentWindow
+        } else {
+            ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+        }
+    }
+
+    /// Ends what [`Self::update_drag_visual`] moved, when a node drag ends
+    /// (before its context goes): the node it keyed is painted where layout
+    /// put it again, and the drag image is forgotten. Returns whether
+    /// anything moved back (then the display list needs a rebuild: it still
+    /// opens the node's reference frame).
+    pub fn end_drag_visual(&mut self) -> bool {
+        self.gesture_drag_manager.drag_image = None;
+        let Some((dom, node)) = self.gesture_drag_manager.drag_visual_node.take() else {
+            return false;
+        };
+        if let Some(cache) = self.gpu_state_manager.caches.get_mut(&dom) {
+            cache.anim_transform_keys.remove(&node);
+            cache.anim_current_transform_values.remove(&node);
+        }
+        true
+    }
+
     /// The CONTENT half of [`Self::prepare_frame_cpu`]: journal frame clock +
     /// `RenderImageCallback` invocation through the chokepoint, WITHOUT the
     /// scrollbar-fade cache refresh. For hosts that deliberately freeze
@@ -7153,6 +9698,46 @@ impl LayoutWindow {
         let fingerprint = self.manager_state_fingerprint();
         self.content_journal.record_manager_state(fingerprint);
         self.invoke_image_callbacks_into_overlay(&OptionGlContextPtr::None);
+        let _ = self.invoke_background_image_callbacks_into_overlay(&OptionGlContextPtr::None, false);
+    }
+
+    /// The app asked for a new frame of one canvas (`update_image_callback`):
+    /// the next frame invokes its `RenderImageCallback` whatever its inputs.
+    pub fn invalidate_image_callback(&mut self, dom_id: DomId, node_id: NodeId) {
+        self.image_callback_inputs.remove(&(dom_id, node_id));
+    }
+
+    /// The app asked for a new frame of every canvas
+    /// (`update_all_image_callbacks`, e.g. an animating GL texture) - the
+    /// callback images painted as backgrounds too.
+    pub fn invalidate_all_image_callbacks(&mut self) {
+        self.image_callback_inputs.clear();
+        // The backgrounds keep their frames until the new ones are drawn: a
+        // new generation is an input every one of them changed.
+        self.background_frames_generation = self.background_frames_generation.wrapping_add(1);
+    }
+
+    /// Light the window's built-in materials with a light of its own
+    /// (`CallbackInfo::set_material_light`): from now on its direction
+    /// outranks the app's one light in this window. Returns whether it is a
+    /// new light: then every frame of a callback image renders again on the
+    /// next frame (a callback reads the light through its extras), and the
+    /// caller repaints.
+    pub fn set_material_light(&mut self, light: crate::texture::MaterialLight) -> bool {
+        if self.material_light == light {
+            // The light the window already has, now its own: the app's light
+            // no longer reaches it, but nothing has to be drawn again.
+            self.material_light_is_own = true;
+            return false;
+        }
+        self.material_light = light;
+        self.material_light_is_own = true;
+        // Light-following shadows were made under the light before.
+        self.layout_cache.cached_display_list = None;
+        self.background_frames_generation = self.background_frames_generation.wrapping_add(1);
+        // Image nodes: their inputs do not carry the light.
+        self.image_callback_inputs.clear();
+        true
     }
 
     /// The GL/WR twin of [`Self::prepare_frame_content`]: same journal clock,
@@ -7164,12 +9749,15 @@ impl LayoutWindow {
     /// `ContentOverlay::iter_images` — it never invokes callbacks itself.
     ///
     /// One call per submitted frame: the journal frame sequence and the WR
-    /// epoch advance in lockstep on this path.
-    pub fn prepare_frame_gl(&mut self, gl_context: &OptionGlContextPtr) {
+    /// epoch advance in lockstep on this path. Returns whether a display list
+    /// was built again (a material's sheen layer appeared or went): the
+    /// renderer must take the lists anew.
+    pub fn prepare_frame_gl(&mut self, gl_context: &OptionGlContextPtr) -> bool {
         self.content_journal.begin_frame();
         let fingerprint = self.manager_state_fingerprint();
         self.content_journal.record_manager_state(fingerprint);
         self.invoke_image_callbacks_into_overlay(gl_context);
+        self.invoke_background_image_callbacks_into_overlay(gl_context, true)
     }
 
     /// `[focus, selection, scroll]` fingerprints for the journal diff.
@@ -7205,6 +9793,22 @@ impl LayoutWindow {
         [focus_h.finish(), sel_h.finish(), scroll_h.finish()]
     }
 
+    /// [`Self::apply_content_change`] for a host that lays the window out (or
+    /// rebuilds its display list) on the tier the change returns, once after
+    /// all of a callback's changes, as the desktop shells do: a CSS or style
+    /// write then lays nothing out itself (`host_lays_out`). Without this a
+    /// callback's every layout-property write laid the whole window out at
+    /// once, and the host laid it out again for the tier.
+    pub fn apply_content_change_for_host(
+        &mut self,
+        change: crate::overlay::ContentChange,
+    ) -> crate::overlay::ContentChangeResult {
+        self.host_lays_out = true;
+        let result = self.apply_content_change(change);
+        self.host_lays_out = false;
+        result
+    }
+
     /// THE single entry for content mutations: validates, writes the overlay
     /// arm, journals, patches display lists (paint tier) or invalidates layout
     /// (relayout tier), and returns what the frame loop must do. NO OTHER PATH
@@ -7215,6 +9819,12 @@ impl LayoutWindow {
         change: crate::overlay::ContentChange,
     ) -> crate::overlay::ContentChangeResult {
         use crate::overlay::{AppliedChange, ContentChange, ContentChangeResult, ContentDirtyTier};
+
+        // A content change is not an override-only frame: whatever latch an
+        // animation tick armed for the next pass no longer describes the DOM
+        // (`LayoutCache::overrides_only_hint`; its stamp would catch most of
+        // these too, this makes it all of them).
+        self.layout_cache.overrides_only_hint = None;
 
         // Pagination dirty tracking (editor architecture, AZUL-STILL-TODO B6):
         // any content change that can move layout must min-in its document Y
@@ -7231,9 +9841,15 @@ impl LayoutWindow {
             | ContentChange::NodeCss {
                 dom_id, node_id, ..
             }
+            | ContentChange::NodeStyle {
+                dom_id, node_id, ..
+            }
             | ContentChange::ImageMask {
                 dom_id, node_id, ..
             } => Some((*dom_id, *node_id)),
+            ContentChange::BackgroundImageCallbackResult { slot, .. } => {
+                slot.node.map(|node_id| (slot.dom, node_id))
+            }
             ContentChange::ImageById { .. } => None,
         };
         let is_image_by_id = matches!(&change, ContentChange::ImageById { .. });
@@ -7243,18 +9859,27 @@ impl LayoutWindow {
                 dom_id,
                 node_id,
                 image,
-            } => self.apply_image_change(dom_id, node_id, &image, false),
+                dirty_rect,
+            } => self.apply_image_change(dom_id, node_id, &image, false, dirty_rect),
             ContentChange::ImageCallbackResult {
                 dom_id,
                 node_id,
                 image,
-            } => self.apply_image_change(dom_id, node_id, &image, true),
+            } => self.apply_image_change(dom_id, node_id, &image, true, None),
+            ContentChange::BackgroundImageCallbackResult { slot, image } => {
+                self.apply_background_image_change(slot, &image)
+            }
             ContentChange::NodeCss {
                 dom_id,
                 node_id,
                 props,
                 override_only,
             } => self.apply_node_css_change(dom_id, node_id, props, override_only),
+            ContentChange::NodeStyle {
+                dom_id,
+                node_id,
+                style,
+            } => self.apply_node_style_change(dom_id, node_id, style),
             ContentChange::ImageMask {
                 dom_id,
                 node_id,
@@ -7299,7 +9924,15 @@ impl LayoutWindow {
                 // css-id images resolve at display-list build time
                 // (`background-image: url(...)`), so a registration change
                 // must rebuild the DL — the old handler returned `DoNothing`
-                // and the registration took effect "sometime later".
+                // and the registration took effect "sometime later". Rebuilt
+                // HERE, like the clip-mask and node-style arms: the tier
+                // means "rebuilt, send it" (the dll marks the list dirty and
+                // a GPU backend resends a dirty list as it is - X11 sent the
+                // stale one). Any dom may use the id: every one is rebuilt.
+                let doms: Vec<DomId> = self.layout_results.keys().copied().collect();
+                for dom_id in doms {
+                    self.regenerate_display_list_for_dom(dom_id);
+                }
                 ContentChangeResult {
                     tier: ContentDirtyTier::RebuildDisplayList,
                 }
@@ -7317,10 +9950,186 @@ impl LayoutWindow {
                     self.mark_pagination_dirty_everywhere();
                 }
             }
-            ContentDirtyTier::Unchanged | ContentDirtyTier::Paint => {}
+            ContentDirtyTier::Unchanged
+            | ContentDirtyTier::PaintHidden
+            | ContentDirtyTier::Paint => {}
         }
 
         result
+    }
+
+    /// The node-style arm of [`Self::apply_content_change`]: replace the
+    /// node's whole inline style, so it resolves like a node BUILT with it.
+    ///
+    /// No user override is written (that is `NodeCss`): the new declarations,
+    /// conditional ones included, go through the cascade like any built
+    /// style, so a later light / dark switch or `:hover` re-resolves them.
+    /// A changed `var()` / `env()` reference or `--x` definition re-runs the
+    /// author cascade, whose variable pass resolves them - a definition for
+    /// the node's whole subtree.
+    fn apply_node_style_change(
+        &mut self,
+        dom_id: DomId,
+        node_id: NodeId,
+        new_style: Css,
+    ) -> crate::overlay::ContentChangeResult {
+        use azul_css::{
+            css::CssDeclaration,
+            props::property::{CssProperty, CssPropertyType},
+        };
+
+        use crate::overlay::{ContentChangeResult, ContentDirtyTier};
+
+        let unchanged = ContentChangeResult {
+            tier: ContentDirtyTier::Unchanged,
+        };
+        let Some(layout_result) = self.layout_results.get_mut(&dom_id) else {
+            return unchanged;
+        };
+        if node_id.index() >= layout_result.styled_dom.node_data.as_ref().len() {
+            return unchanged;
+        }
+
+        // The declaration keys the write changes (a property type, or `None`
+        // for the `--x` definitions): they decide the tier and which
+        // overrides must go. And whether a changed key is resolved by the
+        // author cascade's variable pass: a definition, or a property with a
+        // `var()` / `env()` declaration on either side (the pass also decides
+        // which resting `var()` wins, for its pseudo-state variants).
+        let (changed, variables): (Vec<Option<CssPropertyType>>, bool) = {
+            let node_data = layout_result.styled_dom.node_data.as_container();
+            let old = node_data[node_id].get_style();
+            if *old == new_style {
+                return unchanged;
+            }
+            let changed = Self::changed_declaration_keys(old, &new_style);
+            let reads_variables = |css: &Css, key: Option<CssPropertyType>| {
+                css.rules
+                    .as_ref()
+                    .iter()
+                    .flat_map(|r| r.declarations.as_ref().iter())
+                    .any(|d| matches!(d, CssDeclaration::Dynamic(_)) && d.get_type() == key)
+            };
+            let variables = changed.iter().any(|key| {
+                key.is_none() || reads_variables(old, *key) || reads_variables(&new_style, *key)
+            });
+            (changed, variables)
+        };
+        layout_result.styled_dom.node_data.as_container_mut()[node_id].set_style(new_style);
+        if changed.is_empty() {
+            // Regrouped, not restyled: every property resolves as before.
+            return unchanged;
+        }
+
+        // A user override outranks every declaration: one left on a property
+        // the new style declares (an older `set_css_property`) would keep the
+        // node from resolving like one built with the style. `initial` removes
+        // it (the property cache's single write site).
+        let pinned: Vec<CssProperty> = layout_result
+            .styled_dom
+            .get_css_property_cache()
+            .user_overridden_properties
+            .get(node_id.index())
+            .map(|overrides| {
+                overrides
+                    .iter()
+                    .filter(|(ty, _)| changed.contains(&Some(*ty)))
+                    .map(|(ty, _)| CssProperty::initial(*ty))
+                    .collect()
+            })
+            .unwrap_or_default();
+        if !pinned.is_empty() {
+            drop(
+                layout_result
+                    .styled_dom
+                    .restyle_user_property(&node_id, &pinned),
+            );
+        }
+
+        // Inline declarations feed the UA / inheritance / compact tail of the
+        // cascade, conditional ones evaluated against the window's context -
+        // the tail a theme flip re-runs. Variables are resolved one step
+        // earlier, by the author cascade's variable pass (`restyle`, which
+        // ends with the same tail). A new cascade generation keeps the
+        // display-list cache from answering with the old colours.
+        if variables {
+            let css = layout_result
+                .styled_dom
+                .get_css_property_cache()
+                .retained_author_css
+                .clone();
+            layout_result.styled_dom.restyle(css);
+        } else {
+            layout_result.styled_dom.recascade_ua_inheritance_and_compact();
+        }
+        {
+            let cache = layout_result.styled_dom.get_css_property_cache_mut();
+            cache.cascade_epoch = cache.cascade_epoch.wrapping_add(1);
+        }
+
+        // Paint-only properties must not charge a layout pass; a geometry
+        // change relayouts in place (the `NodeCss` rule: child DOMs keep the
+        // display-list-only path). A definition can feed any property below
+        // the node (`CssDeclaration::can_trigger_relayout`).
+        let needs_relayout = changed
+            .iter()
+            .any(|key| key.is_none_or(|ty| ty.can_trigger_relayout()));
+        // A host that lays out on the tier (`host_lays_out`) does it once for
+        // all of a callback's changes.
+        if needs_relayout && dom_id == DomId::ROOT_ID {
+            if !self.host_lays_out {
+                self.relayout_root_dom_in_place();
+            }
+        } else if !self.host_lays_out || dom_id != DomId::ROOT_ID {
+            self.regenerate_display_list_for_dom(dom_id);
+        }
+        ContentChangeResult {
+            tier: if needs_relayout {
+                ContentDirtyTier::Relayout
+            } else {
+                ContentDirtyTier::RebuildDisplayList
+            },
+        }
+    }
+
+    /// The declaration keys whose declarations - static values, `var()` /
+    /// `env()` references, conditions and order among themselves - differ
+    /// between two inline styles. A key is the property type a declaration
+    /// sets, or `None` for the custom-property definitions (`--x`), which set
+    /// no property of their own but feed every reader below the node
+    /// (`CssDeclaration::get_type`). Last match wins PER PROPERTY, so a type
+    /// whose own declarations are equal resolves the same under every
+    /// context.
+    fn changed_declaration_keys(
+        old: &Css,
+        new: &Css,
+    ) -> Vec<Option<azul_css::props::property::CssPropertyType>> {
+        use azul_css::{css::CssDeclaration, props::property::CssPropertyType};
+        let declarations = |css: &Css, key: Option<CssPropertyType>| {
+            css.rules
+                .as_ref()
+                .iter()
+                .flat_map(|r| {
+                    r.declarations
+                        .as_ref()
+                        .iter()
+                        .map(move |d| (d, &r.conditions))
+                })
+                .filter(|(d, _)| d.get_type() == key)
+                .map(|(d, c)| (d.clone(), c.clone()))
+                .collect::<Vec<_>>()
+        };
+        let mut keys: Vec<Option<CssPropertyType>> = old
+            .rules
+            .as_ref()
+            .iter()
+            .chain(new.rules.as_ref().iter())
+            .flat_map(|r| r.declarations.as_ref().iter().map(CssDeclaration::get_type))
+            .collect();
+        keys.sort_unstable();
+        keys.dedup();
+        keys.retain(|key| declarations(old, *key) != declarations(new, *key));
+        keys
     }
 
     /// The node-CSS arm of [`Self::apply_content_change`].
@@ -7357,13 +10166,59 @@ impl LayoutWindow {
         // worst case (no tick — see `needs_animation_frame`) is exactly the
         // snap this path did before, never a property that fails to change.
         let seeded: Vec<CssTransition> = {
+            use azul_css::dynamic_selector::ResolveSystemColors;
             let cache = &layout_result.styled_dom.css_property_cache.ptr;
+            // The endpoints are what the frames SHOW, so a `system:` colour
+            // keyword in either is resolved against the cascade's theme: an
+            // interpolation between two tokens is no colour at all.
+            let sys_ctx = cache.dynamic_context.as_deref();
             let node_data = layout_result.styled_dom.node_data.as_container();
             let states = layout_result.styled_dom.styled_nodes.as_container();
             let (Some(nd), Some(state)) = (node_data.get(node_id), states.get(node_id)) else {
                 return ContentChangeResult {
                     tier: ContentDirtyTier::Unchanged,
                 };
+            };
+            // The box's laid-out size in the box `box-sizing` measures
+            // lengths in: where a size tween from `auto` starts
+            // (`size_transition_start`).
+            let laid_out_size: Option<LogicalSize> = {
+                let tree = &layout_result.layout_tree;
+                tree.dom_to_layout
+                    .get(&node_id)
+                    .and_then(|boxes| boxes.first())
+                    .and_then(|idx| tree.get(*idx))
+                    .and_then(|hot| {
+                        let size = hot.used_size?;
+                        let border_box = matches!(
+                            solver3::getters::get_css_box_sizing(
+                                &layout_result.styled_dom,
+                                node_id,
+                                &state.styled_node_state,
+                            ),
+                            solver3::getters::MultiValue::Exact(
+                                azul_css::props::layout::LayoutBoxSizing::BorderBox
+                            )
+                        );
+                        if border_box {
+                            return Some(size);
+                        }
+                        let bp = hot.box_props.unpack();
+                        Some(LogicalSize {
+                            width: (size.width
+                                - bp.padding.left
+                                - bp.padding.right
+                                - bp.border.left
+                                - bp.border.right)
+                                .max(0.0),
+                            height: (size.height
+                                - bp.padding.top
+                                - bp.padding.bottom
+                                - bp.border.top
+                                - bp.border.bottom)
+                                .max(0.0),
+                        })
+                    })
             };
             let anims = cache
                 .get_property(
@@ -7384,22 +10239,7 @@ impl LayoutWindow {
                     .iter()
                     .filter_map(|prop| {
                         let ty = prop.get_type();
-                        // The animation meta-properties are a mode switch, not
-                        // a value to tween.
-                        if matches!(
-                            ty,
-                            azul_css::props::property::CssPropertyType::Animation
-                                | azul_css::props::property::CssPropertyType::AnimationIn
-                                | azul_css::props::property::CssPropertyType::AnimationOut
-                        ) {
-                            return None;
-                        }
-                        // A LIST scopes properties independently; the last
-                        // covering entry wins, web-cascade style.
-                        let anim =
-                            anims.as_ref().iter().rev().find(|a| {
-                                a.name.as_str() == "all" || a.name.as_str() == ty.to_str()
-                            })?;
+                        let anim = declared_animation_for(&anims, ty)?;
                         let from = cache
                             .get_property(nd, &node_id, &state.styled_node_state, &ty)
                             .cloned()
@@ -7407,18 +10247,26 @@ impl LayoutWindow {
                         if from == *prop {
                             return None;
                         }
-                        Some(CssTransition {
-                            node: node_id,
-                            prop_type: ty,
-                            from,
-                            to: prop.clone(),
-                            t: 0.0,
-                            duration_s: anim.duration.millis() as f32 / 1000.0,
-                            delay_s: anim.delay.millis() as f32 / 1000.0,
-                            timing: anim.timing,
-                            scope: ty.relayout_scope(false),
-                            last_color: None,
-                        })
+                        // `auto` -> a length starts at the laid-out size -
+                        // where there may be nothing left to walk.
+                        let from = size_transition_start(&from, prop, laid_out_size).unwrap_or(from);
+                        let painted = solver3::getters::get_background_color(
+                            &layout_result.styled_dom,
+                            node_id,
+                            &state.styled_node_state,
+                        );
+                        let from = background_transition_start(&from, prop, painted).unwrap_or(from);
+                        if from == *prop {
+                            return None;
+                        }
+                        Some(CssTransition::declared(
+                            node_id,
+                            ty,
+                            from.resolve_system_colors(sys_ctx),
+                            prop.clone().resolve_system_colors(sys_ctx),
+                            anim,
+                            true,
+                        ))
                     })
                     .collect(),
             }
@@ -7444,21 +10292,19 @@ impl LayoutWindow {
         }
         // The property cache's single write site: the resolver
         // consults user-overridden properties FIRST, so paint changes
-        // are visible on the next DL build. The returned restyle result is
-        // deliberately unused — the tier below already schedules the rebuild.
-        let _restyle_result = layout_result
-            .styled_dom
-            .restyle_user_property(&node_id, &props);
-        // Frame 0 of every seeded transition: hold the node at `from` so the
-        // change does not flash its target before the tween starts, exactly as
-        // the reconcile path does for the transitions IT captures.
-        for tr in &seeded {
-            drop(
-                layout_result
-                    .styled_dom
-                    .restyle_user_property(&tr.node, core::slice::from_ref(&tr.from)),
-            );
-        }
+        // are visible on the next DL build. Frame 0 of every seeded
+        // transition holds the node at `from` (written after the new values,
+        // so it wins) so the change does not flash its target before the
+        // tween starts, exactly as the reconcile path does for the
+        // transitions IT captures. One batch, one rebuild of the cascade's
+        // tables. The returned restyle result is deliberately unused — the
+        // tier below already schedules the rebuild.
+        let writes: Vec<(NodeId, azul_css::props::property::CssProperty)> = props
+            .iter()
+            .map(|prop| (node_id, prop.clone()))
+            .chain(seeded.iter().map(|tr| (tr.node, tr.from.clone())))
+            .collect();
+        let _restyle_result = layout_result.styled_dom.restyle_user_properties(&writes);
         // Paint-only properties must not charge a layout pass
         // (a per-frame animated colour would re-layout the world).
         let props_vec: azul_css::props::property::CssPropertyVec = props.into();
@@ -7476,15 +10322,20 @@ impl LayoutWindow {
                 // Relayout here rather than relying on the caller acting on
                 // the returned tier: this is the single content chokepoint,
                 // and it must leave `layout_results` consistent with the CSS
-                // it just wrote for EVERY consumer (host shells, the E2E
-                // runner, tests). Hosts that also relayout on the tier are
-                // idempotent. Child DOMs (iframe / VirtualView) keep the
+                // it just wrote for EVERY consumer (tests, embedders). A host
+                // that lays out on the tier (`host_lays_out`: the shells) does
+                // it once for all of a callback's writes, which are in the
+                // inline style and the cascade where its reconcile finds
+                // them. Child DOMs (iframe / VirtualView) keep the
                 // display-list-only path — re-running the root layout would
                 // discard them.
-                self.relayout_root_dom_in_place();
-            } else {
+                if !self.host_lays_out {
+                    self.relayout_root_dom_in_place();
+                }
+            } else if !self.host_lays_out || dom_id != DomId::ROOT_ID {
                 // The full-write path rebuilds the DL inline (its historical
-                // contract). The override channel deliberately does NOT —
+                // contract); a host rebuilds the root's list once, on the
+                // tier. The override channel deliberately does NOT —
                 // it is the per-frame animation path, and the returned tier
                 // already schedules the rebuild once per frame.
                 self.regenerate_display_list_for_dom(dom_id);
@@ -7510,6 +10361,250 @@ impl LayoutWindow {
                 tier: ContentDirtyTier::RebuildDisplayList,
             }
         }
+    }
+
+    /// The states `nodes` of `dom_id` are in RIGHT NOW - what a pointer /
+    /// focus restyle hands [`Self::seed_state_change_transitions`] before it
+    /// flips them. Nodes that do not exist are left out.
+    #[must_use]
+    pub fn node_states(
+        &self,
+        dom_id: DomId,
+        nodes: impl IntoIterator<Item = NodeId>,
+    ) -> Vec<(NodeId, azul_core::styled_dom::StyledNodeState)> {
+        let Some(result) = self.layout_results.get(&dom_id) else {
+            return Vec::new();
+        };
+        // A node's parts change state with it (`NodeData::is_part_of_parent`),
+        // so their faces fade with it too.
+        let count = result.styled_dom.node_count();
+        let nodes: Vec<NodeId> = nodes.into_iter().filter(|n| n.index() < count).collect();
+        let nodes = result.styled_dom.with_parts(nodes);
+        let states = result.styled_dom.styled_nodes.as_container();
+        nodes
+            .into_iter()
+            .filter_map(|node| states.get(node).map(|s| (node, s.styled_node_state)))
+            .collect()
+    }
+
+    /// A POINTER / FOCUS STATE change (`:hover`, `:active`, `:focus`)
+    /// honours a declared `animation` exactly like a rebuild
+    /// ([`Self::begin_reconciliation`]) or an imperative write
+    /// (`apply_node_css_change`) does: a button that declares
+    /// `animation: background 150ms` and a `:hover` background FADES to it
+    /// and back, instead of snapping on the first frame. The restyle
+    /// (`StyledDom::restyle_on_state_change`) never seeded a transition, so
+    /// every hover colour in every app snapped ("the hover animation over
+    /// buttons, it immediately transitions", 2026-10-03).
+    ///
+    /// `before`: each restyled node with its state BEFORE the change
+    /// ([`Self::node_states`]); the styled DOM already holds the new one. The
+    /// NEW state's `animation` governs, as in CSS (the after-change style).
+    ///
+    /// A property whose transition is still in flight (the pointer leaves
+    /// half-way through the fade in) restarts from the value ON SCREEN - the
+    /// transition's override - toward what the new state cascades to, so the
+    /// fade reverses where it stands. The restyle's own diff cannot see such
+    /// a property at all: the override answers for the old and the new state
+    /// alike. A value the APP wrote (`set_css_property`, an override with no
+    /// transition behind it) outranks every state style, so a state change
+    /// shows nothing to tween there; an imperative tween in flight
+    /// (`keeps_target`) is left to finish. A 0 ms declaration in the new
+    /// state means "at once": no tween, and one in flight ends.
+    ///
+    /// Only the root DOM's transitions are driven (`tick_animations`).
+    /// Returns whether a transition was started.
+    pub fn seed_state_change_transitions(
+        &mut self,
+        dom_id: DomId,
+        before: &[(NodeId, azul_core::styled_dom::StyledNodeState)],
+        restyled: &azul_core::events::RestyleNodes,
+    ) -> bool {
+        use azul_css::{
+            dynamic_selector::ResolveSystemColors,
+            props::property::{CssProperty, CssPropertyType},
+        };
+
+        if dom_id != DomId::ROOT_ID || (before.is_empty() && restyled.is_empty()) {
+            return false;
+        }
+        let Some(result) = self.layout_results.get_mut(&dom_id) else {
+            return false;
+        };
+        // The nodes that may fade: those whose own state changed (`before`),
+        // those the restyle changed without a state of their own - a rule
+        // anchored on an ancestor's or a sibling's state (`.btn:hover .ink`)
+        // moved their value - and those with a fade in flight, which the
+        // restyle cannot see changing (their override answers for both
+        // sides) but which reverse when the cascade under them moved.
+        let mut candidates: Vec<(NodeId, azul_core::styled_dom::StyledNodeState)> =
+            before.to_vec();
+        {
+            let states = result.styled_dom.styled_nodes.as_container();
+            let in_flight = self
+                .css_transitions
+                .iter()
+                .filter(|t| !t.keeps_target)
+                .map(|t| t.node);
+            for node in restyled.keys().copied().chain(in_flight) {
+                if candidates.iter().any(|(n, _)| *n == node) {
+                    continue;
+                }
+                if let Some(state) = states.get(node) {
+                    candidates.push((node, state.styled_node_state));
+                }
+            }
+        }
+        let mut seeded: Vec<CssTransition> = Vec::new();
+        // In-flight transitions whose node already shows the new state's
+        // value: they end here, their override goes.
+        let mut settled: Vec<(NodeId, CssPropertyType)> = Vec::new();
+        for (node, old_state) in candidates {
+            let Some(new_state) = result
+                .styled_dom
+                .styled_nodes
+                .as_container()
+                .get(node)
+                .map(|s| s.styled_node_state)
+            else {
+                continue;
+            };
+            let moved_by_restyle = restyled.contains_key(&node);
+            let fading = self
+                .css_transitions
+                .iter()
+                .any(|t| t.node == node && !t.keeps_target);
+            if new_state == old_state && !moved_by_restyle && !fading {
+                continue;
+            }
+            // What the restyle says the property was before it, where it
+            // reports one: the cascade itself may have changed, so reading
+            // it under the old state would read the new cascade.
+            let previous = |ty: CssPropertyType| -> Option<CssProperty> {
+                restyled.get(&node).and_then(|changes| {
+                    changes
+                        .iter()
+                        .find(|c| c.previous_prop.get_type() == ty)
+                        .map(|c| c.previous_prop.clone())
+                })
+            };
+            let anims = {
+                let cache = &result.styled_dom.css_property_cache.ptr;
+                let node_data = result.styled_dom.node_data.as_container();
+                node_data.get(node).and_then(|nd| {
+                    cache
+                        .get_property(nd, &node, &new_state, &CssPropertyType::Animation)
+                        .and_then(|p| match p {
+                            CssProperty::Animation(v) => v.get_property().cloned(),
+                            _ => None,
+                        })
+                })
+            };
+            let Some(anims) = anims else {
+                continue;
+            };
+            for ty in CssPropertyType::ALL {
+                let Some(anim) = declared_animation_for(&anims, *ty) else {
+                    continue;
+                };
+                let in_flight = self
+                    .css_transitions
+                    .iter()
+                    .find(|t| t.node == node && t.prop_type == *ty)
+                    .map(|t| t.keeps_target);
+                if in_flight == Some(true) {
+                    // An imperative tween: its target lives in the override.
+                    continue;
+                }
+                let shown = result
+                    .styled_dom
+                    .css_property_cache
+                    .ptr
+                    .get_user_override(&node, ty)
+                    .cloned();
+                if shown.is_some() && in_flight.is_none() {
+                    // The app's own value outranks the state styles.
+                    continue;
+                }
+                // The cascade UNDER a transition's override: lift the
+                // override for the read, put it back after. The read below
+                // (`get_property`) looks at the override layer itself, not
+                // at the derived tables, and the layer is as it was once the
+                // override is back: nothing to rebuild.
+                if shown.is_some() {
+                    result
+                        .styled_dom
+                        .set_user_property_override_fast(&node, &[CssProperty::initial(*ty)]);
+                }
+                let endpoints = {
+                    let cache = &result.styled_dom.css_property_cache.ptr;
+                    let sys_ctx = cache.dynamic_context.as_deref();
+                    let node_data = result.styled_dom.node_data.as_container();
+                    node_data.get(node).map(|nd| {
+                        let read = |state: &azul_core::styled_dom::StyledNodeState| {
+                            cache
+                                .get_property(nd, &node, state, ty)
+                                .map_or_else(|| CssProperty::auto(*ty), Clone::clone)
+                        };
+                        let to = read(&new_state).resolve_system_colors(sys_ctx);
+                        let from = shown
+                            .clone()
+                            .or_else(|| previous(*ty))
+                            .unwrap_or_else(|| {
+                                let from = read(&old_state);
+                                let painted = solver3::getters::get_background_color(
+                                    &result.styled_dom,
+                                    node,
+                                    &old_state,
+                                );
+                                background_transition_start(&from, &to, painted).unwrap_or(from)
+                            })
+                            .resolve_system_colors(sys_ctx);
+                        (from, to)
+                    })
+                };
+                if let Some(s) = &shown {
+                    result
+                        .styled_dom
+                        .set_user_property_override_fast(&node, core::slice::from_ref(s));
+                }
+                let Some((from, to)) = endpoints else {
+                    continue;
+                };
+                // A 0 ms declaration is the state saying "at once" (a
+                // control's `:active` - a press shows immediately, its
+                // release fades): no tween, and one in flight ends here.
+                let instant = anim.duration.millis() == 0 && anim.delay.millis() == 0;
+                if from == to || instant {
+                    if in_flight.is_some() {
+                        settled.push((node, *ty));
+                    }
+                    continue;
+                }
+                seeded.push(CssTransition::declared(node, *ty, from, to, anim, false));
+            }
+        }
+        // Frame 0 holds `from`, so the change never flashes its target - the
+        // same hold the rebuild and the imperative path apply. The fades that
+        // settled hand their property back to the cascade. One batch, one
+        // rebuild of the cascade's tables.
+        let holds: Vec<(NodeId, CssProperty)> = seeded
+            .iter()
+            .map(|tr| (tr.node, tr.from.clone()))
+            .chain(settled.iter().map(|(node, ty)| (*node, CssProperty::initial(*ty))))
+            .collect();
+        drop(result.styled_dom.restyle_user_properties(&holds));
+        // One transition per (node, property): a retarget replaces the
+        // record in flight.
+        self.css_transitions.retain(|t| {
+            !settled.contains(&(t.node, t.prop_type))
+                && !seeded
+                    .iter()
+                    .any(|s| s.node == t.node && s.prop_type == t.prop_type)
+        });
+        let started = !seeded.is_empty();
+        self.css_transitions.extend(seeded);
+        started
     }
 
     /// Re-runs layout for the root DOM over its EXISTING `StyledDom` (no
@@ -7550,7 +10645,10 @@ impl LayoutWindow {
         node_id: NodeId,
         image: &ImageRef,
         from_callback: bool,
+        dirty_rect: Option<azul_css::props::basic::LayoutRect>,
     ) -> crate::overlay::ContentChangeResult {
+        use azul_core::resources::ImageDirtyRect;
+
         use crate::overlay::{
             AppliedChange, ContentChangeResult, ContentDirtyTier, ResolvedContent,
         };
@@ -7565,6 +10663,7 @@ impl LayoutWindow {
             overlay: Some(&self.content_overlay),
             styled_dom: &lr.styled_dom,
             dom_id,
+            image_cache: Some(&self.image_cache),
         }
         .image_for_paint(node_id);
 
@@ -7592,8 +10691,18 @@ impl LayoutWindow {
             }
         };
 
+        // What the renderer has to upload: only the app's dirty rect when the
+        // new image has the previous one's pixel shape (a callback's own
+        // frame, or a node still showing its callback, has no rect to trust).
+        let same_shape = old
+            .as_ref()
+            .is_some_and(|o| !o.is_callback() && o.get_size() == image.get_size());
+        let dirty = match dirty_rect {
+            Some(rect) if same_shape && !from_callback => ImageDirtyRect::Partial(rect),
+            _ => ImageDirtyRect::All,
+        };
         self.content_overlay
-            .set_image(dom_id, node_id, image.clone());
+            .set_image_with_dirty(dom_id, node_id, image.clone(), dirty);
         self.content_journal.record(AppliedChange::Image {
             dom_id,
             node_id,
@@ -7606,8 +10715,15 @@ impl LayoutWindow {
                 // Patch the stored display list in place: the item keeps its
                 // geometry, only the ImageRef changes. The backend's DL diff
                 // sees the identity change and damages exactly those bounds.
-                if let Some(lr) = self.layout_results.get_mut(&dom_id) {
-                    Arc::make_mut(&mut lr.display_list).patch_node_image(node_id, image);
+                let _ = self.patch_display_list(dom_id, |list| list.patch_node_image(node_id, image));
+                // THE frame gate of a content update: a tile nobody can see
+                // (scrolled out, below the window, the window minimized)
+                // keeps its patched item for the next frame painted for any
+                // other reason, and asks for none itself.
+                if !self.node_is_visible_in_window(dom_id, node_id) {
+                    return ContentChangeResult {
+                        tier: ContentDirtyTier::PaintHidden,
+                    };
                 }
             }
             ContentDirtyTier::Relayout => {
@@ -7621,6 +10737,97 @@ impl LayoutWindow {
         }
 
         ContentChangeResult { tier }
+    }
+
+    /// The background arm of [`Self::apply_content_change`]: a background
+    /// layer's render callback drew `image` for `slot`. The overlay keeps it
+    /// (a display list built later draws it from there), the journal keeps
+    /// the frame before it, and the layer's items in the current list draw it
+    /// at once: patched in place, their geometry unchanged, so a backend's
+    /// display-list diff damages exactly them.
+    fn apply_background_image_change(
+        &mut self,
+        slot: BackgroundSlot,
+        image: &ImageRef,
+    ) -> crate::overlay::ContentChangeResult {
+        use crate::overlay::{AppliedChange, ContentChangeResult, ContentDirtyTier};
+
+        if self.content_overlay.background_frame(&slot).map(ImageRef::get_hash)
+            == Some(image.get_hash())
+        {
+            return ContentChangeResult {
+                tier: ContentDirtyTier::Unchanged,
+            };
+        }
+        let old = self.content_overlay.set_background(slot, image.clone());
+        // The items draw the declared callback until the layer's first frame,
+        // then the frame before this one.
+        let mut replaced = vec![slot.declared];
+        replaced.extend(old.as_ref().map(ImageRef::get_hash));
+        self.content_journal.record(AppliedChange::Background {
+            slot,
+            old,
+            new_hash: image.get_hash(),
+        });
+        let damage = self
+            .patch_display_list(slot.dom, |list| {
+                list.patch_background_image(slot.node, &replaced, image)
+            })
+            .flatten();
+        let tier = match (damage, slot.node) {
+            (None, _) => ContentDirtyTier::Unchanged,
+            // A layer nobody can see owes no frame; its items are patched for
+            // the next frame painted for any other reason.
+            (Some(_), Some(node)) if !self.node_is_visible_in_window(slot.dom, node) => {
+                ContentDirtyTier::PaintHidden
+            }
+            (Some(_), _) => ContentDirtyTier::Paint,
+        };
+        ContentChangeResult { tier }
+    }
+
+    /// Change the display list of `dom_id` in place with `patch`, `None` for
+    /// a DOM without one.
+    ///
+    /// The solver's structural-identity cache may hold this very list: the
+    /// next relayout over the same tree (a hover, a `RefreshDom` without
+    /// structural change) serves it back, so it must be the PATCHED list -
+    /// a cache left on the pre-patch list lost `AzPaint`'s stroke until a
+    /// resize. The cache lets go of the list for the patch and takes the
+    /// patched one back: a list nobody else holds is patched in place,
+    /// instead of copied whole for every frame of a colour tween. A list a
+    /// backend still holds (the CPU compositor keeps the frame it last drew,
+    /// to diff the next one against) is copied on write, as it must stay as
+    /// drawn. ROOT only: the cache is the root DOM's.
+    ///
+    /// The window's list may be its own copy of the cached one: a pass writes
+    /// a `VirtualView`'s content and a text tween's frame into the window's
+    /// list alone, so the cached list stays the baseline the next cache hit
+    /// starts from. The content change then goes into that baseline too, or
+    /// the next cache hit serves the frame before it. `patch` is a change by
+    /// node, the same on both lists.
+    fn patch_display_list<R>(
+        &mut self,
+        dom_id: DomId,
+        patch: impl Fn(&mut DisplayList) -> R,
+    ) -> Option<R> {
+        let lr = self.layout_results.get_mut(&dom_id)?;
+        let cached = if dom_id == DomId::ROOT_ID {
+            self.layout_cache.cached_display_list.as_mut()
+        } else {
+            None
+        };
+        let Some(cached) = cached else {
+            return Some(patch(Arc::make_mut(&mut lr.display_list)));
+        };
+        if !Arc::ptr_eq(&cached.5, &lr.display_list) {
+            drop(patch(Arc::make_mut(&mut cached.5)));
+            return Some(patch(Arc::make_mut(&mut lr.display_list)));
+        }
+        drop(core::mem::take(&mut cached.5));
+        let result = patch(Arc::make_mut(&mut lr.display_list));
+        cached.5 = lr.display_list.clone();
+        Some(result)
     }
 
     /// Invoke every `RenderImageCallback` image and funnel each produced frame
@@ -7642,7 +10849,8 @@ impl LayoutWindow {
         // The DECLARED callback comes from the immutable DOM — the overlay
         // holds produced frames, never the producer.
         let hidpi_factor = self.current_window_state.size.get_hidpi_factor();
-        let mut to_invoke: Vec<(DomId, NodeId, HidpiAdjustedBounds, ImageRef)> = Vec::new();
+        let mut to_invoke: Vec<(DomId, NodeId, HidpiAdjustedBounds, ImageRef, ImageCallbackInputs)> =
+            Vec::new();
         for (dom_id, lr) in &self.layout_results {
             let node_data_container = lr.styled_dom.node_data.as_container();
             for node in &lr.layout_tree.nodes {
@@ -7661,6 +10869,13 @@ impl LayoutWindow {
                         logical_size: size,
                         hidpi_factor,
                     };
+                    // Rendered from these already, and nobody asked for a
+                    // new frame: the overlay still holds it. Invoking would
+                    // only mint a new ImageRef and repaint the rect.
+                    let inputs = ImageCallbackInputs::of(image_ref, &bounds);
+                    if self.image_callback_inputs.get(&(*dom_id, node_dom_id)) == Some(&inputs) {
+                        continue;
+                    }
                     to_invoke.push((
                         *dom_id,
                         node_dom_id,
@@ -7668,6 +10883,7 @@ impl LayoutWindow {
                         // NodeType::Image wraps the ImageRef in BoxOrStatic; deref
                         // to clone the inner ImageRef (cheap, refcounted).
                         (**image_ref).clone(),
+                        inputs,
                     ));
                 }
             }
@@ -7681,18 +10897,35 @@ impl LayoutWindow {
         // so the immutable borrows of image_cache/fc_cache don't conflict with
         // the chokepoint application below.
         let mut produced_frames: Vec<(DomId, NodeId, ImageRef)> = Vec::new();
-        for (dom_id, node_id, bounds, image_ref) in to_invoke {
+        for (dom_id, node_id, bounds, image_ref, inputs) in to_invoke {
             let domnode_id = DomNodeId {
                 dom: dom_id,
                 node: NodeHierarchyItemId::from_crate_internal(Some(node_id)),
             };
-            let info = crate::callbacks::RenderImageCallbackInfo::new(
+            // What the callback may read beyond its size: the window's
+            // material light, the node's custom properties, where it sits.
+            let mut extras = crate::callbacks::RenderImageCallbackExtras::new(self.material_light);
+            extras.light = self.effective_light();
+            extras.window_desktop_origin = self.window_desktop_origin();
+            extras.screen = self.window_screen_rect();
+            extras.highlight = self.system_highlight_colour();
+            if let Some(lr) = self.layout_results.get(&dom_id) {
+                extras.custom_properties = node_custom_properties(&lr.styled_dom, node_id).0;
+            }
+            if let Some(rect) = self.get_node_bounds(dom_id, node_id) {
+                extras.origin = LogicalPosition::new(rect.origin.x as f32, rect.origin.y as f32);
+            }
+            let mut info = crate::callbacks::RenderImageCallbackInfo::new(
                 domnode_id,
                 bounds,
                 gl_context,
                 &self.image_cache,
                 &self.font_manager.fc_cache,
             );
+            // SAFETY: `extras` (and the styled DOM its map points into, which
+            // nothing mutates until the frames are applied below) outlives the
+            // invocation.
+            unsafe { info.set_extras(core::ptr::from_ref(&extras)) };
             let produced = match image_ref.get_data() {
                 DecodedImage::Callback(core_callback) if core_callback.callback.cb != 0 => {
                     let cb =
@@ -7704,6 +10937,9 @@ impl LayoutWindow {
                 _ => None,
             };
             if let Some(img) = produced {
+                // Remembered only for a frame that was produced: a callback
+                // that panicked (or had no function) is asked again.
+                self.image_callback_inputs.insert((dom_id, node_id), inputs);
                 produced_frames.push((dom_id, node_id, img));
             }
         }
@@ -7718,6 +10954,546 @@ impl LayoutWindow {
                 image,
             });
         }
+    }
+
+    /// Draw the frames of the background layers that declare a render
+    /// callback (`background: url(id)` / `builtin(<name>)` naming a callback
+    /// image - the built-in materials are such images) and hand each to the
+    /// content chokepoint: the frame goes into the overlay's background arm,
+    /// and the display list's items of the layer draw it at once. A list
+    /// built later draws it from the overlay
+    /// ([`crate::overlay::ResolvedContent::background_image`]), so no list a
+    /// renderer gets holds a callback for a layer that has a frame.
+    ///
+    /// A layer's callback is asked only when what its frame is drawn from
+    /// changed ([`BackgroundCallbackInputs`]): its rect and the scale factor,
+    /// its radii, its node's custom properties and clip path, the window's
+    /// light, its place on the desktop where a point light or a reflected
+    /// wallpaper make that matter. A frame at rest asks nothing; neither does
+    /// the cursor - the sheen is a layer of its own. A layer no list paints
+    /// any more lets its frame go.
+    ///
+    /// The same step as [`Self::invoke_image_callbacks_into_overlay`], for the
+    /// same two callers: the CPU frame's preparation, and the GL frame path
+    /// with its context (a callback draws into a GL texture there) before
+    /// that frame's images are registered.
+    ///
+    /// The built-in materials' sheen comes with it: in a window `WebRender`
+    /// draws (`drawn_by_webrender`) every material surface gets its sheen
+    /// layer's keys and values ([`Self::sync_sheen_keys`]); a window the CPU
+    /// draws has none. Returns whether a display list was built again for a
+    /// sheen layer that appeared or went - the renderer must take it anew.
+    fn invoke_background_image_callbacks_into_overlay(
+        &mut self,
+        gl_context: &OptionGlContextPtr,
+        drawn_by_webrender: bool,
+    ) -> bool {
+        use azul_core::resources::DecodedImage;
+
+        use crate::solver3::display_list::DisplayListItem;
+
+        /// A layer whose callback is asked: what its frame is drawn from, and
+        /// what the callback reads through its bounds and extras.
+        struct Ask {
+            /// The layer.
+            slot: BackgroundSlot,
+            /// What its frame is drawn from now: remembered once it is.
+            inputs: BackgroundCallbackInputs,
+            /// The callback image the layer declares.
+            declared: ImageRef,
+            /// The layer's rect, logical px: the frame's size and place.
+            bounds: LogicalRect,
+            /// The layer's corner radii.
+            radii: [f32; 4],
+            /// The node's custom properties (into its styled DOM, valid
+            /// until phase 3 mutates anything).
+            custom_properties: *const azul_css::custom_properties::CustomPropertyMap,
+            /// The node's clip path, owned: the extras point into it.
+            clip_path: Option<azul_css::props::layout::shape::ClipPath>,
+        }
+
+        self.adopt_app_light();
+        let declared: BTreeMap<ImageRefHash, ImageRef> = self
+            .image_cache
+            .image_id_map
+            .values()
+            .filter(|image| image.is_callback())
+            .map(|image| (image.get_hash(), image.clone()))
+            .collect();
+        if declared.is_empty() && self.background_callback_inputs.is_empty() {
+            return false;
+        }
+        // The built-in materials among them: those shine under the cursor.
+        let materials: BTreeSet<ImageRefHash> = crate::texture::Material::ALL
+            .iter()
+            .filter_map(|m| {
+                self.image_cache
+                    .get_css_image_id(&m.css_name().as_str().into())
+                    .map(ImageRef::get_hash)
+            })
+            .collect();
+        // An item that draws a layer's frame names its slot by its node and
+        // the frame (two layers may draw the same frame, never on one node).
+        let shown: BTreeMap<(DomId, Option<NodeId>, ImageRefHash), ImageRefHash> = self
+            .content_overlay
+            .iter_backgrounds()
+            .map(|(slot, frame)| ((slot.dom, slot.node, frame.get_hash()), slot.declared))
+            .collect();
+        let hidpi_factor = self.current_window_state.size.get_hidpi_factor();
+        let generation = self.background_frames_generation;
+        let light = self.effective_light();
+        let window_origin = self.window_desktop_origin();
+        let screen = self.window_screen_rect();
+        let highlight = self.system_highlight_colour();
+        // A new wallpaper is a new reflection for every metal.
+        #[cfg(feature = "materials")]
+        let environment_generation = crate::texture::environment::desktop_generation();
+        #[cfg(not(feature = "materials"))]
+        let environment_generation = 0_u64;
+        // Where the window sits matters to a point light and to the
+        // wallpaper a metal reflects.
+        let desktop_bits = if light.depends_on_position() || Self::reflects_the_desktop() {
+            [window_origin.x.to_bits(), window_origin.y.to_bits()]
+        } else {
+            [0, 0]
+        };
+
+        // Phase 1: every layer the display lists paint, and the ones whose
+        // inputs changed.
+        let mut seen: BTreeSet<BackgroundSlot> = BTreeSet::new();
+        let mut asks: Vec<Ask> = Vec::new();
+        let mut shining: BTreeMap<(DomId, NodeId), (LogicalRect, LogicalRect)> = BTreeMap::new();
+        for (dom_id, lr) in &self.layout_results {
+            let node_data = lr.styled_dom.node_data.as_container();
+            for (index, item) in lr.display_list.items.iter().enumerate() {
+                let DisplayListItem::Image {
+                    bounds,
+                    image,
+                    border_radius,
+                } = item
+                else {
+                    continue;
+                };
+                let hash = image.get_hash();
+                let node = lr.display_list.node_mapping.get(index).copied().flatten();
+                let declared_hash = if declared.contains_key(&hash) {
+                    hash
+                } else if let Some(declared_hash) = shown.get(&(*dom_id, node, hash)) {
+                    *declared_hash
+                } else {
+                    continue;
+                };
+                // An image node's own callback is the node arm's
+                // (`invoke_image_callbacks_into_overlay`), not a background.
+                if let Some(NodeType::Image(own)) = node
+                    .and_then(|n| node_data.get(n))
+                    .map(azul_core::dom::NodeData::get_node_type)
+                {
+                    if own.get_hash() == declared_hash {
+                        continue;
+                    }
+                }
+                let slot = BackgroundSlot {
+                    dom: *dom_id,
+                    node,
+                    declared: declared_hash,
+                };
+                // The first item of a layer is its rect: the tiles of a
+                // repeated layer share one frame.
+                if !seen.insert(slot) {
+                    continue;
+                }
+                let rect = *bounds.inner();
+                if let (Some(n), true) = (node, materials.contains(&declared_hash)) {
+                    let area = sheen_area(self, *dom_id, &lr.styled_dom, n).unwrap_or(rect);
+                    shining.insert((*dom_id, n), (area, rect));
+                }
+                let radii = [
+                    border_radius.top_left,
+                    border_radius.top_right,
+                    border_radius.bottom_right,
+                    border_radius.bottom_left,
+                ];
+                let (custom_properties, mut custom_properties_hash) = node.map_or(
+                    (core::ptr::null(), 0),
+                    |n| node_custom_properties(&lr.styled_dom, n),
+                );
+                let clip_path = node.and_then(|n| {
+                    let state = lr
+                        .styled_dom
+                        .styled_nodes
+                        .as_container()
+                        .get(n)
+                        .map(|s| s.styled_node_state)
+                        .unwrap_or_default();
+                    solver3::getters::get_clip_path(&lr.styled_dom, n, &state)
+                });
+                if let Some(clip) = &clip_path {
+                    use std::hash::{Hash, Hasher};
+                    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                    custom_properties_hash.hash(&mut hasher);
+                    clip.hash(&mut hasher);
+                    custom_properties_hash = hasher.finish();
+                }
+                let inputs = BackgroundCallbackInputs {
+                    rect_bits: [
+                        rect.origin.x.to_bits(),
+                        rect.origin.y.to_bits(),
+                        rect.size.width.to_bits(),
+                        rect.size.height.to_bits(),
+                    ],
+                    hidpi_factor,
+                    radii_bits: radii.map(f32::to_bits),
+                    generation,
+                    custom_properties_hash,
+                    desktop_bits,
+                    environment_generation,
+                    highlight,
+                };
+                // Drawn from these already, and its frame is still there.
+                if self.background_callback_inputs.get(&slot) == Some(&inputs)
+                    && self.content_overlay.background_frame(&slot).is_some()
+                {
+                    continue;
+                }
+                // Gone from the cache (the app removed the id): the layer
+                // keeps the last frame it has.
+                let Some(declared_image) = declared.get(&declared_hash) else {
+                    continue;
+                };
+                asks.push(Ask {
+                    slot,
+                    inputs,
+                    declared: declared_image.clone(),
+                    bounds: rect,
+                    radii,
+                    custom_properties,
+                    clip_path,
+                });
+            }
+        }
+
+        // A window a desktop shell draws on the CPU does not wait for a slow
+        // callback: it keeps what the layer shows while the frame is drawn
+        // off the UI thread. Headless and test windows (no renderer type)
+        // draw every frame whole.
+        let may_defer = !drawn_by_webrender && self.renderer_type == Some(RendererType::Software);
+
+        // Phase 2: ask the callbacks (nothing is mutated until phase 3, so
+        // the custom-property pointers into the styled DOMs stay valid). A
+        // deferred answer is a stand-in (`true` with it).
+        let mut drawn: Vec<(BackgroundSlot, BackgroundCallbackInputs, ImageRef, bool)> = Vec::new();
+        for ask in asks {
+            let DecodedImage::Callback(core_callback) = ask.declared.get_data() else {
+                continue;
+            };
+            if core_callback.callback.cb == 0 {
+                continue;
+            }
+            let extras = crate::callbacks::RenderImageCallbackExtras {
+                border_radii: ask.radii,
+                origin: ask.bounds.origin,
+                material_light: self.material_light,
+                light,
+                window_desktop_origin: window_origin,
+                screen,
+                highlight,
+                custom_properties: ask.custom_properties,
+                clip_path: ask
+                    .clip_path
+                    .as_ref()
+                    .map_or(core::ptr::null(), core::ptr::from_ref),
+                may_defer,
+            };
+            let domnode_id = DomNodeId {
+                dom: ask.slot.dom,
+                node: NodeHierarchyItemId::from_crate_internal(ask.slot.node),
+            };
+            let bounds = HidpiAdjustedBounds {
+                logical_size: ask.bounds.size,
+                hidpi_factor,
+            };
+            let mut info = crate::callbacks::RenderImageCallbackInfo::new(
+                domnode_id,
+                bounds,
+                gl_context,
+                &self.image_cache,
+                &self.font_manager.fc_cache,
+            );
+            // SAFETY: `extras` (and the clip path it points into) outlives
+            // the invocation right below.
+            unsafe { info.set_extras(core::ptr::from_ref(&extras)) };
+            let cb = crate::callbacks::RenderImageCallback::from_core(&core_callback.callback);
+            let refany = core_callback.refany.clone();
+            let _ = crate::callbacks::take_frame_deferred();
+            let produced =
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| cb.invoke(refany, info)))
+                    .ok();
+            let deferred = crate::callbacks::take_frame_deferred();
+            // A callback answering with another callback would be asked
+            // forever: only a drawable frame is kept (a panic is asked again).
+            if let Some(frame) = produced.filter(|frame| !frame.is_callback()) {
+                drawn.push((ask.slot, ask.inputs, frame, deferred));
+            }
+        }
+
+        // Phase 3: forget the layers no list paints, then the chokepoint.
+        self.content_overlay.retain_backgrounds(|slot| seen.contains(slot));
+        self.background_callback_inputs
+            .retain(|slot, _| seen.contains(slot));
+        self.background_callbacks_waiting
+            .retain(|slot| seen.contains(slot));
+        for (slot, inputs, image, deferred) in drawn {
+            if deferred {
+                // Asked again on the next frames (its inputs are not taken
+                // as drawn); the layer keeps the frame it shows, or shows its
+                // base colour through the stand-in before its first one.
+                self.background_callbacks_waiting.insert(slot);
+                if self.content_overlay.background_frame(&slot).is_some() {
+                    continue;
+                }
+            } else {
+                self.background_callbacks_waiting.remove(&slot);
+                self.background_callback_inputs.insert(slot, inputs);
+            }
+            let _ = self.apply_content_change(
+                crate::overlay::ContentChange::BackgroundImageCallbackResult { slot, image },
+            );
+        }
+
+        // The sheen: the surfaces whose hover drives it, their layers' keys
+        // (a list that gains or loses a layer is built again) and values.
+        // Not where no GPU values are kept at all (the headless web path).
+        if self.skip_gpu_sync {
+            return false;
+        }
+        self.material_sheen
+            .sync(if drawn_by_webrender { shining } else { BTreeMap::new() });
+        let rebuilt = self.sync_sheen_keys();
+        self.publish_sheen_values();
+        for dom_id in &rebuilt {
+            self.regenerate_display_list_for_dom(*dom_id);
+        }
+        !rebuilt.is_empty()
+    }
+
+    /// The sheen layers' keys (the GPU cache's sheen channel): a transform and
+    /// an opacity key for every material surface the sheen state holds - the
+    /// display-list builder opens a sheen layer exactly where they are - and
+    /// none anywhere else. Returns the DOMs whose keys changed: their display
+    /// lists must be built again to open or drop the layers.
+    fn sync_sheen_keys(&mut self) -> Vec<DomId> {
+        // Nothing shines and nothing did: no cache is touched.
+        if self.material_sheen.surfaces.is_empty()
+            && self.gpu_state_manager.caches.values().all(|cache| {
+                cache.sheen_opacity_keys.is_empty() && cache.sheen_transform_keys.is_empty()
+            })
+        {
+            return Vec::new();
+        }
+        let doms: BTreeSet<DomId> = self
+            .gpu_state_manager
+            .caches
+            .keys()
+            .copied()
+            .chain(self.material_sheen.surfaces.keys().map(|(dom, _)| *dom))
+            .collect();
+        let mut changed = Vec::new();
+        for dom in doms {
+            let wanted: BTreeSet<NodeId> = self
+                .material_sheen
+                .surfaces
+                .keys()
+                .filter(|(d, _)| *d == dom)
+                .map(|(_, node)| *node)
+                .collect();
+            // The sheens shine in the window's light: its colour is baked into
+            // their stops, so a new colour is a new list too.
+            let light = (!wanted.is_empty())
+                .then_some((self.material_light.color, self.material_light.intensity));
+            let cache = self.gpu_state_manager.get_or_create_cache(dom);
+            let had: BTreeSet<NodeId> = cache.sheen_opacity_keys.keys().copied().collect();
+            let same_light = cache.sheen_light == light;
+            cache.sheen_light = light;
+            if had == wanted && cache.sheen_transform_keys.len() == wanted.len() && same_light {
+                continue;
+            }
+            cache.sheen_transform_keys.retain(|node, _| wanted.contains(node));
+            cache
+                .sheen_current_transform_values
+                .retain(|node, _| wanted.contains(node));
+            cache.sheen_opacity_keys.retain(|node, _| wanted.contains(node));
+            cache
+                .sheen_current_opacity_values
+                .retain(|node, _| wanted.contains(node));
+            for node in &wanted {
+                cache
+                    .sheen_transform_keys
+                    .entry(*node)
+                    .or_insert_with(azul_core::resources::TransformKey::unique);
+                cache
+                    .sheen_opacity_keys
+                    .entry(*node)
+                    .or_insert_with(OpacityKey::unique);
+            }
+            changed.push(dom);
+        }
+        changed
+    }
+
+    /// Publish every sheen's eased amount and the cursor's place on its
+    /// material as its layer's GPU values: both renderers read them by key,
+    /// so the highlight moves and fades without a new display list.
+    fn publish_sheen_values(&mut self) {
+        for (&(dom, node), surface) in &self.material_sheen.surfaces {
+            let Some(cache) = self.gpu_state_manager.caches.get_mut(&dom) else {
+                continue;
+            };
+            if !cache.sheen_opacity_keys.contains_key(&node) {
+                continue;
+            }
+            let cursor = surface.cursor_in_surface();
+            cache.sheen_current_transform_values.insert(
+                node,
+                azul_core::transform::ComputedTransform3D::new_translation(cursor.x, cursor.y, 0.0),
+            );
+            cache.sheen_current_opacity_values.insert(node, surface.amount);
+        }
+    }
+
+    /// Where this window's light comes from: its own material light when it
+    /// set one ([`Self::set_material_light`]), else the app's one light.
+    #[must_use]
+    pub const fn effective_light(&self) -> azul_core::light::Light {
+        if self.material_light_is_own {
+            azul_core::light::Light::sun(
+                self.material_light.azimuth_deg,
+                self.material_light.elevation_deg,
+            )
+        } else {
+            self.app_light
+        }
+    }
+
+    /// Adopt the app's light if it changed since this window last did:
+    /// every material frame renders again and the display lists are made
+    /// anew where shadows follow the light. Returns whether this window's
+    /// light changed.
+    pub fn adopt_app_light(&mut self) -> bool {
+        let (light, generation) = azul_core::light::app_light_with_generation();
+        if generation == self.app_light_generation {
+            return false;
+        }
+        self.app_light_generation = generation;
+        if light == self.app_light {
+            return false;
+        }
+        self.app_light = light;
+        if self.material_light_is_own {
+            return false;
+        }
+        self.background_frames_generation = self.background_frames_generation.wrapping_add(1);
+        self.image_callback_inputs.clear();
+        // A list made under the old light caches its light-following shadows.
+        self.layout_cache.cached_display_list = None;
+        true
+    }
+
+    /// Where the window's top-left sits on the desktop, desktop points (the
+    /// origin when the platform does not say, as on Wayland).
+    #[must_use]
+    pub const fn window_desktop_origin(&self) -> LogicalPosition {
+        match self.current_window_state.position {
+            azul_core::window::WindowPosition::Initialized(p) => {
+                LogicalPosition::new(p.x as f32, p.y as f32)
+            }
+            _ => LogicalPosition::zero(),
+        }
+    }
+
+    /// The screen the window is on, desktop points: its monitor's rect, else
+    /// the primary monitor's, else a 1920 x 1080 screen at the origin.
+    #[must_use]
+    pub fn window_screen_rect(&self) -> LogicalRect {
+        let fallback = LogicalRect::new(LogicalPosition::zero(), LogicalSize::new(1920.0, 1080.0));
+        let Ok(monitors) = self.monitors.lock() else {
+            return fallback;
+        };
+        let wanted = self.current_window_state.monitor_id.into_option();
+        let monitor = monitors
+            .as_ref()
+            .iter()
+            .find(|m| wanted.is_some_and(|id| m.monitor_id.index as u32 == id))
+            .or_else(|| monitors.as_ref().iter().find(|m| m.is_primary_monitor))
+            .or_else(|| monitors.as_ref().first());
+        monitor.map_or(fallback, |m| {
+            LogicalRect::new(
+                LogicalPosition::new(m.position.x as f32, m.position.y as f32),
+                LogicalSize::new(m.size.width as f32, m.size.height as f32),
+            )
+        })
+    }
+
+    /// Whether this window's materials change when the window moves: under
+    /// a point light, or while they reflect the desktop's wallpaper. A shell
+    /// that sees the window move redraws it then.
+    #[must_use]
+    pub fn materials_follow_window_position(&self) -> bool {
+        self.effective_light().depends_on_position() || Self::reflects_the_desktop()
+    }
+
+    /// Whether a material here reflects the desktop (the wallpapers are
+    /// known): a window that moves then renders its metals again.
+    fn reflects_the_desktop() -> bool {
+        #[cfg(feature = "materials")]
+        {
+            crate::texture::environment::desktop_generation() > 0
+        }
+        #[cfg(not(feature = "materials"))]
+        {
+            false
+        }
+    }
+
+    /// The system's text highlight colour (macOS's pale blue by default):
+    /// what a metal reflects where no wallpaper is known.
+    fn system_highlight_colour(&self) -> azul_css::props::basic::ColorU {
+        let fallback = azul_css::props::basic::ColorU {
+            r: 0xB3,
+            g: 0xD7,
+            b: 0xFF,
+            a: 255,
+        };
+        self.system_style
+            .as_ref()
+            .and_then(|style| {
+                style
+                    .colors
+                    .text_selection_background
+                    .into_option()
+                    .or_else(|| style.colors.selection_background.into_option())
+            })
+            .unwrap_or(fallback)
+    }
+
+    /// The cursor's sheen on material node `node` of `dom`, eased 0..1;
+    /// `None` for a node that draws no built-in material.
+    #[must_use]
+    pub fn material_sheen_of(&self, dom: DomId, node: NodeId) -> Option<f32> {
+        self.material_sheen.surfaces.get(&(dom, node)).map(|s| s.amount)
+    }
+
+    /// Advance the cursor's sheen on every material by `dt_s` seconds (the
+    /// animation clock's step) toward where the cursor is now. Returns
+    /// whether a frame shows something new. The materials themselves are not
+    /// drawn again: the sheen is a layer of its own over them.
+    pub fn step_material_sheen(&mut self, dt_s: f32) -> bool {
+        let cursor = self.current_window_state.mouse_state.cursor_position.get_position();
+        if !self.material_sheen.step(dt_s, cursor) {
+            return false;
+        }
+        self.publish_sheen_values();
+        true
     }
 
     /// Handle a window resize by updating the cached layout.
@@ -7761,9 +11537,11 @@ impl LayoutWindow {
 
     /// Clear all caches (useful for testing or when switching documents).
     pub fn clear_caches(&mut self) {
+        self.child_layout_caches.clear();
         self.layout_cache = Solver3LayoutCache {
             tree: None,
             resize_only_hint: false,
+            overrides_only_hint: None,
             last_reconcile_was_skipped: false,
             last_reconcile_structure_preserved: false,
             last_build_was_patched: false,
@@ -7773,10 +11551,15 @@ impl LayoutWindow {
             patch_damage_log: Vec::new(),
             last_dynamic_context: None,
             last_cascade_epoch: 0,
+            paged_css_dirty: Vec::new(),
+            font_epoch: 0,
+            laid_out_with_overlay: false,
             previous_sizes: Vec::new(),
             dom_diff_clean: None,
             last_fingerprint_skips: 0,
             last_patch_move: None,
+            layout_seq: 0,
+            last_patch_move_from_seq: 0,
             calculated_positions: Vec::new(),
             viewport: None,
             scroll_ids: HashMap::new(),
@@ -7833,6 +11616,62 @@ impl LayoutWindow {
         None
     }
 
+    /// The `VirtualViews` a relayout of `root_dom` may keep as they are: every
+    /// view whose host node still carries exactly the `VirtualViewNode` - the
+    /// callback and its dataset instance - it was last invoked for, in a host
+    /// DOM that is itself kept (the root, or the child of a kept view), and
+    /// whose child result exists. Returns the view keys and the child DOMs
+    /// they own.
+    ///
+    /// Identity, not equality of content: a host rebuilt by the app hands in
+    /// new nodes (another dataset instance), and its views render again.
+    fn unchanged_virtual_views(
+        &self,
+        root_dom: &StyledDom,
+    ) -> (BTreeSet<(DomId, NodeId)>, BTreeSet<DomId>) {
+        let mut views: BTreeSet<(DomId, NodeId)> = BTreeSet::new();
+        let mut doms: BTreeSet<DomId> = BTreeSet::new();
+        let keys = self.virtual_view_manager.all_view_keys();
+        // From the root down: a view inside a view is kept only once the
+        // view holding it is.
+        loop {
+            let mut grew = false;
+            for &(host, node) in &keys {
+                if views.contains(&(host, node))
+                    || (host != DomId::ROOT_ID && !doms.contains(&host))
+                {
+                    continue;
+                }
+                let host_dom = if host == DomId::ROOT_ID {
+                    Some(root_dom)
+                } else {
+                    self.layout_results.get(&host).map(|r| &r.styled_dom)
+                };
+                let Some(host_dom) = host_dom else {
+                    continue;
+                };
+                let Some(nested) = self.virtual_view_manager.get_nested_dom_id(host, node) else {
+                    continue;
+                };
+                let node_data = host_dom.node_data.as_container();
+                let current = node_data
+                    .get(node)
+                    .and_then(|nd| nd.get_virtual_view_node_ref());
+                let unchanged = current.is_some()
+                    && current == self.virtual_view_manager.invoked_node(host, node);
+                if unchanged && self.layout_results.contains_key(&nested) {
+                    views.insert((host, node));
+                    doms.insert(nested);
+                    grew = true;
+                }
+            }
+            if !grew {
+                break;
+            }
+        }
+        (views, doms)
+    }
+
     /// Invoke a `VirtualView` callback and perform layout on the returned DOM.
     ///
     /// This is the entry point that looks up the necessary `VirtualViewNode` data before
@@ -7884,13 +11723,18 @@ impl LayoutWindow {
             )));
         }
 
-        // Use the override styled_dom if provided, otherwise read from layout_results
-        let (virtual_view_node, content_sized) = if let Some(styled_dom) = styled_dom_override {
+        // Use the override styled_dom if provided, otherwise read from layout_results.
+        // What the view's content inherits is read off the host HERE, where
+        // its DOM is at hand in both cases.
+        let (virtual_view_node, content_sized, inherited_from_host) = if let Some(styled_dom) =
+            styled_dom_override
+        {
             let node_data_container = styled_dom.node_data.as_container();
             let node_data = node_data_container.get(node_id)?;
             (
                 node_data.get_virtual_view_node_ref()?.clone(),
                 Self::virtual_view_content_sized_axes(styled_dom, node_id),
+                Self::inherited_values_of_host(styled_dom, node_id),
             )
         } else {
             let layout_result = self.layout_results.get(&parent_dom_id)?;
@@ -7905,6 +11749,7 @@ impl LayoutWindow {
                 (
                     vv.clone(),
                     Self::virtual_view_content_sized_axes(&layout_result.styled_dom, node_id),
+                    Self::inherited_values_of_host(&layout_result.styled_dom, node_id),
                 )
             } else {
                 if let Some(msgs) = debug_messages {
@@ -7930,6 +11775,7 @@ impl LayoutWindow {
             &virtual_view_node,
             bounds,
             content_sized,
+            inherited_from_host,
             window_state,
             renderer_resources,
             system_callbacks,
@@ -7992,7 +11838,13 @@ impl LayoutWindow {
     /// `Some(child_dom_id)` if the callback was invoked and the child DOM was laid out.
     /// The parent's display list generator will then use this ID to reference the child's
     /// display list. Returns `None` if the callback was not invoked.
+    ///
+    /// `inherited_from_host` is what the view's content inherits from its host
+    /// node ([`Self::inherited_values_of_host`]): a fresh DOM is styled
+    /// inheriting it, and a view the relayout KEEPS follows it when it moved
+    /// ([`Self::follow_host_in_kept_view`]).
     #[allow(clippy::too_many_lines)] // 5 re-invocation rules + recursive layout in one flow
+    #[allow(clippy::too_many_arguments)] // the view, its box and the pass it is laid out in
     fn invoke_virtual_view_callback_impl(
         &mut self,
         parent_dom_id: DomId,
@@ -8000,6 +11852,7 @@ impl LayoutWindow {
         virtual_view_node: &azul_core::dom::VirtualViewNode,
         bounds: LogicalRect,
         content_sized: (bool, bool),
+        inherited_from_host: azul_core::prop_cache::InheritedFromHost,
         window_state: &FullWindowState,
         renderer_resources: &RendererResources,
         system_callbacks: &ExternalSystemCallbacks,
@@ -8020,22 +11873,76 @@ impl LayoutWindow {
 
         // Check with the VirtualViewManager to see if re-invocation is necessary.
         // It handles all 5 conditional rules.
-        let Some(reason) = self.virtual_view_manager.check_reinvoke(
+        //
+        // A view CARRIED over this relayout (its host node unchanged, the
+        // funnel kept its child result) is trusted with "nothing to do" while
+        // its child was laid out for the box it has now, or while the box
+        // changed only along axes the view scrolls (its rendered window still
+        // serves it: the frames of a height animation above a list). A box
+        // that changed along an axis the view lays out to its box renders it
+        // again, as every relayout did before views were kept (a growth past
+        // the window also reads as `BoundsExpanded` below).
+        let carried = self
+            .virtual_view_manager
+            .take_carried(parent_dom_id, node_id);
+        let reason = if let Some(reason) = self.virtual_view_manager.check_reinvoke(
             parent_dom_id,
             node_id,
             &self.scroll_manager,
             bounds,
-        ) else {
-            // No re-invocation needed, but we still need the child_dom_id for the display list.
-            return self
+        ) { reason } else {
+            // No re-invocation needed, but we still need the child_dom_id
+            // for the display list.
+            let nested = self
                 .virtual_view_manager
                 .get_nested_dom_id(parent_dom_id, node_id);
+            let laid_out_for = nested
+                .and_then(|child| self.layout_results.get(&child))
+                .map(|child| child.viewport.size);
+            let served = laid_out_for.is_some_and(|old| {
+                size_eq(old, bounds.size)
+                    || self.virtual_view_manager.window_serves_resized_box(
+                        parent_dom_id,
+                        node_id,
+                        old,
+                        bounds.size,
+                    )
+            });
+            if !carried || served {
+                // The DOM stays - but what it inherits from the host
+                // may have moved since it was styled, and its box may
+                // have another size.
+                if let Some(child) = nested {
+                    self.follow_host_in_kept_view(
+                        child,
+                        bounds.size,
+                        inherited_from_host,
+                        window_state,
+                        renderer_resources,
+                        system_callbacks,
+                        debug_messages,
+                    );
+                }
+                return nested;
+            }
+            VirtualViewCallbackReason::InitialRender
         };
 
         if let Some(msgs) = debug_messages {
             msgs.push(LayoutDebugMessage::info(format!(
                 "VirtualView ({parent_dom_id:?}, {node_id:?}) - Reason: {reason:?}"
             )));
+        }
+        // `AZ_VV_TRACE=1`: one line per render of a view and why it ran - the
+        // question behind "this view renders N times a second while idle" (a new
+        // generation of its host, a queued re-render, an edge, a box that moved).
+        #[cfg(feature = "std")]
+        if virtual_view_trace() {
+            eprintln!(
+                "[vv] render ({parent_dom_id:?}, {node_id:?}) reason={reason:?} carried={carried} \
+                 box={:.1}x{:.1}",
+                bounds.size.width, bounds.size.height
+            );
         }
 
         let scroll_offset = self
@@ -8062,7 +11969,10 @@ impl LayoutWindow {
             reason,
             &self.font_manager.fc_cache,
             &self.image_cache,
-            window_state.theme,
+            // The mode the window's cascade resolves (the app's pin and
+            // `AZ_MODE` included), so the view's own picture and the CSS
+            // around it never disagree about light and dark.
+            self.window_mode_for(window_state.mode),
             // The live frame, not a copy the widget was built with: a control
             // that draws "maximize" vs "restore" must be right after a window
             // manager maximize too, which never reaches the button's callback.
@@ -8089,23 +11999,41 @@ impl LayoutWindow {
         );
         // Inject the headless-measure hook so the VirtualView callback can
         // size item DOMs (VirtualViewCallbackInfo::measure_dom → the
-        // trampoline below → LayoutWindow::measure_dom on scratch caches).
-        // Same raw-window-pointer liveness contract as CallbackInfo.
+        // trampoline above → this window's measure path on scratch caches),
+        // styled as the view's content is: inheriting from the host. Same
+        // raw-window-pointer liveness contract as CallbackInfo; the context
+        // lives on this frame until the callback returns.
+        #[cfg(feature = "std")]
+        let measure_context = VirtualViewMeasureContext {
+            window: core::ptr::from_ref::<Self>(self),
+            inherited_from_host: inherited_from_host.clone(),
+        };
         #[cfg(feature = "std")]
         callback_info.set_measure_dom_fn(
             virtual_view_measure_dom_trampoline,
-            core::ptr::from_mut::<Self>(self).cast(),
+            core::ptr::from_ref(&measure_context).cast_mut().cast(),
         );
 
         // Clone the user data for the callback
         let callback_data = virtual_view_node.refany.clone();
 
-        // Invoke the user's VirtualView callback
-        let callback_return = virtual_view_node.callback.invoke(callback_data, callback_info);
+        // Invoke the user's VirtualView callback. The widgets it builds are
+        // built in this window's app theme, as the window's own DOM is, also
+        // on a scroll-driven render outside the window's rebuild.
+        let callback_return = {
+            let _theme = azul_core::app_theme::ThemeScope::enter(self.app_theme.clone());
+            virtual_view_node.callback.invoke(callback_data, callback_info)
+        };
+        #[cfg(feature = "std")]
+        drop(measure_context);
 
         // Mark the VirtualView as invoked to prevent duplicate InitialRender calls
         self.virtual_view_manager
             .mark_invoked(parent_dom_id, node_id, reason);
+        // ...and for WHICH host node: a relayout of a host that still carries
+        // exactly this node (callback and dataset) keeps the view.
+        self.virtual_view_manager
+            .record_invoked_node(parent_dom_id, node_id, virtual_view_node);
 
         // A CONTENT-SIZED view reported a size the solver has not seen: the
         // box was sized from the previous report (or the 300x150 default on
@@ -8147,12 +12075,60 @@ impl LayoutWindow {
         // Get the child Dom from the callback's return value, then convert to StyledDom
         let mut child_styled_dom = match callback_return.dom {
             azul_core::dom::OptionDom::Some(dom) => {
+                // The same DOM as the view built last (a rebuild of the app
+                // that did not change what the view shows, a re-render that
+                // came to the same rows): its child stays as it was styled
+                // and laid out, with this build's callbacks and data, and
+                // follows its host and box like a kept view.
+                let child = self
+                    .virtual_view_manager
+                    .get_or_create_nested_dom_id(parent_dom_id, node_id);
+                let (fingerprints, transfers) = azul_core::diff::fingerprint_dom(&dom);
+                if self.reclaim_unchanged_child(child, &fingerprints, &transfers) {
+                    self.virtual_view_manager.update_virtual_view_info(
+                        parent_dom_id,
+                        node_id,
+                        callback_return.materialized.origin,
+                        callback_return.materialized.size,
+                        callback_return.virtual_rect.size,
+                    );
+                    self.scroll_manager.update_virtual_scroll_bounds(
+                        parent_dom_id,
+                        node_id,
+                        callback_return.virtual_rect.size,
+                        Some(callback_return.materialized.origin),
+                    );
+                    self.follow_host_in_kept_view(
+                        child,
+                        bounds.size,
+                        inherited_from_host,
+                        window_state,
+                        renderer_resources,
+                        system_callbacks,
+                        debug_messages,
+                    );
+                    return Some(child);
+                }
+                self.child_dom_fingerprints.insert(child, fingerprints);
                 // Dom → StyledDom through the window's own chokepoint, which
                 // resolves `<icon>` nodes first. Calling `create_from_dom`
                 // directly here is what made an icon inside a VirtualView
                 // impossible: it cascaded the icon node as-is, and nothing
                 // downstream resolves one after the cascade.
-                self.style_user_dom(dom)
+                //
+                // In the VIEW's form-control scope: its raw `<input>`s become
+                // widgets too, and remember their values apart from the
+                // layout callback's controls at the same tree path.
+                //
+                // Inheriting from the host: the view is part of the host's
+                // document, so its text takes the host's font, colour,
+                // `user-select`, ... unless it declares its own.
+                self.style_user_dom_inheriting(
+                    dom,
+                    &self.current_window_state,
+                    form_scope_of_virtual_view(parent_dom_id, node_id),
+                    inherited_from_host,
+                )
             }
             azul_core::dom::OptionDom::None => {
                 // If the callback returns None, it's an optimization hint.
@@ -8178,9 +12154,22 @@ impl LayoutWindow {
                         callback_return.virtual_rect.size,
                         Some(callback_return.materialized.origin),
                     );
-                    return self
+                    let nested = self
                         .virtual_view_manager
                         .get_nested_dom_id(parent_dom_id, node_id);
+                    // The kept DOM follows its host and its box all the same.
+                    if let Some(child) = nested {
+                        self.follow_host_in_kept_view(
+                            child,
+                            bounds.size,
+                            inherited_from_host,
+                            window_state,
+                            renderer_resources,
+                            system_callbacks,
+                            debug_messages,
+                        );
+                    }
+                    return nested;
                 }
             }
         };
@@ -8200,7 +12189,7 @@ impl LayoutWindow {
         // was purged). Diff old vs new and drive the same exhaustive
         // `remap_node_ids` driver root migration uses, so state follows
         // content and unmatched nodes are GC'd.
-        self.reconcile_rematerialized_child(
+        let entered = self.reconcile_rematerialized_child(
             child_dom_id,
             &child_styled_dom,
             (system_callbacks.get_system_time_fn.cb)(),
@@ -8246,17 +12235,211 @@ impl LayoutWindow {
         // re-materialization silently reverts the visible text to the
         // pre-edit state — "scrolling clears what I just typed", only the
         // (remapped) caret surviving.
+        self.reapply_overlay_text_of(child_dom_id);
+        self.start_view_enter_tracks(child_dom_id, &entered);
+
+        Some(child_dom_id)
+    }
+
+    /// Points every clone of a dataset a rebuild's merge dropped at the one it
+    /// kept, wherever this window or the runtime holds it.
+    ///
+    /// A merge keeps one of two allocations: the fresh build's handlers then
+    /// hold the dropped one if the old dataset was kept, and the timers,
+    /// threads and requests started from the old tree hold it if the fresh
+    /// one was. Either way their writes would land where the app no longer
+    /// looks.
+    pub fn repoint_merged_datasets(&mut self, repointing: &Repointing) {
+        if repointing.is_empty() {
+            return;
+        }
+        repointing.repoint(self);
+        crate::request::repoint_held_outside_windows(repointing);
+    }
+
+    /// Takes back the child result of the view whose child is `child`, when
+    /// its callback built the DOM it built last (`fresh` equals the stored
+    /// fingerprints on both tiers): the live result (a re-render within one
+    /// generation) or the one a new generation set aside. The fresh build's
+    /// payloads go onto the retained arena. Not for a child that holds views
+    /// of its own (their children would have to come back with it) nor for
+    /// one whose arena is not the shape of the fresh DOM (raw form controls
+    /// the styling turns into widgets): those are styled anew.
+    fn reclaim_unchanged_child(
+        &mut self,
+        child: DomId,
+        fresh: &azul_core::diff::DomFingerprints,
+        transfers: &azul_core::diff::PreCascadeTransfers,
+    ) -> bool {
+        let same = self.child_dom_fingerprints.get(&child).is_some_and(|prev| {
+            prev.structure_root == fresh.structure_root && prev.style_root == fresh.style_root
+        });
+        if !same || transfers.holds_views() {
+            return false;
+        }
+        let shaped = |r: &DomLayoutResult| r.styled_dom.node_data.as_ref().len() == fresh.structure.len();
+        let repointing = if let Some(live) = self.layout_results.get_mut(&child) {
+            if !shaped(live) {
+                return false;
+            }
+            azul_core::diff::adopt_fresh_payloads(live.styled_dom.node_data.as_mut(), transfers)
+        } else {
+            let Some(mut retired) = self.retired_child_results.remove(&child) else {
+                return false;
+            };
+            if !shaped(&retired) {
+                self.retired_child_results.insert(child, retired);
+                return false;
+            }
+            let nodes = retired.styled_dom.node_data.as_mut();
+            let repointing = azul_core::diff::adopt_fresh_payloads(nodes, transfers);
+            self.layout_results.insert(child, retired);
+            repointing
+        };
+        // Nothing to reconcile against: the arena is the one it was.
+        self.previous_child_arenas.remove(&child);
+        self.repoint_merged_datasets(&repointing);
+        true
+    }
+
+    /// Re-apply the uncommitted edits `content_overlay` holds for the nodes
+    /// of `dom` (typed text the app has not been handed yet) after the DOM
+    /// was laid out again from its own text by a path the funnel's
+    /// overlay-reapply tail does not run on (a view's child).
+    fn reapply_overlay_text_of(&mut self, dom: DomId) {
         let dirty: Vec<NodeId> = self
             .content_overlay
             .iter_text()
-            .filter(|((d, _), _)| *d == child_dom_id)
+            .filter(|((d, _), _)| *d == dom)
             .map(|((_, n), _)| *n)
             .collect();
         for n in dirty {
-            self.reapply_dirty_text_node(child_dom_id, n);
+            self.reapply_dirty_text_node(dom, n);
         }
+    }
 
-        Some(child_dom_id)
+    /// A view the relayout KEEPS (its host node unchanged: the funnel's
+    /// `unchanged_virtual_views`, or a check that asked for no re-render)
+    /// keeps its DOM as it was styled and laid out - but what that DOM
+    /// inherits from its host may have moved since: the host's DOM was
+    /// restyled (its own `color`, an ancestor's), or the window switched
+    /// light / dark, which moves the host's UA colour and the view's own
+    /// mode-dependent rules alike. Nothing else re-styles a kept DOM, so its
+    /// text kept the old colour on the new background.
+    ///
+    /// Re-seed it ([`StyledDom::set_inherited_from_host`]) under the window's
+    /// context and lay it out again, in place: the same arena under the same
+    /// `DomId`, so there is nothing to reconcile and every node-keyed manager
+    /// stays valid. Its box (`size`, the view's box this pass) may have
+    /// another size than the one it was laid out for, while the window the
+    /// view rendered still serves it: then it is laid out again for the new
+    /// box, warm, as its styles did not move. Three comparisons, nothing
+    /// else, while none of these moved - the common relayout.
+    #[allow(clippy::too_many_arguments)] // the kept view, its box and the pass it is laid out in
+    fn follow_host_in_kept_view(
+        &mut self,
+        child: DomId,
+        size: LogicalSize,
+        inherited_from_host: azul_core::prop_cache::InheritedFromHost,
+        window_state: &FullWindowState,
+        renderer_resources: &RendererResources,
+        system_callbacks: &ExternalSystemCallbacks,
+        debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+    ) {
+        // The mode the window's context will carry (`dynamic_selector_context`
+        // builds the whole context; only a view that moved needs it).
+        let mode = self.window_mode_for(window_state.mode);
+        let Some(kept) = self.layout_results.get(&child) else {
+            return;
+        };
+        let cache = kept.styled_dom.get_css_property_cache();
+        let host_moved = cache.inherited_from_host != inherited_from_host;
+        let mode_moved = cache
+            .dynamic_context
+            .as_deref()
+            .is_none_or(|kept_context| kept_context.mode != mode);
+        // A text the app changed in the child (`set_node_text`) since it was
+        // laid out.
+        let content_moved = self.content_changed_doms.contains(&child);
+        let box_moved = !size_eq(kept.viewport.size, size);
+        if !host_moved && !mode_moved && !content_moved && !box_moved {
+            return;
+        }
+        // Only the box's HEIGHT moved - the rows of a list under a ribbon that
+        // opens - and nothing in the view's document follows it: its layout
+        // and display list are the ones a pass at the new height would build.
+        if !host_moved
+            && !mode_moved
+            && !content_moved
+            && feq(kept.viewport.size.width, size.width)
+            && lays_out_without_the_viewport_height(kept)
+        {
+            if let Some(kept) = self.layout_results.get_mut(&child) {
+                kept.viewport.size = size;
+            }
+            return;
+        }
+        let viewport = LogicalRect::new(LogicalPosition::zero(), size);
+        let context = self.dynamic_selector_context(window_state);
+        let Some(kept) = self.layout_results.remove(&child) else {
+            return;
+        };
+        self.content_changed_doms.remove(&child);
+        // Cold, as a host's restyle: the values the host hands down are no input the
+        // layout cache checks, so a warm pass would keep boxes sized for the old ones.
+        // A changed text alone stays warm: the reconcile finds it by its content.
+        if host_moved || mode_moved {
+            self.child_layout_caches.remove(&child);
+        }
+        let mut styled_dom = kept.styled_dom;
+        // Read before the context is offered: a resize that flips no
+        // condition still starts a new cascade generation, which is no
+        // restyle of the view's document.
+        let epoch_before = styled_dom.get_css_property_cache().cascade_epoch;
+        let context_restyles = styled_dom.context_moves_the_cascade(&context);
+        // The context first, the host's values under it: both re-run what
+        // they invalidate (and the layout pass below finds the context in
+        // place).
+        styled_dom.set_dynamic_selector_context(context);
+        styled_dom.set_inherited_from_host(inherited_from_host);
+        // Only the box moved - the view's rows under a ribbon that grows: the
+        // child's DOM and cascade are the ones its tree was laid out from, so
+        // its pass is a resize of its document (the retained tree laid out at
+        // the new size, no reconcile of every row). A restyle since its last
+        // pass (a new cascade epoch) or a diff staged for it reconciles.
+        if !host_moved && !mode_moved && !content_moved {
+            let restyled_since = context_restyles
+                || self.pending_css_dirty.as_ref().is_some_and(|(d, _)| *d == child)
+                || self
+                    .child_layout_caches
+                    .get(&child)
+                    .is_none_or(|c| c.last_cascade_epoch != epoch_before);
+            if !restyled_since {
+                if let Some(c) = self.child_layout_caches.get_mut(&child) {
+                    c.resize_only_hint = true;
+                }
+            }
+        }
+        if let Some(msgs) = debug_messages {
+            msgs.push(LayoutDebugMessage::info(format!(
+                "VirtualView child {child:?} laid out again in place: its host's inherited \
+                 values (moved: {host_moved}), the mode (moved: {mode_moved}) or its box \
+                 (moved: {box_moved}) changed"
+            )));
+        }
+        if self
+            .layout_dom_recursive_with_viewport(
+                styled_dom,
+                window_state,
+                renderer_resources,
+                system_callbacks,
+                debug_messages,
+                Some(viewport),
+            )
+            .is_ok()
+        {
+            self.reapply_overlay_text_of(child);
+        }
     }
 
     // Query methods for callbacks
@@ -8351,13 +12534,7 @@ impl LayoutWindow {
                 idx.index(),
                 rect,
                 &|d, n| self.scroll_manager.get_current_offset(d, n),
-                &|d, n| {
-                    self.gpu_state_manager
-                        .caches
-                        .get(&d)
-                        .and_then(|c| c.css_current_transform_values.get(&n))
-                        .copied()
-                },
+                &|d, n| self.painted_transform_of(d, n),
             );
         }
         Some(rect)
@@ -8557,6 +12734,11 @@ impl LayoutWindow {
         options: crate::managers::scroll_into_view::ScrollIntoViewOptions,
         now: Instant,
     ) -> Vec<crate::managers::scroll_into_view::ScrollAdjustment> {
+        // A node reveal is performed HERE, now, by the input that asked for
+        // it (a focus change, an a11y `Focus`, an app's
+        // `scroll_node_into_view`). It is not a caret reveal and issues no
+        // `RevealRequest`: the caret a focus seeds asks for its own
+        // (`finalize_pending_focus_changes`).
         // Precomputed, because the resolver would otherwise borrow `self`
         // immutably while `scroll_manager` is borrowed mutably below.
         let hops = self.nested_dom_hops();
@@ -8565,6 +12747,29 @@ impl LayoutWindow {
             node_id,
             &self.layout_results,
             &mut self.scroll_manager,
+            options,
+            now,
+            &hop,
+        )
+    }
+
+    /// The adjustments [`Self::scroll_node_into_view`] would make, without
+    /// making them (computed on a copy of the scroll state): how far each
+    /// scroll container would move to reveal `node_id`.
+    #[must_use]
+    pub fn scroll_into_view_dry_run(
+        &self,
+        node_id: DomNodeId,
+        options: crate::managers::scroll_into_view::ScrollIntoViewOptions,
+        now: Instant,
+    ) -> Vec<crate::managers::scroll_into_view::ScrollAdjustment> {
+        let hops = self.nested_dom_hops();
+        let hop = move |d: DomId| hops.get(&d).copied();
+        let mut scroll_manager = self.scroll_manager.clone();
+        crate::managers::scroll_into_view::scroll_node_into_view(
+            node_id,
+            &self.layout_results,
+            &mut scroll_manager,
             options,
             now,
             &hop,
@@ -8708,9 +12913,130 @@ impl LayoutWindow {
         self.threads.insert(thread_id, thread);
     }
 
-    /// Remove a thread from this window
+    /// Add a thread that one of `owner`'s lifecycle callbacks started: it is
+    /// told to stop when `owner` unmounts (`managers::thread_owner`). `None`
+    /// is an app thread, [`Self::add_thread`].
+    pub fn add_thread_owned_by(
+        &mut self,
+        thread_id: ThreadId,
+        thread: Thread,
+        owner: Option<DomNodeId>,
+    ) {
+        self.threads.insert(thread_id, thread);
+        if let Some(owner) = owner {
+            self.thread_owners.bind(thread_id, owner);
+        }
+    }
+
+    /// Remove a thread from this window (and forget which node owned it). The engine
+    /// retires a thread this way once it has finished or was detached, so dropping it
+    /// waits for nothing; an app stops a running one with [`Self::stop_thread`].
     pub fn remove_thread(&mut self, thread_id: &ThreadId) -> Option<Thread> {
+        self.thread_owners.forget(thread_id);
         self.threads.remove(thread_id)
+    }
+
+    /// Tells `thread_id` to stop (`TerminateThread`) and keeps listening to it: its
+    /// write-backs still run in [`Self::run_all_threads`], which retires it once it has
+    /// finished, or detaches it past the grace period. Nothing here waits for the worker,
+    /// so a Cancel answers at once even while the worker sits in a blocking call.
+    /// Returns false when the window has no such thread.
+    pub fn stop_thread(&mut self, thread_id: &ThreadId) -> bool {
+        let Some(thread) = self.threads.get(thread_id) else {
+            return false;
+        };
+        if self.thread_owners.stop(*thread_id) {
+            let _ = thread.send_message(ThreadSendMsg::TerminateThread);
+        }
+        true
+    }
+
+    /// Takes every thread out of this window, which is closing while another window
+    /// stays open, for that window ([`Self::adopt_handed_over_threads`]). The app's
+    /// threads go on there; the ones the app stopped still deliver their last
+    /// write-backs; the workers of this window's nodes are told to stop now and are
+    /// retired there as orphans. So closing a window never waits for a worker.
+    pub fn take_threads_for_heir(
+        &mut self,
+    ) -> Vec<(ThreadId, Thread, crate::managers::thread_owner::HandedOver)> {
+        let threads = core::mem::take(&mut self.threads);
+        let mut handed = Vec::with_capacity(threads.len());
+        for (id, thread) in threads {
+            let (state, tell) = self.thread_owners.hand_over(&id);
+            if tell {
+                let _ = thread.send_message(ThreadSendMsg::TerminateThread);
+            }
+            handed.push((id, thread, state));
+        }
+        handed
+    }
+
+    /// The threads of a window that closed ([`Self::take_threads_for_heir`]): this window
+    /// polls them from now on, each as what it was there. Returns whether any came, so the
+    /// shell starts polling. A thread id this window has already keeps its own thread.
+    pub fn adopt_handed_over_threads(
+        &mut self,
+        threads: Vec<(ThreadId, Thread, crate::managers::thread_owner::HandedOver)>,
+    ) -> bool {
+        let any = !threads.is_empty();
+        for (id, thread, state) in threads {
+            if let std::collections::btree_map::Entry::Vacant(slot) = self.threads.entry(id) {
+                slot.insert(thread);
+                self.thread_owners.adopt(id, state);
+            }
+        }
+        any
+    }
+
+    /// Takes the app's threads out of this window, which is closing while another window stays
+    /// open: the shell hands them to that window ([`Self::adopt_threads`]), so a Send / Receive
+    /// or a download started here goes on. The threads of this window's nodes (a camera, a
+    /// video decoder) and the orphans already told to stop stay here and stop with the window.
+    pub fn take_app_threads(&mut self) -> BTreeMap<ThreadId, Thread> {
+        let app_ids: Vec<ThreadId> = self
+            .threads
+            .keys()
+            .copied()
+            .filter(|id| {
+                self.thread_owners.owner(id).is_none() && self.thread_owners.orphaned(id).is_none()
+            })
+            .collect();
+        let mut taken = BTreeMap::new();
+        for id in app_ids {
+            if let Some(thread) = self.threads.remove(&id) {
+                self.thread_owners.forget(&id);
+                taken.insert(id, thread);
+            }
+        }
+        taken
+    }
+
+    /// The app's threads of a window that closed ([`Self::take_app_threads`]): this window runs
+    /// their write-backs from now on. Returns whether any came, so the shell starts polling.
+    /// Thread ids are unique in the process, so none is taken here already; if one were, this
+    /// window keeps its own and the newcomer stops as it would have with its closed window.
+    pub fn adopt_threads(&mut self, threads: BTreeMap<ThreadId, Thread>) -> bool {
+        let any = !threads.is_empty();
+        for (id, thread) in threads {
+            self.threads.entry(id).or_insert(thread);
+        }
+        any
+    }
+
+    /// Whether this window's threads need a poll every frame. A worker wakes the event
+    /// loop when it sends something or ends (`thread::set_thread_wake`), so the poll
+    /// is only needed where no shell installed that wake, for a worker that asked
+    /// for a `Tick` each frame (`Thread::with_frame_ticks`), and while a thread told
+    /// to stop has not left (the poll is what notices its grace period ran out).
+    /// `AzMonitor`'s sampler used to keep its window waking sixty times a second.
+    #[must_use]
+    pub fn thread_poll_needed(&self) -> bool {
+        if self.threads.is_empty() {
+            return false;
+        }
+        !crate::thread::thread_wake_installed()
+            || self.thread_owners.has_threads_winding_down()
+            || self.threads.values().any(Thread::wants_frame_ticks)
     }
 
     /// Get a reference to a thread
@@ -8786,13 +13112,92 @@ impl LayoutWindow {
             run_count: 0,
             last_run: azul_core::task::OptionInstant::None,
             delay: azul_core::task::OptionDuration::None,
-            interval: azul_core::task::OptionDuration::Some(Duration::from_millis(16)),
+            // One step per frame of THIS window (8.33 ms on a 120 Hz panel).
+            interval: azul_core::task::OptionDuration::Some(self.frame_interval()),
             timeout: azul_core::task::OptionDuration::None,
             callback: TimerCallback::create(caret_tween_timer_callback),
         }
     }
 
-    /// The CSS animation frame driver: a 16ms interval timer whose callback is
+    /// The refresh rate of the monitor this window is on, in Hz, if known:
+    /// the monitor `current_window_state.monitor_id` names, else the
+    /// primary one, else the first.
+    #[must_use]
+    pub fn monitor_refresh_rate_hz(&self) -> Option<u32> {
+        let guard = self.monitors.lock().ok()?;
+        let monitors: &[azul_core::window::Monitor] = guard.as_ref();
+        let on = self.current_window_state.monitor_id.into_option();
+        let monitor = on
+            .and_then(|index| {
+                monitors
+                    .iter()
+                    .find(|m| m.monitor_id.index == index as usize)
+            })
+            .or_else(|| monitors.iter().find(|m| m.is_primary_monitor))
+            .or_else(|| monitors.first());
+
+        let rate = monitor.and_then(azul_core::window::Monitor::refresh_rate_hz);
+        drop(guard);
+        rate
+    }
+
+    /// THIS WINDOW'S frame interval, in ns - the one source of truth every
+    /// frame-paced driver reads (the CSS animation driver, the caret tween,
+    /// the first-step fallback of the animation clock, the shells' frame
+    /// pumps): one refresh of the monitor the window is on, slowed to
+    /// `RendererOptions::max_frame_rate` when that is lower.
+    #[must_use]
+    pub fn frame_interval_nanos(&self) -> u64 {
+        self.current_window_state
+            .renderer_options
+            .frame_interval_nanos(self.monitor_refresh_rate_hz())
+    }
+
+    /// The running frame-paced drivers (CSS animation driver, caret tween,
+    /// scroll physics) whose interval is no longer this window's
+    /// [`Self::frame_interval`], each re-paced to it - same `RefAny`, so its
+    /// state rides along. The shell re-registers them at the end of a pass
+    /// (`arm_animation_drivers_if_needed`).
+    ///
+    /// A driver is armed at the frame interval of the monitor the window is
+    /// on THEN, and used to keep it: dragged to a monitor with another rate
+    /// (or with the rate or `max_frame_rate` changed), a running glide went on
+    /// stepping at the old rate until it stopped and was re-armed.
+    #[must_use]
+    pub fn frame_drivers_off_pace(&self) -> Vec<(TimerId, Timer)> {
+        use azul_core::task::{CARET_TWEEN_TIMER_ID, CSS_ANIMATION_TIMER_ID, SCROLL_MOMENTUM_TIMER_ID};
+        let interval = self.frame_interval();
+        [
+            CSS_ANIMATION_TIMER_ID,
+            CARET_TWEEN_TIMER_ID,
+            SCROLL_MOMENTUM_TIMER_ID,
+        ]
+        .into_iter()
+        .filter_map(|id| {
+            let timer = self.timers.get(&id)?;
+            (timer.interval.as_ref() != Some(&interval))
+                .then(|| (id, timer.clone().with_interval(interval)))
+        })
+        .collect()
+    }
+
+    /// [`Self::frame_interval_nanos`] as an engine [`Duration`].
+    #[must_use]
+    pub fn frame_interval(&self) -> Duration {
+        Duration::System(SystemTimeDiff::from_nanos(
+            self.frame_interval_nanos(),
+        ))
+    }
+
+    /// [`Self::frame_interval_nanos`] in seconds: one frame's animation step.
+    #[must_use]
+    #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)] // ns -> s
+    pub fn frame_step_s(&self) -> f32 {
+        (self.frame_interval_nanos() as f64 / 1e9) as f32
+    }
+
+    /// The CSS animation frame driver: a timer firing once per frame of this
+    /// window ([`Self::frame_interval`]) whose callback is
     /// an inert marker ([`azul_core::task::CSS_ANIMATION_TIMER_ID`]). The
     /// shared dispatcher does the ticking when it expires, because a timer
     /// callback only holds an immutable `CallbackInfo`.
@@ -8809,7 +13214,7 @@ impl LayoutWindow {
             run_count: 0,
             last_run: azul_core::task::OptionInstant::None,
             delay: azul_core::task::OptionDuration::None,
-            interval: azul_core::task::OptionDuration::Some(Duration::from_millis(16)),
+            interval: azul_core::task::OptionDuration::Some(self.frame_interval()),
             timeout: azul_core::task::OptionDuration::None,
             callback: TimerCallback::create(css_animation_timer_callback),
         }
@@ -8844,44 +13249,25 @@ impl LayoutWindow {
     /// the one clock on which the truncating and the exact spellings of the
     /// progress ratio agree — so on the wall clock the unit bug below is
     /// untestable by construction.
-    /// The scroll frame the focus ring must live INSIDE: the innermost
-    /// scrollable ancestor of `node`, as a display-list `scroll_id`.
+    /// The scroll frame the focus ring must live INSIDE: the innermost frame
+    /// the display list paints `node`'s box in (the last moving link of its
+    /// `ScrollChain`), as a display-list `scroll_id`.
     ///
-    /// `None` means no ancestor scrolls, so the ring can be appended at the end
-    /// of the list, where no offset is applied and content space is viewport
-    /// space.
-    fn enclosing_scroll_id(
-        dom_id: DomId,
-        node_hierarchy: &[azul_core::styled_dom::NodeHierarchyItem],
-        node: NodeId,
-        scroll_manager: &ScrollManager,
-        layout_result: &DomLayoutResult,
-    ) -> Option<u64> {
-        let mut cur = node_hierarchy
-            .get(node.index())
-            .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
-        let mut guard = 0usize;
-        while let Some(parent) = cur {
-            guard += 1;
-            if guard > 65_536 {
-                return None;
-            }
-            if scroll_manager.get_current_offset(dom_id, parent).is_some() {
-                // The first ancestor that scrolls is the frame the ring rides
-                // in; its id is whatever the display list called it.
-                if let Some((id, _)) = layout_result
-                    .scroll_id_to_node_id
-                    .iter()
-                    .find(|(_, n)| **n == parent)
-                {
-                    return Some(*id);
-                }
-            }
-            cur = node_hierarchy
-                .get(parent.index())
-                .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
-        }
-        None
+    /// `None` means no frame moves the box, so the ring can be appended at
+    /// the end of the list, where no offset is applied and content space is
+    /// viewport space. This used to walk the DOM for the first ancestor
+    /// holding scroll STATE: the page's frame for a fixed box the page does
+    /// not move, and any stray offset on a box that opens no frame.
+    fn enclosing_scroll_id(layout_result: &DomLayoutResult, node: NodeId) -> Option<u64> {
+        let chain = solver3::scroll_chain::ScrollChain::of_node(
+            &layout_result.layout_tree,
+            &layout_result.styled_dom,
+            &layout_result.scroll_ids,
+            node,
+            Inclusivity::AncestorsOnly,
+        )?;
+        let innermost = chain.scrolling().last()?;
+        layout_result.scroll_ids.get(&innermost.layout_index).copied()
     }
 
     /// Index of the `PopScrollFrame` that closes `scroll_id`'s frame — where
@@ -8954,7 +13340,26 @@ impl LayoutWindow {
             // a click - or by `autofocus` when a window opens - is focused but
             // not ringed, which is what every browser does and what keeps a
             // form from looking like the user pressed Tab when they did not.
-            if editing_active || !self.focus_manager.focus_is_visible {
+            //
+            // And only while the window is ACTIVE. Focus survives a
+            // deactivation, its indication does not: HTML's "currently
+            // focused area" is null without system focus, and AppKit, GTK and
+            // Win32 draw focus only in the key / active window. Without this
+            // a popup that took the keyboard (the ColorInput picker) left a
+            // second, stale ring on its invoker in the parent. The shell
+            // rebuilds the list on every activation change, so the ring comes
+            // back, same modality, the moment the window does.
+            //
+            // Nor while a popup holds this window's keyboard: focus stays on
+            // the invoker (it is handed back on close), the popup rings its
+            // own control, and X11 never deactivates the parent for an
+            // override-redirect popup, so the activation gate alone left two
+            // rings there.
+            if editing_active
+                || !self.focus_manager.focus_is_visible
+                || !self.current_window_state.is_window_active()
+                || self.transient_keyboard_owner().is_some()
+            {
                 None
             } else {
                 self.focus_manager
@@ -8965,7 +13370,6 @@ impl LayoutWindow {
                         let r = self.get_node_layout_rect(fnode)?;
                         let node_id = fnode.node.into_crate_internal()?;
                         let lr = self.layout_results.get(&fnode.dom)?;
-                        let hierarchy = lr.styled_dom.node_hierarchy.as_container();
 
                         // THE RING IS EMITTED INSIDE THE SCROLL FRAME IT
                         // BELONGS TO, in CONTENT space, exactly like the node
@@ -8983,13 +13387,7 @@ impl LayoutWindow {
                         // moves with it for free - and is clipped by the frame,
                         // which is what should happen to a control scrolled out
                         // of sight.
-                        focus_ring_scroll_id = Self::enclosing_scroll_id(
-                            fnode.dom,
-                            hierarchy.internal,
-                            node_id,
-                            &self.scroll_manager,
-                            lr,
-                        );
+                        focus_ring_scroll_id = Self::enclosing_scroll_id(lr, node_id);
                         // No enclosing frame: the list has no offset to apply
                         // at the append point, so content space IS viewport
                         // space and the rect goes in as it is.
@@ -9408,8 +13806,8 @@ impl LayoutWindow {
     /// Create a one-shot tooltip-delay timer.
     ///
     /// Fires exactly once after `hover_time_ms` elapsed. On expiry the callback
-    /// looks up the currently-hovered node's `title` / `alt` / `aria-label`
-    /// attribute and emits a `ShowTooltip` `CallbackChange`, then terminates.
+    /// looks up the currently-hovered node's `title` attribute and emits a
+    /// `ShowTooltip` `CallbackChange`, then terminates.
     pub fn create_tooltip_delay_timer(&self, hover_time_ms: u32) -> Timer {
         use azul_core::{
             refany::RefAny,
@@ -9440,8 +13838,8 @@ impl LayoutWindow {
     /// hit-testing has updated `hover_manager`). It compares the current and
     /// previous deepest hovered nodes and returns:
     ///
-    /// - `Start` if the user just hovered onto a node that has a tooltip source (`title` / `alt` /
-    ///   `aria-label`) — the shell should (re)start `TOOLTIP_DELAY_TIMER_ID` with the returned
+    /// - `Start` if the user just hovered onto a node with a `title` (the only tooltip source, as
+    ///   in Chrome) — the shell should (re)start `TOOLTIP_DELAY_TIMER_ID` with the returned
     ///   Timer.
     /// - `Stop` if the hover moved off a tooltip-bearing node (or left the window) — the shell
     ///   should stop `TOOLTIP_DELAY_TIMER_ID` and hide any currently-visible tooltip.
@@ -9454,24 +13852,37 @@ impl LayoutWindow {
             return TooltipTimerAction::NoChange;
         }
 
-        let dom_id = DomId { inner: 0 };
-        let Some(layout_result) = self.layout_results.get(&dom_id) else {
+        if !self.layout_results.contains_key(&DomId::ROOT_ID) {
             return TooltipTimerAction::Stop;
-        };
-        let node_data_cont = layout_result.styled_dom.node_data.as_container();
-
-        let node_has_tooltip = |node_id: NodeId| -> bool {
-            node_data_cont
-                .get(node_id)
-                .is_some_and(|n| n.get_accessible_label().is_some())
-        };
-
-        match current_hover {
-            Some(node) if node_has_tooltip(node) => {
-                TooltipTimerAction::Start(self.create_tooltip_delay_timer(hover_time_ms))
-            }
-            _ => TooltipTimerAction::Stop,
         }
+        // The tip belongs to the element whose title it shows, not to the
+        // node the pointer rests on: moving between a control's parts keeps
+        // its tooltip as it is.
+        let owner = current_hover.and_then(|n| self.title_owner(n));
+        let previous_owner = previous_hover.and_then(|n| self.title_owner(n));
+        match owner {
+            Some(o) if previous_owner == Some(o) => TooltipTimerAction::NoChange,
+            Some(_) => TooltipTimerAction::Start(self.create_tooltip_delay_timer(hover_time_ms)),
+            None => TooltipTimerAction::Stop,
+        }
+    }
+
+    /// The node whose `title` a hover over `node` of the root DOM shows:
+    /// `node` itself or its nearest ancestor with a title, as in a browser,
+    /// where a title holds for everything inside its element. Only a title
+    /// is a hover tooltip, never an accessible label.
+    pub(crate) fn title_owner(&self, node: NodeId) -> Option<NodeId> {
+        let result = self.layout_results.get(&DomId::ROOT_ID)?;
+        let nodes = result.styled_dom.node_data.as_container();
+        let hierarchy = result.styled_dom.node_hierarchy.as_container();
+        let mut cur = Some(node);
+        while let Some(n) = cur {
+            if nodes.get(n)?.get_attribute("title").is_some() {
+                return Some(n);
+            }
+            cur = hierarchy.get(n).and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
+        }
+        None
     }
 
     /// Check if a node is contenteditable (internal version using `NodeId`)
@@ -9504,7 +13915,12 @@ impl LayoutWindow {
     ///
     /// Walks parents rather than descending, so the cost is the node's depth
     /// and not the subtree size.
-    fn node_is_self_or_descendant(&self, dom_id: DomId, node_id: NodeId, ancestor: NodeId) -> bool {
+    pub(crate) fn node_is_self_or_descendant(
+        &self,
+        dom_id: DomId,
+        node_id: NodeId,
+        ancestor: NodeId,
+    ) -> bool {
         if node_id == ancestor {
             return true;
         }
@@ -9707,26 +14123,48 @@ impl LayoutWindow {
             // the body), and `clear_editing` then erased the highlight the user
             // was still looking at. Tear the caret machinery down, keep the
             // range.
-            let non_editable_range = self
+            //
+            // A COLLAPSED caret counts too while the pointer is still making
+            // the selection. A press is one pass: the shell plants the anchor
+            // from `SystemChange::TextSelectionClick` and only then runs
+            // click-to-focus, whose `SystemChange::SetFocus` lands here — so on
+            // plain, non-editable text the anchor was destroyed before the
+            // first drag move ever arrived, and `process_mouse_drag_for_
+            // selection` (which opens with `multi_cursor.as_ref()?`) had
+            // nothing to extend. Left-click-drag over document text could
+            // therefore never select anything at all. The press edge latches
+            // `text_selection_drag_anchor`, and that is exactly the "a
+            // selection gesture is in flight" signal this needs.
+            let selection_gesture_in_flight = self.text_selection_drag_anchor.is_some();
+            let non_editable_selection = self
                 .text_edit_manager
                 .multi_cursor
                 .as_ref()
                 .filter(|mc| {
-                    mc.selections
-                        .iter()
-                        .any(|sel| matches!(sel.selection, Selection::Range(_)))
+                    selection_gesture_in_flight
+                        || mc
+                            .selections
+                            .iter()
+                            .any(|sel| matches!(sel.selection, Selection::Range(_)))
                 })
-                .and_then(|mc| {
-                    mc.node_id
-                        .node
-                        .into_crate_internal()
-                        .map(|node| (mc.node_id.dom, node))
-                })
-                .is_some_and(|(dom, node)| {
-                    !self.is_node_contenteditable_inherited_internal(dom, node)
+                .is_some_and(|mc| {
+                    !self.is_node_contenteditable_inherited_internal(
+                        mc.block.dom(),
+                        mc.block.container(),
+                    )
+                });
+            // Likewise a selection over static text that spans BLOCKS: it
+            // sits in `cross_block`, beside a session that is only its anchor
+            // caret, and `clear_editing` would end it.
+            let static_document_selection =
+                self.text_edit_manager.cross_block.as_ref().is_some_and(|cb| {
+                    !self.is_node_contenteditable_inherited_internal(
+                        cb.dom_id,
+                        cb.anchor.block.container(),
+                    )
                 });
 
-            if non_editable_range {
+            if non_editable_selection || static_document_selection {
                 let had_blink = self.text_edit_manager.blink.is_visible
                     || self.text_edit_manager.blink.blink_timer_active;
                 self.text_edit_manager.blink.clear();
@@ -9858,6 +14296,22 @@ impl LayoutWindow {
         }
     }
 
+    /// Gives the focus to `node`, an `autofocus` node that has just mounted. It is set at
+    /// once, so the new tree is styled with it before it is laid out, and parked as the
+    /// deferred target too, so the layout tail (`finalize_pending_focus_changes`) seeds a
+    /// caret in an editable node and starts its blink. Not indicated (no ring), as after
+    /// a click. A programmatic focus that still waits for its first layout wins: the app
+    /// asked for it after the attribute was written.
+    pub fn focus_mounted_autofocus(&mut self, node: DomNodeId) {
+        if self.focus_manager.has_deferred_focus_target() {
+            return;
+        }
+        self.focus_manager
+            .set_focused_node_with_visibility(Some(node), false);
+        self.focus_manager
+            .defer_focus_target(FocusTarget::Id(node));
+    }
+
     /// Finalize pending focus changes after layout pass (W3C "flag and defer" pattern)
     ///
     /// This method should be called AFTER the layout pass completes. It checks if
@@ -9919,11 +14373,7 @@ impl LayoutWindow {
             .text_edit_manager
             .multi_cursor
             .as_ref()
-            .and_then(|mc| {
-                (mc.node_id.dom == pending.dom_id)
-                    .then(|| mc.node_id.node.into_crate_internal())
-                    .flatten()
-            })
+            .and_then(|mc| (mc.block.dom() == pending.dom_id).then(|| mc.block.first_node()))
             .is_some_and(|session_node| {
                 session_node == pending.text_node_id
                     || self.node_is_self_or_descendant(
@@ -9936,66 +14386,21 @@ impl LayoutWindow {
             return true;
         }
 
-        // Now we can safely get the text layout (layout pass has completed).
-        //
-        // A bare TEXT LEAF usually generates no layout node of its own - the
-        // inline layout (and the DENSE view) live on its IFC ROOT (the value
-        // `<p>`) - so looking either up by the leaf alone returns None for
-        // every FILLED field, and the seed fell through to the (0, 0)
-        // fallback below: the caret landing at the wrong end of "42" when
-        // tabbing into a NumberInput (device report, 2026-08-31). Resolve
-        // the owning node ONCE and use it for BOTH views: with dense text
-        // active the sparse `items` are the retirement sentinel (empty), so
-        // fixing only the sparse lookup still yielded no cluster.
-        let layout_node = {
-            let mut n = pending.text_node_id;
-            loop {
-                if self.get_inline_layout_for_node(pending.dom_id, n).is_some()
-                    || self.get_dense_for_node(pending.dom_id, n).is_some()
-                {
-                    break n;
-                }
-                let Some(parent) = self.layout_results.get(&pending.dom_id).and_then(|lr| {
-                    lr.styled_dom
-                        .node_hierarchy
-                        .as_container()
-                        .get(n)
-                        .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
-                }) else {
-                    break pending.text_node_id;
-                };
-                n = parent;
-            }
+        // Now we can safely read the layout (the layout pass has completed):
+        // the text block the seed's text is in, with its MATERIALIZED layout
+        // (`TextTarget`). A bare TEXT LEAF owns no inline layout - it (and the
+        // DENSE view) live on its IFC root, the value `<p>` - and under dense
+        // text the stored sparse layout is the empty retirement sentinel, so a
+        // lookup by the leaf alone found no cluster for every FILLED field and
+        // the caret landed at the wrong end of "42" when tabbing into a
+        // NumberInput (device report, 2026-08-31).
+        let seed_node = DomNodeId {
+            dom: pending.dom_id,
+            node: NodeHierarchyItemId::from_crate_internal(Some(pending.text_node_id)),
         };
-        let text_layout = self
-            .get_inline_layout_for_node(pending.dom_id, layout_node)
-            .cloned();
-
-        // Initialize cursor at end of text
-        // Get the last cluster cursor from text layout
-        // (d4) Dense-first: the last dense cluster IS the last cluster the
-        // sparse rev-scan finds (both skip trailing non-clusters). Under
-        // AZ_DENSE_TEXT=verify the two are asserted equal.
-        let dense_cursor = self
-            .get_dense_for_node(pending.dom_id, layout_node)
-            .and_then(|d| d.last_cluster_cursor());
-        let sparse_cursor = text_layout.as_ref().and_then(|layout| {
-            layout.items.iter().rev().find_map(|item| {
-                if let ShapedItem::Cluster(c) = &item.item {
-                    Some(TextCursor {
-                        cluster_id: c.source_cluster_id,
-                        affinity: CursorAffinity::Trailing,
-                    })
-                } else {
-                    None
-                }
-            })
-        });
-        if std::env::var("AZ_DENSE_TEXT").as_deref() == Ok("verify") {
-            if let (Some(d), Some(s)) = (&dense_cursor, &sparse_cursor) {
-                assert_eq!(d, s, "d4 verify: last-cluster cursor diverged");
-            }
-        }
+        let seed_target = self.text_target_at_node(seed_node);
+        // The caret goes to the end of the text: Trailing on the last cluster.
+        let last_cluster = seed_target.as_ref().and_then(super::text_block::TextTarget::last_cluster_caret);
         // No layout for this node YET (the node is not in the layout tree at
         // all) is not the same as "the node has no clusters": seeding cluster
         // (0,0) there produces a caret at the start of a text nobody has
@@ -10037,16 +14442,12 @@ impl LayoutWindow {
         // MID-TEXT ('4|2') when tabbing into the filled NumberInput. Absence
         // is transient, not a failed attempt: re-arm for the post-layout
         // finalize without spending a retry.
-        if dense_cursor.is_none()
-            && sparse_cursor.is_none()
-            && !self.layout_results.contains_key(&pending.dom_id)
-        {
+        if last_cluster.is_none() && !self.layout_results.contains_key(&pending.dom_id) {
             self.focus_manager
                 .rearm_pending_contenteditable_focus_transient(pending);
             return false;
         }
-        if dense_cursor.is_none()
-            && sparse_cursor.is_none()
+        if last_cluster.is_none()
             && !node_has_layout
             && self
                 .focus_manager
@@ -10060,7 +14461,7 @@ impl LayoutWindow {
         // which paints a caret MID-TEXT ("4|2") and looks like a positioning
         // bug rather than a fallback. Leading is the honest answer when no
         // cluster could be resolved.
-        let cursor = dense_cursor.or(sparse_cursor).unwrap_or(TextCursor {
+        let cursor = last_cluster.unwrap_or(TextCursor {
             cluster_id: GraphemeClusterId {
                 source_run: 0,
                 start_byte_in_run: 0,
@@ -10073,22 +14474,33 @@ impl LayoutWindow {
                  (had_layout={})",
                 pending.text_node_id,
                 cursor,
-                text_layout.is_some()
+                seed_target.is_some()
             );
         }
-        let ce_key = self.contenteditable_session_key(pending.dom_id, pending.text_node_id);
-        // Crossing into a different focusable makes the caret JUMP, not glide.
-        let scope = self.find_focusable_ancestor(DomNodeId {
-            dom: pending.dom_id,
-            node: NodeHierarchyItemId::from_crate_internal(Some(pending.text_node_id)),
-        });
-        self.text_edit_manager.enter_focus_scope(scope);
-        self.text_edit_manager.initialize_editing(
-            cursor,
-            pending.dom_id,
-            pending.text_node_id,
-            ce_key,
+        // The session lives on the text BLOCK whose runs the seeded caret
+        // indexes - the IFC root, as a click puts it - not on the text leaf
+        // the seed was found in. Keyed on the leaf, the painted range was
+        // handed over under a node the painter never looks up (a keyboard
+        // selection after Tab had no highlight), and an edit walked up from
+        // the leaf to the nearest boxed element: a `<b>` holding the last
+        // word, whose one run the caret's run 1 missed.
+        let Some(block) = seed_target.map(|t| t.block) else {
+            // A seed in no text block - a node this layout never laid out,
+            // once the retries are spent - has no line a caret could stand
+            // on: the request is used up, and no session opens.
+            return true;
+        };
+        self.open_session(
+            block,
+            SelectionRange {
+                start: cursor,
+                end: cursor,
+            },
         );
+        // Focus seeded a caret: an input that asks for it to be shown - a
+        // field focused with its text scrolled away shows its caret. (Once,
+        // like every reveal: the layout that follows performs it.)
+        self.request_session_reveal();
         true
     }
 
@@ -10135,6 +14547,229 @@ impl LayoutWindow {
             .collect()
     }
 
+    /// Run `f` against this window's LIVE spatial-navigation inputs: its focus
+    /// scope, the scroll manager's offsets and the transforms the renderer
+    /// applies - everything a [`crate::managers::focus_cursor::SpatialNavigationEnv`]
+    /// holds.
+    ///
+    /// Every spatial question the window answers goes through here: the
+    /// arrow-key default action ([`Self::keyboard_default_action`]),
+    /// `FocusTarget::Directional` ([`Self::resolve_focus_target_live`]) and
+    /// the css-nav-1 query API. So they all see the same PAINTED geometry, and
+    /// the decision and its application cannot disagree.
+    pub fn with_spatial_navigation_env<R>(
+        &self,
+        f: impl FnOnce(&crate::managers::focus_cursor::SpatialNavigationEnv<'_>) -> R,
+    ) -> R {
+        let out_of_scope = self.focus_out_of_scope_doms();
+        let scroll_info =
+            |dom: DomId, node: NodeId| self.scroll_manager.get_scroll_node_info(dom, node);
+        let scroll_info_dyn: &dyn Fn(
+            DomId,
+            NodeId,
+        ) -> Option<crate::managers::scroll_state::ScrollNodeInfo> = &scroll_info;
+        let transform = |dom: DomId, node: NodeId| self.painted_transform_of(dom, node);
+        let transform_dyn: &dyn Fn(
+            DomId,
+            NodeId,
+        ) -> Option<azul_core::transform::ComputedTransform3D> = &transform;
+        let env = crate::managers::focus_cursor::SpatialNavigationEnv {
+            layout_results: &self.layout_results,
+            out_of_scope: &out_of_scope,
+            scroll_info: Some(scroll_info_dyn),
+            transform: transform_dyn,
+        };
+        f(&env)
+    }
+
+    /// The keyboard default action for this window, with spatial navigation
+    /// run on the LIVE geometry (scroll offsets, transforms, focus scope) -
+    /// what the shells and the headless runner call after a key's callbacks
+    /// did not `prevent_default`.
+    #[must_use]
+    pub fn keyboard_default_action(
+        &self,
+        keyboard_state: &azul_core::window::KeyboardState,
+        focused_node: Option<DomNodeId>,
+        prevented: bool,
+        editing: Option<&crate::default_actions::EditingQueryState>,
+    ) -> azul_core::events::DefaultActionResult {
+        self.with_spatial_navigation_env(|env| {
+            crate::default_actions::determine_keyboard_default_action_with_env(
+                keyboard_state,
+                focused_node,
+                env,
+                prevented,
+                editing,
+            )
+        })
+    }
+
+    /// [`crate::managers::focus_cursor::resolve_focus_target`] against this
+    /// window's live state: its focus scope, and - for `Directional` - the
+    /// painted geometry. The application of a focus default action must use
+    /// this, so it lands where [`Self::keyboard_default_action`] decided.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `UpdateFocusWarning` if the target names an invalid dom/node.
+    pub fn resolve_focus_target_live(
+        &self,
+        target: &FocusTarget,
+        current: Option<DomNodeId>,
+    ) -> Result<
+        crate::managers::focus_cursor::FocusResolution,
+        azul_core::window::UpdateFocusWarning,
+    > {
+        self.with_spatial_navigation_env(|env| {
+            crate::managers::focus_cursor::resolve_focus_target_in(env, target, current)
+        })
+    }
+
+    /// css-nav-1 `element.getSpatialNavigationContainer()` on the live window:
+    /// the nearest ANCESTOR of `node` that is a spatial navigation container,
+    /// or its DOM's root node (the document). `None` for a node that does not
+    /// exist.
+    #[must_use]
+    pub fn get_spatial_navigation_container(&self, node: DomNodeId) -> Option<DomNodeId> {
+        self.with_spatial_navigation_env(|env| {
+            crate::managers::focus_cursor::get_spatial_navigation_container(env, node)
+        })
+    }
+
+    /// css-nav-1 `element.focusableAreas({ mode })` on the live window: the
+    /// focusable descendants of `node` in document order - with
+    /// `FocusableAreaSearchMode::Visible`, only the ones on screen right now.
+    #[must_use]
+    pub fn get_focusable_areas(
+        &self,
+        node: DomNodeId,
+        mode: azul_core::callbacks::FocusableAreaSearchMode,
+    ) -> Vec<DomNodeId> {
+        self.with_spatial_navigation_env(|env| {
+            crate::managers::focus_cursor::focusable_areas(env, node, mode)
+        })
+    }
+
+    /// css-nav-1 `element.spatialNavigationSearch(dir, options)` on the live
+    /// window: the node an arrow in `direction` would pick from `node` inside
+    /// one container, WITHOUT climbing out of it and without scrolling. The
+    /// same selection rule the arrow keys use.
+    #[must_use]
+    pub fn spatial_navigation_search(
+        &self,
+        node: DomNodeId,
+        direction: azul_core::callbacks::FocusDirection,
+        options: &azul_core::callbacks::SpatialNavigationSearchOptions,
+    ) -> Option<DomNodeId> {
+        self.with_spatial_navigation_env(|env| {
+            crate::managers::focus_cursor::spatial_navigation_search(env, node, direction, options)
+        })
+    }
+
+    /// Scroll `container` the way a keyboard does: a line (20px, the shells'
+    /// wheel line), 90% of the container's extent for a page, or all the way
+    /// for Home/End. The scroll manager clamps. `false` (and nothing scrolled)
+    /// when `container` is not a registered scroll container.
+    ///
+    /// `duration` is the shells' 150 ms ease; the headless runner passes zero.
+    #[allow(clippy::cast_precision_loss)] // px extents of a laid-out box
+    pub fn scroll_container_by_keyboard(
+        &mut self,
+        container: DomNodeId,
+        direction: azul_core::events::ScrollDirection,
+        amount: azul_core::events::ScrollAmount,
+        duration: Duration,
+        now: Instant,
+    ) -> bool {
+        use azul_core::events::{ScrollAmount, ScrollDirection};
+
+        /// One arrow-key line, the dll's `WHEEL_SCROLL_PIXELS_PER_LINE`.
+        const LINE_PX: f32 = 20.0;
+        /// Home/End: "all the way"; the scroll manager clamps it.
+        const DOCUMENT_PX: f32 = 100_000.0;
+
+        let Some(node) = container.node.into_crate_internal() else {
+            return false;
+        };
+        if self
+            .scroll_manager
+            .get_scroll_state(container.dom, node)
+            .is_none()
+        {
+            return false;
+        }
+        let (width, height) = self
+            .get_node_bounds(container.dom, node)
+            .map_or((800.0, 600.0), |b| (b.size.width as f32, b.size.height as f32));
+        let magnitude = |extent: f32| match amount {
+            ScrollAmount::Line => LINE_PX,
+            ScrollAmount::Page => extent * 0.9,
+            ScrollAmount::Document => DOCUMENT_PX,
+        };
+        let (dx, dy) = match direction {
+            ScrollDirection::Up => (0.0, -magnitude(height)),
+            ScrollDirection::Down => (0.0, magnitude(height)),
+            ScrollDirection::Left => (-magnitude(width), 0.0),
+            ScrollDirection::Right => (magnitude(width), 0.0),
+        };
+        self.scroll_manager.scroll_by(
+            container.dom,
+            node,
+            LogicalPosition { x: dx, y: dy },
+            duration,
+            EasingFunction::EaseOut,
+            now,
+        );
+        true
+    }
+
+    /// `DefaultAction::ScrollFocusedContainer` (`PgUp` / `PgDn` / Space / Home /
+    /// End, and an arrow with nowhere to go): scroll the nearest overflowing
+    /// box around `focused` - or, with nothing focused, around the node under
+    /// the mouse pointer (`HoverManager::current_hover_node_full`: the
+    /// front-most hit, nested DOMs first), so the keys page an unfocused
+    /// scroll box the pointer is over - the way
+    /// [`Self::scroll_container_by_keyboard`] scrolls. `false` (nothing
+    /// scrolled) when there is no such box.
+    ///
+    /// The one implementation the desktop shells and the headless E2E runner
+    /// share; `duration` is the shells' 150 ms ease, zero in the runner.
+    pub fn scroll_focused_container_by_keyboard(
+        &mut self,
+        focused: Option<DomNodeId>,
+        direction: azul_core::events::ScrollDirection,
+        amount: azul_core::events::ScrollAmount,
+        duration: Duration,
+        now: Instant,
+    ) -> bool {
+        let anchor = focused.or_else(|| self.hover_manager.current_hover_node_full());
+        let Some(container) = anchor.and_then(|node| self.find_scrollable_ancestor(node)) else {
+            return false;
+        };
+        self.scroll_container_by_keyboard(container, direction, amount, duration, now)
+    }
+
+    /// The node's inline layout with CLUSTERS IN IT.
+    ///
+    /// [`Self::get_inline_layout_for_node`] returns the sparse
+    /// `UnifiedLayout`, which under the default dense text path is the shared
+    /// EMPTY retirement sentinel - so `get_first_cluster_cursor()` on it is
+    /// `None` for every node, and any caller that gave up on that `None`
+    /// silently did nothing. Ctrl+A was one such caller.
+    pub fn materialized_inline_layout_for_node(
+        &self,
+        dom_id: DomId,
+        node_id: NodeId,
+    ) -> Option<Arc<UnifiedLayout>> {
+        let layout_result = self.layout_results.get(&dom_id)?;
+        let layout_index = *layout_result.layout_tree.dom_to_layout.get(&node_id)?.first()?;
+        let cached = layout_result
+            .layout_tree
+            .get_cached_inline_layout_for_node(layout_index.index())?;
+        Some(Self::materialized_inline_layout(cached))
+    }
+
     pub fn get_inline_layout_for_node(
         &self,
         dom_id: DomId,
@@ -10149,6 +14784,37 @@ impl LayoutWindow {
         layout_result
             .layout_tree
             .get_inline_layout_for_node(layout_index.index())
+    }
+
+    /// Where the primary caret goes when the key for (`direction`, `step`)
+    /// goes to `target` - the caret the keyboard path
+    /// ([`Self::apply_selection_op`]) moves it to, without moving it: the
+    /// block the key acts in ([`Self::keyboard_text_target`]), its
+    /// materialized layout and dense view. `None` when that block is not the
+    /// session's (no caret there to move) or there is no caret.
+    ///
+    /// What `CallbackInfo::inspect_move_cursor_*` preview, so a preview and
+    /// the move it previews cannot disagree.
+    #[must_use]
+    pub fn caret_after_step(
+        &self,
+        target: DomNodeId,
+        direction: azul_core::events::SelectionDirection,
+        step: azul_core::events::SelectionStep,
+    ) -> Option<TextCursor> {
+        let text_target =
+            self.keyboard_text_target(azul_core::window::PRIMARY_POINTER_SEAT, target)?;
+        if self.text_edit_manager.get_editing_block() != Some(text_target.block) {
+            return None;
+        }
+        let cursor = self.text_edit_manager.get_primary_cursor()?;
+        Some(Self::resolve_step_with(
+            text_target.dense.as_deref(),
+            &text_target.layout,
+            &cursor,
+            direction,
+            step,
+        ))
     }
 
     /// (d6f) Dense-first step resolution: the dense dispatcher when the
@@ -10210,7 +14876,7 @@ impl LayoutWindow {
     /// directly holds an inline layout, otherwise the first IFC-bearing
     /// descendant (caret-owner first, via [`Self::ifc_candidate_children`], the
     /// same descent `reshape_text_node` / `get_text_before_textinput` use).
-    fn resolve_ifc_layout_node(&self, dom_id: DomId, node_id: NodeId) -> Option<NodeId> {
+    pub(crate) fn resolve_ifc_layout_node(&self, dom_id: DomId, node_id: NodeId) -> Option<NodeId> {
         if self.get_inline_layout_for_node(dom_id, node_id).is_some() {
             return Some(node_id);
         }
@@ -10238,12 +14904,10 @@ impl LayoutWindow {
         let Some(focus) = self.focus_manager.get_focused_node() else {
             return false;
         };
-        let (Some(edom), Some(enode)) = (
-            self.text_edit_manager.get_editing_dom_id(),
-            self.text_edit_manager.get_editing_node_id(),
-        ) else {
+        let Some(block) = self.text_edit_manager.get_editing_block() else {
             return false;
         };
+        let (edom, enode) = (block.dom(), block.first_node());
         let Some(fnode) = focus.node.into_crate_internal() else {
             return false;
         };
@@ -10261,7 +14925,697 @@ impl LayoutWindow {
         if !self.layout_results.contains_key(&edom) {
             return true;
         }
-        self.node_is_self_or_descendant(edom, enode, fnode)
+        // The caret's OWN text has to be in the focused subtree - the focused
+        // node is its editing host or an ancestor of that. The block cannot
+        // stand in for it: an inline host (`<p>Name: <span contenteditable>`)
+        // lies INSIDE the paragraph that is the caret's block, and asked of
+        // the block, a focused span never painted its caret. On a blank line
+        // there is no text to name, and the block does.
+        let caret_node = self
+            .text_edit_manager
+            .get_primary_cursor()
+            .and_then(|cursor| self.caret_text_node(block, cursor))
+            .unwrap_or(enode);
+        self.node_is_self_or_descendant(edom, caret_node, fnode)
+    }
+
+    /// Collapse `dom_id`'s document selection for a plain (non-extending)
+    /// move, by `move_all_cursors_with`'s rule for a range in one block: its
+    /// start for a character step backward, its end forward, its focus for
+    /// any other step. Re-seating the session there ends the selection.
+    /// `false` when there was none.
+    ///
+    /// The caret opens like every other ([`Self::open_session`]): keyed on
+    /// its host and in the focus scope it now sits in - opened with
+    /// `initialize_editing` directly, the caret tween kept the scope the
+    /// session had before and glided out of a text field into the paragraph.
+    fn collapse_document_selection_for_move(
+        &mut self,
+        dom_id: DomId,
+        op: &azul_core::events::SelectionOp,
+    ) -> bool {
+        use azul_core::events::{SelectionDirection, SelectionStep};
+
+        let Some(cb) = self.text_edit_manager.get_cross_block_selection() else {
+            return false;
+        };
+        if cb.dom_id != dom_id {
+            return false;
+        }
+        let anchor = (cb.anchor.block, cb.anchor.cursor);
+        let focus = (cb.focus.block, cb.focus.cursor);
+        let (start, end) = if cb.is_forward {
+            (anchor, focus)
+        } else {
+            (focus, anchor)
+        };
+        let (block, caret) = match (op.step, op.direction) {
+            (SelectionStep::Character, SelectionDirection::Backward) => start,
+            (SelectionStep::Character, SelectionDirection::Forward) => end,
+            _ => focus,
+        };
+        self.open_session(
+            block,
+            SelectionRange {
+                start: caret,
+                end: caret,
+            },
+        );
+        true
+    }
+
+    /// Whether the document selection is inside `target`, the host whose key
+    /// was pressed (it contains one of the two ends). One anywhere else is a
+    /// leftover, never that key's to delete or replace.
+    fn document_selection_belongs_to(&self, target: DomNodeId) -> bool {
+        let Some(cb) = self.text_edit_manager.get_cross_block_selection() else {
+            return false;
+        };
+        let Some(host) = target.node.into_crate_internal() else {
+            return false;
+        };
+        cb.dom_id == target.dom
+            && (self.node_is_self_or_descendant(target.dom, cb.anchor.block.first_node(), host)
+                || self.node_is_self_or_descendant(target.dom, cb.focus.block.first_node(), host))
+    }
+
+    /// Shift+arrow (`SelectionMode::Extend`) for a selection that spans text
+    /// blocks, or is about to. `true` when it handled the key.
+    ///
+    /// With a document selection in `target`'s host, its FOCUS moves - in its
+    /// own block's layout, and at the edge of that block into the neighbouring
+    /// block in document order, within the selection's extent (selectable
+    /// text, inside the anchor's editing host). With a one-block session only
+    /// a step off the edge of its block makes it a document selection; every
+    /// other step is the session's own range growing, which the caller does.
+    /// A focus that comes back into the anchor's block leaves a range there.
+    ///
+    /// The Extend step used to move only the session's caret, inside its one
+    /// block: with a document selection standing it changed a caret nobody
+    /// saw (the selection painted, copied and deleted stayed as it was), and
+    /// with none the keyboard could never start one.
+    ///
+    /// Ctrl+Shift+Home/End go to the extent's first / last caret. Home/End
+    /// (`Line`) never leave their line. Down/Up off a block's last/first line
+    /// land in the next block's first / the previous block's last line at
+    /// the same column on screen.
+    fn extend_document_selection(
+        &mut self,
+        target: DomNodeId,
+        op: &azul_core::events::SelectionOp,
+    ) -> bool {
+        let Some(target_node) = target.node.into_crate_internal() else {
+            return false;
+        };
+        let document = self.document_selection_belongs_to(target);
+        let (anchor, mut focus) = if document {
+            let Some(cb) = self.text_edit_manager.get_cross_block_selection() else {
+                return false;
+            };
+            (
+                (cb.anchor.block, cb.anchor.cursor),
+                (cb.focus.block, cb.focus.cursor),
+            )
+        } else {
+            let Some(mc) = self.text_edit_manager.multi_cursor.as_ref() else {
+                return false;
+            };
+            // Several carets each grow inside their own block.
+            if mc.local_len() != 1 {
+                return false;
+            }
+            let block = mc.block;
+            let Some(primary) = mc.get_primary() else {
+                return false;
+            };
+            let (a, f) = match primary.selection {
+                Selection::Cursor(c) => (c, c),
+                Selection::Range(r) => (r.start, r.end),
+            };
+            // Only a session in the host the key went to.
+            if block.dom() != target.dom
+                || !self.node_is_self_or_descendant(target.dom, block.first_node(), target_node)
+            {
+                return false;
+            }
+            ((block, a), (block, f))
+        };
+
+        let blocks = self.text_blocks(anchor.0.dom(), self.selection_extent(anchor.0));
+        for _ in 0..op.repeat.max(1) {
+            match self.step_document_focus(focus, op, &blocks, None) {
+                Some(next) => focus = next,
+                None => break,
+            }
+        }
+
+        if focus.0 == anchor.0 {
+            if !document {
+                // A step inside the session's block: its own range grows.
+                return false;
+            }
+            // Back in the anchor's block: one block, one range.
+            let collapsed = self.same_caret_position(anchor.0, anchor.1, focus.1);
+            let range = SelectionRange {
+                start: anchor.1,
+                end: if collapsed { anchor.1 } else { focus.1 },
+            };
+            self.text_edit_manager.clear_cross_block_selection();
+            if self.text_edit_manager.get_editing_block() == Some(anchor.0) {
+                if let Some(mc) = self.text_edit_manager.multi_cursor.as_mut() {
+                    if collapsed {
+                        mc.set_single_cursor(anchor.1);
+                    } else {
+                        mc.set_single_range(range);
+                    }
+                }
+                self.text_edit_manager.mark_dirty();
+            } else {
+                self.open_session(anchor.0, range);
+            }
+            return true;
+        }
+
+        if !self.set_cross_block_selection(anchor.0, anchor.1, focus.0, focus.1) {
+            // A document selection the key could not move is still not the
+            // session's to change behind it.
+            return document;
+        }
+        // The session stands at the anchor, as a drag leaves it: a later drag
+        // or handle grab extends from there.
+        if self.text_edit_manager.get_editing_block() == Some(anchor.0) {
+            if let Some(mc) = self.text_edit_manager.multi_cursor.as_mut() {
+                mc.set_single_cursor(anchor.1);
+            }
+        }
+        self.text_edit_manager.mark_dirty();
+        true
+    }
+
+    /// One step of a caret across the blocks of `blocks`, in document order:
+    /// a document selection's focus under Shift+arrow
+    /// ([`Self::extend_document_selection`]), the session's caret under a
+    /// plain arrow ([`Self::move_caret_through_host`]). Inside the block
+    /// while the step moves; at its edge into the neighbouring block. `None`
+    /// when the focus's block is not laid out.
+    ///
+    /// `column` is the x (window coordinates) an Up / Down aims at - the
+    /// goal column a run of them keeps; `None` aims at the caret's own x. A
+    /// step onto the generated content in front of a block's text (a list
+    /// item's marker) stands at the text's start: it is no caret position of
+    /// the text, and a Left there leaves the block.
+    fn step_document_focus(
+        &self,
+        focus: (TextBlock, TextCursor),
+        op: &azul_core::events::SelectionOp,
+        blocks: &[TextBlock],
+        column: Option<f32>,
+    ) -> Option<(TextBlock, TextCursor)> {
+        use azul_core::events::{SelectionDirection, SelectionStep};
+
+        let forward = matches!(op.direction, SelectionDirection::Forward);
+        if matches!(op.step, SelectionStep::Document) {
+            let edge = if forward { blocks.last() } else { blocks.first() };
+            let edge = edge.copied().unwrap_or(focus.0);
+            let caret = self.block_edge_caret(edge, forward)?;
+            return Some((edge, self.caret_past_markers(edge, caret)));
+        }
+        let target = self.text_target(focus.0)?;
+        let stepped = Self::resolve_step_with(
+            target.dense.as_deref(),
+            &target.layout,
+            &focus.1,
+            op.direction,
+            op.step,
+        );
+        let stepped = self.caret_past_markers(focus.0, stepped);
+        let edge_caret = if forward {
+            target.last_caret()
+        } else {
+            target.first_caret()
+        }
+        .map(|edge| self.caret_past_markers(focus.0, edge));
+        let at_edge = edge_caret.is_some_and(|edge| self.same_caret_position(focus.0, focus.1, edge));
+        let moved = !self.same_caret_position(focus.0, stepped, focus.1);
+        if moved && !at_edge {
+            // Up / Down inside the block: the line the step found, at the
+            // column the run of Up / Down aims at.
+            if let (SelectionStep::VisualLine, Some(x)) = (op.step, column) {
+                if let Some(caret) = self.caret_at_window_column_on_line_of(&target, &stepped, x) {
+                    return Some((focus.0, caret));
+                }
+            }
+            return Some((focus.0, stepped));
+        }
+        // At the block's edge. Home/End stay in their line.
+        if matches!(op.step, SelectionStep::Line) {
+            return Some((focus.0, stepped));
+        }
+        let at = blocks.iter().position(|b| *b == focus.0);
+        let neighbour = if forward {
+            at.and_then(|i| blocks.get(i + 1))
+        } else {
+            at.and_then(|i| i.checked_sub(1)).and_then(|i| blocks.get(i))
+        };
+        let Some(&next) = neighbour else {
+            return Some((focus.0, stepped));
+        };
+        // Down / Up: into the next block's first line / the previous one's
+        // last, at the column the focus stands in (or the run of Up / Down
+        // aims at) - as between two lines of one block.
+        if matches!(op.step, SelectionStep::VisualLine) {
+            if let Some(caret) = self.caret_at_column_in(&target, &focus.1, next, !forward, column)
+            {
+                return Some((next, self.caret_past_markers(next, caret)));
+            }
+        }
+        // Into the next block at its first caret, into the previous one at
+        // its last.
+        let caret = self.block_edge_caret(next, !forward)?;
+        Some((next, self.caret_past_markers(next, caret)))
+    }
+
+    /// `cursor`, a caret of `block`, moved off the generated content in
+    /// front of the block's text (a list item's `::marker`) to the text's
+    /// start ([`crate::block_content::BlockContent::past_generated`]).
+    fn caret_past_markers(&self, block: TextBlock, cursor: TextCursor) -> TextCursor {
+        let generated = self.block_content(block).generated();
+        crate::block_content::BlockContent::past_generated(cursor, generated)
+    }
+
+    /// The caret in `block`'s first line - with `last_line` its last - at
+    /// the column on screen where `cursor`, a caret of `from`, stands, or at
+    /// window x `column` when one is given. Through the window, so two
+    /// blocks in different boxes, scrolls or DOMs agree on the column.
+    /// `None` when either is not laid out.
+    fn caret_at_column_in(
+        &self,
+        from: &crate::text_block::TextTarget,
+        cursor: &TextCursor,
+        block: TextBlock,
+        last_line: bool,
+        column: Option<f32>,
+    ) -> Option<TextCursor> {
+        let caret = from.caret_rect_on_screen(self, cursor)?.get();
+        let into = self.text_target(block)?;
+        let column = into.point_from_window(
+            self,
+            WindowPoint::new(LogicalPosition::new(
+                column.unwrap_or(caret.origin.x),
+                caret.origin.y + caret.size.height / 2.0,
+            )),
+        )?;
+        into.caret_on_edge_line(column.x(), last_line)
+    }
+
+    /// The caret of `target` on the line `cursor` stands on, at window x
+    /// `x` (see [`crate::text_block::TextTarget::caret_on_line_of`]).
+    fn caret_at_window_column_on_line_of(
+        &self,
+        target: &crate::text_block::TextTarget,
+        cursor: &TextCursor,
+        x: f32,
+    ) -> Option<TextCursor> {
+        let rect = target.caret_rect_on_screen(self, cursor)?.get();
+        let point = target.point_from_window(
+            self,
+            WindowPoint::new(LogicalPosition::new(
+                x,
+                rect.origin.y + rect.size.height / 2.0,
+            )),
+        )?;
+        target.caret_on_line_of(cursor, point.x())
+    }
+
+    /// A plain arrow (`SelectionMode::Move`) of the primary's one caret,
+    /// through the blocks of its editing host: at the edge of the caret's
+    /// block - Right at its end, Left at its start, Down on its last line, Up
+    /// on its first - into the neighbouring block of the host
+    /// ([`Self::step_document_focus`] over [`Self::selection_extent`], the
+    /// blocks a Shift+arrow extends over); Ctrl+Home / End to the host's
+    /// first / last block. Up / Down keep a goal column inside the block as
+    /// well as across: a run of them aims at the x the first one started at
+    /// ([`TextEditManager::vertical_goal`]).
+    ///
+    /// [`TextEditManager::vertical_goal`]: crate::managers::text_edit::TextEditManager::vertical_goal
+    ///
+    /// The Selection API's `modify("move", ..)` in a contenteditable host
+    /// (<https://w3c.github.io/selection-api/#dom-selection-modify>): a caret
+    /// is not confined to the paragraph it was put in.
+    ///
+    /// `false` - the caller steps inside the block - for several carets, a
+    /// selection (a character step collapses it first), Home / End, and a
+    /// step that stays in its block with no column to keep.
+    fn move_caret_through_host(&mut self, op: &azul_core::events::SelectionOp) -> bool {
+        use azul_core::events::SelectionStep;
+
+        let Some(mc) = self.text_edit_manager.multi_cursor.as_ref() else {
+            return false;
+        };
+        if mc.local_len() != 1 {
+            return false;
+        }
+        let block = mc.block;
+        let Some(Selection::Cursor(caret)) = mc.get_primary().map(|p| p.selection) else {
+            return false;
+        };
+        if matches!(op.step, SelectionStep::Line) {
+            return false;
+        }
+        let vertical = matches!(op.step, SelectionStep::VisualLine);
+        // The column of the run of Up / Down this key continues (`column`),
+        // and the one the run goes on aiming at (`goal`): the first key's
+        // own x.
+        let (column, goal) = if vertical {
+            let Some(target) = self.text_target(block) else {
+                return false;
+            };
+            let continued = self
+                .text_edit_manager
+                .vertical_goal
+                .filter(|g| g.block == block && g.caret == caret)
+                .map(|g| g.x);
+            let own = target
+                .caret_rect_on_screen(self, &caret)
+                .map(|rect| rect.get().origin.x);
+            (continued, continued.or(own))
+        } else {
+            (None, None)
+        };
+        let blocks = self.text_blocks(block.dom(), self.selection_extent(block));
+        let mut focus = (block, caret);
+        for _ in 0..op.repeat.max(1) {
+            match self.step_document_focus(focus, op, &blocks, column) {
+                Some(next) => focus = next,
+                None => break,
+            }
+        }
+        if focus.0 == block {
+            if !vertical {
+                return false;
+            }
+            if let Some(mc) = self.text_edit_manager.multi_cursor.as_mut() {
+                mc.set_single_cursor(focus.1);
+            }
+            self.text_edit_manager.mark_dirty();
+        } else {
+            self.open_session(
+                focus.0,
+                SelectionRange {
+                    start: focus.1,
+                    end: focus.1,
+                },
+            );
+        }
+        self.text_edit_manager.vertical_goal =
+            goal.map(|x| crate::managers::text_edit::VerticalGoal {
+                block: focus.0,
+                caret: focus.1,
+                x,
+            });
+        self.regenerate_display_list_for_dom(block.dom());
+        true
+    }
+
+    /// The app replaces the content of the editing host `host` from code
+    /// (`CallbackInfo::reset_editor_content`, HTML's `innerHTML = ..` on a
+    /// contenteditable): the DOM it renders next is the truth. Returns
+    /// whether `host` is an editing host of a laid-out DOM.
+    ///
+    /// Everything of the OLD content that would otherwise outlive the app's
+    /// re-render goes now: the content overlay's entries inside the host
+    /// (the typing the app never synced, which would paint over the new DOM
+    /// until it happened to equal it), the queued edits of this pass, the
+    /// undo history of the host's nodes and the document's structural
+    /// history, a pending structural edit inside the host (with its preview)
+    /// and an acked edit's caret restore, the seats' carets in the host, the
+    /// document selection, the typing style. The caret is placed against
+    /// the NEW content when that is laid out ([`Self::place_pending_caret`]):
+    /// at the end of the host's last block, or at the start of its first.
+    /// [`crate::callbacks::CallbackInfo::place_caret_after_rebuild`]: the
+    /// caret goes to `position` in the node `node_path` leads to from the
+    /// editing host `host`, placed by the tail of the next layout (the same
+    /// resume a committed structural edit gets). Returns whether `host` is a
+    /// live editing host.
+    pub fn place_caret_after_rebuild(
+        &mut self,
+        host: DomNodeId,
+        node_path: azul_css::corety::U32Vec,
+        position: crate::managers::changeset::NodePosition,
+    ) -> bool {
+        let dom_id = host.dom;
+        let Some(host_node) = host.node.into_crate_internal() else {
+            return false;
+        };
+        let Some(lr) = self.layout_results.get(&dom_id) else {
+            return false;
+        };
+        if host_node.index() >= lr.styled_dom.node_data.as_container().len()
+            || !solver3::getters::is_node_contenteditable_inherited(&lr.styled_dom, host_node)
+        {
+            return false;
+        }
+        let anchor_key = self.contenteditable_session_key(dom_id, host_node);
+        self.pending_caret_restore = Some(crate::managers::changeset::EditResumePoint {
+            anchor_key,
+            node_path,
+            position,
+        });
+        true
+    }
+
+    pub fn reset_editor_content(&mut self, host: DomNodeId, caret_at_end: bool) -> bool {
+        let dom_id = host.dom;
+        let Some(host_node) = host.node.into_crate_internal() else {
+            return false;
+        };
+        let Some(lr) = self.layout_results.get(&dom_id) else {
+            return false;
+        };
+        if host_node.index() >= lr.styled_dom.node_data.as_container().len()
+            || !solver3::getters::is_node_contenteditable_inherited(
+                &lr.styled_dom,
+                host_node,
+            )
+        {
+            return false;
+        }
+
+        // What the old content holds, read first: the walk borrows the
+        // layout results the stores below are then changed beside.
+        let inside = |n: NodeId| self.node_is_self_or_descendant(dom_id, n, host_node);
+        let stale_overlay: Vec<NodeId> = self
+            .content_overlay
+            .iter_text()
+            .filter(|(&(d, n), _)| d == dom_id && inside(n))
+            .map(|(&(_, n), _)| n)
+            .collect();
+        let stale_stacks: Vec<NodeId> = self
+            .undo_redo_manager
+            .node_stacks
+            .iter()
+            .map(|stack| stack.node_id)
+            .filter(|&n| inside(n))
+            .collect();
+        let pending_inside = self.pending_document_edit.as_ref().is_some_and(|edit| {
+            edit.target.dom == dom_id
+                && edit
+                    .target
+                    .node
+                    .into_crate_internal()
+                    .is_some_and(inside)
+        });
+        let stale_queued: Vec<usize> = self
+            .text_input_manager
+            .pending_changesets
+            .iter()
+            .enumerate()
+            .filter(|(_, queued)| {
+                queued.edit.node.dom == dom_id
+                    && queued.edit.node.node.into_crate_internal().is_some_and(inside)
+            })
+            .map(|(i, _)| i)
+            .collect();
+        let stale_seats: Vec<u64> = self
+            .text_edit_manager
+            .seat_carets
+            .iter()
+            .filter(|(_, caret)| {
+                caret.node.dom == dom_id && caret.node.node.into_crate_internal().is_some_and(inside)
+            })
+            .map(|(&seat, _)| seat)
+            .collect();
+        let key = self.contenteditable_session_key(dom_id, host_node);
+
+        for node in stale_overlay {
+            self.content_overlay.remove_text(dom_id, node);
+        }
+        let mut index = 0usize;
+        self.text_input_manager.pending_changesets.retain_mut(|_| {
+            let keep = !stale_queued.contains(&index);
+            index += 1;
+            keep
+        });
+        self.undo_redo_manager
+            .node_stacks
+            .retain(|stack| !stale_stacks.contains(&stack.node_id));
+        self.undo_redo_manager.structural_undo.clear();
+        self.undo_redo_manager.structural_redo.clear();
+        self.structural_history_suppression = None;
+        if pending_inside {
+            self.pending_document_edit = None;
+            self.document_edit_notified = None;
+            self.end_structural_previews();
+        }
+        self.pending_caret_restore = None;
+        for seat in stale_seats {
+            self.text_edit_manager.seat_carets.remove(&seat);
+        }
+        self.text_edit_manager.clear_cross_block_selection();
+        self.text_edit_manager.typing_style = None;
+        self.text_edit_manager.vertical_goal = None;
+        self.text_edit_manager.mark_dirty();
+        self.pending_editor_reset = Some(EditorReset { host_key: key, caret_at_end });
+        true
+    }
+
+    /// Toggle `format` for the editing session in `target`'s host
+    /// (`DefaultAction::ToggleTextFormat`, Ctrl/Cmd+B / I / U, or an app's
+    /// B button through `CallbackInfo::toggle_text_format`). Returns whether
+    /// anything changed.
+    ///
+    /// On a collapsed caret this is the execCommand spec's STATE OVERRIDE
+    /// (<https://w3c.github.io/editing/docs/execCommand/#overrides>): the
+    /// session's typing style ([`TypingStyle`]) flips `format` against what
+    /// the run under the caret has, and the next typed text takes it
+    /// (`apply_one_text_changeset`). Toggled back to what the run has, the
+    /// override goes. A selection is the app's to format (its model holds
+    /// the runs; `CallbackInfo::get_document_selection` names them): nothing
+    /// happens here, and an app that handles the key calls `prevent_default`.
+    ///
+    /// [`TypingStyle`]: crate::managers::text_edit::TypingStyle
+    pub fn toggle_text_format(
+        &mut self,
+        target: DomNodeId,
+        format: azul_core::events::TextFormat,
+    ) -> bool {
+        use crate::{managers::text_edit::TypingStyle, text3::edit::FormatOverrides};
+
+        let Some((block, caret, base, _)) = self.caret_run_style(target) else {
+            return false;
+        };
+        let mut formats = self.typing_overrides_at(block, caret);
+        let has = FormatOverrides::style_has(&base, format);
+        let now = !formats.get(format).unwrap_or(has);
+        formats.set(format, (now != has).then_some(now));
+        self.text_edit_manager.typing_style = (!formats.is_empty()).then_some(TypingStyle {
+            block,
+            caret,
+            formats,
+        });
+        true
+    }
+
+    /// The formats the text typed next at the editing session's caret in
+    /// `target`'s host takes, OVER the block element's own style: the run
+    /// under the caret's, with the session's typing style (a format toggled
+    /// at the caret, [`Self::toggle_text_format`]) on top. The caret's
+    /// PENDING format - what a toolbar shows as pressed (Ctrl+B at a caret
+    /// in plain text: bold; inside bold text: not bold). `None` without a
+    /// session of one caret (or a collapsed range) in the host, and over a
+    /// document selection.
+    #[must_use]
+    pub fn typing_formats(&self, target: DomNodeId) -> Option<azul_core::events::TextFormatSet> {
+        use crate::text3::edit::FormatOverrides;
+
+        let (block, caret, run_style, element) = self.caret_run_style(target)?;
+        let typed = self.typing_overrides_at(block, caret).apply_to(&run_style);
+        Some(FormatOverrides::formats_over(
+            &typed,
+            &self.get_text_style_for_node(block.dom(), element),
+        ))
+    }
+
+    /// The editing session's caret in `target`'s host and the style the text
+    /// typed there goes into - the caret's run's, or, in a block with no
+    /// text yet, the one its first keystroke is seeded with - with the block
+    /// and its element: `(block, caret, style, element)`. `None` without a
+    /// session of one local caret (or a collapsed range) in the host, and
+    /// over a document selection. Shared by the format toggle and the
+    /// pending-format read, so the two agree on the run.
+    fn caret_run_style(
+        &self,
+        target: DomNodeId,
+    ) -> Option<(TextBlock, TextCursor, Arc<StyleProperties>, NodeId)> {
+        if self.text_edit_manager.get_cross_block_selection().is_some() {
+            return None;
+        }
+        let target_node = target.node.into_crate_internal()?;
+        let mc = self.text_edit_manager.multi_cursor.as_ref()?;
+        let block = mc.block;
+        if mc.local_len() != 1
+            || block.dom() != target.dom
+            || !self.node_is_self_or_descendant(target.dom, block.first_node(), target_node)
+        {
+            return None;
+        }
+        let selection = mc.get_primary().map(|p| p.selection)?;
+        let element = block.element()?;
+        let (items, generated) = self.element_content(block.dom(), element).into_parts();
+        let caret = match selection {
+            Selection::Cursor(c) => c,
+            Selection::Range(r) => crate::text3::edit::collapsed_range_caret(&items, &r)?,
+        };
+        let at = crate::block_content::BlockContent::past_generated(caret, generated);
+        let style = if let Some(InlineContent::Text(run)) = items.get(at.cluster_id.source_run as usize) { run.style.clone() } else {
+            let style_node = self.seed_style_node(block.dom(), element).unwrap_or(element);
+            self.get_text_style_for_node(block.dom(), style_node)
+        };
+        Some((block, caret, style, element))
+    }
+
+    /// The session's typing style at `caret` in `block`: the formats toggled
+    /// at that caret, none when they were toggled elsewhere or not at all.
+    fn typing_overrides_at(
+        &self,
+        block: TextBlock,
+        caret: TextCursor,
+    ) -> crate::text3::edit::FormatOverrides {
+        self.text_edit_manager
+            .typing_style
+            .filter(|ts| ts.block == block && self.same_caret_position(block, ts.caret, caret))
+            .map_or_else(crate::text3::edit::FormatOverrides::default, |ts| ts.formats)
+    }
+
+    /// The typing style the insertion at `selections` - the session's, in
+    /// `block`, over `content` whose first `generated` items the layout
+    /// generated - takes: the session's [`TypingStyle`] when the insertion
+    /// is one caret standing where the formats were toggled.
+    ///
+    /// [`TypingStyle`]: crate::managers::text_edit::TypingStyle
+    fn typing_formats_at(
+        &self,
+        block: Option<TextBlock>,
+        content: &[InlineContent],
+        generated: usize,
+        selections: &[Selection],
+    ) -> Option<crate::text3::edit::FormatOverrides> {
+        let style = self.text_edit_manager.typing_style?;
+        let [Selection::Cursor(caret)] = selections else {
+            return None;
+        };
+        if Some(style.block) != block {
+            return None;
+        }
+        let at = crate::block_content::BlockContent::past_generated(style.caret, generated);
+        crate::text3::edit::collapsed_range_caret(
+            content,
+            &SelectionRange {
+                start: at,
+                end: *caret,
+            },
+        )?;
+        Some(style.formats)
     }
 
     /// Apply a unified selection operation (navigation, extend, or delete).
@@ -10280,7 +15634,26 @@ impl LayoutWindow {
     /// `apply_selection_op` for the caret of seat `seat_id` (9b-ii-a-i-d-ii-b):
     /// a second seat's arrows, Shift+arrows, Backspace and Delete act on ITS
     /// caret in ITS node, never on the primary's session.
+    ///
+    /// A primary-seat op that moved or edited something is an INPUT that asks
+    /// for the result to be shown ([`Self::request_session_reveal`]): the
+    /// shells perform it right away (`ScrollSelectionIntoView`), the e2e
+    /// runner at its pass tail or after the next layout.
     pub fn apply_selection_op_for_seat(
+        &mut self,
+        seat_id: u64,
+        target: DomNodeId,
+        op: &azul_core::events::SelectionOp,
+    ) -> bool {
+        let applied = self.apply_selection_op_for_seat_unrevealed(seat_id, target, op);
+        if applied && seat_id == azul_core::window::PRIMARY_POINTER_SEAT {
+            self.request_session_reveal();
+        }
+        applied
+    }
+
+    /// [`Self::apply_selection_op_for_seat`] without the reveal request.
+    fn apply_selection_op_for_seat_unrevealed(
         &mut self,
         seat_id: u64,
         target: DomNodeId,
@@ -10289,40 +15662,69 @@ impl LayoutWindow {
         use azul_core::events::{SelectionDirection, SelectionMode, SelectionStep};
 
         let dom_id = target.dom;
-        let Some(node_id) = target.node.into_crate_internal() else {
+        if target.node.into_crate_internal().is_none() {
             return false;
-        };
+        }
+
+        // Every key of the primary's caret moves it or edits at it: the
+        // typing style (a format toggled at the caret) is over - the
+        // execCommand overrides are unset when a boundary point changes.
+        if seat_id == azul_core::window::PRIMARY_POINTER_SEAT {
+            self.text_edit_manager.typing_style = None;
+            // Only a plain Up / Down continues a run of them (and keeps its
+            // goal column); every other key starts over.
+            if !(matches!(op.mode, SelectionMode::Move)
+                && matches!(op.step, SelectionStep::VisualLine))
+            {
+                self.text_edit_manager.vertical_goal = None;
+            }
+        }
+
+        // A plain arrow over a DOCUMENT selection collapses it: moving the
+        // session's caret (below) left it painted, and the thing the next
+        // Backspace deleted. A character step stops on the edge.
+        if seat_id == azul_core::window::PRIMARY_POINTER_SEAT
+            && matches!(op.mode, SelectionMode::Move)
+        {
+            let collapsed = self.collapse_document_selection_for_move(dom_id, op);
+            if collapsed && matches!(op.step, SelectionStep::Character) {
+                self.regenerate_display_list_for_dom(dom_id);
+                return true;
+            }
+        }
+
+        // Shift+arrow over a DOCUMENT selection moves its focus, across
+        // blocks; off the edge of a one-block session it starts one.
+        if seat_id == azul_core::window::PRIMARY_POINTER_SEAT
+            && matches!(op.mode, SelectionMode::Extend)
+            && self.extend_document_selection(target, op)
+        {
+            self.regenerate_display_list_for_dom(dom_id);
+            return true;
+        }
 
         // The keyboard selection/delete op targets the focused editable HOST,
         // but a widget like TextInput / TextArea keeps its inline layout on a
         // value CHILD (`container[contenteditable] > p.value`), not on the host
-        // block — so `get_inline_layout_for_node(host)` is None and this whole op
-        // used to bail before deleting or moving anything. That made keyboard
-        // Backspace / Delete / arrow keys DEAD inside every text widget: the real
-        // keystroke routes KeyDown(Back) → ApplySelectionOp here, and mouse
-        // editing only worked because hit-testing resolves the child directly.
-        // Resolve the node that actually holds the IFC and read layout + dense
-        // from THERE. `delete_selection` still targets the host node: it edits
-        // through the content overlay + recursive text fetch, which resolve the
-        // container's value child on their own.
-        let ifc_node = self
-            .resolve_ifc_layout_node(dom_id, node_id)
-            .unwrap_or(node_id);
-
-        let layout = match self.get_inline_layout_for_node(dom_id, ifc_node) {
-            Some(l) => l.clone(),
-            None => return false,
+        // block — reading the host's layout made keyboard Backspace / Delete /
+        // arrow keys DEAD inside every text widget. The block the key acts in
+        // is the seat's caret block inside the host, else the block below it
+        // (`keyboard_text_target`). `delete_selection` still targets the host
+        // node: the undo stack is keyed there.
+        let Some(text_target) = self.keyboard_text_target(seat_id, target) else {
+            return false;
         };
         // (d6f) Hoisted (and Arc-cloned, severing the `self` borrow)
         // before `text_edit_manager` is borrowed mutably — the closures
         // below can then resolve without touching `self`.
-        let dense = self.get_dense_for_node(dom_id, ifc_node).cloned();
+        let layout = text_target.layout.clone();
+        let dense = text_target.dense.clone();
 
         if seat_id != azul_core::window::PRIMARY_POINTER_SEAT {
             return self.apply_seat_selection_op(
                 seat_id,
                 target,
-                node_id,
+                text_target.block,
                 op,
                 &layout,
                 dense.as_deref(),
@@ -10331,7 +15733,20 @@ impl LayoutWindow {
 
         match op.mode {
             SelectionMode::Move | SelectionMode::Extend => {
+                // The session's cursors index the SESSION's block: a move that
+                // resolved another block (the key or the app named a node the
+                // session is not in) has no caret there to move, and stepping
+                // the session's cursors over that block's layout put them at
+                // unrelated places.
+                if self.text_edit_manager.get_editing_block() != Some(text_target.block) {
+                    return false;
+                }
                 let extend = matches!(op.mode, SelectionMode::Extend);
+                // A plain arrow is not confined to the caret's block: at its
+                // edge it goes on into the next block of the host.
+                if !extend && self.move_caret_through_host(op) {
+                    return true;
+                }
                 // Only a CHARACTER step collapses an active range to its edge
                 // (the Left/Right rule). Word, visual-line, Home/End and
                 // document jumps are movements and must actually be performed.
@@ -10376,7 +15791,104 @@ impl LayoutWindow {
         }
     }
 
-    /// Helper: Move cursor using a movement function and return the new cursor if it changed
+    /// Ctrl+A for the focus on `focused` (`SystemChange::SelectAllText`):
+    /// every block its editing host holds
+    /// ([`Self::select_all_extent`]), as a cross-block selection, or as one
+    /// range when the host is one block. Returns whether a selection was made;
+    /// the caller repaints.
+    pub fn select_all_text(&mut self, focused: DomNodeId) -> bool {
+        let dom_id = focused.dom;
+        // Selectable blocks only (`user-select`): Ctrl+A starting or ending on
+        // unselectable chrome selected - and copied - text the painter never
+        // highlights.
+        let Some((first, last)) = self.select_all_extent(focused) else {
+            return false;
+        };
+
+        let (Some(start), Some(end)) = (
+            self.block_edge_caret(first, false),
+            self.block_edge_caret(last, true),
+        ) else {
+            return false;
+        };
+
+        if first == last {
+            self.text_edit_manager.clear_cross_block_selection();
+            // Select the whole content as ONE range. The caret sits at
+            // range.end (last cluster) implicitly. Do NOT follow with
+            // set_single_cursor - that collapsed the selection, turning Ctrl+A
+            // into a no-op "move caret to end" instead of select-all.
+            let range = SelectionRange { start, end };
+            if self.text_edit_manager.get_editing_block() == Some(first) {
+                if let Some(mc) = self.text_edit_manager.multi_cursor.as_mut() {
+                    mc.set_single_range(range);
+                }
+            } else {
+                // The range indexes THIS block: laid over another block's
+                // session it selected an unrelated span there. It opens the
+                // session here instead, as a click would.
+                self.open_session(first, range);
+            }
+        } else if !self.set_cross_block_selection(first, start, last, end) {
+            return false;
+        }
+        // Rebuild the display list so the selection HIGHLIGHT is actually
+        // drawn (build_text_selections_map runs inside), like apply_selection_op.
+        self.regenerate_display_list_for_dom(dom_id);
+        true
+    }
+
+    /// What [`Self::select_all_text`] would select for a focus on `focused`,
+    /// without selecting it: the text it covers - its blocks' texts in
+    /// document order, one '\n' between two - and its first block's first
+    /// caret to its last block's last. What
+    /// `CallbackInfo::inspect_select_all_changeset` answers; it read the
+    /// named node's flattened text (no line between paragraphs) and made a
+    /// range of run 0 from byte 0 to that text's length, which no caret of
+    /// a host with paragraphs or a list item ever names.
+    #[must_use]
+    pub fn select_all_preview(&self, focused: DomNodeId) -> Option<(String, SelectionRange)> {
+        let (first, last) = self.select_all_extent(focused)?;
+        let start = self.block_edge_caret(first, false)?;
+        let end = self.block_edge_caret(last, true)?;
+        let text = if first == last {
+            self.block_content(first).flat_text()
+        } else {
+            let root = self
+                .find_contenteditable_host(focused)
+                .map_or(focused, crate::text_block::EditHost::dom_node);
+            let blocks = self.text_blocks(
+                first.dom(),
+                crate::text_block::BlockFilter {
+                    within: Some(root),
+                    ..crate::text_block::BlockFilter::SELECTABLE
+                },
+            );
+            let from = blocks.iter().position(|b| *b == first)?;
+            let to = blocks.iter().position(|b| *b == last)?;
+            blocks
+                .get(from..=to)?
+                .iter()
+                .map(|block| self.block_content(*block).flat_text())
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+        Some((text, SelectionRange { start, end }))
+    }
+
+    /// The first caret of text block `block`, or with `end` its last - on a
+    /// blank editable line the one position it owns ([`TextTarget`]).
+    ///
+    /// [`TextTarget`]: crate::text_block::TextTarget
+    fn block_edge_caret(&self, block: TextBlock, end: bool) -> Option<TextCursor> {
+        let target = self.text_target(block)?;
+        if end {
+            target.last_caret()
+        } else {
+            target.first_caret()
+        }
+    }
+
     /// Select the whole text of `target` for seat `seat_id` (a seat's Ctrl+A,
     /// 9b-ii-a-i-d-ii-b-i): anchor on the first cluster, caret after the last.
     /// One node only - the primary's select-all spans blocks through the
@@ -10386,82 +15898,34 @@ impl LayoutWindow {
             return false;
         }
         let dom_id = target.dom;
-        let Some(node_id) = target.node.into_crate_internal() else {
+        let Some(text_target) = self.keyboard_text_target(seat_id, target) else {
             return false;
         };
-        let ifc_node = self
-            .resolve_ifc_layout_node(dom_id, node_id)
-            .unwrap_or(node_id);
-        let (first, last) = {
-            let dense = self.get_dense_for_node(dom_id, ifc_node);
-            if let Some(d) = dense {
-                (d.first_cluster_cursor(), d.last_cluster_cursor())
-            } else {
-                let Some(layout) = self.get_inline_layout_for_node(dom_id, ifc_node) else {
-                    return false;
-                };
-                (
-                    layout.get_first_cluster_cursor(),
-                    layout.get_last_cluster_cursor(),
-                )
-            }
-        };
-        let (Some(first), Some(last)) = (first, last) else {
+        let (Some(first), Some(last)) = (
+            text_target.first_cluster_caret(),
+            text_target.last_cluster_caret(),
+        ) else {
             return false;
         };
-        self.text_edit_manager
-            .set_seat_selection(seat_id, target, last, Some(first));
+        self.text_edit_manager.set_seat_selection(
+            seat_id,
+            target,
+            text_target.block,
+            last,
+            Some(first),
+        );
         self.regenerate_display_list_for_dom(dom_id);
         true
     }
 
     /// The plain text under seat `seat_id`'s selection (a seat's Copy / Cut,
     /// 9b-ii-a-i-d-ii-b-i); `None` when the seat has no selection (a bare
-    /// caret copies nothing, as the primary's does).
+    /// caret copies nothing, as the primary's does). The plain half of
+    /// [`Self::seat_selected_content_for_clipboard`].
     #[must_use]
     pub fn seat_selected_text(&self, seat_id: u64) -> Option<String> {
-        let caret = self.text_edit_manager.seat_caret(seat_id)?;
-        let Selection::Range(range) = caret.selection() else {
-            return None;
-        };
-        let node_id = caret.node.node.into_crate_internal()?;
-        let content = self.get_text_before_textinput(caret.node.dom, node_id);
-        let runs: Vec<&str> = content
-            .iter()
-            .map(|c| match c {
-                InlineContent::Text(r) => &*r.text,
-                _ => "",
-            })
-            .collect();
-        let at = |c: &TextCursor| -> (usize, usize) {
-            let run = (c.cluster_id.source_run as usize).min(runs.len().saturating_sub(1));
-            let byte = crate::text3::edit::cursor_byte_offset_in_run(runs[run], c);
-            (run, byte)
-        };
-        if runs.is_empty() {
-            return None;
-        }
-        let (mut a, mut b) = (at(&range.start), at(&range.end));
-        if a > b {
-            core::mem::swap(&mut a, &mut b);
-        }
-        let mut out = String::new();
-        for (run, text) in runs.iter().enumerate().take(b.0 + 1).skip(a.0) {
-            let lo = if run == a.0 { a.1.min(text.len()) } else { 0 };
-            let hi = if run == b.0 {
-                b.1.min(text.len())
-            } else {
-                text.len()
-            };
-            if lo < hi && text.is_char_boundary(lo) && text.is_char_boundary(hi) {
-                out.push_str(&text[lo..hi]);
-            }
-        }
-        if out.is_empty() {
-            None
-        } else {
-            Some(out)
-        }
+        self.seat_selected_content_for_clipboard(seat_id)
+            .map(|content| content.plain_text.as_str().to_string())
     }
 
     /// The non-primary half of `apply_selection_op_for_seat` (9b-ii-a-i-d-ii-b).
@@ -10471,19 +15935,31 @@ impl LayoutWindow {
     /// Extend keeps the anchor; Delete removes the selection, or one step -
     /// a word / line step first extends to that boundary - then the other
     /// carets on the node shift across the change.
+    #[allow(clippy::too_many_arguments)]
     fn apply_seat_selection_op(
         &mut self,
         seat_id: u64,
         target: DomNodeId,
-        node_id: NodeId,
+        block: TextBlock,
         op: &azul_core::events::SelectionOp,
         layout: &UnifiedLayout,
         dense: Option<&crate::text3::dense::DenseText>,
     ) -> bool {
         use azul_core::events::{SelectionDirection, SelectionMode, SelectionStep};
 
+        use crate::block_content::BlockContent;
+
         let dom_id = target.dom;
-        let content = self.get_text_before_textinput(dom_id, node_id);
+        // The seat's key edits the element of ITS caret's block, in the
+        // caret's numbering - as the primary's does (`delete_selection`).
+        // Keyed to the focused host, it spliced the host's flattened text,
+        // where every paragraph's runs are numbered one after the other: a
+        // seat caret in the second paragraph deleted in the first. `None` - no
+        // edit - for a caret in an anonymous block.
+        let edit_node = self.edit_element(target, Some(block));
+        let content = edit_node
+            .map(|element| self.element_content(dom_id, element))
+            .unwrap_or_default();
         // A seat with no caret here starts at the end of the text - in the
         // SHAPED layout's own terms (a trailing cursor on the last cluster),
         // which is what the step resolver can walk from; the byte-past-the-end
@@ -10491,13 +15967,14 @@ impl LayoutWindow {
         let end = dense
             .and_then(crate::text3::dense::DenseText::last_cluster_cursor)
             .or_else(|| layout.get_last_cluster_cursor())
-            .unwrap_or_else(|| Self::end_of_content_cursor(&content));
+            .unwrap_or_else(|| Self::end_of_content_cursor(content.items()));
         let mut caret = self
             .text_edit_manager
             .seat_caret(seat_id)
             .filter(|c| c.node == target)
             .unwrap_or(crate::managers::text_edit::SeatCaret {
                 node: target,
+                block,
                 cursor: end,
                 anchor: None,
             });
@@ -10528,7 +16005,7 @@ impl LayoutWindow {
                     }
                 }
                 self.text_edit_manager
-                    .set_seat_selection(seat_id, target, caret.cursor, None);
+                    .set_seat_selection(seat_id, target, block, caret.cursor, None);
                 self.regenerate_display_list_for_dom(dom_id);
                 true
             }
@@ -10540,6 +16017,7 @@ impl LayoutWindow {
                 self.text_edit_manager.set_seat_selection(
                     seat_id,
                     target,
+                    block,
                     caret.cursor,
                     Some(anchor),
                 );
@@ -10547,6 +16025,9 @@ impl LayoutWindow {
                 true
             }
             SelectionMode::Delete => {
+                let Some(edit_node) = edit_node else {
+                    return false;
+                };
                 if caret.anchor.is_none() && !matches!(op.step, SelectionStep::Character) {
                     let anchor = caret.cursor;
                     for _ in 0..op.repeat.max(1) {
@@ -10554,12 +16035,13 @@ impl LayoutWindow {
                     }
                     caret.anchor = Some(anchor);
                 }
-                let selection = caret.selection();
+                let (mut content, generated) = content.into_parts();
                 let edit = match op.direction {
                     SelectionDirection::Forward => crate::text3::edit::TextEdit::DeleteForward,
                     SelectionDirection::Backward => crate::text3::edit::TextEdit::DeleteBackward,
                 };
-                let current = [selection];
+                let current =
+                    BlockContent::selections_past_generated(vec![caret.selection()], generated);
                 let (new_content, new_selections) =
                     match crate::text3::edit::edit_text_outcome(&content, &current, &edit) {
                         crate::text3::edit::EditOutcome::Applied {
@@ -10568,10 +16050,22 @@ impl LayoutWindow {
                         } => (content, selections),
                         crate::text3::edit::EditOutcome::NoOp(_) => return false,
                     };
+                // The marker is not text: Backspace before the first character
+                // has nothing of the block's own to delete.
+                if new_content.get(..generated) != content.get(..generated) {
+                    return false;
+                }
                 let changes = crate::text3::edit::run_text_diff(&content, &new_content);
+                // Undo and the overlay hold the text only; the reshape re-adds
+                // the marker.
+                let content = content.split_off(generated);
+                let new_content = {
+                    let mut with_prefix = new_content;
+                    with_prefix.split_off(generated)
+                };
                 self.record_delete_undo(
                     target,
-                    node_id,
+                    edit_node,
                     content,
                     new_content.clone(),
                     &current,
@@ -10579,10 +16073,10 @@ impl LayoutWindow {
                 );
                 if let Some(Selection::Cursor(cursor)) = new_selections.first() {
                     self.text_edit_manager
-                        .set_seat_selection(seat_id, target, *cursor, None);
+                        .set_seat_selection(seat_id, target, block, *cursor, None);
                 }
                 if let Some(ref mut mc) = self.text_edit_manager.multi_cursor {
-                    if mc.node_id == target {
+                    if mc.block == block {
                         mc.shift_all_across_diff(&changes);
                     }
                 }
@@ -10591,44 +16085,24 @@ impl LayoutWindow {
                     &changes,
                     Some(seat_id),
                 );
-                self.update_text_cache_after_edit(dom_id, node_id, new_content);
+                self.update_text_cache_after_edit(dom_id, edit_node, new_content);
                 self.regenerate_display_list_for_dom(dom_id);
                 true
             }
         }
     }
 
-    pub fn move_cursor_in_node<F>(
-        &self,
-        dom_id: DomId,
-        node_id: NodeId,
-        movement_fn: F,
-    ) -> Option<TextCursor>
-    where
-        F: FnOnce(&UnifiedLayout, &TextCursor) -> TextCursor,
-    {
-        let current_cursor = self.text_edit_manager.get_primary_cursor()?;
-        let layout = self.get_inline_layout_for_node(dom_id, node_id)?;
-
-        let new_cursor = movement_fn(layout, &current_cursor);
-
-        // Only return if cursor actually moved
-        if new_cursor == current_cursor {
-            None
-        } else {
-            Some(new_cursor)
-        }
-    }
-
-    /// Helper: Handle cursor movement with optional selection extension.
+    /// The app's `MoveCursor` (`CallbackChange::MoveCursor`): the caret to
+    /// `new_cursor`, in the block `node_id` names, with optional selection
+    /// extension, and a display list regeneration.
     ///
-    /// Updates the primary selection in `TextEditManager.multi_cursor` to the
-    /// given position and triggers a display list regeneration.
-    ///
-    /// `node_id` is accepted for call-site symmetry and deliberately NOT used
-    /// to re-target the session: callers pass the FOCUSED node, while the
-    /// editing session is keyed on the IFC root inside it, so gating on
-    /// equality would drop every movement in a nested editable.
+    /// `node_id` may be the FOCUSED node - a field's host - while the session
+    /// is on the text block inside it: a node that contains the session's
+    /// block means that session
+    /// ([`Self::names_session_block`](Self::names_session_block)). A node the
+    /// session is not in gets the session, opened on its block as a click
+    /// opens it: `new_cursor` indexes that block, and set into another
+    /// block's session it put the caret at an unrelated place.
     pub fn handle_cursor_movement(
         &mut self,
         dom_id: DomId,
@@ -10636,7 +16110,23 @@ impl LayoutWindow {
         new_cursor: TextCursor,
         extend_selection: bool,
     ) {
-        let _ = node_id;
+        let named = DomNodeId {
+            dom: dom_id,
+            node: NodeHierarchyItemId::from_crate_internal(Some(node_id)),
+        };
+        if !self.names_session_block(named) {
+            if let Some(block) = self.text_block_named_by(named) {
+                self.open_session(
+                    block,
+                    SelectionRange {
+                        start: new_cursor,
+                        end: new_cursor,
+                    },
+                );
+                self.regenerate_display_list_for_dom(dom_id);
+            }
+            return;
+        }
 
         // Update multi_cursor with the new cursor position
         if let Some(ref mut mc) = self.text_edit_manager.multi_cursor {
@@ -10864,10 +16354,21 @@ impl LayoutWindow {
         styled_dom: &mut StyledDom,
         now: Instant,
     ) -> PendingReconciliation {
+        // The new tree answers for THIS window before anything below reads its
+        // cascade: the transition capture compares it property by property
+        // with the old tree, which was laid out with the window's context.
+        // Read without one, it answered the light UA table and dropped every
+        // `prefers-color-scheme` / `@theme` block, so in a dark window every
+        // mode-dependent value "changed" on every rebuild and `animation:
+        // all` walked it toward its light value. The layout funnel's own
+        // install later finds the same context and returns at once.
+        let context = self.dynamic_selector_context(&self.current_window_state);
+        styled_dom.set_dynamic_selector_context(context);
+
         // Clone the old tree out first: it releases the `layout_results` borrow
         // before the `&mut self` work below, and the old arena is about to be
         // discarded anyway.
-        let (old_node_data, old_hierarchy) = match self.layout_results.get(&dom_id) {
+        let (mut old_node_data, old_hierarchy) = match self.layout_results.get(&dom_id) {
             Some(r) => (
                 r.styled_dom.node_data.as_ref().to_vec(),
                 r.styled_dom.node_hierarchy.as_ref().to_vec(),
@@ -10878,15 +16379,15 @@ impl LayoutWindow {
             None => (Vec::new(), Vec::new()),
         };
 
-        let mut new_node_data: Vec<azul_core::dom::NodeData> =
-            styled_dom.node_data.as_ref().to_vec();
+        // The new tree's nodes are read in place: the record below takes its
+        // one copy of them after the states moved over.
         let new_hierarchy: Vec<azul_core::styled_dom::NodeHierarchyItem> =
             styled_dom.node_hierarchy.as_ref().to_vec();
 
         let empty_layout = azul_core::OrderedMap::default();
         let diff = azul_core::diff::reconcile_dom(
             &old_node_data,
-            &new_node_data,
+            styled_dom.node_data.as_ref(),
             &old_hierarchy,
             &new_hierarchy,
             &empty_layout,
@@ -10932,7 +16433,7 @@ impl LayoutWindow {
             })
         };
 
-        let unmatched_new: BTreeSet<NodeId> = (0..new_node_data.len())
+        let unmatched_new: BTreeSet<NodeId> = (0..styled_dom.node_data.len())
             .map(NodeId::new)
             .filter(|id| !matched_new.contains(id))
             .collect();
@@ -10960,11 +16461,16 @@ impl LayoutWindow {
             .filter(|id| is_root(*id, &old_hierarchy, &unmatched_old))
             .collect();
 
-        // Departing geometry, captured before the old arena goes.
+        // Departing geometry, captured before the old arena goes: where each
+        // node is PAINTED, the rect an exit cuts out of the retained frame's
+        // picture and starts its motion from. The laid-out rect (and a
+        // whole-pixel one at that) is not where a box under a transform is
+        // drawn: a toast card in its column (`translateX(-50%)`) was cut half
+        // a column to the right of its picture and left on screen half.
         let mut exit_rects = BTreeMap::new();
         for node in &unmounted {
-            if let Some(r) = self.get_node_bounds(dom_id, *node) {
-                exit_rects.insert(*node, layout_rect_to_logical(r));
+            if let Some(r) = self.get_node_painted_bounds(dom_id, *node) {
+                exit_rects.insert(*node, r);
             }
         }
 
@@ -10981,15 +16487,29 @@ impl LayoutWindow {
         // scope wins (the enum is ordered None < IfcOnly < SizingOnly < Full).
         let mut restyled: Vec<(NodeId, azul_css::props::property::RelayoutScope)> = Vec::new();
         let mut captured_transitions: Vec<CssTransition> = Vec::new();
+        // (new node, property) of the tweens this rebuild leaves running.
+        let mut kept_transitions: Vec<(NodeId, azul_css::props::property::CssPropertyType)> =
+            Vec::new();
+        let mut move_modes: BTreeMap<NodeId, azul_core::animation::InterpolationMode> =
+            BTreeMap::new();
+        let mut compared = 0usize;
+        let mut compared_properties = 0usize;
         if let Some(old_result) = self.layout_results.get(&dom_id) {
             let old_cache = &old_result.styled_dom.css_property_cache.ptr;
             let new_cache = &styled_dom.css_property_cache.ptr;
             let old_states = old_result.styled_dom.styled_nodes.as_ref();
             let new_states = styled_dom.styled_nodes.as_ref();
+            let unchanged = unchanged_cascades(
+                old_cache,
+                new_cache,
+                (&old_node_data, &old_hierarchy, old_states),
+                (styled_dom.node_data.as_ref(), &new_hierarchy, new_states),
+                &diff.node_moves,
+            );
             for m in &diff.node_moves {
                 let (Some(old_nd), Some(new_nd)) = (
                     old_node_data.get(m.old_node_id.index()),
-                    new_node_data.get(m.new_node_id.index()),
+                    styled_dom.node_data.as_ref().get(m.new_node_id.index()),
                 ) else {
                     continue;
                 };
@@ -10999,6 +16519,14 @@ impl LayoutWindow {
                 ) else {
                     continue;
                 };
+                // The new node in the INTERACTION states it is about to get
+                // back: `layout()` builds every node at rest and the shell
+                // re-applies `:hover` / `:active` / `:focus` only after this
+                // diff, so read at rest a hovered button "changed" from its
+                // hover face to its resting one on every rebuild - and a
+                // declared fade walked it out under the pointer.
+                let new_node_state =
+                    with_interaction_of(new_state.styled_node_state, old_state.styled_node_state);
 
                 // `animation` on the OLD cascade (USER ruling 2026-08-17:
                 // the OLD tree governs — a diff that ADDS `animation` while
@@ -11007,8 +16535,10 @@ impl LayoutWindow {
                 // instead of instant updates. Because a mid-flight override
                 // lives in the old cache too, `before` reads the CURRENT
                 // animated value — retargeting falls out for free.
+                // Read for every matched node, and most declare none: the
+                // declared-only lookup answers those without a cascade walk.
                 let old_anims = old_cache
-                    .get_property(
+                    .get_property_if_declared(
                         old_nd,
                         &m.old_node_id,
                         &old_state.styled_node_state,
@@ -11020,65 +16550,87 @@ impl LayoutWindow {
                         }
                         _ => None,
                     });
+                // `animation: move ...`: this node slides to its new place.
+                if let Some(mode) = old_anims.as_ref().and_then(declared_move) {
+                    move_modes.insert(m.new_node_id, mode);
+                }
+                // Every input of its cascade is what it was: no property can
+                // have changed, so none is compared (`unchanged_cascades`).
+                if unchanged.get(m.new_node_id.index()).copied().unwrap_or(false) {
+                    continue;
+                }
+                compared += 1;
 
                 let mut worst = azul_css::props::property::RelayoutScope::None;
                 let mut changed_any = false;
-                for ty in azul_css::props::property::CssPropertyType::ALL {
+                let types = types_to_compare(
+                    old_cache,
+                    new_cache,
+                    (old_nd, m.old_node_id.index()),
+                    (new_nd, m.new_node_id.index()),
+                );
+                compared_properties += types.len();
+                for ty in &types {
                     let before = old_cache.get_property(
                         old_nd,
                         &m.old_node_id,
                         &old_state.styled_node_state,
                         ty,
                     );
-                    let after = new_cache.get_property(
-                        new_nd,
-                        &m.new_node_id,
-                        &new_state.styled_node_state,
-                        ty,
-                    );
+                    let after =
+                        new_cache.get_property(new_nd, &m.new_node_id, &new_node_state, ty);
                     if before != after {
                         changed_any = true;
-                        // IFC membership is not known here; `false` is the
-                        // conservative reading for the classifier's font/text
-                        // arm, which upgrades rather than downgrades.
-                        worst = worst.max(ty.relayout_scope(false));
+                        // IFC membership is not known here, so the conservative
+                        // reading is that the node is in one: a text property
+                        // (`word-break`, `text-align`, a font) then lays out the
+                        // inline context again, where the other reading called it
+                        // paint-only and a box that inherits it kept its old lines.
+                        worst = worst.max(ty.relayout_scope(true));
 
-                        if let Some(anims) = &old_anims {
-                            // The animation meta-properties themselves never
-                            // transition — `animation` appearing/disappearing
-                            // is a mode switch, not a value to tween.
-                            let meta = matches!(
-                                ty,
-                                azul_css::props::property::CssPropertyType::Animation
-                                    | azul_css::props::property::CssPropertyType::AnimationIn
-                                    | azul_css::props::property::CssPropertyType::AnimationOut
-                            );
-                            // A LIST scopes properties independently
-                            // (`animation: width 1s, color 2s`): the LAST
-                            // covering entry wins, web-cascade style.
-                            let winner = anims.as_ref().iter().rev().find(|anim| {
-                                anim.name.as_str() == "all" || anim.name.as_str() == ty.to_str()
-                            });
-                            if let (Some(anim), false) = (winner, meta) {
-                                captured_transitions.push(CssTransition {
-                                    node: m.new_node_id,
-                                    prop_type: *ty,
-                                    from: before.map_or_else(
-                                        || azul_css::props::property::CssProperty::auto(*ty),
-                                        Clone::clone,
-                                    ),
-                                    to: after.map_or_else(
-                                        || azul_css::props::property::CssProperty::auto(*ty),
-                                        Clone::clone,
-                                    ),
-                                    t: 0.0,
-                                    duration_s: anim.duration.millis() as f32 / 1000.0,
-                                    delay_s: anim.delay.millis() as f32 / 1000.0,
-                                    timing: anim.timing,
-                                    scope: ty.relayout_scope(false),
-                                    last_color: None,
+                        // The entry of the OLD tree's `animation` covering
+                        // this property, if any (`declared_animation_for`).
+                        if let Some(anim) =
+                            old_anims.as_ref().and_then(|a| declared_animation_for(a, *ty))
+                        {
+                            use azul_css::dynamic_selector::ResolveSystemColors;
+                            // Endpoints with their `system:` colours resolved,
+                            // each against its own cascade's theme: the frames
+                            // interpolate colours, never keyword tokens.
+                            let value = |v: Option<&azul_css::props::property::CssProperty>| {
+                                v.map_or_else(
+                                    || azul_css::props::property::CssProperty::auto(*ty),
+                                    Clone::clone,
+                                )
+                            };
+                            let to = value(after)
+                                .resolve_system_colors(new_cache.dynamic_context.as_deref());
+                            // A tween already running toward this very value
+                            // is left alone (CSS Transitions 1, s3: its end
+                            // value is the after-change value). `before` reads
+                            // its override - where the node stands mid-way -
+                            // so it differs from `after` on every rebuild that
+                            // lands during the tween, and restarting it from
+                            // there at t = 0 slowed the node to rest and set
+                            // it off again: the Switch knob's 150 ms slide
+                            // began anew whenever the app rebuilt mid-glide.
+                            let running = dom_id == DomId::ROOT_ID
+                                && self.css_transitions.iter().any(|t| {
+                                    t.node == m.old_node_id && t.prop_type == *ty && t.to == to
                                 });
+                            if running {
+                                kept_transitions.push((m.new_node_id, *ty));
+                                continue;
                             }
+                            captured_transitions.push(CssTransition::declared(
+                                m.new_node_id,
+                                *ty,
+                                value(before)
+                                    .resolve_system_colors(old_cache.dynamic_context.as_deref()),
+                                to,
+                                anim,
+                                false,
+                            ));
                         }
                     }
                 }
@@ -11092,9 +16644,44 @@ impl LayoutWindow {
         }
 
         if !diff.node_moves.is_empty() {
-            let mut old_mut = old_node_data.clone();
-            azul_core::diff::transfer_states(&mut old_mut, &mut new_node_data, &diff.node_moves);
-            styled_dom.node_data = new_node_data.clone().into();
+            // A merge callback consumes the old node's dataset, and the old
+            // arena stays in the record: it keeps a clone of each dataset a
+            // merge takes (a clone shares the allocation), which is what a
+            // full copy of the old arena kept, without copying every node.
+            let taken: Vec<(usize, RefAny)> = diff
+                .node_moves
+                .iter()
+                .filter(|m| {
+                    styled_dom
+                        .node_data
+                        .as_ref()
+                        .get(m.new_node_id.index())
+                        .is_some_and(|nd| nd.get_merge_callback().is_some())
+                })
+                .filter_map(|m| {
+                    let ds = old_node_data.get(m.old_node_id.index())?.get_dataset()?;
+                    Some((m.old_node_id.index(), ds.clone()))
+                })
+                .collect();
+            let repointing = azul_core::diff::transfer_states(
+                &mut old_node_data,
+                styled_dom.node_data.as_mut(),
+                &diff.node_moves,
+            );
+            for (idx, ds) in taken {
+                if let Some(nd) = old_node_data
+                    .get_mut(idx)
+                    .filter(|nd| nd.get_dataset().is_none())
+                {
+                    nd.set_dataset(OptionRefAny::Some(ds));
+                }
+            }
+            // The old tree's handlers still run (an unmount's, a lost
+            // focus's), so they too hold what the merge kept.
+            for node in &mut old_node_data {
+                repointing.repoint(node);
+            }
+            self.repoint_merged_datasets(&repointing);
 
             if let Some(old) = self.layout_results.get(&dom_id) {
                 styled_dom.migrate_user_overrides_from(
@@ -11102,9 +16689,25 @@ impl LayoutWindow {
                     &diff.node_moves,
                 );
             }
+        }
 
-            let map = crate::managers::NodeIdMap::from_node_moves(&diff.node_moves);
-            self.remap_node_ids(dom_id, &map);
+        // ALWAYS, even with no match: an old id absent from the map was
+        // unmounted and its focus / scroll / hover state must be DROPPED (and
+        // a focused node that went reports its focus loss), not kept pointing
+        // at whatever element inherited its arena index.
+        let map = crate::managers::NodeIdMap::from_node_moves(&diff.node_moves);
+        self.remap_node_ids(dom_id, &map);
+
+        // A tween the rebuild left running (remapped to its new node just
+        // now) finds its target in the new tree's cascade - that is what made
+        // it equal - so it ends by clearing its override like a tween the
+        // rebuild started, instead of keeping the target as an override an
+        // imperative write needs (a later theme or mode switch would never
+        // show through one).
+        for t in &mut self.css_transitions {
+            if kept_transitions.contains(&(t.node, t.prop_type)) {
+                t.keeps_target = false;
+            }
         }
 
         // Frame-0 of every captured transition: override the NEW tree to the
@@ -11112,9 +16715,11 @@ impl LayoutWindow {
         // its target. The override rides the same user-override channel that
         // `migrate_user_overrides_from` just migrated, and the per-tick driver
         // in `tick_animations` walks it to `to` and then removes it.
-        for tr in &captured_transitions {
-            drop(styled_dom.restyle_user_property(&tr.node, core::slice::from_ref(&tr.from)));
-        }
+        let holds: Vec<(NodeId, azul_css::props::property::CssProperty)> = captured_transitions
+            .iter()
+            .map(|tr| (tr.node, tr.from.clone()))
+            .collect();
+        drop(styled_dom.restyle_user_properties(&holds));
         for tr in captured_transitions {
             // One transition per (node, property): a retarget replaces the
             // in-flight entry (its `from` already reads the current value).
@@ -11259,17 +16864,56 @@ impl LayoutWindow {
         // reconciliation — `layout_dom_recursive_impl` consumes it exactly
         // once for this DOM.
         self.pending_css_dirty = Some((dom_id, restyled.clone()));
+        self.reconciled_dom = Some(dom_id);
 
+        let autofocus =
+            first_entered_autofocus(styled_dom.node_data.as_ref(), unmatched_new.iter().copied());
         PendingReconciliation {
+            autofocus,
             node_moves: diff.node_moves,
             restyled,
             mounted,
             unmounted,
             first_rects,
             exit_rects,
-            new_node_data,
-            new_hierarchy,
+            new_node_count: styled_dom.node_data.len(),
+            entered: unmatched_new.into_iter().collect(),
+            events: diff.events,
+            old_node_data,
+            animate_moves: true,
+            move_modes,
+            compared,
+            compared_properties,
         }
+    }
+
+    /// The track a node's declared `-azul-animation-in` resolves to, over its
+    /// solved rect: `None` when it declares none, or has no layout yet.
+    fn declared_enter_track(&self, dom_id: DomId, node_id: NodeId) -> Option<AnimTrack> {
+        let r = self.layout_results.get(&dom_id)?;
+        let sd = &r.styled_dom;
+        let nd = sd.node_data.as_ref().get(node_id.index())?;
+        let st = sd.styled_nodes.as_ref().get(node_id.index())?;
+        let prop = sd.css_property_cache.ptr.get_property(
+            nd,
+            &node_id,
+            &st.styled_node_state,
+            &azul_css::props::property::CssPropertyType::AnimationIn,
+        )?;
+        let azul_css::props::property::CssProperty::AnimationIn(v) = prop else {
+            return None;
+        };
+        let rect = self
+            .get_node_bounds(dom_id, node_id)
+            .map(layout_rect_to_logical)?;
+        v.get_property()?.as_ref().iter().find_map(|anim| {
+            resolve_named_track(
+                anim,
+                &sd.css_property_cache.ptr.retained_author_css,
+                nd,
+                rect,
+            )
+        })
     }
 
     /// Complete the reconciliation once the new tree has been solved.
@@ -11284,37 +16928,65 @@ impl LayoutWindow {
     /// which is a different mechanism from "sample a transform for a node that
     /// exists".
     pub fn finish_reconciliation(&mut self, dom_id: DomId, pending: &PendingReconciliation) {
+        // The new tree as it was laid out: the arena `begin_reconciliation`
+        // numbered. A tree of another size is not that arena (no layout ran for
+        // it), so nothing below may read node data by the pending's ids.
+        let laid_out: Option<(
+            &[azul_core::dom::NodeData],
+            &[azul_core::styled_dom::NodeHierarchyItem],
+        )> = self
+            .layout_results
+            .get(&dom_id)
+            .map(|r| {
+                (
+                    r.styled_dom.node_data.as_ref(),
+                    r.styled_dom.node_hierarchy.as_ref(),
+                )
+            })
+            .filter(|(nd, _)| nd.len() == pending.new_node_count);
+        let (new_node_data, new_hierarchy): (
+            &[azul_core::dom::NodeData],
+            &[azul_core::styled_dom::NodeHierarchyItem],
+        ) = laid_out.unwrap_or_default();
+
         // Rebuilt wholesale: after a rebuild the previous NodeIds are
         // meaningless, and a surviving stale entry would push this frame's
         // transform onto whatever unrelated node inherited the array slot.
         self.anim_key_to_node = azul_core::animation::anim_keys_for_moves(
             &pending.node_moves,
-            &pending.new_node_data,
-            &pending.new_hierarchy,
+            new_node_data,
+            new_hierarchy,
         )
         .into_iter()
         .collect();
 
-        if !pending.node_moves.is_empty() {
-            // Collected BEFORE seeding: the Last accessor borrows self to read
-            // the freshly solved rects, and seeding borrows it mutably.
-            let correspondences = azul_core::animation::correspondences_from_moves(
-                &pending.node_moves,
-                &pending.new_node_data,
-                &pending.new_hierarchy,
-                |old_id| pending.first_rects.get(&old_id).copied(),
-                |new_id| {
-                    self.get_node_bounds(dom_id, new_id)
-                        .map(layout_rect_to_logical)
-                },
-            );
-            azul_core::animation::seed_moves(
-                &mut self.animations,
-                correspondences,
-                azul_core::animation::InterpolationMode::Spring(
-                    azul_core::animation::Spring::SMOOTH,
-                ),
-            );
+        if pending.animate_moves && !pending.move_modes.is_empty() {
+            // Only the nodes that declare a move slide (`move_modes`); every
+            // other node is laid out at its new place. Collected BEFORE
+            // seeding: the Last accessor borrows self to read the freshly
+            // solved rects, and seeding borrows it mutably.
+            let declared: Vec<azul_core::diff::NodeMove> = pending
+                .node_moves
+                .iter()
+                .filter(|m| pending.move_modes.contains_key(&m.new_node_id))
+                .copied()
+                .collect();
+            for m in declared {
+                let Some(mode) = pending.move_modes.get(&m.new_node_id).copied() else {
+                    continue;
+                };
+                let correspondences = azul_core::animation::correspondences_from_moves(
+                    core::slice::from_ref(&m),
+                    new_node_data,
+                    new_hierarchy,
+                    |old_id| pending.first_rects.get(&old_id).copied(),
+                    |new_id| {
+                        self.get_node_bounds(dom_id, new_id)
+                            .map(layout_rect_to_logical)
+                    },
+                );
+                azul_core::animation::seed_moves(&mut self.animations, correspondences, mode);
+            }
         }
 
         // Enters are opt-in like exits (USER ruling 2026-08-17): a mounted
@@ -11324,7 +16996,7 @@ impl LayoutWindow {
         // matching in-flight zombie so a remount reverses instead of
         // double-painting.
         for node_id in &pending.mounted {
-            if node_id.index() >= pending.new_node_data.len() {
+            if node_id.index() >= new_node_data.len() {
                 continue;
             }
             // THE MID-FLIGHT CATCH: a mount whose reconciliation identity
@@ -11337,8 +17009,8 @@ impl LayoutWindow {
             // in-flight change the zombie animation from -out to -in".
             let mount_key =
                 azul_core::animation::AnimKey(azul_core::diff::calculate_reconciliation_key(
-                    &pending.new_node_data,
-                    &pending.new_hierarchy,
+                    new_node_data,
+                    new_hierarchy,
                     *node_id,
                 ));
             let mut caught_track: Option<(TrackSample, AnimTrack)> = None;
@@ -11372,31 +17044,7 @@ impl LayoutWindow {
                 // A declared `-azul-animation-in` drives the return, seeded
                 // from the exit's current state; otherwise the out-track
                 // plays back in reverse. Either way: continuity, no snap.
-                let named_in = self.layout_results.get(&dom_id).and_then(|r| {
-                    let sd = &r.styled_dom;
-                    let nd = sd.node_data.as_ref().get(node_id.index())?;
-                    let st = sd.styled_nodes.as_ref().get(node_id.index())?;
-                    let prop = sd.css_property_cache.ptr.get_property(
-                        nd,
-                        node_id,
-                        &st.styled_node_state,
-                        &azul_css::props::property::CssPropertyType::AnimationIn,
-                    )?;
-                    let azul_css::props::property::CssProperty::AnimationIn(v) = prop else {
-                        return None;
-                    };
-                    let rect = self
-                        .get_node_bounds(dom_id, *node_id)
-                        .map(layout_rect_to_logical)?;
-                    v.get_property()?.as_ref().iter().find_map(|anim| {
-                        resolve_named_track(
-                            anim,
-                            &sd.css_property_cache.ptr.retained_author_css,
-                            nd,
-                            rect,
-                        )
-                    })
-                });
+                let named_in = self.declared_enter_track(dom_id, *node_id);
                 let track = match named_in {
                     Some(mut t) => {
                         t.override_start(&sample);
@@ -11431,34 +17079,38 @@ impl LayoutWindow {
             // the anim GPU channels from the node's SOLVED rect — layout is
             // final; only presentation animates (USER ruling). Unknown names
             // fall back to the default slide.
-            let named_in = self.layout_results.get(&dom_id).and_then(|r| {
-                let sd = &r.styled_dom;
-                let nd = sd.node_data.as_ref().get(node_id.index())?;
-                let st = sd.styled_nodes.as_ref().get(node_id.index())?;
-                let prop = sd.css_property_cache.ptr.get_property(
-                    nd,
-                    node_id,
-                    &st.styled_node_state,
-                    &azul_css::props::property::CssPropertyType::AnimationIn,
-                )?;
-                let azul_css::props::property::CssProperty::AnimationIn(v) = prop else {
-                    return None;
-                };
-                let rect = self
-                    .get_node_bounds(dom_id, *node_id)
-                    .map(layout_rect_to_logical)?;
-                v.get_property()?.as_ref().iter().find_map(|anim| {
-                    resolve_named_track(
-                        anim,
-                        &sd.css_property_cache.ptr.retained_author_css,
-                        nd,
-                        rect,
-                    )
-                })
-            });
-            if let Some(track) = named_in {
+            if let Some(track) = self.declared_enter_track(dom_id, *node_id) {
                 self.live_tracks.insert(*node_id, track);
             }
+        }
+
+        // Every OTHER entering node that declares an enter animation starts
+        // its track too: the nodes INSIDE a mounted subtree, and on the first
+        // frame every node. A looping one is how anything spins at all (a
+        // spinner's `-azul-animation-in: <keyframes> 800ms linear infinite`),
+        // and only the subtree's ROOT used to start one - never on the first
+        // frame - so a spinner that was in the first DOM, or inside a card
+        // that mounted, stood still.
+        for node_id in &pending.entered {
+            if self.live_tracks.contains_key(node_id) || pending.mounted.contains(node_id) {
+                continue;
+            }
+            if let Some(track) = self.declared_enter_track(dom_id, *node_id) {
+                self.live_tracks.insert(*node_id, track);
+            }
+        }
+
+        // A move or enter whose node is not in the rebuilt tree has nothing to
+        // composite against; it would only keep the window asking for frames
+        // until it settled (exits stay - their zombie holds the node). Only
+        // the root DOM's identities are in `anim_key_to_node`, and only the
+        // root DOM seeds FLIPs.
+        if dom_id == DomId::ROOT_ID {
+            let placed = &self.anim_key_to_node;
+            let _dropped = self.animations.drop_unplaced(|key| placed.contains_key(&key));
+            // What the dropped slides (and the slides re-keyed to other
+            // nodes by the rebuilt map) had published goes with them.
+            self.release_undriven_animation_values();
         }
 
         // Publish the STARTING values immediately, with a zero-length step.
@@ -11472,6 +17124,47 @@ impl LayoutWindow {
         if !self.animations.is_empty() || !self.live_tracks.is_empty() {
             self.tick_animations(0.0);
         }
+
+        // A node that comes in is DRAWN from its first keyframe. The tracks
+        // started above have no keys yet - live tracks publish on their first
+        // real tick (`run_track_frames`) - and this DOM's display list was
+        // built with the layout, before the reconciliation finished, so the
+        // frame of this rebuild showed every entering node AT REST (its end
+        // state, opaque) and the next frame jumped to its start: a flash on
+        // every entrance. The compiled tracks that have not run a frame
+        // publish their frame-zero sample now and the list is built again
+        // with their groups. (A native animation function is sampled on its
+        // first tick: it needs the full callback info.)
+        if dom_id == DomId::ROOT_ID {
+            let fresh: Vec<(NodeId, TrackSample)> = self
+                .live_tracks
+                .iter()
+                .filter(|(_, tr)| tr.frames_run == 0 && matches!(tr.source, TrackSource::Compiled))
+                .map(|(node, tr)| (*node, tr.sample()))
+                .collect();
+            if !fresh.is_empty() && self.layout_results.contains_key(&dom_id) {
+                // A track whose node had both keys before this pass is drawn
+                // by the list the pass built: published by an earlier rebuild,
+                // it has not ticked since (nobody drives a spinner that cannot
+                // be seen). Only a track that gets its keys now needs the list
+                // built again.
+                let gets_keys_now = {
+                    let cache = self.gpu_state_manager.caches.get(&DomId::ROOT_ID);
+                    fresh.iter().any(|(node, _)| {
+                        !cache.is_some_and(|c| {
+                            c.anim_transform_keys.contains_key(node)
+                                && c.anim_opacity_keys.contains_key(node)
+                        })
+                    })
+                };
+                for (node, sample) in fresh {
+                    self.publish_live_sample(DomId::ROOT_ID, node, sample);
+                }
+                if gets_keys_now {
+                    self.regenerate_display_list_for_dom(dom_id);
+                }
+            }
+        }
     }
 
     /// Whether a layout animation is still in flight and the shell must keep
@@ -11482,9 +17175,162 @@ impl LayoutWindow {
     /// one more, exposed as a method so a shell adopts the whole feature by
     /// naming it rather than by reaching into `animations` and having to know
     /// what "in flight" means.
+    ///
+    /// A live track nobody can see ([`Self::culled_tracks`]) is not a reason
+    /// for a frame: an off-screen spinner keeps its clock but asks for
+    /// nothing, so a window whose only motion is hidden goes idle.
     #[must_use]
     pub fn needs_animation_frame(&self) -> bool {
-        !self.animations.is_empty() || self.has_track_work()
+        !self.animations.is_empty()
+            || self
+                .live_tracks
+                .keys()
+                .any(|node| !self.culled_tracks.contains(node))
+            || (!self.view_tracks_hidden && !self.view_tracks.is_empty())
+            || !self.css_transitions.is_empty()
+            || self.zombies.iter().any(|z| !z.tracks.is_empty())
+            || self.material_sheen_in_flight()
+            || !self.background_callbacks_waiting.is_empty()
+    }
+
+    /// Whether the cursor's sheen on a material is still easing, or the
+    /// cursor moved over a surface that shines: the materials owe a frame.
+    #[must_use]
+    pub fn material_sheen_in_flight(&self) -> bool {
+        self.material_sheen
+            .needs_frame(self.current_window_state.mouse_state.cursor_position.get_position())
+    }
+
+    /// Refresh [`Self::culled_tracks`]: which live keyframe tracks change
+    /// nothing anybody can see right now.
+    ///
+    /// A track is culled when its window cannot show anything
+    /// (`window_can_show` false - minimized or hidden - or
+    /// [`Self::window_occluded`]), when its node is laid out nowhere (a
+    /// `display: none` ancestor), when its node is `visibility: hidden`, or
+    /// when the group the display list opens for it lies outside every clip
+    /// around it and the window, or under a fully transparent group
+    /// (`cpurender::node_groups_on_screen`). A node whose group is not in
+    /// the list yet (its keys are minted by its first sample) is kept.
+    ///
+    /// Cheap enough for every pass end: nothing when no track exists, one
+    /// display-list walk otherwise.
+    pub fn update_animation_culling(&mut self, window_can_show: bool) {
+        use azul_css::props::style::effects::StyleVisibility;
+
+        self.view_tracks_hidden = !window_can_show || self.window_occluded;
+        if self.live_tracks.is_empty() {
+            self.culled_tracks.clear();
+            return;
+        }
+        if !window_can_show || self.window_occluded {
+            self.culled_tracks = self.live_tracks.keys().copied().collect();
+            return;
+        }
+        let mut culled = BTreeSet::new();
+        if let Some(result) = self.layout_results.get(&DomId::ROOT_ID) {
+            let styled_nodes = result.styled_dom.styled_nodes.as_container();
+            let mut laid_out = BTreeSet::new();
+            for node in self.live_tracks.keys() {
+                if self.get_node_bounds(DomId::ROOT_ID, *node).is_none() {
+                    culled.insert(*node);
+                    continue;
+                }
+                let hidden = styled_nodes.get(*node).is_some_and(|styled| {
+                    matches!(
+                        solver3::getters::get_visibility(
+                            &result.styled_dom,
+                            *node,
+                            &styled.styled_node_state,
+                        ),
+                        solver3::getters::MultiValue::Exact(
+                            StyleVisibility::Hidden | StyleVisibility::Collapse
+                        )
+                    )
+                });
+                if hidden {
+                    culled.insert(*node);
+                } else {
+                    laid_out.insert(*node);
+                }
+            }
+            #[cfg(feature = "cpurender")]
+            {
+                let scroll_offsets = self
+                    .scroll_manager
+                    .build_scroll_offset_map(DomId::ROOT_ID, &result.scroll_id_to_node_id);
+                let (transforms, opacities) = crate::cpurender::extract_gpu_values(
+                    self.gpu_state_manager.get_cache(DomId::ROOT_ID),
+                    DomId::ROOT_ID,
+                );
+                let size = self.current_window_state.size.dimensions;
+                let viewport = LogicalRect::new(
+                    LogicalPosition::zero(),
+                    LogicalSize::new(size.width, size.height),
+                );
+                let on_screen = crate::cpurender::node_groups_on_screen(
+                    &result.display_list,
+                    &scroll_offsets,
+                    &transforms,
+                    &opacities,
+                    viewport,
+                    &laid_out,
+                );
+                for (node, visible) in on_screen {
+                    if !visible {
+                        culled.insert(node);
+                    }
+                }
+            }
+        }
+        self.culled_tracks = culled;
+    }
+
+    /// May this animation tick repaint the display list AS IT IS?
+    ///
+    /// Yes when everything it changed is a VALUE the list binds by key -
+    /// a reference frame's transform, an opacity group's opacity - and both
+    /// renderers read those live (`GpuValueCache::for_each_bound_value`):
+    /// the key population is the one the root list was built from
+    /// ([`Self::root_display_list_gpu_fingerprint`]), no transition staged a
+    /// restyle (`pending_css_dirty`), and no exit is running (zombie tracks
+    /// may re-solve a retained tree). A spinner's frame then costs a repaint
+    /// of its own rect instead of a rebuild of the whole window's list.
+    ///
+    /// A new key (a track's first sample, a spring that just started) or a
+    /// released one (a finished track) changes the fingerprint: that tick
+    /// rebuilds, so the list gains or drops the group, and the next ones
+    /// do not.
+    #[must_use]
+    pub fn animation_tick_is_values_only(&self) -> bool {
+        self.pending_css_dirty.is_none()
+            && !self.zombies.iter().any(|z| !z.tracks.is_empty())
+            && self.root_display_list_gpu_fingerprint.is_some()
+            && self.root_display_list_gpu_fingerprint
+                == self
+                    .gpu_state_manager
+                    .get_cache(DomId::ROOT_ID)
+                    .map(GpuValueCache::dl_emission_fingerprint)
+    }
+
+    /// The frame driver stops while live tracks remain - all of them culled.
+    /// Their clocks keep running in wall time: each remembers the instant
+    /// its clock stood at (the last tick), and the next tick after the
+    /// driver restarts fast-forwards it by the whole stop
+    /// ([`Self::tick_animations_now`]) - one frame at the right phase, no
+    /// catch-up burst. The tick stamp is dropped, so an animation that
+    /// starts in the meantime takes an ordinary first frame.
+    pub fn park_culled_tracks(&mut self) {
+        if self.live_tracks.is_empty() && self.view_tracks.is_empty() {
+            return;
+        }
+        let stood_at = self.last_anim_tick.take().unwrap_or_else(Instant::now);
+        let views = self.view_tracks.values_mut().flat_map(BTreeMap::values_mut);
+        for tr in self.live_tracks.values_mut().chain(views) {
+            if tr.parked_at.is_none() {
+                tr.parked_at = Some(stood_at.clone());
+            }
+        }
     }
 
     /// True while any compiled keyframes track (`-azul-animation-in` on a
@@ -11494,6 +17340,7 @@ impl LayoutWindow {
     #[must_use]
     pub fn has_track_work(&self) -> bool {
         !self.live_tracks.is_empty()
+            || !self.view_tracks.is_empty()
             || !self.css_transitions.is_empty()
             || self.zombies.iter().any(|z| !z.tracks.is_empty())
     }
@@ -11558,6 +17405,40 @@ impl LayoutWindow {
         core::mem::take(&mut self.transition_patched)
     }
 
+    /// The work the frame after an animation tick owes - THE decision every
+    /// frame driver takes from here (the shells' CSS driver, the debug
+    /// server's `tick_animations`, the E2E runner), consuming the tick's
+    /// one-shot flags:
+    ///
+    /// - a LAYOUT-affecting transition value -> `ShouldIncrementalRelayout`;
+    /// - every value patched into the display list in place, or published as a GPU value under a
+    ///   key the list already binds (a `transform` tween, a FLIP slide, a keyframe track:
+    ///   [`Self::animation_tick_is_values_only`]) -> `ShouldReRenderCurrentWindow`, a repaint;
+    /// - anything else (a paint-scope value the list must be rebuilt for, a key that appeared or
+    ///   went) -> `ShouldUpdateDisplayListCurrentWindow`.
+    ///
+    /// The three drivers each had their own copy of this, and the copies
+    /// drifted: the debug server's and the runner's never asked about
+    /// values-only ticks, so every frame of a slide they drove rebuilt the
+    /// whole display list for a matrix the renderers read live anyway.
+    pub fn take_animation_frame_work(&mut self) -> azul_core::events::ProcessEventResult {
+        use azul_core::events::ProcessEventResult;
+        let relayout = self.take_transition_relayout();
+        // A sheen step moved its layer's GPU values: a repaint shows them,
+        // the display list stays. A layer waiting for its frame is asked
+        // again by the repaint's frame preparation.
+        let patched = self.take_transition_patched()
+            | self.material_sheen.take_stepped()
+            | !self.background_callbacks_waiting.is_empty();
+        if relayout {
+            ProcessEventResult::ShouldIncrementalRelayout
+        } else if patched || self.animation_tick_is_values_only() {
+            ProcessEventResult::ShouldReRenderCurrentWindow
+        } else {
+            ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+        }
+    }
+
     /// [`Self::tick_animations`] with `dt` taken from the wall clock.
     ///
     /// The clock is read ONLY when something is actually animating.
@@ -11572,14 +17453,35 @@ impl LayoutWindow {
     /// would waste a frame, and using the true elapsed idle time would teleport
     /// the animation to its end.
     pub fn tick_animations_now(&mut self) -> bool {
-        if self.animations.is_empty() && !self.has_track_work() {
+        let sheen = self.material_sheen_in_flight();
+        if self.animations.is_empty() && !self.has_track_work() && !sheen {
             self.last_anim_tick = None;
             return false;
         }
         let now = Instant::now();
-        let dt = self.last_anim_tick.as_ref().map_or(1.0 / 60.0, |prev| {
-            now.duration_since(prev).as_millis_u64() as f32 / 1000.0
-        });
+        let dt = self.animation_step_at(&now);
+        if sheen {
+            self.step_material_sheen(dt);
+        }
+        if self.animations.is_empty() && !self.has_track_work() {
+            self.last_anim_tick = if self.material_sheen_in_flight() {
+                Some(now)
+            } else {
+                None
+            };
+            return self.material_sheen_in_flight();
+        }
+        // Tracks parked by a culled stop (`park_culled_tracks`) catch up on
+        // the wall time they spent parked, less the step every track takes
+        // below: they land on the phase they would have reached running.
+        let views = self.view_tracks.values_mut().flat_map(BTreeMap::values_mut);
+        for tr in self.live_tracks.values_mut().chain(views) {
+            if let Some(since) = tr.parked_at.take() {
+                #[allow(clippy::cast_possible_truncation)] // seconds fit an f32
+                let parked_s = (now.duration_since(&since).as_nanos() as f64 / 1e9) as f32;
+                tr.tick((parked_s - dt).max(0.0));
+            }
+        }
         self.last_anim_tick = Some(now);
         let still_animating = self.tick_animations(dt);
         // The tick that settles the last animation clears the stamp itself.
@@ -11592,6 +17494,225 @@ impl LayoutWindow {
         still_animating
     }
 
+    /// The step, in seconds, [`Self::tick_animations_now`] takes at `now`:
+    /// the real time since the previous tick at the clock's full resolution,
+    /// or one frame of this window ([`Self::frame_step_s`]) when there is no
+    /// previous tick (the first tick after an idle period).
+    ///
+    /// Whole milliseconds are not a frame clock. The step used to be
+    /// truncated to them while the stamp still moved to `now`, so a pass
+    /// 0.6 ms after the previous tick advanced nothing and lost its 0.6 ms for
+    /// good, and a 1.5 ms pass advanced one. X11 and Wayland tick on every
+    /// loop pass, and their glides dragged. The shell's CSS driver asks this
+    /// too, so the keyframe tracks it samples step by the same amount.
+    #[must_use]
+    pub fn animation_step_at(&self, now: &Instant) -> f32 {
+        self.last_anim_tick.as_ref().map_or_else(
+            || self.frame_step_s(),
+            |prev| (now.duration_since(prev).as_nanos() as f64 / 1e9) as f32,
+        )
+    }
+
+    /// Forget a stall longer than one frame: the next animation step then
+    /// counts as one frame, exactly like the first step after an idle period.
+    ///
+    /// A DOM rebuild stops the frames without stopping the clock. When a frame
+    /// ticked just BEFORE the rebuild — X11 runs the timer pass at the top of
+    /// its loop turn, ahead of the frame path that rebuilds; Wayland can do
+    /// the same while the rebuild waits for a frame callback — the next step
+    /// measured the whole rebuild, and the switch knob covered a large part of
+    /// its 150 ms glide in one frame on every toggle. Nothing was shown in
+    /// between, so there is nothing to catch up on: the glide resumes where
+    /// it stood. A stamp younger than a frame is kept, and the step after it
+    /// stays real time.
+    ///
+    /// The clock is read only while a stamp exists, i.e. while something
+    /// animates — see [`Self::tick_animations_now`] for why that matters.
+    pub fn forget_animation_stall(&mut self) {
+        const FRAME_NS: u128 = 1_000_000_000 / 60;
+        let stalled = self
+            .last_anim_tick
+            .as_ref()
+            .is_some_and(|prev| Instant::now().duration_since(prev).as_nanos() > FRAME_NS);
+        if stalled {
+            self.last_anim_tick = None;
+        }
+    }
+
+    /// Whether a pass of the CSS animation driver at `now` is a FRAME — owes
+    /// the animations a step — or falls between two frames.
+    ///
+    /// The driver's callback is an inert marker, and the dispatcher counts it
+    /// as fired whenever it is REGISTERED. macOS and Windows get there only
+    /// when an OS timer fires; X11 and Wayland run the timer pass at the top
+    /// of every loop turn as well (Wayland once per dispatched batch), so each
+    /// pass stepped the glide — a restyle, a whole-window relayout and a
+    /// frame, several times per compositor frame, in slivers of uneven length.
+    ///
+    /// A pass is a frame when
+    ///
+    /// - nothing has stepped since an idle period (there is no stamp);
+    /// - at least half a driver period has passed since the last step — every genuine wake of
+    ///   an OS timer running at about the driver's period, even one that runs a little fast; or
+    /// - it falls in a later period of the driver's own schedule than the last step did. An OS
+    ///   timer keeps its schedule, so the on-time wake right after a late one arrives early by
+    ///   the lateness, and it is a frame of its own: refusing it would show the same picture
+    ///   twice.
+    ///
+    /// A pass that is not a frame must leave the stamp alone, so the next
+    /// frame measures its whole step.
+    #[must_use]
+    pub fn css_animation_step_due(&self, now: &Instant) -> bool {
+        let Some(prev) = self.last_anim_tick.as_ref() else {
+            return true;
+        };
+        let period_ns = u128::from(self.frame_interval_nanos());
+        if now.duration_since(prev).as_nanos() * 2 >= period_ns {
+            return true;
+        }
+        self.timers
+            .get(&azul_core::task::CSS_ANIMATION_TIMER_ID)
+            .is_some_and(|driver| {
+                let period_of =
+                    |t: &Instant| t.duration_since(&driver.created).as_nanos() / period_ns;
+                period_of(now) > period_of(prev)
+            })
+    }
+
+    /// The FLIP transform to PUBLISH for every node in a move / enter / exit
+    /// animation: its own - in ABSOLUTE terms, old place minus new place -
+    /// relative to the sliding frame its frame is painted inside.
+    ///
+    /// The reconcile slides every node whose layout position changed, so
+    /// when a section moves, the section and each of its descendants slide
+    /// by the same absolute offset. The display list nests their reference
+    /// frames and every renderer composes nested frames: published as they
+    /// are, a child moved by its own offset and its parent's, a grandchild
+    /// three times (`AzTasks` mid-slide: rows over rows). Published relative to
+    /// the enclosing slide, a child that moves with its parent is still.
+    ///
+    /// Which frame encloses a node's is the display list's paint structure:
+    /// everything below a stacking context is painted inside its frame; an
+    /// in-flow box or a positioned box (`node_paints_as_positioned_box`)
+    /// wraps only what its in-flow walk paints - a stacking context or a
+    /// positioned box below it is painted by the enclosing stacking context.
+    /// With the enclosing slide `e` (origin `o`, scale `S`, offset `t`; the
+    /// frames act about their box's origin), `A = o - S o + t` and the
+    /// published slide of `n` is `S_n / S_e`, `(A_n - A_e) / S_e - o_n + S o_n`
+    /// - for pure moves simply `t_n - t_e`.
+    fn published_flips(&self) -> BTreeMap<NodeId, azul_core::animation::FlipTransform> {
+        use azul_core::animation::FlipTransform;
+
+        use crate::solver3::display_list::{
+            node_establishes_stacking_context, node_paints_as_positioned_box,
+            node_slides_on_the_animation_channel,
+        };
+
+        let own: BTreeMap<NodeId, FlipTransform> = self
+            .animations
+            .iter()
+            .filter_map(|(key, anim)| {
+                Some((
+                    self.anim_key_to_node.get(&key).copied()?,
+                    anim.current_transform(),
+                ))
+            })
+            .collect();
+        let Some(result) = self.layout_results.get(&DomId::ROOT_ID) else {
+            return own;
+        };
+        let tree = &result.layout_tree;
+        let styled_dom = &result.styled_dom;
+        let layout_index = |node: &NodeId| {
+            tree.dom_to_layout
+                .get(node)
+                .and_then(|indices| indices.first())
+                .map(|index| index.index())
+        };
+        let origin_of = |index: usize| {
+            result
+                .calculated_positions
+                .get(index)
+                .copied()
+                .unwrap_or_default()
+        };
+        // A box that slides is a stacking context while it slides, as the
+        // display list paints it (`node_slides_on_the_animation_channel`):
+        // the slides of this tick count before their keys are minted.
+        let gpu_cache = self.gpu_state_manager.get_cache(DomId::ROOT_ID);
+        let slides = |index: usize| {
+            node_slides_on_the_animation_channel(gpu_cache, tree, index)
+                || tree
+                    .get(LayoutNodeId::new(index))
+                    .and_then(|n| n.dom_node_id)
+                    .is_some_and(|id| own.contains_key(&id))
+        };
+        let is_context = |index: usize| {
+            node_establishes_stacking_context(styled_dom, tree, index) || slides(index)
+        };
+        // Painted by the stacking-context walk, not by an in-flow parent's.
+        let leaves_in_flow_frames = |index: usize| {
+            is_context(index) || node_paints_as_positioned_box(styled_dom, tree, index)
+        };
+
+        own.iter()
+            .map(|(node, t)| {
+                let Some(index) = layout_index(node) else {
+                    return (*node, *t);
+                };
+                // The nearest sliding ancestor whose frame paints this one.
+                let mut escaped = leaves_in_flow_frames(index);
+                let mut cur = index;
+                let mut enclosing: Option<(usize, FlipTransform)> = None;
+                for _ in 0..tree.nodes.len() {
+                    let Some(parent) = tree.get(LayoutNodeId::new(cur)).and_then(|n| n.parent)
+                    else {
+                        break;
+                    };
+                    let is_context = is_context(parent);
+                    let slide = tree
+                        .get(LayoutNodeId::new(parent))
+                        .and_then(|n| n.dom_node_id)
+                        .and_then(|id| own.get(&id));
+                    if let Some(slide) = slide {
+                        if is_context || !escaped {
+                            enclosing = Some((parent, *slide));
+                            break;
+                        }
+                    }
+                    escaped |= is_context || leaves_in_flow_frames(parent);
+                    cur = parent;
+                }
+                let Some((e_index, e)) = enclosing else {
+                    return (*node, *t);
+                };
+                let (o_n, o_e) = (origin_of(index), origin_of(e_index));
+                let axis = |o_n: f32, s_n: f32, t_n: f32, o_e: f32, s_e: f32, t_e: f32| {
+                    if s_e.abs() < f32::EPSILON {
+                        return (s_n, t_n);
+                    }
+                    let a_n = o_n - s_n * o_n + t_n;
+                    let a_e = o_e - s_e * o_e + t_e;
+                    let s = s_n / s_e;
+                    (s, (a_n - a_e) / s_e - o_n + s * o_n)
+                };
+                let (scale_x, translate_x) =
+                    axis(o_n.x, t.scale_x, t.translate_x, o_e.x, e.scale_x, e.translate_x);
+                let (scale_y, translate_y) =
+                    axis(o_n.y, t.scale_y, t.translate_y, o_e.y, e.scale_y, e.translate_y);
+                (
+                    *node,
+                    FlipTransform {
+                        translate_x,
+                        translate_y,
+                        scale_x,
+                        scale_y,
+                    },
+                )
+            })
+            .collect()
+    }
+
     /// Advance layout animations by `dt` seconds and publish the result to the
     /// GPU value cache. Returns true while anything is still moving, which is
     /// the caller's signal to schedule another frame.
@@ -11601,13 +17722,16 @@ impl LayoutWindow {
     /// the *offset back toward where the node came from*, shrinking to zero. The
     /// display list is not rebuilt, and neither is the layout.
     ///
-    /// Writes into `css_current_transform_values` / `current_opacity_values` —
-    /// the same maps the CSS `transform` property feeds, and the same ones the
-    /// CPU rasteriser, the hit-tester and the a11y snapshot already read. An
-    /// animated node is therefore hit-testable at its *animated* position for
-    /// free, rather than at a phantom pre-animation rect.
+    /// Writes into the ANIMATION channel (`anim_transform_keys` /
+    /// `anim_current_transform_values`, `anim_opacity_keys` / ...), apart from
+    /// the maps the CSS `transform` property feeds (`synchronize` owns those).
+    /// The display list, the CPU rasteriser, the hit-tester and the a11y
+    /// snapshot read both channels through `GpuValueCache::reference_frame_of`
+    /// / `GpuStateManager::painted_transform_of`, so an animated node is hit
+    /// at its *animated* position, not at a phantom pre-animation rect.
     pub fn tick_animations(&mut self, dt: f32) -> bool {
         if self.animations.is_empty() && !self.has_track_work() {
+            self.release_undriven_animation_values();
             return false;
         }
         let finished = self.animations.tick(dt);
@@ -11624,6 +17748,10 @@ impl LayoutWindow {
             })
             .collect();
 
+        // Each slide relative to the sliding frame it is painted inside
+        // (`published_flips`), read BEFORE the GPU cache borrow below.
+        let published = self.published_flips();
+
         let dom_id = DomId::ROOT_ID;
         let cache = self.gpu_state_manager.caches.entry(dom_id).or_default();
 
@@ -11635,11 +17763,14 @@ impl LayoutWindow {
                 // to write and skipping is correct, not a lost frame.
                 continue;
             };
-            let t = anim.current_transform();
+            let t = published
+                .get(&node_id)
+                .copied()
+                .unwrap_or_else(|| anim.current_transform());
             // A reference frame requires BOTH a key and a value: the display
-            // list builder emits `PushReferenceFrame` only when
-            // `css_transform_keys` AND `css_current_transform_values` both have
-            // an entry for the node. Keys are otherwise minted from the CSS
+            // list builder emits `PushReferenceFrame` only when one channel
+            // has both for the node (`GpuValueCache::reference_frame_of`).
+            // CSS keys are otherwise minted from the CSS
             // `transform` property, which an animating node generally does not
             // have — so writing only the value published a transform nothing
             // could read, and the element jumped instead of moving.
@@ -11697,7 +17828,9 @@ impl LayoutWindow {
         // does anyway; layout-affecting scopes raise `transition_relayout`
         // so the driver escalates to an incremental relayout.
         if !self.css_transitions.is_empty() {
+            let _tick_span = crate::probe::Probe::span("css_transition_tick");
             let rects = transition_rects;
+            let hidpi_factor = self.current_window_state.size.get_hidpi_factor().inner.get();
             let mut dirty: Vec<(NodeId, azul_css::props::property::RelayoutScope)> = Vec::new();
             let mut needs_relayout = false;
             // (node, from-colour, to-colour, is_text) — executed after the
@@ -11706,8 +17839,43 @@ impl LayoutWindow {
                 NodeId,
                 azul_css::props::basic::color::ColorU,
                 azul_css::props::basic::color::ColorU,
-                bool,
+                solver3::display_list::PaintColorSlot,
             )> = Vec::new();
+            // (node, the layers the list shows, the frame's layers): the
+            // background fades patched layer by layer, after the loop like
+            // the colours.
+            let mut layer_jobs: Vec<(
+                NodeId,
+                Vec<azul_css::props::style::StyleBackgroundContent>,
+                Vec<azul_css::props::style::StyleBackgroundContent>,
+            )> = Vec::new();
+            // (node, the colour its background rect shows after this
+            // frame's patch, its new colour key): the rects bound in the
+            // patched list after the loop (the colour property path).
+            let mut bind_jobs: Vec<(
+                NodeId,
+                azul_css::props::basic::color::ColorU,
+                azul_core::resources::ColorKey,
+            )> = Vec::new();
+            // A `transform` tween stepped by publishing its matrix alone (the
+            // GPU property path below): a repaint, like a patched colour.
+            let mut gpu_values_moved = false;
+            // Overrides written through the lean channel that the cascade's
+            // derived tables (compact cache, inheritance) must still see:
+            // refreshed ONCE after the loop, however many tweens asked.
+            // `restyle_fonts`: one of them can move a resolved font size.
+            let mut needs_restyle = false;
+            let mut restyle_fonts = false;
+            // Whether this frame's relayout may take the retained layout tree
+            // (`LayoutCache::overrides_only_hint`): every layout-scope tween
+            // moves only sizes and offsets, and no paint-scope tween needs a
+            // re-emitted node the patch cannot vouch for.
+            let mut tree_shape_kept = true;
+            let mut paint_restyled = false;
+            // A tween's value went into its node's compact entry in place
+            // (`patch_compact_node_property`): the cascade generation moves
+            // as a rebuild would move it.
+            let mut compact_patched = false;
             if let Some(result) = self.layout_results.get_mut(&DomId::ROOT_ID) {
                 for (tr, rect) in self.css_transitions.iter_mut().zip(rects) {
                     if tr.delay_s > 0.0 {
@@ -11719,11 +17887,22 @@ impl LayoutWindow {
                             continue;
                         }
                     }
+                    let t_before = tr.t;
                     tr.t = if tr.duration_s <= 0.0 {
                         1.0
                     } else {
                         (tr.t + dt / tr.duration_s).min(1.0)
                     };
+                    // A step that did not move the clock shows exactly what
+                    // the previous step (or the seed's frame-0 override)
+                    // already wrote: nothing to restyle, no dirt to stage,
+                    // no relayout to ask for. The Linux loops service the
+                    // driver on every pass, and a pass in the same instant
+                    // as the last tick used to relayout the whole window for
+                    // a frame identical to the one on screen.
+                    if tr.t == t_before {
+                        continue;
+                    }
                     let (w, h) = rect.map_or((0.0, 0.0), |r| (r.size.width, r.size.height));
                     let resolver = azul_css::props::basic::animation::InterpolateResolver {
                         interpolate_func: tr.timing.to_interpolation(),
@@ -11738,13 +17917,94 @@ impl LayoutWindow {
                     };
                     // The value the frame must SHOW (at t=1 that is `to`
                     // itself); the override written is Initial at t=1 so the
-                    // cascaded target shows through afterwards.
-                    let shown = tr.from.interpolate(&tr.to, tr.t.min(1.0), &resolver);
-                    let over = if tr.t >= 1.0 {
+                    // cascaded target shows through afterwards - unless the
+                    // target IS the override (`keeps_target`).
+                    let mut shown = tr.from.interpolate(&tr.to, tr.t.min(1.0), &resolver);
+                    // A size between the ends of a layout tween lands on the
+                    // device pixel grid: what it pushes moves by whole
+                    // device pixels, which a CPU frame presents as a move of
+                    // pixels (a sub-pixel move must be painted again). The
+                    // end value is the declared one.
+                    if tr.t < 1.0 && tr.scope != azul_css::props::property::RelayoutScope::None {
+                        snap_length_to_device_pixels(&mut shown, hidpi_factor);
+                    }
+                    let over = if tr.t >= 1.0 && !tr.keeps_target {
                         azul_css::props::property::CssProperty::initial(tr.prop_type)
                     } else {
                         shown.clone()
                     };
+
+                    // THE GPU PROPERTY PATH: a `transform` tween on a node whose
+                    // reference frame exists moves no box and changes no item -
+                    // only the frame's matrix, which both compositors read live
+                    // from the GPU value cache (as a FLIP slide's). So the
+                    // override goes in through the lean channel (the compact
+                    // cache holds no transform value, only its presence bit,
+                    // which a transform-to-transform tween cannot flip) and the
+                    // matrix is published under the key the node already has:
+                    // no restyle, no relayout, no display-list rebuild. The
+                    // AzWidgets switch knob slides this way.
+                    //
+                    // A node with no reference frame yet, or one whose target
+                    // is no transform at all, changes the key POPULATION - only
+                    // a display-list build can show that, so it falls through
+                    // to the rebuild path below (which syncs the GPU values).
+                    if tr.prop_type == azul_css::props::property::CssPropertyType::Transform {
+                        result.styled_dom.set_user_property_override_fast(
+                            &tr.node,
+                            core::slice::from_ref(&over),
+                        );
+                        if cache.refresh_transform_value_of(&result.styled_dom, tr.node, (w, h)) {
+                            gpu_values_moved = true;
+                            continue;
+                        }
+                    }
+
+                    // The same GPU property path for `opacity`, once the
+                    // node's layer exists: the display list's `PushOpacity`
+                    // binds the node's CSS opacity key, both compositors read
+                    // its value live, so the step publishes the value and
+                    // nothing else. The compact cache - where the builder's
+                    // `get_opacity` and `synchronize` read opacity - follows
+                    // the shown value, so a list built mid-fade (or after it)
+                    // paints what is on screen. A node with no bound layer yet
+                    // (a fade starting at 1.0) changes the item list: it takes
+                    // the rebuild path below once, and the next frame is here.
+                    if tr.prop_type == azul_css::props::property::CssPropertyType::Opacity {
+                        let bound = cache.opacity_keys.get(&tr.node).is_some_and(|key| {
+                            result.display_list.items.iter().any(|item| {
+                                matches!(
+                                    item,
+                                    solver3::display_list::DisplayListItem::PushOpacity {
+                                        opacity_key: Some(k),
+                                        ..
+                                    } if k == key
+                                )
+                            })
+                        });
+                        if bound {
+                            result.styled_dom.set_user_property_override_fast(
+                                &tr.node,
+                                core::slice::from_ref(&over),
+                            );
+                            if cache
+                                .refresh_opacity_value_of(&result.styled_dom, tr.node)
+                                .is_some()
+                            {
+                                if let azul_css::props::property::CssProperty::Opacity(v) = &shown {
+                                    if let Some(o) = v.get_property() {
+                                        patch_compact_opacity(
+                                            &mut result.styled_dom,
+                                            tr.node,
+                                            o.inner.normalized(),
+                                        );
+                                    }
+                                }
+                                gpu_values_moved = true;
+                                continue;
+                            }
+                        }
+                    }
 
                     // THE PATCH FAST PATH: colour-carrying paint transitions
                     // rewrite their display-list items in place — no cascade
@@ -11753,31 +18013,159 @@ impl LayoutWindow {
                     // differ and stay untouched), so the override can take
                     // the LEAN channel that skips inheritance recompute.
                     let patchable = tr.scope == azul_css::props::property::RelayoutScope::None;
-                    let colors = transition_patch_color(&shown).and_then(|(to_c, is_text)| {
+                    let colors = transition_patch_color(&shown).and_then(|(to_c, slot)| {
                         let from_c = match tr.last_color {
                             Some(c) => c,
                             None => transition_patch_color(&tr.from)?.0,
                         };
-                        Some((from_c, to_c, is_text))
+                        Some((from_c, to_c, slot))
                     });
-                    if let (true, Some((from_c, to_c, is_text))) = (patchable, colors) {
-                        result.styled_dom.set_user_property_override_fast(
-                            &tr.node,
-                            core::slice::from_ref(&over),
-                        );
+                    // The same fast path for a background of gradients or of
+                    // several layers - a flora face: the layers the list shows
+                    // now (the last frame's, or `from` before the first), and
+                    // this frame's.
+                    let layers = if patchable && colors.is_none() {
+                        transition_patch_layers(&shown).and_then(|next| {
+                            let shown_now = match &tr.last_layers {
+                                Some(layers) => layers.clone(),
+                                None => transition_patch_layers(&tr.from)?,
+                            };
+                            Some((shown_now, next))
+                        })
+                    } else {
+                        None
+                    };
+                    // Every path puts the override in through the lean channel.
+                    result.styled_dom.set_user_property_override_fast(
+                        &tr.node,
+                        core::slice::from_ref(&over),
+                    );
+
+                    // THE COLOUR PROPERTY PATH: a solid background whose rect
+                    // the list binds to the node's colour key
+                    // (`DisplayList::color_bindings`) steps by publishing the
+                    // colour, like an opacity: `WebRender` takes it as the
+                    // rect's colour binding, the CPU renderer paints the
+                    // bound rect in it, and the list stays as it is. A node
+                    // with no bound rect yet gets its key here and takes the
+                    // patch path once and its rect is bound in the patched
+                    // list (`bind_jobs`); every later frame of the fade is
+                    // a value.
+                    if let (true, Some((_, to_c, solver3::display_list::PaintColorSlot::Background))) =
+                        (patchable, colors)
+                    {
+                        let bound_key = cache.color_keys.get(&tr.node).copied().filter(|key| {
+                            result.display_list.color_bindings.contains(&Some(*key))
+                        });
+                        if let Some(key) = bound_key {
+                            cache.current_color_values.insert(tr.node, to_c);
+                            gpu_values_moved = true;
+                            // The last frame releases the key once the list
+                            // already shows the final colour (renderers fall
+                            // back to the rect's own colour); else the next
+                            // list build drops it (`retain_running_color_keys`).
+                            if tr.t >= 1.0 {
+                                let list_shows_target = result
+                                    .display_list
+                                    .items
+                                    .iter()
+                                    .zip(&result.display_list.color_bindings)
+                                    .all(|(item, binding)| match (item, binding) {
+                                        (
+                                            solver3::display_list::DisplayListItem::Rect {
+                                                color, ..
+                                            },
+                                            Some(k),
+                                        ) if *k == key => *color == to_c,
+                                        _ => true,
+                                    });
+                                if list_shows_target {
+                                    cache.color_keys.remove(&tr.node);
+                                    cache.current_color_values.remove(&tr.node);
+                                }
+                            }
+                            continue;
+                        }
+                        if tr.t < 1.0 {
+                            let key = *cache
+                                .color_keys
+                                .entry(tr.node)
+                                .or_insert_with(azul_core::resources::ColorKey::unique);
+                            cache.current_color_values.insert(tr.node, to_c);
+                            bind_jobs.push((tr.node, to_c, key));
+                        }
+                    }
+                    if let (true, Some((from_c, to_c, slot))) = (patchable, colors) {
+                        // A border colour is ALSO served from the compact
+                        // cache - the display-list builder reads it there,
+                        // not through the override - so its entry follows the
+                        // patch: a list built for any other reason mid-fade
+                        // (a caret blink, a relayout) or after it paints the
+                        // colour on screen, not the last full restyle's.
+                        patch_compact_border_color(&mut result.styled_dom, tr.node, slot, to_c);
                         if from_c != to_c {
-                            patch_jobs.push((tr.node, from_c, to_c, is_text));
+                            patch_jobs.push((tr.node, from_c, to_c, slot));
                             tr.last_color = Some(to_c);
                         }
+                        // A text colour reaches the node's descendants through
+                        // the inheritance tables, which the lean channel does
+                        // not touch (the patch's from-match stands in for them
+                        // frame by frame). The LAST frame refreshes them, so a
+                        // list built after the fade paints the settled colour.
+                        if tr.t >= 1.0
+                            && slot == solver3::display_list::PaintColorSlot::Text
+                        {
+                            needs_restyle = true;
+                            restyle_fonts = true;
+                        }
+                    } else if let Some((from_layers, to_layers)) = layers {
+                        // A background is no inherited property and its
+                        // presence bit in the compact cache stays set from
+                        // face to face, so the lean channel is all the
+                        // cascade needs: a list built for any other reason
+                        // mid-fade paints the override, which is what the
+                        // patch shows.
+                        if from_layers != to_layers {
+                            layer_jobs.push((tr.node, from_layers, to_layers.clone()));
+                        }
+                        tr.last_layers = Some(to_layers);
                     } else {
-                        drop(
-                            result
+                        // THE RESTYLE PATH, batched: the override went in
+                        // through the lean channel above and the cascade's
+                        // derived tables are refreshed once after the loop.
+                        // `restyle_user_property` per tween rebuilt the
+                        // compact cache of the whole DOM per tween per frame
+                        // (2.75 ms each in AzWidgets). A value no other node
+                        // inherits (a margin, a width) is written into the
+                        // node's compact entry instead, while the override
+                        // stands; the frame that hands the value back to the
+                        // cascade rebuilds.
+                        let override_stands = tr.t < 1.0 || tr.keeps_target;
+                        let patched = override_stands
+                            && result
                                 .styled_dom
-                                .restyle_user_property(&tr.node, core::slice::from_ref(&over)),
-                        );
+                                .get_css_property_cache_mut()
+                                .patch_compact_node_property(tr.node, &over);
+                        if patched {
+                            compact_patched = true;
+                        } else {
+                            needs_restyle = true;
+                            restyle_fonts |= tr.prop_type.can_trigger_relayout()
+                                || tr.prop_type.is_inheritable();
+                        }
+                        if std::env::var_os("AZ_ANIM_DEBUG").is_some() {
+                            eprintln!(
+                                "[tween] restyle path: node {:?} {:?} scope {:?} compact {patched} \
+                                 shown {shown:?} from {:?} to {:?}",
+                                tr.node, tr.prop_type, tr.scope, tr.from, tr.to
+                            );
+                        }
                         dirty.push((tr.node, tr.scope));
-                        if tr.scope != azul_css::props::property::RelayoutScope::None {
+                        if tr.scope == azul_css::props::property::RelayoutScope::None {
+                            paint_restyled = true;
+                        } else {
                             needs_relayout = true;
+                            tree_shape_kept &= tween_keeps_layout_tree_shape(tr.prop_type);
                         }
                     }
                 }
@@ -11794,26 +18182,72 @@ impl LayoutWindow {
                             .collect()
                     };
                     let dl = Arc::make_mut(&mut result.display_list);
-                    for ((node, from_c, to_c, is_text), (_, end)) in
+                    for ((node, from_c, to_c, slot), (_, end)) in
                         patch_jobs.iter().zip(subtree_ends)
                     {
-                        let dmg = dl.patch_paint_colors(
-                            node.index()..end,
-                            *from_c,
-                            *to_c,
-                            *is_text,
-                            !*is_text,
-                        );
+                        let dmg = dl.patch_paint_colors(node.index()..end, *from_c, *to_c, *slot);
                         if dmg.is_none() {
                             // Nothing matched (the item paints somewhere this
                             // walk can't see): this node must take the rebuild
-                            // path or its colour freezes at `from`.
+                            // path or its colour freezes at `from` - and the
+                            // rebuild reads the cascade's derived tables, which
+                            // the lean channel left behind.
                             dirty.push((*node, azul_css::props::property::RelayoutScope::None));
+                            needs_restyle = true;
+                            paint_restyled = true;
+                            restyle_fonts |=
+                                *slot == solver3::display_list::PaintColorSlot::Text;
                         }
                     }
                 }
+
+                if !bind_jobs.is_empty() {
+                    let dl = Arc::make_mut(&mut result.display_list);
+                    for (node, shown, key) in &bind_jobs {
+                        // Nothing to bind (no rect of that colour - a fade in
+                        // from transparent): the key stays, and the next
+                        // build binds the rect it pushes for it.
+                        let _ = dl.bind_background_color(*node, *shown, *key);
+                    }
+                }
+
+                if !layer_jobs.is_empty() {
+                    let dl = Arc::make_mut(&mut result.display_list);
+                    for (node, from_layers, to_layers) in &layer_jobs {
+                        if dl
+                            .patch_background_layers(*node, from_layers, to_layers)
+                            .is_none()
+                        {
+                            // The list could not be patched (a layer it never
+                            // drew, faces of two kinds): the rebuild path,
+                            // which reads the cascade's derived tables - the
+                            // lean channel left them behind.
+                            dirty.push((*node, azul_css::props::property::RelayoutScope::None));
+                            needs_restyle = true;
+                            paint_restyled = true;
+                        }
+                    }
+                }
+
+                // The one cascade refresh of this frame (see `needs_restyle`):
+                // what `restyle_user_property` did per tween - the compact
+                // cache and the inheritance tables rebuilt with every override
+                // applied, a new cascade epoch, resolved font sizes dropped
+                // when a tween could move one.
+                if needs_restyle {
+                    result.styled_dom.recompute_inheritance_and_compact_cache();
+                    if restyle_fonts {
+                        result
+                            .styled_dom
+                            .get_css_property_cache_mut()
+                            .invalidate_resolved_font_sizes();
+                    }
+                } else if compact_patched {
+                    let cache = result.styled_dom.get_css_property_cache_mut();
+                    cache.cascade_epoch = cache.cascade_epoch.wrapping_add(1);
+                }
             }
-            if !patch_jobs.is_empty() {
+            if !patch_jobs.is_empty() || !layer_jobs.is_empty() || !bind_jobs.is_empty() {
                 // The solver's structural-identity DL cache holds the
                 // PRE-PATCH arc (make_mut cloned): swap in the patched one or
                 // the next cache hit resurrects the stale colours.
@@ -11830,6 +18264,20 @@ impl LayoutWindow {
             self.css_transitions.retain(|tr| tr.t < 1.0);
             if needs_relayout {
                 self.transition_relayout = true;
+                // The relayout this frame owes changes no node: only the
+                // overrides just written moved. Let it take the retained tree
+                // (no reconcile of the unchanged DOM) - when every tween keeps
+                // the tree's shape and nothing else staged a diff for the pass
+                // (`pending_css_dirty` still empty: a rebuild's diff or another
+                // restyle may need the reconcile). The stamp is taken AFTER the
+                // frame's own cascade refresh; any later change of the DOM's
+                // nodes, epoch or interaction states voids it.
+                if tree_shape_kept && !paint_restyled && self.pending_css_dirty.is_none() {
+                    self.layout_cache.overrides_only_hint = self
+                        .layout_results
+                        .get(&DomId::ROOT_ID)
+                        .map(|r| solver3::cache::OverridesOnlyStamp::of(&r.styled_dom));
+                }
             }
             let dirty_empty = dirty.is_empty();
             if !dirty_empty {
@@ -11843,7 +18291,13 @@ impl LayoutWindow {
             }
             // The rebuild-free frame is only sound when NOTHING ELSE needs
             // one: a mixed tick (patchable + unpatchable) rebuilds.
-            if !patch_jobs.is_empty() && dirty_empty && self.pending_css_dirty.is_none() {
+            if (!patch_jobs.is_empty()
+                || !layer_jobs.is_empty()
+                || !bind_jobs.is_empty()
+                || gpu_values_moved)
+                && dirty_empty
+                && self.pending_css_dirty.is_none()
+            {
                 self.transition_patched = true;
             }
         }
@@ -11874,8 +18328,115 @@ impl LayoutWindow {
                 cache.anim_opacity_keys.remove(&node_id);
             }
         }
+        // The views' live tracks: clock only, like the root's above, and a finished
+        // one releases its keys in its own DOM's channels.
+        let mut done_view: Vec<(DomId, NodeId)> = Vec::new();
+        for (dom, tracks) in &mut self.view_tracks {
+            for (node, tr) in tracks.iter_mut() {
+                tr.tick(dt);
+                if tr.is_done() {
+                    done_view.push((*dom, *node));
+                }
+            }
+        }
+        for (dom, node) in done_view {
+            if let Some(tracks) = self.view_tracks.get_mut(&dom) {
+                tracks.remove(&node);
+            }
+            if let Some(view_cache) = self.gpu_state_manager.caches.get_mut(&dom) {
+                view_cache.anim_current_transform_values.remove(&node);
+                view_cache.anim_transform_keys.remove(&node);
+                view_cache.anim_current_opacity_values.remove(&node);
+                view_cache.anim_opacity_keys.remove(&node);
+            }
+        }
+        self.view_tracks.retain(|_, tracks| !tracks.is_empty());
+        // And every value no animation drives any more - a slide a rebuild
+        // dropped or re-keyed to another node never FINISHES here.
+        self.release_undriven_animation_values();
 
         !self.animations.is_empty() || self.has_track_work()
+    }
+
+    /// Keeps a colour key ([`GpuValueCache::color_keys`]) only for a node
+    /// whose solid background fades now. Run before every build of the root
+    /// display list: the build binds a node's background to its key, and a
+    /// key a fade no longer drives - the fade settled, or a rebuilt DOM
+    /// renumbered the nodes - would bind another node's background to a
+    /// colour it does not have. The list built without it paints the
+    /// cascade's colour, which is where a settled fade ends.
+    pub fn retain_running_color_keys(&mut self) {
+        let Some(cache) = self.gpu_state_manager.caches.get_mut(&DomId::ROOT_ID) else {
+            return;
+        };
+        if cache.color_keys.is_empty() && cache.current_color_values.is_empty() {
+            return;
+        }
+        let running: BTreeSet<NodeId> = self
+            .css_transitions
+            .iter()
+            .filter(|tr| tr.t < 1.0 && transition_patch_color(&tr.to).is_some_and(|(_, slot)| {
+                slot == solver3::display_list::PaintColorSlot::Background
+            }))
+            .map(|tr| tr.node)
+            .collect();
+        cache.color_keys.retain(|node, _| running.contains(node));
+        cache
+            .current_color_values
+            .retain(|node, _| running.contains(node));
+    }
+
+    /// Releases every ANIMATION-channel value (transform and opacity, key
+    /// and value) that no animation drives: the channel holds exactly the
+    /// nodes of the slides in flight (`animations` through
+    /// `anim_key_to_node`) and of the live keyframe tracks.
+    ///
+    /// A slide's value used to be released only when the slide FINISHED,
+    /// through `anim_key_to_node` - but a rebuild mid-slide rebuilds that map
+    /// wholesale and drops the slides whose node it cannot place
+    /// (`finish_reconciliation`), and those values stayed in the cache for
+    /// good: a reference frame with a stranger's offset on every later frame
+    /// (`AzDrive` after a theme switch during the backstage's exit: its back
+    /// button in the window corner, the search box gone).
+    fn release_undriven_animation_values(&mut self) {
+        let Some(cache) = self.gpu_state_manager.caches.get(&DomId::ROOT_ID) else {
+            return;
+        };
+        if cache.anim_transform_keys.is_empty()
+            && cache.anim_current_transform_values.is_empty()
+            && cache.anim_opacity_keys.is_empty()
+            && cache.anim_current_opacity_values.is_empty()
+        {
+            return;
+        }
+        // The node a node drag moves with the pointer (`update_drag_visual`)
+        // is driven too, by the pointer.
+        let dragged = self
+            .gesture_drag_manager
+            .drag_visual_node
+            .filter(|(dom, _)| *dom == DomId::ROOT_ID)
+            .map(|(_, node)| node);
+        let driven: BTreeSet<NodeId> = self
+            .animations
+            .iter()
+            .filter_map(|(key, _)| self.anim_key_to_node.get(&key).copied())
+            .chain(self.live_tracks.keys().copied())
+            .chain(dragged)
+            .collect();
+        if let Some(cache) = self.gpu_state_manager.caches.get_mut(&DomId::ROOT_ID) {
+            cache
+                .anim_transform_keys
+                .retain(|node, _| driven.contains(node));
+            cache
+                .anim_current_transform_values
+                .retain(|node, _| driven.contains(node));
+            cache
+                .anim_opacity_keys
+                .retain(|node, _| driven.contains(node));
+            cache
+                .anim_current_opacity_values
+                .retain(|node, _| driven.contains(node));
+        }
     }
 
     #[allow(clippy::too_many_lines)] // one cohesive fade state machine per scrollbar; no natural
@@ -11908,27 +18469,50 @@ impl LayoutWindow {
                 continue; // Skip anonymous boxes
             };
 
-            // Calculate current opacity from ScrollManager
-            let vertical_opacity = if scrollbar_info.needs_vertical {
+            // Calculate current opacity from ScrollManager. A bar whose thumb
+            // the user is holding is pinned fully visible: its activity stamp
+            // only moves with the scroll position, and a thumb held still
+            // produces none, so the fade would otherwise take the bar away
+            // under the pointer.
+            use azul_core::dom::ScrollbarOrientation;
+            // Only a bar that is PAINTED fades: `presence`, not "the axis
+            // scrolls" - a `scrollbar-width: none` box scrolls with nothing
+            // to fade, and keeping a fade alive for it cost frames.
+            let has_vertical_bar = scrollbar_info
+                .presence(ScrollbarOrientation::Vertical)
+                .is_present();
+            let has_horizontal_bar = scrollbar_info
+                .presence(ScrollbarOrientation::Horizontal)
+                .is_present();
+            let vertical_opacity = if !has_vertical_bar {
+                0.0
+            } else if scroll_manager.is_thumb_dragged(dom_id, node_id, ScrollbarOrientation::Vertical)
+            {
+                1.0
+            } else {
                 Self::calculate_scrollbar_opacity(
                     scroll_manager.get_last_activity_time(dom_id, node_id),
                     now.clone(),
                     fade_delay,
                     fade_duration,
                 )
-            } else {
-                0.0
             };
 
-            let horizontal_opacity = if scrollbar_info.needs_horizontal {
+            let horizontal_opacity = if !has_horizontal_bar {
+                0.0
+            } else if scroll_manager.is_thumb_dragged(
+                dom_id,
+                node_id,
+                ScrollbarOrientation::Horizontal,
+            ) {
+                1.0
+            } else {
                 Self::calculate_scrollbar_opacity(
                     scroll_manager.get_last_activity_time(dom_id, node_id),
                     now.clone(),
                     fade_delay,
                     fade_duration,
                 )
-            } else {
-                0.0
             };
 
             // Track whether any scrollbar is actively fading (0 < opacity < 1).
@@ -11951,7 +18535,7 @@ impl LayoutWindow {
             // updates (build_image_only_transaction) can never make the scrollbar
             // visible because WebRender doesn't know about the binding.
             let key = (dom_id, node_id);
-            if scrollbar_info.needs_vertical {
+            if has_vertical_bar {
                 let existing = gpu_cache.scrollbar_v_opacity_values.get(&key);
 
                 match existing {
@@ -11996,7 +18580,7 @@ impl LayoutWindow {
             }
 
             // Handle horizontal scrollbar (same logic as vertical above)
-            if scrollbar_info.needs_horizontal {
+            if has_horizontal_bar {
                 let existing = gpu_cache.scrollbar_h_opacity_values.get(&key);
 
                 match existing {
@@ -12058,12 +18642,22 @@ impl LayoutWindow {
     /// - `scroll_ids`: Map from layout node index -> external scroll ID
     /// - `scroll_id_to_node_id`: Map from scroll ID -> DOM `NodeId` (for hit testing)
     ///
-    /// NOTE: ids are registered for every scroll CONTAINER (`scroll | auto |
-    /// hidden`), while the display-list builder emits `PushScrollFrame` only
-    /// for `overflow.is_scroll()` — so these tables can carry ids no
-    /// display-list item references. Harmless for the offset map (an
-    /// unreferenced id never matches a frame), but "an id exists" does NOT
-    /// imply "a scroll frame exists".
+    /// An id is a scroll FRAME: the display-list builder opens a
+    /// `PushScrollFrame` for every box that has one (`push_node_clips`,
+    /// through `scroll_chain::opens_scroll_frame`) - except a `VirtualView`,
+    /// whose child dom its `VirtualView` item moves instead - and the hit
+    /// tester, `node_rect_to_screen`, the scroll manager's bar tracks and
+    /// `accumulated_scroll` add back exactly those frames' offsets (their
+    /// `ScrollChain`). Ids go to every scroll CONTAINER (`scroll | auto |
+    /// hidden`), but an `overflow: hidden` box - which only a program can
+    /// scroll - gets one only when its content overflows it
+    /// (`scroll_chain::content_overflows_scrollport`).
+    ///
+    /// The ROOT element also gets one when the VIEWPORT scrolls it
+    /// ([`crate::solver3::scrollbar::is_viewport_scroll_frame`]): its own
+    /// `visible` is the viewport's `auto` (CSS Overflow 3 §3.3), and that id
+    /// is the one scroll frame, offset map entry and hit-test chain link the
+    /// whole page moves by.
     #[must_use]
     pub fn compute_scroll_ids(
         layout_tree: &LayoutTree,
@@ -12099,10 +18693,47 @@ impl LayoutWindow {
             let overflow_x = get_overflow_x(styled_dom, dom_node_id, &styled_node_state);
             let overflow_y = get_overflow_y(styled_dom, dom_node_id, &styled_node_state);
 
-            let is_scrollable =
-                overflow_x.is_scroll_container() || overflow_y.is_scroll_container();
+            // A box only a PROGRAM can scroll (`hidden` on every axis that
+            // scrolls) gets an id - and so a scroll frame, and its offset a
+            // place in every `ScrollChain` - only when it has something to
+            // scroll. One whose content fits has a range of zero; painting it
+            // in a frame of its own would cost a compositor layer for nothing
+            // (every `overflow: hidden` clip in the widget set), and an
+            // unclamped offset stored on it must move nothing anywhere.
+            // A `VirtualView`'s extent lives in its child dom, not here.
+            let programmatic_only = !overflow_x.allows_user_scrolling()
+                && !overflow_y.allows_user_scrolling()
+                && !styled_dom
+                    .node_data
+                    .as_container()
+                    .get(dom_node_id)
+                    .is_some_and(|nd| {
+                        matches!(nd.get_node_type(), NodeType::VirtualView)
+                    });
+            let is_scrollable = (overflow_x.is_scroll_container()
+                || overflow_y.is_scroll_container())
+                && (!programmatic_only
+                    || solver3::scroll_chain::content_overflows_scrollport(
+                        layout_tree,
+                        LayoutNodeId::new(layout_idx),
+                    ));
 
-            if !is_scrollable {
+            // THE VIEWPORT'S FRAME. The root element's overflow belongs to
+            // the viewport (CSS Overflow 3 §3.3): its own `visible` never
+            // made it a scroll container, yet a page taller than the window
+            // scrolls. Without an id the page had no frame to move in - the
+            // wheel and the thumb moved the offset and the bar, and nothing
+            // else.
+            let is_viewport_frame = solver3::scrollbar::is_viewport_scroll_frame(
+                styled_dom.dom_id,
+                dom_node_id,
+                is_scrollable,
+                layout_tree
+                    .warm(LayoutNodeId::new(layout_idx))
+                    .and_then(|w| w.scrollbar_info),
+            );
+
+            if !is_scrollable && !is_viewport_frame {
                 continue;
             }
 
@@ -12163,7 +18794,7 @@ impl LayoutWindow {
         let (layout_tree, positions): (&LayoutTree, &solver3::PositionVec) =
             if node_id.dom == DomId::ROOT_ID {
                 (
-                    self.layout_cache.tree.as_ref()?,
+                    self.layout_cache.tree.as_deref()?,
                     &self.layout_cache.calculated_positions,
                 )
             } else {
@@ -12240,26 +18871,27 @@ impl LayoutWindow {
     /// and cursor state.  Called after full layout AND after display-list-only
     /// regeneration so that screen readers see up-to-date bounds, cursor, and
     /// focus information.
+    ///
+    /// Runs after EVERY layout, animation frames included, and publishes only
+    /// what changed since the last pass - a patch, or nothing at all
+    /// (`A11yManager::refresh`). It used to rebuild and publish the whole
+    /// tree each time: ~3 ms per frame of a tween on `AzWidgets`.
     #[cfg(feature = "a11y")]
     pub fn update_a11y_tree(&mut self) {
-        let cursor_a11y_info = self.text_edit_manager.multi_cursor.as_ref().and_then(|mc| {
-            let node_id = mc.node_id.node.into_crate_internal()?;
-            let primary = mc.get_primary()?;
-            let (anchor_offset, focus_offset) = match &primary.selection {
-                Selection::Cursor(c) => {
-                    let off = c.cluster_id.start_byte_in_run as usize;
-                    (off, off)
-                }
-                Selection::Range(r) => (
-                    r.start.cluster_id.start_byte_in_run as usize,
-                    r.end.cluster_id.start_byte_in_run as usize,
-                ),
-            };
+        let _p = crate::probe::Probe::span("a11y_update_tree");
+        self.a11y_tree_updates = self.a11y_tree_updates.saturating_add(1);
+        // This pass builds the bounds from the offsets as they are now.
+        self.a11y_manager.scroll_fingerprint = self.scroll_manager.offsets_fingerprint();
+        // The selection on the node a screen reader reads it on - the
+        // session's editing host - in that node's text, every paragraph of it
+        // (`accessible_selection`).
+        let accessible = self.accessible_selection();
+        let cursor_a11y_info = accessible.as_ref().and_then(|sel| {
             Some(crate::managers::a11y::CursorA11yInfo {
-                dom_id: mc.node_id.dom,
-                node_id,
-                anchor_offset,
-                focus_offset,
+                dom_id: sel.node.dom,
+                node_id: sel.node.node.into_crate_internal()?,
+                anchor_offset: sel.anchor.0,
+                focus_offset: sel.focus.0,
             })
         });
 
@@ -12273,31 +18905,97 @@ impl LayoutWindow {
                 crate::overlay::flatten_inline_content(&dirty_node.content),
             );
         }
-
-        let a11y_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            crate::managers::a11y::A11yManager::update_tree(
-                self.a11y_manager.root_id,
-                &self.layout_results,
-                &self.scroll_manager,
-                &self.current_window_state.title,
-                self.current_window_state.size.dimensions,
-                self.focus_manager.get_focused_node().copied(),
-                self.current_window_state
-                    .size
-                    .get_hidpi_factor()
-                    .inner
-                    .get(),
-                &dirty_text_overrides,
-                cursor_a11y_info,
-            )
-        }));
-
-        if let Ok(tree_update) = a11y_result {
-            // A refused FULL tree keeps the last good state parked/delivered;
-            // `last_rejection` records why (the e2e digest and the contract
-            // tests read it). Nothing malformed reaches an adapter.
-            let _ = self.a11y_manager.publish(tree_update);
+        // The host the selection is published on reads the text its offsets
+        // index. A host whose text is in paragraphs has no text child of its
+        // own, and published no value at all.
+        if let Some(sel) = accessible.as_ref().filter(|sel| sel.is_host) {
+            if let Some(host) = sel.node.node.into_crate_internal() {
+                dirty_text_overrides.insert((sel.node.dom, host), sel.text.text().to_string());
+            }
         }
+
+        // The language the window's text is in: a screen reader's voice.
+        let language = self.active_language();
+        // The keys among the strings nodes declare, in that language.
+        #[cfg(feature = "fluent")]
+        let localizer = self.fluent_localizer.as_ref();
+        #[cfg(feature = "fluent")]
+        let has_translations = localizer.is_some();
+        #[cfg(not(feature = "fluent"))]
+        let has_translations = false;
+        let translate_key = |key: &str| -> String {
+            #[cfg(feature = "fluent")]
+            if let Some(localizer) = localizer {
+                return translate_a11y_key(localizer, language.id.as_str(), key);
+            }
+            key.to_string()
+        };
+        // Every virtual view's dom and the view hosting it: its content is
+        // read at the view's place.
+        let mut nested_dom_hosts = BTreeMap::new();
+        for (host_dom, host_node) in self.virtual_view_manager.all_view_keys() {
+            if let Some(nested) = self
+                .virtual_view_manager
+                .get_nested_dom_id(host_dom, host_node)
+            {
+                nested_dom_hosts.insert(nested, (host_dom, host_node));
+            }
+        }
+        let inputs = crate::managers::a11y::A11yTreeInputs {
+            layout_results: &self.layout_results,
+            scroll_manager: &self.scroll_manager,
+            window_title: &self.current_window_state.title,
+            window_size: self.current_window_state.size.dimensions,
+            focused_node: self.focus_manager.get_focused_node().copied(),
+            hidpi_factor: self
+                .current_window_state
+                .size
+                .get_hidpi_factor()
+                .inner
+                .get(),
+            dirty_text_overrides: &dirty_text_overrides,
+            cursor_info: cursor_a11y_info,
+            nested_dom_hosts: &nested_dom_hosts,
+            language: language.id.as_str(),
+            language_is_rtl: language.is_rtl,
+            translate: has_translations
+                .then_some(crate::managers::a11y::A11yTranslate(&translate_key)),
+        };
+        // A refused update keeps the last good state parked/delivered and the
+        // next pass resends the whole tree; `last_rejection` records why (the
+        // e2e digest and the contract tests read it). Nothing malformed
+        // reaches an adapter.
+        let manager = &mut self.a11y_manager;
+        let refreshed =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| manager.refresh(&inputs)));
+        if refreshed.is_err() {
+            // A panic mid-pass leaves the retained tree half updated.
+            self.a11y_manager.resend_full_tree();
+        }
+    }
+
+    /// Whether the throttled scroll-driven rebuild of the a11y tree should
+    /// run now ([`crate::managers::a11y::A11yManager::scroll_rebuild_due`]).
+    /// Every shell asks once per event pass and per frame tick.
+    ///
+    /// It notices a scroll by itself: when any offset differs from the ones
+    /// the tree was last built with, the tree is marked scroll-dirty. A flag
+    /// set by whoever scrolls missed every path but `CallbackChange::ScrollTo`
+    /// (a scroll animation's tick, a focus or caret reveal, a direct offset
+    /// write), and the bounds a screen reader held stayed where the content
+    /// had been.
+    #[cfg(feature = "a11y")]
+    pub fn a11y_rebuild_after_scroll_due(
+        &mut self,
+        now: std::time::Instant,
+        min_interval: std::time::Duration,
+    ) -> bool {
+        let fingerprint = self.scroll_manager.offsets_fingerprint();
+        if fingerprint != self.a11y_manager.scroll_fingerprint {
+            self.a11y_manager.scroll_fingerprint = fingerprint;
+            self.a11y_manager.mark_scroll_dirty();
+        }
+        self.a11y_manager.scroll_rebuild_due(now, min_interval)
     }
 
     /// Build the platform-neutral accessibility snapshot.
@@ -12314,14 +19012,29 @@ impl LayoutWindow {
     #[cfg(feature = "a11y")]
     #[must_use]
     pub fn build_a11y_snapshot(&self) -> crate::managers::a11y_snapshot::A11ySnapshot {
-        crate::managers::a11y_snapshot::A11ySnapshot::build(
+        let language = self.active_language();
+        // The keys nodes declare, in the window's language, as the
+        // accesskit tree reads them.
+        #[cfg(feature = "fluent")]
+        let translate_key = self.fluent_localizer.as_ref().map(|localizer| {
+            let language = language.id.as_str();
+            move |key: &str| translate_a11y_key(localizer, language, key)
+        });
+        #[cfg(not(feature = "fluent"))]
+        let translate_key: Option<fn(&str) -> String> = None;
+        let mut snapshot = crate::managers::a11y_snapshot::A11ySnapshot::build(
             &self.layout_results,
             &self.scroll_manager,
             &self.gpu_state_manager,
             self.focus_manager.get_focused_node().copied(),
             self.current_window_state.title.as_str(),
             self.current_window_state.size.dimensions,
-        )
+            translate_key
+                .as_ref()
+                .map(|translate| crate::managers::a11y::A11yTranslate(translate)),
+        );
+        snapshot.language = language.id.as_str().to_string();
+        snapshot
     }
 
     /// Incremental a11y update: only push the focused contenteditable node's
@@ -12335,102 +19048,43 @@ impl LayoutWindow {
             return self.update_a11y_tree();
         }
 
-        // Only worth doing incremental if we have an active editing node
-        let Some(mc) = self.text_edit_manager.multi_cursor.as_ref() else {
+        // Only worth doing incremental if we have an active editing node.
+        //
+        // The node is the one the full tree publishes the selection on - the
+        // session's editing host, else the block's element - with the text
+        // its offsets index (`accessible_selection`): every paragraph of a
+        // host, the overlay first, so a keystroke ships the fresh value. This
+        // used to publish on the session's BLOCK, whatever the host, with the
+        // raw `start_byte_in_run` of the caret's cluster as its offset.
+        let Some(accessible) = self.accessible_selection() else {
             return; // No cursor — nothing to update incrementally
         };
-
-        let dom_node_id = mc.node_id;
-        let Some(node_id) = dom_node_id.node.into_crate_internal() else {
+        let dom_id = accessible.node.dom;
+        let Some(node_id) = accessible.node.node.into_crate_internal() else {
             return;
         };
-        let dom_id = dom_node_id.dom;
-
-        // Get current text content (from dirty overrides or StyledDom).
-        // Edits are recorded against the FOCUSED host (the contenteditable
-        // container) while the editing session is keyed on the IFC root
-        // inside it — look the overlay up by both, or the increment ships
-        // the pre-edit DOM text and screen readers read a stale value on
-        // every keystroke (caught by the a11y consumer contract test).
-        let overlay_text = self
-            .content_overlay
-            .text_for_node(dom_id, node_id)
-            .or_else(|| {
-                let host = self.focus_manager.get_focused_node().copied()?;
-                if host.dom != dom_id {
-                    return None;
-                }
-                let host_node = host.node.into_crate_internal()?;
-                self.content_overlay.text_for_node(dom_id, host_node)
-            });
-        let text_content = if let Some(dirty) = overlay_text {
-            self.extract_text_from_inline_content(&dirty.content)
-        } else {
-            // Fall back to StyledDom text
-            let Some(lr) = self.layout_results.get(&dom_id) else {
-                return self.update_a11y_tree();
-            };
-            let node_data = lr.styled_dom.node_data.as_ref();
-            let hierarchy = lr.styled_dom.node_hierarchy.as_ref();
-            let mut text = String::new();
-            if let Some(item) = hierarchy.get(node_id.index()) {
-                let mut child = item.first_child_id(node_id);
-                while let Some(child_id) = child {
-                    if let Some(cd) = node_data.get(child_id.index()) {
-                        if let NodeType::Text(t) = &cd.node_type {
-                            if !text.is_empty() {
-                                text.push(' ');
-                            }
-                            text.push_str(t.as_str());
-                        }
-                    }
-                    if child_id.index() >= hierarchy.len() {
-                        break;
-                    }
-                    child = hierarchy[child_id.index()].next_sibling_id();
-                }
-            }
-            text
-        };
+        let text_content = accessible.text.text().to_string();
 
         // Build the a11y node ID (same encoding as update_tree)
         let a11y_node_id =
             accesskit::NodeId(((dom_id.inner as u64) << 32) | ((node_id.index() as u64) + 1));
 
-        // Get the node data to determine role
-        let role = self
-            .layout_results
-            .get(&dom_id)
-            .and_then(|lr| lr.styled_dom.node_data.as_ref().get(node_id.index()))
-            .map_or(accesskit::Role::GenericContainer, |nd| {
-                if nd.is_contenteditable() || matches!(nd.node_type, NodeType::TextArea) {
-                    accesskit::Role::MultilineTextInput
-                } else if matches!(nd.node_type, NodeType::Input) {
-                    accesskit::Role::TextInput
-                } else {
-                    accesskit::Role::GenericContainer
-                }
-            });
-
-        let mut node = accesskit::Node::new(role);
+        // An increment REPLACES the node, so it starts from the node as the
+        // full pass published it - its role (a password field stays one, and
+        // a screen reader does not echo its keys), bounds, label, states and
+        // children - and changes only the text and the selection. A node the
+        // adapter never received only a full pass can place.
+        let Some(mut node) = self.a11y_manager.published_node(a11y_node_id) else {
+            return self.update_a11y_tree();
+        };
         node.set_value(text_content.as_str());
         node.add_action(accesskit::Action::SetTextSelection);
         node.add_action(accesskit::Action::ReplaceSelectedText);
         node.add_action(accesskit::Action::SetValue);
 
         // Set cursor/selection
-        let primary = mc.get_primary();
-        if let Some(identified) = primary {
-            let (anchor_off, focus_off) = match &identified.selection {
-                Selection::Cursor(c) => {
-                    let off = c.cluster_id.start_byte_in_run as usize;
-                    (off, off)
-                }
-                Selection::Range(r) => (
-                    r.start.cluster_id.start_byte_in_run as usize,
-                    r.end.cluster_id.start_byte_in_run as usize,
-                ),
-            };
+        {
+            let (anchor_off, focus_off) = (accessible.anchor.0, accessible.focus.0);
 
             let char_lengths: Vec<u8> = text_content.chars().map(|c| c.len_utf16() as u8).collect();
             node.set_character_lengths(char_lengths.clone());
@@ -12469,7 +19123,7 @@ impl LayoutWindow {
             .unwrap_or(self.a11y_manager.root_id);
 
         let update = accesskit::TreeUpdate {
-            nodes: vec![(a11y_node_id, node)],
+            nodes: vec![(a11y_node_id, node.clone())],
             tree: None, // Incremental — tree structure unchanged
             focus,
             tree_id: accesskit::TreeId::ROOT,
@@ -12481,61 +19135,45 @@ impl LayoutWindow {
         // the process on exactly that (2026-08-29 AzWriter crash), so the
         // manager refuses it here and the full rebuild — whose own guard
         // degrades an unresolvable focus to the root — takes over.
-        if self.a11y_manager.publish(update).is_err() {
+        if self.a11y_manager.publish(update).is_ok() {
+            // The retained tree records what the adapter now holds, so the
+            // next pass diffs against it.
+            self.a11y_manager
+                .note_published_node(a11y_node_id, node, focus);
+        } else {
+            self.a11y_manager.resend_full_tree();
             self.update_a11y_tree();
         }
     }
 
-    /// Inline layout + absolute origin of the node an editing session is
-    /// anchored on, resolved in THAT session's own DOM.
+    /// The layout result and IFC root of `block`, resolved in the block's
+    /// OWN DOM.
     ///
     /// The geometry helpers used to walk `layout_cache.tree`, which only ever
     /// holds the ROOT dom, and matched a bare `dom_node_id` with no `DomId`
     /// alongside it — so in a virtualized view the caret answered for whatever
     /// unrelated node happened to occupy the same index, or for nothing at all.
-    fn session_geometry_node(&self, node: DomNodeId) -> Option<(&DomLayoutResult, LayoutNodeId)> {
-        let node_id = node.node.into_crate_internal()?;
-        let layout_result = self.layout_results.get(&node.dom)?;
-        let tree = &layout_result.layout_tree;
-
-        // A DOM node can map to several layout nodes; the caret lives on the
-        // one that actually carries an inline layout.
-        let candidates = tree.dom_to_layout.get(&node_id)?;
-        let layout_idx = candidates
-            .iter()
-            .copied()
-            .find(|&idx| {
-                tree.warm(idx)
-                    .is_some_and(|w| w.inline_layout_result.is_some())
-            })
-            .or_else(|| {
-                // ...or on the IFC ROOT above it. A session is anchored either
-                // on the block that establishes the inline context (the click
-                // path passes `ifc_root_node_id`) or on the raw text node
-                // inside it (the focus path passes `pending.text_node_id`),
-                // and a text node carries no inline layout of its own. Looking
-                // only at the anchored node left every focus-opened session
-                // with no caret rect at all -- and with it, no caret reveal.
-                let mut cur = tree.nodes.get(candidates.first()?.index())?.parent;
-                while let Some(idx) = cur {
-                    if tree
-                        .warm(LayoutNodeId::new(idx))
-                        .is_some_and(|w| w.inline_layout_result.is_some())
-                    {
-                        return Some(LayoutNodeId::new(idx));
-                    }
-                    cur = tree.nodes.get(idx)?.parent;
-                }
-                None
-            })?;
-        Some((layout_result, layout_idx))
+    fn block_geometry_node(&self, block: TextBlock) -> Option<(&DomLayoutResult, LayoutNodeId)> {
+        let layout_result = self.layout_results.get(&block.dom())?;
+        let root = layout_result.layout_tree.text_block_root(block.key())?;
+        Some((layout_result, LayoutNodeId::new(root)))
     }
 
-    fn session_inline_geometry(
+    /// `block`'s MATERIALIZED inline layout (the stored sparse one is the
+    /// retirement sentinel under dense text).
+    fn block_inline_layout(&self, block: TextBlock) -> Option<Arc<UnifiedLayout>> {
+        let (layout_result, root) = self.block_geometry_node(block)?;
+        layout_result
+            .layout_tree
+            .materialized_inline_layout_for_node(root.index())
+    }
+
+    /// Inline layout + absolute CONTENT-box origin of `block`.
+    fn block_inline_geometry(
         &self,
-        node: DomNodeId,
+        block: TextBlock,
     ) -> Option<(Arc<UnifiedLayout>, LogicalPosition)> {
-        let (layout_result, layout_idx) = self.session_geometry_node(node)?;
+        let (layout_result, layout_idx) = self.block_geometry_node(block)?;
 
         // (d6h) Materialized: the stored layout may be the retirement
         // sentinel; geometry runs on the transient expansion. (An
@@ -12556,37 +19194,27 @@ impl LayoutWindow {
         // the PAINTED one. That skew fed the caret reveal and the IME
         // candidate-window placement, and was invisible only because the
         // TextInput's value <p> has neither padding nor border.
-        let border_box_origin =
-            solver3::pos_get(&layout_result.calculated_positions, layout_idx.index())?;
-        let inset = layout_result.layout_tree.content_inset(layout_idx);
-        let origin = LogicalPosition::new(
-            border_box_origin.x + inset.left,
-            border_box_origin.y + inset.top,
-        );
+        let origin = Self::content_box_origin_of(layout_result, layout_idx)?;
         Some((inline_layout, origin))
     }
 
     pub fn get_focused_cursor_rect(&self) -> Option<LogicalRect> {
-        let session_node = self.text_edit_manager.multi_cursor.as_ref()?.node_id;
+        let session_block = self.text_edit_manager.multi_cursor.as_ref()?.block;
         let cursor = self.text_edit_manager.get_primary_cursor()?;
-        self.cursor_rect_for(session_node, &cursor)
+        self.cursor_rect_for(session_block, &cursor)
     }
 
-    /// `get_focused_cursor_rect` for any caret: `cursor` in `session_node`'s
-    /// inline layout, in layout coordinates (9b-ii-a-i-d-ii-c-ii).
+    /// `get_focused_cursor_rect` for any caret: `cursor` in `block`'s inline
+    /// layout, in layout coordinates (9b-ii-a-i-d-ii-c-ii).
     #[must_use]
-    pub fn cursor_rect_for(
-        &self,
-        session_node: DomNodeId,
-        cursor: &TextCursor,
-    ) -> Option<LogicalRect> {
+    pub fn cursor_rect_for(&self, block: TextBlock, cursor: &TextCursor) -> Option<LogicalRect> {
         let cursor = *cursor;
-        // Keyed on the SESSION's node, not the focused node: focus lands on the
-        // contenteditable container while the caret is anchored on the IFC root
-        // inside it, so matching the focused node returned None for every
-        // nested editable — and with it, no caret reveal.
+        // Keyed on the SESSION's block, not the focused node: focus lands on
+        // the contenteditable container while the caret is in the block inside
+        // it, so matching the focused node returned None for every nested
+        // editable — and with it, no caret reveal.
 
-        let (inline_layout, origin) = self.session_inline_geometry(session_node)?;
+        let (inline_layout, origin) = self.block_inline_geometry(block)?;
 
         // Get the cursor rect in node-relative coordinates
         let mut cursor_rect = inline_layout.get_cursor_rect(&cursor)?;
@@ -12611,22 +19239,29 @@ impl LayoutWindow {
     /// rather than on the right character, and a loupe pointed at the middle
     /// of the field.
     ///
-    /// Nothing new had to be computed for it. `byte_offset_to_cursor` and
-    /// `get_cursor_rect` both already existed - they were simply never joined
-    /// up, and `get_focused_cursor_rect` above is the same two calls for the
-    /// one offset the engine happened to be holding.
+    /// The offset becomes a caret by the block content's converter - the
+    /// inverse of [`Self::byte_offset_of_cursor`], so the byte means what it
+    /// means in the document the IME holds ([`Self::ime_document`]): behind a
+    /// list item's `::marker`, a preserved newline as `'\n'`. (Resolved
+    /// against the shaped clusters instead, a list item's byte 2 landed on
+    /// its marker.) The caret becomes a rect by [`Self::cursor_rect_for`].
     #[must_use]
     pub fn focused_rect_for_byte_offset(&self, byte_offset: usize) -> Option<LogicalRect> {
-        let session_node = self.text_edit_manager.multi_cursor.as_ref()?.node_id;
-        let (inline_layout, origin) = self.session_inline_geometry(session_node)?;
-        let cursor = Self::byte_offset_to_cursor(
-            &inline_layout,
-            u32::try_from(byte_offset).unwrap_or(u32::MAX),
-        );
-        let mut rect = inline_layout.get_cursor_rect(&cursor)?;
-        rect.origin.x += origin.x;
-        rect.origin.y += origin.y;
-        Some(rect)
+        let target = self.session_text_target()?;
+        let cursor = self
+            .block_content(target.block)
+            .caret_at(crate::block_content::FlatByte(byte_offset))?;
+        // WHERE IT IS ON SCREEN. `cursor_rect_for` is STATIC layout space -
+        // the space the caret reveal works in - and the IME places its
+        // candidate window in window space: in a field scrolled by S the
+        // window opened S px beside the text it was composing. The typed
+        // text -> screen conversion (`TextTarget::rect_to_window`) applies
+        // the walk `get_focused_cursor_rect_viewport` (the shells' fallback)
+        // does: the box's own and its ancestors' scroll, transforms, the
+        // nested dom's host.
+        target
+            .caret_rect_on_screen(self, &cursor)
+            .map(azul_core::spaces::WindowRect::get)
     }
 
     /// The rect covering a byte RANGE in the focused editable, in absolute
@@ -12666,9 +19301,9 @@ impl LayoutWindow {
     /// coordinate rebasing were missing.
     #[must_use]
     pub fn focused_byte_offset_for_point(&self, point: LogicalPosition) -> Option<usize> {
-        let session_node = self.text_edit_manager.multi_cursor.as_ref()?.node_id;
+        let session_block = self.text_edit_manager.multi_cursor.as_ref()?.block;
         let cursor = self.focused_cursor_for_point(point)?;
-        self.byte_offset_of_cursor(session_node, &cursor)
+        self.byte_offset_of_cursor(session_block, &cursor)
     }
 
     /// The cursor nearest a point in absolute window coordinates, in the
@@ -12676,49 +19311,27 @@ impl LayoutWindow {
     /// [`Self::focused_byte_offset_for_point`], shared with the handle drag.
     #[must_use]
     pub fn focused_cursor_for_point(&self, point: LogicalPosition) -> Option<TextCursor> {
-        let session_node = self.text_edit_manager.multi_cursor.as_ref()?.node_id;
-        let (inline_layout, origin) = self.session_inline_geometry(session_node)?;
-        // The hit test works in NODE-relative coordinates; the shells hand in
-        // window ones, and mixing them puts the answer off by the node's
-        // position on screen - which on a scrolled page is the whole error.
-        let local = LogicalPosition::new(point.x - origin.x, point.y - origin.y);
-        inline_layout.hittest_cursor(local)
-    }
-
-    /// A cursor's caret rect in the focused editable, in absolute window
-    /// coordinates.
-    #[must_use]
-    fn focused_rect_for_cursor(&self, cursor: &TextCursor) -> Option<LogicalRect> {
-        let session_node = self.text_edit_manager.multi_cursor.as_ref()?.node_id;
-        self.rect_for_cursor_in(session_node, cursor)
-    }
-
-    /// A cursor's caret rect in ANY laid-out IFC root, in absolute window
-    /// coordinates - the block-agnostic half of
-    /// [`Self::focused_rect_for_cursor`], which a cross-block selection's far
-    /// end needs (U2-a-i).
-    #[must_use]
-    fn rect_for_cursor_in(&self, node: DomNodeId, cursor: &TextCursor) -> Option<LogicalRect> {
-        let (inline_layout, origin) = self.session_inline_geometry(node)?;
-        let mut rect = inline_layout.get_cursor_rect(cursor)?;
-        rect.origin.x += origin.x;
-        rect.origin.y += origin.y;
-        Some(rect)
+        let target = self.session_text_target()?;
+        // The hit test works in the block's own SCROLLED-CONTENT space; the
+        // shells hand in window coordinates. Through the typed screen -> text
+        // conversion (`TextTarget::point_from_window`: out of the window into
+        // the block's dom, + the ancestors' scroll, - the border origin, -
+        // the content inset, + the box's OWN scroll). Subtracting only the
+        // static content origin, as this did, resolved a point in a field
+        // scrolled by S to the character S px to its left.
+        let local = target.point_from_window(self, WindowPoint::new(point))?;
+        target.hittest(local)
     }
 
     /// The two ends of the current selection in DOCUMENT order, each as
     /// `(block, cursor)`: the cross-block selection's anchor/focus pair sorted
     /// by `is_forward`, or the single-block primary range's two cursors on the
-    /// session node. `None` without a range.
-    fn selection_ends_in_document_order(&self) -> Option<[(DomNodeId, TextCursor); 2]> {
+    /// session's block. `None` without a range.
+    fn selection_ends_in_document_order(&self) -> Option<[(TextBlock, TextCursor); 2]> {
         use azul_core::selection::Selection;
         if let Some(sel) = self.text_edit_manager.cross_block.as_ref() {
-            let block = |n: NodeId| DomNodeId {
-                dom: sel.dom_id,
-                node: NodeHierarchyItemId::from_crate_internal(Some(n)),
-            };
-            let anchor = (block(sel.anchor.ifc_root_node_id), sel.anchor.cursor);
-            let focus = (block(sel.focus.ifc_root_node_id), sel.focus.cursor);
+            let anchor = (sel.anchor.block, sel.anchor.cursor);
+            let focus = (sel.focus.block, sel.focus.cursor);
             return Some(if sel.is_forward {
                 [anchor, focus]
             } else {
@@ -12737,7 +19350,21 @@ impl LayoutWindow {
         } else {
             (range.end, range.start)
         };
-        Some([(mc.node_id, lo), (mc.node_id, hi)])
+        Some([(mc.block, lo), (mc.block, hi)])
+    }
+
+    /// The text block whose flat text the IME's byte offsets index while
+    /// `focused` has the focus: the editing session's, when the focus holds it
+    /// (a host holds the block its caret is in; a focused block, or a node
+    /// inside one, is in its own). `None` with no session there.
+    #[must_use]
+    pub fn ime_text_block(&self, focused: DomNodeId) -> Option<TextBlock> {
+        let block = self.text_edit_manager.get_editing_block()?;
+        let focus_node = focused.node.into_crate_internal()?;
+        let holds = block.dom() == focused.dom
+            && (self.node_is_self_or_descendant(focused.dom, block.first_node(), focus_node)
+                || self.text_block_of(focused) == Some(block));
+        holds.then_some(block)
     }
 
     /// The focused editable's text with the preedit spliced in at the caret,
@@ -12750,6 +19377,13 @@ impl LayoutWindow {
     /// all index into THIS text, and two shells assembling it two ways would
     /// disagree by exactly the preedit.
     ///
+    /// The text is the editing session's BLOCK's flat text while the focus
+    /// holds that block ([`Self::ime_text_block`]): the text the IME's byte
+    /// offsets ([`Self::focused_caret_byte_offset`] and the rest) index. Taken
+    /// from the focused host, a host with paragraphs handed the IME every
+    /// paragraph's text and a caret offset into one of them. With no session
+    /// in the focus, the focused node's text.
+    ///
     /// Empty with nothing focused. `preedit_range` is `None` when no
     /// composition is open.
     #[must_use]
@@ -12760,8 +19394,10 @@ impl LayoutWindow {
         let Some(node_id) = focused.node.into_crate_internal() else {
             return (String::new(), None);
         };
-        let content = self.get_text_before_textinput(focused.dom, node_id);
-        let committed = self.extract_text_from_inline_content(&content);
+        let committed = if let Some(block) = self.ime_text_block(focused) { self.block_content(block).flat_text() } else {
+            let content = self.get_text_before_textinput(focused.dom, node_id);
+            self.extract_text_from_inline_content(&content)
+        };
 
         let Some(preedit) = self.text_edit_manager.preedit_text.as_ref() else {
             return (committed, None);
@@ -12795,8 +19431,17 @@ impl LayoutWindow {
         // Either shape of selection (U2-a-i): a cross-block one has its two
         // ends in different IFC roots, each resolved in its own layout.
         let [(lo_block, lo), (hi_block, hi)] = self.selection_ends_in_document_order()?;
-        let first = self.rect_for_cursor_in(lo_block, &lo)?;
-        let last = self.rect_for_cursor_in(hi_block, &hi)?;
+        // Where each end's caret is PAINTED (`TextTarget::caret_rect_on_screen`):
+        // the handles hang under it, and `selection_handle_at` hit-tests a
+        // WINDOW point against them. A static caret rect put them a
+        // field's scroll away from the selection they mark.
+        let on_screen = |block: TextBlock, cursor: &TextCursor| {
+            self.text_target(block)?
+                .caret_rect_on_screen(self, cursor)
+                .map(azul_core::spaces::WindowRect::get)
+        };
+        let first = on_screen(lo_block, &lo)?;
+        let last = on_screen(hi_block, &hi)?;
         Some([
             SelectionHandleGeometry::under(
                 SelectionHandleEnd::Start,
@@ -12867,21 +19512,19 @@ impl LayoutWindow {
             else {
                 return false;
             };
-            let Some(anchor_node) = anchor_block.node.into_crate_internal() else {
-                return false;
-            };
             let already_there = self
                 .text_edit_manager
                 .multi_cursor
                 .as_ref()
-                .is_some_and(|mc| mc.node_id == anchor_block);
+                .is_some_and(|mc| mc.block == anchor_block);
             if !already_there {
-                self.text_edit_manager.initialize_editing(
-                    anchor,
-                    anchor_block.dom,
-                    anchor_node,
-                    key,
-                );
+                // A new caret ends the document selection everywhere else;
+                // this one only moves to its other end, and the selection
+                // stays painted until the first move rebuilds it.
+                let kept = self.text_edit_manager.cross_block.take();
+                self.text_edit_manager
+                    .initialize_editing(anchor, anchor_block, key);
+                self.text_edit_manager.cross_block = kept;
             } else if let Some(mc) = self.text_edit_manager.multi_cursor.as_mut() {
                 mc.set_single_cursor(anchor);
             }
@@ -12916,14 +19559,14 @@ impl LayoutWindow {
             // single-block range inside the anchor block. The same
             // "onto the anchor is ignored" rule as below, checked up front
             // because that machinery would collapse the selection to a caret.
-            let Some(dom_id) = self.text_edit_manager.get_editing_dom_id() else {
+            let Some(anchor_block) = self.text_edit_manager.get_editing_block() else {
                 return false;
             };
-            let Some(anchor_node) = self.text_edit_manager.get_editing_node_id() else {
-                return false;
-            };
-            if let Some((node, cursor)) = self.hittest_text_position_global(dom_id, point) {
-                if node == anchor_node && cursor == drag.anchor {
+            let extent = self.selection_extent(anchor_block);
+            if let Some((block, cursor)) =
+                self.hittest_text_block(anchor_block.dom(), point, extent)
+            {
+                if block == anchor_block && self.same_caret_position(block, cursor, drag.anchor) {
                     return false;
                 }
             }
@@ -12934,7 +19577,11 @@ impl LayoutWindow {
         let Some(focus) = self.focused_cursor_for_point(point) else {
             return false;
         };
-        if focus == drag.anchor {
+        let onto_the_anchor = self
+            .text_edit_manager
+            .get_editing_block()
+            .is_some_and(|block| self.same_caret_position(block, focus, drag.anchor));
+        if onto_the_anchor {
             return false;
         }
         let Some(mc) = self.text_edit_manager.multi_cursor.as_mut() else {
@@ -12964,41 +19611,19 @@ impl LayoutWindow {
         self.text_edit_manager.handle_drag.is_some()
     }
 
-    /// A `TextCursor`'s offset into the node's whole string (10b-i-b).
+    /// A `TextCursor`'s offset into its block's flat text (10b-i-b) - the
+    /// string [`Self::ime_document`] hands the IME.
     ///
-    /// The cursor names a cluster inside ONE RUN, and
-    /// `cursor_byte_offset_in_run` answers only the within-run half - so using
-    /// it alone puts every offset in a multi-run paragraph at the wrong
-    /// character. Every run before the cursor's has to be counted back in,
-    /// which is what this does and what makes it worth having once rather than
-    /// at each call site.
+    /// The cursor names a cluster inside ONE RUN of the block's content in the
+    /// LAYOUT's numbering ([`Self::block_content`]): behind a list item's
+    /// `::marker`, and with a preserved newline a run of its own that the
+    /// flat text holds as `'\n'`. Counting only the text runs of the DOM's
+    /// text found no run 1 in a list item (no offset at all) and put every
+    /// caret after a line break one byte short of the string the IME was
+    /// given.
     #[must_use]
-    pub fn byte_offset_of_cursor(
-        &self,
-        session_node: DomNodeId,
-        cursor: &TextCursor,
-    ) -> Option<usize> {
-        use crate::text3::edit::cursor_byte_offset_in_run;
-
-        let node = session_node.node.into_crate_internal()?;
-        let content = self.get_text_before_textinput(session_node.dom, node);
-        let target_run = cursor.cluster_id.source_run;
-        let mut consumed = 0usize;
-        for (i, item) in content.iter().enumerate() {
-            let InlineContent::Text(run) = item else {
-                continue;
-            };
-            let i = u32::try_from(i).unwrap_or(u32::MAX);
-            match i.cmp(&target_run) {
-                core::cmp::Ordering::Less => consumed += run.text.len(),
-                core::cmp::Ordering::Equal => {
-                    let byte = cursor_byte_offset_in_run(&run.text, cursor).min(run.text.len());
-                    return Some(consumed + byte);
-                }
-                core::cmp::Ordering::Greater => break,
-            }
-        }
-        None
+    pub fn byte_offset_of_cursor(&self, block: TextBlock, cursor: &TextCursor) -> Option<usize> {
+        Some(self.block_content(block).flat_byte_of(cursor).0)
     }
 
     /// Where the caret is, as a byte offset into the focused editable's text
@@ -13010,9 +19635,9 @@ impl LayoutWindow {
     /// could turn the engine's cursor into an offset.
     #[must_use]
     pub fn focused_caret_byte_offset(&self) -> Option<usize> {
-        let session_node = self.text_edit_manager.multi_cursor.as_ref()?.node_id;
+        let session_block = self.text_edit_manager.multi_cursor.as_ref()?.block;
         let cursor = self.text_edit_manager.get_primary_cursor()?;
-        self.byte_offset_of_cursor(session_node, &cursor)
+        self.byte_offset_of_cursor(session_block, &cursor)
     }
 
     /// The primary selection as a byte range, or the caret twice when there is
@@ -13026,16 +19651,16 @@ impl LayoutWindow {
         use azul_core::selection::Selection;
 
         let mc = self.text_edit_manager.multi_cursor.as_ref()?;
-        let session_node = mc.node_id;
+        let session_block = mc.block;
         let primary = mc.get_primary()?;
         match &primary.selection {
             Selection::Cursor(c) => {
-                let at = self.byte_offset_of_cursor(session_node, c)?;
+                let at = self.byte_offset_of_cursor(session_block, c)?;
                 Some((at, at))
             }
             Selection::Range(r) => {
-                let a = self.byte_offset_of_cursor(session_node, &r.start)?;
-                let b = self.byte_offset_of_cursor(session_node, &r.end)?;
+                let a = self.byte_offset_of_cursor(session_block, &r.start)?;
+                let b = self.byte_offset_of_cursor(session_block, &r.end)?;
                 Some(if a <= b { (a, b) } else { (b, a) })
             }
         }
@@ -13044,10 +19669,16 @@ impl LayoutWindow {
     /// Set the focused editable's selection from a BYTE RANGE (10b-i-b).
     ///
     /// The seam whose absence made `setSelectedTextRange:` a no-op, so a
-    /// dragged selection handle sprang back. `byte_offset_to_cursor` resolves
-    /// each end against the SHAPED LAYOUT rather than by counting characters,
-    /// which is what keeps an offset inside a multi-byte grapheme from landing
-    /// between its bytes.
+    /// dragged selection handle sprang back. Each end is the inverse of
+    /// [`Self::focused_selection_byte_range`]'s reading - the caret at that
+    /// [`FlatByte`] of the session block's flat text
+    /// ([`BlockContent::caret_at`]), snapped to a grapheme start so an offset
+    /// inside a multi-byte grapheme never lands between its bytes. Resolved
+    /// against the shaped clusters instead, the offsets counted a list item's
+    /// marker as text and skipped every line break.
+    ///
+    /// [`FlatByte`]: crate::block_content::FlatByte
+    /// [`BlockContent::caret_at`]: crate::block_content::BlockContent::caret_at
     ///
     /// Returns `false` when there is no live editable to select in - the
     /// caller then leaves the platform's own idea of the selection alone
@@ -13055,26 +19686,21 @@ impl LayoutWindow {
     pub fn set_focused_selection_from_byte_range(&mut self, start: usize, end: usize) -> bool {
         use azul_core::selection::SelectionRange;
 
-        let Some(session_node) = self
-            .text_edit_manager
-            .multi_cursor
-            .as_ref()
-            .map(|mc| mc.node_id)
-        else {
+        use crate::block_content::FlatByte;
+
+        let Some(block) = self.text_edit_manager.get_editing_block() else {
             return false;
         };
-        let Some((inline_layout, _)) = self.session_inline_geometry(session_node) else {
-            return false;
-        };
+        let content = self.block_content(block);
         let (lo, hi) = if start <= end {
             (start, end)
         } else {
             (end, start)
         };
-        let from =
-            Self::byte_offset_to_cursor(&inline_layout, u32::try_from(lo).unwrap_or(u32::MAX));
-        let to = Self::byte_offset_to_cursor(&inline_layout, u32::try_from(hi).unwrap_or(u32::MAX));
-        drop(inline_layout);
+        let (Some(from), Some(to)) = (content.caret_at(FlatByte(lo)), content.caret_at(FlatByte(hi)))
+        else {
+            return false;
+        };
 
         let Some(mc) = self.text_edit_manager.multi_cursor.as_mut() else {
             return false;
@@ -13116,8 +19742,8 @@ impl LayoutWindow {
         }
 
         // Get the inline layout for the node the SESSION is anchored on, in
-        // its own dom (see `session_inline_geometry`).
-        let (inline_layout, calc_pos) = self.session_inline_geometry(mc.node_id)?;
+        // its own dom (see `block_inline_geometry`).
+        let (inline_layout, calc_pos) = self.block_inline_geometry(mc.block)?;
 
         let mut min_x = f32::MAX;
         let mut min_y = f32::MAX;
@@ -13150,12 +19776,6 @@ impl LayoutWindow {
         ))
     }
 
-    /// Ctrl+D: select the next occurrence of the current selection/word.
-    ///
-    /// If the primary selection is a cursor (no range), first expand it to a word.
-    /// Then search forward in the text for the next occurrence and add it as a
-    /// new multi-cursor selection.
-    ///
     /// Select the WORD under the caret (U2).
     ///
     /// What `UIKit`'s `select:` means and what a long-press on unselected text
@@ -13169,17 +19789,13 @@ impl LayoutWindow {
     pub fn select_word_at_caret(&mut self) -> bool {
         use crate::text3::selection::select_word_at_cursor;
 
-        let Some(mc) = self.text_edit_manager.multi_cursor.as_ref() else {
-            return false;
-        };
-        let node_id = mc.node_id;
-        let Some(dom_node_id) = node_id.node.into_crate_internal() else {
+        let Some(block) = self.text_edit_manager.get_editing_block() else {
             return false;
         };
         let Some(cursor) = self.text_edit_manager.get_primary_cursor() else {
             return false;
         };
-        let Some(inline_layout) = self.get_node_inline_layout(node_id.dom, dom_node_id) else {
+        let Some(inline_layout) = self.block_inline_layout(block) else {
             return false;
         };
         let Some(range) = select_word_at_cursor(&cursor, &inline_layout) else {
@@ -13193,180 +19809,130 @@ impl LayoutWindow {
         true
     }
 
-    /// Returns true if a new selection was added.
-    #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
-    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
-    /// # Panics
+    /// Ctrl+D: select the next occurrence of the primary selection - or,
+    /// for a caret, of the word it stands in, which is selected first - and
+    /// add it as one more selection. `true` when a selection was added or
+    /// the caret became its word.
     ///
-    /// Panics if there is no active multi-cursor.
+    /// Read in the caret's own numbering ([`Self::block_content`]) with every
+    /// end's affinity resolved: a word range ends `Trailing` on its last
+    /// grapheme, and cut at that end's raw `start_byte_in_run` the search
+    /// text lost its last letter ("foo" found "fox"). An occurrence ends the
+    /// way a word does ([`BlockContent::run_range`]); `Trailing` on the byte
+    /// after the match took the grapheme after it. The search runs on after
+    /// the last selection - after the word itself for a caret, which from
+    /// the word's start found the word - and wraps around to the first
+    /// occurrence nothing selects yet.
+    ///
+    /// [`BlockContent::run_range`]: crate::block_content::BlockContent::run_range
+    #[allow(clippy::too_many_lines)] // one search, read in the carets' numbering
     pub fn select_next_occurrence(&mut self) -> bool {
         use crate::text3::selection::select_word_at_cursor;
 
+        let Some(mc) = self.text_edit_manager.multi_cursor.as_ref() else {
+            return false;
+        };
+        let block = mc.block;
+        // The occurrence search reads the block's ELEMENT's text; an
+        // anonymous block has none.
+        if block.element().is_none() {
+            return false;
+        }
+        // The LOCAL primary (U3): what Ctrl+D extends.
+        let Some(primary) = mc.get_primary().map(|s| s.selection) else {
+            return false;
+        };
+        let word_range = match primary {
+            Selection::Range(r) => r,
+            Selection::Cursor(c) => {
+                let Some(inline_layout) = self.block_inline_layout(block) else {
+                    return false;
+                };
+                let Some(word) = select_word_at_cursor(&c, &inline_layout) else {
+                    return false;
+                };
+                word
+            }
+        };
+        let need_word_expand = matches!(primary, Selection::Cursor(_));
+
+        // The search text, in the carets' own numbering: in a list item the
+        // word is run 1, behind the `::marker`.
+        let content = self.block_content(block);
+        let (Some((run, a)), Some((end_run, b))) = (
+            content.run_byte_of(&word_range.start),
+            content.run_byte_of(&word_range.end),
+        ) else {
+            return false;
+        };
+        if run != end_run {
+            return false; // a search across runs is not supported
+        }
+        let (word_start, word_end) = (a.0.min(b.0), a.0.max(b.0));
+        let Some(InlineContent::Text(text_run)) = content.items().get(run) else {
+            return false;
+        };
+        let text = &text_run.text;
+        let Some(search_text) = text.get(word_start..word_end).filter(|s| !s.is_empty()) else {
+            return false;
+        };
+
+        // What the local selections already cover in this run (the word
+        // itself included, for a caret about to become it), and where the
+        // search goes on from: after the last of them.
+        let mut taken: Vec<(usize, usize)> = mc
+            .local_selections()
+            .filter_map(|s| {
+                let (x, y) = match s.selection {
+                    Selection::Cursor(c) => (c, c),
+                    Selection::Range(r) => (r.start, r.end),
+                };
+                let (rx, x) = content.run_byte_of(&x)?;
+                let (ry, y) = content.run_byte_of(&y)?;
+                (rx == run && ry == run).then_some((x.0.min(y.0), x.0.max(y.0)))
+            })
+            .collect();
+        taken.push((word_start, word_end));
+        let search_from = if need_word_expand {
+            word_end
+        } else {
+            taken.iter().map(|&(_, end)| end).max().unwrap_or(word_end)
+        };
+        let len = search_text.len();
+        let free = |at: usize| {
+            !taken
+                .iter()
+                .any(|&(lo, hi)| at < hi.max(lo + 1) && lo < at + len)
+        };
+        let occurrences = || text.match_indices(search_text).map(|(at, _)| at);
+        let found = occurrences()
+            .find(|&at| at >= search_from && free(at))
+            .or_else(|| occurrences().find(|&at| free(at)));
+        let new_range = found.and_then(|at| {
+            content.run_range(
+                run,
+                crate::block_content::RunByte(at),
+                crate::block_content::RunByte(at + len),
+            )
+        });
+
+        if new_range.is_none() && !need_word_expand {
+            return false;
+        }
         let Some(mc) = self.text_edit_manager.multi_cursor.as_mut() else {
             return false;
         };
-        let node_id = mc.node_id;
-        let Some(dom_node_id) = node_id.node.into_crate_internal() else {
-            return false;
-        };
-
-        // Get primary selection text (or word at cursor). The LOCAL primary
-        // (U3): `first()` happened to be local only because the list is
-        // owner-sorted, and the primary is what Ctrl+D extends.
-        let primary = match mc.get_primary() {
-            Some(s) => *s,
-            None => return false,
-        };
-
-        let (search_range, need_word_expand) = match &primary.selection {
-            Selection::Range(r) => (*r, false),
-            Selection::Cursor(c) => {
-                // Need to expand to word first
-                (SelectionRange { start: *c, end: *c }, true)
-            }
-        };
-
-        // Get the inline layout
-        let Some(inline_layout) = self.get_node_inline_layout(node_id.dom, dom_node_id) else {
-            return false;
-        };
-
-        // If no range yet, expand to word
-        let word_range = if need_word_expand {
-            match select_word_at_cursor(&search_range.start, &inline_layout) {
-                Some(r) => r,
-                None => return false,
-            }
-        } else {
-            search_range
-        };
-
-        // Extract the search text from inline content
-        let content = self.get_text_before_textinput(node_id.dom, dom_node_id);
-        let full_text = self.extract_text_from_inline_content(&content);
-
-        // Extract the selected word text using byte offsets
-        let start_byte = word_range.start.cluster_id.start_byte_in_run as usize;
-        let end_byte = word_range.end.cluster_id.start_byte_in_run as usize;
-        let search_text =
-            if word_range.start.cluster_id.source_run == word_range.end.cluster_id.source_run {
-                if let Some(InlineContent::Text(run)) =
-                    content.get(word_range.start.cluster_id.source_run as usize)
-                {
-                    if start_byte <= end_byte && end_byte <= run.text.len() {
-                        run.text[start_byte..end_byte].to_string()
-                    } else {
-                        return false;
-                    }
-                } else {
-                    return false;
-                }
-            } else {
-                return false; // Multi-run selection search not yet supported
-            };
-
-        if search_text.is_empty() {
-            return false;
-        }
-
-        // Search forward from the end of the last selection
-        let mc = self.text_edit_manager.multi_cursor.as_ref().unwrap();
-        // The last LOCAL selection (U3): a plain `last()` is a peer's entry
-        // whenever one exists, and Ctrl+D would have searched on from the
-        // peer's caret.
-        let last_end_byte = mc
-            .local_selections()
-            .last()
-            .map_or(0, |s| match &s.selection {
-                Selection::Range(r) => r.end.cluster_id.start_byte_in_run as usize,
-                Selection::Cursor(c) => c.cluster_id.start_byte_in_run as usize,
-            });
-
-        let search_run = word_range.start.cluster_id.source_run;
-
-        // Find next occurrence in the same run's text
-        if let Some(InlineContent::Text(run)) = content.get(search_run as usize) {
-            let search_in = &run.text;
-            // Search from after the last selection end
-            if let Some(offset) = search_in[last_end_byte..].find(&search_text) {
-                let match_start = last_end_byte + offset;
-                let match_end = match_start + search_text.len();
-
-                let new_range = SelectionRange {
-                    start: TextCursor {
-                        cluster_id: GraphemeClusterId {
-                            source_run: search_run,
-                            start_byte_in_run: match_start as u32,
-                        },
-                        affinity: CursorAffinity::Leading,
-                    },
-                    end: TextCursor {
-                        cluster_id: GraphemeClusterId {
-                            source_run: search_run,
-                            start_byte_in_run: match_end as u32,
-                        },
-                        affinity: CursorAffinity::Trailing,
-                    },
-                };
-
-                // If primary was a cursor, convert it to a word selection first
-                let mc = self.text_edit_manager.multi_cursor.as_mut().unwrap();
-                if need_word_expand {
-                    if let Some(first) = mc.local_selections_mut().next() {
-                        first.selection = Selection::Range(word_range);
-                    }
-                }
-                let _ = mc.add_selection(new_range);
-                self.text_edit_manager.mark_dirty();
-                return true;
-            } else if last_end_byte > 0 {
-                // Wrap around: search from the beginning
-                if let Some(offset) = search_in[..start_byte].find(&search_text) {
-                    let match_start = offset;
-                    let match_end = match_start + search_text.len();
-
-                    let new_range = SelectionRange {
-                        start: TextCursor {
-                            cluster_id: GraphemeClusterId {
-                                source_run: search_run,
-                                start_byte_in_run: match_start as u32,
-                            },
-                            affinity: CursorAffinity::Leading,
-                        },
-                        end: TextCursor {
-                            cluster_id: GraphemeClusterId {
-                                source_run: search_run,
-                                start_byte_in_run: match_end as u32,
-                            },
-                            affinity: CursorAffinity::Trailing,
-                        },
-                    };
-
-                    let mc = self.text_edit_manager.multi_cursor.as_mut().unwrap();
-                    if need_word_expand {
-                        if let Some(first) = mc.local_selections_mut().next() {
-                            first.selection = Selection::Range(word_range);
-                        }
-                    }
-                    let _ = mc.add_selection(new_range);
-                    self.text_edit_manager.mark_dirty();
-                    return true;
-                }
-            }
-        }
-
-        // If primary was cursor and we expanded to word but found no other occurrence,
-        // still mark the word selection
+        // A caret becomes its word first.
         if need_word_expand {
-            let mc = self.text_edit_manager.multi_cursor.as_mut().unwrap();
-            if let Some(first) = mc.local_selections_mut().next() {
-                first.selection = Selection::Range(word_range);
+            if let Some(primary) = mc.get_primary_mut() {
+                primary.selection = Selection::Range(word_range);
             }
-            self.text_edit_manager.mark_dirty();
-            return true;
         }
-
-        false
+        if let Some(range) = new_range {
+            let _ = mc.add_selection(range);
+        }
+        self.text_edit_manager.mark_dirty();
+        true
     }
 
     /// Get the cursor rect for the currently focused text input node in VIEWPORT coordinates.
@@ -13388,8 +19954,8 @@ impl LayoutWindow {
     /// For scroll-into-view calculations (absolute coordinates), use `get_focused_cursor_rect()`.
     pub fn get_focused_cursor_rect_viewport(&self) -> Option<LogicalRect> {
         let cursor_rect = self.get_focused_cursor_rect()?;
-        let session_node = self.text_edit_manager.multi_cursor.as_ref()?.node_id;
-        self.cursor_rect_viewport_for(session_node, cursor_rect)
+        let session_block = self.text_edit_manager.multi_cursor.as_ref()?.block;
+        self.cursor_rect_viewport_for(session_block, cursor_rect)
     }
 
     /// Seat `seat_id`'s caret rectangle in viewport coordinates
@@ -13401,20 +19967,19 @@ impl LayoutWindow {
             return self.get_focused_cursor_rect_viewport();
         }
         let caret = self.text_edit_manager.seat_caret(seat_id)?;
-        let rect = self.cursor_rect_for(caret.node, &caret.cursor)?;
-        self.cursor_rect_viewport_for(caret.node, rect)
+        let rect = self.cursor_rect_for(caret.block, &caret.cursor)?;
+        self.cursor_rect_viewport_for(caret.block, rect)
     }
 
-    /// `get_focused_cursor_rect_viewport`'s scroll and transform walk for any
-    /// caret rectangle of `session_node`.
+    /// `get_focused_cursor_rect_viewport`'s scroll and transform mapping for
+    /// any caret rectangle in `block`: where the raster paints it, in WINDOW
+    /// space.
     #[must_use]
     pub fn cursor_rect_viewport_for(
         &self,
-        session_node: DomNodeId,
-        mut cursor_rect: LogicalRect,
+        block: TextBlock,
+        cursor_rect: LogicalRect,
     ) -> Option<LogicalRect> {
-        // Start with absolute position
-
         // Correct the SAME layout node the rect was measured on, in the
         // session's OWN dom. This used to walk `layout_cache.tree` (the ROOT
         // dom only) anchored on `focus_manager.focused_node`, matching a bare
@@ -13422,48 +19987,25 @@ impl LayoutWindow {
         // unrelated root node happened to share that index, or bailed to None
         // — so every IME candidate window inside a virtualized view was placed
         // at the wrong spot on screen.
-        let (layout_result, layout_idx) = self.session_geometry_node(session_node)?;
-        let layout_tree = &layout_result.layout_tree;
+        let (layout_result, layout_idx) = self.block_geometry_node(block)?;
 
-        // STEP 1: Apply scroll offsets from the node and all scrollable
-        // ancestors. SELF-inclusive on purpose: the caret is CONTENT of the
-        // node it sits on, so that node's own scrolling moves it.
-        let scroll = self
-            .accumulated_scroll(
-                session_node.dom,
-                layout_idx.index(),
-                Inclusivity::SelfAndAncestors,
-            )
-            .get();
-        cursor_rect.origin.x -= scroll.x;
-        cursor_rect.origin.y -= scroll.y;
-
-        // STEP 2: Apply inverse GPU transforms from all transformed ancestors
-        let gpu_cache = self.gpu_state_manager.caches.get(&session_node.dom);
-        let mut current_layout_idx = layout_idx.index();
-
-        while let Some(parent_idx) = layout_tree.nodes.get(current_layout_idx)?.parent {
-            // Get the DOM node ID of the parent (if it's not anonymous)
-            if let Some(parent_dom_node_id) = layout_tree.nodes.get(parent_idx)?.dom_node_id {
-                if let Some(cache) = gpu_cache {
-                    if let Some(transform) = cache.current_transform_values.get(&parent_dom_node_id)
-                    {
-                        // Apply the INVERSE transform to get back to viewport coordinates
-                        // The transform moves the element, so we need to reverse it for the cursor
-                        let inverse = transform.inverse();
-                        if let Some(transformed_origin) =
-                            inverse.transform_point2d(cursor_rect.origin)
-                        {
-                            cursor_rect.origin = transformed_origin;
-                        }
-                        // Note: We don't transform the size, only the position
-                    }
-                }
-            }
-
-            // Move to parent for next iteration
-            current_layout_idx = parent_idx;
-        }
+        // STEPS 1-2: the raster's rule, `T_total(static - scroll_total)`, over
+        // the caret's chain - the scroll frames and the reference frames it is
+        // painted in, the block's own included (the caret is CONTENT of the
+        // node it sits on, so that node's own scrolling and transform move
+        // it). This applied the scroll and then the INVERSE of a per-layout-
+        // ancestor value from `current_transform_values` - the vertical
+        // SCROLLBAR THUMB map: a caret under a CSS transform was reported
+        // untransformed, and one on a scrolled page was moved by the page's
+        // thumb offset.
+        let on_screen = crate::headless::content_rect_to_screen(
+            layout_result,
+            block.dom(),
+            layout_idx.index(),
+            cursor_rect,
+            &|d, n| self.scroll_manager.get_current_offset(d, n),
+            &|d, n| self.painted_transform_of(d, n),
+        );
 
         // STEP 3: lift out of the node's own dom into WINDOW space. A nested
         // dom's display list is 0-relative, so everything above is measured as
@@ -13471,11 +20013,27 @@ impl LayoutWindow {
         // this rect straight to the platform IME, which places the candidate
         // window in screen coordinates — without this the popup appears at the
         // top-left of the window instead of under the caret.
-        let host_offset = self.window_space_offset_of_dom(session_node.dom);
-        cursor_rect.origin.x += host_offset.x;
-        cursor_rect.origin.y += host_offset.y;
+        let host_offset = self.window_space_offset_of_dom(block.dom());
+        Some(LogicalRect::new(
+            LogicalPosition::new(
+                on_screen.origin.x + host_offset.x,
+                on_screen.origin.y + host_offset.y,
+            ),
+            on_screen.size,
+        ))
+    }
 
-        Some(cursor_rect)
+    /// The transform the raster applies to `node` of `dom` right now: the
+    /// value the display list's reference frame for it is bound to, CSS
+    /// `transform` or the animation channel (`GpuStateManager::
+    /// painted_transform_of`). THE lookup every "where is it on screen"
+    /// question passes as its `resolve_transform`.
+    pub(crate) fn painted_transform_of(
+        &self,
+        dom: DomId,
+        node: NodeId,
+    ) -> Option<azul_core::transform::ComputedTransform3D> {
+        self.gpu_state_manager.painted_transform_of(dom, node)
     }
 
     /// Find the nearest scrollable ancestor for a given node
@@ -13492,35 +20050,125 @@ impl LayoutWindow {
         // an ANONYMOUS ancestor (`dom_node_id == None`) from re-matching the
         // first anonymous node in the tree.
         let layout_result = self.layout_results.get(&node_id.dom)?;
-        let layout_tree = &layout_result.layout_tree;
-
-        let start = *layout_tree
+        let start = *layout_result
+            .layout_tree
             .dom_to_layout
             .get(&node_id.node.into_crate_internal()?)?
             .first()?;
+        self.scroll_box_of_layout_node(node_id.dom, start)
+    }
 
+    /// The scroll box the laid-out box `start` of `dom` lives in, ITSELF
+    /// INCLUDED - see [`Self::scroll_box_in_chain`].
+    ///
+    /// Keyed on a LAYOUT index, so an anonymous IFC root (which has no DOM
+    /// node to look its box up by) is answered for the box it is, not for
+    /// its container's principal box. [`TextTarget::scroll_box`] is this for
+    /// a text block.
+    ///
+    /// [`TextTarget::scroll_box`]: crate::text_block::TextTarget::scroll_box
+    #[must_use]
+    pub fn scroll_box_of_layout_node(&self, dom: DomId, start: LayoutNodeId) -> Option<DomNodeId> {
         // SELF-inclusive: "which scroll box does this node live in?" — a
         // TextInput's value `<p>` is both the caret's IFC root and the
         // horizontal scroll box the caret reveal must move.
-        layout_tree
-            .ancestor_chain(start, Inclusivity::SelfAndAncestors)
-            .filter(|idx| {
-                // Has scrollbar info (i.e. layout thinks it can scroll)...
-                layout_tree
-                    .warm(*idx)
-                    .and_then(|w| w.scrollbar_info.as_ref())
-                    .is_some()
-            })
-            .filter_map(|idx| layout_tree.get(idx).and_then(|n| n.dom_node_id))
-            // ...and a registered scroll state (i.e. it actually overflows).
-            .find(|check| {
-                self.scroll_manager
-                    .get_scroll_state(node_id.dom, *check)
-                    .is_some()
-            })
+        self.scroll_box_in_chain(dom, start, Inclusivity::SelfAndAncestors)
             .map(|check| DomNodeId {
-                dom: node_id.dom,
+                dom,
                 node: NodeHierarchyItemId::from_crate_internal(Some(check)),
+            })
+    }
+
+    /// The scroll box DOM node `node` of `dom` lives in (its principal box):
+    /// [`Self::scroll_box_in_chain`] by DOM node. `inclusivity` decides
+    /// whether `node` may answer itself - [`Inclusivity::AncestorsOnly`] is
+    /// "which OTHER box takes over" (momentum hand-off), and
+    /// [`Inclusivity::SelfAndAncestors`] "which box does this live in" (a
+    /// drag's autoscroll).
+    ///
+    /// THE answer behind `CallbackInfo::find_scroll_parent` /
+    /// `find_scroll_target` and [`Self::drag_autoscroll_box`]. `None` for a
+    /// node that was not laid out.
+    #[must_use]
+    pub fn scroll_box_of_node(
+        &self,
+        dom: DomId,
+        node: NodeId,
+        inclusivity: Inclusivity,
+    ) -> Option<NodeId> {
+        let start = *self
+            .layout_results
+            .get(&dom)?
+            .layout_tree
+            .dom_to_layout
+            .get(&node)?
+            .first()?;
+        self.scroll_box_in_chain(dom, start, inclusivity)
+    }
+
+    /// The innermost box of `start`'s `ScrollChain` that the `ScrollManager`
+    /// scrolls (it has a registered state): the box a gesture on `start`
+    /// scrolls, and the one whose scroll moves it.
+    ///
+    /// By CONTAINING BLOCK, the rule the display list paints by: an
+    /// `absolute` box is not scrolled by a non-positioned scroll box between
+    /// it and its containing block, and a `fixed` box by no frame at all -
+    /// the page's included. Walking DOM parents (`find_scroll_parent`'s old
+    /// rule) or layout parents (this function's) answered those boxes, so a
+    /// drag over a fixed header scrolled the page under it.
+    fn scroll_box_in_chain(
+        &self,
+        dom: DomId,
+        start: LayoutNodeId,
+        inclusivity: Inclusivity,
+    ) -> Option<NodeId> {
+        let layout_result = self.layout_results.get(&dom)?;
+        solver3::scroll_chain::ScrollChain::of(
+            &layout_result.layout_tree,
+            &layout_result.styled_dom,
+            &layout_result.scroll_ids,
+            start,
+            inclusivity,
+        )
+        .links
+        .iter()
+        .rev()
+        .map(|link| link.node)
+        .find(|node| self.scroll_manager.get_scroll_state(dom, *node).is_some())
+    }
+
+    /// The scroll box a drag's autoscroll moves, for a drag anchored on
+    /// `anchor` (the shells' `auto_scroll_timer_callback`: the focused node
+    /// of a text-selection drag, else the node under the pointer).
+    ///
+    /// A TEXT-SELECTION drag (`text_selection_drag_anchor` latched) scrolls
+    /// the box its text scrolls in - the editing session's
+    /// [`TextTarget::scroll_box`], the same box the caret reveal moves. The
+    /// anchor is the focused HOST there, and in a `TextInput` the box that
+    /// scrolls is the value `<p>`, the host's CHILD: the host-and-its-DOM-
+    /// ancestors walk below never found it, and the drag scrolled the page
+    /// (or nothing) instead of the field.
+    ///
+    /// Any other drag (a node drag, an OS file hover) scrolls the box
+    /// `anchor` LIVES IN - itself included - by containing block
+    /// ([`Self::scroll_box_of_node`]).
+    ///
+    /// [`TextTarget::scroll_box`]: crate::text_block::TextTarget::scroll_box
+    #[must_use]
+    pub fn drag_autoscroll_box(&self, anchor: DomNodeId) -> Option<DomNodeId> {
+        if self.text_selection_drag_anchor.is_some() {
+            if let Some(text_box) = self
+                .session_text_target()
+                .and_then(|target| target.scroll_box(self))
+            {
+                return Some(text_box);
+            }
+        }
+        let node = anchor.node.into_crate_internal()?;
+        self.scroll_box_of_node(anchor.dom, node, Inclusivity::SelfAndAncestors)
+            .map(|found| DomNodeId {
+                dom: anchor.dom,
+                node: NodeHierarchyItemId::from_crate_internal(Some(found)),
             })
     }
 
@@ -13591,27 +20239,27 @@ impl LayoutWindow {
         scroll_type: SelectionScrollType,
         scroll_mode: ScrollMode,
     ) -> bool {
-        // Get bounds to scroll into view
-        let bounds = match scroll_type {
-            SelectionScrollType::Cursor => {
-                // Cursor is 0-size selection at insertion point
-                match self.get_focused_cursor_rect() {
-                    Some(rect) => rect,
-                    None => return false, // No cursor to scroll
-                }
-            }
-            SelectionScrollType::Selection => {
-                // Compute bounding rect of all selection ranges via the text layout.
-                // Falls back to cursor rect if no ranges exist.
-                match self
-                    .calculate_selection_bounding_rect()
-                    .or_else(|| self.get_focused_cursor_rect())
-                {
-                    Some(rect) => rect,
-                    None => return false,
-                }
-            }
+        // PURE COMPUTE AND APPLY: this neither reads nor writes the view
+        // arbiter (`ScrollManager::pending_reveal`). Whether a reveal should
+        // run at all is decided by its caller - an input performing the
+        // request it issued (`Self::reveal_for_input`,
+        // `Self::apply_pending_text_and_reveal`) or the post-layout
+        // consumer (`Self::scroll_focused_cursor_into_view`). It used to
+        // re-arm the arbiter itself, so every caller became "the last
+        // action", including the shells' per-pass tail that was no input
+        // at all.
+        // The FOCUS end: the primary cursor, which for a range is its end -
+        // the end the user is extending (`MultiCursorState::get_primary_cursor`).
+        let focus_rect = self.get_focused_cursor_rect();
+        // A range's bounding rect, revealed whole only when it FITS the
+        // scrollport (decided below, once the scrollport is known).
+        let range_rect = match scroll_type {
+            SelectionScrollType::Cursor => None,
+            SelectionScrollType::Selection => self.calculate_selection_bounding_rect(),
         };
+        if focus_rect.is_none() && range_rect.is_none() {
+            return false; // Nothing to scroll to
+        }
 
         // Anchor the ancestor search on the SAME node the caret geometry came
         // from. `get_focused_cursor_rect` was re-keyed onto the editing
@@ -13621,19 +20269,32 @@ impl LayoutWindow {
         // the reveal bailed looking for a scrollable ancestor of a different
         // node, or of no node at all when the session had never taken window
         // focus. The caret then never scrolled into view.
-        let anchor_node = self
+        //
+        // ONE rule with the drag autoscroll (`Self::drag_autoscroll_box`):
+        // the box the session's TEXT scrolls in, `TextTarget::scroll_box` -
+        // walked from the block's own layout box, so an anonymous IFC root is
+        // answered for itself. Without a session, the focused node's box.
+        let session_box = self
             .text_edit_manager
             .multi_cursor
             .as_ref()
-            .map(|mc| mc.node_id)
-            .or(self.focus_manager.focused_node);
-        let Some(anchor_node) = anchor_node else {
-            return false;
-        };
-
-        // Find scrollable ancestor
-        let Some(scroll_container) = self.find_scrollable_ancestor(anchor_node) else {
-            return false; // No scrollable ancestor
+            .and_then(|_| self.session_text_target())
+            .and_then(|target| target.scroll_box(self));
+        let scroll_container = if let Some(found) = session_box { found } else {
+            let anchor_node = self
+                .text_edit_manager
+                .multi_cursor
+                .as_ref()
+                .map(|mc| mc.block.container_dom_node())
+                .or(self.focus_manager.focused_node);
+            let Some(anchor_node) = anchor_node else {
+                return false;
+            };
+            // Find scrollable ancestor
+            let Some(found) = self.find_scrollable_ancestor(anchor_node) else {
+                return false; // No scrollable ancestor
+            };
+            found
         };
 
         // Container bounds and scroll state, measured in the CONTAINER'S OWN
@@ -13685,7 +20346,7 @@ impl LayoutWindow {
             origin: container_pos,
             size: scrollable_layout_node.used_size.unwrap_or_default(),
         });
-        let container_rect = border_box
+        let padding_box = border_box
             .to_padding_box(&scrollable_layout_node.box_props.unpack().border)
             .rect();
 
@@ -13697,6 +20358,20 @@ impl LayoutWindow {
             return false;
         };
 
+        // THE VIEWPORT's scrollport is the WINDOW (CSS Overflow 3 §3.3) - the
+        // rect `register_scroll_nodes` publishes for it - never the root's
+        // box, which is as tall as the page: measured against that, a caret
+        // anywhere on the page was already "visible", and typing past the
+        // bottom of the window never scrolled it into view.
+        let container_rect = if solver3::scrollbar::is_viewport_scroller(
+            scroll_container.dom,
+            scrollable_node_internal,
+        ) {
+            scroll_state.container_rect
+        } else {
+            padding_box
+        };
+
         // Calculate visible area (container rect adjusted by scroll offset)
         let visible_area = LogicalRect::new(
             LogicalPosition::new(
@@ -13705,6 +20380,25 @@ impl LayoutWindow {
             ),
             container_rect.size,
         );
+
+        // WHAT to reveal. A range is shown whole while it fits the
+        // scrollport (with the reveal padding on both sides); a wider one
+        // cannot be, and then its FOCUS end is what matters - the end the
+        // user is extending, which is what browsers reveal. Revealing the
+        // bounding rect of a wider range went to its START
+        // (`calculate_instant_scroll_delta` tests the left edge before the
+        // right, the top before the bottom), so Shift+Right past the right
+        // edge of a field took the view away from the end being extended.
+        let fits = |r: LogicalRect| {
+            r.size.width <= container_rect.size.width - 2.0 * REVEAL_PADDING_PX
+                && r.size.height <= container_rect.size.height - 2.0 * REVEAL_PADDING_PX
+        };
+        let bounds = match (range_rect, focus_rect) {
+            (Some(range), _) if fits(range) => range,
+            (_, Some(focus)) => focus,
+            (Some(range), None) => range,
+            (None, None) => return false,
+        };
 
         // For typing/clicking: instant scroll with fixed padding. (The
         // "accelerated drag" mode that used to live here had ZERO call
@@ -13783,54 +20477,96 @@ impl LayoutWindow {
         }
     }
 
-    /// Scrolls the focused cursor into view after layout.
+    /// Performs the pending caret / selection reveal after a layout, against
+    /// the geometry that layout just produced.
     ///
-    /// Delegates to `scroll_selection_into_view` with cursor mode.
-    /// Called internally from `layout_and_generate_display_list()`.
+    /// Called from `layout_and_generate_display_list()`, AFTER
+    /// `register_scroll_nodes` (publish before consume). It CONSUMES the
+    /// request an input issued ([`crate::managers::scroll_state::RevealRequest`]):
+    /// a layout with nothing requested - a hover restyle, an animation tick,
+    /// a layout a wheel step caused - reveals nothing, so the user can scroll
+    /// away from their own caret, and a `VirtualView` re-materializing under
+    /// the wheel (which moves the caret's rect without anyone moving the
+    /// caret) is no reason to reveal either. That used to be decided by a
+    /// latch on the caret's rect and content revision, which a peer's edit
+    /// tripped as well.
     fn scroll_focused_cursor_into_view(&mut self) -> bool {
-        // ONLY when the caret actually moved — see `last_revealed_caret_rect`.
-        // This is called after EVERY successful layout, so without the gate the
-        // user cannot scroll away from a focused text field: every frame drags
-        // the view back to the cursor.
-        let current = self.get_focused_cursor_rect();
-        if current.is_none() {
+        let Some(request) = self.scroll_manager.pending_reveal() else {
             return false;
-        }
-        let key = self.text_edit_manager.multi_cursor.as_ref().and_then(|mc| {
-            let cursor = self.text_edit_manager.get_primary_cursor()?;
-            Some((mc.contenteditable_key, cursor, self.document_text_revision))
-        });
-        let unchanged = match key {
-            // The caret did not change; its rect may have (a VirtualView
-            // re-materialized under a wheel scroll). The user's scroll wins.
-            Some(_) => key == self.last_revealed_caret_key,
-            // No logical identity to key on: the rect is the only signal.
-            None => current == self.last_revealed_caret_rect,
         };
-        if unchanged {
-            return false;
-        }
-        // Do NOT latch a reveal that cannot structurally run. `find_scrollable_
-        // ancestor` requires a REGISTERED scroll state, and a box that has only
-        // just started overflowing acquires one at the end of this frame. The
-        // gate recording such an attempt as satisfied is how that keystroke's
-        // reveal was lost for good.
-        let anchor = self
-            .text_edit_manager
-            .multi_cursor
-            .as_ref()
-            .map(|mc| mc.node_id)
-            .or(self.focus_manager.focused_node);
-        if anchor
-            .and_then(|a| self.find_scrollable_ancestor(a))
-            .is_none()
+        // A caret this layout has not placed (its block is not laid out yet)
+        // keeps the request for the layout that places it. Without an
+        // editing session there is no caret to reveal at all.
+        if self.text_edit_manager.multi_cursor.is_some() && self.get_focused_cursor_rect().is_none()
         {
             return false;
         }
-        self.last_revealed_caret_rect = current;
-        self.last_revealed_caret_key = key;
-        // Redirect to unified scroll system
-        self.scroll_selection_into_view(SelectionScrollType::Cursor, ScrollMode::Instant)
+        let _ = self.scroll_manager.take_pending_reveal();
+        if self.text_edit_manager.multi_cursor.is_none() {
+            return false;
+        }
+        self.scroll_selection_into_view(selection_scroll_type_of(request), ScrollMode::Instant)
+    }
+
+    /// Perform the reveal an input asked for, now.
+    ///
+    /// `keep_for_layout`: leave the request pending after performing it, for
+    /// a reveal made AHEAD of a relayout that may still move the caret (a
+    /// landed edit that changed its text's extent); the post-layout pass
+    /// ([`Self::scroll_focused_cursor_into_view`]) performs it once more
+    /// against the fresh geometry, and consumes it.
+    pub fn perform_pending_reveal(&mut self, keep_for_layout: bool) -> bool {
+        let request = if keep_for_layout {
+            self.scroll_manager.pending_reveal()
+        } else {
+            self.scroll_manager.take_pending_reveal()
+        };
+        match request {
+            Some(request) => self
+                .scroll_selection_into_view(selection_scroll_type_of(request), ScrollMode::Instant),
+            None => false,
+        }
+    }
+
+    /// An INPUT asks for the caret or selection to be shown, and it is shown
+    /// now: the shells' `ScrollSelectionIntoView` (after a click, a caret or
+    /// selection op, cut / paste / undo / redo / select-all) and an app's or
+    /// an assistive technology's `ScrollActiveCursorIntoView`.
+    pub fn reveal_for_input(
+        &mut self,
+        request: crate::managers::scroll_state::RevealRequest,
+    ) -> bool {
+        self.scroll_manager.request_reveal(request);
+        self.perform_pending_reveal(false)
+    }
+
+    /// Ask for the editing session to be revealed - its selection when the
+    /// primary selection is a range, else its caret. For the input sites
+    /// that change the LOCAL caret (a click, a caret or selection op, a
+    /// landed edit, a seeded or restored caret); performed by the reveal
+    /// that input's pass runs, or after the next layout.
+    pub(crate) fn request_session_reveal(&mut self) {
+        use crate::managers::scroll_state::RevealRequest;
+        let has_range = self.text_edit_manager.multi_cursor.as_ref().is_some_and(|mc| {
+            mc.local_selections()
+                .any(|s| matches!(s.selection, Selection::Range(_)))
+        });
+        self.scroll_manager.request_reveal(if has_range {
+            RevealRequest::Selection
+        } else {
+            RevealRequest::Caret
+        });
+    }
+}
+
+/// The reveal a [`crate::managers::scroll_state::RevealRequest`] asks
+/// [`LayoutWindow::scroll_selection_into_view`] for.
+const fn selection_scroll_type_of(
+    request: crate::managers::scroll_state::RevealRequest,
+) -> SelectionScrollType {
+    match request {
+        crate::managers::scroll_state::RevealRequest::Caret => SelectionScrollType::Cursor,
+        crate::managers::scroll_state::RevealRequest::Selection => SelectionScrollType::Selection,
     }
 }
 
@@ -13850,12 +20586,16 @@ pub enum ScrollMode {
     Instant,
 }
 
+/// The margin a caret or selection reveal keeps between what it reveals and
+/// the scrollport's edge ([`calculate_instant_scroll_delta`]).
+const REVEAL_PADDING_PX: f32 = 5.0;
+
 /// Calculate scroll delta with fixed padding (instant scroll mode)
 fn calculate_instant_scroll_delta(
     bounds: LogicalRect,
     visible_area: LogicalRect,
 ) -> LogicalPosition {
-    const PADDING: f32 = 5.0;
+    const PADDING: f32 = REVEAL_PADDING_PX;
     let mut delta = LogicalPosition::zero();
 
     // Horizontal scrolling
@@ -13929,8 +20669,9 @@ impl LayoutWindow {
     ) -> Vec<crate::callbacks::CallbackChange> {
         use crate::callbacks::{CallbackInfo, CallbackInfoRefData};
 
-        let has_tracks =
-            !self.live_tracks.is_empty() || self.zombies.iter().any(|z| !z.tracks.is_empty());
+        let has_tracks = !self.live_tracks.is_empty()
+            || !self.view_tracks.is_empty()
+            || self.zombies.iter().any(|z| !z.tracks.is_empty());
         if !has_tracks || self.tracks_sampled_since_tick {
             return Vec::new();
         }
@@ -13940,6 +20681,8 @@ impl LayoutWindow {
         let callback_changes = Arc::new(std::sync::Mutex::new(Vec::new()));
         struct SampledTrack {
             zombie_idx: Option<usize>,
+            /// The DOM of a live track's node: the root, or a view's child DOM.
+            dom: DomId,
             node: NodeId,
             sample: TrackSample,
         }
@@ -13975,7 +20718,7 @@ impl LayoutWindow {
             );
             let sample_track = |tr: &AnimTrack,
                                 info: &azul_core::resources::ZombieAnimInfo,
-                                live_node: Option<NodeId>|
+                                live_node: Option<(DomId, NodeId)>|
              -> TrackSample {
                 match &tr.source {
                     TrackSource::Compiled => tr.sample(),
@@ -13990,10 +20733,12 @@ impl LayoutWindow {
                         let mut tci = crate::timer::TimerCallbackInfo {
                             callback_info: base_info,
                             node_id: match live_node {
-                                Some(n) => azul_core::dom::OptionDomNodeId::Some(DomNodeId {
-                                    dom: DomId::ROOT_ID,
-                                    node: NodeHierarchyItemId::from_crate_internal(Some(n)),
-                                }),
+                                Some((dom, n)) => {
+                                    azul_core::dom::OptionDomNodeId::Some(DomNodeId {
+                                        dom,
+                                        node: NodeHierarchyItemId::from_crate_internal(Some(n)),
+                                    })
+                                }
                                 // A zombie's node is not IN the live tree.
                                 None => azul_core::dom::OptionDomNodeId::None,
                             },
@@ -14037,12 +20782,19 @@ impl LayoutWindow {
                     };
                     sampled.push(SampledTrack {
                         zombie_idx: Some(zi),
+                        dom: DomId::ROOT_ID,
                         node: *node,
                         sample: sample_track(tr, &info, None),
                     });
                 }
             }
             for (node, tr) in &self.live_tracks {
+                // A culled track keeps its clock (`tick_animations`) but is
+                // not sampled: its node cannot be seen, so its values stay
+                // where they are and the frame owes it no damage.
+                if self.culled_tracks.contains(node) {
+                    continue;
+                }
                 let Some(r) = self.layout_results.get(&DomId::ROOT_ID) else {
                     continue;
                 };
@@ -14066,15 +20818,54 @@ impl LayoutWindow {
                 };
                 sampled.push(SampledTrack {
                     zombie_idx: None,
+                    dom: DomId::ROOT_ID,
                     node: *node,
-                    sample: sample_track(tr, &info, Some(*node)),
+                    sample: sample_track(tr, &info, Some((DomId::ROOT_ID, *node))),
                 });
+            }
+            // The views' tracks, each against its own DOM (`view_tracks`). A window
+            // that shows nothing samples none of them.
+            let views = if self.view_tracks_hidden {
+                None
+            } else {
+                Some(&self.view_tracks)
+            };
+            for (dom, tracks) in views.into_iter().flatten() {
+                let Some(r) = self.layout_results.get(dom) else {
+                    continue;
+                };
+                for (node, tr) in tracks {
+                    let Some(rect) = self
+                        .get_node_bounds(*dom, *node)
+                        .map(layout_rect_to_logical)
+                    else {
+                        continue;
+                    };
+                    let info = azul_core::resources::ZombieAnimInfo {
+                        styled_dom: &raw const r.styled_dom,
+                        node_id: node.index() as u64,
+                        rect,
+                        viewport: r.viewport,
+                        dpi_factor: zombie_dpi,
+                        t: tr.t,
+                        timing: tr.timing,
+                        velocity_x: 0.0,
+                        velocity_y: 0.0,
+                    };
+                    sampled.push(SampledTrack {
+                        zombie_idx: None,
+                        dom: *dom,
+                        node: *node,
+                        sample: sample_track(tr, &info, Some((*dom, *node))),
+                    });
+                }
             }
         } // shared borrow ends here
 
         // ---- PHASE B: mut `self` — apply samples ----
         for SampledTrack {
             zombie_idx,
+            dom,
             node,
             sample,
         } in sampled
@@ -14130,6 +20921,7 @@ impl LayoutWindow {
                         &mut z.scratch_text,
                         &z.retained.styled_dom,
                         z.retained.viewport,
+                        LogicalRect::new(LogicalPosition::zero(), z.retained.viewport.size),
                         &self.font_manager,
                         &BTreeMap::new(),
                         &BTreeMap::new(),
@@ -14155,7 +20947,7 @@ impl LayoutWindow {
                     if let Ok(dl) = solved {
                         z.retained.display_list = dl;
                         z.applied_sizes.insert(node, wants);
-                        if let Some(tree) = z.scratch_cache.tree.as_ref() {
+                        if let Some(tree) = z.scratch_cache.tree.as_deref() {
                             for (idx, tn) in tree.nodes.iter().enumerate() {
                                 if tn.dom_node_id == Some(node) {
                                     if let (Some(size), Some(pos)) = (
@@ -14180,55 +20972,17 @@ impl LayoutWindow {
                 }
                 z.tick_samples.insert(node, sample);
             } else {
-                if let Some(tr) = self.live_tracks.get_mut(&node) {
+                let track = if dom == DomId::ROOT_ID {
+                    self.live_tracks.get_mut(&node)
+                } else {
+                    self.view_tracks
+                        .get_mut(&dom)
+                        .and_then(|tracks| tracks.get_mut(&node))
+                };
+                if let Some(tr) = track {
                     tr.frames_run = tr.frames_run.saturating_add(1);
                 }
-                let cache = self
-                    .gpu_state_manager
-                    .caches
-                    .entry(DomId::ROOT_ID)
-                    .or_default();
-                let smp = sample;
-                cache
-                    .anim_transform_keys
-                    .entry(node)
-                    .or_insert_with(azul_core::resources::TransformKey::unique);
-                // Row-vector affine with scale/rotate about the node's
-                // CENTRE, folded into the translation row (logical
-                // units, like the manager's flip matrices).
-                let (sin, cos) = smp.rotate_deg.to_radians().sin_cos();
-                let (a, b) = (smp.scale_x * cos, smp.scale_x * sin);
-                let (c, d) = (-smp.scale_y * sin, smp.scale_y * cos);
-                let (cx, cy) = self
-                    .get_node_bounds(DomId::ROOT_ID, node)
-                    .map(layout_rect_to_logical)
-                    .map_or((0.0, 0.0), |r| (r.size.width / 2.0, r.size.height / 2.0));
-                let cache = self
-                    .gpu_state_manager
-                    .caches
-                    .entry(DomId::ROOT_ID)
-                    .or_default();
-                cache.anim_current_transform_values.insert(
-                    node,
-                    azul_core::transform::ComputedTransform3D {
-                        m: [
-                            [a, b, 0.0, 0.0],
-                            [c, d, 0.0, 0.0],
-                            [0.0, 0.0, 1.0, 0.0],
-                            [
-                                cx + smp.translate_x - cx * a - cy * c,
-                                cy + smp.translate_y - cx * b - cy * d,
-                                0.0,
-                                1.0,
-                            ],
-                        ],
-                    },
-                );
-                cache
-                    .anim_opacity_keys
-                    .entry(node)
-                    .or_insert_with(OpacityKey::unique);
-                cache.anim_current_opacity_values.insert(node, smp.opacity);
+                self.publish_live_sample(dom, node, sample);
             }
         }
 
@@ -14236,6 +20990,49 @@ impl LayoutWindow {
             .lock()
             .map(|mut g| core::mem::take(&mut *g))
             .unwrap_or_default()
+    }
+
+    /// Publishes `smp`, a sample of the live (`-azul-animation-in`) track of
+    /// `node`, into the animation GPU channels the display list and both
+    /// renderers read: the node's keys (minted once) and its transform and
+    /// opacity.
+    fn publish_live_sample(&mut self, dom: DomId, node: NodeId, smp: TrackSample) {
+        // Row-vector affine with scale/rotate about the node's
+        // CENTRE, folded into the translation row (logical
+        // units, like the manager's flip matrices).
+        let (sin, cos) = smp.rotate_deg.to_radians().sin_cos();
+        let (a, b) = (smp.scale_x * cos, smp.scale_x * sin);
+        let (c, d) = (-smp.scale_y * sin, smp.scale_y * cos);
+        let (cx, cy) = self
+            .get_node_bounds(dom, node)
+            .map(layout_rect_to_logical)
+            .map_or((0.0, 0.0), |r| (r.size.width / 2.0, r.size.height / 2.0));
+        let cache = self.gpu_state_manager.caches.entry(dom).or_default();
+        cache
+            .anim_transform_keys
+            .entry(node)
+            .or_insert_with(azul_core::resources::TransformKey::unique);
+        cache.anim_current_transform_values.insert(
+            node,
+            azul_core::transform::ComputedTransform3D {
+                m: [
+                    [a, b, 0.0, 0.0],
+                    [c, d, 0.0, 0.0],
+                    [0.0, 0.0, 1.0, 0.0],
+                    [
+                        cx + smp.translate_x - cx * a - cy * c,
+                        cy + smp.translate_y - cx * b - cy * d,
+                        0.0,
+                        1.0,
+                    ],
+                ],
+            },
+        );
+        cache
+            .anim_opacity_keys
+            .entry(node)
+            .or_insert_with(OpacityKey::unique);
+        cache.anim_current_opacity_values.insert(node, smp.opacity);
     }
 
     /// Runs a single timer, similar to `CallbacksOfHitTest.call()`
@@ -14290,8 +21087,15 @@ impl LayoutWindow {
                 },
                 |s| s,
             );
+            // A timer hit no node, but the pointer is somewhere: what it
+            // shows at the pointer (a hover tooltip after its delay) needs
+            // that spot, or it lands in the window's top-left corner.
             let cursor_relative_to_item = OptionLogicalPosition::None;
-            let cursor_in_viewport = OptionLogicalPosition::None;
+            let cursor_in_viewport = current_window_state
+                .mouse_state
+                .cursor_position
+                .get_position()
+                .map_or(OptionLogicalPosition::None, OptionLogicalPosition::Some);
 
             let callback_changes = Arc::new(std::sync::Mutex::new(Vec::new()));
 
@@ -14381,6 +21185,30 @@ impl LayoutWindow {
         let thread_ids: Vec<ThreadId> = self.threads.keys().copied().collect();
 
         for thread_id in thread_ids {
+            // The worker of an unmounted node (`managers::thread_owner`): it
+            // was told to stop at the unmount; nothing reads its write-backs
+            // any more, and it leaves the window once it has stopped (or,
+            // past the grace period, detached).
+            if let Some(orphaned) = self.thread_owners.orphaned(&thread_id) {
+                let retire = self.threads.get(&thread_id).is_none_or(|thread| {
+                    crate::managers::thread_owner::poll_orphan(
+                        orphaned,
+                        thread,
+                        crate::managers::thread_owner::wall_clock(),
+                    )
+                });
+                if retire {
+                    all_changes.push(CallbackChange::RemoveThread { thread_id });
+                }
+                continue;
+            }
+
+            // A thread the app asked to stop (`stop_thread`): it gets no `Tick` any
+            // more, but its write-backs still run - its last word is what the app waits
+            // for. It is retired once it has finished, or detached past the grace
+            // period, so no frame ever waits for it.
+            let stopping = self.thread_owners.stopping(&thread_id);
+
             let hit_dom_node = DomNodeId {
                 dom: DomId::ROOT_ID,
                 node: NodeHierarchyItemId::from_crate_internal(None),
@@ -14409,17 +21237,33 @@ impl LayoutWindow {
                         break;
                     };
 
+                    // The frame pulse goes only to a worker that asked for it
+                    // (`Thread::with_frame_ticks`), never to one told to stop.
                     if !ticked {
-                        let _ = thread_inner.sender_send(ThreadSendMsg::Tick);
+                        if stopping.is_none() && thread_inner.wants_frame_ticks {
+                            let _ = thread_inner.sender_send(ThreadSendMsg::Tick);
+                        }
                         ticked = true;
                     }
-                    let recv = thread_inner.receiver_try_recv();
+                    // Finished is read BEFORE the queue: a worker that sends its last
+                    // write-back and returns between the two reads would otherwise look
+                    // finished with an empty queue, and its last word would be lost.
                     let is_finished = thread_inner.is_finished();
+                    let recv = thread_inner.receiver_try_recv();
                     let msg = match recv {
                         // Queue empty: a finished worker has now delivered
-                        // everything it ever will, so it can be retired.
+                        // everything it ever will, so it can be retired. So can a
+                        // stopping one that ran out of time (detached).
                         OptionThreadReceiveMsg::None => {
-                            if is_finished {
+                            let given_up = !is_finished
+                                && stopping.is_some_and(|told| {
+                                    crate::managers::thread_owner::detach_if_overdue(
+                                        told,
+                                        thread_inner,
+                                        crate::managers::thread_owner::wall_clock(),
+                                    )
+                                });
+                            if is_finished || given_up {
                                 all_changes.push(CallbackChange::RemoveThread { thread_id });
                             }
                             break;
@@ -14756,9 +21600,138 @@ impl LayoutWindow {
     pub fn set_system_style(&mut self, system_style: Arc<azul_css::system::SystemStyle>) {
         #[cfg(feature = "icu")]
         {
-            self.icu_localizer = IcuLocalizerHandle::from_system_language(&system_style.language);
+            // The app's chosen locale (`set_locale`) outranks the system's:
+            // this runs on every layout pass, and re-deriving the formatter
+            // from the system language here used to undo `set_locale`.
+            let language = match self.locale_override.as_ref() {
+                Some(chosen) => &chosen.id,
+                None => &system_style.language.id,
+            };
+            self.icu_localizer = IcuLocalizerHandle::from_system_language(language);
         }
         self.system_style = Some(system_style);
+    }
+
+    /// Hand this window the Fluent localizer [`Self::style_user_dom`]
+    /// translates `AzString::tr` text with.
+    #[cfg(feature = "fluent")]
+    pub fn set_fluent_localizer(&mut self, localizer: FluentLocalizerHandle) {
+        self.fluent_localizer = Some(localizer);
+    }
+
+    /// Take the app's localization from its config: a Fluent localizer over
+    /// `AppConfig::fluent_locales` (none when the app registered no
+    /// translations).
+    ///
+    /// Every shell calls this where it builds the window's `LayoutWindow`,
+    /// next to handing it `config.routes` - without it no window ever
+    /// translates anything.
+    pub fn set_app_localization(&mut self, config: &azul_core::resources::AppConfig) {
+        self.known_languages = config.localization.known_languages.clone();
+        #[cfg(feature = "fluent")]
+        {
+            self.fluent_localizer =
+                FluentLocalizerHandle::from_locale_sources(config.fluent_locales.as_ref());
+        }
+        // The app's language choice as it stands now ([`set_app_locale`]): a window built
+        // after a switch starts in it.
+        if let Some(locale) = app_locale() {
+            let _ = self.set_locale(&locale);
+        }
+    }
+
+    /// Take the app's E2E hooks from its config: its commands and its
+    /// catch-all handler. Every shell calls this beside
+    /// [`Self::set_app_localization`]; without it a scenario never reaches
+    /// the app's ops.
+    pub fn set_app_e2e(&mut self, config: &azul_core::resources::AppConfig) {
+        self.custom_e2e_op = config.custom_e2e_op.clone();
+        self.e2e_commands = config.e2e_commands.clone();
+    }
+
+    /// The language this window's text is in: the one the app chose with
+    /// `CallbackInfo::set_locale` if it chose one, else the system's.
+    ///
+    /// What the translation pass translates into, what the ICU formatter
+    /// formats for, and what `LayoutCallbackInfo::get_locale` / `is_rtl`
+    /// report.
+    #[must_use]
+    pub fn active_language(&self) -> azul_css::system::SystemLanguage {
+        if let Some(chosen) = self.locale_override.as_ref() {
+            return chosen.clone();
+        }
+        self.system_style
+            .as_ref()
+            .map(|style| style.language.clone())
+            .unwrap_or_default()
+    }
+
+    /// Make `locale` this window's language (`CallbackInfo::set_locale`),
+    /// its right-to-left-ness resolved against the app's known languages
+    /// ([`azul_css::system::SystemLanguage::resolve`]); an empty `locale`
+    /// follows the system's language again ("System").
+    ///
+    /// Only records the choice (and re-points the ICU formatter); what has to
+    /// be redone because of it is the caller's: [`LocaleChange`] says which
+    /// input of `layout()` moved, [`Self::relocalize_laid_out_text`] redoes
+    /// the strings.
+    pub fn set_locale(&mut self, locale: &str) -> LocaleChange {
+        let before = self.active_language();
+        self.locale_override = (!locale.trim().is_empty()).then(|| {
+            azul_css::system::SystemLanguage::resolve(locale, self.known_languages.as_ref())
+        });
+        let after = self.active_language();
+        #[cfg(feature = "icu")]
+        self.icu_localizer.set_locale(after.id.as_str());
+        LocaleChange {
+            locale_changed: before.id != after.id,
+            direction_changed: before.is_rtl != after.is_rtl,
+        }
+    }
+
+    /// Re-translate the text of every DOM this window has laid out into
+    /// [`Self::active_language`], in place: the "only the strings are
+    /// re-localized" half of a locale change, which does not call `layout()`
+    /// again.
+    ///
+    /// Returns whether any text changed; the caller owes the relayout
+    /// (`ProcessEventResult::ShouldIncrementalRelayout`).
+    // Not const: with the `fluent` feature the body walks and re-shapes the DOMs.
+    #[allow(clippy::missing_const_for_fn)]
+    pub fn relocalize_laid_out_text(&mut self) -> bool {
+        #[cfg(feature = "fluent")]
+        {
+            let Some(localizer) = self.fluent_localizer.clone() else {
+                return false;
+            };
+            let language = self.active_language();
+            let mut changed_doms = Vec::new();
+            for (dom_id, layout_result) in self.layout_results.iter_mut() {
+                if crate::fluent::localize_styled_dom(
+                    &mut layout_result.styled_dom,
+                    &localizer,
+                    language.id.as_str(),
+                ) {
+                    changed_doms.push(*dom_id);
+                }
+            }
+            if changed_doms.is_empty() {
+                return false;
+            }
+            // The invalidation `CallbackChange::ChangeNodeText` performs for the
+            // same reason: the incremental cache keys its shaped text runs on
+            // the DOM, which an in-place text change does not replace, and the
+            // display list still carries the old glyphs.
+            self.layout_cache.reset_incremental();
+            for dom_id in changed_doms {
+                self.regenerate_display_list_for_dom(dom_id);
+            }
+            true
+        }
+        #[cfg(not(feature = "fluent"))]
+        {
+            false
+        }
     }
 
     /// Hand this window the app's icon storage. Called by the shell next to
@@ -14768,8 +21741,58 @@ impl LayoutWindow {
         self.icon_provider = Some(provider);
     }
 
-    /// THE path from a user `Dom` to a `StyledDom`: resolve `<icon>` nodes,
-    /// then cascade.
+    /// Replace the raw form controls of the layout callback's DOM by widgets
+    /// (`crate::form_controls`), in place, with this window's memory of what
+    /// the user gave them. Returns how many were replaced.
+    ///
+    /// [`Self::style_user_dom`] does this too; the shell calls it EARLIER,
+    /// before it fingerprints the fresh DOM for the pre-cascade fast path,
+    /// so the fingerprint and its by-index callback transfers describe the
+    /// same nodes as the retained `StyledDom` (a raw `<input>` is one node,
+    /// its widget several). The later call then finds nothing to replace.
+    #[cfg(feature = "widgets")]
+    pub fn resolve_form_controls(&self, dom: &mut Dom) -> usize {
+        // Widgets built here are built for this window's app theme.
+        let _theme = azul_core::app_theme::ThemeScope::enter(self.app_theme.clone());
+        crate::form_controls::resolve_form_controls_in_dom(
+            dom,
+            &self.form_control_memory,
+            FORM_SCOPE_ROOT,
+        )
+    }
+
+    /// An XML document as the E2E `mount` op installs it in place of the
+    /// app's DOM: parsed, its raw form controls replaced by widgets with THIS
+    /// window's memory ([`Self::resolve_form_controls`]), its icons resolved,
+    /// cascaded.
+    ///
+    /// The window's memory, not a throw-away one: it is where the form a
+    /// replaced checkbox or slider sits in reads its value, where a form
+    /// reset forgets what the user gave it, and what a re-mount of the same
+    /// document (a theme switch re-mounts it) hands the user's values back
+    /// from.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `XmlError` if the XML cannot be parsed.
+    #[cfg(feature = "xml")]
+    pub fn style_xml_document(
+        &self,
+        xml: &str,
+        provider: &azul_core::icon::SharedIconProvider,
+        system_style: &azul_css::system::SystemStyle,
+    ) -> Result<StyledDom, crate::xml::XmlError> {
+        // `dom` is unused without the `widgets` feature (unused_variables is
+        // allowed crate-wide for exactly that).
+        crate::xml::styled_xml_document(xml, provider, system_style, |dom| {
+            #[cfg(feature = "widgets")]
+            let _ = self.resolve_form_controls(dom);
+        })
+    }
+
+    /// THE path from a user `Dom` to a `StyledDom`: replace raw form controls
+    /// by widgets, resolve `<icon>` nodes, then cascade (the full order is on
+    /// [`Self::style_user_dom_in_scope`]).
     ///
     /// Every DOM the application produces goes through here - the one its
     /// `layout()` callback returns AND the one a `VirtualView` callback returns.
@@ -14802,9 +21825,100 @@ impl LayoutWindow {
     /// re-cascaded a moment later (theme-chain analysis 2026-09-12, R2).
     #[must_use]
     pub fn style_user_dom_for(&self, dom: Dom, window_state: &FullWindowState) -> StyledDom {
+        self.style_user_dom_in_scope(dom, window_state, FORM_SCOPE_ROOT)
+    }
+
+    /// [`Self::style_user_dom_for`] for a DOM whose form controls live in
+    /// their own `form_scope` - a `VirtualView`'s DOM, whose control at tree
+    /// path `[0, 1]` is not the layout callback's control at `[0, 1]`
+    /// ([`form_scope_of_virtual_view`]).
+    ///
+    /// The steps, in the only order that works:
+    ///
+    /// 1. raw `<input>` / `<select>` / `<textarea>` nodes become widgets
+    ///    (`crate::form_controls`) - the widgets are ordinary app DOM from
+    ///    here on, so they are localized and icon-resolved like the rest;
+    /// 2. Fluent translation;
+    /// 3. `<icon>` resolution (the widgets contain icons);
+    /// 4. the cascade, with the end user's rice for this window's app theme
+    ///    (`azul_css::rice::rice_for_theme`) as a user-origin sheet.
+    #[must_use]
+    pub fn style_user_dom_in_scope(
+        &self,
+        dom: Dom,
+        window_state: &FullWindowState,
+        form_scope: u64,
+    ) -> StyledDom {
+        self.style_user_dom_inheriting(dom, window_state, form_scope, Vec::new())
+    }
+
+    /// [`Self::style_user_dom_in_scope`] for a DOM HOSTED by a node of another
+    /// one - a `VirtualView`'s content, or an item DOM its callback measures:
+    /// the root inherits `inherited_from_host` (the host's values,
+    /// [`Self::inherited_values_of_host`]) from the first cascade on, as any
+    /// element inherits from its parent. A view is a virtualized part of the
+    /// same document, not an iframe: its text is in its host's font, colour,
+    /// `user-select`, `cursor`, ... unless it declares its own. Empty = a
+    /// document of its own, exactly [`Self::style_user_dom_in_scope`].
+    #[must_use]
+    pub fn style_user_dom_inheriting(
+        &self,
+        mut dom: Dom,
+        window_state: &FullWindowState,
+        form_scope: u64,
+        inherited_from_host: azul_core::prop_cache::InheritedFromHost,
+    ) -> StyledDom {
+        // The form controls are widgets built HERE, after `layout()`
+        // returned: build them for this window's theme, like the rest of its
+        // DOM (their structure may depend on it).
+        #[cfg(feature = "widgets")]
+        let _ = {
+            let _theme = azul_core::app_theme::ThemeScope::enter(self.app_theme.clone());
+            crate::form_controls::resolve_form_controls_in_dom(
+                &mut dom,
+                &self.form_control_memory,
+                form_scope,
+            )
+        };
+        #[cfg(not(feature = "widgets"))]
+        let _ = form_scope;
+        // A `<webview>` this window cannot show (its shell has no web view
+        // backend) shows WHY in its box - a paragraph laid out as its content
+        // (`managers::webview::insert_unavailable_fallback`), from the very
+        // first frame. Asked only of a DOM that holds one: the reason may come
+        // from a probe that loads a system library.
+        if crate::managers::webview::dom_has_webview(&dom) {
+            if let Some(reason) = self.webviews.unavailable_reason() {
+                crate::managers::webview::insert_unavailable_fallback(&mut dom, reason.as_str());
+            }
+        }
+        #[cfg(feature = "fluent")]
+        if let Some(localizer) = self.fluent_localizer.as_ref() {
+            // The app's `set_locale` choice, else the system language.
+            let language = self.active_language();
+            translate_texts_in_dom(&mut dom, localizer, language.id.as_str());
+        }
+        // A flora SPIN (`flora:green`, ...) is flora in another accent stone:
+        // the base ramp's colours of the built DOM become the spin's - the
+        // form controls just built included - before anything is cascaded
+        // (`widgets::themes::spin`). Nothing for any other theme.
+        #[cfg(feature = "widgets")]
+        crate::widgets::themes::spin::respin_dom_for_theme(&mut dom, self.app_theme.as_str());
         let context = Some(self.dynamic_selector_context(window_state));
+        // The rice of this window's app theme. `None` until the app installed
+        // the loader (`App::create`) and under `AZ_RICING=off`, so a test or a
+        // headless tool that never installs it never reads the home directory.
+        let rice = azul_css::rice::rice_for_theme(self.app_theme.as_str());
+        let user_sheets = rice
+            .as_deref()
+            .map_or(&[][..], |loaded| core::slice::from_ref(&loaded.css));
         let Some(provider) = self.icon_provider.as_ref() else {
-            return StyledDom::create_from_dom_with_context(dom, context);
+            return StyledDom::create_from_dom_inheriting(
+                dom,
+                context,
+                user_sheets,
+                inherited_from_host,
+            );
         };
         // The shell sets style and provider together, so the fallback only
         // covers a DOM styled before the first `regenerate_layout`. Resolving
@@ -14818,12 +21932,86 @@ impl LayoutWindow {
             fallback = azul_css::system::SystemStyle::default();
             &fallback
         };
-        azul_core::icon::styled_dom_resolving_icons_with_context(
-            dom,
+        if inherited_from_host.is_empty() {
+            return azul_core::icon::styled_dom_resolving_icons_with_user_sheets(
+                dom,
+                provider,
+                system_style,
+                context,
+                user_sheets,
+            );
+        }
+        // A hosted DOM: the same two steps as
+        // `styled_dom_resolving_icons_with_user_sheets` (keep them in step),
+        // the cascade inheriting from the host from its first pass on - a
+        // view re-materializes on every edge scroll, a second cascade to
+        // re-seed it would double its styling cost.
+        azul_core::icon::resolve_icons_in_dom_with_context(
+            &mut dom,
             provider,
             system_style,
-            context,
-        )
+            context.as_ref(),
+        );
+        StyledDom::create_from_dom_inheriting(dom, context, user_sheets, inherited_from_host)
+    }
+
+    /// What a DOM hosted at `host` - the content of the `VirtualView` at that
+    /// node of `styled_dom` - inherits from it
+    /// (`CssPropertyCache::inherited_values_for_hosted_dom`): the host's
+    /// resting values, its font size computed the way the layout computes it.
+    #[must_use]
+    pub fn inherited_values_of_host(
+        styled_dom: &StyledDom,
+        host: NodeId,
+    ) -> azul_core::prop_cache::InheritedFromHost {
+        let node_data_container = styled_dom.node_data.as_container();
+        let Some(node_data) = node_data_container.get(host) else {
+            return Vec::new();
+        };
+        let resting = azul_core::styled_dom::StyledNodeState::default();
+        let font_size_px = solver3::getters::get_element_font_size(styled_dom, host, &resting);
+        styled_dom
+            .get_css_property_cache()
+            .inherited_values_for_hosted_dom(node_data, &host, font_size_px)
+    }
+}
+
+/// The form-control scope of the layout callback's DOM: the memory of what
+/// users gave replaced form controls (`crate::form_controls`) keys each
+/// control by its scope, so one DOM's control never inherits another's value.
+pub const FORM_SCOPE_ROOT: u64 = 0;
+
+/// The form-control scope of a DOM laid out only to be MEASURED
+/// ([`LayoutWindow::measure_dom`]). Nobody interacts with it, so it never
+/// writes the memory; its own scope keeps it from reading - or, through the
+/// "the app changed the default" rule, evicting - a real control's value.
+pub const FORM_SCOPE_MEASURE: u64 = u64::MAX;
+
+/// The form-control scope of the DOM the `VirtualView` at `(dom, node)`
+/// renders - distinct from [`FORM_SCOPE_ROOT`] and from every other view's.
+#[must_use]
+pub const fn form_scope_of_virtual_view(dom: DomId, node: NodeId) -> u64 {
+    (((dom.inner as u64) << 32) | (node.index() as u64 & 0xFFFF_FFFF)).wrapping_add(1)
+}
+
+/// What a [`LayoutWindow::set_locale`] moved - the two locale inputs a
+/// `layout()` callback can read (`LayoutCallbackInfo::get_locale` /
+/// `is_rtl`, recorded in `depends_on_locale` / `depends_on_text_direction`).
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct LocaleChange {
+    /// The language tag is a different one.
+    pub locale_changed: bool,
+    /// The text direction flipped (LTR <-> RTL).
+    pub direction_changed: bool,
+}
+
+impl LocaleChange {
+    /// Does a `layout()` that recorded these dependencies have to run again?
+    /// (`false`: only the strings changed - re-localize them in place.)
+    #[must_use]
+    pub const fn needs_new_dom(&self, depends_on_locale: bool, depends_on_text_direction: bool) -> bool {
+        (self.locale_changed && depends_on_locale)
+            || (self.direction_changed && depends_on_text_direction)
     }
 }
 
@@ -14846,7 +22034,7 @@ impl LayoutWindow {
     ///
     /// This is a convenience method that extracts the language from the system style.
     pub fn init_icu_from_system_style(&mut self, system_style: &azul_css::system::SystemStyle) {
-        self.icu_localizer = IcuLocalizerHandle::from_system_language(&system_style.language);
+        self.icu_localizer = IcuLocalizerHandle::from_system_language(&system_style.language.id);
     }
 
     /// Get a clone of the ICU localizer handle.
@@ -14869,6 +22057,29 @@ impl LayoutWindow {
 mod tests {
     use super::*;
     use crate::{thread::Thread, timer::Timer};
+
+    /// The guide's "Changing Locale": an empty locale is "System" again (an app's Language
+    /// setting), and the choice is the app's - a window built after it (a dialog) starts in it.
+    #[test]
+    fn an_empty_locale_follows_the_system_again_and_a_new_window_starts_in_the_apps_choice() {
+        let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a window");
+        let system = lw.active_language().id;
+        let _ = lw.set_locale("de-DE");
+        assert_eq!(lw.active_language().id.as_str(), "de-DE");
+        let change = lw.set_locale("");
+        assert!(lw.locale_override.is_none(), "System: no override");
+        assert_eq!(lw.active_language().id, system);
+        assert_eq!(change.locale_changed, system.as_str() != "de-DE");
+
+        set_app_locale(Some("de-DE"));
+        assert_eq!(app_locale().as_deref(), Some("de-DE"));
+        let mut later = LayoutWindow::new(FcFontCache::default()).expect("a window");
+        later.set_app_localization(&azul_core::resources::AppConfig::default());
+        let adopted = later.active_language().id;
+        set_app_locale(None);
+        assert_eq!(adopted.as_str(), "de-DE");
+        assert_eq!(app_locale(), None);
+    }
 
     /// The channel sampler is piecewise WITH per-segment easing and clamps
     /// outside the defined stops — the CSS `@keyframes` contract. Linear
@@ -14893,6 +22104,7 @@ mod tests {
             opacity: vec![],
             width: vec![],
             height: vec![],
+            parked_at: None,
         };
         // Before the first stop: clamp to it, no extrapolation.
         tr.t = 0.0;
@@ -15854,6 +23066,83 @@ impl LayoutWindow {
         solver3::getters::is_text_selectable(styled_dom, node_id, node_state)
     }
 
+    /// Whether `(dom_id, node_id)` names a node an assistive technology can
+    /// act on now: one the window has and exposes, and that is rendered,
+    /// either by this window (`managers::a11y::rendered_nodes`) or by a popup
+    /// it has open ([`Self::is_rendered_by_open_popup`]).
+    #[cfg(feature = "a11y")]
+    #[must_use]
+    pub fn is_live_a11y_target(&self, dom_id: DomId, node_id: NodeId) -> bool {
+        let Some(lr) = self.layout_results.get(&dom_id) else {
+            return false;
+        };
+        let Some(node_data) = lr.styled_dom.node_data.as_ref().get(node_id.index()) else {
+            return false;
+        };
+        crate::managers::a11y::is_exposed_to_accessibility(node_data)
+            && (crate::managers::a11y::rendered_nodes(lr)
+                .get(node_id.index())
+                .copied()
+                .unwrap_or(false)
+                || (dom_id == DomId::ROOT_ID && self.is_rendered_by_open_popup(node_id)))
+    }
+
+    /// Whether `node` of the root DOM is content of a popup (or torn-off
+    /// window) this window has open. This window gives that subtree
+    /// `display: none`, but the popup's window lays it out and renders it,
+    /// and its callbacks are this DOM's, so a press addressed here must
+    /// reach it, as a browser's popover content stays pressable.
+    ///
+    /// An element with `display: none` between the node and the popup hides
+    /// it there too. A `<transient-window>` nested inside the popup is opened
+    /// by the popup's own window, so only its `open` attribute tells whether
+    /// it shows.
+    #[cfg(feature = "a11y")]
+    fn is_rendered_by_open_popup(&self, node: NodeId) -> bool {
+        use azul_css::props::layout::display::LayoutDisplay;
+
+        use crate::solver3::getters::{get_display_property, MultiValue};
+
+        let Some(root) = self.layout_results.get(&DomId::ROOT_ID) else {
+            return false;
+        };
+        let nodes = root.styled_dom.node_data.as_container();
+        let hierarchy = root.styled_dom.node_hierarchy.as_container();
+        let mut current = Some(node);
+        while let Some(n) = current {
+            match nodes.get(n).map(azul_core::dom::NodeData::get_node_type) {
+                Some(NodeType::TransientWindow(cfg)) => {
+                    let owned = self
+                        .transient_windows
+                        .open_windows()
+                        .iter()
+                        .find(|w| w.source_node == n);
+                    // An inline-docked window is laid out here, so
+                    // `rendered_nodes` already answered for its content.
+                    if let Some(window) = owned {
+                        return !window.is_inline();
+                    }
+                    if !cfg.open {
+                        return false;
+                    }
+                }
+                Some(_) => {
+                    if matches!(
+                        get_display_property(&root.styled_dom, Some(n)),
+                        MultiValue::Exact(LayoutDisplay::None)
+                    ) {
+                        return false;
+                    }
+                }
+                None => return false,
+            }
+            current = hierarchy
+                .get(n)
+                .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
+        }
+        false
+    }
+
     /// Process an accessibility action from an assistive technology.
     ///
     /// This method dispatches actions to the appropriate managers (scroll, focus, etc.)
@@ -15890,6 +23179,15 @@ impl LayoutWindow {
 
         let mut affected_nodes = BTreeMap::new();
 
+        // The adapter answers from the tree it last received, which can be a
+        // frame behind the DOM, and hands the request back with that tree's
+        // ids. A node the window no longer renders is answered as gone:
+        // acting on it would park the focus on a node that does not exist or
+        // reach for one by index.
+        if !self.is_live_a11y_target(dom_id, node_id) {
+            return affected_nodes;
+        }
+
         match action {
             // Focus actions
             AccessibilityAction::Focus => {
@@ -15919,45 +23217,29 @@ impl LayoutWindow {
                                 .any(|attr| matches!(attr, AttributeType::ContentEditable(_)));
 
                         if is_contenteditable {
-                            // Get inline layout for cursor positioning
-                            // Clone the Arc to avoid borrow conflict
-                            let inline_layout =
-                                self.get_inline_layout_for_node(dom_id, node_id).cloned();
-                            if let Some(ref layout) = inline_layout {
-                                // (d4) Dense-first, sparse fallback — same
-                                // semantics as the finalize path.
-                                let cursor = self
-                                    .get_dense_for_node(dom_id, node_id)
-                                    .and_then(|d| d.last_cluster_cursor())
-                                    .or_else(|| {
-                                        layout.items.iter().rev().find_map(|item| {
-                                            if let ShapedItem::Cluster(c) = &item.item {
-                                                Some(TextCursor {
-                                                    cluster_id: c.source_cluster_id,
-                                                    affinity: CursorAffinity::Trailing,
-                                                })
-                                            } else {
-                                                None
-                                            }
-                                        })
-                                    })
-                                    .unwrap_or(TextCursor {
-                                        cluster_id: GraphemeClusterId {
-                                            source_run: 0,
-                                            start_byte_in_run: 0,
-                                        },
-                                        affinity: CursorAffinity::Trailing,
-                                    });
-                                let ce_key = self.contenteditable_session_key(dom_id, node_id);
-                                // Crossing into a different focusable makes the
-                                // caret JUMP, not glide.
-                                let scope = self.find_focusable_ancestor(DomNodeId {
-                                    dom: dom_id,
-                                    node: NodeHierarchyItemId::from_crate_internal(Some(node_id)),
+                            // The node's OWN text block (a flat editable),
+                            // with its materialized layout (`TextTarget`).
+                            let own_block = self
+                                .text_target_at_node(dom_node_id)
+                                .filter(|t| t.block.element() == Some(node_id));
+                            if let Some(target) = own_block {
+                                // The caret goes to the end of the text, as a
+                                // keyboard focus seeds it; a blank line's one
+                                // position otherwise.
+                                let cursor = target.last_caret().unwrap_or(TextCursor {
+                                    cluster_id: GraphemeClusterId {
+                                        source_run: 0,
+                                        start_byte_in_run: 0,
+                                    },
+                                    affinity: CursorAffinity::Leading,
                                 });
-                                self.text_edit_manager.enter_focus_scope(scope);
-                                self.text_edit_manager
-                                    .initialize_editing(cursor, dom_id, node_id, ce_key);
+                                self.open_session(
+                                    target.block,
+                                    SelectionRange {
+                                        start: cursor,
+                                        end: cursor,
+                                    },
+                                );
 
                                 // Reveal the caret the way a keyboard focus does:
                                 // the canonical session-anchored path, which knows
@@ -15966,9 +23248,10 @@ impl LayoutWindow {
                                 // here anchored on the focused node, padded by 0,
                                 // teleported, and called a caret clipped at the
                                 // bottom edge "visible".
-                                self.scroll_selection_into_view(
-                                    SelectionScrollType::Cursor,
-                                    ScrollMode::Instant,
+                                // An assistive technology's focus is an input:
+                                // it asks, and the caret is shown now.
+                                self.reveal_for_input(
+                                    crate::managers::scroll_state::RevealRequest::Caret,
                                 );
                             }
                         } else {
@@ -16300,51 +23583,52 @@ impl LayoutWindow {
                 }
             }
             AccessibilityAction::SetTextSelection(selection) => {
-                // Get the text layout for this node from the layout tree
-                let text_layout = self.get_node_inline_layout(dom_id, node_id);
-
-                if let Some(inline_layout) = text_layout {
-                    // (d4b) Dense-first byte→cursor resolution, sparse
-                    // fallback — the dense twin is pinned against the
-                    // sparse walk at every boundary offset (equivalence
-                    // gate dense_cursor_helpers_agree_with_the_sparse_walks).
-                    let dense = self.get_dense_for_node(dom_id, node_id).cloned();
-                    let start_cursor = dense
-                        .as_ref()
-                        .and_then(|d| d.byte_offset_to_cursor(selection.selection_start as u32))
-                        .unwrap_or_else(|| {
-                            Self::byte_offset_to_cursor(
-                                inline_layout.as_ref(),
-                                selection.selection_start as u32,
-                            )
-                        });
-                    let end_cursor = dense
-                        .as_ref()
-                        .and_then(|d| d.byte_offset_to_cursor(selection.selection_end as u32))
-                        .unwrap_or_else(|| {
-                            Self::byte_offset_to_cursor(
-                                inline_layout.as_ref(),
-                                selection.selection_end as u32,
-                            )
-                        });
-
-                    {
-                        let (start, end) = (start_cursor, end_cursor);
-                        let hierarchy_id = NodeHierarchyItemId::from_crate_internal(Some(node_id));
-                        let dom_node_id = DomNodeId {
-                            dom: dom_id,
-                            node: hierarchy_id,
-                        };
-
-                        // A collapsed selection (start == end) and a ranged one
-                        // both place the cursor at the selection start.
-                        let _ = end;
-                        if let Some(ref mut mc) = self.text_edit_manager.multi_cursor {
-                            mc.set_single_cursor(start);
+                // The offsets are CHARACTER indices into the text the tree
+                // publishes for the node: its `ScopeText` - the one block its
+                // text is in, or, for a host with paragraphs, all of them, one
+                // line break between two. Each end lands in the block ITS
+                // offset names, whatever session was open before; ends in two
+                // blocks make a document selection. Resolved against the first
+                // block alone (and as bytes), an offset in a host's second
+                // paragraph clamped to the end of the first. Text a selection
+                // may not cover (`user-select`) is refused, as it is for the
+                // mouse.
+                let scope = self.scope_text(DomNodeId {
+                    dom: dom_id,
+                    node: NodeHierarchyItemId::from_crate_internal(Some(node_id)),
+                });
+                let anchor = scope.caret_at(scope.flat_byte_at_char(selection.selection_start));
+                let focus = scope.caret_at(scope.flat_byte_at_char(selection.selection_end));
+                if let (Some((anchor_block, anchor)), Some((focus_block, focus))) = (anchor, focus)
+                {
+                    let selectable = |block: TextBlock| {
+                        self.text_target(block).is_some_and(|t| t.selectable)
+                    };
+                    if selectable(anchor_block) && selectable(focus_block) {
+                        if anchor_block == focus_block {
+                            self.open_session(
+                                anchor_block,
+                                SelectionRange {
+                                    start: anchor,
+                                    end: focus,
+                                },
+                            );
+                        } else {
+                            self.open_session(
+                                anchor_block,
+                                SelectionRange {
+                                    start: anchor,
+                                    end: anchor,
+                                },
+                            );
+                            let _ = self.set_cross_block_selection(
+                                anchor_block,
+                                anchor,
+                                focus_block,
+                                focus,
+                            );
                         }
                     }
-                } else {
-                    // No text layout available for node - silently ignore
                 }
             }
 
@@ -16458,7 +23742,16 @@ impl LayoutWindow {
         let mut needs_relayout = false;
 
         while let Some(queued) = self.text_input_manager.take_next_changeset() {
-            let result = self.apply_one_text_changeset(queued.edit, queued.seat_id);
+            let seat_id = queued.seat_id;
+            let result = self.apply_one_text_changeset(queued.edit, seat_id);
+            // An edit the LOCAL user's keyboard landed is an input that asks
+            // for its caret to be shown. Another seat's edit shifts the
+            // primary caret without asking (it is somebody else's typing).
+            if seat_id == azul_core::window::PRIMARY_POINTER_SEAT
+                && !result.dirty_nodes.is_empty()
+            {
+                self.request_session_reveal();
+            }
             needs_relayout |= result.needs_relayout;
             for node in result.dirty_nodes {
                 if !dirty_nodes.contains(&node) {
@@ -16473,17 +23766,59 @@ impl LayoutWindow {
         }
     }
 
+    /// Land every queued text edit and - ONLY when one landed - reveal the
+    /// caret.
+    ///
+    /// THE tail of every pass that may carry typed text, shared by the hosts
+    /// so they cannot drift apart again: the shells' post-callback
+    /// `ApplyPendingTextInput` → `ApplyTextChangeset` →
+    /// `ScrollCursorIntoViewAfterTextInput`, the plain-text Enter
+    /// (`InsertLineBreakAtCursor`) and the IME / debug-server
+    /// `CreateTextInput` arm, and the e2e runner's ports of all three.
+    ///
+    /// The shells' tail used to reveal on EVERY pass that was not
+    /// `prevent_default`ed, whether or not anything was typed:
+    /// `ApplyPendingTextInput` is pushed unconditionally, so every wheel
+    /// event, every momentum event and every mouse move scrolled a `TextArea`
+    /// the user had just scrolled away from back to its caret - the "wheel
+    /// fights the caret" jitter. The runner gated on a landed edit, which is
+    /// why no headless test ever saw it.
+    ///
+    /// The landed edit issues its own reveal request
+    /// ([`crate::managers::scroll_state::RevealRequest`]); this performs what
+    /// is pending and nothing else, so a pass that landed nothing - with any
+    /// earlier request dropped by the user's scrolling - reveals nothing, gate
+    /// or no gate. When the edit changed its text's extent a relayout
+    /// follows, and the request is kept for it: the post-layout pass reveals
+    /// once more against the geometry the relayout produced.
+    pub fn apply_pending_text_and_reveal(&mut self) -> LandedTextEdit {
+        let changeset = self.apply_text_changeset();
+        let revealed = self.perform_pending_reveal(changeset.needs_relayout);
+        LandedTextEdit {
+            changeset,
+            revealed,
+        }
+    }
+
     /// One queued edit. The entry is ALREADY popped, so every early-out here
     /// simply skips it rather than clearing the queue behind the loop's back.
     fn apply_one_text_changeset(
         &mut self,
-        changeset: PendingTextEdit,
+        mut changeset: PendingTextEdit,
         seat_id: u64,
     ) -> TextChangesetResult {
         use crate::{
             managers::changeset::{TextOpInsertText, TextOperation},
             text3::edit::{edit_text, TextEdit},
         };
+
+        // Whatever recorded it (a keystroke, an input method, assistive technology, an app's
+        // callback), the text lands holding its characters as the input rule has them, as
+        // every text that comes in does.
+        if let Some(ruled) = azul_css::input_chars::normalized_az_string(&changeset.inserted_text)
+        {
+            changeset.inserted_text = ruled;
+        }
 
         // A non-primary seat's edit (9b-ii-a-i-d-ii) is applied at THAT
         // seat's caret - never at the primary's, which may sit in another
@@ -16511,6 +23846,25 @@ impl LayoutWindow {
         // in `record_text_input` and then silently dropped the changeset.
         if !self.is_node_contenteditable_inherited_internal(dom_id, node_id) {
             return empty;
+        }
+
+        // Typing over a DOCUMENT selection replaces it, like a paste over it.
+        // The insert below would land at the session's caret - the
+        // selection's anchor - and leave the selection standing.
+        if is_primary_seat && self.text_edit_manager.get_cross_block_selection().is_some() {
+            if self.document_selection_belongs_to(changeset.node)
+                && self
+                    .replace_cross_block_selection(changeset.inserted_text.as_str())
+                    .is_some()
+            {
+                return TextChangesetResult {
+                    dirty_nodes: vec![changeset.node],
+                    needs_relayout: true,
+                };
+            }
+            // Another field's leftover, or one that could not be replaced:
+            // it ends here, and the text goes in at the caret.
+            self.text_edit_manager.clear_cross_block_selection();
         }
 
         // The buffer this edit splices into.
@@ -16555,18 +23909,34 @@ impl LayoutWindow {
         // caret-less session keeps the recorded node. Host-level readback
         // stays correct either way: `collect_text_from_children` composes
         // children through the per-node overlay.
-        let node_id = self.caret_text_target(dom_id, node_id);
+        //
+        // The caret is the SEAT's: the primary's session block for seat 0,
+        // another seat's own caret block for its keystroke - keyed to the
+        // primary's block, a second person typing in the paragraph below
+        // wrote into the host's flattened text at their caret's run number,
+        // which there names the FIRST paragraph. A seat with no caret here
+        // yet types at the end, in the last block the node holds.
+        let caret_block = if is_primary_seat {
+            self.text_edit_manager.get_editing_block()
+        } else {
+            self.text_edit_manager
+                .seat_caret(seat_id)
+                .filter(|c| c.node == changeset.node)
+                .map(|c| c.block)
+                .or_else(|| self.text_block_of(changeset.node))
+                .or_else(|| self.text_blocks_within(changeset.node).last().copied())
+        };
+        let Some(node_id) = self.edit_element(changeset.node, caret_block) else {
+            // A caret in an anonymous block: no element to key the edit to.
+            return empty;
+        };
 
-        let mut content = self.get_text_before_textinput(dom_id, node_id);
-        if content.is_empty() {
-            let style_node = self.seed_style_node(dom_id, node_id);
-            content = vec![InlineContent::Text(StyledRun {
-                text: Arc::from(""),
-                style: self.get_text_style_for_node(dom_id, style_node.unwrap_or(node_id)),
-                logical_start_byte: 0,
-                source_node_id: style_node,
-            })];
-        }
+        // In the carets' numbering (behind a list item's marker). A block
+        // whose only item is a `<br>` - a rich-text editor's empty paragraph
+        // - has no text run either: the seed goes in front of the break,
+        // where the blank line's one caret (run 0 of the text) stands.
+        let (mut content, generated) = self.element_content(dom_id, node_id).into_parts();
+        self.seed_empty_run(dom_id, node_id, &mut content, generated);
 
         // Get current cursor/selection — prefer non-empty MultiCursorState, fall back to legacy
         let mc_selections = if is_primary_seat {
@@ -16606,9 +23976,13 @@ impl LayoutWindow {
                 affinity: CursorAffinity::Leading,
             })]
         };
+        let current_selection = crate::block_content::BlockContent::selections_past_generated(
+            current_selection,
+            generated,
+        );
 
         // Capture pre-state for undo/redo BEFORE mutation
-        let old_text = self.extract_text_from_inline_content(&content);
+        let old_text = self.extract_text_from_inline_content(&content[generated..]);
         let old_cursor = current_selection.first().and_then(|sel| {
             if let Selection::Cursor(c) = sel {
                 Some(*c)
@@ -16637,10 +24011,50 @@ impl LayoutWindow {
             }),
         };
 
-        // Apply the edit using text3::edit - this is a pure function
+        // Apply the edit using text3::edit - this is a pure function.
+        //
+        // THE TYPING STYLE: formats toggled at this very caret (Ctrl+B with
+        // no selection, `toggle_text_format`) format the text typed here, in
+        // a run of its own; the caret ends inside it, so the typing that
+        // follows continues it.
+        let typed_formats = if is_primary_seat {
+            self.typing_formats_at(caret_block, &content, generated, &current_selection)
+        } else {
+            None
+        };
         let text_edit = TextEdit::Insert(changeset.inserted_text.as_str().to_string());
+        let outcome = match (typed_formats, current_selection.as_slice()) {
+            (Some(formats), [Selection::Cursor(caret)]) => {
+                let text = changeset.inserted_text.as_str();
+                let (formatted, cursor) = crate::text3::edit::insert_formatted_text(
+                    &content,
+                    caret,
+                    text,
+                    &[crate::text3::edit::FormatSpan {
+                        start: 0,
+                        end: text.len(),
+                        formats,
+                    }],
+                );
+                if formatted == content {
+                    crate::text3::edit::EditOutcome::NoOp(
+                        crate::text3::edit::EditNoOp::EverySelectionMissed,
+                    )
+                } else {
+                    crate::text3::edit::EditOutcome::Applied {
+                        content: formatted,
+                        selections: vec![Selection::Cursor(cursor)],
+                    }
+                }
+            }
+            _ => crate::text3::edit::edit_text_outcome(&content, &current_selection, &text_edit),
+        };
+        if typed_formats.is_some() {
+            // Taken: it lives in the run the caret now stands in.
+            self.text_edit_manager.typing_style = None;
+        }
         let (new_content, new_selections) =
-            match crate::text3::edit::edit_text_outcome(&content, &current_selection, &text_edit) {
+            match outcome {
                 crate::text3::edit::EditOutcome::Applied {
                     content,
                     selections,
@@ -16673,13 +24087,21 @@ impl LayoutWindow {
             }
         } else {
             // The seat's own caret follows its edit; the primary's caret and
-            // peers on this node shift across it like across any edit.
-            if let Some(Selection::Cursor(cursor)) = new_selections.first() {
+            // peers in this block shift across it like across any edit.
+            let edited_block = self
+                .text_block_of(DomNodeId {
+                    dom: dom_id,
+                    node: NodeHierarchyItemId::from_crate_internal(Some(node_id)),
+                })
+                .or_else(|| self.text_blocks_within(changeset.node).first().copied());
+            if let (Some(Selection::Cursor(cursor)), Some(block)) =
+                (new_selections.first(), edited_block)
+            {
                 self.text_edit_manager
-                    .set_seat_caret(seat_id, changeset.node, *cursor);
+                    .set_seat_caret(seat_id, changeset.node, block, *cursor);
             }
             if let Some(ref mut mc) = self.text_edit_manager.multi_cursor {
-                if mc.node_id == changeset.node {
+                if Some(mc.block) == edited_block {
                     mc.shift_all_across_diff(&changes);
                 }
             }
@@ -16694,8 +24116,13 @@ impl LayoutWindow {
 
         // MWA-C-undo_redo: styled pre/post snapshots so undo/redo restore
         // the REAL styled content instead of rebuilding with
-        // StyleProperties::default() (which stripped all styling).
-        let pre_content_snapshot = content;
+        // StyleProperties::default() (which stripped all styling). They and
+        // the overlay hold the text only; the reshape re-adds the prefix.
+        let pre_content_snapshot = content.split_off(generated);
+        let new_content = {
+            let mut with_prefix = new_content;
+            with_prefix.split_off(generated)
+        };
         let post_content_snapshot = new_content.clone();
 
         // A committed edit supersedes any composition on the same node: the
@@ -16905,9 +24332,18 @@ impl LayoutWindow {
                 //     every line below the break.
                 // Route through the SAME splitter the layout used, so run
                 // indices and per-run byte offsets agree with the shaped
-                // clusters. Normal/nowrap keep the raw single run: their
-                // collapse would rewrite the stored value, and a single-line
-                // host vetoes '\n' upstream anyway.
+                // clusters.
+                //
+                // Normal/nowrap COLLAPSE white space before shaping ("a   b"
+                // is shaped as "a b"), so the carets count the collapsed
+                // text's bytes: a caret after the 'b' is byte 3. The raw run
+                // put it at byte 3 of "a   b" - in the spaces - and every
+                // keystroke after a collapsed run of spaces went in earlier
+                // than the caret. The edit model is the layout's white-space
+                // processing (`fc::white_space_runs`) without its
+                // `text-transform`, which is presentation: an edit stores the
+                // text as shown, spaces collapsed, letters as the DOM had
+                // them.
                 let preserves_newlines = {
                     use crate::solver3::getters::{get_white_space_property, MultiValue};
                     use azul_css::props::style::StyleWhiteSpace;
@@ -16946,12 +24382,12 @@ impl LayoutWindow {
                     );
                 }
 
-                vec![InlineContent::Text(StyledRun {
-                    text: Arc::from(text.as_str()),
-                    style,
-                    logical_start_byte: 0,
-                    source_node_id: Some(node_id),
-                })]
+                solver3::fc::white_space_runs(
+                    &layout_result.styled_dom,
+                    node_id,
+                    text.as_str(),
+                    &style,
+                )
             }
             // Container nodes - recursively collect text from children.
             //
@@ -16971,10 +24407,12 @@ impl LayoutWindow {
             // and the metadata elements (`Title`, `Meta`, `Script`, `Style`,
             // ...), which are never rendered; the non-rendered option model of
             // a form control (`DataList`, `OptGroup`, `SelectOption`); the
-            // `Svg*` family, which carries its text in `SvgText`; the
+            // `Svg*` family, whose text is drawn by its `SvgText` elements
+            // (blocks of their own, below); the
             // pseudo-element nodes (`Before`, `After`, `Marker`, `Placeholder`),
             // which are generated content and not document text; and the void
-            // elements (`Br`, `Hr`, `Wbr`, `Col`), which have no children.
+            // elements (`Hr`, `Wbr`, `Col`), which have no children (`Br` is
+            // its line break, below).
             // `VirtualView` stays because its children ARE the virtualized
             // document.
             NodeType::Body
@@ -17061,12 +24499,70 @@ impl LayoutWindow {
             | NodeType::Rt
             | NodeType::Rtc
             | NodeType::Rp
-            | NodeType::Data => self.collect_text_from_children(dom_id, node_id),
+            | NodeType::Data
+            // a part of an SVG text
+            | NodeType::SvgTspan => self.collect_text_from_children(dom_id, node_id),
+            // An SVG text is a text block of its own: its characters, with
+            // the space a tspan's `dx` puts before its own - the items its
+            // layout numbers (`solver3::svg::svg_text_items`), so a caret
+            // or a selection in it maps to its text.
+            NodeType::SvgText => solver3::svg::svg_text_items(
+                &layout_result.styled_dom,
+                &self.collect_text_from_children(dom_id, node_id),
+            ),
+            // A `<br>` is the hard line break `solver3::fc` lays it out as:
+            // an item of its own, so the runs behind it keep the numbers
+            // the layout's carets give them, a flat text has its '\n', and
+            // an item stands for the child it came from. Collected as
+            // nothing, the text after a `<br>` was one run lower here than
+            // in every caret - a keystroke there spliced into no run.
+            NodeType::Br => vec![InlineContent::LineBreak(
+                crate::text3::cache::InlineBreak {
+                    break_type: crate::text3::cache::BreakType::Hard,
+                    clear: crate::text3::cache::ClearType::None,
+                    content_index: 0,
+                },
+            )],
             _ => {
                 // Other node types (Image, etc.) don't contribute text
                 Vec::new()
             }
         }
+    }
+
+    /// Seed ONE empty text run into `content` (element `node_id`'s, its
+    /// first `generated` items the layout's) when it holds no text run: an
+    /// insert splices into `content[cursor.source_run]`, and an editable
+    /// with no text at all - a new document, an empty `<p>`, a paragraph
+    /// holding only a `<br>` - has no run to splice into, so its first
+    /// keystroke (or paste) was dropped. The seed goes in front of the
+    /// break, where the blank line's one caret stands, in the style of the
+    /// node a full layout would shape the text at ([`Self::seed_style_node`]).
+    fn seed_empty_run(
+        &self,
+        dom_id: DomId,
+        node_id: NodeId,
+        content: &mut Vec<InlineContent>,
+        generated: usize,
+    ) {
+        if content
+            .get(generated..)
+            .unwrap_or(&[])
+            .iter()
+            .any(|item| matches!(item, InlineContent::Text(_)))
+        {
+            return;
+        }
+        let style_node = self.seed_style_node(dom_id, node_id);
+        content.insert(
+            generated.min(content.len()),
+            InlineContent::Text(StyledRun {
+                text: Arc::from(""),
+                style: self.get_text_style_for_node(dom_id, style_node.unwrap_or(node_id)),
+                logical_start_byte: 0,
+                source_node_id: style_node,
+            }),
+        );
     }
 
     /// The node whose cascade the seeded empty run must carry: the first
@@ -17076,6 +24572,8 @@ impl LayoutWindow {
     fn seed_style_node(&self, dom_id: DomId, node_id: NodeId) -> Option<NodeId> {
         let layout_result = self.layout_results.get(&dom_id)?;
         let node_data = layout_result.styled_dom.node_data.as_ref();
+        // The text of a `::before` or `::after` is no document text: a run
+        // seeded with its node would be taken for generated content.
         self.ifc_candidate_children(dom_id, node_id)
             .into_iter()
             .find(|c| {
@@ -17084,12 +24582,12 @@ impl LayoutWindow {
                         .get(c.index())
                         .map(azul_core::dom::NodeData::get_node_type),
                     Some(NodeType::Text(_))
-                )
+                ) && generated_node_side(&layout_result.styled_dom, *c).is_none()
             })
     }
 
     /// Get the font style for a text node from CSS
-    fn get_text_style_for_node(&self, dom_id: DomId, node_id: NodeId) -> Arc<StyleProperties> {
+    pub(crate) fn get_text_style_for_node(&self, dom_id: DomId, node_id: NodeId) -> Arc<StyleProperties> {
         use alloc::sync::Arc;
 
         let Some(layout_result) = self.layout_results.get(&dom_id) else {
@@ -17129,7 +24627,10 @@ impl LayoutWindow {
 
     /// Recursively collect text content from child nodes
     ///
-    /// A subtree carrying an explicit `contenteditable="false"` is skipped
+    /// A child that is an atomic inline of its inline formatting context (an
+    /// inline-block, an image) is the item that IFC's layout collected for it
+    /// ([`Self::collected_atomic_item`]), whatever it holds. Otherwise a
+    /// subtree carrying an explicit `contenteditable="false"` is skipped
     /// ([`Self::is_walled_off_editable_subtree`]).
     fn collect_text_from_children(
         &self,
@@ -17157,8 +24658,23 @@ impl LayoutWindow {
             let is_walled_off = node_data
                 .get(child_id.index())
                 .is_some_and(Self::is_walled_off_editable_subtree);
+            // A text node is never an atomic inline: only elements are looked
+            // up. Generated content (`::marker`, `::before`, `::after`) is no
+            // document text: its items go back around the edited text
+            // (`with_generated_ifc_content`).
+            let atomic = node_data
+                .get(child_id.index())
+                .filter(|data| {
+                    !matches!(
+                        data.get_node_type(),
+                        NodeType::Text(_) | NodeType::Marker | NodeType::Before | NodeType::After
+                    )
+                })
+                .and_then(|_| self.collected_atomic_item(dom_id, child_id));
 
-            if !is_walled_off {
+            if let Some(item) = atomic {
+                result.push(item);
+            } else if !is_walled_off {
                 // Get content from this child (recursive)
                 let child_content = self.get_text_before_textinput(dom_id, child_id);
                 result.extend(child_content);
@@ -17172,6 +24688,95 @@ impl LayoutWindow {
         }
 
         result
+    }
+
+    /// The item the inline formatting context holding the element `node_id`
+    /// collected for it, when it is an atomic inline there (an inline-block,
+    /// an image, an empty inline box with edges).
+    ///
+    /// The edit model carries that item in the element's place, as the
+    /// layout's content does: the runs after it keep the numbers the
+    /// layout's carets give them, and a relayout of the edited text lays the
+    /// box out in its line. The IFC is the nearest layout ancestor holding a
+    /// collection (`LayoutNodeWarm::inline_content_cache`).
+    fn collected_atomic_item(&self, dom_id: DomId, node_id: NodeId) -> Option<InlineContent> {
+        let tree = &self.layout_results.get(&dom_id)?.layout_tree;
+        let own = tree.dom_to_layout.get(&node_id)?.first()?.index();
+        let mut ancestor = tree.get(LayoutNodeId::new(own))?.parent;
+        while let Some(index) = ancestor {
+            if let Some(collected) = tree
+                .warm(LayoutNodeId::new(index))
+                .and_then(|warm| warm.inline_content_cache.as_deref())
+            {
+                return collected
+                    .content
+                    .iter()
+                    .find(|item| atomic_item_node(item) == Some(node_id))
+                    .cloned();
+            }
+            ancestor = tree.get(LayoutNodeId::new(index))?.parent;
+        }
+        None
+    }
+
+    /// The inline formatting context at `ifc_layout_index` as a relayout of
+    /// its edited `content` lays it out: the node its style comes from, and
+    /// its atomic inline children by where `content` holds them, each mapped
+    /// to the layout node its last layout's collection maps it to.
+    ///
+    /// The atomic items of `content` become the collection's own: the edit
+    /// model keeps them as they were when the typing began, and the box may
+    /// have been measured anew since.
+    fn edited_ifc(
+        &self,
+        dom_id: DomId,
+        ifc_layout_index: usize,
+        content: &mut [InlineContent],
+    ) -> Option<EditedIfc> {
+        use crate::text3::cache::ContentIndex;
+
+        let object_at = |index: usize| {
+            u32::try_from(index).ok().map(|run_index| ContentIndex {
+                run_index,
+                item_index: 0,
+            })
+        };
+        let tree = &self.layout_results.get(&dom_id)?.layout_tree;
+        let root_style_node = solver3::fc::ifc_root_style_dom_id(tree, ifc_layout_index)?;
+        let collected_of_node: HashMap<NodeId, (&InlineContent, Option<usize>)> = tree
+            .warm(LayoutNodeId::new(ifc_layout_index))
+            .and_then(|warm| warm.inline_content_cache.as_deref())
+            .map(|collected| {
+                collected
+                    .content
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(index, item)| {
+                        let child = object_at(index)
+                            .and_then(|key| collected.child_map.get(&key))
+                            .copied();
+                        Some((atomic_item_node(item)?, (item, child)))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let mut child_map = HashMap::new();
+        for (index, item) in content.iter_mut().enumerate() {
+            let Some(&(collected_item, child)) =
+                atomic_item_node(item).and_then(|node| collected_of_node.get(&node))
+            else {
+                continue;
+            };
+            item.clone_from(collected_item);
+            if let (Some(key), Some(child)) = (object_at(index), child) {
+                child_map.insert(key, child);
+            }
+        }
+        Some(EditedIfc {
+            dom_id,
+            root_style_node,
+            child_map,
+        })
     }
 
     /// Extract plain text string from inline content
@@ -17190,46 +24795,133 @@ impl LayoutWindow {
     /// that answers them from an empty scratch buffer gets none of that, which
     /// is exactly the state the Android bridge shipped in.
     ///
-    /// The offset is derived from the primary cursor's `GraphemeClusterId`:
-    /// `start_byte_in_run` is relative to its own run, so the byte lengths of
-    /// every preceding run are summed to reach an offset into the flattened
-    /// string that `extract_text_from_inline_content` produces. Text and offset
-    /// therefore come from the SAME flattening, and cannot disagree.
+    /// Text and offset are the ones [`Self::ime_document`] and
+    /// [`Self::focused_caret_byte_offset`] give the other IMEs: the session
+    /// block's flat text and the caret's [`FlatByte`] in it, read in the
+    /// caret's own numbering ([`Self::block_content`]) with its affinity
+    /// resolved. Summing the focused HOST's runs up to the caret's run number
+    /// and adding the raw `start_byte_in_run` put a list item's caret past
+    /// its text and a `Trailing` caret one grapheme early.
+    ///
+    /// [`FlatByte`]: crate::block_content::FlatByte
     ///
     /// `None` when nothing editable has focus.
     #[must_use]
     pub fn ime_surrounding_text(&mut self) -> Option<(String, usize)> {
         let focused = self.focus_manager.get_focused_node().copied()?;
         let node_id = focused.node.into_crate_internal()?;
+
+        if let Some(block) = self.ime_text_block(focused) {
+            let content = self.block_content(block);
+            let text = content.flat_text();
+            let offset = self
+                .text_edit_manager
+                .get_primary_cursor()
+                .map_or(text.len(), |cursor| {
+                    content.flat_byte_of(&cursor).0.min(text.len())
+                });
+            return Some((text, offset));
+        }
+
+        // No caret in the focus yet (focus landed but no session opened) is a
+        // valid state: report the text with the caret at the end, which is
+        // where an IME would assume it is anyway.
         let content = self.get_text_before_textinput(focused.dom, node_id);
         let text = self.extract_text_from_inline_content(&content);
-
-        // No cursor yet (focus landed but nothing has been typed) is a valid
-        // state: report the text with the caret at the end, which is where an
-        // IME would assume it is anyway.
-        let Some(cursor) = self.text_edit_manager.get_primary_cursor() else {
-            let len = text.len();
-            return Some((text, len));
-        };
-
-        let run = cursor.cluster_id.source_run as usize;
-        let mut offset = 0usize;
-        for (idx, item) in content.iter().enumerate() {
-            if idx >= run {
-                break;
-            }
-            offset += crate::overlay::flatten_inline_content(core::slice::from_ref(item)).len();
-        }
-        offset += cursor.cluster_id.start_byte_in_run as usize;
-        // Clamp: a stale cursor from before an edit must not produce an
-        // out-of-bounds slice in the caller.
-        let offset = offset.min(text.len());
-        Some((text, offset))
+        let len = text.len();
+        Some((text, len))
     }
 
     pub fn extract_text_from_inline_content(&self, content: &[InlineContent]) -> String {
         // The ONE shared flattening (a11y, convergence GC, exports all agree).
         crate::overlay::flatten_inline_content(content)
+    }
+
+    /// `CallbackChange::ChangeNodeText`: the app sets the text of the text
+    /// node `node_id` of `dom_id` to `text`. Returns whether anything changed;
+    /// the caller owes the relayout (and, in a shell, its cache invalidation).
+    ///
+    /// The app's text is the truth from here on - also over what the user
+    /// TYPED there, which the text overlay otherwise keeps on screen until the
+    /// app's model catches up. That is HTML's `input.value = ..`: a form
+    /// reset, a search field's clear button, any widget or app setting a
+    /// field's value from a callback. So the overlay entry of the IFC holding
+    /// the node is retired and the IFC re-shaped from the DOM; the carets of
+    /// an editing session there move across the change on the next layout
+    /// pass (`shift_carets_across_generation`), a caret past the new end
+    /// landing at it.
+    ///
+    /// A write of the byte-identical string is a no-op - unless typing covers
+    /// the node: then the DOM already says it, the screen does not (the form
+    /// reset of a field built with the text it goes back to).
+    pub fn set_node_text(&mut self, dom_id: DomId, node_id: NodeId, text: &AzString) -> bool {
+        // Compared as the node holds it: `set_node_type` writes a text by the input rule.
+        let ruled = azul_css::input_chars::normalized_az_string(text);
+        let text = ruled.as_ref().unwrap_or(text);
+        let Some(unchanged) = self.layout_results.get(&dom_id).and_then(|lr| {
+            lr.styled_dom
+                .node_data
+                .as_container()
+                .get(node_id)
+                .map(|node| {
+                    matches!(
+                        node.get_node_type(),
+                        NodeType::Text(existing) if existing.as_str() == text.as_str()
+                    )
+                })
+        }) else {
+            return false;
+        };
+        let typed_over = self.typed_text_root_of(dom_id, node_id);
+        if unchanged && typed_over.is_none() {
+            return false;
+        }
+        // The next pass must reconcile to find the new text: a latch a tween
+        // tick armed (`LayoutCache::overrides_only_hint`) would hand it the
+        // retained tree, and its stamp cannot see a text change.
+        self.layout_cache.overrides_only_hint = None;
+        if !unchanged {
+            if let Some(lr) = self.layout_results.get_mut(&dom_id) {
+                let mut nodes = lr.styled_dom.node_data.as_container_mut();
+                if let Some(node) = nodes.get_mut(node_id) {
+                    node.set_node_type(NodeType::Text(azul_css::css::BoxOrStatic::heap(
+                        text.clone(),
+                    )));
+                }
+            }
+            if dom_id != DomId::ROOT_ID {
+                self.content_changed_doms.insert(dom_id);
+            }
+        }
+        if let Some(root) = typed_over {
+            self.content_overlay.remove_text(dom_id, root);
+            // The shaping the typing left behind, rebuilt from the DOM (and
+            // any composition in flight there) - a layout reading the cached
+            // IFC before the next pass sees the app's text too.
+            let content = self.spliced_text_with_preedits(dom_id, root);
+            self.reshape_text_node(dom_id, root, content);
+        }
+        true
+    }
+
+    /// The IFC root whose text-overlay entry covers `node_id` - the node
+    /// itself or its nearest ancestor holding one (the edit keys the entry to
+    /// the caret's inline-layout owner, the value `<p>` of a text field, not
+    /// to the text leaf a `ChangeNodeText` names).
+    fn typed_text_root_of(&self, dom_id: DomId, node_id: NodeId) -> Option<NodeId> {
+        if self.content_overlay.text_len() == 0 {
+            return None;
+        }
+        let lr = self.layout_results.get(&dom_id)?;
+        let hierarchy = lr.styled_dom.node_hierarchy.as_container();
+        let mut current = Some(node_id);
+        while let Some(node) = current {
+            if self.content_overlay.text_for_node(dom_id, node).is_some() {
+                return Some(node);
+            }
+            current = hierarchy.get(node).and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
+        }
+        None
     }
 
     /// Update the text cache after a text edit
@@ -17252,12 +24944,52 @@ impl LayoutWindow {
         node_id: NodeId,
         new_inline_content: Vec<InlineContent>,
     ) {
+        // A document selection's ranges are precomputed against its blocks'
+        // text. A commit into one of them (undo, redo, another seat's
+        // keystroke) moves that text, so the selection ends.
+        let spans_edited_node = self
+            .text_edit_manager
+            .get_cross_block_selection()
+            .is_some_and(|cb| {
+                cb.dom_id == dom_id
+                    && cb.affected_blocks.keys().any(|block| {
+                        self.node_is_self_or_descendant(dom_id, block.first_node(), node_id)
+                            || self.node_is_self_or_descendant(dom_id, node_id, block.container())
+                    })
+            });
+        if spans_edited_node {
+            self.text_edit_manager.clear_cross_block_selection();
+        }
+
+        // The overlay holds the document's text alone: the generated items an
+        // edit numbered go back among it wherever it is numbered or laid out
+        // (`with_generated_ifc_content`).
+        let new_inline_content: Vec<InlineContent> = match self.layout_results.get(&dom_id) {
+            Some(layout_result) => new_inline_content
+                .into_iter()
+                .filter(|item| generated_side(&layout_result.styled_dom, item).is_none())
+                .collect(),
+            None => new_inline_content,
+        };
+
         // 1. Store the new content in dirty_text_nodes for tracking.
         // This is the ONE overlay text writer, so the revision bump lives
         // here: every committed character-level edit advances the document
         // text revision and stamps the entry it produced.
         self.document_text_revision += 1;
         let cursor = self.text_edit_manager.get_primary_cursor();
+        // What the user is typing OVER: the app's rendered text, read when
+        // the first keystroke lands and kept while the entry lives - the
+        // generation GC tells "the app has not adopted the typing" (it
+        // renders this again) from "the app set a value" (it renders
+        // something else) by it.
+        let typed_over = match self.content_overlay.text_for_node(dom_id, node_id) {
+            Some(entry) => entry.typed_over.clone(),
+            None => self
+                .layout_results
+                .get(&dom_id)
+                .and_then(|lr| crate::overlay::dom_text_of(&lr.styled_dom, node_id)),
+        };
         self.content_overlay.set_text(
             dom_id,
             node_id,
@@ -17266,15 +24998,22 @@ impl LayoutWindow {
                 cursor,
                 needs_ancestor_relayout: false, // Will be set if size changes
                 revision: self.document_text_revision,
+                typed_over,
             },
         );
         // An ENGINE edit placed its carets itself; the generation diff must
-        // not shift them again for it (U3-b).
-        if let Some(mc) = self.text_edit_manager.multi_cursor.as_ref() {
-            if mc.node_id.dom == dom_id && mc.node_id.node.into_crate_internal() == Some(node_id) {
-                self.caret_text_snapshot =
-                    Some((mc.contenteditable_key, new_inline_content.clone()));
-            }
+        // not shift them again for it (U3-b). The snapshot is in the carets'
+        // numbering, as the diff reads it: the text just stored behind the
+        // layout's generated items ([`Self::element_content`]).
+        let snapshot_key = self
+            .text_edit_manager
+            .multi_cursor
+            .as_ref()
+            .filter(|mc| mc.block.dom() == dom_id && mc.block.element() == Some(node_id))
+            .map(|mc| mc.contenteditable_key);
+        if let Some(key) = snapshot_key {
+            let (numbered, _) = self.element_content(dom_id, node_id).into_parts();
+            self.caret_text_snapshot = Some((key, node_id, numbered));
         }
 
         self.reshape_text_node(dom_id, node_id, new_inline_content);
@@ -17349,8 +25088,8 @@ impl LayoutWindow {
             .text_edit_manager
             .multi_cursor
             .as_ref()
-            .filter(|mc| mc.node_id.dom == dom_id)
-            .and_then(|mc| mc.node_id.node.into_crate_internal());
+            .filter(|mc| mc.block.dom() == dom_id)
+            .map(|mc| mc.block.first_node());
 
         if let Some(caret) = caret {
             if let Some(pos) = children
@@ -17395,51 +25134,18 @@ impl LayoutWindow {
         // 2. Get the cached constraints from the existing inline layout result.
         // We need to find the IFC root node. The layout tree uses its own indices
         // (different from DOM node IDs), so we must go through dom_to_layout.
-        // The IFC may be on this node OR a child — search all mapped layout nodes
-        // and their children for one with inline_layout_result.
+        // The IFC may be on this node OR a child (text children of a
+        // contenteditable) — caret-owning block first, then document order.
         let (mut constraints, ifc_layout_index) = {
-            let Some(layout_result) = self.layout_results.get(&dom_id) else {
+            let Some(ifc_idx) = self.ifc_layout_index_for_edit(dom_id, node_id) else {
                 return;
             };
-
-            // Find the layout node with inline_layout_result via dom_to_layout
-            let mut found: Option<(usize, &CachedInlineLayout)> = None;
-
-            // First check layout nodes mapped to this DOM node
-            if let Some(layout_indices) = layout_result.layout_tree.dom_to_layout.get(&node_id) {
-                for &idx in layout_indices {
-                    if let Some(w) = layout_result.layout_tree.warm(idx) {
-                        if let Some(ref cached) = w.inline_layout_result {
-                            found = Some((idx.index(), cached));
-                            break;
-                        }
-                    }
-                }
-            }
-
-            // If not found on this node, check child DOM nodes (text children of
-            // contenteditable) — caret-owning block first, then document order.
-            if found.is_none() {
-                for child_id in self.ifc_candidate_children(dom_id, node_id) {
-                    if let Some(child_indices) =
-                        layout_result.layout_tree.dom_to_layout.get(&child_id)
-                    {
-                        for &idx in child_indices {
-                            if let Some(w) = layout_result.layout_tree.warm(idx) {
-                                if let Some(ref cached) = w.inline_layout_result {
-                                    found = Some((idx.index(), cached));
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                    if found.is_some() {
-                        break;
-                    }
-                }
-            }
-
-            let Some((ifc_idx, cached_layout)) = found else {
+            let Some(cached_layout) = self
+                .layout_results
+                .get(&dom_id)
+                .and_then(|lr| lr.layout_tree.warm(LayoutNodeId::new(ifc_idx)))
+                .and_then(|w| w.inline_layout_result.as_deref())
+            else {
                 return;
             };
 
@@ -17450,6 +25156,16 @@ impl LayoutWindow {
                 }
             }
         };
+
+        // The edit model's text has no generated content; the layout's
+        // content, and every caret it mints, has it among the text: a list
+        // item's `::marker` and a `::before` in front, an `::after` behind, a
+        // span's around the span's text. Put the IFC's own back, or a
+        // keystroke in a list item erased its bullet, one in a paragraph its
+        // `::before` and `::after`, and the carets behind them were
+        // renumbered.
+        let mut new_inline_content =
+            self.with_generated_ifc_content(dom_id, ifc_layout_index, new_inline_content);
 
         // 2b. Refresh available_width from the containing block's used_size.
         //
@@ -17529,35 +25245,42 @@ impl LayoutWindow {
             }
         }
 
-        // 3. Re-run the text3 layout pipeline.
-        //
-        // Try the incremental path first: it runs stages 1-3 (logical items,
-        // bidi, shape) on the new content and, if the cached layout is
-        // still reusable (same item count, no overflow, line breaks cached),
-        // skips stage 4 (line-breaking + positioning). For edits whose new
-        // advances fall into GlyphSwap/LineShift territory, this turns a
-        // full IFC relayout into a glyph + x-position patch.
-        let cached_snapshot = self
-            .layout_results
-            .get(&dom_id)
-            .and_then(|lr| lr.layout_tree.warm(LayoutNodeId::new(ifc_layout_index)))
-            .and_then(|w| w.inline_layout_result.as_ref())
-            .cloned();
+        // The IFC the edit lays out again: the node its style comes from and
+        // its atomic inline children, by where the edited content holds them.
+        let Some(edited_ifc) = self.edited_ifc(dom_id, ifc_layout_index, &mut new_inline_content)
+        else {
+            return;
+        };
 
-        let new_layout = cached_snapshot.map_or_else(
-            || self.relayout_text_node_internal(&new_inline_content, &constraints),
-            |cached| {
-                self.try_incremental_text_relayout(
-                    &new_inline_content,
-                    &constraints,
-                    &cached,
-                    node_id,
-                )
-                .map(|(layout, _skipped_fragment)| layout)
-            },
-        );
+        // An SVG `<text>` is laid out at its `<svg>`'s scale: the edit model,
+        // like the IFC's collection, holds its user units, scaled here as the
+        // full layout scales them (`solver3::svg::scaled_content`).
+        if let Some(scale) = self.layout_results.get(&dom_id).and_then(|layout_result| {
+            solver3::svg::text_scale(
+                &layout_result.styled_dom,
+                &layout_result.layout_tree,
+                ifc_layout_index,
+            )
+        }) {
+            new_inline_content = solver3::svg::scaled_content(&new_inline_content, scale);
+        }
 
-        let Some(new_layout) = new_layout else {
+        // A shrink-to-fit box (an inline-block, an absolutely positioned box,
+        // an SVG text) is as wide as its content: the edited content sizes it
+        // as a fresh layout sizes it, before its lines are broken.
+        if let Some(width) =
+            self.shrink_to_fit_content_width(dom_id, ifc_layout_index, &new_inline_content)
+        {
+            constraints.available_width = crate::text3::cache::AvailableSpace::Definite(width);
+        }
+
+        // 3. Re-run the inline layout pipeline, from the shaping on, through
+        // the same functions as the solver's `layout_ifc`: the edited
+        // paragraph is laid out as a full layout lays it out, only its content
+        // is the edit's own.
+        let Some((new_layout, finished)) =
+            self.relayout_text_node_internal(&edited_ifc, &new_inline_content, &constraints)
+        else {
             return;
         };
 
@@ -17587,19 +25310,16 @@ impl LayoutWindow {
                 }
             }
 
-            // The true content extent of the fresh layout. `bounds()` alone is
-            // not enough: a nowrap line that overflows the box reports its full
+            // The true content extent of the fresh layout, as the full layout
+            // reports it (`finish_inline_layout`). `bounds()` alone is not
+            // enough: a nowrap line that overflows the box reports its full
             // width in `unclipped_bounds` (captured during line breaking and
             // surviving the dense-text sentinel swap), and `overflow_content_size`
             // is what `get_content_size` → `register_scroll_nodes` reads to
             // decide whether this IFC became a scroll box. Leaving it stale
             // meant a single-line text input never registered horizontal
             // overflow while typing, so the caret-reveal had nothing to scroll.
-            let unclipped = new_layout.overflow.unclipped_bounds;
-            let mut content_extent = LogicalSize {
-                width: new_bounds.width.max(unclipped.width),
-                height: new_bounds.height.max(unclipped.height),
-            };
+            let mut content_extent = finished.overflow_size;
             // An edit that ENDS in a hard break leaves `[.., LineBreak,
             // Text("")]`: the caret stands on a line that holds no glyph, so no
             // line box materializes and `bounds()` stops at the line above.
@@ -17630,20 +25350,37 @@ impl LayoutWindow {
             // Update the inline layout result with the new layout but preserve constraints (warm
             // data)
             if let Some(warm_node) = layout_result
-                .layout_tree
+                .layout_tree_mut()
                 .warm_mut(LayoutNodeId::new(ifc_layout_index))
             {
-                let mut fresh = CachedInlineLayout::new_with_constraints(
-                    Arc::new(new_layout),
+                let fresh = CachedInlineLayout::new_with_constraints(
+                    new_layout,
                     constraints.available_width,
                     false, // No floats in quick relayout
                     constraints,
                 );
-                // Stamp the style this shape ran under so the NEXT keystroke
-                // may patch incrementally against these positions.
-                fresh.shaping_style_fp = Self::shaping_style_fingerprint(&new_inline_content);
                 warm_node.inline_layout_result = Some(Box::new(fresh));
+                // The text changed: what the IFC measured before the edit is
+                // stale, and the next layout measures it again.
+                warm_node.inline_measure_layouts = None;
                 warm_node.overflow_content_size = Some(content_extent);
+                // The baseline the box's alignment reads, as the full layout
+                // writes it.
+                warm_node.baseline = finished.baseline;
+            }
+
+            // The atomic inline children stand where the new lines put them,
+            // placed as the solver places them after a full layout. A child
+            // the tree has no node for leaves the placing to the full layout.
+            let unplaced = layout_result
+                .place_inline_children(ifc_layout_index, &finished.positions)
+                .is_err();
+            if let Some(dirty_node) = self
+                .content_overlay
+                .text_for_node_mut(dom_id, node_id)
+                .filter(|_| unplaced)
+            {
+                dirty_node.needs_ancestor_relayout = true;
             }
         }
 
@@ -17785,6 +25522,13 @@ impl LayoutWindow {
                         style.reserve_width_px,
                     );
                     now_reqs.visual_width_px = style.visual_width_px;
+                    // The bar the style draws - what `compute_scrollbar_info_core`
+                    // stores for the layout pass; without it the stored
+                    // requirements would scroll with no bar at all.
+                    now_reqs.bar_kind = solver3::scrollbar::ScrollbarKind::from_style(
+                        &style,
+                        solver3::scrollbar::is_viewport_scroller(dom_id, host_dom),
+                    );
                     let transitioned = was != (now_reqs.needs_horizontal, now_reqs.needs_vertical);
                     Some(HostPlan {
                         host_dom,
@@ -17805,7 +25549,7 @@ impl LayoutWindow {
                 // pass, the scroll-frame content size, the scrollbar thumb)
                 // reads THIS edit, not the last full layout.
                 if let Some(layout_result) = self.layout_results.get_mut(&dom_id) {
-                    if let Some(warm) = layout_result.layout_tree.warm_mut(plan.host_idx) {
+                    if let Some(warm) = layout_result.layout_tree_mut().warm_mut(plan.host_idx) {
                         warm.overflow_content_size = Some(plan.merged_extent);
                     }
                 }
@@ -17821,12 +25565,51 @@ impl LayoutWindow {
                         plan.transitioned
                     );
                 }
+                // The caret gutter the registration pass gives the box that
+                // hosts the caret - the same rule, so the fast path and a
+                // full registration publish the same extent.
+                let published_extent = crate::managers::scroll_registration::caret_scroll_extent(
+                    crate::managers::scroll_registration::caret_scroll_node(
+                        &self.text_edit_manager.build_cursor_locations(),
+                    ),
+                    dom_id,
+                    plan.host_dom,
+                    plan.merged_extent,
+                );
+                if !plan.transitioned {
+                    // PUBLISH BEFORE CONSUME, in the fast path too. The box
+                    // already scrolled and still does, so nothing above
+                    // re-registers it - and the caret reveal that follows this
+                    // edit IN THE SAME PASS (the shells reveal right after
+                    // `apply_text_changeset`, before any relayout) is clamped
+                    // against the manager's content size. Left at the previous
+                    // keystroke's extent, the reveal stopped exactly one
+                    // keystroke short and clipped the character just typed.
+                    //
+                    // Not for the viewport's scroller: its extent is the root's
+                    // margin box (`LayoutTree::scroll_extent`), which this
+                    // text-only extent is not; its relayout registers it.
+                    let is_viewport =
+                        solver3::scrollbar::is_viewport_scroller(dom_id, plan.host_dom);
+                    if !is_viewport
+                        && self.scroll_manager.update_content_size(
+                            dom_id,
+                            plan.host_dom,
+                            published_extent,
+                        )
+                    {
+                        // Thumb geometry follows the extent (the press
+                        // router hit-tests these bars).
+                        self.scroll_manager.calculate_scrollbar_states();
+                        let _ = self.refresh_scrollbar_transforms();
+                    }
+                }
                 if plan.transitioned {
                     if plan.now_reqs.needs_reflow() || plan.was_reflow {
                         escalate_for_scrollbar_geometry = true;
                     } else {
                         if let Some(layout_result) = self.layout_results.get_mut(&dom_id) {
-                            if let Some(warm) = layout_result.layout_tree.warm_mut(plan.host_idx) {
+                            if let Some(warm) = layout_result.layout_tree_mut().warm_mut(plan.host_idx) {
                                 warm.scrollbar_info = Some(plan.now_reqs);
                             }
                         }
@@ -17841,23 +25624,22 @@ impl LayoutWindow {
                             // consume).
                             crate::managers::scroll_registration::register_scroll_nodes(self, &now);
                         } else {
-                            // Overflow STOPPED. The registration pass skips
-                            // non-needing nodes, so shrink the manager's
-                            // content rect directly — otherwise
-                            // `is_node_scrollable` stays true forever and the
-                            // box keeps eating wheel events.
+                            // Overflow STOPPED. Shrink the manager's content
+                            // rect (and drop its bars) right here, for this
+                            // host only — otherwise `is_node_scrollable` stays
+                            // true until the next registration pass (which
+                            // refreshes a box that stopped overflowing too)
+                            // and the box keeps eating wheel events.
                             self.scroll_manager.register_or_update_scroll_node(
                                 dom_id,
                                 plan.host_dom,
                                 plan.scrollport,
-                                plan.merged_extent,
+                                published_extent,
                                 now,
                                 plan.now_reqs
-                                    .scrollbar_width
-                                    .max(plan.now_reqs.scrollbar_height),
-                                plan.now_reqs.visual_width_px,
-                                false,
-                                false,
+                                    .presence(azul_core::dom::ScrollbarOrientation::Horizontal),
+                                plan.now_reqs
+                                    .presence(azul_core::dom::ScrollbarOrientation::Vertical),
                             );
                         }
                         let _ = self.refresh_scrollbar_transforms();
@@ -17887,20 +25669,27 @@ impl LayoutWindow {
     /// preedit, so the last shaped composition erased the others.
     #[must_use]
     pub fn spliced_text_with_preedits(&self, dom_id: DomId, node_id: NodeId) -> Vec<InlineContent> {
-        let mut content = self.get_text_before_textinput(dom_id, node_id);
+        // In the carets' own numbering (behind a list item's `::marker`), and
+        // each caret's byte with its affinity resolved: a `Trailing` caret is
+        // AFTER its grapheme. Spliced into the DOM's text alone at the raw
+        // `start_byte_in_run`, a list item's composition went into no run at
+        // all, and one after a `Trailing` caret landed a grapheme early.
+        let block_content = self.element_content(dom_id, node_id);
         // (run, byte, seat, text)
         let mut inserts: Vec<(usize, usize, u64, String)> = Vec::new();
         if self.preedit_shaped_node == Some((dom_id, node_id)) {
-            if let (Some(p), Some(cursor)) = (
+            if let (Some(p), Some((run, byte))) = (
                 self.text_edit_manager
                     .preedit_text
                     .as_ref()
                     .filter(|p| !p.is_empty()),
-                self.text_edit_manager.get_primary_cursor(),
+                self.text_edit_manager
+                    .get_primary_cursor()
+                    .and_then(|cursor| block_content.run_byte_of(&cursor)),
             ) {
                 inserts.push((
-                    cursor.cluster_id.source_run as usize,
-                    cursor.cluster_id.start_byte_in_run as usize,
+                    run,
+                    byte.0,
                     azul_core::window::PRIMARY_POINTER_SEAT,
                     p.clone(),
                 ));
@@ -17922,23 +25711,26 @@ impl LayoutWindow {
             }) else {
                 continue;
             };
-            inserts.push((
-                caret.cursor.cluster_id.source_run as usize,
-                caret.cursor.cluster_id.start_byte_in_run as usize,
-                *seat,
-                p.text.clone(),
-            ));
+            let Some((run, byte)) = block_content.run_byte_of(&caret.cursor) else {
+                continue;
+            };
+            inserts.push((run, byte.0, *seat, p.text.clone()));
         }
+        let (mut content, generated) = block_content.into_parts();
         inserts.sort_by(|a, b| (b.0, b.1, b.2).cmp(&(a.0, a.1, a.2)));
         for (run_idx, byte_pos, _, preedit) in inserts {
             if let Some(InlineContent::Text(run)) = content.get_mut(run_idx) {
-                let clamped_pos = byte_pos.min(run.text.len());
+                let mut clamped_pos = byte_pos.min(run.text.len());
+                while clamped_pos > 0 && !run.text.is_char_boundary(clamped_pos) {
+                    clamped_pos -= 1;
+                }
                 let mut t = String::from(&*run.text);
                 t.insert_str(clamped_pos, &preedit);
                 run.text = Arc::from(t.as_str());
             }
         }
-        content
+        // The node's text: the reshape puts the generated items back in front.
+        content.split_off(generated)
     }
 
     pub fn apply_preedit_to_text_cache(&mut self, dom_id: DomId, node_id: NodeId) {
@@ -18155,6 +25947,10 @@ impl LayoutWindow {
         // pure scroll this must be FLAT ZERO - any activity here is the
         // hover-restyle / overscroll rebuild class.
         let _p = crate::probe::Probe::span("dl_regenerate_full");
+        let _light = azul_core::light::LightScope::enter(
+            self.effective_light(),
+            [self.window_desktop_origin().x, self.window_desktop_origin().y],
+        );
 
         // This rebuild is WHOLESALE — the list is regenerated from the current
         // layout tree, it is not a splice of the previous one. The previous
@@ -18173,7 +25969,13 @@ impl LayoutWindow {
         // `last_patch_damage` is the milder half of the same defect
         // (over-damage from rects that describe a different list).
         self.layout_cache.record_full_emission();
-        self.layout_cache.last_patch_move = None;
+        // The move hint stays: it describes the layout this list is built
+        // from, and a CPU frame takes it only while it shows the layout the
+        // move starts from (`LayoutCache::last_patch_move_from_seq`) - a
+        // keystroke's list after a presented reflow does not blit by it.
+        if dom_id == DomId::ROOT_ID {
+            self.retain_running_color_keys();
+        }
 
         // Get all the data we need from the layout result
         let Some(layout_result) = self.layout_results.get(&dom_id) else {
@@ -18189,8 +25991,26 @@ impl LayoutWindow {
         // Get scroll offsets from scroll manager
         let scroll_offsets = self.scroll_manager.get_scroll_states_for_dom(dom_id);
 
-        // Get GPU cache for this DOM
-        let gpu_cache = self.gpu_state_manager.get_or_create_cache(dom_id).clone();
+        // The CSS `transform` / `opacity` values this list binds, from the
+        // styles as they are NOW - exactly what the layout pass does before
+        // its build. A paint-scope write (`set_css_property(transform)`, a
+        // tween frame that changed the key population) reaches the screen
+        // through this path, and used to be built against the old matrix.
+        if !self.skip_gpu_sync {
+            let size_of = |node: NodeId| -> Option<(f32, f32)> {
+                let idx = *tree.dom_to_layout.get(&node)?.first()?;
+                let size = tree.nodes.get(idx.index())?.used_size?;
+                Some((size.width, size.height))
+            };
+            sync_css_gpu_values(&mut self.gpu_state_manager, dom_id, styled_dom, &size_of);
+        }
+
+        // The GPU cache of this DOM, BORROWED for the build (it was cloned
+        // whole on every display-list regeneration).
+        let empty_gpu_cache = GpuValueCache::default();
+        let _ = self.gpu_state_manager.get_or_create_cache(dom_id);
+        let gpu_cache =
+            gpu_cache_for_pass(&self.gpu_state_manager, dom_id, false).unwrap_or(&empty_gpu_cache);
 
         // Get cursor state for display list generation. A tween in flight
         // forces the caret solid (blinking is suppressed while animating).
@@ -18235,6 +26055,11 @@ impl LayoutWindow {
             debug_messages: &mut debug_messages,
             counters: &mut counter_values,
             viewport_size: viewport.size,
+            canvas_rect: Self::canvas_rect_for(
+                dom_id == DomId::ROOT_ID,
+                viewport,
+                &self.current_window_state,
+            ),
             fragmentation_context: None,
             cursor_is_visible,
             cursor_locations,
@@ -18258,11 +26083,14 @@ impl LayoutWindow {
             calculated_positions,
             &scroll_offsets,
             scroll_ids,
-            Some(&gpu_cache),
+            Some(gpu_cache),
             &self.renderer_resources,
             self.id_namespace,
             dom_id,
         );
+        // The key population the list binds, taken while the cache is still
+        // borrowed (the tween pass below needs `self` mutably).
+        let gpu_fingerprint = gpu_cache.dl_emission_fingerprint();
 
         // Restore the cache_map back to layout_cache
         self.layout_cache.cache_map = std::mem::take(&mut ctx.cache_map);
@@ -18322,6 +26150,26 @@ impl LayoutWindow {
                 if let Some(layout_result) = self.layout_results.get_mut(&dom_id) {
                     layout_result.display_list = display_list.clone();
                 }
+                if dom_id == DomId::ROOT_ID {
+                    self.root_display_list_gpu_fingerprint = Some(gpu_fingerprint);
+                }
+                // PAINT dirt staged for this DOM is served: the list was just
+                // built from the styles it describes. A paint-scope tween
+                // frame stages its node here and asks for exactly this
+                // rebuild; leaving the entry made the dirt grow by one per
+                // frame until some layout pass ate it, and refused every
+                // frame in between the values-only repaint
+                // (`animation_tick_is_values_only`). Layout-scope dirt stays:
+                // a layout pass still owes it.
+                if matches!(
+                    &self.pending_css_dirty,
+                    Some((d, list)) if *d == dom_id
+                        && list
+                            .iter()
+                            .all(|(_, scope)| *scope == azul_css::props::property::RelayoutScope::None)
+                ) {
+                    self.pending_css_dirty = None;
+                }
                 // Refresh the solver's structural-identity DL cache with the
                 // SAME list, keyed on the fingerprint of the gpu cache this
                 // regeneration consumed. Without this the two DL authorities
@@ -18355,7 +26203,7 @@ impl LayoutWindow {
                             *cached = (
                                 h,
                                 cached.1,
-                                gpu_cache.dl_emission_fingerprint(),
+                                gpu_fingerprint,
                                 solver3::scroll_geometry_fingerprint(&scroll_offsets),
                                 dl_input_fp,
                                 display_list,
@@ -18379,27 +26227,99 @@ impl LayoutWindow {
         }
     }
 
-    /// Internal helper to re-run the text3 layout pipeline on new content
+    /// The content-box width a fresh layout gives the box of the inline
+    /// formatting context at `ifc_layout_index` when its box is sized from
+    /// its content (`solver3::sizing::shrink_to_fit_containing_block`) and
+    /// that content is `content`: its intrinsic sizes measured as the
+    /// intrinsic pass measures them (`measure_ifc_intrinsic_sizes`), through
+    /// the one `calculate_used_size_for_node`. `None` for a box whose width
+    /// its formatting context gives it.
+    fn shrink_to_fit_content_width(
+        &mut self,
+        dom_id: DomId,
+        ifc_layout_index: usize,
+        content: &[InlineContent],
+    ) -> Option<f32> {
+        let layout_result = self.layout_results.get(&dom_id)?;
+        let tree = &layout_result.layout_tree;
+        let styled_dom = &layout_result.styled_dom;
+        // The box sized from the content is the inline formatting context's
+        // own box or, when that box is one the layout tree made for a text
+        // (an inline-block's text) or an anonymous wrapper, the box it fills:
+        // such a box has no width or edges of its own.
+        let mut sized_index = ifc_layout_index;
+        while fills_its_parent(styled_dom, tree, sized_index) {
+            sized_index = tree.get(LayoutNodeId::new(sized_index))?.parent?;
+        }
+        let containing_block = solver3::sizing::shrink_to_fit_containing_block(
+            styled_dom,
+            tree,
+            sized_index,
+            &layout_result.calculated_positions,
+            layout_result.viewport,
+        )?;
+        let node = tree.get(LayoutNodeId::new(sized_index))?;
+        let measure = solver3::sizing::ifc_measure_constraints(
+            styled_dom,
+            tree,
+            ifc_layout_index,
+            layout_result.viewport.size,
+        );
+        let loaded_fonts = self.font_manager.get_loaded_fonts();
+        let intrinsic = solver3::sizing::measure_ifc_intrinsic_sizes(
+            &mut self.text_cache,
+            content,
+            &[],
+            &measure,
+            self.font_manager.get_font_chain_cache(),
+            &self.font_manager.fc_cache,
+            &loaded_fonts,
+            &mut None,
+        );
+        let edges = node.box_props.unpack();
+        let size = solver3::sizing::calculate_used_size_for_node(
+            styled_dom,
+            node.dom_node_id,
+            &containing_block,
+            intrinsic,
+            &edges,
+            &layout_result.viewport.size,
+        )
+        .ok()?;
+        Some(
+            (size.width
+                - edges.padding.left
+                - edges.padding.right
+                - edges.border.left
+                - edges.border.right)
+                .max(0.0),
+        )
+    }
+
+    /// The edited inline formatting context laid out again as the solver's
+    /// `layout_ifc` lays it out from its collected content on: shaped by the
+    /// one `shape_content`, then broken, positioned and reported by the one
+    /// `lay_out_shaped_ifc`. Only its content is the edit's own.
     fn relayout_text_node_internal(
-        &self,
+        &mut self,
+        ifc: &EditedIfc,
         content: &[InlineContent],
         constraints: &UnifiedConstraints,
-    ) -> Option<UnifiedLayout> {
+    ) -> Option<(Arc<UnifiedLayout>, solver3::fc::LayoutOutput)> {
         let (logical_items, shaped_items) = self.shape_text_for_relayout(content, constraints)?;
 
         if logical_items.is_empty() {
-            return Some(UnifiedLayout {
+            let empty = UnifiedLayout {
                 items: Vec::new(),
                 overflow: crate::text3::cache::OverflowInfo::default(),
-            });
+            };
+            return self.finish_edited_layout(ifc, empty, constraints);
         }
 
-        self.fragment_layout_from_shaped(&logical_items, &shaped_items, constraints)
+        let paragraph = crate::text3::cache::ParagraphToBreak::new(shaped_items, constraints);
+        self.lay_out_edited_paragraph(ifc, &logical_items, &paragraph)
     }
 
-    /// Stages 1-3 of the text3 pipeline (logical items, bidi reorder, shape).
-    /// Returned separately so an incremental relayout path can skip stage 4
-    /// (line breaking + positioning) when the cached layout is reusable.
     /// Load the font bytes for every styled text run in `content` that the
     /// full layout path never loaded.
     ///
@@ -18471,87 +26391,76 @@ impl LayoutWindow {
             });
     }
 
+    /// The edited content's logical and shaped items, shaped as every layout
+    /// of a paragraph shapes it (`TextShapingCache::shape_content`), in the
+    /// window's shaping cache, the one its full layouts shape with.
     fn shape_text_for_relayout(
-        &self,
+        &mut self,
         content: &[InlineContent],
         constraints: &UnifiedConstraints,
-    ) -> Option<(Vec<crate::text3::cache::LogicalItem>, Vec<ShapedItem>)> {
-        use crate::text3::cache::{
-            create_logical_items, reorder_logical_items, shape_visual_items, BidiDirection,
-        };
-
-        let logical_items = create_logical_items(content, &[], &mut None);
-        if logical_items.is_empty() {
-            return Some((logical_items, Vec::new()));
-        }
-
+    ) -> Option<ShapedForRelayout> {
         // See the doc on `ensure_fonts_loaded_for_content`: the pool this
         // function shapes against only contains fonts a previous FULL layout
         // needed, and the first character of a previously-empty editable
         // introduces a style no full layout has seen.
         self.ensure_fonts_loaded_for_content(content);
 
-        let base_direction = constraints.direction.unwrap_or(BidiDirection::Ltr);
-        let visual_items = reorder_logical_items(
-            &logical_items,
-            base_direction,
-            crate::text3::cache::UnicodeBidi::Normal,
-            &mut None,
-        )
-        .ok()?;
-
         let loaded_fonts = self.font_manager.get_loaded_fonts();
-        let shaped_items = shape_visual_items(
-            &visual_items,
-            self.font_manager.get_font_chain_cache(),
-            &self.font_manager.fc_cache,
-            &loaded_fonts,
-            &mut None,
-        )
-        .ok()?;
-
-        Some((logical_items, shaped_items))
+        self.text_cache
+            .shape_content(
+                content,
+                &[],
+                constraints,
+                self.font_manager.get_font_chain_cache(),
+                &self.font_manager.fc_cache,
+                &loaded_fonts,
+                &mut None,
+            )
+            .ok()
     }
 
-    /// Stage 4 of the text3 pipeline: line breaking + positioning.
-    fn fragment_layout_from_shaped(
+    /// Breaks, positions and reports the edited paragraph as the solver lays
+    /// out an inline formatting context (`lay_out_shaped_ifc`).
+    fn lay_out_edited_paragraph(
         &self,
+        ifc: &EditedIfc,
         logical_items: &[crate::text3::cache::LogicalItem],
-        shaped_items: &[ShapedItem],
-        constraints: &UnifiedConstraints,
-    ) -> Option<UnifiedLayout> {
-        use crate::text3::cache::{perform_fragment_layout, BreakCursor};
-
+        paragraph: &crate::text3::cache::ParagraphToBreak<'_>,
+    ) -> Option<(Arc<UnifiedLayout>, solver3::fc::LayoutOutput)> {
+        let styled_dom = &self.layout_results.get(&ifc.dom_id)?.styled_dom;
         let loaded_fonts = self.font_manager.get_loaded_fonts();
-        let mut cursor = BreakCursor::new(shaped_items);
-        perform_fragment_layout(
-            &mut cursor,
+        solver3::fc::lay_out_shaped_ifc(
             logical_items,
-            constraints,
-            &mut None,
+            paragraph,
             &loaded_fonts,
+            styled_dom,
+            ifc.root_style_node,
+            &ifc.child_map,
+            &mut None,
         )
         .ok()
     }
 
-    /// Attempt an incremental IFC relayout for a text edit.
-    ///
-    /// Runs stages 1-3 (logical items, bidi, shape) on the new content, then
-    /// checks whether the cached `UnifiedLayout` can be patched without
-    /// re-running line-breaking (stage 4).
-    ///
-    /// Returns `Some((new_layout, skipped_fragment_layout))`:
-    ///   - `skipped_fragment_layout == true` means we took the incremental fast path and returned a
-    ///     patched cached layout.
-    ///   - `skipped_fragment_layout == false` means we fell back to full `fragment_layout` (stage
-    ///     4) but reused shape output from stages 1-3.
-    ///
-    /// Returns `None` only if `logical_items` + reorder + shape itself fails.
-    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
-    /// (d6g) Position + `line_index` for item `i` of a cached inline
-    /// layout: dense reconstruction when the view is retained
-    /// (verify-A/B'd under `AZ_DENSE_TEXT=verify`), sparse read
-    /// otherwise. The sparse arm dies at the d6 retirement.
+    /// What the edited paragraph's box reports when it has no content, and
+    /// so no lines to break: what every layout of an inline formatting
+    /// context reports from its lines (`finish_inline_layout`).
+    fn finish_edited_layout(
+        &self,
+        ifc: &EditedIfc,
+        layout: UnifiedLayout,
+        constraints: &UnifiedConstraints,
+    ) -> Option<(Arc<UnifiedLayout>, solver3::fc::LayoutOutput)> {
+        let styled_dom = &self.layout_results.get(&ifc.dom_id)?.styled_dom;
+        let output = solver3::fc::finish_inline_layout(
+            &layout,
+            constraints,
+            styled_dom,
+            ifc.root_style_node,
+            &ifc.child_map,
+        );
+        Some((Arc::new(layout), output))
+    }
+
     /// (d6h) The stored inline layout, MATERIALIZED when it is the
     /// retirement sentinel: the dense arrays expand (exact by the d6h
     /// expansion gate) into a transient sparse copy for the human-rate
@@ -18577,6 +26486,13 @@ impl LayoutWindow {
     ///   [`crate::headless::node_rect_to_screen`] does.
     /// * [`Inclusivity::SelfAndAncestors`] — "where is this node's CONTENT?" The caret and the
     ///   glyphs inside a scroll box DO move with it.
+    ///
+    /// The offsets are those of the node's `ScrollChain` - the frames the
+    /// display list painted it in - not of every ancestor that happens to
+    /// hold scroll state: an offset a program stored on a box that opens no
+    /// frame (an `overflow: hidden` box whose content fits, a plain `div`)
+    /// moved nothing on screen, and added here it put every click inside
+    /// that box that far away from the text it was aimed at.
     fn accumulated_scroll(
         &self,
         dom_id: DomId,
@@ -18586,11 +26502,52 @@ impl LayoutWindow {
         let Some(layout_result) = self.layout_results.get(&dom_id) else {
             return ScrollOffset::zero();
         };
-        let tree = &layout_result.layout_tree;
-        tree.ancestor_chain(LayoutNodeId::new(layout_idx), inclusivity)
-            .filter_map(|idx| tree.get(idx).and_then(|n| n.dom_node_id))
-            .filter_map(|nid| self.scroll_manager.get_current_offset(dom_id, nid))
+        let chain = solver3::scroll_chain::ScrollChain::of(
+            &layout_result.layout_tree,
+            &layout_result.styled_dom,
+            &layout_result.scroll_ids,
+            LayoutNodeId::new(layout_idx),
+            inclusivity,
+        );
+        chain
+            .scrolling()
+            .filter_map(|link| self.scroll_manager.get_current_offset(dom_id, link.node))
             .fold(ScrollOffset::zero(), |acc, off| acc.plus(ScrollOffset(off)))
+    }
+
+    /// The `source_run → (that run's shared source text, its style)` table
+    /// a block's SELECTION cursors are numbered against.
+    ///
+    /// A [`TextCursor`]'s `source_run` indexes the inline content
+    /// `solver3::fc` BUILT for the IFC, and `start_byte_in_run` indexes THAT
+    /// run's shaped text. [`Self::get_text_before_textinput`] returns a
+    /// different vector — a DOM-child recursion that emits no `::marker`,
+    /// no `<br>` break and no replaced item, and does not collapse
+    /// whitespace — so addressing it by `source_run` names the wrong run,
+    /// or none at all, for any block holding more than plain text. That is
+    /// why a document selection over a list, or over a paragraph with a
+    /// `<br>` in it, highlighted correctly and copied nothing.
+    ///
+    /// `ShapedCluster::source_text` is the string the cursor was minted
+    /// against, by construction (the same reason `DenseText` stopped mapping
+    /// through `content.get(source_run)`), so this table cannot drift from
+    /// the cursors the way the DOM vector does.
+    ///
+    /// Read off the block's MATERIALIZED layout (the sparse one is the
+    /// retirement sentinel under dense text).
+    fn selection_runs_for_block(
+        &self,
+        block: TextBlock,
+    ) -> BTreeMap<u32, (Arc<str>, Arc<StyleProperties>)> {
+        let layout = self.block_inline_layout(block);
+        let mut out: BTreeMap<u32, (Arc<str>, Arc<StyleProperties>)> = BTreeMap::new();
+        for item in layout.iter().flat_map(|l| l.items.iter()) {
+            if let ShapedItem::Cluster(c) = &item.item {
+                out.entry(c.source_cluster_id.source_run)
+                    .or_insert_with(|| (c.source_text.clone(), c.style.clone()));
+            }
+        }
+        out
     }
 
     fn materialized_inline_layout(
@@ -18607,234 +26564,6 @@ impl LayoutWindow {
             }
         }
         cached.layout.clone()
-    }
-
-    fn cached_positioned_of(
-        cached: &solver3::layout_tree::CachedInlineLayout,
-        i: usize,
-    ) -> (crate::text3::cache::Point, usize) {
-        // (d6h) Dense FIRST, without touching the sparse items — the
-        // stored layout may be the retirement sentinel (empty), which
-        // must never be indexed. Verify mode retains the real sparse
-        // and the A/B assert stays armed there.
-        if let Some(d) = cached.dense.as_deref() {
-            if let Some((x, y, li)) = d.positioned_cluster(i as u32) {
-                if std::env::var("AZ_DENSE_TEXT").as_deref() == Ok("verify") {
-                    if let Some(sparse) = cached.layout.items.get(i) {
-                        assert!(
-                            (sparse.position.x - x).abs() < 0.01
-                                && (sparse.position.y - y).abs() < 0.01
-                                && sparse.line_index == li,
-                            "d6g verify: positioned_cluster({i}) diverged: sparse ({}, {}, {}) vs \
-                             dense ({x}, {y}, {li})",
-                            sparse.position.x,
-                            sparse.position.y,
-                            sparse.line_index,
-                        );
-                    }
-                }
-                return (crate::text3::cache::Point { x, y }, li);
-            }
-        }
-        let sparse = &cached.layout.items[i];
-        (sparse.position, sparse.line_index)
-    }
-
-    /// A fingerprint of everything in the runs' styles that affects SHAPING
-    /// (fonts, sizes, spacing, line height, variants — not paint-only fields
-    /// like color). The incremental patcher pastes freshly shaped glyphs onto
-    /// CACHED pen positions, which is only sound when the cache was shaped
-    /// under the same style environment. Never returns 0 — 0 is the
-    /// "unknown" sentinel a full layout's cache carries.
-    fn shaping_style_fingerprint(content: &[InlineContent]) -> u64 {
-        use core::hash::{Hash, Hasher};
-        let mut h = std::collections::hash_map::DefaultHasher::new();
-        for item in content {
-            match item {
-                InlineContent::Text(run) => {
-                    let s = &run.style;
-                    format!(
-                        "T{:?}|{}|{:?}|{:?}|{:?}|{:?}|{:?}|{}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?\
-                         }|{:?}|{:?}",
-                        s.font_stack,
-                        s.font_size_px.to_bits(),
-                        s.letter_spacing,
-                        s.word_spacing,
-                        s.line_height,
-                        s.font_features,
-                        s.font_variations,
-                        s.tab_size.to_bits(),
-                        s.text_transform,
-                        s.writing_mode,
-                        s.text_orientation,
-                        s.text_combine_upright,
-                        s.font_variant_caps,
-                        s.font_variant_numeric,
-                        s.font_variant_ligatures,
-                        s.font_variant_east_asian,
-                        s.vertical_align,
-                    )
-                    .hash(&mut h);
-                }
-                other => core::mem::discriminant(other).hash(&mut h),
-            }
-        }
-        match h.finish() {
-            0 => 1,
-            v => v,
-        }
-    }
-
-    fn try_incremental_text_relayout(
-        &self,
-        content: &[InlineContent],
-        constraints: &UnifiedConstraints,
-        cached: &solver3::layout_tree::CachedInlineLayout,
-        edited_node_id: NodeId,
-    ) -> Option<(UnifiedLayout, bool)> {
-        use crate::text3::cache::{
-            try_incremental_relayout as decide_incremental, IncrementalRelayoutResult,
-            PositionedItem, ShapedItem,
-        };
-
-        let (logical_items, shaped_items) = self.shape_text_for_relayout(content, constraints)?;
-
-        if logical_items.is_empty() {
-            return Some((
-                UnifiedLayout {
-                    items: Vec::new(),
-                    overflow: crate::text3::cache::OverflowInfo::default(),
-                },
-                true,
-            ));
-        }
-
-        // Incremental patching requires:
-        //   - The cached layout came with line-break metadata.
-        //   - No overflow in the cached layout (patching positions around overflow is not
-        //     supported).
-        //   - The new shape output has the same number of items as the cached positioned items, so
-        //     we can zip 1:1.
-        // (d6h) The overflow guard reads the CAPTURED overflow (the
-        // stored layout may be the retirement sentinel); the count
-        // guard is dense-first for the same reason.
-        let cached_item_count = if cached.layout.items.is_empty() {
-            cached.dense.as_deref().map_or(0, |d| d.clusters.len())
-        } else {
-            cached.layout.items.len()
-        };
-        // A cache from a FULL layout carries `shaping_style_fp == 0` and is
-        // never patched against: its pen positions may come from a different
-        // style resolution than this reshape (the 16px-seed / 11px-cache
-        // squash, 2026-08-29). Stage 4 below re-positions instead.
-        let style_fp = Self::shaping_style_fingerprint(content);
-        let incremental_ok = cached.line_breaks.is_some()
-            && cached.overflow.overflow_items.is_empty()
-            && shaped_items.len() == cached_item_count
-            && cached.shaping_style_fp == style_fp;
-
-        if incremental_ok {
-            let line_breaks = cached.line_breaks.as_ref().unwrap();
-
-            let old_advances: Vec<f32> = cached
-                .item_metrics
-                .iter()
-                .map(|m| m.advance_width)
-                .collect();
-            let new_advances: Vec<f32> = shaped_items.iter().map(|si| si.bounds().width).collect();
-
-            // An item is dirty if its advance width changed OR it originates
-            // from the edited DOM node. The latter is needed so GlyphSwap
-            // (same-width edits) still invalidates glyph data, not just
-            // positions.
-            let mut dirty_indices: Vec<usize> = Vec::new();
-            for (i, (old_a, new_a)) in old_advances.iter().zip(new_advances.iter()).enumerate() {
-                if (new_a - old_a).abs() > 0.01 {
-                    dirty_indices.push(i);
-                }
-            }
-            for (i, si) in shaped_items.iter().enumerate() {
-                if let ShapedItem::Cluster(c) = si {
-                    if c.source_node_id == Some(edited_node_id) && !dirty_indices.contains(&i) {
-                        dirty_indices.push(i);
-                    }
-                }
-            }
-            dirty_indices.sort_unstable();
-            dirty_indices.dedup();
-
-            let decision =
-                decide_incremental(&dirty_indices, &old_advances, &new_advances, line_breaks);
-
-            match decision {
-                IncrementalRelayoutResult::GlyphSwap => {
-                    // Widths unchanged — keep cached positions and line
-                    // assignments, swap in the new shaped items so their
-                    // glyph data reflects the edit.
-                    let items: Vec<PositionedItem> = shaped_items
-                        .into_iter()
-                        .enumerate()
-                        .map(|(i, new_shaped)| {
-                            let (position, line_index) = Self::cached_positioned_of(cached, i);
-                            PositionedItem {
-                                item: new_shaped,
-                                position,
-                                line_index,
-                            }
-                        })
-                        .collect();
-                    return Some((
-                        UnifiedLayout {
-                            items,
-                            overflow: cached.layout.overflow.clone(),
-                        },
-                        true,
-                    ));
-                }
-                IncrementalRelayoutResult::LineShift {
-                    affected_item,
-                    delta,
-                } => {
-                    // Width changed but the line still fits — shift x
-                    // positions of items after `affected_item` on the same
-                    // line. Items on later lines keep their positions.
-                    let affected_line = Self::cached_positioned_of(cached, affected_item).1;
-                    let items: Vec<PositionedItem> = shaped_items
-                        .into_iter()
-                        .enumerate()
-                        .map(|(i, new_shaped)| {
-                            let (mut position, line_index) = Self::cached_positioned_of(cached, i);
-                            if i > affected_item && line_index == affected_line {
-                                position.x += delta;
-                            }
-                            PositionedItem {
-                                item: new_shaped,
-                                position,
-                                line_index,
-                            }
-                        })
-                        .collect();
-                    return Some((
-                        UnifiedLayout {
-                            items,
-                            overflow: cached.layout.overflow.clone(),
-                        },
-                        true,
-                    ));
-                }
-                IncrementalRelayoutResult::PartialReflow { .. }
-                | IncrementalRelayoutResult::FullRelayout => {
-                    // Fall through to full fragment layout.
-                }
-            }
-        }
-
-        // Fall-back: run stage 4 (line breaking + positioning) with the
-        // already-computed logical + shaped items. Still cheaper than the
-        // plain full path because stages 1-3 aren't repeated.
-        let layout =
-            self.fragment_layout_from_shaped(&logical_items, &shaped_items, constraints)?;
-        Some((layout, false))
     }
 
     /// Helper to get node `used_size` for accessibility actions
@@ -18868,6 +26597,25 @@ impl LayoutWindow {
     }
 
     #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
+    /// Where `node_id` of `dom_id` is painted now: its laid-out border box
+    /// (unrounded) through the scroll offsets and the reference frames
+    /// around it (`node_rect_to_screen`, the raster's own rule).
+    #[must_use]
+    pub fn get_node_painted_bounds(&self, dom_id: DomId, node_id: NodeId) -> Option<LogicalRect> {
+        let layout_result = self.layout_results.get(&dom_id)?;
+        let idx = *layout_result.layout_tree.dom_to_layout.get(&node_id)?.first()?;
+        let size = layout_result.layout_tree.get(idx)?.used_size?;
+        let position = *layout_result.calculated_positions.get(idx.index())?;
+        Some(crate::headless::node_rect_to_screen(
+            layout_result,
+            dom_id,
+            idx.index(),
+            LogicalRect::new(position, size),
+            &|d, n| self.scroll_manager.get_current_offset(d, n),
+            &|d, n| self.painted_transform_of(d, n),
+        ))
+    }
+
     pub fn get_node_bounds(
         &self,
         dom_id: DomId,
@@ -18896,133 +26644,6 @@ impl LayoutWindow {
                 height: size.height as isize,
             },
         })
-    }
-
-    /// Convert a byte offset in the text to a `TextCursor` position
-    ///
-    /// This is used for accessibility `SetTextSelection` action, which provides
-    /// byte offsets rather than grapheme cluster IDs.
-    ///
-    /// # Arguments
-    ///
-    /// * `text_layout` - The text layout containing the shaped runs
-    /// * `byte_offset` - The byte offset in the UTF-8 text
-    ///
-    /// # Returns
-    ///
-    /// A `TextCursor` positioned at the given byte offset, or None if the offset
-    /// is out of bounds.
-    #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
-    fn byte_offset_to_cursor(text_layout: &UnifiedLayout, byte_offset: u32) -> TextCursor {
-        // Handle offset 0 as special case (start of text)
-        if byte_offset == 0 {
-            // Find first cluster in items
-            for item in &text_layout.items {
-                if let ShapedItem::Cluster(cluster) = &item.item {
-                    return TextCursor {
-                        cluster_id: cluster.source_cluster_id,
-                        affinity: CursorAffinity::Trailing,
-                    };
-                }
-            }
-            // No clusters found - return default
-            return TextCursor {
-                cluster_id: GraphemeClusterId {
-                    source_run: 0,
-                    start_byte_in_run: 0,
-                },
-                affinity: CursorAffinity::Trailing,
-            };
-        }
-
-        // Iterate through items to find which cluster contains this byte offset
-        let mut current_byte_offset = 0u32;
-
-        for item in &text_layout.items {
-            if let ShapedItem::Cluster(cluster) = &item.item {
-                // Calculate byte length of this cluster from its text
-                let cluster_byte_length = cluster.text().len() as u32;
-                let cluster_end_byte = current_byte_offset + cluster_byte_length;
-
-                // Check if our target byte offset falls within this cluster
-                if byte_offset >= current_byte_offset && byte_offset <= cluster_end_byte {
-                    // Found the cluster
-                    return TextCursor {
-                        cluster_id: cluster.source_cluster_id,
-                        affinity: CursorAffinity::Trailing,
-                    };
-                }
-
-                current_byte_offset = cluster_end_byte;
-            }
-        }
-
-        // Offset is beyond the end of all text - return cursor at end of last cluster
-        for item in text_layout.items.iter().rev() {
-            if let ShapedItem::Cluster(cluster) = &item.item {
-                return TextCursor {
-                    cluster_id: cluster.source_cluster_id,
-                    affinity: CursorAffinity::Trailing,
-                };
-            }
-        }
-
-        // No clusters at all - return default position
-        TextCursor {
-            cluster_id: GraphemeClusterId {
-                source_run: 0,
-                start_byte_in_run: 0,
-            },
-            affinity: CursorAffinity::Trailing,
-        }
-    }
-
-    /// Get the inline layout result for a specific node
-    ///
-    /// This looks up the node in the layout tree and returns its inline layout result
-    /// if it exists.
-    fn get_node_inline_layout(&self, dom_id: DomId, node_id: NodeId) -> Option<Arc<UnifiedLayout>> {
-        // The tree of the REQUESTED dom. `layout_cache.tree` is the root dom's
-        // only, so a bare `dom_node_id` match against it answered for an
-        // unrelated node of the root DOM whenever `dom_id` named a virtualized
-        // view — the `dom_id` parameter was accepted and then ignored.
-        let tree = &self.layout_results.get(&dom_id)?.layout_tree;
-
-        // Find the layout node index carrying the inline layout for this DOM node
-        let candidates = tree.dom_to_layout.get(&node_id)?;
-        let layout_idx = candidates
-            .iter()
-            .copied()
-            .find(|&idx| {
-                tree.warm(idx)
-                    .is_some_and(|w| w.inline_layout_result.is_some())
-            })
-            .or_else(|| {
-                // ...or on the IFC ROOT above it. A session is anchored either
-                // on the block that establishes the inline context (the click
-                // path passes `ifc_root_node_id`) or on the raw text node
-                // inside it (the focus path passes `pending.text_node_id`),
-                // and a text node carries no inline layout of its own. Looking
-                // only at the anchored node left every focus-opened session
-                // with no caret rect at all -- and with it, no caret reveal.
-                let mut cur = tree.nodes.get(candidates.first()?.index())?.parent;
-                while let Some(idx) = cur {
-                    if tree
-                        .warm(LayoutNodeId::new(idx))
-                        .is_some_and(|w| w.inline_layout_result.is_some())
-                    {
-                        return Some(LayoutNodeId::new(idx));
-                    }
-                    cur = tree.nodes.get(idx)?.parent;
-                }
-                None
-            })?;
-
-        // Return the inline layout result (warm data).
-        // (d6h) Materialized: sentinel-safe for every geometry/search
-        // caller of this accessor (caret scroll, selection paint,
-        // occurrence search).
-        tree.materialized_inline_layout_for_node(layout_idx.index())
     }
 
     /// Edit the text content of a node (used for text input actions)
@@ -19163,7 +26784,7 @@ impl LayoutWindow {
     /// (the `POSITION_UNSET` sentinel — inline text nodes keep it, which is
     /// why they can never be hit).
     #[must_use]
-    fn content_box_origin_of(
+    pub(crate) fn content_box_origin_of(
         layout_result: &DomLayoutResult,
         layout_idx: LayoutNodeId,
     ) -> Option<LogicalPosition> {
@@ -19196,14 +26817,15 @@ impl LayoutWindow {
         hit_local: ContentBoxLocal,
         hit_layout_idx: LayoutNodeId,
         ifc_root_layout_idx: LayoutNodeId,
-        ifc_root_node_id: NodeId,
+        ifc_root_node_id: Option<NodeId>,
     ) -> Option<ScrolledContentPoint> {
+        // The root's own scroll; an anonymous root (`None`) does not scroll.
+        let scrolled = |local: ContentBoxLocal| match ifc_root_node_id {
+            Some(root) => Self::ifc_local_point_from(local, scroll_offsets, root),
+            None => local.scrolled_by(ScrollOffset::zero()),
+        };
         if hit_layout_idx == ifc_root_layout_idx {
-            return Some(Self::ifc_local_point_from(
-                hit_local,
-                scroll_offsets,
-                ifc_root_node_id,
-            ));
+            return Some(scrolled(hit_local));
         }
         let tree = &layout_result.layout_tree;
         let hit_border =
@@ -19217,11 +26839,7 @@ impl LayoutWindow {
             .to_static_layout(hit_border)
             .to_border_box_local(root_border)
             .to_content_box_local(tree.content_inset(ifc_root_layout_idx));
-        Some(Self::ifc_local_point_from(
-            rebased,
-            scroll_offsets,
-            ifc_root_node_id,
-        ))
+        Some(scrolled(rebased))
     }
 
     /// [`Self::ifc_local_point_from`] for callers that can borrow `self`.
@@ -19248,7 +26866,7 @@ impl LayoutWindow {
     /// `window → +ancestor scroll → −node origin → −content inset → +own
     /// scroll`. Returns `None` when the node is not in this DOM's layout tree.
     #[must_use]
-    fn window_point_to_ifc_local(
+    pub(crate) fn window_point_to_ifc_local(
         &self,
         dom_id: DomId,
         layout_idx: usize,
@@ -19294,45 +26912,6 @@ impl LayoutWindow {
         ))
     }
 
-    /// The one caret position an EMPTY editable line owns.
-    ///
-    /// `layout_ifc` keeps a strut line box for an IFC root with no inline
-    /// content when it is (inside) a `contenteditable` host, precisely so a
-    /// caret can stand there. But `UnifiedLayout::hittest_cursor` answers
-    /// `None` for a layout with no clusters — there is no glyph to measure
-    /// against — so a click on that line found nothing, and
-    /// `process_mouse_click_for_selection` fell through to its "the press hit
-    /// no selectable text" branch. A brand-new document is made of exactly one
-    /// such line, so it could not be clicked into at all.
-    ///
-    /// There is no ambiguity to resolve on an empty line: the caret goes at
-    /// offset 0, leading. Returns `None` for anything that HAS clusters (the
-    /// real hit test answers those) and for non-editable empty IFCs (an empty
-    /// `<div>` is not something you put a caret in).
-    fn empty_editing_host_caret(
-        styled_dom: &StyledDom,
-        ifc_root_node_id: NodeId,
-        layout: &UnifiedLayout,
-    ) -> Option<TextCursor> {
-        if layout
-            .items
-            .iter()
-            .any(|item| matches!(item.item, ShapedItem::Cluster(_)))
-        {
-            return None;
-        }
-        if !solver3::getters::is_node_contenteditable_inherited(styled_dom, ifc_root_node_id) {
-            return None;
-        }
-        Some(TextCursor {
-            cluster_id: GraphemeClusterId {
-                source_run: 0,
-                start_byte_in_run: 0,
-            },
-            affinity: CursorAffinity::Leading,
-        })
-    }
-
     /// Process mouse click for text selection.
     ///
     /// This method handles:
@@ -19361,9 +26940,62 @@ impl LayoutWindow {
     /// ## Returns
     /// * `Option<Vec<DomNodeId>>` - Affected nodes that need re-rendering, None if click didn't hit
     ///   text
+    ///
+    /// A click that placed a caret or a selection is an INPUT that asks for
+    /// it to be shown ([`Self::request_session_reveal`]).
+    pub fn process_mouse_click_for_selection(
+        &mut self,
+        position: LogicalPosition,
+        time_ms: u64,
+    ) -> Option<Vec<DomNodeId>> {
+        let affected = self.place_selection_at_click(position, time_ms);
+        if affected.is_some() {
+            // A click puts the caret anew: the typing style is over.
+            self.text_edit_manager.typing_style = None;
+            self.request_session_reveal();
+        }
+        affected
+    }
+
+    /// Whether `node` (of `dom_id`) is the topmost hit or a box it sits in:
+    /// where a press may start a selection. `None` (no hit test) allows
+    /// every node. A node of another DOM never holds it: a `VirtualView`'s
+    /// page laid over its host covers the host's text.
+    fn holds_the_topmost_hit(
+        layout_result: &DomLayoutResult,
+        dom_id: DomId,
+        node: NodeId,
+        topmost: Option<DomNodeId>,
+    ) -> bool {
+        let Some(top) = topmost else {
+            return true;
+        };
+        if top.dom != dom_id {
+            return false;
+        }
+        let Some(mut current) = top.node.into_crate_internal() else {
+            return true;
+        };
+        let hierarchy = layout_result.styled_dom.node_hierarchy.as_container();
+        loop {
+            if current == node {
+                return true;
+            }
+            match hierarchy
+                .get(current)
+                .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
+            {
+                Some(parent) => current = parent,
+                None => return false,
+            }
+        }
+    }
+
+    /// [`Self::process_mouse_click_for_selection`] without the reveal
+    /// request.
     #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse
                                      // routine (one branch per case)
-    pub fn process_mouse_click_for_selection(
+    fn place_selection_at_click(
         &mut self,
         position: LogicalPosition,
         time_ms: u64,
@@ -19373,15 +27005,21 @@ impl LayoutWindow {
             text3::selection::{select_paragraph_at_cursor, select_word_at_cursor},
         };
 
-        // found_selection stores: (dom_id, ifc_root_node_id, selection_range, local_pos)
-        // IMPORTANT: We always store the IFC root NodeId, not the text node NodeId,
+        // found_selection stores: (dom_id, text block, selection_range)
+        // IMPORTANT: We always store the text BLOCK, never the hit text node,
         // because selections are rendered via inline_layout_result which lives on the IFC root.
-        let mut found_selection: Option<(DomId, NodeId, SelectionRange, ScrolledContentPoint)> =
-            None;
+        let mut found_selection: Option<(DomId, TextBlock, SelectionRange)> = None;
+
+        // The box painted on top under the pointer. A press starts a selection
+        // only in it or in a box it sits in, as a browser's does: text that
+        // an overlay covers (AzReview's ink over a page of code) is not
+        // selected, and the window-position scan below does not run either.
+        let mut topmost: Option<DomNodeId> = None;
 
         // Try to get hit test from HoverManager first (fast path, uses WebRender's
         // point_relative_to_item)
         if let Some(hit_test) = self.hover_manager.get_current(&InputPointId::Mouse) {
+            topmost = hit_test.topmost_node();
             // Iterate through hit nodes from the HoverManager
             for (dom_id, hit) in &hit_test.hovered_nodes {
                 let Some(layout_result) = self.layout_results.get(dom_id) else {
@@ -19421,6 +27059,9 @@ impl LayoutWindow {
                 });
 
                 for (node_id, hit_item) in sorted_hits {
+                    if !Self::holds_the_topmost_hit(layout_result, *dom_id, *node_id, topmost) {
+                        continue;
+                    }
                     // Check if text is selectable
                     if !Self::is_text_selectable(&layout_result.styled_dom, *node_id) {
                         continue;
@@ -19434,49 +27075,37 @@ impl LayoutWindow {
                     let Some(layout_node_idx) = layout_node_idx else {
                         continue;
                     };
-                    let Some(warm_node) = tree.warm(LayoutNodeId::new(layout_node_idx)) else {
+
+                    // The layout index of the IFC root the hit node's text is
+                    // laid out in, by THE rule (`LayoutTree::owning_ifc_root`:
+                    // its own IFC, its IFC membership, an inline box's nearest
+                    // IFC ancestor) - selection is stored on the block, never
+                    // on the text node. The index is needed because the hit
+                    // node and the IFC root are different boxes whenever an
+                    // inline box (`<span>`, `<b>`) or a text leaf is what the
+                    // pointer landed on. The root may be ANONYMOUS (text beside
+                    // a block): it is a text block like any other, and
+                    // demanding a DOM node of it skipped the hit.
+                    let Some(ifc_root_layout_idx) = tree.owning_ifc_root(layout_node_idx) else {
+                        // No IFC involvement - not text
                         continue;
                     };
+                    // The root's own node, for its scroll offset - none for an
+                    // anonymous block, which does not scroll.
+                    let ifc_root_node_id = tree
+                        .get(LayoutNodeId::new(ifc_root_layout_idx))
+                        .and_then(|n| n.dom_node_id);
 
-                    // Get the IFC layout, its root NodeId AND its layout index.
-                    // Selection must be stored on the IFC root, not on text
-                    // nodes — and the index is needed because the hit node and
-                    // the IFC root are different boxes whenever an inline box
-                    // (`<span>`, `<b>`) is what the pointer landed on.
-                    let (cached_layout, ifc_root_node_id, ifc_root_layout_idx) =
-                        if let Some(ref cached) = warm_node.inline_layout_result {
-                            // This node IS an IFC root - use its own NodeId
-                            (cached, *node_id, layout_node_idx)
-                        } else if let Some(ref membership) = warm_node.ifc_membership {
-                            // This node participates in an IFC - get layout and NodeId from IFC
-                            // root
-                            let root_idx = membership.ifc_root_layout_index;
-                            match tree.warm(LayoutNodeId::new(root_idx)) {
-                                Some(ifc_root_warm) => match (
-                                    ifc_root_warm.inline_layout_result.as_ref(),
-                                    tree.get(LayoutNodeId::new(root_idx))
-                                        .and_then(|n| n.dom_node_id),
-                                ) {
-                                    (Some(cached), Some(root_dom_id)) => {
-                                        (cached, root_dom_id, root_idx)
-                                    }
-                                    _ => continue,
-                                },
-                                None => continue,
-                            }
-                        } else {
-                            // No IFC involvement - not a text node
-                            continue;
-                        };
-
-                    // Under the default AZ_DENSE_TEXT=1, retire_sparse swaps
-                    // `cached.layout` for a shared, permanently-EMPTY sentinel
-                    // and keeps only the dense arrays. Reading it directly made
-                    // hittest_cursor return None for every node, so clicking to
-                    // place a caret or start a selection did nothing at all.
-                    // The two sibling hittest paths were fixed with d6h; these
-                    // three were missed.
-                    let layout = Self::materialized_inline_layout(cached_layout);
+                    // The block under the pointer, with its materialized
+                    // layout and the blank-line caret built in (`TextTarget`):
+                    // the sparse layout is the empty retirement sentinel under
+                    // dense text, and a hit test on it placed no caret at all.
+                    let Some(text_target) = self.text_target_at_layout_index(
+                        *dom_id,
+                        LayoutNodeId::new(ifc_root_layout_idx),
+                    ) else {
+                        continue;
+                    };
 
                     // THE canonical conversion — see `ifc_local_point`. It is
                     // the only place a hit-test result becomes a point the
@@ -19485,35 +27114,39 @@ impl LayoutWindow {
                     // HIT, which is the IFC root only when the pointer landed
                     // on the paragraph itself rather than on an inline box
                     // inside it.
-                    let Some(local_pos) = Self::ifc_local_point_rebased(
+                    //
+                    // A hit node with no position of its own - a text leaf
+                    // keeps the POSITION_UNSET sentinel - cannot rebase its
+                    // point; the window point it was hit at, mapped into the
+                    // root, can.
+                    let rebased = Self::ifc_local_point_rebased(
                         layout_result,
                         &scroll_offsets,
                         hit_item.point_relative_to_item,
                         LayoutNodeId::new(layout_node_idx),
                         LayoutNodeId::new(ifc_root_layout_idx),
                         ifc_root_node_id,
-                    ) else {
+                    );
+                    let Some(local_pos) = rebased.or_else(|| {
+                        self.window_point_to_ifc_local(
+                            *dom_id,
+                            ifc_root_layout_idx,
+                            hit_item.point_in_viewport,
+                        )
+                    }) else {
                         continue;
                     };
 
-                    // Hit-test the cursor in this text layout
-                    let hit_cursor = layout.hittest_point(local_pos).or_else(|| {
-                        Self::empty_editing_host_caret(
-                            &layout_result.styled_dom,
-                            ifc_root_node_id,
-                            layout.as_ref(),
-                        )
-                    });
-                    if let Some(cursor) = hit_cursor {
-                        // Store selection with IFC root NodeId, not the hit text node
+                    // Hit-test the cursor in this text block
+                    if let Some(cursor) = text_target.hittest(local_pos) {
+                        // Store the selection's TEXT BLOCK, not the hit text node
                         found_selection = Some((
                             *dom_id,
-                            ifc_root_node_id,
+                            text_target.block,
                             SelectionRange {
                                 start: cursor,
                                 end: cursor,
                             },
-                            local_pos,
                         ));
                         break;
                     }
@@ -19527,7 +27160,7 @@ impl LayoutWindow {
 
         // Fallback: If HoverManager has no hit test (e.g., debug server),
         // search through IFC roots using global position
-        if found_selection.is_none() {
+        if found_selection.is_none() && topmost.is_none() {
             for (dom_id, layout_result) in &self.layout_results {
                 // Use the layout tree from layout_result, not layout_cache
                 // layout_cache.tree is for the root DOM only; layout_result.layout_tree
@@ -19542,15 +27175,6 @@ impl LayoutWindow {
                     let Some(cached_layout) = warm.inline_layout_result.as_ref() else {
                         continue; // Skip non-IFC-root nodes
                     };
-
-                    let Some(node_id) = layout_node.dom_node_id else {
-                        continue;
-                    };
-
-                    // Check if text is selectable
-                    if !Self::is_text_selectable(&layout_result.styled_dom, node_id) {
-                        continue;
-                    }
 
                     // Check if position is within node bounds. `calculated_positions`
                     // is STATIC geometry, so the node's on-screen box is
@@ -19582,13 +27206,27 @@ impl LayoutWindow {
                         continue;
                     }
 
+                    // The text block this IFC root is - an ANONYMOUS block
+                    // (inline content beside a block) included: it has no
+                    // node of its own, and demanding one made its text
+                    // unclickable.
+                    let idx = LayoutNodeId::new(node_idx);
+                    let Some(text_target) = self.text_target_at_layout_index(*dom_id, idx) else {
+                        continue;
+                    };
+
+                    // Check if text is selectable
+                    if !text_target.selectable {
+                        continue;
+                    }
+
                     // Window position → the IFC's own space, every step named.
                     // This branch used to stop at "node-local", so it skipped
-                    // the content inset that `padding`/`border` introduce.
-                    let idx = LayoutNodeId::new(node_idx);
-                    let own_scroll = self
-                        .scroll_manager
-                        .get_current_offset(*dom_id, node_id)
+                    // the content inset that `padding`/`border` introduce. (An
+                    // anonymous block does not scroll: no own offset.)
+                    let own_scroll = layout_node
+                        .dom_node_id
+                        .and_then(|nid| self.scroll_manager.get_current_offset(*dom_id, nid))
                         .map_or_else(ScrollOffset::zero, ScrollOffset);
                     let local_pos = WindowPoint::new(position)
                         .to_static_layout(ancestor_scroll)
@@ -19596,25 +27234,15 @@ impl LayoutWindow {
                         .to_content_box_local(tree.content_inset(idx))
                         .scrolled_by(own_scroll);
 
-                    let layout = Self::materialized_inline_layout(cached_layout);
-
-                    // Hit-test the cursor in this text layout
-                    let hit_cursor = layout.hittest_point(local_pos).or_else(|| {
-                        Self::empty_editing_host_caret(
-                            &layout_result.styled_dom,
-                            node_id,
-                            layout.as_ref(),
-                        )
-                    });
-                    if let Some(cursor) = hit_cursor {
+                    // Hit-test the cursor in this text block
+                    if let Some(cursor) = text_target.hittest(local_pos) {
                         found_selection = Some((
                             *dom_id,
-                            node_id,
+                            text_target.block,
                             SelectionRange {
                                 start: cursor,
                                 end: cursor,
                             },
-                            local_pos,
                         ));
                         break;
                     }
@@ -19634,7 +27262,32 @@ impl LayoutWindow {
         // on the title, then every stroke on the canvas dragged a selection
         // through the title (`TextSelectionDrag` is armed whenever
         // `left_down && has_active_editing()`).
-        let Some((dom_id, ifc_root_node_id, initial_range, _local_pos)) = found_selection else {
+        // A press beside text - in a box's padding, below the last line, in
+        // the gap between paragraphs - selects from the character nearest to
+        // it, among the text inside the box painted on top under the pointer
+        // (Chrome's `PositionForPoint` on the hit node). Text outside that
+        // box stays out of reach: a press on an empty toolbar, or on a
+        // drawing surface laid over text, selects nothing.
+        if found_selection.is_none() {
+            if let Some(top) = topmost {
+                let within = crate::text_block::BlockFilter {
+                    within: Some(top),
+                    ..crate::text_block::BlockFilter::SELECTABLE
+                };
+                if let Some((block, cursor)) = self.hittest_text_block(top.dom, position, within) {
+                    found_selection = Some((
+                        top.dom,
+                        block,
+                        SelectionRange {
+                            start: cursor,
+                            end: cursor,
+                        },
+                    ));
+                }
+            }
+        }
+
+        let Some((dom_id, block, initial_range)) = found_selection else {
             let pressed_an_editable = self
                 .hover_manager
                 .get_current(&InputPointId::Mouse)
@@ -19651,41 +27304,23 @@ impl LayoutWindow {
                     })
                 });
             if !pressed_an_editable && self.text_edit_manager.has_active_editing() {
+                // Ends the session's document selection with it.
                 self.text_edit_manager.clear_editing();
-                self.text_edit_manager.clear_cross_block_selection();
             }
             return None;
         };
 
-        // Create DomNodeId for click state tracking - use IFC root's NodeId
-        // Selection state is keyed by IFC root because that's where inline_layout_result lives
-        let node_hierarchy_id = NodeHierarchyItemId::from_crate_internal(Some(ifc_root_node_id));
-        let dom_node_id = DomNodeId {
-            dom: dom_id,
-            node: node_hierarchy_id,
-        };
+        // The node the click reports as affected: the block's element (an
+        // anonymous block's container).
+        let dom_node_id = block.container_dom_node();
 
         // Derive click count from the gesture manager's session history
         // (timestamps + positions), no mutable click state needed.
         let click_count = self.gesture_drag_manager.detect_click_count();
 
-        // Get the text layout again for word/paragraph selection
+        // The clicked block's layout again, for word/paragraph selection
         let final_range = if click_count > 1 {
-            // Use layout_results for the correct DOM's tree
-            let layout_result = self.layout_results.get(&dom_id)?;
-            let tree = &layout_result.layout_tree;
-
-            // Find layout node - ifc_root_node_id is always the IFC root, so it has
-            // inline_layout_result
-            let layout_idx = tree
-                .nodes
-                .iter()
-                .position(|n| n.dom_node_id == Some(ifc_root_node_id))?;
-            let cached_layout = tree
-                .warm(LayoutNodeId::new(layout_idx))?
-                .inline_layout_result
-                .as_ref()?;
-            let layout = Self::materialized_inline_layout(cached_layout);
+            let layout = self.text_target(block)?.layout;
 
             match click_count {
                 2 => select_word_at_cursor(&initial_range.start, layout.as_ref())
@@ -19711,7 +27346,7 @@ impl LayoutWindow {
             let node_data = lr.styled_dom.node_data.as_ref();
 
             // Walk up the DOM tree to check if any ancestor has contenteditable
-            let mut current_node = Some(ifc_root_node_id);
+            let mut current_node = Some(block.container());
             while let Some(node_id) = current_node {
                 if let Some(styled_node) = node_data.get(node_id.index()) {
                     // Check BOTH: the contenteditable boolean field AND the attribute
@@ -19745,31 +27380,12 @@ impl LayoutWindow {
         // Setting focus directly here bypasses that, causing the blue border to not
         // appear until the next full layout (e.g., resize).
 
-        // Initialize editing at the clicked position via unified API.
-        let ce_key = self.contenteditable_session_key(dom_id, ifc_root_node_id);
-        // Crossing into a different focusable makes the caret JUMP, not glide:
-        // clicking from one text input into another must not animate the caret
-        // out of the first field and across into the second.
-        let scope = self.find_focusable_ancestor(DomNodeId {
-            dom: dom_id,
-            node: NodeHierarchyItemId::from_crate_internal(Some(ifc_root_node_id)),
-        });
-        self.text_edit_manager.enter_focus_scope(scope);
-        self.text_edit_manager.initialize_editing(
-            final_range.start,
-            dom_id,
-            ifc_root_node_id,
-            ce_key,
-        );
-        // MWA-C-text_edit: double/triple-click computed the word/paragraph
-        // range above but then threw it away — initialize_editing only
-        // places a collapsed caret at range.start, so word/paragraph select
-        // never actually selected anything. Apply the full range.
-        if click_count > 1 && final_range.start != final_range.end {
-            if let Some(mc) = self.text_edit_manager.multi_cursor.as_mut() {
-                mc.set_single_range(final_range);
-            }
-        }
+        // Open the session at the clicked position: a caret for a single
+        // click, the word/paragraph range for a double/triple click. (Crossing
+        // into a different focusable makes the caret JUMP, not glide: clicking
+        // from one text input into another must not animate the caret out of
+        // the first field and across into the second.)
+        self.open_session(block, final_range);
         // Only an EDITABLE click owns a caret, and the blink flag means "an OS
         // timer is running", not "a caret exists". Asserting it on every
         // selectable-text click claimed a timer nobody had armed: the next
@@ -19824,6 +27440,18 @@ impl LayoutWindow {
     ) -> Option<Vec<DomNodeId>> {
         use azul_core::selection::{Selection, SelectionRange};
 
+        // THE DRAG OWNS THE VIEW. A selection drag - and the drag-autoscroll
+        // it drives, whose timer frames extend the selection through this
+        // same call after scrolling - is the one writer of its field's
+        // offset while it lasts: it is the user's hand, like the wheel. A
+        // reveal still pending from before it (the press's own, a keystroke's
+        // kept for a relayout) must not be performed against it: the end
+        // resolved under the pointer here would be painted against an offset
+        // a reveal moved afterwards, and near an edge the next event resolves
+        // a glyph further along and the reveal scrolls again - a
+        // micro-autoscroll paced by the mouse event rate.
+        self.scroll_manager.note_user_scroll();
+
         // Get the anchor cursor and editing node from MultiCursorState.
         // The anchor was set by process_mouse_click_for_selection.
         // IMPORTANT: For Range selections, the anchor is .start (fixed),
@@ -19833,22 +27461,14 @@ impl LayoutWindow {
             Selection::Cursor(c) => *c,
             Selection::Range(r) => r.start, // anchor stays fixed during drag
         };
-        let dom_id = mc.node_id.dom;
-        let node_id = mc.node_id.node.into_crate_internal()?;
-        let dom_node_id = mc.node_id;
+        let block = mc.block;
+        let dom_id = block.dom();
+        let dom_node_id = block.container_dom_node();
 
         // Hit-test the current drag position to get the focus cursor
         let layout_result = self.layout_results.get(&dom_id)?;
         let tree = &layout_result.layout_tree;
-        let layout_idx = tree
-            .nodes
-            .iter()
-            .position(|n| n.dom_node_id == Some(node_id))?;
-        // (the anchor node's cached inline layout is re-borrowed below,
-        // after the cross-block branch may have taken &mut self)
-        tree.warm(LayoutNodeId::new(layout_idx))?
-            .inline_layout_result
-            .as_ref()?;
+        let layout_idx = tree.text_block_root(block.key())?;
 
         // The pointer in the anchor IFC's own space. This used to be spelled
         // out here as `current - node_pos + self_inclusive_scroll`, which is
@@ -19882,10 +27502,13 @@ impl LayoutWindow {
                         && current_position.y <= screen.origin.y + screen.size.height
                 });
         if !anchor_rect_contains {
-            let global_hit = self.hittest_text_position_global(dom_id, current_position);
-            if let Some((hit_node, hit_cursor)) = global_hit {
-                if hit_node != node_id
-                    && self.set_cross_block_selection(dom_id, node_id, anchor, hit_node, hit_cursor)
+            // Only where a selection from this anchor may go: selectable text,
+            // inside the anchor's editing host when it has one.
+            let extent = self.selection_extent(block);
+            let global_hit = self.hittest_text_block(dom_id, current_position, extent);
+            if let Some((hit_block, hit_cursor)) = global_hit {
+                if hit_block != block
+                    && self.set_cross_block_selection(block, anchor, hit_block, hit_cursor)
                 {
                     self.text_edit_manager.mark_dirty();
                     self.regenerate_display_list_for_dom(dom_id);
@@ -19894,15 +27517,15 @@ impl LayoutWindow {
             }
         }
 
-        // Re-borrow after the possible &mut use above.
-        let layout_result = self.layout_results.get(&dom_id)?;
-        let tree = &layout_result.layout_tree;
-        let cached = tree
-            .warm(LayoutNodeId::new(layout_idx))?
-            .inline_layout_result
-            .as_ref()?;
-        // (d6h) Materialized: sentinel-safe click hittest.
-        let focus = Self::materialized_inline_layout(cached).hittest_point(local_pos)?;
+        // The anchor block again, after the possible &mut use above: its
+        // materialized layout, with the blank-line caret built in - dragging
+        // BACK onto a blank line inside the anchor block is the same question
+        // as arriving on one.
+        let focus = self.text_target(block)?.hittest_focus(&anchor, local_pos)?;
+
+        // Compared as ids, `Trailing` on a grapheme and `Leading` on the next
+        // made a range of nothing out of a drag that moved nowhere.
+        let moved = !self.same_caret_position(block, anchor, focus);
 
         // Back inside the anchor block: a single-node range again.
         self.text_edit_manager.clear_cross_block_selection();
@@ -19910,14 +27533,14 @@ impl LayoutWindow {
         // Update primary selection: Cursor → Range(anchor, focus)
         let mc = self.text_edit_manager.multi_cursor.as_mut()?;
         if let Some(primary) = mc.get_primary_mut() {
-            if anchor == focus {
-                primary.selection = Selection::Cursor(anchor);
-            } else {
-                primary.selection = Selection::Range(SelectionRange {
+            primary.selection = if moved {
+                Selection::Range(SelectionRange {
                     start: anchor,
                     end: focus,
-                });
-            }
+                })
+            } else {
+                Selection::Cursor(anchor)
+            };
         }
 
         self.text_edit_manager.mark_dirty();
@@ -19925,8 +27548,8 @@ impl LayoutWindow {
         Some(vec![dom_node_id])
     }
 
-    /// The IFC root + text cursor under a window-space position, searched
-    /// across ALL laid-out IFC roots of `dom_id` (the cross-block drag needs
+    /// The text block + text cursor under a window-space position, searched
+    /// across ALL laid-out text blocks of `dom_id` (the cross-block drag needs
     /// a target outside the anchor block). Candidates are ranked against where
     /// they actually sit ON SCREEN (static position minus accumulated scroll)
     /// by vertical distance first, horizontal distance second — so direct
@@ -19939,21 +27562,25 @@ impl LayoutWindow {
         &self,
         dom_id: DomId,
         position: LogicalPosition,
-    ) -> Option<(NodeId, TextCursor)> {
+    ) -> Option<(TextBlock, TextCursor)> {
+        self.hittest_text_block(dom_id, position, crate::text_block::BlockFilter::ALL)
+    }
+
+    /// [`Self::hittest_text_position_global`] over the text blocks `filter`
+    /// lets through (the document-order walk, `text_block_roots`).
+    #[must_use]
+    pub fn hittest_text_block(
+        &self,
+        dom_id: DomId,
+        position: LogicalPosition,
+        filter: crate::text_block::BlockFilter,
+    ) -> Option<(TextBlock, TextCursor)> {
         let layout_result = self.layout_results.get(&dom_id)?;
         let tree = &layout_result.layout_tree;
-        // (vertical distance, horizontal distance, node, layout index)
-        let mut best: Option<(f32, f32, NodeId, usize)> = None;
-        for (idx, node) in tree.nodes.iter().enumerate() {
-            let Some(node_dom_id) = node.dom_node_id else {
-                continue;
-            };
-            let Some(warm) = tree.warm(LayoutNodeId::new(idx)) else {
-                continue;
-            };
-            if warm.inline_layout_result.is_none() {
-                continue;
-            }
+        // (vertical distance, horizontal distance, area, layout index)
+        let mut best: Option<(f32, f32, f32, usize)> = None;
+        for (_, root) in self.text_block_roots(dom_id, filter) {
+            let idx = root.index();
             // Rank against where the candidate actually IS on screen
             // (`static - ANCESTOR scroll`), not against its unscrolled
             // position: with a scrolled container the two differ by the whole
@@ -19980,21 +27607,25 @@ impl LayoutWindow {
             } else {
                 0.0
             };
+            // Among blocks equally near - the pointer inside several - the
+            // SMALLEST: a block's own text over the block it sits in (an SVG
+            // text inside the `<svg>` an outer paragraph holds as an inline).
+            // The first scanned won, which is the outermost.
+            let area = screen.size.width * screen.size.height;
             let better = match &best {
                 None => true,
-                Some((best_dy, best_dx, _, _)) => {
-                    dy < *best_dy || (dy - *best_dy).abs() < f32::EPSILON && dx < *best_dx
+                Some((best_dy, best_dx, best_area, _)) => {
+                    let same = |a: f32, b: f32| (a - b).abs() < f32::EPSILON;
+                    dy < *best_dy
+                        || same(dy, *best_dy) && dx < *best_dx
+                        || same(dy, *best_dy) && same(dx, *best_dx) && area < *best_area
                 }
             };
             if better {
-                best = Some((dy, dx, node_dom_id, idx));
+                best = Some((dy, dx, area, idx));
             }
         }
-        let (_, _, node_dom_id, layout_idx) = best?;
-        let cached = tree
-            .warm(LayoutNodeId::new(layout_idx))?
-            .inline_layout_result
-            .as_ref()?;
+        let (_, _, _, layout_idx) = best?;
         // The winning block's own space, via the one conversion chain (this
         // used to be spelled out inline and skipped the content inset).
         let local = self.window_point_to_ifc_local(dom_id, layout_idx, position)?;
@@ -20019,9 +27650,15 @@ impl LayoutWindow {
             size.width - inset.left - right,
             size.height - inset.top - bottom,
         );
-        // (d6h) Materialized: sentinel-safe drag hittest.
-        let cursor = Self::materialized_inline_layout(cached).hittest_point(clamped)?;
-        Some((node_dom_id, cursor))
+        // The block's materialized layout and blank-line caret (`TextTarget`),
+        // the same the click resolves: a block with no clusters has no glyph
+        // to measure a point against, and on an editing host that block is a
+        // real, standable line kept by `layout_ifc` precisely so a caret can go
+        // there. Without it, a selection dragged across a blank paragraph
+        // stopped at the paragraph before it.
+        let target = self.text_target_at_layout_index(dom_id, LayoutNodeId::new(layout_idx))?;
+        let cursor = target.hittest(clamped)?;
+        Some((target.block, cursor))
     }
 
     /// Delete the currently selected text or one character at the cursor
@@ -20109,15 +27746,280 @@ impl LayoutWindow {
         );
     }
 
+    /// The DEFAULT PASTE of `content` at the focus (`SystemChange::
+    /// PasteFromClipboard` once the `Paste` callbacks let it through): the
+    /// one implementation the shells call, so the headless tests paste what
+    /// a user pastes.
+    ///
+    /// In a RICH editing host the HTML flavour is what is pasted
+    /// ([`crate::paste_html::sanitize_html`]: b / i / u / s, links, line
+    /// breaks, paragraphs, lists, quotes; never a script, a style sheet or a
+    /// form): inline formatting through the text pipeline at one caret
+    /// ([`Self::paste_inline_formatted`]), blocks, links and a paste over a
+    /// document selection as one structural edit for the app
+    /// ([`Self::paste_fragment_structurally`]). A plain-text host (a text
+    /// area, `white-space: pre*`), several carets, or HTML that does not
+    /// parse take the plain text. Otherwise: over a document selection, one
+    /// atomic replace of it; with one line per caret, the smart paste
+    /// ([`Self::paste_one_line_per_caret`]); else the text at every caret,
+    /// recorded for the pass's changeset.
+    pub fn paste_clipboard_content(
+        &mut self,
+        content: &crate::managers::selection::ClipboardContent,
+    ) -> PasteOutcome {
+        // The pasted text holds its characters as the input rule has them, on every path
+        // below (the HTML flavour is read by the loader, which applies the same rule).
+        let text = azul_css::input_chars::normalize_input_text(content.plain_text.as_str())
+            .into_owned();
+        let rich_host = self
+            .build_editing_query_state(self.focus_manager.focused_node)
+            .is_some_and(|e| e.is_contenteditable && !e.host_preserves_newlines);
+        let fragment = content
+            .html
+            .as_ref()
+            .filter(|_| rich_host)
+            .and_then(|html| crate::paste_html::sanitize_html(html.as_str()));
+        if let Some(fragment) = fragment {
+            if fragment.is_empty() {
+                // Every bit of it was sanitized away: nothing to paste.
+                return PasteOutcome::Nothing;
+            }
+            let document_selection = self.text_edit_manager.get_cross_block_selection().is_some();
+            if document_selection || fragment.has_structure() || fragment.has_links() {
+                if self.paste_fragment_structurally(&fragment).is_some() {
+                    return PasteOutcome::Structural;
+                }
+            } else {
+                let (text, spans) = fragment.text_and_spans();
+                if self.paste_inline_formatted(&text, &spans) {
+                    return PasteOutcome::Text;
+                }
+            }
+            // No session to paste into as content: the plain text below.
+        }
+        // Paste over a cross-block selection: one atomic replace-merge
+        // changeset with the pasted text at the join (caret resumes after
+        // it).
+        if self.text_edit_manager.get_cross_block_selection().is_some()
+            && self.replace_cross_block_selection(&text).is_some()
+        {
+            return PasteOutcome::Structural;
+        }
+        self.clipboard_manager.set_paste_content(content.clone());
+        // Smart paste: N lines onto N carets, one line each.
+        if self.paste_one_line_per_caret(&text) {
+            return PasteOutcome::Text;
+        }
+        // Default: the text at every caret.
+        if self.process_text_input(&text).is_empty() {
+            PasteOutcome::Nothing
+        } else {
+            PasteOutcome::Text
+        }
+    }
+
+    /// The smart paste: `text` has exactly one line per LOCAL caret of the
+    /// session (a peer's caret gets none), and each caret receives its own
+    /// line (`text3::edit::edit_text_multi`). `false` - nothing done - when
+    /// the counts differ or there are fewer than two carets; the caller then
+    /// pastes the whole text at every caret.
+    ///
+    /// Keyed like every other commit: the undo stack on the focused HOST, the
+    /// content on the carets' text block. It is an EDIT and has to be
+    /// undoable: it bypasses both recording sites (`apply_text_changeset` for
+    /// typing, `delete_selection` for deletions), so Ctrl+Z after a
+    /// multi-cursor paste used to undo whatever came before it instead.
+    pub fn paste_one_line_per_caret(&mut self, text: &str) -> bool {
+        let caret_count = self
+            .text_edit_manager
+            .multi_cursor
+            .as_ref()
+            .map_or(0, azul_core::selection::MultiCursorState::local_len);
+        let lines: Vec<&str> = text.lines().collect();
+        if caret_count < 2 || lines.len() != caret_count {
+            return false;
+        }
+        let Some((session_block, selections)) = self
+            .text_edit_manager
+            .multi_cursor
+            .as_ref()
+            .map(|mc| (mc.block, mc.to_selections()))
+        else {
+            return false;
+        };
+        let dom_id = session_block.dom();
+        let target = self
+            .focus_manager
+            .focused_node
+            .filter(|f| f.dom == dom_id)
+            .unwrap_or_else(|| session_block.container_dom_node());
+        let Some(node_id) = self.edit_element(target, Some(session_block)) else {
+            return false;
+        };
+        // In the carets' own numbering: in a list item the text is run 1,
+        // behind the `::marker`, and the DOM's text alone has no run 1 to
+        // paste into.
+        let (content, generated) = self.element_content(dom_id, node_id).into_parts();
+        let selections =
+            crate::block_content::BlockContent::selections_past_generated(selections, generated);
+        let (mut new_content, new_selections) =
+            crate::text3::edit::edit_text_multi(&content, &selections, &lines);
+        // Undo and the overlay hold the text only; the reshape re-adds the
+        // generated items.
+        let text_before = content.get(generated..).unwrap_or(&[]);
+        let text_after = new_content.split_off(generated.min(new_content.len()));
+        self.record_paste_undo(target, node_id, text_before, &text_after, &selections);
+        if let Some(ref mut mc) = self.text_edit_manager.multi_cursor {
+            mc.update_from_edit_result(&new_selections);
+        }
+        self.update_text_cache_after_edit(dom_id, node_id, text_after);
+        self.text_edit_manager.mark_dirty();
+        true
+    }
+
+    /// The undo record of [`Self::paste_one_line_per_caret`].
+    fn record_paste_undo(
+        &mut self,
+        target: DomNodeId,
+        node_id: NodeId,
+        pre_content: &[InlineContent],
+        post_content: &[InlineContent],
+        pre_selections: &[Selection],
+    ) {
+        use crate::managers::{
+            changeset::{TextOpPaste, TextOperation},
+            selection::{ClipboardContent, StyledTextRunVec},
+            undo_redo::NodeStateSnapshot,
+        };
+
+        let pre_text = self.extract_text_from_inline_content(pre_content);
+        let old_cursor = pre_selections.first().and_then(|sel| match sel {
+            Selection::Cursor(c) => Some(*c),
+            Selection::Range(_) => None,
+        });
+        let old_range = pre_selections.first().and_then(|sel| match sel {
+            Selection::Range(r) => Some(*r),
+            Selection::Cursor(_) => None,
+        });
+        let pre_state = NodeStateSnapshot {
+            node_id,
+            text_content: pre_text.into(),
+            cursor_position: old_cursor.into(),
+            selection_range: old_range.into(),
+            timestamp: Instant::now(),
+        };
+        let pasted = self.extract_text_from_inline_content(post_content);
+        // A smart paste bypasses the text-input record pipeline, so the commit
+        // queues the host's Input notification.
+        let _ = self.record_text_edit_undo(
+            target,
+            pre_state,
+            pre_content.to_vec(),
+            post_content.to_vec(),
+            TextOperation::Paste(TextOpPaste {
+                content: ClipboardContent {
+                    plain_text: pasted.into(),
+                    styled_runs: StyledTextRunVec::from_const_slice(&[]),
+                    html: azul_css::OptionString::None,
+                    ..Default::default()
+                },
+                position: CursorPosition::Uninitialized,
+                new_cursor: CursorPosition::Uninitialized,
+            }),
+            TextEditNotify::QueueInput,
+            // The smart paste is the primary's (9b-ii-a-i-d-ii-d).
+            azul_core::window::PRIMARY_POINTER_SEAT,
+        );
+    }
+
+    /// What [`Self::delete_selection`] would delete for the key that went to
+    /// `target` - the range and its text - without deleting it: in the same
+    /// element (the session's block inside `target`), in the same content
+    /// (the carets' numbering, a list item's marker in front), from the local
+    /// range or else the primary caret. `None` where the key deletes nothing
+    /// here: no session in `target`, a caret in an anonymous block, the edge
+    /// of the text, a list item's marker. A document selection spans blocks;
+    /// its delete is not previewed.
+    ///
+    /// What `CallbackInfo::inspect_delete_changeset` answers - reading the
+    /// NAMED node's flattened text instead (a host's: every paragraph one run
+    /// after the other, no marker) it previewed another character than the
+    /// key deletes.
+    #[must_use]
+    pub fn delete_preview(
+        &self,
+        target: DomNodeId,
+        forward: bool,
+    ) -> Option<(SelectionRange, String)> {
+        let scope = target.node.into_crate_internal()?;
+        let mc = self.text_edit_manager.multi_cursor.as_ref()?;
+        let block = mc.block;
+        if block.dom() != target.dom
+            || !self.node_is_self_or_descendant(target.dom, block.first_node(), scope)
+        {
+            return None;
+        }
+        let element = block.element()?;
+        let selection = mc
+            .local_selections()
+            .find_map(|s| match s.selection {
+                Selection::Range(r) => Some(Selection::Range(r)),
+                Selection::Cursor(_) => None,
+            })
+            .or_else(|| mc.get_primary_cursor().map(Selection::Cursor))?;
+        let (content, generated) = self.element_content(block.dom(), element).into_parts();
+        let selection = crate::block_content::BlockContent::selections_past_generated(
+            vec![selection],
+            generated,
+        )
+        .pop()?;
+        let (range, text) = crate::text3::edit::inspect_delete(&content, &selection, forward)?;
+        // The marker is not text: a delete that would reach into it is none.
+        let first_text = u32::try_from(generated).unwrap_or(u32::MAX);
+        if range.start.cluster_id.source_run < first_text
+            || range.end.cluster_id.source_run < first_text
+        {
+            return None;
+        }
+        Some((range, text))
+    }
+
     pub fn delete_selection(&mut self, target: DomNodeId, forward: bool) -> Option<Vec<DomNodeId>> {
         let dom_id = target.dom;
+        // A DOCUMENT selection spans several text blocks and is held beside
+        // the primary cursor, not on it: deleting through the single-node
+        // path below would trim only the anchor's paragraph and leave every
+        // other selected block untouched (Backspace over a multi-paragraph
+        // selection deleted inside one of them). Copy and Cut already go
+        // through the cross-block path; every delete does now.
+        // Only one inside `target`, though: a leftover elsewhere is ended, not
+        // deleted (Backspace in one field used to wipe another's paragraphs).
+        if self.text_edit_manager.get_cross_block_selection().is_some() {
+            if self.document_selection_belongs_to(target) {
+                let affected: Vec<DomNodeId> = self
+                    .text_edit_manager
+                    .get_cross_block_selection()
+                    .map(|sel| {
+                        sel.affected_blocks
+                            .keys()
+                            .map(TextBlock::container_dom_node)
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                return self.delete_cross_block_selection().map(|_| affected);
+            }
+            self.text_edit_manager.clear_cross_block_selection();
+        }
         // `target` is the focused HOST (the undo stack's key); the content
         // is keyed to the caret's IFC owner, exactly like typing is. Keying
         // deletions to the host spliced the host-flattened blob at per-IFC
         // cursor offsets and handed the app an edit node it could not map
         // to any block (the word count froze on Backspace).
-        let host = target.node.into_crate_internal()?;
-        let node_id = self.caret_text_target(dom_id, host);
+        let node_id =
+            self.edit_element(target, self.text_edit_manager.get_editing_block())?;
+
+        // In the carets' numbering (behind a list item's marker).
+        let (mut content, generated) = self.element_content(dom_id, node_id).into_parts();
 
         // Multi-cursor path: use edit_text with DeleteBackward/DeleteForward
         let current_selections = if let Some(ref mc) = self.text_edit_manager.multi_cursor {
@@ -20127,8 +28029,11 @@ impl LayoutWindow {
         } else {
             return None;
         };
+        let current_selections = crate::block_content::BlockContent::selections_past_generated(
+            current_selections,
+            generated,
+        );
 
-        let content = self.get_text_before_textinput(dom_id, node_id);
         let edit = if forward {
             crate::text3::edit::TextEdit::DeleteForward
         } else {
@@ -20147,9 +28052,22 @@ impl LayoutWindow {
                 } => (content, selections),
                 crate::text3::edit::EditOutcome::NoOp(_) => return None,
             };
+        // The marker is not text: Backspace before a list item's first
+        // character would remove it as "the item in front of the caret".
+        if new_content.get(..generated) != content.get(..generated) {
+            return None;
+        }
         // What the delete did to the text, taken while `content` is still
         // ours - it is moved into the undo record below (U3-a).
         let peer_changes = crate::text3::edit::run_text_diff(&content, &new_content);
+
+        // Undo snapshots and the overlay hold the text only; the reshape
+        // re-adds the marker.
+        let content = content.split_off(generated);
+        let new_content = {
+            let mut with_prefix = new_content;
+            with_prefix.split_off(generated)
+        };
 
         // MWA-C-undo_redo: deletions (Backspace / Delete / Cut all route
         // here) were never recorded — only insertions were undoable. Record
@@ -20180,83 +28098,9 @@ impl LayoutWindow {
         Some(vec![target])
     }
 
-    /// Extract clipboard content from the current selection
-    ///
-    /// This method extracts both plain text and styled text from the selection ranges.
-    /// It iterates through all selected text, extracts the actual characters, and
-    /// preserves styling information from each source `StyledRun`'s `StyleProperties`.
-    ///
-    /// This is NOT reading from the system clipboard - use `clipboard_manager.get_paste_content()`
-    /// for that. This extracts content FROM the selection TO be copied.
-    ///
-    /// The styled runs are what the platform clipboard transports fan out as
-    /// RTF and HTML (see `dll/src/desktop/shell2/common/clipboard.rs`), so a
-    /// copy out of azul pastes into Word or `LibreOffice` with its formatting
-    /// intact rather than as a flat string.
-    ///
-    /// ## Arguments
-    /// * `dom_id` - The DOM to extract selection from
-    ///
-    /// ## Returns
-    /// * `Some(ClipboardContent)` - If there is a selection with text
-    /// * `None` - If no selection or no text layouts found
-    /// The styled runs under `ranges` of `content` (9b-ii-a-i-d-ii-b-iii): a
-    /// single-run range takes its slice, a multi-run range the tail of the
-    /// first run, every middle run and the head of the last - one run per
-    /// differently-styled span. Shared by the primary's and a seat's copy.
-    #[must_use]
-    pub fn extract_clipboard_ranges(
-        content: &[InlineContent],
-        ranges: &[SelectionRange],
-    ) -> Option<crate::managers::selection::ClipboardContent> {
-        use crate::text3::edit::cursor_byte_offset_in_run;
-        let mut acc = ClipboardExtract::default();
-        for r in ranges {
-            let sr = r.start.cluster_id.source_run as usize;
-            let er = r.end.cluster_id.source_run as usize;
-            if sr == er {
-                if let Some(InlineContent::Text(run)) = content.get(sr) {
-                    let a = cursor_byte_offset_in_run(&run.text, &r.start);
-                    let b = cursor_byte_offset_in_run(&run.text, &r.end);
-                    let (lo, hi) = (a.min(b), a.max(b));
-                    if hi <= run.text.len() && lo < hi {
-                        acc.push(&run.text[lo..hi], &run.style);
-                    }
-                }
-            } else {
-                // Multi-run: walk runs in document order, taking the tail of the
-                // first run, all middle runs, and the head of the last. This is
-                // the branch that carries real formatting — one run per
-                // differently-styled span.
-                let (first_idx, first_cur, last_idx, last_cur) = if sr <= er {
-                    (sr, r.start, er, r.end)
-                } else {
-                    (er, r.end, sr, r.start)
-                };
-                for ri in first_idx..=last_idx {
-                    if let Some(InlineContent::Text(run)) = content.get(ri) {
-                        if ri == first_idx {
-                            let off = cursor_byte_offset_in_run(&run.text, &first_cur)
-                                .min(run.text.len());
-                            acc.push(&run.text[off..], &run.style);
-                        } else if ri == last_idx {
-                            let off =
-                                cursor_byte_offset_in_run(&run.text, &last_cur).min(run.text.len());
-                            acc.push(&run.text[..off], &run.style);
-                        } else {
-                            acc.push(&run.text, &run.style);
-                        }
-                    }
-                }
-            }
-        }
-
-        acc.finish()
-    }
-
     /// Seat `seat_id`'s selection as styled clipboard content
-    /// (9b-ii-a-i-d-ii-b-iii): what its Copy / Cut put on the clipboard, with
-    /// the runs' formatting like the primary's. `None` for a bare caret.
+    /// (9b-ii-a-i-d-ii-b-iii): what its Copy / Cut put on the clipboard, read
+    /// like the primary's. `None` for a bare caret.
     #[must_use]
     pub fn seat_selected_content_for_clipboard(
         &self,
@@ -20266,24 +28110,54 @@ impl LayoutWindow {
         let Selection::Range(range) = caret.selection() else {
             return None;
         };
-        let node_id = caret.node.node.into_crate_internal()?;
-        let mut content = self.get_text_before_textinput(caret.node.dom, node_id);
-        if content.is_empty() {
-            if let Some(host) = self.find_contenteditable_host(caret.node.dom, node_id) {
-                if host != node_id {
-                    content = self.get_text_before_textinput(caret.node.dom, host);
-                }
-            }
-        }
-        Self::extract_clipboard_ranges(&content, &[range])
+        let runs = self.selection_runs_for_block(caret.block);
+        let mut acc = ClipboardExtract::default();
+        Self::push_layout_range(&mut acc, &runs, &range);
+        acc.finish()
     }
 
+    /// Push the text `range` covers onto `acc`, read from `runs` - the
+    /// layout's run table its cursors are numbered against
+    /// ([`Self::selection_runs_for_block`]). Either direction; affinity-aware
+    /// (a Trailing end is AFTER its grapheme); a run the range passes over is
+    /// taken whole, and an end on a non-text item (a `<br>`, a `::marker`)
+    /// has no entry, which takes its neighbours whole.
+    fn push_layout_range(
+        acc: &mut ClipboardExtract,
+        runs: &BTreeMap<u32, (Arc<str>, Arc<StyleProperties>)>,
+        range: &SelectionRange,
+    ) {
+        use crate::text3::edit::cursor_byte_offset_in_run;
+        let position = |c: &TextCursor| -> (u32, usize) {
+            let run = c.cluster_id.source_run;
+            let byte = runs.get(&run).map_or(0, |(text, _)| {
+                cursor_byte_offset_in_run(text, c).min(text.len())
+            });
+            (run, byte)
+        };
+        let (a, b) = (position(&range.start), position(&range.end));
+        let ((first_run, lo_byte), (last_run, hi_byte)) = if a <= b { (a, b) } else { (b, a) };
+        for (r, (text, style)) in runs.range(first_run..=last_run) {
+            let lo = if *r == first_run { lo_byte } else { 0 };
+            let hi = if *r == last_run { hi_byte } else { text.len() };
+            if lo < hi {
+                acc.push(&text[lo..hi], style);
+            }
+        }
+    }
+
+    /// The current selection as clipboard content: plain text plus styled
+    /// runs, which the platform clipboard transports fan out as RTF and HTML
+    /// (`dll/src/desktop/shell2/common/clipboard.rs`), so a copy out of azul
+    /// pastes into Word or `LibreOffice` with its formatting intact.
+    ///
+    /// This is NOT reading from the system clipboard - use
+    /// `clipboard_manager.get_paste_content()` for that. `None` when there is
+    /// no selection, or it covers no text.
     pub fn get_selected_content_for_clipboard(
         &self,
         dom_id: &DomId,
     ) -> Option<crate::managers::selection::ClipboardContent> {
-        use crate::text3::edit::cursor_byte_offset_in_run;
-
         // Cross-block selection: join the anchor block's selected tail, the
         // fully-selected middles and the focus block's selected head with
         // newlines (what Word puts on the clipboard for a multi-paragraph
@@ -20291,53 +28165,34 @@ impl LayoutWindow {
         if let Some(cb) = self.text_edit_manager.get_cross_block_selection() {
             copy_trace(|| {
                 format!(
-                    "[copy] cross-block selection on {:?} ({} node(s)); copy targets {:?}",
+                    "[copy] cross-block selection on {:?} ({} block(s)); copy targets {:?}",
                     cb.dom_id,
-                    cb.affected_nodes.len(),
+                    cb.affected_blocks.len(),
                     dom_id
                 )
             });
             if cb.dom_id == *dom_id {
-                let mut nodes: Vec<(NodeId, SelectionRange)> = cb
-                    .affected_nodes
+                // `affected_blocks` iterates in document order already.
+                let blocks: Vec<(TextBlock, SelectionRange)> = cb
+                    .affected_blocks
                     .iter()
-                    .filter_map(|(n, r)| r.first().map(|r| (*n, *r)))
+                    .filter_map(|(b, r)| r.first().map(|r| (*b, *r)))
                     .collect();
-                nodes.sort_by_key(|(n, _)| n.index());
                 let mut acc = ClipboardExtract::default();
-                for (block, (node, range)) in nodes.iter().enumerate() {
-                    let content = self.get_text_before_textinput(*dom_id, *node);
+                for (i, (block, range)) in blocks.iter().enumerate() {
+                    // The runs the selection's own cursors are numbered
+                    // against — NOT the DOM-child recursion of
+                    // `get_text_before_textinput`, which is a different
+                    // vector with different indices (see
+                    // `selection_runs_for_block`).
+                    let runs = self.selection_runs_for_block(*block);
                     // The paragraph joiner, carrying the style of the text it
                     // follows — a `\n` of its own would be a run with no
                     // formatting between two that have it.
-                    if block > 0 {
+                    if i > 0 {
                         acc.push_inheriting("\n");
                     }
-                    let sr = range.start.cluster_id.source_run as usize;
-                    let er = range.end.cluster_id.source_run as usize;
-                    for (i, c) in content.iter().enumerate() {
-                        if let InlineContent::Text(run) = c {
-                            if i < sr || i > er {
-                                continue;
-                            }
-                            // Affinity-aware: a Trailing end cursor on the
-                            // final cluster means AFTER that grapheme.
-                            let lo = if i == sr {
-                                cursor_byte_offset_in_run(&run.text, &range.start)
-                                    .min(run.text.len())
-                            } else {
-                                0
-                            };
-                            let hi = if i == er {
-                                cursor_byte_offset_in_run(&run.text, &range.end).min(run.text.len())
-                            } else {
-                                run.text.len()
-                            };
-                            if lo < hi {
-                                acc.push(&run.text[lo..hi], &run.style);
-                            }
-                        }
-                    }
+                    Self::push_layout_range(&mut acc, &runs, range);
                 }
                 if let Some(content) = acc.finish() {
                     return Some(content);
@@ -20353,16 +28208,7 @@ impl LayoutWindow {
             });
             return None;
         };
-        let Some(node_id) = mc.node_id.node.into_crate_internal() else {
-            copy_trace(|| {
-                format!(
-                    "[copy] multi_cursor on {:?} carries a node id that decodes to NONE — nothing \
-                     to extract",
-                    mc.node_id.dom
-                )
-            });
-            return None;
-        };
+        let block = mc.block;
 
         // Collect the LOCAL range selections (collapsed cursors contribute
         // nothing to a copy; a peer's range is not the local user's to copy).
@@ -20376,62 +28222,30 @@ impl LayoutWindow {
         if ranges.is_empty() {
             copy_trace(|| {
                 format!(
-                    "[copy] multi_cursor on {:?}/{:?} holds {} selection(s) but no RANGE — \
-                     nothing to extract",
-                    mc.node_id.dom,
-                    node_id,
+                    "[copy] multi_cursor on {:?} holds {} selection(s) but no RANGE — nothing to \
+                     extract",
+                    block,
                     mc.selections.len()
                 )
             });
             return None;
         }
 
-        // Most editables are a single text run (the whole string, newlines and
-        // all), so source_run is 0 and the single-run branch handles everything.
-        // The multi-run branch is a best-effort for rich (multi-span) content.
-        // Byte offsets are affinity-aware (cursor_byte_offset_in_run), so a
-        // select-all whose end cursor is Trailing on the last cluster copies the
-        // full text — matching the affinity fix in delete_range.
-        let mut content = self.get_text_before_textinput(*dom_id, node_id);
-        if content.is_empty() {
-            // Dual text path: a block whose committed styled_dom carries no
-            // text children (a blank document's seeded first run, a
-            // VV-regenerated block mid-edit) keeps its LIVE buffer in the
-            // content overlay of the contenteditable HOST, not of the block
-            // the cursors anchor on — read the host's flattened buffer, which
-            // is the same content the ranges' run indices were computed
-            // against.
-            if let Some(host) = self.find_contenteditable_host(*dom_id, node_id) {
-                if host != node_id {
-                    content = self.get_text_before_textinput(*dom_id, host);
-                    copy_trace(|| {
-                        format!(
-                            "[copy] block {:?}/{:?} had no inline content — fell back to \
-                             contenteditable host {:?} ({} run(s))",
-                            dom_id,
-                            node_id,
-                            host,
-                            content.len()
-                        )
-                    });
-                }
-            }
+        // The layout's runs, as the multi-block copy reads them - not the DOM
+        // walk, which has no `::marker` and uncollapsed white space.
+        let runs = self.selection_runs_for_block(block);
+        let mut acc = ClipboardExtract::default();
+        for range in &ranges {
+            Self::push_layout_range(&mut acc, &runs, range);
         }
-        copy_trace(|| {
-            format!(
-                "[copy] extracting from {:?}/{:?}: {} range(s), {} inline run(s)",
-                dom_id,
-                node_id,
-                ranges.len(),
-                content.len()
-            )
-        });
-        let out = Self::extract_clipboard_ranges(&content, &ranges);
+        let out = acc.finish();
         if out.is_none() {
             copy_trace(|| {
                 format!(
-                    "[copy] every range resolved to zero bytes against {dom_id:?}/{node_id:?}'s \
-                     inline content — the ranges and the runs disagree (dual text path?)"
+                    "[copy] {} range(s) on {block:?} cover no text of the {} layout run(s) they \
+                     index",
+                    ranges.len(),
+                    runs.len()
                 )
             });
         }
@@ -20473,6 +28287,92 @@ impl LayoutWindow {
             true
         } else {
             false
+        }
+    }
+
+    /// Move `node_id`'s box to `position` at once, and bring everything that
+    /// reads the offset along: the bars (the press router hit-tests them),
+    /// the accessibility bounds, and a `VirtualView` on the node.
+    ///
+    /// THE way an offset is applied from outside the physics integrator: the
+    /// `ScrollTo` change of every shell and of the e2e runner, and the
+    /// scrollbar's thumb, track and arrows. A `VirtualView` has no scroll
+    /// frame, so its item is re-pointed at the new offset here, and its
+    /// callback is queued when the offset left the rows it rendered. A path
+    /// that only wrote the offset moved the bar and left the content where it
+    /// was until some other path came by.
+    ///
+    /// `unclamped` keeps a rubber-band overshoot the physics computed.
+    /// Returns whether a `VirtualView` re-render was queued: the caller then
+    /// owes a display-list update, not only a scroll repaint.
+    pub fn apply_scroll_offset(
+        &mut self,
+        dom_id: DomId,
+        node_id: NodeId,
+        position: LogicalPosition,
+        unclamped: bool,
+        now: Instant,
+    ) -> bool {
+        if unclamped {
+            self.scroll_manager
+                .set_scroll_position_unclamped(dom_id, node_id, position, now);
+        } else {
+            self.scroll_manager
+                .set_scroll_position(dom_id, node_id, position, now);
+        }
+        self.scroll_manager.calculate_scrollbar_states();
+        // The fast scroll path never re-lays out, so the delivered tree's
+        // bounds go stale: flag it for the throttled rebuild.
+        #[cfg(feature = "a11y")]
+        self.a11y_manager.mark_scroll_dirty();
+        let queued = self.check_and_queue_virtual_view_reinvoke(dom_id, node_id);
+        // Always, not only when nothing was queued: the queued re-render runs
+        // at the next frame's drain, and until then the item must place the
+        // rows it has at the current offset.
+        self.patch_virtual_view_content_offset(dom_id, node_id);
+        queued
+    }
+
+    /// Reconfigure a `VirtualView`'s geometry without invoking its callback
+    /// (`CallbackChange::SetVirtualViewGeometry`): `Some` sets the
+    /// materialized window or the virtual document, `None` keeps it.
+    ///
+    /// These are the two stores an invoke writes (`VirtualViewManager` and
+    /// `ScrollManager`), minus the child relayout, and the item that places
+    /// the rows. A background pagination pass that only corrects the
+    /// document's extent re-scales the bar and moves nothing; content
+    /// placement reads the materialized window and the live scroll offset,
+    /// never the extent.
+    pub fn apply_virtual_view_geometry(
+        &mut self,
+        dom_id: DomId,
+        node_id: NodeId,
+        materialized: Option<LogicalRect>,
+        virtual_rect: Option<LogicalRect>,
+    ) {
+        let (kept_scroll, kept_virtual) = self
+            .virtual_view_manager
+            .get_declared_sizes(dom_id, node_id);
+        let kept_origin = self
+            .virtual_view_manager
+            .materialized_window_origin(dom_id, node_id);
+        let eff_virtual = virtual_rect.map(|r| r.size).or(kept_virtual);
+        let eff_scroll = materialized.map(|r| r.size).or(kept_scroll).or(eff_virtual);
+        let eff_origin = materialized
+            .map(|r| r.origin)
+            .or(kept_origin)
+            .unwrap_or_else(LogicalPosition::zero);
+        if let (Some(s), Some(v)) = (eff_scroll, eff_virtual) {
+            let _ = self
+                .virtual_view_manager
+                .update_virtual_view_info(dom_id, node_id, eff_origin, s, v);
+            self.scroll_manager
+                .update_virtual_scroll_bounds(dom_id, node_id, v, Some(eff_origin));
+            self.scroll_manager.calculate_scrollbar_states();
+            // The CPU raster places the rows from the item, not from the
+            // manager: without this a new window showed at the old place
+            // until the next scroll re-pointed it.
+            self.patch_virtual_view_content_offset(dom_id, node_id);
         }
     }
 
@@ -20535,7 +28435,44 @@ impl LayoutWindow {
             }
         }
 
+        if !updated_vviews.is_empty() {
+            self.collect_embedded_fonts();
+            // A re-render in place is no layout of the window, whose tail is
+            // where the web views follow the DOMs: a web view the view's new
+            // DOM added gets its native view now, a changed `src` navigates
+            // now (the remap of the re-render already moved the kept ones).
+            let now = (system_callbacks.get_system_time_fn.cb)();
+            self.reconcile_webviews(&now);
+        }
         updated_vviews
+    }
+
+    /// The embedded-font GC ([`crate::text3::cache::FontManager::collect_embedded_fonts`]) over
+    /// what every DOM of the window draws now - run after a TOP-LEVEL pass
+    /// (the root's, a view's re-render), never from a nested one: mid-pass,
+    /// the DOM being laid out has no display list yet.
+    ///
+    /// Only once the pool holds more than [`EMBEDDED_FONTS_ALWAYS_KEPT`]
+    /// faces: an app's icon fonts stay without a scan of its display lists
+    /// per pass; a document that brings its own fonts (the pages of a PDF)
+    /// gives them back.
+    fn collect_embedded_fonts(&mut self) {
+        if self.font_manager.embedded_font_count() <= EMBEDDED_FONTS_ALWAYS_KEPT {
+            return;
+        }
+        let live: std::collections::HashSet<u64> = self
+            .layout_results
+            .values()
+            .flat_map(|result| result.display_list.items.iter())
+            .filter_map(|item| match item {
+                solver3::display_list::DisplayListItem::Text { font_hash, .. }
+                | solver3::display_list::DisplayListItem::TextLayout { font_hash, .. } => {
+                    Some(font_hash.font_hash)
+                }
+                _ => None,
+            })
+            .collect();
+        self.font_manager.collect_embedded_fonts(&live);
     }
 
     /// Queue a `Resize` lifecycle event (`ComponentEventFilter::NodeResized`)
@@ -20722,12 +28659,11 @@ impl LayoutWindow {
         // sat remapped in the OLD block, and the next unrelated full layout
         // teleported it — "Enter does not move the cursor", second half.
         if !updated.is_empty() {
-            if let Some(resume) = self.pending_caret_restore.take() {
-                // The child DOM's list was just built with the pre-restore
-                // caret; rebuild it so the caret is painted where it landed.
-                if let Some(dom_id) = self.restore_caret_from_resume_point(&resume) {
-                    self.regenerate_display_list_for_dom(dom_id);
-                }
+            // The child DOM's list was just built with the pre-restore
+            // caret; rebuild it so the caret is painted where it landed.
+            if let Some(dom_id) = self.place_pending_caret() {
+                self.regenerate_display_list_for_dom(dom_id);
+                self.request_session_reveal();
             }
         }
 
@@ -20853,7 +28789,7 @@ impl LayoutWindow {
         child_dom_id: DomId,
         new_styled_dom: &StyledDom,
         now: Instant,
-    ) {
+    ) -> Vec<NodeId> {
         // The old arena: still live on the programmatic re-invoke path, or
         // stashed by the funnel just before it cleared `layout_results`.
         let old = self.layout_results.get(&child_dom_id).map_or_else(
@@ -20865,10 +28801,11 @@ impl LayoutWindow {
                 ))
             },
         );
-        let Some((old_node_data, old_hierarchy)) = old else {
-            // First materialization: nothing to map from.
-            return;
-        };
+        // First materialization: nothing to map from - diffed against an
+        // empty arena, every node of the view enters (its `AfterMount`), as
+        // the root's first frame is diffed against an empty DOM.
+        let rematerialized = old.is_some();
+        let (old_node_data, old_hierarchy) = old.unwrap_or_default();
 
         let new_node_data = new_styled_dom.node_data.as_ref().to_vec();
         let new_hierarchy = new_styled_dom.node_hierarchy.as_ref().to_vec();
@@ -20884,6 +28821,16 @@ impl LayoutWindow {
             now,
         );
         let map = crate::managers::NodeIdMap::from_node_moves(&diff.node_moves);
+        // A node of the view that entered and asks for focus (`autofocus`) takes it, as
+        // in the root DOM: a page that appears in a view takes the keys.
+        let matched_new: BTreeSet<NodeId> = diff.node_moves.iter().map(|m| m.new_node_id).collect();
+        // The nodes of the view that entered with this render (every node on its
+        // first): what an `autofocus` and a declared `-azul-animation-in` act on.
+        let entered: Vec<NodeId> = (0..new_node_data.len())
+            .map(NodeId::new)
+            .filter(|n| !matched_new.contains(n))
+            .collect();
+        let entered_autofocus = first_entered_autofocus(&new_node_data, entered.iter().copied());
         #[cfg(feature = "std")]
         if std::env::var("AZ_VV_RECONCILE_TRACE").is_ok() {
             eprintln!(
@@ -20894,7 +28841,78 @@ impl LayoutWindow {
                 diff.node_moves.iter().take(6).collect::<Vec<_>>(),
             );
         }
-        self.remap_node_ids(child_dom_id, &map);
+        if rematerialized {
+            self.remap_node_ids(child_dom_id, &map);
+        }
+        if let Some(node) = entered_autofocus {
+            self.focus_mounted_autofocus(DomNodeId {
+                dom: child_dom_id,
+                node: NodeHierarchyItemId::from_crate_internal(Some(node)),
+            });
+        }
+        // The view's lifecycle, as the root's reconciliation queues it (the
+        // shell's `regenerate_layout`): a node that entered hears its
+        // `AfterMount` - a field in a view takes the keyboard - and a node
+        // that left its `BeforeUnmount`, invoked against its OLD node data
+        // (it has none in the new arena). They were dropped here.
+        for event in diff.events {
+            use azul_core::events::{ComponentEventFilter, EventFilter, EventType};
+            if event.event_type == EventType::Unmount {
+                let old = event
+                    .target
+                    .node
+                    .into_crate_internal()
+                    .and_then(|nid| old_node_data.get(nid.index()));
+                if let Some(nd) = old {
+                    for cb in nd.get_callbacks().as_ref() {
+                        if matches!(
+                            cb.event,
+                            EventFilter::Component(ComponentEventFilter::BeforeUnmount)
+                        ) {
+                            self.pending_unmount_invocations
+                                .push((cb.clone(), event.clone()));
+                        }
+                    }
+                }
+            } else {
+                self.pending_lifecycle_events.push(event);
+            }
+        }
+        entered
+    }
+
+    /// Starts the declared `-azul-animation-in` track of every node of `dom` (a view's
+    /// child DOM) that entered with its last render (`entered`), now that the DOM is
+    /// laid out, and draws each from its first keyframe in this very frame, as
+    /// `finish_reconciliation` does for the root's nodes: the view's display list is
+    /// built again when a node gets its keys now.
+    fn start_view_enter_tracks(&mut self, dom: DomId, entered: &[NodeId]) {
+        let started: Vec<(NodeId, AnimTrack)> = entered
+            .iter()
+            .filter_map(|node| Some((*node, self.declared_enter_track(dom, *node)?)))
+            .collect();
+        if started.is_empty() {
+            return;
+        }
+        let gets_keys_now = {
+            let cache = self.gpu_state_manager.caches.get(&dom);
+            started.iter().any(|(node, _)| {
+                !cache.is_some_and(|c| {
+                    c.anim_transform_keys.contains_key(node)
+                        && c.anim_opacity_keys.contains_key(node)
+                })
+            })
+        };
+        for (node, track) in started {
+            let first = matches!(track.source, TrackSource::Compiled).then(|| track.sample());
+            self.view_tracks.entry(dom).or_default().insert(node, track);
+            if let Some(sample) = first {
+                self.publish_live_sample(dom, node, sample);
+            }
+        }
+        if gets_keys_now {
+            self.regenerate_display_list_for_dom(dom);
+        }
     }
 
     pub fn remap_node_ids(&mut self, dom: DomId, map: &crate::managers::NodeIdMap) {
@@ -20909,17 +28927,15 @@ impl LayoutWindow {
             hover_manager,
             virtual_view_manager,
             transient_windows,
-            // Geometry from the PREVIOUS arena. It only gates the reveal, so
-            // dropping it costs one redundant reveal after a reconcile; keeping
-            // it would compare against a rect that no longer means anything.
-            last_revealed_caret_rect: _,
-            // Logical, survives the remap: kept as it is.
-            last_revealed_caret_key: _,
             text_selection_drag_anchor: _,
             // OLD-arena data BY DESIGN: this is the reconcile INPUT for child
             // doms, keyed by DomId and holding pre-remap NodeIds on purpose.
             // Remapping it would corrupt the very diff it exists to feed.
             previous_child_arenas: _,
+            // Child documents, in their own NodeIds: a remap of another dom
+            // does not reach them.
+            retired_child_results: _,
+            child_dom_fingerprints: _,
             prev_left_down: _,
             laid_out_dock_generation: _,
             inline_tear,
@@ -20931,6 +28947,9 @@ impl LayoutWindow {
             // without this the playback state would re-attach to a different
             // element and an unmounted player would leak forever.
             media_player_manager,
+            // Keyed by the `<webview>` node: a rebuild that shifts it keeps its
+            // native view (the page, its sign-in), an unmount destroys it.
+            webviews,
 
             // --- NODE-KEYED: plain caches owned directly by the window -------
             text_constraints_cache,
@@ -20940,6 +28959,26 @@ impl LayoutWindow {
             currently_dragging_thumb,
             pointer_capture,
             content_overlay,
+            // Dropped for the rebuilt DOM (below), not remapped: a rebuild
+            // may have changed the data a canvas draws from, so each of its
+            // canvases renders once more.
+            image_callback_inputs,
+            // Remapped, not dropped: a rebuild changes none of what a
+            // background layer's frame is drawn from (an app that changed the
+            // data of a callback it reuses says so with
+            // `update_all_image_callbacks`), so the layer keeps its frame.
+            background_callback_inputs,
+            // The layers still waiting for a frame follow their nodes.
+            background_callbacks_waiting,
+            // The window's light, keyed by nothing.
+            material_light: _,
+            background_frames_generation: _,
+            material_light_is_own: _,
+            app_light: _,
+            app_light_generation: _,
+            // Keyed by the material node: a rebuild that shifts it keeps the
+            // sheen it has, an unmount drops it.
+            material_sheen,
             content_journal,
 
             // --- EXEMPT: not keyed by NodeId ---------------------------------
@@ -20953,6 +28992,20 @@ impl LayoutWindow {
             recorded_size_queries: _,
             // A six-bit mask, keyed by nothing.
             recorded_style_dependencies: _,
+            // Keyed by ACCELERATOR (and the window's sequence number), never
+            // by NodeId: a global hotkey belongs to the window, not a node.
+            global_hotkeys: _,
+            // Flags and languages, keyed by nothing.
+            depends_on_locale: _,
+            depends_on_text_direction: _,
+            locale_override: _,
+            known_languages: _,
+            // The app's mode choice, keyed by nothing.
+            mode: _,
+            // The app theme's name, keyed by nothing.
+            app_theme: _,
+            // A counter, keyed by nothing.
+            rice_generation: _,
             // Pre-order hashes, positionally aligned with the NEXT produce's
             // flatten — never carries NodeIds.
             last_dom_fingerprints: _,
@@ -20988,9 +29041,26 @@ impl LayoutWindow {
             // same reconciliation that produces the remap — it is consumed by
             // the very next layout pass and never survives a second remap.
             pending_css_dirty: _,
+            reconciled_dom: _,
+            // A bool about the current change batch, no NodeId.
+            host_lays_out: _,
             // One timestamp; carries no NodeId.
             last_anim_tick: _,
+            // The culled set follows its tracks (remapped below, beside them).
+            culled_tracks,
+            // A view's tracks follow their DOM's nodes (remapped below); a bool.
+            view_tracks,
+            view_tracks_hidden: _,
+            // A bool about the window, no NodeId.
+            window_occluded: _,
+            // A hash; the rebuild that caused this remap re-records it.
+            root_display_list_gpu_fingerprint: _,
+            // A counter, keyed by nothing.
+            presented_frames: _,
             layout_cache: _,
+            // Each child DOM's own `layout_cache`: the solver reconciles the
+            // child's next DOM against it by content, as it does the root's.
+            child_layout_caches: _,
             layout_results: _,
             // Content-addressed (hashes / font ids / image ids), never NodeIds:
             text_cache: _,
@@ -21028,10 +29098,17 @@ impl LayoutWindow {
             laid_out_safe_area_insets: _,
             // App-level animation CONFIG (durations + fn pointers), no node ids.
             system_animations_override: _,
-            timers: _,
+            // NODE-KEYED through `thread_owners`, like `threads`: a timer one
+            // of a node's lifecycle callbacks started stops when the node
+            // unmounts (handled below).
+            timers,
             // One `Timer` handed to the shell to arm; carries no node id.
             unarmed_blink_timer: _,
-            threads: _,
+            // NODE-KEYED through `thread_owners`: a worker one of a node's
+            // lifecycle callbacks started belongs to that node and is told to
+            // stop when the node unmounts (handled below).
+            threads,
+            thread_owners,
             renderer_type: _,
             previous_window_state: _,
             current_window_state: _,
@@ -21041,14 +29118,30 @@ impl LayoutWindow {
             system_style: _,
             // App-level icon storage keyed by NAME, not by node id.
             icon_provider: _,
+            // Keyed by control identity (key / id / tree path hash), not by
+            // node id: a rebuild that moves NodeIds leaves it valid.
+            #[cfg(feature = "widgets")]
+            form_control_memory: _,
+            #[cfg(feature = "fluent")]
+            fluent_localizer: _,
             last_laid_out_frame: _,
+            last_laid_out_mode: _,
             monitors: _,
+            screen_mapping: _,
             font_stacks_hash: _,
             preedit_shaped_node: _,
             seat_preedit_shaped: _,
+            // A counter, DOM-keyed arena stamps and the window's lint key, no
+            // node ids.
+            dom_lint_runs: _,
+            dom_lint_stamps: _,
+            dom_lint_scope: _,
+            // A counter.
+            a11y_tree_updates: _,
             input_interpreter: _,
             post_filter: _,
             custom_e2e_op: _,
+            e2e_commands: _,
             routes: _,
             #[cfg(feature = "icu")]
                 icu_localizer: _,
@@ -21076,6 +29169,7 @@ impl LayoutWindow {
             // that is its whole point; resolved against the new tree at the
             // layout tail, nothing to remap here.
             pending_caret_restore: _,
+        pending_editor_reset: _,
             // A plain routing flag, no NodeIds.
             structural_history_suppression: _,
             // A document-space Y, no NodeIds.
@@ -21083,6 +29177,8 @@ impl LayoutWindow {
             resize_watch_dpi: _,
             // Keyed by the session's contenteditable key, not a node id (U3-b).
             caret_text_snapshot: _,
+            // Keyed by DomId, which a regenerated tree keeps; no NodeIds.
+            content_changed_doms: _,
         } = self;
 
         // Only a NOTIFIED edit can be rejected: an un-notified one cannot
@@ -21117,6 +29213,10 @@ impl LayoutWindow {
                 .into_iter()
                 .filter_map(|(n, t)| map.resolve(n).map(|nn| (nn, t)))
                 .collect();
+            *culled_tracks = core::mem::take(culled_tracks)
+                .into_iter()
+                .filter_map(|n| map.resolve(n))
+                .collect();
             css_transitions.retain_mut(|tr| match map.resolve(tr.node) {
                 Some(nn) => {
                     tr.node = nn;
@@ -21125,6 +29225,47 @@ impl LayoutWindow {
                 None => false,
             });
         }
+        // The workers of unmounted nodes - including nodes in the child DOM of
+        // a `VirtualView` whose host unmounted, asked for BEFORE the
+        // VirtualView manager drops that host's state below - are told to
+        // stop now; `run_all_threads` retires them once they have
+        // (`managers::thread_owner`).
+        let dropped_child_doms = virtual_view_manager.nested_doms_dropped_by(dom, map);
+        // A view's live tracks follow the nodes of its DOM; the views whose host
+        // unmounted take theirs with them.
+        if let Some(tracks) = view_tracks.remove(&dom) {
+            let remapped: BTreeMap<NodeId, AnimTrack> = tracks
+                .into_iter()
+                .filter_map(|(n, t)| map.resolve(n).map(|nn| (nn, t)))
+                .collect();
+            if !remapped.is_empty() {
+                view_tracks.insert(dom, remapped);
+            }
+        }
+        for dropped in &dropped_child_doms {
+            view_tracks.remove(dropped);
+        }
+        for thread_id in thread_owners.remap_node_ids(dom, map, &dropped_child_doms) {
+            if let Some(thread) = threads.get(&thread_id) {
+                let _ = thread.send_message(ThreadSendMsg::TerminateThread);
+            }
+        }
+        // Their timers never fire again: out of the window's timer map now;
+        // the shell stops the OS timers from the manager's stop list.
+        for timer_id in thread_owners.timers_to_stop() {
+            timers.remove(timer_id);
+        }
+        // A timer ATTACHED to a node (`Timer.node_id`, what
+        // `get_attached_node_size` / `_position` read) follows its node: a
+        // node inserted before it moves its id, and a stale id reads another
+        // node's box. A timer of an unmounted node keeps running but loses
+        // its attachment (no id would be right).
+        for timer in timers.values_mut() {
+            if let Some(id) = timer.node_id.into_option() {
+                timer.node_id = map.resolve_dom_node_id(dom, id).into();
+            }
+        }
+
         scroll_manager.remap_node_ids(dom, map);
         gesture_drag_manager.remap_node_ids(dom, map);
         focus_manager.remap_node_ids(dom, map);
@@ -21137,6 +29278,7 @@ impl LayoutWindow {
         undo_redo_manager.remap_node_ids(dom, map);
         permission_manager.remap_node_ids(dom, map);
         media_player_manager.remap_node_ids(dom, map);
+        webviews.remap_node_ids(dom, map);
 
         // Window-owned caches (same contract: absent from `map` == unmounted).
         crate::managers::remap_dom_keys(&mut text_constraints_cache.constraints, dom, map);
@@ -21146,6 +29288,10 @@ impl LayoutWindow {
         // `layout_and_generate_display_list`, where the new generation is
         // already installed.
         content_overlay.remap_node_ids(dom, map);
+        image_callback_inputs.retain(|(d, _), _| *d != dom);
+        crate::managers::remap_background_slots(background_callback_inputs, dom, map);
+        crate::managers::remap_background_slot_set(background_callbacks_waiting, dom, map);
+        crate::managers::remap_dom_keys(&mut material_sheen.surfaces, dom, map);
         // The journal's old-image entries are keyed by pre-swap NodeIds and a
         // generation swap repaints everything anyway — drop this DOM's history
         // rather than remapping it.
@@ -21217,7 +29363,139 @@ impl LayoutWindow {
                 None => *currently_dragging_thumb = None,
             }
         }
+
+        // The child DOMs of the VirtualViews this rebuild unmounted go with
+        // their hosts: every manager drops what it held for them - this same
+        // driver, with every node of the child unmounted - and the state keyed
+        // by the DOM itself (its GPU value cache, its texture table) goes too.
+        // Only the thread owners heard about these DOMs before, so a page whose
+        // DOM shared nothing with the old one (a ProgressBar's child DOM under
+        // the e2e `mount`) kept the child's GPU cache forever.
+        let gone = crate::managers::NodeIdMap::default();
+        for child in dropped_child_doms {
+            self.remap_node_ids(child, &gone);
+            self.gpu_state_manager.caches.remove(&child);
+            self.gl_texture_cache.solved_textures.remove(&child);
+        }
     }
+}
+
+/// What a `RenderImageCallback` node was last rendered from
+/// ([`LayoutWindow::image_callback_inputs`]): the declared callback image
+/// (a rebuild that declares a new one changes it) and the box it was asked to
+/// fill. Equal inputs and no explicit update: the frame it produced stands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ImageCallbackInputs {
+    /// Identity of the DOM's callback `ImageRef`.
+    pub declared: ImageRefHash,
+    /// The laid-out box, logical px (bit patterns: exact equality).
+    pub width_bits: u32,
+    pub height_bits: u32,
+    /// The window's scale factor when it rendered.
+    pub hidpi_factor: azul_core::resources::DpiScaleFactor,
+}
+
+impl ImageCallbackInputs {
+    #[must_use]
+    pub const fn of(declared: &ImageRef, bounds: &HidpiAdjustedBounds) -> Self {
+        Self {
+            declared: declared.get_hash(),
+            width_bits: bounds.logical_size.width.to_bits(),
+            height_bits: bounds.logical_size.height.to_bits(),
+            hidpi_factor: bounds.hidpi_factor,
+        }
+    }
+}
+
+use crate::solver3::getters::custom_property_state;
+
+/// The custom properties `node` sees in its current state (a pointer into
+/// `styled_dom`'s cascade, for [`crate::callbacks::RenderImageCallbackExtras`])
+/// and a hash of them (a frame rendered from other values renders again).
+fn node_custom_properties(
+    styled_dom: &StyledDom,
+    node: NodeId,
+) -> (*const azul_css::custom_properties::CustomPropertyMap, u64) {
+    use std::hash::{Hash, Hasher};
+
+    let state = styled_dom
+        .styled_nodes
+        .as_container()
+        .get(node)
+        .map(|n| n.styled_node_state)
+        .unwrap_or_default();
+    let map = styled_dom
+        .get_css_property_cache()
+        .custom_property_envs
+        .map_for(node.index(), custom_property_state(&state));
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    map.hash(&mut hasher);
+    (core::ptr::from_ref(map), hasher.finish())
+}
+
+/// The area whose hover drives the sheen of material node `node`: with
+/// `--azul-sheen-area: <name>` the outermost ancestor-or-self carrying the
+/// same name (custom properties inherit, so the name is set once on the
+/// area), its laid-out rect in window logical px. `None` without the
+/// property - the surface's own rect is its area then.
+fn sheen_area(lw: &LayoutWindow, dom: DomId, styled_dom: &StyledDom, node: NodeId) -> Option<LogicalRect> {
+    let name_of = |n: NodeId| -> Option<String> {
+        let (map, _) = node_custom_properties(styled_dom, n);
+        // SAFETY: the map lives in `styled_dom`, borrowed for this call.
+        unsafe { map.as_ref() }
+            .and_then(|m| m.get("azul-sheen-area"))
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty() && v != "none")
+    };
+    let name = name_of(node)?;
+    let hierarchy = styled_dom.node_hierarchy.as_container();
+    let mut top = node;
+    while let Some(parent) = hierarchy
+        .get(top)
+        .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
+    {
+        if name_of(parent).as_deref() != Some(name.as_str()) {
+            break;
+        }
+        top = parent;
+    }
+    let r = lw.get_node_bounds(dom, top)?;
+    Some(LogicalRect::new(
+        LogicalPosition::new(r.origin.x as f32, r.origin.y as f32),
+        LogicalSize::new(r.size.width as f32, r.size.height as f32),
+    ))
+}
+
+/// What a background layer's callback frame was drawn from
+/// ([`LayoutWindow::background_callback_inputs`]): everything the callback
+/// reads through its bounds and extras. Equal inputs and no explicit update:
+/// the frame it drew stands. The cursor is none of them - the sheen is a
+/// layer of its own over the material.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BackgroundCallbackInputs {
+    /// The layer's rect, logical px (bit patterns: x, y, width, height). Its
+    /// size is the frame's; its place matters to a callback that lays its
+    /// pattern in window space (a material's grain, the god rays).
+    pub rect_bits: [u32; 4],
+    /// The window's scale factor: with the size, the frame's device pixels.
+    pub hidpi_factor: azul_core::resources::DpiScaleFactor,
+    /// The layer's corner radii, bit patterns.
+    pub radii_bits: [u32; 4],
+    /// [`LayoutWindow::background_frames_generation`] when it was drawn: a
+    /// new light, or `update_all_image_callbacks`, draws it again.
+    pub generation: u64,
+    /// A hash of the node's custom properties in its current state (the tint
+    /// a theme or the mode sets) and of its clip path.
+    pub custom_properties_hash: u64,
+    /// The window's top-left on the desktop (bit patterns) while a point
+    /// light or a reflected wallpaper makes it matter, else zero.
+    pub desktop_bits: [u32; 2],
+    /// How many times the desktop's wallpapers changed: a metal reflects
+    /// the new one.
+    pub environment_generation: u64,
+    /// The system's highlight colour, which a metal reflects where no
+    /// wallpaper is known (it follows the mode).
+    pub highlight: azul_css::props::basic::ColorU,
 }
 
 /// Remap the `NodeId` inside a `ScrollbarHitId`. `None` = the scroll container
@@ -21408,7 +29686,7 @@ mod autotest_generated {
                 children_arena: Vec::new(),
                 children_offsets: Vec::new(),
                 subtree_needs_intrinsic: Vec::new(),
-            },
+            }.into(),
             calculated_positions: Vec::new(),
             viewport: LogicalRect::zero(),
             display_list: Arc::new(DisplayList::default()),
@@ -22784,8 +31062,17 @@ mod autotest_generated {
         }
 
         let mut w = window_for(editable("hello world"));
-        w.text_edit_manager
-            .initialize_editing(at(6), DomId::ROOT_ID, NodeId::new(0), 77);
+        // A bare layout result has no layout tree to resolve a block in: the
+        // resolver's stand-in names the editable directly (its text is what
+        // the generation diff reads).
+        w.text_edit_manager.initialize_editing(
+            at(6),
+            TextBlock::from_resolved(
+                DomId::ROOT_ID,
+                azul_core::selection::TextBlockKey::Element(NodeId::new(0)),
+            ),
+            77,
+        );
         let bob = SelectionOwner::new(2, 2);
         assert!(w
             .text_edit_manager
@@ -22943,7 +31230,9 @@ mod autotest_generated {
             "direct children in document order first, then deeper descendants"
         );
 
-        // Caret on the TEXT LEAF of the second <p>: the block that owns it wins.
+        // Caret in the second <p>'s block: the block that owns it wins.
+        // (A bare layout result has no tree to resolve it in - the resolver's
+        // stand-in names it.)
         w.text_edit_manager.multi_cursor = Some(MultiCursorState::new_with_cursor(
             TextCursor {
                 cluster_id: GraphemeClusterId {
@@ -22952,7 +31241,10 @@ mod autotest_generated {
                 },
                 affinity: CursorAffinity::Leading,
             },
-            dnid(4),
+            TextBlock::from_resolved(
+                DomId::ROOT_ID,
+                azul_core::selection::TextBlockKey::Element(NodeId::new(3)),
+            ),
             0,
         ));
         assert_eq!(
@@ -23648,6 +31940,292 @@ mod autotest_generated {
         win
     }
 
+    /// Text sized in viewport units is drawn by its own font (SYSUI8 s8): the
+    /// font chains are keyed by the optical size of the text's USED font size,
+    /// and the collector resolved a `vw` size against a ZERO viewport - the
+    /// chain was collected for 0 px, the text asked for 40 px, missed, and was
+    /// drawn by the fallback.
+    #[test]
+    fn text_sized_in_viewport_units_is_drawn_by_its_own_font() {
+        let dom = Dom::create_body().with_child(
+            Dom::create_div()
+                .with_css("font-size: 5vw;")
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Hi")),
+        );
+        let win = laid_out(StyledDom::create_from_dom(dom), 800.0, 600.0);
+        let sizes: Vec<u16> = win
+            .font_manager
+            .font_chain_cache
+            .keys()
+            .map(|k| k.optical_size)
+            .collect();
+        assert!(
+            sizes.contains(&40),
+            "5vw of an 800px window is 40px: the text's chain is collected at that optical size \
+             (collected: {sizes:?})"
+        );
+    }
+
+    /// ... and after a resize. The layout pass skips font resolution when the
+    /// DOM's font requirements are unchanged (family, weight, style and the
+    /// SPECIFIED size of every node), and `5vw` is the same specified size in
+    /// any window: the text, 20 px after the resize, kept only its 40 px chain.
+    #[test]
+    fn text_sized_in_viewport_units_keeps_its_own_font_after_a_resize() {
+        let dom = || {
+            Dom::create_body().with_child(
+                Dom::create_div()
+                    .with_css("font-size: 5vw;")
+                    .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Hi")),
+            )
+        };
+        let mut win = laid_out(StyledDom::create_from_dom(dom()), 800.0, 600.0);
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = size(400.0, 600.0);
+        let rr = RendererResources::default();
+        let sc = ExternalSystemCallbacks::rust_internal();
+        let mut dbg = None;
+        win.layout_and_generate_display_list(
+            StyledDom::create_from_dom(dom()),
+            &ws,
+            &rr,
+            &sc,
+            &mut dbg,
+        )
+        .expect("the resized window lays out");
+        let sizes: Vec<u16> = win
+            .font_manager
+            .font_chain_cache
+            .keys()
+            .map(|k| k.optical_size)
+            .collect();
+        assert!(
+            sizes.contains(&20),
+            "5vw of a 400px window is 20px: the resize collects the text's chain at that size \
+             (collected: {sizes:?})"
+        );
+    }
+
+    /// A timer attached to a node reads ITS node's box after a rebuild that
+    /// moves the node's id (THREADS8): `remap_node_ids` dropped the timers of
+    /// unmounted nodes but left `Timer.node_id` as it was, so a node inserted
+    /// before the attached one made the timer read its new neighbour
+    /// (`TimerCallbackInfo::get_attached_node_size`).
+    #[test]
+    fn a_timer_reads_its_own_nodes_size_after_a_node_is_inserted_before_it() {
+        let page = |inserted: bool| {
+            let mut body = Dom::create_body();
+            if inserted {
+                body = body.with_child(
+                    Dom::create_div()
+                        .with_id("inserted".into())
+                        .with_css("width: 10px; height: 10px;"),
+                );
+            }
+            StyledDom::create_from_dom(
+                body.with_child(
+                    Dom::create_div()
+                        .with_id("target".into())
+                        .with_css("width: 30px; height: 40px;"),
+                ),
+            )
+        };
+        let target_in = |win: &LayoutWindow| {
+            let sd = &win.layout_results[&DomId::ROOT_ID].styled_dom;
+            let node_data = sd.node_data.as_container();
+            let node = (0..node_data.len())
+                .map(NodeId::new)
+                .find(|n| {
+                    node_data[*n]
+                        .get_ids_and_classes()
+                        .iter()
+                        .any(|c| matches!(c.as_id(), Some(s) if s == "target"))
+                })
+                .expect("the target node");
+            DomNodeId {
+                dom: DomId::ROOT_ID,
+                node: NodeHierarchyItemId::from_crate_internal(Some(node)),
+            }
+        };
+
+        let mut win = laid_out(page(false), 300.0, 200.0);
+        let target = target_in(&win);
+        assert_eq!(win.get_node_size(target), Some(size(30.0, 40.0)), "harness");
+        let timer_id = TimerId { id: 7 };
+        win.add_timer(
+            timer_id,
+            Timer {
+                node_id: Some(target).into(),
+                ..Timer::default()
+            },
+        );
+
+        // The app's next DOM, installed as the shells install one: the
+        // reconciliation, the layout, its completion.
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = size(300.0, 200.0);
+        let mut next = page(true);
+        let pending = win.begin_reconciliation(
+            DomId::ROOT_ID,
+            &mut next,
+            azul_core::task::Instant::now(),
+        );
+        win.layout_new_generation(
+            next,
+            &ws,
+            &RendererResources::default(),
+            &ExternalSystemCallbacks::rust_internal(),
+            &mut None,
+        )
+        .expect("the next DOM lays out");
+        win.finish_reconciliation(DomId::ROOT_ID, &pending);
+
+        let moved = target_in(&win);
+        assert_ne!(moved, target, "harness: the insertion moved the target's id");
+        let attached = win
+            .get_timer(&timer_id)
+            .and_then(|t| t.node_id.into_option())
+            .expect("the timer stays attached to its surviving node");
+        assert_eq!(attached, moved, "the timer follows its node to its new id");
+        assert_eq!(
+            win.get_node_size(attached),
+            Some(size(30.0, 40.0)),
+            "the timer reads its own node's 30 x 40 box, not the inserted 10 x 10 one"
+        );
+    }
+
+    /// The four DOM lints are developer warnings about the DOM's SHAPE. A
+    /// relayout of the same DOM - an animation frame, a resize, a restyle:
+    /// the shells' `incremental_relayout` hands the retained `StyledDom` back
+    /// - leaves every finding as it was, and used to walk the whole DOM four
+    /// times again on every pass (ANIMFRAME8 s8). A new DOM is linted.
+    #[test]
+    fn a_relayout_of_an_unchanged_dom_runs_no_dom_lint() {
+        let dom = Dom::create_body()
+            .with_child(Dom::create_div().with_css("width: 20px; height: 20px;"));
+        let mut win = laid_out(StyledDom::create_from_dom(dom), 300.0, 200.0);
+        let after_first = win.dom_lint_runs;
+        assert!(after_first >= 1, "the first layout lints its DOM");
+
+        // The shells' incremental relayout: the retained StyledDom, by value.
+        let retained = win
+            .layout_results
+            .remove(&DomId::ROOT_ID)
+            .expect("laid out")
+            .styled_dom;
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = size(320.0, 200.0);
+        let rr = RendererResources::default();
+        let sc = ExternalSystemCallbacks::rust_internal();
+        win.layout_and_generate_display_list(retained, &ws, &rr, &sc, &mut None)
+            .expect("the relayout");
+        assert_eq!(
+            win.dom_lint_runs, after_first,
+            "the relayout of the unchanged DOM runs no lint"
+        );
+
+        // The app's next DOM is linted.
+        let next = StyledDom::create_from_dom(Dom::create_body().with_child(Dom::create_div()));
+        win.layout_new_generation(next, &ws, &rr, &sc, &mut None)
+            .expect("the new generation");
+        assert_eq!(
+            win.dom_lint_runs,
+            after_first + 1,
+            "a new generation is linted"
+        );
+    }
+
+    /// A CSS `opacity` tween is a GPU property after its first frame
+    /// (ANIMFRAME8 s8): the display list binds the node's CSS opacity key in
+    /// its `PushOpacity`, so a later frame publishes the new value in the GPU
+    /// value cache and owes a repaint - no restyle of the whole DOM's compact
+    /// cache, no display-list rebuild. (The first frame may rebuild: the
+    /// layer of a node fading from 1.0 does not exist yet.) Every frame used
+    /// to take the restyle path and rebuild the list.
+    #[test]
+    fn a_css_opacity_tween_frame_after_the_first_is_values_only() {
+        use azul_css::props::{
+            basic::PercentageValue,
+            property::{CssProperty, CssPropertyType},
+            style::StyleOpacity,
+        };
+        let dom = Dom::create_body().with_child(Dom::create_div().with_class("faded".into()).with_css(
+            "width: 20px; height: 20px; background: red; animation: opacity 150ms linear;",
+        ));
+        let mut win = laid_out(StyledDom::create_from_dom(dom), 300.0, 200.0);
+        let node = {
+            let sd = &win.layout_results[&DomId::ROOT_ID].styled_dom;
+            let node_data = sd.node_data.as_container();
+            (0..node_data.len())
+                .map(NodeId::new)
+                .find(|n| {
+                    node_data[*n]
+                        .get_ids_and_classes()
+                        .iter()
+                        .any(|c| matches!(c.as_class(), Some(s) if s == "faded"))
+                })
+                .expect("the faded node")
+        };
+        let _ = win.apply_content_change(crate::overlay::ContentChange::NodeCss {
+            dom_id: DomId::ROOT_ID,
+            node_id: node,
+            props: vec![CssProperty::const_opacity(StyleOpacity {
+                inner: PercentageValue::const_new(50),
+            })],
+            override_only: false,
+        });
+        assert!(
+            win.css_transitions
+                .iter()
+                .any(|t| t.node == node && t.prop_type == CssPropertyType::Opacity),
+            "harness: the opacity write seeds a tween, got {:?}",
+            win.css_transitions
+        );
+
+        // Frame 1, as the shells run it: a rebuild unless the tick patched.
+        let _ = win.tick_animations(0.016);
+        assert!(!win.take_transition_relayout(), "opacity moves no box");
+        if !win.take_transition_patched() && !win.animation_tick_is_values_only() {
+            win.regenerate_display_list_for_dom(DomId::ROOT_ID);
+        }
+        let rebuilds = win.frame_report.dl_rebuilds;
+
+        let opacity_of = |win: &LayoutWindow| {
+            win.gpu_state_manager
+                .caches
+                .get(&DomId::ROOT_ID)
+                .and_then(|c| c.current_opacity_values.get(&node).copied())
+        };
+        let mut values = Vec::new();
+        for frame in 2..200 {
+            if win.css_transitions.is_empty() {
+                break;
+            }
+            let _ = win.tick_animations(0.016);
+            assert!(!win.take_transition_relayout(), "frame {frame}: opacity moves no box");
+            let repaint_only = win.take_transition_patched() || win.animation_tick_is_values_only();
+            assert!(
+                repaint_only,
+                "frame {frame}: the tick only moved the node's bound opacity - it owes a repaint, \
+                 not a display-list rebuild (pending css dirt: {:?})",
+                win.pending_css_dirty
+            );
+            values.push(opacity_of(&win).unwrap_or(f32::NAN));
+        }
+        assert!(
+            values.iter().any(|v| *v > 0.55 && *v < 0.95),
+            "the bound opacity passes between 1 and 0.5 mid-fade: {values:?}"
+        );
+        assert!(
+            (opacity_of(&win).unwrap_or(f32::NAN) - 0.5).abs() < 0.01,
+            "the settled fade binds 0.5: {values:?}"
+        );
+        assert_eq!(
+            win.frame_report.dl_rebuilds, rebuilds,
+            "the frames after the first rebuilt no display list"
+        );
+    }
+
     /// THE CLASS (azpaint pressure meter, 2026-08-29): a `VirtualView` child
     /// DOM was laid out against the WINDOW viewport, not the view's own
     /// bounds — a percent-width child of the returned root resolved against
@@ -24167,10 +32745,22 @@ mod autotest_generated {
     // accumulated_scroll — the ONE scroll walk, with explicit inclusivity
     // ==================================================================
 
-    /// Lay out `body > div×3`, scroll the body by (10, 20) and the first div
-    /// by (3, 4), and return the window plus the two layout indices.
+    /// Lay out `body > div×3` with the body and the first div scroll
+    /// containers, scroll the body by (10, 20) and the first div by (3, 4),
+    /// and return the window plus the two layout indices.
+    ///
+    /// Both boxes have to BE scroll containers: `accumulated_scroll` adds the
+    /// offsets of the frames the display list paints a node in (its
+    /// `ScrollChain`), and an offset stored on a plain `div` moves nothing.
     fn window_with_two_scrolled_boxes() -> (LayoutWindow, usize, usize) {
-        let mut win = laid_out(fixture_dom(), 200.0, 150.0);
+        let scrolling = StyledDom::create_from_dom(
+            Dom::create_body()
+                .with_css("overflow: auto;")
+                .with_child(Dom::create_div().with_css("overflow: auto;"))
+                .with_child(Dom::create_div())
+                .with_child(Dom::create_div()),
+        );
+        let mut win = laid_out(scrolling, 200.0, 150.0);
         let idx_of = |w: &LayoutWindow, n: usize| -> usize {
             w.layout_results[&DomId::ROOT_ID]
                 .layout_tree
@@ -24419,7 +33009,7 @@ mod autotest_generated {
             hit_local,
             LayoutNodeId::new(1),
             LayoutNodeId::new(0),
-            NodeId::new(0),
+            Some(NodeId::new(0)),
         )
         .expect("both nodes are positioned");
         assert_eq!(rebased.get(), pos(54.0, 1.0));
@@ -24432,7 +33022,7 @@ mod autotest_generated {
             hit_local,
             LayoutNodeId::new(0),
             LayoutNodeId::new(0),
-            NodeId::new(0),
+            Some(NodeId::new(0)),
         )
         .unwrap();
         assert_eq!(same.get(), pos(4.0, 1.0));
@@ -24446,7 +33036,7 @@ mod autotest_generated {
             hit_local,
             LayoutNodeId::new(9_999),
             LayoutNodeId::new(0),
-            NodeId::new(0),
+            Some(NodeId::new(0)),
         )
         .is_none());
     }
@@ -24645,6 +33235,36 @@ const fn flip_to_matrix(
     }
 }
 
+/// Bring `dom_id`'s CSS `transform` / `opacity` GPU values in line with
+/// `styled_dom` - keys minted for nodes that gained one, dropped for nodes
+/// that lost theirs, every value re-read (`node_size`: the box percentages
+/// resolve against) - and record the events as this build's pending
+/// changes.
+///
+/// The step EVERY display-list build owes before it reads the cache: the
+/// list opens a reference frame exactly for a keyed node and bakes the value
+/// it finds. The layout pass did it; the display-list-only rebuild
+/// (`regenerate_display_list_for_dom`) did not, so a `transform` written
+/// without a layout (a paint-scope `set_css_property`, a tween's frame) was
+/// built against the OLD matrix and showed nothing until an unrelated
+/// relayout.
+fn sync_css_gpu_values(
+    gpu_state_manager: &mut GpuStateManager,
+    dom_id: DomId,
+    styled_dom: &StyledDom,
+    node_size: &dyn Fn(NodeId) -> Option<(f32, f32)>,
+) {
+    let mut events = gpu_state_manager
+        .get_or_create_cache(dom_id)
+        .synchronize_with_sizes(styled_dom, node_size);
+    // MWA-C-gpu_state: drop the PREVIOUS build's events before merging this
+    // one's. `pending_changes` has no drain (both renderers re-read the cache
+    // values instead), and `merge` appends: without the drop it grew by every
+    // build's events forever.
+    drop(gpu_state_manager.take_pending_changes());
+    gpu_state_manager.pending_changes.merge(&mut events);
+}
+
 /// Everything the DOM diff learned, captured while BOTH trees are still alive.
 ///
 /// Produced by [`LayoutWindow::begin_reconciliation`] and consumed by
@@ -24664,6 +33284,11 @@ const fn flip_to_matrix(
 /// behaviour can silently go missing.
 #[derive(Debug, Default)]
 pub struct PendingReconciliation {
+    /// The first node in tree order that entered with this rebuild and asks for
+    /// focus (`autofocus`); on the first frame every node enters. The shell gives
+    /// it the focus ([`LayoutWindow::focus_mounted_autofocus`]) before the new
+    /// tree is styled, unless the window is a popup, which runs its own pass.
+    pub autofocus: Option<NodeId>,
     /// Matched pairs: this old `NodeId` became that new one.
     pub node_moves: Vec<azul_core::diff::NodeMove>,
     /// In the NEW tree with no counterpart in the old one — an ENTER.
@@ -24695,10 +33320,62 @@ pub struct PendingReconciliation {
     /// change (colour, shadow) must NOT invalidate geometry, and conflating the
     /// two would throw away the reuse this is meant to enable.
     pub restyled: Vec<(NodeId, azul_css::props::property::RelayoutScope)>,
-    /// The new tree, needed by `finish` to compute reconciliation keys.
-    pub new_node_data: Vec<azul_core::dom::NodeData>,
-    /// The new hierarchy, same reason.
-    pub new_hierarchy: Vec<azul_core::styled_dom::NodeHierarchyItem>,
+    /// How many nodes the new tree has. `finish` reads the new tree's nodes from
+    /// the laid-out result instead of a copy of the arena (a copy cost a deep
+    /// clone and drop of every node per rebuild), and does no keyed work when the
+    /// laid-out tree is not the one reconciled here.
+    pub new_node_count: usize,
+    /// EVERY node of the new tree with no counterpart in the old one: each
+    /// node of a mounted subtree (not only its root, which is what
+    /// [`Self::mounted`] holds), and on the first frame every node. What a
+    /// declared `-azul-animation-in` starts on.
+    pub entered: Vec<NodeId>,
+    /// The lifecycle events the diff produced (Mount, Unmount, Resize,
+    /// Update), for the caller to dispatch.
+    pub events: Vec<azul_core::events::SyntheticEvent>,
+    /// The OLD tree's node data - where an `Unmount`'s `BeforeUnmount`
+    /// callbacks and a removed focused node's `FocusLost` callbacks are read
+    /// from once the old tree is gone.
+    pub old_node_data: Vec<azul_core::dom::NodeData>,
+    /// Whether the matched nodes that MOVED animate there (FLIP). `true` from
+    /// [`LayoutWindow::begin_reconciliation`]; a caller clears it for a
+    /// rebuild that is no state change - a window resize reflows in place,
+    /// it does not slide the layout after the dragged edge.
+    pub animate_moves: bool,
+    /// The matched nodes that DECLARE a move - `animation: move <duration>
+    /// [timing]` on the OLD tree, like every entry of that list - with the
+    /// motion they asked for (NEW `NodeId`s). Moves are opt-in, as enters
+    /// and exits are (user, 2026-10-07): a node not in here is laid out at
+    /// its new place, it does not slide there.
+    pub move_modes: BTreeMap<NodeId, azul_core::animation::InterpolationMode>,
+    /// How many matched nodes had their properties compared type by type.
+    /// A node whose cascade inputs are what they were is skipped
+    /// (`unchanged_cascades`), so on a rebuild that changed one widget this
+    /// is that widget's nodes; the whole page here means every click pays
+    /// for a full property diff. Read by tests.
+    pub compared: usize,
+    /// How many property types those nodes compared, summed. Read by tests.
+    pub compared_properties: usize,
+}
+
+/// Whether `AZ_VV_TRACE` asks for a line per `VirtualView` render, read once.
+#[cfg(feature = "std")]
+fn virtual_view_trace() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("AZ_VV_TRACE").is_some())
+}
+
+/// The first of `entered` (new nodes with no counterpart in the old tree, in
+/// ascending order, which is tree order) that has the `autofocus` attribute.
+fn first_entered_autofocus(
+    node_data: &[azul_core::dom::NodeData],
+    entered: impl IntoIterator<Item = NodeId>,
+) -> Option<NodeId> {
+    entered.into_iter().find(|n| {
+        node_data
+            .get(n.index())
+            .is_some_and(azul_core::dom::NodeData::has_autofocus)
+    })
 }
 
 /// `LayoutRect` (integer origin, what the layout query returns) → `LogicalRect`
@@ -24772,24 +33449,572 @@ pub struct CssTransition {
     /// patch's from-match). `None` until the first patched tick — then the
     /// `from` endpoint's colour.
     pub last_color: Option<azul_css::props::basic::color::ColorU>,
+    /// [`Self::last_color`] for a background of gradients or of several
+    /// layers (a flora face): the layers the display list currently SHOWS,
+    /// the from-match of `DisplayList::patch_background_layers`. `None` until
+    /// the first patched tick - then the `from` endpoint's layers.
+    pub last_layers: Option<Vec<azul_css::props::style::StyleBackgroundContent>>,
+    /// Where the target lives once the tween is over. A rebuilt DOM's
+    /// transition (`false`) finishes by clearing its override, and the
+    /// cascade - which already holds the target - shows through. An
+    /// IMPERATIVE write's transition (`true`, `apply_content_change`) has no
+    /// cascade behind it: the target was written to the same user-property
+    /// channel the tween walks, so clearing it at the end erased the write
+    /// itself - an accordion body tweened its padding to 12px and then showed
+    /// the 0px its DOM was built with.
+    pub keeps_target: bool,
 }
 
-/// A colour-carrying paint transition prop: `(colour, is_text)` —
-/// `TextColor` and single-solid `background` are the patchable set; anything
-/// else (gradients, images, borders) falls back to the DL rebuild.
+impl CssTransition {
+    /// A transition of `prop_type` on `node` from `from` to `to`, timed by
+    /// the declared `anim`, at t = 0 - the one constructor every seeding
+    /// path (rebuild diff, imperative write, state change) uses.
+    #[allow(clippy::cast_precision_loss)] // a duration in ms fits an f32
+    fn declared(
+        node: NodeId,
+        prop_type: azul_css::props::property::CssPropertyType,
+        from: azul_css::props::property::CssProperty,
+        to: azul_css::props::property::CssProperty,
+        anim: &azul_css::props::basic::animation::StyleAnimation,
+        keeps_target: bool,
+    ) -> Self {
+        Self {
+            node,
+            prop_type,
+            from,
+            to,
+            t: 0.0,
+            duration_s: anim.duration.millis() as f32 / 1000.0,
+            delay_s: anim.delay.millis() as f32 / 1000.0,
+            timing: anim.timing,
+            // As the restyle reads it: the node may hold an inline context.
+            scope: prop_type.relayout_scope(true),
+            last_color: None,
+            last_layers: None,
+            keeps_target,
+        }
+    }
+}
+
+/// `state` with the INTERACTION states of `interaction` - the ones the
+/// WINDOW owns (the pointer's `:hover` / `:active`, the focus, a drag, the
+/// window's own `:backdrop`), not the DOM (`:disabled`, `:checked`): what a
+/// rebuilt node gets back from the node it replaces once the shell re-applies
+/// the runtime states.
+const fn with_interaction_of(
+    mut state: azul_core::styled_dom::StyledNodeState,
+    interaction: azul_core::styled_dom::StyledNodeState,
+) -> azul_core::styled_dom::StyledNodeState {
+    state.hover = interaction.hover;
+    state.active = interaction.active;
+    state.focused = interaction.focused;
+    state.focus_visible = interaction.focus_visible;
+    state.focus_within = interaction.focus_within;
+    state.backdrop = interaction.backdrop;
+    state.dragging = interaction.dragging;
+    state.drag_over = interaction.drag_over;
+    state.seat_focused = interaction.seat_focused;
+    state
+}
+
+/// The entry of a node's `animation` list that covers `ty`: the LAST one
+/// naming `ty` or `all` (a list scopes properties independently -
+/// `animation: width 1s, color 2s` - web-cascade style). The animation
+/// meta-properties never transition: `animation` appearing or disappearing
+/// is a mode switch, not a value to tween.
+/// Which matched NEW nodes resolve every CSS property exactly as their old
+/// node did - without asking the cascade for one of them.
+///
+/// The restyle diff in `begin_reconciliation` compares every property type
+/// (~200) of every matched pair through the full cascade lookup: for a page
+/// of a few thousand words (`AzPdf`, `AzMaps`' label tiles) that was most of
+/// every rebuild, on pages where nothing had changed. A node's answers are a
+/// function of the window's context, the shared global rules, its own node
+/// type, inline style, matched rules, cascaded properties, overrides and
+/// interaction state - and of its PARENT's answers (inheritance). So in
+/// pre-order (a parent before its children): a node whose own inputs equal
+/// its old node's, under a parent that is unchanged and matched to the old
+/// node's parent, answers every property as before. Anything else is left to
+/// the full comparison.
+fn unchanged_cascades(
+    old_cache: &azul_core::prop_cache::CssPropertyCache,
+    new_cache: &azul_core::prop_cache::CssPropertyCache,
+    old: (
+        &[azul_core::dom::NodeData],
+        &[azul_core::styled_dom::NodeHierarchyItem],
+        &[azul_core::styled_dom::StyledNode],
+    ),
+    new: (
+        &[azul_core::dom::NodeData],
+        &[azul_core::styled_dom::NodeHierarchyItem],
+        &[azul_core::styled_dom::StyledNode],
+    ),
+    node_moves: &[azul_core::diff::NodeMove],
+) -> Vec<bool> {
+    let (old_data, old_hierarchy, old_states) = old;
+    let (new_data, new_hierarchy, new_states) = new;
+    let mut unchanged = vec![false; new_data.len()];
+    if old_cache.dynamic_context != new_cache.dynamic_context
+        || old_cache.global_css_props != new_cache.global_css_props
+    {
+        return unchanged;
+    }
+    let mut old_of_new: Vec<Option<NodeId>> = vec![None; new_data.len()];
+    for m in node_moves {
+        if let Some(slot) = old_of_new.get_mut(m.new_node_id.index()) {
+            *slot = Some(m.old_node_id);
+        }
+    }
+    let parent = |h: &[azul_core::styled_dom::NodeHierarchyItem], i: usize| {
+        h.get(i).and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
+    };
+    // Whether a moved parent hands its children what it handed them before:
+    // its computed inherited values. A container whose background changed
+    // does, so its subtree is not compared for it. Asked once per parent.
+    let mut hands_down_the_same: Vec<Option<bool>> = vec![None; new_data.len()];
+    for ni in 0..new_data.len() {
+        let Some(old_id) = old_of_new[ni] else {
+            continue;
+        };
+        let oi = old_id.index();
+        let parent_same = match (parent(new_hierarchy, ni), parent(old_hierarchy, oi)) {
+            (None, None) => true,
+            (Some(np), Some(op)) if old_of_new[np.index()] == Some(op) => {
+                unchanged[np.index()]
+                    || *hands_down_the_same[np.index()].get_or_insert_with(|| {
+                        old_cache.computed_values.values_for(op.index())
+                            == new_cache.computed_values.values_for(np.index())
+                    })
+            }
+            _ => false,
+        };
+        if !parent_same {
+            continue;
+        }
+        let (Some(on), Some(nn), Some(os), Some(ns)) = (
+            old_data.get(oi),
+            new_data.get(ni),
+            old_states.get(oi),
+            new_states.get(ni),
+        ) else {
+            continue;
+        };
+        let state_same = with_interaction_of(ns.styled_node_state, os.styled_node_state)
+            == os.styled_node_state;
+        // Old node `oi` IS new node `ni` (`old_of_new`): each side's tables are
+        // read at that side's own index, which the nursery lint takes for a typo.
+        #[allow(clippy::suspicious_operation_groupings)]
+        let same = state_same
+            && core::mem::discriminant(on.get_node_type())
+                == core::mem::discriminant(nn.get_node_type())
+            && on.style == nn.style
+            && old_cache.css_props.get_slice(oi) == new_cache.css_props.get_slice(ni)
+            && old_cache.cascaded_props.get_slice(oi) == new_cache.cascaded_props.get_slice(ni)
+            && overrides_of(old_cache, oi) == overrides_of(new_cache, ni)
+            && old_cache.resolved_inline.get(&oi) == new_cache.resolved_inline.get(&ni);
+        unchanged[ni] = same;
+    }
+    unchanged
+}
+
+/// A node's runtime overrides (`set_css_property`, a transition's frame).
+///
+/// The table is built lazily: a fresh tree has none, and the first runtime
+/// write sizes it to the whole tree with empty lists. A node without an entry
+/// has no overrides, exactly like one with an empty list, so the two must
+/// compare equal - or every node of every rebuild after a window's first
+/// runtime write counts as restyled (`unchanged_cascades`).
+fn overrides_of(
+    cache: &azul_core::prop_cache::CssPropertyCache,
+    index: usize,
+) -> &[(
+    azul_css::props::property::CssPropertyType,
+    azul_css::props::property::CssProperty,
+)] {
+    cache
+        .user_overridden_properties
+        .get(index)
+        .map_or(&[][..], Vec::as_slice)
+}
+
+/// The property types whose resolved value can differ between the matched
+/// nodes `old` (in `old_cache`) and `new` (in `new_cache`): every type either
+/// side declares in a layer of its cascade - its own style, a rule, what it
+/// inherited, a runtime override, the `*` rules - and every inherited type
+/// whose computed value differs. Any other type answers the UA default of the
+/// node's type on both sides, the same under one selector context; so with
+/// another context, or another node type, every type is compared.
+fn types_to_compare(
+    old_cache: &azul_core::prop_cache::CssPropertyCache,
+    new_cache: &azul_core::prop_cache::CssPropertyCache,
+    (old_nd, oi): (&azul_core::dom::NodeData, usize),
+    (new_nd, ni): (&azul_core::dom::NodeData, usize),
+) -> Vec<azul_css::props::property::CssPropertyType> {
+    use azul_css::props::property::{CssProperty, CssPropertyType};
+    if old_cache.dynamic_context != new_cache.dynamic_context
+        || core::mem::discriminant(old_nd.get_node_type())
+            != core::mem::discriminant(new_nd.get_node_type())
+    {
+        return CssPropertyType::ALL.to_vec();
+    }
+    let mut types: Vec<CssPropertyType> = Vec::new();
+    for (cache, nd, i) in [(old_cache, old_nd, oi), (new_cache, new_nd, ni)] {
+        types.extend(cache.css_props.get_slice(i).iter().map(|p| p.prop_type));
+        types.extend(cache.cascaded_props.get_slice(i).iter().map(|p| p.prop_type));
+        types.extend(cache.inline_properties(nd, i).map(|(p, _)| p.get_type()));
+        types.extend(overrides_of(cache, i).iter().map(|(ty, _)| *ty));
+        types.extend(cache.global_css_props.iter().map(CssProperty::get_type));
+    }
+    let old_computed = old_cache.computed_values.values_for(oi);
+    let new_computed = new_cache.computed_values.values_for(ni);
+    for (ty, value) in &old_computed {
+        if new_computed.iter().find(|(t, _)| t == ty).map(|(_, v)| v) != Some(value) {
+            types.push(*ty);
+        }
+    }
+    for (ty, _) in &new_computed {
+        if !old_computed.iter().any(|(t, _)| t == ty) {
+            types.push(*ty);
+        }
+    }
+    types.sort_unstable();
+    types.dedup();
+    types
+}
+
+/// The motion `animation: move <duration> [timing]` asks a node's moves for
+/// (the last `move` entry wins, as in [`declared_animation_for`]): a spring
+/// timing as that spring (it runs until it settles; the duration is
+/// ignored), any other as its curve over the duration. `None`: the node
+/// declares no move and does not slide.
+fn declared_move(
+    anims: &azul_css::props::basic::animation::StyleAnimationVec,
+) -> Option<azul_core::animation::InterpolationMode> {
+    use azul_core::animation::InterpolationMode;
+    use azul_css::props::basic::animation::AnimationInterpolationFunction as F;
+    let anim = anims.as_ref().iter().rev().find(|a| a.name.as_str() == "move")?;
+    Some(match anim.timing.to_interpolation() {
+        F::Spring(spring) => InterpolationMode::Spring(spring),
+        function => InterpolationMode::Curve {
+            function,
+            duration_secs: anim.duration.millis() as f32 / 1000.0,
+        },
+    })
+}
+
+fn declared_animation_for(
+    anims: &azul_css::props::basic::animation::StyleAnimationVec,
+    ty: azul_css::props::property::CssPropertyType,
+) -> Option<&azul_css::props::basic::animation::StyleAnimation> {
+    use azul_css::props::property::CssPropertyType as T;
+    if matches!(ty, T::Animation | T::AnimationIn | T::AnimationOut) {
+        return None;
+    }
+    // `background` names the shorthand: its colour moves with it.
+    let names = |name: &str| {
+        name == "all" || name == ty.to_str() || (name == "background" && ty == T::BackgroundColor)
+    };
+    anims.as_ref().iter().rev().find(|anim| names(anim.name.as_str()))
+}
+
+/// Where a `width` / `height` transition toward a LENGTH starts when the
+/// value it starts from is not one - `auto`, `min-content`, a `calc`, an
+/// unset property: at the box's laid-out size (`laid_out`, in the box
+/// `box-sizing` measures lengths in). `None` leaves `from` as it is.
+///
+/// An intrinsic keyword does not interpolate against a length:
+/// `LayoutHeight::interpolate` holds it until the midpoint and then jumps.
+/// So a section that collapses from its content height (`height: auto` ->
+/// `0px`) stood still for half the tween and vanished - it is what an
+/// accordion closing is. Browsers start such a transition at the used size
+/// too (`interpolate-size: allow-keywords`).
+fn size_transition_start(
+    from: &azul_css::props::property::CssProperty,
+    to: &azul_css::props::property::CssProperty,
+    laid_out: Option<LogicalSize>,
+) -> Option<azul_css::props::property::CssProperty> {
+    use azul_css::{
+        css::CssPropertyValue,
+        props::{
+            layout::{LayoutHeight, LayoutWidth},
+            property::CssProperty,
+        },
+    };
+    let size = laid_out?;
+    match (from, to) {
+        (CssProperty::Height(start), CssProperty::Height(CssPropertyValue::Exact(LayoutHeight::Px(_))))
+            if !matches!(start, CssPropertyValue::Exact(LayoutHeight::Px(_))) =>
+        {
+            Some(CssProperty::Height(CssPropertyValue::Exact(LayoutHeight::px(
+                size.height,
+            ))))
+        }
+        (CssProperty::Width(start), CssProperty::Width(CssPropertyValue::Exact(LayoutWidth::Px(_))))
+            if !matches!(start, CssPropertyValue::Exact(LayoutWidth::Px(_))) =>
+        {
+            Some(CssProperty::Width(CssPropertyValue::Exact(LayoutWidth::px(
+                size.width,
+            ))))
+        }
+        _ => None,
+    }
+}
+
+/// Where a background tween starts when the property it moves is not what
+/// the box paints: layers with no colour over a `background-color`, or no
+/// `background-color` under layers with one, start at the colour the box
+/// paints (`painted`), so a fade leaves that colour instead of transparent.
+/// Only toward something the property paints (`to`): a property that paints
+/// nothing at either end does not fade, and starting it at the painted
+/// colour drew that colour a second time over the fade of the property that
+/// does paint it (a hover from one colour to another).
+fn background_transition_start(
+    from: &azul_css::props::property::CssProperty,
+    to: &azul_css::props::property::CssProperty,
+    painted: azul_css::props::basic::color::ColorU,
+) -> Option<azul_css::props::property::CssProperty> {
+    use azul_css::props::{
+        basic::color::ColorU, property::CssProperty, style::StyleBackgroundContent as B,
+    };
+    let no_layers = |p: &CssProperty| match p {
+        CssProperty::BackgroundContent(v) => matches!(
+            v.get_property().map_or(&[][..], |l| l.as_slice()),
+            [] | [B::Color(ColorU { a: 0, .. })]
+        ),
+        _ => false,
+    };
+    let no_colour = |p: &CssProperty| match p {
+        CssProperty::BackgroundColor(v) => {
+            matches!(v.get_property(), None | Some(B::Color(ColorU { a: 0, .. })))
+        }
+        _ => false,
+    };
+    if painted.a == 0 {
+        return None;
+    }
+    match from {
+        CssProperty::BackgroundContent(_) => (no_layers(from) && !no_layers(to))
+            .then(|| CssProperty::background_content(alloc::vec![B::Color(painted)].into())),
+        CssProperty::BackgroundColor(_) => (no_colour(from) && !no_colour(to))
+            .then(|| CssProperty::background_color(B::Color(painted))),
+        _ => None,
+    }
+}
+
+/// A colour-carrying paint transition prop: `(colour, the painted colour it
+/// is)` - `TextColor`, a single-solid `background` and the four
+/// `border-*-color`s are the patchable set. A background of gradients or of
+/// several layers is [`transition_patch_layers`]'; anything else (images,
+/// shadows) falls back to the DL rebuild.
+/// Round a size a layout tween shows between its ends to whole device
+/// pixels (`hidpi_factor` device px per logical px): `width`, `height` and
+/// their `min-` / `max-` bounds given in px. Anything else (another unit, a
+/// keyword, another property) is left as it is.
+fn snap_length_to_device_pixels(
+    prop: &mut azul_css::props::property::CssProperty,
+    hidpi_factor: f32,
+) {
+    use azul_css::{
+        css::CssPropertyValue,
+        props::{
+            basic::{length::SizeMetric, pixel::PixelValue, FloatValue},
+            layout::dimensions::{LayoutHeight, LayoutWidth},
+            property::CssProperty,
+        },
+    };
+    if !(hidpi_factor.is_finite() && hidpi_factor > 0.0) {
+        return;
+    }
+    let snap = |v: &mut PixelValue| {
+        if v.metric == SizeMetric::Px {
+            let n = v.number.get();
+            v.number = FloatValue::new((n * hidpi_factor).round() / hidpi_factor);
+        }
+    };
+    match prop {
+        CssProperty::Height(CssPropertyValue::Exact(LayoutHeight::Px(v)))
+        | CssProperty::Width(CssPropertyValue::Exact(LayoutWidth::Px(v))) => snap(v),
+        CssProperty::MinHeight(CssPropertyValue::Exact(v)) => snap(&mut v.inner),
+        CssProperty::MaxHeight(CssPropertyValue::Exact(v)) => snap(&mut v.inner),
+        CssProperty::MinWidth(CssPropertyValue::Exact(v)) => snap(&mut v.inner),
+        CssProperty::MaxWidth(CssPropertyValue::Exact(v)) => snap(&mut v.inner),
+        _ => {}
+    }
+}
+
 fn transition_patch_color(
     prop: &azul_css::props::property::CssProperty,
-) -> Option<(azul_css::props::basic::color::ColorU, bool)> {
+) -> Option<(
+    azul_css::props::basic::color::ColorU,
+    solver3::display_list::PaintColorSlot,
+)> {
     use azul_css::props::property::CssProperty;
+
+    use crate::solver3::display_list::PaintColorSlot;
     match prop {
-        CssProperty::TextColor(v) => Some((v.get_property()?.inner, true)),
+        CssProperty::TextColor(v) => Some((v.get_property()?.inner, PaintColorSlot::Text)),
         CssProperty::BackgroundContent(v) => match v.get_property()?.as_ref() {
             [azul_css::props::style::background::StyleBackgroundContent::Color(c)] => {
-                Some((*c, false))
+                Some((*c, PaintColorSlot::Background))
             }
             _ => None,
         },
+        CssProperty::BackgroundColor(v) => match v.get_property()? {
+            azul_css::props::style::background::StyleBackgroundContent::Color(c) => {
+                Some((*c, PaintColorSlot::Background))
+            }
+            _ => None,
+        },
+        CssProperty::BorderTopColor(v) => {
+            Some((v.get_property()?.inner, PaintColorSlot::BorderTop))
+        }
+        CssProperty::BorderRightColor(v) => {
+            Some((v.get_property()?.inner, PaintColorSlot::BorderRight))
+        }
+        CssProperty::BorderBottomColor(v) => {
+            Some((v.get_property()?.inner, PaintColorSlot::BorderBottom))
+        }
+        CssProperty::BorderLeftColor(v) => {
+            Some((v.get_property()?.inner, PaintColorSlot::BorderLeft))
+        }
         _ => None,
+    }
+}
+
+/// The background layers a paint transition prop shows, when the display list
+/// can take them in place (`DisplayList::patch_background_layers`): solid
+/// colours and linear, radial or conic gradients - a flora face is a two-stop
+/// linear gradient. `None` for anything else: no background, an image (where
+/// its tiles go may depend on what it shows), an unresolved `system:` colour
+/// (the list holds resolved ones). A single solid colour is
+/// [`transition_patch_color`]'s and never gets here.
+fn transition_patch_layers(
+    prop: &azul_css::props::property::CssProperty,
+) -> Option<Vec<azul_css::props::style::StyleBackgroundContent>> {
+    use azul_css::props::{property::CssProperty, style::StyleBackgroundContent as B};
+    let CssProperty::BackgroundContent(v) = prop else {
+        return None;
+    };
+    let layers = v.get_property()?.as_ref();
+    let drawable = !layers.is_empty()
+        && layers.iter().all(|layer| {
+            matches!(
+                layer,
+                B::Color(_) | B::LinearGradient(_) | B::RadialGradient(_) | B::ConicGradient(_)
+            )
+        });
+    drawable.then(|| layers.to_vec())
+}
+
+/// Whether a LAYOUT-scope tween leaves the layout TREE as it is - the boxes,
+/// their formatting contexts, the anonymous wrappers - and moves only sizes
+/// and offsets: what lets its frames take the retained tree
+/// (`LayoutCache::overrides_only_hint`). `display`, `position`, `float`,
+/// `overflow` and the like decide which boxes exist and what kind they are,
+/// which the reconcile re-derives from the cascade; they are not on the list.
+const fn tween_keeps_layout_tree_shape(ty: azul_css::props::property::CssPropertyType) -> bool {
+    use azul_css::props::property::CssPropertyType as T;
+    matches!(
+        ty,
+        T::Width
+            | T::Height
+            | T::MinWidth
+            | T::MinHeight
+            | T::MaxWidth
+            | T::MaxHeight
+            | T::PaddingTop
+            | T::PaddingRight
+            | T::PaddingBottom
+            | T::PaddingLeft
+            | T::MarginTop
+            | T::MarginRight
+            | T::MarginBottom
+            | T::MarginLeft
+            | T::Top
+            | T::Right
+            | T::Bottom
+            | T::Left
+            | T::FlexGrow
+            | T::FlexShrink
+            | T::FlexBasis
+            | T::RowGap
+            | T::ColumnGap
+            | T::Gap
+            | T::BorderTopWidth
+            | T::BorderRightWidth
+            | T::BorderBottomWidth
+            | T::BorderLeftWidth
+    )
+}
+
+/// Keep `node`'s compact-cache entry for a BORDER colour in step with a
+/// colour patched into the display list (`slot` names the side; the other
+/// slots are not served from the compact cache's colour words).
+///
+/// The display-list builder reads border colours from the compact cache
+/// (`getters::get_border_info`), not through the user override the lean
+/// channel writes; without this the next list built for any reason painted
+/// the side at the colour of the last full restyle.
+/// The GPU value cache a layout pass of `dom_id` binds, borrowed from the
+/// manager (`None`: bind an empty one - the headless web path, which syncs no
+/// values, or a DOM without a cache).
+fn gpu_cache_for_pass(
+    manager: &GpuStateManager,
+    dom_id: DomId,
+    skip_gpu_sync: bool,
+) -> Option<&GpuValueCache> {
+    if skip_gpu_sync {
+        None
+    } else {
+        manager.caches.get(&dom_id)
+    }
+}
+
+/// The compact cache's opacity byte of `node`, set to `opacity` (encoded as
+/// `core::compact` encodes it: x 254, 255 = unset): the lean override
+/// channel of an `opacity` tween does not rebuild the compact cache, and the
+/// display-list builder (`getters::get_opacity`) and
+/// `GpuValueCache::synchronize` read opacity there first.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // clamped to 0..=254
+fn patch_compact_opacity(styled_dom: &mut StyledDom, node: NodeId, opacity: f32) {
+    let Some(cold) = styled_dom
+        .get_css_property_cache_mut()
+        .compact_cache
+        .as_mut()
+        .and_then(|cc| cc.tier2_cold.get_mut(node.index()))
+    else {
+        return;
+    };
+    let o = if opacity.is_finite() {
+        opacity.clamp(0.0, 1.0)
+    } else {
+        1.0
+    };
+    cold.opacity = (o * 254.0).round() as u8;
+}
+
+fn patch_compact_border_color(
+    styled_dom: &mut StyledDom,
+    node: NodeId,
+    slot: solver3::display_list::PaintColorSlot,
+    color: azul_css::props::basic::color::ColorU,
+) {
+    use crate::solver3::display_list::PaintColorSlot;
+    let Some(cold) = styled_dom
+        .get_css_property_cache_mut()
+        .compact_cache
+        .as_mut()
+        .and_then(|cc| cc.tier2_cold.get_mut(node.index()))
+    else {
+        return;
+    };
+    let raw = azul_css::compact_cache::encode_color_u32(&color);
+    match slot {
+        PaintColorSlot::BorderTop => cold.border_top_color = raw,
+        PaintColorSlot::BorderRight => cold.border_right_color = raw,
+        PaintColorSlot::BorderBottom => cold.border_bottom_color = raw,
+        PaintColorSlot::BorderLeft => cold.border_left_color = raw,
+        PaintColorSlot::Text | PaintColorSlot::Background => {}
     }
 }
 
@@ -24847,6 +34072,17 @@ pub struct Zombie {
     /// for that frame instead of poisoning the cache.
     #[cfg(feature = "cpurender")]
     pub snapshot: core::cell::OnceCell<(u32, crate::cpurender::AzulPixmap)>,
+}
+
+/// A departing tree keeps its nodes' data until its exit animations settle,
+/// and its tracks keep their native functions' data.
+impl RefAnyHolder for Zombie {
+    fn for_each_refany(&mut self, visit: &mut dyn FnMut(&mut RefAny)) {
+        self.retained.for_each_refany(visit);
+        for track in self.tracks.values_mut() {
+            track.for_each_refany(visit);
+        }
+    }
 }
 
 impl Zombie {
@@ -24945,6 +34181,28 @@ pub struct AnimTrack {
     pub opacity: Vec<(f32, f32)>,
     pub width: Vec<(f32, f32)>,
     pub height: Vec<(f32, f32)>,
+    /// When the frame driver stopped with this track CULLED (nobody could
+    /// see it, nothing else animating): its clock kept running in wall time
+    /// from here, and the next tick fast-forwards it by the whole stop, so a
+    /// spinner scrolled back into view shows the right phase at once.
+    /// `None` while the driver runs. See `LayoutWindow::park_culled_tracks`.
+    pub parked_at: Option<Instant>,
+}
+
+/// A native animation function runs with its own data, which may be a clone
+/// of the node's dataset.
+impl RefAnyHolder for TrackSource {
+    fn for_each_refany(&mut self, visit: &mut dyn FnMut(&mut RefAny)) {
+        if let Self::Native { data, .. } = self {
+            visit(data);
+        }
+    }
+}
+
+impl RefAnyHolder for AnimTrack {
+    fn for_each_refany(&mut self, visit: &mut dyn FnMut(&mut RefAny)) {
+        self.source.for_each_refany(visit);
+    }
 }
 
 impl AnimTrack {
@@ -25089,6 +34347,7 @@ pub fn compile_keyframes_track(
         opacity: Vec::new(),
         width: Vec::new(),
         height: Vec::new(),
+        parked_at: None,
     };
     for stop in kf.stops.as_ref() {
         let t = f32::from(stop.permille) / 1000.0;
@@ -25145,7 +34404,12 @@ pub fn compile_keyframes_track(
                                 has_scale = true;
                             }
                             StyleTransform::Rotate(a) => {
-                                rot += a.to_degrees();
+                                // The angle AS WRITTEN: keyframes interpolate
+                                // it, so `rotate(0)` -> `rotate(360deg)` is one
+                                // full turn (every CSS spinner). `to_degrees()`
+                                // folds into [0, 360) and made that 0 -> 0: a
+                                // track that never turned.
+                                rot += a.to_degrees_raw();
                                 has_rotate = true;
                             }
                             // Skew / 3D / matrix stops: outside the track
@@ -25276,6 +34540,7 @@ pub fn resolve_named_track(
                 opacity: Vec::new(),
                 width: Vec::new(),
                 height: Vec::new(),
+                parked_at: None,
             }));
         }
     }
@@ -25306,6 +34571,7 @@ pub fn reverse_out_track(current: &TrackSample, out: &AnimTrack) -> AnimTrack {
         opacity: Vec::new(),
         width: Vec::new(),
         height: Vec::new(),
+        parked_at: None,
     };
     back.override_start(current);
     back
@@ -25317,6 +34583,12 @@ pub fn reverse_out_track(current: &TrackSample, out: &AnimTrack) -> AnimTrack {
 pub struct LiveTrack {
     pub node: NodeId,
     pub track: AnimTrack,
+}
+
+impl RefAnyHolder for LiveTrack {
+    fn for_each_refany(&mut self, visit: &mut dyn FnMut(&mut RefAny)) {
+        self.track.for_each_refany(visit);
+    }
 }
 
 #[cfg(feature = "cpurender")]
@@ -25958,10 +35230,12 @@ mod tween_clock_unit_tests {
             Dom::create_body().with_child(editable_paragraph("hello world tween target")),
             animations(caret_ms, 0, 0),
         );
-        win.text_edit_manager
-            .initialize_editing(cursor(0), DomId::ROOT_ID, NodeId::new(2), 0);
+        let block = win
+            .text_block_of(dnid(2))
+            .expect("premise: the editable's text is in a text block");
+        win.text_edit_manager.initialize_editing(cursor(0), block, 0);
         win.text_edit_manager.multi_cursor =
-            Some(MultiCursorState::new_with_cursor(cursor(0), dnid(2), 0));
+            Some(MultiCursorState::new_with_cursor(cursor(0), block, 0));
         win.regenerate_display_list_for_dom(DomId::ROOT_ID);
         win
     }
@@ -25991,14 +35265,10 @@ mod tween_clock_unit_tests {
                 .with_child(editable_paragraph("third paragraph")),
             animations(0, sel_ms, 0),
         );
+        let first = win.text_block_of(dnid(1)).expect("the first paragraph");
+        let second = win.text_block_of(dnid(3)).expect("the second paragraph");
         assert!(
-            win.set_cross_block_selection(
-                DomId::ROOT_ID,
-                NodeId::new(1),
-                cursor(6),
-                NodeId::new(3),
-                cursor(6),
-            ),
+            win.set_cross_block_selection(first, cursor(6), second, cursor(6)),
             "premise: the fixture must accept a cross-block selection"
         );
         win.regenerate_display_list_for_dom(DomId::ROOT_ID);
@@ -26210,6 +35480,53 @@ mod tween_clock_unit_tests {
         assert!(
             (t - 0.9).abs() < 1e-4,
             "0.9ms into a 1ms focus-ring glide is t = 0.9, got {t}"
+        );
+    }
+
+    /// How many focus rings the stored list paints around the focused node:
+    /// the `Border` item `apply_text_tweens` inserts at the ring target.
+    fn rings_around_the_focused_node(win: &LayoutWindow) -> usize {
+        let target = ring_target(win);
+        stored_list(win)
+            .items
+            .iter()
+            .filter(|item| matches!(item, DisplayListItem::Border { bounds, .. } if bounds.0 == target))
+            .count()
+    }
+
+    /// Focus survives a window deactivation; its INDICATION does not. HTML's
+    /// "currently focused area" is null without system focus, and AppKit,
+    /// GTK and Win32 draw focus only in the key / active window, so an
+    /// inactive window must not paint a ring - or a popup that took the
+    /// keyboard leaves a second, stale ring behind in its parent (report 1).
+    #[test]
+    fn no_focus_ring_while_the_window_is_inactive() {
+        let mut win = recording_ring_window(1);
+        assert_eq!(
+            rings_around_the_focused_node(&win),
+            1,
+            "premise: keyboard focus in an active window is ringed"
+        );
+
+        win.current_window_state.window_focused = false;
+        win.regenerate_display_list_for_dom(DomId::ROOT_ID);
+        assert_eq!(
+            rings_around_the_focused_node(&win),
+            0,
+            "an inactive window paints no focus ring"
+        );
+        assert_eq!(
+            win.focus_manager.get_focused_node().copied(),
+            Some(dnid(1)),
+            "focus itself is kept"
+        );
+
+        win.current_window_state.window_focused = true;
+        win.regenerate_display_list_for_dom(DomId::ROOT_ID);
+        assert_eq!(
+            rings_around_the_focused_node(&win),
+            1,
+            "the ring comes back, same modality, when the window is active again"
         );
     }
 }
@@ -26707,7 +36024,7 @@ mod first_line_span_tests {
 mod window_theme_context {
     //! `LayoutWindow::dynamic_selector_context` takes the theme from the WINDOW,
     //! which is the only source that knows about an in-app switch.
-    use azul_core::window::WindowTheme;
+    use azul_core::window::DarkLightMode;
     use azul_css::dynamic_selector::ThemeCondition;
     use rust_fontconfig::FcFontCache;
 
@@ -26717,39 +36034,39 @@ mod window_theme_context {
     // `SystemStyle` implements `Drop`, so `..Default::default()` is not an
     // option: the theme has to be assigned after the fact.
     #[allow(clippy::field_reassign_with_default)]
-    fn window_with_system_theme(theme: azul_css::system::Theme) -> LayoutWindow {
+    fn window_with_system_theme(theme: azul_css::system::DarkLightMode) -> LayoutWindow {
         let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
         let mut style = azul_css::system::SystemStyle::default();
-        style.theme = theme;
+        style.mode = theme;
         lw.set_system_style(std::sync::Arc::new(style));
         lw
     }
 
     #[test]
     fn the_windows_theme_wins_over_the_system_style() {
-        if azul_css::dynamic_selector::theme_pinned_by_env().is_some() {
-            return; // AZ_THEME outranks both; nothing to compare
+        if azul_css::dynamic_selector::mode_pinned_by_env().is_some() {
+            return; // AZ_MODE outranks both; nothing to compare
         }
-        let lw = window_with_system_theme(azul_css::system::Theme::Light);
+        let lw = window_with_system_theme(DarkLightMode::Light);
         let mut ws = FullWindowState {
-            theme: WindowTheme::DarkMode,
+            mode: DarkLightMode::Dark,
             ..Default::default()
         };
         assert_eq!(
-            lw.dynamic_selector_context(&ws).theme,
-            ThemeCondition::Dark,
+            lw.dynamic_selector_context(&ws).mode,
+            azul_css::system::DarkLightMode::Dark,
             "an app that switched its window to dark must get `@theme dark` rules"
         );
-        ws.theme = WindowTheme::LightMode;
+        ws.mode = DarkLightMode::Light;
         assert_eq!(
-            lw.dynamic_selector_context(&ws).theme,
-            ThemeCondition::Light
+            lw.dynamic_selector_context(&ws).mode,
+            azul_css::system::DarkLightMode::Light
         );
     }
 
     #[test]
     fn the_context_still_carries_viewport_focus_and_the_system_os() {
-        let lw = window_with_system_theme(azul_css::system::Theme::Dark);
+        let lw = window_with_system_theme(DarkLightMode::Dark);
         let ws = FullWindowState {
             flags: azul_core::window::WindowFlags {
                 has_focus: false,
@@ -26763,19 +36080,40 @@ mod window_theme_context {
         assert_eq!(ctx.viewport_height, ws.size.dimensions.height);
     }
 
+    /// `window_focused` is the flag EVERY backend writes on activation
+    /// (macOS, X11, Wayland and Win32); `flags.has_focus` only Win32 does.
+    /// The cascade has to see a deactivation reported through either, or
+    /// `:backdrop` can only ever match on Windows.
+    #[test]
+    fn the_context_sees_a_deactivation_reported_through_window_focused() {
+        let lw = window_with_system_theme(DarkLightMode::Light);
+        let ws = FullWindowState {
+            window_focused: false,
+            ..Default::default()
+        };
+        assert!(
+            ws.flags.has_focus,
+            "premise: only window_focused says the window is inactive"
+        );
+        assert!(
+            !lw.dynamic_selector_context(&ws).window_focused,
+            "a window its backend reported inactive is not focused for the cascade"
+        );
+    }
+
     /// `body > p > "5"` with no `color` declared anywhere: the text takes the
     /// UA's inherited default, and the UA's default depends on the theme —
     /// black on a light window, near-white on a dark one. This is the whole
     /// funnel, up to the painted glyph run's colour.
-    fn unstyled_text_colours(theme: WindowTheme) -> Vec<azul_css::props::basic::color::ColorU> {
+    fn unstyled_text_colours(theme: DarkLightMode) -> Vec<azul_css::props::basic::color::ColorU> {
         use crate::solver3::display_list::DisplayListItem;
 
         let mut lw = window_with_system_theme(match theme {
-            WindowTheme::DarkMode => azul_css::system::Theme::Dark,
-            WindowTheme::LightMode => azul_css::system::Theme::Light,
+            DarkLightMode::Dark => DarkLightMode::Dark,
+            DarkLightMode::Light => DarkLightMode::Light,
         });
         let mut ws = FullWindowState {
-            theme,
+            mode: theme,
             ..Default::default()
         };
         ws.size.dimensions = LogicalSize::new(400.0, 300.0);
@@ -26809,7 +36147,7 @@ mod window_theme_context {
 
     #[test]
     fn unstyled_text_is_black_on_a_light_window() {
-        let colours = unstyled_text_colours(WindowTheme::LightMode);
+        let colours = unstyled_text_colours(DarkLightMode::Light);
         assert!(!colours.is_empty(), "the text run must be painted");
         assert!(
             colours
@@ -26821,7 +36159,7 @@ mod window_theme_context {
 
     #[test]
     fn unstyled_text_is_light_on_a_dark_window() {
-        let colours = unstyled_text_colours(WindowTheme::DarkMode);
+        let colours = unstyled_text_colours(DarkLightMode::Dark);
         assert!(!colours.is_empty(), "the text run must be painted");
         assert!(
             colours.iter().all(is_light),
@@ -26836,9 +36174,9 @@ mod window_theme_context {
     fn a_theme_switch_recolours_the_retained_dom() {
         use crate::solver3::display_list::DisplayListItem;
 
-        let mut lw = window_with_system_theme(azul_css::system::Theme::Light);
+        let mut lw = window_with_system_theme(DarkLightMode::Light);
         let mut ws = FullWindowState {
-            theme: WindowTheme::LightMode,
+            mode: DarkLightMode::Light,
             ..Default::default()
         };
         ws.size.dimensions = LogicalSize::new(400.0, 300.0);
@@ -26858,9 +36196,9 @@ mod window_theme_context {
         // object is the one already laid out (what `incremental_relayout`
         // hands back in).
         let mut dark_style = azul_css::system::SystemStyle::default();
-        dark_style.theme = azul_css::system::Theme::Dark;
+        dark_style.mode = DarkLightMode::Dark;
         lw.set_system_style(std::sync::Arc::new(dark_style));
-        ws.theme = WindowTheme::DarkMode;
+        ws.mode = DarkLightMode::Dark;
         let retained = lw
             .layout_results
             .remove(&DomId::ROOT_ID)
@@ -26905,9 +36243,9 @@ mod window_theme_context {
             },
         };
 
-        let mut lw = window_with_system_theme(azul_css::system::Theme::Dark);
+        let mut lw = window_with_system_theme(DarkLightMode::Dark);
         let mut ws = FullWindowState {
-            theme: WindowTheme::DarkMode,
+            mode: DarkLightMode::Dark,
             ..Default::default()
         };
         ws.size.dimensions = LogicalSize::new(400.0, 300.0);
@@ -26950,13 +36288,13 @@ mod window_theme_context {
     fn the_theme_does_not_change_layout() {
         use crate::widgets::button::{Button, ButtonType};
 
-        fn rects(theme: WindowTheme) -> Vec<(usize, LogicalRect)> {
+        fn rects(theme: DarkLightMode) -> Vec<(usize, LogicalRect)> {
             let mut lw = window_with_system_theme(match theme {
-                WindowTheme::DarkMode => azul_css::system::Theme::Dark,
-                WindowTheme::LightMode => azul_css::system::Theme::Light,
+                DarkLightMode::Dark => DarkLightMode::Dark,
+                DarkLightMode::Light => DarkLightMode::Light,
             });
             let mut ws = FullWindowState {
-                theme,
+                mode: theme,
                 ..Default::default()
             };
             ws.size.dimensions = LogicalSize::new(800.0, 600.0);
@@ -26994,15 +36332,15 @@ mod window_theme_context {
                 .collect()
         }
 
-        let light = rects(WindowTheme::LightMode);
-        let dark = rects(WindowTheme::DarkMode);
+        let light = rects(DarkLightMode::Light);
+        let dark = rects(DarkLightMode::Dark);
         assert!(light.len() > 3, "the fixture must lay out: {light:?}");
         assert_eq!(light, dark, "light vs dark node rects differ");
     }
 
     /// The product path of a switch: the SAME window lays out light, the
-    /// theme flips, and the app's (identical) DOM is laid out again — what
-    /// `regenerate_layout` does on `RelayoutReason::ThemeChange`. Geometry
+    /// mode flips, and the app's (identical) DOM is laid out again — what
+    /// `regenerate_layout` does on `RelayoutReason::ModeChange`. Geometry
     /// must not move.
     #[test]
     fn a_theme_switch_in_one_window_does_not_change_layout() {
@@ -27040,9 +36378,9 @@ mod window_theme_context {
                 .collect()
         }
 
-        let mut lw = window_with_system_theme(azul_css::system::Theme::Light);
+        let mut lw = window_with_system_theme(DarkLightMode::Light);
         let mut ws = FullWindowState {
-            theme: WindowTheme::LightMode,
+            mode: DarkLightMode::Light,
             ..Default::default()
         };
         ws.size.dimensions = LogicalSize::new(800.0, 600.0);
@@ -27055,15 +36393,15 @@ mod window_theme_context {
         assert!(light.len() > 3, "the fixture must lay out: {light:?}");
 
         let mut dark_style = azul_css::system::SystemStyle::default();
-        dark_style.theme = azul_css::system::Theme::Dark;
+        dark_style.mode = DarkLightMode::Dark;
         lw.set_system_style(std::sync::Arc::new(dark_style));
-        ws.theme = WindowTheme::DarkMode;
+        ws.mode = DarkLightMode::Dark;
         lw.layout_and_generate_display_list(fixture(), &ws, &rr, &sc, &mut dbg)
             .expect("dark layout");
         assert_eq!(light, rects(&lw), "the switch moved node rects");
 
         // And back, on the retained DOM (the restyle path).
-        ws.theme = WindowTheme::LightMode;
+        ws.mode = DarkLightMode::Light;
         let retained = lw
             .layout_results
             .remove(&DomId::ROOT_ID)
@@ -27106,7 +36444,7 @@ mod window_theme_context {
             .expect("laid out")
         }
 
-        let mut lw = window_with_system_theme(azul_css::system::Theme::Light);
+        let mut lw = window_with_system_theme(DarkLightMode::Light);
         let mut ws = FullWindowState::default();
         ws.size.dimensions = LogicalSize::new(800.0, 600.0);
         let rr = RendererResources::default();
@@ -27124,6 +36462,559 @@ mod window_theme_context {
         assert!(
             after.size.width > before.size.width,
             "a longer label widens the box: {before:?} -> {after:?}"
+        );
+    }
+}
+
+#[cfg(all(test, feature = "widgets"))]
+mod flora_system_palette_tests {
+    //! Under the app theme flora the `system:` colour keywords are flora's
+    //! palette (doc/templates/flora.css): an app that paints its own panes,
+    //! rules and text with `system:` colours sits in the same room as the
+    //! flora widgets around it, instead of in the desktop's grey.
+    use azul_core::window::DarkLightMode;
+    use azul_css::props::basic::color::{ColorU, SystemColorRef as R};
+    use rust_fontconfig::FcFontCache;
+
+    use super::*;
+    use crate::{
+        widgets::themes::{flora as f, spin::FloraSpin},
+        window_state::FullWindowState,
+    };
+
+    // `SystemStyle` implements `Drop`, so `..Default::default()` is not an
+    // option: the fields are assigned after the fact.
+    #[allow(clippy::field_reassign_with_default)]
+    fn window(app_theme: &str, mode: DarkLightMode, desktop: ColorU) -> LayoutWindow {
+        let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+        let mut style = azul_css::system::SystemStyle::default();
+        style.mode = mode;
+        // A desktop that reports its own window background: the colour flat
+        // must keep and flora must not show.
+        style.colors.window_background = azul_css::props::basic::color::OptionColorU::Some(desktop);
+        lw.set_system_style(std::sync::Arc::new(style));
+        lw.app_theme = AzString::from(app_theme);
+        lw
+    }
+
+    fn colour(lw: &LayoutWindow, mode: DarkLightMode, slot: R) -> ColorU {
+        let ws = FullWindowState {
+            mode,
+            ..Default::default()
+        };
+        lw.dynamic_selector_context(&ws).system_color(slot)
+    }
+
+    const DESKTOP: ColorU = ColorU::rgb(0x12, 0x34, 0x56);
+
+    #[test]
+    fn under_flora_by_day_the_system_keywords_are_the_flora_palette() {
+        if azul_css::dynamic_selector::mode_pinned_by_env().is_some() {
+            return; // AZ_MODE pins the mode; the palette follows the pin
+        }
+        let mode = DarkLightMode::Light;
+        let lw = window("flora", mode, DESKTOP);
+        for (slot, want) in [
+            (R::Text, f::LIGHT_INK),
+            (R::SecondaryText, f::LIGHT_SOFT1),
+            (R::WindowBackground, f::LIGHT_SUR),
+            (R::ControlBackground, f::LIGHT_FLD),
+            (R::Background, f::LIGHT_FLD),
+            (R::UnderPageBackground, f::LIGHT_DESK),
+            (R::Separator, f::LIGHT_BD),
+            (R::Grid, f::LIGHT_SEP),
+            (R::Accent, f::LIGHT_ACC),
+            (R::AccentText, f::LIGHT_ON_ACC),
+            (R::Link, f::LIGHT_QT),
+            (R::SelectionBackground, f::LIGHT_SOFT),
+            (R::SelectionText, f::LIGHT_DEEP),
+            (R::DisabledText, f::LIGHT_DISTX),
+        ] {
+            assert_eq!(colour(&lw, mode, slot), want, "system:{} by day", slot.as_css_str());
+        }
+    }
+
+    #[test]
+    fn under_flora_at_night_the_system_keywords_are_the_flora_night_palette() {
+        if azul_css::dynamic_selector::mode_pinned_by_env().is_some() {
+            return;
+        }
+        let mode = DarkLightMode::Dark;
+        let lw = window("flora", mode, DESKTOP);
+        for (slot, want) in [
+            (R::Text, f::DARK_INK),
+            (R::SecondaryText, f::DARK_SOFT1),
+            (R::WindowBackground, f::DARK_SUR),
+            (R::ControlBackground, f::DARK_FLD),
+            (R::UnderPageBackground, f::DARK_DESK),
+            (R::Separator, f::DARK_BD),
+            (R::Grid, f::DARK_SEP),
+            // At night the stone's ink lifts to its own highlight
+            // (flora.css: `--focus-color: var(--fl-glow)`), the ink on it
+            // is the deep tone.
+            (R::Accent, f::LIGHT_GLOW),
+            (R::AccentText, f::LIGHT_DEEP),
+            (R::Link, f::DARK_QT),
+            // flora.css's night `::selection`: the stone, the paper ink.
+            (R::SelectionBackground, f::LIGHT_ACC),
+            (R::SelectionText, f::LIGHT_ON_ACC),
+            (R::DisabledText, f::DARK_DISTX),
+        ] {
+            assert_eq!(colour(&lw, mode, slot), want, "system:{} at night", slot.as_css_str());
+        }
+    }
+
+    #[test]
+    fn a_flora_spin_cuts_the_system_accent_and_selection_from_its_own_stone() {
+        if azul_css::dynamic_selector::mode_pinned_by_env().is_some() {
+            return;
+        }
+        let green = FloraSpin::Green.ramp();
+        let lw = window("flora:green", DarkLightMode::Light, DESKTOP);
+        assert_eq!(colour(&lw, DarkLightMode::Light, R::Accent), green.acc);
+        assert_eq!(colour(&lw, DarkLightMode::Light, R::SelectionBackground), green.soft);
+        assert_eq!(colour(&lw, DarkLightMode::Light, R::SelectionText), green.deep);
+        // The ground is flora's, whatever the stone.
+        assert_eq!(colour(&lw, DarkLightMode::Light, R::WindowBackground), f::LIGHT_SUR);
+    }
+
+    #[test]
+    fn under_flat_the_system_keywords_stay_the_desktops_colours() {
+        if azul_css::dynamic_selector::mode_pinned_by_env().is_some() {
+            return;
+        }
+        let lw = window("flat", DarkLightMode::Light, DESKTOP);
+        assert_eq!(colour(&lw, DarkLightMode::Light, R::WindowBackground), DESKTOP);
+    }
+}
+
+#[cfg(test)]
+mod selection_anchor_survives_focus_tests {
+    use azul_core::{
+        dom::{Dom, DomId, IdOrClass, NodeId},
+        geom::{LogicalPosition, LogicalSize},
+        resources::RendererResources,
+        selection::{CursorAffinity, GraphemeClusterId, TextCursor},
+        styled_dom::StyledDom,
+    };
+    use rust_fontconfig::FcFontCache;
+
+    use super::*;
+    use crate::{callbacks::ExternalSystemCallbacks, window_state::FullWindowState};
+
+    const CSS: &str = "* { margin: 0; padding: 0; } body { font-size: 16px; width: 600px; } .p { \
+                       display: block; }";
+
+    fn cursor(byte: u32) -> TextCursor {
+        TextCursor {
+            cluster_id: GraphemeClusterId {
+                source_run: 0,
+                start_byte_in_run: byte,
+            },
+            affinity: CursorAffinity::Leading,
+        }
+    }
+
+    /// `body(0) > div.p(1) > text(2)`, laid out. NOT contenteditable: plain,
+    /// selectable document text, which is what a paragraph or a label is.
+    fn plain_paragraph_window() -> (LayoutWindow, FullWindowState) {
+        let mut dom = Dom::create_body().with_child(
+            Dom::create_div()
+                .with_ids_and_classes(vec![IdOrClass::Class("p".into())].into())
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                    "hello world",
+                )),
+        );
+        let (css, _) = azul_css::parser2::new_from_str(CSS);
+        let styled_dom = StyledDom::create(&mut dom, css);
+        let mut win = LayoutWindow::new(FcFontCache::build()).expect("LayoutWindow::new");
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = LogicalSize::new(800.0, 600.0);
+        win.current_window_state = ws.clone();
+        win.layout_and_generate_display_list(
+            styled_dom,
+            &ws,
+            &RendererResources::default(),
+            &ExternalSystemCallbacks::rust_internal(),
+            &mut Some(Vec::new()),
+        )
+        .expect("layout must succeed");
+        (win, ws)
+    }
+
+    /// Exactly what a single LEFT PRESS on plain text leaves behind:
+    /// `process_mouse_click_for_selection` plants a COLLAPSED caret on the IFC
+    /// root (no range yet - the drag has not moved), and the shell latches the
+    /// drag anchor on the press edge to say a selection gesture is in flight.
+    fn press_on_plain_text(win: &mut LayoutWindow, gesture_in_flight: bool) {
+        let block = win
+            .text_block_of(DomNodeId {
+                dom: DomId::ROOT_ID,
+                node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(1))),
+            })
+            .expect("premise: the paragraph is a text block");
+        win.text_edit_manager.initialize_editing(cursor(0), block, 0);
+        win.text_selection_drag_anchor = gesture_in_flight.then(|| LogicalPosition::new(12.0, 8.0));
+    }
+
+    /// THE LAW: a press that begins a text selection keeps its anchor through
+    /// the focus change that same press causes.
+    ///
+    /// The press and the focus move are ONE pass: the shell applies
+    /// `SystemChange::TextSelectionClick` in the pre-filter and only then runs
+    /// click-to-focus, which emits `SystemChange::SetFocus` and lands here. A
+    /// press on non-editable text therefore plants the anchor and blurs into a
+    /// non-editable focus in the same breath - and
+    /// `process_mouse_drag_for_selection` starts with `multi_cursor.as_ref()?`,
+    /// so an anchor torn down here means the drag that follows can never
+    /// select anything.
+    ///
+    /// EXPECTED TO FAIL TODAY: `has_active_editing()` is `false` after the
+    /// call, because the keep-the-selection guard only recognises a selection
+    /// that is ALREADY a `Selection::Range` and a single press has only a
+    /// collapsed `Selection::Cursor`, so `clear_editing()` runs.
+    #[test]
+    fn a_press_that_begins_a_selection_keeps_its_anchor_through_the_focus_it_causes() {
+        let (mut win, ws) = plain_paragraph_window();
+        press_on_plain_text(&mut win, true);
+        assert!(
+            win.text_edit_manager.has_active_editing(),
+            "premise: the press planted an anchor"
+        );
+
+        let _ = win.handle_focus_change_for_cursor_blink(None, &ws);
+
+        assert!(
+            win.text_edit_manager.has_active_editing(),
+            "a focus change must not destroy the anchor of a selection the pointer is still making"
+        );
+    }
+
+    /// The other half of the law, so the fix cannot be "never clear anything":
+    /// with no pointer gesture in flight, a focus change off non-editable text
+    /// still tears the caret down, exactly as before.
+    #[test]
+    fn a_focus_change_with_no_gesture_in_flight_still_clears_the_caret() {
+        let (mut win, ws) = plain_paragraph_window();
+        press_on_plain_text(&mut win, false);
+
+        let _ = win.handle_focus_change_for_cursor_blink(None, &ws);
+
+        assert!(
+            !win.text_edit_manager.has_active_editing(),
+            "a caret nobody is dragging dies with the focus that owned it"
+        );
+    }
+}
+
+#[cfg(test)]
+mod a_new_dom_through_the_layout_funnel_is_reconciled_tests {
+    use azul_core::{
+        dom::{Dom, DomId, NodeId},
+        geom::LogicalSize,
+        resources::RendererResources,
+        styled_dom::StyledDom,
+    };
+    use rust_fontconfig::FcFontCache;
+
+    use super::LayoutWindow;
+    use crate::{callbacks::ExternalSystemCallbacks, window_state::FullWindowState};
+
+    /// `<html><body><div style-sheet="height: {above}px"/><div class="next"/>`,
+    /// the first div's height from a `Dom::with_css` sheet: a selector-matched
+    /// sheet, so the node's own inline style stays empty.
+    fn doc(above: u32) -> StyledDom {
+        let mut dom = Dom::create_html().with_child(
+            Dom::create_body()
+                .with_child(Dom::create_div().with_css(&alloc::format!("height: {above}px;")))
+                .with_child(
+                    Dom::create_div()
+                        .with_class("next".into())
+                        .with_css("height: 20px;"),
+                ),
+        );
+        StyledDom::create(&mut dom, azul_css::css::Css::empty())
+    }
+
+    fn next_y(lw: &LayoutWindow) -> f32 {
+        let lr = &lw.layout_results[&DomId::ROOT_ID];
+        let dom = lr
+            .styled_dom
+            .node_data
+            .as_container()
+            .internal
+            .iter()
+            .position(|n| n.has_class("next"))
+            .expect("the node");
+        let index = *lr
+            .layout_tree
+            .dom_to_layout
+            .get(&NodeId::new(dom))
+            .and_then(|v| v.first())
+            .expect("laid out");
+        crate::solver3::pos_get(&lr.calculated_positions, index.index())
+            .expect("positioned")
+            .y
+    }
+
+    /// The layout funnel handed the NEXT DOM (an old layout still in place)
+    /// without `begin_reconciliation` before it - an embedder, a test, the
+    /// PDF path: a style change from a `with_css` sheet is invisible to the
+    /// reconcile's fingerprint (the node's inline style is empty) and only
+    /// the reconciliation's CSS diff names it. The funnel ran none: the
+    /// block below kept the old position.
+    #[test]
+    fn a_with_css_height_change_moves_the_block_below() {
+        let mut lw = LayoutWindow::new(FcFontCache::build()).expect("a layout window");
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = LogicalSize::new(800.0, 600.0);
+        lw.current_window_state = ws.clone();
+        let rr = RendererResources::default();
+        let sc = ExternalSystemCallbacks::rust_internal();
+        lw.layout_and_generate_display_list(doc(10), &ws, &rr, &sc, &mut None)
+            .expect("the first layout");
+        let before = next_y(&lw);
+        lw.layout_and_generate_display_list(doc(60), &ws, &rr, &sc, &mut None)
+            .expect("the second layout");
+        let after = next_y(&lw);
+        assert!(
+            (after - before - 50.0).abs() < 0.5,
+            "the block below moved from y {before} to y {after}, not 50 px down"
+        );
+        // A new generation through the other entry point, back to 10 px.
+        lw.layout_new_generation(doc(10), &ws, &rr, &sc, &mut None)
+            .expect("the third layout");
+        assert!((next_y(&lw) - before).abs() < 0.5, "back at y {before}: {}", next_y(&lw));
+    }
+}
+
+#[cfg(test)]
+mod hover_tooltip_tests {
+    use std::sync::Arc;
+
+    use azul_core::{
+        callbacks::{TimerCallbackReturn, Update},
+        dom::{AttributeType, Dom, DomId, NodeId},
+        geom::{LogicalPosition, LogicalSize},
+        gl::OptionGlContextPtr,
+        hit_test::{FullHitTest, HitTest, HitTestItem},
+        refany::RefAny,
+        resources::RendererResources,
+        styled_dom::StyledDom,
+        task::{Instant, TerminateTimer, TimerId},
+        window::{CursorPosition, RawWindowHandle},
+    };
+    use azul_css::AzString;
+    use rust_fontconfig::FcFontCache;
+
+    use super::{LayoutWindow, TooltipTimerAction};
+    use crate::{
+        callbacks::{CallbackChange, ExternalSystemCallbacks},
+        managers::hover::InputPointId,
+        timer::{Timer, TimerCallback, TimerCallbackInfo},
+        window_state::FullWindowState,
+    };
+
+    /// Where the pointer rests in the tests: well away from the window's
+    /// top-left corner.
+    const CURSOR: LogicalPosition = LogicalPosition { x: 240.0, y: 130.0 };
+
+    /// `body > [div aria-label="Named" alt="Picture", div title="Advice"
+    /// aria-label="Named"]` laid out in an 800 x 600 window with the pointer
+    /// at [`CURSOR`]. Node 2 is the first div, node 3 the second.
+    fn window() -> (LayoutWindow, FullWindowState) {
+        let mut dom = Dom::create_html().with_child(
+            Dom::create_body()
+                .with_child(
+                    Dom::create_div()
+                        .with_css("height: 40px;")
+                        .with_attribute(AttributeType::AriaLabel(AzString::from("Named")))
+                        .with_attribute(AttributeType::Alt(AzString::from("Picture"))),
+                )
+                .with_child(
+                    Dom::create_div()
+                        .with_css("height: 40px;")
+                        .with_attribute(AttributeType::AriaLabel(AzString::from("Named")))
+                        .with_attribute(AttributeType::Title(AzString::from("Advice"))),
+                ),
+        );
+        let styled = StyledDom::create(&mut dom, azul_css::css::Css::empty());
+        let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = LogicalSize::new(800.0, 600.0);
+        ws.mouse_state.cursor_position = CursorPosition::InWindow(CURSOR);
+        lw.current_window_state = ws.clone();
+        let rr = RendererResources::default();
+        let sc = ExternalSystemCallbacks::rust_internal();
+        lw.layout_and_generate_display_list(styled, &ws, &rr, &sc, &mut None)
+            .expect("the layout");
+        (lw, ws)
+    }
+
+    /// The pointer moves onto `node` of the root DOM.
+    fn hover(lw: &mut LayoutWindow, node: usize) {
+        let mut hit = FullHitTest::empty(None);
+        hit.hovered_nodes
+            .entry(DomId::ROOT_ID)
+            .or_insert_with(HitTest::empty)
+            .regular_hit_test_nodes
+            .insert(
+                NodeId::new(node),
+                HitTestItem {
+                    point_in_viewport: CURSOR,
+                    point_relative_to_item: Default::default(),
+                    is_focusable: false,
+                    is_virtual_view_hit: None,
+                    hit_depth: 0,
+                },
+            );
+        lw.hover_manager.push_hit_test(InputPointId::Mouse, hit);
+    }
+
+    /// Runs the timer `timer` as the shells run a due one, and returns what
+    /// it asked for.
+    fn run(lw: &mut LayoutWindow, ws: &FullWindowState, timer: Timer) -> Vec<CallbackChange> {
+        let id = TimerId::unique();
+        lw.timers.insert(id, timer);
+        let (changes, _) = lw.run_single_timer(
+            id.id,
+            Instant::now(),
+            &RawWindowHandle::Unsupported,
+            &OptionGlContextPtr::None,
+            Arc::new(azul_css::system::SystemStyle::default()),
+            &ExternalSystemCallbacks::rust_internal(),
+            &None,
+            ws,
+            &RendererResources::default(),
+        );
+        changes
+    }
+
+    fn tooltips(changes: &[CallbackChange]) -> Vec<(String, LogicalPosition)> {
+        changes
+            .iter()
+            .filter_map(|c| match c {
+                CallbackChange::ShowTooltip { text, anchor } => Some((
+                    text.as_str().to_string(),
+                    crate::placement::FloatingPlacement::tooltip(*anchor)
+                        .preferred_origin(LogicalSize::zero()),
+                )),
+                _ => None,
+            })
+            .collect()
+    }
+
+    extern "C" fn show_a_tooltip(_data: RefAny, mut info: TimerCallbackInfo) -> TimerCallbackReturn {
+        info.callback_info.show_tooltip(AzString::from("tip"));
+        TimerCallbackReturn {
+            should_update: Update::DoNothing,
+            should_terminate: TerminateTimer::Terminate,
+        }
+    }
+
+    #[test]
+    fn a_tooltip_a_timer_shows_appears_at_the_pointer_not_in_the_windows_corner() {
+        let (mut lw, ws) = window();
+        let mut timer = lw.create_tooltip_delay_timer(0);
+        timer.callback = TimerCallback::create(show_a_tooltip);
+        let shown = tooltips(&run(&mut lw, &ws, timer));
+        let below_pointer = LogicalPosition::new(
+            CURSOR.x,
+            CURSOR.y + crate::callbacks::TOOLTIP_BELOW_POINTER,
+        );
+        assert_eq!(
+            shown,
+            vec![("tip".to_string(), below_pointer)],
+            "a timer knows where the pointer is: the hover tooltip's delay timer showed every \
+             tooltip at (0, 0), the window's top-left corner"
+        );
+    }
+
+    #[test]
+    fn only_a_title_is_a_hover_tooltip_never_an_aria_label_or_an_alt() {
+        let (mut lw, ws) = window();
+        hover(&mut lw, 2);
+        assert!(
+            matches!(lw.handle_hover_change_for_tooltip(0), TooltipTimerAction::Stop),
+            "as in Chrome, an accessible name (aria-label) or an image's alt text shows no \
+             tooltip: only the title attribute does"
+        );
+        hover(&mut lw, 3);
+        let TooltipTimerAction::Start(timer) = lw.handle_hover_change_for_tooltip(0) else {
+            panic!("a title shows a tooltip after the hover delay");
+        };
+        let shown = tooltips(&run(&mut lw, &ws, timer));
+        assert_eq!(
+            shown.iter().map(|(text, _)| text.as_str()).collect::<Vec<_>>(),
+            vec!["Advice"],
+            "the tooltip is the title, not the aria-label beside it"
+        );
+    }
+
+    /// `body > div title="Advice" > [p > "Label", div]` with the pointer at
+    /// [`CURSOR`]: the titled div is node 2, its label node 3 (its text 4),
+    /// its other child node 5.
+    fn titled_button() -> (LayoutWindow, FullWindowState) {
+        let mut dom = Dom::create_html().with_child(
+            Dom::create_body().with_child(
+                Dom::create_div()
+                    .with_css("height: 40px;")
+                    .with_attribute(AttributeType::Title(AzString::from("Advice")))
+                    .with_child(Dom::create_p().with_child(
+                        Dom::create_text_do_not_use_without_block_level_wrapper("Label"),
+                    ))
+                    .with_child(Dom::create_div().with_css("height: 10px;")),
+            ),
+        );
+        let styled = StyledDom::create(&mut dom, azul_css::css::Css::empty());
+        let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = LogicalSize::new(800.0, 600.0);
+        ws.mouse_state.cursor_position = CursorPosition::InWindow(CURSOR);
+        lw.current_window_state = ws.clone();
+        let rr = RendererResources::default();
+        let sc = ExternalSystemCallbacks::rust_internal();
+        lw.layout_and_generate_display_list(styled, &ws, &rr, &sc, &mut None)
+            .expect("the layout");
+        (lw, ws)
+    }
+
+    /// As in a browser, a title holds for everything inside its element: the
+    /// pointer on a titled button's label shows the button's title.
+    #[test]
+    fn the_pointer_on_a_titled_control_s_label_shows_the_control_s_title() {
+        let (mut lw, ws) = titled_button();
+        hover(&mut lw, 4);
+        let TooltipTimerAction::Start(timer) = lw.handle_hover_change_for_tooltip(0) else {
+            panic!("the label is inside the titled control: its title shows after the delay");
+        };
+        let shown = tooltips(&run(&mut lw, &ws, timer));
+        assert_eq!(
+            shown.iter().map(|(text, _)| text.as_str()).collect::<Vec<_>>(),
+            vec!["Advice"]
+        );
+    }
+
+    /// Moving between the parts of one titled control keeps its tooltip: the
+    /// owner of the title did not change, so the delay is not restarted and
+    /// the tip shown is not hidden. Leaving the control stops it.
+    #[test]
+    fn a_tooltip_holds_while_the_pointer_moves_inside_its_control() {
+        let (mut lw, _ws) = titled_button();
+        hover(&mut lw, 2);
+        assert!(matches!(lw.handle_hover_change_for_tooltip(0), TooltipTimerAction::Start(_)));
+        for part in [4, 5, 3, 2] {
+            hover(&mut lw, part);
+            assert!(
+                matches!(lw.handle_hover_change_for_tooltip(0), TooltipTimerAction::NoChange),
+                "the pointer moved onto node {part}, still inside the titled control: the \
+                 tooltip flickered off and on"
+            );
+        }
+        hover(&mut lw, 1);
+        assert!(
+            matches!(lw.handle_hover_change_for_tooltip(0), TooltipTimerAction::Stop),
+            "off the control, the tooltip goes"
         );
     }
 }

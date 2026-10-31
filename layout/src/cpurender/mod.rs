@@ -5,13 +5,19 @@
 //! flat vector of rendering commands that can be executed sequentially.
 
 mod compositor;
+pub mod embolden;
+pub mod hvif;
 pub mod pixmap;
 mod raster;
 mod shape;
 mod svg;
+mod text_halo;
+pub mod text_raster;
 
 pub use compositor::*;
 pub use pixmap::*;
 pub use raster::*;
 pub use shape::*;
 pub use svg::*;
+pub use text_halo::{text_halos, TextHalo};
+pub use text_raster::*;

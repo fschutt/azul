@@ -420,13 +420,29 @@ mod tests {
         bytes.len() as i32
     }
 
-    static UNREFS: std::sync::Mutex<(usize, usize)> = std::sync::Mutex::new((0, 0));
+    // PER-THREAD, not global. libtest gives each test its own thread, and
+    // every test here drops a sequencer - which calls these fakes. With one
+    // shared counter, the single test that resets and asserts it was racing
+    // every other test in the file: its count came out wrong, its assert
+    // panicked, and the panic POISONED the mutex so the next test failed too,
+    // on an unwrap that had nothing to do with its own subject. A real
+    // failure must fail one test, not two.
+    thread_local! {
+        static UNREFS: std::cell::Cell<(usize, usize)> =
+            const { std::cell::Cell::new((0, 0)) };
+    }
 
     unsafe extern "C" fn fake_state_unref(_s: *mut xkb_compose_state) {
-        UNREFS.lock().unwrap().0 += 1;
+        UNREFS.with(|u| {
+            let (s, t) = u.get();
+            u.set((s + 1, t));
+        });
     }
     unsafe extern "C" fn fake_table_unref(_t: *mut xkb_compose_table) {
-        UNREFS.lock().unwrap().1 += 1;
+        UNREFS.with(|u| {
+            let (s, t) = u.get();
+            u.set((s, t + 1));
+        });
     }
     unsafe extern "C" fn unused_table_new(
         _c: *mut xkb_context,
@@ -583,22 +599,26 @@ mod tests {
     /// Both libxkbcommon objects are released, not just the state.
     #[test]
     fn dropping_the_sequencer_releases_the_state_and_the_table() {
-        *UNREFS.lock().unwrap() = (0, 0);
+        UNREFS.with(|u| u.set((0, 0)));
         {
             let mut backing = FakeTable::new();
             let ptr = (&mut *backing) as *mut FakeTable as *mut xkb_compose_state;
             let _compose = ComposeSequencer::from_parts(fns(), 1 as *mut xkb_compose_table, ptr);
         }
-        assert_eq!(*UNREFS.lock().unwrap(), (1, 1));
+        assert_eq!(UNREFS.with(std::cell::Cell::get), (1, 1));
     }
 
-    static ORDER: std::sync::Mutex<Vec<&'static str>> = std::sync::Mutex::new(Vec::new());
+    // Per-thread for the same reason as UNREFS above.
+    thread_local! {
+        static ORDER: std::cell::RefCell<Vec<&'static str>> =
+            const { std::cell::RefCell::new(Vec::new()) };
+    }
 
     unsafe extern "C" fn ordered_state_unref(_s: *mut xkb_compose_state) {
-        ORDER.lock().unwrap().push("state_unref");
+        ORDER.with(|o| o.borrow_mut().push("state_unref"));
     }
     unsafe extern "C" fn ordered_table_unref(_t: *mut xkb_compose_table) {
-        ORDER.lock().unwrap().push("table_unref");
+        ORDER.with(|o| o.borrow_mut().push("table_unref"));
     }
 
     /// Stands in for the dlopen'd libxkbcommon: dropping the last reference
@@ -606,7 +626,7 @@ mod tests {
     struct FakeLibrary;
     impl Drop for FakeLibrary {
         fn drop(&mut self) {
-            ORDER.lock().unwrap().push("dlclose");
+            ORDER.with(|o| o.borrow_mut().push("dlclose"));
         }
     }
 
@@ -616,7 +636,7 @@ mod tests {
     /// reference must keep the library loaded until its own unrefs have run.
     #[test]
     fn the_library_outlives_the_unrefs_that_call_into_it() {
-        ORDER.lock().unwrap().clear();
+        ORDER.with(|o| o.borrow_mut().clear());
         let mut backing = FakeTable::new();
         let ptr = (&mut *backing) as *mut FakeTable as *mut xkb_compose_state;
         let window_ref: Rc<dyn Any> = Rc::new(FakeLibrary);
@@ -632,8 +652,14 @@ mod tests {
         compose.library = Some(Rc::clone(&window_ref));
         // The window's field goes first, as in WaylandWindow / X11Window.
         drop(window_ref);
-        assert!(ORDER.lock().unwrap().is_empty(), "the library unloaded while the sequencer lived");
+        assert!(
+            ORDER.with(|o| o.borrow().is_empty()),
+            "the library unloaded while the sequencer lived"
+        );
         drop(compose);
-        assert_eq!(*ORDER.lock().unwrap(), ["state_unref", "table_unref", "dlclose"]);
+        assert_eq!(
+            ORDER.with(|o| o.borrow().clone()),
+            ["state_unref", "table_unref", "dlclose"]
+        );
     }
 }

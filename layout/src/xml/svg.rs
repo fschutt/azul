@@ -85,7 +85,7 @@ pub use azul_css::props::basic::animation::{
     SvgCubicCurve, SvgPoint, SvgQuadraticCurve, SvgRect, SvgVector,
 };
 use azul_css::{
-    impl_result, impl_result_inner,
+    impl_result,
     props::basic::{ColorU, LayoutSize, OptionColorU, OptionLayoutSize},
     AzString, OptionI16, OptionString, OptionU16, StringVec, U8Vec,
 };
@@ -1598,8 +1598,14 @@ pub fn apply_fxaa_with_config(
     let mut current_viewport = [0_i32; 4];
 
     gl_context.get_integer_v(gl::CURRENT_PROGRAM, (&mut current_program[..]).into());
-    gl_context.get_integer_v(gl::FRAMEBUFFER, (&mut current_framebuffers[..]).into());
-    gl_context.get_integer_v(gl::TEXTURE_2D, (&mut current_texture_2d[..]).into());
+    gl_context.get_integer_v(
+        gl::FRAMEBUFFER_BINDING,
+        (&mut current_framebuffers[..]).into(),
+    );
+    gl_context.get_integer_v(
+        gl::TEXTURE_BINDING_2D,
+        (&mut current_texture_2d[..]).into(),
+    );
     gl_context.get_integer_v(
         gl::VERTEX_ARRAY_BINDING,
         (&mut current_vertex_array_object[..]).into(),
@@ -1945,10 +1951,25 @@ pub fn render_node_clipmask_cpu(
     let mut agg_path = agg_translate_node(node)?;
     let white = Rgba8::new(255, 255, 255, 255);
 
-    // Create pixel buffer and render
-    let mut buf = vec![0u8; (w as usize) * (h as usize) * 4];
-    let stride = (w * 4) as i32;
+    // Create pixel buffer and render. Checked: the image's size is the
+    // caller's, and a product that wrapped would hand the rasterizer rows
+    // past the end of the buffer.
+    let len = (w as usize).checked_mul(h as usize)?.checked_mul(4)?;
+    let stride = i32::try_from(w.checked_mul(4)?).ok()?;
+    let mut buf = vec![0u8; len];
+    // SAFETY: `buf` holds `h` rows of `stride` bytes and outlives `ra`.
     let mut ra = unsafe { RowAccessor::new_with_buf(buf.as_mut_ptr(), w, h, stride) };
+    // The geometry, clamped exactly and without its non-finite vertices
+    // (`geometry_guard`), so neither NaN nor a huge coordinate reaches AGG.
+    fn add_path(
+        ras: &mut RasterizerScanlineAa,
+        path: &mut dyn VertexSource,
+        bounds: crate::geometry_guard::ClampBox,
+    ) {
+        let mut clamped = crate::geometry_guard::ClampedVertexSource::new(path, bounds);
+        ras.add_path(&mut clamped, 0);
+    }
+    let bounds = crate::geometry_guard::target_bounds(w, h);
     let mut pf = PixfmtRgba32::new(&mut ra);
     let mut rb = RendererBase::new(pf);
     let mut ras = RasterizerScanlineAa::new();
@@ -1961,10 +1982,10 @@ pub fn render_node_clipmask_cpu(
                 SvgFillRule::EvenOdd => FillingRule::EvenOdd,
             });
             if transform.is_identity(0.0001) {
-                ras.add_path(&mut agg_path, 0);
+                add_path(&mut ras, &mut agg_path, bounds);
             } else {
                 let mut transformed = ConvTransform::new(&mut agg_path, transform);
-                ras.add_path(&mut transformed, 0);
+                add_path(&mut ras, &mut transformed, bounds);
             }
             render_scanlines_aa_solid(&mut ras, &mut sl, &mut rb, &white);
         }
@@ -1983,10 +2004,10 @@ pub fn render_node_clipmask_cpu(
                 SvgLineJoin::Bevel => LineJoin::Bevel,
             });
             if transform.is_identity(0.0001) {
-                ras.add_path(&mut stroke, 0);
+                add_path(&mut ras, &mut stroke, bounds);
             } else {
                 let mut transformed = ConvTransform::new(&mut stroke, transform);
-                ras.add_path(&mut transformed, 0);
+                add_path(&mut ras, &mut transformed, bounds);
             }
             render_scanlines_aa_solid(&mut ras, &mut sl, &mut rb, &white);
         }
@@ -2019,57 +2040,23 @@ pub fn render_node_clipmask_cpu(
 fn rasterize_multi_polygon(
     mp: &SvgMultiPolygon,
 ) -> agg_rust::rasterizer_scanline_aa::RasterizerScanlineAa {
-    use agg_rust::{
-        basics::{FillingRule, PATH_FLAGS_NONE},
-        path_storage::PathStorage,
-        rasterizer_scanline_aa::RasterizerScanlineAa,
-    };
+    use agg_rust::{basics::FillingRule, rasterizer_scanline_aa::RasterizerScanlineAa};
 
     let mut ras = RasterizerScanlineAa::new();
     ras.filling_rule(FillingRule::NonZero);
 
-    let mut path = PathStorage::new();
-    for ring in mp.rings.as_ref() {
-        let mut first = true;
-        for item in ring.items.as_ref() {
-            match item {
-                SvgPathElement::Line(l) => {
-                    if first {
-                        path.move_to(f64::from(l.start.x), f64::from(l.start.y));
-                        first = false;
-                    }
-                    path.line_to(f64::from(l.end.x), f64::from(l.end.y));
-                }
-                SvgPathElement::QuadraticCurve(q) => {
-                    if first {
-                        path.move_to(f64::from(q.start.x), f64::from(q.start.y));
-                        first = false;
-                    }
-                    path.curve3(
-                        f64::from(q.ctrl.x),
-                        f64::from(q.ctrl.y),
-                        f64::from(q.end.x),
-                        f64::from(q.end.y),
-                    );
-                }
-                SvgPathElement::CubicCurve(c) => {
-                    if first {
-                        path.move_to(f64::from(c.start.x), f64::from(c.start.y));
-                        first = false;
-                    }
-                    path.curve4(
-                        f64::from(c.ctrl_1.x),
-                        f64::from(c.ctrl_1.y),
-                        f64::from(c.ctrl_2.x),
-                        f64::from(c.ctrl_2.y),
-                        f64::from(c.end.x),
-                        f64::from(c.end.y),
-                    );
-                }
-            }
-        }
-        path.close_polygon(PATH_FLAGS_NONE);
-    }
+    // Rings with a non-finite point are left out, the rest clamped exactly
+    // to `COORD_LIMIT` units (`geometry_guard`).
+    let mut bounded = crate::geometry_guard::BoundedPath::new(
+        crate::geometry_guard::ClampBox::around_origin(crate::geometry_guard::COORD_LIMIT),
+    );
+    crate::geometry_guard::add_svg_rings(
+        &mut bounded,
+        mp,
+        &|p| (f64::from(p.x), f64::from(p.y)),
+        crate::geometry_guard::RingEnd::ClosePolygon,
+    );
+    let mut path = bounded.finish();
     ras.add_path(&mut path, 0);
     ras
 }
@@ -2411,7 +2398,42 @@ pub const fn svg_root(s: &ParsedSvg) -> ParsedSvgXmlNode {
     }
 }
 
-/// Render a `ParsedSvg` to a `RawImage` using the agg-rust pipeline.
+/// The largest side [`svg_render_size`] derives from `fit`, in px (a zoomed
+/// page must not ask for a gigapixel buffer).
+#[cfg(feature = "cpurender")]
+const SVG_FIT_MAX_SIDE_PX: f32 = 16384.0;
+
+/// The pixel size [`svg_render`] draws at: the explicit `target_size`, else
+/// the SVG's natural size (its `width` / `height`, else its viewBox; 800 x 600
+/// when it states none) as `fit` asks - `Original` as it is, `Width(w)` /
+/// `Height(h)` keeping the aspect ratio, `Zoom(z)` scaled. `fit` used to be
+/// ignored: every render without a target size was 800 x 600.
+#[cfg(feature = "cpurender")]
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_precision_loss
+)] // clamped px sizes
+fn svg_render_size(s: &ParsedSvg, options: &SvgRenderOptions) -> (u32, u32) {
+    if let Some(size) = options.target_size.as_ref() {
+        return (size.width.max(0) as u32, size.height.max(0) as u32);
+    }
+    let (w, h) = crate::cpurender::svg_natural_size(s.svg_data.as_ref()).unwrap_or((
+        DEFAULT_SVG_RENDER_SIZE.0 as f32,
+        DEFAULT_SVG_RENDER_SIZE.1 as f32,
+    ));
+    // NaN (a NaN zoom) clamps to NaN and casts to 0: no image.
+    let px = |v: f32| v.round().clamp(0.0, SVG_FIT_MAX_SIDE_PX) as u32;
+    match options.fit {
+        SvgFitTo::Original => (px(w), px(h)),
+        SvgFitTo::Width(width) => (width, px(width as f32 * h / w)),
+        SvgFitTo::Height(height) => (px(height as f32 * w / h), height),
+        SvgFitTo::Zoom(zoom) => (px(w * zoom), px(h * zoom)),
+    }
+}
+
+/// Render a `ParsedSvg` to a `RawImage` using the agg-rust pipeline, at the
+/// size [`svg_render_size`] picks (`target_size`, else `fit`).
 ///
 /// Requires the `cpurender` feature (the agg-rust + png rasterization pipeline).
 /// Without it, SVG parsing/layout still work but rasterizing yields `None`.
@@ -2419,14 +2441,7 @@ pub const fn svg_root(s: &ParsedSvg) -> ParsedSvgXmlNode {
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded layout/render numeric cast
 #[must_use]
 pub fn svg_render(s: &ParsedSvg, options: SvgRenderOptions) -> Option<RawImage> {
-    use azul_core::resources::RawImageData;
-
-    let (target_width, target_height) = options
-        .target_size
-        .as_ref()
-        .map_or(DEFAULT_SVG_RENDER_SIZE, |s| {
-            (s.width as u32, s.height as u32)
-        });
+    let (target_width, target_height) = svg_render_size(s, &options);
 
     if target_width == 0 || target_height == 0 {
         return None;
@@ -2439,29 +2454,15 @@ pub fn svg_render(s: &ParsedSvg, options: SvgRenderOptions) -> Option<RawImage> 
         .background_color
         .into_option()
         .map(|c| (c.r, c.g, c.b, c.a));
-    let png_data = crate::cpurender::render_svg_to_png_over(
+    // The rasteriser's own pixels (premultiplied, labelled so): no PNG
+    // encode and decode in between.
+    crate::cpurender::render_svg_to_raw_image_over(
         s.svg_data.as_ref(),
         target_width,
         target_height,
         background,
     )
-    .ok()?;
-
-    // Decode PNG back to raw RGBA (TODO: render_svg_to_rgba to avoid PNG round-trip)
-    let decoder = png::Decoder::new(std::io::Cursor::new(&png_data));
-    let mut reader = decoder.read_info().ok()?;
-    let mut buf = vec![0u8; reader.output_buffer_size()?];
-    let info = reader.next_frame(&mut buf).ok()?;
-    buf.truncate(info.buffer_size());
-
-    Some(RawImage {
-        tag: Vec::new().into(),
-        pixels: RawImageData::U8(buf.into()),
-        width: info.width as usize,
-        height: info.height as usize,
-        premultiplied_alpha: false,
-        data_format: RawImageFormat::RGBA8,
-    })
+    .ok()
 }
 
 /// `cpurender`-less stub: SVG rasterization needs the agg-rust pipeline, so
@@ -4238,7 +4239,40 @@ mod autotest_generated {
         let img = p.render(opts).expect("a minimal <svg> must rasterize");
         assert_eq!((img.width, img.height), (8, 8));
         assert_eq!(img.data_format, RawImageFormat::RGBA8);
-        assert!(!img.premultiplied_alpha);
+        assert!(
+            img.premultiplied_alpha,
+            "the rasteriser's pixels are premultiplied, and the image says so"
+        );
+    }
+
+    /// `svg_render` hands back the pixels the rasteriser drew: AGG's
+    /// PREMULTIPLIED RGBA8, labelled so. It encoded them to a PNG and decoded
+    /// that back (a TODO), and the round trip labelled the premultiplied bytes
+    /// STRAIGHT: an image load premultiplied a translucent paint a second
+    /// time, darker than itself (PDF9 seen broken).
+    #[cfg(feature = "cpurender")]
+    #[test]
+    fn svg_render_returns_the_rasterised_pixels_without_a_png_round_trip() {
+        let svg = br#"<svg viewBox="0 0 4 4"><rect width="4" height="4" fill="red" fill-opacity="0.5"/></svg>"#;
+        let p = svg_parse(svg, SvgParseOptions::default()).expect("parse");
+        let opts = SvgRenderOptions {
+            target_size: OptionLayoutSize::Some(LayoutSize::new(4, 4)),
+            ..SvgRenderOptions::default()
+        };
+        let img = p.render(opts).expect("rasterize");
+        assert_eq!((img.width, img.height), (4, 4));
+        assert!(
+            img.premultiplied_alpha,
+            "AGG draws premultiplied pixels: the image is labelled premultiplied"
+        );
+        let RawImageData::U8(bytes) = &img.pixels else {
+            panic!("RGBA8 bytes");
+        };
+        let px = &bytes.as_ref()[0..4];
+        assert!(
+            (126..=128).contains(&px[3]) && px[0] == px[3] && px[1] == 0 && px[2] == 0,
+            "half-transparent red over a transparent backdrop, premultiplied: {px:?}"
+        );
     }
 
     #[cfg(feature = "cpurender")]

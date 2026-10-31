@@ -51,6 +51,10 @@ pub(super) struct CpuBackend {
     /// the already-shifted guard (a re-present of the same list must not
     /// blit twice). Mirrors the dll headless backend.
     pub(super) last_patch_shift_dl: usize,
+    /// The layout pass (`LayoutCache::layout_seq`) the frame on screen shows:
+    /// the layout move hint is blitted only from that pass
+    /// (`LayoutCache::last_patch_move_from_seq`).
+    pub(super) presented_layout_seq: Option<u64>,
     /// PAINT damage of the most recent `render_frame` — the region actually
     /// re-rasterised.
     pub(super) last_frame_damage: FrameDamage,
@@ -71,6 +75,10 @@ pub(super) struct CpuBackend {
     pub(super) previous_gpu_transforms:
         std::collections::HashMap<usize, azul_core::transform::ComputedTransform3D>,
     pub(super) previous_gpu_opacities: std::collections::HashMap<usize, f32>,
+    /// Bound background colours of the previous frame (`key.id -> colour`),
+    /// for the same diff: a colour fade changes no item either.
+    pub(super) previous_gpu_colors:
+        crate::cpurender::GpuColors,
 }
 
 impl Default for CpuBackend {
@@ -89,6 +97,7 @@ impl CpuBackend {
             previous_display_list: None,
             last_consumed_build_seq: 0,
             last_patch_shift_dl: 0,
+            presented_layout_seq: None,
             last_frame_damage: FrameDamage::None,
             last_present_damage: FrameDamage::None,
             previous_scroll_offsets: cpurender::ScrollOffsetMap::new(),
@@ -96,6 +105,7 @@ impl CpuBackend {
             previous_vview_dls: BTreeMap::new(),
             previous_gpu_transforms: std::collections::HashMap::new(),
             previous_gpu_opacities: std::collections::HashMap::new(),
+            previous_gpu_colors: std::collections::HashMap::new(),
         }
     }
 
@@ -172,18 +182,24 @@ impl CpuBackend {
                     height,
                 );
             } else {
-                // Shrink (or a MIXED resize — wider but shorter lands here too,
-                // `is_grow` demands both axes). This branch stays a FULL
-                // repaint, and that is a measured decision, not an oversight: it
-                // recreates the compositor AND never calls
-                // `compute_resize_damage`, so letting it reuse the previous
-                // frame under-paints. Measured with the resize probe at
-                // 500x600 -> 700x400: 53200 changed pixels uncovered by any
-                // damage rect, the first at (500, 134) — i.e. the whole
-                // newly-exposed right strip, stale on a real screen. A shrink
-                // also exposes nothing new, so a full repaint here costs at most
-                // the NEW (smaller) buffer.
+                // A shrink, or a mixed resize (wider but shorter): the layers
+                // are made again at the new size (they serve the full
+                // repaint), and the frame keeps its pixels - the target is
+                // cut to the new size from its top-left (`resize_reuse`, or
+                // the platform's own buffer), so what is still on screen is
+                // valid and only the strip a side gained is unknown
+                // (`compute_resize_damage`: none for a shrink). Every step
+                // of a shrinking window-edge drag repainted the whole window.
                 *compositor = cpurender::CompositorState::new(pixel_w, pixel_h);
+                if old_pw > 0 && old_ph > 0 {
+                    resize_preserved_pixels = true;
+                    resize_damage = cpurender::compute_resize_damage(
+                        old_pw as f32 / dpi_factor,
+                        old_ph as f32 / dpi_factor,
+                        width,
+                        height,
+                    );
+                }
             }
         }
 
@@ -199,13 +215,27 @@ impl CpuBackend {
         let gpu_cache_early = layout_window.gpu_state_manager.get_cache(dom_id);
         let (gpu_transforms, gpu_opacities) =
             cpurender::extract_gpu_values(gpu_cache_early, dom_id);
-        let gpu_damage = cpurender::gpu_value_damage(
+        // In VIEWPORT space, like the shell's: an item inside a scrolled frame
+        // is repainted where the frame paints it.
+        let mut gpu_damage = cpurender::gpu_value_damage(
             display_list,
             &self.previous_gpu_transforms,
             &self.previous_gpu_opacities,
             &gpu_transforms,
             &gpu_opacities,
+            &scroll_offsets,
         );
+        // A colour fade frame: the bound background rects whose colour moved.
+        let gpu_colors = cpurender::extract_gpu_colors(gpu_cache_early);
+        let color_damage = cpurender::color_value_damage(
+            display_list,
+            &self.previous_gpu_colors,
+            &gpu_colors,
+            &gpu_transforms,
+            &scroll_offsets,
+        );
+        gpu_damage.rects.extend(color_damage.rects);
+        gpu_damage.needs_full |= color_damage.needs_full;
         let has_gpu_damage = !gpu_damage.rects.is_empty() || gpu_damage.needs_full;
         if has_gpu_damage && std::env::var_os("AZ_PATCH_DEBUG").is_some() {
             let td: Vec<_> = gpu_transforms
@@ -246,8 +276,11 @@ impl CpuBackend {
             .chain(zombie_rects.iter())
             .copied()
             .collect();
-        self.previous_gpu_transforms = gpu_transforms;
+        // The frame before's matrices stay for the list diff below: a change
+        // under an animated frame is damaged where each frame painted it.
+        let old_gpu_transforms = core::mem::replace(&mut self.previous_gpu_transforms, gpu_transforms);
         self.previous_gpu_opacities = gpu_opacities;
+        self.previous_gpu_colors = gpu_colors;
 
         // Can the pixels of the previous frame still be trusted? Yes when the
         // buffer did not change size at all, and yes on a GROW (the old pixels
@@ -260,7 +293,9 @@ impl CpuBackend {
         // structurally untestable here).
         let dl_arc_ptr = Arc::as_ptr(display_list) as usize;
         let patch_hint = cpurender::translate_hint_for_patch(
-            layout_window.layout_cache.last_patch_move.as_ref(),
+            layout_window.layout_cache.last_patch_move.as_ref().filter(|_| {
+                self.presented_layout_seq == Some(layout_window.layout_cache.last_patch_move_from_seq)
+            }),
             dpi_factor,
             can_reuse_previous_frame,
             self.last_patch_shift_dl == dl_arc_ptr,
@@ -282,12 +317,16 @@ impl CpuBackend {
                 Some(Vec::new())
             }
             Some(old_dl) if can_reuse_previous_frame && !gpu_damage.needs_full => {
-                match cpurender::compute_display_list_damage_translated(
+                match cpurender::compute_display_list_damage_live(
                     old_dl,
                     display_list,
                     &self.previous_scroll_offsets,
                     &scroll_offsets,
                     patch_hint.as_ref().map(|(h, _)| h),
+                    cpurender::FrameValues {
+                        old: Some(&old_gpu_transforms),
+                        new: Some(&self.previous_gpu_transforms),
+                    },
                 ) {
                     Some((damage, moved)) => {
                         patch_moved_union = moved;
@@ -306,13 +345,6 @@ impl CpuBackend {
             .filter(|(id, _)| id.inner != dom_id.inner)
             .map(|(id, r)| (*id, r.display_list.clone()))
             .collect();
-        let vview_damage = cpurender::compute_virtual_view_damage(
-            display_list,
-            &vview_dls,
-            &self.previous_vview_dls,
-        );
-        let has_vview_damage = !vview_damage.is_empty();
-        self.previous_vview_dls = vview_dls.clone();
 
         // Scroll: the display list is UNCHANGED on scroll, so the diff above
         // only ever catches the scrollbar. Collect (clip, delta) per frame whose
@@ -324,6 +356,8 @@ impl CpuBackend {
             display_list,
             &scroll_offsets,
             &self.previous_scroll_offsets,
+            // The matrices this frame paints with, kept for the next one.
+            &self.previous_gpu_transforms,
             dpi_factor,
         );
         let has_scroll = !scroll_shifts.is_empty();
@@ -347,6 +381,19 @@ impl CpuBackend {
                 }
             })
             .collect();
+
+        // The views' damage lands where this frame PAINTS them: an incremental
+        // frame rasterises at `next_scroll_baseline`, and a view inside a
+        // scrolled box is painted at its content box minus that offset (same
+        // as the shell's `render_frame`).
+        let vview_damage = cpurender::compute_virtual_view_damage(
+            display_list,
+            &vview_dls,
+            &self.previous_vview_dls,
+            &next_scroll_baseline,
+        );
+        let has_vview_damage = !vview_damage.is_empty();
+        self.previous_vview_dls = vview_dls.clone();
 
         // Determine render path.
         let mut all_damage: Vec<LogicalRect>;
@@ -395,7 +442,11 @@ impl CpuBackend {
                     d.extend(p);
                     Some(d)
                 }
-                (None, P::Rects(p)) => Some(p),
+                // The diff bailed: the patch rects are the damage - or, when the
+                // lists pair and the build logged none (the diff was to decide), a
+                // full repaint.
+                (None, P::Rects(p)) if !p.is_empty() => Some(p),
+                (None, P::Rects(_)) => None,
                 (d, P::FullBuildSincePresent) => d,
                 (d, P::None) => d,
                 (_, P::Unknown) => None,
@@ -407,7 +458,18 @@ impl CpuBackend {
             eprintln!(
                 "[E2EDMG] dl_damage={:?} diff_ran={} patched={} resize={:?} gpu_full={} \
                  gpu_rects={} zombie={}",
-                dl_damage.as_ref().map(Vec::len),
+                dl_damage.as_ref().map(|r| {
+                    r.iter()
+                        .map(|x| {
+                            (
+                                x.origin.x as i32,
+                                x.origin.y as i32,
+                                x.size.width as i32,
+                                x.size.height as i32,
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                }),
                 diff_path_ran,
                 layout_window.layout_cache.last_build_was_patched,
                 resize_damage.len(),
@@ -416,9 +478,21 @@ impl CpuBackend {
                 zombie_damage.len(),
             );
         }
+        // Views whose content scrolled: moved (or damaged) after the target
+        // is acquired, and no frame to skip.
+        let view_shifts = match &self.previous_display_list {
+            Some(old_dl) if can_reuse_previous_frame => cpurender::collect_virtual_view_shifts(
+                old_dl,
+                display_list,
+                &self.previous_scroll_offsets,
+                &scroll_offsets,
+            ),
+            _ => Vec::new(),
+        };
         match dl_damage {
             Some(rects)
                 if rects.is_empty()
+                    && view_shifts.is_empty()
                     && !needs_resize
                     && resize_damage.is_empty()
                     && !has_scroll
@@ -435,6 +509,7 @@ impl CpuBackend {
                 // A frame whose backing store changed size is never "nothing".
                 self.previous_display_list = Some(display_list.clone());
                 self.last_consumed_build_seq = layout_window.layout_cache.build_seq;
+        self.presented_layout_seq = Some(layout_window.layout_cache.layout_seq);
                 self.previous_scroll_offsets = next_scroll_baseline;
                 self.last_frame_damage = FrameDamage::None;
                 self.last_present_damage = FrameDamage::None;
@@ -495,20 +570,20 @@ impl CpuBackend {
             {
                 self.last_patch_shift_dl = dl_arc_ptr;
                 let _ = moved;
-                let mover_rects = layout_window
+                let (mover_rects, rider_rects) = layout_window
                     .layout_cache
                     .last_patch_move
                     .as_ref()
-                    .map(|m| m.mover_rects_old.clone())
+                    .map(|m| (m.mover_rects_old.clone(), m.rider_rects_new.clone()))
                     .unwrap_or_default();
                 let blit = cpurender::execute_translate_blit(
                     &mut output,
                     hint,
                     exceptions,
                     &mover_rects,
+                    &rider_rects,
                     display_list,
                     dpi_factor,
-                    false, // e2e twin renders owned pixmaps, never pool-order
                 );
                 all_damage.extend(blit.damage);
                 present_extra.extend(blit.present_extra);
@@ -524,7 +599,23 @@ impl CpuBackend {
                     *delta,
                     *offset,
                     dpi_factor,
-                    false, // e2e twin renders owned pixmaps, never pool-order
+                    // The offsets and matrices the clip was projected with.
+                    &scroll_offsets,
+                    &self.previous_gpu_transforms,
+                );
+                all_damage.extend(out.damage);
+                present_extra.extend(out.present_extra);
+            }
+            // A view whose content scrolled moves the same way: its pixels, the
+            // strip that came into view, what is painted over it.
+            for shift in &view_shifts {
+                let out = cpurender::execute_virtual_view_shift(
+                    &mut output,
+                    display_list,
+                    &vview_dls,
+                    shift,
+                    dpi_factor,
+                    &scroll_offsets,
                 );
                 all_damage.extend(out.damage);
                 present_extra.extend(out.present_extra);
@@ -549,26 +640,35 @@ impl CpuBackend {
                 .with_system_style(layout_window.system_style.clone())
                 .with_virtual_view_display_lists(vview_dls);
 
-        if is_incremental && !all_damage.is_empty() {
-            drop(cpurender::render_display_list_damaged(
-                display_list,
-                &mut output,
-                dpi_factor,
-                renderer_resources,
-                &layout_window.font_manager,
-                &mut self.glyph_cache,
-                &render_state,
-                &all_damage,
-            ));
-            // Exits paint ON TOP of the restored live pixels; their current
-            // rects are inside `all_damage` by construction.
-            if zombies_active {
-                layout_window.composite_zombies_cpu(
+        // An INCREMENTAL frame paints exactly its damage - and nothing when it
+        // has none (the twin of the shell renderer's law: a frame that reports
+        // no damage must not rewrite the target).
+        if is_incremental {
+            if !all_damage.is_empty() {
+                if let Ok(painted) = cpurender::render_display_list_damaged(
+                    display_list,
                     &mut output,
                     dpi_factor,
                     renderer_resources,
+                    &layout_window.font_manager,
                     &mut self.glyph_cache,
-                );
+                    &render_state,
+                    &all_damage,
+                ) {
+                    // What was WRITTEN, which is what must be presented:
+                    // overlapping requests are painted as their bounding box.
+                    all_damage = painted;
+                }
+                // Exits paint ON TOP of the restored live pixels; their current
+                // rects are inside `all_damage` by construction.
+                if zombies_active {
+                    layout_window.composite_zombies_cpu(
+                        &mut output,
+                        dpi_factor,
+                        renderer_resources,
+                        &mut self.glyph_cache,
+                    );
+                }
             }
         } else {
             output.fill(255, 255, 255, 255);
@@ -599,6 +699,7 @@ impl CpuBackend {
         self.previous_zombie_rects = zombie_rects;
         self.previous_display_list = Some(display_list.clone());
         self.last_consumed_build_seq = layout_window.layout_cache.build_seq;
+        self.presented_layout_seq = Some(layout_window.layout_cache.layout_seq);
         self.previous_scroll_offsets = if is_incremental {
             next_scroll_baseline
         } else {

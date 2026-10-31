@@ -1,0 +1,45 @@
+[
+  {
+    "name": "FILEN-032: an encrypted drive stores no plaintext: neither a file's bytes nor its name",
+    "description": "FILEN-032 (Filen): a review found unauthenticated AES-CBC, a weak KDF, IV reuse and an insecure RNG. Rules I1 (per-file keys, AZL1 objects), M2. sync-chaos crypto-malicious-server (the part the stand-in can check).",
+    "steps": [
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "medical/diagnosis-hiv-positive.pdf", "text": "patient record 4711" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "remote_never_has", "remote": "r", "marker": "patient record 4711" },
+      { "op": "drive_check", "check": "remote_never_has", "remote": "r", "marker": "diagnosis-hiv-positive" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "medical/diagnosis-hiv-positive.pdf", "text": "patient record 4711" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "FILEN-032: a flipped byte in an encrypted object fails its authentication: the file is listed and never written, the old version stays",
+    "description": "FILEN-032 (Filen): ciphertexts without authentication. Rules M2, S15 (a chunk tampered with fails its AEAD, the file is listed, never written). sync-chaos crypto-malicious-server (pending).",
+    "steps": [
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "x.txt", "text": "x v1" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_write", "device": "a", "path": "x.txt", "text": "x v2" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_tamper", "remote": "r", "action": "corrupt_object", "key": "x.txt" },
+      { "op": "drive_sync", "device": "b", "expect": "any" },
+      { "op": "drive_check", "check": "problem", "device": "b", "code": "hash-mismatch", "key": "x.txt" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "x.txt", "text": "x v1" },
+      { "op": "drive_check", "check": "no_temp_files", "device": "b" },
+      { "op": "drive_check", "check": "nonces_unique", "remote": "r" },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

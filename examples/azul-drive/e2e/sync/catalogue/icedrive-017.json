@@ -1,0 +1,61 @@
+[
+  {
+    "name": "Word's save (temp file, rename dance, ~$ lock file kept open) is one upload of the document: no temp file, no duplicate",
+    "description": "ICEDRIVE-017 (Icedrive): Office's temp files and renames caused unwanted temp files and duplicate uploads. Rules P10 and P11: an atomic save is one update; temp and lock files never go up; the pass uploads exactly one new version, no conflict copy, nothing trashed, the old version kept on the drive. sync-chaos port-office-save.",
+    "steps": [
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "reports/q3.docx", "text": "q3 draft" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_office_save", "device": "a", "path": "reports/q3.docx", "text": "q3 final", "keep_lock": true },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "assert_response", "path": "result.up", "equals": 1 },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "reports/q3.docx", "text": "q3 final" },
+      { "op": "drive_check", "check": "remote_count", "remote": "r", "glob": "*~$*", "count": 0 },
+      { "op": "drive_check", "check": "remote_count", "remote": "r", "glob": "*.tmp", "count": 0 },
+      { "op": "drive_check", "check": "remote_count", "remote": "r", "count": 1 },
+      { "op": "drive_check", "check": "conflict_copies", "device": "b", "path": "reports/q3.docx", "count": 0 },
+      { "op": "drive_check", "check": "trash_empty", "device": "b" },
+      { "op": "drive_check", "check": "kept", "texts": ["q3 draft"] },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "last_pass_quiet", "device": "a" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "a pass in the middle of Word's save, while the document exists only under a temp name: no delete, then one update",
+    "description": "ICEDRIVE-017 (Icedrive): the half-done save was taken as a delete plus a new file. Rules P10 and D6: a document whose old bytes sit in an ignored temp file of the same folder is save-in-progress, never a delete; the other device keeps it, then gets the new version with no conflict copy. sync-chaos port-office-save-interrupted.",
+    "steps": [
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "Pra\u0308sentation.docx", "text": "draft" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_write", "device": "a", "path": "~WRD0001.tmp", "text": "final" },
+      { "op": "drive_rename", "device": "a", "from": "Pra\u0308sentation.docx", "to": "~WRL0002.tmp" },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "Pra\u0308sentation.docx", "text": "draft" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "save-in-progress" },
+      { "op": "drive_rename", "device": "a", "from": "~WRD0001.tmp", "to": "Pra\u0308sentation.docx" },
+      { "op": "drive_rm", "device": "a", "path": "~WRL0002.tmp" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "Pra\u0308sentation.docx", "text": "final" },
+      { "op": "drive_check", "check": "trash_empty", "device": "b" },
+      { "op": "drive_check", "check": "conflict_copies", "device": "b", "path": "Pra\u0308sentation.docx", "count": 0 },
+      { "op": "drive_check", "check": "remote_count", "remote": "r", "count": 1 },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

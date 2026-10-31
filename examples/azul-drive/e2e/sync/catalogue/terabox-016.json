@@ -1,0 +1,48 @@
+[
+  {
+    "name": "unpairing leaves every local file whole, not one cloud-only, and a new pairing duplicates nothing",
+    "description": "TERABOX-016 (sync-chaos delete-unpair-keeps-files): TeraBox's virtual drive stayed registered after uninstall. Rule D5: unpairing (the step uninstall takes) forgets the state only; every local file stays, hydrated, and pairing again makes no duplicate or conflict copy.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "thesis/ch1.tex", "text": "chapter 1" },
+      { "op": "drive_write", "device": "a", "path": "thesis/ch2.tex", "text": "chapter 2" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_unpair", "device": "a" },
+      { "op": "drive_check", "check": "files_count", "device": "a", "glob": "thesis/*", "count": 2 },
+      { "op": "drive_check", "check": "file", "device": "a", "path": "thesis/ch1.tex", "text": "chapter 1" },
+      { "op": "drive_check", "check": "no_temp_files", "device": "a" },
+      { "op": "drive_write", "device": "a", "path": "thesis/ch3.tex", "text": "written while unpaired" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_wait_idle", "device": "a" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "files_count", "device": "a", "glob": "thesis/*", "count": 3 },
+      { "op": "drive_check", "check": "remote_count", "glob": "thesis/*", "count": 3 },
+      { "op": "drive_check", "check": "conflict_copies", "device": "a", "path": "thesis/ch1.tex", "count": 0 },
+      { "op": "drive_check", "check": "kept_live", "texts": ["chapter 1", "chapter 2", "written while unpaired"] },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "uninstalling AzDrive leaves no pairing, state or cloud-only stand-in behind, and every local file whole",
+    "description": "TERABOX-016 (sync-chaos placeholder-write-back, uninstall): after uninstall no sync-root registration, virtual drive or placeholder may remain, and the files are left intact and hydrated (rule D5, P13).",
+    "steps": [
+      { "op": "drive_create", "remote": "r2", "encrypted": false },
+      { "op": "drive_open", "device": "c", "remote": "r2" },
+      { "op": "drive_pair", "device": "c" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "c", "path": "docs/a.txt", "text": "kept after uninstall" },
+      { "op": "drive_write", "device": "c", "path": "docs/b.bin", "size": 300000, "seed": 16 },
+      { "op": "drive_sync", "device": "c" },
+      { "op": "drive_evict", "device": "c", "path": "docs/b.bin" },
+      { "op": "drive_uninstall", "device": "c" },
+      { "op": "drive_check", "check": "no_registration", "device": "c" },
+      { "op": "drive_check", "check": "file", "device": "c", "path": "docs/a.txt", "text": "kept after uninstall" },
+      { "op": "drive_check", "check": "file", "device": "c", "path": "docs/b.bin", "absent": true },
+      { "op": "drive_check", "check": "remote_count", "glob": "docs/*", "count": 2 },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

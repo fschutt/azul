@@ -1,0 +1,56 @@
+[
+  {
+    "name": "a held mass delete stays held through a restart and a corrupt state; nothing falls back to deleting",
+    "description": "ICEDRIVE-007 (Icedrive): deletion policies reset to defaults after updates/restarts; deleted files came back, whole folders were deleted despite 'do not delete'. Rules D1/D5/D6: the breaker cannot be bypassed by a restart or a lost state; a missing state falls back to the safest outcome (a union), never to delete.",
+    "steps": [
+      { "op": "drive_harness" },
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_many", "device": "a", "dir": "docs", "count": 20, "text_prefix": "doc" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_rm", "device": "a", "glob": "docs/*" },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "mass-delete-held" },
+      { "op": "drive_restart", "device": "a" },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "mass-delete-held", "when": "last" },
+      { "op": "drive_check", "check": "remote_count", "glob": "docs/*", "count": 20 },
+      { "op": "drive_corrupt_state", "device": "a" },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_check", "check": "remote_count", "glob": "docs/*", "count": 20 },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "files_count", "device": "b", "count": 20 },
+      { "op": "drive_check", "check": "trash_empty", "device": "b" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "safety settings survive an upgrade, a crash and a corrupt settings file (falling back to the safest values)",
+    "description": "ICEDRIVE-007 (Icedrive): settings reset to 'delete' defaults. Rules D5/D1: settings persist; a corrupt or missing settings file falls back to the safest values.",
+    "steps": [
+      { "op": "drive_harness" },
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_many", "device": "a", "dir": "docs", "count": 20, "text_prefix": "doc" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_setting", "device": "b", "name": "remote_deletes", "value": "keep" },
+      { "op": "drive_corrupt_settings" },
+      { "op": "drive_upgrade", "device": "b" },
+      { "op": "drive_rm", "device": "a", "glob": "docs/d000/f00000*" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b", "expect": "any" },
+      { "op": "drive_check", "check": "files_count", "device": "b", "count": 20 },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

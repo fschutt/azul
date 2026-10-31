@@ -255,6 +255,7 @@ mod engine_frame {
                 &mut self.text_cache,
                 &self.styled,
                 viewport,
+                azul_core::geom::LogicalRect::new(azul_core::geom::LogicalPosition::zero(), viewport.size),
                 &self.font_manager,
                 &BTreeMap::new(),
                 &BTreeMap::new(),
@@ -810,7 +811,7 @@ fn register_crash_contact(args: &Args) {
         "crash-reporter@azul-demo.invalid",
         "azul-demo.invalid",
     )
-    .with_tls(false);
+    .with_tls(azul_core::tls::MailTls::Off);
     if let Some(port) = args.mail_port {
         config = config.with_ports(vec![port]);
     }

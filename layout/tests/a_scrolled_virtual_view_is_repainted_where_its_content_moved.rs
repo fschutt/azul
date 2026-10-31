@@ -1,0 +1,219 @@
+//! A `VirtualView` scrolled on the lightweight path is repainted where its
+//! content moved.
+//!
+//! A `VirtualView` has no scroll frame: its scroll is the `content_offset`
+//! of its display-list item (`materialized origin - scroll offset`), and the
+//! lightweight scroll path only re-points that field
+//! (`LayoutWindow::patch_virtual_view_content_offset`). The CPU backends
+//! then present the frame from the display-list DIFF. `is_visually_equal`
+//! compared two `VirtualView` items by child, bounds and clip alone, so a
+//! view that had scrolled compared EQUAL, the diff produced no damage, and
+//! the content stayed where it was while the bar moved - AzReview's sheet
+//! strip on the Mac: "only the bottom 8px (the scrollbar) still update".
+//!
+//! Each test builds the frame the backends present for a scroll from one
+//! offset to the next (`headless/mod.rs render_frame` and its e2e twin: the
+//! parent item diff plus the child diff, then a damage-only repaint), many
+//! steps in a row, and asserts each frame equals a full render at the new
+//! offset.
+
+use std::{collections::BTreeMap, sync::Arc};
+
+use azul_core::{
+    dom::DomId,
+    geom::{LogicalPosition, LogicalRect},
+};
+use azul_layout::{
+    cpurender::{self, CpuRenderState, ScrollOffsetMap},
+    solver3::display_list::{DisplayList, DisplayListItem, WindowLogicalRect},
+};
+
+use super::a_scroll_box_keeps_its_blit_on_a_scrolled_page::{
+    fill, first_difference, rect, rgb, Raster,
+};
+
+const CHILD: DomId = DomId { inner: 1 };
+
+/// The box the view shows its content through.
+fn view_box() -> LogicalRect {
+    rect(20.0, 20.0, 120.0, 60.0)
+}
+
+/// The view's item, scrolled by `x`: the materialized window starts at
+/// origin zero, so `content_offset` is `-x`.
+fn view_item(x: f32) -> DisplayListItem {
+    DisplayListItem::VirtualView {
+        child_dom_id: CHILD,
+        bounds: WindowLogicalRect(view_box()),
+        clip_rect: WindowLogicalRect(view_box()),
+        content_offset: LogicalPosition::new(-x, 0.0),
+    }
+}
+
+/// The parent list: a grey window and the view scrolled by `x`.
+fn parent(x: f32) -> DisplayList {
+    DisplayList {
+        items: vec![
+            fill(rect(0.0, 0.0, 200.0, 200.0), rgb(128, 128, 128)),
+            view_item(x),
+        ],
+        ..Default::default()
+    }
+}
+
+/// The child list, 0-relative: six 40px stripes of six colours, 240px of
+/// content for a 120px box, so no offset up to 120 looks like another.
+fn child() -> Arc<DisplayList> {
+    let colours = [
+        rgb(220, 40, 40),
+        rgb(40, 160, 60),
+        rgb(40, 80, 220),
+        rgb(230, 200, 30),
+        rgb(180, 40, 200),
+        rgb(30, 200, 210),
+    ];
+    let items = colours
+        .iter()
+        .enumerate()
+        .map(|(k, c)| fill(rect(40.0 * k as f32, 0.0, 40.0, 60.0), *c))
+        .collect();
+    Arc::new(DisplayList {
+        items,
+        ..Default::default()
+    })
+}
+
+fn state(children: &BTreeMap<DomId, Arc<DisplayList>>) -> CpuRenderState {
+    CpuRenderState::new(ScrollOffsetMap::new()).with_virtual_view_display_lists(children.clone())
+}
+
+/// The backends' recipe for the frame after `previous`: the parent item
+/// diff, the child diff and the views' scroll moves, then a damage-only
+/// repaint of the frame that is on screen. Returns the damage.
+fn present(
+    raster: &mut Raster,
+    previous: &DisplayList,
+    current: &DisplayList,
+    children: &BTreeMap<DomId, Arc<DisplayList>>,
+    frame: &mut cpurender::AzulPixmap,
+) -> Vec<LogicalRect> {
+    let empty = ScrollOffsetMap::new();
+    let mut damage = cpurender::compute_display_list_damage(previous, current, &empty, &empty)
+        .expect("the two lists hold the same items");
+    damage.extend(cpurender::compute_virtual_view_damage(
+        current, children, children, &empty,
+    ));
+    for shift in cpurender::collect_virtual_view_shifts(previous, current, &empty, &empty) {
+        let out = cpurender::execute_virtual_view_shift(frame, current, children, &shift, 1.0, &empty);
+        damage.extend(out.damage);
+    }
+    raster.repaint_state(current, frame, &state(children), &damage);
+    damage
+}
+
+#[test]
+fn a_virtual_view_item_whose_content_offset_moved_is_not_visually_equal() {
+    assert!(
+        view_item(10.0).is_visually_equal(&view_item(10.0)),
+        "the same view at the same scroll"
+    );
+    assert!(
+        !view_item(10.0).is_visually_equal(&view_item(50.0)),
+        "the same view scrolled by 40px more paints different pixels, so the item diff must \
+         damage it"
+    );
+}
+
+#[test]
+fn a_virtual_view_scrolled_on_the_lightweight_path_is_repainted_where_its_content_moved() {
+    let children: BTreeMap<DomId, Arc<DisplayList>> = [(CHILD, child())].into_iter().collect();
+    let mut raster = Raster::new();
+    // Forward, back, a fractional step, the end: every step is one frame.
+    let steps = [
+        0.0f32, 8.0, 24.0, 40.0, 57.5, 80.0, 120.0, 96.0, 30.0, 0.0, 119.0,
+    ];
+
+    let mut previous = parent(steps[0]);
+    let mut frame = raster.full_state(&previous, &state(&children));
+    for (i, x) in steps.iter().enumerate().skip(1) {
+        let current = parent(*x);
+        let damage = present(&mut raster, &previous, &current, &children, &mut frame);
+
+        let expected = raster.full_state(&current, &state(&children));
+        assert_eq!(
+            first_difference(&frame, &expected),
+            None,
+            "step {i}: the view scrolled to x={x}, so the presented frame must equal a full \
+             render there - the content moved with the scroll (damage {damage:?})"
+        );
+        previous = current;
+    }
+}
+
+/// A whole-pixel scroll step of a view moves the view's pixels and repaints
+/// the strip that came into view - a 120px box scrolled by 8px repaints 8px
+/// of it, not the box. (The fractional step above lands off the pixel grid
+/// and repaints the box; every frame still equals a full render.)
+#[test]
+fn a_scrolled_view_moves_its_pixels_and_repaints_only_the_strip() {
+    let children: BTreeMap<DomId, Arc<DisplayList>> = [(CHILD, child())].into_iter().collect();
+    let mut raster = Raster::new();
+    let mut previous = parent(0.0);
+    let mut frame = raster.full_state(&previous, &state(&children));
+    for (i, x) in [8.0f32, 16.0, 40.0, 33.0, 0.0].iter().enumerate() {
+        let current = parent(*x);
+        let damage = present(&mut raster, &previous, &current, &children, &mut frame);
+        let expected = raster.full_state(&current, &state(&children));
+        assert_eq!(
+            first_difference(&frame, &expected),
+            None,
+            "step {i}: the frame of the view scrolled to x={x} equals a full render there"
+        );
+        let area: f32 = damage.iter().map(|r| r.size.width * r.size.height).sum();
+        let step = (x - if i == 0 { 0.0 } else { [8.0f32, 16.0, 40.0, 33.0, 0.0][i - 1] }).abs();
+        assert!(
+            area <= (step + 2.0) * view_box().size.height,
+            "step {i}: a {step}px scroll of the view repainted {area} px^2 - the strip is \
+             {step} x {} (damage {damage:?})",
+            view_box().size.height
+        );
+        previous = current;
+    }
+}
+
+/// A view whose item clips wider than its box (`clip_rect` the window's,
+/// as a view inside a page carries it) moves only the pixels of its box: the
+/// raster clips the view's content to `bounds`, and what sits beside the box
+/// stays where it is.
+#[test]
+fn a_scrolled_view_moves_only_the_pixels_of_its_box() {
+    let children: BTreeMap<DomId, Arc<DisplayList>> = [(CHILD, child())].into_iter().collect();
+    let with_neighbour = |x: f32| DisplayList {
+        items: vec![
+            fill(rect(0.0, 0.0, 200.0, 200.0), rgb(128, 128, 128)),
+            fill(rect(0.0, 20.0, 18.0, 60.0), rgb(20, 20, 120)),
+            fill(rect(142.0, 20.0, 18.0, 60.0), rgb(120, 20, 20)),
+            DisplayListItem::VirtualView {
+                child_dom_id: CHILD,
+                bounds: WindowLogicalRect(view_box()),
+                clip_rect: WindowLogicalRect(rect(0.0, 0.0, 200.0, 200.0)),
+                content_offset: LogicalPosition::new(-x, 0.0),
+            },
+        ],
+        ..Default::default()
+    };
+    let mut raster = Raster::new();
+    let mut previous = with_neighbour(0.0);
+    let mut frame = raster.full_state(&previous, &state(&children));
+    for x in [8.0f32, 40.0, 16.0] {
+        let current = with_neighbour(x);
+        let damage = present(&mut raster, &previous, &current, &children, &mut frame);
+        let expected = raster.full_state(&current, &state(&children));
+        assert_eq!(
+            first_difference(&frame, &expected),
+            None,
+            "the view scrolled to x={x}: the boxes beside it must stay put (damage {damage:?})"
+        );
+        previous = current;
+    }
+}

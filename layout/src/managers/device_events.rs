@@ -18,7 +18,7 @@ use alloc::vec::Vec;
 
 use azul_core::{
     dom::DomNodeId,
-    events::{EventData, EventProvider, EventSource, EventType, SyntheticEvent},
+    events::{EventData, EventProvider, EventSource, EventType, SessionChange, SyntheticEvent},
     task::Instant,
 };
 
@@ -59,12 +59,27 @@ pub struct DeviceEventManager {
     /// callback per report would swamp an app that only wants to know how far
     /// the pointer moved this frame.
     pending_raw_motion: Option<PendingRawMotion>,
+    /// Session changes (the screen locked, the machine sleeps) awaiting
+    /// emission, oldest first: a lock then an unlock in one batch are two
+    /// things the app must do.
+    pending_session: Vec<SessionChange>,
+    /// The session change delivered last, which
+    /// `CallbackInfo::get_session_change` answers.
+    last_session: Option<SessionChange>,
+    /// How far into the process's session log this window has read
+    /// ([`Self::read_session_log`]).
+    session_seen: u64,
 }
 
 impl DeviceEventManager {
+    /// A window's manager; it hears the session changes from now on, not
+    /// the ones before it was made.
     #[must_use]
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            session_seen: session_log_position(),
+            ..Self::default()
+        }
     }
 
     /// Record that an input device arrived or left.
@@ -134,13 +149,86 @@ impl DeviceEventManager {
     /// Whether anything is queued (lets a backend skip the drain entirely).
     #[must_use]
     pub const fn has_pending(&self) -> bool {
-        !self.pending.is_empty()
+        !self.pending.is_empty() || !self.pending_session.is_empty()
     }
 
     /// Drain the queue.
     pub fn take_pending(&mut self) -> Vec<Hotplug> {
         core::mem::take(&mut self.pending)
     }
+
+    /// Record that the session changed (the platform backends push into
+    /// [`push_session_change`]; the pass moves those here).
+    pub fn note_session(&mut self, change: SessionChange) {
+        self.pending_session.push(change);
+        self.last_session = Some(change);
+    }
+
+    /// The session change delivered last, `None` before the first.
+    #[must_use]
+    pub const fn last_session(&self) -> Option<SessionChange> {
+        self.last_session
+    }
+
+    /// Drain the session changes emitted this pass.
+    pub fn take_pending_session(&mut self) -> Vec<SessionChange> {
+        core::mem::take(&mut self.pending_session)
+    }
+
+    /// Take the session changes logged since this window last read the log
+    /// ([`push_session_change`]), for this pass's events. Every window reads
+    /// the log for itself: a lock is the application's, not one window's.
+    pub fn read_session_log(&mut self) {
+        let (changes, position) = session_changes_after(self.session_seen);
+        self.session_seen = position;
+        for change in changes {
+            self.note_session(change);
+        }
+    }
+}
+
+/// How many session changes the log keeps for windows that have not read
+/// them yet; a window misses only changes older than its last pass by more.
+const SESSION_LOG_LEN: usize = 32;
+
+/// The process's session changes, as the platform's observers report them
+/// from their own threads (a workspace notification, a D-Bus signal, a
+/// window message): the position of the next one, and the last few with
+/// their positions.
+static SESSION_LOG: std::sync::Mutex<(u64, Vec<(u64, SessionChange)>)> =
+    std::sync::Mutex::new((0, Vec::new()));
+
+/// Log one session change for every window's next pass.
+pub fn push_session_change(change: SessionChange) {
+    if let Ok(mut log) = SESSION_LOG.lock() {
+        let position = log.0;
+        log.0 += 1;
+        log.1.push((position, change));
+        if log.1.len() > SESSION_LOG_LEN {
+            log.1.remove(0);
+        }
+    }
+}
+
+/// The position the next session change will take.
+#[must_use]
+pub fn session_log_position() -> u64 {
+    SESSION_LOG.lock().map_or(0, |log| log.0)
+}
+
+/// The session changes at or after `seen`, oldest first, and the position
+/// after the last.
+#[must_use]
+pub fn session_changes_after(seen: u64) -> (Vec<SessionChange>, u64) {
+    SESSION_LOG.lock().map_or((Vec::new(), seen), |log| {
+        let changes = log
+            .1
+            .iter()
+            .filter(|(position, _)| *position >= seen)
+            .map(|(_, change)| *change)
+            .collect();
+        (changes, log.0)
+    })
 }
 
 impl EventProvider for DeviceEventManager {
@@ -161,6 +249,15 @@ impl EventProvider for DeviceEventManager {
                 }),
             ));
         }
+        events.extend(self.pending_session.iter().map(|_| {
+            SyntheticEvent::new(
+                EventType::SessionChange,
+                EventSource::User,
+                DomNodeId::ROOT,
+                timestamp.clone(),
+                EventData::None,
+            )
+        }));
         events.extend(self.pending.iter().map(|h| {
             let event_type = match (h.kind, h.connected) {
                 (HotplugKind::Device, true) => EventType::DeviceConnected,
@@ -237,3 +334,53 @@ mod monitor_hotplug_tests {
         assert!(kinds(&m).is_empty());
     }
 }
+
+/// The session's changes reach the app as `SessionChange` events at the root,
+/// one per change, and the last one stays readable.
+#[cfg(test)]
+mod session_tests {
+    use azul_core::events::{EventProvider, EventType, SessionChange};
+
+    use super::DeviceEventManager;
+
+    #[test]
+    fn a_lock_and_a_sleep_are_two_session_events() {
+        let mut m = DeviceEventManager::new();
+        m.note_session(SessionChange::Locked);
+        m.note_session(SessionChange::WillSleep);
+        let ts = azul_core::task::Instant::Tick(azul_core::task::SystemTick::new(0));
+        let kinds: Vec<EventType> = m
+            .get_pending_events(ts)
+            .iter()
+            .map(|e| e.event_type)
+            .collect();
+        assert_eq!(kinds, vec![EventType::SessionChange, EventType::SessionChange]);
+        assert_eq!(m.last_session(), Some(SessionChange::WillSleep));
+        assert_eq!(m.take_pending_session().len(), 2);
+        assert_eq!(m.last_session(), Some(SessionChange::WillSleep), "still readable");
+    }
+
+    /// The log is the process's: two windows each hear a change once, in
+    /// arrival order, and a window made later hears only what came after.
+    #[test]
+    fn every_window_hears_each_session_change_once() {
+        let mut first = DeviceEventManager::new();
+        let mut second = DeviceEventManager::new();
+        super::push_session_change(SessionChange::Locked);
+        super::push_session_change(SessionChange::Unlocked);
+        for m in [&mut first, &mut second] {
+            m.read_session_log();
+            let seen = m.take_pending_session();
+            assert!(
+                seen.ends_with(&[SessionChange::Locked, SessionChange::Unlocked]),
+                "{seen:?}"
+            );
+            m.read_session_log();
+            assert!(m.take_pending_session().is_empty(), "heard once");
+        }
+        let mut late = DeviceEventManager::new();
+        late.read_session_log();
+        assert!(late.take_pending_session().is_empty(), "nothing from before");
+    }
+}
+

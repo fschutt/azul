@@ -4,17 +4,20 @@
 //!
 //! - **Unit-only enums** → `Enum AzFoo : AzFoo_A : AzFoo_B : End Enum`. FreeBASIC enums are
 //!   integer-backed by default and start at 0, matching the default Rust `repr(C)` enum layout.
-//! - **Tagged-union enums** → emitted as a `Type` containing a tag field (the variant tag enum) and
-//!   a `Union` of payload sub-records, one per non-unit variant. This mirrors the C-API layout
-//!   produced by the C generator and matches the wire format used by the prebuilt `libazul`.
+//! - **Tagged-union enums** (and monomorphized aliases like `LayoutWidthValue`) → a `Type` holding
+//!   the tag (`UByte` for `repr(C, u8)`, the constants in a `<T>Tag` Enum) and a `Union` of the
+//!   payloads, one per non-unit variant. The Union is aligned to its largest member, so every
+//!   payload sits where Rust's `repr(C, u8)` puts it - the wire format of the prebuilt `libazul`.
 //! - **POD structs** → `Type AzFoo ... End Type` with field types resolved via `map_type_to_fb`.
 //!   Default natural alignment is used (no `Field = 1` packing) because `extern "C"` Rust structs
 //!   use natural alignment, not packed.
 //! - **Callback typedefs** → declared inside `Extern "C" Lib "azul"` as procedural-pointer aliases
 //!   via `Type AzFooCallbackType As Function ... `. We emit those here (above the externals block)
 //!   so they may appear in field types.
-//! - **Recursive / VecRef / GenericTemplate / DestructorOrClone** are skipped with `' SKIPPED:
-//!   <reason>` line comments.
+//! - **Plain aliases** → `Type AzFoo As <target>`.
+//! - Everything but the unit enums is emitted in the IR's topological `sort_order` (azul.h's
+//!   order): fbc lets a `Type` hold another Type by value only once that Type is complete.
+//! - **Recursive / GenericTemplate** types are skipped with `' SKIPPED: <reason>` line comments.
 
 use anyhow::Result;
 
@@ -24,7 +27,7 @@ use super::{
         generator::CodeBuilder,
         ir::{
             ArgRefKind, CallbackTypedefDef, CodegenIR, EnumDef, EnumVariantKind, FieldDef,
-            FieldRefKind, StructDef, TypeCategory,
+            FieldRefKind, MonomorphizedKind, StructDef, TypeAliasDef, TypeCategory,
         },
     },
     ffi_type_name, map_type_to_fb, sanitize_comment, sanitize_identifier,
@@ -44,7 +47,7 @@ pub fn generate_types(
     builder.line("' --------------------------------------------------------------------");
     builder.blank();
 
-    // 1. Unit (simple) enums first so they may be referenced as field types.
+    // 1. Unit (simple) enums first: they depend on nothing.
     for e in &ir.enums {
         if !should_include_enum(e, config) {
             emit_skipped_enum(builder, e);
@@ -55,39 +58,115 @@ pub fn generate_types(
         }
     }
 
-    // 2. Forward Type declarations (FreeBASIC supports `Type AzFoo As ...` forward declarations).
-    //    We emit them up front so structs can contain pointers to types defined later in the file.
-    //    The `As Object` form does not work for non-class types; instead we rely on FreeBASIC's
-    //    two-pass parser, which tolerates forward references inside `Type` bodies as long as they
-    //    are pointers. No explicit forward-decl block is required for `Ptr`-typed fields in
-    //    practice.
-
-    // 3. Tagged-union enums (FB Type with embedded Union).
+    // 2. Everything else in the IR's topological `sort_order` - the order
+    //    azul.h uses. A FreeBASIC `Type` may hold another Type by value only
+    //    once that Type is complete (pointers may point ahead); emitting all
+    //    unions, then all structs, then the callback types put 1205 by-value
+    //    fields before their type. The aliases (plain and monomorphized:
+    //    `LayoutWidthValue`, `OptionU32`, ...) were never emitted at all.
+    enum Item<'a> {
+        Union(&'a EnumDef),
+        Struct(&'a StructDef),
+        Callback(&'a CallbackTypedefDef),
+        Alias(&'a TypeAliasDef),
+    }
+    let mut items: Vec<(usize, Item)> = Vec::new();
     for e in &ir.enums {
-        if !should_include_enum(e, config) {
-            continue;
-        }
-        if e.is_union {
-            emit_tagged_union(builder, e, ir);
+        if e.is_union && should_include_enum(e, config) {
+            items.push((e.sort_order, Item::Union(e)));
         }
     }
-
-    // 4. POD records.
     for s in &ir.structs {
         if !should_include_struct(s, config) {
             emit_skipped_struct(builder, s);
             continue;
         }
-        emit_struct(builder, s, ir);
+        items.push((s.sort_order, Item::Struct(s)));
     }
-
-    // 5. Callback (procedural) typedefs.
     for cb in &ir.callback_typedefs {
-        emit_callback_typedef(builder, cb, ir);
+        if config.should_include_type(&cb.name) {
+            items.push((cb.sort_order, Item::Callback(cb)));
+        }
+    }
+    for ta in &ir.type_aliases {
+        if config.should_include_type(&ta.name) {
+            items.push((ta.sort_order, Item::Alias(ta)));
+        }
+    }
+    // Stable: equal orders keep the kind order above, like lang_c.
+    items.sort_by_key(|(order, _)| *order);
+    for (_, item) in &items {
+        match item {
+            Item::Union(e) => emit_tagged_union(builder, e, ir),
+            Item::Struct(s) => emit_struct(builder, s, ir),
+            Item::Callback(cb) => emit_callback_typedef(builder, cb, ir),
+            Item::Alias(ta) => emit_type_alias(builder, ta, ir),
+        }
     }
 
     builder.blank();
     Ok(())
+}
+
+// ============================================================================
+// Type aliases (plain and monomorphized)
+// ============================================================================
+
+fn emit_type_alias(builder: &mut CodeBuilder, ta: &TypeAliasDef, ir: &CodegenIR) {
+    let t = ffi_type_name(&ta.name);
+    let Some(mono) = &ta.monomorphized_def else {
+        if ta.target.contains('<') {
+            builder.line(&format!(
+                "' SKIPPED: {} = {} (a generic alias without a monomorphized definition)",
+                ta.name, ta.target
+            ));
+            return;
+        }
+        builder.line(&format!("Type {} As {}", t, map_type_to_fb(&ta.target, ir)));
+        builder.blank();
+        return;
+    };
+    for d in &ta.doc {
+        builder.line(&format!("' {}", sanitize_comment(d)));
+    }
+    match &mono.kind {
+        MonomorphizedKind::SimpleEnum { variants, .. } => {
+            let names: Vec<&str> = variants.iter().map(String::as_str).collect();
+            emit_enum_body(builder, &t, &names);
+        }
+        MonomorphizedKind::Struct { fields } => {
+            builder.line(&format!("Type {}", t));
+            builder.indent();
+            if fields.is_empty() {
+                builder.line("__opaque As UByte  ' opaque, no fields exposed via FFI");
+            }
+            for f in fields {
+                emit_struct_field(builder, f, ir);
+            }
+            builder.dedent();
+            builder.line("End Type");
+            builder.blank();
+        }
+        MonomorphizedKind::TaggedUnion { repr, variants } => {
+            let payloads: Vec<(String, Vec<(String, String)>)> = variants
+                .iter()
+                .map(|v| {
+                    let fields = v
+                        .payload_type
+                        .iter()
+                        .map(|p| {
+                            (
+                                "payload".to_string(),
+                                field_type_for_ref_kind(p, &v.payload_ref_kind, ir),
+                            )
+                        })
+                        .collect();
+                    (sanitize_identifier(&v.name), fields)
+                })
+                .collect();
+            emit_union_body(builder, &t, repr.as_deref(), &payloads);
+        }
+    }
 }
 
 // ============================================================================
@@ -101,13 +180,11 @@ fn should_include_struct(s: &StructDef, config: &CodegenConfig) -> bool {
     if !s.generic_params.is_empty() {
         return false;
     }
-    !matches!(
-        s.category,
-        TypeCategory::Recursive
-            | TypeCategory::VecRef
-            | TypeCategory::DestructorOrClone
-            | TypeCategory::GenericTemplate
-    )
+    // VecRef slices and the destructor/clone unions and callbacks are plain
+    // C types every Vec and many functions hold BY VALUE (`destructor As
+    // AzU8VecDestructor`): skipping them left those fields naming undeclared
+    // types. Only a generic template has no C spelling.
+    !matches!(s.category, TypeCategory::Recursive | TypeCategory::GenericTemplate)
 }
 
 fn should_include_enum(e: &EnumDef, config: &CodegenConfig) -> bool {
@@ -117,13 +194,8 @@ fn should_include_enum(e: &EnumDef, config: &CodegenConfig) -> bool {
     if !e.generic_params.is_empty() {
         return false;
     }
-    !matches!(
-        e.category,
-        TypeCategory::Recursive
-            | TypeCategory::VecRef
-            | TypeCategory::DestructorOrClone
-            | TypeCategory::GenericTemplate
-    )
+    // See `should_include_struct`: the destructor/clone unions are held by value.
+    !matches!(e.category, TypeCategory::Recursive | TypeCategory::GenericTemplate)
 }
 
 fn emit_skipped_struct(builder: &mut CodeBuilder, s: &StructDef) {
@@ -154,17 +226,23 @@ fn emit_unit_enum(builder: &mut CodeBuilder, e: &EnumDef) {
     }
 
     let t = ffi_type_name(&e.name);
-    if e.variants.is_empty() {
+    let names: Vec<&str> = e.variants.iter().map(|v| v.name.as_str()).collect();
+    emit_enum_body(builder, &t, &names);
+}
+
+/// `Enum T ... End Enum` with explicitly pinned values (0..N-1, the C ABI's).
+fn emit_enum_body(builder: &mut CodeBuilder, t: &str, variants: &[&str]) {
+    if variants.is_empty() {
         // Empty enums aren't valid in FB; emit a degenerate alias.
-        builder.line(&format!("Type {} As ULongInt", t));
+        builder.line(&format!("Type {} As ULong", t)); // a C enum is 32-bit
         builder.blank();
         return;
     }
 
     builder.line(&format!("Enum {}", t));
     builder.indent();
-    for (i, v) in e.variants.iter().enumerate() {
-        let nm = sanitize_identifier(&v.name);
+    for (i, v) in variants.iter().enumerate() {
+        let nm = sanitize_identifier(v);
         // Pin the value explicitly so renumbering matches the C-ABI.
         builder.line(&format!("{}_{} = {}", t, nm, i));
     }
@@ -185,18 +263,6 @@ fn emit_tagged_union(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
     }
 
     let t = ffi_type_name(&e.name);
-
-    // Tag enum.
-    let tag_name = format!("{}Tag", t);
-    builder.line(&format!("Enum {}", tag_name));
-    builder.indent();
-    for (i, v) in e.variants.iter().enumerate() {
-        let nm = sanitize_identifier(&v.name);
-        builder.line(&format!("{}_{} = {}", tag_name, nm, i));
-    }
-    builder.dedent();
-    builder.line("End Enum");
-    builder.blank();
 
     // Collect per-variant payload field lists (empty for unit variants).
     let mut payload_lines: Vec<(String, Vec<(String, String)>)> = Vec::new();
@@ -231,12 +297,45 @@ fn emit_tagged_union(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
         };
         payload_lines.push((sanitize_identifier(&v.name), payload_fields));
     }
+    emit_union_body(builder, &t, e.repr.as_deref(), &payload_lines);
+}
+
+/// The tag Enum, the helper Types of multi-field variants and the outer
+/// `Type T: tag + Union of payloads` of one tagged union - a data-carrying
+/// enum or a monomorphized alias. `payload_lines`: per variant, its name and
+/// payload fields `(name, FreeBASIC type)` (empty for a unit variant).
+///
+/// The tag of a `repr(C, u8)` union is `UByte` (azul.h: `uint8_t tag;`), not
+/// the Enum, which fbc makes as wide as a C enum or wider; the Union after it
+/// is aligned to its largest member, which puts every payload where Rust's
+/// `repr(C, u8)` does - no padding needed.
+fn emit_union_body(
+    builder: &mut CodeBuilder,
+    t: &str,
+    repr: Option<&str>,
+    payload_lines: &[(String, Vec<(String, String)>)],
+) {
+    // Tag enum (the variant constants, whatever the tag field's width).
+    let tag_name = format!("{}Tag", t);
+    builder.line(&format!("Enum {}", tag_name));
+    builder.indent();
+    for (i, (nm, _)) in payload_lines.iter().enumerate() {
+        builder.line(&format!("{}_{} = {}", tag_name, nm, i));
+    }
+    builder.dedent();
+    builder.line("End Enum");
+    builder.blank();
+    let tag_field_type = if repr.is_some_and(|r| r.contains("u8")) {
+        "UByte".to_string()
+    } else {
+        tag_name.clone()
+    };
 
     // For multi-field variants, emit a helper Type at top level that
     // groups the fields. (FB does not allow nested Type definitions
     // inside a Union; multi-field variants must reference a previously
     // declared Type.)
-    for (variant_name, fields) in &payload_lines {
+    for (variant_name, fields) in payload_lines {
         if fields.len() > 1 {
             builder.line(&format!("Type {}_{}_payload", t, variant_name));
             builder.indent();
@@ -259,7 +358,7 @@ fn emit_tagged_union(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
     // Outer Type: tag + (optional) Union of payloads.
     builder.line(&format!("Type {}", t));
     builder.indent();
-    builder.line(&format!("tag As {}", tag_name));
+    builder.line(&format!("tag As {}", tag_field_type));
 
     if !union_members.is_empty() {
         builder.line("Union");
