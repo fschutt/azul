@@ -33,20 +33,17 @@ const CONTENT: usize = 2;
 /// A desktop on `platform` whose title bar is `height` px tall, with 78px of
 /// controls on the left and 8px of padding beside them (macOS's geometry).
 fn style(platform: Platform, height: f32) -> SystemStyle {
-    SystemStyle {
-        platform,
-        metrics: azul_css::system::SystemMetrics {
-            titlebar: TitlebarMetrics {
-                button_side: TitlebarButtonSide::Left,
-                height: OptionPixelValue::Some(PixelValue::px(height)),
-                button_area_width: OptionPixelValue::Some(PixelValue::px(78.0)),
-                padding_horizontal: OptionPixelValue::Some(PixelValue::px(8.0)),
-                ..TitlebarMetrics::default()
-            },
-            ..Default::default()
-        },
-        ..SystemStyle::default()
-    }
+    // `SystemStyle` implements `Drop`, so it is built field by field.
+    let mut style = SystemStyle::default();
+    style.platform = platform;
+    style.metrics.titlebar = TitlebarMetrics {
+        button_side: TitlebarButtonSide::Left,
+        height: OptionPixelValue::Some(PixelValue::px(height)),
+        button_area_width: OptionPixelValue::Some(PixelValue::px(78.0)),
+        padding_horizontal: OptionPixelValue::Some(PixelValue::px(8.0)),
+        ..TitlebarMetrics::default()
+    };
+    style
 }
 
 /// A row of a sidebar padded by the title bar area and a content pane that

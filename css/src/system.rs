@@ -4702,10 +4702,9 @@ mod titlebar_area_tests {
     };
 
     fn style(platform: Platform, side: TitlebarButtonSide) -> SystemStyle {
-        let mut style = SystemStyle {
-            platform,
-            ..SystemStyle::default()
-        };
+        // `SystemStyle` implements `Drop`, so it is built field by field.
+        let mut style = SystemStyle::default();
+        style.platform = platform;
         style.metrics.titlebar = TitlebarMetrics {
             button_side: side,
             height: OptionPixelValue::Some(PixelValue::px(28.0)),
