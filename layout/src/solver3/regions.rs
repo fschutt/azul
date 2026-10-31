@@ -21,7 +21,9 @@
 //! ([`BoxFragment`]) and on every region what it shows ([`RegionContent`]);
 //! the display list paints each region's part of the flow in that region's
 //! place in the painting order (a region is a stacking context). What does
-//! not fit the last region runs on below it and is reported, never hidden
+//! not fit the last region runs on below it, or, when that region has
+//! `region-fragment: break`, breaks off at its end as if another region
+//! followed and is not shown; either way it is reported
 //! ([`FlowReport::overflow`]).
 
 use alloc::{collections::BTreeMap, collections::BTreeSet, string::String, sync::Arc, vec::Vec};
@@ -36,7 +38,7 @@ use azul_core::{
 use azul_css::props::layout::{
     fragmentation::{BreakInside, PageBreak},
     FlowFrom, FlowInto, LayoutDisplay, LayoutFloat, LayoutPosition, LayoutWritingMode,
-    ShapeInside,
+    RegionFragment, ShapeInside,
 };
 
 use crate::{
@@ -104,6 +106,20 @@ fn flow_from(styled_dom: &StyledDom, id: NodeId) -> Option<String> {
         FlowFrom::Named(name) => Some(name.as_str().into()),
         FlowFrom::None => None,
     }
+}
+
+/// The `region-fragment` of the region `id`.
+fn region_fragment(styled_dom: &StyledDom, id: NodeId) -> Option<RegionFragment> {
+    let nodes = styled_dom.node_data.as_container();
+    let node_data = nodes.get(id)?;
+    let styled_nodes = styled_dom.styled_nodes.as_container();
+    let state = &styled_nodes.get(id)?.styled_node_state;
+    styled_dom
+        .css_property_cache
+        .ptr
+        .get_region_fragment(node_data, &id, state)?
+        .get_property()
+        .copied()
 }
 
 /// Whether `id` can be a region: a non-replaced block container (CSS
@@ -411,6 +427,9 @@ pub struct FlowData {
     /// The parts of this box of a named flow, one per region it reaches, in
     /// the order of the chain.
     pub fragments: Vec<BoxFragment>,
+    /// Whether no region shows this box of a named flow: all of it lies past
+    /// the end of a last region of `region-fragment: break`.
+    pub hidden: bool,
     /// What this box shows as a region.
     pub region: Option<RegionContent>,
     /// On the root box: what each named flow of the document came to.
@@ -517,7 +536,9 @@ pub struct FlowOverflow {
     /// The last region of the chain, `None` for a flow without regions.
     pub last_region: Option<usize>,
     /// How much taller the last region would have to be to hold the rest, in
-    /// px.
+    /// px: how far the content runs past its end. Content a forced break
+    /// moved past the end of a last region of `region-fragment: break` counts
+    /// from the region's end, whatever room the region had left.
     pub needed_height: f32,
 }
 
@@ -586,7 +607,15 @@ enum Kind {
 
 /// The state of one flow's walk through its chain.
 struct FlowWalk<'r> {
+    /// The regions, and after a last region of `region-fragment: break` the
+    /// room past its end ([`room_past`]).
     chain: Vec<Fragmentainer>,
+    /// How many of `chain` are regions; the content placed in the room past
+    /// them is not shown.
+    shown: usize,
+    /// The block offset where the walk left the last region for the room
+    /// past it: the region's end when a forced break did.
+    pen_at_end: f32,
     /// The region the walk is in.
     region: usize,
     /// The block offset in it.
@@ -603,7 +632,7 @@ struct FlowWalk<'r> {
     /// A forced break the last box asked for after it.
     break_pending: bool,
     /// The first box whose content runs past the end of the chain's last
-    /// region.
+    /// region, or goes into the room past it.
     first_overflowing: Option<usize>,
     /// The region reports, one per region of the chain.
     reports: &'r mut Vec<RegionReport>,
@@ -678,10 +707,21 @@ fn lay_out_named_flow<T: ParsedFontTrait>(
         return report;
     };
     let content: Vec<usize> = tree.children(first).to_vec();
-    let chain: Vec<Fragmentainer> = regions
+    let mut chain: Vec<Fragmentainer> = regions
         .iter()
         .map(|&region| fragmentainer(ctx, tree, positions, region))
         .collect();
+    let shown = chain.len();
+    let breaks_at_its_end = chain
+        .last()
+        .and_then(|last| tree.get(LayoutNodeId::new(last.node))?.dom_node_id)
+        .and_then(|dom| region_fragment(ctx.styled_dom, dom))
+        == Some(RegionFragment::Break);
+    if breaks_at_its_end {
+        chain.push(room_past(&chain[shown - 1]));
+    }
+    // One report per entry of the chain while the walk records into them;
+    // the room past the last region's is dropped after it.
     report.regions = chain
         .iter()
         .map(|f| RegionReport {
@@ -694,6 +734,8 @@ fn lay_out_named_flow<T: ParsedFontTrait>(
         .collect();
     let mut walk = FlowWalk {
         chain,
+        shown,
+        pen_at_end: 0.0,
         region: 0,
         pen: 0.0,
         margins: Margins::default(),
@@ -714,12 +756,17 @@ fn lay_out_named_flow<T: ParsedFontTrait>(
     let chain = core::mem::take(&mut walk.chain);
     drop(walk);
     report.overflow = overflow;
+    report.regions.truncate(shown);
     for (node, parts) in fragments {
         if let Some(warm) = tree.warm_mut(LayoutNodeId::new(node)) {
-            warm.flow.get_or_insert_with(Box::default).fragments = parts;
+            let flow = warm.flow.get_or_insert_with(Box::default);
+            // Every box the walk placed has a part somewhere: one without a
+            // part a region shows lies wholly past the chain's end.
+            flow.hidden = parts.is_empty();
+            flow.fragments = parts;
         }
     }
-    for region in &chain {
+    for region in &chain[..shown] {
         if let Some(warm) = tree.warm_mut(LayoutNodeId::new(region.node)) {
             warm.flow.get_or_insert_with(Box::default).region = Some(RegionContent {
                 flow: report_index,
@@ -772,6 +819,25 @@ fn fragmentainer<T: ParsedFontTrait>(
         node,
         content,
         shape,
+        floats: Vec::new(),
+    }
+}
+
+/// The room past the end of `last`, a last region of `region-fragment:
+/// break`: an endless fragmentainer of its width right below it, without its
+/// shape. The content breaks off the region as if this one followed it, and
+/// what goes here is measured for the report and not shown.
+fn room_past(last: &Fragmentainer) -> Fragmentainer {
+    Fragmentainer {
+        node: last.node,
+        content: LogicalRect::new(
+            LogicalPosition::new(
+                last.content.origin.x,
+                last.content.origin.y + last.content.size.height,
+            ),
+            LogicalSize::new(last.content.size.width, f32::INFINITY),
+        ),
+        shape: None,
         floats: Vec::new(),
     }
 }
@@ -859,9 +925,9 @@ impl FlowWalk<'_> {
         self.region + 1 >= self.chain.len()
     }
 
-    /// The block size the region the walk is in gives its content: the last
-    /// region of the chain is endless, what runs past its end is the flow's
-    /// overflow.
+    /// The block size the region the walk is in gives its content: the end
+    /// of the chain is endless, the last region, what runs past whose end is
+    /// the flow's overflow, or the room past a breaking last region.
     fn extent(&self) -> f32 {
         if self.in_last_region() {
             f32::INFINITY
@@ -874,6 +940,10 @@ impl FlowWalk<'_> {
     fn next_region(&mut self, forced: bool) -> bool {
         if self.in_last_region() {
             return false;
+        }
+        if self.region + 1 == self.shown {
+            let end = self.here().content.size.height;
+            self.pen_at_end = if forced { end.max(self.pen) } else { self.pen };
         }
         self.region += 1;
         self.pen = 0.0;
@@ -898,22 +968,33 @@ impl FlowWalk<'_> {
     fn note_content(&mut self, node: usize, bottom: f32) {
         self.holds_content = true;
         self.truncates_margins = false;
-        if self.in_last_region()
-            && bottom > self.here().content.size.height + 0.01
-            && self.first_overflowing.is_none()
-        {
+        let past_the_end = self.region >= self.shown
+            || (self.region + 1 == self.shown
+                && bottom > self.here().content.size.height + 0.01);
+        if past_the_end && self.first_overflowing.is_none() {
             self.first_overflowing = Some(node);
         }
     }
 
-    /// Ends the walk: the content that ran past the end of the last region
-    /// is the flow's overflow.
+    /// Whether the walk is in the room past a breaking last region.
+    const fn past_the_last_region(&self) -> bool {
+        self.region >= self.shown
+    }
+
+    /// Ends the walk: the content that ran past the end of the last region,
+    /// or went into the room past it, is the flow's overflow.
     fn finish(&mut self, tree: &LayoutTree) {
-        let height = self.here().content.size.height;
-        let past = self.pen - height;
-        if !self.in_last_region() || past <= 0.01 {
+        let last = self.shown - 1;
+        let used = match self.region.cmp(&last) {
+            core::cmp::Ordering::Less => return,
+            core::cmp::Ordering::Equal => self.pen,
+            core::cmp::Ordering::Greater => self.pen_at_end + self.pen,
+        };
+        let past = used - self.chain[last].content.size.height;
+        if !self.past_the_last_region() && past <= 0.01 {
             return;
         }
+        let past = past.max(0.0);
         if let Some(overflow) = &mut self.overflow {
             overflow.needed_height = past;
             return;
@@ -926,9 +1007,21 @@ impl FlowWalk<'_> {
                 .and_then(|n| n.dom_node_id),
             text_node: None,
             byte_offset: None,
-            last_region: Some(self.here().node),
+            last_region: Some(self.chain[last].node),
             needed_height: past,
         });
+    }
+
+    /// Keeps the parts of `node`, each with the index of its entry in the
+    /// chain, that a region shows: none of those in the room past a breaking
+    /// last region.
+    fn keep_parts(&mut self, node: usize, parts: Vec<(usize, BoxFragment)>) {
+        let shown = parts
+            .into_iter()
+            .filter(|(region, _)| *region < self.shown)
+            .map(|(_, part)| part)
+            .collect();
+        self.fragments.insert(node, shown);
     }
 
     /// Applies the break its previous sibling asked for after it and
@@ -1097,23 +1190,26 @@ impl FlowWalk<'_> {
         inset: Inset,
         start: (usize, f32),
     ) {
-        let parts: Vec<BoxFragment> = (start.0..=self.region)
-            .map(|region| BoxFragment {
-                region: self.chain[region].node,
-                rect: self.part_rect(tree, node, inset, region, start),
-                starts: region == start.0,
-                ends: region == self.region,
-                whole: false,
-                lines: None,
+        let parts: Vec<(usize, BoxFragment)> = (start.0..=self.region)
+            .map(|region| {
+                let part = BoxFragment {
+                    region: self.chain[region].node,
+                    rect: self.part_rect(tree, node, inset, region, start),
+                    starts: region == start.0,
+                    ends: region == self.region,
+                    whole: false,
+                    lines: None,
+                };
+                (region, part)
             })
             .collect();
-        if let Some(first) = parts.first() {
+        if let Some((_, first)) = parts.first() {
             super::pos_set(positions, node, first.rect.origin);
             if let Some(hot) = tree.get_mut(LayoutNodeId::new(node)) {
                 hot.used_size = Some(first.rect.size);
             }
         }
-        self.fragments.insert(node, parts);
+        self.keep_parts(node, parts);
     }
 
     /// Lays a box out whole at the pen, in the first region from here on
@@ -1172,17 +1268,15 @@ impl FlowWalk<'_> {
         self.pen += size.height;
         self.note_content(node, self.pen);
         self.reports[self.region].boxes.push(node);
-        self.fragments.insert(
-            node,
-            alloc::vec![BoxFragment {
-                region: self.here().node,
-                rect: LogicalRect::new(to, size),
-                starts: true,
-                ends: true,
-                whole: true,
-                lines: None,
-            }],
-        );
+        let part = BoxFragment {
+            region: self.here().node,
+            rect: LogicalRect::new(to, size),
+            starts: true,
+            ends: true,
+            whole: true,
+            lines: None,
+        };
+        self.keep_parts(node, alloc::vec![(self.region, part)]);
         self.margins.add(bp.margin.bottom);
     }
 
@@ -1264,17 +1358,15 @@ impl FlowWalk<'_> {
         });
         self.note_content(node, top);
         self.reports[region].boxes.push(node);
-        self.fragments.insert(
-            node,
-            alloc::vec![BoxFragment {
-                region: self.chain[region].node,
-                rect: LogicalRect::new(to, size),
-                starts: true,
-                ends: true,
-                whole: true,
-                lines: None,
-            }],
-        );
+        let part = BoxFragment {
+            region: self.chain[region].node,
+            rect: LogicalRect::new(to, size),
+            starts: true,
+            ends: true,
+            whole: true,
+            lines: None,
+        };
+        self.keep_parts(node, alloc::vec![(region, part)]);
     }
 
     /// Lays a paragraph out region by region. `false` when it has no inline
@@ -1401,9 +1493,13 @@ impl FlowWalk<'_> {
                 self.pen += edges.top;
                 continue;
             }
-            // In the last region the lines past its end are the flow's
-            // overflow: the first of them is where the overflow starts.
-            if self.in_last_region() && self.overflow.is_none() {
+            // Where the flow's overflow starts, unless a box before ran past
+            // the end: the text a breaking last region leaves to the room
+            // past it, or the first line past the end of an endless one.
+            let first_past = self.overflow.is_none() && self.first_overflowing.is_none();
+            if first_past && self.past_the_last_region() {
+                self.paragraph_overflow(tree, node, &flow);
+            } else if first_past && self.in_last_region() {
                 let mut room = constraints.clone();
                 room.available_height =
                     Some((self.here().content.size.height - self.pen - edges.bottom).max(0.0));
@@ -1556,7 +1652,7 @@ impl FlowWalk<'_> {
     }
 
     /// Records a paragraph's parts: each region's lines on their own, the
-    /// whole paragraph's lines from its first part's content box (the
+    /// whole paragraph's shown lines from its first part's content box (the
     /// selection, the caret and hit-testing read the paragraph as one
     /// layout), and its atomic inlines where their lines put them.
     #[allow(clippy::too_many_arguments)]
@@ -1575,8 +1671,11 @@ impl FlowWalk<'_> {
         let first_rect = self.part_rect(tree, node, inset, start.0, start);
         let first_content =
             LogicalPosition::new(first_rect.origin.x + edges.left, first_rect.origin.y + edges.top);
-        let mut fragments = Vec::new();
+        let mut fragments: Vec<(usize, BoxFragment)> = Vec::new();
         let mut whole_items: Vec<PositionedItem> = Vec::new();
+        // The lines in the room past a breaking last region: not shown, but
+        // the atomic inlines on them still need a place.
+        let mut past_items: Vec<PositionedItem> = Vec::new();
         for region in start.0..=self.region {
             let rect = self.part_rect(tree, node, inset, region, start);
             // A part's lines stand from the content box of its rect.
@@ -1594,23 +1693,27 @@ impl FlowWalk<'_> {
                     AvailableSpace::Definite(text_width),
                     false,
                 )));
-                whole_items.extend(
-                    shift_layout(
-                        &part.layout,
-                        part.origin.x - first_content.x,
-                        part.origin.y - first_content.y,
-                    )
-                    .items,
-                );
+                let items = shift_layout(
+                    &part.layout,
+                    part.origin.x - first_content.x,
+                    part.origin.y - first_content.y,
+                )
+                .items;
+                if region < self.shown {
+                    whole_items.extend(items);
+                } else {
+                    past_items.extend(items);
+                }
             }
-            fragments.push(BoxFragment {
+            let part = BoxFragment {
                 region: self.chain[region].node,
                 rect,
                 starts: region == start.0,
                 ends: region == self.region,
                 whole: false,
                 lines,
-            });
+            };
+            fragments.push((region, part));
         }
         super::pos_set(positions, node, first_rect.origin);
         if let Some(hot) = tree.get_mut(LayoutNodeId::new(node)) {
@@ -1627,10 +1730,18 @@ impl FlowWalk<'_> {
                 false,
             )));
         }
+        let every_line = if past_items.is_empty() {
+            whole
+        } else {
+            Arc::new(UnifiedLayout {
+                items: whole.items.iter().cloned().chain(past_items).collect(),
+                overflow: crate::text3::cache::OverflowInfo::default(),
+            })
+        };
         // The atomic inlines (inline-blocks, images) stand where their lines
         // put them, in the region of their line.
         let output = fc::finish_inline_layout(
-            &whole,
+            &every_line,
             &paragraph.constraints,
             styled_dom,
             paragraph.style_dom_id,
@@ -1643,23 +1754,21 @@ impl FlowWalk<'_> {
                 .get(LayoutNodeId::new(child))
                 .and_then(|n| n.used_size)
                 .unwrap_or_default();
-            let region = fragments
+            let (index, region) = fragments
                 .iter()
-                .find(|f| f.rect.contains(to))
-                .map_or(fragments[0].region, |f| f.region);
-            self.fragments.insert(
-                child,
-                alloc::vec![BoxFragment {
-                    region,
-                    rect: LogicalRect::new(to, size),
-                    starts: true,
-                    ends: true,
-                    whole: true,
-                    lines: None,
-                }],
-            );
+                .find(|(_, f)| f.rect.contains(to))
+                .unwrap_or(&fragments[0]);
+            let part = BoxFragment {
+                region: region.region,
+                rect: LogicalRect::new(to, size),
+                starts: true,
+                ends: true,
+                whole: true,
+                lines: None,
+            };
+            self.keep_parts(child, alloc::vec![(*index, part)]);
         }
-        self.fragments.insert(node, fragments);
+        self.keep_parts(node, fragments);
     }
 }
 

@@ -1,4 +1,5 @@
-//! CSS properties for flowing content into regions (`flow-into`, `flow-from`).
+//! CSS properties for flowing content into regions (`flow-into`,
+//! `flow-from`, `region-fragment`).
 
 use alloc::string::{String, ToString};
 
@@ -72,6 +73,29 @@ impl PrintAsCssValue for FlowFrom {
     }
 }
 
+// --- region-fragment ---
+/// CSS `region-fragment` property: what the last region of a named flow does
+/// with the content it has no room for (CSS Regions 1, 6.1).
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(C)]
+pub enum RegionFragment {
+    /// The content runs on past the region's end, as its overflow (default).
+    #[default]
+    Auto,
+    /// The content breaks at the region's end as if another region followed,
+    /// and what would go on there is not shown.
+    Break,
+}
+
+impl PrintAsCssValue for RegionFragment {
+    fn print_as_css_value(&self) -> String {
+        String::from(match self {
+            Self::Auto => "auto",
+            Self::Break => "break",
+        })
+    }
+}
+
 // Formatting to Rust code
 #[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for FlowInto {
@@ -100,6 +124,16 @@ impl crate::codegen::format::FormatAsRustCode for FlowFrom {
                 s.as_str()
             ),
         }
+    }
+}
+
+#[cfg(feature = "codegen")]
+impl crate::codegen::format::FormatAsRustCode for RegionFragment {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        String::from(match self {
+            Self::Auto => "RegionFragment::Auto",
+            Self::Break => "RegionFragment::Break",
+        })
     }
 }
 
@@ -179,6 +213,13 @@ pub mod parser {
         FlowFromParseErrorOwned,
         "flow-from"
     );
+    define_flow_parser!(
+        parse_region_fragment,
+        RegionFragment,
+        RegionFragmentParseError,
+        RegionFragmentParseErrorOwned,
+        "region-fragment"
+    );
 
     /// Whether `name` can name a flow: a CSS identifier other than the
     /// keywords CSS Regions 1 rules out (`none`, `inherit`, `default`,
@@ -234,6 +275,20 @@ pub mod parser {
                 Some(Self::None)
             } else if is_flow_name(trimmed) {
                 Some(Self::Named(trimmed.to_string().into()))
+            } else {
+                None
+            }
+        }
+    }
+
+    impl RegionFragment {
+        /// `region-fragment`: `auto | break`.
+        fn parsed(input: &str) -> Option<Self> {
+            let trimmed = input.trim();
+            if trimmed.eq_ignore_ascii_case("auto") {
+                Some(Self::Auto)
+            } else if trimmed.eq_ignore_ascii_case("break") {
+                Some(Self::Break)
             } else {
                 None
             }
@@ -299,5 +354,18 @@ mod tests {
             FlowFrom::Named("main-thread".into())
         );
         assert!(parse_flow_from("").is_err());
+    }
+
+    #[test]
+    fn region_fragment_is_auto_or_break() {
+        assert_eq!(parse_region_fragment("auto"), Ok(RegionFragment::Auto));
+        assert_eq!(parse_region_fragment(" Break "), Ok(RegionFragment::Break));
+        assert_eq!(RegionFragment::default(), RegionFragment::Auto);
+        for value in [RegionFragment::Auto, RegionFragment::Break] {
+            assert_eq!(parse_region_fragment(&value.print_as_css_value()), Ok(value));
+        }
+        for value in ["", "none", "clip", "break auto"] {
+            assert!(parse_region_fragment(value).is_err(), "region-fragment: {value}");
+        }
     }
 }

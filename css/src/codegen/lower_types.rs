@@ -198,6 +198,7 @@ pub(crate) fn lower_css_property(p: &crate::props::property::CssProperty) -> Exp
         P::ColumnRuleColor(v) => prop_value(v, "ColumnRuleColor", "ColumnRuleColorValue", "ColumnRuleColor", Some("column_rule_color")),
         P::FlowInto(v) => prop_value(v, "FlowInto", "FlowIntoValue", "FlowInto", Some("flow_into")),
         P::FlowFrom(v) => prop_value(v, "FlowFrom", "FlowFromValue", "FlowFrom", Some("flow_from")),
+        P::RegionFragment(v) => prop_value(v, "RegionFragment", "RegionFragmentValue", "RegionFragment", Some("region_fragment")),
         P::ShapeOutside(v) => prop_value(v, "ShapeOutside", "ShapeOutsideValue", "ShapeOutside", Some("shape_outside")),
         P::ShapeInside(v) => prop_value(v, "ShapeInside", "ShapeInsideValue", "ShapeInside", Some("shape_inside")),
         P::ClipPath(v) => prop_value(v, "ClipPath", "ClipPathValue", "ClipPath", Some("clip_path")),
@@ -2467,6 +2468,9 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("ReferencePickerOnEventCallback", "dom"),
     ("ReferencePickerOnEventCallbackType", "callbacks"),
     ("RefstrVecRef", "vec"),
+    ("RegionFragment", "css"),
+    ("RegionFragmentParseErrorOwned", "xml"),
+    ("RegionFragmentValue", "css"),
     ("RegisterComponentLibraryFn", "component"),
     ("RegisterComponentLibraryFnType", "component"),
     ("RelayoutReason", "callbacks"),
@@ -3793,6 +3797,7 @@ pub(crate) static C_LIKE_ENUMS: &[&str] = &[
     "PageBreak",
     "PseudoStateType",
     "RadialGradientSize",
+    "RegionFragment",
     "ScrollbarVisibilityMode",
     "Shape",
     "ShapeFillRule",
@@ -4025,6 +4030,7 @@ pub(crate) static CSS_PROPERTY_ALIASES: &[(&str, &str, &str)] = &[
     ("ColumnRuleColor", "ColumnRuleColorValue", "column_rule_color"),
     ("FlowInto", "FlowIntoValue", "flow_into"),
     ("FlowFrom", "FlowFromValue", "flow_from"),
+    ("RegionFragment", "RegionFragmentValue", "region_fragment"),
     ("ShapeOutside", "ShapeOutsideValue", "shape_outside"),
     ("ShapeInside", "ShapeInsideValue", "shape_inside"),
     ("ClipPath", "ClipPathValue", "clip_path"),
@@ -4248,6 +4254,7 @@ pub(crate) static CSS_PROPERTY_VARIANTS: &[&str] = &[
     "ColumnRuleColor",
     "FlowInto",
     "FlowFrom",
+    "RegionFragment",
     "ShapeOutside",
     "ShapeInside",
     "ClipPath",
@@ -6322,6 +6329,16 @@ impl Lower for crate::props::style::background::RadialGradientSize {
             Self::FarthestCorner => "FarthestCorner",
         };
         Expr::unit("RadialGradientSize", EnumShape::CLike, variant)
+    }
+}
+
+impl Lower for crate::props::layout::flow::RegionFragment {
+    fn lower(&self) -> Expr {
+        let variant = match self {
+            Self::Auto => "Auto",
+            Self::Break => "Break",
+        };
+        Expr::unit("RegionFragment", EnumShape::CLike, variant)
     }
 }
 

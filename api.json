@@ -40032,6 +40032,9 @@
                                 "FlowFrom": {
                                     "type": "FlowFromValue"
                                 },
+                                "RegionFragment": {
+                                    "type": "RegionFragmentValue"
+                                },
                                 "ShapeOutside": {
                                     "type": "ShapeOutsideValue"
                                 },
@@ -41165,6 +41168,14 @@
                                     }
                                 ],
                                 "fn_body": "azul_css::props::property::CssProperty::background_color(input)"
+                            },
+                            "region_fragment": {
+                                "fn_args": [
+                                    {
+                                        "input": "RegionFragment"
+                                    }
+                                ],
+                                "fn_body": "azul_css::props::property::CssProperty::region_fragment(input)"
                             }
                         },
                         "functions": {
@@ -51552,6 +51563,7 @@
                                 "ColumnRuleColor": {},
                                 "FlowInto": {},
                                 "FlowFrom": {},
+                                "RegionFragment": {},
                                 "ShapeOutside": {},
                                 "ShapeInside": {},
                                 "ClipPath": {},
@@ -60219,6 +60231,37 @@
                             }
                         ],
                         "repr": "C, u8"
+                    },
+                    "RegionFragment": {
+                        "external": "azul_css::props::layout::flow::RegionFragment",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Auto": {},
+                                "Break": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "RegionFragmentValue": {
+                        "external": "azul_css::props::property::RegionFragmentValue",
+                        "repr": "C",
+                        "type_alias": {
+                            "target": "CssPropertyValue",
+                            "generic_args": [
+                                "RegionFragment"
+                            ]
+                        }
                     }
                 }
             },
@@ -132592,6 +132635,22 @@
                             }
                         ],
                         "repr": "C, u8"
+                    },
+                    "RegionFragmentParseErrorOwned": {
+                        "external": "azul_css::props::layout::flow::parser::RegionFragmentParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
                     }
                 }
             },
@@ -190342,6 +190401,9 @@
                                 },
                                 "FlowFrom": {
                                     "type": "FlowFromParseErrorOwned"
+                                },
+                                "RegionFragment": {
+                                    "type": "RegionFragmentParseErrorOwned"
                                 },
                                 "GenericParseError": {},
                                 "Content": {},

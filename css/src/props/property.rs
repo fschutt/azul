@@ -112,7 +112,7 @@ const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &str); 33] = [
     (CombinedCssPropertyType::BorderWidth, "stroke-width"),
 ];
 
-const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 207] = [
+const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 208] = [
     (CssPropertyType::Display, "display"),
     (CssPropertyType::Float, "float"),
     (CssPropertyType::BoxSizing, "box-sizing"),
@@ -363,6 +363,7 @@ const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 207] = [
     (CssPropertyType::ColumnRuleColor, "column-rule-color"),
     (CssPropertyType::FlowInto, "flow-into"),
     (CssPropertyType::FlowFrom, "flow-from"),
+    (CssPropertyType::RegionFragment, "region-fragment"),
     (CssPropertyType::ShapeOutside, "shape-outside"),
     (CssPropertyType::ShapeInside, "shape-inside"),
     (CssPropertyType::ClipPath, "clip-path"),
@@ -549,6 +550,7 @@ pub type ColumnRuleStyleValue = CssPropertyValue<ColumnRuleStyle>;
 pub type ColumnRuleColorValue = CssPropertyValue<ColumnRuleColor>;
 pub type FlowIntoValue = CssPropertyValue<FlowInto>;
 pub type FlowFromValue = CssPropertyValue<FlowFrom>;
+pub type RegionFragmentValue = CssPropertyValue<RegionFragment>;
 pub type ShapeOutsideValue = CssPropertyValue<ShapeOutside>;
 pub type ShapeInsideValue = CssPropertyValue<ShapeInside>;
 pub type ClipPathValue = CssPropertyValue<ClipPath>;
@@ -915,6 +917,7 @@ pub enum CssProperty {
     ColumnRuleColor(ColumnRuleColorValue),
     FlowInto(FlowIntoValue),
     FlowFrom(FlowFromValue),
+    RegionFragment(RegionFragmentValue),
     ShapeOutside(ShapeOutsideValue),
     ShapeInside(ShapeInsideValue),
     ClipPath(ClipPathValue),
@@ -1193,6 +1196,7 @@ pub enum CssPropertyType {
     ColumnRuleColor,
     FlowInto,
     FlowFrom,
+    RegionFragment,
     ShapeOutside,
     ShapeInside,
     ClipPath,
@@ -1402,6 +1406,7 @@ impl CssPropertyType {
         Self::ColumnRuleColor,
         Self::FlowInto,
         Self::FlowFrom,
+        Self::RegionFragment,
         Self::ShapeOutside,
         Self::ShapeInside,
         Self::ClipPath,
@@ -1654,6 +1659,7 @@ impl CssPropertyType {
             Self::ColumnRuleColor => "column-rule-color",
             Self::FlowInto => "flow-into",
             Self::FlowFrom => "flow-from",
+            Self::RegionFragment => "region-fragment",
             Self::ShapeOutside => "shape-outside",
             Self::ShapeInside => "shape-inside",
             Self::ClipPath => "clip-path",
@@ -2210,6 +2216,7 @@ pub enum CssParsingError<'a> {
     // Flow & Shape
     FlowInto(FlowIntoParseError<'a>),
     FlowFrom(FlowFromParseError<'a>),
+    RegionFragment(RegionFragmentParseError<'a>),
     GenericParseError,
 
     // Content
@@ -2391,6 +2398,7 @@ pub enum CssParsingErrorOwned {
     // Flow & Shape
     FlowInto(FlowIntoParseErrorOwned),
     FlowFrom(FlowFromParseErrorOwned),
+    RegionFragment(RegionFragmentParseErrorOwned),
     GenericParseError,
 
     // Content
@@ -2542,6 +2550,7 @@ impl_display! { CssParsingError<'a>, {
     ColumnRuleColor(e) => format!("Invalid column-rule-color: {}", e),
     FlowInto(e) => format!("Invalid flow-into: {}", e),
     FlowFrom(e) => format!("Invalid flow-from: {}", e),
+    RegionFragment(e) => format!("Invalid region-fragment: {}", e),
     GenericParseError => "Failed to parse value",
     Content => "Failed to parse content property",
     Counter => "Failed to parse counter property",
@@ -2995,6 +3004,7 @@ impl_from!(
 impl_from!(FlowIntoParseError<'a>, CssParsingError::FlowInto);
 #[cfg(feature = "parser")]
 impl_from!(FlowFromParseError<'a>, CssParsingError::FlowFrom);
+impl_from!(RegionFragmentParseError<'a>, CssParsingError::RegionFragment);
 
 #[cfg(feature = "parser")]
 impl<'a> From<InvalidValueErr<'a>> for CssParsingError<'a> {
@@ -3304,6 +3314,9 @@ impl CssParsingError<'_> {
             }
             CssParsingError::FlowInto(e) => CssParsingErrorOwned::FlowInto(e.to_contained()),
             CssParsingError::FlowFrom(e) => CssParsingErrorOwned::FlowFrom(e.to_contained()),
+            CssParsingError::RegionFragment(e) => {
+                CssParsingErrorOwned::RegionFragment(e.to_contained())
+            }
             CssParsingError::GenericParseError => CssParsingErrorOwned::GenericParseError,
             CssParsingError::Content => CssParsingErrorOwned::Content,
             CssParsingError::Counter => CssParsingErrorOwned::Counter,
@@ -3477,6 +3490,7 @@ impl CssParsingErrorOwned {
             Self::ColumnRuleColor(e) => CssParsingError::ColumnRuleColor(e.to_shared()),
             Self::FlowInto(e) => CssParsingError::FlowInto(e.to_shared()),
             Self::FlowFrom(e) => CssParsingError::FlowFrom(e.to_shared()),
+            Self::RegionFragment(e) => CssParsingError::RegionFragment(e.to_shared()),
             Self::GenericParseError => CssParsingError::GenericParseError,
             Self::Content => CssParsingError::Content,
             Self::Counter => CssParsingError::Counter,
@@ -3954,6 +3968,9 @@ pub fn parse_css_property(
             }
             CssPropertyType::FlowInto => CssProperty::FlowInto(parse_flow_into(value)?.into()),
             CssPropertyType::FlowFrom => CssProperty::FlowFrom(parse_flow_from(value)?.into()),
+            CssPropertyType::RegionFragment => {
+                CssProperty::RegionFragment(parse_region_fragment(value)?.into())
+            }
             CssPropertyType::ShapeOutside => CssProperty::ShapeOutside(CssPropertyValue::Exact(
                 parse_shape_outside(value).map_err(|_| CssParsingError::GenericParseError)?,
             )),
@@ -5355,6 +5372,7 @@ impl_from_css_prop!(ColumnRuleStyle, CssProperty::ColumnRuleStyle);
 impl_from_css_prop!(ColumnRuleColor, CssProperty::ColumnRuleColor);
 impl_from_css_prop!(FlowInto, CssProperty::FlowInto);
 impl_from_css_prop!(FlowFrom, CssProperty::FlowFrom);
+impl_from_css_prop!(RegionFragment, CssProperty::RegionFragment);
 impl_from_css_prop!(ShapeOutside, CssProperty::ShapeOutside);
 impl_from_css_prop!(ShapeInside, CssProperty::ShapeInside);
 impl_from_css_prop!(ClipPath, CssProperty::ClipPath);
@@ -5596,6 +5614,7 @@ impl CssProperty {
             Self::ColumnRuleColor(v) => v.get_css_value_fmt(),
             Self::FlowInto(v) => v.get_css_value_fmt(),
             Self::FlowFrom(v) => v.get_css_value_fmt(),
+            Self::RegionFragment(v) => v.get_css_value_fmt(),
             Self::ShapeOutside(v) => v.get_css_value_fmt(),
             Self::ShapeInside(v) => v.get_css_value_fmt(),
             Self::ClipPath(v) => v.get_css_value_fmt(),
@@ -6175,6 +6194,7 @@ impl CssProperty {
             Self::ColumnRuleColor(v) => v.css_wide_keyword(),
             Self::FlowInto(v) => v.css_wide_keyword(),
             Self::FlowFrom(v) => v.css_wide_keyword(),
+            Self::RegionFragment(v) => v.css_wide_keyword(),
             Self::ShapeOutside(v) => v.css_wide_keyword(),
             Self::ShapeInside(v) => v.css_wide_keyword(),
             Self::ClipPath(v) => v.css_wide_keyword(),
@@ -6387,6 +6407,7 @@ impl CssProperty {
             Self::ColumnRuleColor(_) => CssPropertyType::ColumnRuleColor,
             Self::FlowInto(_) => CssPropertyType::FlowInto,
             Self::FlowFrom(_) => CssPropertyType::FlowFrom,
+            Self::RegionFragment(_) => CssPropertyType::RegionFragment,
             Self::ShapeOutside(_) => CssPropertyType::ShapeOutside,
             Self::ShapeInside(_) => CssPropertyType::ShapeInside,
             Self::ClipPath(_) => CssPropertyType::ClipPath,
@@ -6859,6 +6880,10 @@ impl CssProperty {
     #[must_use]
     pub const fn flow_from(input: FlowFrom) -> Self {
         Self::FlowFrom(CssPropertyValue::Exact(input))
+    }
+    #[must_use]
+    pub const fn region_fragment(input: RegionFragment) -> Self {
+        Self::RegionFragment(CssPropertyValue::Exact(input))
     }
     #[must_use]
     pub const fn shape_outside(input: ShapeOutside) -> Self {
@@ -8137,6 +8162,13 @@ impl CssProperty {
         }
     }
     #[must_use]
+    pub const fn as_region_fragment(&self) -> Option<&RegionFragmentValue> {
+        match self {
+            Self::RegionFragment(f) => Some(f),
+            _ => None,
+        }
+    }
+    #[must_use]
     pub const fn as_shape_outside(&self) -> Option<&ShapeOutsideValue> {
         match self {
             Self::ShapeOutside(f) => Some(f),
@@ -8398,7 +8430,8 @@ impl CssProperty {
             Opacity, Orphans, OverflowBlock, OverflowClipMargin, OverflowInline, OverflowWrap,
             OverflowX, OverflowY, OverscrollBehaviorX, OverscrollBehaviorY, PaddingBottom,
             PaddingInlineEnd, PaddingInlineStart, PaddingLeft, PaddingRight, PaddingTop,
-            PerspectiveOrigin, Position, Right, RowGap, ScrollbarButton, ScrollbarColor,
+            PerspectiveOrigin, Position, RegionFragment, Right, RowGap, ScrollbarButton,
+            ScrollbarColor,
             ScrollbarCorner, ScrollbarFadeDelay, ScrollbarFadeDuration, ScrollbarGutter,
             ScrollbarResizer, ScrollbarThumb, ScrollbarTrack, ScrollbarVisibility, ScrollbarWidth,
             SelectionBackgroundColor, SelectionColor, SelectionRadius, ShapeImageThreshold,
@@ -8585,6 +8618,7 @@ impl CssProperty {
             ColumnRuleColor(c) => c.is_initial(),
             FlowInto(c) => c.is_initial(),
             FlowFrom(c) => c.is_initial(),
+            RegionFragment(c) => c.is_initial(),
             ShapeOutside(c) => c.is_initial(),
             ShapeInside(c) => c.is_initial(),
             ClipPath(c) => c.is_initial(),
@@ -8988,6 +9022,10 @@ impl CssProperty {
     #[must_use]
     pub const fn const_flow_from(input: FlowFrom) -> Self {
         Self::FlowFrom(FlowFromValue::Exact(input))
+    }
+    #[must_use]
+    pub const fn const_region_fragment(input: RegionFragment) -> Self {
+        Self::RegionFragment(RegionFragmentValue::Exact(input))
     }
     #[must_use]
     pub const fn const_shape_outside(input: ShapeOutside) -> Self {
@@ -9796,6 +9834,10 @@ pub fn format_static_css_prop(prop: &CssProperty, tabs: usize) -> String {
         CssProperty::FlowFrom(p) => format!(
             "CssProperty::FlowFrom({})",
             print_css_property_value(p, tabs, "FlowFrom")
+        ),
+        CssProperty::RegionFragment(p) => format!(
+            "CssProperty::RegionFragment({})",
+            print_css_property_value(p, tabs, "RegionFragment")
         ),
         CssProperty::ShapeOutside(p) => format!(
             "CssProperty::ShapeOutside({})",
