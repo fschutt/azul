@@ -2149,6 +2149,55 @@ fn traffic_light_frames(
     (container, origins)
 }
 
+/// What a window's title bar is to its content, from what AppKit reports.
+///
+/// `band` is how much of the content view the title bar covers (the view's
+/// height less `contentLayoutRect`'s), `content` the content view's size and
+/// `buttons` the frames of the window's visible standard buttons in the
+/// content view's own coordinates (bottom-left origin, as it is not
+/// `isFlipped`). No band - a standard title bar above the content, or full
+/// screen, where it is hidden - is no area; otherwise the buttons' box is
+/// the room their row takes ([`TitlebarGeometry::around_controls`]).
+///
+/// [`TitlebarGeometry::around_controls`]: azul_css::system::TitlebarGeometry::around_controls
+fn titlebar_report(
+    band: f64,
+    content: (f64, f64),
+    buttons: &[(f64, f64, f64, f64)],
+) -> azul_css::system::TitlebarReport {
+    use azul_css::system::{TitlebarControls, TitlebarGeometry, TitlebarReport};
+
+    if band < 0.5 {
+        return TitlebarReport::NoArea;
+    }
+    let (width, height) = content;
+    let controls = buttons.iter().fold(None, |all: Option<TitlebarControls>, &(x, y, w, h)| {
+        // From the content's top, as CSS measures.
+        let top = (height - (y + h)) as f32;
+        let button = TitlebarControls {
+            left: x as f32,
+            top,
+            right: (x + w) as f32,
+            bottom: top + h as f32,
+        };
+        Some(all.map_or(button, |all| TitlebarControls {
+            left: all.left.min(button.left),
+            top: all.top.min(button.top),
+            right: all.right.max(button.right),
+            bottom: all.bottom.max(button.bottom),
+        }))
+    });
+    let band = band as f32;
+    TitlebarReport::Measured(controls.map_or(
+        TitlebarGeometry {
+            height: band,
+            left: 0.0,
+            right: 0.0,
+        },
+        |controls| TitlebarGeometry::around_controls(band, width as f32, controls),
+    ))
+}
+
 /// Whether a window of this background material shows what is behind it
 /// through its GL surface: every material but Opaque clears the frame to
 /// transparent, and the surface has to composite that alpha (a blur
@@ -2234,6 +2283,59 @@ mod traffic_light_tests {
             traffic_light_frames(600.0, 800.0, (-5.0, -3.0), (14.0, 16.0), 20.0);
         assert_eq!(container, (0.0, 584.0, 800.0, 16.0));
         assert_eq!(origins, [(0.0, 0.0), (20.0, 0.0), (40.0, 0.0)]);
+    }
+}
+
+#[cfg(test)]
+mod titlebar_report_tests {
+    use azul_css::system::{TitlebarGeometry, TitlebarReport};
+
+    use super::titlebar_report;
+
+    /// The lights moved to (20, 18) in an 800 x 600 content view under a
+    /// 28pt band: their frames as AppKit reports them (bottom-left origin)
+    /// make the same room the engine models for that position - 20pt
+    /// before, 54pt of buttons, 20pt after - and the 52pt row they are
+    /// centred in.
+    #[test]
+    fn measured_traffic_lights_take_the_room_the_engine_models_for_them() {
+        let buttons = [
+            (20.0, 566.0, 14.0, 16.0),
+            (40.0, 566.0, 14.0, 16.0),
+            (60.0, 566.0, 14.0, 16.0),
+        ];
+        assert_eq!(
+            titlebar_report(28.0, (800.0, 600.0), &buttons),
+            TitlebarReport::Measured(TitlebarGeometry {
+                height: 52.0,
+                left: 94.0,
+                right: 0.0,
+            })
+        );
+    }
+
+    /// Full screen hides the title bar, and a standard one sits above the
+    /// content: no band, no area.
+    #[test]
+    fn no_band_is_no_area() {
+        let buttons = [(12.0, 578.0, 14.0, 16.0)];
+        assert_eq!(
+            titlebar_report(0.0, (800.0, 600.0), &buttons),
+            TitlebarReport::NoArea
+        );
+    }
+
+    /// A title bar whose buttons are all hidden is the band alone.
+    #[test]
+    fn a_band_without_buttons_takes_no_room() {
+        assert_eq!(
+            titlebar_report(28.0, (800.0, 600.0), &[]),
+            TitlebarReport::Measured(TitlebarGeometry {
+                height: 28.0,
+                left: 0.0,
+                right: 0.0,
+            })
+        );
     }
 }
 
@@ -3725,6 +3827,8 @@ define_class!(
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     set_window_frame_and_dispatch(macos_window, WindowFrame::Fullscreen);
+                    // Full screen hides the title bar.
+                    macos_window.sync_titlebar_report();
                 }
                 log_debug!(LogCategory::Window, "[WindowDelegate] Window entered fullscreen");
             }
@@ -3740,6 +3844,7 @@ define_class!(
                     set_window_frame_and_dispatch(macos_window, WindowFrame::Normal);
                     // AppKit put the traffic lights back in its own place.
                     macos_window.apply_traffic_light_position();
+                    macos_window.sync_titlebar_report();
                 }
                 log_debug!(LogCategory::Window, "[WindowDelegate] Window exited fullscreen");
             }
@@ -3826,6 +3931,7 @@ define_class!(
                     // A resize lays the titlebar out again: the traffic
                     // lights back where the window's options put them.
                     macos_window.apply_traffic_light_position();
+                    macos_window.sync_titlebar_report();
                 }
             }
         }
@@ -3857,6 +3963,7 @@ define_class!(
 
                     // A key change can lay the titlebar out again.
                     macos_window.apply_traffic_light_position();
+                    macos_window.sync_titlebar_report();
 
                     // Notify accessibility adapter that the view is focused
                     #[cfg(feature = "a11y")]
@@ -7022,6 +7129,8 @@ impl MacOSWindow {
                 (cv.frame().size.height - self.window.contentLayoutRect().size.height).max(0.0);
             layout_safe_area_insets((i.top, i.left, i.bottom, i.right), titlebar_band)
         });
+        // The title bar as it stands now, for `env(titlebar-area-*)`.
+        let titlebar = self.measure_titlebar();
         // Consume the reason tag BEFORE borrowing the layout window: this is
         // the regeneration this window asked for, and the tag travels with
         // the request (see CommonWindowState::request_regeneration).
@@ -7029,6 +7138,7 @@ impl MacOSWindow {
 
         let borrows = self.common.layout_borrows();
         let layout_window = borrows.layout_window.ok_or("No layout window")?;
+        layout_window.frame_titlebar = titlebar;
         if let Some((top, left, bottom, right)) = safe_area {
             let mk = |v: f64| {
                 if v > 0.5 {
@@ -7463,6 +7573,7 @@ impl MacOSWindow {
             != current.platform_specific_options.mac_options.traffic_light_position
         {
             self.apply_traffic_light_position();
+            self.sync_titlebar_report();
         }
 
         // Window flags changed?
@@ -7472,6 +7583,7 @@ impl MacOSWindow {
                 self.apply_decorations(current.flags.decorations);
                 // Another titlebar: AppKit lays its buttons out anew.
                 self.apply_traffic_light_position();
+                self.sync_titlebar_report();
             }
 
             // Check resizable
@@ -7989,6 +8101,57 @@ impl MacOSWindow {
                 button.setFrameOrigin(NSPoint::new(x, y));
             }
         }
+    }
+
+    /// What this window's title bar is to its content, measured from AppKit
+    /// ([`titlebar_report`]): the band the title bar covers, and the frames of
+    /// its visible close / minimize / zoom buttons wherever they stand - in
+    /// AppKit's own place or where `traffic_light_position` put them.
+    /// `NSView` is main-thread-only, and so is every caller.
+    fn measure_titlebar(&self) -> azul_css::system::TitlebarReport {
+        let Some(cv) = self.window.contentView() else {
+            return azul_css::system::TitlebarReport::Unmeasured;
+        };
+        let size = cv.frame().size;
+        let band = (size.height - self.window.contentLayoutRect().size.height).max(0.0);
+        let mut buttons = Vec::with_capacity(3);
+        unsafe {
+            // NSWindowCloseButton = 0, NSWindowMiniaturizeButton = 1,
+            // NSWindowZoomButton = 2 (an NSUInteger enum).
+            for kind in 0usize..3 {
+                let button: Option<Retained<NSView>> =
+                    msg_send_id![&*self.window, standardWindowButton: kind];
+                let Some(button) = button else {
+                    continue;
+                };
+                let hidden: bool = msg_send![&*button, isHidden];
+                if hidden {
+                    continue;
+                }
+                let bounds: NSRect = msg_send![&*button, bounds];
+                let frame: NSRect = msg_send![&*button, convertRect: bounds, toView: &*cv];
+                buttons.push((frame.origin.x, frame.origin.y, frame.size.width, frame.size.height));
+            }
+        }
+        titlebar_report(band, (size.width, size.height), &buttons)
+    }
+
+    /// Measure the title bar again ([`Self::measure_titlebar`]) after AppKit
+    /// may have laid it out anew - a resize, full screen, a key change, a
+    /// new decoration, moved traffic lights - and lay the window out again
+    /// when it changed, so `env(titlebar-area-*)` follows it.
+    fn sync_titlebar_report(&mut self) {
+        let report = self.measure_titlebar();
+        let Some(layout_window) = self.common.layout_window.as_mut() else {
+            return;
+        };
+        if layout_window.frame_titlebar == report {
+            return;
+        }
+        layout_window.frame_titlebar = report;
+        self.common
+            .request_regeneration(azul_core::callbacks::RelayoutReason::Other);
+        self.request_redraw();
     }
 
     /// Apply window decorations changes
