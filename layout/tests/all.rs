@@ -1375,3 +1375,5 @@ mod a_text_column_keeps_off_the_exclusions_in_it;
 mod a_paragraph_split_across_frames_reads_as_one;
 #[path = "a_break_that_is_no_page_break_starts_no_page.rs"]
 mod a_break_that_is_no_page_break_starts_no_page;
+#[path = "a_named_flow_runs_through_its_regions.rs"]
+mod a_named_flow_runs_through_its_regions;
