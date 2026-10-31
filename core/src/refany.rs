@@ -29,7 +29,7 @@
 //! all atomic operations appear in a single global order visible to all threads, preventing
 //! race conditions where one thread doesn't see another's reference count updates.
 
-use alloc::{boxed::Box, string::String};
+use alloc::{boxed::Box, string::String, vec::Vec};
 use core::{
     alloc::Layout,
     ffi::c_void,

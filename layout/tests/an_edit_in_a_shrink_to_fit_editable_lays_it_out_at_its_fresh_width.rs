@@ -41,11 +41,19 @@ fn page(text: &str, css: &str) -> Dom {
 }
 
 /// The editable's letters: line, text and where its inline layout puts them.
+///
+/// A block keeps the inline layout of its text itself; an inline-block's
+/// content is laid out in a box the layout tree gives its text, so the
+/// layout is looked for on the editable and on its text.
 fn items_of(lw: &LayoutWindow) -> Vec<(usize, String, f32, f32)> {
     let tree = &lw.layout_results[&DomId::ROOT_ID].layout_tree;
-    let layout = (0..tree.nodes.len())
-        .filter(|&index| tree.nodes[index].dom_node_id == Some(NodeId::new(EDITABLE)))
-        .find_map(|index| tree.materialized_inline_layout_for_node(index))
+    let layout = [EDITABLE, EDITABLE + 1]
+        .into_iter()
+        .find_map(|dom| {
+            (0..tree.nodes.len())
+                .filter(|&index| tree.nodes[index].dom_node_id == Some(NodeId::new(dom)))
+                .find_map(|index| tree.materialized_inline_layout_for_node(index))
+        })
         .expect("the editable has an inline layout");
     layout
         .items
@@ -110,3 +118,4 @@ fn a_word_typed_into_an_absolutely_positioned_editable_does_not_wrap() {
         "display: block; position: absolute; left: 0px; top: 40px;",
     );
 }
+

@@ -2528,6 +2528,31 @@ fn copy_trace(msg: impl FnOnce() -> String) {
 /// An edited paragraph's logical items and the items they shaped into.
 type ShapedForRelayout = (Arc<Vec<crate::text3::cache::LogicalItem>>, Arc<Vec<ShapedItem>>);
 
+/// Whether the box at `index` fills its parent's content box: one the layout
+/// tree made for a text, or an anonymous wrapper. Neither has a width or
+/// edges of its own (CSS 2.2 s9.2.1.1), so a size taken from content belongs
+/// to the box it fills.
+fn fills_its_parent(styled_dom: &StyledDom, tree: &LayoutTree, index: usize) -> bool {
+    let Some(node) = tree.get(LayoutNodeId::new(index)) else {
+        return false;
+    };
+    if node.parent.is_none() {
+        return false;
+    }
+    let anonymous = tree
+        .cold(LayoutNodeId::new(index))
+        .and_then(|cold| cold.anonymous_type);
+    if matches!(anonymous, Some(solver3::layout_tree::AnonymousBoxType::InlineWrapper)) {
+        return true;
+    }
+    node.dom_node_id.is_some_and(|dom| {
+        matches!(
+            styled_dom.node_data.as_container()[dom].get_node_type(),
+            azul_core::dom::NodeType::Text(_)
+        )
+    })
+}
+
 impl LayoutWindow {
     /// #28: SPECULATIVE pagination query — "what WOULD the page breaks be
     /// for this content at this page size?" — answered from this window's
@@ -26218,14 +26243,22 @@ impl LayoutWindow {
         let layout_result = self.layout_results.get(&dom_id)?;
         let tree = &layout_result.layout_tree;
         let styled_dom = &layout_result.styled_dom;
+        // The box sized from the content is the inline formatting context's
+        // own box or, when that box is one the layout tree made for a text
+        // (an inline-block's text) or an anonymous wrapper, the box it fills:
+        // such a box has no width or edges of its own.
+        let mut sized_index = ifc_layout_index;
+        while fills_its_parent(styled_dom, tree, sized_index) {
+            sized_index = tree.get(LayoutNodeId::new(sized_index))?.parent?;
+        }
         let containing_block = solver3::sizing::shrink_to_fit_containing_block(
             styled_dom,
             tree,
-            ifc_layout_index,
+            sized_index,
             &layout_result.calculated_positions,
             layout_result.viewport,
         )?;
-        let node = tree.get(LayoutNodeId::new(ifc_layout_index))?;
+        let node = tree.get(LayoutNodeId::new(sized_index))?;
         let measure = solver3::sizing::ifc_measure_constraints(
             styled_dom,
             tree,
