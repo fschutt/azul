@@ -46,7 +46,8 @@ fn window_with(label: Option<&'static str>) -> (Arc<RefCell<RefAny>>, HeadlessWi
 fn choose(state: &Arc<RefCell<RefAny>>, label: Option<&'static str>) {
     let mut guard = state.borrow_mut();
     let data: &mut RefAny = &mut guard;
-    if let Some(mut choice) = data.downcast_mut::<MenuChoice>() {
+    let choice = data.downcast_mut::<MenuChoice>();
+    if let Some(mut choice) = choice {
         choice.0 = label;
     }
 }

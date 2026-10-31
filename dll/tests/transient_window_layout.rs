@@ -959,7 +959,8 @@ fn mailbox(opts_state: &azul_layout::window_state::FullWindowState) -> Transient
     let mut m = mailbox_of(opts_state).expect("the window's ctx is its mailbox");
     // A snapshot of the mailbox as it stands: a clone, so a field added to
     // the mailbox is copied too.
-    m.downcast_ref::<TransientWindowData>().unwrap().clone()
+    let snapshot = m.downcast_ref::<TransientWindowData>().unwrap().clone();
+    snapshot
 }
 
 /// The colour picker's grip: dragging it off the swatch turns the popup into

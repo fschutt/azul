@@ -124,7 +124,8 @@ fn a_context_menu_item_counts_into_the_model_a_rebuilds_merge_kept() {
         {
             let mut guard = state.borrow_mut();
             let data: &mut RefAny = &mut guard;
-            if let Some(mut page) = data.downcast_mut::<PageState>() {
+            let page = data.downcast_mut::<PageState>();
+            if let Some(mut page) = page {
                 page.wide = wide;
             }
         }
