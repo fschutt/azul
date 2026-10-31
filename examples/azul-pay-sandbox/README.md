@@ -120,6 +120,9 @@ Secure (`three_ds_next`), the next debit come back (`return_next_debit`), the ne
 charged back (`chargeback_next`), the next webhook be dropped (`drop_next_webhook`) or sent twice
 (`duplicate_next_webhook`). `POST /_dev/hang {"prefix": "/stripe/v1/", "secs": 60}` leaves the next request under the prefix
 unanswered for that long (a provider that hangs: the token server gives it up after its own timeout).
+`POST /_dev/drop {"count": N}` loses the next N webhooks, `POST /_dev/drop {"id": "cs_..."}` every
+webhook that names the id (a payment's, a checkout session's, a mandate's) until `/_dev/reset`:
+all of a payment's events lost, which only a reconcile against the provider finds.
 `POST /_dev/delay {"secs": N}` holds webhooks back,
 `POST /_dev/advance {"months": N}` charges the next months of every recurring plan,
 `GET /_dev/state` shows the objects' outcomes and the webhook log, `GET /_dev/keys` each

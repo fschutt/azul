@@ -164,7 +164,7 @@ pub fn index(providers: &[(&str, &str)]) -> String {
          real UI or branding, and it refuses real payment data.</p><ul>{list}</ul>\
          <p class=\"muted\">Switches: POST /_dev/switch {{\"name\": \"decline_next\" | \"three_ds_next\" | \
          \"return_next_debit\" | \"chargeback_next\" | \"drop_next_webhook\" | \"duplicate_next_webhook\"}}, \
-         POST /_dev/delay {{\"secs\"}}, POST /_dev/advance {{\"months\"}}, GET /_dev/state.</p>"
+         POST /_dev/drop {{\"count\" | \"id\"}}, POST /_dev/delay {{\"secs\"}}, POST /_dev/advance {{\"months\"}}, GET /_dev/state.</p>"
     );
     single("Payment sandbox", "Local test tool", &body, "")
 }

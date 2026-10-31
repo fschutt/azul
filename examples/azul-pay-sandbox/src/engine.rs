@@ -27,6 +27,8 @@ pub const RETRY_SECS: i64 = 2;
 pub const MAX_DELAY_SECS: i64 = 3_600;
 /// The most months one advance charges.
 pub const MAX_ADVANCE_MONTHS: i64 = 36;
+/// The most ids whose webhooks `/_dev/drop` loses at once.
+pub const MAX_DROPPED_IDS: usize = 32;
 /// The most events one batched webhook carries.
 const MAX_BATCH: usize = 100;
 
@@ -205,7 +207,11 @@ pub struct Switches {
     pub three_ds_next: bool,
     pub return_next_debit: bool,
     pub chargeback_next: bool,
-    pub drop_next_webhook: bool,
+    /// How many of the next webhooks are lost (`drop_next_webhook` sets one, `/_dev/drop` any).
+    pub drop_webhooks: u32,
+    /// Every webhook that names one of these ids is lost, until `/_dev/reset`: all of a
+    /// payment's events, so only a reconcile against the provider can find them.
+    pub drop_ids: Vec<String>,
     pub duplicate_next_webhook: bool,
     /// Every webhook waits this long before it is sent.
     pub delay_secs: i64,
@@ -229,6 +235,16 @@ pub struct Fill {
 
 /// The longest a hanging answer waits.
 pub const MAX_HANG_SECS: u64 = 300;
+
+/// A byte of a provider's object id: a letter, a digit, `_` or `-`.
+const fn is_id_byte(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'_' || b == b'-'
+}
+
+/// Could `id` be a provider's object id?
+fn is_id(id: &str) -> bool {
+    !id.is_empty() && id.len() <= 64 && id.bytes().all(is_id_byte)
+}
 
 /// Takes a `*_next` switch: whether it was on (it is off afterwards).
 pub fn take(flag: &mut bool) -> bool {
@@ -392,6 +408,7 @@ impl Core {
             ("GET", "/_dev/keys") => Response::json(200, self.keys()),
             ("POST", "/_dev/switch") => self.switch(req.body),
             ("POST", "/_dev/delay") => self.delay(req.body),
+            ("POST", "/_dev/drop") => self.drop_webhooks(req.body),
             ("POST", "/_dev/hang") => self.hang(req.body),
             ("POST", "/_dev/fill") => self.fill(req.body),
             ("POST", "/_dev/advance") => self.advance(req.body, now),
@@ -407,7 +424,8 @@ impl Core {
         let s = &self.switches;
         json!({"decline_next": s.decline_next, "three_ds_next": s.three_ds_next,
                "return_next_debit": s.return_next_debit, "chargeback_next": s.chargeback_next,
-               "drop_next_webhook": s.drop_next_webhook, "duplicate_next_webhook": s.duplicate_next_webhook,
+               "drop_next_webhook": s.drop_webhooks > 0, "drop_webhooks": s.drop_webhooks,
+               "drop_ids": s.drop_ids, "duplicate_next_webhook": s.duplicate_next_webhook,
                "delay_secs": s.delay_secs, "hang_next": s.hang_next, "hang_secs": s.hang_secs,
                "fill_next": s.fill_next.is_some()})
     }
@@ -436,11 +454,14 @@ impl Core {
         let on = v.get("on").and_then(Value::as_bool).unwrap_or(true);
         let s = &mut self.switches;
         let flag = match v.get("name").and_then(Value::as_str).unwrap_or("") {
+            "drop_next_webhook" => {
+                s.drop_webhooks = u32::from(on);
+                return Response::json(200, json!({"switches": self.switches_json()}));
+            }
             "decline_next" => &mut s.decline_next,
             "three_ds_next" => &mut s.three_ds_next,
             "return_next_debit" => &mut s.return_next_debit,
             "chargeback_next" => &mut s.chargeback_next,
-            "drop_next_webhook" => &mut s.drop_next_webhook,
             "duplicate_next_webhook" => &mut s.duplicate_next_webhook,
             other => {
                 let why = format!("no switch {other:?}: decline_next, three_ds_next, return_next_debit, chargeback_next, drop_next_webhook, duplicate_next_webhook");
@@ -471,6 +492,42 @@ impl Core {
             return Response::json(400, json!({"error": "bad_delay", "message": why}));
         }
         self.switches.delay_secs = secs;
+        Response::json(200, json!({"switches": self.switches_json()}))
+    }
+
+    /// `{"count": N}`: the next `N` webhooks are lost. `{"id": "pi_..."}`: every webhook that
+    /// names the id (a payment's, a checkout session's, a mandate's) is lost, until `/_dev/reset`.
+    fn drop_webhooks(&mut self, body: &[u8]) -> Response {
+        let v: Value = serde_json::from_slice(body).unwrap_or(Value::Null);
+        let bad = |why: &str| Response::json(400, json!({"error": "bad_drop", "message": why}));
+        let count = match v.get("count") {
+            None => None,
+            Some(count) => match count.as_u64().and_then(|c| u32::try_from(c).ok()) {
+                Some(count) => Some(count.min(MAX_QUEUE as u32)),
+                None => return bad("count: how many of the next webhooks are lost, a whole number"),
+            },
+        };
+        let id = match v.get("id") {
+            None => None,
+            Some(id) => match id.as_str().filter(|id| is_id(id)) {
+                Some(id) => Some(id.to_string()),
+                None => return bad("id: a payment's, session's or mandate's id (letters, digits, _ and -)"),
+            },
+        };
+        if count.is_none() && id.is_none() {
+            return bad("count: how many of the next webhooks are lost, or id: whose webhooks are");
+        }
+        if let Some(id) = id {
+            if !self.switches.drop_ids.contains(&id) {
+                if self.switches.drop_ids.len() >= MAX_DROPPED_IDS {
+                    return bad(&format!("at most {MAX_DROPPED_IDS} ids at once (POST /_dev/reset clears them)"));
+                }
+                self.switches.drop_ids.push(id);
+            }
+        }
+        if let Some(count) = count {
+            self.switches.drop_webhooks = count;
+        }
         Response::json(200, json!({"switches": self.switches_json()}))
     }
 
@@ -506,6 +563,23 @@ impl Core {
         let mut batches: BTreeMap<usize, Vec<Value>> = BTreeMap::new();
         for q in due {
             let batched = self.providers.get(q.provider).is_some_and(|p| p.batches());
+            // An event of a dropped id is lost before it is batched with the events of others.
+            let lost = match &q.payload {
+                Payload::Event(e) => self.names_a_dropped_id(&serde_json::to_vec(e).unwrap_or_default()),
+                Payload::Body(body) => self.names_a_dropped_id(body),
+            };
+            if lost {
+                let body = match &q.payload {
+                    Payload::Event(e) if batched => serde_json::to_vec(&json!({ "events": [e] })).unwrap_or_default(),
+                    Payload::Event(e) => self.providers.get(q.provider).map(|p| p.body_of(e)).unwrap_or_default(),
+                    Payload::Body(body) => body.clone(),
+                };
+                if let Some(d) = self.sign(q.provider, body, q.attempt, now) {
+                    self.note(&d, "dropped");
+                }
+                self.dropped += 1;
+                continue;
+            }
             match q.payload {
                 Payload::Event(e) if batched => batches.entry(q.provider).or_default().push(e),
                 Payload::Event(e) => {
@@ -523,7 +597,8 @@ impl Core {
         }
         let mut sent = Vec::new();
         for d in out {
-            if take(&mut self.switches.drop_next_webhook) {
+            if self.switches.drop_webhooks > 0 {
+                self.switches.drop_webhooks -= 1;
                 self.dropped += 1;
                 self.note(&d, "dropped");
                 continue;
@@ -535,6 +610,14 @@ impl Core {
         }
         self.sent += sent.len() as u64;
         sent
+    }
+
+    /// Does `text` name one of the ids whose webhooks are lost, as a whole word?
+    fn names_a_dropped_id(&self, text: &[u8]) -> bool {
+        !self.switches.drop_ids.is_empty()
+            && text
+                .split(|b| !is_id_byte(*b))
+                .any(|word| self.switches.drop_ids.iter().any(|id| id.as_bytes() == word))
     }
 
     fn sign(&self, i: usize, body: Vec<u8>, attempt: u32, now: i64) -> Option<Delivery> {

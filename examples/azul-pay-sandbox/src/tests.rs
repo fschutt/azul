@@ -702,6 +702,43 @@ fn the_dev_switches_drop_repeat_and_delay_webhooks() {
     assert!(again.iter().any(|x| x.body == d.body && x.attempt == 1), "retried");
 }
 
+/// A backend's reconcile has to find a payment none of whose webhooks arrived: `/_dev/drop`
+/// with an id loses every webhook that names it, and only those.
+#[test]
+fn every_webhook_that_names_a_dropped_id_is_lost_and_only_those() {
+    let mut c = core();
+    let lost = session(&mut c, "card", "hosted_page", "payment");
+    let kept = session(&mut c, "card", "hosted_page", "payment");
+    let (lost_id, kept_id) = (lost["id"].as_str().expect("an id"), kept["id"].as_str().expect("an id"));
+    let r = call(&mut c, "POST", "/_dev/drop", &[], json!({"id": lost_id}).to_string().as_bytes(), T);
+    assert_eq!(r.status, 200);
+    for (s, card) in [(&lost, "4242424242424242"), (&kept, "5555555555554444")] {
+        submit(&mut c, &page_path(s), &[("card_number", card), ("exp", "12/34"), ("cvc", "123")], T);
+    }
+    let sent = c.tick(T);
+    let names = |d: &Delivery, id: &str| String::from_utf8_lossy(&d.body).contains(id);
+    assert!(!sent.iter().any(|d| names(d, lost_id)), "a webhook of the dropped id arrived");
+    assert!(sent.iter().any(|d| names(d, kept_id)), "the other payment's webhooks arrive");
+    assert!(c.state()["webhooks"]["dropped"].as_u64() >= Some(1));
+    // an id that is no object's id is refused
+    let r = call(&mut c, "POST", "/_dev/drop", &[], br#"{"id": "cs_a\"b"}"#, T);
+    assert_eq!(r.status, 400);
+}
+
+/// `/_dev/drop` with a count loses that many of the next webhooks, then none.
+#[test]
+fn a_counted_drop_loses_that_many_of_the_next_webhooks() {
+    let mut c = core();
+    let r = call(&mut c, "POST", "/_dev/drop", &[], br#"{"count": 2}"#, T);
+    assert_eq!(r.status, 200);
+    let s = session(&mut c, "card", "hosted_page", "payment");
+    submit(&mut c, &page_path(&s), &[("card_number", "4242424242424242"), ("exp", "12/34"), ("cvc", "123")], T);
+    let sent = c.tick(T);
+    assert_eq!(c.state()["webhooks"]["dropped"], 2);
+    assert!(!sent.is_empty(), "the webhooks after the second arrive");
+    assert_eq!(c.state()["switches"]["drop_webhooks"], 0);
+}
+
 #[test]
 fn form_encoding_round_trips() {
     let pairs = [("metadata[provider_ref]", "pr_x"), ("name", "a b&c=ä")];
