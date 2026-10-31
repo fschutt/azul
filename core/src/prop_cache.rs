@@ -1190,9 +1190,9 @@ pub struct CssPropertyCache {
 
     /// Whether the last restyle's variables depend on the window context
     /// beyond the author rules' own conditions: a node's own definition under
-    /// a condition, or an `env()` in a node's own style.
-    /// `StyledDom::set_dynamic_selector_context` re-runs the cascade then,
-    /// even with an empty author stylesheet.
+    /// a condition. `StyledDom::set_dynamic_selector_context` re-runs the
+    /// cascade then, even with an empty author stylesheet - as it does for a
+    /// node's own `env()` ([`Self::env_readers`]).
     pub variables_depend_on_context: bool,
 
     /// Per-node resolved font-size, in pixels, for the `Normal`

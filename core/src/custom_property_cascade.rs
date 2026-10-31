@@ -538,8 +538,8 @@ impl CssPropertyCache {
 
 /// Step 1 of [`CssPropertyCache::run_variable_pass`]: the nodes' own
 /// custom-property definitions, pushed after the stylesheet's (a node's style
-/// beats the rules that match it). Returns whether any definition, or an
-/// `env()` reference, depends on the context.
+/// beats the rules that match it). Returns whether any definition depends on
+/// the context.
 fn push_node_definitions(
     stage: &mut VarStage,
     node_data: &[NodeData],
@@ -549,23 +549,19 @@ fn push_node_definitions(
     for (idx, nd) in node_data.iter().enumerate() {
         for rule in nd.style.rules.as_ref() {
             let conditions = rule.conditions.as_slice();
+            // A node's own `env()` is no variable: the cascade notes it among
+            // the environment's readers (`CssPropertyCache::env_readers`).
             for d in rule.declarations.as_ref() {
-                match d {
-                    CssDeclaration::CustomProperty(c) => {
-                        if conditions
-                            .iter()
-                            .any(|cond| !matches!(cond, DynamicSelector::PseudoState(_)))
-                        {
-                            depends_on_context = true;
-                        }
-                        if let Some(state) = applying_state(conditions, ctx) {
-                            stage.defs[idx].push((state, c.name.clone(), c.value.clone()));
-                        }
-                    }
-                    CssDeclaration::Dynamic(_) if d.reads_env() => {
+                if let CssDeclaration::CustomProperty(c) = d {
+                    if conditions
+                        .iter()
+                        .any(|cond| !matches!(cond, DynamicSelector::PseudoState(_)))
+                    {
                         depends_on_context = true;
                     }
-                    _ => {}
+                    if let Some(state) = applying_state(conditions, ctx) {
+                        stage.defs[idx].push((state, c.name.clone(), c.value.clone()));
+                    }
                 }
             }
         }

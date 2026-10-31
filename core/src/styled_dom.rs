@@ -3333,7 +3333,12 @@ impl StyledDom {
         // variable pass), so a node's OWN conditional `--name` definition or
         // `env()` needs the full re-run even with an EMPTY author sheet -
         // which `restyle_retained` would skip.
-        let variables_conditional = self.get_css_property_cache().variables_depend_on_context;
+        let variables_conditional = {
+            let cache = self.get_css_property_cache();
+            cache.variables_depend_on_context
+                || cache.env_readers.beyond_nodes
+                || !cache.env_readers.nodes.is_empty()
+        };
         // `.window:backdrop .title`: a rule that names the window's
         // activation left of its subject was matched under the old one.
         let backdrop_left = activation_changed
