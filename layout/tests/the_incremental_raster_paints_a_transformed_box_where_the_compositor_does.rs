@@ -2,7 +2,8 @@
 //! compositor paints it - moved, turned - never at its layout place.
 //!
 //! Every CPU backend paints a frame two ways: in full through the layered
-//! compositor (a transformed box is a layer, composited through its matrix),
+//! compositor (a turned box is a layer, composited through its matrix, a
+//! moved one is painted moved into the layer below),
 //! and incrementally - only the damage rects - through the flat item walk
 //! (`render_display_list_damaged`). The flat walk kept a stack of the
 //! reference frames' matrices and nothing read it: every damage rect
@@ -28,8 +29,12 @@ const W: u32 = 200;
 const H: u32 = 120;
 
 fn laid_out(box_css: &str) -> LayoutWindow {
+    laid_out_on("background: #ffffff;", box_css)
+}
+
+fn laid_out_on(page_css: &str, box_css: &str) -> LayoutWindow {
     let page = Dom::create_body()
-        .with_css("margin: 0; padding: 0; background: #ffffff;")
+        .with_css(&format!("margin: 0; padding: 0; {page_css}"))
         .with_child(Dom::create_div().with_css(&format!(
             "width: 40px; height: 40px; background: #ff0000; {box_css}"
         )));
@@ -199,4 +204,26 @@ fn the_incremental_raster_and_the_compositor_paint_the_same_transformed_frame() 
             "`{css}`: the two paths disagree on {differing} pixels"
         );
     }
+}
+
+/// A moved box is a stacking context and not an isolated group: its shadow
+/// and its rounded edge blend straight onto the page. The compositor painted
+/// it into a layer of its own and blended that over the page, one rounding
+/// more per pixel, so over a coloured page the box's edge came out a shade
+/// off where its shadow lies under it.
+#[test]
+fn a_translated_box_with_a_shadow_is_painted_alike_by_both_paths() {
+    let lw = laid_out_on(
+        "background: #c8b4a0;",
+        "margin: 30px; border-radius: 19px; background: #e655db; \
+         box-shadow: 4px 6px 8px rgba(0, 0, 0, 0.5); transform: translate(13px, -10px);",
+    );
+    let (full, damaged) = (composited(&lw), repainted(&lw));
+    let differing = full
+        .data()
+        .chunks_exact(4)
+        .zip(damaged.data().chunks_exact(4))
+        .filter(|(a, b)| a != b)
+        .count();
+    assert_eq!(differing, 0, "the two paths disagree on {differing} pixels");
 }
