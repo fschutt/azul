@@ -444,6 +444,7 @@ fn every_checkout_status_reads_and_writes_its_fixture() {
                 scheme: String::from("oss"),
                 checkout_id: id(),
                 kind: String::from("small_amount_invoice"),
+                eur: None,
             }),
             ..answer(CheckoutStatusWire::Approved {
                 sealed_signup: Some(String::from("c2VhbGVk")),
@@ -683,3 +684,27 @@ mod renewal {
         golden("redeem_refusals.json", &refusals);
     }
 }
+
+/// A receipt of a sale charged in another currency carries its euro amount and the rate it was
+/// converted at; one without it - a sale in euros, an older server - reads as it always did.
+#[test]
+fn a_receipt_carries_the_euro_amount_of_a_sale_in_another_currency() {
+    let with: ReceiptWire = serde_json::from_value(serde_json::json!({
+        "issue_day": "2026-10-21", "service": "Azlin Storage 100GB, 12 months",
+        "gross_cents": 1090, "currency": "USD", "rate_permille": 190, "country": "DE",
+        "scheme": "oss", "checkout_id": "ck_4n2v8r6tqe", "kind": "payment_receipt",
+        "eur": { "cents": 1003, "rate_source": "ecb", "rate_day": "2026-10-20" }
+    }))
+    .expect("a receipt with its euro amount reads");
+    let eur = with.eur.as_ref().expect("the euro amount");
+    assert_eq!((eur.cents, eur.rate_source.as_str(), eur.rate_day.as_str()), (1003, "ecb", "2026-10-20"));
+    let without: ReceiptWire = serde_json::from_value(serde_json::json!({
+        "issue_day": "2026-10-21", "service": "Azlin Storage 100GB, 12 months",
+        "gross_cents": 990, "currency": "EUR", "rate_permille": 190, "country": "DE",
+        "scheme": "oss", "checkout_id": "ck_4n2v8r6tqe", "kind": "small_amount_invoice"
+    }))
+    .expect("a receipt without one reads");
+    assert!(without.eur.is_none());
+    assert!(!serde_json::to_string(&without).unwrap().contains("eur\""));
+}
+

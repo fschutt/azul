@@ -50,7 +50,8 @@ pub use archive::{
 };
 pub use checkout::{
     AbandonAnswer, AbandonWire, CheckoutAnswer, CheckoutRefusal, CheckoutStatusWire, DeclineWire,
-    LadderRef, Legal, MailTo, Prepay, ReceiptWire, RetentionAddon, ScheduledChange, Settles,
+    EurAmountWire, LadderRef, Legal, MailTo, Prepay, ReceiptWire, RetentionAddon, ScheduledChange,
+    Settles,
     TierClosed, TierOffer, TierPriceWire, TiersAnswer,
 };
 pub use error::{AzlinError, RATE_LIMITED};

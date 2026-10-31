@@ -296,6 +296,21 @@ pub struct ReceiptWire {
     pub checkout_id: CheckoutId,
     /// `small_amount_invoice` or `payment_receipt`.
     pub kind: String,
+    /// The sale's amount in euros, for a sale charged in another currency; absent for a sale
+    /// charged in euros, and from a server that books none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub eur: Option<EurAmountWire>,
+}
+
+/// A sale's amount in euro cents and the rate it was converted at.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EurAmountWire {
+    /// The gross amount in euro cents.
+    pub cents: i64,
+    /// Where the conversion rate came from (for example `ecb`).
+    pub rate_source: String,
+    /// The day the rate is from (`YYYY-MM-DD`).
+    pub rate_day: String,
 }
 
 /// `GET /v1/checkout/{id}`.
