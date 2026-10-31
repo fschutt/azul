@@ -952,18 +952,28 @@ pub(super) fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
             line_height_px,
         );
         if letter_w > 0.0 && letter_h > 0.0 {
-            // Place the exclusion at the inline-start (x=0, y=0 relative to the IFC).
-            // This creates a rectangular exclusion that text flows around.
+            // The letter stands at the inline start of the first lines: the
+            // left in a left-to-right paragraph, the right in a right-to-left
+            // one. The lines beside it flow on its other side only.
+            let rtl = direction == Some(text3::cache::BidiDirection::Rtl);
             shape_exclusions.push(text3::cache::Exclusion {
                 shape: ShapeBoundary::Rectangle(text3::cache::Rect {
-                    x: 0.0,
+                    x: if rtl {
+                        constraints.available_size.width - letter_w
+                    } else {
+                        0.0
+                    },
                     y: 0.0,
                     width: letter_w,
                     height: letter_h,
                 }),
                 margin: 0.0,
                 clip: None,
-                wrap: text3::cache::ExclusionWrap::Right,
+                wrap: if rtl {
+                    text3::cache::ExclusionWrap::Left
+                } else {
+                    text3::cache::ExclusionWrap::Right
+                },
             });
         }
     }
