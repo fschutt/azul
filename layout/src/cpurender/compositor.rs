@@ -183,25 +183,51 @@ pub struct Layer {
     /// layer's own origin: a reference frame's layer reaches past the frame's
     /// box to whatever its content paints, but turns about the box's origin.
     pub transform_origin: Option<LogicalPosition>,
-    /// Scroll frames between this layer and its parent layer that were NOT
-    /// promoted to layers of their own - in practice the page's frame, which
-    /// covers the whole window (see `allocate_layers_from_display_list`).
-    /// Their content is painted into the parent by the rasteriser, which
-    /// applies their offsets itself, so this layer has to be moved by them
-    /// too: `inherited_offset` is their summed offset this frame.
-    pub inherited_scroll: Vec<LocalScrollId>,
-    /// The summed current offset of `inherited_scroll`, resolved by
+    /// Frames between this layer and its parent layer that were NOT promoted
+    /// to layers of their own: the page's scroll frame, which covers the
+    /// whole window, and every moved reference frame (see
+    /// `allocate_layers_from_display_list`). Their content is painted into
+    /// the parent by the rasteriser, which moves it itself, so this layer has
+    /// to be moved by them too: `inherited_offset` is their summed offset
+    /// this frame.
+    pub inherited_shifts: Vec<InPlaceShift>,
+    /// The summed current offset of `inherited_shifts`, resolved by
     /// `render_layers` and applied wherever the layer is placed in its parent
     /// (the backdrop seed, the composite position).
     pub inherited_offset: (f32, f32),
     /// The `PushClip`s open around this layer's push that were opened inside
     /// its PARENT layer (one opened further out clips the parent, and with it
     /// this layer), each with the frames painted in place it was opened in -
-    /// a subset of `inherited_scroll`. A clip opened before such a frame is
+    /// a subset of `inherited_shifts`. A clip opened before such a frame is
     /// in the space around the frame and does not scroll with it; one opened
     /// inside it does. Intersecting them as they stand in the list mixed the
     /// two spaces: a clipped box down a scrolled frame lost its lines (PIM6).
-    pub wrapping_clips: Vec<(LogicalRect, Vec<LocalScrollId>)>,
+    pub wrapping_clips: Vec<(LogicalRect, Vec<InPlaceShift>)>,
+}
+
+/// A frame painted in place, inside its parent layer, that moves what it
+/// paints: the rasteriser moves its content, and a layer opened inside it
+/// is moved with it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum InPlaceShift {
+    /// A scroll frame, moved by its offset this frame.
+    Scroll(LocalScrollId),
+    /// A reference frame whose live matrix is this 2D translation.
+    Translation(f32, f32),
+}
+
+impl InPlaceShift {
+    /// The summed offset of `shifts` this frame, as a scroll offset: their
+    /// content paints at its layout place less it.
+    fn summed_offset(shifts: &[Self], scroll_offsets: &ScrollOffsetMap) -> (f32, f32) {
+        shifts
+            .iter()
+            .map(|shift| match shift {
+                Self::Scroll(id) => scroll_offsets.get(id).copied().unwrap_or((0.0, 0.0)),
+                Self::Translation(tx, ty) => (-tx, -ty),
+            })
+            .fold((0.0, 0.0), |(x, y), (dx, dy)| (x + dx, y + dy))
+    }
 }
 
 /// Widest or tallest a compositor layer may be, in device pixels.
@@ -344,7 +370,7 @@ pub enum LayerReason {
     BlurFilter,
     /// Created for a `PushOpacity` with opacity < 1.0.
     Opacity,
-    /// Created for a `PushReferenceFrame` with non-identity transform.
+    /// Created for a `PushReferenceFrame` whose matrix is not a translation.
     Transform,
 }
 
@@ -458,9 +484,9 @@ impl CompositorState {
         // place, or its content shows square in the clip's corners.
         let mut rounded_clips: Vec<bool> = Vec::new();
         let mut clip_base_of: HashMap<LayerId, usize> = HashMap::new();
-        // One entry per open `PushReferenceFrame`, recording whether it actually
-        // promoted a layer, so `PopReferenceFrame` pops exactly what was pushed.
-        let mut ref_frame_promoted: Vec<bool> = Vec::new();
+        // One entry per open `PushReferenceFrame`, recording how it was placed,
+        // so `PopReferenceFrame` pops exactly what was pushed.
+        let mut ref_frame_placed: Vec<FramePlacement> = Vec::new();
         // Same recorded pairing for opacity groups: the pop arm used to decide
         // by VALUE-testing the top layer (`opacity < 1.0`), which mispairs the
         // moment a group's effective opacity passes through exactly 1.0 —
@@ -475,8 +501,9 @@ impl CompositorState {
         // `PushScrollFrame` arm), each with the `layer_stack` depth it was
         // opened at. The rasteriser moves their content inside the parent
         // layer by their offsets; a layer opened directly inside one has to
-        // move by the same offset, which it inherits (`Layer::inherited_scroll`).
-        let mut in_place_frames: Vec<(LocalScrollId, usize)> = Vec::new();
+        // move by the same offset, which it inherits (`Layer::inherited_shifts`).
+        // A moved reference frame is one of them, too.
+        let mut in_place_frames: Vec<(InPlaceShift, usize)> = Vec::new();
         // The root layer's extent, in device pixels (`CompositorState::new`).
         let root_size = self.layers.get(&root_id).map(|root| root.bounds.size);
         // Scroll ids pushed more than once: SPLIT frames. The display list
@@ -577,7 +604,7 @@ impl CompositorState {
                     open_groups.push(OpenGroup::Frame(bounds));
                     scroll_promoted.push(created);
                     if !created {
-                        in_place_frames.push((*scroll_id, layer_stack.len()));
+                        in_place_frames.push((InPlaceShift::Scroll(*scroll_id), layer_stack.len()));
                     }
                     if created {
                         let new_id = self.alloc_layer_id();
@@ -716,6 +743,14 @@ impl CompositorState {
                         .get(&transform_key.id)
                         .map_or(&initial_transform.m, |t| &t.m);
                     let is_identity = is_identity_2d(m);
+                    // A moved frame is a stacking context, not an isolated
+                    // group (CSS Transforms 1): the rasteriser paints its
+                    // content in place, moved, blending each item straight
+                    // onto what lies below. A layer would blend the content
+                    // into its own pixels first and those over the parent
+                    // after, rounding once more where the content overlaps
+                    // itself (a shadow under a rounded edge).
+                    let translation = if is_identity { None } else { translation_2d(m) };
                     // Record the decision so the matching pop can be exact.
                     let end = find_matching_pop(&display_list.items, i, MatchKind::ReferenceFrame);
                     // Where the layer's pixels land: what the frame paints
@@ -729,6 +764,7 @@ impl CompositorState {
                         dpi_factor,
                     );
                     let promote = !is_identity
+                        && translation.is_none()
                         && !rounded_clips.contains(&true)
                         && end > i + 1
                         && !painted_over(
@@ -741,7 +777,15 @@ impl CompositorState {
                     open_groups.push(OpenGroup::Transform(
                         (!is_identity).then_some((live, origin)),
                     ));
-                    ref_frame_promoted.push(promote);
+                    ref_frame_placed.push(match translation {
+                        _ if promote => FramePlacement::Promoted,
+                        Some((tx, ty)) => {
+                            in_place_frames
+                                .push((InPlaceShift::Translation(tx, ty), layer_stack.len()));
+                            FramePlacement::Moved
+                        }
+                        None => FramePlacement::InPlace,
+                    });
                     if promote {
                         let (pw, ph) =
                             layer_pixel_size(extent.size, dpi_factor, node_of(display_list, i));
@@ -782,8 +826,16 @@ impl CompositorState {
                     // sits at identity both at rest and at the instant it
                     // settles, so that mispairing is reachable in ordinary
                     // playback rather than only from a hand-built list.
-                    if ref_frame_promoted.pop() == Some(true) && layer_stack.len() > 1 {
-                        layer_stack.pop();
+                    match ref_frame_placed.pop() {
+                        Some(FramePlacement::Promoted) => {
+                            if layer_stack.len() > 1 {
+                                layer_stack.pop();
+                            }
+                        }
+                        Some(FramePlacement::Moved) => {
+                            in_place_frames.pop();
+                        }
+                        Some(FramePlacement::InPlace) | None => {}
                     }
                 }
                 // `backdrop-filter` (superplan g4): allocate a layer mirroring
@@ -850,7 +902,7 @@ impl CompositorState {
             // The clips opened inside the parent wrap it, each moving with
             // the frames it was opened in.
             if layer_stack.len() > depth_before {
-                let inherited: Vec<LocalScrollId> = in_place_frames
+                let inherited: Vec<InPlaceShift> = in_place_frames
                     .iter()
                     .filter(|(_, depth)| *depth == depth_before)
                     .map(|(id, _)| *id)
@@ -862,7 +914,7 @@ impl CompositorState {
                     .and_then(|parent| clip_base_of.get(parent))
                     .copied()
                     .unwrap_or(0);
-                let wrapping: Vec<(LogicalRect, Vec<LocalScrollId>)> = clip_stack
+                let wrapping: Vec<(LogicalRect, Vec<InPlaceShift>)> = clip_stack
                     .get(parent_base..)
                     .unwrap_or(&[])
                     .iter()
@@ -879,7 +931,7 @@ impl CompositorState {
                 if let Some(id) = layer_stack.last().copied() {
                     clip_base_of.insert(id, clip_stack.len());
                     if let Some(layer) = self.layers.get_mut(&id) {
-                        layer.inherited_scroll = inherited;
+                        layer.inherited_shifts = inherited;
                         layer.wrapping_clips = wrapping;
                     }
                 }
@@ -1042,12 +1094,9 @@ impl CompositorState {
 
             // The offset of the frames painted IN PLACE around this layer (the
             // page's): the rasteriser moved the parent's content by it, so the
-            // layer is placed by it too - see `Layer::inherited_scroll`.
+            // layer is placed by it too - see `Layer::inherited_shifts`.
             let inherited = self.layers.get(layer_id).map_or((0.0, 0.0), |l| {
-                l.inherited_scroll
-                    .iter()
-                    .filter_map(|id| scroll_offsets.get(id))
-                    .fold((0.0_f32, 0.0_f32), |(x, y), (ox, oy)| (x + ox, y + oy))
+                InPlaceShift::summed_offset(&l.inherited_shifts, scroll_offsets)
             });
 
             // THE BACKDROP A LAYER'S CONTENT IS DRAWN OVER.
@@ -1124,10 +1173,7 @@ impl CompositorState {
                 .wrapping_clips
                 .iter()
                 .map(|(rect, frames)| {
-                    let (dx, dy) = frames
-                        .iter()
-                        .filter_map(|id| scroll_offsets.get(id))
-                        .fold((0.0_f32, 0.0_f32), |(x, y), (ox, oy)| (x + ox, y + oy));
+                    let (dx, dy) = InPlaceShift::summed_offset(frames, scroll_offsets);
                     LogicalRect::new(
                         LogicalPosition::new(rect.origin.x - dx, rect.origin.y - dy),
                         rect.size,
@@ -1573,7 +1619,7 @@ impl Layer {
             composite_dirty: true,
             seeded_backdrop: false,
             transform_origin: None,
-            inherited_scroll: Vec::new(),
+            inherited_shifts: Vec::new(),
             inherited_offset: (0.0, 0.0),
             wrapping_clips: Vec::new(),
         }
@@ -1592,6 +1638,20 @@ enum MatchKind {
     Filter,
     BackdropFilter,
     ReferenceFrame,
+}
+
+/// Where the layer allocation walk put a reference frame, recorded at its
+/// push so its pop undoes exactly that.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FramePlacement {
+    /// A layer of its own, composited through the frame's matrix.
+    Promoted,
+    /// Painted in place, moved by its translation
+    /// ([`InPlaceShift::Translation`]).
+    Moved,
+    /// Painted in place: the identity, or a matrix the rasteriser turns in
+    /// a group of its own there.
+    InPlace,
 }
 
 /// A frame open at some point of the layer allocation walk, as
@@ -7434,6 +7494,17 @@ mod autotest_generated {
             ],
         }
     }
+    /// A matrix the compositor resamples through: a frame moved by it is a layer.
+    fn scale(by: f32) -> ComputedTransform3D {
+        ComputedTransform3D {
+            m: [
+                [by, 0.0, 0.0, 0.0],
+                [0.0, by, 0.0, 0.0],
+                [0.0, 0.0, 1.0, 0.0],
+                [0.0, 0.0, 0.0, 1.0],
+            ],
+        }
+    }
     fn ref_frame(key: usize) -> DisplayListItem {
         DisplayListItem::PushReferenceFrame {
             transform_key: TransformKey { id: key },
@@ -8867,35 +8938,98 @@ mod autotest_generated {
         c.allocate_layers_from_display_list(&ident, 1.0, &HashMap::new(), &HashMap::new());
         assert_eq!(c.layers.len(), 1, "an identity transform needs no layer");
 
+        let framed = |m: ComputedTransform3D| {
+            dlist(vec![
+                DisplayListItem::PushReferenceFrame {
+                    transform_key: TransformKey { id: 1 },
+                    initial_transform: m,
+                    bounds: wlr(0.0, 0.0, 20.0, 20.0),
+                },
+                rect_item(
+                    0.0,
+                    0.0,
+                    16.0,
+                    16.0,
+                    ColorU {
+                        r: 0,
+                        g: 0,
+                        b: 255,
+                        a: 255,
+                    },
+                ),
+                DisplayListItem::PopReferenceFrame,
+            ])
+        };
+        // A translation is painted in place, moved, as the rasteriser paints
+        // it: a layer of its own would blend its content twice.
         let mut c2 = CompositorState::new(64, 64);
-        let moved = dlist(vec![
+        c2.allocate_layers_from_display_list(
+            &framed(translate(20.0, 10.0)),
+            1.0,
+            &HashMap::new(),
+            &HashMap::new(),
+        );
+        assert_eq!(c2.layers.len(), 1, "a translated frame needs no layer");
+
+        let mut c3 = CompositorState::new(64, 64);
+        c3.allocate_layers_from_display_list(
+            &framed(scale(2.0)),
+            1.0,
+            &HashMap::new(),
+            &HashMap::new(),
+        );
+        assert_eq!(c3.layers.len(), 2, "a scaled frame gets its own layer");
+        let l = c3.layers.values().find(|l| l.id != c3.root_layer).unwrap();
+        assert!(!l.transform.is_identity(IDENTITY_EPSILON_F64));
+    }
+
+    /// A layer opened inside a translated frame is moved with it: the frame
+    /// is painted in place, so the layer inherits its translation as it
+    /// inherits the offset of a scroll frame painted in place.
+    #[test]
+    fn a_layer_inside_a_translated_frame_is_moved_with_it() {
+        let red = ColorU {
+            r: 255,
+            g: 0,
+            b: 0,
+            a: 255,
+        };
+        let mut live: HashMap<usize, ComputedTransform3D> = HashMap::new();
+        live.insert(1, translate(8.0, 4.0));
+        let list = dlist(vec![
             DisplayListItem::PushReferenceFrame {
                 transform_key: TransformKey { id: 1 },
-                initial_transform: translate(20.0, 10.0),
-                bounds: wlr(0.0, 0.0, 20.0, 20.0),
+                initial_transform: ComputedTransform3D::IDENTITY,
+                bounds: wlr(0.0, 0.0, 8.0, 8.0),
             },
-            rect_item(
-                0.0,
-                0.0,
-                16.0,
-                16.0,
-                ColorU {
-                    r: 0,
-                    g: 0,
-                    b: 255,
-                    a: 255,
-                },
-            ),
+            DisplayListItem::PushOpacity {
+                bounds: wlr(0.0, 0.0, 8.0, 8.0),
+                opacity: 0.5,
+                opacity_key: None,
+            },
+            rect_item(0.0, 0.0, 8.0, 8.0, red),
+            DisplayListItem::PopOpacity,
             DisplayListItem::PopReferenceFrame,
         ]);
-        c2.allocate_layers_from_display_list(&moved, 1.0, &HashMap::new(), &HashMap::new());
-        assert_eq!(
-            c2.layers.len(),
-            2,
-            "a non-identity transform gets its own layer"
+        let mut c = CompositorState::new(24, 24);
+        c.allocate_layers_from_display_list(&list, 1.0, &live, &HashMap::new());
+        assert_eq!(c.layers.len(), 2, "only the opacity group is a layer");
+        let (rr, mut gc, _) = render_deps();
+        let st = CpuRenderState {
+            transforms: live,
+            ..CpuRenderState::new(ScrollOffsetMap::new())
+        };
+        c.render_layers(&list, 1.0, &rr, &test_font_manager(), &mut gc, &st)
+            .unwrap();
+        let mut out = AzulPixmap::new(24, 24).unwrap();
+        out.fill(255, 255, 255, 255);
+        c.composite_frame(&mut out, 1.0);
+        assert_eq!(at(&out, 2, 2), [255, 255, 255, 255], "nothing at the layout place");
+        let moved = at(&out, 12, 8);
+        assert!(
+            moved[0] == 255 && (120..136).contains(&moved[1]),
+            "the faded box is moved by (8, 4): {moved:?}"
         );
-        let l = c2.layers.values().find(|l| l.id != c2.root_layer).unwrap();
-        assert!(!l.transform.is_identity(IDENTITY_EPSILON_F64));
     }
 
     /// The matrix baked into a `PushReferenceFrame` is the value at display-list
@@ -8911,9 +9045,9 @@ mod autotest_generated {
     #[test]
     fn allocate_layers_reference_frame_reads_the_live_transform_not_the_baked_one() {
         let mut live: HashMap<usize, ComputedTransform3D> = HashMap::new();
-        live.insert(1, translate(120.0, 0.0));
+        live.insert(1, scale(3.0));
 
-        // Baked identity, live moved: the node IS displaced this frame.
+        // Baked identity, live scaled: the node IS resampled this frame.
         let mut c = CompositorState::new(64, 64);
         c.allocate_layers_from_display_list(
             &dlist(vec![
@@ -8943,9 +9077,9 @@ mod autotest_generated {
         );
         let l = c.layers.values().find(|l| l.id != c.root_layer).unwrap();
         assert!(
-            (l.transform.tx - 120.0).abs() < 0.001,
-            "layer must carry the LIVE matrix, got tx={}",
-            l.transform.tx
+            (l.transform.sx - 3.0).abs() < 0.001,
+            "layer must carry the LIVE matrix, got sx={}",
+            l.transform.sx
         );
     }
 
@@ -8961,7 +9095,7 @@ mod autotest_generated {
             &dlist(vec![
                 DisplayListItem::PushReferenceFrame {
                     transform_key: TransformKey { id: 1 },
-                    initial_transform: translate(20.0, 10.0),
+                    initial_transform: scale(2.0),
                     bounds: wlr(0.0, 0.0, 20.0, 20.0),
                 },
                 DisplayListItem::PopReferenceFrame,
@@ -9033,12 +9167,12 @@ mod autotest_generated {
 
     /// Pop pairing for opacity groups is by recorded decision: a keyed group
     /// whose live value is exactly 1.0 (a completed fade) allocates nothing,
-    /// and its `PopOpacity` must NOT pop the enclosing moved reference frame.
+    /// and its `PopOpacity` must NOT pop the enclosing scaled reference frame.
     #[test]
     fn allocate_layers_completed_fade_does_not_pop_its_moved_parent() {
         use azul_core::resources::OpacityKey;
         let mut live_t: HashMap<usize, ComputedTransform3D> = HashMap::new();
-        live_t.insert(1, translate(30.0, 0.0));
+        live_t.insert(1, scale(2.0));
         let mut live_o: HashMap<usize, f32> = HashMap::new();
         live_o.insert(9, 1.0); // the fade has completed
 
@@ -9059,7 +9193,7 @@ mod autotest_generated {
             &live_t,
             &live_o,
         );
-        assert_eq!(c.layers.len(), 2, "only the moved frame gets a layer");
+        assert_eq!(c.layers.len(), 2, "only the scaled frame gets a layer");
         let frame_id = *c
             .layers
             .get(&c.root_layer)
@@ -9078,7 +9212,10 @@ mod autotest_generated {
     #[test]
     fn allocate_layers_identity_child_frame_does_not_pop_its_moved_parent() {
         let mut live: HashMap<usize, ComputedTransform3D> = HashMap::new();
-        live.insert(1, translate(30.0, 0.0)); // outer: moving
+        // Outer: scaled, and moved clear of the rect painted after it.
+        let mut outer_matrix = scale(2.0);
+        outer_matrix.m[3][0] = 60.0;
+        live.insert(1, outer_matrix);
         live.insert(2, ComputedTransform3D::IDENTITY); // inner: at rest
 
         let mut c = CompositorState::new(64, 64);
@@ -9095,7 +9232,7 @@ mod autotest_generated {
             &live,
             &HashMap::new(),
         );
-        assert_eq!(c.layers.len(), 2, "only the moved outer frame gets a layer");
+        assert_eq!(c.layers.len(), 2, "only the scaled outer frame gets a layer");
         let outer_id = *c
             .layers
             .get(&c.root_layer)
@@ -9711,7 +9848,7 @@ mod autotest_generated {
                 },
                 DisplayListItem::PushReferenceFrame {
                     transform_key: TransformKey { id: 1 },
-                    initial_transform: translate(4.0, 4.0),
+                    initial_transform: scale(2.0),
                     bounds: wlr(0.0, 0.0, 8.0, 8.0),
                 },
                 rect_item(0.0, 0.0, 8.0, 8.0, red),

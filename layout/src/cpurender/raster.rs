@@ -1186,8 +1186,10 @@ impl ReferenceFrameGroup {
         real_clip_stack: &mut Vec<Option<AzRect>>,
         scroll_offset_stack: &mut Vec<(f32, f32)>,
     ) -> Self {
-        // The layer builder's tests: a frame it would not promote is painted
-        // where it is laid out, one it would is moved.
+        // As the layer builder places the frame: the identity paints where it
+        // is laid out, a translation paints moved into the pixels below (the
+        // compositor paints it in its parent layer, too), and any other
+        // matrix is a layer there and an isolated group here.
         if is_identity_2d(m) {
             return Self::Identity;
         }
