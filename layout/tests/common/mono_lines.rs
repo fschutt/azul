@@ -98,6 +98,18 @@ pub fn lay_out(text: &str, constraints: &UnifiedConstraints) -> UnifiedLayout {
 pub fn flow(text: &str, fragments: &[(&str, UnifiedConstraints)]) -> (Vec<UnifiedLayout>, usize) {
     let font = mono();
     let content = paragraph(&font, text);
+    flow_content(&font, &content, fragments)
+}
+
+/// `content`, set in `font`, flowed through `fragments` in order: each
+/// fragment's layout, in the order of the chain, and how many shaped items
+/// were left over.
+pub fn flow_content(
+    font: &FontRef,
+    content: &[InlineContent],
+    fragments: &[(&str, UnifiedConstraints)],
+) -> (Vec<UnifiedLayout>, usize) {
+    let font = font.clone();
     let mut fonts: LoadedFonts<FontRef> = LoadedFonts::new();
     fonts.insert(FontId::new(), font);
     let chain: Vec<LayoutFragment> = fragments
@@ -110,7 +122,7 @@ pub fn flow(text: &str, fragments: &[(&str, UnifiedConstraints)]) -> (Vec<Unifie
     let mut cache = TextShapingCache::new();
     let flowed = cache
         .layout_flow(
-            &content,
+            content,
             &[],
             &chain,
             &HashMap::new(),
