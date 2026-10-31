@@ -171,3 +171,172 @@ fn a_nested_frames_shift_clip_is_projected_by_the_outer_scroll() {
     let page = shifts.iter().find(|s| s.0 == 1).expect("the page moved");
     assert_eq!(page.1, page_clip, "a top-level frame keeps its own clip");
 }
+
+// =========================================================================
+// Overlays are repainted where they are painted, not where they are laid out
+// =========================================================================
+
+/// A box moved over a scroll frame by its transform is dragged by the frame's
+/// memmove where it is painted - moved - and must be repainted there and at
+/// its ghost. The overlays were found at their layout place: a box laid out
+/// beside the frame and translated over it was never repainted, and every
+/// scroll step left a smeared copy of it in the frame.
+#[test]
+fn an_overlay_moved_over_the_frame_by_its_transform_is_repainted_where_it_is_painted() {
+    let clip = rect(0.0, 0.0, 200.0, 100.0);
+    let content = rect(-100.0, -100.0, 600.0, 500.0);
+    // Laid out left of the frame, moved 150 px right: painted at (50, 20).
+    let laid_out = rect(-100.0, 20.0, 80.0, 30.0);
+    let moved = rect(50.0, 20.0, 80.0, 30.0);
+    let translate = azul_core::transform::ComputedTransform3D {
+        m: [
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+            [150.0, 0.0, 0.0, 1.0],
+        ],
+    };
+    let dl = DisplayList {
+        items: vec![
+            DisplayListItem::PushScrollFrame {
+                clip_bounds: WindowLogicalRect(clip),
+                content_size: LogicalSize::new(600.0, 500.0),
+                scroll_id: 7,
+            },
+            DisplayListItem::Rect {
+                bounds: WindowLogicalRect(content),
+                color: ColorU {
+                    r: 255,
+                    g: 255,
+                    b: 255,
+                    a: 255,
+                },
+                border_radius: BorderRadius::default(),
+            },
+            DisplayListItem::PopScrollFrame,
+            DisplayListItem::PushReferenceFrame {
+                transform_key: azul_core::resources::TransformKey { id: 3 },
+                initial_transform: translate,
+                bounds: WindowLogicalRect(laid_out),
+            },
+            DisplayListItem::Rect {
+                bounds: WindowLogicalRect(laid_out),
+                color: ColorU {
+                    r: 200,
+                    g: 40,
+                    b: 40,
+                    a: 255,
+                },
+                border_radius: BorderRadius::default(),
+            },
+            DisplayListItem::PopReferenceFrame,
+        ],
+        ..Default::default()
+    };
+
+    let mut pixmap = AzulPixmap::new(200, 100).expect("pixmap");
+    let delta = (0.0, 10.0);
+    let out = cpurender::execute_scroll_shift(
+        &mut pixmap,
+        &dl,
+        7,
+        &clip,
+        delta,
+        (0.0, 10.0),
+        1.0,
+        &[(7, (0.0, 10.0))].into_iter().collect(),
+    );
+    assert!(
+        out.present_extra.contains(&clip),
+        "harness: the frame takes the fast path, damage: {:?}",
+        out.damage
+    );
+    assert!(
+        covers(&out.damage, &moved),
+        "the moved box must be repainted where it is painted, damage: {:?}",
+        out.damage
+    );
+    let ghost = rect(moved.origin.x, moved.origin.y - delta.1, moved.size.width, moved.size.height);
+    assert!(
+        covers(&out.damage, &ghost),
+        "and where the memmove dragged it, damage: {:?}",
+        out.damage
+    );
+}
+
+/// An overlay's shadow is painted past its box: a box beside the frame whose
+/// shadow falls into it is dragged by the memmove, and the shadow must be
+/// repainted, not only the box.
+#[test]
+fn an_overlays_shadow_over_the_frame_is_repainted_too() {
+    let clip = rect(0.0, 0.0, 200.0, 100.0);
+    let content = rect(-100.0, -100.0, 600.0, 500.0);
+    // The box right of the frame; its shadow 16 px to the left reaches 6 px
+    // into the frame, blurred a few px further.
+    let card = rect(210.0, 30.0, 40.0, 40.0);
+    let dl = DisplayList {
+        items: vec![
+            DisplayListItem::PushScrollFrame {
+                clip_bounds: WindowLogicalRect(clip),
+                content_size: LogicalSize::new(600.0, 500.0),
+                scroll_id: 7,
+            },
+            DisplayListItem::Rect {
+                bounds: WindowLogicalRect(content),
+                color: ColorU {
+                    r: 255,
+                    g: 255,
+                    b: 255,
+                    a: 255,
+                },
+                border_radius: BorderRadius::default(),
+            },
+            DisplayListItem::PopScrollFrame,
+            DisplayListItem::BoxShadow {
+                bounds: WindowLogicalRect(card),
+                shadow: azul_css::props::style::box_shadow::StyleBoxShadow {
+                    offset_x: azul_css::props::basic::PixelValueNoPercent {
+                        inner: azul_css::props::basic::PixelValue::px(-16.0),
+                    },
+                    offset_y: azul_css::props::basic::PixelValueNoPercent {
+                        inner: azul_css::props::basic::PixelValue::px(0.0),
+                    },
+                    color: ColorU {
+                        r: 0,
+                        g: 0,
+                        b: 0,
+                        a: 128,
+                    },
+                    blur_radius: azul_css::props::basic::PixelValueNoPercent {
+                        inner: azul_css::props::basic::PixelValue::px(4.0),
+                    },
+                    spread_radius: azul_css::props::basic::PixelValueNoPercent {
+                        inner: azul_css::props::basic::PixelValue::px(0.0),
+                    },
+                    clip_mode: azul_css::props::style::box_shadow::BoxShadowClipMode::Outset,
+                },
+                border_radius: BorderRadius::default(),
+            },
+        ],
+        ..Default::default()
+    };
+
+    let mut pixmap = AzulPixmap::new(200, 100).expect("pixmap");
+    let out = cpurender::execute_scroll_shift(
+        &mut pixmap,
+        &dl,
+        7,
+        &clip,
+        (0.0, 10.0),
+        (0.0, 10.0),
+        1.0,
+        &[(7, (0.0, 10.0))].into_iter().collect(),
+    );
+    // The shadow's part inside the frame: from x 194 to the clip's edge.
+    let shadow_in_frame = rect(194.0, 30.0, 6.0, 40.0);
+    assert!(
+        covers(&out.damage, &shadow_in_frame),
+        "the shadow inside the frame must be repainted, damage: {:?}",
+        out.damage
+    );
+}
