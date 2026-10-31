@@ -2,13 +2,14 @@
 //! that toggles a class (`active`, `selected`) keeps what the node holds -
 //! the state its dataset carries and the focus it has. Before, the classes
 //! were part of a keyless node's identity, so the toggled node unmounted,
-//! its state started over and the focus fell to nothing.
+//! its state started over and the focus fell to nothing. An app that wants
+//! that says so in its `AppConfig::node_identity`, and its windows follow.
 
 use azul_core::{
     dom::{DatasetMergeCallbackType, Dom, DomId, DomNodeId, IdOrClass, NodeId, TabIndex},
     geom::LogicalSize,
     refany::{OptionRefAny, RefAny},
-    resources::RendererResources,
+    resources::{AppConfig, RendererResources},
     styled_dom::{NodeHierarchyItemId, StyledDom},
 };
 use azul_layout::{
@@ -71,8 +72,10 @@ fn render(lw: &mut LayoutWindow, active: bool) {
     lw.finish_reconciliation(DomId::ROOT_ID, &pending);
 }
 
-fn window() -> LayoutWindow {
+/// A window of the app with this config, as a shell builds one.
+fn window(config: &AppConfig) -> LayoutWindow {
     let mut lw = LayoutWindow::new(FcFontCache::build()).unwrap();
+    lw.set_app_node_identity(config);
     lw.system_animations_override = Some(azul_core::resources::SystemAnimations::disabled());
     let mut window_state = FullWindowState::default();
     window_state.size.dimensions = LogicalSize::new(400.0, 300.0);
@@ -116,7 +119,7 @@ fn use_the_item(lw: &mut LayoutWindow) {
 
 #[test]
 fn a_toggled_class_keeps_the_nodes_dataset_and_focus() {
-    let mut lw = window();
+    let mut lw = window(&AppConfig::create());
     use_the_item(&mut lw);
     assert_eq!(clicks(&lw), 3, "premise: the item counts its clicks");
 
@@ -133,4 +136,23 @@ fn a_toggled_class_keeps_the_nodes_dataset_and_focus() {
             "{rebuild}: the item keeps the focus"
         );
     }
+}
+
+#[test]
+fn with_classes_in_the_apps_identity_rules_a_toggled_class_starts_the_node_over() {
+    let mut config = AppConfig::create();
+    config.node_identity.class_change_remounts = true;
+    let mut lw = window(&config);
+    use_the_item(&mut lw);
+
+    render(&mut lw, true);
+    assert_eq!(
+        clicks(&lw),
+        0,
+        "the item with a class more is a new item: its state starts over"
+    );
+    assert_eq!(
+        lw.focus_manager.focused_node, None,
+        "the focus went with the item that unmounted"
+    );
 }

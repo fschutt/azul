@@ -42,7 +42,12 @@ mod audit_tests {
         // A single-node key walk is O(depth) and must complete without recursing.
         let n = 100_000usize;
         let (node_data, hierarchy) = build(n);
-        let _ = calculate_reconciliation_key(&node_data, &hierarchy, NodeId::new(n - 1));
+        let _ = calculate_reconciliation_key(
+            &node_data,
+            &hierarchy,
+            NodeId::new(n - 1),
+            NodeIdentityConfig::default(),
+        );
         let _ = calculate_contenteditable_key(&node_data, &hierarchy, NodeId::new(n - 1));
 
         // Whole-DOM precompute calls the per-node walk once per node, so over a
@@ -52,7 +57,7 @@ mod audit_tests {
         // `reconciliation_key_distinguishes_siblings`.
         let m = 2_000usize;
         let (nd, hi) = build(m);
-        let keys = precompute_reconciliation_keys(&nd, &hi);
+        let keys = precompute_reconciliation_keys(&nd, &hi, NodeIdentityConfig::default());
         assert_eq!(keys.len(), m);
     }
 
@@ -70,7 +75,12 @@ mod audit_tests {
             hitem(Some(2), None, None, None),
             hitem(Some(1), None, None, None),
         ];
-        let _ = calculate_reconciliation_key(&node_data, &hierarchy, NodeId::new(1));
+        let _ = calculate_reconciliation_key(
+            &node_data,
+            &hierarchy,
+            NodeId::new(1),
+            NodeIdentityConfig::default(),
+        );
         let _ = calculate_contenteditable_key(&node_data, &hierarchy, NodeId::new(1));
     }
 
@@ -78,8 +88,17 @@ mod audit_tests {
     fn reconciliation_key_single_node() {
         let node_data = vec![NodeData::create_div()];
         let hierarchy = vec![hitem(None, None, None, None)];
-        let direct = calculate_reconciliation_key(&node_data, &hierarchy, NodeId::new(0));
-        let pre = precompute_reconciliation_keys(&node_data, &hierarchy)[0];
+        let direct = calculate_reconciliation_key(
+            &node_data,
+            &hierarchy,
+            NodeId::new(0),
+            NodeIdentityConfig::default(),
+        );
+        let pre = precompute_reconciliation_keys(
+            &node_data,
+            &hierarchy,
+            NodeIdentityConfig::default(),
+        )[0];
         assert_eq!(direct, pre);
     }
 
@@ -92,8 +111,18 @@ mod audit_tests {
             hitem(Some(0), None, Some(2), None), // child 1
             hitem(Some(0), Some(1), None, None), // child 2
         ];
-        let k1 = calculate_reconciliation_key(&node_data, &hierarchy, NodeId::new(1));
-        let k2 = calculate_reconciliation_key(&node_data, &hierarchy, NodeId::new(2));
+        let k1 = calculate_reconciliation_key(
+            &node_data,
+            &hierarchy,
+            NodeId::new(1),
+            NodeIdentityConfig::default(),
+        );
+        let k2 = calculate_reconciliation_key(
+            &node_data,
+            &hierarchy,
+            NodeId::new(2),
+            NodeIdentityConfig::default(),
+        );
         assert_ne!(k1, k2);
     }
 
@@ -226,6 +255,7 @@ mod autotest_generated {
             &no_layout(),
             DomId::ROOT_ID,
             Instant::now(),
+            NodeIdentityConfig::default(),
         )
     }
 
@@ -976,7 +1006,7 @@ mod autotest_generated {
 
     #[test]
     fn autotest_rec_key_empty_node_data_is_safe() {
-        assert!(precompute_reconciliation_keys(&[], &[]).is_empty());
+        assert!(precompute_reconciliation_keys(&[], &[], NodeIdentityConfig::default()).is_empty());
     }
 
     #[test]
@@ -996,12 +1026,21 @@ mod autotest_generated {
             hitem(Some(0), Some(2), None, None),
         ];
 
-        let keys = precompute_reconciliation_keys(&node_data, &hierarchy);
+        let keys = precompute_reconciliation_keys(
+            &node_data,
+            &hierarchy,
+            NodeIdentityConfig::default(),
+        );
         assert_eq!(keys.len(), node_data.len());
         for (i, k) in keys.iter().enumerate() {
             assert_eq!(
                 *k,
-                calculate_reconciliation_key(&node_data, &hierarchy, NodeId::new(i)),
+                calculate_reconciliation_key(
+                    &node_data,
+                    &hierarchy,
+                    NodeId::new(i),
+                    NodeIdentityConfig::default(),
+                ),
                 "precomputed key for node {i} disagrees with the direct call",
             );
         }
@@ -1019,8 +1058,18 @@ mod autotest_generated {
                     vec![IdOrClass::Id("hero".into()), IdOrClass::Class("x".into())].into(),
                 );
 
-        let a = calculate_reconciliation_key(&[bare], &[], NodeId::new(0));
-        let b = calculate_reconciliation_key(&[decorated], &[], NodeId::new(0));
+        let a = calculate_reconciliation_key(
+            &[bare],
+            &[],
+            NodeId::new(0),
+            NodeIdentityConfig::default(),
+        );
+        let b = calculate_reconciliation_key(
+            &[decorated],
+            &[],
+            NodeId::new(0),
+            NodeIdentityConfig::default(),
+        );
         assert_eq!(
             a, b,
             "an explicit .with_key() must dominate every other input"
@@ -1029,9 +1078,30 @@ mod autotest_generated {
 
     #[test]
     fn autotest_rec_key_css_id_used_when_no_explicit_key() {
-        let same_a = calculate_reconciliation_key(&[id_node("hero")], &[], NodeId::new(0));
-        let same_b = calculate_reconciliation_key(&[id_node("hero")], &[], NodeId::new(0));
-        let other = calculate_reconciliation_key(&[id_node("footer")], &[], NodeId::new(0));
+        // The CSS id is a key only where the app says so (React's rules,
+        // the default, treat it as an attribute like any other).
+        let ids_are_keys = NodeIdentityConfig {
+            id_is_key: true,
+            ..NodeIdentityConfig::default()
+        };
+        let same_a = calculate_reconciliation_key(
+            &[id_node("hero")],
+            &[],
+            NodeId::new(0),
+            ids_are_keys,
+        );
+        let same_b = calculate_reconciliation_key(
+            &[id_node("hero")],
+            &[],
+            NodeId::new(0),
+            ids_are_keys,
+        );
+        let other = calculate_reconciliation_key(
+            &[id_node("footer")],
+            &[],
+            NodeId::new(0),
+            ids_are_keys,
+        );
 
         assert_eq!(same_a, same_b, "the CSS-ID key must be stable");
         assert_ne!(
@@ -1042,18 +1112,40 @@ mod autotest_generated {
 
     #[test]
     fn autotest_rec_key_classes_participate_in_the_structural_key() {
-        let a = calculate_reconciliation_key(&[class_node("alpha")], &[], NodeId::new(0));
-        let b = calculate_reconciliation_key(&[class_node("beta")], &[], NodeId::new(0));
+        // Classes are part of a node's identity only where the app says so
+        // (React's rules, the default, keep a node whose classes change).
+        let classes_remount = NodeIdentityConfig {
+            class_change_remounts: true,
+            ..NodeIdentityConfig::default()
+        };
+        let a = calculate_reconciliation_key(
+            &[class_node("alpha")],
+            &[],
+            NodeId::new(0),
+            classes_remount,
+        );
+        let b = calculate_reconciliation_key(
+            &[class_node("beta")],
+            &[],
+            NodeId::new(0),
+            classes_remount,
+        );
         assert_ne!(a, b, "classes must feed the structural key");
     }
 
     #[test]
     fn autotest_rec_key_node_type_participates_in_the_structural_key() {
-        let div = calculate_reconciliation_key(&[NodeData::create_div()], &[], NodeId::new(0));
+        let div = calculate_reconciliation_key(
+            &[NodeData::create_div()],
+            &[],
+            NodeId::new(0),
+            NodeIdentityConfig::default(),
+        );
         let txt = calculate_reconciliation_key(
             &[NodeData::create_text_do_not_use_without_block_level_wrapper("x")],
             &[],
             NodeId::new(0),
+            NodeIdentityConfig::default(),
         );
         assert_ne!(
             div, txt,
@@ -1067,9 +1159,16 @@ mod autotest_generated {
         // "discriminant + classes" key instead of panicking.
         let node_data = vec![NodeData::create_div(), class_node("a"), id_node("b")];
 
-        let with_none = precompute_reconciliation_keys(&node_data, &[]);
-        let with_short =
-            precompute_reconciliation_keys(&node_data, &[hitem(None, None, None, None)]);
+        let with_none = precompute_reconciliation_keys(
+            &node_data,
+            &[],
+            NodeIdentityConfig::default(),
+        );
+        let with_short = precompute_reconciliation_keys(
+            &node_data,
+            &[hitem(None, None, None, None)],
+            NodeIdentityConfig::default(),
+        );
 
         assert_eq!(with_none.len(), 3);
         assert_eq!(with_short.len(), 3);
@@ -1100,8 +1199,18 @@ mod autotest_generated {
             hitem(Some(2), None, None, None),       // 4
         ];
 
-        let k3 = calculate_reconciliation_key(&node_data, &hierarchy, NodeId::new(3));
-        let k4 = calculate_reconciliation_key(&node_data, &hierarchy, NodeId::new(4));
+        let k3 = calculate_reconciliation_key(
+            &node_data,
+            &hierarchy,
+            NodeId::new(3),
+            NodeIdentityConfig::default(),
+        );
+        let k4 = calculate_reconciliation_key(
+            &node_data,
+            &hierarchy,
+            NodeId::new(4),
+            NodeIdentityConfig::default(),
+        );
         assert_ne!(
             k3, k4,
             "identical leaves under different parents must not share a key"
@@ -1123,7 +1232,12 @@ mod autotest_generated {
         // keyed node both functions return the SAME value.
         assert_eq!(
             a,
-            calculate_reconciliation_key(&node_data, &[], NodeId::new(0)),
+            calculate_reconciliation_key(
+                &node_data,
+                &[],
+                NodeId::new(0),
+                NodeIdentityConfig::default(),
+            ),
             "explicit keys must be identical across both key functions",
         );
     }
@@ -1359,6 +1473,7 @@ mod autotest_generated {
             &layout_of(&[(0, rect(100.0, 80.0))]),
             DomId::ROOT_ID,
             Instant::now(),
+            NodeIdentityConfig::default(),
         );
 
         assert_eq!(count_events(&r, EventType::Resize), 1);
@@ -1392,6 +1507,7 @@ mod autotest_generated {
             &layout_of(&[(0, moved)]),
             DomId::ROOT_ID,
             Instant::now(),
+            NodeIdentityConfig::default(),
         );
         assert_eq!(count_events(&r, EventType::Resize), 0);
     }
@@ -1427,6 +1543,7 @@ mod autotest_generated {
             &layout_of(&[(0, nan)]),
             DomId::ROOT_ID,
             Instant::now(),
+            NodeIdentityConfig::default(),
         );
         assert_eq!(r.node_moves.len(), 1);
         assert_eq!(
@@ -1447,6 +1564,7 @@ mod autotest_generated {
             &layout_of(&[(0, inf)]),
             DomId::ROOT_ID,
             Instant::now(),
+            NodeIdentityConfig::default(),
         );
         assert_eq!(
             count_events(&r, EventType::Resize),
@@ -1464,6 +1582,7 @@ mod autotest_generated {
             &layout_of(&[(0, rect(10.0, 20.0))]),
             DomId::ROOT_ID,
             Instant::now(),
+            NodeIdentityConfig::default(),
         );
         assert_eq!(
             count_events(&r, EventType::Resize),
@@ -1496,6 +1615,7 @@ mod autotest_generated {
                 &layout_of(&[(0, b)]),
                 DomId::ROOT_ID,
                 Instant::now(),
+                NodeIdentityConfig::default(),
             );
             assert_eq!(r.node_moves.len(), 1);
         }
@@ -1507,6 +1627,9 @@ mod autotest_generated {
         // identical leaves live under DIFFERENT parents. The content-hash and
         // structural-hash tiers must not match them across parents, or focus /
         // scroll / dataset state migrates into an unrelated subtree.
+        //
+        // The ids make the parents two different nodes where the CSS id is a
+        // key, which these rules say.
         //
         // old:  0 root ── 1 (#left)  ── 2 "leaf"
         // new:  0 root ── 1 (#right) ── 2 "leaf"
@@ -1537,6 +1660,10 @@ mod autotest_generated {
             &no_layout(),
             DomId::ROOT_ID,
             Instant::now(),
+            NodeIdentityConfig {
+                id_is_key: true,
+                ..NodeIdentityConfig::default()
+            },
         );
 
         // The leaf (index 2) must NOT be matched: its parent's reconciliation
@@ -1561,8 +1688,16 @@ mod autotest_generated {
         // (the anonymous `p`, none on both sides), so the text overlay of the
         // name field - what the user typed - moved into the host field.
         //
+        // The ids tell the two fields apart where the CSS id is a key, which
+        // these rules say; under React's rules an app gives them keys, and
+        // the keys draw the same line (the end of this test).
+        //
         // old:  0 root ── 1 (#acct-name)      ── 2 p ── 3 "x"
         // new:  0 root ── 1 (#acct-imap-host) ── 2 p ── 3 "x"
+        let ids_are_keys = NodeIdentityConfig {
+            id_is_key: true,
+            ..NodeIdentityConfig::default()
+        };
         let hier = vec![
             hitem(None, None, None, Some(1)),
             hitem(Some(0), None, None, Some(2)),
@@ -1586,6 +1721,7 @@ mod autotest_generated {
             &no_layout(),
             DomId::ROOT_ID,
             Instant::now(),
+            ids_are_keys,
         );
         for node in [2, 3] {
             assert!(
@@ -1608,6 +1744,7 @@ mod autotest_generated {
             &no_layout(),
             DomId::ROOT_ID,
             Instant::now(),
+            ids_are_keys,
         );
         assert!(
             same.node_moves
@@ -1616,6 +1753,36 @@ mod autotest_generated {
             "moves = {:?}",
             same.node_moves,
         );
+
+        let keyed = |key: &str| {
+            vec![
+                NodeData::create_div(),
+                NodeData::create_div().with_key(key),
+                NodeData::create_node(crate::dom::NodeType::P),
+                NodeData::create_text_do_not_use_without_block_level_wrapper("x"),
+            ]
+        };
+        let r = reconcile_dom(
+            &keyed("acct-name"),
+            &keyed("acct-imap-host"),
+            &hier,
+            &hier,
+            &no_layout(),
+            &no_layout(),
+            DomId::ROOT_ID,
+            Instant::now(),
+            NodeIdentityConfig::default(),
+        );
+        for node in [2, 3] {
+            assert!(
+                !r.node_moves
+                    .iter()
+                    .any(|m| m.new_node_id.index() == node && m.old_node_id.index() == node),
+                "node {node} lives in a container with another key: it is a new element; \
+                 moves = {:?}",
+                r.node_moves,
+            );
+        }
     }
 
     // ========================================================================
@@ -2495,6 +2662,7 @@ mod autotest_generated {
             &no_layout(),
             DomId::ROOT_ID,
             Instant::now(),
+            NodeIdentityConfig::default(),
         );
         assert!(r.diff.events.is_empty());
         assert!(r.diff.node_moves.is_empty());
@@ -2519,6 +2687,7 @@ mod autotest_generated {
             &no_layout(),
             DomId::ROOT_ID,
             Instant::now(),
+            NodeIdentityConfig::default(),
         );
 
         assert_eq!(r.diff.node_moves.len(), 1);
@@ -2553,6 +2722,7 @@ mod autotest_generated {
             &no_layout(),
             DomId::ROOT_ID,
             Instant::now(),
+            NodeIdentityConfig::default(),
         );
         assert_eq!(r.node_changes.len(), 2);
         // Both sides see the same (present-or-absent) state, so no STYLED_STATE.
@@ -2582,6 +2752,7 @@ mod autotest_generated {
             &no_layout(),
             DomId::ROOT_ID,
             Instant::now(),
+            NodeIdentityConfig::default(),
         );
 
         let mut acc = ChangeAccumulator::new();
@@ -3232,6 +3403,7 @@ mod a_toggled_widget_keeps_its_identity {
             &OrderedMap::default(),
             DomId::ROOT_ID,
             Instant::now(),
+            NodeIdentityConfig::default(),
         );
         let old_of = |new_idx: usize| {
             diff.node_moves
@@ -3323,6 +3495,7 @@ mod twins_by_place {
             &OrderedMap::default(),
             DomId::ROOT_ID,
             Instant::now(),
+            NodeIdentityConfig::default(),
         );
         let old_of = |new_idx: usize| {
             diff.node_moves
@@ -3371,6 +3544,7 @@ mod twins_by_place {
             &OrderedMap::default(),
             DomId::ROOT_ID,
             Instant::now(),
+            NodeIdentityConfig::default(),
         );
         let old_of = |new_idx: usize| {
             diff.node_moves
@@ -3886,7 +4060,12 @@ mod node_identity {
         (compact.node_data.internal, hierarchy)
     }
 
+    /// The diff of two trees under the app's default rules.
     fn diff(old: Dom, new: Dom) -> DiffResult {
+        diff_by(NodeIdentityConfig::default(), old, new)
+    }
+
+    fn diff_by(identity: NodeIdentityConfig, old: Dom, new: Dom) -> DiffResult {
         let (old_data, old_hierarchy) = flatten(old);
         let (new_data, new_hierarchy) = flatten(new);
         reconcile_dom(
@@ -3898,8 +4077,27 @@ mod node_identity {
             &OrderedMap::default(),
             DomId::ROOT_ID,
             Instant::now(),
+            identity,
         )
     }
+
+    const CLASSES_REMOUNT: NodeIdentityConfig = NodeIdentityConfig {
+        siblings_counted: SiblingsCounted::All,
+        class_change_remounts: true,
+        id_is_key: false,
+    };
+
+    const IDS_ARE_KEYS: NodeIdentityConfig = NodeIdentityConfig {
+        siblings_counted: SiblingsCounted::All,
+        class_change_remounts: false,
+        id_is_key: true,
+    };
+
+    const SAME_TYPE_COUNTS: NodeIdentityConfig = NodeIdentityConfig {
+        siblings_counted: SiblingsCounted::SameType,
+        class_change_remounts: false,
+        id_is_key: false,
+    };
 
     /// The old node a new one is, if it is one.
     fn old_of(diff: &DiffResult, new_index: usize) -> Option<usize> {
@@ -3945,7 +4143,12 @@ mod node_identity {
     fn classes_and_the_css_id_do_not_enter_the_reconciliation_key() {
         let key_of = |node: NodeData| {
             let (data, hierarchy) = flatten(body(vec![Dom::create_from_data(node)]));
-            calculate_reconciliation_key(&data, &hierarchy, NodeId::new(1))
+            calculate_reconciliation_key(
+                &data,
+                &hierarchy,
+                NodeId::new(1),
+                NodeIdentityConfig::default(),
+            )
         };
         let plain = key_of(NodeData::create_div());
         assert_eq!(key_of(with_classes(&["item", "active"])), plain, "classes");
@@ -3984,16 +4187,144 @@ mod node_identity {
     fn the_reconciliation_key_counts_every_sibling_before_a_node() {
         let key_of = |dom: Dom, index: usize| {
             let (data, hierarchy) = flatten(dom);
-            calculate_reconciliation_key(&data, &hierarchy, NodeId::new(index))
+            calculate_reconciliation_key(
+                &data,
+                &hierarchy,
+                NodeId::new(index),
+                NodeIdentityConfig::default(),
+            )
         };
-        let second_div = key_of(
-            body(vec![Dom::create_div(), Dom::create_div()]),
-            2,
-        );
+        let second_div = key_of(body(vec![Dom::create_div(), Dom::create_div()]), 2);
         let div_after_a_p = key_of(body(vec![Dom::create_p(), Dom::create_div()]), 2);
         assert_eq!(
             div_after_a_p, second_div,
             "a div after a p stands at the place of a div after a div"
         );
+    }
+
+    #[test]
+    fn the_default_rules_are_reacts() {
+        assert_eq!(
+            NodeIdentityConfig::default(),
+            NodeIdentityConfig {
+                siblings_counted: SiblingsCounted::All,
+                class_change_remounts: false,
+                id_is_key: false,
+            }
+        );
+        assert_eq!(
+            crate::resources::AppConfig::create().node_identity,
+            NodeIdentityConfig::default(),
+            "an app reconciles by the default rules unless it chooses others"
+        );
+    }
+
+    #[test]
+    fn a_node_of_another_type_at_the_same_place_is_a_new_node() {
+        let d = diff(
+            body(vec![watched(titled(NodeType::Div, "row"))]),
+            body(vec![watched(titled(NodeType::P, "row"))]),
+        );
+        assert_eq!(old_of(&d, 1), None, "a p is not the div that stood there");
+        assert_eq!(count(&d, EventType::Unmount), 1);
+        assert_eq!(count(&d, EventType::Mount), 1);
+    }
+
+    #[test]
+    fn an_explicit_key_wins_over_the_place() {
+        let row = |key: &str, title: &str| watched(titled(NodeType::Div, title).with_key(key));
+        let d = diff(
+            body(vec![row("a", "first"), row("b", "second")]),
+            body(vec![row("b", "second, edited"), row("a", "first, edited")]),
+        );
+        assert_eq!(old_of(&d, 1), Some(2), "b moved to the front");
+        assert_eq!(old_of(&d, 2), Some(1), "a moved behind it");
+        assert_eq!(count(&d, EventType::Mount), 0);
+        assert_eq!(count(&d, EventType::Unmount), 0);
+    }
+
+    #[test]
+    fn with_classes_in_the_identity_a_class_change_makes_a_new_node() {
+        let d = diff_by(
+            CLASSES_REMOUNT,
+            body(vec![watched(with_classes(&["item"]))]),
+            body(vec![watched(with_classes(&["item", "active"]))]),
+        );
+        assert_eq!(old_of(&d, 1), None, "the toggled item is a new node");
+        assert_eq!(count(&d, EventType::Unmount), 1);
+        assert_eq!(count(&d, EventType::Mount), 1);
+    }
+
+    /// A container is also known by its children, when they all came from
+    /// one old node: with classes in the identity, a changed class list
+    /// still makes it a new container.
+    #[test]
+    fn with_classes_in_the_identity_a_container_whose_class_changes_is_a_new_node() {
+        let list = |classes: &[&str]| {
+            body(vec![watched(with_classes(classes))
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("a"))
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("b"))])
+        };
+        let d = diff_by(CLASSES_REMOUNT, list(&["list"]), list(&["list", "open"]));
+        assert_eq!(old_of(&d, 2), Some(2), "premise: the list's texts are matched");
+        assert_eq!(old_of(&d, 3), Some(3), "premise: the list's texts are matched");
+        assert_eq!(old_of(&d, 1), None, "the list whose class changed is new");
+
+        let d = diff(list(&["list"]), list(&["list", "open"]));
+        assert_eq!(old_of(&d, 1), Some(1), "by default the list is the list it was");
+    }
+
+    #[test]
+    fn with_ids_as_keys_a_changed_id_makes_a_new_node() {
+        let d = diff_by(
+            IDS_ARE_KEYS,
+            body(vec![watched(with_id("first"))]),
+            body(vec![watched(with_id("second"))]),
+        );
+        assert_eq!(old_of(&d, 1), None, "another id is another node");
+        assert_eq!(count(&d, EventType::Unmount), 1);
+        assert_eq!(count(&d, EventType::Mount), 1);
+    }
+
+    #[test]
+    fn with_ids_as_keys_an_id_finds_its_node_at_another_place() {
+        let field = |id: &str, title: &str| {
+            let mut node = NodeData::create_div();
+            node.set_attributes(
+                vec![AttributeType::Id(id.into()), AttributeType::Title(title.into())].into(),
+            );
+            watched(node)
+        };
+        let old = || body(vec![field("name", "Name"), field("mail", "Mail")]);
+        let new = || body(vec![field("mail", "Mail:"), field("name", "Name:")]);
+
+        let d = diff_by(IDS_ARE_KEYS, old(), new());
+        assert_eq!(old_of(&d, 1), Some(2), "#mail is #mail where it stands now");
+        assert_eq!(old_of(&d, 2), Some(1), "#name is #name where it stands now");
+
+        let d = diff(old(), new());
+        assert_eq!(old_of(&d, 1), Some(1), "by default the first field is the first field");
+        assert_eq!(old_of(&d, 2), Some(2), "by default the second field is the second field");
+    }
+
+    #[test]
+    fn counting_only_the_same_type_a_node_inserted_in_front_moves_no_other_type() {
+        let d = diff_by(
+            SAME_TYPE_COUNTS,
+            body(vec![
+                watched(titled(NodeType::Div, "first")),
+                watched(titled(NodeType::Div, "second")),
+            ]),
+            body(vec![
+                watched(titled(NodeType::P, "banner")),
+                watched(titled(NodeType::Div, "first, edited")),
+                watched(titled(NodeType::Div, "second, edited")),
+            ]),
+        );
+        assert_eq!(old_of(&d, 1), None, "the banner is new");
+        assert_eq!(old_of(&d, 2), Some(1), "the first div is the first div");
+        assert_eq!(old_of(&d, 3), Some(2), "the second div is the second div");
+        assert_eq!(count(&d, EventType::Mount), 1, "only the banner mounts");
+        assert_eq!(count(&d, EventType::Unmount), 0, "nothing unmounts");
     }
 }

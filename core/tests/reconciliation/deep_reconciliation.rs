@@ -20,7 +20,7 @@
 
 use azul_core::{
     callbacks::CoreCallback,
-    diff::reconcile_dom,
+    diff::{reconcile_dom, NodeIdentityConfig},
     dom::{Dom, DomId, NodeData},
     events::{ComponentEventFilter, EventData, EventFilter, EventType, LifecycleReason},
     geom::{LogicalPosition, LogicalRect, LogicalSize},
@@ -106,6 +106,7 @@ fn deep_nested_mount_produces_mount_events_for_each_new_node() {
         &zero_layout(new_nd.len()),
         DomId::ROOT_ID,
         Instant::now(),
+        NodeIdentityConfig::default(),
     );
 
     let mount_events: Vec<_> = result
@@ -158,6 +159,7 @@ fn deep_nested_unmount_fires_for_removed_subtree_root_only() {
         &zero_layout(new_nd.len()),
         DomId::ROOT_ID,
         Instant::now(),
+        NodeIdentityConfig::default(),
     );
 
     let unmounts: Vec<_> = result
@@ -205,6 +207,7 @@ fn nth_of_type_distinguishes_siblings_of_same_type() {
         &zero_layout(new_nd.len()),
         DomId::ROOT_ID,
         Instant::now(),
+        NodeIdentityConfig::default(),
     );
 
     // Exactly one of the two old children should unmount; the other should
@@ -290,6 +293,7 @@ fn identical_leaves_under_different_parents_do_not_match() {
         &zero_layout(new_nd.len()),
         DomId::ROOT_ID,
         Instant::now(),
+        NodeIdentityConfig::default(),
     );
 
     // No mounts: identical frames match perfectly.
@@ -361,6 +365,7 @@ fn deep_resize_event_fires_when_bounds_change_on_matched_node() {
         &new_layout,
         DomId::ROOT_ID,
         Instant::now(),
+        NodeIdentityConfig::default(),
     );
 
     let resizes: Vec<_> = result
@@ -420,6 +425,7 @@ fn keyed_update_fires_on_content_change() {
         &zero_layout(new_nd.len()),
         DomId::ROOT_ID,
         Instant::now(),
+        NodeIdentityConfig::default(),
     );
 
     let updates: Vec<_> = result
@@ -538,6 +544,7 @@ fn csd_chrome_wrapper_keeps_every_user_node_matched() {
         &zero_layout(new_nd.len()),
         DomId::ROOT_ID,
         Instant::now(),
+        NodeIdentityConfig::default(),
     );
 
     let map: std::collections::BTreeMap<usize, usize> = result

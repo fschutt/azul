@@ -20,6 +20,7 @@ default-search-keys:
   - Dom
   - Update
   - AttributeType
+  - NodeIdentityConfig
   - with_merge_callback
   - DatasetMergeCallback
   - EventFilter
@@ -60,15 +61,15 @@ still match.
 
 The matching runs in this order, strongest evidence first:
 
-1. **Key or id.** A node with `.with_key(..)` or a CSS id matches the old
-   node with the same key.
+1. **Key.** A node with `.with_key(..)` matches the old node with the same
+   key (and a node with a CSS id, where the app makes the id a key).
 2. **A distinct subtree that moved.** A subtree whose content is UNIQUE in
    its container on both sides (a paragraph re-paginated onto another page, a
    sorted row with its own text) follows its content to its new place.
 3. **Its children.** A parent is the old node its already-matched children
    all descend from - that survives chrome being wrapped around the root.
-4. **Its place.** Everything else matches by position: the same path of
-   sibling indices, node type and classes.
+4. **Its place.** Everything else matches by position: the same node type
+   at the same index among its siblings, under the same parent.
 
 **Identical siblings are matched by place**, never by content: four empty
 cells, a row of pending map tiles, repeated words. When one of them changes
@@ -76,16 +77,39 @@ cells, a row of pending map tiles, repeated words. When one of them changes
 shift by one to fill the gap, so their state (focus, scroll, a widget's
 dataset) stays with the node it belongs to and nothing appears to "move".
 
-Classes are part of a keyless node's identity: a node whose class list
-changes may be matched as a new node (an unmount and a mount) rather than
-updated in place. Give it a key or an id when its state must survive a class
-change.
-
 For trees whose order can change (sortable lists, drag-and-drop,
-virtualised scrolling), structural matching loses cursor position,
-focus, and dataset state when items reorder. Those cases need a stable
-identity. Set an `AttributeType::Id` on the node so the diff can match
-across the reorder.
+virtualised scrolling, a banner inserted above a list), structural
+matching loses cursor position, focus, and dataset state when items
+move. Those cases need a stable identity: give each item a key with
+`.with_key(..)` so the diff can match across the move.
+
+## What makes a node a new node
+
+By default azul follows React's rules. A keyless node is the node of the
+same type at the same index among its siblings, under the same parent.
+Classes, inline styles and attributes, the CSS id among them, never make a
+node a new node: toggling a class such as `active` keeps its dataset,
+focus and scroll. A node of another type at the same place is always a
+new node, and so is everything below it that the content passes do not
+find again.
+
+The index counts every sibling. A node inserted in front moves every later
+sibling one place, so each of them is the node that stood at its new
+place before, if that one had the same type. Two exceptions keep a node
+anyway: a subtree whose content is unique on both sides follows that
+content, and a parent is found again through its children.
+
+An app that wants other rules sets `AppConfig::node_identity`, a
+`NodeIdentityConfig`, once; every window and every view reconciles by it:
+
+- `siblings_counted`: `All` (the default) counts every sibling;
+  `SameType` counts only the siblings of the node's own type, as CSS
+  `:nth-of-type` does, so inserting a node of another type moves nothing.
+- `class_change_remounts`: `true` makes a node whose class list changed a
+  new node, so a class can reset its state. Default `false`.
+- `id_is_key`: `true` makes the CSS id a key: the node with an id is the
+  node with the same id wherever it stands, and another id is another
+  node. Default `false`.
 
 ## What does and doesn't trigger work
 

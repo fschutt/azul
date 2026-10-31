@@ -1812,6 +1812,7 @@ impl HeadlessWindow {
         layout_window.routes = config.routes.clone();
         layout_window.set_app_localization(&config);
         layout_window.set_app_e2e(&config);
+        layout_window.set_app_node_identity(&config);
         // A recording web view backend (`HeadlessWebViews`): `<webview>`s are
         // created and placed through it, and their pages played by the test.
         layout_window

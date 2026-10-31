@@ -1418,6 +1418,7 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         custom_e2e_op: _,
         e2e_commands: _,
         routes: _,
+        node_identity: _,
         // Transient CSS-diff staging — plain data, no Drop obligations.
         pending_css_dirty: _,
         reconciled_dom: _,
@@ -2407,6 +2408,12 @@ pub struct LayoutWindow {
     /// Registered routes from `AppConfig`.  Set once at window creation.
     /// Used by `CallbackChange::SwitchRoute` to look up layout callbacks.
     pub routes: azul_core::resources::RouteVec,
+    /// What makes a node of a rebuilt DOM another node
+    /// (`AppConfig::node_identity`), copied at window creation by
+    /// [`Self::set_app_node_identity`]. Every reconciliation of this window,
+    /// its root DOM's and its views', and the animation keys that follow a
+    /// node across rebuilds go by it.
+    pub node_identity: azul_core::diff::NodeIdentityConfig,
     /// ICU4X localizer handle for internationalized formatting (numbers, dates, lists, plurals)
     /// Initialized from system language at startup, can be overridden
     #[cfg(feature = "icu")]
@@ -3040,6 +3047,7 @@ impl LayoutWindow {
             custom_e2e_op: azul_core::events::CustomE2eOpCallback::default(),
             e2e_commands: azul_core::events::E2eCommandVec::from_const_slice(&[]),
             routes: azul_core::resources::RouteVec::from_const_slice(&[]),
+            node_identity: azul_core::diff::NodeIdentityConfig::default(),
             #[cfg(feature = "icu")]
             icu_localizer: IcuLocalizerHandle::default(),
         }
@@ -16394,6 +16402,7 @@ impl LayoutWindow {
             &empty_layout,
             dom_id,
             now,
+            self.node_identity,
         );
 
         // Geometry captured BEFORE the swap, because the old solved rects die
@@ -16837,6 +16846,7 @@ impl LayoutWindow {
                                 &old_node_data,
                                 &old_hierarchy,
                                 *node,
+                                self.node_identity,
                             ),
                         ),
                     );
@@ -16928,6 +16938,7 @@ impl LayoutWindow {
     /// which is a different mechanism from "sample a transform for a node that
     /// exists".
     pub fn finish_reconciliation(&mut self, dom_id: DomId, pending: &PendingReconciliation) {
+        let identity = self.node_identity;
         // The new tree as it was laid out: the arena `begin_reconciliation`
         // numbered. A tree of another size is not that arena (no layout ran for
         // it), so nothing below may read node data by the pending's ids.
@@ -16956,6 +16967,7 @@ impl LayoutWindow {
             &pending.node_moves,
             new_node_data,
             new_hierarchy,
+            identity,
         )
         .into_iter()
         .collect();
@@ -16979,6 +16991,7 @@ impl LayoutWindow {
                     core::slice::from_ref(&m),
                     new_node_data,
                     new_hierarchy,
+                    identity,
                     |old_id| pending.first_rects.get(&old_id).copied(),
                     |new_id| {
                         self.get_node_bounds(dom_id, new_id)
@@ -17012,6 +17025,7 @@ impl LayoutWindow {
                     new_node_data,
                     new_hierarchy,
                     *node_id,
+                    identity,
                 ));
             let mut caught_track: Option<(TrackSample, AnimTrack)> = None;
             let mut caught_slide = false;
@@ -17364,6 +17378,7 @@ impl LayoutWindow {
                     r.styled_dom.node_data.as_ref(),
                     &hierarchy,
                     node,
+                    self.node_identity,
                 ),
             ))
         });
@@ -21647,6 +21662,14 @@ impl LayoutWindow {
     pub fn set_app_e2e(&mut self, config: &azul_core::resources::AppConfig) {
         self.custom_e2e_op = config.custom_e2e_op.clone();
         self.e2e_commands = config.e2e_commands.clone();
+    }
+
+    /// Take the app's rules for what makes a node of a rebuilt DOM another
+    /// node (`AppConfig::node_identity`). Every shell calls this beside
+    /// [`Self::set_app_e2e`]; without it the window reconciles by the
+    /// default rules, whatever the app chose.
+    pub const fn set_app_node_identity(&mut self, config: &azul_core::resources::AppConfig) {
+        self.node_identity = config.node_identity;
     }
 
     /// The language this window's text is in: the one the app chose with
@@ -28819,6 +28842,7 @@ impl LayoutWindow {
             &empty_layout,
             child_dom_id,
             now,
+            self.node_identity,
         );
         let map = crate::managers::NodeIdMap::from_node_moves(&diff.node_moves);
         // A node of the view that entered and asks for focus (`autofocus`) takes it, as
@@ -29143,6 +29167,7 @@ impl LayoutWindow {
             custom_e2e_op: _,
             e2e_commands: _,
             routes: _,
+            node_identity: _,
             #[cfg(feature = "icu")]
                 icu_localizer: _,
             // Lifecycle events carry NodeIds, but they are produced BY this very

@@ -3490,6 +3490,7 @@ impl X11Window {
         layout_window.routes = self.resources.config.routes.clone();
         layout_window.set_app_localization(&self.resources.config);
         layout_window.set_app_e2e(&self.resources.config);
+        layout_window.set_app_node_identity(&self.resources.config);
         layout_window.webviews.set_platform(super::webview::platform());
         if let Ok(mut guard) = layout_window.monitors.lock() {
             *guard = crate::desktop::display::get_monitors();

@@ -619,6 +619,7 @@ mod tests {
             &old_layout,
             &new_layout,
             Instant::Tick(SystemTick::new(0)),
+            crate::diff::NodeIdentityConfig::default(),
         );
         assert!(result.events.is_empty());
         assert!(result.node_id_mapping.is_empty());

@@ -666,6 +666,7 @@ impl Win32Window {
         layout_window.routes = config.routes.clone();
         layout_window.set_app_localization(&config);
         layout_window.set_app_e2e(&config);
+        layout_window.set_app_node_identity(&config);
         layout_window.webviews.set_platform(webview::platform());
 
         // Initialize monitor cache once at window creation

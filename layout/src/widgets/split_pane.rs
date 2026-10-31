@@ -3339,6 +3339,7 @@ mod autotest_generated {
             &OrderedMap::default(),
             DomId::ROOT_ID,
             Instant::now(),
+            azul_core::diff::NodeIdentityConfig::default(),
         );
         transfer_states(&mut old_data, &mut new_data, &diff.node_moves);
         new_data
