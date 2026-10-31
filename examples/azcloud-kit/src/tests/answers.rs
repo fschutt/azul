@@ -491,6 +491,12 @@ fn a_frozen_drives_index_commit_is_asked_again_while_the_nodes_learn_its_frozen_
             Ok(service.answer(call))
         });
         let (bucket, pauses) = bucket_on(&fake, &Arc::new(AtomicU64::new(NOW)));
+        // A read-only refusal tells the drive itself that it froze; a quota refusal does not,
+        // so for that one the drive knows of the freeze from the token server's view, as it
+        // does once its refresh says the drive is read-only.
+        if code == "quota_exceeded" {
+            bucket.failover().saw_frozen(true);
+        }
         bucket
             .put(COMMIT, b"the index's commit")
             .unwrap_or_else(|e| panic!("{code}: not asked again: {e:?}"));
@@ -503,6 +509,18 @@ fn a_frozen_drives_index_commit_is_asked_again_while_the_nodes_learn_its_frozen_
             "{code}: after a backoff: {pauses:?}"
         );
     }
+}
+
+#[test]
+fn a_full_drives_index_commit_is_not_asked_again_when_no_freeze_is_known() {
+    // A quota refusal of a drive that is not known to be frozen says the drive is full: it is
+    // final, never a minute of retries.
+    let fake = Fake::new(move |_, _| Ok(refused_by_node("quota_exceeded")));
+    let (bucket, pauses) = bucket_on(&fake, &Arc::new(AtomicU64::new(NOW)));
+    assert!(bucket.put(COMMIT, b"the index's commit").is_err());
+    let puts = fake.calls().iter().filter(|c| c.method == Method::Put).count();
+    assert_eq!(puts, 1, "a full drive's commit was asked again");
+    assert!(pauses.lock().unwrap().is_empty());
 }
 
 #[test]
