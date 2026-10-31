@@ -208,19 +208,38 @@ pub(crate) fn create_controls_only_styled_dom(
     StyledDom::create(&mut dom, css)
 }
 
-/// Overlay the window controls on a `NoTitle` window whose frame cannot draw
-/// them. The user's DOM keeps the whole window: the controls sit ON it, not
-/// above it, because `NoTitle` promised the app the full client area.
-pub(crate) fn overlay_window_controls(
-    user_dom: StyledDom,
-    system_style: &SystemStyle,
-    icons: &azul_core::icon::SharedIconProvider,
-) -> StyledDom {
+/// Overlay the window controls (`create_controls_only_styled_dom`) on a
+/// `NoTitle` window whose frame cannot draw them. The user's DOM keeps the
+/// whole window: the controls sit ON it, not above it, because `NoTitle`
+/// promised the app the full client area.
+pub(crate) fn overlay_window_controls(user_dom: StyledDom, controls: StyledDom) -> StyledDom {
     let mut container_dom = Dom::create_html();
     let mut container_styled = StyledDom::create(&mut container_dom, azul_css::css::Css::empty());
     container_styled.append_child(user_dom);
-    container_styled.append_child(create_controls_only_styled_dom(system_style, icons));
+    container_styled.append_child(controls);
     container_styled
+}
+
+/// What the controls azul overlays on a `NoTitle` window take of its title
+/// bar, for `env(titlebar-area-*)`: their box as it lays out in a window
+/// `window` big, pinned to the window's right edge (`.csd-controls-only`)
+/// and as tall as the title bar. `Unmeasured` when it cannot be laid out,
+/// so the desktop's metrics stand in.
+pub(crate) fn drawn_controls_titlebar(
+    layout_window: &azul_layout::window::LayoutWindow,
+    controls: &StyledDom,
+    window: azul_core::geom::LogicalSize,
+) -> azul_css::system::TitlebarReport {
+    use azul_css::system::{TitlebarGeometry, TitlebarReport};
+    layout_window
+        .measure_styled_dom_shrink_to_fit(controls, window)
+        .map_or(TitlebarReport::Unmeasured, |size| {
+            TitlebarReport::Measured(TitlebarGeometry {
+                height: size.height,
+                left: 0.0,
+                right: size.width,
+            })
+        })
 }
 
 pub(crate) fn wrap_user_dom_with_decorations(

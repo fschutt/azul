@@ -978,11 +978,18 @@ pub fn regenerate_layout(
     // WHICH injection applies is `csd::csd_injection_for` and nothing else —
     // the same function the pre-cascade skip consults above, so the skip can
     // never disagree with what this match would have built.
+    //
+    // Each arm also says what the decorations azul draws leave the content
+    // of the title bar (`LayoutWindow::drawn_titlebar`, read by
+    // `env(titlebar-area-*)`): nothing under a bar drawn above the content,
+    // the room the overlaid controls take, and nothing to say where azul
+    // draws none - the frame's own measure or the desktop's metrics apply.
     let mut styled_dom = match csd::csd_injection_for(
         current_window_state.flags.has_decorations,
         current_window_state.flags.decorations,
     ) {
         csd::CsdInjection::Titlebar => {
+            layout_window.drawn_titlebar = azul_css::system::TitlebarReport::NoArea;
             log_debug!(
                 LogCategory::Layout,
                 "[regenerate_layout] Injecting CSD decorations"
@@ -1008,6 +1015,7 @@ pub fn regenerate_layout(
                 LogCategory::Layout,
                 "[regenerate_layout] Auto-injecting Titlebar (NoTitleAutoInject)"
             );
+            layout_window.drawn_titlebar = azul_css::system::TitlebarReport::NoArea;
             inject_software_titlebar(
                 layout_window,
                 user_styled_dom,
@@ -1023,9 +1031,19 @@ pub fn regenerate_layout(
                 LogCategory::Layout,
                 "[regenerate_layout] Overlaying window controls (NoTitle)"
             );
-            csd::overlay_window_controls(user_styled_dom, system_style, icon_provider)
+            let controls = csd::create_controls_only_styled_dom(system_style, icon_provider);
+            let drawn = csd::drawn_controls_titlebar(
+                layout_window,
+                &controls,
+                current_window_state.size.dimensions,
+            );
+            layout_window.drawn_titlebar = drawn;
+            csd::overlay_window_controls(user_styled_dom, controls)
         }
-        csd::CsdInjection::None => user_styled_dom,
+        csd::CsdInjection::None => {
+            layout_window.drawn_titlebar = azul_css::system::TitlebarReport::Unmeasured;
+            user_styled_dom
+        }
     };
     azul_layout::probe::emit_phase_heap("after_csd");
     phases.mark("after_csd");
