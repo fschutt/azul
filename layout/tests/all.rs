@@ -382,6 +382,8 @@ mod scroll_degenerate_ifc;
 mod scroll_id_identity;
 #[path = "scroll_shift_ghost.rs"]
 mod scroll_shift_ghost;
+#[path = "a_box_after_an_inserted_one_keeps_its_own_style.rs"]
+mod a_box_after_an_inserted_one_keeps_its_own_style;
 #[path = "scrollbar_fade_during_drag.rs"]
 mod scrollbar_fade_during_drag;
 #[path = "scrollbar_presence.rs"]
