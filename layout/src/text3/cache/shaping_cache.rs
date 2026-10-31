@@ -1178,7 +1178,7 @@ impl TextShapingCache {
         #[allow(clippy::no_effect_underscore_binding)] // web_lift-gated debug iteration counter
         let mut _az_flow_iters: usize = 0;
         let _probe_break = crate::probe::Probe::span("text_line_break");
-        for fragment in flow_chain {
+        for (index, fragment) in flow_chain.iter().enumerate() {
             #[cfg(feature = "web_lift")]
             {
                 _az_flow_iters += 1;
@@ -1193,10 +1193,16 @@ impl TextShapingCache {
                 }
             }
             // Perform layout for this single fragment, consuming items from the cursor.
+            // What the last fragment's columns do not hold goes on in
+            // overflow columns; before it, the next fragment takes it.
+            let limits = FragmentLimits {
+                overflow_columns: index + 1 == flow_chain.len(),
+                ..FragmentLimits::default()
+            };
             let fragment_layout = perform_fragment_layout_from(
                 &mut cursor,
                 &mut lines,
-                FragmentLimits::default(),
+                limits,
                 &logical_items,
                 &fragment.constraints,
                 debug_messages,

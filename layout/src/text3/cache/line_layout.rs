@@ -158,6 +158,10 @@ pub struct FragmentLimits {
     pub keep_first_line: bool,
     /// At most this many lines (widows and orphans).
     pub max_lines: Option<usize>,
+    /// Whether the lines that do not fit the text columns of a definite
+    /// height go on in overflow columns beside them (CSS Multi-column 1,
+    /// 8.2). Only where no later fragment takes them.
+    pub overflow_columns: bool,
 }
 
 impl Default for FragmentLimits {
@@ -165,6 +169,7 @@ impl Default for FragmentLimits {
         Self {
             keep_first_line: true,
             max_lines: None,
+            overflow_columns: false,
         }
     }
 }
@@ -179,6 +184,8 @@ pub struct FragmentLayout {
     pub lines: usize,
     /// The bottom of its last line box (0 without one).
     pub block_end: f32,
+    /// The bottom of each of its line boxes, in order, each in its column.
+    pub line_bottoms: Vec<f32>,
 }
 
 /// A paragraph laid out fragment by fragment, each fragment with constraints
@@ -331,10 +338,16 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     fonts: &LoadedFonts<T>,
 ) -> Result<UnifiedLayout, LayoutError> {
+    // A paragraph laid out in one fragment: what its columns do not hold
+    // goes into overflow columns.
+    let limits = FragmentLimits {
+        overflow_columns: true,
+        ..FragmentLimits::default()
+    };
     perform_fragment_layout_from(
         cursor,
         &mut LineState::default(),
-        FragmentLimits::default(),
+        limits,
         logical_items,
         fragment_constraints,
         debug_messages,
@@ -428,6 +441,7 @@ pub fn perform_fragment_layout_from<T: ParsedFontTrait>(
             layout,
             lines: line_count,
             block_end,
+            line_bottoms: Vec::new(),
         });
     }
 
@@ -529,63 +543,37 @@ pub fn perform_fragment_layout_from<T: ParsedFontTrait>(
     let mut is_first_formatted_line =
         cursor.next_item_index == 0 && cursor.partial_remainder.is_empty();
 
-    let balanced_lines_per_column: Option<usize> = if num_columns > 1
+    // The columns are balanced by height (CSS Multi-column 1, 7.1): the
+    // lines are laid out in one column of the column width as a trial, and
+    // cut into runs of consecutive lines whose tallest is as short as it can
+    // be; each column but the last ends where the next run starts. Lines of
+    // different heights balance as they look, not by their count.
+    let balanced_column_starts: Option<Vec<usize>> = if num_columns > 1
         && fragment_constraints.shape_boundaries.is_empty()
         && !is_min_content
         && !is_max_content
     {
-        let mut probe = cursor.clone();
-        let mut probe_col_constraints = fragment_constraints.clone();
-        probe_col_constraints.available_width = AvailableSpace::Definite(column_width);
-        let probe_line_height = fragment_constraints.resolved_line_height();
-        // A line consumes at least one shaped item, so the item count bounds the loop.
-        let iter_cap = probe.items.len().saturating_mul(4).max(64);
-        let mut total_lines = 0usize;
-        let mut probe_y = 0.0_f32;
-        let mut probe_guard = 0usize;
-        let mut probe_first_line = is_first_formatted_line;
-        let mut probe_after_forced_break = false;
-        while !probe.is_done() && probe_guard < iter_cap {
-            probe_guard += 1;
-            let mut lc = get_line_constraints(
-                probe_y,
-                probe_line_height,
-                &probe_col_constraints,
-                &mut None,
-            );
-            if lc.segments.is_empty() {
-                break;
-            }
-            indent_line_box(
-                &mut lc,
-                text_indent_of_line(
-                    fragment_constraints,
-                    probe_first_line,
-                    probe_after_forced_break,
-                ),
-                base_direction,
-            );
-            let (probe_line, _) = break_one_line(
-                &mut probe,
-                &lc,
-                false,
-                hyphenator.as_deref(),
-                fonts,
-                fragment_constraints.line_break,
-                fragment_constraints.white_space_mode,
-                fragment_constraints.overflow_wrap,
-            );
-            if probe_line.is_empty() {
-                break;
-            }
-            probe_first_line = false;
-            probe_after_forced_break = probe_line
-                .iter()
-                .any(|item| matches!(item, ShapedItem::Break { .. }));
-            total_lines += 1;
-            probe_y += probe_line_height;
-        }
-        (total_lines > 0).then(|| total_lines.div_ceil(num_columns as usize).max(1))
+        let mut trial_constraints = fragment_constraints.clone();
+        trial_constraints.columns = 1;
+        trial_constraints.column_gap = 0.0;
+        trial_constraints.available_width = AvailableSpace::Definite(column_width);
+        trial_constraints.available_height = None;
+        trial_constraints.line_clamp = None;
+        trial_constraints.text_wrap = TextWrap::Wrap;
+        let mut trial_cursor = cursor.clone();
+        let mut trial_lines = lines.clone();
+        perform_fragment_layout_from(
+            &mut trial_cursor,
+            &mut trial_lines,
+            FragmentLimits::default(),
+            logical_items,
+            &trial_constraints,
+            &mut None,
+            fonts,
+        )
+        .ok()
+        .and_then(|trial| balanced_column_starts(&trial.line_bottoms, num_columns as usize))
+        .map(|starts| starts.into_iter().map(|k| lines.line_index + k).collect())
     } else {
         None
     };
@@ -614,6 +602,14 @@ pub fn perform_fragment_layout_from<T: ParsedFontTrait>(
             .unwrap_or(u32::MAX)
             .saturating_add(1)
     });
+    // Lines past the columns of a definite height go on in overflow columns
+    // when nothing after this fragment takes them.
+    let overflow_columns = limits.overflow_columns
+        && num_columns > 1
+        && column_flow.is_none()
+        && fragment_constraints.available_height.is_some()
+        && !is_min_content
+        && !is_max_content;
     // The lines go on from the state the paragraph's fragment before left:
     // their numbering, the forced break the last line ended in, the inline
     // boxes it ended in. They carry through the columns the same way.
@@ -623,6 +619,7 @@ pub fn perform_fragment_layout_from<T: ParsedFontTrait>(
     // The lines of this fragment, and where the lowest of them ends.
     let mut fragment_lines = 0usize;
     let mut block_end = 0.0_f32;
+    let mut line_bottoms: Vec<f32> = Vec::new();
     // The top of the highest and the bottom of the lowest line box that holds
     // only atomic inlines (no text cluster; an inline-block, an image), any
     // column, horizontal modes: such a line box holds the strut too, see
@@ -632,7 +629,9 @@ pub fn perform_fragment_layout_from<T: ParsedFontTrait>(
     // Whether `line-clamp` stopped the lines with content left over: the
     // last line kept then ends in an ellipsis (`OverflowInfo::line_clamped`).
     let mut line_clamped = false;
-    'column_loop: while current_column < column_count {
+    'column_loop: while current_column < column_count || (overflow_columns && !cursor.is_done())
+    {
+        let column_start = cursor.position();
         if let Some(msgs) = debug_messages {
             msgs.push(LayoutDebugMessage::info(format!(
                 "\n-- Starting Column {current_column} --"
@@ -667,7 +666,6 @@ pub fn perform_fragment_layout_from<T: ParsedFontTrait>(
                 *exclusion = exclusion.translated(-column_start_x, 0.0);
             }
         }
-        let column_first_line = line_index;
         let mut empty_segment_count = 0; // Failsafe counter for infinite loops
         // The lines this column holds so far: the first one stays even when
         // it is taller than the column, unless the fragment may leave it to
@@ -733,11 +731,14 @@ pub fn perform_fragment_layout_from<T: ParsedFontTrait>(
                 }
             }
 
-            // +spec:multi-column - column-fill:balance: cap this column at its balanced share of
-            // lines so content distributes across columns. The LAST column takes whatever remains
-            // (so integer rounding of the per-column budget never drops content).
-            if let Some(budget) = balanced_lines_per_column {
-                if current_column + 1 < num_columns && line_index - column_first_line >= budget {
+            // +spec:multi-column - column-fill:balance: this column ends where
+            // the next balanced run of lines starts. The LAST column takes
+            // whatever remains.
+            if let Some(&next_start) = balanced_column_starts
+                .as_ref()
+                .and_then(|starts| starts.get(current_column as usize))
+            {
+                if line_index >= next_start {
                     break;
                 }
             }
@@ -978,6 +979,7 @@ pub fn perform_fragment_layout_from<T: ParsedFontTrait>(
             line_top_y += band_height;
             fragment_lines += 1;
             block_end = block_end.max(line_top_y);
+            line_bottoms.push(line_top_y);
             let holds_glyphs = line_pos_items
                 .iter()
                 .any(|item| matches!(&item.item, ShapedItem::Cluster(c) if !c.glyphs.is_empty()));
@@ -1025,6 +1027,10 @@ pub fn perform_fragment_layout_from<T: ParsedFontTrait>(
             }
         }
         current_column += 1;
+        // An overflow column that takes nothing ends them: nothing more fits.
+        if current_column >= column_count && cursor.position() == column_start {
+            break;
+        }
     }
     lines.line_index = line_index;
     lines.is_after_forced_break = is_after_forced_break;
@@ -1137,6 +1143,7 @@ pub fn perform_fragment_layout_from<T: ParsedFontTrait>(
         layout,
         lines: fragment_lines,
         block_end,
+        line_bottoms,
     })
 }
 
@@ -2757,6 +2764,50 @@ fn room_is_cut(line_constraints: &LineConstraints, width: f32) -> bool {
         [only] => only.start_x.abs() > 0.01 || only.width < width - 0.01,
         _ => true,
     }
+}
+
+/// Where `columns` balanced columns start, in lines from the first: the
+/// lines whose boxes end at `bottoms` (one column of them, top to bottom)
+/// cut into at most `columns` runs of consecutive lines so the tallest run
+/// is as short as it can be. One start for each column but the first; a
+/// column that gets no line starts after the last. `None` without lines.
+fn balanced_column_starts(bottoms: &[f32], columns: usize) -> Option<Vec<usize>> {
+    let (&last, columns) = (bottoms.last()?, columns.max(1));
+    let heights: Vec<f32> = bottoms
+        .iter()
+        .scan(0.0_f32, |top, &bottom| {
+            let height = (bottom - *top).max(0.0);
+            *top = bottom;
+            Some(height)
+        })
+        .collect();
+    // The starts of the runs a column at most `limit` tall makes.
+    let starts_within = |limit: f32| {
+        let mut starts = Vec::new();
+        let mut filled = 0.0_f32;
+        for (index, &height) in heights.iter().enumerate() {
+            if filled > 0.0 && filled + height > limit + LINE_FIT_EPSILON {
+                starts.push(index);
+                filled = 0.0;
+            }
+            filled += height;
+        }
+        starts
+    };
+    // The shortest limit that needs no more than `columns` runs.
+    let mut low = heights.iter().copied().fold(0.0_f32, f32::max);
+    let mut high = last.max(low);
+    for _ in 0..40 {
+        let middle = f32::midpoint(low, high);
+        if starts_within(middle).len() < columns {
+            high = middle;
+        } else {
+            low = middle;
+        }
+    }
+    let mut starts = starts_within(high);
+    starts.resize(columns - 1, heights.len());
+    Some(starts)
 }
 
 /// Where a line that found no room at `line_top` tries next: the next height
