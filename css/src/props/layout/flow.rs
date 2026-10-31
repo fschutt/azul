@@ -185,6 +185,34 @@ mod tests {
     }
 
     #[test]
+    fn flow_into_takes_a_flow_name_and_says_whether_the_element_or_its_content_goes() {
+        let printed = |value: &str| parse_flow_into(value).map(|f| f.print_as_css_value()).ok();
+        assert_eq!(printed("art7").as_deref(), Some("art7"));
+        assert_eq!(printed(" art7  element ").as_deref(), Some("art7"));
+        assert_eq!(printed("art7 content").as_deref(), Some("art7 content"));
+        assert_eq!(printed("None").as_deref(), Some("none"));
+    }
+
+    #[test]
+    fn flow_into_and_flow_from_refuse_what_names_no_flow() {
+        for value in [
+            "auto",
+            "initial",
+            "inherit",
+            "default",
+            "a b",
+            "art7 content x",
+            "7up",
+            "none content",
+        ] {
+            assert!(parse_flow_into(value).is_err(), "flow-into: {value}");
+        }
+        for value in ["auto", "a b", "art7 content"] {
+            assert!(parse_flow_from(value).is_err(), "flow-from: {value}");
+        }
+    }
+
+    #[test]
     fn test_parse_flow_from() {
         assert_eq!(parse_flow_from("none").unwrap(), FlowFrom::None);
         assert_eq!(
