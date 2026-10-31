@@ -1362,6 +1362,8 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         form_validation_manager: _,
         safe_area_insets: _,
         laid_out_env: _,
+        frame_titlebar: _,
+        drawn_titlebar: _,
         currently_dragging_thumb: _,
         pending_caret_restore: _,
         pending_editor_reset: _,
@@ -2167,6 +2169,16 @@ pub struct LayoutWindow {
     /// cannot see that. When this moves, the nodes that read the environment
     /// go into the pass's css dirt.
     laid_out_env: u64,
+    /// What the window's frame measured of the title bar it draws, written by
+    /// the platform shell like [`Self::safe_area_insets`]: the macOS shell
+    /// measures AppKit's buttons and the band the title bar covers.
+    /// `Unmeasured` where the shell measures nothing.
+    pub frame_titlebar: azul_css::system::TitlebarReport,
+    /// What azul measured of the decorations it draws itself: the controls
+    /// it overlays on a `NoTitle` window, no area under a title bar it draws
+    /// above the content. Wins over [`Self::frame_titlebar`]; `Unmeasured`
+    /// where azul draws none.
+    pub drawn_titlebar: azul_css::system::TitlebarReport,
     /// Timers associated with this window
     pub timers: BTreeMap<TimerId, Timer>,
     /// A cursor-blink [`Timer`] the ENGINE installed into [`Self::timers`]
@@ -2985,6 +2997,8 @@ impl LayoutWindow {
             form_validation_manager: azul_core::form::FormValidationManager::new(),
             safe_area_insets: azul_css::system::SafeAreaInsets::default(),
             laid_out_env: 0,
+            frame_titlebar: azul_css::system::TitlebarReport::Unmeasured,
+            drawn_titlebar: azul_css::system::TitlebarReport::Unmeasured,
             timers: BTreeMap::new(),
             unarmed_blink_timer: None,
             system_animations_override: None,
@@ -7243,27 +7257,47 @@ impl LayoutWindow {
     /// `system:titlebar-*` lengths read: where its content may draw beside
     /// the window's own controls.
     ///
-    /// Only a window whose content runs under its title bar has one - a
-    /// `NoTitle` window, out of full screen, where the title bar is hidden -
-    /// and only on a platform that draws its controls over the content
-    /// ([`azul_css::system::SystemStyle::titlebar_area`]), from the desktop's
-    /// title bar metrics as azul's own title bar widgets read them.
+    /// What the window measured comes first: the controls azul draws itself
+    /// ([`Self::drawn_titlebar`]), then the frame's own
+    /// ([`Self::frame_titlebar`]). Where neither measured anything the
+    /// desktop's metrics stand in
+    /// ([`azul_css::system::SystemStyle::titlebar_geometry`]): for a
+    /// `NoTitle` window out of full screen (which hides the title bar), on a
+    /// platform that draws its controls over the content, with the traffic
+    /// lights where the window's options put them.
     #[must_use]
     pub fn titlebar_area(
         &self,
         window_state: &FullWindowState,
     ) -> Option<azul_css::system::TitlebarArea> {
         use azul_core::window::{WindowDecorations, WindowFrame};
-        let content_under_titlebar = matches!(
-            window_state.flags.decorations,
-            WindowDecorations::NoTitle | WindowDecorations::NoTitleAutoInject
-        ) && window_state.flags.frame != WindowFrame::Fullscreen;
-        if !content_under_titlebar {
-            return None;
-        }
-        self.system_style
-            .as_deref()?
-            .titlebar_area(window_state.size.dimensions.width)
+        use azul_css::system::{SystemStyle, TitlebarReport};
+
+        let width = window_state.size.dimensions.width;
+        let geometry = match self.drawn_titlebar.or(self.frame_titlebar) {
+            TitlebarReport::Measured(geometry) => geometry,
+            TitlebarReport::NoArea => return None,
+            TitlebarReport::Unmeasured => {
+                if window_state.flags.decorations != WindowDecorations::NoTitle
+                    || window_state.flags.frame == WindowFrame::Fullscreen
+                {
+                    return None;
+                }
+                let traffic_lights = window_state
+                    .platform_specific_options
+                    .mac_options
+                    .traffic_light_position
+                    .as_option()
+                    .map(|p| (p.x, p.y));
+                self.system_style
+                    .as_deref()?
+                    .titlebar_geometry(width, traffic_lights)?
+            }
+        };
+        self.system_style.as_deref().map_or_else(
+            || SystemStyle::default().titlebar_area_in(&geometry, width),
+            |style| style.titlebar_area_in(&geometry, width),
+        )
     }
 
     /// The dynamic-selector context every cascade in this window evaluates
@@ -29139,6 +29173,8 @@ impl LayoutWindow {
                 fragmentation_context: _,
             safe_area_insets: _,
             laid_out_env: _,
+            frame_titlebar: _,
+            drawn_titlebar: _,
             // App-level animation CONFIG (durations + fn pointers), no node ids.
             system_animations_override: _,
             // NODE-KEYED through `thread_owners`, like `threads`: a timer one
