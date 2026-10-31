@@ -68,7 +68,8 @@ use azul_css::{
             ColumnRuleColorValue, ColumnRuleStyleValue, ColumnRuleWidthValue, ColumnSpanValue,
             ColumnWidthValue, ContentValue, CounterIncrementValue, CounterResetValue, CounterSetValue,
             CssProperty, StyleBackgroundOriginVecValue, StyleQuotesValue,
-            CssPropertyType, FlowFromValue, FlowIntoValue, LayoutAlignContentValue,
+            CssPropertyType, FlowFromValue, FlowIntoValue, RegionFragmentValue,
+            LayoutAlignContentValue,
             LayoutAlignItemsValue, LayoutAlignSelfValue, LayoutBorderBottomWidthValue,
             LayoutBorderLeftWidthValue, LayoutBorderRightWidthValue, LayoutBorderSpacingValue,
             LayoutBorderTopWidthValue, LayoutBoxSizingValue, LayoutClearValue,
@@ -321,6 +322,7 @@ macro_rules! match_property_value {
             CssProperty::ColumnRuleColor($value) => $expr,
             CssProperty::FlowInto($value) => $expr,
             CssProperty::FlowFrom($value) => $expr,
+            CssProperty::RegionFragment($value) => $expr,
             CssProperty::ShapeOutside($value) => $expr,
             CssProperty::ShapeInside($value) => $expr,
             CssProperty::ShapeImageThreshold($value) => $expr,
@@ -4554,6 +4556,7 @@ impl CssPropertyCache {
     impl_get_prop!(get_flow_into, FlowIntoValue, FlowInto, as_flow_into);
 
     impl_get_prop!(get_flow_from, FlowFromValue, FlowFrom, as_flow_from);
+    impl_get_prop!(get_region_fragment, RegionFragmentValue, RegionFragment, as_region_fragment);
 
     impl_get_prop!(
         get_shape_margin,

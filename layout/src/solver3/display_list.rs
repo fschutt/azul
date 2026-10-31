@@ -4661,7 +4661,8 @@ struct DisplayListGenerator<'a, 'b, T: ParsedFontTrait> {
 /// [`DisplayListGenerator::region_part`]).
 #[derive(Debug, Clone, Copy)]
 enum RegionPart<'t> {
-    /// Nothing: the box is painted in other regions.
+    /// Nothing: the box is painted in other regions, or in none (past the
+    /// end of a last region of `region-fragment: break`).
     Absent,
     /// The whole box, its subtree with it, placed where it stands: it is
     /// painted as any box is.
@@ -5235,9 +5236,10 @@ where
     }
 
     /// What the region being painted holds of the box `index`: every box is
-    /// whole outside a region. A box of a named flow carries its parts; a box
-    /// without parts of its own (the text of a paragraph, the boxes inside a
-    /// box placed whole) goes with the nearest box above it that has some.
+    /// whole outside a region. A box of a named flow carries its parts, or
+    /// is hidden; a box without parts of its own (the text of a paragraph,
+    /// the boxes inside a box placed whole) goes with the nearest box above
+    /// it that has some.
     fn region_part(&self, index: usize) -> RegionPart<'a> {
         let Some(region) = self.painting_region else {
             return RegionPart::Whole;
@@ -5246,6 +5248,9 @@ where
         let mut at = index;
         loop {
             if let Some(flow) = tree.warm(LayoutNodeId::new(at)).and_then(|w| w.flow.as_deref()) {
+                if flow.hidden {
+                    return RegionPart::Absent;
+                }
                 if !flow.fragments.is_empty() {
                     let Some(part) = flow.fragments.iter().find(|f| f.region == region) else {
                         return RegionPart::Absent;
