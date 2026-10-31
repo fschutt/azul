@@ -169,7 +169,7 @@ fn layout_tree_node_struct_sizes_are_pinned() {
     assert_size!(LayoutNodeHot, 80, "Per layout node, touched every pass.");
     assert_size!(
         LayoutNodeWarm,
-        960,
+        968,
         "Per layout node, and the BIGGEST per-node struct by far - 1329 nodes is 1.7 MB before a \
          single glyph is shaped. Dominated by the taffy measurement cache and the inline \
          Option<CachedInlineLayout>. GREW 1176 -> 1296 (2026-08-09, the resize measure-cache pair \
@@ -179,8 +179,10 @@ fn layout_tree_node_struct_sizes_are_pinned() {
          value a warm node holds). GREW 944 -> 952 (2026-10-15, `sticky`: a sticky box's \
          constraint, boxed, so only sticky nodes pay for it). GREW 952 -> 960 (2026-10-24, \
          `inline_measure_layouts`: an IFC's min- and max-content measures, boxed, so a measure no \
-         longer evicts the final layout). The planned rare-data split (memory batch item 2) targets \
-         exactly this struct; shrink it there, deliberately, not here."
+         longer evicts the final layout). GREW 960 -> 968 (2026-10-31, `flow`: where the boxes of \
+         a named flow went, boxed, so only the boxes of flows and the regions pay for it). The \
+         planned rare-data split (memory batch item 2) targets exactly this struct; shrink it \
+         there, deliberately, not here."
     );
     assert_size!(
         LayoutNodeCold,

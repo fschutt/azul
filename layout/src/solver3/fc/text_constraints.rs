@@ -1135,7 +1135,7 @@ pub(super) fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
 /// basic shape alone), and a percentage margin is of the containing block's
 /// width. `None` for `shape-outside: none`, whose float area is the margin
 /// box.
-pub(super) fn float_shape_outside<T: ParsedFontTrait>(
+pub(crate) fn float_shape_outside<T: ParsedFontTrait>(
     ctx: &LayoutContext<'_, T>,
     node_id: NodeId,
     border_box: LogicalRect,

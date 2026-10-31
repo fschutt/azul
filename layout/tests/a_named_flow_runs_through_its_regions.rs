@@ -8,6 +8,7 @@
 //!
 //! Glyphs here are Azul Mock Mono at 20px: 10px wide, in 20px line boxes.
 
+use azul_core::dom::DomId;
 use azul_layout::{solver3::display_list::DisplayListItem, window::LayoutWindow};
 
 use crate::{
@@ -195,6 +196,33 @@ fn a_paragraph_keeps_two_lines_on_each_side_of_a_region_break() {
 #[test]
 fn widows_and_orphans_of_one_let_the_paragraph_break_anywhere() {
     assert_eq!(widows_and_orphans("widows: 1; orphans: 1"), (12, 4));
+}
+
+#[test]
+fn what_does_not_fit_the_last_region_is_reported() {
+    let lw = page(
+        ".r { width: 100px; height: 40px; left: 400px; top: 300px }",
+        &format!("<div class=\"story\">{STORY} ffff gggg</div><div class=\"r\"></div>"),
+    );
+    let flows = lw.layout_results[&DomId::ROOT_ID]
+        .layout_tree
+        .named_flows()
+        .to_vec();
+    assert_eq!(flows.len(), 1, "{flows:?}");
+    assert_eq!(flows[0].name, "art");
+    let overflow = flows[0].overflow.as_ref().expect("the story does not fit");
+    assert_eq!(
+        overflow.byte_offset,
+        Some(20),
+        "the overflow starts with the fifth word, at byte 20: {overflow:?}"
+    );
+    assert!(
+        (overflow.needed_height - 40.0).abs() < 0.01,
+        "two more lines need 40px more: {overflow:?}"
+    );
+    assert_eq!(flows[0].regions.len(), 1);
+    assert_eq!(flows[0].regions[0].paragraphs.len(), 1);
+    assert_eq!(flows[0].regions[0].paragraphs[0].lines, 4);
 }
 
 #[test]

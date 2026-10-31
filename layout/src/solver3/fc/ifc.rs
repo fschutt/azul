@@ -1299,3 +1299,94 @@ pub fn layout_initial_letter(
 
     (letter_width, effective_height)
 }
+
+/// What a named flow lays a paragraph out from, region by region: its
+/// shaped content, the constraints its lines are broken with, and the
+/// layout nodes of its atomic inlines.
+#[derive(Debug, Clone)]
+pub(crate) struct FlowParagraph {
+    /// The paragraph's logical items.
+    pub(crate) logical_items: Arc<Vec<text3::cache::LogicalItem>>,
+    /// Its shaped items.
+    pub(crate) shaped_items: Arc<Vec<text3::cache::ShapedItem>>,
+    /// The constraints of its lines at the width it was asked for, with no
+    /// height: each region sets its own room.
+    pub(crate) constraints: UnifiedConstraints,
+    /// `ContentIndex` -> the layout node of an atomic inline.
+    pub(crate) child_map: Arc<HashMap<ContentIndex, usize>>,
+    /// The DOM node its style is read from.
+    pub(crate) style_dom_id: NodeId,
+}
+
+/// The paragraph `node_index` (the root of an inline formatting context) as
+/// a named flow lays it out, its lines `width` wide: the content the main
+/// pass collected for it, shaped (the shaping cache holds it), and its line
+/// constraints. `None` when the main pass collected nothing for it.
+pub(crate) fn flow_paragraph<T: ParsedFontTrait>(
+    ctx: &mut LayoutContext<'_, T>,
+    text_cache: &mut TextLayoutCache,
+    tree: &LayoutTree,
+    node_index: usize,
+    width: f32,
+) -> Option<FlowParagraph> {
+    let node = tree.get(LayoutNodeId::new(node_index))?;
+    let anonymous = node.dom_node_id.is_none();
+    let style_dom_id = ifc_root_style_dom_id(tree, node_index)?;
+    let collected = tree
+        .warm(LayoutNodeId::new(node_index))?
+        .inline_content_cache
+        .as_ref()?;
+    let content = Arc::clone(&collected.content);
+    let child_map = Arc::clone(&collected.child_map);
+    if content.is_empty() {
+        return None;
+    }
+    let line_style = LineStyle::of(
+        ctx.styled_dom,
+        style_dom_id,
+        &mut ctx.style_cache,
+        ctx.system_style.as_ref(),
+        PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height),
+    );
+    let room = LogicalSize::new(width, f32::INFINITY);
+    let constraints = LayoutConstraints {
+        available_size: room,
+        writing_mode: LayoutWritingMode::HorizontalTb,
+        writing_mode_ctx: crate::solver3::geometry::WritingModeContext::default(),
+        bfc_state: None,
+        text_align: TextAlign::Start,
+        containing_block_size: room,
+        available_width_type: Text3AvailableSpace::Definite(width),
+        fragmentainer: None,
+        column_flow: None,
+    };
+    let mut text3_constraints =
+        translate_to_text3_constraints(ctx, &constraints, &line_style, anonymous);
+    // The anonymous block holds its container's first line only when it is
+    // the container's first in-flow box (as in `layout_ifc`).
+    if anonymous
+        && !text3_constraints.text_indent_each_line
+        && !anonymous_block_holds_the_first_line(tree, ctx.styled_dom, node_index)
+    {
+        text3_constraints.text_indent = 0.0;
+    }
+    let loaded_fonts = ctx.font_manager.get_loaded_fonts();
+    let (logical_items, shaped_items) = text_cache
+        .shape_content(
+            &content,
+            &[],
+            &text3_constraints,
+            &ctx.font_manager.font_chain_cache,
+            &ctx.font_manager.fc_cache,
+            &loaded_fonts,
+            ctx.debug_messages,
+        )
+        .ok()?;
+    Some(FlowParagraph {
+        logical_items,
+        shaped_items,
+        constraints: text3_constraints,
+        child_map,
+        style_dom_id,
+    })
+}
