@@ -1140,6 +1140,21 @@ mod autotest_generated {
     }
 
     #[test]
+    fn the_region_breaks_parse_and_print() {
+        for value in ["region", "avoid-region"] {
+            assert_eq!(
+                parse_page_break(value).map(|b| b.print_as_css_value()),
+                Ok(value.to_string()),
+                "break-before: {value}"
+            );
+        }
+        assert_eq!(
+            parse_break_inside("avoid-region").map(|b| b.print_as_css_value()),
+            Ok("avoid-region".to_string())
+        );
+    }
+
+    #[test]
     fn widows_orphans_print_saturating_extremes() {
         assert_eq!(Widows { inner: 0 }.print_as_css_value(), "0");
         assert_eq!(
