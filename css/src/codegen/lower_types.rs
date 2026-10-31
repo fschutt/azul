@@ -4486,6 +4486,7 @@ impl Lower for crate::props::layout::fragmentation::BreakInside {
             Self::Avoid => "Avoid",
             Self::AvoidPage => "AvoidPage",
             Self::AvoidColumn => "AvoidColumn",
+            Self::AvoidRegion => "AvoidRegion",
         };
         Expr::unit("BreakInside", EnumShape::CLike, variant)
     }
@@ -5048,6 +5049,7 @@ impl Lower for crate::props::layout::flow::FlowInto {
         match self {
             Self::None => Expr::unit("FlowInto", EnumShape::Tagged, "None"),
             Self::Named(v) => Expr::variant("FlowInto", EnumShape::Tagged, "Named", vec![v.lower()]),
+            Self::NamedContent(v) => Expr::variant("FlowInto", EnumShape::Tagged, "NamedContent", vec![v.lower()]),
         }
     }
 }
@@ -6243,6 +6245,8 @@ impl Lower for crate::props::layout::fragmentation::PageBreak {
             Self::Verso => "Verso",
             Self::Column => "Column",
             Self::AvoidColumn => "AvoidColumn",
+            Self::Region => "Region",
+            Self::AvoidRegion => "AvoidRegion",
         };
         Expr::unit("PageBreak", EnumShape::CLike, variant)
     }

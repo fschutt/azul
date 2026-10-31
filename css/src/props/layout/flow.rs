@@ -8,16 +8,32 @@ use crate::{corety::AzString, props::formatter::PrintAsCssValue};
 #[allow(variant_size_differences)]
 // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size
 // disparity accepted
-/// CSS `flow-into` property — diverts an element's content into a named flow.
+/// CSS `flow-into` property: takes an element, or only its content, out of
+/// its parent's flow and into a named flow (CSS Regions 1, 3.1).
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
 #[derive(Default)]
 pub enum FlowInto {
-    /// Content is not diverted into any named flow (default).
+    /// The element stays in its parent's flow (default).
     #[default]
     None,
-    /// Content is diverted into the named flow identified by this string.
+    /// The element goes into the named flow of this name (`<name>` or
+    /// `<name> element`).
     Named(AzString),
+    /// The element's content goes into the named flow of this name, the
+    /// element itself stays (`<name> content`).
+    NamedContent(AzString),
+}
+
+impl FlowInto {
+    /// The name of the flow the element or its content goes into.
+    #[must_use]
+    pub fn flow_name(&self) -> Option<&str> {
+        match self {
+            Self::None => None,
+            Self::Named(name) | Self::NamedContent(name) => Some(name.as_str()),
+        }
+    }
 }
 
 impl PrintAsCssValue for FlowInto {
@@ -25,6 +41,7 @@ impl PrintAsCssValue for FlowInto {
         match self {
             Self::None => "none".to_string(),
             Self::Named(s) => s.to_string(),
+            Self::NamedContent(s) => alloc::format!("{} content", s.as_str()),
         }
     }
 }
@@ -33,15 +50,16 @@ impl PrintAsCssValue for FlowInto {
 #[allow(variant_size_differences)]
 // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size
 // disparity accepted
-/// CSS `flow-from` property — consumes content from a named flow into a region.
+/// CSS `flow-from` property: makes a block container a region of a named
+/// flow, which lays the flow's content out in it (CSS Regions 1, 3.2).
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
 #[derive(Default)]
 pub enum FlowFrom {
-    /// No named flow is consumed (default).
+    /// The element is no region (default).
     #[default]
     None,
-    /// Content is consumed from the named flow identified by this string.
+    /// The element is a region of the named flow of this name.
     Named(AzString),
 }
 
@@ -62,6 +80,10 @@ impl crate::codegen::format::FormatAsRustCode for FlowInto {
             Self::None => String::from("FlowInto::None"),
             Self::Named(s) => format!(
                 "FlowInto::Named(AzString::from_const_str({:?}))",
+                s.as_str()
+            ),
+            Self::NamedContent(s) => format!(
+                "FlowInto::NamedContent(AzString::from_const_str({:?}))",
                 s.as_str()
             ),
         }
@@ -138,15 +160,7 @@ pub mod parser {
             ///
             /// Returns an error if `input` is not a valid CSS value for this property.
             pub fn $fn_name(input: &str) -> Result<$struct_name, $error_name<'_>> {
-                let trimmed = input.trim();
-                if trimmed.is_empty() {
-                    return Err($error_name::InvalidValue(input));
-                }
-                match trimmed {
-                    "none" => Ok($struct_name::None),
-                    // any other value is a custom identifier
-                    ident => Ok($struct_name::Named(ident.to_string().into())),
-                }
+                $struct_name::parsed(input).ok_or($error_name::InvalidValue(input))
             }
         };
     }
@@ -165,6 +179,66 @@ pub mod parser {
         FlowFromParseErrorOwned,
         "flow-from"
     );
+
+    /// Whether `name` can name a flow: a CSS identifier other than the
+    /// keywords CSS Regions 1 rules out (`none`, `inherit`, `default`,
+    /// `auto`, `initial`).
+    fn is_flow_name(name: &str) -> bool {
+        let mut chars = name.chars();
+        let starts_an_ident = match chars.next() {
+            Some('-') => chars
+                .next()
+                .is_some_and(|c| c == '-' || c == '_' || c.is_alphabetic() || !c.is_ascii()),
+            Some(c) => c == '_' || c.is_alphabetic() || !c.is_ascii(),
+            None => false,
+        };
+        starts_an_ident
+            && name
+                .chars()
+                .all(|c| c == '-' || c == '_' || c.is_alphanumeric() || !c.is_ascii())
+            && !["none", "inherit", "default", "auto", "initial"]
+                .iter()
+                .any(|keyword| name.eq_ignore_ascii_case(keyword))
+    }
+
+    impl FlowInto {
+        /// `flow-into`: `none | <ident> [element | content]?`.
+        fn parsed(input: &str) -> Option<Self> {
+            let mut words = input.split_whitespace();
+            let (Some(first), second, None) = (words.next(), words.next(), words.next()) else {
+                return None;
+            };
+            if second.is_none() && first.eq_ignore_ascii_case("none") {
+                return Some(Self::None);
+            }
+            if !is_flow_name(first) {
+                return None;
+            }
+            let name: AzString = first.to_string().into();
+            match second {
+                None => Some(Self::Named(name)),
+                Some(keyword) if keyword.eq_ignore_ascii_case("element") => Some(Self::Named(name)),
+                Some(keyword) if keyword.eq_ignore_ascii_case("content") => {
+                    Some(Self::NamedContent(name))
+                }
+                Some(_) => None,
+            }
+        }
+    }
+
+    impl FlowFrom {
+        /// `flow-from`: `<ident> | none`.
+        fn parsed(input: &str) -> Option<Self> {
+            let trimmed = input.trim();
+            if trimmed.eq_ignore_ascii_case("none") {
+                Some(Self::None)
+            } else if is_flow_name(trimmed) {
+                Some(Self::Named(trimmed.to_string().into()))
+            } else {
+                None
+            }
+        }
+    }
 }
 
 #[cfg(feature = "parser")]
@@ -191,6 +265,11 @@ mod tests {
         assert_eq!(printed(" art7  element ").as_deref(), Some("art7"));
         assert_eq!(printed("art7 content").as_deref(), Some("art7 content"));
         assert_eq!(printed("None").as_deref(), Some("none"));
+        assert_eq!(
+            parse_flow_into("art7 CONTENT").unwrap(),
+            FlowInto::NamedContent("art7".into())
+        );
+        assert_eq!(parse_flow_into("art7 element").unwrap().flow_name(), Some("art7"));
     }
 
     #[test]
