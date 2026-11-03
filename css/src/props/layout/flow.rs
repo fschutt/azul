@@ -1,5 +1,6 @@
 //! CSS properties for flowing content into regions (`flow-into`,
-//! `flow-from`, `region-fragment`).
+//! `flow-from`, `region-fragment`) and around exclusion boxes (`wrap-flow`,
+//! `wrap-through`).
 
 use alloc::string::{String, ToString};
 
@@ -96,6 +97,70 @@ impl PrintAsCssValue for RegionFragment {
     }
 }
 
+// --- wrap-flow ---
+/// CSS `wrap-flow` property: makes an absolutely positioned box an
+/// exclusion box, and says on which of its sides the lines around it flow
+/// (CSS Exclusions 1, 3.1). Azul applies exclusion boxes to the lines laid
+/// out in the regions of named flows in the box's containing block; lines
+/// in the normal flow run under them.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(C)]
+pub enum WrapFlow {
+    /// The box is no exclusion (default).
+    #[default]
+    Auto,
+    /// Lines flow on both sides of it.
+    Both,
+    /// Lines flow on its start side only, its end side stays empty.
+    Start,
+    /// Lines flow on its end side only, its start side stays empty.
+    End,
+    /// Lines flow on the side where they have less room.
+    Minimum,
+    /// Lines flow on the side where they have more room.
+    Maximum,
+    /// No line flows beside it: the lines go on below it.
+    Clear,
+}
+
+impl PrintAsCssValue for WrapFlow {
+    fn print_as_css_value(&self) -> String {
+        String::from(match self {
+            Self::Auto => "auto",
+            Self::Both => "both",
+            Self::Start => "start",
+            Self::End => "end",
+            Self::Minimum => "minimum",
+            Self::Maximum => "maximum",
+            Self::Clear => "clear",
+        })
+    }
+}
+
+// --- wrap-through ---
+/// CSS `wrap-through` property: whether the lines in a box flow around the
+/// exclusion boxes of the containing blocks it is in (CSS Exclusions 1,
+/// 3.2).
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(C)]
+pub enum WrapThrough {
+    /// They do (default).
+    #[default]
+    Wrap,
+    /// They do not: the exclusion boxes outside this box leave its lines
+    /// alone.
+    None,
+}
+
+impl PrintAsCssValue for WrapThrough {
+    fn print_as_css_value(&self) -> String {
+        String::from(match self {
+            Self::Wrap => "wrap",
+            Self::None => "none",
+        })
+    }
+}
+
 // Formatting to Rust code
 #[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for FlowInto {
@@ -133,6 +198,31 @@ impl crate::codegen::format::FormatAsRustCode for RegionFragment {
         String::from(match self {
             Self::Auto => "RegionFragment::Auto",
             Self::Break => "RegionFragment::Break",
+        })
+    }
+}
+
+#[cfg(feature = "codegen")]
+impl crate::codegen::format::FormatAsRustCode for WrapFlow {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        String::from(match self {
+            Self::Auto => "WrapFlow::Auto",
+            Self::Both => "WrapFlow::Both",
+            Self::Start => "WrapFlow::Start",
+            Self::End => "WrapFlow::End",
+            Self::Minimum => "WrapFlow::Minimum",
+            Self::Maximum => "WrapFlow::Maximum",
+            Self::Clear => "WrapFlow::Clear",
+        })
+    }
+}
+
+#[cfg(feature = "codegen")]
+impl crate::codegen::format::FormatAsRustCode for WrapThrough {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        String::from(match self {
+            Self::Wrap => "WrapThrough::Wrap",
+            Self::None => "WrapThrough::None",
         })
     }
 }
@@ -220,6 +310,20 @@ pub mod parser {
         RegionFragmentParseErrorOwned,
         "region-fragment"
     );
+    define_flow_parser!(
+        parse_wrap_flow,
+        WrapFlow,
+        WrapFlowParseError,
+        WrapFlowParseErrorOwned,
+        "wrap-flow"
+    );
+    define_flow_parser!(
+        parse_wrap_through,
+        WrapThrough,
+        WrapThroughParseError,
+        WrapThroughParseErrorOwned,
+        "wrap-through"
+    );
 
     /// Whether `name` can name a flow: a CSS identifier other than the
     /// keywords CSS Regions 1 rules out (`none`, `inherit`, `default`,
@@ -292,6 +396,33 @@ pub mod parser {
             } else {
                 None
             }
+        }
+    }
+
+    impl WrapFlow {
+        /// `wrap-flow`: `auto | both | start | end | minimum | maximum |
+        /// clear`.
+        fn parsed(input: &str) -> Option<Self> {
+            [
+                Self::Auto,
+                Self::Both,
+                Self::Start,
+                Self::End,
+                Self::Minimum,
+                Self::Maximum,
+                Self::Clear,
+            ]
+            .into_iter()
+            .find(|value| input.trim().eq_ignore_ascii_case(&value.print_as_css_value()))
+        }
+    }
+
+    impl WrapThrough {
+        /// `wrap-through`: `wrap | none`.
+        fn parsed(input: &str) -> Option<Self> {
+            [Self::Wrap, Self::None]
+                .into_iter()
+                .find(|value| input.trim().eq_ignore_ascii_case(&value.print_as_css_value()))
         }
     }
 }
@@ -367,5 +498,57 @@ mod tests {
         for value in ["", "none", "clip", "break auto"] {
             assert!(parse_region_fragment(value).is_err(), "region-fragment: {value}");
         }
+    }
+
+    #[test]
+    fn wrap_flow_takes_its_seven_keywords() {
+        assert_eq!(WrapFlow::default(), WrapFlow::Auto);
+        for value in [
+            WrapFlow::Auto,
+            WrapFlow::Both,
+            WrapFlow::Start,
+            WrapFlow::End,
+            WrapFlow::Minimum,
+            WrapFlow::Maximum,
+            WrapFlow::Clear,
+        ] {
+            assert_eq!(parse_wrap_flow(&value.print_as_css_value()), Ok(value));
+        }
+        assert_eq!(parse_wrap_flow(" Both "), Ok(WrapFlow::Both));
+        for value in ["", "none", "left", "both start"] {
+            assert!(parse_wrap_flow(value).is_err(), "wrap-flow: {value}");
+        }
+    }
+
+    #[test]
+    fn wrap_through_is_wrap_or_none() {
+        assert_eq!(WrapThrough::default(), WrapThrough::Wrap);
+        assert_eq!(parse_wrap_through("wrap"), Ok(WrapThrough::Wrap));
+        assert_eq!(parse_wrap_through(" NONE "), Ok(WrapThrough::None));
+        for value in ["", "auto", "wrap none"] {
+            assert!(parse_wrap_through(value).is_err(), "wrap-through: {value}");
+        }
+    }
+
+    #[test]
+    fn the_keywords_of_these_properties_are_their_own_values_not_css_wide_ones() {
+        use crate::{
+            css::CssPropertyValue,
+            props::property::{parse_css_property, CssProperty, CssPropertyType},
+        };
+        // Read back as the CSS-wide `none` or `auto`, a declaration would be
+        // "no value" and a lower layer's value would win over it.
+        assert_eq!(
+            parse_css_property(CssPropertyType::WrapThrough, "none").ok(),
+            Some(CssProperty::WrapThrough(CssPropertyValue::Exact(WrapThrough::None)))
+        );
+        assert_eq!(
+            parse_css_property(CssPropertyType::WrapFlow, "auto").ok(),
+            Some(CssProperty::WrapFlow(CssPropertyValue::Exact(WrapFlow::Auto)))
+        );
+        assert_eq!(
+            parse_css_property(CssPropertyType::RegionFragment, "auto").ok(),
+            Some(CssProperty::RegionFragment(CssPropertyValue::Exact(RegionFragment::Auto)))
+        );
     }
 }

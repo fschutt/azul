@@ -549,6 +549,10 @@ macro_rules! css_property_from_type {
             }
             CssPropertyType::FlowInto => CssProperty::FlowInto(CssPropertyValue::$content_type),
             CssPropertyType::FlowFrom => CssProperty::FlowFrom(CssPropertyValue::$content_type),
+            CssPropertyType::WrapThrough => {
+                CssProperty::WrapThrough(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::WrapFlow => CssProperty::WrapFlow(CssPropertyValue::$content_type),
             CssPropertyType::RegionFragment => {
                 CssProperty::RegionFragment(CssPropertyValue::$content_type)
             }

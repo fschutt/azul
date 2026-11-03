@@ -1139,12 +1139,12 @@ pub(super) fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
     }
 }
 
-/// The float area `shape-outside` gives the float `node_id` whose border box
-/// is `border_box`, and its `shape-margin` in px: the shape is measured
-/// against the float's margin box (the reference box CSS Shapes 1 gives a
-/// basic shape alone), and a percentage margin is of the containing block's
-/// width. `None` for `shape-outside: none`, whose float area is the margin
-/// box.
+/// The float area `shape-outside` gives the float (or exclusion box)
+/// `node_id` whose border box is `border_box`, and its `shape-margin` in px:
+/// the shape is measured against the box's margin box (the reference box CSS
+/// Shapes 1 gives a basic shape alone), and a percentage margin is of the
+/// containing block's width. `None` for `shape-outside: none`, whose area is
+/// the margin box.
 pub(crate) fn float_shape_outside<T: ParsedFontTrait>(
     ctx: &LayoutContext<'_, T>,
     node_id: NodeId,

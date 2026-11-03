@@ -69,6 +69,7 @@ use azul_css::{
             ColumnWidthValue, ContentValue, CounterIncrementValue, CounterResetValue, CounterSetValue,
             CssProperty, StyleBackgroundOriginVecValue, StyleQuotesValue,
             CssPropertyType, FlowFromValue, FlowIntoValue, RegionFragmentValue,
+            WrapFlowValue, WrapThroughValue,
             LayoutAlignContentValue,
             LayoutAlignItemsValue, LayoutAlignSelfValue, LayoutBorderBottomWidthValue,
             LayoutBorderLeftWidthValue, LayoutBorderRightWidthValue, LayoutBorderSpacingValue,
@@ -322,6 +323,8 @@ macro_rules! match_property_value {
             CssProperty::ColumnRuleColor($value) => $expr,
             CssProperty::FlowInto($value) => $expr,
             CssProperty::FlowFrom($value) => $expr,
+            CssProperty::WrapThrough($value) => $expr,
+            CssProperty::WrapFlow($value) => $expr,
             CssProperty::RegionFragment($value) => $expr,
             CssProperty::ShapeOutside($value) => $expr,
             CssProperty::ShapeInside($value) => $expr,
@@ -4556,6 +4559,8 @@ impl CssPropertyCache {
     impl_get_prop!(get_flow_into, FlowIntoValue, FlowInto, as_flow_into);
 
     impl_get_prop!(get_flow_from, FlowFromValue, FlowFrom, as_flow_from);
+    impl_get_prop!(get_wrap_through, WrapThroughValue, WrapThrough, as_wrap_through);
+    impl_get_prop!(get_wrap_flow, WrapFlowValue, WrapFlow, as_wrap_flow);
     impl_get_prop!(get_region_fragment, RegionFragmentValue, RegionFragment, as_region_fragment);
 
     impl_get_prop!(

@@ -198,6 +198,8 @@ pub(crate) fn lower_css_property(p: &crate::props::property::CssProperty) -> Exp
         P::ColumnRuleColor(v) => prop_value(v, "ColumnRuleColor", "ColumnRuleColorValue", "ColumnRuleColor", Some("column_rule_color")),
         P::FlowInto(v) => prop_value(v, "FlowInto", "FlowIntoValue", "FlowInto", Some("flow_into")),
         P::FlowFrom(v) => prop_value(v, "FlowFrom", "FlowFromValue", "FlowFrom", Some("flow_from")),
+        P::WrapThrough(v) => prop_value(v, "WrapThrough", "WrapThroughValue", "WrapThrough", Some("wrap_through")),
+        P::WrapFlow(v) => prop_value(v, "WrapFlow", "WrapFlowValue", "WrapFlow", Some("wrap_flow")),
         P::RegionFragment(v) => prop_value(v, "RegionFragment", "RegionFragmentValue", "RegionFragment", Some("region_fragment")),
         P::ShapeOutside(v) => prop_value(v, "ShapeOutside", "ShapeOutsideValue", "ShapeOutside", Some("shape_outside")),
         P::ShapeInside(v) => prop_value(v, "ShapeInside", "ShapeInsideValue", "ShapeInside", Some("shape_inside")),
@@ -3715,6 +3717,12 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("WizardProgressPage", "widgets"),
     ("WizardSummaryPage", "widgets"),
     ("WizardWelcomePage", "widgets"),
+    ("WrapFlow", "css"),
+    ("WrapFlowParseErrorOwned", "xml"),
+    ("WrapFlowValue", "css"),
+    ("WrapThrough", "css"),
+    ("WrapThroughParseErrorOwned", "xml"),
+    ("WrapThroughValue", "css"),
     ("WriteBackCallback", "callbacks"),
     ("WriteBackCallbackType", "callbacks"),
     ("WrongComponentCountError", "error"),
@@ -3848,6 +3856,8 @@ pub(crate) static C_LIKE_ENUMS: &[&str] = &[
     "TextBoxEdgeOver",
     "TextBoxEdgeUnder",
     "VisualBox",
+    "WrapFlow",
+    "WrapThrough",
 ];
 
 /// `(CssProperty variant, its CssPropertyValue alias, the api.json constructor
@@ -4030,6 +4040,8 @@ pub(crate) static CSS_PROPERTY_ALIASES: &[(&str, &str, &str)] = &[
     ("ColumnRuleColor", "ColumnRuleColorValue", "column_rule_color"),
     ("FlowInto", "FlowIntoValue", "flow_into"),
     ("FlowFrom", "FlowFromValue", "flow_from"),
+    ("WrapThrough", "WrapThroughValue", "wrap_through"),
+    ("WrapFlow", "WrapFlowValue", "wrap_flow"),
     ("RegionFragment", "RegionFragmentValue", "region_fragment"),
     ("ShapeOutside", "ShapeOutsideValue", "shape_outside"),
     ("ShapeInside", "ShapeInsideValue", "shape_inside"),
@@ -4254,6 +4266,8 @@ pub(crate) static CSS_PROPERTY_VARIANTS: &[&str] = &[
     "ColumnRuleColor",
     "FlowInto",
     "FlowFrom",
+    "WrapThrough",
+    "WrapFlow",
     "RegionFragment",
     "ShapeOutside",
     "ShapeInside",
@@ -8122,5 +8136,30 @@ impl Lower for crate::props::layout::fragmentation::Widows {
                 ("inner", self.inner.lower()),
             ],
         )
+    }
+}
+
+impl Lower for crate::props::layout::flow::WrapFlow {
+    fn lower(&self) -> Expr {
+        let variant = match self {
+            Self::Auto => "Auto",
+            Self::Both => "Both",
+            Self::Start => "Start",
+            Self::End => "End",
+            Self::Minimum => "Minimum",
+            Self::Maximum => "Maximum",
+            Self::Clear => "Clear",
+        };
+        Expr::unit("WrapFlow", EnumShape::CLike, variant)
+    }
+}
+
+impl Lower for crate::props::layout::flow::WrapThrough {
+    fn lower(&self) -> Expr {
+        let variant = match self {
+            Self::Wrap => "Wrap",
+            Self::None => "None",
+        };
+        Expr::unit("WrapThrough", EnumShape::CLike, variant)
     }
 }

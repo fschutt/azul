@@ -7,9 +7,10 @@
 //! document order, form the flow's region chain, and the flow's content is
 //! laid out through it as through a chain of fragmentainers (CSS
 //! Fragmentation 3). Each region has its own width, its own `shape-inside`
-//! and its own floats, and a paragraph that does not fit one region goes on
-//! in the next one with the same line breaker, hyphenation, justification
-//! and inline state.
+//! and its own floats, its lines flow around the exclusion boxes over it
+//! (CSS Exclusions 1, `wrap-flow`), and a paragraph that does not fit one
+//! region goes on in the next one with the same line breaker, hyphenation,
+//! justification and inline state.
 //!
 //! The box tree holds the flow's content as the children of the flow's
 //! first region ([`flow_children`]): the main pass lays it out there, at that
@@ -38,8 +39,9 @@ use azul_core::{
 use azul_css::props::layout::{
     fragmentation::{BreakInside, PageBreak},
     FlowFrom, FlowInto, LayoutDisplay, LayoutFloat, LayoutPosition, LayoutWritingMode,
-    RegionFragment, ShapeInside,
+    RegionFragment, ShapeInside, WrapFlow, WrapThrough,
 };
+use azul_css::props::style::StyleDirection;
 
 use crate::{
     font_traits::{ParsedFontTrait, TextLayoutCache},
@@ -543,6 +545,195 @@ pub struct FlowOverflow {
 }
 
 // ---------------------------------------------------------------------------
+// Exclusion boxes
+// ---------------------------------------------------------------------------
+
+/// The `wrap-flow` of `id`.
+fn wrap_flow(styled_dom: &StyledDom, id: NodeId) -> Option<WrapFlow> {
+    let nodes = styled_dom.node_data.as_container();
+    let node_data = nodes.get(id)?;
+    let styled_nodes = styled_dom.styled_nodes.as_container();
+    let state = &styled_nodes.get(id)?.styled_node_state;
+    styled_dom
+        .css_property_cache
+        .ptr
+        .get_wrap_flow(node_data, &id, state)?
+        .get_property()
+        .copied()
+}
+
+/// Whether the lines in the box `id` flow around the exclusion boxes of the
+/// containing blocks it is in: its `wrap-through` is not `none`.
+fn wraps_through(styled_dom: &StyledDom, id: Option<NodeId>) -> bool {
+    let Some(id) = id else {
+        return true;
+    };
+    let nodes = styled_dom.node_data.as_container();
+    let styled_nodes = styled_dom.styled_nodes.as_container();
+    let (Some(node_data), Some(styled)) = (nodes.get(id), styled_nodes.get(id)) else {
+        return true;
+    };
+    styled_dom
+        .css_property_cache
+        .ptr
+        .get_wrap_through(node_data, &id, &styled.styled_node_state)
+        .and_then(|value| value.get_property().copied())
+        != Some(WrapThrough::None)
+}
+
+/// An exclusion box: an absolutely positioned box of `wrap-flow` other than
+/// `auto` (CSS Exclusions 1, 3.1).
+struct ExclusionBox {
+    /// Its layout node.
+    node: usize,
+    /// The layout node of its containing block, `None` for the initial
+    /// containing block.
+    containing_block: Option<usize>,
+    /// Its exclusion area in the document's coordinates: its
+    /// `shape-outside`, or its margin box.
+    area: Exclusion,
+}
+
+/// The exclusion boxes of the document outside its named flows, once every
+/// box of it is placed (`positions` absolute).
+fn exclusion_boxes<T: ParsedFontTrait>(
+    ctx: &LayoutContext<'_, T>,
+    tree: &LayoutTree,
+    positions: &PositionVec,
+    index: &NamedFlowIndex,
+) -> Vec<ExclusionBox> {
+    let styled_dom = ctx.styled_dom;
+    let mut boxes = Vec::new();
+    for (node, hot) in tree.nodes.iter().enumerate() {
+        let Some(dom) = hot.dom_node_id else {
+            continue;
+        };
+        let position = get_position_type(styled_dom, Some(dom));
+        if !matches!(position, LayoutPosition::Absolute | LayoutPosition::Fixed)
+            || index.is_in_a_flow(dom)
+        {
+            continue;
+        }
+        let Some(flow) = wrap_flow(styled_dom, dom).filter(|f| *f != WrapFlow::Auto) else {
+            continue;
+        };
+        // A fixed box's containing block is the viewport, an absolutely
+        // positioned one's the nearest positioned box around it.
+        let mut containing_block = None;
+        let mut at = hot.parent.filter(|_| position == LayoutPosition::Absolute);
+        while let Some(parent) = at {
+            let Some(parent_hot) = tree.get(LayoutNodeId::new(parent)) else {
+                break;
+            };
+            if get_position_type(styled_dom, parent_hot.dom_node_id).is_positioned() {
+                containing_block = Some(parent);
+                break;
+            }
+            at = parent_hot.parent;
+        }
+        let containing_block_width = containing_block
+            .and_then(|cb| tree.get(LayoutNodeId::new(cb)))
+            .map_or(ctx.viewport_size.width, |cb| {
+                let bp = cb.box_props.unpack();
+                let width = cb.used_size.unwrap_or_default().width;
+                (width - bp.border.left - bp.border.right).max(0.0)
+            });
+        let rtl = styled_dom
+            .styled_nodes
+            .as_container()
+            .get(dom)
+            .is_some_and(|styled| {
+                getters::get_direction_property(styled_dom, dom, &styled.styled_node_state).exact()
+                    == Some(StyleDirection::Rtl)
+            });
+        // The start side is the left one in a left-to-right box.
+        let (start, end) = if rtl {
+            (ExclusionWrap::Right, ExclusionWrap::Left)
+        } else {
+            (ExclusionWrap::Left, ExclusionWrap::Right)
+        };
+        let wrap = match flow {
+            WrapFlow::Auto | WrapFlow::Both => ExclusionWrap::Both,
+            WrapFlow::Start => start,
+            WrapFlow::End => end,
+            WrapFlow::Minimum => ExclusionWrap::Minimum,
+            WrapFlow::Maximum => ExclusionWrap::Maximum,
+            WrapFlow::Clear => ExclusionWrap::Clear,
+        };
+        let border_box = border_box_of(tree, positions, node);
+        let margin = hot.box_props.unpack().margin;
+        let clip = Rect {
+            x: border_box.origin.x - margin.left,
+            y: border_box.origin.y - margin.top,
+            width: border_box.size.width + margin.left + margin.right,
+            height: border_box.size.height + margin.top + margin.bottom,
+        };
+        let (shape, shape_margin) =
+            fc::float_shape_outside(ctx, dom, border_box, &margin, containing_block_width)
+                .unwrap_or((ShapeBoundary::Rectangle(clip), 0.0));
+        boxes.push(ExclusionBox {
+            node,
+            containing_block,
+            area: Exclusion {
+                shape,
+                margin: shape_margin,
+                clip: Some(clip),
+                wrap,
+            },
+        });
+    }
+    boxes
+}
+
+impl ExclusionBox {
+    /// Whether this box shapes the lines laid out in the region `region`:
+    /// the region is in the box's containing block and not in the box, and
+    /// no box from the region up to that containing block has
+    /// `wrap-through: none`.
+    fn shapes_the_lines_of(
+        &self,
+        styled_dom: &StyledDom,
+        tree: &LayoutTree,
+        region: usize,
+    ) -> bool {
+        let mut at = Some(region);
+        while let Some(node) = at {
+            if Some(node) == self.containing_block {
+                return true;
+            }
+            let Some(hot) = tree.get(LayoutNodeId::new(node)) else {
+                return false;
+            };
+            if node == self.node || !wraps_through(styled_dom, hot.dom_node_id) {
+                return false;
+            }
+            at = hot.parent;
+        }
+        self.containing_block.is_none()
+    }
+}
+
+/// Whether the lines of the paragraph `node` of a named flow flow around
+/// the exclusion boxes over its regions: no box from it up to the flow's
+/// region has `wrap-through: none`.
+fn wraps_around_exclusions(styled_dom: &StyledDom, tree: &LayoutTree, node: usize) -> bool {
+    let mut at = Some(node);
+    while let Some(index) = at {
+        let Some(hot) = tree.get(LayoutNodeId::new(index)) else {
+            break;
+        };
+        if hot.dom_node_id.is_some_and(|dom| is_region(styled_dom, dom)) {
+            break;
+        }
+        if !wraps_through(styled_dom, hot.dom_node_id) {
+            return false;
+        }
+        at = hot.parent;
+    }
+    true
+}
+
+// ---------------------------------------------------------------------------
 // The pass
 // ---------------------------------------------------------------------------
 
@@ -557,6 +748,9 @@ struct Fragmentainer {
     shape: Option<ShapeBoundary>,
     /// The floats placed in it, in its content box's coordinates.
     floats: Vec<Exclusion>,
+    /// The areas of the exclusion boxes that shape its lines, in its content
+    /// box's coordinates.
+    exclusions: Vec<Exclusion>,
 }
 
 /// The inline room the boxes around a box take in a region: the margins,
@@ -631,6 +825,9 @@ struct FlowWalk<'r> {
     truncates_margins: bool,
     /// A forced break the last box asked for after it.
     break_pending: bool,
+    /// Whether the lines of the paragraph being placed flow around the
+    /// exclusion boxes over the regions (`wrap-through`).
+    wraps_around_exclusions: bool,
     /// The first box whose content runs past the end of the chain's last
     /// region, or goes into the room past it.
     first_overflowing: Option<usize>,
@@ -658,6 +855,7 @@ pub fn lay_out_named_flows<T: ParsedFontTrait>(
     let Some(index) = flow_index(ctx.styled_dom) else {
         return;
     };
+    let exclusions = exclusion_boxes(ctx, tree, positions, &index);
     let mut reports = Vec::new();
     for dom_flow in &index.flows {
         let report_index = reports.len();
@@ -667,6 +865,7 @@ pub fn lay_out_named_flows<T: ParsedFontTrait>(
             text_cache,
             positions,
             dom_flow,
+            &exclusions,
             report_index,
         ));
     }
@@ -675,14 +874,16 @@ pub fn lay_out_named_flows<T: ParsedFontTrait>(
     }
 }
 
-/// Lays one named flow out through its region chain and records where its
-/// content went; its report is the `report_index`th of the document.
+/// Lays one named flow out through its region chain, its lines around the
+/// document's `exclusions` over its regions, and records where its content
+/// went; its report is the `report_index`th of the document.
 fn lay_out_named_flow<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &mut LayoutTree,
     text_cache: &mut TextLayoutCache,
     positions: &mut PositionVec,
     dom_flow: &DomNamedFlow,
+    exclusions: &[ExclusionBox],
     report_index: usize,
 ) -> FlowReport {
     let mut report = FlowReport {
@@ -709,7 +910,7 @@ fn lay_out_named_flow<T: ParsedFontTrait>(
     let content: Vec<usize> = tree.children(first).to_vec();
     let mut chain: Vec<Fragmentainer> = regions
         .iter()
-        .map(|&region| fragmentainer(ctx, tree, positions, region))
+        .map(|&region| fragmentainer(ctx, tree, positions, region, exclusions))
         .collect();
     let shown = chain.len();
     let breaks_at_its_end = chain
@@ -742,6 +943,7 @@ fn lay_out_named_flow<T: ParsedFontTrait>(
         holds_content: false,
         truncates_margins: false,
         break_pending: false,
+        wraps_around_exclusions: true,
         first_overflowing: None,
         reports: &mut report.regions,
         overflow: None,
@@ -787,13 +989,15 @@ fn border_box_of(tree: &LayoutTree, positions: &PositionVec, node: usize) -> Log
     )
 }
 
-/// The region `node` as a fragmentainer: its content box and its
-/// `shape-inside`, resolved against that box.
+/// The region `node` as a fragmentainer: its content box, its
+/// `shape-inside` resolved against that box, and the areas of those of the
+/// document's `exclusions` that shape its lines.
 fn fragmentainer<T: ParsedFontTrait>(
     ctx: &LayoutContext<'_, T>,
     tree: &LayoutTree,
     positions: &PositionVec,
     node: usize,
+    exclusions: &[ExclusionBox],
 ) -> Fragmentainer {
     let border_box = border_box_of(tree, positions, node);
     let bp = tree
@@ -815,18 +1019,25 @@ fn fragmentainer<T: ParsedFontTrait>(
         .get(LayoutNodeId::new(node))
         .and_then(|n| n.dom_node_id)
         .and_then(|dom| region_shape(ctx, dom, content.size));
+    let exclusions = exclusions
+        .iter()
+        .filter(|exclusion| exclusion.shapes_the_lines_of(ctx.styled_dom, tree, node))
+        .map(|exclusion| exclusion.area.translated(-content.origin.x, -content.origin.y))
+        .collect();
     Fragmentainer {
         node,
         content,
         shape,
         floats: Vec::new(),
+        exclusions,
     }
 }
 
 /// The room past the end of `last`, a last region of `region-fragment:
 /// break`: an endless fragmentainer of its width right below it, without its
-/// shape. The content breaks off the region as if this one followed it, and
-/// what goes here is measured for the report and not shown.
+/// shape or the exclusion boxes over it. The content breaks off the region
+/// as if this one followed it, and what goes here is measured for the report
+/// and not shown.
 fn room_past(last: &Fragmentainer) -> Fragmentainer {
     Fragmentainer {
         node: last.node,
@@ -839,6 +1050,7 @@ fn room_past(last: &Fragmentainer) -> Fragmentainer {
         ),
         shape: None,
         floats: Vec::new(),
+        exclusions: Vec::new(),
     }
 }
 
@@ -1398,6 +1610,7 @@ impl FlowWalk<'_> {
             getters::get_break_inside(ctx.styled_dom, dom),
             BreakInside::Avoid | BreakInside::AvoidRegion
         );
+        self.wraps_around_exclusions = wraps_around_exclusions(ctx.styled_dom, tree, node);
         let fonts = ctx.font_manager.get_loaded_fonts();
         let mut flow = ParagraphFlow::new(
             Arc::clone(&paragraph.logical_items),
@@ -1597,7 +1810,8 @@ impl FlowWalk<'_> {
     /// The constraints of a paragraph's fragment in region `region`, its
     /// lines `text_width` wide from `origin`, `pen` down the region: the
     /// room left there (unbounded in the last region, which is endless) and
-    /// the region's shape and floats, seen from the lines' origin.
+    /// the region's shape, floats and exclusion boxes, seen from the lines'
+    /// origin.
     fn fragment_constraints(
         &self,
         region: usize,
@@ -1627,6 +1841,11 @@ impl FlowWalk<'_> {
         constraints
             .shape_exclusions
             .extend(fragmentainer.floats.iter().map(|f| f.translated(dx, dy)));
+        if self.wraps_around_exclusions {
+            constraints
+                .shape_exclusions
+                .extend(fragmentainer.exclusions.iter().map(|e| e.translated(dx, dy)));
+        }
         constraints
     }
 

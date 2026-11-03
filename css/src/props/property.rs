@@ -112,7 +112,7 @@ const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &str); 33] = [
     (CombinedCssPropertyType::BorderWidth, "stroke-width"),
 ];
 
-const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 208] = [
+const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 210] = [
     (CssPropertyType::Display, "display"),
     (CssPropertyType::Float, "float"),
     (CssPropertyType::BoxSizing, "box-sizing"),
@@ -363,6 +363,8 @@ const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 208] = [
     (CssPropertyType::ColumnRuleColor, "column-rule-color"),
     (CssPropertyType::FlowInto, "flow-into"),
     (CssPropertyType::FlowFrom, "flow-from"),
+    (CssPropertyType::WrapThrough, "wrap-through"),
+    (CssPropertyType::WrapFlow, "wrap-flow"),
     (CssPropertyType::RegionFragment, "region-fragment"),
     (CssPropertyType::ShapeOutside, "shape-outside"),
     (CssPropertyType::ShapeInside, "shape-inside"),
@@ -550,6 +552,8 @@ pub type ColumnRuleStyleValue = CssPropertyValue<ColumnRuleStyle>;
 pub type ColumnRuleColorValue = CssPropertyValue<ColumnRuleColor>;
 pub type FlowIntoValue = CssPropertyValue<FlowInto>;
 pub type FlowFromValue = CssPropertyValue<FlowFrom>;
+pub type WrapThroughValue = CssPropertyValue<WrapThrough>;
+pub type WrapFlowValue = CssPropertyValue<WrapFlow>;
 pub type RegionFragmentValue = CssPropertyValue<RegionFragment>;
 pub type ShapeOutsideValue = CssPropertyValue<ShapeOutside>;
 pub type ShapeInsideValue = CssPropertyValue<ShapeInside>;
@@ -917,6 +921,8 @@ pub enum CssProperty {
     ColumnRuleColor(ColumnRuleColorValue),
     FlowInto(FlowIntoValue),
     FlowFrom(FlowFromValue),
+    WrapThrough(WrapThroughValue),
+    WrapFlow(WrapFlowValue),
     RegionFragment(RegionFragmentValue),
     ShapeOutside(ShapeOutsideValue),
     ShapeInside(ShapeInsideValue),
@@ -1196,6 +1202,8 @@ pub enum CssPropertyType {
     ColumnRuleColor,
     FlowInto,
     FlowFrom,
+    WrapThrough,
+    WrapFlow,
     RegionFragment,
     ShapeOutside,
     ShapeInside,
@@ -1406,6 +1414,8 @@ impl CssPropertyType {
         Self::ColumnRuleColor,
         Self::FlowInto,
         Self::FlowFrom,
+        Self::WrapThrough,
+        Self::WrapFlow,
         Self::RegionFragment,
         Self::ShapeOutside,
         Self::ShapeInside,
@@ -1659,6 +1669,8 @@ impl CssPropertyType {
             Self::ColumnRuleColor => "column-rule-color",
             Self::FlowInto => "flow-into",
             Self::FlowFrom => "flow-from",
+            Self::WrapThrough => "wrap-through",
+            Self::WrapFlow => "wrap-flow",
             Self::RegionFragment => "region-fragment",
             Self::ShapeOutside => "shape-outside",
             Self::ShapeInside => "shape-inside",
@@ -2216,6 +2228,8 @@ pub enum CssParsingError<'a> {
     // Flow & Shape
     FlowInto(FlowIntoParseError<'a>),
     FlowFrom(FlowFromParseError<'a>),
+    WrapThrough(WrapThroughParseError<'a>),
+    WrapFlow(WrapFlowParseError<'a>),
     RegionFragment(RegionFragmentParseError<'a>),
     GenericParseError,
 
@@ -2398,6 +2412,8 @@ pub enum CssParsingErrorOwned {
     // Flow & Shape
     FlowInto(FlowIntoParseErrorOwned),
     FlowFrom(FlowFromParseErrorOwned),
+    WrapThrough(WrapThroughParseErrorOwned),
+    WrapFlow(WrapFlowParseErrorOwned),
     RegionFragment(RegionFragmentParseErrorOwned),
     GenericParseError,
 
@@ -2550,6 +2566,8 @@ impl_display! { CssParsingError<'a>, {
     ColumnRuleColor(e) => format!("Invalid column-rule-color: {}", e),
     FlowInto(e) => format!("Invalid flow-into: {}", e),
     FlowFrom(e) => format!("Invalid flow-from: {}", e),
+    WrapThrough(e) => format!("Invalid wrap-through: {}", e),
+    WrapFlow(e) => format!("Invalid wrap-flow: {}", e),
     RegionFragment(e) => format!("Invalid region-fragment: {}", e),
     GenericParseError => "Failed to parse value",
     Content => "Failed to parse content property",
@@ -3004,6 +3022,8 @@ impl_from!(
 impl_from!(FlowIntoParseError<'a>, CssParsingError::FlowInto);
 #[cfg(feature = "parser")]
 impl_from!(FlowFromParseError<'a>, CssParsingError::FlowFrom);
+impl_from!(WrapThroughParseError<'a>, CssParsingError::WrapThrough);
+impl_from!(WrapFlowParseError<'a>, CssParsingError::WrapFlow);
 impl_from!(RegionFragmentParseError<'a>, CssParsingError::RegionFragment);
 
 #[cfg(feature = "parser")]
@@ -3314,6 +3334,8 @@ impl CssParsingError<'_> {
             }
             CssParsingError::FlowInto(e) => CssParsingErrorOwned::FlowInto(e.to_contained()),
             CssParsingError::FlowFrom(e) => CssParsingErrorOwned::FlowFrom(e.to_contained()),
+            CssParsingError::WrapThrough(e) => CssParsingErrorOwned::WrapThrough(e.to_contained()),
+            CssParsingError::WrapFlow(e) => CssParsingErrorOwned::WrapFlow(e.to_contained()),
             CssParsingError::RegionFragment(e) => {
                 CssParsingErrorOwned::RegionFragment(e.to_contained())
             }
@@ -3490,6 +3512,8 @@ impl CssParsingErrorOwned {
             Self::ColumnRuleColor(e) => CssParsingError::ColumnRuleColor(e.to_shared()),
             Self::FlowInto(e) => CssParsingError::FlowInto(e.to_shared()),
             Self::FlowFrom(e) => CssParsingError::FlowFrom(e.to_shared()),
+            Self::WrapThrough(e) => CssParsingError::WrapThrough(e.to_shared()),
+            Self::WrapFlow(e) => CssParsingError::WrapFlow(e.to_shared()),
             Self::RegionFragment(e) => CssParsingError::RegionFragment(e.to_shared()),
             Self::GenericParseError => CssParsingError::GenericParseError,
             Self::Content => CssParsingError::Content,
@@ -3638,7 +3662,10 @@ pub fn parse_css_property(
         CssPropertyType::ListStyleType |
         // quotes: none writes no marks; read back as "no value" it took the
         // initial `auto`, the marks of the language
-        CssPropertyType::Quotes
+        CssPropertyType::Quotes |
+        // wrap-through: none keeps a box's lines off the exclusion boxes
+        // around it; read back as "no value" it took the initial `wrap`
+        CssPropertyType::WrapThrough
     );
 
     Ok(match value {
@@ -3968,6 +3995,10 @@ pub fn parse_css_property(
             }
             CssPropertyType::FlowInto => CssProperty::FlowInto(parse_flow_into(value)?.into()),
             CssPropertyType::FlowFrom => CssProperty::FlowFrom(parse_flow_from(value)?.into()),
+            CssPropertyType::WrapThrough => {
+                CssProperty::WrapThrough(parse_wrap_through(value)?.into())
+            }
+            CssPropertyType::WrapFlow => CssProperty::WrapFlow(parse_wrap_flow(value)?.into()),
             CssPropertyType::RegionFragment => {
                 CssProperty::RegionFragment(parse_region_fragment(value)?.into())
             }
@@ -5372,6 +5403,8 @@ impl_from_css_prop!(ColumnRuleStyle, CssProperty::ColumnRuleStyle);
 impl_from_css_prop!(ColumnRuleColor, CssProperty::ColumnRuleColor);
 impl_from_css_prop!(FlowInto, CssProperty::FlowInto);
 impl_from_css_prop!(FlowFrom, CssProperty::FlowFrom);
+impl_from_css_prop!(WrapThrough, CssProperty::WrapThrough);
+impl_from_css_prop!(WrapFlow, CssProperty::WrapFlow);
 impl_from_css_prop!(RegionFragment, CssProperty::RegionFragment);
 impl_from_css_prop!(ShapeOutside, CssProperty::ShapeOutside);
 impl_from_css_prop!(ShapeInside, CssProperty::ShapeInside);
@@ -5614,6 +5647,8 @@ impl CssProperty {
             Self::ColumnRuleColor(v) => v.get_css_value_fmt(),
             Self::FlowInto(v) => v.get_css_value_fmt(),
             Self::FlowFrom(v) => v.get_css_value_fmt(),
+            Self::WrapThrough(v) => v.get_css_value_fmt(),
+            Self::WrapFlow(v) => v.get_css_value_fmt(),
             Self::RegionFragment(v) => v.get_css_value_fmt(),
             Self::ShapeOutside(v) => v.get_css_value_fmt(),
             Self::ShapeInside(v) => v.get_css_value_fmt(),
@@ -6194,6 +6229,8 @@ impl CssProperty {
             Self::ColumnRuleColor(v) => v.css_wide_keyword(),
             Self::FlowInto(v) => v.css_wide_keyword(),
             Self::FlowFrom(v) => v.css_wide_keyword(),
+            Self::WrapThrough(v) => v.css_wide_keyword(),
+            Self::WrapFlow(v) => v.css_wide_keyword(),
             Self::RegionFragment(v) => v.css_wide_keyword(),
             Self::ShapeOutside(v) => v.css_wide_keyword(),
             Self::ShapeInside(v) => v.css_wide_keyword(),
@@ -6407,6 +6444,8 @@ impl CssProperty {
             Self::ColumnRuleColor(_) => CssPropertyType::ColumnRuleColor,
             Self::FlowInto(_) => CssPropertyType::FlowInto,
             Self::FlowFrom(_) => CssPropertyType::FlowFrom,
+            Self::WrapThrough(_) => CssPropertyType::WrapThrough,
+            Self::WrapFlow(_) => CssPropertyType::WrapFlow,
             Self::RegionFragment(_) => CssPropertyType::RegionFragment,
             Self::ShapeOutside(_) => CssPropertyType::ShapeOutside,
             Self::ShapeInside(_) => CssPropertyType::ShapeInside,
@@ -6880,6 +6919,14 @@ impl CssProperty {
     #[must_use]
     pub const fn flow_from(input: FlowFrom) -> Self {
         Self::FlowFrom(CssPropertyValue::Exact(input))
+    }
+    #[must_use]
+    pub const fn wrap_through(input: WrapThrough) -> Self {
+        Self::WrapThrough(CssPropertyValue::Exact(input))
+    }
+    #[must_use]
+    pub const fn wrap_flow(input: WrapFlow) -> Self {
+        Self::WrapFlow(CssPropertyValue::Exact(input))
     }
     #[must_use]
     pub const fn region_fragment(input: RegionFragment) -> Self {
@@ -8162,6 +8209,20 @@ impl CssProperty {
         }
     }
     #[must_use]
+    pub const fn as_wrap_through(&self) -> Option<&WrapThroughValue> {
+        match self {
+            Self::WrapThrough(f) => Some(f),
+            _ => None,
+        }
+    }
+    #[must_use]
+    pub const fn as_wrap_flow(&self) -> Option<&WrapFlowValue> {
+        match self {
+            Self::WrapFlow(f) => Some(f),
+            _ => None,
+        }
+    }
+    #[must_use]
     pub const fn as_region_fragment(&self) -> Option<&RegionFragmentValue> {
         match self {
             Self::RegionFragment(f) => Some(f),
@@ -8441,7 +8502,7 @@ impl CssProperty {
             TextBoxEdge, TextBoxTrim, TextColor, TextCombineUpright, TextDecoration, TextIndent,
             TextJustify, TextOrientation, TextOverflow, TextShadow, TextTransform, Top, Transform,
             TransformOrigin, UnicodeBidi, UserSelect, VerticalAlign, Visibility, WhiteSpace,
-            Widows, Width, WordBreak, WordSpacing, WritingMode, ZIndex,
+            Widows, Width, WordBreak, WordSpacing, WrapFlow, WrapThrough, WritingMode, ZIndex,
             Zoom, BackgroundClip, FontVariantNumeric, FontVariantCaps, FontFeatureSettings, CounterSet,
             Quotes, BackgroundOrigin, BackgroundColor,
         };
@@ -8618,6 +8679,8 @@ impl CssProperty {
             ColumnRuleColor(c) => c.is_initial(),
             FlowInto(c) => c.is_initial(),
             FlowFrom(c) => c.is_initial(),
+            WrapThrough(c) => c.is_initial(),
+            WrapFlow(c) => c.is_initial(),
             RegionFragment(c) => c.is_initial(),
             ShapeOutside(c) => c.is_initial(),
             ShapeInside(c) => c.is_initial(),
@@ -9022,6 +9085,14 @@ impl CssProperty {
     #[must_use]
     pub const fn const_flow_from(input: FlowFrom) -> Self {
         Self::FlowFrom(FlowFromValue::Exact(input))
+    }
+    #[must_use]
+    pub const fn const_wrap_through(input: WrapThrough) -> Self {
+        Self::WrapThrough(WrapThroughValue::Exact(input))
+    }
+    #[must_use]
+    pub const fn const_wrap_flow(input: WrapFlow) -> Self {
+        Self::WrapFlow(WrapFlowValue::Exact(input))
     }
     #[must_use]
     pub const fn const_region_fragment(input: RegionFragment) -> Self {
@@ -9834,6 +9905,14 @@ pub fn format_static_css_prop(prop: &CssProperty, tabs: usize) -> String {
         CssProperty::FlowFrom(p) => format!(
             "CssProperty::FlowFrom({})",
             print_css_property_value(p, tabs, "FlowFrom")
+        ),
+        CssProperty::WrapThrough(p) => format!(
+            "CssProperty::WrapThrough({})",
+            print_css_property_value(p, tabs, "WrapThrough")
+        ),
+        CssProperty::WrapFlow(p) => format!(
+            "CssProperty::WrapFlow({})",
+            print_css_property_value(p, tabs, "WrapFlow")
         ),
         CssProperty::RegionFragment(p) => format!(
             "CssProperty::RegionFragment({})",

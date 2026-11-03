@@ -274,6 +274,32 @@ intrinsic-sizing rules.
 These accept the OS-native default automatically (see
 [System Themes](themes.md)).
 
+## Pages, regions and exclusions
+
+- `break-before`, `break-after` accept `auto`, `avoid`, `always`, `all`, `page`, `avoid-page`, `left`, `right`, `recto`, `verso`, `column`, `avoid-column`, `region`, or `avoid-region`. Type `PageBreak`.
+- `break-inside` accepts `auto`, `avoid`, `avoid-page`, `avoid-column`, or `avoid-region`. Type `BreakInside`.
+- `widows`, `orphans` accept a positive integer. Types `Widows`, `Orphans`.
+- `box-decoration-break` accepts `slice` or `clone`. Type `BoxDecorationBreak`.
+- `flow-into` accepts `none` or a name, optionally followed by `element` or `content`. Type `FlowInto`.
+- `flow-from` accepts `none` or a name. Type `FlowFrom`.
+- `region-fragment` accepts `auto` or `break`. Type `RegionFragment`.
+- `wrap-flow` accepts `auto`, `both`, `start`, `end`, `minimum`, `maximum`, or `clear`. Type `WrapFlow`.
+- `wrap-through` accepts `wrap` or `none`. Type `WrapThrough`.
+
+An element with `flow-into: story` leaves its place and is laid out through
+the boxes with `flow-from: story`, in document order (CSS Regions): each
+region with its own width, `shape-inside` and floats, and a paragraph that
+does not fit one region goes on in the next. What does not fit the last
+region runs on below it, or, with `region-fragment: break` on it, breaks off
+at its end and is not shown. `LayoutTree::named_flows()` reports where the
+content of each flow went and where what did not fit starts.
+
+An absolutely positioned box with `wrap-flow` other than `auto` is an
+exclusion box (CSS Exclusions): the lines laid out in the regions inside its
+containing block flow around its `shape-outside`, or its margin box, unless
+the region or a box between it and that containing block has
+`wrap-through: none`. Lines in the normal flow run under exclusion boxes.
+
 ## Generated content
 
 - `content` accepts a string, `none`, `normal`, or a keyword. Type `Content`.

@@ -40038,6 +40038,12 @@
                                 "FlowFrom": {
                                     "type": "FlowFromValue"
                                 },
+                                "WrapThrough": {
+                                    "type": "WrapThroughValue"
+                                },
+                                "WrapFlow": {
+                                    "type": "WrapFlowValue"
+                                },
                                 "RegionFragment": {
                                     "type": "RegionFragmentValue"
                                 },
@@ -41182,6 +41188,22 @@
                                     }
                                 ],
                                 "fn_body": "azul_css::props::property::CssProperty::region_fragment(input)"
+                            },
+                            "wrap_flow": {
+                                "fn_args": [
+                                    {
+                                        "input": "WrapFlow"
+                                    }
+                                ],
+                                "fn_body": "azul_css::props::property::CssProperty::wrap_flow(input)"
+                            },
+                            "wrap_through": {
+                                "fn_args": [
+                                    {
+                                        "input": "WrapThrough"
+                                    }
+                                ],
+                                "fn_body": "azul_css::props::property::CssProperty::wrap_through(input)"
                             }
                         },
                         "functions": {
@@ -51569,6 +51591,8 @@
                                 "ColumnRuleColor": {},
                                 "FlowInto": {},
                                 "FlowFrom": {},
+                                "WrapThrough": {},
+                                "WrapFlow": {},
                                 "RegionFragment": {},
                                 "ShapeOutside": {},
                                 "ShapeInside": {},
@@ -60266,6 +60290,73 @@
                             "target": "CssPropertyValue",
                             "generic_args": [
                                 "RegionFragment"
+                            ]
+                        }
+                    },
+                    "WrapFlow": {
+                        "external": "azul_css::props::layout::flow::WrapFlow",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Auto": {},
+                                "Both": {},
+                                "Start": {},
+                                "End": {},
+                                "Minimum": {},
+                                "Maximum": {},
+                                "Clear": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "WrapFlowValue": {
+                        "external": "azul_css::props::property::WrapFlowValue",
+                        "repr": "C",
+                        "type_alias": {
+                            "target": "CssPropertyValue",
+                            "generic_args": [
+                                "WrapFlow"
+                            ]
+                        }
+                    },
+                    "WrapThrough": {
+                        "external": "azul_css::props::layout::flow::WrapThrough",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Wrap": {},
+                                "None": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "WrapThroughValue": {
+                        "external": "azul_css::props::property::WrapThroughValue",
+                        "repr": "C",
+                        "type_alias": {
+                            "target": "CssPropertyValue",
+                            "generic_args": [
+                                "WrapThrough"
                             ]
                         }
                     }
@@ -132657,6 +132748,38 @@
                             }
                         ],
                         "repr": "C, u8"
+                    },
+                    "WrapFlowParseErrorOwned": {
+                        "external": "azul_css::props::layout::flow::parser::WrapFlowParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "WrapThroughParseErrorOwned": {
+                        "external": "azul_css::props::layout::flow::parser::WrapThroughParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
                     }
                 }
             },
@@ -190407,6 +190530,12 @@
                                 },
                                 "FlowFrom": {
                                     "type": "FlowFromParseErrorOwned"
+                                },
+                                "WrapThrough": {
+                                    "type": "WrapThroughParseErrorOwned"
+                                },
+                                "WrapFlow": {
+                                    "type": "WrapFlowParseErrorOwned"
                                 },
                                 "RegionFragment": {
                                     "type": "RegionFragmentParseErrorOwned"

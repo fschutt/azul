@@ -24,15 +24,21 @@ const STORY: &str = "aaaa bbbb cccc dddd eeee ffff gggg hhhh";
 /// laid out through the region with `.x { <box_rule> }` on the box, and
 /// `region_rule` on the region.
 fn glyphs_with(box_rule: &str, region_rule: &str) -> Vec<(f32, f32)> {
+    glyphs_with_story(box_rule, region_rule, "")
+}
+
+/// As [`glyphs_with`], with `story_rule` on the story's paragraph too.
+fn glyphs_with_story(box_rule: &str, region_rule: &str, story_rule: &str) -> Vec<(f32, f32)> {
     let lw = laid_out(
         &format!(
             "<html><head><style>* {{ margin: 0; padding: 0 }} body {{ font-family: 'Azul Mock \
-             Mono'; font-size: 20px; line-height: 20px }} .story {{ flow-into: art }} .pg {{ \
-             position: relative; width: 800px; height: 600px }} .r {{ position: absolute; left: \
-             100px; top: 100px; width: 200px; height: 100px; flow-from: art; {region_rule} }} .x \
-             {{ position: absolute; left: 170px; top: 100px; width: 60px; height: 40px; \
-             {box_rule} }}</style></head><body><div class=\"story\">{STORY}</div><div \
-             class=\"pg\"><div class=\"r\"></div><div class=\"x\"></div></div></body></html>"
+             Mono'; font-size: 20px; line-height: 20px }} .story {{ flow-into: art; \
+             {story_rule} }} .pg {{ position: relative; width: 800px; height: 600px }} .r {{ \
+             position: absolute; left: 100px; top: 100px; width: 200px; height: 100px; \
+             flow-from: art; {region_rule} }} .x {{ position: absolute; left: 170px; top: 100px; \
+             width: 60px; height: 40px; {box_rule} }}</style></head><body><div \
+             class=\"story\">{STORY}</div><div class=\"pg\"><div class=\"r\"></div><div \
+             class=\"x\"></div></div></body></html>"
         ),
         800.0,
         600.0,
@@ -109,6 +115,12 @@ fn a_box_of_wrap_flow_end_leaves_its_start_side_empty() {
 fn a_region_of_wrap_through_none_runs_under_the_boxes_around_it() {
     let g = glyphs_with("wrap-flow: both", "wrap-through: none");
     assert!(!over_the_box(&g).is_empty(), "the region's lines ignore the box: {g:?}");
+}
+
+#[test]
+fn a_paragraph_of_wrap_through_none_runs_under_the_boxes_around_its_region() {
+    let g = glyphs_with_story("wrap-flow: both", "", "wrap-through: none");
+    assert!(!over_the_box(&g).is_empty(), "the paragraph's lines ignore the box: {g:?}");
 }
 
 #[test]
