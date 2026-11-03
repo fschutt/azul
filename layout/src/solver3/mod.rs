@@ -807,7 +807,14 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             .is_some_and(|clean| clean.len() == dom_len_for_hint && clean.iter().all(|c| *c));
     // Every path below leaves the tree laid out for this pass's overlay.
     cache.laid_out_with_overlay = overlay_shapes_layout;
+    // A rebuilt DOM that renumbered its nodes is reconciled whatever the
+    // hints say: the retained tree names the nodes by their old ids.
+    let ids_kept = cache
+        .dom_pairing
+        .as_ref()
+        .is_none_or(cache::DomPairing::keeps_every_id);
     let (new_tree_val, mut recon_result) = if (resize_only || overrides_only || unchanged)
+        && ids_kept
         && cache.tree.as_deref().is_some_and(|t| {
             t.dom_to_layout
                 .last_key_value()
@@ -861,6 +868,8 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             css_dirty,
         )?
     };
+    // The pairing is spent with the pass, like the diff.
+    cache.dom_pairing = None;
     // The reuse census, persisted where a test can read it — see the field
     // docs on LayoutCache for why this pair is the ONLY external observable
     // that distinguishes "reused the warm tree" from "rebuilt it from

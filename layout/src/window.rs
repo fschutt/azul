@@ -2909,6 +2909,7 @@ impl LayoutWindow {
                 laid_out_with_overlay: false,
                 previous_sizes: Vec::new(),
                 dom_diff_clean: None,
+                dom_pairing: None,
                 last_fingerprint_skips: 0,
                 last_patch_move: None,
             layout_seq: 0,
@@ -6495,6 +6496,7 @@ impl LayoutWindow {
             laid_out_with_overlay: false,
             previous_sizes: Vec::new(),
             dom_diff_clean: None,
+            dom_pairing: None,
             last_fingerprint_skips: 0,
             last_patch_move: None,
             layout_seq: 0,
@@ -11556,6 +11558,7 @@ impl LayoutWindow {
             laid_out_with_overlay: false,
             previous_sizes: Vec::new(),
             dom_diff_clean: None,
+            dom_pairing: None,
             last_fingerprint_skips: 0,
             last_patch_move: None,
             layout_seq: 0,
@@ -29057,10 +29060,11 @@ impl LayoutWindow {
             root_display_list_gpu_fingerprint: _,
             // A counter, keyed by nothing.
             presented_frames: _,
-            layout_cache: _,
-            // Each child DOM's own `layout_cache`: the solver reconciles the
-            // child's next DOM against it by content, as it does the root's.
-            child_layout_caches: _,
+            // The cached layout trees keep the ids of the DOM they were laid
+            // out from: the next pass of the DOM reads them through the
+            // diff's pairing (set below).
+            layout_cache,
+            child_layout_caches,
             layout_results: _,
             // Content-addressed (hashes / font ids / image ids), never NodeIds:
             text_cache: _,
@@ -29362,6 +29366,20 @@ impl LayoutWindow {
                 }
                 None => *currently_dragging_thumb = None,
             }
+        }
+
+        let cache = if dom == DomId::ROOT_ID {
+            Some(layout_cache)
+        } else {
+            child_layout_caches.get_mut(&dom)
+        };
+        if let Some(cache) = cache {
+            let moves = map.as_btree_map();
+            cache.dom_pairing = Some(match &cache.dom_pairing {
+                // Rebuilt again before it was laid out.
+                Some(pending) => pending.then(moves),
+                None => solver3::cache::DomPairing::from_moves(moves),
+            });
         }
 
         // The child DOMs of the VirtualViews this rebuild unmounted go with

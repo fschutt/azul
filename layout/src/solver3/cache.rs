@@ -764,6 +764,12 @@ pub struct LayoutCache {
     /// stages instead of being thrown away. Set by the dll's full-produce
     /// arm; consumed (taken) by `reconcile_and_invalidate`.
     pub dom_diff_clean: Option<Vec<bool>>,
+    /// How the DOM the next pass lays out pairs its nodes with the DOM the
+    /// cached tree was laid out from, when it is a rebuilt one: the DOM
+    /// diff's pairing, set where the rebuild is folded into the window
+    /// (`LayoutWindow::remap_node_ids`). One-shot, read by the reconcile and
+    /// dropped by the pass. See [`DomPairing`].
+    pub dom_pairing: Option<DomPairing>,
     /// Census: fingerprint computations skipped via `dom_diff_clean` in the
     /// LAST pass — the external observable for the channel's tests. A pass
     /// the diff proved unchanged skips the reconcile and counts every node.
@@ -1759,6 +1765,10 @@ pub fn reconcile_and_invalidate_restyled<T: ParsedFontTrait>(
             ctx.viewport_size.height,
         ),
     };
+    let diff = DomDiff {
+        clean: clean_slice,
+        pairing: cache.dom_pairing.as_ref(),
+    };
     let root_idx = reconcile_recursive(
         ctx.styled_dom,
         root_dom_id,
@@ -1770,7 +1780,7 @@ pub fn reconcile_and_invalidate_restyled<T: ParsedFontTrait>(
         ctx.debug_messages,
         // The root has no ancestor whose change could reach it.
         InheritedChange::default(),
-        clean_slice,
+        diff,
         &mut text_styles,
     )?;
 
@@ -1952,11 +1962,90 @@ impl TableParent {
     }
 }
 
-/// Reconcile the DOM child `child_dom_id` as a child of the layout node
-/// `parent_idx` (its old layout node found by DOM id anywhere in the old
-/// tree: an anonymous box above it has no DOM id to be matched by) and
-/// record its subtree hash.
-#[allow(clippy::too_many_arguments)] // reconcile_recursive's own state, passed through
+/// The pairing of a rebuilt DOM's nodes with those of the DOM the cached tree
+/// was laid out from: the DOM diff's (`azul_core::diff::reconcile_dom`), the
+/// one every other piece of window state is remapped with.
+///
+/// A rebuilt DOM numbers its nodes anew: a node inserted early moves every
+/// later one on by one. Paired by their raw ids, each box after the insertion
+/// met its next sibling of the old tree, and a `Dom::with_css` style is
+/// matched by selector and leaves the node's own data empty: the fingerprint
+/// saw no change, and the box was cloned with its sibling's borders.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DomPairing {
+    now_of_old: BTreeMap<NodeId, NodeId>,
+    old_of_now: BTreeMap<NodeId, NodeId>,
+}
+
+impl DomPairing {
+    /// From the diff's old -> new moves.
+    #[must_use]
+    pub fn from_moves(moves: &BTreeMap<NodeId, NodeId>) -> Self {
+        Self {
+            now_of_old: moves.clone(),
+            old_of_now: moves.iter().map(|(old, now)| (*now, *old)).collect(),
+        }
+    }
+
+    /// This pairing followed by a later rebuild's `moves`, for a DOM rebuilt
+    /// twice before it is laid out: the cached tree's ids in the latest DOM.
+    #[must_use]
+    pub fn then(&self, moves: &BTreeMap<NodeId, NodeId>) -> Self {
+        let through: BTreeMap<NodeId, NodeId> = self
+            .now_of_old
+            .iter()
+            .filter_map(|(old, mid)| moves.get(mid).map(|now| (*old, *now)))
+            .collect();
+        Self::from_moves(&through)
+    }
+
+    /// Does every node that stayed keep its id (nothing was inserted or
+    /// removed before it)?
+    #[must_use]
+    pub fn keeps_every_id(&self) -> bool {
+        self.now_of_old.iter().all(|(old, now)| old == now)
+    }
+}
+
+/// What the DOM diff before a pass tells its reconcile.
+#[derive(Debug, Clone, Copy, Default)]
+struct DomDiff<'a> {
+    /// Per new `NodeId`: the node and its ancestors are unchanged
+    /// (`LayoutCache::dom_diff_clean`). `None`: no diff, every node is
+    /// fingerprinted.
+    clean: Option<&'a [bool]>,
+    /// The old DOM's nodes in the new one (`LayoutCache::dom_pairing`).
+    /// `None`: the DOM is the one laid out before, its ids unchanged.
+    pairing: Option<&'a DomPairing>,
+}
+
+impl DomDiff<'_> {
+    /// An old node's id in the DOM laid out now; `None` once it is gone.
+    fn now(self, old: Option<NodeId>) -> Option<NodeId> {
+        match self.pairing {
+            Some(pairing) => old.and_then(|old| pairing.now_of_old.get(&old).copied()),
+            None => old,
+        }
+    }
+
+    /// Is the old node the node `now` under the same id? A node a rebuild
+    /// renumbered is still that node, but what was laid out for it - its
+    /// inline items, its run's content - names the nodes by their old ids,
+    /// so it is laid out anew rather than carried over.
+    fn keeps(self, old: Option<NodeId>, now: NodeId) -> bool {
+        old == Some(now) && self.now(old) == Some(now)
+    }
+
+    /// A node's id in the DOM the cached tree was laid out from; `None` for
+    /// a node new to it.
+    fn before(self, now: NodeId) -> Option<NodeId> {
+        match self.pairing {
+            Some(pairing) => pairing.old_of_now.get(&now).copied(),
+            None => Some(now),
+        }
+    }
+}
+
 /// The old layout node a child of a reconciled parent is matched with: the
 /// parent's direct old child of the same DOM node, or - for a child that sat
 /// in a box the parent's layout built around it (an anonymous block holding
@@ -1972,15 +2061,22 @@ impl TableParent {
 fn old_layout_index_of(
     old_children_by_dom: &BTreeMap<NodeId, usize>,
     old_tree: Option<&LayoutTree>,
+    diff: DomDiff<'_>,
     dom_id: NodeId,
 ) -> Option<usize> {
     old_children_by_dom.get(&dom_id).copied().or_else(|| {
+        let before = diff.before(dom_id)?;
         old_tree
-            .and_then(|t| t.dom_to_layout.get(&dom_id))
+            .and_then(|t| t.dom_to_layout.get(&before))
             .and_then(|v| v.first().copied().map(LayoutNodeId::index))
     })
 }
 
+/// Reconcile the DOM child `child_dom_id` as a child of the layout node
+/// `parent_idx` (its old layout node found by DOM id anywhere in the old
+/// tree: an anonymous box above it has no DOM id to be matched by) and
+/// record its subtree hash.
+#[allow(clippy::too_many_arguments)] // reconcile_recursive's own state, passed through
 fn reconcile_child_under(
     styled_dom: &StyledDom,
     child_dom_id: NodeId,
@@ -1991,11 +2087,11 @@ fn reconcile_child_under(
     recon: &mut ReconciliationResult,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     ancestor: InheritedChange,
-    dom_diff_clean: Option<&[bool]>,
+    diff: DomDiff<'_>,
     new_child_hashes: &mut Vec<u64>,
     text_styles: &mut TextStyleReader<'_>,
 ) -> Result<usize> {
-    let old_child_idx = old_layout_index_of(old_children_by_dom, old_tree, child_dom_id);
+    let old_child_idx = old_layout_index_of(old_children_by_dom, old_tree, diff, child_dom_id);
     let child_idx = reconcile_recursive(
         styled_dom,
         child_dom_id,
@@ -2006,7 +2102,7 @@ fn reconcile_child_under(
         recon,
         debug_messages,
         ancestor,
-        dom_diff_clean,
+        diff,
         text_styles,
     )?;
     if let Some(child_node) = new_tree_builder.get(child_idx) {
@@ -2042,7 +2138,7 @@ fn reconcile_table_children(
     recon: &mut ReconciliationResult,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     ancestor: InheritedChange,
-    dom_diff_clean: Option<&[bool]>,
+    diff: DomDiff<'_>,
     new_child_hashes: &mut Vec<u64>,
     text_styles: &mut TextStyleReader<'_>,
 ) -> Result<()> {
@@ -2060,7 +2156,7 @@ fn reconcile_table_children(
                 recon,
                 debug_messages,
                 ancestor,
-                dom_diff_clean,
+                diff,
                 new_child_hashes,
                 text_styles,
             )?;
@@ -2093,7 +2189,7 @@ fn reconcile_table_children(
                     recon,
                     debug_messages,
                     ancestor,
-                    dom_diff_clean,
+                    diff,
                     new_child_hashes,
                     text_styles,
                 )?;
@@ -2132,7 +2228,7 @@ fn reconcile_table_children(
                         recon,
                         debug_messages,
                         ancestor,
-                        dom_diff_clean,
+                        diff,
                         new_child_hashes,
                         text_styles,
                     )?;
@@ -2164,7 +2260,7 @@ fn reconcile_table_children(
                         recon,
                         debug_messages,
                         ancestor,
-                        dom_diff_clean,
+                        diff,
                         new_child_hashes,
                         text_styles,
                     )?;
@@ -2237,6 +2333,7 @@ fn reconcile_table_children(
 /// A match is recorded in `recon.carried_indices`.
 fn try_reuse_anon_wrapper(
     old_tree: Option<&LayoutTree>,
+    diff: DomDiff<'_>,
     old_parent_idx: Option<usize>,
     anon_ordinal: usize,
     inline_run: &[(usize, NodeId)],
@@ -2276,7 +2373,7 @@ fn try_reuse_anon_wrapper(
         .iter()
         .zip(inline_run.iter())
         .all(|(&oc, &(_, nid))| {
-            t.get(LayoutNodeId::new(oc)).and_then(|n| n.dom_node_id) == Some(nid)
+            diff.keeps(t.get(LayoutNodeId::new(oc)).and_then(|n| n.dom_node_id), nid)
         });
     if !ids_match {
         return false;
@@ -2344,9 +2441,8 @@ pub fn reconcile_recursive(
     recon: &mut ReconciliationResult,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     ancestor: InheritedChange,
-    // GRANULAR DIFF: per-NodeId "self+ancestors unchanged on both
-    // pre-cascade tiers". None = no diff available (full fingerprinting).
-    dom_diff_clean: Option<&[bool]>,
+    // What the DOM diff before the pass knows (see `DomDiff`).
+    diff: DomDiff<'_>,
     text_styles: &mut TextStyleReader<'_>,
 ) -> Result<usize> {
     let ReconciledNode {
@@ -2369,7 +2465,7 @@ pub fn reconcile_recursive(
         recon,
         debug_messages,
         ancestor,
-        dom_diff_clean,
+        diff,
         text_styles,
     )?;
 
@@ -2423,7 +2519,7 @@ pub fn reconcile_recursive(
             recon,
             debug_messages,
             subtree,
-            dom_diff_clean,
+            diff,
             &mut new_child_hashes,
             text_styles,
         )?;
@@ -2464,7 +2560,7 @@ pub fn reconcile_recursive(
                 recon,
                 debug_messages,
                 subtree,
-                dom_diff_clean,
+                diff,
                 text_styles,
             )?;
             if let Some(child_node) = new_tree_builder.get(reconciled_child_idx) {
@@ -2530,6 +2626,7 @@ pub fn reconcile_recursive(
                         );
                         let anon_reused = try_reuse_anon_wrapper(
                             old_tree,
+                            diff,
                             old_tree_idx,
                             anon_ordinal,
                             &inline_run,
@@ -2566,7 +2663,7 @@ pub fn reconcile_recursive(
                             // `old_children_by_dom` map won't hit them; the
                             // lookup falls through to the whole old tree.
                             let old_child_idx =
-                                old_layout_index_of(&old_children_by_dom, old_tree, inline_dom_id);
+                                old_layout_index_of(&old_children_by_dom, old_tree, diff, inline_dom_id);
                             let reconciled_child_idx = reconcile_recursive(
                                 styled_dom,
                                 inline_dom_id,
@@ -2577,7 +2674,7 @@ pub fn reconcile_recursive(
                                 recon,
                                 debug_messages,
                                 subtree,
-                                dom_diff_clean,
+                                diff,
                                 text_styles,
                             )?;
                             if let Some(child_node) = new_tree_builder.get(reconciled_child_idx) {
@@ -2611,10 +2708,23 @@ pub fn reconcile_recursive(
                 }
 
                 // Process block-level child directly under parent
+                // A child the DOM-keyed map misses is paired by its place
+                // when the DOM is the one laid out before (the layout tree
+                // drops and wraps DOM children). In a rebuilt DOM the diff
+                // names each child's old node, and a child it names none of
+                // is new: its place belongs to another node.
                 let old_child_idx = old_children_by_dom
                     .get(&new_child_dom_id)
                     .copied()
-                    .or_else(|| old_children_indices.get(i).copied());
+                    .or_else(|| match diff.pairing {
+                        Some(_) => old_layout_index_of(
+                            &old_children_by_dom,
+                            old_tree,
+                            diff,
+                            new_child_dom_id,
+                        ),
+                        None => old_children_indices.get(i).copied(),
+                    });
                 let reconciled_child_idx = reconcile_recursive(
                     styled_dom,
                     new_child_dom_id,
@@ -2625,7 +2735,7 @@ pub fn reconcile_recursive(
                     recon,
                     debug_messages,
                     subtree,
-                    dom_diff_clean,
+                    diff,
                     text_styles,
                 )?;
                 if let Some(child_node) = new_tree_builder.get(reconciled_child_idx) {
@@ -2684,6 +2794,7 @@ pub fn reconcile_recursive(
                 );
                 let anon_reused = try_reuse_anon_wrapper(
                     old_tree,
+                    diff,
                     old_tree_idx,
                     anon_ordinal,
                     &inline_run,
@@ -2717,7 +2828,7 @@ pub fn reconcile_recursive(
                     // In the anonymous block, not under the parent: the same
                     // lookup as the runs before a block (`old_layout_index_of`).
                     let old_child_idx =
-                        old_layout_index_of(&old_children_by_dom, old_tree, inline_dom_id);
+                        old_layout_index_of(&old_children_by_dom, old_tree, diff, inline_dom_id);
                     let reconciled_child_idx = reconcile_recursive(
                         styled_dom,
                         inline_dom_id,
@@ -2728,7 +2839,7 @@ pub fn reconcile_recursive(
                         recon,
                         debug_messages,
                         subtree,
-                        dom_diff_clean,
+                        diff,
                         text_styles,
                     )?;
                     if let Some(child_node) = new_tree_builder.get(reconciled_child_idx) {
@@ -2814,7 +2925,7 @@ fn reconcile_node(
     recon: &mut ReconciliationResult,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     ancestor: InheritedChange,
-    dom_diff_clean: Option<&[bool]>,
+    diff: DomDiff<'_>,
     text_styles: &mut TextStyleReader<'_>,
 ) -> Result<ReconciledNode> {
     // Cache the env check in a `OnceLock<bool>`: this branch
@@ -2843,7 +2954,8 @@ fn reconcile_node(
     // (hover/focus applied after produce), so a skip still requires the
     // state hash to match the old fingerprint; content/inline/attr hashing
     // (the expensive part) is what gets skipped.
-    let diff_clean_here = dom_diff_clean
+    let diff_clean_here = diff
+        .clean
         .and_then(|c| c.get(new_dom_id.index()))
         .copied()
         .unwrap_or(false);
@@ -3026,7 +3138,18 @@ fn reconcile_node(
             new_dom_id,
             text_styles,
         );
-    let dirty_flag = if css_relayout_here || text_restyled || line_restyled || ancestor.rebuilt {
+    // Paired with its old node under another id (a rebuild renumbered it):
+    // see `DomDiff::keeps`.
+    let renumbered = diff.pairing.is_some()
+        && old_tree
+            .and_then(|t| old_tree_idx.and_then(|i| t.get(LayoutNodeId::new(i))))
+            .is_some_and(|old| !diff.keeps(old.dom_node_id, new_dom_id));
+    let dirty_flag = if css_relayout_here
+        || text_restyled
+        || line_restyled
+        || ancestor.rebuilt
+        || renumbered
+    {
         DirtyFlag::Layout
     } else {
         dirty_flag
@@ -3103,7 +3226,7 @@ fn reconcile_node(
         // `layout_document`'s `cache_map` remap hands it the per-node cache -
         // and `final_layout_current` - of its own id. The two must describe
         // the same node for a memoised final layout to be served.
-        let paired_by_position = old_full_node.dom_node_id != Some(new_dom_id);
+        let paired_by_position = diff.now(old_full_node.dom_node_id) != Some(new_dom_id);
         if let Some(cloned) = new_tree_builder.get_mut(idx) {
             // The clone keeps its flex measurements (`clone_node_from_old`) -
             // unless a restyle on it or above it may have moved what it
@@ -3216,7 +3339,7 @@ fn reconcile_node(
     let old_children_indices: Vec<usize> = old_tree
         .and_then(|t| old_tree_idx.map(|idx| t.children(idx).to_vec()))
         .unwrap_or_default();
-    let old_children_by_dom: BTreeMap<NodeId, usize> = old_tree
+    let old_dom_children: Vec<(NodeId, usize)> = old_tree
         .and_then(|t| old_tree_idx.map(|idx| {
             t.children(idx).iter()
                 // Pseudo-element nodes (::marker on list items) are
@@ -3229,9 +3352,17 @@ fn reconcile_node(
                 // map could also alias a marker as its own host during lookup.
                 .filter(|&&cidx| t.warm(LayoutNodeId::new(cidx)).is_none_or(|w| w.pseudo_element.is_none()))
                 .filter_map(|&cidx| t.get(LayoutNodeId::new(cidx)).and_then(|n| n.dom_node_id).map(|did| (did, cidx)))
-                .collect()
+                .collect::<Vec<_>>()
         }))
         .unwrap_or_default();
+    // The old DOM children, counted below, include the ones a rebuild
+    // removed; the lookup holds the ones still there, by their ids in the
+    // DOM laid out now.
+    let old_dom_children_count = old_dom_children.len();
+    let old_children_by_dom: BTreeMap<NodeId, usize> = old_dom_children
+        .into_iter()
+        .filter_map(|(old, cidx)| diff.now(Some(old)).map(|now| (now, cidx)))
+        .collect();
 
     // Count of old layout children that correspond to a real DOM node. The
     // old tree hides inline children UNDER anonymous wrappers, so the direct
@@ -3242,7 +3373,7 @@ fn reconcile_node(
     // for as long as the wrapper sites flipped the flag unconditionally
     // anyway; ordinal-matched wrapper reuse unmasked it. Flatten wrappers:
     // count their dom-id'd children as if they were direct.
-    let old_layout_relevant_count = old_children_by_dom.len()
+    let old_layout_relevant_count = old_dom_children_count
         + old_tree.zip(old_tree_idx).map_or(0, |(t, oidx)| {
             t.children(oidx)
                 .iter()
@@ -3284,7 +3415,7 @@ fn reconcile_node(
             new_dom_id.index(),
             old_layout_relevant_count,
             new_layout_relevant_count,
-            old_children_by_dom.len(),
+            old_dom_children_count,
         );
     }
     let mut children_are_different = new_layout_relevant_count != old_layout_relevant_count;
