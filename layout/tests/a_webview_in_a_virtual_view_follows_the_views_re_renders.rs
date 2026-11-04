@@ -10,7 +10,14 @@
 //! The view's DOM here is `div(0) > [header(1)?] > webview?`, its `src` and
 //! whether the header is there set by the test before each re-render.
 //!
-//! Not compiled by the author (house rule).
+//! WHICH NODE IS THE SAME NODE. A view's re-render is reconciled like any
+//! rebuild, by the app's `NodeIdentityConfig` (React's rules by default): a
+//! keyless node is the node of its type at its index among its siblings, so a
+//! header inserted in front of a keyless web view makes the web view at its
+//! new place another node - its native view is destroyed and a new one
+//! created. A web view that is to survive being moved says so with a key
+//! (`with_key`), as a React element does; `Content::keyed` switches it, and
+//! the two tests that move the web view pin both outcomes.
 
 use std::{
     collections::BTreeMap,
@@ -41,6 +48,8 @@ use rust_fontconfig::FcFontCache;
 struct Content {
     src: Option<String>,
     header: bool,
+    /// Whether the web view carries a key: the node that moves and stays.
+    keyed: bool,
 }
 
 struct ViewData {
@@ -48,19 +57,23 @@ struct ViewData {
 }
 
 extern "C" fn render_view(mut data: RefAny, info: VirtualViewCallbackInfo) -> VirtualViewReturn {
-    let (src, header) = data.downcast_ref::<ViewData>().map_or((None, false), |v| {
-        let content = v.content.lock().expect("the content");
-        (content.src.clone(), content.header)
-    });
+    let (src, header, keyed) = data
+        .downcast_ref::<ViewData>()
+        .map_or((None, false, false), |v| {
+            let content = v.content.lock().expect("the content");
+            (content.src.clone(), content.header, content.keyed)
+        });
     let mut dom = Dom::create_div();
     if header {
         dom = dom.with_child(Dom::create_div().with_css("height: 20px;"));
     }
     if let Some(src) = src {
-        dom = dom.with_child(
-            Dom::create_webview(AzString::from(src.as_str()))
-                .with_css("display: block; width: 180px; height: 120px;"),
-        );
+        let mut webview = Dom::create_webview(AzString::from(src.as_str()))
+            .with_css("display: block; width: 180px; height: 120px;");
+        if keyed {
+            webview = webview.with_key("page");
+        }
+        dom = dom.with_child(webview);
     }
     let rect = LogicalRect::new(LogicalPosition::zero(), info.bounds.logical_size);
     VirtualViewReturn::with_dom(dom, rect, rect)
@@ -153,9 +166,11 @@ fn a_webview_a_views_re_render_adds_gets_its_native_view_at_once() {
 
 #[test]
 fn a_webview_a_views_re_render_moves_keeps_its_native_view_and_follows_its_src() {
+    // The web view carries a key: the header in front of it moves it, it stays.
     let content = Arc::new(Mutex::new(Content {
         src: Some("https://a.example/".to_string()),
         header: false,
+        keyed: true,
     }));
     let mut lw = window(&content);
     let id = lw.webviews.views()[0].id;
@@ -189,10 +204,47 @@ fn a_webview_a_views_re_render_moves_keeps_its_native_view_and_follows_its_src()
 }
 
 #[test]
+fn a_keyless_webview_a_views_re_render_pushes_down_is_another_webview() {
+    // The same re-render without the key (React's rules, the default): the web view
+    // at the new place is the node of its type at that index among its siblings -
+    // the header took the old one's place - so it is another node. The old native view
+    // is destroyed, a new one is created and loads the new page.
+    let content = Arc::new(Mutex::new(Content {
+        src: Some("https://a.example/".to_string()),
+        header: false,
+        keyed: false,
+    }));
+    let mut lw = window(&content);
+    let id = lw.webviews.views()[0].id;
+    let _ = lw.webviews.take_ops();
+
+    set(&content, Some("https://b.example/"), true);
+    rerender(&mut lw);
+    let views = lw.webviews.views();
+    assert_eq!(views.len(), 1, "one web view, as before");
+    assert_ne!(views[0].id, id, "another native view");
+    let new_id = views[0].id;
+    let ops = lw.webviews.take_ops();
+    assert!(
+        ops.contains(&WebViewOp::Destroy { id }),
+        "the old native view is destroyed: {ops:?}"
+    );
+    assert!(
+        ops.iter().any(|op| matches!(
+            op,
+            WebViewOp::Create { id, src, .. }
+                if *id == new_id && src.as_str() == "https://b.example/"
+        )),
+        "the new one is created on the new page: {ops:?}"
+    );
+}
+
+#[test]
 fn a_webview_a_views_re_render_drops_is_destroyed() {
     let content = Arc::new(Mutex::new(Content {
         src: Some("https://a.example/".to_string()),
         header: false,
+        keyed: false,
     }));
     let mut lw = window(&content);
     let id = lw.webviews.views()[0].id;
