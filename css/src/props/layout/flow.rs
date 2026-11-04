@@ -99,8 +99,10 @@ impl PrintAsCssValue for RegionFragment {
 
 // --- wrap-flow ---
 /// CSS `wrap-flow` property: makes an absolutely positioned box an
-/// exclusion box, and says on which of its sides the lines around it flow
-/// (CSS Exclusions 1, 3.1). Azul applies exclusion boxes to the lines laid
+/// exclusion box (CSS Exclusions 1, 3.1).
+///
+/// The value says on which of its sides the lines around it flow. Azul
+/// applies exclusion boxes to the lines laid
 /// out in the regions of named flows in the box's containing block; lines
 /// in the normal flow run under them.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
