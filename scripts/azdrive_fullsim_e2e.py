@@ -27,8 +27,9 @@ drive the way a person does and moves files through it:
 The result (drive, bucket, checkout, the uploaded names and their sha256) goes to
 <logs>/result.json for the stack's own checks (where the shards lie, the books).
 
-Usage (AzDrive built with `--features fake-providers` against a libazul with the debug server;
-the stack from azul-apps' local/fullsim.sh):
+Usage (AzDrive built with `--features fake-providers,test-hooks` against a libazul with the debug
+server and the test hooks, `--features build-dll,test-hooks`; the stack from azul-apps'
+local/fullsim.sh):
 
     python3 scripts/azdrive_fullsim_e2e.py --bin <AzDrive> [--token-url http://127.0.0.1:8081]
         [--sandbox-url http://127.0.0.1:8784] [--debug-port 8800] [--logs <dir>]
@@ -47,8 +48,8 @@ popover's web view loads the sandbox's real page, which the sandbox serves with 
 typed in (`/_dev/fill`: nothing can type into a real web view), and the page itself confirms on
 Pay. The screenshots are azul's render of the windows, without the web view's page (a native
 view; the OS's capture of it needs the Screen Recording permission). Each profile keeps its
-keyring in a file of the run (AZ_KEYRING_FILE, which a windowed run honours too), never in the
-system keyring.
+keyring in a file of the run (AZ_KEYRING_FILE, which a windowed run honours too - with the test
+hooks only), never in the system keyring.
 Every key_down has its key_up (the E2E key_up rule).
 """
 
@@ -594,7 +595,8 @@ def run(args, logs):
         kept = pending_checkouts(keyring_file).get(checkout)
         if not kept:
             raise Failure("the checkout %s is not on the keyring's list (%s): a window run needs a "
-                          "libazul whose keyring honours AZ_KEYRING_FILE" % (checkout, keyring_file))
+                          "libazul built with the test hooks, whose keyring honours AZ_KEYRING_FILE "
+                          "(--features build-dll,test-hooks)" % (checkout, keyring_file))
         claim_code = azlin_claim.claim_code(checkout, base64.b64decode(kept["claim_secret"]))
         result.update(checkout=checkout, claim_code=claim_code)
         log("2. Buy: checkout %s, its %s in the popover" % (checkout, surface))

@@ -1,10 +1,13 @@
-//! The keyring's stand-in: in a headless / E2E run (`AZ_BACKEND=headless`, `AZ_E2E_TEST`) one map
+//! The keyring's stand-in: in a debug build, and in a headless / E2E run of a build with the cargo
+//! feature `test-hooks` (`AZ_BACKEND=headless`, `AZ_E2E_TEST`), one map
 //! for the process - what a callback's request and a worker thread's blocking call both reach -
-//! and, in any run where `AZ_KEYRING_FILE` names a file (a test stack's windows too), that file
+//! and, in a build with the hooks where `AZ_KEYRING_FILE` names a file (a test stack's windows
+//! too), that file
 //! (JSON: each namespace's entries under its service name, those of the service every app shared
 //! before namespaces flat at the top), read, changed and written in place under its own OS lock
 //! for every op, so the keyring outlives the run (a test that restarts an app) and the processes of
-//! one test share it. Plaintext: a test's keyring only - such a run never touches the real one.
+//! one test share it. Plaintext: a test's keyring only - such a run never touches the real one -,
+//! and the file is the owner's alone (0600 on Unix, made so also when it exists with broader modes).
 //! Entries live per namespace (keyring service), as in the real keyrings.
 
 use std::{
@@ -113,12 +116,14 @@ fn file_text(services: &Services) -> io::Result<String> {
 }
 
 fn in_file(service: &str, req: &KeyringRequest, path: &Path) -> io::Result<KeyringResult> {
-    let mut file = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .open(path)?;
+    let mut options = OpenOptions::new();
+    options.read(true).write(true).create(true).truncate(false);
+    // The secrets in it are for the owner alone, in plain text as they are.
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    let mut file = options.open(path)?;
+    #[cfg(unix)]
+    owner_only(&file)?;
     // Held until `file` closes, at the end of this op.
     file.lock()?;
     let mut text = String::new();
@@ -134,4 +139,14 @@ fn in_file(service: &str, req: &KeyringRequest, path: &Path) -> io::Result<Keyri
         file.sync_all()?;
     }
     Ok(result)
+}
+
+/// A keyring file made before (or by a tool) with broader modes is tightened to 0600.
+#[cfg(unix)]
+fn owner_only(file: &std::fs::File) -> io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    if file.metadata()?.permissions().mode() & 0o077 != 0 {
+        file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+    }
+    Ok(())
 }

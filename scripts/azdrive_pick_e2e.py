@@ -14,7 +14,8 @@ The request comes in on stdin as one JSON line; the answer goes out on stdout as
     6. a cloud object (the mock stack's S3 bucket as a drive): "handle" answers its drive, key
        and size and no path; "copy" answers a path under the cache's picked/ with its bytes.
 
-Usage (from the azul repository, after building libazul with the debug server and AzDrive):
+Usage (from the azul repository, after building libazul with the debug server and the test hooks,
+`--features build-dll,test-hooks`, and AzDrive with `--features test-hooks`):
 
     python3 scripts/azdrive_pick_e2e.py [--bin target/release/AzDrive] [--debug-port 8781]
         [--timeout 180] [--keep-logs]

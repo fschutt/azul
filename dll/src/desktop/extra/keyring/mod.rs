@@ -35,19 +35,29 @@
 //! before (`com.azul.keyring`) moves into the first namespace that touches its
 //! name ([`answer_in`]).
 //!
-//! Headless / E2E runs (`AZ_BACKEND=headless`, `AZ_E2E_TEST`) never touch the
-//! REAL host secret store: both ways reach the stand-in of `memory.rs` - one
+//! # Test hooks (cargo feature `test-hooks`; a shipped build has none)
+//!
+//! The environment variables below are TEST SWITCHES. They are read ONLY by a build with the
+//! cargo feature `test-hooks` (the unit tests of this module and the E2E builds turn it on:
+//! `cargo build --release -p azul-dll --features build-dll,test-hooks`). A release or
+//! distribution build never looks at them ([`RunFacts::from_env`]): a variable in a shell
+//! profile, a launcher's environment or a wrapper script cannot send a user's drive keys to
+//! process memory (lost at exit, an encrypted drive locked) or into a plaintext file.
+//!
+//! In a build with the hooks, headless / E2E runs (`AZ_BACKEND=headless`, `AZ_E2E_TEST`) never
+//! touch the REAL host secret store: both ways reach the stand-in of `memory.rs` - one
 //! map for the process, or the file `AZ_KEYRING_FILE` names (which keeps it
 //! for the next run of a test and shares it between the test's processes).
 //! A windowed run that names such a file keeps its keyring there too: an app
 //! on a test stack, in a real window, then shares no entry with the same app
 //! of the user's own (the system keyring's entries are the app's, not the
-//! stack's). The file holds the secrets in plain text: test stacks only.
-//!
-//! A debug build of libazul keeps its secrets in memory as well: every rebuild
-//! is a new code signature, and the macOS keychain asks the user again for each
-//! entry such a binary reads. `AZ_KEYRING` picks the keyring outright: `system`,
+//! stack's). The file holds the secrets in plain text - it is made readable by its owner alone
+//! (0600) -: test stacks only. `AZ_KEYRING` picks the keyring outright: `system`,
 //! `file` (the one `AZ_KEYRING_FILE` names) or `memory` ([`backend_for`]).
+//!
+//! A debug build of libazul keeps its secrets in memory as well, with or without the hooks:
+//! every rebuild is a new code signature, and the macOS keychain asks the user again for each
+//! entry such a binary reads.
 //!
 //! [`request_quietly_blocking`] (the C API's `Keyring::get_quietly_in`,
 //! `store_quietly_in` and `delete_quietly_in`) runs
@@ -82,12 +92,22 @@ pub mod windows;
 mod tests;
 
 /// The variable naming the file that keeps a run's keyring instead of the
-/// system's (a test stack's runs, windowed or headless).
+/// system's (a test stack's runs, windowed or headless). Read by builds with the cargo feature
+/// `test-hooks` only.
 pub const KEYRING_FILE_VAR: &str = "AZ_KEYRING_FILE";
 
 /// The variable that picks a run's keyring: `system`, `file` (the one
-/// [`KEYRING_FILE_VAR`] names) or `memory`.
+/// [`KEYRING_FILE_VAR`] names) or `memory`. Read by builds with the cargo feature `test-hooks`
+/// only.
 pub const KEYRING_CHOICE_VAR: &str = "AZ_KEYRING";
+
+/// Present only in a libazul built with the cargo feature `test-hooks`: the scripts that need the
+/// keyring's test switches look for it in the library file (`grep -a`) before they run an app
+/// against it, so a test run never falls back to the user's own keychain by mistake.
+#[cfg(feature = "test-hooks")]
+#[no_mangle]
+#[used]
+pub static AZUL_KEYRING_TEST_HOOKS: [u8; 32] = *b"azul-keyring-test-hooks-enabled\0";
 
 /// Whether a keyring op may show the system's prompt (a keychain unlock, an
 /// "allow this app" dialog, Touch ID).
@@ -126,14 +146,39 @@ pub(crate) struct RunFacts {
 }
 
 impl RunFacts {
-    /// The facts of this process: its environment and how libazul was built.
+    /// The facts of this process: its environment - read only by a build with the cargo feature
+    /// `test-hooks` - and how libazul was built.
     fn of_this_run() -> Self {
+        Self::from_env(
+            cfg!(feature = "test-hooks"),
+            |name| std::env::var_os(name),
+            cfg!(debug_assertions),
+        )
+    }
+
+    /// The facts of a run whose environment is `var`. The test switches (`AZ_KEYRING`,
+    /// `AZ_KEYRING_FILE`, `AZ_BACKEND=headless`, `AZ_E2E_TEST`) are looked at only when `hooks`
+    /// - the build has the cargo feature `test-hooks`; a release or distribution build never
+    /// reads them, whatever its environment holds.
+    pub(crate) fn from_env(
+        hooks: bool,
+        var: impl Fn(&str) -> Option<std::ffi::OsString>,
+        debug_build: bool,
+    ) -> Self {
+        if !hooks {
+            return Self {
+                choice: None,
+                file: None,
+                headless: false,
+                debug_build,
+            };
+        }
         Self {
-            choice: std::env::var_os(KEYRING_CHOICE_VAR),
-            file: std::env::var_os(KEYRING_FILE_VAR),
-            headless: std::env::var("AZ_BACKEND").as_deref() == Ok("headless")
-                || std::env::var("AZ_E2E_TEST").is_ok(),
-            debug_build: cfg!(debug_assertions),
+            choice: var(KEYRING_CHOICE_VAR),
+            file: var(KEYRING_FILE_VAR),
+            headless: var("AZ_BACKEND").is_some_and(|backend| backend == "headless")
+                || var("AZ_E2E_TEST").is_some(),
+            debug_build,
         }
     }
 }
@@ -152,7 +197,8 @@ fn backend_of_run() -> Backend {
     {
         eprintln!(
             "[azul] keyring: this debug build keeps its secrets in memory, not in the system \
-             keyring ({KEYRING_CHOICE_VAR}=system uses it, {KEYRING_FILE_VAR}=<file> keeps them in a file)"
+             keyring (a build with the cargo feature test-hooks reads {KEYRING_CHOICE_VAR}=system \
+             and {KEYRING_FILE_VAR}=<file> to choose another)"
         );
     }
     backend
@@ -164,7 +210,9 @@ fn backend_of_run() -> Backend {
 /// the named file, windowed or headless; else memory in a headless / E2E run
 /// (the dispatcher is keyed on `target_os`, so a headless test on a dev Mac
 /// would otherwise write to the real login Keychain) and in a debug build;
-/// else the platform's.
+/// else the platform's. The facts come from [`RunFacts::from_env`]: a build without the cargo
+/// feature `test-hooks` has no choice, no file and no headless run in them, so it uses the
+/// platform's keyring (memory in a debug build) whatever its environment says.
 pub(crate) fn backend_for(run: &RunFacts) -> Backend {
     let file = run
         .file

@@ -38,7 +38,8 @@ use crate::{
 pub const LOCK_WAIT: Duration = Duration::from_secs(120);
 
 /// The variable naming azul's keyring stand-in file (a test stack's): its entries are that
-/// file's, so their locks are beside it.
+/// file's, so their locks are beside it. A test switch: read by a build with the cargo feature
+/// `test-hooks` only ([`lock_folder`]), as libazul's keyring reads it.
 pub const KEYRING_FILE_VAR: &str = "AZ_KEYRING_FILE";
 
 /// Sessions a refresh rotated that the keyring did not take, by the lock file of their entry:
@@ -103,10 +104,17 @@ fn namespace_folder(namespace: &KeyringNamespace) -> String {
 
 /// Where the locks of the keyring entries of `namespace` are: one folder per keyring and
 /// namespace, whichever app or profile asks - `<config dir>/azlin/locks/<namespace>`, or beside
-/// azul's keyring stand-in file when [`KEYRING_FILE_VAR`] names one (`<file>.locks/<namespace>`).
+/// azul's keyring stand-in file when [`KEYRING_FILE_VAR`] names one (`<file>.locks/<namespace>`)
+/// - in a build with the cargo feature `test-hooks`, which alone looks at the variable (a release
+/// build ignores it, like libazul's keyring does).
 #[must_use]
 pub fn lock_folder(namespace: &KeyringNamespace) -> PathBuf {
-    lock_folder_for(std::env::var_os(KEYRING_FILE_VAR), user_config_dir(), namespace)
+    let keyring_file = if cfg!(feature = "test-hooks") {
+        std::env::var_os(KEYRING_FILE_VAR)
+    } else {
+        None
+    };
+    lock_folder_for(keyring_file, user_config_dir(), namespace)
 }
 
 /// [`lock_folder`] for the stand-in file `keyring_file` (if any) and the configuration folder

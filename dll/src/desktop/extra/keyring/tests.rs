@@ -1,7 +1,8 @@
 //! The keyring a worker thread reads and writes: a blocking call answers on the calling thread
 //! (no frame, no result channel), from the same headless stand-in a callback's request reaches;
 //! `AZ_KEYRING_FILE` keeps that stand-in in a file - for the next run, shared by the processes
-//! of one test. Every entry lives in a namespace (a keyring service): an app's own by default, one
+//! of one test - in a build with the cargo feature `test-hooks`; a shipped build reads none of
+//! the keyring's environment switches. Every entry lives in a namespace (a keyring service): an app's own by default, one
 //! the Azlin apps share when they name it; an entry of the service every azul app used to share
 //! moves into the namespace that asks for it. Only the stand-ins are driven here: a test never
 //! touches the real keyring.
@@ -142,7 +143,10 @@ fn a_keyring_file_keeps_the_headless_keyring_for_the_next_run_and_the_other_proc
 }
 
 /// The keyring a run with these facts uses: `choice` is `AZ_KEYRING`, `file` is
-/// `AZ_KEYRING_FILE`.
+/// `AZ_KEYRING_FILE`. Only a build with the cargo feature `test-hooks` has a choice, a file or a
+/// headless run in its facts ([`super::RunFacts::from_env`]): the tests below that name them
+/// describe such a build, and a release build's are checked in
+/// `a_build_without_the_test_hooks_reads_none_of_the_keyring_switches`.
 fn backend(choice: Option<&str>, file: Option<&str>, headless: bool, debug_build: bool) -> Backend {
     super::backend_for(&super::RunFacts {
         choice: choice.map(std::ffi::OsString::from),
@@ -204,6 +208,108 @@ fn a_headless_run_never_reaches_the_system_keyring_even_when_told_to() {
         backend(Some("system"), Some("/tmp/t.json"), true, false),
         Backend::File(PathBuf::from("/tmp/t.json"))
     );
+}
+
+/// The environment of a run that holds every test switch of the keyring.
+fn every_switch(name: &str) -> Option<std::ffi::OsString> {
+    match name {
+        "AZ_KEYRING" => Some("memory".into()),
+        "AZ_KEYRING_FILE" => Some("/tmp/a-stack/keyring.json".into()),
+        "AZ_BACKEND" => Some("headless".into()),
+        "AZ_E2E_TEST" => Some("/tmp/scenario.json".into()),
+        _ => None,
+    }
+}
+
+/// K5/P9 (decision d, 2026-11-04): a RELEASE or distribution build never reads the keyring's
+/// test switches. It used to honour `AZ_KEYRING=memory|file`, `AZ_KEYRING_FILE=<path>` (a
+/// plaintext JSON file), `AZ_BACKEND=headless` and any value of `AZ_E2E_TEST`, silently: the
+/// drive session, the drive key and the member key then went to process memory (lost at exit:
+/// an encrypted drive locked) or into a plain file, set by a shell profile or a wrapper. Without
+/// the cargo feature `test-hooks` the facts of a run hold none of them, so a release build uses
+/// the system keyring, and a debug build memory - by the build alone.
+#[test]
+fn a_build_without_the_test_hooks_reads_none_of_the_keyring_switches() {
+    let release = super::RunFacts::from_env(false, every_switch, false);
+    assert_eq!(release.choice, None);
+    assert_eq!(release.file, None);
+    assert!(!release.headless);
+    assert_eq!(super::backend_for(&release), Backend::Platform);
+
+    // The same environment in a debug build: memory, because it is a debug build.
+    let debug = super::RunFacts::from_env(false, every_switch, true);
+    assert_eq!(super::backend_for(&debug), Backend::Memory);
+    assert!(!debug.headless && debug.choice.is_none() && debug.file.is_none());
+}
+
+/// With the hooks, the same environment is what it was: the switches pick the keyring.
+#[test]
+fn a_build_with_the_test_hooks_reads_the_keyring_switches() {
+    let facts = super::RunFacts::from_env(true, every_switch, false);
+    assert_eq!(facts.choice, Some(std::ffi::OsString::from("memory")));
+    assert_eq!(
+        facts.file,
+        Some(std::ffi::OsString::from("/tmp/a-stack/keyring.json"))
+    );
+    assert!(facts.headless);
+    assert_eq!(super::backend_for(&facts), Backend::Memory);
+
+    let only = |name: &'static str, value: &'static str| {
+        move |asked: &str| (asked == name).then(|| std::ffi::OsString::from(value))
+    };
+    assert!(super::RunFacts::from_env(true, only("AZ_BACKEND", "headless"), false).headless);
+    assert!(!super::RunFacts::from_env(true, only("AZ_BACKEND", "metal"), false).headless);
+    assert!(
+        super::RunFacts::from_env(true, only("AZ_E2E_TEST", ""), false).headless,
+        "any value of AZ_E2E_TEST, as before"
+    );
+    assert_eq!(
+        super::backend_for(&super::RunFacts::from_env(
+            true,
+            only("AZ_KEYRING_FILE", "/tmp/stack.json"),
+            false
+        )),
+        Backend::File(PathBuf::from("/tmp/stack.json"))
+    );
+}
+
+/// The process's own environment, as `of_this_run` reads it: only a build with the cargo feature
+/// `test-hooks` sees the variables.
+#[test]
+fn this_process_reads_its_environment_only_with_the_test_hooks() {
+    // A variable no other test of this module reads.
+    std::env::set_var(super::KEYRING_FILE_VAR, "/tmp/az-keyring-hooks-test.json");
+    let facts = super::RunFacts::of_this_run();
+    std::env::remove_var(super::KEYRING_FILE_VAR);
+    if cfg!(feature = "test-hooks") {
+        assert_eq!(
+            facts.file,
+            Some(std::ffi::OsString::from("/tmp/az-keyring-hooks-test.json"))
+        );
+    } else {
+        assert_eq!(facts.file, None, "a build without the hooks does not look");
+    }
+}
+
+/// The plaintext keyring file is the owner's alone, also when it was made before with broader
+/// modes (it held a test stack's secrets in the default 0644).
+#[cfg(unix)]
+#[test]
+fn a_keyring_file_is_readable_by_its_owner_alone() {
+    use std::os::unix::fs::PermissionsExt;
+    let mode = |path: &PathBuf| std::fs::metadata(path).unwrap().permissions().mode() & 0o777;
+    let path = keyring_file("mode");
+    let file = Backend::File(path.clone());
+    assert_eq!(
+        answer_in(TEST_SERVICE, &store("a", "1"), &file),
+        KeyringResult::Stored
+    );
+    assert_eq!(mode(&path), 0o600, "made 0600");
+
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+    assert_eq!(answer_in(TEST_SERVICE, &get("a"), &file), retrieved("1"));
+    assert_eq!(mode(&path), 0o600, "tightened at the next op, a read too");
+    let _ = std::fs::remove_file(&path);
 }
 
 fn retrieved(secret: &str) -> KeyringResult {

@@ -82,11 +82,12 @@ Scenarios (`--only NAME,...`, `--list`):
                     same - no retry may spend the old token into a reuse
   refresh-stalled   the refresh's answer is held 100 s, past the transport's timeout: the same
 
-Usage (from the azul repository, after building libazul with the debug server, AzDrive with its
-default features and the azcloud CLI):
+Usage (from the azul repository, after building libazul with the debug server and the test hooks
+- without them libazul ignores AZ_KEYRING_FILE and the run would use your own keychain -, AzDrive
+with its default features and the azcloud CLI):
 
-    cargo build --release -p azul-dll --features build-dll
-    AZ_LINK_PATH=$PWD/target/azul-lib cargo build --release -p AzDrive
+    cargo build --release -p azul-dll --features build-dll,test-hooks
+    AZ_LINK_PATH=$PWD/target/azul-lib cargo build --release -p AzDrive --features test-hooks
     (cd examples/azcloud-api && cargo build --release --features encryption)
     python3 scripts/azdrive_chaos_e2e.py [--only NAME,...] [--bin AzDrive] [--azcloud PATH]
         [--debug-port 8851] [--timeout 300] [--keep] [--big-gb 50] [--many 100000]

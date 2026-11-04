@@ -29,8 +29,9 @@
 //!   drive removed ([`crate::presence`]).
 //!
 //! Debug builds and the test or dev profiles never reach the system keychain: azul's keyring
-//! keeps their secrets in memory, or in the file `AZ_KEYRING_FILE` names (`AZ_KEYRING=system`
-//! asks for the keychain).
+//! keeps their secrets in memory - or, in a libazul built with the cargo feature `test-hooks`
+//! (E2E and test builds only), in the file `AZ_KEYRING_FILE` names (`AZ_KEYRING=system` asks for
+//! the keychain). A shipped libazul reads none of those switches.
 //!
 //! On stdout, for scripts: `AZDRIVE_KEYS_ROUND quiet|asking <count>`, `AZDRIVE_KEYS_OPEN <drive
 //! id>`, `AZDRIVE_KEYS_WAIT <drive id>` (its keys need the user), `AZDRIVE_LOCKED <drive id>`.

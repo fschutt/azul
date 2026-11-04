@@ -274,6 +274,26 @@ fn two_keyrings_of_one_namespace_spend_a_token_one_at_a_time() {
     assert_eq!(refreshes(&fake), vec!["Bearer dt_f.0.aaa"]);
 }
 
+/// K5/P9 (decision d): a build without the cargo feature `test-hooks` does not look at the test
+/// switch AZ_KEYRING_FILE either - the locks are in the user's configuration folder, whatever the
+/// environment says.
+#[cfg(not(feature = "test-hooks"))]
+#[test]
+fn a_build_without_the_test_hooks_ignores_the_keyring_file_variable_for_its_locks() {
+    use crate::shared::{lock_folder, KEYRING_FILE_VAR};
+    std::env::set_var(KEYRING_FILE_VAR, "/tmp/a-stack/keyring.json");
+    let folder = lock_folder(&KeyringNamespace::azlin_shared());
+    std::env::remove_var(KEYRING_FILE_VAR);
+    assert!(
+        !folder.starts_with("/tmp/a-stack"),
+        "locks beside the test switch's file: {folder:?}"
+    );
+    assert!(
+        folder.ends_with("azlin/locks/io.azlin.shared"),
+        "{folder:?}"
+    );
+}
+
 #[test]
 fn the_locks_follow_the_keyring_and_its_namespace_not_the_app() {
     let shared = KeyringNamespace::azlin_shared();

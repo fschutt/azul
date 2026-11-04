@@ -8,8 +8,12 @@
 # "pending" or "not_applicable" runs no step and is reported as such, never as a failure.
 # Defaults: every scenario in e2e/sync, target/e2e-unwind/AzDrive (the e2e-unwind profile:
 # release with unwinding panics, which the scenarios' crash points need; `cargo build --profile
-# e2e-unwind -p AzDrive --features fake-providers`). libazul must be built with the debug server
-# (the `debug-server` feature, as for every AZ_E2E run).
+# e2e-unwind -p AzDrive --features fake-providers,test-hooks`). libazul must be built with the debug
+# server (the `debug-server` feature, as for every AZ_E2E run) AND the test hooks:
+# `cargo build --release -p azul-dll --features build-dll,test-hooks`. Without the hooks a libazul
+# ignores AZ_KEYRING_FILE and AZ_BACKEND=headless for its keyring (decision of 2026-11-04: a
+# shipped build reads no test switch), and every scenario would write its secrets into the
+# user's own keychain; the script refuses to start against a libazul it finds without them.
 #
 # Every file runs in an AzDrive of its own, with folders of its own (the data root, the drives
 # file, Home, the caches, the keyring file, the scenarios' sandboxes, the process's own system
@@ -100,6 +104,20 @@ jobs=${AZDRIVE_E2E_JOBS:-$(( $(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2) 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/azdrive-e2e-sync.XXXXXX")
 logs=${AZDRIVE_E2E_LOGS:-$PWD/target/e2e/logs}
 mkdir -p "$logs"
+# The scenarios' keyring is a file (AZ_KEYRING_FILE below), which only a libazul with the test hooks
+# honours: against any other the run would write its secrets into the user's own keychain. The
+# libazul is looked for where the build links it; none found, the loader's own choice stands.
+for dir in "${AZ_LINK_PATH:-}" "${AZUL_LIB_DIR:-}" "$here/../../target/azul-lib"; do
+    for lib in "$dir/libazul.dylib" "$dir/libazul.so"; do
+        [ -n "$dir" ] && [ -f "$lib" ] || continue
+        if ! grep -a -q azul-keyring-test-hooks-enabled "$lib"; then
+            echo "e2e_sync: $lib was built without the test hooks (it ignores AZ_KEYRING_FILE, and the" >&2
+            echo "  scenarios would use your own keychain): cargo build --release -p azul-dll --features build-dll,test-hooks" >&2
+            exit 2
+        fi
+        break 2
+    done
+done
 cleanup() {
     if [ "${AZDRIVE_E2E_KEEP:-0}" != 1 ]; then
         chmod -R u+rwX "$tmp" 2>/dev/null || true

@@ -20,7 +20,10 @@ examples/azul-drive/scripts/e2e_sync.sh [examples/azul-drive/e2e/sync/<id>.json]
 The script runs AzDrive headless with `AZ_E2E` and points everything it reads and writes at one
 temporary folder (the data root, the drives file, Home, the caches, the sandboxes), with
 `AZDRIVE_SYNC_POLL=3600` (a scenario starts its passes itself) and `AZDRIVE_SYNC_SETTLE_MS=0`.
-libazul must be built with the debug server, as for every `AZ_E2E` run. The runner passes no
+libazul must be built with the debug server, as for every `AZ_E2E` run, and with the test hooks
+(`cargo build --release -p azul-dll --features build-dll,test-hooks`; AzDrive with `--features
+test-hooks`): the scenarios keep their keyring in a file (`AZ_KEYRING_FILE`), a test switch that a
+libazul without the hooks - every shipped one - does not read. The runner passes no
 command line to its per-file processes, so all of it is environment. `AZDRIVE_E2E_WORK` sets
 the sandboxes' parent folder; `AZDRIVE_E2E_KEEP=1` keeps them.
 

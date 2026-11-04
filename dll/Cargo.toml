@@ -1228,6 +1228,19 @@ php-extension = ["build-dll", "ext-php-rs", "link-static", "once_cell"]
 e2e-test = ["serde_json", "azul-layout?/probe"]
 
 # -----------------------------------------------------------------------------
+# Test hooks (decision of 2026-11-04: a shipped build reads no test switch)
+# -----------------------------------------------------------------------------
+# The keyring's test switches - AZ_KEYRING (`memory`, `file`, `system`), AZ_KEYRING_FILE (a
+# plaintext JSON file that keeps a test stack's secrets), AZ_BACKEND=headless and AZ_E2E_TEST
+# (a headless or E2E run never reaches the system keyring) - work ONLY in a build with this
+# feature, which the unit tests of the keyring and the E2E builds turn on explicitly:
+#   cargo build --release -p azul-dll --features build-dll,test-hooks
+# A release or distribution build (`build-dll` alone, `prod-release`) never reads them: a
+# variable in a shell profile, a launcher or a wrapper cannot send a user's drive keys to process
+# memory (lost at exit) or to a plaintext file. Not part of `build-dll`; never ship it.
+test-hooks = []
+
+# -----------------------------------------------------------------------------
 # Integration tests that need a non-default feature
 # -----------------------------------------------------------------------------
 #

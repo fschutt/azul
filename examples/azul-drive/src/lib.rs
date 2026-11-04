@@ -64,8 +64,10 @@
 //! content, the drive's menu); the keys stay for the session and leave memory with Lock and the
 //! window's close. Two tiers: the keys sync needs are plain keychain items (no Touch ID), and
 //! Touch ID or the password are asked only before an action that reveals or changes keys
-//! ([`presence`]). A debug build and the test and dev profiles keep their keys in memory or in
-//! `AZ_KEYRING_FILE`, never in the system keychain (`AZ_KEYRING=system` asks for it). The Azlin
+//! ([`presence`]). A debug build and the test and dev profiles keep their keys in memory - or, with
+//! a libazul built with the cargo feature `test-hooks` (E2E and test builds only), in
+//! `AZ_KEYRING_FILE` -, never in the system keychain (`AZ_KEYRING=system` asks for it; a shipped
+//! libazul reads none of these test switches). The Azlin
 //! data tree (azul-appkit's data root: `--data-dir`, `$AZLIN_DATA`, else
 //! `<data dir>/Azlin`) is a drive of its own, "Azlin", and holds AzDrive's
 //! files: `drive/settings.json` (the app theme and mode, azul-appkit's) and

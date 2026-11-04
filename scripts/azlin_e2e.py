@@ -67,6 +67,48 @@ def repo_roots():
     return roots
 
 
+# Present in a libazul built with the cargo feature `test-hooks` (dll/src/desktop/extra/keyring).
+KEYRING_HOOKS_MARKER = b"azul-keyring-test-hooks-enabled"
+
+
+def libazul_candidates():
+    """The libazul files an app of this checkout may load, the likeliest first: where the build
+    was told to link (AZ_LINK_PATH, AZUL_LIB_DIR), the loader's folders, this checkout's staging
+    folder and its target folders."""
+    folders = [os.environ.get(var, "") for var in ("AZ_LINK_PATH", "AZUL_LIB_DIR")]
+    for var in ("DYLD_LIBRARY_PATH", "LD_LIBRARY_PATH"):
+        folders += os.environ.get(var, "").split(os.pathsep)
+    for root in repo_roots():
+        folders += [os.path.join(root, "target", sub) for sub in ("azul-lib", "release", "debug")]
+    found = []
+    for folder in folders:
+        for name in ("libazul.dylib", "libazul.so", "azul.dll"):
+            path = os.path.join(folder, name) if folder else ""
+            if path and os.path.isfile(path) and path not in found:
+                found.append(path)
+    return found
+
+
+def require_keyring_hooks():
+    """A run that names AZ_KEYRING_FILE (a test stack's keyring file) needs a libazul built with the
+    test hooks: `cargo build --release -p azul-dll --features build-dll,test-hooks`. A libazul
+    without them ignores the variable and the app would use the user's own keychain. Raises
+    Failure when the libazul found has none; does nothing when none is found (the loader's own
+    choice is not guessed)."""
+    found = libazul_candidates()
+    if not found:
+        return
+    with open(found[0], "rb") as lib:
+        import mmap
+        with mmap.mmap(lib.fileno(), 0, access=mmap.ACCESS_READ) as data:
+            if data.find(KEYRING_HOOKS_MARKER) >= 0:
+                return
+    raise Failure(
+        "%s was built without the test hooks: it ignores AZ_KEYRING_FILE, and the app would use the "
+        "user's own keychain. Build it with: cargo build --release -p azul-dll --features "
+        "build-dll,test-hooks (and AzDrive with --features test-hooks)" % found[0])
+
+
 def find_binary(name, explicit=None, env_var=None):
     candidates = []
     if explicit:
@@ -313,6 +355,8 @@ class App:
         env = dict(os.environ)
         env.update({"AZ_BACKEND": BACKEND, "AZ_DEBUG": str(port)})
         env.update(extra_env or {})
+        if "AZ_KEYRING_FILE" in env:
+            require_keyring_hooks()
         command = [binary] + list(args)
         self.capped = bool(capped)
         if capped:

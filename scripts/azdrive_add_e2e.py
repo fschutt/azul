@@ -131,9 +131,11 @@ step 6 stays closed and the mock's test provider is paid directly; in steps 7 - 
 in the web views either: the scenario plays the pages (simulate_webview_*) and the providers
 (their signed webhooks).
 
-Usage (from the azul repository, after building libazul with the debug server and AzDrive with
-its default features `opendal` and `sql` plus `fake-providers` - steps 7 - 11 need the fakes in
-azul-pay's registry: `cargo build --release -p AzDrive --features fake-providers`):
+Usage (from the azul repository, after building libazul with the debug server and the test hooks
+(`--features build-dll,test-hooks`: its keyring file AZ_KEYRING_FILE needs them) and AzDrive with
+its default features `opendal` and `sql` plus `fake-providers` and `test-hooks` - steps 7 - 11
+need the fakes in azul-pay's registry: `cargo build --release -p AzDrive --features
+fake-providers,test-hooks`):
 
     python3 scripts/azdrive_add_e2e.py [--bin target/release/AzDrive] [--debug-port 8783]
         [--timeout 240] [--out /tmp/azdrive-add-shots] [--keep-logs] [--recovery]

@@ -121,7 +121,9 @@ The source list shows the sample's Documents, Pictures and Music too (FAVORITES)
 the open folder's trail: a folder's ITEM is found through its name label (`item_node`), in
 whichever DOM holds it - the folder's rows are a virtual view, a DOM of its own.
 
-Usage (from the azul repository, after building libazul with the debug server and AzDrive):
+Usage (from the azul repository, after building libazul with the debug server and the test hooks,
+`--features build-dll,test-hooks` - its keyring file AZ_KEYRING_FILE needs them -, and AzDrive with
+`--features test-hooks`):
 
     python3 scripts/azdrive_e2e.py [--bin target/release/AzDrive] [--debug-port 8781]
         [--timeout 240] [--out /tmp/azdrive-shots] [--keep-logs]

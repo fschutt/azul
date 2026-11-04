@@ -91,6 +91,10 @@ state-db = ["dep:turso"]
 # For other crates' tests: a keyring whose locks are in a folder of the test's own
 # (SharedKeyring::with_lock_root), never in the user's.
 testing = []
+# The test switch AZ_KEYRING_FILE (a test stack's keyring file, whose locks are beside it) is
+# read ONLY with this feature: a release or distribution build never looks at it, as libazul's
+# keyring does not (azul-dll's `test-hooks`). The E2E builds turn both on.
+test-hooks = []
 
 [lib]
 name = "azcloud_kit"
