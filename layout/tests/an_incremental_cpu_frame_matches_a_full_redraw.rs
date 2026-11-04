@@ -684,6 +684,23 @@ fn random_frames_at_2x_are_painted_as_a_full_redraw_paints_them() {
     }
 }
 
+/// RED, found by sweeping seeds 1..=30 at both dpis over 40 frames (the CI
+/// runs 1..=6 and 101..=104): after "moved shape 2", a box turned 12 degrees
+/// that clips its child (`overflow: hidden`, so a scroll frame inside a turned
+/// reference frame), the two paints disagree in 261 pixels at 1x (939 at 2x).
+/// The layered compositor paints the child axis-aligned, clipped by the box's
+/// unturned clip; the incremental raster turns it with its box, as CSS does.
+/// Not caused by the merged lanes: the compositor and the display list's
+/// emission of an overflow box are the same as at the PR base, and the same 261
+/// pixels differ with the rasterizer's geometry margin as it was.
+#[test]
+#[ignore = "RED: the compositor paints the child of a turned, clipping box axis-aligned, the \
+            incremental raster turns it with the box (seed 25, frame 4, 'moved shape 2'); the \
+            frame differs in 261 px at 1x. Found by a seed sweep, not by the CI seeds."]
+fn a_moved_turned_box_clipping_its_child_is_painted_as_a_full_redraw_paints_it() {
+    run(25, 96, 5);
+}
+
 /// One change of one kind on a fixed page: the frame is the full redraw's
 /// and repaints a region of the size of the change, not the window.
 fn one_change(change: impl Fn(&mut Scene), budget_px: f64, what: &str) {
