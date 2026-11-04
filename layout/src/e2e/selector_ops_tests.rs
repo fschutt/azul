@@ -301,6 +301,30 @@ fn delete_node_by_selector_removes_that_node() {
 }
 
 #[test]
+fn what_hung_below_a_deleted_node_is_no_longer_in_the_document() {
+    // `delete_node` unlinks the node and leaves its children pointing at it: a
+    // selector must not find them - they are not on screen and not in the tree.
+    let steps = vec![
+        serde_json::json!({ "op": "mount", "html": [
+            "<body><div id=\"list\"><p class=\"row\">one</p><p class=\"row\">two</p></div>\
+             <p class=\"row\" id=\"keep\">three</p></body>"
+        ] }),
+        serde_json::json!({ "op": "wait_frame" }),
+        // three nodes carry the class `row`; two of them hang below `#list`
+        serde_json::json!({ "op": "delete_node", "selector": "#list" }),
+        serde_json::json!({ "op": "wait_frame" }),
+        // only #keep is left in the document, so ".row" names exactly one node again
+        // (counting the dead children it would be "several", and the op would refuse)
+        serde_json::json!({ "op": "set_node_css_override", "selector": ".row",
+                            "property": "width", "value": "77px" }),
+        serde_json::json!({ "op": "wait_frame" }),
+        props("#keep"),
+        response_contains("width: 77px"),
+    ];
+    assert_passes(&run("selector_ignores_deleted_subtrees", false, steps));
+}
+
+#[test]
 fn insert_node_by_parent_selector_appends_under_that_parent() {
     let mut steps = mounted();
     steps.extend([

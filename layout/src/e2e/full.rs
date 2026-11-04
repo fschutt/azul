@@ -4299,8 +4299,9 @@ const MAX_NAMED_MATCHES: usize = 6;
 /// does not parse (which is not the same thing as a selector that matches
 /// nothing, and is reported as what it is).
 ///
-/// A tombstone - what `delete_node` leaves behind, a node nothing links to any
-/// more - is not in the document and is never a match.
+/// A node that is not in the document - a tombstone `delete_node` left, and
+/// everything that hung below it - is never a match: only nodes whose parents
+/// lead up to the root count.
 #[cfg(feature = "std")]
 fn strict_matches(
     callback_info: &azul_layout::callbacks::CallbackInfo,
@@ -4331,10 +4332,26 @@ fn strict_matches(
     let node_data = styled_dom.node_data.as_container();
     let cascade_info = styled_dom.cascade_info.as_container();
     let root = styled_dom.root.into_crate_internal();
+    // In the document = the parents lead up to the root. `delete_node` unlinks a
+    // node from its parent and its siblings but leaves its own children pointing
+    // at it, so a child of a deleted node still has a parent.
+    let in_document = |start: NodeId| {
+        let mut cur = start;
+        for _ in 0..=node_data.len() {
+            if Some(cur) == root {
+                return true;
+            }
+            match node_hierarchy[cur].parent_id() {
+                Some(parent) => cur = parent,
+                None => return false,
+            }
+        }
+        false
+    };
 
     Ok((0..node_data.len())
         .map(NodeId::new)
-        .filter(|&n| Some(n) == root || node_hierarchy[n].parent_id().is_some())
+        .filter(|&n| in_document(n))
         .filter(|&n| {
             matches_html_element(
                 &css_path,
