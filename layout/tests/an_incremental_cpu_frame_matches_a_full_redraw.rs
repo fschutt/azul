@@ -276,6 +276,48 @@ impl Scene {
     }
 }
 
+/// What one harness frame stands for on the engine's clock. A scroll bar rests
+/// for 500 ms and then fades out over 200 ms (`gpu_state::DEFAULT_FADE_*`), so
+/// a bar the harness does not touch - the panel's - fades some frames after the
+/// panel opened, and the frame it fades in is the same on every machine.
+const FRAME_MS: u64 = 100;
+
+/// This thread's engine clock, frozen for a run and advanced by the harness
+/// only.
+///
+/// The fade of a scroll bar, like every time-driven value of the engine, reads
+/// the clock. On the WALL clock whether a frame of this harness landed on a
+/// fade step depended on how fast the machine was: a debug build took longer
+/// than the 500 ms the panel's bar rests, and the "a layout of the unchanged
+/// scene repaints nothing" check found the bar half faded (720 px at 1x, the
+/// panel's 12 x 60 px bar: seed 1 frame 27, and seed 101 at 2x frame 18).
+/// Frozen, time passes only when the harness says so, between one change and
+/// the next and never between a frame and its idle repeat, which therefore
+/// sees the very same instant: a run is the same in either profile, on any
+/// load.
+struct HarnessClock;
+
+impl HarnessClock {
+    fn freeze() -> Self {
+        azul_core::task::reset_test_clock();
+        azul_core::task::freeze_test_clock();
+        Self
+    }
+
+    /// The time between two changes passes.
+    fn next_frame(&self) {
+        let _ = azul_core::task::advance_test_clock_ms(FRAME_MS);
+    }
+}
+
+impl Drop for HarnessClock {
+    /// The thread goes back to real time, also when the run panicked: a
+    /// thread that outlives the test must not keep a stopped clock.
+    fn drop(&mut self) {
+        azul_core::task::reset_test_clock();
+    }
+}
+
 fn window(dpi: u32) -> LayoutWindow {
     let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
     let mut ws = FullWindowState::default();
@@ -296,7 +338,8 @@ fn lay_out(lw: &mut LayoutWindow, scene: &Scene) {
         &mut None,
     )
     .expect("the page lays out");
-    let now = Instant::from(std::time::Instant::now());
+    // The engine's clock, not the wall clock (see `HarnessClock`).
+    let now = Instant::now();
     azul_layout::managers::scroll_registration::register_scroll_nodes(lw, &now);
     // html > body > scroller: the scroll box is node 2.
     lw.scroll_manager.set_scroll_position(
@@ -550,6 +593,27 @@ fn first_difference(a: &AzulPixmap, b: &AzulPixmap) -> Option<(u32, u32, [u8; 4]
         })
 }
 
+/// `AZ_HARNESS_DUMP=1`: the failing frame's display list, item by item, the
+/// ones that can reach the differing device pixel `(x, y)` marked with `*`.
+fn dump_items_at(lw: &LayoutWindow, x: u32, y: u32) {
+    let s = dpi_factor(lw);
+    let (lx, ly) = (x as f32 / s, y as f32 / s);
+    eprintln!("[harness] pixel ({x}, {y}) = logical ({lx}, {ly})");
+    for (i, item) in list(lw).items.iter().enumerate() {
+        let covers = item.visual_bounds().is_none_or(|b| {
+            lx >= b.origin.x - 1.0
+                && lx <= b.origin.x + b.size.width + 1.0
+                && ly >= b.origin.y - 1.0
+                && ly <= b.origin.y + b.size.height + 1.0
+        });
+        eprintln!(
+            "[harness] {i:3} {} {}",
+            if covers { "*" } else { " " },
+            format!("{item:?}").chars().take(220).collect::<String>()
+        );
+    }
+}
+
 fn differing_pixels(a: &AzulPixmap, b: &AzulPixmap) -> usize {
     a.data()
         .chunks_exact(4)
@@ -559,6 +623,7 @@ fn differing_pixels(a: &AzulPixmap, b: &AzulPixmap) -> usize {
 }
 
 fn run(seed: u64, dpi: u32, frames: usize) {
+    let clock = HarnessClock::freeze();
     let mut r = Rng(seed.wrapping_mul(0x9e37_79b9_7f4a_7c15) | 1);
     let mut scene = Scene::random(&mut r);
     let mut lw = window(dpi);
@@ -566,12 +631,16 @@ fn run(seed: u64, dpi: u32, frames: usize) {
     let mut last = Presented::first(&lw);
     let mut history: Vec<String> = Vec::new();
     for frame in 0..frames {
+        clock.next_frame();
         let what = scene.mutate(&mut r);
         history.push(what.clone());
         lay_out(&mut lw, &scene);
         let presented = present(&lw, &mut last);
         let truth = full_redraw(&lw);
         if let Some((x, y, painted, full)) = first_difference(&last.pixels, &truth) {
+            if std::env::var_os("AZ_HARNESS_DUMP").is_some() {
+                dump_items_at(&lw, x, y);
+            }
             let recent: Vec<&String> = history.iter().rev().take(4).collect();
             panic!(
                 "seed {seed} at {dpi} dpi, frame {frame} ({what}): the incremental frame differs \
