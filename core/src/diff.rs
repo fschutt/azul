@@ -457,9 +457,11 @@ pub fn compute_node_changes(
 }
 
 /// What makes a node of a rebuilt DOM another node than the one at its place
-/// before: a node that is the same node keeps its dataset, focus, scroll,
-/// hover and text-edit state, a node that is not unmounts and the new one
-/// mounts (`BeforeUnmount` / `AfterMount`).
+/// before.
+///
+/// A node that is the same node keeps its dataset, focus, scroll, hover and
+/// text-edit state; a node that is not unmounts and the new one mounts
+/// (`BeforeUnmount` / `AfterMount`).
 ///
 /// An explicit key (`with_key`) always decides, and a node of another type
 /// is always another node: a text's caret or an image's frame means

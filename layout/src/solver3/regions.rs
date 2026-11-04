@@ -800,6 +800,9 @@ enum Kind {
 }
 
 /// The state of one flow's walk through its chain.
+// the four flags are independent facts of the walk (a region can hold content and have a
+// break pending and have been entered by an unforced break), not one state to name
+#[allow(clippy::struct_excessive_bools)]
 struct FlowWalk<'r> {
     /// The regions, and after a last region of `region-fragment: break` the
     /// room past its end ([`room_past`]).

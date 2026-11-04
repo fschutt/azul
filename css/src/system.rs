@@ -1241,8 +1241,8 @@ impl SystemStyle {
     /// (`TabsInTitlebar::from_system_style` keeps the same room), and its
     /// safe area. On macOS `traffic_lights` is where the window put its
     /// close button (`MacWindowOptions::traffic_light_position`, its frame's
-    /// top-left), `None` for AppKit's own place: the room is then the one
-    /// around AppKit's buttons there. A metric the desktop does not report
+    /// top-left), `None` for `AppKit`'s own place: the room is then the one
+    /// around `AppKit`'s buttons there. A metric the desktop does not report
     /// is the platform's own.
     ///
     /// `None` where the platform keeps its controls above the content, so
@@ -1269,7 +1269,7 @@ impl SystemStyle {
             let controls = TitlebarControls {
                 left: x,
                 top: y,
-                right: x + 2.0 * PITCH + BUTTON_WIDTH,
+                right: 2.0f32.mul_add(PITCH, x) + BUTTON_WIDTH,
                 bottom: y + BUTTON_HEIGHT,
             };
             return Some(TitlebarGeometry::around_controls(
@@ -1319,7 +1319,7 @@ impl SystemStyle {
 
     /// The [`TitlebarArea`] of a window `viewport_width` px wide whose content
     /// runs under its title bar, from the desktop's metrics alone
-    /// ([`Self::titlebar_geometry`] with the traffic lights in AppKit's own
+    /// ([`Self::titlebar_geometry`] with the traffic lights in `AppKit`'s own
     /// place).
     #[must_use]
     pub fn titlebar_area(&self, viewport_width: f32) -> Option<TitlebarArea> {

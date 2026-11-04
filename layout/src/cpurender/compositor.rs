@@ -2474,13 +2474,12 @@ pub fn scroll_fast_path_eligible_in(
     let mut stack = ScrollStack::with_transforms(scroll_offsets, transforms);
     let mut backdrop: Vec<(&DisplayListItem, (f32, f32))> = Vec::with_capacity(start);
     for it in &items[..start] {
-        match stack.placement() {
-            Some(at) => backdrop.push((it, at)),
-            None => {
-                let turned = it.visual_bounds().map(|b| stack.on_screen(b));
-                if turned.is_some_and(|b| b.is_none_or(|b| rects_overlap(&b, clip_bounds))) {
-                    return false;
-                }
+        if let Some(at) = stack.placement() {
+            backdrop.push((it, at));
+        } else {
+            let turned = it.visual_bounds().map(|b| stack.on_screen(b));
+            if turned.is_some_and(|b| b.is_none_or(|b| rects_overlap(&b, clip_bounds))) {
+                return false;
             }
         }
         stack.step(it);

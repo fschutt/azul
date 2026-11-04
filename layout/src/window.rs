@@ -2172,7 +2172,7 @@ pub struct LayoutWindow {
     laid_out_env: u64,
     /// What the window's frame measured of the title bar it draws, written by
     /// the platform shell like [`Self::safe_area_insets`]: the macOS shell
-    /// measures AppKit's buttons and the band the title bar covers.
+    /// measures `AppKit`'s buttons and the band the title bar covers.
     /// `Unmeasured` where the shell measures nothing.
     pub frame_titlebar: azul_css::system::TitlebarReport,
     /// What azul measured of the decorations it draws itself: the controls

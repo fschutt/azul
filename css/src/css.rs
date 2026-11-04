@@ -643,7 +643,7 @@ impl CssDeclaration {
     ) -> CssProperty {
         #[cfg(feature = "parser")]
         {
-            let live = ctx.and_then(|c| {
+            let substituted = ctx.and_then(|c| {
                 crate::custom_properties::substitute_env(value, |var, fallback| {
                     Some(var.and_then(|v| v.resolve(c)).map_or_else(
                         || fallback.unwrap_or("0px").to_string(),
@@ -651,7 +651,7 @@ impl CssDeclaration {
                     ))
                 })
             });
-            if let Some(text) = live {
+            if let Some(text) = substituted {
                 if let Ok(p) = crate::props::property::parse_css_property(like.get_type(), &text) {
                     return p;
                 }
