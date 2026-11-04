@@ -626,6 +626,10 @@ fn main() -> anyhow::Result<()> {
             // `AZ_E2E=<path> ./app`, but with no host binary to link and no
             // process-per-file bash loop (the corpus is ~13k files).
             // Usage: e2e <file-or-dir.json> [--filter <substr>] [--list] [--jobs <n>]
+            //            [--keep-going]
+            //
+            // `--keep-going`: a red step does not end its scenario; the report
+            // lists EVERY red step (default: the first red step ends it).
             //
             // Run from the PROJECT ROOT, not doc/ (main() chdir'd to the manifest
             // dir above). Scenario files use repo-root-relative paths — e.g.
@@ -2972,6 +2976,13 @@ fn print_cli_help() -> anyhow::Result<()> {
     println!("    spec holistic                 - Generate holistic analysis from all results");
     println!("    spec paragraphs <feature>     - Paragraphs for one feature (with text)");
     println!("    spec annotations              - Scan source for +spec: annotations");
+    println!();
+    println!("  E2E TESTS:");
+    println!("    e2e <file-or-dir.json> [--filter <substr>] [--list] [--jobs N] [--keep-going]");
+    println!("                                  - Run e2e JSON scenarios headlessly (what CI's");
+    println!("                                    e2e_headless runs). The first red step ends a");
+    println!("                                    scenario; --keep-going goes on and reports");
+    println!("                                    EVERY red step of every scenario.");
     println!();
     println!("  E2E TEST GENERATION:");
     println!("    gen-e2e <txt> <out-dir>       - Fan out LLM agents: one line of <txt>");

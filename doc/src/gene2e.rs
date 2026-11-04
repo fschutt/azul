@@ -17,6 +17,23 @@
 //! required parameter that the engine does not actually have, is DELETED and
 //! counted as a failure.
 //!
+//! The gate also checks what the ENGINE would refuse at run time, so a scenario
+//! that could only fail for a reason of its own making is never written:
+//!   * the step is read as the runner reads it (`parse_debug_event`): wrong types and unknown enum
+//!     variants fail here, not at step N;
+//!   * a string param with a closed set of values (`which`, `frame`, ...) holds one of them - the
+//!     engine's own table, not a copy;
+//!   * `mount` has html, and it parses (`mounted_nodes`, the parser `mount` uses);
+//!   * a numeric `node_id` is the node the op takes: it exists, was not deleted, and is an element
+//!     (not `<html>`, `<body>` or a whitespace run), a text node for `set_node_text`, an `<img>` for
+//!     `set_node_image`;
+//!   * a step that names a node comes after the `wait_frame` that applies the `mount` (before it
+//!     the document does not exist: "Node 1 not found");
+//!   * an op that names its node by `selector` OR `node_id` is given exactly one.
+//!
+//! Every artifact's `name` is made unique by appending `_<8 hex of _source_hash>`, and a review
+//! batch pairs results with FILES, never with names (`pair_results`).
+//!
 //! Hard-won lessons inherited from earlier E2E fleets:
 //!   1. A RATE-LIMITED `claude -p` exits 0 and answers with the limit message as PLAIN TEXT. That
 //!      must never be written out as a test.
@@ -81,7 +98,10 @@ use std::{
 };
 
 use anyhow::{bail, Context, Result};
-use azul_layout::e2e::{load_e2e_tests, render_report, E2eTest, E2eTestResult};
+use azul_layout::e2e::{
+    closed_param_values, load_e2e_tests, mounted_nodes, parse_debug_event, render_report,
+    DebugEvent, E2eTest, E2eTestResult, MountedKind, MountedNode, CLOSED_STRING_PARAMS,
+};
 
 /// Relative path of the file that DEFINES the e2e schema. Single source of truth.
 // MUST be the copy that `azul-doc e2e` actually EXECUTES (azul_layout::e2e), not
@@ -1503,6 +1523,382 @@ fn extract_json(raw: &str) -> Option<&str> {
     Some(&raw[start..=end])
 }
 
+// ===========================================================================
+// The document a scenario addresses
+// ===========================================================================
+//
+// A numeric `node_id` counts EVERY node of the mounted document - `<html>` is
+// 0, `<body>` is 1, each newline or indent between two tags is a whitespace
+// text node of its own - so the number a model counts is rarely the element it
+// means (44 of 44 id-addressed scenarios of the first batch addressed `<html>`,
+// `<body>` or a whitespace run). The gate therefore resolves every id with the
+// parser `mount` itself uses (`azul_layout::e2e::mounted_nodes`) and follows
+// the document through the scenario: a `mount` replaces it, `insert_node` adds
+// a node at the end, `delete_node` tombstones one.
+//
+// It also knows WHEN the document exists. `mount` only queues the new document;
+// it takes effect at the next frame, and a step that addresses a node before
+// that finds the old (or no) document - "Node 1 not found".
+
+/// One node of the document as the gate follows it.
+struct GateNode {
+    node: MountedNode,
+    /// The step that deleted it. The engine tombstones: the id stays, the node
+    /// is gone.
+    deleted_by: Option<usize>,
+}
+
+/// The document the steps address, and the `mount` still waiting to land.
+#[derive(Default)]
+struct GateDom {
+    /// What the steps see: the last `mount` that has landed, with the
+    /// scenario's `insert_node` / `delete_node` applied. `None`: no document.
+    live: Option<Vec<GateNode>>,
+    /// A `mount` (its step, its document) or `unmount` (its step, `None`) that
+    /// the next frame applies.
+    pending: Option<(usize, Option<Vec<GateNode>>)>,
+}
+
+/// The steps that give the frame loop a turn, so a queued `mount` lands before
+/// the step after them: `wait_frame` and `wait` (the two the prompt prescribes
+/// after a `mount`) and `tick_ms` (which repaints).
+const FRAME_STEPS: &[&str] = &["wait_frame", "wait", "tick_ms"];
+
+/// The keys that name a node: a step with one addresses the document.
+const NODE_KEYS: &[&str] = &["selector", "node_id", "parent_selector", "parent_id"];
+
+/// What kind of node an op's numeric id has to be.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Needs {
+    /// An element (`<html>` / `<body>` excepted): the box the scenario is
+    /// about. Most ops.
+    Element,
+    /// A text node: `set_node_text` writes it, `add_timer` rewrites it.
+    Text,
+    /// An `<img>`: the node `set_node_image` swaps.
+    Image,
+}
+
+fn needs(op: &str) -> Needs {
+    match op {
+        "set_node_text" | "add_timer" => Needs::Text,
+        "set_node_image" => Needs::Image,
+        _ => Needs::Element,
+    }
+}
+
+/// `` `<div id="a" class="box">` ``, the text of a text run, or what else a
+/// node is, for a message.
+fn describe(n: &MountedNode) -> String {
+    match n.kind {
+        MountedKind::Html => "`<html>`".to_string(),
+        MountedKind::Body => "`<body>`".to_string(),
+        MountedKind::Whitespace => {
+            "a whitespace text run (the newline or indent between two tags)".to_string()
+        }
+        MountedKind::Text => format!("the text {:?}", n.text.chars().take(24).collect::<String>()),
+        MountedKind::Element | MountedKind::Image => {
+            let mut s = format!("<{}", n.tag);
+            if let Some(id) = &n.css_id {
+                s.push_str(&format!(" id=\"{id}\""));
+            }
+            if !n.classes.is_empty() {
+                s.push_str(&format!(" class=\"{}\"", n.classes.join(" ")));
+            }
+            s.push('>');
+            format!("`{s}`")
+        }
+    }
+}
+
+/// A selector that finds `n` again: its `#id`, else `tag.class`, else the tag.
+fn selector_for(n: &MountedNode) -> String {
+    if let Some(id) = &n.css_id {
+        return format!("#{id}");
+    }
+    match n.classes.first() {
+        Some(class) => format!("{}.{class}", n.tag),
+        None => n.tag.clone(),
+    }
+}
+
+/// The elements of a document by id, for the end of a message: where the
+/// numbers the scenario meant actually are.
+fn element_ids(nodes: &[GateNode]) -> String {
+    let named: Vec<String> = nodes
+        .iter()
+        .enumerate()
+        .filter(|(_, g)| {
+            g.deleted_by.is_none()
+                && matches!(g.node.kind, MountedKind::Element | MountedKind::Image)
+        })
+        .take(8)
+        .map(|(id, g)| format!("{id} {}", describe(&g.node)))
+        .collect();
+    if named.is_empty() {
+        "(none)".to_string()
+    } else {
+        named.join(", ")
+    }
+}
+
+impl GateDom {
+    /// A `mount` step: its document exists from the next frame on.
+    fn mount(&mut self, step: usize, nodes: Vec<MountedNode>) {
+        let doc = nodes
+            .into_iter()
+            .map(|node| GateNode {
+                node,
+                deleted_by: None,
+            })
+            .collect();
+        self.pending = Some((step, Some(doc)));
+    }
+
+    /// An `unmount` step: from the next frame on there is no document to address.
+    fn unmount(&mut self, step: usize) {
+        self.pending = Some((step, None));
+    }
+
+    /// A step that gave the frame loop a turn: a queued mount lands.
+    fn land(&mut self) {
+        if let Some((_, doc)) = self.pending.take() {
+            self.live = doc;
+        }
+    }
+
+    /// The document a node-addressing step sees - or why there is none yet.
+    fn addressable(&self, i: usize, op: &str) -> Result<&[GateNode]> {
+        if let Some((at, _)) = &self.pending {
+            bail!(
+                "step {i}: `{op}` addresses a node, but the `mount` at step {at} has not been \
+                 applied yet: a `mount` takes effect at the next frame, so a `wait_frame` has to \
+                 come between it and the first step that addresses its nodes (before that the \
+                 document does not exist and the op fails with \"Node N not found\")"
+            );
+        }
+        match &self.live {
+            Some(nodes) => Ok(nodes),
+            None => bail!(
+                "step {i}: `{op}` addresses a node, but nothing is mounted: start the scenario \
+                 with a `mount` and a `wait_frame`"
+            ),
+        }
+    }
+
+    /// What a step that passed its checks does to the document.
+    fn apply(&mut self, i: usize, op: &str, step: &serde_json::Map<String, serde_json::Value>) {
+        let Some(nodes) = self.live.as_mut() else {
+            return;
+        };
+        match op {
+            // The engine appends the new node at the end of the document.
+            "insert_node" => {
+                let node_type = step
+                    .get("node_type")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or_default();
+                let (kind, tag, text) = match node_type.strip_prefix("text:") {
+                    Some(t) if t.trim().is_empty() => {
+                        (MountedKind::Whitespace, String::new(), t.to_string())
+                    }
+                    Some(t) => (MountedKind::Text, String::new(), t.to_string()),
+                    None => (
+                        MountedKind::Element,
+                        node_type.to_lowercase(),
+                        String::new(),
+                    ),
+                };
+                nodes.push(GateNode {
+                    node: MountedNode {
+                        kind,
+                        tag,
+                        css_id: step
+                            .get("id")
+                            .and_then(serde_json::Value::as_str)
+                            .map(str::to_string),
+                        classes: step
+                            .get("classes")
+                            .and_then(serde_json::Value::as_array)
+                            .map(|c| {
+                                c.iter()
+                                    .filter_map(|c| c.as_str().map(str::to_string))
+                                    .collect()
+                            })
+                            .unwrap_or_default(),
+                        text,
+                        parent: step
+                            .get("parent_id")
+                            .and_then(serde_json::Value::as_u64)
+                            .and_then(|p| usize::try_from(p).ok()),
+                    },
+                    deleted_by: None,
+                });
+            }
+            "delete_node" => {
+                if let Some(id) = step.get("node_id").and_then(serde_json::Value::as_u64) {
+                    if let Some(g) = usize::try_from(id).ok().and_then(|id| nodes.get_mut(id)) {
+                        g.deleted_by = Some(i);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Resolve the numeric ids of a step against the document.
+///
+/// An id that does not exist, that was deleted, or that is not the kind of node
+/// the op takes is refused - and the refusal says where the elements ARE, so the
+/// fix is one read away. `selector_form` says whether the op can name the node
+/// by a selector instead (the advice differs).
+fn check_node_ids(
+    i: usize,
+    op: &str,
+    step: &serde_json::Map<String, serde_json::Value>,
+    nodes: &[GateNode],
+    selector_form: bool,
+) -> Result<()> {
+    for key in ["node_id", "parent_id"] {
+        let Some(id) = step.get(key).and_then(serde_json::Value::as_u64) else {
+            continue;
+        };
+        let Some(g) = usize::try_from(id).ok().and_then(|id| nodes.get(id)) else {
+            bail!(
+                "step {i}: `{op}` {key} {id} does not exist: the mounted document has {} nodes \
+                 (ids 0..={}). Elements: {}",
+                nodes.len(),
+                nodes.len().saturating_sub(1),
+                element_ids(nodes)
+            );
+        };
+        if let Some(at) = g.deleted_by {
+            bail!("step {i}: `{op}` {key} {id} was deleted by step {at}");
+        }
+        let n = &g.node;
+        let advice = if selector_form {
+            "Name the element with a `selector` instead (a CSS selector that matches exactly \
+             one node)"
+        } else {
+            "Use the id of the node it means"
+        };
+        let wrong = |what: &str| -> Result<()> {
+            bail!(
+                "step {i}: `{op}` {key} {id} is {}, {what}. A numeric id counts EVERY node of the \
+                 mounted document (`<html>` is 0, `<body>` is 1, each newline or indent between \
+                 two tags is a whitespace text node of its own), so the number you counted is \
+                 rarely the box you mean. {advice}. Elements: {}",
+                describe(n),
+                element_ids(nodes)
+            )
+        };
+        match (needs(op), n.kind) {
+            (Needs::Element, MountedKind::Element | MountedKind::Image) => {}
+            (Needs::Element, MountedKind::Html | MountedKind::Body) => {
+                return wrong("the page itself, not the element the scenario is about");
+            }
+            (Needs::Element, MountedKind::Whitespace) => {
+                return wrong("not an element");
+            }
+            (Needs::Element, MountedKind::Text) => {
+                let owner = n
+                    .parent
+                    .and_then(|p| nodes.get(p))
+                    .map_or_else(String::new, |p| {
+                        format!(
+                            " (its element is node {} {})",
+                            n.parent.unwrap_or(0),
+                            describe(&p.node)
+                        )
+                    });
+                return wrong(&format!("a text node, not an element{owner}"));
+            }
+            (Needs::Text, MountedKind::Text) => {}
+            (Needs::Text, MountedKind::Whitespace) => {
+                return wrong("a whitespace run with no text to set");
+            }
+            (Needs::Text, _) => {
+                let text_child = nodes.iter().enumerate().find(|(_, c)| {
+                    c.node.parent == usize::try_from(id).ok()
+                        && c.deleted_by.is_none()
+                        && c.node.kind == MountedKind::Text
+                });
+                let hint = text_child.map_or_else(String::new, |(t, _)| {
+                    format!(" (the text inside it is node {t})")
+                });
+                return wrong(&format!(
+                    "an element, but `{op}` addresses the TEXT node inside it{hint}"
+                ));
+            }
+            (Needs::Image, MountedKind::Image) => {}
+            (Needs::Image, _) => {
+                return wrong("not an `<img>`");
+            }
+        }
+    }
+    Ok(())
+}
+
+/// A string param with a closed set of values holds one of them.
+///
+/// The set is the engine's own (`azul_layout::e2e::closed_param_values`, the
+/// table the ops themselves refuse with), so what the gate allows and what the
+/// engine accepts cannot drift apart. `"last"` is a value of `frame`, not of
+/// `which`: the first batch wrote `{"which": "last"}`, the engine read it as the
+/// default, and the assertion judged the paint damage of the whole run - so the
+/// refusal also says which param a value belongs to.
+fn check_closed_values(
+    i: usize,
+    op: &str,
+    step: &serde_json::Map<String, serde_json::Value>,
+) -> Result<()> {
+    for (key, value) in step {
+        let Some(allowed) = closed_param_values(key) else {
+            continue;
+        };
+        let text = value.as_str();
+        if text.is_some_and(|t| allowed.contains(&t)) {
+            continue;
+        }
+        let belongs_to = text.and_then(|t| {
+            CLOSED_STRING_PARAMS
+                .iter()
+                .find(|(param, values)| param != key && values.contains(&t))
+                .map(|(param, _)| *param)
+        });
+        bail!(
+            "step {i}: `{op}` param `{key}` is {value}, which is not one of {}{}. The engine \
+             refuses it too; before it did, an unknown value was read as the default and the step \
+             judged something other than what it says.",
+            allowed.join(", "),
+            belongs_to.map_or_else(String::new, |p| format!(" ({value} is a value of `{p}`)"))
+        );
+    }
+    Ok(())
+}
+
+/// The step as the runner reads it, for an op the engine dispatches as a
+/// `DebugEvent` (assertions and step-loop ops are read by their own
+/// evaluators). The runner strips the harness's `screenshot` flag and lifts
+/// `dom_id` out before it parses; so does this.
+fn engine_reading(
+    schema: &Schema,
+    i: usize,
+    op: &str,
+    step: &serde_json::Map<String, serde_json::Value>,
+) -> Result<Option<DebugEvent>> {
+    if !schema.ops.iter().any(|o| o.name == op) {
+        return Ok(None);
+    }
+    let mut cmd = step.clone();
+    cmd.remove("screenshot");
+    cmd.remove("dom_id");
+    parse_debug_event(serde_json::Value::Object(cmd))
+        .map(Some)
+        .map_err(|why| anyhow::anyhow!("step {i}: `{op}` is not read by the engine: {why}"))
+}
+
 /// Is `key` given in the step, with a value?
 fn given(step: &serde_json::Map<String, serde_json::Value>, key: &str) -> bool {
     step.get(key).is_some_and(|v| !v.is_null())
@@ -1588,6 +1984,7 @@ pub fn validate(schema: &Schema, json: &str) -> Result<()> {
 
     let mut snapshots: BTreeSet<String> = BTreeSet::new();
     let mut asserted = false;
+    let mut dom = GateDom::default();
 
     for (i, step) in steps.iter().enumerate() {
         let s = step
@@ -1672,6 +2069,23 @@ pub fn validate(schema: &Schema, json: &str) -> Result<()> {
         if let Some(def) = schema.known_op(op) {
             check_targeting(i, op, def, s)?;
         }
+        // CLOSED SETS. A string param that takes one of a few values refuses any
+        // other: the engine used to read an unknown one as the default.
+        check_closed_values(i, op, s)?;
+        // `mount` html must be the pretty ARRAY-OF-LINES form (a string is also
+        // read) - said plainly before the typed read below says it in serde's
+        // words.
+        if op == "mount" {
+            let html = s.get("html").context("mount: missing `html`")?;
+            if !html.is_array() && !html.is_string() {
+                bail!("step {i}: mount `html` must be an array of lines");
+            }
+        }
+        // THE ENGINE'S OWN READING. The step is read as the runner reads it
+        // (`parse_debug_event`): a value of the wrong type, an enum variant that
+        // does not exist, a field the op needs - each fails there, at step N,
+        // after the steps before it ran, when it could have failed here.
+        let event = engine_reading(schema, i, op, s)?;
         if op.starts_with("assert_") {
             asserted = true;
         }
@@ -1694,12 +2108,38 @@ pub fn validate(schema: &Schema, json: &str) -> Result<()> {
                 }
             }
         }
-        // `mount` html must be the pretty ARRAY-OF-LINES form.
-        if op == "mount" {
-            let html = s.get("html").context("mount: missing `html`")?;
-            if !html.is_array() && !html.is_string() {
-                bail!("step {i}: mount `html` must be an array of lines");
+        // THE DOCUMENT. `mount` is read with the parser the `mount` op uses; its
+        // nodes are what a numeric id will mean once it has landed.
+        if let Some(DebugEvent::Mount { html, css }) = &event {
+            if html.is_empty() {
+                bail!(
+                    "step {i}: `mount` has an empty `html` ({}): the runtime refuses it (\"mount: \
+                     'html' is empty\") and the scenario fails at step {i} having tested nothing. \
+                     An empty page is [\"<body></body>\"], never []",
+                    s.get("html").map_or_else(String::new, ToString::to_string)
+                );
             }
+            let nodes = mounted_nodes(html, css).map_err(|e| anyhow::anyhow!("step {i}: {e}"))?;
+            dom.mount(i, nodes);
+        }
+        if op == "unmount" {
+            dom.unmount(i);
+        }
+        // A step that names a node needs a document that exists (G5), and an id
+        // that is the element it means (G4). An assertion only READS, and `assert_not_exists`
+        // before a mount is a question, not an address.
+        if !op.starts_with("assert_") && NODE_KEYS.iter().any(|k| given(s, k)) {
+            let nodes = dom.addressable(i, op)?;
+            let selector_form = schema.known_op(op).is_some_and(|d| {
+                d.params
+                    .iter()
+                    .any(|(p, _)| p == "selector" || p == "parent_selector")
+            });
+            check_node_ids(i, op, s, nodes, selector_form)?;
+        }
+        dom.apply(i, op, s);
+        if FRAME_STEPS.contains(&op) {
+            dom.land();
         }
         // A scenario's PNG `path` is the one model-authored string this process
         // hands to `fs::write`. Confine it: inside `target/e2e/`, relative, no
@@ -1813,6 +2253,94 @@ fn stamp(json: &str, w: &Work) -> String {
         serde_json::Value::String(w.line.clone()),
         rest
     )
+}
+
+/// How many hex digits of the source hash a scenario's name is suffixed with.
+const NAME_HASH_LEN: usize = 8;
+
+/// The end of the JSON string whose content starts at `from` (the index of its
+/// closing quote), or `None` when it never ends.
+fn json_string_end(bytes: &[u8], mut from: usize) -> Option<usize> {
+    while from < bytes.len() {
+        match bytes[from] {
+            b'\\' => from += 2,
+            b'"' => return Some(from),
+            _ => from += 1,
+        }
+    }
+    None
+}
+
+/// Where the CONTENT (between the quotes) of the string value of the TOP-LEVEL
+/// key `key` of the JSON object `json` sits, or `None`.
+///
+/// Scanned by text, because the reply is spliced by text (a serde round-trip
+/// sorts the keys and wrecks the array-of-lines layout the format exists for),
+/// and a `"name"` key can also sit deeper in a step.
+fn top_level_string_span(json: &str, key: &str) -> Option<std::ops::Range<usize>> {
+    let bytes = json.as_bytes();
+    let (mut depth, mut i) = (0usize, 0usize);
+    while i < bytes.len() {
+        match bytes[i] {
+            b'{' | b'[' => {
+                depth += 1;
+                i += 1;
+            }
+            b'}' | b']' => {
+                depth = depth.saturating_sub(1);
+                i += 1;
+            }
+            b'"' => {
+                let start = i + 1;
+                let end = json_string_end(bytes, start)?;
+                // A string at depth 1 followed by `:` is a key of the object.
+                let mut j = end + 1;
+                while bytes.get(j).is_some_and(u8::is_ascii_whitespace) {
+                    j += 1;
+                }
+                if depth == 1 && bytes.get(j) == Some(&b':') && &json[start..end] == key {
+                    j += 1;
+                    while bytes.get(j).is_some_and(u8::is_ascii_whitespace) {
+                        j += 1;
+                    }
+                    if bytes.get(j) != Some(&b'"') {
+                        return None; // the value is not a string
+                    }
+                    let value_end = json_string_end(bytes, j + 1)?;
+                    return Some(j + 1..value_end);
+                }
+                i = end + 1;
+            }
+            _ => i += 1,
+        }
+    }
+    None
+}
+
+/// The scenario with `_<first 8 hex of its source hash>` appended to its `name`.
+///
+/// The model names a scenario after the property and the fixture its line is
+/// about, and 6 of the first 50 lines (all `noop_css_override_no_layout`) chose
+/// the same name. Results are paired with files by FILE now, but the verdict
+/// report prints names, an `expect` marker pairs by name and `azul-doc e2e` of
+/// the whole corpus refuses two tests of one name: every artifact carries a name
+/// of its own, and the hash is the one thing that is its own. Idempotent, and a
+/// reply without a string `name` is left alone (the gate rejects it anyway).
+fn with_unique_name(json: &str, hash: &str) -> String {
+    let suffix = format!("_{}", &hash[..hash.len().min(NAME_HASH_LEN)]);
+    let Some(span) = top_level_string_span(json, "name") else {
+        return json.to_string();
+    };
+    if json[span.clone()].ends_with(&suffix) {
+        return json.to_string();
+    }
+    format!("{}{suffix}{}", &json[..span.end], &json[span.end..])
+}
+
+/// What is written for a reply that passed the gate: its name made unique,
+/// stamped with the line it answers.
+fn artifact_text(json: &str, w: &Work) -> String {
+    stamp(&with_unique_name(json, &w.hash), w)
 }
 
 /// Read one artifact off disk: which corpus line does it claim, and is it still
@@ -2332,7 +2860,7 @@ fn generate_one(g: &Generator<'_>, w: &Work) -> Result<()> {
     // keys ("css" before "op") and wreck the readability that the
     // array-of-lines format exists for. The stamp is what makes the out-dir a
     // self-contained resume record — the done-list is only a cache.
-    let stamped = stamp(json, w);
+    let stamped = artifact_text(json, w);
     debug_assert!(validate(g.schema, &stamped).is_ok());
     fs::write(&w.out, stamped).with_context(|| format!("cannot write {}", w.out.display()))?;
     Ok(())
@@ -2385,6 +2913,16 @@ impl ReviewEntry {
                     .collect()
             })
             .unwrap_or_default()
+    }
+
+    /// The name the scenario carries: the `name` of its JSON, else the name of
+    /// the run that came back for it.
+    fn scenario_name(&self) -> Option<String> {
+        self.json
+            .as_deref()
+            .and_then(|j| serde_json::from_str::<serde_json::Value>(j).ok())
+            .and_then(|v| v.get("name").and_then(|n| n.as_str()).map(str::to_string))
+            .or_else(|| self.run.as_ref().map(|r| r.name.clone()))
     }
 
     /// Steps that failed, as `(index, op, error)`.
@@ -2535,6 +3073,12 @@ pub fn render_facts(b: &ReviewBatch) -> String {
         .iter()
         .filter(|e| !e.png_paths().is_empty())
         .count();
+    // Generated, loaded and no result came back for it: nothing may hide here.
+    let unrun = b
+        .entries
+        .iter()
+        .filter(|e| e.json.is_some() && e.run.is_none())
+        .count();
 
     let mut s = String::new();
     s.push_str(&format!("# gen-e2e batch review — `{}`\n\n", b.id));
@@ -2546,12 +3090,18 @@ pub fn render_facts(b: &ReviewBatch) -> String {
     );
     s.push_str(&format!(
         "- corpus: `{}`\n- out-dir: `{}`\n- batch: **{n}** line(s) — {generated} generated, {} \
-         rejected by the gate\n- run: **{passed} passed, {failed} failed**\n- scenarios that \
-         capture an image: {with_png}/{generated} (NOT required — images are triage material, see \
-         below)\n\n",
+         rejected by the gate\n- run: **{passed} passed, {failed} failed**{}\n- run mode: every \
+         red step of a scenario is reported (keep-going), results are paired with their FILES, \
+         not with names\n- scenarios that capture an image: {with_png}/{generated} (NOT \
+         required — images are triage material, see below)\n\n",
         b.corpus,
         b.out_dir.display(),
         n - generated,
+        if unrun == 0 {
+            String::new()
+        } else {
+            format!(", **{unrun} NOT RUN** (loaded, but no result came back)")
+        },
     ));
 
     s.push_str("## FACTS\n\n### Batch\n\n");
@@ -2605,8 +3155,18 @@ pub fn render_facts(b: &ReviewBatch) -> String {
                 "**HARNESS** — the headless runner cannot drive this (port task, NOT an engine bug)"
             };
             s.push_str(&format!("- `{}`\n  - {verdict}\n", cell(&e.line, 120)));
-            for (idx, op, err) in e.failed_steps() {
-                s.push_str(&format!("  - step {idx} `{op}`: {}\n", cell(err, 400)));
+            for (k, (idx, op, err)) in e.failed_steps().into_iter().enumerate() {
+                // The first red step is the cause; the later ones ran on what it
+                // left behind and may be its echo.
+                let also = if k == 0 {
+                    ""
+                } else {
+                    " (also red; may follow from the first)"
+                };
+                s.push_str(&format!(
+                    "  - step {idx} `{op}`{also}: {}\n",
+                    cell(err, 400)
+                ));
             }
         }
     }
@@ -2658,24 +3218,28 @@ pub fn render_facts(b: &ReviewBatch) -> String {
     }
 
     // ---- duplicate names -------------------------------------------------
-    let mut names: BTreeMap<&str, usize> = BTreeMap::new();
-    for e in &b.entries {
-        if let Some(r) = e.run.as_ref() {
-            *names.entry(r.name.as_str()).or_default() += 1;
+    // By the name each ARTIFACT carries, whether or not a result came back for
+    // it: counting only the entries that received a run made this notice unable
+    // to fire when the pairing lost them.
+    let mut names: BTreeMap<String, Vec<usize>> = BTreeMap::new();
+    for (i, e) in b.entries.iter().enumerate() {
+        if let Some(name) = e.scenario_name() {
+            names.entry(name).or_default().push(i + 1);
         }
     }
-    let clashes: Vec<&&str> = names
-        .iter()
-        .filter(|(_, c)| **c > 1)
-        .map(|(n, _)| n)
-        .collect();
+    let clashes: Vec<(&String, &Vec<usize>)> =
+        names.iter().filter(|(_, rows)| rows.len() > 1).collect();
     if !clashes.is_empty() {
         s.push_str(
-            "\n### Duplicate scenario names\n\nThe verdict report pairs results with fixtures BY \
-             NAME, so duplicates make the run un-attributable:\n",
+            "\n### Duplicate scenario names\n\nThis run paired every result with its own FILE, so \
+             it is attributable. But the verdict report prints names, and an `expect` marker \
+             pairs by name: scenarios that share one read as one there. `gen-e2e` appends \
+             `_<8 hex of the source hash>` to every name it writes; these artifacts predate that \
+             (or were written by hand).\n",
         );
-        for n in clashes {
-            s.push_str(&format!("- `{n}`\n"));
+        for (name, rows) in clashes {
+            let rows: Vec<String> = rows.iter().map(|r| format!("#{r}")).collect();
+            s.push_str(&format!("- `{name}`: rows {}\n", rows.join(", ")));
         }
     }
 
@@ -2974,6 +3538,21 @@ struct Generator<'a> {
     out_dir: &'a Path,
 }
 
+/// Give every entry the result of ITS OWN test.
+///
+/// `results[k]` is the result of the k-th test that was loaded, and `owner[k]`
+/// the entry (the artifact FILE) it came from. A file of several tests gives its
+/// entry the first one's result.
+fn pair_results(entries: &mut [ReviewEntry], owner: &[usize], results: &[E2eTestResult]) {
+    for (r, &i) in results.iter().zip(owner) {
+        if let Some(entry) = entries.get_mut(i) {
+            if entry.run.is_none() {
+                entry.run = Some(r.clone());
+            }
+        }
+    }
+}
+
 /// Run the batch that was just generated, have ONE agent review it, write the
 /// report, and STOP.
 fn review_batch(g: &Generator<'_>, work: &[Work], outcomes: &[Option<String>]) -> Result<()> {
@@ -3025,21 +3604,19 @@ fn review_batch(g: &Generator<'_>, work: &[Work], outcomes: &[Option<String>]) -
         println!("[review] nothing runnable in this batch — every line was rejected by the gate.");
         "(nothing ran: every line in this batch was rejected by the generation gate)\n".to_string()
     } else {
-        println!("[review] running {} generated scenario(s) …", tests.len());
-        let results = crate::e2erun::run_tests(&tests, Some(opts.jobs))?;
-        // `run_tests` sorts by name; pair back to the corpus line by name, and
-        // report the collision rather than guessing when names repeat.
-        for r in &results {
-            if let Some(i) = tests
-                .iter()
-                .position(|t| t.name == r.name)
-                .and_then(|ti| owner.get(ti).copied())
-            {
-                if entries[i].run.is_none() {
-                    entries[i].run = Some(r.clone());
-                }
-            }
-        }
+        // Every red step of every scenario, not only the first: a review that
+        // sees one assertion of a scenario that has five hides four findings.
+        crate::e2erun::keep_going(&mut tests);
+        println!(
+            "[review] running {} generated scenario(s) (keep-going) …",
+            tests.len()
+        );
+        // IN ORDER: `results[k]` is the result of `tests[k]`, which came from
+        // `entries[owner[k]]`. The pairing is by position - by FILE - because a
+        // name is not an identity (six scenarios of the first batch shared one,
+        // and every result landed on the first of them).
+        let results = crate::e2erun::run_tests_in_order(&tests, Some(opts.jobs))?;
+        pair_results(&mut entries, &owner, &results);
         let (report, v) = render_report(&tests, &results);
         eprint!("{report}");
         println!(
@@ -3531,6 +4108,424 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
+    // What the gate checks against the engine (G2 - G5)
+    // -----------------------------------------------------------------------
+
+    /// A scenario that mounts `html` (an array of lines), lets it land, runs
+    /// `steps` (each ending in a comma-free list of steps) and asserts.
+    fn on_dom(html: &str, steps: &str) -> String {
+        format!(
+            r#"{{"name":"x","steps":[
+                {{"op":"mount","html":{html}}},
+                {{"op":"wait_frame"}},
+                {{"op":"snapshot_frame","as":"before"}},
+                {steps},
+                {{"op":"assert_changed","vs":"before"}}]}}"#
+        )
+    }
+
+    /// An indented fragment, the way a model writes one. `mount` wraps it in
+    /// `<html><body>`, and every newline and indent becomes a text node that
+    /// takes an id:
+    ///
+    /// | id | node |
+    /// |----|------|
+    /// | 0 | `<html>` |
+    /// | 1 | `<body>` |
+    /// | 2 | whitespace (after `<body>`) |
+    /// | 3 | `#root` |
+    /// | 4 | whitespace (`\n  `) |
+    /// | 5 | `#box` |
+    /// | 6 | whitespace (before `</div>`) |
+    /// | 7 | whitespace (before `</body>`) |
+    const INDENTED: &str = r##"["<div id=\"root\">","  <div id=\"box\"></div>","</div>"]"##;
+
+    fn refused(schema: &Schema, scenario: &str, why: &str) {
+        let e = validate(schema, scenario)
+            .expect_err(&format!("the gate let this through:\n{scenario}"))
+            .to_string();
+        assert!(
+            e.contains(why),
+            "wanted {why:?} in: {e}\nscenario:\n{scenario}"
+        );
+    }
+
+    /// G2. `html: []` passed the gate and `mount` then failed with "'html' is
+    /// empty" at step 0: 88 steps never ran.
+    #[test]
+    fn the_gate_rejects_a_mount_with_no_html() {
+        let s = parse_schema(&root()).unwrap();
+        for html in [r#"[]"#, r#"[""]"#, r#"["  ", "\n"]"#, r#""""#, r#""   ""#] {
+            let json = format!(
+                r#"{{"name":"x","steps":[{{"op":"mount","html":{html}}},{{"op":"wait_frame"}},
+                    {{"op":"assert_exists","selector":"body"}}]}}"#
+            );
+            refused(&s, &json, "empty `html`");
+            refused(&s, &json, "<body></body>");
+        }
+        // An empty PAGE is a body with nothing in it.
+        validate(
+            &s,
+            r#"{"name":"x","steps":[{"op":"mount","html":["<body></body>"]},{"op":"wait_frame"},
+                {"op":"assert_exists","selector":"body"}]}"#,
+        )
+        .unwrap();
+        // ...and html that is not text at all is not read.
+        refused(
+            &s,
+            r#"{"name":"x","steps":[{"op":"mount","html":[1,2]},{"op":"assert_exists","selector":"body"}]}"#,
+            "not read by the engine",
+        );
+    }
+
+    /// `mount` refuses markup that does not parse; so does the gate, with the
+    /// runtime's own words.
+    #[test]
+    fn the_gate_rejects_a_mount_whose_markup_does_not_parse() {
+        let s = parse_schema(&root()).unwrap();
+        refused(
+            &s,
+            r##"{"name":"x","steps":[{"op":"mount","html":["<div id=\"a>x</div>"]},
+                {"op":"wait_frame"},{"op":"assert_exists","selector":"div"}]}"##,
+            "mount: XML parse error",
+        );
+    }
+
+    /// G3. `{"which": "last"}` - `"last"` is a value of `frame` - was read as the
+    /// paint damage; the set is the engine's (`closed_param_values`).
+    #[test]
+    fn the_gate_rejects_a_value_outside_a_closed_set() {
+        let s = parse_schema(&root()).unwrap();
+        let with = |step: &str| {
+            format!(r#"{{"name":"x","steps":[{{"op":"snapshot_frame","as":"b"}},{step}]}}"#)
+        };
+
+        refused(
+            &s,
+            &with(r#"{"op":"assert_damage","kind":"none","which":"last"}"#),
+            "\"last\" is a value of `frame`",
+        );
+        refused(
+            &s,
+            &with(r#"{"op":"assert_damage","kind":"none","which":"last"}"#),
+            "paint, present",
+        );
+        refused(
+            &s,
+            &with(r#"{"op":"assert_changed","vs":"b","frame":"newest"}"#),
+            "accumulated, last",
+        );
+        refused(
+            &s,
+            &with(r#"{"op":"assert_damage_incremental","which":true}"#),
+            "param `which` is true",
+        );
+        refused(
+            &s,
+            &with(r#"{"op":"capture_damage_png","path":"target/e2e/x.png","which":"newest"}"#),
+            "paint, present",
+        );
+
+        // every value of every set passes
+        for (which, frame) in [
+            ("paint", "accumulated"),
+            ("present", "accumulated"),
+            ("paint", "last"),
+            ("present", "last"),
+        ] {
+            validate(
+                &s,
+                &with(&format!(
+                    r#"{{"op":"assert_damage","kind":"none","which":"{which}","frame":"{frame}"}}"#
+                )),
+            )
+            .unwrap_or_else(|e| panic!("{which}/{frame}: {e}"));
+        }
+        // the sets are the engine's, not a list of this file's
+        for (param, values) in azul_layout::e2e::CLOSED_STRING_PARAMS {
+            assert!(
+                s.ops
+                    .iter()
+                    .chain(s.asserts.iter())
+                    .any(|o| o.params.iter().any(|(p, _)| p == param)),
+                "`{param}` is a closed set of the engine that no op of the schema has: {values:?}"
+            );
+        }
+    }
+
+    /// The step is read as the runner reads it: a wrong type or a variant that
+    /// does not exist fails here, not at step N of a run.
+    #[test]
+    fn the_gate_reads_a_step_as_the_engine_does() {
+        let s = parse_schema(&root()).unwrap();
+        let with = |step: &str| {
+            format!(
+                r#"{{"name":"x","steps":[{{"op":"snapshot_frame","as":"b"}},{step},
+                {{"op":"assert_changed","vs":"b"}}]}}"#
+            )
+        };
+        refused(
+            &s,
+            &with(r#"{"op":"tick_ms","ms":"16"}"#),
+            "not read by the engine",
+        );
+        refused(
+            &s,
+            &with(r#"{"op":"tick_ms","ms":-1}"#),
+            "not read by the engine",
+        );
+        refused(
+            &s,
+            &with(r#"{"op":"click","x":1,"y":2,"button":"primary"}"#),
+            "unknown variant `primary`",
+        );
+        validate(&s, &with(r#"{"op":"click","x":1,"y":2,"button":"right"}"#)).unwrap();
+        validate(&s, &with(r#"{"op":"tick_ms","ms":16}"#)).unwrap();
+    }
+
+    /// G4. The numbers a model counts are wrong: the ids are resolved with the
+    /// parser `mount` uses, and an id that is the page, a whitespace run or a
+    /// node that is not there is refused, with the elements named.
+    #[test]
+    fn the_gate_resolves_a_node_id_with_the_parser_mount_uses() {
+        let s = parse_schema(&root()).unwrap();
+        let css = |id: u32| {
+            on_dom(
+                INDENTED,
+                &format!(
+                    r#"{{"op":"set_node_css_override","node_id":{id},"property":"width","value":"1px"}}"#
+                ),
+            )
+        };
+
+        refused(&s, &css(0), "is `<html>`");
+        refused(&s, &css(1), "is `<body>`");
+        refused(&s, &css(2), "whitespace text run");
+        refused(&s, &css(4), "whitespace text run");
+        refused(&s, &css(6), "whitespace text run");
+        // the refusal says where the elements are, and what to do instead
+        refused(&s, &css(1), "3 `<div id=\"root\">`");
+        refused(&s, &css(1), "5 `<div id=\"box\">`");
+        refused(&s, &css(1), "`selector`");
+        refused(&s, &css(99), "does not exist");
+        refused(&s, &css(99), "8 nodes");
+        // the elements the model meant
+        validate(&s, &css(3)).unwrap();
+        validate(&s, &css(5)).unwrap();
+
+        // every op that takes a node id, not only the mutation ones
+        refused(
+            &s,
+            &on_dom(
+                INDENTED,
+                r#"{"op":"scroll_node_by","node_id":1,"delta_x":0,"delta_y":10}"#,
+            ),
+            "is `<body>`",
+        );
+        refused(
+            &s,
+            &on_dom(INDENTED, r#"{"op":"focus_node","node_id":0}"#),
+            "is `<html>`",
+        );
+        // the parent of an insert, too
+        refused(
+            &s,
+            &on_dom(
+                INDENTED,
+                r#"{"op":"insert_node","parent_id":1,"node_type":"div"}"#,
+            ),
+            "is `<body>`",
+        );
+        validate(
+            &s,
+            &on_dom(
+                INDENTED,
+                r#"{"op":"insert_node","parent_id":3,"node_type":"div"}"#,
+            ),
+        )
+        .unwrap();
+        // ...while a SELECTOR may name the page itself: the model said so.
+        validate(
+            &s,
+            &on_dom(
+                INDENTED,
+                r#"{"op":"set_node_css_override","selector":"body","property":"background","value":"red"}"#,
+            ),
+        )
+        .unwrap();
+    }
+
+    /// `set_node_text` writes the TEXT node, `set_node_image` an `<img>`,
+    /// `add_timer` a text node: an id of the wrong kind is refused with the
+    /// right one named.
+    #[test]
+    fn the_gate_knows_which_kind_of_node_an_op_takes() {
+        let s = parse_schema(&root()).unwrap();
+        // html0 body1 #p2 "hi"3 #pic4
+        let dom = r##"["<body><p id=\"p\">hi</p><img id=\"pic\" /></body>"]"##;
+        let on = |step: &str| on_dom(dom, step);
+
+        validate(
+            &s,
+            &on(r#"{"op":"set_node_text","node_id":3,"text":"bye"}"#),
+        )
+        .unwrap();
+        refused(
+            &s,
+            &on(r#"{"op":"set_node_text","node_id":2,"text":"bye"}"#),
+            "addresses the TEXT node inside it (the text inside it is node 3)",
+        );
+        refused(
+            &s,
+            &on(r#"{"op":"set_node_text","node_id":1,"text":"bye"}"#),
+            "is `<body>`",
+        );
+        validate(
+            &s,
+            &on(r##"{"op":"set_node_text","selector":"#p","text":"bye"}"##),
+        )
+        .unwrap();
+
+        validate(
+            &s,
+            &on(r#"{"op":"set_node_image","node_id":4,"width":4,"height":4,"color":"red"}"#),
+        )
+        .unwrap();
+        refused(
+            &s,
+            &on(r#"{"op":"set_node_image","node_id":2,"width":4,"height":4,"color":"red"}"#),
+            "not an `<img>`",
+        );
+
+        validate(
+            &s,
+            &on(r#"{"op":"add_timer","timer_id":1000,"interval_ms":16,"node_id":3,"text":"t"}"#),
+        )
+        .unwrap();
+        refused(
+            &s,
+            &on(r#"{"op":"add_timer","timer_id":1000,"interval_ms":16,"node_id":2,"text":"t"}"#),
+            "TEXT node",
+        );
+    }
+
+    /// The document is followed through the scenario: an insert adds a node at
+    /// the end, a delete leaves a tombstone, a second `mount` replaces it.
+    #[test]
+    fn the_gate_follows_the_document_through_the_scenario() {
+        let s = parse_schema(&root()).unwrap();
+        // html0 body1 #a2 #b3
+        let dom = r##"["<body><div id=\"a\"></div><div id=\"b\"></div></body>"]"##;
+        let steps = |tail: &str| {
+            format!(
+                r#"{{"name":"x","steps":[{{"op":"mount","html":{dom}}},{{"op":"wait_frame"}},
+                    {{"op":"snapshot_frame","as":"b"}},{tail},{{"op":"assert_changed","vs":"b"}}]}}"#
+            )
+        };
+
+        // the inserted node is node 4, and can be addressed
+        validate(
+            &s,
+            &steps(
+                r#"{"op":"insert_node","parent_selector":"body","node_type":"div","id":"n"},
+                   {"op":"set_node_css_override","node_id":4,"property":"width","value":"1px"}"#,
+            ),
+        )
+        .unwrap();
+        refused(
+            &s,
+            &steps(
+                r#"{"op":"insert_node","parent_selector":"body","node_type":"div"},
+                   {"op":"set_node_css_override","node_id":5,"property":"width","value":"1px"}"#,
+            ),
+            "does not exist",
+        );
+        // a deleted node keeps its id, and is gone
+        refused(
+            &s,
+            &steps(
+                r#"{"op":"delete_node","node_id":2},
+                   {"op":"set_node_css_override","node_id":2,"property":"width","value":"1px"}"#,
+            ),
+            "was deleted by step 3",
+        );
+        // a second mount replaces the document
+        refused(
+            &s,
+            &steps(
+                r#"{"op":"mount","html":["<body></body>"]},{"op":"wait_frame"},
+                   {"op":"set_node_css_override","node_id":2,"property":"width","value":"1px"}"#,
+            ),
+            "does not exist",
+        );
+    }
+
+    /// A scenario of exactly `steps`.
+    fn scenario_of(steps: &[&str]) -> String {
+        format!(r#"{{"name":"x","steps":[{}]}}"#, steps.join(","))
+    }
+
+    /// G5. `mount` takes effect at the next frame: `set_node_image` right after
+    /// it failed with "Node 1 not found" (the document did not exist yet).
+    #[test]
+    fn the_gate_rejects_a_node_op_before_the_mount_has_landed() {
+        let s = parse_schema(&root()).unwrap();
+        let mount = r##"{"op":"mount","html":["<body><div id=\"a\"></div></body>"]}"##;
+        let css =
+            r##"{"op":"set_node_css_override","selector":"#a","property":"width","value":"1px"}"##;
+        let exists = r##"{"op":"assert_exists","selector":"#a"}"##;
+        let wait_frame = r#"{"op":"wait_frame"}"#;
+
+        refused(
+            &s,
+            &scenario_of(&[mount, css, exists]),
+            "has not been applied yet",
+        );
+        refused(&s, &scenario_of(&[mount, css, exists]), "`wait_frame`");
+        refused(
+            &s,
+            &scenario_of(&[mount, r#"{"op":"snapshot_frame","as":"b"}"#, css, exists]),
+            "step 0",
+        );
+        for lands in [
+            wait_frame,
+            r#"{"op":"wait","ms":10}"#,
+            r#"{"op":"tick_ms","ms":16}"#,
+        ] {
+            validate(&s, &scenario_of(&[mount, lands, css, exists]))
+                .unwrap_or_else(|e| panic!("{lands}: {e}"));
+        }
+
+        // no mount at all
+        refused(&s, &scenario_of(&[css, exists]), "nothing is mounted");
+        // a second mount that has not landed hides the first
+        refused(
+            &s,
+            &scenario_of(&[mount, wait_frame, mount, css, exists]),
+            "step 2",
+        );
+        // an unmount leaves no document
+        refused(
+            &s,
+            &scenario_of(&[
+                mount,
+                wait_frame,
+                r#"{"op":"unmount"}"#,
+                wait_frame,
+                css,
+                exists,
+            ]),
+            "nothing is mounted",
+        );
+        // an ASSERTION is a question, not an address: it may come first
+        validate(
+            &s,
+            &scenario_of(&[mount, r##"{"op":"assert_not_exists","selector":"#zzz"}"##]),
+        )
+        .unwrap();
+    }
+
+    // -----------------------------------------------------------------------
     // Op classification
     // -----------------------------------------------------------------------
 
@@ -3549,22 +4544,24 @@ mod tests {
         // THE regression this whole classification exists for: `set_node_text`
         // -> `redraw` -> `assert_changed` PASSES even when the invalidation
         // path is broken, because `redraw` manufactures the damage itself.
-        let masked = r#"{"name":"stale_text","steps":[
+        let masked = r##"{"name":"stale_text","steps":[
             {"op":"mount","html":["<div id=\"a\">hi</div>"]},
+            {"op":"wait_frame"},
             {"op":"snapshot_frame","as":"before"},
-            {"op":"set_node_text","node_id":1,"text":"bye"},
+            {"op":"set_node_text","selector":"#a","text":"bye"},
             {"op":"redraw"},
-            {"op":"assert_changed","vs":"before","min_damage_rects":1}]}"#;
+            {"op":"assert_changed","vs":"before","min_damage_rects":1}]}"##;
         let e = validate(&s, masked).unwrap_err().to_string();
         assert!(e.contains("`redraw`") && e.contains("DENIED"), "{e}");
 
         // ...and the same test WITHOUT the forced redraw is exactly what we want.
-        let honest = r#"{"name":"stale_text","steps":[
+        let honest = r##"{"name":"stale_text","steps":[
             {"op":"mount","html":["<div id=\"a\">hi</div>"]},
-            {"op":"snapshot_frame","as":"before"},
-            {"op":"set_node_text","node_id":1,"text":"bye"},
             {"op":"wait_frame"},
-            {"op":"assert_changed","vs":"before","min_damage_rects":1}]}"#;
+            {"op":"snapshot_frame","as":"before"},
+            {"op":"set_node_text","selector":"#a","text":"bye"},
+            {"op":"wait_frame"},
+            {"op":"assert_changed","vs":"before","min_damage_rects":1}]}"##;
         validate(&s, honest).unwrap();
 
         // `relayout` is denied for the same reason.
@@ -4617,11 +5614,210 @@ fn eval_assert_changed(params: &Value) -> AssertionResult {{
     }
 
     #[test]
-    fn duplicate_scenario_names_are_reported_because_results_pair_by_name() {
+    fn duplicate_scenario_names_are_reported_with_the_rows_that_share_them() {
         let mut b = sample_batch();
-        b.entries[2].run = Some(result("good", vec![step(0, "click", None)]));
+        // Row 3 carries the name of row 1, whether or not its run came back.
+        b.entries[2].json = Some(
+            r#"{"name":"good","steps":[{"op":"scroll","dy":40},
+               {"op":"assert_changed","vs":"before"}]}"#
+                .to_string(),
+        );
         let f = render_facts(&b);
         assert!(f.contains("Duplicate scenario names"), "{f}");
+        assert!(f.contains("- `good`: rows #1, #3"), "{f}");
+
+        // ...and a batch with no clash says nothing.
+        assert!(!render_facts(&sample_batch()).contains("Duplicate scenario names"));
+
+        // The notice used to count only the entries that RECEIVED a run, so
+        // when the pairing lost one it could never fire.
+        b.entries[0].run = None;
+        let f = render_facts(&b);
+        assert!(f.contains("- `good`: rows #1, #3"), "{f}");
+    }
+
+    /// G1. Two scenarios of one name, two different outcomes: each file gets
+    /// ITS result. Pairing by name gave both the first one's - 38 passed/failed
+    /// in the header where the real tally was 5 and 45, and seven scenarios that
+    /// "did not run".
+    #[test]
+    fn results_are_paired_with_their_files_not_with_their_names() {
+        let entry = |line: &str, file: &str| ReviewEntry {
+            line: line.to_string(),
+            path: PathBuf::from(file),
+            json: Some(r#"{"name":"same","steps":[{"op":"assert_changed"}]}"#.to_string()),
+            gen_error: None,
+            run: None,
+        };
+        let mut b = sample_batch();
+        b.entries = vec![
+            entry("[a/one] passes", "/out/00001-a.json"),
+            entry("[a/two] fails", "/out/00002-b.json"),
+            entry("[a/three] passes too", "/out/00003-c.json"),
+        ];
+        // The tests came from the files in this order, results in the same order.
+        let owner = [0usize, 1, 2];
+        let results = vec![
+            result("same", vec![step(0, "assert_changed", None)]),
+            result(
+                "same",
+                vec![step(0, "assert_changed", Some("nothing repainted"))],
+            ),
+            result("same", vec![step(0, "assert_changed", None)]),
+        ];
+        pair_results(&mut b.entries, &owner, &results);
+
+        let status: Vec<&str> = b.entries.iter().map(|e| e.status().1).collect();
+        assert_eq!(status, ["pass", "FAIL", "pass"], "one result per FILE");
+        let f = render_facts(&b);
+        assert!(f.contains("**2 passed, 1 failed**"), "{f}");
+        assert!(!f.contains("NOT RUN"), "{f}");
+        assert!(f.contains("[a/two] fails"), "{f}");
+        // exactly one failure is attributed, to the file that failed
+        let failures = f.split("### Failures, attributed").nth(1).unwrap();
+        assert!(failures.contains("[a/two] fails"), "{f}");
+        assert!(!failures.contains("[a/one] passes"), "{f}");
+
+        // A file of several tests gives its entry the FIRST one's result, and a
+        // result without an owner is dropped, never misfiled.
+        let mut b2 = sample_batch();
+        b2.entries = vec![entry("[a/one] two tests", "/out/00001-a.json")];
+        pair_results(
+            &mut b2.entries,
+            &[0, 0, 7],
+            &[
+                result("same", vec![step(0, "assert_changed", None)]),
+                result("same", vec![step(0, "assert_changed", Some("late"))]),
+                result("same", vec![]),
+            ],
+        );
+        assert_eq!(b2.entries[0].status().1, "pass");
+    }
+
+    /// A scenario that loaded and got no result back is SAID in the header,
+    /// never folded into "failed" or hidden.
+    #[test]
+    fn a_scenario_with_no_result_is_reported_as_not_run() {
+        let mut b = sample_batch();
+        b.entries[0].run = None;
+        let f = render_facts(&b);
+        assert!(f.contains("**1 NOT RUN**"), "{f}");
+        assert!(f.contains("| not run |"), "{f}");
+    }
+
+    /// G6. The first red step is the cause; the later ones ran on what it left.
+    #[test]
+    fn every_red_step_of_a_scenario_is_listed_and_only_the_first_is_the_cause() {
+        let mut b = sample_batch();
+        b.entries[2].run = Some(result(
+            "engine",
+            vec![
+                step(1, "assert_changed", Some("no damage after scroll")),
+                step(2, "assert_damage", Some("wrong paint damage kind")),
+                step(5, "assert_idle_stable", Some("2400 px differ")),
+            ],
+        ));
+        let f = render_facts(&b);
+        assert!(
+            f.contains("step 1 `assert_changed`: no damage after scroll"),
+            "{f}"
+        );
+        assert!(
+            f.contains("step 2 `assert_damage` (also red; may follow from the first): wrong"),
+            "{f}"
+        );
+        assert!(f.contains("step 5 `assert_idle_stable` (also red"), "{f}");
+        assert!(
+            f.contains("every red step of a scenario is reported"),
+            "{f}"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // D10: a name of its own
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn a_scenario_name_is_made_unique_by_the_source_hash() {
+        let json = r#"{
+  "name": "noop_css_override_no_layout",
+  "description": "d",
+  "steps": [
+    {"op":"mount","html":["<body></body>"],"name":"inner"},
+    {"op":"assert_exists","selector":"body"}
+  ],
+  "tail": {"name": "also inner"}
+}"#;
+        let a = with_unique_name(json, "fd18fff35c2bf740");
+        assert!(
+            a.contains(r#""name": "noop_css_override_no_layout_fd18fff3""#),
+            "{a}"
+        );
+        // only the top-level name changed, and the layout survived byte for byte
+        assert_eq!(
+            a.replace("_fd18fff3", ""),
+            json,
+            "nothing but the suffix was spliced in"
+        );
+        assert!(a.contains(r#""name":"inner""#) && a.contains(r#""name": "also inner""#));
+
+        // two lines, one model name -> two names
+        let b = with_unique_name(json, "0123456789abcdef");
+        assert!(b.contains("noop_css_override_no_layout_01234567"), "{b}");
+        assert_ne!(a, b);
+
+        // idempotent, so re-stamping an artifact does not grow its name
+        assert_eq!(with_unique_name(&a, "fd18fff35c2bf740"), a);
+        // a short hash is used whole
+        assert!(with_unique_name(json, "abc").contains("no_layout_abc\""));
+        // no top-level string name -> left alone (the gate rejects it)
+        let nameless = r#"{"steps":[{"op":"x","name":"inner"}]}"#;
+        assert_eq!(with_unique_name(nameless, "fd18fff35c2bf740"), nameless);
+        let numeric = r#"{"name": 5, "steps": []}"#;
+        assert_eq!(with_unique_name(numeric, "fd18fff35c2bf740"), numeric);
+        // an escaped quote in the name does not end it early
+        let quoted = r#"{"name": "a\"b", "steps": []}"#;
+        assert_eq!(
+            with_unique_name(quoted, "fd18fff35c2bf740"),
+            r#"{"name": "a\"b_fd18fff3", "steps": []}"#
+        );
+    }
+
+    #[test]
+    fn the_artifact_that_is_written_has_a_unique_name_and_still_passes_the_gate() {
+        let s = parse_schema(&root()).unwrap();
+        let reply = r##"{"name":"noop_width","description":"d",
+            "steps":[{"op":"mount","html":["<body><div id=\"a\"></div></body>"]},
+                     {"op":"wait_frame"},{"op":"snapshot_frame","as":"b"},
+                     {"op":"set_node_css_override","selector":"#a","property":"width","value":"9px"},
+                     {"op":"wait_frame"},{"op":"assert_changed","vs":"b"}]}"##;
+        let w = parse_corpus("[a/one] first\n[a/two] second\n", Path::new("/out"));
+        let (first, second) = (artifact_text(reply, &w[0]), artifact_text(reply, &w[1]));
+        validate(&s, &first).expect("the artifact passes the gate");
+        validate(&s, &second).expect("the artifact passes the gate");
+
+        let name_of = |t: &str| {
+            serde_json::from_str::<serde_json::Value>(t).unwrap()["name"]
+                .as_str()
+                .unwrap()
+                .to_string()
+        };
+        assert_ne!(
+            name_of(&first),
+            name_of(&second),
+            "one model name, two lines"
+        );
+        assert_eq!(name_of(&first), format!("noop_width_{}", &w[0].hash[..8]));
+        // the hash stamp is still the first key, and the artifact is still recognised
+        assert!(first.starts_with("{\n  \"_source_hash\""), "{first}");
+        let dir = std::env::temp_dir().join(format!("gene2e-unique-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("00001-x.json");
+        fs::write(&path, &first).unwrap();
+        let a = read_artifact(&s, &path);
+        assert_eq!(a.hash.as_deref(), Some(w[0].hash.as_str()));
+        assert!(a.valid);
+        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
