@@ -244,7 +244,8 @@ pub fn open_shared_entry(
     let file_key = key
         .unwrap_file_key(&entry.wrapped_key, &entry.object)
         .map_err(|e| e.for_key(name))?;
-    let plain = azl1::decrypt(object_bytes, &entry.object, &file_key).map_err(|e| e.for_key(name))?;
+    let plain = azl1::decrypt_expecting(object_bytes, &entry.object, &file_key, Some(entry.size))
+        .map_err(|e| e.for_key(name))?;
     if plain.len() as u64 != entry.size || *blake3::hash(&plain).as_bytes() != entry.blake3 {
         return Err(CryptoError::Damaged(String::from(
             "the object is not the file the share names",

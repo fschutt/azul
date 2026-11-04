@@ -108,6 +108,17 @@ pub const DEFAULT_SEGMENT_SIZE: u32 = 1 << 20;
 /// The smallest and the largest segment size a header may name.
 pub const MIN_SEGMENT_SIZE: u32 = 1 << 10;
 pub const MAX_SEGMENT_SIZE: u32 = 1 << 24;
+/// The most segments an object may have (16.7 million: 16 TiB at the default segment size, 256 TiB
+/// at the largest). The header says how many, the trailer is read before anything else is
+/// checked, and it has four bytes per segment: a header naming 4 billion segments made a reader
+/// ask the bucket for a 16 GiB trailer.
+pub const MAX_SEGMENTS: u64 = 1 << 24;
+/// The most a reader reserves in memory for a plaintext before it has decoded any of it: the
+/// header's sizes are a writer's word, the data that arrives is the proof.
+const RESERVE_CAP: usize = 64 << 20;
+/// The most plaintext bytes a whole object is read into memory with ([`decrypt`], a version 2
+/// object's whole decode): larger files go through [`Azl1Reader`] and [`OpenObject::read_range`].
+pub const MAX_WHOLE_PLAINTEXT: u64 = 4 << 30;
 
 /// The STREAM nonce prefix: 24 nonce bytes less the 32-bit counter and the last-segment flag.
 pub const PREFIX_LEN: usize = 19;
@@ -165,6 +176,12 @@ type Prefix = StreamNonce<XChaCha20Poly1305, SegmentStream>;
 
 fn damaged(why: impl Into<String>) -> CryptoError {
     CryptoError::Damaged(why.into())
+}
+
+/// How much to reserve for `len` bytes still to come: at most [`RESERVE_CAP`]; the rest grows with
+/// what is decoded.
+fn reserve(len: u64) -> usize {
+    usize::try_from(len).map_or(RESERVE_CAP, |len| len.min(RESERVE_CAP))
 }
 
 fn le_u16(bytes: &[u8]) -> u16 {
@@ -304,6 +321,12 @@ impl Info {
             || self.segment_count != segment_count(self.stream_len, segment_size)
         {
             return Err(damaged("the segment count does not fit the plaintext size"));
+        }
+        if self.segment_count > MAX_SEGMENTS {
+            return Err(CryptoError::Unsupported(format!(
+                "an object of {} segments (this version reads up to {MAX_SEGMENTS})",
+                self.segment_count
+            )));
         }
         let least = HEADER_LEN as u64
             + self.segment_count * SEGMENT_OVERHEAD
@@ -1212,6 +1235,19 @@ impl OpenObject {
         OpenObject::with_header(source, &header, object_id, &file_key)
     }
 
+    /// [`OpenObject::open`] for an object whose length the caller knows - the index says how many
+    /// bytes it has in the bucket: a header that names another length is refused before the
+    /// tail is read (the tail's size comes from the header, a writer's word).
+    pub fn open_expecting<S: ObjectSource + ?Sized>(
+        source: &S,
+        object_id: &ObjectId,
+        file_key: &FileKey,
+        object_len: u64,
+    ) -> Result<OpenObject, S::Error> {
+        let header = PublicHeader::parse(&source.read_at(0, HEADER_LEN as u64)?)?;
+        OpenObject::with_header_expecting(source, &header, object_id, file_key, Some(object_len))
+    }
+
     /// With the header read already: the commitment, the info, then the tail (one read).
     pub fn with_header<S: ObjectSource + ?Sized>(
         source: &S,
@@ -1219,7 +1255,21 @@ impl OpenObject {
         object_id: &ObjectId,
         file_key: &FileKey,
     ) -> Result<OpenObject, S::Error> {
+        OpenObject::with_header_expecting(source, header, object_id, file_key, None)
+    }
+
+    /// [`OpenObject::with_header`], the object's length checked against `object_len` when known.
+    pub fn with_header_expecting<S: ObjectSource + ?Sized>(
+        source: &S,
+        header: &PublicHeader,
+        object_id: &ObjectId,
+        file_key: &FileKey,
+        object_len: Option<u64>,
+    ) -> Result<OpenObject, S::Error> {
         let (keys, info, transform) = header.open(object_id, file_key)?;
+        if object_len.is_some_and(|len| len != info.object_len) {
+            return Err(damaged("the header names another length than the object has").into());
+        }
         let trailer = trailer_len(info.segment_count);
         // `Info::check` made sure the object holds the trailer and its length.
         let tail_start = info.object_len - LENGTH_FIELD - trailer;
@@ -1339,7 +1389,7 @@ impl OpenObject {
         let last = end / self.segment_size;
         let from = self.offsets[first as usize];
         let sealed = source.read_at(from, self.offsets[last as usize + 1] - from)?;
-        let mut out = Vec::with_capacity(usize::try_from(end - start + 1).unwrap_or(0));
+        let mut out = Vec::with_capacity(reserve(end - start + 1));
         self.decrypt_segments(&sealed, first, last, None, |index, plain| {
             let segment_start = index * self.segment_size;
             let lo = (start.max(segment_start) - segment_start) as usize;
@@ -1361,9 +1411,21 @@ impl OpenObject {
     /// transformed stream, checked against the transform block's BLAKE3 and decoded, never
     /// past the sealed size.
     fn decrypt_body(&self, body: &[u8]) -> Result<Vec<u8>, CryptoError> {
-        let mut stream = Zeroizing::new(Vec::with_capacity(
-            usize::try_from(self.info.stream_len).unwrap_or(0),
-        ));
+        self.decrypt_body_within(body, MAX_WHOLE_PLAINTEXT)
+    }
+
+    /// [`Self::decrypt_body`] for a file of at most `max_plaintext` bytes, checked before a byte
+    /// is reserved or decoded: the sizes are the header's, a writer's word, and a whole object
+    /// is read into memory - a file larger than that is streamed.
+    fn decrypt_body_within(&self, body: &[u8], max_plaintext: u64) -> Result<Vec<u8>, CryptoError> {
+        if self.info.plaintext_size > max_plaintext || self.info.stream_len > max_plaintext {
+            return Err(CryptoError::Unsupported(format!(
+                "a file of {} bytes is larger than this version reads into memory at once \
+                 (it is streamed)",
+                self.info.plaintext_size.max(self.info.stream_len)
+            )));
+        }
+        let mut stream = Zeroizing::new(Vec::with_capacity(reserve(self.info.stream_len)));
         let mut hasher = blake3::Hasher::new();
         self.decrypt_segments(
             body,
@@ -1385,7 +1447,7 @@ impl OpenObject {
             max_decoded_len: self.info.plaintext_size,
             ..Limits::default()
         };
-        let mut out = Vec::with_capacity(usize::try_from(self.info.plaintext_size).unwrap_or(0));
+        let mut out = Vec::with_capacity(reserve(self.info.plaintext_size));
         {
             let _slot = TransformSlot::take();
             transform::inverse(block.id, &mut stream.as_slice(), &mut out, &limits, decode_threads())?;
@@ -1587,7 +1649,7 @@ impl StoredSegments {
         if sealed.len() as u64 != total {
             return Err(damaged("the object is cut short"));
         }
-        let mut out = Zeroizing::new(Vec::with_capacity(usize::try_from(len).unwrap_or(0)));
+        let mut out = Zeroizing::new(Vec::with_capacity(reserve(len)));
         for index in first..=last {
             let (offset, sealed_len) = self.sealed_span(index);
             let from = (offset - base) as usize;
@@ -1612,12 +1674,43 @@ impl StoredSegments {
 /// The plaintext of a whole object in memory, opened with its file key. The object must be
 /// exactly as long as its header says.
 pub fn decrypt(object: &[u8], object_id: &ObjectId, file_key: &FileKey) -> Result<Vec<u8>, CryptoError> {
-    let opened = OpenObject::open(object, object_id, file_key)?;
-    if opened.object_len() != object.len() as u64 {
-        return Err(damaged("the object is longer than its header says"));
+    decrypt_expecting(object, object_id, file_key, None)
+}
+
+/// [`decrypt`] for a file whose size the caller knows - the drive's index says it: a header that
+/// names another size is refused before any segment is opened or any memory reserved for it.
+pub fn decrypt_expecting(
+    object: &[u8],
+    object_id: &ObjectId,
+    file_key: &FileKey,
+    plaintext_size: Option<u64>,
+) -> Result<Vec<u8>, CryptoError> {
+    decrypt_within(
+        object,
+        object_id,
+        file_key,
+        plaintext_size,
+        MAX_WHOLE_PLAINTEXT,
+    )
+}
+
+/// [`decrypt_expecting`] for a file of at most `max_plaintext` bytes.
+fn decrypt_within(
+    object: &[u8],
+    object_id: &ObjectId,
+    file_key: &FileKey,
+    plaintext_size: Option<u64>,
+    max_plaintext: u64,
+) -> Result<Vec<u8>, CryptoError> {
+    // The object must be exactly as long as its header says (checked before the tail is read).
+    let opened = OpenObject::open_expecting(object, object_id, file_key, object.len() as u64)?;
+    if plaintext_size.is_some_and(|size| size != opened.info.plaintext_size) {
+        return Err(damaged(
+            "the header names another file size than the index does",
+        ));
     }
     let tail_start = opened.offsets[opened.offsets.len() - 1] as usize;
-    opened.decrypt_body(&object[HEADER_LEN..tail_start])
+    opened.decrypt_body_within(&object[HEADER_LEN..tail_start], max_plaintext)
 }
 
 /// The plaintext of an object as `io::Read`: one segment in memory at a time (wiped as the
@@ -1698,5 +1791,167 @@ where
         buf[..n].copy_from_slice(&self.current[self.at..self.at + n]);
         self.at += n;
         Ok(n)
+    }
+}
+
+#[cfg(test)]
+mod hostile_headers {
+    //! A writer who holds the file key says what the header says: sizes, segment counts, lengths.
+    //! A reader asks for memory and for bytes of the bucket by them, so they are checked first.
+
+    use std::sync::Mutex;
+
+    use super::*;
+
+    /// An object in memory that notes every read made of it.
+    struct Noting<'a> {
+        bytes: &'a [u8],
+        reads: Mutex<Vec<(u64, u64)>>,
+    }
+
+    impl ObjectSource for Noting<'_> {
+        type Error = CryptoError;
+
+        fn read_at(&self, offset: u64, len: u64) -> Result<Vec<u8>, CryptoError> {
+            self.reads.lock().unwrap().push((offset, len));
+            self.bytes.read_at(offset, len)
+        }
+    }
+
+    impl<'a> Noting<'a> {
+        fn new(bytes: &'a [u8]) -> Noting<'a> {
+            Noting {
+                bytes,
+                reads: Mutex::new(Vec::new()),
+            }
+        }
+
+        /// The largest read made.
+        fn largest(&self) -> u64 {
+            self.reads
+                .lock()
+                .unwrap()
+                .iter()
+                .map(|(_, len)| *len)
+                .max()
+                .unwrap_or(0)
+        }
+    }
+
+    /// A small object, its id and its file key.
+    fn small_object() -> (Vec<u8>, ObjectId, FileKey) {
+        let drive_key = DriveKey::generate().unwrap();
+        let id = ObjectId::generate().unwrap();
+        let text = b"a small file, a few hundred bytes of it. ".repeat(12);
+        let (object, _) = encrypt(&text, id, &drive_key, &WriteOptions::default()).unwrap();
+        let header = PublicHeader::parse(&object).unwrap();
+        let key = drive_key.unwrap_file_key(&header.wrapped_key, &id).unwrap();
+        (object, id, key)
+    }
+
+    /// `object` with its sealed info rewritten by `change`.
+    fn lying(
+        object: &[u8],
+        id: &ObjectId,
+        key: &FileKey,
+        change: impl FnOnce(&mut Info),
+    ) -> Vec<u8> {
+        let header = PublicHeader::parse(object).unwrap();
+        let (keys, mut info, _) = header.open(id, key).unwrap();
+        change(&mut info);
+        let sealed = keys
+            .info
+            .encrypt(
+                XNonce::from_slice(&header.info_nonce),
+                Payload {
+                    msg: &info.to_bytes(),
+                    aad: &header.context,
+                },
+            )
+            .unwrap();
+        let mut out = object.to_vec();
+        out[OFF_INFO..OFF_INFO + sealed.len()].copy_from_slice(&sealed);
+        out
+    }
+
+    /// C3: the trailer has four bytes per segment and is read before anything else is checked; a
+    /// header naming 33 million (or 4 billion) segments made a reader ask the bucket for a
+    /// trailer of 134 MB (17 GB).
+    #[test]
+    fn a_header_naming_more_segments_than_any_object_has_is_refused_before_the_tail_is_read() {
+        let (object, id, key) = small_object();
+        for count in [MAX_SEGMENTS + 1, 1 << 25, u64::from(u32::MAX)] {
+            let forged = lying(&object, &id, &key, |info| {
+                info.segment_count = count;
+                info.plaintext_size = count * u64::from(DEFAULT_SEGMENT_SIZE);
+                info.stream_len = info.plaintext_size;
+                info.object_len = HEADER_LEN as u64
+                    + count * SEGMENT_OVERHEAD
+                    + trailer_len(count)
+                    + LENGTH_FIELD
+                    + 1_000;
+            });
+            let source = Noting::new(&forged);
+            let opened = OpenObject::open(&source, &id, &key);
+            assert!(
+                matches!(opened, Err(CryptoError::Unsupported(_))),
+                "{count} segments: {opened:?}"
+            );
+            assert!(
+                source.largest() <= HEADER_LEN as u64,
+                "{count} segments: a read of {} bytes",
+                source.largest()
+            );
+        }
+        // An honest object still opens, and a legitimately large one (many segments) is allowed.
+        assert!(OpenObject::open(&Noting::new(&object), &id, &key).is_ok());
+    }
+
+    /// C3: with the object's length known - the index says it - a header that names another one
+    /// is refused before the tail is read, whatever it claims.
+    #[test]
+    fn a_header_naming_another_length_than_the_index_is_refused_before_the_tail_is_read() {
+        let (object, id, key) = small_object();
+        let len = object.len() as u64;
+        let source = Noting::new(&object);
+        assert!(OpenObject::open_expecting(&source, &id, &key, len).is_ok());
+        let source = Noting::new(&object);
+        let refused = OpenObject::open_expecting(&source, &id, &key, len + 1);
+        assert!(
+            matches!(refused, Err(CryptoError::Damaged(_))),
+            "{refused:?}"
+        );
+        assert_eq!(
+            *source.reads.lock().unwrap(),
+            vec![(0, HEADER_LEN as u64)],
+            "only the header was read"
+        );
+    }
+
+    /// C3: the sizes the index names are checked before a segment is opened, and a file larger
+    /// than a version reads into memory at once is refused up front (it is streamed).
+    #[test]
+    fn a_whole_object_is_read_only_at_the_size_the_index_names_and_within_the_memory_limit() {
+        let (object, id, key) = small_object();
+        let size = decrypt(&object, &id, &key).unwrap().len() as u64;
+        assert!(decrypt_expecting(&object, &id, &key, Some(size)).is_ok());
+        for wrong in [size - 1, size + 1, 0, u64::MAX] {
+            assert!(
+                matches!(
+                    decrypt_expecting(&object, &id, &key, Some(wrong)),
+                    Err(CryptoError::Damaged(_))
+                ),
+                "{wrong}"
+            );
+        }
+        assert!(decrypt_within(&object, &id, &key, None, size).is_ok());
+        assert!(matches!(
+            decrypt_within(&object, &id, &key, None, size - 1),
+            Err(CryptoError::Unsupported(_))
+        ));
+        // The reader's own caps.
+        assert_eq!(reserve(10), 10);
+        assert_eq!(reserve(u64::MAX), RESERVE_CAP);
+        assert_eq!(reserve(RESERVE_CAP as u64 + 1), RESERVE_CAP);
     }
 }

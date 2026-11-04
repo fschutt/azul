@@ -1594,7 +1594,8 @@ impl<D: Drive> EncryptedDrive<D> {
                 .get(&pack.id.bucket_key())
                 .map_err(|e| read_error(ReadError::Drive(e), first_path))?;
             let body = Zeroizing::new(
-                azl1::decrypt(&bytes, &pack.id, &file_key).map_err(|e| e.for_key(first_path))?,
+                azl1::decrypt_expecting(&bytes, &pack.id, &file_key, Some(pack.plaintext_size))
+                    .map_err(|e| e.for_key(first_path))?,
             );
             report.packs_read += 1;
             report.bytes_before += pack.object_len;

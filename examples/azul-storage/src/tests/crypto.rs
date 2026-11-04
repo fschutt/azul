@@ -462,6 +462,55 @@ fn the_recovery_code_opens_the_recovery_wrap_and_a_wrong_code_does_not() {
     ));
 }
 
+/// C6 (C5 of the crypto review): the cost of a recovery wrap's Argon2id comes from the bucket and
+/// is paid before the code is known to be right. A wrap asking for 4 GiB and 64 passes was
+/// accepted (an abort on a small device, minutes of CPU on a large one, once per recovery file);
+/// now the file is refused where it is read - nothing was derived - unless its memory, its
+/// passes, its lanes and the work of them together are within a few times the default's.
+#[test]
+fn a_recovery_wrap_that_asks_for_more_than_any_wrap_does_is_refused_when_read() {
+    let drive_key = DriveKey::generate().unwrap();
+    let code = RecoveryCode::generate().unwrap();
+    let wrap = RecoveryWrap::seal(&drive_key, DRIVE, &code, cheap()).unwrap();
+    let read = |memory_kib: u32, iterations: u32, parallelism: u32| {
+        let mut asked = wrap.clone();
+        asked.kdf.memory_kib = memory_kib;
+        asked.kdf.iterations = iterations;
+        asked.kdf.parallelism = parallelism;
+        RecoveryWrap::parse(&asked.to_bytes())
+    };
+    // The default cost, and one a user could choose: fine.
+    assert!(read(
+        RecoveryKdf::DEFAULT_MEMORY_KIB,
+        RecoveryKdf::DEFAULT_ITERATIONS,
+        1
+    )
+    .is_ok());
+    assert!(read(1024 * 1024, 4, 1).is_ok(), "1 GiB, 4 passes");
+    assert!(read(512 * 1024, 8, 4).is_ok(), "512 MiB, 8 passes, 4 lanes");
+    // What it used to accept, and each limit on its own.
+    for (memory, passes, lanes, why) in [
+        (4 * 1024 * 1024, 64, 16, "4 GiB, 64 passes, 16 lanes"),
+        (2 * 1024 * 1024, 1, 1, "2 GiB"),
+        (64, 9, 1, "9 passes"),
+        (64, 1, 9, "9 lanes"),
+        (
+            1024 * 1024,
+            5,
+            1,
+            "1 GiB and 5 passes together: more work than any wrap asks",
+        ),
+    ] {
+        assert!(
+            matches!(
+                read(memory, passes, lanes),
+                Err(CryptoError::Unsupported(_))
+            ),
+            "{why}"
+        );
+    }
+}
+
 #[test]
 fn the_recovery_wrap_round_trips_through_its_key_file() {
     let bucket = MemBucket::new();

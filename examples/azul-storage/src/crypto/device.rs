@@ -815,12 +815,30 @@ pub fn recover(
     drive: &str,
     code: &RecoveryCode,
 ) -> Result<DriveKey, DriveError> {
-    // The first code's wrap, then a further code's (a second kit), until one opens.
-    let wrap = load_recovery_wrap(bucket)?;
-    let mut opened = match wrap.open(drive, code) {
-        Ok(drive_key) => Some(drive_key),
-        Err(CryptoError::WrongKey) => None,
-        Err(other) => return Err(other.for_key(RECOVERY_KEY_FILE)),
+    // The first code's wrap, then a further code's (a second kit), until one opens. A wrap that
+    // is missing, damaged or asks for more than any wrap does is no wrap: the others are still
+    // tried (a hostile bucket cannot keep a second kit from opening the drive by spoiling the
+    // first), and what was wrong with the first is said when none opens.
+    let mut first_problem = None;
+    let mut opened = match load_recovery_wrap(bucket) {
+        Ok(wrap) => match wrap.open(drive, code) {
+            Ok(drive_key) => Some(drive_key),
+            Err(CryptoError::WrongKey) => None,
+            Err(CryptoError::Unsupported(why)) => {
+                first_problem = Some(CryptoError::Unsupported(why).for_key(RECOVERY_KEY_FILE));
+                None
+            }
+            Err(other) => return Err(other.for_key(RECOVERY_KEY_FILE)),
+        },
+        Err(
+            e @ (DriveError::NotFound { .. }
+            | DriveError::Corrupt { .. }
+            | DriveError::Unsupported(_)),
+        ) => {
+            first_problem = Some(e);
+            None
+        }
+        Err(e) => return Err(e),
     };
     if opened.is_none() {
         for file in extra_recovery_files(bucket)? {
@@ -829,20 +847,29 @@ pub fn recover(
                 Err(DriveError::NotFound { .. }) => continue,
                 Err(e) => return Err(e),
             };
-            let wrap = RecoveryWrap::parse(&bytes).map_err(|e| e.for_key(&file))?;
+            // A file that holds no usable wrap (damaged, of a cost no wrap has) is left out.
+            let Ok(wrap) = RecoveryWrap::parse(&bytes) else {
+                continue;
+            };
             match wrap.open(drive, code) {
                 Ok(drive_key) => {
                     opened = Some(drive_key);
                     break;
                 }
-                Err(CryptoError::WrongKey) => {}
+                Err(CryptoError::WrongKey | CryptoError::Unsupported(_)) => {}
                 Err(other) => return Err(other.for_key(&file)),
             }
         }
     }
-    let drive_key = opened.ok_or_else(|| DriveError::Denied {
-        message: String::from("the recovery code does not open this drive"),
-    })?;
+    let drive_key = match (opened, first_problem) {
+        (Some(drive_key), _) => drive_key,
+        (None, Some(problem)) => return Err(problem),
+        (None, None) => {
+            return Err(DriveError::Denied {
+                message: String::from("the recovery code does not open this drive"),
+            })
+        }
+    };
     if let Some(named) = committed_drive_key(keyring, drive)? {
         if drive_key.id() != named {
             return Err(refused(
@@ -963,14 +990,24 @@ pub fn other_devices(
 /// first code's is [`RECOVERY_KEY_FILE`]). A key rotation removes them with the other wraps.
 pub const EXTRA_RECOVERY_PREFIX: &str = ".azlin/keys/recovery-";
 
+/// The most further recovery codes a drive holds (a second kit, a third): the recovery tries each
+/// wrap's Argon2id in turn, so the bucket's say on how many there are is bounded.
+pub const MAX_EXTRA_RECOVERY_CODES: usize = 8;
+
 /// One more recovery code of a drive this device holds the key of, sealed like the first in a
-/// wrap of its own; its file and the code (for its sheet: stored nowhere).
+/// wrap of its own; its file and the code (for its sheet: stored nowhere). A drive holds at
+/// most [`MAX_EXTRA_RECOVERY_CODES`] of them.
 pub fn add_recovery_code(
     bucket: &dyn Drive,
     keyring: &dyn KeyringStore,
     drive: &str,
     kdf: RecoveryKdf,
 ) -> Result<(String, RecoveryCode), DriveError> {
+    if extra_recovery_files(bucket)?.len() >= MAX_EXTRA_RECOVERY_CODES {
+        return Err(DriveError::Unsupported(format!(
+            "a drive holds at most {MAX_EXTRA_RECOVERY_CODES} further recovery codes: remove one first"
+        )));
+    }
     let drive_key = load_drive_key(keyring, drive)?.ok_or_else(|| DriveError::Locked {
         drive: drive.to_string(),
     })?;
@@ -1001,12 +1038,34 @@ pub fn remove_recovery_code(bucket: &dyn Drive, file: &str) -> Result<(), DriveE
     }
 }
 
-/// The key files of the drive's further recovery codes.
+/// The key files of the drive's further recovery codes: the first [`MAX_EXTRA_RECOVERY_CODES`]
+/// by name, found in a bounded number of listing pages (a bucket that lists endless names under
+/// the prefix does not keep this reading for ever).
 fn extra_recovery_files(bucket: &dyn Drive) -> Result<Vec<String>, DriveError> {
-    Ok(crate::ops::list_all(bucket, EXTRA_RECOVERY_PREFIX)?
-        .into_iter()
-        .map(|object| object.key)
-        .filter(|key| key.ends_with(".key"))
-        .collect())
+    const MAX_PAGES: usize = 16;
+    let mut found = Vec::new();
+    let mut request = ListRequest::recursive(EXTRA_RECOVERY_PREFIX);
+    for _ in 0..MAX_PAGES {
+        let page = bucket.list(&request)?;
+        for object in page.objects {
+            let named = object
+                .key
+                .strip_prefix(EXTRA_RECOVERY_PREFIX)
+                .and_then(|rest| rest.strip_suffix(".key"))
+                .is_some_and(|id| !id.is_empty() && id.bytes().all(|b| b.is_ascii_hexdigit()));
+            if named {
+                found.push(object.key);
+            }
+        }
+        match page.next {
+            Some(next) if found.len() < MAX_EXTRA_RECOVERY_CODES => {
+                request.continuation = Some(next)
+            }
+            _ => break,
+        }
+    }
+    found.sort();
+    found.truncate(MAX_EXTRA_RECOVERY_CODES);
+    Ok(found)
 }
 

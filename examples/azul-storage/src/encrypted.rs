@@ -1011,6 +1011,12 @@ pub fn read_shared(
         .unwrap_file_key(&file.wrapped_key, &file.object)
         .map_err(|e| e.for_key(&key))?;
     let bytes = bucket.get(&key)?;
+    if bytes.len() as u64 != file.stored_size {
+        return Err(DriveError::Corrupt {
+            key,
+            reason: String::from("the object is not the size the share names"),
+        });
+    }
     azl1::decrypt(&bytes, &file.object, &file_key).map_err(|e| e.for_key(&key))
 }
 
@@ -1182,7 +1188,9 @@ impl<D: Drive> EncryptedDrive<D> {
             .unwrap_file_key(&object.wrapped_key, &object.id)
             .map_err(|e| e.for_key(path))?;
         let source = DriveObject::new(&self.inner, &object.id);
-        let open = OpenObject::open(&source, &object.id, &file_key)
+        // The header's length against the index's before the tail is read: the tail's size is
+        // the header's word.
+        let open = OpenObject::open_expecting(&source, &object.id, &file_key, object.stored_size)
             .map_err(|e| read_error(e, path))?;
         let same_hash = blake3::Hash::from_bytes(open.blake3()) == object.blake3;
         if open.object_len() != object.stored_size || !same_hash {
@@ -1213,7 +1221,7 @@ impl<D: Drive> EncryptedDrive<D> {
             .unwrap_file_key(&object.wrapped_key, &object.id)
             .map_err(|e| e.for_key(path))?;
         let source = DriveObject::new(&self.inner, &object.id);
-        let open = OpenObject::open(&source, &object.id, &file_key)
+        let open = OpenObject::open_expecting(&source, &object.id, &file_key, object.stored_size)
             .map_err(|e| read_error(e, path))?;
         Ok(open.into_reader(source))
     }
@@ -2017,7 +2025,16 @@ impl<D: Drive> Drive for EncryptedDrive<D> {
             .inner
             .get(&object.id.bucket_key())
             .map_err(|e| read_error(ReadError::Drive(e), key))?;
-        let plain = azl1::decrypt(&bytes, &object.id, &file_key).map_err(|e| e.for_key(key))?;
+        // The index's sizes against the object's before a segment is opened or any memory is
+        // reserved for the plaintext: the header's sizes are a writer's word.
+        if bytes.len() as u64 != object.stored_size {
+            return Err(DriveError::Corrupt {
+                key: key.to_string(),
+                reason: String::from("the object is not the size the index names"),
+            });
+        }
+        let plain = azl1::decrypt_expecting(&bytes, &object.id, &file_key, Some(entry.size))
+            .map_err(|e| e.for_key(key))?;
         if blake3::hash(&plain) != object.blake3 {
             return Err(DriveError::Corrupt {
                 key: key.to_string(),

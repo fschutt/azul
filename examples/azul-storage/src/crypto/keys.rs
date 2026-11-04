@@ -532,10 +532,16 @@ impl RecoveryKdf {
     pub const DEFAULT_ITERATIONS: u32 = 3;
     pub const DEFAULT_PARALLELISM: u32 = 1;
     /// The most a key file may ask for (a file asking for more is refused rather than
-    /// exhausting the machine).
-    pub const MAX_MEMORY_KIB: u32 = 4 * 1024 * 1024;
-    pub const MAX_ITERATIONS: u32 = 64;
-    pub const MAX_PARALLELISM: u32 = 16;
+    /// exhausting the machine). The cost comes from the bucket - whoever can write to it can
+    /// name any - and is paid before the code is known to be right, once per recovery file, so
+    /// the maxima are a few times the default's: 1 GiB, 8 passes, 8 lanes, and no more than
+    /// 4 GiB-passes of work together (a request of 4 GiB and 64 passes used to be accepted: an
+    /// abort on a small device, minutes of CPU on a large one).
+    pub const MAX_MEMORY_KIB: u32 = 1024 * 1024;
+    pub const MAX_ITERATIONS: u32 = 8;
+    pub const MAX_PARALLELISM: u32 = 8;
+    /// The most work a key file may ask for: KiB of memory times passes (4 GiB-passes).
+    pub const MAX_WORK: u64 = 4 * 1024 * 1024;
 
     /// The default cost with a fresh random salt.
     pub fn fresh() -> Result<RecoveryKdf, CryptoError> {
@@ -570,7 +576,8 @@ impl RecoveryKdf {
         let passes = (1..=RecoveryKdf::MAX_ITERATIONS).contains(&self.iterations);
         let memory = self.memory_kib <= RecoveryKdf::MAX_MEMORY_KIB
             && u64::from(self.memory_kib) >= 8 * u64::from(self.parallelism.max(1));
-        if lanes && passes && memory {
+        let work = u64::from(self.memory_kib) * u64::from(self.iterations) <= RecoveryKdf::MAX_WORK;
+        if lanes && passes && memory && work {
             Ok(())
         } else {
             Err(CryptoError::Unsupported(format!(

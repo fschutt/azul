@@ -97,6 +97,56 @@ fn files_of_every_size_round_trip_through_the_drive() {
     assert!(shown.contains(&(String::from("Compressed"), String::from("Yes"))));
 }
 
+/// C3: a file is read at the size the index names. An object whose header names another size - a
+/// writer who holds the file key can say any - used to be decrypted whole (its plaintext reserved
+/// at the header's size) before anything compared it with the index; one that happened to carry
+/// the index's hash was returned as the file.
+#[test]
+fn a_file_whose_object_names_another_size_than_the_index_is_refused_not_returned() {
+    let drive = new_drive();
+    drive.put("a.txt", b"ten bytes!").unwrap();
+    drive.put("b.txt", &noise(5000)).unwrap();
+    // The index of a.txt now names b's object (its key, its hash, its length) - and a size of 10.
+    let mut entry = drive.entry("b.txt").unwrap();
+    entry.size = 10;
+    drive
+        .index()
+        .apply(vec![crate::encrypted::IndexChange::Put {
+            path: String::from("a.txt"),
+            entry,
+            expect: crate::encrypted::Expect::Any,
+        }])
+        .unwrap();
+    match drive.get("a.txt") {
+        Err(DriveError::Corrupt { .. }) => {}
+        Ok(bytes) => panic!(
+            "a file the index calls 10 bytes came back with {} bytes",
+            bytes.len()
+        ),
+        Err(other) => panic!("{other:?}"),
+    }
+    // The segment reader refuses the length the index does not name just as well.
+    let object = drive.entry("a.txt").unwrap().object.unwrap();
+    let mut wrong = object.clone();
+    wrong.stored_size += 1;
+    let mut entry = drive.entry("a.txt").unwrap();
+    entry.object = Some(wrong);
+    drive
+        .index()
+        .apply(vec![crate::encrypted::IndexChange::Put {
+            path: String::from("c.txt"),
+            entry,
+            expect: crate::encrypted::Expect::Any,
+        }])
+        .unwrap();
+    assert!(drive.open_reader("c.txt").is_err());
+    assert_eq!(
+        drive.get("b.txt").unwrap().len(),
+        5000,
+        "the honest file reads as it did"
+    );
+}
+
 /// A file's details name the BLAKE3 of its plaintext ([`crate::CONTENT_HASH_METADATA`]), as the
 /// index keeps it: a sync compares it with a file on this device without downloading.
 #[test]
