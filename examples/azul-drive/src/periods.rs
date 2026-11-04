@@ -150,6 +150,7 @@ pub(crate) fn azlin_drive(
             DriveAuth::Azlin {
                 drive_id,
                 account_url,
+                ..
             },
         ..
     } = &entry.location

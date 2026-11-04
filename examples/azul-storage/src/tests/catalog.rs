@@ -346,6 +346,8 @@ fn a_drive_reads_as_the_kind_of_source_it_is() {
         catalog::kind_label(&entry(s3(DriveAuth::Azlin {
             drive_id: "d_1".to_string(),
             account_url: String::new(),
+            encrypted: false,
+            key_id: None,
         }))),
         "Azlin cloud drive"
     );

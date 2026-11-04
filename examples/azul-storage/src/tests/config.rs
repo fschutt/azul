@@ -4,7 +4,7 @@ use super::TempDir;
 use crate::{
     config::{
         drives_file, keyring_key, new_drive_id, DatabaseEngine, DriveAuth, DriveEntry,
-        DriveLocation, DrivesFile, SecretOptions,
+        DriveLocation, DrivesFile, EncryptionRecord, SecretOptions,
     },
     Credentials, Drive, DriveError, HttpCall, HttpReply, ListRequest, Transport,
 };
@@ -238,6 +238,8 @@ fn an_azlin_drive_of_the_token_servers_bundle_reads_and_round_trips() {
                 &DriveAuth::Azlin {
                     drive_id: "d_k3f9".to_string(),
                     account_url: "http://127.0.0.1:8081".to_string(),
+                    encrypted: false,
+                    key_id: None,
                 }
             );
         }
@@ -263,6 +265,84 @@ fn an_azlin_drive_without_its_token_servers_address_still_reads() {
         } => assert_eq!(account_url, ""),
         other => panic!("not an Azlin drive: {other:?}"),
     }
+}
+
+/// C1: what a device found out about an Azlin drive's encryption is written into the drives file
+/// (the storage's listing is the least trusted word on it), read back, and absent from the file of
+/// an install from before - which still reads.
+#[test]
+fn an_azlin_drive_records_that_this_device_found_it_encrypted() {
+    let mut file = DrivesFile::parse(NEWER_FILE).unwrap();
+    let entry = file.drives.iter_mut().find(|d| d.id == "d_k3f9").unwrap();
+    // From before the record: nothing written down.
+    assert_eq!(entry.encryption_record(), Some(EncryptionRecord::default()));
+    assert!(
+        !file.to_json().contains("encrypted") && !file.to_json().contains("key_id"),
+        "an unrecorded drive writes no record"
+    );
+    let entry = file.drives.iter_mut().find(|d| d.id == "d_k3f9").unwrap();
+    let key = "00112233445566778899aabbccddeeff";
+    assert!(entry.record_encryption(key), "changed");
+    assert!(
+        !entry.record_encryption(key),
+        "the same again changes nothing"
+    );
+    assert_eq!(
+        entry.encryption_record(),
+        Some(EncryptionRecord {
+            encrypted: true,
+            key_id: Some(key.to_string()),
+        })
+    );
+    let back = DrivesFile::parse(&file.to_json()).unwrap();
+    assert_eq!(back, file);
+    assert_eq!(
+        back.get("d_k3f9")
+            .unwrap()
+            .encryption_record()
+            .unwrap()
+            .key_id
+            .as_deref(),
+        Some(key)
+    );
+    // A new key id (a rotation) is written too.
+    let mut back = back;
+    let entry = back.drives.iter_mut().find(|d| d.id == "d_k3f9").unwrap();
+    assert!(entry.record_encryption("ffeeddccbbaa99887766554433221100"));
+    // Only an Azlin drive has a record.
+    let nas = back.drives.iter_mut().find(|d| d.id == "nas-1").unwrap();
+    assert_eq!(nas.encryption_record(), None);
+    assert!(!nas.record_encryption(key));
+}
+
+#[test]
+fn the_record_is_written_into_the_drives_file_on_disk_once() {
+    let dir = TempDir::new("drives-record");
+    let path = dir.path().join("drives.json");
+    std::fs::write(&path, NEWER_FILE).unwrap();
+    let key = "00112233445566778899aabbccddeeff";
+    assert!(DrivesFile::record_encryption(&path, "d_k3f9", key).unwrap());
+    assert!(
+        !DrivesFile::record_encryption(&path, "d_k3f9", key).unwrap(),
+        "nothing to write the second time"
+    );
+    assert!(
+        !DrivesFile::record_encryption(&path, "not-there", key).unwrap(),
+        "a drive that is not in the file"
+    );
+    assert!(
+        !DrivesFile::record_encryption(&path, "nas-1", key).unwrap(),
+        "no Azlin drive"
+    );
+    let file = DrivesFile::load(&path).unwrap();
+    let record = file.get("d_k3f9").unwrap().encryption_record().unwrap();
+    assert!(record.encrypted);
+    assert_eq!(record.key_id.as_deref(), Some(key));
+    // The other drives are as they were.
+    assert_eq!(
+        file.drives.len(),
+        DrivesFile::parse(NEWER_FILE).unwrap().drives.len()
+    );
 }
 
 #[test]

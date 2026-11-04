@@ -68,7 +68,8 @@ use azul_storage::{
         keys::{load_recovery_wrap, store_recovery_wrap, RecoveryCode, RecoveryKdf, RecoveryWrap},
         random_bytes, CryptoError, KeyId, Zeroizing,
     },
-    encrypted::{open_encrypted, AutoEncrypted, IndexProvider},
+    config::EncryptionRecord,
+    encrypted::{open_encrypted, AutoEncrypted, IndexProvider, Recorded},
     packing::{pack_reads, PackUpkeep},
     keyring::KeyringStore,
     meta::{merge::keep_both, DriveBucket, Maintained, Maintenance, MetaIndexProvider, MetaRepo},
@@ -164,15 +165,46 @@ pub(crate) fn objects_dir(root: Option<PathBuf>, drive: &str) -> Option<PathBuf>
         .map(|dir| dir.join("objects"))
 }
 
-/// An Azlin drive's bucket as the drive the app uses: decided plain or encrypted on its first
-/// call.
-pub(crate) fn wrap(drive_id: &str, bucket: Arc<dyn Drive>) -> Arc<AutoEncrypted> {
-    Arc::new(AutoEncrypted::new(
-        bucket,
-        drive_id,
-        Arc::new(AzulKeyring::new(KeyringNamespace::azlin_shared())),
-        index_provider(),
-    ))
+/// An Azlin drive's bucket as the drive the app uses: encrypted, always - opened on its first
+/// call with this computer's key, locked without it, and (while it has no key and no file) set
+/// up at once; never a plain drive that takes files, whatever its bucket lists. `record` is what
+/// the drives file says of it (`slot` is the drive's id there): a drive recorded as encrypted is
+/// locked without its key, and every time the drive opens encrypted, the id of its key goes to
+/// `records`, for the UI thread to write into the drives file ([`crate::take_key_records`]).
+pub(crate) fn wrap(
+    drive_id: &str,
+    bucket: Arc<dyn Drive>,
+    record: EncryptionRecord,
+    slot: &str,
+    records: &crate::KeyRecords,
+) -> Arc<AutoEncrypted> {
+    let queue = records.clone();
+    let slot = slot.to_string();
+    Arc::new(
+        AutoEncrypted::new(
+            bucket,
+            drive_id,
+            Arc::new(AzulKeyring::new(KeyringNamespace::azlin_shared())),
+            index_provider(),
+        )
+        .with_record(recorded(&record))
+        .on_encrypted(Arc::new(move |key: &KeyId| {
+            if let Ok(mut queue) = queue.lock() {
+                queue.push(crate::KeyRecord {
+                    drive_id: slot.clone(),
+                    key_id: key.to_hex(),
+                });
+            }
+        })),
+    )
+}
+
+/// What the drives file says of a drive's encryption, as azul-storage's `AutoEncrypted` takes it.
+fn recorded(record: &EncryptionRecord) -> Recorded {
+    Recorded {
+        encrypted: record.encrypted,
+        key_id: record.key_id.as_deref().and_then(KeyId::from_hex),
+    }
 }
 
 /// Whether the encryption flows are offered (an index provider is in this build).
@@ -3354,6 +3386,8 @@ mod tests {
                 auth: DriveAuth::Azlin {
                     drive_id: String::from("d_new"),
                     account_url: String::new(),
+                    encrypted: false,
+                    key_id: None,
                 },
             },
         };

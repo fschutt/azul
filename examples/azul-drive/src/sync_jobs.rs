@@ -207,6 +207,17 @@ impl SyncWork {
                         }
                     }
                 }
+                // An Azlin drive is encrypted, always: one that is not (new, made before the
+                // encryption, a bucket that hides its key files) takes no file, so no plain
+                // session may start on it - its pass fails with the drive's own answer.
+                if let Some(refusal) = auto.unencrypted_refusal() {
+                    return SyncSession::plain(
+                        self.setup.clone(),
+                        self.dir.clone(),
+                        &device,
+                        Arc::new(Unopened(refusal)),
+                    );
+                }
                 if auto.is_encrypted() == Some(true) {
                     let encrypted = self.setup.local_copies
                         == azcloud_kit::sync::session::LocalCopies::Encrypted;

@@ -312,6 +312,8 @@ fn a_drive_without_a_token_server_is_a_configuration_error() {
         *auth = azul_storage::config::DriveAuth::Azlin {
             drive_id: "d_1".to_string(),
             account_url: String::new(),
+            encrypted: false,
+            key_id: None,
         };
     }
     assert!(matches!(

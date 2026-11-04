@@ -38,6 +38,8 @@ fn a_bundle_is_a_drives_file_entry_under_the_users_name_without_a_secret() {
                 &DriveAuth::Azlin {
                     drive_id: "d_1".to_string(),
                     account_url: TOKEN.to_string(),
+                    encrypted: false,
+                    key_id: None,
                 }
             );
         }

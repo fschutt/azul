@@ -297,20 +297,34 @@ pub fn open_encrypted(
     })
 }
 
-/// A drive's bucket that may hold an encrypted drive, for an app that opens drives on its UI
-/// thread and calls them on worker threads: the FIRST call (on a worker thread) decides. The
-/// drive is encrypted when this device keeps its key (sticky: a bucket that hides its key files
-/// cannot turn this device back to plaintext) or the bucket holds key files; it is then used
-/// through [`open_encrypted`] (the index from `provider`; without one it is refused - this
-/// build cannot name its files), else as the plain bucket. A failed decision is tried again on
-/// the next call. A drive encrypted by another device while this one is open stays plain here
-/// until it is opened again.
+/// An Azlin drive's bucket, for an app that opens drives on its UI thread and calls them on
+/// worker threads: the FIRST call (on a worker thread) opens it. An Azlin drive is encrypted,
+/// always: it is used through [`open_encrypted`] (the index from `provider`; without one it is
+/// refused - this build cannot name its files), and it is never taken for a plain one because
+/// of what its bucket lists. The bucket is the least trusted word there is (a storage that is
+/// not the user's, a man in the middle): it can hide the key files it holds and show any object.
+/// So only the device's own words decide that the drive is encrypted:
 ///
-/// "We always encrypt": a plain bucket that holds no files yet is a NEW drive whose encryption
-/// was not set up (it failed, or the app was closed first). It reads as an empty drive and
-/// refuses every write that would put plaintext into it, until it is encrypted ("Encrypt this
-/// drive", then [`AutoEncrypted::reopen`]). A plain drive with files - one made before
-/// encryption - keeps working as it is, and offers the encryption.
+/// - the drive key in this device's keyring (sticky: a bucket that hides its key files cannot
+///   turn this device back to plaintext), and
+/// - the record of the drives file ([`AutoEncrypted::with_record`]): this device found the
+///   drive encrypted before, and wrote it down - the key may be gone from the keyring since
+///   (a reinstall, a wiped keychain), and the drive is locked then, not plain.
+///
+/// A keyring that cannot be read (a declined prompt, no keyring on the system, a failure) is no
+/// answer: the call fails with the keyring's own error, nothing is decided, and the next call
+/// asks again. Never "no key, so the bucket decides".
+///
+/// A bucket that lists key files is an encrypted drive this device holds no key for: it is
+/// locked (`DriveError::Locked`) until the device joins with a code or unlocks with the
+/// recovery code. A device that knows neither a key, nor a record, nor key files in the bucket
+/// meets a drive that was not encrypted yet - a new one, or one made before encryption - and
+/// the bucket's listing cannot tell it from a hostile one that hides its key files: so it
+/// takes no file. It reads as the bucket lists it and refuses every write that would put
+/// plaintext into it, until it is encrypted ("Encrypt this drive", then
+/// [`AutoEncrypted::reopen`]). A new drive (no file in its bucket) is also set up by the app at
+/// once ([`AutoEncrypted::needs_encryption`]); one with files (made before encryption) waits for
+/// the user's word: encrypting it moves its files into the encryption.
 pub struct AutoEncrypted {
     bucket: Arc<dyn Drive>,
     drive: String,
@@ -321,10 +335,25 @@ pub struct AutoEncrypted {
     /// What `opened` decided, for the question that must not wait for it ([`Self::is_encrypted`]):
     /// the first call decides while it holds `opened`, and deciding reads the bucket.
     decided: AtomicU8,
+    /// What this device wrote down of the drive (the drives file): whether it found it
+    /// encrypted, and the id of its key then.
+    record: Mutex<Recorded>,
+    /// Told the id of the drive key whenever the drive opens encrypted, to write down.
+    on_encrypted: Option<Arc<dyn Fn(&KeyId) + Send + Sync>>,
 }
 
-/// [`AutoEncrypted::decided`]: no call decided yet, a plain bucket with files, an encrypted
-/// drive, a plain bucket without files (a new drive waiting for its encryption).
+/// What a device wrote down of a drive's encryption ([`AutoEncrypted::with_record`]).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Recorded {
+    /// The device found the drive encrypted: it is never taken for a plain one.
+    pub encrypted: bool,
+    /// The id of the drive key it held then.
+    pub key_id: Option<KeyId>,
+}
+
+/// [`AutoEncrypted::decided`]: no call decided yet, a bucket with files and no key (made before
+/// encryption, or a hostile one: it takes no file), an encrypted drive, a bucket without files
+/// and without a key (a new drive waiting for its encryption).
 const UNDECIDED: u8 = 0;
 const PLAIN: u8 = 1;
 const ENCRYPTED: u8 = 2;
@@ -356,7 +385,34 @@ impl AutoEncrypted {
             provider,
             opened: NetworkLock::new(None),
             decided: AtomicU8::new(UNDECIDED),
+            record: Mutex::new(Recorded::default()),
+            on_encrypted: None,
         }
+    }
+
+    /// The drive as this device wrote it down (the drives file): `encrypted` when it found the
+    /// drive encrypted before, `key_id` the id of the drive key it held then. A drive recorded
+    /// as encrypted is locked without its key, never plain, whatever its bucket lists.
+    #[must_use]
+    pub fn with_record(self, record: Recorded) -> AutoEncrypted {
+        *lock(&self.record) = record;
+        self
+    }
+
+    /// `tell` gets the id of the drive key whenever the drive opens encrypted (on the worker
+    /// thread that made the call, with no lock held): the app writes it down, so the drive
+    /// opens as an encrypted one for good ([`Self::with_record`]). It must not call the drive.
+    #[must_use]
+    pub fn on_encrypted(mut self, tell: Arc<dyn Fn(&KeyId) + Send + Sync>) -> AutoEncrypted {
+        self.on_encrypted = Some(tell);
+        self
+    }
+
+    /// What this device has written down of the drive so far ([`Self::with_record`]); a drive
+    /// that opened encrypted is recorded as encrypted from then on.
+    #[must_use]
+    pub fn recorded(&self) -> Recorded {
+        *lock(&self.record)
     }
 
     /// The plain bucket, below any encryption (the keys live there).
@@ -400,20 +456,39 @@ impl AutoEncrypted {
         self.decided.load(Ordering::SeqCst) == NEW_PLAIN
     }
 
-    /// The drive a write goes to: refused while the drive is new and plain, so no plaintext
-    /// file ever reaches a new Azlin drive.
-    fn writable(&self) -> Result<Arc<dyn Drive>, DriveError> {
-        let drive = self.resolved()?;
-        if self.needs_encryption() {
-            return Err(DriveError::Denied {
+    /// Why the drive takes no file, once a call found it not encrypted (new, made before
+    /// encryption, or a bucket that hides its key files): what every write answers, and what a
+    /// sync that would send files into it stops with. `None` for an encrypted drive, and one no
+    /// call decided yet.
+    #[must_use]
+    pub fn unencrypted_refusal(&self) -> Option<DriveError> {
+        match self.decided.load(Ordering::SeqCst) {
+            NEW_PLAIN => Some(DriveError::Denied {
                 message: format!(
                     "\"{}\" is a new drive that is not encrypted yet; it takes files once it is \
                      (Encrypt this drive)",
                     self.drive
                 ),
-            });
+            }),
+            PLAIN => Some(DriveError::Denied {
+                message: format!(
+                    "\"{}\" is not encrypted, and an Azlin drive takes files only once it is \
+                     (Encrypt this drive)",
+                    self.drive
+                ),
+            }),
+            _ => None,
         }
-        Ok(drive)
+    }
+
+    /// The drive a write goes to: refused while the drive is not encrypted
+    /// ([`Self::unencrypted_refusal`]), so no plaintext file ever reaches an Azlin drive.
+    fn writable(&self) -> Result<Arc<dyn Drive>, DriveError> {
+        let drive = self.resolved()?;
+        match self.unencrypted_refusal() {
+            Some(refusal) => Err(refusal),
+            None => Ok(drive),
+        }
     }
 
     /// The drive every call goes to: decided on the first call.
@@ -422,13 +497,16 @@ impl AutoEncrypted {
         if let Some(drive) = opened.as_ref() {
             return Ok(Arc::clone(drive));
         }
-        // A keyring that cannot be read (no keyring on this system, a declined prompt) leaves
-        // the bucket's word; an encrypted drive asks the keyring again for its key.
-        let kept = device::load_drive_key(self.keyring.as_ref(), &self.drive)
-            .unwrap_or(None)
-            .is_some();
-        let encrypted = kept || device::is_encrypted(self.bucket.as_ref())?;
+        // The device's own words first. A keyring that cannot be read (a declined prompt, no
+        // keyring on this system, a failure) answers nothing: the error stands, nothing is
+        // decided, the next call asks again - "no key" is only what an intact keyring says.
+        let kept = device::load_drive_key(self.keyring.as_ref(), &self.drive)?.is_some();
+        // The bucket's listing is the least trusted word: it can add to the device's (key files
+        // it lists make the drive encrypted and locked) and never take from it.
+        let encrypted =
+            kept || self.recorded().encrypted || device::is_encrypted(self.bucket.as_ref())?;
         let fresh = !encrypted && !holds_plaintext_files(self.bucket.as_ref())?;
+        let mut key_id = None;
         let drive: Arc<dyn Drive> = if encrypted {
             let Some(provider) = &self.provider else {
                 return Err(DriveError::Unsupported(String::from(
@@ -436,12 +514,14 @@ impl AutoEncrypted {
                      open encrypted drives with",
                 )));
             };
-            Arc::new(open_encrypted(
+            let encrypted = open_encrypted(
                 Arc::clone(&self.bucket),
                 self.keyring.as_ref(),
                 &self.drive,
                 provider.as_ref(),
-            )?)
+            )?;
+            key_id = Some(encrypted.drive_key_id());
+            Arc::new(encrypted)
         } else {
             Arc::clone(&self.bucket)
         };
@@ -452,6 +532,17 @@ impl AutoEncrypted {
             (false, false) => PLAIN,
         };
         self.decided.store(decided, Ordering::SeqCst);
+        // Without the lock: the app's note of it must not hold the next call up.
+        drop(opened);
+        if let Some(id) = key_id {
+            *lock(&self.record) = Recorded {
+                encrypted: true,
+                key_id: Some(id),
+            };
+            if let Some(tell) = &self.on_encrypted {
+                tell(&id);
+            }
+        }
         Ok(drive)
     }
 }

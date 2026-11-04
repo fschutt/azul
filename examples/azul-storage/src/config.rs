@@ -70,7 +70,27 @@ pub enum DriveAuth {
         drive_id: String,
         #[serde(default)]
         account_url: String,
+        /// This device found the drive encrypted - it kept the drive's key, or set it up - and
+        /// wrote that down: from then on the drive is never opened as a plain one, whatever its
+        /// bucket's listing says (the listing is the storage's word, the key and this record
+        /// are the device's own: [`crate::encrypted::AutoEncrypted`]). An entry from before
+        /// this record has none until the drive opens encrypted once.
+        #[serde(default, skip_serializing_if = "is_false")]
+        encrypted: bool,
+        /// The id (32 hex digits) of the drive key this device held when it last opened the
+        /// drive: a fingerprint of the key, never the key.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        key_id: Option<String>,
     },
+}
+
+/// What the drives file says of an Azlin drive's encryption ([`DriveEntry::encryption_record`]).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct EncryptionRecord {
+    /// This device found the drive encrypted.
+    pub encrypted: bool,
+    /// The id of the drive key it held then.
+    pub key_id: Option<String>,
 }
 
 /// The database engines a [`DriveLocation::Database`] can be.
@@ -421,11 +441,50 @@ impl DriveEntry {
                     DriveAuth::Azlin {
                         drive_id,
                         account_url,
+                        ..
                     },
                 ..
             } => Some((drive_id.as_str(), account_url.as_str())),
             _ => None,
         }
+    }
+
+    /// What this device wrote down of an Azlin drive's encryption; `None` for every other
+    /// drive (only an Azlin drive is encrypted by the apps, always).
+    #[must_use]
+    pub fn encryption_record(&self) -> Option<EncryptionRecord> {
+        match &self.location {
+            DriveLocation::S3 {
+                auth: DriveAuth::Azlin {
+                    encrypted, key_id, ..
+                },
+                ..
+            } => Some(EncryptionRecord {
+                encrypted: *encrypted,
+                key_id: key_id.clone(),
+            }),
+            _ => None,
+        }
+    }
+
+    /// Writes down that this device found the Azlin drive encrypted, with the id of its drive
+    /// key. Whether the entry changed; `false` as well for a drive that is no Azlin drive.
+    pub fn record_encryption(&mut self, key: &str) -> bool {
+        let DriveLocation::S3 {
+            auth: DriveAuth::Azlin {
+                encrypted, key_id, ..
+            },
+            ..
+        } = &mut self.location
+        else {
+            return false;
+        };
+        if *encrypted && key_id.as_deref() == Some(key) {
+            return false;
+        }
+        *encrypted = true;
+        *key_id = Some(key.to_string());
+        true
     }
 }
 
@@ -504,6 +563,21 @@ impl DrivesFile {
     pub fn remove(&mut self, id: &str) -> Option<DriveEntry> {
         let index = self.drives.iter().position(|d| d.id == id)?;
         Some(self.drives.remove(index))
+    }
+
+    /// Writes down in the file at `path` that this device found the Azlin drive `id` encrypted,
+    /// with the id of its drive key ([`DriveEntry::record_encryption`]). Whether the file
+    /// changed: not when the drive is not in it, is no Azlin drive, or says so already.
+    pub fn record_encryption(path: &Path, id: &str, key: &str) -> Result<bool, DriveError> {
+        let mut file = Self::load(path)?;
+        let Some(entry) = file.drives.iter_mut().find(|d| d.id == id) else {
+            return Ok(false);
+        };
+        if !entry.record_encryption(key) {
+            return Ok(false);
+        }
+        file.save(path)?;
+        Ok(true)
     }
 
     #[must_use]

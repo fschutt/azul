@@ -462,6 +462,19 @@ pub(crate) struct Rotated {
 /// The sessions Azlin drives switched to on worker threads, for the UI thread.
 pub(crate) type RotatedSessions = Arc<std::sync::Mutex<Vec<Rotated>>>;
 
+/// An Azlin drive that opened encrypted on a worker thread, with the id of its drive key: the UI
+/// thread writes it into the drives file (`take_key_records`), so the drive never opens as a
+/// plain one again, whatever its bucket lists.
+pub(crate) struct KeyRecord {
+    /// The slot's drive id.
+    pub drive_id: String,
+    /// The drive key's id (32 hex digits): a fingerprint, never the key.
+    pub key_id: String,
+}
+
+/// The drives that opened encrypted on worker threads, for the UI thread.
+pub(crate) type KeyRecords = Arc<std::sync::Mutex<Vec<KeyRecord>>>;
+
 /// A drive.
 pub(crate) struct Slot {
     pub entry: DriveEntry,
@@ -512,12 +525,22 @@ impl Slot {
     pub fn open(
         &mut self,
         rotated: &RotatedSessions,
+        records: &KeyRecords,
         token_url: Option<&str>,
         relay: Option<&str>,
         keyring: &azcloud_kit::SharedKeyring,
     ) -> Result<Arc<dyn Drive>, DriveError> {
         if let Some(drive) = &self.drive {
             return Ok(drive.clone());
+        }
+        // An Azlin drive is encrypted, always: a build that cannot open encrypted drives refuses
+        // it here, at the opening, and never shows or fills its bucket as a plain one.
+        if self.entry.azlin().is_some() && cfg!(not(feature = "encryption")) {
+            return Err(DriveError::Unsupported(format!(
+                "\"{}\" is an Azlin drive, which is always encrypted, and this build of AzDrive \
+                 was made without the encryption",
+                self.entry.name
+            )));
         }
         let drive: Arc<dyn Drive> = if self.entry.azlin().is_some() {
             let secret = self
@@ -590,7 +613,13 @@ impl Slot {
                         }
                         None => azlin,
                     };
-                let auto = crate::encryption::wrap(&drive_id, azlin);
+                let auto = crate::encryption::wrap(
+                    &drive_id,
+                    azlin,
+                    self.entry.encryption_record().unwrap_or_default(),
+                    &self.entry.id,
+                    records,
+                );
                 self.auto = Some(auto.clone());
                 auto
             };
@@ -1221,6 +1250,8 @@ pub(crate) struct DriveState {
     pub token: azcloud_kit::TokenEndpoint,
     /// The sessions Azlin drives switched to on worker threads, for the slots' secrets.
     pub rotated: RotatedSessions,
+    /// The Azlin drives that opened encrypted on worker threads, for the drives file.
+    pub key_records: KeyRecords,
     /// The keyring as the worker threads read and write it (azul's blocking keyring calls),
     /// with the locks every AzDrive of this user shares beside the drives file: an Azlin
     /// drive's session (its refreshes), the unfinished checkouts.
@@ -1625,11 +1656,13 @@ pub(crate) fn open_current(s: &mut DriveState) -> Option<Arc<dyn Drive>> {
 /// Drive `index`, opened on first use; an error is shown.
 pub(crate) fn open_slot(s: &mut DriveState, index: usize) -> Option<Arc<dyn Drive>> {
     let rotated = s.rotated.clone();
+    let records = s.key_records.clone();
     let token_url = s.token.url.clone();
     let relay = s.token.relay.clone();
     let keyring = s.keyring.clone();
     let opened = s.slots.get_mut(index)?.open(
         &rotated,
+        &records,
         token_url.as_deref(),
         relay.as_deref(),
         &keyring,
@@ -2492,6 +2525,32 @@ pub(crate) fn take_rotated(s: &mut DriveState) {
     }
 }
 
+/// Writes down, in the slots and in the drives file, that Azlin drives opened encrypted on worker
+/// threads, with the ids of their drive keys: from then on such a drive is never opened as a plain
+/// one, whatever its bucket lists (the key may be gone from the keyring by then - it is locked,
+/// not plain). A file that cannot be written is said.
+pub(crate) fn take_key_records(s: &mut DriveState) {
+    let records: Vec<KeyRecord> = match s.key_records.lock() {
+        Ok(mut queue) => queue.drain(..).collect(),
+        Err(_) => return,
+    };
+    for record in records {
+        let Some(index) = s.slot_index(&record.drive_id) else {
+            continue;
+        };
+        if !s.slots[index].entry.record_encryption(&record.key_id) {
+            continue;
+        }
+        let Some(path) = s.drives_file.clone() else {
+            continue;
+        };
+        if let Err(e) = DrivesFile::record_encryption(&path, &record.drive_id, &record.key_id) {
+            let name = s.slots[index].name();
+            s.error(Phrase::new("azdrive-drive-not-saved").arg("detail", format!("{name}: {e}")));
+        }
+    }
+}
+
 /// The request behind a [`KeyringOp`]. Holds a secret while queued; never printed.
 pub(crate) enum KeyringCall {
     Get(String),
@@ -2782,6 +2841,7 @@ pub(crate) extern "C" fn on_job_done(
     // An Azlin drive may have switched sessions during the job (refreshed, or read another
     // window's from the keyring): the slot's secret follows.
     take_rotated(s);
+    take_key_records(s);
     // Whether the window shows something new: every outcome but a sync pass that changed
     // nothing shown.
     let mut refresh = true;
@@ -3965,6 +4025,7 @@ pub fn start() {
         kit,
         token,
         rotated: RotatedSessions::default(),
+        key_records: KeyRecords::default(),
         keyring,
         quiet_keyring,
         unlocks: unlock::Unlocks::default(),
