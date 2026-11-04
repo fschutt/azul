@@ -2493,9 +2493,21 @@ pub enum DebugEvent {
     // op is applied to that seat's own `MouseState`, so a scenario can put two
     // cursors on two nodes and press either. `click` and the higher-level
     // ops stay primary-only; a seat click is `mouse_down` + `mouse_up`.
+    /// Move the pointer to `x` + `y`, or to the centre of the box of the ONE node a `selector` matches (exactly one of the two)
+    ///
+    /// A `selector` that matches nothing, or several nodes, or a node with no
+    /// box (`display: none`), is refused by name: the pointer is not moved.
     MouseMove {
-        x: f32,
-        y: f32,
+        /// X position (with `y`; the alternative to `selector`)
+        #[serde(default)]
+        x: Option<f32>,
+        /// Y position (with `x`; the alternative to `selector`)
+        #[serde(default)]
+        y: Option<f32>,
+        /// CSS selector of the node to move to (alternative to `x` + `y`);
+        /// must match exactly one node
+        #[serde(default)]
+        selector: Option<String>,
         #[serde(default)]
         seat: u64,
     },
@@ -3423,10 +3435,26 @@ pub enum DebugEvent {
     },
 
     // DOM Mutation
-    /// Insert a new child node into the DOM tree
+    //
+    // These ops name their target by a CSS `selector` or by a numeric
+    // `node_id` - EXACTLY ONE of the two (the parent of `insert_node` by
+    // `parent_selector` or `parent_id`). A `node_id` counts EVERY node of the
+    // mounted document: `<html>` is 0, `<body>` is 1, and each newline or
+    // indent between two tags is a whitespace text node with an id of its own,
+    // so the number a scenario guesses is rarely the box it means. A
+    // `selector` names the box. It must match exactly one node: one that
+    // matches nothing, or several, is refused by name (see
+    // [`resolve_mutation_target`]) - quietly taking the first match, or doing
+    // nothing, would let a scenario go green on a node nobody meant.
+    /// Insert a new child node under ONE parent: a `parent_selector` that matches exactly one node, or a `parent_id` (exactly one of the two)
     InsertNode {
-        /// Parent node ID to insert under
-        parent_id: u64,
+        /// CSS selector of the parent to insert under (alternative to
+        /// `parent_id`); must match exactly one node
+        #[serde(default)]
+        parent_selector: Option<String>,
+        /// Parent node ID to insert under (alternative to `parent_selector`)
+        #[serde(default)]
+        parent_id: Option<u64>,
         /// Node type / tag name (e.g. "div", "p", "span", "text:Hello World")
         node_type: String,
         /// Child index to insert at (omit to append at end)
@@ -3439,45 +3467,72 @@ pub enum DebugEvent {
         #[serde(default)]
         id: Option<String>,
     },
-    /// Delete a node from the DOM tree (tombstones it)
+    /// Delete a node from the DOM tree (tombstones it): a `selector` that matches exactly one node, or a `node_id` (exactly one of the two)
     DeleteNode {
-        /// Node ID to delete
-        node_id: u64,
+        /// CSS selector of the node to delete (alternative to `node_id`);
+        /// must match exactly one node
+        #[serde(default)]
+        selector: Option<String>,
+        /// Node ID to delete (alternative to `selector`)
+        #[serde(default)]
+        node_id: Option<u64>,
     },
-    /// Set the text content of a node
+    /// Set the text of a node: the `selector` of an ELEMENT with exactly one text node, or the `node_id` of the TEXT node itself (exactly one of the two)
     SetNodeText {
-        /// Node ID to modify
-        node_id: u64,
+        /// CSS selector of the element whose text is set (alternative to
+        /// `node_id`); must match exactly one node, which holds exactly one
+        /// (non-whitespace) text node
+        #[serde(default)]
+        selector: Option<String>,
+        /// Node ID of the TEXT node to modify (alternative to `selector`)
+        #[serde(default)]
+        node_id: Option<u64>,
         /// New text content
         text: String,
     },
-    /// Set CSS classes on a node (replaces existing classes)
+    /// Set CSS classes on a node (replaces existing classes): a `selector` that matches exactly one node, or a `node_id` (exactly one of the two)
     SetNodeClasses {
-        /// Node ID to modify
-        node_id: u64,
+        /// CSS selector of the node to modify (alternative to `node_id`);
+        /// must match exactly one node
+        #[serde(default)]
+        selector: Option<String>,
+        /// Node ID to modify (alternative to `selector`)
+        #[serde(default)]
+        node_id: Option<u64>,
         /// New CSS classes
         classes: Vec<String>,
         /// Optional new ID (omit to keep current)
         #[serde(default)]
         id: Option<String>,
     },
-    /// Override CSS properties on a node
+    /// Override one CSS property on a node: a `selector` that matches exactly one node, or a `node_id` (exactly one of the two)
     SetNodeCssOverride {
-        /// Node ID to modify
-        node_id: u64,
+        /// CSS selector of the node to modify (alternative to `node_id`);
+        /// must match exactly one node
+        #[serde(default)]
+        selector: Option<String>,
+        /// Node ID to modify (alternative to `selector`)
+        #[serde(default)]
+        node_id: Option<u64>,
         /// CSS property name (e.g. "width", "background-color")
         property: String,
         /// CSS property value (e.g. "100px", "red")
         value: String,
     },
-    /// Swap an image node's content to a synthesized solid-color raster
-    /// (travels the REAL path: `CallbackChange::ChangeNodeImage` → the
-    /// content chokepoint `LayoutWindow::apply_content_change`). Target must
-    /// be a `NodeType::Image` node (e.g. a mounted `<img>`), matching the
+    /// Swap an `<img>` node's image for a solid-color raster: a `selector` that matches exactly one node, or a `node_id` (exactly one of the two)
+    ///
+    /// Travels the REAL path: `CallbackChange::ChangeNodeImage` → the content
+    /// chokepoint `LayoutWindow::apply_content_change`. Target must be a
+    /// `NodeType::Image` node (e.g. a mounted `<img>`), matching the
     /// validate-loudly discipline of `add_timer`.
     SetNodeImage {
-        /// Node ID of the image node to swap
-        node_id: u64,
+        /// CSS selector of the image node to swap (alternative to
+        /// `node_id`); must match exactly one node
+        #[serde(default)]
+        selector: Option<String>,
+        /// Node ID of the image node to swap (alternative to `selector`)
+        #[serde(default)]
+        node_id: Option<u64>,
         /// Pixel width of the synthesized image
         width: u32,
         /// Pixel height of the synthesized image
@@ -4223,6 +4278,214 @@ fn resolve_all_matching_nodes(
         }
     }
     results
+}
+
+// ==================== Strict target resolution ====================
+//
+// The DOM-mutation ops (`insert_node`, `delete_node`, `set_node_text`,
+// `set_node_classes`, `set_node_css_override`, `set_node_image`) and
+// `mouse_move` name their target by a CSS selector or a node id. Unlike
+// [`resolve_node_target`] - which hands back the FIRST node a selector matches
+// and says nothing when it matches none - they must know that the selector
+// names exactly ONE node, because an op that acts on "some node that looks
+// like it" or on nothing lets a scenario pass on a node nobody meant.
+
+/// How many of several matches a refusal names before it says "and N more".
+#[cfg(feature = "std")]
+const MAX_NAMED_MATCHES: usize = 6;
+
+/// The nodes of `dom_id` that `selector` matches, in document order, or the
+/// reason it cannot be asked: no document yet, or a selector the CSS engine
+/// does not parse (which is not the same thing as a selector that matches
+/// nothing, and is reported as what it is).
+///
+/// A tombstone - what `delete_node` leaves behind, a node nothing links to any
+/// more - is not in the document and is never a match.
+#[cfg(feature = "std")]
+fn strict_matches(
+    callback_info: &azul_layout::callbacks::CallbackInfo,
+    dom_id: azul_core::dom::DomId,
+    op: &str,
+    selector_param: &str,
+    selector: &str,
+) -> Result<Vec<azul_core::id::NodeId>, String> {
+    use azul_core::{id::NodeId, style::matches_html_element};
+    use azul_css::parser2::parse_css_path;
+
+    let Some(layout_result) = callback_info
+        .get_layout_window()
+        .layout_results
+        .get(&dom_id)
+    else {
+        return Err(format!(
+            "{op}: there is no document to address yet - nothing is mounted, or a `mount` has not \
+             been applied (it takes effect at the next frame: put a `wait_frame` after it)"
+        ));
+    };
+    let css_path = parse_css_path(selector).map_err(|e| {
+        format!("{op}: {selector_param} '{selector}' is not a valid CSS selector ({e:?})")
+    })?;
+
+    let styled_dom = &layout_result.styled_dom;
+    let node_hierarchy = styled_dom.node_hierarchy.as_container();
+    let node_data = styled_dom.node_data.as_container();
+    let cascade_info = styled_dom.cascade_info.as_container();
+    let root = styled_dom.root.into_crate_internal();
+
+    Ok((0..node_data.len())
+        .map(NodeId::new)
+        .filter(|&n| Some(n) == root || node_hierarchy[n].parent_id().is_some())
+        .filter(|&n| {
+            matches_html_element(
+                &css_path,
+                n,
+                &node_hierarchy,
+                &node_data,
+                &cascade_info,
+                None,
+            )
+        })
+        .collect())
+}
+
+/// `node 5 div#a.box, node 6 div#b.box, and 2 more`: which nodes a refusal is
+/// about, by the selector that finds each again.
+#[cfg(feature = "std")]
+fn name_nodes(
+    callback_info: &azul_layout::callbacks::CallbackInfo,
+    dom_id: azul_core::dom::DomId,
+    nodes: &[azul_core::id::NodeId],
+) -> String {
+    let mut named: Vec<String> = nodes
+        .iter()
+        .take(MAX_NAMED_MATCHES)
+        .map(
+            |&n| match build_selector_for_node(callback_info, dom_id, n) {
+                Some(sel) => format!("node {} {sel}", n.index()),
+                None => format!("node {}", n.index()),
+            },
+        )
+        .collect();
+    if nodes.len() > MAX_NAMED_MATCHES {
+        named.push(format!("and {} more", nodes.len() - MAX_NAMED_MATCHES));
+    }
+    named.join(", ")
+}
+
+/// The ONE node `selector` matches - or a refusal that says why not: the
+/// selector does not parse, matches nothing, or matches several nodes (which
+/// ones).
+#[cfg(feature = "std")]
+fn resolve_one_node(
+    callback_info: &azul_layout::callbacks::CallbackInfo,
+    dom_id: azul_core::dom::DomId,
+    op: &str,
+    selector_param: &str,
+    selector: &str,
+) -> Result<azul_core::id::NodeId, String> {
+    let nodes = strict_matches(callback_info, dom_id, op, selector_param, selector)?;
+    match nodes.as_slice() {
+        [one] => Ok(*one),
+        [] => {
+            let count = callback_info
+                .get_layout_window()
+                .layout_results
+                .get(&dom_id)
+                .map_or(0, |lr| lr.styled_dom.node_data.as_ref().len());
+            Err(format!(
+                "{op}: no node matches '{selector}' ({selector_param}; the document has {count} \
+                 node(s). A node that comes from a `mount` exists only after the next frame: put \
+                 a `wait_frame` after the `mount`)"
+            ))
+        }
+        many => Err(format!(
+            "{op}: '{selector}' matches {} nodes ({}); {selector_param} must match exactly one - \
+             narrow it with an #id or a longer path",
+            many.len(),
+            name_nodes(callback_info, dom_id, many)
+        )),
+    }
+}
+
+/// The target of a DOM-mutation op: the node a `selector` names, or the node
+/// `id_param` counts, and EXACTLY ONE of the two was given. A `node_id` is
+/// returned as is (each op keeps its own range check and its own wording for a
+/// node that is not there); a selector must match exactly one node.
+#[cfg(feature = "std")]
+fn resolve_mutation_target(
+    callback_info: &azul_layout::callbacks::CallbackInfo,
+    dom_id: azul_core::dom::DomId,
+    op: &str,
+    selector_param: &str,
+    id_param: &str,
+    selector: Option<&str>,
+    node_id: Option<u64>,
+) -> Result<azul_core::id::NodeId, String> {
+    match (selector, node_id) {
+        (Some(_), Some(_)) => Err(format!(
+            "{op}: give exactly one of `{selector_param}` / `{id_param}`, not both"
+        )),
+        (None, None) => Err(format!(
+            "{op}: needs a `{selector_param}` (a CSS selector that matches exactly one node) or a \
+             `{id_param}`"
+        )),
+        (None, Some(id)) => Ok(azul_core::id::NodeId::new(id as usize)),
+        (Some(sel), None) => resolve_one_node(callback_info, dom_id, op, selector_param, sel),
+    }
+}
+
+/// The text node `set_node_text` writes when it was given a `selector`: the
+/// selector names an ELEMENT (`#label`, a `<p>`), and the op writes the one
+/// text node inside it. A whitespace-only run (the newline between two tags)
+/// is not a text of the element. An element with no text node, or with
+/// several, has no single text to set and is refused by name; a `node_id` is
+/// the way to name one of several.
+#[cfg(feature = "std")]
+fn text_node_of_element(
+    callback_info: &azul_layout::callbacks::CallbackInfo,
+    dom_id: azul_core::dom::DomId,
+    selector: &str,
+    element: azul_core::id::NodeId,
+) -> Result<azul_core::id::NodeId, String> {
+    use azul_core::dom::NodeType;
+
+    let layout_result = callback_info
+        .get_layout_window()
+        .layout_results
+        .get(&dom_id)
+        .ok_or_else(|| "set_node_text: there is no document".to_string())?;
+    let node_data = layout_result.styled_dom.node_data.as_container();
+    let hierarchy = layout_result.styled_dom.node_hierarchy.as_container();
+    if matches!(node_data[element].get_node_type(), NodeType::Text(_)) {
+        return Ok(element);
+    }
+    let texts: Vec<azul_core::id::NodeId> = element
+        .az_children(&hierarchy)
+        .filter(|&child| {
+            matches!(
+                node_data[child].get_node_type(),
+                NodeType::Text(t) if !t.as_str().trim().is_empty()
+            )
+        })
+        .collect();
+    match texts.as_slice() {
+        [one] => Ok(*one),
+        [] => Err(format!(
+            "set_node_text: '{selector}' (node {}) has no text node to set - it holds elements or \
+             nothing. Select the element that holds the text, or insert a text node first",
+            element.index()
+        )),
+        many => Err(format!(
+            "set_node_text: '{selector}' (node {}) has {} text nodes ({}), so the text to set is \
+             ambiguous. Name the one you mean by its `node_id`",
+            element.index(),
+            many.len(),
+            many.iter()
+                .map(|n| format!("node {}", n.index()))
+                .collect::<Vec<_>>()
+                .join(", ")
+        )),
+    }
 }
 
 /// Builds a CSS selector string for a node (e.g., "div#my-id.class1.class2")
@@ -15927,7 +16190,51 @@ pub fn process_debug_event(
             }
         }
 
-        DebugEvent::MouseMove { x, y, seat } => {
+        DebugEvent::MouseMove {
+            x,
+            y,
+            selector,
+            seat,
+        } => {
+            // Where to: a position, or the centre of the ONE node a selector
+            // names. Exactly one of the two - a position AND a selector would
+            // leave it open which the scenario meant.
+            let to = match (selector.as_deref(), *x, *y) {
+                (Some(_), Some(_), _) | (Some(_), _, Some(_)) => {
+                    Err("mouse_move: give either a `selector` or `x` + `y`, not both".to_string())
+                }
+                (None, Some(x), Some(y)) => Ok((x, y)),
+                (None, _, _) => Err("mouse_move: needs `x` + `y`, or a `selector`".to_string()),
+                (Some(sel), None, None) => {
+                    let dom_id = target_dom(request);
+                    resolve_one_node(callback_info, dom_id, "mouse_move", "selector", sel).and_then(
+                        |node| {
+                            node_centre_for_click(
+                                callback_info,
+                                azul_core::dom::DomNodeId {
+                                    dom: dom_id,
+                                    node: Some(node).into(),
+                                },
+                            )
+                            .ok_or_else(|| {
+                                format!(
+                                    "mouse_move: '{sel}' is node {} but it has no box \
+                                     (display: none, or not laid out yet), so there is no point \
+                                     to move the pointer to",
+                                    node.index()
+                                )
+                            })
+                        },
+                    )
+                }
+            };
+            let (x, y) = match to {
+                Ok(at) => at,
+                Err(why) => {
+                    send_err(request, why);
+                    return needs_update;
+                }
+            };
             log(
                 LogLevel::Debug,
                 LogCategory::EventLoop,
@@ -15939,7 +16246,7 @@ pub fn process_debug_event(
             // `pointer_seat_mut(0)` IS `mouse_state`, so one path covers the
             // ordinary mouse and a second cursor alike.
             new_state.pointer_seat_mut(*seat).cursor_position =
-                azul_core::window::CursorPosition::InWindow(LogicalPosition { x: *x, y: *y });
+                azul_core::window::CursorPosition::InWindow(LogicalPosition { x, y });
             callback_info.modify_window_state(new_state);
             // NO `needs_update` — see the note on `process_debug_event`.
 
@@ -20124,6 +20431,7 @@ pub fn process_debug_event(
 
         // === DOM Mutation ===
         DebugEvent::InsertNode {
+            parent_selector,
             parent_id,
             node_type,
             position,
@@ -20133,7 +20441,22 @@ pub fn process_debug_event(
             use azul_core::{dom::DomId, id::NodeId};
 
             let dom_id = target_dom(request);
-            let parent_node_id = NodeId::new(*parent_id as usize);
+            let parent_node_id = match resolve_mutation_target(
+                callback_info,
+                dom_id,
+                "insert_node",
+                "parent_selector",
+                "parent_id",
+                parent_selector.as_deref(),
+                *parent_id,
+            ) {
+                Ok(node) => node,
+                Err(why) => {
+                    send_err(request, why);
+                    return needs_update;
+                }
+            };
+            let parent_id = &(parent_node_id.index() as u64);
 
             // Validate parent exists
             let layout_window = callback_info.get_layout_window();
@@ -20224,11 +20547,26 @@ pub fn process_debug_event(
             }
         }
 
-        DebugEvent::DeleteNode { node_id } => {
+        DebugEvent::DeleteNode { selector, node_id } => {
             use azul_core::{dom::DomId, id::NodeId};
 
             let dom_id = target_dom(request);
-            let target_node_id = NodeId::new(*node_id as usize);
+            let target_node_id = match resolve_mutation_target(
+                callback_info,
+                dom_id,
+                "delete_node",
+                "selector",
+                "node_id",
+                selector.as_deref(),
+                *node_id,
+            ) {
+                Ok(node) => node,
+                Err(why) => {
+                    send_err(request, why);
+                    return needs_update;
+                }
+            };
+            let node_id = &(target_node_id.index() as u64);
 
             let layout_window = callback_info.get_layout_window();
             let node_count = layout_window
@@ -20260,7 +20598,11 @@ pub fn process_debug_event(
             }
         }
 
-        DebugEvent::SetNodeText { node_id, text } => {
+        DebugEvent::SetNodeText {
+            selector,
+            node_id,
+            text,
+        } => {
             use azul_core::{
                 dom::{DomId, DomNodeId},
                 id::NodeId,
@@ -20268,7 +20610,36 @@ pub fn process_debug_event(
             };
 
             let dom_id = target_dom(request);
-            let target_node_id = NodeId::new(*node_id as usize);
+            let named = match resolve_mutation_target(
+                callback_info,
+                dom_id,
+                "set_node_text",
+                "selector",
+                "node_id",
+                selector.as_deref(),
+                *node_id,
+            ) {
+                Ok(node) => node,
+                Err(why) => {
+                    send_err(request, why);
+                    return needs_update;
+                }
+            };
+            // A `node_id` is the TEXT node itself, as it always was. A
+            // `selector` names an ELEMENT (`#label`, a `<p>`) - the node
+            // a selector can match - and the text written is the one text node
+            // inside it.
+            let target_node_id = match selector.as_deref() {
+                Some(sel) => match text_node_of_element(callback_info, dom_id, sel, named) {
+                    Ok(text_node) => text_node,
+                    Err(why) => {
+                        send_err(request, why);
+                        return needs_update;
+                    }
+                },
+                None => named,
+            };
+            let node_id = &(target_node_id.index() as u64);
 
             let layout_window = callback_info.get_layout_window();
             let node_count = layout_window
@@ -20303,6 +20674,7 @@ pub fn process_debug_event(
         }
 
         DebugEvent::SetNodeClasses {
+            selector,
             node_id,
             classes,
             id,
@@ -20313,7 +20685,22 @@ pub fn process_debug_event(
             };
 
             let dom_id = target_dom(request);
-            let target_node_id = NodeId::new(*node_id as usize);
+            let target_node_id = match resolve_mutation_target(
+                callback_info,
+                dom_id,
+                "set_node_classes",
+                "selector",
+                "node_id",
+                selector.as_deref(),
+                *node_id,
+            ) {
+                Ok(node) => node,
+                Err(why) => {
+                    send_err(request, why);
+                    return needs_update;
+                }
+            };
+            let node_id = &(target_node_id.index() as u64);
 
             let layout_window = callback_info.get_layout_window();
             let node_count = layout_window
@@ -20388,6 +20775,7 @@ pub fn process_debug_event(
         }
 
         DebugEvent::SetNodeCssOverride {
+            selector,
             node_id,
             property,
             value,
@@ -20396,7 +20784,22 @@ pub fn process_debug_event(
             use azul_css::props::property::{get_css_key_map, CssPropertyType};
 
             let dom_id = target_dom(request);
-            let target_node_id = NodeId::new(*node_id as usize);
+            let target_node_id = match resolve_mutation_target(
+                callback_info,
+                dom_id,
+                "set_node_css_override",
+                "selector",
+                "node_id",
+                selector.as_deref(),
+                *node_id,
+            ) {
+                Ok(node) => node,
+                Err(why) => {
+                    send_err(request, why);
+                    return needs_update;
+                }
+            };
+            let node_id = &(target_node_id.index() as u64);
 
             let layout_window = callback_info.get_layout_window();
             let node_count = layout_window
@@ -20472,6 +20875,7 @@ pub fn process_debug_event(
         }
 
         DebugEvent::SetNodeImage {
+            selector,
             node_id,
             width,
             height,
@@ -20480,7 +20884,22 @@ pub fn process_debug_event(
             use azul_core::{dom::NodeType, id::NodeId};
 
             let dom_id = target_dom(request);
-            let target_node_id = NodeId::new(*node_id as usize);
+            let target_node_id = match resolve_mutation_target(
+                callback_info,
+                dom_id,
+                "set_node_image",
+                "selector",
+                "node_id",
+                selector.as_deref(),
+                *node_id,
+            ) {
+                Ok(node) => node,
+                Err(why) => {
+                    send_err(request, why);
+                    return needs_update;
+                }
+            };
+            let node_id = &(target_node_id.index() as u64);
 
             // Validate loudly (add_timer discipline): the target must exist
             // AND be an image node — a silent no-op here would let a scenario

@@ -94,7 +94,7 @@ Each command's `op` field selects one debug event variant. Categories overlap wi
 - **Window.** `resize`, `move`, `focus`, `blur`, `close`, `dpi_changed`.
 - **Mode and theme.** `get_mode`, `set_mode` (`light`, `dark` or `system`), `get_theme`, `set_theme`. See [Light / dark mode and the app theme](#light--dark-mode-and-the-app-theme).
 - **Queries.** `get_state`, `get_dom_tree`, `get_node_hierarchy`, `get_layout_tree`, `get_display_list`, `get_html_string`, `hit_test`, `get_logs`.
-- **DOM mutation.** `insert_node`, `delete_node`, `set_node_text`, `set_node_classes`, `set_node_css_override`.
+- **DOM mutation.** `insert_node`, `delete_node`, `set_node_text`, `set_node_classes`, `set_node_css_override`, `set_node_image`.
 - **Scrolling.** `get_scroll_states`, `get_scrollable_nodes`, `scroll_node_by`, `scroll_node_to`, `scroll_into_view`.
 - **Frame control.** `wait_frame`, `wait`, `relayout`, `redraw`.
 - **Screenshots.** `take_screenshot` (CPU compositor), `take_native_screenshot` (current framebuffer).
@@ -102,6 +102,13 @@ Each command's `op` field selects one debug event variant. Categories overlap wi
 - **E2E.** `run_e2e_tests`.
 
 `click` accepts whichever of `selector`, `node_id`, `text`, or `(x, y)` you pass. It resolves to a node, fires the click, and triggers a refresh if your callback returns one. This is the building block every E2E `click` step uses.
+
+The DOM-mutation ops and `mouse_move` name their target by a CSS `selector` or by a numeric `node_id`: exactly one of the two (`insert_node` names its parent by `parent_selector` or `parent_id`; `mouse_move` moves to `x` + `y` or to the centre of the box of the `selector`). Prefer the selector. A `node_id` counts every node of the document, so `<html>` is 0, `<body>` is 1, and each newline or indent between two tags is a whitespace text node with an id of its own: the number you count is rarely the box you mean. A selector must match exactly one node; one that matches nothing or several is refused by name (the answer lists the nodes it matched), where `click` takes the first match. `set_node_text` with a `selector` writes the one text node inside the element the selector names, and refuses an element that has none or several (a `node_id` names the text node itself).
+
+```bash
+curl -s -X POST http://localhost:8765/ -d '{"op":"set_node_css_override","selector":"#box","property":"width","value":"120px"}'
+curl -s -X POST http://localhost:8765/ -d '{"op":"mouse_move","selector":"#box"}'
+```
 
 `wait_frame` is a barrier: the next step runs only after the window has prepared a frame that follows the request (the frame clock is the per-window `ContentJournal::frame_seq`, bumped once per frame on every backend). After any command that mutates state (`click`, `resize`, `set_node_text`, `text_input`, …) call `wait_frame` before reading state back, otherwise queries can race the relayout pass or the virtual-view re-renders queued for the next paint. A scenario step cannot hang on it: after ~2 s without a frame the barrier logs a warning and opens.
 

@@ -1503,6 +1503,72 @@ fn extract_json(raw: &str) -> Option<&str> {
     Some(&raw[start..=end])
 }
 
+/// Is `key` given in the step, with a value?
+fn given(step: &serde_json::Map<String, serde_json::Value>, key: &str) -> bool {
+    step.get(key).is_some_and(|v| !v.is_null())
+}
+
+/// How many ways of naming its node an op takes, and that EXACTLY ONE is used.
+///
+/// The ops that name their target by CSS `selector` or by numeric `node_id`
+/// (the DOM-mutation family, `focus_node`) declare both as optional, so the
+/// required-param check passes a step with neither and one with both - and the
+/// engine refuses either at run time (`resolve_mutation_target`). Refusing them
+/// here costs nothing and keeps the artifact from being written at all.
+///
+/// DERIVED from the op's params, never from a list of ops: an op with the pair
+/// `selector` / `node_id` (or `parent_selector` / `parent_id`) and no further
+/// way to name a node (`text`, a position) takes exactly one of them, and
+/// `mouse_move`'s `x` + `y` / `selector` is the same rule for a pointer.
+/// An op with more ways (`click`: a position, a text, a selector, an id) is
+/// left to the engine, which resolves them in a fixed order.
+fn check_targeting(
+    i: usize,
+    op: &str,
+    def: &OpDef,
+    step: &serde_json::Map<String, serde_json::Value>,
+) -> Result<()> {
+    let has = |p: &str| def.params.iter().any(|(n, _)| n == p);
+    // A node can also be named by its text (`click`, `scroll_node_by`: an
+    // OPTIONAL `text`) or by a position (`x`). A REQUIRED `text` is a payload
+    // (`set_node_text`'s new text), not a way of naming anything.
+    let names_by_text = def
+        .params
+        .iter()
+        .any(|(n, required)| n == "text" && !required);
+
+    for (selector, id) in [("selector", "node_id"), ("parent_selector", "parent_id")] {
+        if has(selector) && has(id) && !names_by_text && !has("x") {
+            match (given(step, selector), given(step, id)) {
+                (true, true) => bail!(
+                    "step {i}: `{op}` is given both `{selector}` and `{id}` - give exactly one of \
+                     them (the selector is the one that names the node you mean)"
+                ),
+                (false, false) => bail!(
+                    "step {i}: `{op}` names no node - give a `{selector}` (a CSS selector that \
+                     matches exactly one node) or a `{id}`"
+                ),
+                _ => {}
+            }
+        }
+    }
+
+    // A pointer op that takes a position OR a selector (`mouse_move`).
+    if has("selector") && has("x") && has("y") && !has("node_id") && !names_by_text {
+        let position = given(step, "x") || given(step, "y");
+        if position && given(step, "selector") {
+            bail!("step {i}: `{op}` is given both a `selector` and `x` / `y` - give exactly one");
+        }
+        if position && !(given(step, "x") && given(step, "y")) {
+            bail!("step {i}: `{op}` needs `x` and `y` together");
+        }
+        if !position && !given(step, "selector") {
+            bail!("step {i}: `{op}` names no place - give `x` + `y`, or a `selector`");
+        }
+    }
+    Ok(())
+}
+
 /// The MECHANICAL GATE. Every failure here means: delete the artifact, count a
 /// FAIL, do not mark the line done.
 pub fn validate(schema: &Schema, json: &str) -> Result<()> {
@@ -1600,6 +1666,11 @@ pub fn validate(schema: &Schema, json: &str) -> Result<()> {
                     );
                 }
             }
+        }
+        // TARGET. An op that names its node by `selector` OR by `node_id` takes
+        // exactly one of them, and the schema cannot say so: both are optional.
+        if let Some(def) = schema.known_op(op) {
+            check_targeting(i, op, def, s)?;
         }
         if op.starts_with("assert_") {
             asserted = true;
@@ -3294,6 +3365,169 @@ mod tests {
             {"op":"assert_idle_stable","vs":"before","max_frames":5},
             {"op":"assert_damage","kind":"none","which":"paint","frame":"last"}]}"#;
         validate(&s, good).unwrap();
+    }
+
+    // -----------------------------------------------------------------------
+    // Selectors: the schema is DERIVED, so the new params arrive by themselves
+    // -----------------------------------------------------------------------
+
+    /// The DOM-mutation ops and `mouse_move` name their target by CSS
+    /// `selector` (`insert_node`: `parent_selector`). Nothing in this file lists
+    /// those params: they are read out of the `DebugEvent` enum, rendered into
+    /// the prompt's schema section, and checked by the gate - so a scenario
+    /// that uses them validates, and the model is shown them.
+    #[test]
+    fn the_selector_params_of_the_mutation_ops_reach_the_schema_without_hand_edits() {
+        let s = parse_schema(&root()).unwrap();
+        let doc = schema_doc(&s);
+        let line = |op: &str| -> String {
+            doc.lines()
+                .find(|l| l.starts_with(&format!("- {op} :")))
+                .unwrap_or_else(|| panic!("the prompt does not offer `{op}`"))
+                .to_string()
+        };
+        let optional = |op: &str, param: &str| {
+            let def = s
+                .known_op(op)
+                .unwrap_or_else(|| panic!("`{op}` is not parsed"));
+            assert!(
+                def.params.contains(&(param.to_string(), false)),
+                "`{op}` must take an OPTIONAL `{param}`, got {:?}",
+                def.params
+            );
+        };
+
+        for op in [
+            "set_node_css_override",
+            "set_node_classes",
+            "set_node_text",
+            "set_node_image",
+            "delete_node",
+        ] {
+            optional(op, "selector");
+            optional(op, "node_id");
+            let l = line(op);
+            assert!(l.contains("selector?") && l.contains("node_id?"), "{l}");
+            assert!(
+                l.contains("exactly one"),
+                "the one-line doc names the rule: {l}"
+            );
+        }
+        optional("insert_node", "parent_selector");
+        optional("insert_node", "parent_id");
+        let l = line("insert_node");
+        assert!(
+            l.contains("parent_selector?") && l.contains("parent_id?"),
+            "{l}"
+        );
+        assert!(
+            s.known_op("insert_node")
+                .unwrap()
+                .params
+                .contains(&("node_type".to_string(), true)),
+            "insert_node still needs its node_type"
+        );
+        for p in ["selector", "x", "y"] {
+            optional("mouse_move", p);
+        }
+        let l = line("mouse_move");
+        assert!(l.contains("selector?"), "{l}");
+    }
+
+    /// A scenario that mounts a small document, lets it land, and runs `step`.
+    /// The ids are countable: html 0, body 1, `#root` 2, `#a` 3, `#t` 4, its
+    /// text 5.
+    fn on_a_mounted_dom(step: &str) -> String {
+        format!(
+            r#"{{"name":"x","steps":[
+                {{"op":"mount","html":["<body><div id=\"root\"><div id=\"a\"></div><p id=\"t\">hi</p></div></body>"]}},
+                {{"op":"wait_frame"}},
+                {{"op":"snapshot_frame","as":"before"}},
+                {step},
+                {{"op":"assert_changed","vs":"before"}}]}}"#
+        )
+    }
+
+    /// `selector` and `node_id` are both optional in the schema, so the
+    /// required-param check cannot say "exactly one" - and the engine refuses a
+    /// step with both or neither at run time. The gate says so first, from the
+    /// params the op declares (no list of ops).
+    #[test]
+    fn the_gate_wants_exactly_one_way_of_naming_the_node() {
+        let s = parse_schema(&root()).unwrap();
+
+        for step in [
+            // selector xor node_id
+            r##"{"op":"set_node_css_override","selector":"#a","property":"width","value":"1px"}"##,
+            r##"{"op":"set_node_css_override","node_id":3,"property":"width","value":"1px"}"##,
+            r##"{"op":"set_node_classes","selector":"#a","classes":["x"]}"##,
+            r##"{"op":"set_node_text","selector":"#t","text":"bye"}"##,
+            r##"{"op":"set_node_image","selector":"#a","width":4,"height":4,"color":"red"}"##,
+            r##"{"op":"delete_node","selector":"#a"}"##,
+            r##"{"op":"focus_node","selector":"#a"}"##,
+            // the parent of an insert
+            r##"{"op":"insert_node","parent_selector":"#root","node_type":"div"}"##,
+            r##"{"op":"insert_node","parent_id":2,"node_type":"div"}"##,
+            // a pointer: a position, or a selector
+            r##"{"op":"mouse_move","x":10,"y":20}"##,
+            r##"{"op":"mouse_move","selector":"#a"}"##,
+        ] {
+            validate(&s, &on_a_mounted_dom(step))
+                .unwrap_or_else(|e| panic!("the gate refused {step}: {e}"));
+        }
+
+        for (step, why) in [
+            (
+                r##"{"op":"set_node_css_override","property":"width","value":"1px"}"##,
+                "names no node",
+            ),
+            (
+                r##"{"op":"set_node_css_override","selector":"#a","node_id":3,"property":"width","value":"1px"}"##,
+                "both `selector` and `node_id`",
+            ),
+            (
+                r##"{"op":"set_node_classes","classes":["x"]}"##,
+                "names no node",
+            ),
+            (r##"{"op":"set_node_text","text":"bye"}"##, "names no node"),
+            (
+                r##"{"op":"set_node_image","width":4,"height":4,"color":"red"}"##,
+                "names no node",
+            ),
+            (r##"{"op":"delete_node"}"##, "names no node"),
+            (r##"{"op":"focus_node"}"##, "names no node"),
+            (
+                r##"{"op":"insert_node","node_type":"div"}"##,
+                "names no node",
+            ),
+            (
+                r##"{"op":"insert_node","parent_selector":"#root","parent_id":2,"node_type":"div"}"##,
+                "both `parent_selector` and `parent_id`",
+            ),
+            (r##"{"op":"mouse_move"}"##, "names no place"),
+            (r##"{"op":"mouse_move","x":10}"##, "`x` and `y` together"),
+            (
+                r##"{"op":"mouse_move","selector":"#a","x":10,"y":20}"##,
+                "both a `selector` and `x` / `y`",
+            ),
+        ] {
+            let e = validate(&s, &on_a_mounted_dom(step))
+                .expect_err(&format!("the gate let {step} through"))
+                .to_string();
+            assert!(e.contains(why), "{step}: wanted {why:?}, got: {e}");
+        }
+
+        // An op with MORE ways to name its node (a position, a text) is the
+        // engine's to resolve, not the gate's: `click` with a selector, an id,
+        // a text or a position all pass.
+        for step in [
+            r##"{"op":"click","selector":"#a"}"##,
+            r##"{"op":"click","x":10,"y":20}"##,
+            r##"{"op":"click","text":"hi"}"##,
+        ] {
+            validate(&s, &on_a_mounted_dom(step))
+                .unwrap_or_else(|e| panic!("the gate refused {step}: {e}"));
+        }
     }
 
     // -----------------------------------------------------------------------

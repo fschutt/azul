@@ -78,6 +78,11 @@ mod key_names_tests;
 #[cfg(test)]
 mod app_commands_tests;
 
+// The DOM-mutation ops and `mouse_move` name their target by CSS selector, or
+// refuse loudly when it names none or several nodes.
+#[cfg(test)]
+mod selector_ops_tests;
+
 pub mod hooks {
     //! Dependency-injection seam for the three host-coupled call sites in
     //! [`super::full`]. See the module docs above.
