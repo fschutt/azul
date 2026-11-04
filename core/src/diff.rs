@@ -525,13 +525,13 @@ impl NodeIdentityConfig {
     /// Whether `old` and `new` differ in what this config makes part of a
     /// node's identity beyond its type, place and key: its class list.
     fn classes_differ(self, old: &NodeData, new: &NodeData) -> bool {
-        let classes = |node: &NodeData| {
+        fn classes(node: &NodeData) -> Vec<&str> {
             node.attributes()
                 .as_ref()
                 .iter()
                 .filter_map(AttributeType::as_class)
                 .collect::<Vec<_>>()
-        };
+        }
         self.class_change_remounts && classes(old) != classes(new)
     }
 }
