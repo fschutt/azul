@@ -242,6 +242,8 @@ mod tests {
         PROVIDER.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
+    /// Without the feature the bucket is the mail's drive as it is.
+    #[cfg(not(feature = "encryption"))]
     #[test]
     fn a_plain_drive_carries_the_mail_as_it_is() {
         let tmp = TempDir::new("azmail-mail-drive");
@@ -257,6 +259,29 @@ mod tests {
             std::fs::read(tmp.path().join("mail/Sent/2.eml")).unwrap(),
             b"sent"
         );
+    }
+
+    /// With it, an Azlin drive is encrypted-only (C1/K8): a bucket that lists plaintext files and
+    /// no key - a drive made before encryption, or a hostile bucket that hides its key files, the
+    /// two look the same to a device that holds no key - is read as it lists, and takes no mail
+    /// until it is encrypted.
+    #[cfg(feature = "encryption")]
+    #[test]
+    fn a_drive_that_is_not_encrypted_is_read_as_it_is_and_takes_no_mail() {
+        use azul_storage::DriveError;
+        let tmp = TempDir::new("azmail-mail-drive");
+        let bucket = LocalDrive::without_manifest(tmp.path());
+        bucket.put("mail/Inbox/1.eml", b"Subject: hi\r\n\r\nhello").unwrap();
+        let drive = wrap(Arc::new(bucket), "d_1", Arc::new(MemoryKeyring::new()));
+        assert_eq!(
+            drive.get("mail/Inbox/1.eml").unwrap(),
+            b"Subject: hi\r\n\r\nhello"
+        );
+        assert!(matches!(
+            drive.put("mail/Sent/2.eml", b"sent"),
+            Err(DriveError::Denied { .. })
+        ));
+        assert!(!tmp.path().join("mail/Sent").exists(), "nothing written");
     }
 
     /// With the feature, a drive this computer keeps the key of is never written as plaintext:
