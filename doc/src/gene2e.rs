@@ -1638,12 +1638,21 @@ fn extract_json(raw: &str) -> Option<&str> {
 // it takes effect at the next frame, and a step that addresses a node before
 // that finds the old (or no) document - "Node 1 not found".
 
+/// A node that is no longer in the document, and what took it out.
+struct Gone {
+    /// The `delete_node` step.
+    step: usize,
+    /// The node that step deleted: the node itself, or an ancestor of it.
+    root: usize,
+}
+
 /// One node of the document as the gate follows it.
 struct GateNode {
     node: MountedNode,
-    /// The step that deleted it. The engine tombstones: the id stays, the node
-    /// is gone.
-    deleted_by: Option<usize>,
+    /// Set when a `delete_node` took it out. The engine tombstones: the id
+    /// stays, the node is gone - and so is everything that hung below it (its
+    /// children keep pointing at the tombstone, but nothing reaches them).
+    deleted_by: Option<Gone>,
 }
 
 /// The document the steps address, and the `mount` still waiting to land.
@@ -1834,9 +1843,28 @@ impl GateDom {
                 });
             }
             "delete_node" => {
-                if let Some(id) = step.get("node_id").and_then(serde_json::Value::as_u64) {
-                    if let Some(g) = usize::try_from(id).ok().and_then(|id| nodes.get_mut(id)) {
-                        g.deleted_by = Some(i);
+                let deleted = step
+                    .get("node_id")
+                    .and_then(serde_json::Value::as_u64)
+                    .and_then(|id| usize::try_from(id).ok())
+                    .filter(|&id| id < nodes.len());
+                if let Some(root) = deleted {
+                    // The node and everything below it: walk each node's parents.
+                    let below: Vec<usize> = (0..nodes.len())
+                        .filter(|&n| {
+                            let mut cur = Some(n);
+                            for _ in 0..=nodes.len() {
+                                match cur {
+                                    Some(c) if c == root => return true,
+                                    Some(c) => cur = nodes[c].node.parent,
+                                    None => return false,
+                                }
+                            }
+                            false
+                        })
+                        .collect();
+                    for n in below {
+                        nodes[n].deleted_by.get_or_insert(Gone { step: i, root });
                     }
                 }
             }
@@ -1871,8 +1899,18 @@ fn check_node_ids(
                 element_ids(nodes)
             );
         };
-        if let Some(at) = g.deleted_by {
-            bail!("step {i}: `{op}` {key} {id} was deleted by step {at}");
+        if let Some(gone) = &g.deleted_by {
+            if usize::try_from(id).is_ok_and(|id| id == gone.root) {
+                bail!(
+                    "step {i}: `{op}` {key} {id} was deleted by step {}",
+                    gone.step
+                );
+            }
+            bail!(
+                "step {i}: `{op}` {key} {id} hung below node {}, which step {} deleted",
+                gone.root,
+                gone.step
+            );
         }
         let n = &g.node;
         let advice = if selector_form {
@@ -4594,6 +4632,15 @@ mod tests {
             ),
             "does not exist",
         );
+        // what hung below a deleted node is gone with it (html0 body1 #list2 #row3 "x"4)
+        let nested = r##"["<body><div id=\"list\"><p id=\"row\">x</p></div></body>"]"##;
+        let below = format!(
+            r#"{{"name":"x","steps":[{{"op":"mount","html":{nested}}},{{"op":"wait_frame"}},
+                {{"op":"snapshot_frame","as":"b"}},{{"op":"delete_node","node_id":2}},
+                {{"op":"set_node_css_override","node_id":3,"property":"width","value":"1px"}},
+                {{"op":"assert_changed","vs":"b"}}]}}"#
+        );
+        refused(&s, &below, "hung below node 2, which step 3 deleted");
     }
 
     /// A scenario of exactly `steps`.
