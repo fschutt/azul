@@ -1389,3 +1389,5 @@ mod a_paragraph_away_from_floats_breaks_across_columns;
 mod balanced_text_columns_balance_their_heights;
 #[path = "an_exclusion_box_shapes_the_lines_of_the_regions_under_it.rs"]
 mod an_exclusion_box_shapes_the_lines_of_the_regions_under_it;
+#[path = "a_sidebar_follows_the_title_bar_area.rs"]
+mod a_sidebar_follows_the_title_bar_area;

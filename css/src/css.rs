@@ -467,10 +467,16 @@ impl CssDeclaration {
         use self::CssDeclaration::{CustomProperty, Dynamic, Static};
         match self {
             Static(s) => format!("{s:?}"),
-            Dynamic(d) => self.env_variable().map_or_else(
-                || format!("var(--{}, {:?})", d.dynamic_id, d.default_value),
-                |v| format!("env({}, {:?})", v.as_css_name(), d.default_value),
-            ),
+            Dynamic(d) => match self.env_variable() {
+                Some(crate::dynamic_selector::EnvVariable::System(metric)) => {
+                    metric.as_css_str().to_string()
+                }
+                Some(v) => format!("env({}, {:?})", v.as_css_name(), d.default_value),
+                None => d.env_expression().map_or_else(
+                    || format!("var(--{}, {:?})", d.dynamic_id, d.default_value),
+                    ToString::to_string,
+                ),
+            },
             CustomProperty(c) => format!("--{}: {}", c.name, c.value),
         }
     }
@@ -507,9 +513,17 @@ impl CssDeclaration {
     #[must_use]
     pub fn var_reference(&self) -> Option<&DynamicCssProperty> {
         match self {
-            Self::Dynamic(d) if self.env_variable().is_none() => Some(d),
+            Self::Dynamic(d) if !d.is_env() => Some(d),
             _ => None,
         }
+    }
+
+    /// Whether this declaration takes its value from the window's
+    /// environment: an `env()` or a `system:` length, alone or inside a
+    /// `calc()`.
+    #[must_use]
+    pub fn reads_env(&self) -> bool {
+        matches!(self, Self::Dynamic(d) if d.is_env())
     }
 
     /// The custom-property definition this declaration is, if it is one.
@@ -559,7 +573,7 @@ impl CssDeclaration {
     ///   the conditions of the DEFINITIONS it reads; those rules are conditional themselves.)
     #[must_use]
     pub fn depends_on_dynamic_context(&self) -> bool {
-        self.env_variable().is_some()
+        self.reads_env()
     }
 
     /// The concrete property this declaration contributes to the cascade
@@ -580,7 +594,9 @@ impl CssDeclaration {
     /// - `env()` - the variable's live value (an absolute length parsed as the declared property's
     ///   own type, so `padding-bottom` gets a padding and `top` gets an inset), or the parsed
     ///   fallback when the platform reports none for it, or when there is no context yet (a
-    ///   `StyledDom` no window has adopted - the same rule conditional rule blocks follow).
+    ///   `StyledDom` no window has adopted - the same rule conditional rule blocks follow). A
+    ///   `system:` length is read the same way; a `calc()` with `env()` calls inside is parsed
+    ///   again with each call's live length.
     /// - `var()` - the first variable of its fallback chain that `vars` defines with a value that
     ///   parses as the property ([`crate::custom_properties::resolve_var`]), else the fallback.
     ///   `vars: None` (no environment known) is the fallback.
@@ -595,18 +611,53 @@ impl CssDeclaration {
             Self::Static(s) => Some(s.clone()),
             Self::CustomProperty(_) => None,
             Self::Dynamic(d) => {
-                let Some(var) = self.env_variable() else {
+                if !d.is_env() {
                     return Some(vars.map_or_else(
                         || d.default_value.clone(),
                         |v| crate::custom_properties::resolve_var(d, v),
                     ));
-                };
-                let Some(px) = ctx.and_then(|c| var.resolve(c)) else {
-                    return Some(d.default_value.clone());
-                };
-                Some(Self::env_length_as(&d.default_value, px))
+                }
+                if let Some(value) = d.env_expression() {
+                    return Some(Self::env_expression_as(&d.default_value, value, ctx));
+                }
+                let px = self
+                    .env_variable()
+                    .and_then(|var| ctx.and_then(|c| var.resolve(c)));
+                Some(px.map_or_else(
+                    || d.default_value.clone(),
+                    |px| Self::env_length_as(&d.default_value, px),
+                ))
             }
         }
+    }
+
+    /// `value` - a value with `env()` calls inside its `calc()` - with each
+    /// call's live length (its fallback, or `0px`, when the window has none),
+    /// parsed as `like`'s property. `like` itself, the value with every
+    /// fallback, when there is no window yet or the result does not parse.
+    #[allow(unused_variables)]
+    fn env_expression_as(
+        like: &CssProperty,
+        value: &str,
+        ctx: Option<&crate::dynamic_selector::DynamicSelectorContext>,
+    ) -> CssProperty {
+        #[cfg(feature = "parser")]
+        {
+            let live = ctx.and_then(|c| {
+                crate::custom_properties::substitute_env(value, |var, fallback| {
+                    Some(var.and_then(|v| v.resolve(c)).map_or_else(
+                        || fallback.unwrap_or("0px").to_string(),
+                        |px| format!("{px}px"),
+                    ))
+                })
+            });
+            if let Some(text) = live {
+                if let Ok(p) = crate::props::property::parse_css_property(like.get_type(), &text) {
+                    return p;
+                }
+            }
+        }
+        like.clone()
     }
 
     /// `px` (logical, absolute) re-typed as `like`'s property. Goes through
@@ -645,7 +696,9 @@ impl CssDeclaration {
 #[repr(C)]
 pub struct DynamicCssProperty {
     /// What is referenced. A `var()`: the variable names without `--`, comma-separated in the
-    /// order they are tried (`"a,b"` for `var(--a, var(--b, 1px))`). An `env()`: `"env:<name>"`.
+    /// order they are tried (`"a,b"` for `var(--a, var(--b, 1px))`). An `env()`: `"env:<name>"`;
+    /// a `system:` length `"env:system:<metric>"`; a `calc()` with `env()` calls inside
+    /// `"env:<the value as written>"`.
     pub dynamic_id: AzString,
     /// The fallback, parsed as the property; the property's initial value for a `var()` written
     /// without one.
@@ -1010,15 +1063,53 @@ impl DynamicCssProperty {
             .filter(|n| !n.is_empty())
     }
 
-    /// The reference as CSS value text: `env(<name>, <fallback>)`, or the
-    /// nested `var(--a, var(--b, <fallback>))` it was parsed from (no
+    /// Whether this is an `env()` reference - one variable, a `system:`
+    /// length or a value with `env()` calls inside - rather than a `var()`.
+    #[must_use]
+    pub fn is_env(&self) -> bool {
+        self.dynamic_id
+            .as_str()
+            .starts_with(crate::dynamic_selector::ENV_DYNAMIC_ID_PREFIX)
+    }
+
+    /// The value as written, when this is one with `env()` calls inside its
+    /// `calc()` (`calc(100% - env(titlebar-area-x, 0px))`): the cascade
+    /// substitutes each call's length and parses the value again.
+    #[must_use]
+    pub fn env_expression(&self) -> Option<&str> {
+        self.dynamic_id
+            .as_str()
+            .strip_prefix(crate::dynamic_selector::ENV_DYNAMIC_ID_PREFIX)
+            .filter(|value| value.contains("env("))
+    }
+
+    /// Whether this `env()` reads a value that follows the viewport's size
+    /// (`env(titlebar-area-width)`), so a resize can move it.
+    #[must_use]
+    pub fn env_follows_viewport(&self) -> bool {
+        use crate::dynamic_selector::EnvVariable;
+        if let Some(value) = self.env_expression() {
+            return value.contains(EnvVariable::TitlebarAreaWidth.as_css_name());
+        }
+        EnvVariable::from_dynamic_id(self.dynamic_id.as_str())
+            .is_some_and(|v| v.follows_viewport())
+    }
+
+    /// The reference as CSS value text: `env(<name>, <fallback>)`, a
+    /// `system:` length, the value with `env()` calls inside as written, or
+    /// the nested `var(--a, var(--b, <fallback>))` it was parsed from (no
     /// innermost fallback when it had none).
     #[must_use]
     pub fn format_css_value(&self) -> String {
-        if let Some(env) =
-            crate::dynamic_selector::EnvVariable::from_dynamic_id(self.dynamic_id.as_str())
-        {
-            return format!("env({}, {})", env.as_css_name(), self.default_value.value());
+        use crate::dynamic_selector::EnvVariable;
+        if let Some(env) = EnvVariable::from_dynamic_id(self.dynamic_id.as_str()) {
+            return match env {
+                EnvVariable::System(metric) => metric.as_css_str().to_string(),
+                _ => format!("env({}, {})", env.as_css_name(), self.default_value.value()),
+            };
+        }
+        if let Some(value) = self.env_expression() {
+            return value.to_string();
         }
         let names: Vec<&str> = self.var_names().collect();
         let mut out = if self.default_value.is_initial() {

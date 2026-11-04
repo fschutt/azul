@@ -1135,6 +1135,222 @@ impl TitlebarMetrics {
     }
 }
 
+/// The part of a window's title bar its content may draw in.
+///
+/// The strip along the window's top edge that the content runs under, less
+/// the window's own controls and the padding beside them. CSS reads it as
+/// `env(titlebar-area-x)`, `-y`, `-width` and `-height` (the Window Controls
+/// Overlay names), in logical px from the window's top-left.
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct TitlebarArea {
+    /// Where the area starts, from the window's left edge: past the controls
+    /// when they sit on the left.
+    pub x: f32,
+    /// Where the area starts, from the window's top edge.
+    pub y: f32,
+    /// The window's width less the controls and the safe area on both sides.
+    pub width: f32,
+    /// The title bar's height.
+    pub height: f32,
+}
+
+/// Where a window's own controls stand in its title bar.
+///
+/// The edges of the box around them, in logical px from the top-left corner
+/// of the window's content, as the window's shell measured them.
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct TitlebarControls {
+    pub left: f32,
+    pub top: f32,
+    pub right: f32,
+    pub bottom: f32,
+}
+
+/// The title bar a window's content runs under, as room taken from its edges.
+///
+/// `height` is how far down the content it lies, `left` and `right` the room
+/// the window's own controls take from the window's left and right edge (0
+/// where none stand). Taken from the edges, so it holds while the window is
+/// resized.
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct TitlebarGeometry {
+    pub height: f32,
+    pub left: f32,
+    pub right: f32,
+}
+
+impl TitlebarGeometry {
+    /// The geometry around `controls` in a title bar `band` px tall, of a
+    /// window `content_width` px wide.
+    ///
+    /// The controls keep as much room after them as they have before them,
+    /// from the edge they stand nearer to, and the title bar is at least the
+    /// row they are centred in: what a title bar strip beside them needs to
+    /// look as though it was laid out with them.
+    #[must_use]
+    pub fn around_controls(band: f32, content_width: f32, controls: TitlebarControls) -> Self {
+        let height = band.max(controls.top + controls.bottom);
+        let before = controls.left;
+        let after = content_width - controls.right;
+        if before <= after {
+            Self {
+                height,
+                left: controls.right + before,
+                right: 0.0,
+            }
+        } else {
+            Self {
+                height,
+                left: 0.0,
+                right: content_width - controls.left + after,
+            }
+        }
+    }
+}
+
+/// What a window reports of the title bar its content runs under.
+#[derive(Debug, Copy, Clone, PartialEq, Default)]
+pub enum TitlebarReport {
+    /// Nothing measured: the desktop's metrics stand in.
+    #[default]
+    Unmeasured,
+    /// The content runs under no title bar: a standard title bar above it,
+    /// full screen, a bar azul draws above the content.
+    NoArea,
+    /// The content runs under a title bar of this geometry.
+    Measured(TitlebarGeometry),
+}
+
+impl TitlebarReport {
+    /// This report, or `other` where this one measured nothing.
+    #[must_use]
+    pub const fn or(self, other: Self) -> Self {
+        match self {
+            Self::Unmeasured => other,
+            measured => measured,
+        }
+    }
+}
+
+impl SystemStyle {
+    /// The title bar of a window `content_width` px wide whose content runs
+    /// under it, from the desktop's metrics: what stands in where the window
+    /// measured nothing ([`TitlebarReport::Unmeasured`]).
+    ///
+    /// The controls take the desktop's `button_area_width` on their side
+    /// (`TabsInTitlebar::from_system_style` keeps the same room), and its
+    /// safe area. On macOS `traffic_lights` is where the window put its
+    /// close button (`MacWindowOptions::traffic_light_position`, its frame's
+    /// top-left), `None` for AppKit's own place: the room is then the one
+    /// around AppKit's buttons there. A metric the desktop does not report
+    /// is the platform's own.
+    ///
+    /// `None` where the platform keeps its controls above the content, so
+    /// nothing of the title bar lies over it: Windows' caption, a phone's
+    /// status bar. Only macOS (the traffic lights over the content view) and
+    /// Linux (the controls overlaid at the frame's corner) draw them there.
+    #[must_use]
+    pub fn titlebar_geometry(
+        &self,
+        content_width: f32,
+        traffic_lights: Option<(f32, f32)>,
+    ) -> Option<TitlebarGeometry> {
+        // AppKit's title bar buttons (macOS 11 - 15): 14 x 16pt frames, 20pt
+        // apart.
+        const BUTTON_WIDTH: f32 = 14.0;
+        const BUTTON_HEIGHT: f32 = 16.0;
+        const PITCH: f32 = 20.0;
+
+        if !matches!(self.platform, Platform::MacOs | Platform::Linux(_)) {
+            return None;
+        }
+        let height = self.titlebar_metric(|t| &t.height);
+        if let (Platform::MacOs, Some((x, y))) = (&self.platform, traffic_lights) {
+            let controls = TitlebarControls {
+                left: x,
+                top: y,
+                right: x + 2.0 * PITCH + BUTTON_WIDTH,
+                bottom: y + BUTTON_HEIGHT,
+            };
+            return Some(TitlebarGeometry::around_controls(
+                height,
+                content_width,
+                controls,
+            ));
+        }
+        let controls = self.titlebar_metric(|t| &t.button_area_width);
+        let (left, right) = match self.metrics.titlebar.button_side {
+            TitlebarButtonSide::Left => {
+                (controls + self.titlebar_metric(|t| &t.safe_area.left), 0.0)
+            }
+            TitlebarButtonSide::Right => {
+                (0.0, controls + self.titlebar_metric(|t| &t.safe_area.right))
+            }
+        };
+        Some(TitlebarGeometry {
+            height,
+            left,
+            right,
+        })
+    }
+
+    /// The [`TitlebarArea`] a window `viewport_width` px wide has under
+    /// `geometry`: past the room its controls take and the title bar's
+    /// padding beside them, or past the title bar's safe area on a side
+    /// without controls. `None` without a band to draw in.
+    #[must_use]
+    pub fn titlebar_area_in(
+        &self,
+        geometry: &TitlebarGeometry,
+        viewport_width: f32,
+    ) -> Option<TitlebarArea> {
+        let padding = self.titlebar_metric(|t| &t.padding_horizontal);
+        let side = |room: f32, safe: f32| if room > 0.0 { room + padding } else { safe };
+        let x = side(geometry.left, self.titlebar_metric(|t| &t.safe_area.left));
+        let right = side(geometry.right, self.titlebar_metric(|t| &t.safe_area.right));
+        let width = (viewport_width - x - right).max(0.0);
+        (geometry.height > 0.0).then_some(TitlebarArea {
+            x,
+            y: 0.0,
+            width,
+            height: geometry.height,
+        })
+    }
+
+    /// The [`TitlebarArea`] of a window `viewport_width` px wide whose content
+    /// runs under its title bar, from the desktop's metrics alone
+    /// ([`Self::titlebar_geometry`] with the traffic lights in AppKit's own
+    /// place).
+    #[must_use]
+    pub fn titlebar_area(&self, viewport_width: f32) -> Option<TitlebarArea> {
+        let geometry = self.titlebar_geometry(viewport_width, None)?;
+        self.titlebar_area_in(&geometry, viewport_width)
+    }
+
+    /// The title bar metrics of a platform that draws its window controls
+    /// over the content, which stand in for a metric the desktop does not
+    /// report; `None` for any other platform.
+    fn titlebar_preset(&self) -> Option<TitlebarMetrics> {
+        match self.platform {
+            Platform::MacOs => Some(TitlebarMetrics::macos()),
+            Platform::Linux(_) => Some(TitlebarMetrics::linux_gnome()),
+            _ => None,
+        }
+    }
+
+    /// One title bar length in px: the desktop's, the platform's where the
+    /// desktop reports none, zero where neither does.
+    fn titlebar_metric(&self, of: fn(&TitlebarMetrics) -> &OptionPixelValue) -> f32 {
+        let px = |v: &OptionPixelValue| {
+            v.as_option()
+                .and_then(|p| p.to_pixels_absolute().into_option())
+        };
+        px(of(&self.metrics.titlebar))
+            .or_else(|| self.titlebar_preset().and_then(|p| px(of(&p))))
+            .unwrap_or(0.0)
+    }
+}
+
 // ── Input interaction metrics ────────────────────────────────────────────
 
 /// Input interaction timing and distance thresholds from the OS.
@@ -4616,5 +4832,158 @@ mod system_language_tests {
         assert_eq!(resolve("en-us"), SystemLanguage::new("en-US", false));
         // Nothing known about the language: left-to-right, id kept.
         assert_eq!(SystemLanguage::resolve("fr-FR", &[]), SystemLanguage::new("fr-FR", false));
+    }
+}
+
+/// Where a window's content may draw beside the window's own controls
+/// (`env(titlebar-area-*)`).
+#[cfg(test)]
+mod titlebar_area_tests {
+    use super::{
+        DesktopEnvironment, OptionPixelValue, PixelValue, Platform, SystemStyle, TitlebarArea,
+        TitlebarButtonSide, TitlebarControls, TitlebarGeometry, TitlebarMetrics, TitlebarReport,
+    };
+
+    fn style(platform: Platform, side: TitlebarButtonSide) -> SystemStyle {
+        // `SystemStyle` implements `Drop`, so it is built field by field.
+        let mut style = SystemStyle::default();
+        style.platform = platform;
+        style.metrics.titlebar = TitlebarMetrics {
+            button_side: side,
+            height: OptionPixelValue::Some(PixelValue::px(28.0)),
+            button_area_width: OptionPixelValue::Some(PixelValue::px(78.0)),
+            padding_horizontal: OptionPixelValue::Some(PixelValue::px(8.0)),
+            ..TitlebarMetrics::default()
+        };
+        style
+    }
+
+    #[test]
+    fn the_area_starts_past_the_traffic_lights_on_macos() {
+        let area = style(Platform::MacOs, TitlebarButtonSide::Left).titlebar_area(800.0);
+        assert_eq!(
+            area,
+            Some(TitlebarArea {
+                x: 86.0,
+                y: 0.0,
+                width: 714.0,
+                height: 28.0,
+            })
+        );
+    }
+
+    #[test]
+    fn controls_on_the_right_shorten_the_area_from_its_end() {
+        let linux = Platform::Linux(DesktopEnvironment::Gnome);
+        let area = style(linux, TitlebarButtonSide::Right).titlebar_area(800.0);
+        assert_eq!(area.map(|a| (a.x, a.width)), Some((0.0, 714.0)));
+    }
+
+    #[test]
+    fn a_platform_that_keeps_its_caption_above_the_content_has_no_area() {
+        for platform in [Platform::Windows, Platform::Ios, Platform::Android, Platform::Unknown] {
+            let style = style(platform.clone(), TitlebarButtonSide::Right);
+            assert_eq!(style.titlebar_area(800.0), None, "{platform:?}");
+        }
+    }
+
+    #[test]
+    fn a_metric_the_desktop_leaves_out_is_the_platforms_own() {
+        let mut style = style(Platform::MacOs, TitlebarButtonSide::Left);
+        style.metrics.titlebar.height = OptionPixelValue::None;
+        let area = style.titlebar_area(800.0).expect("macOS has a title bar");
+        assert_eq!(area.height, 28.0, "macOS's own title bar height");
+        assert_eq!(area.x, 86.0, "the reported controls stay");
+    }
+
+    #[test]
+    fn controls_keep_as_much_room_after_them_as_before_them() {
+        let lights = TitlebarControls {
+            left: 12.0,
+            top: 6.0,
+            right: 66.0,
+            bottom: 22.0,
+        };
+        assert_eq!(
+            TitlebarGeometry::around_controls(28.0, 800.0, lights),
+            TitlebarGeometry {
+                height: 28.0,
+                left: 78.0,
+                right: 0.0,
+            }
+        );
+        // Nearer the right edge: the room is taken from that edge.
+        let caption = TitlebarControls {
+            left: 690.0,
+            top: 0.0,
+            right: 796.0,
+            bottom: 24.0,
+        };
+        assert_eq!(
+            TitlebarGeometry::around_controls(30.0, 800.0, caption),
+            TitlebarGeometry {
+                height: 30.0,
+                left: 0.0,
+                right: 114.0,
+            }
+        );
+    }
+
+    #[test]
+    fn moved_traffic_lights_take_the_room_and_the_row_they_are_centred_in() {
+        let style = style(Platform::MacOs, TitlebarButtonSide::Left);
+        assert_eq!(
+            style.titlebar_geometry(800.0, Some((20.0, 18.0))),
+            Some(TitlebarGeometry {
+                height: 52.0,
+                left: 94.0,
+                right: 0.0,
+            })
+        );
+        assert_eq!(
+            style.titlebar_geometry(800.0, None),
+            Some(TitlebarGeometry {
+                height: 28.0,
+                left: 78.0,
+                right: 0.0,
+            }),
+            "AppKit's own place: the desktop's room"
+        );
+    }
+
+    #[test]
+    fn a_measured_title_bar_is_laid_out_with_the_desktops_padding() {
+        let style = style(Platform::MacOs, TitlebarButtonSide::Left);
+        let measured = TitlebarGeometry {
+            height: 40.0,
+            left: 100.0,
+            right: 0.0,
+        };
+        assert_eq!(
+            style.titlebar_area_in(&measured, 800.0),
+            Some(TitlebarArea {
+                x: 108.0,
+                y: 0.0,
+                width: 692.0,
+                height: 40.0,
+            })
+        );
+        let no_band = TitlebarGeometry {
+            height: 0.0,
+            ..measured
+        };
+        assert_eq!(style.titlebar_area_in(&no_band, 800.0), None);
+    }
+
+    #[test]
+    fn a_report_that_measured_nothing_gives_way() {
+        let measured = TitlebarReport::Measured(TitlebarGeometry {
+            height: 28.0,
+            left: 78.0,
+            right: 0.0,
+        });
+        assert_eq!(TitlebarReport::Unmeasured.or(measured), measured);
+        assert_eq!(TitlebarReport::NoArea.or(measured), TitlebarReport::NoArea);
+        assert_eq!(measured.or(TitlebarReport::NoArea), measured);
     }
 }

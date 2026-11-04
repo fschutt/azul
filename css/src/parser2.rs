@@ -83,6 +83,7 @@ use crate::{
     dynamic_selector::{
         parse_os_version, BoolCondition, DynamicSelector, DynamicSelectorVec, EnvVariable,
         LanguageCondition, MediaType, MinMaxRange, OrientationType, OsCondition, ThemeCondition,
+        ENV_DYNAMIC_ID_PREFIX,
     },
     props::{
         basic::parse::parse_parentheses,
@@ -2527,6 +2528,8 @@ fn parse_declaration_resilient<'a>(
                 Ok(parsed_fallback) => declarations.push(env_declaration(env_var, parsed_fallback)),
                 Err(e) => return Err(CssParseErrorInner::DynamicCssParseError(e.into())),
             }
+        } else if let Some(declaration) = env_in_calc_declaration(normal_key, unparsed_css_value) {
+            declarations.push(declaration?);
         } else if let Some(chain) = parse_var_chain(unparsed_css_value) {
             // Left unresolved: the cascade resolves it per node, under the
             // live context. No fallback = the property's initial value (the
@@ -2657,14 +2660,22 @@ fn env_declaration(env_var: Option<EnvVariable>, fallback: CssProperty) -> CssDe
 ///
 /// Only a value that IS the `env()` call is recognised ([`is_one_call`]).
 /// `env()` nested in `calc()` or alongside other tokens (`10px env(...)`,
-/// `env(...) 10px`) is not - it falls through to the property's ordinary
-/// parser like before; on a shorthand, [`expand_env_components`] gives
-/// each such `env()` the longhands it stands for.
+/// `env(...) 10px`) is not - on a longhand, [`env_in_calc_declaration`]
+/// takes an `env()` inside a `calc()`, anything else falls through to the
+/// property's ordinary parser like before; on a shorthand,
+/// [`expand_env_components`] gives each such `env()` the longhands it
+/// stands for.
+///
+/// A `system:` length as the whole value (`system:titlebar-button-width`)
+/// is the same kind of reference, without a fallback of its own.
 fn check_if_value_is_css_env(
     unparsed_css_value: &str,
 ) -> Option<Result<(Option<EnvVariable>, &str), CssParseErrorInner<'_>>> {
     const KNOWN_NAME_DEFAULT: &str = "0px";
 
+    if let Some(system_length) = EnvVariable::from_system_length(unparsed_css_value) {
+        return Some(Ok((Some(system_length), KNOWN_NAME_DEFAULT)));
+    }
     let trimmed = unparsed_css_value.trim();
     if !is_one_call(trimmed) {
         return None;
@@ -2684,12 +2695,59 @@ fn check_if_value_is_css_env(
     })
 }
 
+/// A longhand whose value is one `calc()` with `env()` calls inside it:
+/// `width: calc(100% - env(titlebar-area-x, 0px))`. `env()` is a length to
+/// substitute before the value is parsed (CSS Environment Variables), so the
+/// declaration keeps the value as written - a `Dynamic` whose id is the
+/// [`ENV_DYNAMIC_ID_PREFIX`] and the value - and the cascade substitutes each
+/// call's live length and parses it again; its default is the value with
+/// every fallback (`0px` for a known name without one).
+///
+/// `None` when the value is no such `calc()`. A value that does not parse
+/// with its fallbacks, or an unknown name without one, is refused.
+fn env_in_calc_declaration(
+    key: CssPropertyType,
+    value: &str,
+) -> Option<Result<CssDeclaration, CssParseErrorInner<'_>>> {
+    let trimmed = value.trim();
+    let is_calc = trimmed
+        .get(.."calc(".len())
+        .is_some_and(|head| head.eq_ignore_ascii_case("calc("));
+    if !is_calc || !is_one_call(trimmed) || !trimmed.contains("env(") {
+        return None;
+    }
+    let refused = || {
+        CssParseErrorInner::DynamicCssParseError(DynamicCssParseError::UnexpectedValue(
+            CssParsingError::InvalidValue(crate::props::basic::error::InvalidValueErr(value)),
+        ))
+    };
+    let with_fallbacks =
+        crate::custom_properties::substitute_env(trimmed, |variable, fallback| {
+            match (variable, fallback) {
+                (_, Some(f)) => Some(f.to_string()),
+                (Some(_), None) => Some("0px".to_string()),
+                (None, None) => None,
+            }
+        });
+    let Some(with_fallbacks) = with_fallbacks else {
+        return Some(Err(refused()));
+    };
+    let Ok(default_value) = parse_css_property(key, &with_fallbacks) else {
+        return Some(Err(refused()));
+    };
+    Some(Ok(CssDeclaration::Dynamic(DynamicCssProperty {
+        dynamic_id: alloc::format!("{ENV_DYNAMIC_ID_PREFIX}{trimmed}").into(),
+        default_value,
+    })))
+}
+
 /// A shorthand whose value has `env()` calls AMONG its other components:
 /// `padding: env(safe-area-inset-top, 4px) 8px`. Every `env()` stands for
 /// its fallback while the shorthand expands, and each longhand an `env()`
 /// component feeds becomes that variable's `Dynamic` (the rest stay
 /// static): the top and bottom padding read the inset, left and right are
-/// 8px. `None` when no component is an `env()` call.
+/// 8px. A `system:` length component (`system:titlebar-height 8px`) is read
+/// the same way. `None` when no component is an `env()` call.
 ///
 /// Which longhands a component feeds: the value expands twice more, with two
 /// different lengths in the component's place (an `env()` value is a length),
@@ -2703,7 +2761,7 @@ fn expand_env_components(
 ) -> Option<Result<Vec<CssDeclaration>, CssParseErrorInner<'_>>> {
     const PROBES: [&str; 2] = ["1px", "2px"];
 
-    if !value.contains("env(") {
+    if !value.contains("env(") && !value.contains("system:") {
         return None;
     }
     let components = crate::props::basic::parse::split_string_respect_whitespace(value);
@@ -5437,6 +5495,111 @@ mod env_tests {
         ctx.safe_area_left = 20.5;
         let live_w = parse_css_property(CssPropertyType::Width, "20.5px").unwrap();
         assert_eq!(w.resolve_in_cascade(Some(&ctx)), Some(live_w));
+    }
+
+    #[test]
+    fn env_titlebar_area_x_with_a_fallback_parses_on_margin_left() {
+        let d = only_declaration("div { margin-left: env(titlebar-area-x, 12px); }");
+        assert_eq!(
+            d.env_variable().map(|v| v.as_css_name()),
+            Some("titlebar-area-x")
+        );
+        assert!(d.depends_on_dynamic_context());
+        let twelve = parse_css_property(CssPropertyType::MarginLeft, "12px").unwrap();
+        assert_eq!(d.resolve_in_cascade(None), Some(twelve));
+    }
+
+    #[test]
+    fn env_titlebar_area_height_without_a_fallback_is_zero_until_a_window_has_an_area() {
+        let d = only_declaration("div { padding-top: env(titlebar-area-height); }");
+        assert_eq!(
+            d.env_variable().map(|v| v.as_css_name()),
+            Some("titlebar-area-height")
+        );
+        let zero = parse_css_property(CssPropertyType::PaddingTop, "0px").unwrap();
+        assert_eq!(d.resolve_in_cascade(None), Some(zero.clone()));
+        assert_eq!(
+            d.resolve_in_cascade(Some(&DynamicSelectorContext::default())),
+            Some(zero),
+            "a context without a title bar area"
+        );
+    }
+
+    #[test]
+    fn a_system_titlebar_length_parses_on_margin_left_as_an_environment_value() {
+        let d = only_declaration("div { margin-left: system:titlebar-button-width; }");
+        assert_eq!(
+            d.env_variable().map(|v| v.as_css_name()),
+            Some("system:titlebar-button-width")
+        );
+        assert!(d.depends_on_dynamic_context());
+        let zero = parse_css_property(CssPropertyType::MarginLeft, "0px").unwrap();
+        assert_eq!(d.resolve_in_cascade(None), Some(zero));
+    }
+
+    #[test]
+    fn env_inside_calc_keeps_the_value_and_takes_the_fallback_without_a_window() {
+        let d = only_declaration("div { width: calc(100% - env(titlebar-area-x, 0px)); }");
+        assert_eq!(d.get_type(), Some(CssPropertyType::Width));
+        assert!(d.depends_on_dynamic_context());
+        let fallback = parse_css_property(CssPropertyType::Width, "calc(100% - 0px)").unwrap();
+        assert_eq!(d.resolve_in_cascade(None), Some(fallback));
+    }
+
+    const AREA: crate::system::TitlebarArea = crate::system::TitlebarArea {
+        x: 86.0,
+        y: 0.0,
+        width: 714.0,
+        height: 28.0,
+    };
+
+    #[test]
+    fn env_inside_calc_takes_the_live_length_and_prints_as_written() {
+        let d = only_declaration("div { width: calc(100% - env(titlebar-area-x, 0px)); }");
+        let ctx = DynamicSelectorContext::default().with_titlebar_area(Some(AREA));
+        let live = parse_css_property(CssPropertyType::Width, "calc(100% - 86px)").unwrap();
+        assert_eq!(d.resolve_in_cascade(Some(&ctx)), Some(live));
+        assert_eq!(d.format_css(), "width: calc(100% - env(titlebar-area-x, 0px));");
+    }
+
+    #[test]
+    fn env_inside_calc_with_an_unknown_name_and_no_fallback_is_dropped_with_a_warning() {
+        let (parsed, warnings) = new_from_str("div { width: calc(100% - env(no-such-thing)); }");
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert!(
+            parsed.rules().all(|r| r.declarations.as_ref().is_empty()),
+            "the declaration must not survive"
+        );
+    }
+
+    #[test]
+    fn system_titlebar_height_is_the_title_bar_areas_height_and_prints_as_written() {
+        let system = only_declaration("div { padding-top: system:titlebar-height; }");
+        let env = only_declaration("div { padding-top: env(titlebar-area-height); }");
+        let ctx = DynamicSelectorContext::default().with_titlebar_area(Some(AREA));
+        let live = parse_css_property(CssPropertyType::PaddingTop, "28px").unwrap();
+        assert_eq!(system.resolve_in_cascade(Some(&ctx)), Some(live.clone()));
+        assert_eq!(env.resolve_in_cascade(Some(&ctx)), Some(live));
+        assert_eq!(system.format_css(), "padding-top: system:titlebar-height;");
+    }
+
+    #[test]
+    fn a_system_length_among_a_shorthands_components_feeds_its_own_sides() {
+        let (parsed, warnings) = new_from_str("div { padding: system:titlebar-height 8px; }");
+        assert!(warnings.is_empty(), "{warnings:?}");
+        let rules: Vec<_> = parsed.rules().collect();
+        let decls = rules[0].declarations.as_ref();
+        assert_eq!(decls.len(), 4, "{decls:?}");
+        let height = Some(EnvVariable::System(
+            crate::props::basic::pixel::SystemMetricRef::TitlebarHeight,
+        ));
+        for d in decls {
+            let reads = matches!(
+                d.get_type(),
+                Some(CssPropertyType::PaddingTop | CssPropertyType::PaddingBottom)
+            );
+            assert_eq!(d.env_variable() == height, reads, "{d:?}");
+        }
     }
 
     #[test]
