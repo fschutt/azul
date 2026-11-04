@@ -4868,6 +4868,107 @@ fn build_mount_document(html: &TextLines, css: &TextLines) -> String {
     format!("<html>\n<head>\n<style>\n{css_src}\n</style>\n</head>\n{body}\n</html>")
 }
 
+/// What a node of a mounted document IS, for a caller that has to know which id
+/// is which without running the document (see [`mounted_nodes`]).
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MountedKind {
+    /// `<html>`, the root (id 0).
+    Html,
+    /// `<body>` (id 1).
+    Body,
+    /// Any other element (`<div>`, `<p>`, ...), `<img>` excepted.
+    Element,
+    /// An `<img>`: a `NodeType::Image` node.
+    Image,
+    /// A text run with something in it.
+    Text,
+    /// A text run of whitespace only: the newline or indent between two tags.
+    /// It is a node, and it takes an id of its own.
+    Whitespace,
+}
+
+/// One node of a mounted document, by id (its index in [`mounted_nodes`]).
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MountedNode {
+    pub kind: MountedKind,
+    /// The lowercase tag of an element (`div`, `body`); empty for a text run.
+    pub tag: String,
+    /// The `id` attribute, if any.
+    pub css_id: Option<String>,
+    /// The `class` attribute's classes.
+    pub classes: Vec<String>,
+    /// The text of a text run; empty for an element.
+    pub text: String,
+    /// The id of the parent; `None` for `<html>`.
+    pub parent: Option<usize>,
+}
+
+/// The nodes a `mount` of `html` + `css` makes, in id order: node `i` of the
+/// window's document is `result[i]`.
+///
+/// This runs the SAME document construction as the `mount` op
+/// ([`build_mount_document`] and `parse_xml_to_styled_dom`; the runner then only
+/// adds the inheritance cache, which makes no node), so what it says about ids
+/// is what a numeric `node_id` will mean at run time: `<html>` is 0, `<body>`
+/// is 1, the ids then run depth first over EVERY node, and each newline or
+/// indent between two tags is a whitespace text node with an id of its own.
+/// `gen-e2e`'s gate uses it to refuse an id that lands on `<html>`, `<body>`
+/// or a whitespace run when an element was meant.
+///
+/// # Errors
+///
+/// The `mount` op's own message when the markup does not parse.
+#[cfg(feature = "std")]
+pub fn mounted_nodes(html: &TextLines, css: &TextLines) -> Result<Vec<MountedNode>, String> {
+    use azul_core::dom::NodeType;
+
+    let xml = build_mount_document(html, css);
+    let styled_dom = azul_layout::xml::parse_xml_to_styled_dom(&xml)
+        .map_err(|e| format!("mount: XML parse error: {e:?}"))?;
+    let node_data = styled_dom.node_data.as_container();
+    let hierarchy = styled_dom.node_hierarchy.as_container();
+
+    Ok((0..node_data.len())
+        .map(|i| {
+            let id = azul_core::id::NodeId::new(i);
+            let data = &node_data[id];
+            let (kind, text) = match data.get_node_type() {
+                NodeType::Html => (MountedKind::Html, String::new()),
+                NodeType::Body => (MountedKind::Body, String::new()),
+                NodeType::Image(_) => (MountedKind::Image, String::new()),
+                NodeType::Text(t) if t.as_str().trim().is_empty() => {
+                    (MountedKind::Whitespace, t.as_str().to_string())
+                }
+                NodeType::Text(t) => (MountedKind::Text, t.as_str().to_string()),
+                _ => (MountedKind::Element, String::new()),
+            };
+            let tag = match kind {
+                MountedKind::Text | MountedKind::Whitespace => String::new(),
+                _ => format!("{:?}", data.get_node_type().get_path()).to_lowercase(),
+            };
+            let mut css_id = None;
+            let mut classes = Vec::new();
+            for attr in data.attributes().as_ref() {
+                if let Some(attr_id) = attr.as_id() {
+                    css_id.get_or_insert_with(|| attr_id.to_string());
+                } else if let Some(class) = attr.as_class() {
+                    classes.push(class.to_string());
+                }
+            }
+            MountedNode {
+                kind,
+                tag,
+                css_id,
+                classes,
+                text,
+                parent: hierarchy[id].parent_id().map(|p| p.index()),
+            }
+        })
+        .collect())
+}
+
 /// Answer a builder op and hand its document to the window: a `Mount` goes
 /// through the same `CallbackChange::RemountDom` the `mount` op uses (the
 /// shell stores it on `LayoutWindow::e2e_mount`, `regenerate_layout` parses
@@ -8067,6 +8168,72 @@ fn window_logical_area(callback_info: &azul_layout::callbacks::CallbackInfo) -> 
     (size.width * size.height).max(1.0)
 }
 
+/// Which damage a damage op reads (`which`): the rects re-rasterised (`paint`,
+/// the default) or what changed on screen (`present`).
+pub const DAMAGE_WHICH_VALUES: &[&str] = &["paint", "present"];
+/// Which frames a damage op reads (`frame`): everything since the last
+/// `reset_frame_counters` (`accumulated`, the default) or the most recent
+/// frame only (`last`).
+pub const DAMAGE_FRAME_VALUES: &[&str] = &["accumulated", "last"];
+/// Where `scroll_into_view` aligns the node (`block` / `inline`).
+pub const SCROLL_ALIGN_VALUES: &[&str] = &["nearest", "start", "center", "end"];
+/// How `scroll_into_view` gets there (`behavior`).
+pub const SCROLL_BEHAVIOR_VALUES: &[&str] = &["auto", "instant", "smooth"];
+
+/// The CLOSED set of values the string param `param` takes, when it is one.
+///
+/// These params were read with a `match` whose `_` arm was the default, so a
+/// value outside the set was not an error but the default: `{"which": "last"}`
+/// (`"last"` is a value of `frame`) was the paint damage, and the assertion
+/// judged something the scenario did not say. Now an op refuses it
+/// ([`closed_value`]) and the `gen-e2e` gate rejects it before the scenario
+/// is ever written - both read the set from HERE, so the set the engine
+/// accepts and the set the gate accepts cannot drift apart.
+///
+/// Keyed by the param's NAME: every op that has a param of this name takes this
+/// set (`which` / `frame` by the damage ops and `capture_damage_png`, `block` /
+/// `inline` / `behavior` by `scroll_into_view`).
+#[must_use]
+pub fn closed_param_values(param: &str) -> Option<&'static [&'static str]> {
+    CLOSED_STRING_PARAMS
+        .iter()
+        .find(|(name, _)| *name == param)
+        .map(|(_, values)| *values)
+}
+
+/// Every string param that takes a closed set of values, with the set - the
+/// table [`closed_param_values`] reads, for a caller that has to walk it (the
+/// `gen-e2e` gate points a value at the param it belongs to).
+pub const CLOSED_STRING_PARAMS: &[(&str, &[&str])] = &[
+    ("which", DAMAGE_WHICH_VALUES),
+    ("frame", DAMAGE_FRAME_VALUES),
+    ("block", SCROLL_ALIGN_VALUES),
+    ("inline", SCROLL_ALIGN_VALUES),
+    ("behavior", SCROLL_BEHAVIOR_VALUES),
+];
+
+/// `value` as a member of the closed set of `param`, or the refusal an op
+/// answers with: what it was given and the values there are.
+///
+/// # Errors
+///
+/// A message naming `op`, `param`, the value given and the allowed values.
+pub fn closed_value<'a>(
+    op: &str,
+    param: &str,
+    value: &'a serde_json::Value,
+) -> Result<&'a str, String> {
+    let allowed = closed_param_values(param).unwrap_or(&[]);
+    match value.as_str() {
+        Some(v) if allowed.contains(&v) => Ok(v),
+        _ => Err(format!(
+            "{op}: {param} is {value}, which is not one of {} (a value outside the set used to be \
+             taken for the default, so the step silently did something other than what it says)",
+            allowed.join(", ")
+        )),
+    }
+}
+
 /// Pick the paint (default) or present damage out of the frame report.
 ///
 /// By default this is the damage ACCUMULATED SINCE THE LAST `reset_frame_counters`,
@@ -8075,31 +8242,45 @@ fn window_logical_area(callback_info: &azul_layout::callbacks::CallbackInfo) -> 
 /// and those would otherwise clobber the damage the test wants to see. Pass
 /// `"frame": "last"` to look at the most recent frame only (that is what
 /// `assert_idle_stable` does).
+///
+/// `which` and `frame` are closed sets ([`DAMAGE_WHICH_VALUES`],
+/// [`DAMAGE_FRAME_VALUES`]): a value outside them refuses the assertion
+/// (`Err`, the failure to return) instead of silently reading the default.
 #[cfg(feature = "std")]
 fn damage_of(
+    op: &str,
     params: &serde_json::Value,
     callback_info: &azul_layout::callbacks::CallbackInfo,
-) -> (azul_layout::window::FrameDamage, &'static str) {
+) -> Result<(azul_layout::window::FrameDamage, &'static str), AssertionResult> {
+    let which = match params.get("which") {
+        Some(v) => closed_value(op, "which", v).map_err(AssertionResult::fail)?,
+        None => "paint",
+    };
+    let frame = match params.get("frame") {
+        Some(v) => closed_value(op, "frame", v).map_err(AssertionResult::fail)?,
+        None => "accumulated",
+    };
     let report = frame_report_of(callback_info);
-    let last_only = params.get("frame").and_then(|v| v.as_str()) == Some("last");
-    match params.get("which").and_then(|v| v.as_str()) {
-        Some("present") => (
+    let last_only = frame == "last";
+    Ok(if which == "present" {
+        (
             if last_only {
-                report.present_damage.clone()
+                report.present_damage
             } else {
-                report.accumulated_present_damage.clone()
+                report.accumulated_present_damage
             },
             "present",
-        ),
-        _ => (
+        )
+    } else {
+        (
             if last_only {
-                report.paint_damage.clone()
+                report.paint_damage
             } else {
-                report.accumulated_paint_damage.clone()
+                report.accumulated_paint_damage
             },
             "paint",
-        ),
-    }
+        )
+    })
 }
 
 #[cfg(feature = "std")]
@@ -8974,7 +9155,10 @@ fn eval_assert_damage(
         ));
     }
 
-    let (damage, which) = damage_of(params, callback_info);
+    let (damage, which) = match damage_of("assert_damage", params, callback_info) {
+        Ok(picked) => picked,
+        Err(refused) => return refused,
+    };
     let kind = damage_kind_str(&damage);
     let rects = damage.rect_count();
     let area = damage.area(window_logical_area(callback_info));
@@ -9085,7 +9269,10 @@ fn eval_assert_changed(
             .and_then(serde_json::Value::as_u64)
             .unwrap_or(2) as u8;
 
-        let (damage, which) = damage_of(params, callback_info);
+        let (damage, which) = match damage_of("assert_changed", params, callback_info) {
+            Ok(picked) => picked,
+            Err(refused) => return refused,
+        };
         if damage.is_none() {
             return AssertionResult::fail_with(
                 "assert_changed: nothing was repainted (stale screen)".to_string(),
@@ -9205,7 +9392,10 @@ fn eval_assert_damage_covers_changes(
             .and_then(serde_json::Value::as_f64)
             .unwrap_or(1.0) as f32;
 
-        let (damage, _) = damage_of(params, callback_info);
+        let (damage, _) = match damage_of("assert_damage_covers_changes", params, callback_info) {
+            Ok(picked) => picked,
+            Err(refused) => return refused,
+        };
         if damage.is_full() {
             return AssertionResult::pass(
                 "assert_damage_covers_changes: full repaint trivially covers every changed pixel \
@@ -9314,7 +9504,10 @@ fn eval_assert_damage_incremental(
         .get("max_area_ratio")
         .and_then(serde_json::Value::as_f64)
         .unwrap_or(0.5);
-    let (damage, which) = damage_of(params, callback_info);
+    let (damage, which) = match damage_of("assert_damage_incremental", params, callback_info) {
+        Ok(picked) => picked,
+        Err(refused) => return refused,
+    };
     if damage.is_full() {
         return AssertionResult::fail_with(
             format!("assert_damage_incremental: {which} damage is a FULL repaint, not a patch"),
@@ -16878,6 +17071,15 @@ pub fn process_debug_event(
         }
 
         DebugEvent::CaptureDamagePng { path, which, crop } => {
+            // `which` is a closed set: an unknown value used to read the paint
+            // damage, so the image showed something the scenario did not ask for.
+            if let Some(w) = which {
+                if let Err(why) = closed_value("capture_damage_png", "which", &serde_json::json!(w))
+                {
+                    send_err(request, why);
+                    return needs_update;
+                }
+            }
             #[cfg(feature = "cpurender")]
             {
                 match capture_damage_png(callback_info, which.as_deref(), *crop) {
@@ -18817,6 +19019,18 @@ pub fn process_debug_event(
                     return needs_update;
                 }
             };
+
+            // `block`, `inline` and `behavior` are closed sets: a value outside
+            // them used to be taken for the default.
+            for (param, value) in [("block", block), ("inline", inline), ("behavior", behavior)] {
+                if let Some(v) = value {
+                    if let Err(why) = closed_value("scroll_into_view", param, &serde_json::json!(v))
+                    {
+                        send_err(request, why);
+                        return needs_update;
+                    }
+                }
+            }
 
             // Parse alignment options
             let block_align = match block.as_deref() {

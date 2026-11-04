@@ -83,6 +83,16 @@ mod app_commands_tests;
 #[cfg(test)]
 mod selector_ops_tests;
 
+// A string param with a closed set of values (`which`, `frame`, `block`,
+// `inline`, `behavior`) refuses any other value by name.
+#[cfg(test)]
+mod closed_values_tests;
+
+// `mounted_nodes`: which node each numeric id of a mounted document is, for
+// `gen-e2e`'s gate - and the table is the engine's own.
+#[cfg(test)]
+mod mounted_nodes_tests;
+
 pub mod hooks {
     //! Dependency-injection seam for the three host-coupled call sites in
     //! [`super::full`]. See the module docs above.
