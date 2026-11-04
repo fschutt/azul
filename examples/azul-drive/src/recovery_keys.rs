@@ -31,7 +31,9 @@
 //! `AZDRIVE_RECOVERY_KEYS <drive> <count>`, `AZDRIVE_RECOVERY_CODE_ADDED <drive>`,
 //! `AZDRIVE_RECOVERY_FINDABLE <drive>`, `AZDRIVE_RECOVERY_KEY_REMOVED <drive> <key>`,
 //! `AZDRIVE_RECOVERY_KEY_KEPT <drive> <key>` (the token server kept it: the last key),
-//! `AZDRIVE_RECOVERY_KEY_REFUSED <drive> <key> <why>` (any other failed removal).
+//! `AZDRIVE_RECOVERY_KEY_REFUSED <drive> <key> <why>` (any other failed removal),
+//! `AZDRIVE_RECOVERY_KEY_WRAP_KEPT <drive> <key> <why>` (the kit's wrap could not be deleted: nothing
+//! was removed).
 
 use std::sync::Arc;
 
@@ -883,8 +885,33 @@ pub(crate) enum KeysDone {
     Removed {
         drive_id: String,
         key_id: String,
-        result: Result<(), TokenError>,
+        result: Result<(), RemoveFailed>,
     },
+}
+
+/// Why a recovery key was not removed.
+#[derive(Debug)]
+pub(crate) enum RemoveFailed {
+    /// The kit's wrap in the drive's storage could not be deleted (why): nothing else was touched -
+    /// its code still opens the drive key for anyone who reaches the bucket, so the key stays
+    /// listed and the removal can be tried again.
+    Wrap(String),
+    /// The token server's answer, or none (after the wrap went).
+    Server(TokenError),
+}
+
+/// Removes a recovery key: its wrap in the drive's storage first (`delete_wrap`: what lets its
+/// code open the drive key - a kit that was lost must not keep doing that), then its key at the
+/// token server (`remove_at_server`, which checks the signature of the drive's current code and
+/// refuses the last key). A wrap that cannot be deleted stops the removal where it is and is
+/// said, never ignored; a wrap that is gone already is no failure, so a removal the server
+/// refused or never answered runs again.
+fn remove_key(
+    delete_wrap: impl FnOnce() -> Result<(), String>,
+    remove_at_server: impl FnOnce() -> Result<(), TokenError>,
+) -> Result<(), RemoveFailed> {
+    delete_wrap().map_err(RemoveFailed::Wrap)?;
+    remove_at_server().map_err(RemoveFailed::Server)
 }
 
 /// A grant of the drive (its newest drive token, under its keyring lock).
@@ -1073,19 +1100,28 @@ pub(crate) fn run(job: KeysJob) -> KeysDone {
             token_url,
             keyring,
         } => {
-            let result = TokenServer::new(&token_url, &transport).and_then(|server| {
-                let what = format!("remove:{key_id}");
-                with_token_keyed(&keyring, &drive_id, &what, |token, key| {
-                    server.remove_recovery_key(&drive_id, token, &key_id, key, |message| {
-                        Ok(signer.sign_base64(message))
+            let result = remove_key(
+                || match (&extra_file, &auto) {
+                    (Some(file), Some(auto)) => {
+                        device::remove_recovery_code(auto.bucket().as_ref(), file)
+                            .map_err(|e| e.to_string())
+                    }
+                    // The kit's wrap is in the drive's storage, and the drive is not open.
+                    (Some(_), None) => Err(t("azdrive-keys-drive-not-open")),
+                    // The drive's first code, or a kit another computer added: no wrap of ours.
+                    (None, _) => Ok(()),
+                },
+                || {
+                    TokenServer::new(&token_url, &transport).and_then(|server| {
+                        let what = format!("remove:{key_id}");
+                        with_token_keyed(&keyring, &drive_id, &what, |token, key| {
+                            server.remove_recovery_key(&drive_id, token, &key_id, key, |message| {
+                                Ok(signer.sign_base64(message))
+                            })
+                        })
                     })
-                })
-            });
-            if result.is_ok() {
-                if let (Some(file), Some(auto)) = (extra_file, auto) {
-                    let _ = device::remove_recovery_code(auto.bucket().as_ref(), &file);
-                }
-            }
+                },
+            );
             KeysDone::Removed {
                 drive_id,
                 key_id,
@@ -1240,7 +1276,18 @@ pub(crate) fn on_done(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState,
                 save_settings(info, app, s);
                 check_keys(info, app, s, &drive_id);
             }
-            Err(e) => {
+            Err(RemoveFailed::Wrap(why)) => {
+                // Nothing was removed: the kit's code still opens the drive key.
+                println!(
+                    "AZDRIVE_RECOVERY_KEY_WRAP_KEPT {drive_id} {key_id} {}",
+                    why.replace('\n', " ")
+                );
+                set_error(
+                    s,
+                    t_args("azdrive-keys-wrap-not-deleted", &[("why", Arg::from(why))]),
+                );
+            }
+            Err(RemoveFailed::Server(e)) => {
                 if matches!(&e, TokenError::Refused { code, .. } if code == "last_recovery_key") {
                     println!("AZDRIVE_RECOVERY_KEY_KEPT {drive_id} {key_id}");
                 } else {
@@ -1260,6 +1307,58 @@ mod tests {
 
     fn code() -> RecoveryCode {
         RecoveryCode::from_bytes([0x5A; 16])
+    }
+
+    fn refused(code: &str) -> TokenError {
+        TokenError::Refused {
+            status: 409,
+            code: code.to_string(),
+            message: String::new(),
+        }
+    }
+
+    /// K11: removing a lost kit deleted its key at the token server first and ignored a failed
+    /// delete of its wrap: the list said "removed", and the kit's code kept opening the drive key
+    /// for anyone who reaches the bucket. The wrap goes first, a wrap that stays stops the removal
+    /// and is said.
+    #[test]
+    fn a_wrap_that_cannot_be_deleted_stops_the_removal_and_is_said() {
+        let asked = std::cell::Cell::new(false);
+        let result = remove_key(
+            || Err(String::from("no network")),
+            || {
+                asked.set(true);
+                Ok(())
+            },
+        );
+        assert!(matches!(result, Err(RemoveFailed::Wrap(why)) if why == "no network"));
+        assert!(
+            !asked.get(),
+            "the token server is not asked while the wrap stays"
+        );
+    }
+
+    #[test]
+    fn the_wrap_goes_first_then_the_key_at_the_token_server() {
+        let order = std::cell::RefCell::new(Vec::new());
+        let result = remove_key(
+            || {
+                order.borrow_mut().push("wrap");
+                Ok(())
+            },
+            || {
+                order.borrow_mut().push("server");
+                Ok(())
+            },
+        );
+        assert!(result.is_ok());
+        assert_eq!(*order.borrow(), vec!["wrap", "server"]);
+        // The server's refusal is its own answer; the wrap is gone, a second try goes on from there.
+        let refusal = remove_key(|| Ok(()), || Err(refused("last_recovery_key")));
+        assert!(matches!(
+            refusal,
+            Err(RemoveFailed::Server(TokenError::Refused { code, .. })) if code == "last_recovery_key"
+        ));
     }
 
     #[test]
