@@ -1659,6 +1659,7 @@ impl IOSWindow {
         layout_window.routes = config.routes.clone();
         layout_window.set_app_localization(&config);
         layout_window.set_app_e2e(&config);
+        layout_window.set_app_node_identity(&config);
         // `<webview>`s are WKWebViews (`webview::IosWebViews`).
         layout_window
             .webviews

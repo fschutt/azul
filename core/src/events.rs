@@ -2817,6 +2817,7 @@ pub struct LifecycleEventResult {
 /// * `old_layout` - Layout bounds from the previous frame
 /// * `new_layout` - Layout bounds from the current frame
 /// * `timestamp` - Current timestamp for events
+/// * `identity` - What makes a node another node (`AppConfig::node_identity`)
 ///
 /// # Returns
 /// A `LifecycleEventResult` containing:
@@ -2832,6 +2833,7 @@ pub struct LifecycleEventResult {
 ///     &old_layout,
 ///     &new_layout,
 ///     timestamp,
+///     app_config.node_identity,
 /// );
 ///
 /// // Dispatch lifecycle events
@@ -2859,6 +2861,7 @@ pub fn detect_lifecycle_events_with_reconciliation(
     old_layout: &OrderedMap<NodeId, LogicalRect>,
     new_layout: &OrderedMap<NodeId, LogicalRect>,
     timestamp: Instant,
+    identity: crate::diff::NodeIdentityConfig,
 ) -> LifecycleEventResult {
     let diff_result = crate::diff::reconcile_dom(
         old_node_data,
@@ -2869,6 +2872,7 @@ pub fn detect_lifecycle_events_with_reconciliation(
         new_layout,
         dom_id,
         timestamp,
+        identity,
     );
 
     LifecycleEventResult {

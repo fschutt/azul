@@ -1391,3 +1391,5 @@ mod balanced_text_columns_balance_their_heights;
 mod an_exclusion_box_shapes_the_lines_of_the_regions_under_it;
 #[path = "a_sidebar_follows_the_title_bar_area.rs"]
 mod a_sidebar_follows_the_title_bar_area;
+#[path = "a_toggled_class_keeps_the_nodes_state_and_focus.rs"]
+mod a_toggled_class_keeps_the_nodes_state_and_focus;

@@ -6,8 +6,8 @@
 //!
 //! The reconciliation strategy is:
 //! 1. **Stable Key Match:** If `.with_key()` is used, it's an absolute match (O(1)).
-//! 2. **CSS ID Match:** If no key, use the CSS ID as key.
-//! 3. **Structural Key Match:** nth-of-type-within-parent + parent's key (recursive).
+//! 2. **CSS ID Match:** If no key, the CSS id, where the app's [`NodeIdentityConfig`] makes it a key.
+//! 3. **Structural Key Match:** type + place among the siblings + parent's key (recursive).
 //! 4. **Hash Match (Content Match):** Check for identical `DomNodeHash`.
 //! 5. **Structural Hash Match:** For text nodes, match by structural hash (ignoring content).
 //! 6. **Fallback:** Anything not matched is a `Mount` (new) or `Unmount` (old leftovers).
@@ -22,7 +22,7 @@ use core::hash::Hash;
 use azul_css::props::property::{CssPropertyType, RelayoutScope};
 
 use crate::{
-    dom::{DomId, DomNodeHash, DomNodeId, IdOrClass, NodeData, NodeType},
+    dom::{AttributeType, DomId, DomNodeHash, DomNodeId, IdOrClass, NodeData, NodeType},
     events::{
         ComponentEventFilter, EventData, EventFilter, EventPhase, EventSource, EventType,
         LifecycleEventData, LifecycleReason, SyntheticEvent,
@@ -456,27 +456,108 @@ pub fn compute_node_changes(
     changes
 }
 
+/// What makes a node of a rebuilt DOM another node than the one at its place
+/// before: a node that is the same node keeps its dataset, focus, scroll,
+/// hover and text-edit state, a node that is not unmounts and the new one
+/// mounts (`BeforeUnmount` / `AfterMount`).
+///
+/// An explicit key (`with_key`) always decides, and a node of another type
+/// is always another node: a text's caret or an image's frame means
+/// nothing on a node of another kind. A keyless node is otherwise known by
+/// its place among its siblings and its parent's identity, and this says
+/// what else counts.
+///
+/// The default is React's rules: the place is the index among all
+/// siblings, and neither the classes nor the CSS id change a node's
+/// identity. Set it once in `AppConfig::node_identity`; every window and
+/// every view of the app reconciles by it.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(C)]
+pub struct NodeIdentityConfig {
+    /// Which siblings count for a keyless node's place. Default: `All`.
+    pub siblings_counted: SiblingsCounted,
+    /// Whether a node whose class list changed is a new node, so toggling a
+    /// class such as `active` resets its state. Default: `false`, as in
+    /// React, where a changed `className` keeps the element.
+    pub class_change_remounts: bool,
+    /// Whether the CSS id acts as a key: a node with an id is the node with
+    /// the same id wherever it stands, and a changed id makes a new node.
+    /// Default: `false`, as in React, where `id` is an attribute like any
+    /// other.
+    pub id_is_key: bool,
+}
+
+/// Which siblings count for a keyless node's place, see
+/// [`NodeIdentityConfig::siblings_counted`].
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(C)]
+pub enum SiblingsCounted {
+    /// Every sibling, as React's child index: a node inserted in front
+    /// moves every later sibling one place, so each of them is the node
+    /// that stood at its new place before, if that one had the same type.
+    #[default]
+    All,
+    /// Only the siblings of the node's own type, as CSS `:nth-of-type`: a
+    /// node of another type inserted in front moves nothing.
+    SameType,
+}
+
+impl NodeIdentityConfig {
+    /// The key a node carries wherever it stands: its explicit key, else its
+    /// CSS id when the id acts as a key. `None` for a node known by its place.
+    pub(crate) fn terminal_key(self, node: &NodeData) -> Option<u64> {
+        use core::hash::Hasher;
+        if let Some(key) = node.get_key() {
+            return Some(key);
+        }
+        if !self.id_is_key {
+            return None;
+        }
+        node.attributes().as_ref().iter().find_map(|attr| {
+            attr.as_id().map(|id| {
+                let mut hasher = crate::hash::DefaultHasher::new();
+                id.hash(&mut hasher);
+                hasher.finish()
+            })
+        })
+    }
+
+    /// Whether `old` and `new` differ in what this config makes part of a
+    /// node's identity beyond its type, place and key: its class list.
+    fn classes_differ(self, old: &NodeData, new: &NodeData) -> bool {
+        let classes = |node: &NodeData| {
+            node.attributes()
+                .as_ref()
+                .iter()
+                .filter_map(AttributeType::as_class)
+                .collect::<Vec<_>>()
+        };
+        self.class_change_remounts && classes(old) != classes(new)
+    }
+}
+
 /// Calculate the reconciliation key for a node using the priority hierarchy:
 /// 1. Explicit key (set via `.with_key()`)
-/// 2. CSS ID (set via `.with_id("my-id")`)
-/// 3. Structural key: nth-of-type-within-parent + parent's reconciliation key
+/// 2. CSS ID (set via `.with_id("my-id")`), when `identity.id_is_key`
+/// 3. Structural key: the node's type and its place among its siblings
+///    (counted as `identity.siblings_counted` says), its classes when
+///    `identity.class_change_remounts`, and its parent's reconciliation key
 ///
-/// The structural key prevents incorrect matching when nodes are inserted
-/// before existing nodes (e.g., prepending items to a list) and allows
-/// keyless nodes to be matched across frames when their logical position
-/// and type are stable (even if content changed — which then fires an
-/// `Update` lifecycle event, see `reconcile_dom`).
+/// The structural key allows keyless nodes to be matched across frames when
+/// their place and type are stable (even if content changed — which then
+/// fires an `Update` lifecycle event, see `reconcile_dom`).
 ///
 /// When `hierarchy` is empty (or this node has no entry), the structural
-/// key degrades to `discriminant(node_type) + classes` — parent/nth-of-type
-/// context simply drops out. This lets callers that don't track hierarchy
-/// (tests, flat-DOM scenarios) still benefit from explicit-key and CSS-ID
-/// matching without divergent behavior.
+/// key degrades to the node's type (and classes) — the parent and the place
+/// simply drop out. This lets callers that don't track hierarchy (tests,
+/// flat-DOM scenarios) still benefit from explicit-key and CSS-ID matching
+/// without divergent behavior.
 #[must_use]
 pub fn calculate_reconciliation_key(
     node_data: &[NodeData],
     hierarchy: &[NodeHierarchyItem],
     node_id: NodeId,
+    identity: NodeIdentityConfig,
 ) -> u64 {
     use core::hash::Hasher;
 
@@ -484,22 +565,7 @@ pub fn calculate_reconciliation_key(
 
     // Terminal (parent-independent) key for a node: Priority 1 explicit key,
     // else Priority 2 CSS ID, else `None` (structural — needs the parent chain).
-    let terminal_key = |nid: NodeId| -> Option<u64> {
-        let node = &node_data[nid.index()];
-        // Priority 1: Explicit key
-        if let Some(key) = node.get_key() {
-            return Some(key);
-        }
-        // Priority 2: CSS ID
-        for attr in node.attributes().as_ref() {
-            if let Some(id) = attr.as_id() {
-                let mut hasher = crate::hash::DefaultHasher::new();
-                id.hash(&mut hasher);
-                return Some(hasher.finish());
-            }
-        }
-        None
-    };
+    let terminal_key = |nid: NodeId| identity.terminal_key(&node_data[nid.index()]);
 
     // Fast path: the node itself has an explicit key or CSS ID.
     if let Some(key) = terminal_key(node_id) {
@@ -550,9 +616,11 @@ pub fn calculate_reconciliation_key(
         let mut hasher = crate::hash::DefaultHasher::new();
 
         core::mem::discriminant(node.get_node_type()).hash(&mut hasher);
-        for attr in node.attributes().as_ref() {
-            if let Some(class) = attr.as_class() {
-                class.hash(&mut hasher);
+        if identity.class_change_remounts {
+            for attr in node.attributes().as_ref() {
+                if let Some(class) = attr.as_class() {
+                    class.hash(&mut hasher);
+                }
             }
         }
 
@@ -560,7 +628,7 @@ pub fn calculate_reconciliation_key(
             .get(nid.index())
             .and_then(NodeHierarchyItem::parent_id)
         {
-            // nth-of-type: count same-discriminant siblings before `nid`.
+            // The node's place: the siblings before `nid` that count.
             let mut sibling_index: usize = 0;
             let mut current = hierarchy
                 .get(parent_id.index())
@@ -570,9 +638,14 @@ pub fn calculate_reconciliation_key(
                     break;
                 }
                 let sibling = &node_data[sibling_id.index()];
-                if core::mem::discriminant(sibling.get_node_type())
-                    == core::mem::discriminant(node.get_node_type())
-                {
+                let counts = match identity.siblings_counted {
+                    SiblingsCounted::All => true,
+                    SiblingsCounted::SameType => {
+                        core::mem::discriminant(sibling.get_node_type())
+                            == core::mem::discriminant(node.get_node_type())
+                    }
+                };
+                if counts {
                     sibling_index += 1;
                 }
                 current = hierarchy
@@ -599,9 +672,10 @@ pub fn calculate_reconciliation_key(
 pub fn precompute_reconciliation_keys(
     node_data: &[NodeData],
     hierarchy: &[NodeHierarchyItem],
+    identity: NodeIdentityConfig,
 ) -> Vec<u64> {
     (0..node_data.len())
-        .map(|idx| calculate_reconciliation_key(node_data, hierarchy, NodeId::new(idx)))
+        .map(|idx| calculate_reconciliation_key(node_data, hierarchy, NodeId::new(idx), identity))
         .collect()
 }
 
@@ -664,8 +738,9 @@ fn compute_subtree_hashes(node_data: &[NodeData], hierarchy: &[NodeHierarchyItem
 ///
 /// # Matching priority
 /// For every node, the reconciliation key (`calculate_reconciliation_key`) encodes
-/// Priority 1 (`.with_key()`), Priority 2 (CSS ID), and Priority 3 (structural key:
-/// nth-of-type + parent key). The tiers are then tried in order:
+/// Priority 1 (`.with_key()`), Priority 2 (CSS ID, when `identity.id_is_key`), and
+/// Priority 3 (structural key: type + place among the siblings + parent key). The
+/// tiers are then tried in order:
 ///
 /// 1. **Reconciliation key** — matches logical identity, may fire Update on content change.
 /// 2. **Content hash** — exact match including content; catches pure reorders of anonymous nodes.
@@ -682,6 +757,7 @@ fn compute_subtree_hashes(node_data: &[NodeData], hierarchy: &[NodeHierarchyItem
 /// * `old_layout` / `new_layout` - Layout bounds used to detect Resize events
 /// * `dom_id` - The DOM identifier
 /// * `timestamp` - Current timestamp for events
+/// * `identity` - What makes a node another node: the app's `AppConfig::node_identity`
 #[allow(clippy::needless_pass_by_value)] // owned azul value taken by value (public API / ownership-transfer convention)
 #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
 #[must_use]
@@ -694,6 +770,7 @@ pub fn reconcile_dom(
     new_layout: &OrderedMap<NodeId, LogicalRect>,
     dom_id: DomId,
     timestamp: Instant,
+    identity: NodeIdentityConfig,
 ) -> DiffResult {
     // Helper: pop the first non-consumed NodeId from a queue.
     fn pop_first_unconsumed(queue: &mut VecDeque<NodeId>, consumed: &[bool]) -> Option<NodeId> {
@@ -711,7 +788,7 @@ pub fn reconcile_dom(
     // --- STEP 1: INDEX THE OLD DOM ---
     //
     // Three tiers, in priority order:
-    //   Tier 1: reconciliation key (.with_key() / CSS ID / structural key)
+    //   Tier 1: reconciliation key (.with_key() / CSS ID / structural key, as `identity` says)
     //   Tier 2: content hash (exact node_data hash — matches pure reorders)
     //   Tier 3: structural hash (discriminant + attrs, ignores text — matches text edits)
     //
@@ -719,11 +796,11 @@ pub fn reconcile_dom(
     // collide (two sibling divs produce the same structural key, two identical nodes
     // produce the same content hash, etc.); we consume in document order on match.
 
-    let old_rec_keys = precompute_reconciliation_keys(old_node_data, old_hierarchy);
+    let old_rec_keys = precompute_reconciliation_keys(old_node_data, old_hierarchy, identity);
     // AUDIT: precompute NEW keys too so the Tier-2/Tier-3 keyless tiers can be
     // gated on parent-key agreement (see STEP 2). Also lets Tier 1 look the key
     // up instead of recomputing it per node.
-    let new_rec_keys = precompute_reconciliation_keys(new_node_data, new_hierarchy);
+    let new_rec_keys = precompute_reconciliation_keys(new_node_data, new_hierarchy, identity);
 
     // Reconciliation key of a node's PARENT (`None` for a root or when the
     // hierarchy is unavailable). Used to keep keyless matches from migrating
@@ -761,7 +838,7 @@ pub fn reconcile_dom(
     //
     // The old single loop ran every tier per new node, in new-document order.
     // That let a PREPENDED subtree steal identity: the auto "structural"
-    // reconciliation key hashes an nth-of-type sibling index, so prepending a
+    // reconciliation key hashes a sibling index, so prepending a
     // banner shifts every following sibling's key by one and Tier 1 pairs
     // banner↔page0, page0↔page1, … — and (DomId, NodeId)-keyed state (text
     // overlay, focus, selections) follows the WRONG element. Shallow
@@ -770,7 +847,7 @@ pub fn reconcile_dom(
     //
     // So matching now runs in PASSES over all new nodes, strongest evidence
     // first, positional evidence last:
-    //   A1: terminal identity (explicit `.with_key()` / CSS ID)
+    //   A1: terminal identity (explicit `.with_key()` / a CSS id that is a key)
     //   A2: exact SUBTREE hash (node + entire subtree content-identical) —
     //       deliberately NOT parent-gated: re-pagination moves a paragraph's
     //       whole subtree under a different page container, and following it
@@ -795,14 +872,7 @@ pub fn reconcile_dom(
             .push_back(NodeId::new(idx));
     }
 
-    let has_terminal_identity = |node: &NodeData| -> bool {
-        node.get_key().is_some()
-            || node
-                .attributes()
-                .as_ref()
-                .iter()
-                .any(|attr| attr.as_id().is_some())
-    };
+    let has_terminal_identity = |node: &NodeData| identity.terminal_key(node).is_some();
 
     let n_new = new_node_data.len();
     let mut matched: Vec<Option<NodeId>> = vec![None; n_new];
@@ -834,20 +904,7 @@ pub fn reconcile_dom(
     // parent whose TERMINAL identity (explicit key / CSS ID) changed:
     // `#left → #right` is the author saying "a different container", and the
     // parent-key-gate test pins that a leaf must not migrate across it.
-    let terminal_key_of = |node: &NodeData| -> Option<u64> {
-        use core::hash::{Hash, Hasher};
-        if let Some(key) = node.get_key() {
-            return Some(key);
-        }
-        for attr in node.attributes().as_ref() {
-            if let Some(id) = attr.as_id() {
-                let mut hasher = crate::hash::DefaultHasher::new();
-                id.hash(&mut hasher);
-                return Some(hasher.finish());
-            }
-        }
-        None
-    };
+    let terminal_key_of = |node: &NodeData| identity.terminal_key(node);
     // The gate is the NEAREST ancestor with a terminal identity, not just the
     // parent: in AzMail's account wizard page 1's `#acct-name > p > "x"`
     // gave way to page 2's `#acct-imap-host > p > "x"`, and the text "x"
@@ -988,10 +1045,13 @@ pub fn reconcile_dom(
         let new_node = &new_node_data[new_idx];
         // Same kind of element, and the same terminal identity: an author who
         // moved the children out of `#left` and into `#right` said "a
-        // different container", and A1 already had its chance at both.
+        // different container", and A1 already had its chance at both. A
+        // changed class list makes another container where the app's rules
+        // say so, as it makes another node in every other pass.
         if core::mem::discriminant(old_node.get_node_type())
             != core::mem::discriminant(new_node.get_node_type())
             || terminal_key_of(old_node) != terminal_key_of(new_node)
+            || identity.classes_differ(old_node, new_node)
         {
             continue;
         }
@@ -2414,6 +2474,7 @@ pub fn reconcile_dom_with_changes(
     new_layout: &OrderedMap<NodeId, LogicalRect>,
     dom_id: DomId,
     timestamp: Instant,
+    identity: NodeIdentityConfig,
 ) -> ExtendedDiffResult {
     // Step 1: Run standard reconciliation
     let diff = reconcile_dom(
@@ -2425,6 +2486,7 @@ pub fn reconcile_dom_with_changes(
         new_layout,
         dom_id,
         timestamp,
+        identity,
     );
 
     // Step 2: For each matched pair, compute what changed

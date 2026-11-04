@@ -344,15 +344,30 @@ mod tests {
             NodeData::create_div().with_key("hero"),
         ];
 
-        let key_a = AnimKey(calculate_reconciliation_key(&tree_a, &[], NodeId::ZERO));
-        let key_b = AnimKey(calculate_reconciliation_key(&tree_b, &[], NodeId::new(1)));
+        let key_a = AnimKey(calculate_reconciliation_key(
+            &tree_a,
+            &[],
+            NodeId::ZERO,
+            crate::diff::NodeIdentityConfig::default(),
+        ));
+        let key_b = AnimKey(calculate_reconciliation_key(
+            &tree_b,
+            &[],
+            NodeId::new(1),
+            crate::diff::NodeIdentityConfig::default(),
+        ));
         assert_eq!(
             key_a, key_b,
             "the same keyed node got two different AnimKeys"
         );
 
         // And a DIFFERENT key must not collide with it.
-        let other = AnimKey(calculate_reconciliation_key(&tree_b, &[], NodeId::ZERO));
+        let other = AnimKey(calculate_reconciliation_key(
+            &tree_b,
+            &[],
+            NodeId::ZERO,
+            crate::diff::NodeIdentityConfig::default(),
+        ));
         assert_ne!(key_a, other);
     }
 
@@ -378,6 +393,7 @@ mod tests {
             &moves,
             &new_data,
             &[],
+            crate::diff::NodeIdentityConfig::default(),
             |id| (id == NodeId::ZERO).then_some(r), // only node 0 existed before
             |_| Some(rect(5.0, 0.0, 10.0, 10.0)),
         );

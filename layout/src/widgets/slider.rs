@@ -2213,6 +2213,7 @@ mod autotest_generated {
             &OrderedMap::default(),
             DomId::ROOT_ID,
             Instant::now(),
+            azul_core::diff::NodeIdentityConfig::default(),
         );
         assert!(
             diff.node_moves.iter().any(|m| {

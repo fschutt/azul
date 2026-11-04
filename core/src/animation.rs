@@ -27,7 +27,7 @@ use azul_css::props::basic::animation::AnimationInterpolationFunction;
 pub use azul_css::props::basic::animation::SpringCurve as Spring;
 
 use crate::{
-    diff::{calculate_reconciliation_key, NodeMove},
+    diff::{calculate_reconciliation_key, NodeIdentityConfig, NodeMove},
     dom::NodeData,
     geom::LogicalRect,
     id::NodeId,
@@ -608,13 +608,15 @@ impl AnimationManager {
     }
 }
 
-/// Turn the diff's correspondence map into `(key, First, Last)` triples.
+/// Turn the diff's correspondence map into `(key, First, Last)` triples,
+/// keyed by the identity the diff matched with (`identity`).
 ///
 /// Pairs missing either rect are dropped.
 pub fn correspondences_from_moves<F, L>(
     node_moves: &[NodeMove],
     new_node_data: &[NodeData],
     new_hierarchy: &[NodeHierarchyItem],
+    identity: NodeIdentityConfig,
     first_rect: F,
     last_rect: L,
 ) -> Vec<(AnimKey, LogicalRect, LogicalRect)>
@@ -635,6 +637,7 @@ where
             new_node_data,
             new_hierarchy,
             m.new_node_id,
+            identity,
         ));
         out.push((key, first, last));
     }
@@ -643,12 +646,14 @@ where
 
 /// The `AnimKey` -> current `NodeId` mapping for this frame's correspondences.
 ///
-/// Bridges the reconciliation identity and per-frame `NodeId`.
+/// Bridges the reconciliation identity (by the rules in `identity`) and
+/// per-frame `NodeId`.
 #[must_use]
 pub fn anim_keys_for_moves(
     node_moves: &[NodeMove],
     new_node_data: &[NodeData],
     new_hierarchy: &[NodeHierarchyItem],
+    identity: NodeIdentityConfig,
 ) -> Vec<(AnimKey, NodeId)> {
     node_moves
         .iter()
@@ -659,6 +664,7 @@ pub fn anim_keys_for_moves(
                     new_node_data,
                     new_hierarchy,
                     m.new_node_id,
+                    identity,
                 )),
                 m.new_node_id,
             )

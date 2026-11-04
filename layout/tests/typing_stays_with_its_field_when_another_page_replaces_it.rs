@@ -9,9 +9,12 @@
 //! field showed "Ada Lovelace" (typed into the name field), the port field
 //! the e-mail address, and the next keystrokes went in at the old caret
 //! ("Ada Lovelac127.0.0.1e"), which the app then received as the host. The
-//! fields carry different CSS ids: different elements, so the old field's
-//! uncommitted typing (the text overlay, the caret) must go with the old
-//! field when it unmounts.
+//! fields carry different CSS ids: different elements where the app's rules
+//! make the CSS id a key, so the old field's uncommitted typing (the text
+//! overlay, the caret) must go with the old field when it unmounts. Under
+//! React's rules, the default, an id is an attribute and the field at the
+//! same place is the same field; an app tells its fields apart with keys
+//! there.
 
 use azul_core::{
     dom::{Dom, DomId, DomNodeId, IdOrClass, NodeId},
@@ -90,6 +93,7 @@ fn render(lw: &mut LayoutWindow, first: &str, second: &str) {
 
 fn window(first: &str, second: &str) -> LayoutWindow {
     let mut lw = LayoutWindow::new(FcFontCache::build()).unwrap();
+    lw.node_identity.id_is_key = true;
     lw.system_animations_override = Some(azul_core::resources::SystemAnimations::disabled());
     let mut window_state = FullWindowState::default();
     window_state.size.dimensions = LogicalSize::new(800.0, 600.0);

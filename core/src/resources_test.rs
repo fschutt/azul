@@ -692,6 +692,7 @@ mod autotest_generated {
             trust_roots,
             mode,
             light,
+            node_identity,
             log_level,
             natural_scroll,
             termination_behavior,
@@ -725,6 +726,7 @@ mod autotest_generated {
             + size_of_field(theme_font)
             + size_of_field(mode)
             + size_of_field(light)
+            + size_of_field(node_identity)
             + size_of_field(log_level)
             + size_of_field(natural_scroll)
             + size_of_field(termination_behavior)

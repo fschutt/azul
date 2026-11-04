@@ -3137,6 +3137,7 @@ mod auto_dismiss_and_stack_tests {
             &OrderedMap::default(),
             DomId::ROOT_ID,
             Instant::now(),
+            azul_core::diff::NodeIdentityConfig::default(),
         );
         diff.events
             .iter()

@@ -1100,6 +1100,14 @@ pub struct AppConfig {
     ///
     /// 16 bytes, 4-aligned: it sits with the 4-byte enums.
     pub light: crate::light::Light,
+    /// What makes a node of a rebuilt DOM another node, which unmounts and
+    /// drops its state, focus and scroll. Default: React's rules - the same
+    /// type at the same place among its siblings, or the same explicit key,
+    /// is the same node, whatever its classes and its CSS id say. Every
+    /// window takes it when it is created.
+    ///
+    /// 8 bytes, 4-aligned: it sits with the 4-byte enums.
+    pub node_identity: crate::diff::NodeIdentityConfig,
     /// If enabled, logs error and info messages.
     ///
     /// Default is `LevelFilter::Error` to log all errors by default
@@ -1394,6 +1402,8 @@ impl AppConfig {
             // Follow the desktop.
             mode: crate::window::OptionDarkLightMode::None,
             light: crate::light::Light::DEFAULT,
+            // React's rules.
+            node_identity: crate::diff::NodeIdentityConfig::default(),
         };
         // Dogfood: register the 52 built-in HTML elements via the
         // same `add_component_library` API that users call.

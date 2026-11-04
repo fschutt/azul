@@ -4791,6 +4791,7 @@ fn run_e2e_test_inner(
     let mut app_data = match app {
         Some((data, config)) => {
             runner.layout_window.set_app_e2e(config);
+            runner.layout_window.set_app_node_identity(config);
             data
         }
         None => RefAny::new(()),

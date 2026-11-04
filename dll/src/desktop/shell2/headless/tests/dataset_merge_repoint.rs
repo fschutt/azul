@@ -21,10 +21,12 @@ struct Counter {
     clicks: u32,
 }
 
-/// Which tree the app builds: the box's width, so that a rebuild keeps the
-/// tree (the pre-cascade skip) or changes its style (the full path).
+/// Which tree the app builds: the box's width and its class, so that a
+/// rebuild keeps the tree (the pre-cascade skip) or changes its style or
+/// its class list (the full path).
 struct PageState {
     wide: bool,
+    active: bool,
 }
 
 /// What the menu item's handler does with its data: one more click.
@@ -45,7 +47,9 @@ extern "C" fn keep_held(_fresh: RefAny, held: RefAny) -> RefAny {
 }
 
 extern "C" fn counter_page(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
-    let wide = data.downcast_ref::<PageState>().is_some_and(|s| s.wide);
+    let (wide, active) = data
+        .downcast_ref::<PageState>()
+        .map_or((false, false), |s| (s.wide, s.active));
     let model = RefAny::new(Counter { clicks: 0 });
     let item = StringMenuItem::create("Count".into()).with_callback(
         model.clone(),
@@ -54,12 +58,16 @@ extern "C" fn counter_page(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
             ctx: OptionRefAny::None,
         },
     );
-    // The box keeps its identity (type, class, place) in both trees; only its
-    // width differs, which the full path lays out again.
+    // The box keeps its identity (its type and its place) in every tree; its
+    // width and its classes differ, which the full path lays out again.
     let width = if wide { "200px" } else { "100px" };
+    let mut classes = vec![IdOrClass::Class("target".into())];
+    if active {
+        classes.push(IdOrClass::Class("active".into()));
+    }
     Dom::create_body().with_css("margin: 0px;").with_child(
         Dom::create_div()
-            .with_ids_and_classes(vec![IdOrClass::Class("target".into())].into())
+            .with_ids_and_classes(classes.into())
             .with_css(&format!("width: {width}; height: 60px;"))
             .with_dataset(OptionRefAny::Some(model))
             .with_merge_callback(keep_held as DatasetMergeCallbackType)
@@ -108,7 +116,10 @@ fn click_the_menu_item(window: &HeadlessWindow) {
 
 #[test]
 fn a_context_menu_item_counts_into_the_model_a_rebuilds_merge_kept() {
-    let state = Arc::new(RefCell::new(RefAny::new(PageState { wide: false })));
+    let state = Arc::new(RefCell::new(RefAny::new(PageState {
+        wide: false,
+        active: false,
+    })));
     let mut window = make_window_sized(&state, counter_page, 300.0, 200.0);
     window.regenerate_layout().expect("initial layout");
     click_the_menu_item(&window);
@@ -117,9 +128,11 @@ fn a_context_menu_item_counts_into_the_model_a_rebuilds_merge_kept() {
         1,
         "harness: in a fresh window the item counts into the model"
     );
-    for (wide, rebuild) in [
-        (false, "a rebuild of the same tree"),
-        (true, "a rebuild of another tree"),
+    for (wide, active, rebuild) in [
+        (false, false, "a rebuild of the same tree"),
+        (true, false, "a rebuild of another width"),
+        (true, true, "a rebuild with a class more"),
+        (true, false, "a rebuild with the class removed"),
     ] {
         {
             let mut guard = state.borrow_mut();
@@ -127,6 +140,7 @@ fn a_context_menu_item_counts_into_the_model_a_rebuilds_merge_kept() {
             let page = data.downcast_mut::<PageState>();
             if let Some(mut page) = page {
                 page.wide = wide;
+                page.active = active;
             }
         }
         window.regenerate_layout().expect("the rebuild");
