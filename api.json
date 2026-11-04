@@ -29097,6 +29097,40 @@
                                     "type": "Dom"
                                 },
                                 "fn_body": "object.with_part_of_parent(part)"
+                            },
+                            "with_key": {
+                                "doc": [
+                                    "Gives the root node a stable key: across rebuilds it is the node with the",
+                                    "same key, wherever it stands, and keeps its dataset, focus and scroll.",
+                                    "Give a list's items keys when they can move, be sorted or have items",
+                                    "inserted in front of them (see `AppConfig::node_identity`)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "key": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dom"
+                                },
+                                "fn_body": "object.with_key(key)"
+                            },
+                            "set_key": {
+                                "doc": [
+                                    "Setter form of `with_key`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "key": "String"
+                                    }
+                                ],
+                                "fn_body": "object.set_key(key)"
                             }
                         },
                         "repr": "C"
@@ -38967,6 +39001,55 @@
                                         "Number of elements in the slice"
                                     ]
                                 }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "NodeIdentityConfig": {
+                        "external": "azul_core::diff::NodeIdentityConfig",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "struct_fields": [
+                            {
+                                "siblings_counted": {
+                                    "type": "SiblingsCounted"
+                                },
+                                "class_change_remounts": {
+                                    "type": "bool"
+                                },
+                                "id_is_key": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SiblingsCounted": {
+                        "external": "azul_core::diff::SiblingsCounted",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "All": {},
+                                "SameType": {}
                             }
                         ],
                         "repr": "C"
@@ -191157,6 +191240,9 @@
                                 },
                                 "light": {
                                     "type": "Light"
+                                },
+                                "node_identity": {
+                                    "type": "NodeIdentityConfig"
                                 },
                                 "log_level": {
                                     "type": "AppLogLevel"
