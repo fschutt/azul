@@ -3884,7 +3884,8 @@ extern "C" fn on_destination_picked(
     })
 }
 
-/// "Remove drive" confirmed: out of the drives file, its keys out of the keyring.
+/// "Remove drive" confirmed: out of the drives file, its session and - for an Azlin drive whose
+/// recovery code was checked - its keys out of the keyring.
 pub(crate) fn forget_drive(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
     let Some(Popup::ConfirmForget { drive_id }) = s.popup.take() else {
         return;
@@ -3908,9 +3909,14 @@ pub(crate) fn forget_drive(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveS
         }
     }
     let mut needs_keyring = false;
+    // An Azlin drive's keys (not only its session) go with it, once its recovery code was checked.
+    let mut azlin_name = None;
     if let Some(index) = s.slot_index(&drive_id) {
         let name = s.slots[index].entry.name.clone();
         needs_keyring = s.slots[index].entry.needs_keyring();
+        if s.slots[index].entry.azlin().is_some() {
+            azlin_name = Some(name.clone());
+        }
         s.slots.remove(index);
         s.info(Phrase::new("azdrive-drive-removed").arg("name", name.as_str()));
     }
@@ -3928,6 +3934,12 @@ pub(crate) fn forget_drive(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveS
             KeyringCall::Delete(config::keyring_key(&drive_id)),
         );
     }
+    #[cfg(feature = "encryption")]
+    if let Some(name) = azlin_name {
+        crate::encryption::forget_keys_with_drive(info, s, &drive_id, &name);
+    }
+    #[cfg(not(feature = "encryption"))]
+    let _ = azlin_name;
     s.history.clear();
     save_settings(info, app, s);
     go(info, app, s, Place::ThisPc, false);

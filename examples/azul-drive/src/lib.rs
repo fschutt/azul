@@ -2638,7 +2638,16 @@ extern "C" fn on_keyring_result(mut data: RefAny, mut info: CallbackInfo) -> Upd
                 ));
             }
         }
-        KeyringOp::Forget => {}
+        KeyringOp::Forget => {
+            // A key that stays in the keyring after its drive was removed is said.
+            if !matches!(result, KeyringResult::Deleted | KeyringResult::NotFound) {
+                s.error(keyring_text(
+                    Phrase::new("azdrive-keyring-not-forgotten"),
+                    &result,
+                    "azdrive-keyring-forget-by-hand",
+                ));
+            }
+        }
         KeyringOp::BridgePassword => match &result {
             KeyringResult::Retrieved(secret) => ui_bridge::copy_password(&mut info, s, secret.as_str()),
             other => s.error(keyring_text(

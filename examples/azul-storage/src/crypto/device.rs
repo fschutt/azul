@@ -385,18 +385,33 @@ pub fn member_secret(keyring: &dyn KeyringStore, drive: &str) -> Result<MemberSe
     Ok(secret)
 }
 
-/// Removes the drive's keys from this device (the drive was removed, or the device signs out).
-pub fn forget_keys(keyring: &dyn KeyringStore, drive: &str) -> Result<(), DriveError> {
-    for entry in [
+/// Every keyring entry a drive's keys are kept in on this device: the drive key, this device's
+/// member key (with its pin), a key made before the drive's setup finished, the two keys of a
+/// rotation under way, and the recovery request's key. A removed drive leaves none of them
+/// behind ([`forget_keys`]).
+#[must_use]
+pub fn key_entries(drive: &str) -> Vec<String> {
+    let (previous, next) = rotation_key_entries(drive);
+    vec![
         drive_key_entry(drive),
         member_key_entry(drive),
         planned_key_entry(drive),
-    ] {
-        keyring
-            .delete(&entry)
-            .map_err(|e| keyring_error(&entry, e))?;
+        previous,
+        next,
+        request_key_entry(drive),
+    ]
+}
+
+/// Removes the drive's keys from this device ([`key_entries`]; the drive was removed, or the
+/// device signs out). Every entry is tried; the first refusal is the answer.
+pub fn forget_keys(keyring: &dyn KeyringStore, drive: &str) -> Result<(), DriveError> {
+    let mut first = None;
+    for entry in key_entries(drive) {
+        if let Err(e) = keyring.delete(&entry) {
+            first.get_or_insert(keyring_error(&entry, e));
+        }
     }
-    Ok(())
+    first.map_or(Ok(()), Err)
 }
 
 /// The drive's members (their ids, sorted) as a device that holds the drive key reads them:

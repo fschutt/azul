@@ -477,6 +477,15 @@ pub fn state_of<'a>(states: &'a [RecoveryState], drive_id: &str) -> Option<&'a R
     states.iter().find(|state| state.drive_id == drive_id)
 }
 
+/// Whether the keys of the removed drive `drive_id` may leave this computer with it: its recovery
+/// code was typed back right at least once (the setup's check, a drill). The keys on this
+/// computer may be the only way into the drive, and removing a drive must not make one nobody can
+/// open - without a checked code they stay.
+#[must_use]
+pub fn keys_may_be_forgotten(states: &[RecoveryState], drive_id: &str) -> bool {
+    state_of(states, drive_id).is_some_and(|state| state.code_checked.is_some())
+}
+
 /// The recovery of `drive_id`, made when there is none.
 pub fn state_mut<'a>(states: &'a mut Vec<RecoveryState>, drive_id: &str) -> &'a mut RecoveryState {
     let index = match states.iter().position(|state| state.drive_id == drive_id) {
@@ -729,6 +738,29 @@ mod tests {
             index,
             handed: Some(NOW),
         }
+    }
+
+    /// K6: "Remove drive" takes the drive's keys out of the keyring only when its recovery code was
+    /// typed back right once; before that they are the only way into the drive.
+    #[test]
+    fn a_removed_drives_keys_go_only_once_its_recovery_code_was_checked() {
+        let never_made: Vec<RecoveryState> = Vec::new();
+        assert!(
+            !keys_may_be_forgotten(&never_made, "d_1"),
+            "no record: keep the keys"
+        );
+        let mut made = RecoveryState::new("d_1");
+        made.code_made(NOW, Some(String::from("key")));
+        assert!(
+            !keys_may_be_forgotten(&[made], "d_1"),
+            "a code never typed back"
+        );
+        let states = vec![checked(), RecoveryState::new("d_2")];
+        assert!(keys_may_be_forgotten(&states, "d_1"));
+        assert!(
+            !keys_may_be_forgotten(&states, "d_2"),
+            "another drive's state says nothing"
+        );
     }
 
     #[test]

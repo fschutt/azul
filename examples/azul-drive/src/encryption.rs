@@ -207,6 +207,32 @@ fn recorded(record: &EncryptionRecord) -> Recorded {
     }
 }
 
+/// "Remove drive" for the Azlin drive `drive_id`: its keys leave this computer's keyring with it -
+/// the drive key, this computer's member key, a key made before the setup finished, a rotation's
+/// keys, the recovery request's - but only once the drive's recovery code was typed back right
+/// (once): the keys here may be the only way into the drive, and a removal must not make one
+/// nobody can open. Without a checked code they stay, and that is said. The deletes go through
+/// the UI thread's one-at-a-time keyring queue; a refusal is reported there.
+pub(crate) fn forget_keys_with_drive(
+    info: &mut CallbackInfo,
+    s: &mut DriveState,
+    drive_id: &str,
+    name: &str,
+) {
+    if !crate::recovery_health::keys_may_be_forgotten(&s.settings.recovery.drives, drive_id) {
+        s.info(Phrase::new("azdrive-forget-keys-kept").arg("name", name));
+        return;
+    }
+    for entry in device::key_entries(drive_id) {
+        crate::keyring(
+            info,
+            s,
+            crate::KeyringOp::Forget,
+            crate::KeyringCall::Delete(entry),
+        );
+    }
+}
+
 /// Whether the encryption flows are offered (an index provider is in this build).
 pub(crate) fn offered() -> bool {
     index_provider().is_some()
