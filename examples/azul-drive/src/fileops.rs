@@ -377,6 +377,17 @@ pub fn plan_transfer(
         };
         if item.is_folder {
             let target_key = format!("{target_prefix}{target_name}/");
+            // The guard above knows drive ids and key text. The app makes more than one drive
+            // over a tree (Home and a folder added inside it, a synced listing, an upload's
+            // `os:` folder): the ids differ and the folder would be copied below itself, and a
+            // Move would then delete the source folder with the new copies in it (AZ-U1). The
+            // disk says where the folder lands.
+            if storage_overlap::local_folder_holds(source, &item.key, target, &target_key) {
+                return Err(DriveError::InvalidKey {
+                    key: target_prefix.to_string(),
+                    reason: "the destination folder is inside the folder it would receive",
+                });
+            }
             plan.tops.push(target_key.clone());
             let target_exists = storage_ops::folder_exists(target, &target_key)?;
             if same_drive && kind == TransferKind::Move && !target_exists {
@@ -1644,5 +1655,46 @@ mod tests {
             );
             assert_eq!(report.done, 0, "{kind:?}");
         }
+    }
+
+    /// AZ-U1: the guard against a folder going into itself compared drive ids. A second drive
+    /// over the same tree, or over a folder inside it, has another id.
+    #[test]
+    fn az_u1_a_folder_never_goes_into_itself_or_below_itself_through_another_drive() {
+        let tmp = TempDir::new("into-itself");
+        let home = seeded(&tmp);
+        // The same folder again, and a drive on a folder inside it (a drive added on
+        // ~/Projects, the synced listing's folder).
+        let os = LocalDrive::new(tmp.path().join("home"));
+        let inner = LocalDrive::without_manifest(tmp.path().join("home").join("docs"));
+        let plan = |source: &LocalDrive, key: &str, target: &LocalDrive, prefix: &str| {
+            plan_transfer(
+                source,
+                &[item(key)],
+                target,
+                prefix,
+                false,
+                TransferKind::Move,
+                "Copy",
+            )
+        };
+        // Below itself: docs/ into docs/sub/ as the other drive sees it ...
+        assert!(plan(&home, "docs/", &os, "docs/sub/").is_err());
+        // ... and as the inner drive sees it (its "sub/" is docs/sub/).
+        assert!(plan(&home, "docs/", &inner, "sub/").is_err());
+        // Into the inner drive's root: it would land as docs/docs/.
+        assert!(plan(&home, "docs/", &inner, "").is_err());
+        // Onto its own place: the root of the same tree, as docs/ it already is.
+        assert!(plan(&home, "docs/", &os, "").is_err());
+        // The error is the guard's, not a listing failure.
+        assert!(matches!(
+            plan(&home, "docs/", &os, "docs/sub/"),
+            Err(DriveError::InvalidKey { .. })
+        ));
+        // What is not inside it is fine: up a level, or into a sibling.
+        assert!(plan(&home, "docs/sub/", &os, "").is_ok());
+        assert!(plan(&home, "docs/sub/", &os, "empty/").is_ok());
+        // Nothing moved by planning.
+        assert_eq!(home.get("docs/sub/b.txt").unwrap(), b"beta");
     }
 }

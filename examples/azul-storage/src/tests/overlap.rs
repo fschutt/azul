@@ -3,7 +3,10 @@
 //! tell that a file is its own destination or a folder is moved into itself.
 
 use super::TempDir;
-use crate::{overlap::same_local_file, Drive, LocalDrive};
+use crate::{
+    overlap::{local_folder_holds, same_local_file},
+    Drive, LocalDrive,
+};
 
 /// `home/` with a few files, and the drives over it: the tree itself, the tree again, a drive
 /// on a folder inside it.
@@ -95,4 +98,48 @@ fn a_drive_that_is_not_on_this_disk_is_never_the_same_place() {
     let (_tmp, home, _, _) = trees();
     assert!(!same_local_file(&home, "readme.txt", &Far, "readme.txt"));
     assert!(!same_local_file(&Far, "readme.txt", &home, "readme.txt"));
+    assert!(!local_folder_holds(&home, "docs/", &Far, "docs/sub/"));
+    assert!(!local_folder_holds(&Far, "docs/", &home, "docs/sub/"));
+}
+
+#[test]
+fn a_folder_holds_itself_and_what_is_below_it_through_any_drive_over_the_tree() {
+    let (tmp, home, again, inner) = trees();
+    // Itself, and below: as the same tree sees it, and as the drive on docs/ does.
+    assert!(local_folder_holds(&home, "docs/", &again, "docs/"));
+    assert!(local_folder_holds(&home, "docs/", &again, "docs/sub/"));
+    assert!(local_folder_holds(&home, "docs/", &inner, "sub/"));
+    assert!(
+        local_folder_holds(&home, "docs/", &inner, "docs/"),
+        "inner's docs/ is docs/docs/"
+    );
+    assert!(local_folder_holds(
+        &inner,
+        "sub/",
+        &home,
+        "docs/sub/deeper/"
+    ));
+    // A folder not made yet counts by its place.
+    assert!(local_folder_holds(&home, "docs/", &again, "docs/new/deep/"));
+    // What is beside it or above it is not inside it.
+    assert!(!local_folder_holds(&home, "docs/sub/", &again, "docs/"));
+    assert!(!local_folder_holds(&home, "docs/sub/", &again, "empty/"));
+    assert!(!local_folder_holds(&home, "docs/", &again, "empty/"));
+    assert!(
+        !local_folder_holds(&home, "docs/", &again, "docs-2/"),
+        "a longer name is not below it"
+    );
+    let other = LocalDrive::new(tmp.path().join("other"));
+    other.create_folder("docs/").unwrap();
+    assert!(!local_folder_holds(&home, "docs/", &other, "docs/"));
+}
+
+#[cfg(unix)]
+#[test]
+fn a_folder_reached_through_a_link_is_the_folder() {
+    let (tmp, home, again, _) = trees();
+    let root = tmp.path().join("home");
+    std::os::unix::fs::symlink(root.join("docs"), root.join("alias")).unwrap();
+    // alias/ is docs/: moving docs/ into alias/sub/ moves it into itself.
+    assert!(local_folder_holds(&home, "docs/", &again, "alias/sub/"));
 }
