@@ -2,18 +2,21 @@
 //! device joining with an invite (once), recovery with the code, two devices setting one drive
 //! up at once.
 
+use std::sync::atomic::{AtomicU32, Ordering};
+
 use super::mem_bucket::MemBucket;
 use crate::{
     crypto::{
         device::{
             adopt_invite, drive_key_entry, enroll, forget_keys, invite_from_text, invite_text,
-            is_encrypted, load_drive_key, load_member_secret, member_key_entry, recover,
-            seal_invite, setup_new_drive, unlock, withdraw_invite,
+            is_encrypted, load_drive_key, load_key_at, load_member_secret, member_key_entry,
+            plan_drive_key, planned_key_entry, recover, seal_invite, setup_new_drive, unlock,
+            withdraw_invite,
         },
         keys::{RecoveryCode, RecoveryKdf, RECOVERY_KEY_FILE},
         to_hex,
     },
-    keyring::{KeyringStore, MemoryKeyring},
+    keyring::{KeyringError, KeyringStore, MemoryKeyring},
     ByteRange, Drive, DriveError, ListPage, ListRequest, ObjectInfo, Precondition,
 };
 
@@ -257,4 +260,200 @@ fn a_keyring_entry_that_holds_no_key_is_refused_not_guessed() {
         load_drive_key(&keyring, DRIVE),
         Err(DriveError::InvalidConfig(why)) if !why.contains("not json")
     ));
+}
+
+// ==== K3: a setup that stops halfway does not strand the drive ====
+
+/// A bucket whose next puts of a member's key file fail (no network), and that notes whether the
+/// device already kept the drive key when the recovery wrap went in.
+struct Flaky<'a> {
+    inner: &'a MemBucket,
+    keyring: &'a MemoryKeyring,
+    member_puts_failing: AtomicU32,
+    /// Whether the keyring held the drive key (planned or active) when the recovery wrap was put.
+    key_held_at_recovery_put: std::sync::Mutex<Option<bool>>,
+}
+
+impl<'a> Flaky<'a> {
+    fn new(inner: &'a MemBucket, keyring: &'a MemoryKeyring, failing: u32) -> Flaky<'a> {
+        Flaky {
+            inner,
+            keyring,
+            member_puts_failing: AtomicU32::new(failing),
+            key_held_at_recovery_put: std::sync::Mutex::new(None),
+        }
+    }
+
+    fn note_recovery(&self, key: &str) {
+        if key == RECOVERY_KEY_FILE {
+            let held = load_key_at(self.keyring, &planned_key_entry(DRIVE))
+                .unwrap()
+                .is_some()
+                || load_drive_key(self.keyring, DRIVE).unwrap().is_some();
+            *self.key_held_at_recovery_put.lock().unwrap() = Some(held);
+        }
+    }
+}
+
+impl Drive for Flaky<'_> {
+    fn list(&self, request: &ListRequest) -> Result<ListPage, DriveError> {
+        self.inner.list(request)
+    }
+    fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
+        self.inner.get(key)
+    }
+    fn get_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, DriveError> {
+        self.inner.get_range(key, range)
+    }
+    fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
+        self.note_recovery(key);
+        let is_member_file = key.starts_with(".azlin/keys/") && key != RECOVERY_KEY_FILE;
+        if is_member_file && self.member_puts_failing.load(Ordering::SeqCst) > 0 {
+            self.member_puts_failing.fetch_sub(1, Ordering::SeqCst);
+            return Err(DriveError::Transport(String::from("the network went")));
+        }
+        self.inner.put(key, bytes)
+    }
+    fn delete(&self, key: &str) -> Result<(), DriveError> {
+        self.inner.delete(key)
+    }
+    fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
+        self.inner.head(key)
+    }
+    fn put_if(
+        &self,
+        key: &str,
+        bytes: &[u8],
+        condition: &Precondition,
+    ) -> Result<Option<String>, DriveError> {
+        self.note_recovery(key);
+        self.inner.put_if(key, bytes, condition)
+    }
+}
+
+/// K3: the recovery wrap was published before this device held the key; a network error, a denied
+/// keychain prompt or a kill after it left a bucket that counts as encrypted, with no wrap for the
+/// device and no key in its keyring - the retry was refused ("encrypted already"), the recovery
+/// code never shown: a paid drive nobody can open. Now the key is kept first and the same call
+/// finishes the setup.
+#[test]
+fn a_setup_that_stopped_after_the_recovery_wrap_is_finished_by_the_same_call() {
+    let bucket = MemBucket::new();
+    let keyring = MemoryKeyring::new();
+    let flaky = Flaky::new(&bucket, &keyring, 1);
+    assert!(matches!(
+        setup_new_drive(&flaky, &keyring, DRIVE, cheap()),
+        Err(DriveError::Transport(_))
+    ));
+    let held = *flaky.key_held_at_recovery_put.lock().unwrap();
+    assert_eq!(
+        held,
+        Some(true),
+        "the recovery wrap went in once the device held the key"
+    );
+    assert!(
+        bucket.object(RECOVERY_KEY_FILE).is_some(),
+        "the earlier try's recovery wrap"
+    );
+    assert!(load_key_at(&keyring, &planned_key_entry(DRIVE))
+        .unwrap()
+        .is_some());
+    assert_eq!(
+        load_drive_key(&keyring, DRIVE).unwrap(),
+        None,
+        "not enrolled yet"
+    );
+
+    // Again: the same key, a new recovery code (the earlier one was never shown), this device
+    // enrolled, the planned key gone.
+    let before = bucket.object(RECOVERY_KEY_FILE).unwrap();
+    let (key, code) = setup_new_drive(&flaky, &keyring, DRIVE, cheap()).unwrap();
+    assert_ne!(
+        bucket.object(RECOVERY_KEY_FILE).unwrap(),
+        before,
+        "replaced"
+    );
+    assert_eq!(load_drive_key(&keyring, DRIVE).unwrap(), Some(key.clone()));
+    assert!(load_key_at(&keyring, &planned_key_entry(DRIVE))
+        .unwrap()
+        .is_none());
+    assert_eq!(unlock(&bucket, &keyring, DRIVE).unwrap(), Some(key.clone()));
+    assert_eq!(
+        bucket.keys().len(),
+        2,
+        "this device's wrap and the recovery wrap"
+    );
+    assert_eq!(
+        recover(&bucket, &MemoryKeyring::new(), DRIVE, &code).unwrap(),
+        key,
+        "the code returned is the one the wrap holds"
+    );
+    // And a finished setup is still refused.
+    assert!(matches!(
+        setup_new_drive(&bucket, &MemoryKeyring::new(), DRIVE, cheap()),
+        Err(DriveError::InvalidConfig(_))
+    ));
+}
+
+/// A keyring that takes no write: the user's "No", a locked keychain.
+struct WritesRefused;
+
+impl KeyringStore for WritesRefused {
+    fn get(&self, _key: &str) -> Result<Option<String>, KeyringError> {
+        Ok(None)
+    }
+    fn set(&self, _key: &str, _secret: &str) -> Result<(), KeyringError> {
+        Err(KeyringError::Denied)
+    }
+    fn delete(&self, _key: &str) -> Result<(), KeyringError> {
+        Ok(())
+    }
+}
+
+/// K3: a device that cannot keep the key puts nothing into the bucket.
+#[test]
+fn a_keyring_that_takes_no_key_leaves_the_bucket_as_it_was() {
+    let bucket = MemBucket::new();
+    assert!(matches!(
+        setup_new_drive(&bucket, &WritesRefused, DRIVE, cheap()),
+        Err(DriveError::Denied { .. })
+    ));
+    assert!(bucket.keys().is_empty(), "{:?}", bucket.keys());
+    assert!(!is_encrypted(&bucket).unwrap());
+}
+
+/// A key made for nothing - another device was first - does not stay behind as a planned key.
+#[test]
+fn the_loser_of_a_setup_race_keeps_no_planned_key() {
+    let bucket = MemBucket::with_conditional_writes();
+    setup_new_drive(&bucket, &MemoryKeyring::new(), DRIVE, cheap()).unwrap();
+    let second = MemoryKeyring::new();
+    assert!(matches!(
+        setup_new_drive(&ListedTooEarly(&bucket), &second, DRIVE, cheap()),
+        Err(DriveError::Conflict { .. })
+    ));
+    assert!(load_key_at(&second, &planned_key_entry(DRIVE))
+        .unwrap()
+        .is_none());
+}
+
+/// A planned key (a checkout's) meets a bucket another key set up: refused, the planned key kept.
+#[test]
+fn a_planned_key_meets_a_drive_that_another_key_set_up() {
+    let bucket = MemBucket::new();
+    let (other, _) = setup_new_drive(&bucket, &MemoryKeyring::new(), DRIVE, cheap()).unwrap();
+    let keyring = MemoryKeyring::new();
+    let planned = crate::crypto::DriveKey::generate().unwrap();
+    assert_ne!(planned.id(), other.id());
+    plan_drive_key(&keyring, DRIVE, &planned).unwrap();
+    assert!(matches!(
+        setup_new_drive(&bucket, &keyring, DRIVE, cheap()),
+        Err(DriveError::KeyRefused { .. })
+    ));
+    assert_eq!(
+        load_key_at(&keyring, &planned_key_entry(DRIVE)).unwrap(),
+        Some(planned),
+        "the planned key stays"
+    );
+    assert_eq!(load_drive_key(&keyring, DRIVE).unwrap(), None);
 }

@@ -1962,8 +1962,11 @@ pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
                 // A drive that arrived with key files was set up by the computer it was
                 // bought on: this one joins it (an invite, the recovery code), it does not
                 // make new keys.
+                // (A setup of this computer that stopped halfway has the key files of its try in
+                // the bucket and its key in the keyring: it is finished, not refused.)
                 if new_drive
                     && device::is_encrypted(auto.bucket().as_ref()).map_err(|e| e.to_string())?
+                    && !device::setup_pending(&keyring, auto.drive()).map_err(|e| e.to_string())?
                 {
                     return Err(String::from(ENCRYPTED_ELSEWHERE));
                 }

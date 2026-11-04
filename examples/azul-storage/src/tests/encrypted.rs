@@ -893,6 +893,44 @@ fn the_app_is_told_the_drive_keys_id_when_the_drive_opens_encrypted() {
     assert_eq!(told.lock().unwrap().len(), 1, "told once per opening");
 }
 
+/// K3 with the app's view: a setup this device started and did not finish (it kept the drive's key,
+/// and the recovery wrap of that try is in the bucket) is a drive waiting for its setup, not a
+/// locked one nobody can open: it takes no file, the app is told to set it up, and the same
+/// setup call finishes it.
+#[test]
+fn a_setup_that_stopped_halfway_is_a_drive_waiting_for_its_setup_not_a_locked_one() {
+    let mem = Arc::new(MemBucket::new());
+    let keyring = Arc::new(MemoryKeyring::new());
+    // The state a stop after the recovery wrap leaves: the key planned in the keyring, the
+    // recovery wrap of this very key in the bucket, no wrap for this device.
+    let key = DriveKey::generate().unwrap();
+    crate::crypto::device::plan_drive_key(keyring.as_ref(), "d_1", &key).unwrap();
+    let kdf = RecoveryKdf::with_cost(64, 1, 1).unwrap();
+    let code = crate::crypto::keys::RecoveryCode::generate().unwrap();
+    let wrap = crate::crypto::keys::RecoveryWrap::seal(&key, "d_1", &code, kdf.clone()).unwrap();
+    crate::crypto::keys::store_recovery_wrap(mem.as_ref(), &wrap).unwrap();
+    assert!(crate::crypto::device::is_encrypted(mem.as_ref()).unwrap());
+
+    let drive = AutoEncrypted::new(mem.clone(), "d_1", keyring.clone(), provider());
+    drive.list(&ListRequest::folder("")).unwrap();
+    assert!(
+        drive.needs_encryption(),
+        "waiting for its setup, not Locked"
+    );
+    assert!(matches!(
+        drive.put("a.txt", b"x"),
+        Err(DriveError::Denied { .. })
+    ));
+    assert!(mem.object("a.txt").is_none());
+
+    setup_new_drive(drive.bucket().as_ref(), keyring.as_ref(), "d_1", kdf).unwrap();
+    drive.reopen();
+    drive.put("a.txt", b"sealed").unwrap();
+    assert_eq!(drive.is_encrypted(), Some(true));
+    assert!(!drive.needs_encryption());
+    assert_eq!(drive.get("a.txt").unwrap(), b"sealed");
+}
+
 /// A keyring nothing can be read from: the user said "No" to the system's prompt, or the
 /// system has no keyring, or it failed.
 struct UnreadableKeyring(KeyringError);

@@ -56,8 +56,8 @@ use super::{
     hex_array,
     keys::{
         load_member_wrap, load_member_wraps, load_recovery_wrap, member_key_file,
-        store_member_wrap, store_recovery_wrap, MemberSecret, MemberWrap, RecoveryCode,
-        RecoveryKdf, RecoveryWrap, INVITE_PREFIX, KEYS_PREFIX, RECOVERY_KEY_FILE,
+        store_member_wrap, MemberSecret, MemberWrap, RecoveryCode, RecoveryKdf, RecoveryWrap,
+        INVITE_PREFIX, KEYS_PREFIX, RECOVERY_KEY_FILE,
     },
     to_hex, CryptoError, DriveKey, KeyId, KEY_LEN,
 };
@@ -459,36 +459,100 @@ fn put_new(bucket: &dyn Drive, key: &str, bytes: &[u8]) -> Result<(), DriveError
 /// sheet: it is stored nowhere, so this is the one moment it can be shown. Refused for a bucket
 /// that holds key files already (it is encrypted: [`unlock`], [`adopt_invite`] or
 /// [`recover`] instead).
+///
+/// The order keeps a paid drive from being stranded: the drive key is kept in the keyring
+/// (as the planned key) before ANYTHING goes into the bucket - the recovery wrap is published
+/// only once this device holds the key it seals -, and the planned key stays until the device is
+/// enrolled. A setup that stopped in between (no network, a denied keyring prompt, a kill) is run
+/// again with the same call: the planned key is found, the recovery wrap of the earlier try (its
+/// code was never shown) is replaced by a new one, and the device is enrolled. A bucket whose
+/// recovery wrap holds another key is another device's drive (`KeyRefused`).
 pub fn setup_new_drive(
     bucket: &dyn Drive,
     keyring: &dyn KeyringStore,
     drive: &str,
     kdf: RecoveryKdf,
 ) -> Result<(DriveKey, RecoveryCode), DriveError> {
-    if is_encrypted(bucket)? {
-        return Err(DriveError::InvalidConfig(format!(
+    let planned_entry = planned_key_entry(drive);
+    // A key kept before this call: a checkout's, or the one an earlier try of this setup made.
+    let planned = load_key_at(keyring, &planned_entry)?;
+    let encrypted_already = || {
+        DriveError::InvalidConfig(format!(
             "\"{drive}\" is encrypted already: open it with this device's key, an invite or the \
              recovery code"
-        )));
+        ))
+    };
+    let encrypted = is_encrypted(bucket)?;
+    if encrypted && planned.is_none() {
+        return Err(encrypted_already());
     }
-    let planned = planned_key_entry(drive);
-    let drive_key = match load_key_at(keyring, &planned)? {
+    let generated = planned.is_none();
+    let drive_key = match planned {
         Some(key) => key,
-        None => DriveKey::generate().map_err(|e| e.for_key(drive))?,
+        None => {
+            let key = DriveKey::generate().map_err(|e| e.for_key(drive))?;
+            // Kept, and read back, before the bucket sees anything of it.
+            store_key_at(keyring, &planned_entry, &key)?;
+            if load_key_at(keyring, &planned_entry)?.as_ref() != Some(&key) {
+                return Err(DriveError::Io(String::from(
+                    "the keyring did not keep the new drive key",
+                )));
+            }
+            key
+        }
+    };
+    // The key files in the bucket must be the ones of this very key: an earlier try of this
+    // device's setup (its recovery wrap), nothing else.
+    let own_recovery = if encrypted {
+        match load_recovery_wrap(bucket) {
+            Ok(wrap) if wrap.drive_key_id == drive_key.id() => true,
+            Ok(wrap) => {
+                return Err(refused(
+                    drive,
+                    format!(
+                        "the drive's recovery key file holds the drive key {}, and the key this \
+                         device kept for it is {}",
+                        wrap.drive_key_id,
+                        drive_key.id()
+                    ),
+                ))
+            }
+            Err(DriveError::NotFound { .. }) => return Err(encrypted_already()),
+            Err(e) => return Err(e),
+        }
+    } else {
+        false
     };
     let code = RecoveryCode::generate().map_err(|e| e.for_key(drive))?;
     let recovery =
         RecoveryWrap::seal(&drive_key, drive, &code, kdf).map_err(|e| e.for_key(drive))?;
-    // The recovery wrap first: a drive must never hold data no recovery code opens.
-    put_new(bucket, RECOVERY_KEY_FILE, &recovery.to_bytes()).map_err(|e| match e {
-        DriveError::Conflict { .. } => DriveError::Conflict {
-            key: String::from(RECOVERY_KEY_FILE),
-        },
-        other => other,
-    })?;
+    // The recovery wrap before anything else is sealed to this key: a drive must never hold data
+    // no recovery code opens.
+    if own_recovery {
+        // The earlier try's code was never shown: this one replaces it.
+        bucket.put(RECOVERY_KEY_FILE, &recovery.to_bytes())?;
+    } else if let Err(e) = put_new(bucket, RECOVERY_KEY_FILE, &recovery.to_bytes()) {
+        // A key made now for nothing (another device was first) goes again.
+        if generated {
+            let _ = delete_key_at(keyring, &planned_entry);
+        }
+        return Err(match e {
+            DriveError::Conflict { .. } => DriveError::Conflict {
+                key: String::from(RECOVERY_KEY_FILE),
+            },
+            other => other,
+        });
+    }
     enroll(bucket, keyring, drive, &drive_key)?;
-    delete_key_at(keyring, &planned)?;
+    delete_key_at(keyring, &planned_entry)?;
     Ok((drive_key, code))
+}
+
+/// Whether this device has a setup of the drive under way: [`setup_new_drive`] kept the drive's key
+/// (or a checkout planned it) and has not finished enrolling the device - a stop after the
+/// recovery wrap went into the bucket, say. The same call, run again, finishes it.
+pub fn setup_pending(keyring: &dyn KeyringStore, drive: &str) -> Result<bool, DriveError> {
+    Ok(load_key_at(keyring, &planned_key_entry(drive))?.is_some())
 }
 
 /// Seals `drive_key` to this device's member key (made and kept in the keyring when there is

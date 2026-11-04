@@ -328,7 +328,9 @@ pub fn open_encrypted(
 /// plaintext into it, until it is encrypted ("Encrypt this drive", then
 /// [`AutoEncrypted::reopen`]). A new drive (no file in its bucket) is also set up by the app at
 /// once ([`AutoEncrypted::needs_encryption`]); one with files (made before encryption) waits for
-/// the user's word: encrypting it moves its files into the encryption.
+/// the user's word: encrypting it moves its files into the encryption. The same holds for a drive
+/// whose setup this device started and did not finish ([`device::setup_pending`]; the bucket may
+/// already list the key files of that try): it waits for its setup to run again.
 pub struct AutoEncrypted {
     bucket: Arc<dyn Drive>,
     drive: String,
@@ -505,10 +507,16 @@ impl AutoEncrypted {
         // keyring on this system, a failure) answers nothing: the error stands, nothing is
         // decided, the next call asks again - "no key" is only what an intact keyring says.
         let kept = device::load_drive_key(self.keyring.as_ref(), &self.drive)?.is_some();
+        let recorded = self.recorded().encrypted;
+        // A setup of this device that stopped (it kept the drive's key before it put anything
+        // into the bucket, and the bucket may list the key files of that try) is a drive waiting
+        // for its encryption, not a locked one: the same setup call finishes it.
+        let unfinished =
+            !kept && !recorded && device::setup_pending(self.keyring.as_ref(), &self.drive)?;
         // The bucket's listing is the least trusted word: it can add to the device's (key files
         // it lists make the drive encrypted and locked) and never take from it.
         let encrypted =
-            kept || self.recorded().encrypted || device::is_encrypted(self.bucket.as_ref())?;
+            !unfinished && (kept || recorded || device::is_encrypted(self.bucket.as_ref())?);
         let fresh = !encrypted && !holds_plaintext_files(self.bucket.as_ref())?;
         let mut key_id = None;
         let drive: Arc<dyn Drive> = if encrypted {
