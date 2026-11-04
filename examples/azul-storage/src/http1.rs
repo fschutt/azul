@@ -97,13 +97,23 @@ fn dechunk(mut body: &[u8]) -> Result<Vec<u8>, String> {
         let end = find(body, b"\r\n").ok_or("a chunk without its size line")?;
         let line = std::str::from_utf8(&body[..end]).map_err(|_| "a chunk size that is no text")?;
         let size_text = line.split(';').next().unwrap_or_default().trim();
-        let size = usize::from_str_radix(size_text, 16)
-            .map_err(|_| format!("{size_text:?} is no chunk size"))?;
+        // Hex digits only (`from_str_radix` also takes a leading `+`).
+        let size = if size_text.bytes().all(|b| b.is_ascii_hexdigit()) {
+            usize::from_str_radix(size_text, 16).ok()
+        } else {
+            None
+        }
+        .ok_or_else(|| format!("{size_text:?} is no chunk size"))?;
         body = &body[end + 2..];
         if size == 0 {
             return Ok(out);
         }
-        if body.len() < size + 2 {
+        // The chunk and its closing CRLF. A size near `usize::MAX` wrapped here, and the slice
+        // below then panicked: no body has such a chunk.
+        let needed = size
+            .checked_add(2)
+            .ok_or_else(|| format!("a chunk of {size} bytes is more than any answer holds"))?;
+        if body.len() < needed {
             return Err(String::from("the answer broke off inside a chunk"));
         }
         out.extend_from_slice(&body[..size]);

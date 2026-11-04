@@ -108,6 +108,43 @@ fn a_chunked_answer_is_put_together_and_an_unframed_one_runs_to_the_end() {
     assert_eq!(reply.body, b"all of it");
 }
 
+/// H1: a node (or whatever answers on the default iroh lane) that names a chunk of
+/// `usize::MAX - 1` or more bytes made `size + 2` wrap, and `&body[..size]` then panicked - with
+/// `panic = "abort"` the whole program went down. A chunk no body can have is an error.
+#[test]
+fn a_chunk_size_near_the_top_of_the_range_is_an_error_not_an_overflow() {
+    for size in [
+        "ffffffffffffffff",
+        "fffffffffffffffe",
+        "fffffffffffffffd",
+        "8000000000000000",
+        "ffffffffffffffff;ext=1",
+    ] {
+        let answer = format!(
+            "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n{size}\r\nhello\r\n0\r\n\r\n"
+        );
+        assert!(decode_reply(answer.as_bytes(), false).is_err(), "{size}");
+    }
+    // A size that overflows the number itself, and one that is no number.
+    for size in ["10000000000000000", "zz", "", "-1", "+5"] {
+        let answer = format!(
+            "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n{size}\r\nhello\r\n0\r\n\r\n"
+        );
+        assert!(decode_reply(answer.as_bytes(), false).is_err(), "{size:?}");
+    }
+    // A chunk that is cut short, and one a byte short of its closing CRLF.
+    assert!(decode_reply(
+        b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhel",
+        false
+    )
+    .is_err());
+    assert!(decode_reply(
+        b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello",
+        false
+    )
+    .is_err());
+}
+
 #[test]
 fn the_answer_to_a_head_has_no_body_whatever_its_length_says() {
     let reply = decode_reply(b"HTTP/1.1 200 OK\r\nContent-Length: 1048576\r\n\r\n", true).unwrap();
