@@ -139,7 +139,9 @@ pub trait HashChain {
     fn checksum(&self, checksum: &mut DebugHash);
 
     /// debug function to validate that a hash table entry
-    /// was correctly added for the match we were expection
+    /// was correctly added for the match we were expection. It asserts and prints, so it is for
+    /// this crate's own tests and never called on the way to an error a user's file can reach.
+    #[allow(dead_code)]
     fn assert_dictionary_valid(
         &self,
         target_reference: DeflateTokenReference,
@@ -382,7 +384,10 @@ impl HashChain for HashChainLibflate4 {
         _target_reference: DeflateTokenReference,
         _input: &PreflateInput,
     ) {
-        todo!();
+        // This chain has no debug validator. It was `todo!()`, and the validator was called on the
+        // way to the "no match found" error, so a deflate stream that the estimator took for
+        // libdeflate's but whose reference was not on its chain aborted the whole program
+        // (`panic = "abort"`): nothing to check here, the error is the answer.
     }
 
     fn update_hash(&mut self, input: &[u8], pos: u32, length: u32) {

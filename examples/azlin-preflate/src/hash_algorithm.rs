@@ -226,7 +226,8 @@ impl HashImplementation for LibdeflateHash3Secondary {
     }
 
     fn algorithm(&self) -> HashAlgorithm {
-        unimplemented!("shoudln't get called on secondary hash");
+        // The secondary table belongs to libdeflate's 4 byte hash (this was `unimplemented!()`).
+        HashAlgorithm::Libdeflate4
     }
 }
 

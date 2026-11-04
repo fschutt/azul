@@ -329,6 +329,19 @@ impl TokenPredictorParameters {
         {
             return bad("a parameter out of range");
         }
+        // A stream with matches has a window of 9 to 15 bits (the matching computes the window's
+        // reach from it) and walks at least one hop of the chain; stored and Huffman-only
+        // streams, which match nothing, carry zeros. A zlib hash shifts a 16 bit value.
+        let matches = matches!(
+            params.strategy,
+            PreflateStrategy::Default | PreflateStrategy::RleOnly
+        );
+        if matches && (params.window_bits < 9 || params.max_chain == 0) {
+            return bad("a window or a chain no encoder makes");
+        }
+        if matches!(params.hash_algorithm, HashAlgorithm::Zlib { .. }) && hash_shift > 15 {
+            return bad("a zlib hash shift past the hash's 16 bits");
+        }
         Ok(params)
     }
 }
@@ -365,4 +378,85 @@ fn parameter_bytes_round_trip_and_refuse_garbage() {
         let _ = TokenPredictorParameters::from_bytes(&damaged);
     }
     assert!(TokenPredictorParameters::from_bytes(&bytes[1..]).is_err());
+}
+
+/// What no encoder makes is refused where the parameters are read: a window under 9 bits or a
+/// chain of 0 hops in a stream with matches, and a zlib hash shifting a 16 bit value 16 or more
+/// bits, would overflow the predictor's arithmetic further on. Stored and Huffman-only streams
+/// carry zeros and stay valid.
+#[test]
+fn parameters_no_encoder_makes_are_refused_when_read() {
+    let valid = TokenPredictorParameters {
+        matches_to_start_detected: false,
+        very_far_matches_detected: false,
+        zlib_compatible: true,
+        window_bits: 15,
+        strategy: PreflateStrategy::Default,
+        nice_length: 258,
+        add_policy: DictionaryAddPolicy::AddAll,
+        max_token_count: 16383,
+        max_dist_3_matches: 0,
+        matching_type: MatchingType::Greedy,
+        max_chain: 128,
+        min_len: 3,
+        hash_algorithm: HashAlgorithm::Zlib {
+            hash_mask: 0x7fff,
+            hash_shift: 5,
+        },
+        block_type_strategy: BlockTypeStrategy::Dynamic,
+    };
+    let read = |p: TokenPredictorParameters| TokenPredictorParameters::from_bytes(&p.to_bytes());
+    assert_eq!(read(valid).unwrap(), valid);
+    for window_bits in [0, 1, 8] {
+        assert!(
+            read(TokenPredictorParameters {
+                window_bits,
+                ..valid
+            })
+            .is_err(),
+            "{window_bits}"
+        );
+    }
+    assert!(read(TokenPredictorParameters {
+        window_bits: 9,
+        ..valid
+    })
+    .is_ok());
+    assert!(read(TokenPredictorParameters {
+        max_chain: 0,
+        ..valid
+    })
+    .is_err());
+    let zlib = |hash_shift| HashAlgorithm::Zlib {
+        hash_mask: 0x7fff,
+        hash_shift,
+    };
+    assert!(read(TokenPredictorParameters {
+        hash_algorithm: zlib(15),
+        ..valid
+    })
+    .is_ok());
+    for hash_shift in [16, 20, 31] {
+        assert!(
+            read(TokenPredictorParameters {
+                hash_algorithm: zlib(hash_shift),
+                ..valid
+            })
+            .is_err(),
+            "{hash_shift}"
+        );
+    }
+    // A stream without matches carries zeros.
+    for strategy in [PreflateStrategy::Store, PreflateStrategy::HuffOnly] {
+        let empty = TokenPredictorParameters {
+            strategy,
+            window_bits: 0,
+            max_chain: 0,
+            nice_length: 0,
+            min_len: 0,
+            hash_algorithm: HashAlgorithm::None,
+            ..valid
+        };
+        assert_eq!(read(empty).unwrap(), empty);
+    }
 }

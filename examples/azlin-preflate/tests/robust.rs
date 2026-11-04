@@ -161,3 +161,38 @@ fn damaged_deflate_data_is_an_error_never_a_panic_and_what_is_accepted_is_rebuil
         }
     }
 }
+
+/// The corrections begin with the predictor's parameters (48 bytes). Every value one of those
+/// bytes can take - each bit flipped, and the boundary values of the ranges - is an error or a
+/// rebuild that is checked, never a panic: a window of 0 bits, a chain of 0 hops, a hash shift
+/// past 15 passed the parameter reading once and made the arithmetic of the matching overflow
+/// (a panic in a build with overflow checks, a rebuild of garbage without).
+#[test]
+fn every_value_of_a_parameter_byte_is_an_error_or_a_checked_rebuild_never_a_panic() {
+    let mut rng = Rng(0x5EED_0004);
+    let all = streams(&mut rng);
+    // The prose stream at a few levels: it has references, so the matching code runs.
+    for stream in [&all[1], &all[2], &all[3]] {
+        let (chunk, plain) = preflate_whole_deflate_stream(stream, &config()).unwrap();
+        for at in 0..48usize.min(chunk.corrections.len()) {
+            let mut values: Vec<u8> = (0..8)
+                .map(|bit| chunk.corrections[at] ^ (1 << bit))
+                .collect();
+            values.extend([0u8, 1, 3, 8, 9, 15, 16, 17, 31, 32, 127, 128, 255]);
+            for value in values {
+                let mut corrections = chunk.corrections.clone();
+                corrections[at] = value;
+                let result = catch_unwind(AssertUnwindSafe(|| {
+                    recreate_whole_deflate_stream(plain.text(), &corrections, stream.len())
+                }));
+                match result {
+                    Ok(Ok(rebuilt)) => {
+                        assert!(rebuilt.len() <= stream.len(), "byte {at} = {value}")
+                    }
+                    Ok(Err(_)) => {}
+                    Err(_) => panic!("byte {at} = {value}: the rebuild panicked"),
+                }
+            }
+        }
+    }
+}

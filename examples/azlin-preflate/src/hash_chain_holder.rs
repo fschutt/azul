@@ -156,11 +156,17 @@ impl HashChainHolder for () {
         _target_reference: &DeflateTokenReference,
         _input: &PreflateInput,
     ) -> Result<u32> {
-        unimplemented!()
+        err_exit_code(
+            ExitCode::PredictionFailure,
+            "a match in a stream predicted without a hash algorithm",
+        )
     }
 
     fn hop_match(&self, _len: u32, _hops: u32, _input: &PreflateInput) -> Result<u32> {
-        unimplemented!()
+        err_exit_code(
+            ExitCode::PredictionFailure,
+            "a match in a stream predicted without a hash algorithm",
+        )
     }
 
     fn add_missing_previous_hash(&mut self, _input: &PreflateInput) {}
@@ -245,8 +251,8 @@ impl<H: HashChain + 'static> HashChainHolder for HashChainHolderImpl<H> {
 
             max_chain -= 1;
         }
-        self.hash.assert_dictionary_valid(*target_reference, input);
-
+        // (The hash chain's debug validator asserts and prints: it is not run on a stream from a
+        // user's file - a reference further back than the data, say, would panic in it.)
         err_exit_code(ExitCode::MatchNotFound, "no match found")
     }
 
@@ -574,4 +580,99 @@ fn calc_diff(diff: u64) -> u32 {
         return diff.trailing_zeros() / 8;
     }
     return 8;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        estimator::{
+            add_policy_estimator::DictionaryAddPolicy,
+            preflate_parameter_estimator::BlockTypeStrategy, preflate_parse_config::MatchingType,
+        },
+        preflate_input::PlainText,
+    };
+
+    fn params(hash_algorithm: HashAlgorithm) -> TokenPredictorParameters {
+        TokenPredictorParameters {
+            matches_to_start_detected: false,
+            very_far_matches_detected: false,
+            window_bits: 15,
+            strategy: PreflateStrategy::Default,
+            nice_length: 258,
+            add_policy: DictionaryAddPolicy::AddAll,
+            max_token_count: 16383,
+            zlib_compatible: true,
+            max_dist_3_matches: 0,
+            matching_type: MatchingType::Greedy,
+            max_chain: 128,
+            min_len: 3,
+            hash_algorithm,
+            block_type_strategy: BlockTypeStrategy::Dynamic,
+        }
+    }
+
+    /// 300 bytes of a counter-ish text: nothing repeats within the 4 bytes of a hash.
+    fn text() -> PlainText {
+        PlainText::new_with_data((0..300u32).map(|i| (i * 7 + i / 13) as u8).collect())
+    }
+
+    /// A deflate stream from a user's file can name a reference that no hash chain holds (a
+    /// stream of an encoder the estimator mistook for libdeflate's, a crafted one). The answer is
+    /// the error "no match found" - `HashChainLibflate4`'s debug validator was `todo!()`, and
+    /// with `panic = "abort"` the whole program went with it.
+    #[test]
+    fn a_reference_the_libdeflate_chain_does_not_hold_is_an_error_not_a_panic() {
+        let text = text();
+        let mut input = PreflateInput::new(&text);
+        input.advance(120);
+        let holder = new_hash_chain_holder(&params(HashAlgorithm::Libdeflate4));
+        // Nothing was added to the chain: the reference cannot be on it.
+        let error = holder
+            .calculate_hops(&DeflateTokenReference::new(8, 60), &input)
+            .unwrap_err();
+        assert_eq!(error.exit_code(), ExitCode::MatchNotFound);
+    }
+
+    /// The same for the generic chain, whose debug validator also panicked: on a reference
+    /// further back than the data there is (distance 200 at position 120).
+    #[test]
+    fn a_reference_further_back_than_the_data_is_an_error_on_every_chain() {
+        let text = text();
+        for hash in [
+            HashAlgorithm::Zlib {
+                hash_mask: 0x7fff,
+                hash_shift: 5,
+            },
+            HashAlgorithm::MiniZFast,
+            HashAlgorithm::Libdeflate4,
+            HashAlgorithm::Libdeflate4Fast,
+            HashAlgorithm::ZlibNG,
+        ] {
+            let mut input = PreflateInput::new(&text);
+            input.advance(120);
+            let holder = new_hash_chain_holder(&params(hash));
+            let error = holder
+                .calculate_hops(&DeflateTokenReference::new(8, 200), &input)
+                .unwrap_err();
+            assert_eq!(error.exit_code(), ExitCode::MatchNotFound, "{hash:?}");
+        }
+    }
+
+    /// A stream predicted without a hash algorithm (stored or Huffman-only blocks) that holds a
+    /// reference - damaged corrections can say so - is an error: `calculate_hops` and `hop_match`
+    /// of the holder without a chain were `unimplemented!()`.
+    #[test]
+    fn a_match_in_a_stream_without_a_hash_algorithm_is_an_error_not_a_panic() {
+        let text = text();
+        let mut input = PreflateInput::new(&text);
+        input.advance(120);
+        let holder = new_hash_chain_holder(&params(HashAlgorithm::None));
+        let hops = holder
+            .calculate_hops(&DeflateTokenReference::new(8, 60), &input)
+            .unwrap_err();
+        assert_eq!(hops.exit_code(), ExitCode::PredictionFailure);
+        let hop = holder.hop_match(8, 3, &input).unwrap_err();
+        assert_eq!(hop.exit_code(), ExitCode::PredictionFailure);
+    }
 }
