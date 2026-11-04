@@ -345,8 +345,11 @@ pub struct AutoEncrypted {
     /// encrypted, and the id of its key then.
     record: Mutex<Recorded>,
     /// Told the id of the drive key whenever the drive opens encrypted, to write down.
-    on_encrypted: Option<Arc<dyn Fn(&KeyId) + Send + Sync>>,
+    on_encrypted: Option<TellKeyId>,
 }
+
+/// What [`AutoEncrypted::on_encrypted`] is told the drive key's id with.
+pub type TellKeyId = Arc<dyn Fn(&KeyId) + Send + Sync>;
 
 /// What a device wrote down of a drive's encryption ([`AutoEncrypted::with_record`]).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -409,7 +412,7 @@ impl AutoEncrypted {
     /// thread that made the call, with no lock held): the app writes it down, so the drive
     /// opens as an encrypted one for good ([`Self::with_record`]). It must not call the drive.
     #[must_use]
-    pub fn on_encrypted(mut self, tell: Arc<dyn Fn(&KeyId) + Send + Sync>) -> AutoEncrypted {
+    pub fn on_encrypted(mut self, tell: TellKeyId) -> AutoEncrypted {
         self.on_encrypted = Some(tell);
         self
     }

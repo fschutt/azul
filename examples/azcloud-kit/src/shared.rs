@@ -104,8 +104,8 @@ fn namespace_folder(namespace: &KeyringNamespace) -> String {
 
 /// Where the locks of the keyring entries of `namespace` are: one folder per keyring and
 /// namespace, whichever app or profile asks - `<config dir>/azlin/locks/<namespace>`, or beside
-/// azul's keyring stand-in file when [`KEYRING_FILE_VAR`] names one (`<file>.locks/<namespace>`)
-/// - in a build with the cargo feature `test-hooks`, which alone looks at the variable (a release
+/// azul's keyring stand-in file when [`KEYRING_FILE_VAR`] names one (`<file>.locks/<namespace>`),
+/// in a build with the cargo feature `test-hooks`, which alone looks at the variable (a release
 /// build ignores it, like libazul's keyring does).
 #[must_use]
 pub fn lock_folder(namespace: &KeyringNamespace) -> PathBuf {

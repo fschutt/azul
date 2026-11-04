@@ -351,8 +351,8 @@ fn a_journal_planted_in_the_bucket_is_no_rotation_of_this_device() {
     assert!(pending(bucket.as_ref()).unwrap().is_none());
 }
 
-/// K2 (C10): the journal of a rotation that really stopped resumes on the device that wrote it
-/// - and only as written: another phase (the attacker reads the ids and moves the phase on, to
+/// K2 (C10): the journal of a rotation that really stopped resumes on the device that wrote it,
+/// and only as written: another phase (the attacker reads the ids and moves the phase on, to
 /// skip the re-keying and the re-wrapping), another device, or a journal of before the MAC does not.
 #[test]
 fn only_the_journal_this_device_wrote_resumes_and_as_it_wrote_it() {
@@ -492,7 +492,7 @@ fn two_rotations_chain_all_the_way_back() {
         .index
         .apply(vec![IndexChange::Put {
             path: String::from("photos/a.jpg"),
-            entry: from_k1,
+            entry: from_k1.clone(),
             expect: Expect::Any,
         }])
         .unwrap();
@@ -512,9 +512,10 @@ fn two_rotations_chain_all_the_way_back() {
         vec![k2.id(), s.old_key.id()]
     );
 
-    // Both generations of history still open.
+    // Both generations of history still open: a pointer wrapped by the first key (two links
+    // back) and one wrapped by the second.
     let drive = open_encrypted(bucket.clone(), &s.keyring, DRIVE, &s.provider).unwrap();
-    for entry in [from_k2] {
+    for entry in [from_k1, from_k2] {
         s.provider
             .index
             .apply(vec![IndexChange::Put {
