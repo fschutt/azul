@@ -66,6 +66,7 @@ pub mod multipart;
 /// the transport that keeps a signed-in drive's access token fresh.
 pub mod oauth;
 pub mod ops;
+pub mod overlap;
 pub mod s3;
 pub mod scoped;
 /// Where an object's bytes lie in an Azlin server's 4 + 2 code: chunks and data shards.

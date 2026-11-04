@@ -2229,6 +2229,7 @@ azdrive-reason-a-folder-name-ends-with = a folder name ends with /
 azdrive-reason-two-shared-files-have-this-name = two shared files have this name
 azdrive-reason-a-grant-covers-a-folder-which-ends-with = a grant covers a folder, which ends with /
 azdrive-reason-the-destination-folder-is-inside-the-folder-it-would-receive = the destination folder is inside the folder it would receive
+azdrive-reason-the-destination-is-the-very-file-being-copied = the destination is the very file being copied
 azdrive-reason-it-is-empty = it is empty
 azdrive-reason-it-contains-a-nul-character = it contains a NUL character
 azdrive-reason-it-contains-a-backslash = it contains a backslash

@@ -2227,6 +2227,7 @@ azdrive-reason-a-folder-name-ends-with = ein Ordnername endet auf /
 azdrive-reason-two-shared-files-have-this-name = zwei freigegebene Dateien haben diesen Namen
 azdrive-reason-a-grant-covers-a-folder-which-ends-with = eine Freigabe gilt für einen Ordner, der auf / endet
 azdrive-reason-the-destination-folder-is-inside-the-folder-it-would-receive = der Zielordner liegt in dem Ordner, den er aufnehmen würde
+azdrive-reason-the-destination-is-the-very-file-being-copied = das Ziel ist genau die Datei, die kopiert wird
 azdrive-reason-it-is-empty = er ist leer
 azdrive-reason-it-contains-a-nul-character = er enthält ein NUL-Zeichen
 azdrive-reason-it-contains-a-backslash = er enthält einen umgekehrten Schrägstrich

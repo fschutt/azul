@@ -12,7 +12,10 @@ use std::{
 };
 
 use azul_appkit::l10n::{Phrase, Text};
-use azul_storage::{key, ops as storage_ops, transfer, BatchDelete, BatchMove, BatchPut, Drive, DriveError};
+use azul_storage::{
+    key, ops as storage_ops, overlap as storage_overlap, transfer, BatchDelete, BatchMove,
+    BatchPut, Drive, DriveError,
+};
 
 use crate::browse;
 
@@ -583,11 +586,22 @@ pub fn run_transfer(
                     continue;
                 }
             }
-            if file.conflict && file.choice == Some(ConflictChoice::Replace) {
-                // Out of the way first: a rename over a file fails on Windows.
-                let _ = target.delete(&file.target_key);
-            }
-            let result = if server_side {
+            // A Replace writes the new bytes beside the old file and renames them over it (a
+            // copy, a download, a PUT all do): the old file goes only when the new one is whole.
+            // It used to be deleted first - a copy that failed after it left neither, and a
+            // file replaced by itself (a second drive over the same folder) left none (AZ-U4,
+            // AZ-S1). The same file is refused: a Move would delete it as the source.
+            let result = if storage_overlap::same_local_file(
+                source,
+                &file.source_key,
+                target,
+                &file.target_key,
+            ) {
+                Err(DriveError::InvalidKey {
+                    key: file.target_key.clone(),
+                    reason: "the destination is the very file being copied",
+                })
+            } else if server_side {
                 // The bucket copies (CopyObject): no byte passes through here.
                 source
                     .copy(&file.source_key, &file.target_key)
@@ -1531,5 +1545,104 @@ mod tests {
             0,
             "the chunked copy, not fs::copy"
         );
+    }
+
+    /// A drive on the far side of a connection that drops: it lists and answers HEAD, and every
+    /// read of a file's bytes fails.
+    struct Dropping(LocalDrive);
+
+    impl Drive for Dropping {
+        fn list(
+            &self,
+            request: &azul_storage::ListRequest,
+        ) -> Result<azul_storage::ListPage, DriveError> {
+            self.0.list(request)
+        }
+        fn get(&self, _key: &str) -> Result<Vec<u8>, DriveError> {
+            Err(DriveError::Transport(String::from("connection reset")))
+        }
+        fn get_range(
+            &self,
+            _key: &str,
+            _range: azul_storage::ByteRange,
+        ) -> Result<Vec<u8>, DriveError> {
+            Err(DriveError::Transport(String::from("connection reset")))
+        }
+        fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
+            self.0.put(key, bytes)
+        }
+        fn delete(&self, key: &str) -> Result<(), DriveError> {
+            self.0.delete(key)
+        }
+        fn head(&self, key: &str) -> Result<azul_storage::ObjectInfo, DriveError> {
+            self.0.head(key)
+        }
+    }
+
+    /// AZ-U4/AZ-S1: "Replace" used to delete the target first. A copy that fails after it left
+    /// neither file; a file replaced by itself (a second drive over the same folder) left none.
+    #[test]
+    fn az_u4_s1_a_replace_whose_copy_fails_keeps_the_old_file() {
+        let tmp = TempDir::new("replace-fails");
+        let target = seeded(&tmp);
+        let far = Dropping(LocalDrive::new(tmp.path().join("far")));
+        far.put("readme.txt", b"the new text").unwrap();
+        let mut plan = plan_transfer(
+            &far,
+            &[item("readme.txt")],
+            &target,
+            "",
+            false,
+            TransferKind::Copy,
+            "Copy",
+        )
+        .unwrap();
+        assert_eq!(plan.conflicts().len(), 1, "readme.txt is there already");
+        plan.choose(0, ConflictChoice::Replace);
+        let report = run_transfer(
+            &plan,
+            &far,
+            &target,
+            TransferKind::Copy,
+            &never_cancel(),
+            &mut |_| {},
+        );
+        assert_eq!(report.failed.len(), 1, "the read dropped: {report:?}");
+        assert_eq!(
+            target.get("readme.txt").unwrap(),
+            b"hello",
+            "the old file is still there: nothing was deleted before the new one was whole"
+        );
+    }
+
+    #[test]
+    fn az_u4_s1_a_file_is_never_replaced_by_itself_through_a_second_drive_over_its_folder() {
+        for kind in [TransferKind::Move, TransferKind::Copy] {
+            let tmp = TempDir::new("replace-self");
+            let home = seeded(&tmp);
+            // The second drive over the same tree the app builds itself (`os:<folder>`,
+            // `sync:<drive>`).
+            let os = LocalDrive::new(tmp.path().join("home"));
+            let mut plan =
+                plan_transfer(&os, &[item("readme.txt")], &home, "", false, kind, "Copy").unwrap();
+            assert_eq!(
+                plan.conflicts().len(),
+                1,
+                "the same file is 'there' already"
+            );
+            plan.choose(0, ConflictChoice::Replace);
+            let report = run_transfer(&plan, &os, &home, kind, &never_cancel(), &mut |_| {});
+            assert_eq!(
+                home.get("readme.txt").unwrap(),
+                b"hello",
+                "{kind:?}: the only copy is still there"
+            );
+            assert_eq!(
+                report.failed.len(),
+                1,
+                "{kind:?}: it is refused, not done: {report:?}"
+            );
+            assert_eq!(report.done, 0, "{kind:?}");
+        }
     }
 }

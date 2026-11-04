@@ -18,6 +18,8 @@ mod manifest;
 mod meta;
 mod oauth;
 mod ops;
+/// Whether two drives name one file or one folder on this computer.
+mod overlap;
 mod s3;
 mod scoped;
 mod sigv4;
