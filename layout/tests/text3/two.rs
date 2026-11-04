@@ -178,9 +178,15 @@ fn test_multi_column_layout() {
         logical_start_byte: 0,
         source_node_id: None,
     })];
+    // Room for two lines of a column, not three: a column holds the lines that END inside
+    // it, and this fixture's lines stand 16px apart (see `line_pitch`), not the 12px of the
+    // style. The 25px this test used to give were "2 lines (12.0 each)"; they held two only
+    // because the line breaker let the last line of a column hang below it, and with the
+    // lines it really has they are one line a column and the third goes on into an overflow
+    // column, past the 100px the two columns span (CSS Multi-column 1, 8.2).
     let constraints = UnifiedConstraints {
         available_width: AvailableSpace::Definite(100.0),
-        available_height: Some(25.0), // Enough for 2 lines (12.0 each)
+        available_height: Some(super::line_pitch(&content, 45.0) * 2.5),
         columns: 2,
         column_gap: 10.0,
         ..Default::default()
@@ -282,12 +288,19 @@ fn test_flow_across_fragments() {
         source_node_id: None,
     })];
 
+    // A fragment holds the lines that END inside it, so its height is sized by
+    // the distance between this fixture's lines (16px, not the style's 12px;
+    // see `line_pitch`): room for one line and not two, room for the two more
+    // and not a third. The 15px and 30px this test used to give were "one line"
+    // and "two more lines" of 12px; they held them only because the line
+    // breaker let the last line of a fragment hang below it.
+    let pitch = super::line_pitch(&content, 100.0);
     let flow_chain = vec![
         LayoutFragment {
             id: "frag1".into(),
             constraints: UnifiedConstraints {
                 available_width: AvailableSpace::Definite(100.0),
-                available_height: Some(15.0), // Only one line
+                available_height: Some(pitch * 1.5), // Only one line
                 ..Default::default()
             },
         },
@@ -295,7 +308,7 @@ fn test_flow_across_fragments() {
             id: "frag2".into(),
             constraints: UnifiedConstraints {
                 available_width: AvailableSpace::Definite(100.0),
-                available_height: Some(30.0), // Two more lines
+                available_height: Some(pitch * 2.5), // Two more lines
                 ..Default::default()
             },
         },
@@ -327,6 +340,16 @@ fn test_flow_across_fragments() {
     assert!(
         frag2_max_line > 0,
         "Fragment 2 should contain subsequent lines"
+    );
+    // Lines are numbered on through the fragments of a paragraph, so `frag2_max_line > 0`
+    // holds for any second fragment; what it stands for is that fragment 2 holds the two
+    // lines that are left.
+    let frag2_lines: std::collections::BTreeSet<usize> =
+        frag2_layout.items.iter().map(|i| i.line_index).collect();
+    assert_eq!(
+        frag2_lines.into_iter().collect::<Vec<_>>(),
+        vec![1, 2],
+        "Fragment 2 should hold the two remaining lines"
     );
 
     // Ensure all content was laid out

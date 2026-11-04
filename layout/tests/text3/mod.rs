@@ -184,6 +184,49 @@ pub fn layout_flow_compat(
     )
 }
 
+/// The distance between two lines of `content` in this fixture, as the engine
+/// lays them out.
+///
+/// It is NOT the style's `line_height` (12px): a fragment's
+/// `UnifiedConstraints::default()` carries the strut of a 16px font, and a line
+/// box is the taller of the strut's and the run's, so the mock text stands 16px
+/// apart. A fragment holds the lines that END inside it (CSS Fragmentation 3: a
+/// line box is monolithic, `a_frames_last_line_ends_inside_the_frame`), so a
+/// test that sizes a fragment in lines has to size it by what the lines are.
+pub fn line_pitch(content: &[azul_layout::text3::cache::InlineContent], width: f32) -> f32 {
+    use azul_layout::text3::cache::{
+        AvailableSpace, LayoutFragment, TextShapingCache, UnifiedConstraints,
+    };
+    let mut cache = TextShapingCache::new();
+    let one_tall_fragment = [LayoutFragment {
+        id: "tall".into(),
+        constraints: UnifiedConstraints {
+            available_width: AvailableSpace::Definite(width),
+            ..Default::default()
+        },
+    }];
+    let flow = layout_flow_compat(
+        &mut cache,
+        content,
+        &[],
+        &one_tall_fragment,
+        &create_mock_font_manager(),
+    )
+    .expect("the content lays out");
+    let layout = flow.fragment_layouts.get("tall").expect("the one fragment");
+    let mut tops = std::collections::BTreeMap::<usize, f32>::new();
+    for item in &layout.items {
+        let top = tops.entry(item.line_index).or_insert(item.position.y);
+        *top = top.min(item.position.y);
+    }
+    let mut tops = tops.into_values();
+    let (first, second) = (
+        tops.next().expect("a first line"),
+        tops.next().expect("a second line: the content is wider than the fragment"),
+    );
+    second - first
+}
+
 // --- Mocking Infrastructure ---
 
 #[derive(Debug, Clone)]
