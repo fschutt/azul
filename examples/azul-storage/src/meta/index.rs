@@ -79,6 +79,9 @@ pub(super) fn to_drive(e: MetaError) -> DriveError {
         MetaError::Drive(e) => e,
         MetaError::Corrupt { key, reason } => DriveError::Corrupt { key, reason },
         MetaError::Unsupported(why) => DriveError::Unsupported(why),
+        // A change whose landing is not known is a request that got no answer: a caller never
+        // takes it for a refusal (`Conflict`), which lets it undo what the change may have named.
+        e @ MetaError::OutcomeUnknown { .. } => DriveError::Transport(e.to_string()),
         MetaError::Sealed { key, reason } => DriveError::Corrupt {
             key,
             reason: format!("it does not open with this drive's key: {reason}"),

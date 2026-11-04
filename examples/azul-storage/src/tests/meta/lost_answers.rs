@@ -207,6 +207,27 @@ fn a_manifest_swap_whose_answer_was_lost_while_the_bucket_stays_away_is_found_la
     );
 }
 
+/// AZ-M1 at the store: a swap that answered with a conflict and cannot be read back is an
+/// unknown outcome, never the conflict itself (a caller reads that as "refused for good").
+#[test]
+fn az_m1_a_conflict_answer_whose_re_read_fails_is_an_unknown_outcome_and_not_a_conflict() {
+    let bucket = LostAnswers::new(MemoryBucket::new());
+    let mut store = MetaStore::create(&bucket, sealer(), "laptop").unwrap();
+    bucket.lose_next(keys::MANIFEST, Lost::Resent, 1000);
+    let published = publish_main(&mut store, "one");
+    assert!(
+        matches!(published, Err(MetaError::OutcomeUnknown { .. })),
+        "{published:?}"
+    );
+    bucket.reads_up();
+    // The swap had landed: another device reads it, and this one goes on from it.
+    assert_eq!(
+        main_ref_as_another_device_sees_it(&bucket.inner).as_deref(),
+        Some("one")
+    );
+    assert!(matches!(publish_main(&mut store, "two"), Ok(Some(_))));
+}
+
 #[cfg(feature = "encryption")]
 mod encrypted {
     use std::sync::Arc;
@@ -269,6 +290,37 @@ mod encrypted {
                 b"the only copy of the report"
             );
         }
+    }
+
+    /// AZ-M1. The swap that names the file landed, its repeat met the version it made (the
+    /// bucket's answer is a conflict), and the read that would tell fails too: the write cannot
+    /// know whether the file is named. That is an unknown outcome - an error of the "no answer"
+    /// kind - and never "someone else wrote first", which would take the object out of the
+    /// bucket while the index names it.
+    #[test]
+    fn az_m1_a_conflict_whose_re_read_fails_is_an_unknown_outcome_and_the_object_stays() {
+        let key = DriveKey::generate().unwrap();
+        let data = MemoryBucket::new();
+        let meta = Arc::new(LostAnswers::new(data.clone()));
+        let drive = laptop(&data, &meta, &key);
+        meta.lose_next(keys::MANIFEST, Lost::Resent, 1000);
+        let put = drive.put("report.txt", b"the only copy of the report");
+        match put {
+            Err(crate::DriveError::Transport(_)) => {}
+            other => panic!(
+                "a swap whose outcome is unknown answers as a lost connection does, not as a \
+                 refusal for good: {other:?}"
+            ),
+        }
+        meta.reads_up();
+        // The swap had landed: the index names the file, and the object must still be there.
+        let other = phone(&data, &key);
+        assert_eq!(
+            other
+                .get("report.txt")
+                .expect("the index names the file: its object must still be in the bucket"),
+            b"the only copy of the report"
+        );
     }
 
     #[test]

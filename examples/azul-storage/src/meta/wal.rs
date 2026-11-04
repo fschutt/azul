@@ -884,7 +884,13 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
                     // (one nothing names is only space; a named one removed would break the
                     // repository) and the publish is tried again.
                     Some(false) => Ok(false),
-                    None => Err(lost),
+                    // The bucket cannot be read: the swap may have landed (its repeat met its
+                    // own version) or lost. The conflict is no answer to hand on - a caller
+                    // that took it for "refused for good" would delete the data object the
+                    // manifest may now name (AZ-M1). The entry stays too.
+                    None => Err(MetaError::OutcomeUnknown {
+                        key: keys::MANIFEST.to_string(),
+                    }),
                 }
             }
             Err(e) => {
@@ -1013,6 +1019,12 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
                             let _ = self.bucket.remove(&key);
                         }
                         (Some(false), MetaError::Raced { .. }) => back_off(attempt),
+                        // Unreadable now: the swap may have landed or lost - not a conflict.
+                        (None, MetaError::Conflict { .. } | MetaError::Raced { .. }) => {
+                            return Err(MetaError::OutcomeUnknown {
+                                key: keys::MANIFEST.to_string(),
+                            })
+                        }
                         _ => return Err(lost),
                     }
                 }

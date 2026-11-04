@@ -210,6 +210,13 @@ pub enum MetaError {
     /// `ConditionalRequestConflict`): nothing was written, try again. Never
     /// "the object is there".
     Raced { key: String },
+    /// A conditional write answered with a conflict and the read that would say whether it
+    /// landed failed too (its own repeat met the version it had made, or another device
+    /// wrote first - and the bucket cannot be read now): it may have landed or not. Neither
+    /// "someone else wrote first" nor "it went through", so nothing is undone on a guess: an
+    /// object the index may now name stays in the bucket. The drive's index (`MetaIndex`)
+    /// answers it as a lost connection ([`DriveError::Transport`]).
+    OutcomeUnknown { key: String },
     /// The bucket's own error.
     Drive(DriveError),
     /// The object does not open with this drive key (another key, or a changed byte).
@@ -248,6 +255,11 @@ impl fmt::Display for MetaError {
             MetaError::Raced { key } => {
                 write!(f, "\"{key}\" was being written by another device; try again")
             }
+            MetaError::OutcomeUnknown { key } => write!(
+                f,
+                "whether the change of \"{key}\" went through is not known: the storage could \
+                 not be read after it"
+            ),
             MetaError::Drive(e) => write!(f, "{e}"),
             MetaError::Sealed { key, reason } => {
                 write!(f, "\"{key}\" does not open with this drive's key: {reason}")
