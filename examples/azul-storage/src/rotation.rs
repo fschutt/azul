@@ -25,7 +25,23 @@
 //! 6. Incoming mail: a new drop key (the old one kept, sealed with K2, for drops the Worker
 //!    sealed before it got the new public key - [`drops::rotate_drop_key`]).
 //! 7. Every share is revoked (its manifest deleted).
-//! 8. The journal and K1 go.
+//! 8. The journal goes, and K1 leaves the keyring.
+//!
+//! K1 is not lost, though: the KEY CHAIN keeps it ([`crate::crypto::keys::KeyChain`], the file
+//! `.azlin/keys/_chain.key`), sealed under K2, so everyone who holds K2 - every device that
+//! joins again, the recovery code - opens it (step 2, before anything lets go of K1). The history
+//! of the drive (the index keeps every state), its trash and the versions a restore puts back
+//! hold file keys wrapped by K1; they still open through the chain. So a restore as of a time
+//! before the rotation brings back readable files. The price is honest: history older than the
+//! rotation stays readable to anyone who held K1 (and can fetch the ciphertext), until "re-encrypt
+//! everything" has rewritten the files and the old versions have expired. The chain is never
+//! pruned here: a link goes only when no object that needs its key is left.
+//!
+//! The journal says how far a rotation got, and gates the steps a resume skips, so it is
+//! authenticated: its MAC is keyed with K2, which only the device that started the rotation
+//! keeps. A journal that anyone else wrote (whoever can write to the bucket can plant one)
+//! is no rotation of this device: it is neither resumed nor does it stop the lockdown
+//! ([`resumable`]), and a rotation that starts replaces it.
 //!
 //! Every step can be run again: a rotation that stopped (a crash, no network) resumes from the
 //! journal on the device that started it (the one with K2), with the same call.
@@ -38,7 +54,10 @@ use crate::{
     crypto::{
         device,
         drops::{self, DropPublic},
-        keys::{store_recovery_wrap, RecoveryCode, RecoveryKdf, RecoveryWrap, KEYS_PREFIX},
+        keys::{
+            load_key_chain, store_key_chain, store_recovery_wrap, RecoveryCode, RecoveryKdf,
+            RecoveryWrap, KEYS_PREFIX,
+        },
         DriveKey, KeyId,
     },
     encrypted::{EncryptedDrive, Expect, IndexChange, IndexEntry, IndexProvider, NameIndex, Rewrite},
@@ -68,7 +87,8 @@ pub enum Phase {
     Members,
 }
 
-/// The journal: which keys and how far (no key).
+/// The journal: which keys and how far (no key), and a MAC under the new key
+/// ([`Journal::authentic`]).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Journal {
     pub format: String,
@@ -79,25 +99,83 @@ pub struct Journal {
     /// The new drive key's id (hex).
     pub new: String,
     pub phase: Phase,
+    /// BLAKE3 keyed hash (hex) of the journal's fields under a key derived from the NEW drive
+    /// key: whoever writes to the bucket can plant a journal, only the device that keeps the new
+    /// key can make one that verifies. Absent from a journal of before this field: it verifies
+    /// nowhere.
+    #[serde(default)]
+    pub mac: String,
 }
 
 const JOURNAL_FORMAT: &str = "azlin-drive-key";
 const JOURNAL_KIND: &str = "rotation";
+/// BLAKE3 `derive_key` context of the journal's MAC key (from the new drive key).
+const JOURNAL_MAC_CONTEXT: &str = "Azlin 2026-11-04 rotation journal: authentication";
 
-impl Journal {
-    fn new(old: &KeyId, new: &KeyId) -> Journal {
-        Journal {
-            format: JOURNAL_FORMAT.to_string(),
-            version: 1,
-            kind: JOURNAL_KIND.to_string(),
-            old: old.to_hex(),
-            new: new.to_hex(),
-            phase: Phase::Started,
+impl Phase {
+    fn name(self) -> &'static str {
+        match self {
+            Phase::Started => "started",
+            Phase::Rekeyed => "rekeyed",
+            Phase::Rewrapped => "rewrapped",
+            Phase::Members => "members",
         }
     }
 }
 
-/// The rotation under way in `bucket`, if any (another device sees it and stops writing).
+impl Journal {
+    fn new(drive: &str, old: &DriveKey, new: &DriveKey) -> Journal {
+        let mut journal = Journal {
+            format: JOURNAL_FORMAT.to_string(),
+            version: 1,
+            kind: JOURNAL_KIND.to_string(),
+            old: old.id().to_hex(),
+            new: new.id().to_hex(),
+            phase: Phase::Started,
+            mac: String::new(),
+        };
+        journal.seal(drive, new);
+        journal
+    }
+
+    /// The MAC of the journal's fields for the drive `drive` under `new`.
+    fn mac_of(&self, drive: &str, new: &DriveKey) -> blake3::Hash {
+        let key = new.derive(JOURNAL_MAC_CONTEXT);
+        let mut hasher = blake3::Hasher::new_keyed(&key);
+        for part in [
+            self.format.as_str(),
+            self.kind.as_str(),
+            drive,
+            self.old.as_str(),
+            self.new.as_str(),
+            self.phase.name(),
+        ] {
+            hasher.update(&(part.len() as u64).to_le_bytes());
+            hasher.update(part.as_bytes());
+        }
+        hasher.finalize()
+    }
+
+    /// Sets the MAC after a change of the fields (the phase).
+    fn seal(&mut self, drive: &str, new: &DriveKey) {
+        self.mac = self.mac_of(drive, new).to_hex().to_string();
+    }
+
+    /// Whether this device wrote the journal: its MAC verifies under `new`, the key it names.
+    /// A journal that anyone who can write to the bucket planted does not.
+    #[must_use]
+    pub fn authentic(&self, drive: &str, new: &DriveKey) -> bool {
+        if new.id().to_hex() != self.new {
+            return false;
+        }
+        // `blake3::Hash` compares in constant time.
+        blake3::Hash::from_hex(&self.mac).is_ok_and(|mac| mac == self.mac_of(drive, new))
+    }
+}
+
+/// The journal in `bucket`, if any - whoever wrote it. Anyone who can write to the bucket can
+/// plant one, so it says that a rotation may be under way, nothing more: [`resumable`] is the
+/// question whether it is this device's.
 pub fn pending(bucket: &dyn Drive) -> Result<Option<Journal>, DriveError> {
     let bytes = match bucket.get(JOURNAL_FILE) {
         Ok(bytes) => bytes,
@@ -117,7 +195,36 @@ pub fn pending(bucket: &dyn Drive) -> Result<Option<Journal>, DriveError> {
     Ok(Some(journal))
 }
 
-fn save(bucket: &dyn Drive, journal: &Journal) -> Result<(), DriveError> {
+/// The rotation of THIS device that stopped, if any: the journal in `bucket`, when its MAC
+/// verifies under the new key the keyring keeps for it. `None` for no journal, a journal that
+/// is no rotation of this device (planted, from another device, damaged, unreadable), and a
+/// rotation whose new key this device lost. A caller that skips the account's lockdown because
+/// a rotation is under way asks this, never [`pending`]: a journal anyone can plant would skip
+/// the lockdown for the attacker.
+pub fn resumable(
+    bucket: &dyn Drive,
+    keyring: &dyn KeyringStore,
+    drive: &str,
+) -> Result<Option<Journal>, DriveError> {
+    let journal = match pending(bucket) {
+        Ok(Some(journal)) => journal,
+        Ok(None) | Err(DriveError::Corrupt { .. }) => return Ok(None),
+        Err(e) => return Err(e),
+    };
+    let (_, next_entry) = device::rotation_key_entries(drive);
+    let Some(new) = device::load_key_at(keyring, &next_entry)? else {
+        return Ok(None);
+    };
+    Ok(journal.authentic(drive, &new).then_some(journal))
+}
+
+fn save(
+    bucket: &dyn Drive,
+    drive: &str,
+    new: &DriveKey,
+    journal: &mut Journal,
+) -> Result<(), DriveError> {
+    journal.seal(drive, new);
     let mut bytes = serde_json::to_vec_pretty(journal).unwrap_or_default();
     bytes.push(b'\n');
     bucket.put(JOURNAL_FILE, &bytes)
@@ -168,6 +275,18 @@ fn all_entries(index: &dyn NameIndex) -> Result<Vec<(String, IndexEntry)>, Drive
 /// Step 2: every entry's file key from `old` to `new`, in one index change; again while files
 /// change under it. Returns how many entries were re-wrapped.
 pub fn rewrap_index(index: &dyn NameIndex, old: &DriveKey, new: &DriveKey) -> Result<usize, DriveError> {
+    rewrap_index_with(index, old, &[], new)
+}
+
+/// [`rewrap_index`] for a drive that was rotated before: an entry the index holds can be wrapped
+/// by one of the `older` keys (the key chain's) as well - a restore as of a time before the
+/// earlier rotation puts such pointers back at the head.
+pub fn rewrap_index_with(
+    index: &dyn NameIndex,
+    old: &DriveKey,
+    older: &[DriveKey],
+    new: &DriveKey,
+) -> Result<usize, DriveError> {
     let (old_id, new_id) = (old.id(), new.id());
     let mut total = 0;
     for _ in 0..REWRAP_ATTEMPTS {
@@ -179,15 +298,24 @@ pub fn rewrap_index(index: &dyn NameIndex, old: &DriveKey, new: &DriveKey) -> Re
             if object.wrapped_key.key_id == new_id {
                 continue;
             }
-            if object.wrapped_key.key_id != old_id {
+            let wrapper = if object.wrapped_key.key_id == old_id {
+                Some(old)
+            } else {
+                older
+                    .iter()
+                    .find(|key| key.id() == object.wrapped_key.key_id)
+            };
+            let Some(wrapper) = wrapper else {
                 return Err(DriveError::Corrupt {
                     key: path,
-                    reason: String::from("its key is wrapped by neither the old nor the new drive key"),
+                    reason: String::from(
+                        "its key is wrapped by neither the old nor the new drive key",
+                    ),
                 });
-            }
+            };
             // A packed file's key is its pack's, wrapped for the pack.
             let bound = object.bucket_object();
-            let file_key = old
+            let file_key = wrapper
                 .unwrap_file_key(&object.wrapped_key, &bound)
                 .map_err(|e| e.for_key(&path))?;
             let wrapped = new
@@ -217,6 +345,19 @@ pub fn rewrap_index(index: &dyn NameIndex, old: &DriveKey, new: &DriveKey) -> Re
     Err(DriveError::Conflict {
         key: String::from("the drive kept changing during the key rotation: try again"),
     })
+}
+
+/// Seals the old drive key under the new one into the drive's key chain in `bucket` (a chain
+/// that is there already keeps its links). Again for the same pair: one link.
+fn chain_old_key(
+    bucket: &dyn Drive,
+    drive: &str,
+    old: &DriveKey,
+    new: &DriveKey,
+) -> Result<(), DriveError> {
+    let mut chain = load_key_chain(bucket)?.unwrap_or_default();
+    chain.add(drive, old, new).map_err(|e| e.for_key(drive))?;
+    store_key_chain(bucket, &chain)
 }
 
 /// Step 4: every member but this device leaves. First the index's record (`drive_key` opens
@@ -288,7 +429,9 @@ pub fn rotate(
     kdf: RecoveryKdf,
 ) -> Result<Rotated, DriveError> {
     let (previous_entry, next_entry) = device::rotation_key_entries(drive);
-    let (old, new, mut journal) = match pending(bucket.as_ref())? {
+    // Only a journal this device wrote is resumed: any other (planted by whoever can write to
+    // the bucket, or a damaged one) is replaced by the journal of a rotation that starts.
+    let (old, new, mut journal) = match resumable(bucket.as_ref(), keyring, drive)? {
         None => {
             let Some(old) = device::load_drive_key(keyring, drive)? else {
                 return Err(missing("old"));
@@ -302,8 +445,8 @@ pub fn rotate(
                     "the keyring did not keep the new drive key",
                 )));
             }
-            let journal = Journal::new(&old.id(), &new.id());
-            save(bucket.as_ref(), &journal)?;
+            let mut journal = Journal::new(drive, &old, &new);
+            save(bucket.as_ref(), drive, &new, &mut journal)?;
             (old, new, journal)
         }
         Some(journal) => {
@@ -315,6 +458,12 @@ pub fn rotate(
                 .ok_or_else(|| missing("old"))?;
             (old, new, journal)
         }
+    };
+    // The keys from before K1, from the key chain of earlier rotations: the history can hold
+    // file keys they wrapped.
+    let older: Vec<DriveKey> = match load_key_chain(bucket.as_ref())? {
+        Some(chain) => chain.open(drive, &old),
+        None => Vec::new(),
     };
     if journal.phase < Phase::Rekeyed {
         match provider.rekey(drive, Arc::clone(&bucket), &old, &new) {
@@ -328,15 +477,18 @@ pub fn rotate(
             }
             Err(e) => return Err(e),
         }
+        // K1 into the key chain, sealed under K2, before anything lets go of K1: the history
+        // and the versions a restore puts back hold file keys it wrapped.
+        chain_old_key(bucket.as_ref(), drive, &old, &new)?;
         journal.phase = Phase::Rekeyed;
-        save(bucket.as_ref(), &journal)?;
+        save(bucket.as_ref(), drive, &new, &mut journal)?;
     }
     let mut rewrapped = 0;
     if journal.phase < Phase::Rewrapped {
         let index = provider.open_index(drive, Arc::clone(&bucket), &new)?;
-        rewrapped = rewrap_index(index.as_ref(), &old, &new)?;
+        rewrapped = rewrap_index_with(index.as_ref(), &old, &older, &new)?;
         journal.phase = Phase::Rewrapped;
-        save(bucket.as_ref(), &journal)?;
+        save(bucket.as_ref(), drive, &new, &mut journal)?;
     }
     let mut members_removed = 0;
     if journal.phase < Phase::Members {
@@ -346,7 +498,7 @@ pub fn rotate(
         let me = device::enroll(bucket.as_ref(), keyring, drive, &new)?;
         members_removed = remove_other_members(bucket.as_ref(), &new, &me)?;
         journal.phase = Phase::Members;
-        save(bucket.as_ref(), &journal)?;
+        save(bucket.as_ref(), drive, &new, &mut journal)?;
     }
     // Again on every resume: the code returned last is the one the wrap holds.
     let recovery_code = RecoveryCode::generate().map_err(|e| e.for_key(drive))?;
@@ -354,7 +506,8 @@ pub fn rotate(
     store_recovery_wrap(bucket.as_ref(), &wrap)?;
     let drop_key = drops::rotate_drop_key(bucket.as_ref(), &old, &new, drive)?;
     let shares_revoked = revoke_all_shares(bucket.as_ref())?;
-    // Done: the journal and the old key go; K2 is the keyring's drive key (step 4).
+    // Done: the journal goes and K1 leaves the keyring (the key chain keeps it, sealed under
+    // K2); K2 is the keyring's drive key (step 4).
     match bucket.delete(JOURNAL_FILE) {
         Ok(()) | Err(DriveError::NotFound { .. }) => {}
         Err(e) => return Err(e),

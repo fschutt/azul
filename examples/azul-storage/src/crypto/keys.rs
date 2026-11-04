@@ -44,6 +44,10 @@ pub const RECOVERY_KEY_FILE: &str = ".azlin/keys/recovery.key";
 /// The start of an invite's member id (`invite-<id>`): a one-time wrap for a join code, not a
 /// member.
 pub const INVITE_PREFIX: &str = "invite-";
+/// The drive's key chain: the drive keys from before its key rotations, each sealed under the key
+/// that replaced it ([`KeyChain`]). Not a member's file (`_` is no member id's letter), so a
+/// rotation leaves it where it is.
+pub const CHAIN_KEY_FILE: &str = ".azlin/keys/_chain.key";
 /// Bytes of a recovery code (128 random bits).
 pub const RECOVERY_CODE_LEN: usize = 16;
 /// Bytes of an Argon2id salt.
@@ -58,12 +62,23 @@ pub const RECOVERY_WRAP_CONTEXT: &str = "Azlin 2026-10-08 recovery code: drive k
 /// The first bytes of the associated data of a member wrap and of the recovery wrap.
 const MEMBER_AAD_LABEL: &[u8] = b"Azlin member drive key v1";
 const RECOVERY_AAD_LABEL: &[u8] = b"Azlin recovery drive key v1";
+/// BLAKE3 `derive_key` context of the key that seals an older drive key in the key chain (from
+/// the newer drive key).
+pub const CHAIN_WRAP_CONTEXT: &str = "Azlin 2026-11-04 key chain: older drive key wrapping";
+/// The first bytes of the associated data of a key chain link.
+const CHAIN_AAD_LABEL: &[u8] = b"Azlin key chain link v1";
+/// The most links a key chain file may hold (a rotation adds one; a file with more is refused
+/// before anything is allocated for it).
+pub const CHAIN_MAX_LINKS: usize = 256;
+/// The most bytes a key chain file may have (a link is about 330 bytes of JSON).
+const CHAIN_MAX_BYTES: usize = 256 * 1024;
 
 /// The key file format.
 const FORMAT: &str = "azlin-drive-key";
 const FILE_VERSION: u32 = 1;
 const KIND_MEMBER: &str = "member";
 const KIND_RECOVERY: &str = "recovery";
+const KIND_CHAIN: &str = "chain";
 const ARGON2ID: &str = "argon2id";
 /// Argon2 version 1.3 (0x13).
 const ARGON2_VERSION: u32 = 19;
@@ -717,6 +732,218 @@ impl RecoveryWrap {
             sealed: hex_array(&file.sealed).ok_or_else(|| field("sealed key"))?,
         })
     }
+}
+
+// ==== The key chain: the drive keys from before a rotation ====
+
+/// The drive keys from before the drive's key rotations, each sealed under the key that replaced
+/// it, so whoever holds the drive's current key opens every older one - and with it the file
+/// keys wrapped before the rotation: the old pointers of the history, the trash and the versions
+/// a restore puts back. The chain is the rotation's honest price: the history older than the
+/// rotation stays readable to anyone who held the old key (and can fetch the ciphertext); only
+/// the files re-encrypted since are out of its reach.
+///
+/// The chain is a file in the bucket ([`CHAIN_KEY_FILE`]) that holds no key in the clear: the key
+/// recovered from the recovery code, a member's wrap or a join code is the current one, and it
+/// opens the rest. A rotation adds one link, K1 sealed under K2 ([`KeyChain::add`]), before it
+/// lets go of K1. Nothing prunes it here: a link goes only when no object that needs its key is
+/// left (past retention, or re-encrypted).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct KeyChain {
+    links: Vec<ChainLink>,
+}
+
+/// One older key sealed under the key that replaced it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ChainLink {
+    /// The id of the older drive key inside.
+    older: KeyId,
+    /// The id of the drive key that seals it.
+    newer: KeyId,
+    nonce: [u8; NONCE_LEN],
+    sealed: [u8; KEY_LEN + TAG_LEN],
+}
+
+#[derive(Serialize, Deserialize)]
+struct ChainFile {
+    format: String,
+    version: u32,
+    kind: String,
+    links: Vec<ChainLinkFile>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ChainLinkFile {
+    older: String,
+    newer: String,
+    nonce: String,
+    sealed: String,
+}
+
+fn chain_aad(drive: &str, older: &KeyId, newer: &KeyId) -> Vec<u8> {
+    associated_data(CHAIN_AAD_LABEL, &[drive.as_bytes(), &older.0, &newer.0])
+}
+
+impl KeyChain {
+    /// A chain without a link: a drive that was never rotated.
+    #[must_use]
+    pub fn new() -> KeyChain {
+        KeyChain::default()
+    }
+
+    /// Whether the chain holds no link.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.links.is_empty()
+    }
+
+    /// The links.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.links.len()
+    }
+
+    /// The ids of the older keys the chain holds.
+    #[must_use]
+    pub fn older_ids(&self) -> Vec<KeyId> {
+        self.links.iter().map(|link| link.older).collect()
+    }
+
+    /// Seals `older` under `newer`, the key that replaces it, for the drive `drive`. A link for
+    /// the same older key is replaced (a rotation that runs again adds it once).
+    pub fn add(
+        &mut self,
+        drive: &str,
+        older: &DriveKey,
+        newer: &DriveKey,
+    ) -> Result<(), CryptoError> {
+        let (older_id, newer_id) = (older.id(), newer.id());
+        if older_id == newer_id {
+            return Err(damaged("a key chain link from a key to itself"));
+        }
+        if self.links.len() >= CHAIN_MAX_LINKS && !self.links.iter().any(|l| l.older == older_id) {
+            return Err(CryptoError::Unsupported(format!(
+                "a key chain of more than {CHAIN_MAX_LINKS} links"
+            )));
+        }
+        let wrapping_key = newer.derive(CHAIN_WRAP_CONTEXT);
+        let (nonce, sealed) = seal_drive_key(
+            &wrapping_key,
+            older,
+            &chain_aad(drive, &older_id, &newer_id),
+        )?;
+        self.links.retain(|link| link.older != older_id);
+        self.links.push(ChainLink {
+            older: older_id,
+            newer: newer_id,
+            nonce,
+            sealed,
+        });
+        Ok(())
+    }
+
+    /// The drive keys before `newest` the chain opens, the nearest first: the one `newest`
+    /// replaced, the one that replaced, and so on. A link that does not open (changed, sealed
+    /// for another drive) ends the walk there: a chain only gives keys it proves.
+    #[must_use]
+    pub fn open(&self, drive: &str, newest: &DriveKey) -> Vec<DriveKey> {
+        let mut keys: Vec<DriveKey> = Vec::new();
+        let mut seen = vec![newest.id()];
+        let mut current = newest.clone();
+        // Each link is used at most once.
+        for _ in 0..self.links.len() {
+            let Some(link) = self
+                .links
+                .iter()
+                .find(|link| link.newer == current.id() && !seen.contains(&link.older))
+            else {
+                break;
+            };
+            let wrapping_key = current.derive(CHAIN_WRAP_CONTEXT);
+            let Ok(older) = open_drive_key(
+                &wrapping_key,
+                &link.nonce,
+                &link.sealed,
+                &chain_aad(drive, &link.older, &link.newer),
+                &link.older,
+            ) else {
+                break;
+            };
+            seen.push(link.older);
+            keys.push(older.clone());
+            current = older;
+        }
+        keys
+    }
+
+    /// The chain file's bytes.
+    #[must_use]
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let file = ChainFile {
+            format: FORMAT.to_string(),
+            version: FILE_VERSION,
+            kind: KIND_CHAIN.to_string(),
+            links: self
+                .links
+                .iter()
+                .map(|link| ChainLinkFile {
+                    older: link.older.to_hex(),
+                    newer: link.newer.to_hex(),
+                    nonce: to_hex(&link.nonce),
+                    sealed: to_hex(&link.sealed),
+                })
+                .collect(),
+        };
+        let mut bytes = serde_json::to_vec_pretty(&file).unwrap_or_default();
+        bytes.push(b'\n');
+        bytes
+    }
+
+    /// The chain of a key chain file; a file over [`CHAIN_MAX_BYTES`] or holding more than
+    /// [`CHAIN_MAX_LINKS`] links is refused.
+    pub fn parse(bytes: &[u8]) -> Result<KeyChain, CryptoError> {
+        if bytes.len() > CHAIN_MAX_BYTES {
+            return Err(damaged("a key chain file of an unreasonable size"));
+        }
+        let file: ChainFile =
+            serde_json::from_slice(bytes).map_err(|_| damaged("not a key chain file"))?;
+        check_file(&file.format, file.version, &file.kind, KIND_CHAIN)?;
+        if file.links.len() > CHAIN_MAX_LINKS {
+            return Err(damaged("a key chain with an unreasonable number of links"));
+        }
+        let field = |what: &str| damaged(format!("the key chain file's {what}"));
+        let links = file
+            .links
+            .iter()
+            .map(|link| {
+                Ok(ChainLink {
+                    older: KeyId::from_hex(&link.older).ok_or_else(|| field("older key id"))?,
+                    newer: KeyId::from_hex(&link.newer).ok_or_else(|| field("newer key id"))?,
+                    nonce: hex_array(&link.nonce).ok_or_else(|| field("nonce"))?,
+                    sealed: hex_array(&link.sealed).ok_or_else(|| field("sealed key"))?,
+                })
+            })
+            .collect::<Result<Vec<_>, CryptoError>>()?;
+        Ok(KeyChain { links })
+    }
+}
+
+/// Puts the key chain at [`CHAIN_KEY_FILE`] in `bucket` (the bucket itself, below any encrypted
+/// drive).
+pub fn store_key_chain(bucket: &dyn Drive, chain: &KeyChain) -> Result<(), DriveError> {
+    bucket.put(CHAIN_KEY_FILE, &chain.to_bytes())
+}
+
+/// The drive's key chain from `bucket`; `None` for a drive that was never rotated.
+pub fn load_key_chain(bucket: &dyn Drive) -> Result<Option<KeyChain>, DriveError> {
+    let bytes = match bucket.get(CHAIN_KEY_FILE) {
+        Ok(bytes) => bytes,
+        Err(DriveError::NotFound { .. }) => return Ok(None),
+        Err(e) => return Err(e),
+    };
+    KeyChain::parse(&bytes)
+        .map(Some)
+        .map_err(|e| e.for_key(CHAIN_KEY_FILE))
 }
 
 /// Puts `wrap` at `.azlin/keys/<member>.key` in `bucket` (the bucket itself, below any

@@ -272,3 +272,124 @@ fn a_files_versions_are_listed_once_each_and_an_old_or_deleted_one_comes_back() 
     assert_eq!(file_versions(&mut phone, "report.txt").unwrap().len(), 3);
     assert!(restore_file_version(&mut phone, ".azlin/policy.toml", versions[0].id, &mut keep_both).is_err());
 }
+
+// ==== K1: restoring from before a key rotation ====
+
+/// A drive's history holds the file keys its old drive key wrapped. The rotation used to delete
+/// that key, and every pointer a restore put back from before it read as "this drive's key does
+/// not open it" for ever - the clean versions of the hacked flow, unreadable exactly when it
+/// needs them. The key chain keeps the old key (sealed under the new one), so they open.
+#[cfg(feature = "encryption")]
+mod after_a_key_rotation {
+    use azul_storage::{
+        crypto::{
+            device::{self, setup_new_drive},
+            keys::RecoveryKdf,
+        },
+        encrypted::open_encrypted,
+        keyring::MemoryKeyring,
+        meta::{merge::keep_both, DriveBucket, MemoryBucket, MetaIndexProvider, MetaRepo},
+        rotation::rotate,
+        Drive,
+    };
+
+    use super::*;
+
+    const DRIVE: &str = "d_rot";
+
+    /// An encrypted drive with `notes/plan.txt` written twice (two versions) and `other.txt`,
+    /// on a bucket in memory; `rotate`d when asked.
+    fn drive_with_history() -> (
+        Arc<MemoryBucket>,
+        MemoryKeyring,
+        MetaIndexProvider,
+        RecoveryKdf,
+    ) {
+        let bucket = Arc::new(MemoryBucket::new());
+        let keyring = MemoryKeyring::new();
+        let kdf = RecoveryKdf::with_cost(64, 1, 1).unwrap();
+        let plain: Arc<dyn Drive> = bucket.clone();
+        setup_new_drive(plain.as_ref(), &keyring, DRIVE, kdf.clone()).unwrap();
+        let provider = MetaIndexProvider::new("Laptop");
+        let drive = open_encrypted(plain, &keyring, DRIVE, &provider).unwrap();
+        drive
+            .put("notes/plan.txt", b"the plan, version one")
+            .unwrap();
+        drive
+            .put("notes/plan.txt", b"the plan, version two")
+            .unwrap();
+        drive.put("other.txt", b"other").unwrap();
+        (bucket, keyring, provider, kdf)
+    }
+
+    fn repo_of(
+        bucket: &Arc<MemoryBucket>,
+        keyring: &MemoryKeyring,
+    ) -> MetaRepo<DriveBucket<Arc<dyn Drive>>, azul_storage::crypto::DriveKey> {
+        let key = device::load_drive_key(keyring, DRIVE).unwrap().unwrap();
+        let plain: Arc<dyn Drive> = bucket.clone();
+        MetaRepo::open(DriveBucket::new(plain), key, "checker", "Checker").unwrap()
+    }
+
+    #[test]
+    fn a_version_restored_from_before_the_rotation_opens() {
+        let (bucket, keyring, provider, kdf) = drive_with_history();
+        let plain: Arc<dyn Drive> = bucket.clone();
+        rotate(plain.clone(), &keyring, DRIVE, &provider, kdf).unwrap();
+
+        // The history holds both versions as the old key wrapped them, and the head's copy as the
+        // new key does.
+        let mut repo = repo_of(&bucket, &keyring);
+        let versions = file_versions(&mut repo, "notes/plan.txt").unwrap();
+        assert_eq!(versions.len(), 3, "{versions:?}");
+        restore_file_version(&mut repo, "notes/plan.txt", versions[0].id, &mut keep_both).unwrap();
+
+        let drive = open_encrypted(plain.clone(), &keyring, DRIVE, &provider).unwrap();
+        assert_eq!(
+            drive.get("notes/plan.txt").unwrap(),
+            b"the plan, version one",
+            "the restored pointer is wrapped by the old key: the key chain opens it"
+        );
+        // Every way of reading it.
+        let mut text = Vec::new();
+        std::io::Read::read_to_end(&mut drive.open_reader("notes/plan.txt").unwrap(), &mut text)
+            .unwrap();
+        assert_eq!(text, b"the plan, version one");
+    }
+
+    #[test]
+    fn the_drive_restored_as_of_before_the_rotation_reads_as_it_was() {
+        let (bucket, keyring, provider, kdf) = drive_with_history();
+        let plain: Arc<dyn Drive> = bucket.clone();
+        let as_of = azul_storage::time::now_unix() as i64;
+        // The rotation's commits are a later second than the writes (history is by the second).
+        std::thread::sleep(Duration::from_millis(1_100));
+        rotate(plain.clone(), &keyring, DRIVE, &provider, kdf).unwrap();
+        let drive = open_encrypted(plain.clone(), &keyring, DRIVE, &provider).unwrap();
+        drive
+            .put("plan-after.txt", b"written after the rotation")
+            .unwrap();
+        drive
+            .put("notes/plan.txt", b"changed after the rotation")
+            .unwrap();
+        drop(drive);
+
+        let mut repo = repo_of(&bucket, &keyring);
+        let restore = restore_drive_as_of(&mut repo, as_of, &mut keep_both)
+            .unwrap()
+            .expect("the drive had a state then");
+        assert!(restore.restored >= 1, "{restore:?}");
+
+        let drive = open_encrypted(plain, &keyring, DRIVE, &provider).unwrap();
+        assert_eq!(
+            drive.get("notes/plan.txt").unwrap(),
+            b"the plan, version two",
+            "the state before the rotation, its pointers wrapped by the old key"
+        );
+        assert_eq!(drive.get("other.txt").unwrap(), b"other");
+        assert!(
+            drive.get("plan-after.txt").is_err(),
+            "made after: gone again"
+        );
+    }
+}

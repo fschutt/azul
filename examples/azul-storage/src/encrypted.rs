@@ -49,7 +49,9 @@ use std::{
 use crate::{
     crypto::{
         azl1::{self, Azl1Reader, FileHint, ObjectSource, ObjectSummary, OpenObject, WriteOptions},
-        device, random_bytes, to_hex, CryptoError, DriveKey, KeyId, ObjectId, ShareKey,
+        device,
+        keys::load_key_chain,
+        random_bytes, to_hex, CryptoError, DriveKey, FileKey, KeyId, ObjectId, ShareKey,
         WrappedKey,
     },
     key::{check_key, check_prefix},
@@ -290,6 +292,8 @@ pub fn open_encrypted(
             Ok(None) | Err(_) => return Err(e),
         },
     };
+    // The keys from before the drive's rotations, for the file keys they wrapped.
+    let opened = opened.with_key_chain(drive)?;
     let opened = opened.counting_pack_reads_as(drive);
     Ok(match provider.packing(drive) {
         Some(options) => opened.with_packing(options),
@@ -1032,6 +1036,9 @@ pub struct EncryptedDrive<D: Drive> {
     /// The bucket.
     pub(crate) inner: D,
     pub(crate) drive_key: DriveKey,
+    /// The drive keys from before the drive's key rotations ([`crate::crypto::keys::KeyChain`]):
+    /// file keys wrapped by them - the history's old pointers, a restore's - still open.
+    older_keys: Vec<DriveKey>,
     pub(crate) index: Arc<dyn NameIndex>,
     /// How new objects are written (segment size, compression).
     pub(crate) options: WriteOptions,
@@ -1056,6 +1063,7 @@ impl<D: Drive> EncryptedDrive<D> {
         EncryptedDrive {
             inner,
             drive_key,
+            older_keys: Vec::new(),
             index,
             options: WriteOptions::default(),
             opened: Mutex::new(HashMap::new()),
@@ -1068,6 +1076,44 @@ impl<D: Drive> EncryptedDrive<D> {
     pub fn with_options(mut self, options: WriteOptions) -> EncryptedDrive<D> {
         self.options = options;
         self
+    }
+
+    /// Also opens the file keys wrapped by these older drive keys (from before a key rotation).
+    /// Everything written from now on is wrapped by the drive's current key.
+    #[must_use]
+    pub fn with_older_keys(mut self, keys: Vec<DriveKey>) -> EncryptedDrive<D> {
+        self.older_keys = keys;
+        self
+    }
+
+    /// Opens the drive's key chain in its bucket with the current drive key, and with it the
+    /// older keys ([`Self::with_older_keys`]): a drive that was rotated reads its history. A
+    /// drive that never was has no chain. A chain that is damaged, or whose links do not open,
+    /// gives fewer keys, never wrong ones.
+    pub fn with_key_chain(self, drive: &str) -> Result<EncryptedDrive<D>, DriveError> {
+        let older = match load_key_chain(&self.inner)? {
+            Some(chain) => chain.open(drive, &self.drive_key),
+            None => Vec::new(),
+        };
+        Ok(self.with_older_keys(older))
+    }
+
+    /// The file key of `object` that `wrapped` holds: opened with the drive key that wrapped it
+    /// - the current one, else an older one of the key chain. `WrongKey` when none of them did.
+    pub(crate) fn unwrap_file_key(
+        &self,
+        wrapped: &WrappedKey,
+        object: &ObjectId,
+    ) -> Result<FileKey, CryptoError> {
+        let key = if wrapped.key_id == self.drive_key.id() {
+            &self.drive_key
+        } else {
+            self.older_keys
+                .iter()
+                .find(|older| older.id() == wrapped.key_id)
+                .unwrap_or(&self.drive_key)
+        };
+        key.unwrap_file_key(wrapped, object)
     }
 
     /// The bucket.
@@ -1125,7 +1171,6 @@ impl<D: Drive> EncryptedDrive<D> {
             return Ok(Arc::clone(open));
         }
         let file_key = self
-            .drive_key
             .unwrap_file_key(&object.wrapped_key, &object.id)
             .map_err(|e| e.for_key(path))?;
         let source = DriveObject::new(&self.inner, &object.id);
@@ -1157,7 +1202,6 @@ impl<D: Drive> EncryptedDrive<D> {
             )));
         }
         let file_key = self
-            .drive_key
             .unwrap_file_key(&object.wrapped_key, &object.id)
             .map_err(|e| e.for_key(path))?;
         let source = DriveObject::new(&self.inner, &object.id);
@@ -1407,7 +1451,6 @@ impl<D: Drive> EncryptedDrive<D> {
             object
         };
         let file_key = self
-            .drive_key
             .unwrap_file_key(&object.wrapped_key, &object.id)
             .map_err(|e| e.for_key(path))?;
         let wrapped_key = share
@@ -1960,7 +2003,6 @@ impl<D: Drive> Drive for EncryptedDrive<D> {
             return self.read_packed(key, &entry, &object, packed);
         }
         let file_key = self
-            .drive_key
             .unwrap_file_key(&object.wrapped_key, &object.id)
             .map_err(|e| e.for_key(key))?;
         let bytes = self

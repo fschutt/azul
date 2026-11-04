@@ -1089,7 +1089,6 @@ impl<D: Drive> EncryptedDrive<D> {
     ) -> Result<Vec<u8>, DriveError> {
         let pack = &packed.pack;
         let file_key = self
-            .drive_key
             .unwrap_file_key(&object.wrapped_key, &pack.id)
             .map_err(|e| e.for_key(path))?;
         let segments = StoredSegments::new(
@@ -1588,7 +1587,6 @@ impl<D: Drive> EncryptedDrive<D> {
                 continue;
             };
             let file_key = self
-                .drive_key
                 .unwrap_file_key(&wrapped, &pack.id)
                 .map_err(|e| e.for_key(first_path))?;
             let bytes = self

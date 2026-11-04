@@ -858,7 +858,9 @@ pub fn other_devices(
                 .strip_prefix(KEYS_PREFIX)
                 .and_then(|rest| rest.strip_suffix(".key"))
                 .unwrap_or("");
+            // `_rotation.key` and `_chain.key` are the drive's own files, not a device's.
             let counts = !member.is_empty()
+                && !member.starts_with('_')
                 && !member.contains('/')
                 && key != RECOVERY_KEY_FILE
                 && !key.starts_with(EXTRA_RECOVERY_PREFIX)

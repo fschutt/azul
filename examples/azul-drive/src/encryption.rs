@@ -977,6 +977,7 @@ pub(crate) fn dialog_parts(dialog: &Dialog, s: &DriveState, app: &RefAny) -> (St
                 line("azdrive-enc-rotate-2"),
                 line("azdrive-enc-rotate-3"),
                 line("azdrive-enc-rotate-then"),
+                line("azdrive-enc-rotate-history"),
                 label("azdrive-enc-your-current-recovery-code"),
                 line("azdrive-enc-token-server-takes-new").with_css("font-size: 12px;"),
                 TextInput::create()
@@ -2070,7 +2071,9 @@ pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
             let result = (|| -> Result<RotationDone, String> {
                 let provider = index_provider()
                     .ok_or_else(|| String::from("azdrive-enc-err-no-index"))?;
-                let resuming = rotation::pending(auto.bucket().as_ref())
+                // The rotation of THIS device that stopped has had its lockdown. A journal anyone
+                // planted in the bucket is none: it must not skip the lockdown.
+                let resuming = rotation::resumable(auto.bucket().as_ref(), &keyring, auto.drive())
                     .map_err(|e| e.to_string())?
                     .is_some();
                 if !resuming {

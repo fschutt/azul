@@ -291,7 +291,10 @@ impl Account {
         provider: &dyn IndexProvider,
         kdf: RecoveryKdf,
     ) -> CloudResult<Rotated> {
-        let resuming = rotation::pending(&self.bucket_drive()?)?.is_some();
+        // A rotation of THIS device that stopped has had its lockdown. A journal anyone planted
+        // in the bucket is no such rotation: it must not skip the lockdown.
+        let resuming =
+            rotation::resumable(&self.bucket_drive()?, keyring, &self.record().id)?.is_some();
         if !resuming {
             self.lockdown()?;
         }

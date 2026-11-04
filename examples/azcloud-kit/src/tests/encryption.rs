@@ -478,6 +478,51 @@ fn i_was_hacked_locks_the_drive_down_then_rotates_its_key() {
     assert_eq!(drive.get("notes/plan.txt").unwrap(), b"the plan");
 }
 
+/// K2: whoever can write to the bucket can plant a rotation journal. It must not make "I was
+/// hacked" skip the account's lockdown (the attacker's tokens would stay valid) or fail the
+/// rotation on a key nobody has: the journal of a rotation that stopped on this device is the
+/// one that verifies under this device's new key.
+#[test]
+fn a_planted_rotation_journal_does_not_skip_the_lockdown() {
+    let s3 = FakeS3::new();
+    let transports = cloud(&s3);
+    let dir = TempDir::new("azcloud-enc-planted-journal");
+    let mut a = signed_up(&transports, &dir);
+    let keys = MemoryKeyring::new();
+    a.setup_encryption(&keys, cheap()).unwrap();
+    let provider = SharedIndex(Arc::new(MemoryIndex::new()));
+    a.open_encrypted(&keys, &provider)
+        .unwrap()
+        .put("notes/plan.txt", b"the plan")
+        .unwrap();
+    let old = device::load_drive_key(&keys, "d_1").unwrap().unwrap();
+    let planted = format!(
+        r#"{{"format":"azlin-drive-key","version":1,"kind":"rotation","old":"{}","new":"{}","phase":"started"}}"#,
+        old.id().to_hex(),
+        "cd".repeat(16)
+    );
+    s3.write(".azlin/keys/_rotation.key", planted.into_bytes());
+    let lockdowns = LOCKDOWNS.load(Ordering::SeqCst);
+
+    let rotated = a.rotate_drive_key(&keys, &provider, cheap()).unwrap();
+    assert!(
+        LOCKDOWNS.load(Ordering::SeqCst) > lockdowns,
+        "the lockdown went first, whatever the bucket held"
+    );
+    assert_ne!(rotated.drive_key, old.id());
+    assert_eq!(
+        a.open_encrypted(&keys, &provider)
+            .unwrap()
+            .get("notes/plan.txt")
+            .unwrap(),
+        b"the plan"
+    );
+    assert!(
+        s3.read(".azlin/keys/_rotation.key").is_none(),
+        "the rotation that ran replaced the planted journal and removed its own"
+    );
+}
+
 /// `git clone azlin::drive://d_1` (azul-storage's `git-remote-azlin` hands the URL to
 /// `azcloud git-remote`): plain git reads the drive index in the account's bucket, over the
 /// account's signed S3 requests, with the drive key this device keeps.
