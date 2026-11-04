@@ -1306,7 +1306,9 @@ Print ONLY the JSON object. No prose, no markdown fences, no explanation.
 
 ## WHAT AN AZUL E2E TEST IS
 A JSON object: {{"name", "description", "setup", "steps"}}.
-- "name": a short snake_case identifier.
+- "name": a short snake_case identifier that names THIS line's property and fixture (for
+  example noop_width_image_flex_row). Add no number or hash: a suffix that makes the name
+  unique is appended for you.
 - "description": one sentence — restate the one-liner.
 - "setup": {{"window_width": 400, "window_height": 300, "dpi": 96}}
 - "steps": a TIMELINE of ops, executed in order, against a real headless azul window.
@@ -1326,8 +1328,9 @@ line) so the test stays human-readable — NOT one escaped mega-string.
 ## A FAILING TEST IS A SUCCESS — DO NOT TUNE FOR GREEN
 You are writing a SPECIFICATION of correct engine behaviour, not a description of
 what the engine currently does. Nothing runs your test before it is accepted: the
-gate checks JSON shape and op names only. So you will never be told whether it
-passed, and you must not try to guess.
+checker reads the file (its shape, the ops and params, the values and node ids the
+engine would refuse outright) and never executes it. So you will never be told whether
+it passed, and you must not try to guess.
 
 Assert what the engine SHOULD do. If the engine is buggy, your test fails — that is
 the POINT of this corpus and a genuinely useful result. A test that passes because
@@ -1336,23 +1339,37 @@ lends false confidence forever after.
 
 Concretely:
 - Pick the bound the one-liner IMPLIES, not a safe-looking one. "does not re-run
-  layout" is `max_layout_passes: 0` — never 1 "just in case". "returns to idle" is
+  layout" is `exact_layout_passes: 0` — never 1 "just in case". "returns to idle" is
   `assert_idle_stable` with damage `none` — never "some small damage is probably OK".
 - AN UPPER BOUND ALONE IS SATISFIED BY ZERO. `max_relayouts: 2` is true of an engine
   that dropped the input on the floor and did nothing at all. Whenever the line says
-  the step DID something, pin the lower end too (`min_*`, or `exact_*` when the count
-  is determined) — see step 6.
+  the step DID something, pin the lower end too, and copy the line's own quantifier:
+  "at least one" is `min_*: 1` and nothing else; "at most one" is `max_*: 1` (plus `min_*`
+  only if the line also says it happened); "exactly one" or "once" is `exact_*: 1`. Never
+  upgrade "at least" to `exact_*` and never add an upper bound the line did not give.
 - WHEN THE LINE ASSERTS AN ABSENCE, ADD THE CONTROL IT ASKS FOR. "no damage", "no
   layout pass", "the counter did not move" is also exactly what a dead engine
   reports. Most such one-liners spell the control out ("... then change the node's
   background-color as a POSITIVE CONTROL and assert THAT does produce damage"). Put
-  it in the SAME timeline, after the absence assertion — never in a second file.
+  it in the SAME timeline, after the absence assertion — never in a second file. A control only
+  counts if it can change a pixel, so check your own stylesheet before you write it. The property
+  you override must not be neutralised by another declaration on the same node (a `flex-grow:1`
+  item ignores an overridden `width`). It must be visible on that node (not `overflow` or
+  `visibility` on an empty box, not padding on a box that already fills the window, not any
+  change on a 0px box). The colour you set must differ from what is already behind it (a body
+  background paints the whole window, so white-on-white and red-on-red change nothing). Use
+  `background-color` for a paint control and a `width`/`height` on a FIXED-size box for a
+  geometry control, and aim it at the element the line names.
 - The numbers in the recipes below are ILLUSTRATIVE placeholders. Derive each bound
   from the sentence you were given; do not copy them by default.
 - Never widen a bound, drop an assertion, or downgrade `eq` to `le` to make the test
   feel safer. If the description implies an exact count, assert equality.
 - Never add an assertion the line does not ask for merely to make the file look
-  substantial. Each assertion must trace to the one-liner.
+  substantial. Each assertion must trace to the one-liner. A control asserts exactly what
+  the line names: "produces damage and changes pixels" is `assert_changed` alone; "spends a
+  layout pass" is `assert_work_bounded {{"min_layout_passes": 1}}` alone. Do not append
+  coverage, soundness or work-counter assertions the line does not name, and never
+  `min_layout_passes` on a paint-only change.
 - If the described behaviour cannot be expressed with the ops above, write the
   closest HONEST test and let it fail — do NOT substitute a weaker property that
   happens to hold.
@@ -1376,6 +1393,20 @@ invalidation path completely broken. Only the ops listed above exist; use nothin
 
 ## HOW TO TURN THE ONE-LINER INTO A TIMELINE
 1. `mount` the DOM the line describes (invent plausible, minimal HTML+CSS for it).
+   `html` must contain at least one element: an "empty body" is ["<body></body>"], never []
+   (the checker rejects [], and `mount` fails with "'html' is empty"). Give every element
+   the line talks about an `id` (`<div id="box">`): you will name it by selector.
+   "Filling the window" means explicit pixels equal to the window (width:400px;height:300px)
+   or `html, body {{ margin:0; width:100%; height:100% }}` together with width/height 100% on
+   the root; a root with height:100% under an html/body that has no height collapses to 0px
+   and paints nothing. A `<body>` background is propagated to the whole window, so on an
+   empty body the only visible control is recolouring `<html>`/`<body>`; changing the body's
+   width changes nothing. `<img>` mounts as a real image node (with a placeholder raster).
+   `<virtual-view>`, `<virtualview>`, `<iframe>` and `data-virtual-*`/`rows` attributes do NOT
+   create a VirtualView: they mount as a plain `<div>` with the attributes dropped. A line
+   that needs a VirtualView cannot be expressed: write the nearest plain-scroller test and add
+   the top-level key "pending": "needs a mountable VirtualView" instead of presenting a plain
+   list as a virtual view.
    FONTS: for any text, use only the built-in mock fonts — `Azul Mock Mono`
    (0.5em advance) or `Azul Mock Wide` (1.0em advance). They are registered
    automatically, always resolve, and need no @font-face. If a case needs N
@@ -1384,7 +1415,10 @@ invalidation path completely broken. Only the ops listed above exist; use nothin
    system font (Arial, Helvetica, Times, Courier, Verdana): on the CI box they match
    nothing and collapse onto one shared FontId, which makes font-identity and
    leak/font assertions vacuously green.
-2. `wait_frame`, then `wait {{"ms": 100}}` to let the first frame settle.
+2. `wait_frame`, then `wait {{"ms": 100}}` to let the first frame settle. A `mount` only
+   takes effect at the next frame: every step that names a node (`set_node_*`, `insert_node`,
+   `delete_node`, `click`, `focus_node`, `mouse_move` with a selector, ...) comes AFTER that
+   `wait_frame`, or the op fails with "Node N not found" (the checker rejects the file).
 3. `reset_frame_counters`, then `snapshot_frame {{"as": "before"}}` and, if you will
    assert resource counts, `snapshot_resources {{"as": "baseline"}}`.
 4. Perform the interaction / mutation / CSS change the line describes (click,
@@ -1393,11 +1427,19 @@ invalidation path completely broken. Only the ops listed above exist; use nothin
    KEYBOARD EDITING NEEDS DOM FOCUS FIRST. `text_input` hard-errors with "No focused
    node - text input requires focus on contenteditable" unless some node holds DOM
    focus, and the `focus` / `blur` ops are WINDOW focus — they set `window_focused`
-   and nothing else. Use `focus_node {{"selector": ".editor"}}` (or its `node_id`
-   form) immediately before typing. Do NOT substitute a click: a click needs a
-   coordinate, and you may not guess coordinates.
+   and nothing else. Use `focus_node {{"selector": ".editor"}}` immediately before
+   typing. Do NOT substitute a click: a click needs a coordinate, and you may not
+   guess coordinates.
 5. `wait_frame` + `wait` (and `tick_ms` for anything time-driven: momentum,
    fade, blink, animation — `tick_ms` advances the engine clock WITHOUT sleeping).
+   A window of "identical frames" must not overlap time-driven state: take the first
+   snapshot only AFTER it has finished. An overlay scrollbar stays visible for 500 ms
+   after the last scroll and then fades over 200 ms. These are window-level constants:
+   the per-node `-azul-scrollbar-fade-delay`/`-duration` properties are parsed but do not
+   change the fade, and `scrollbar-width`/`scrollbar-color` configure no fade at all. So
+   after a wheel scroll, `tick_ms` 250 ms four or more times (each followed by
+   `wait_frame`), THEN `reset_frame_counters` and the first `snapshot_frame`.
+   `wait_settled` does not help in this runner: it does not advance the clock.
 6. Assert what the line asks for:
    - "the pixels change" / liveness      -> assert_changed  {{"vs": "before", "min_damage_rects": 1}}
    - "damage covers the change" / sound  -> assert_damage_covers_changes {{"vs": "before"}}
@@ -1439,12 +1481,12 @@ invalidation path completely broken. Only the ops listed above exist; use nothin
    `assert_work_bounded` reads three independent counters. Choosing the wrong one is
    the single most common way to write a test that cannot fail:
 
-   | counter          | what it counts                          | idle | inert pointer event | set_node_css_override | resize |
-   |------------------|-----------------------------------------|------|---------------------|-----------------------|--------|
-   | `relayouts`      | EVENT PASSES (`process_window_events`)  | 0    | 1                   | 0                     | 1      |
-   | `dom_regens`     | runs of the layout callback             | 0    | 0                   | 0                     | 1      |
-   | `layout_passes`  | times LAYOUT ACTUALLY RAN               | 0    | 0                   | 1                     | 1      |
-   | `virtual_view_size_passes` | extra passes content-sized VirtualViews cost | 0 | 0            | 0                     | 0      |
+   | counter          | what it counts                          | idle | inert pointer event | set_node_css_override        | resize |
+   |------------------|-----------------------------------------|------|---------------------|------------------------------|--------|
+   | `relayouts`      | EVENT PASSES (`process_window_events`)  | 0    | 1                   | 0                            | 1      |
+   | `dom_regens`     | runs of the layout callback             | 0    | 0                   | 0                            | 1      |
+   | `layout_passes`  | times LAYOUT ACTUALLY RAN               | 0    | 0                   | 0 paint-only / 2 geometry    | 1      |
+   | `virtual_view_size_passes` | extra passes content-sized VirtualViews cost | 0 | 0            | 0                            | 0      |
 
    - `relayouts` is NOT a layout counter, despite the name. It is the recursion depth
      of the event pass. `0` means "no state delta was processed" — what an IDLE frame
@@ -1453,37 +1495,93 @@ invalidation path completely broken. Only the ops listed above exist; use nothin
      engine. `> 1` is the engine's own invalidation-loop signal.
    - `layout_passes` is the one that sees a CALLBACK-API mutation. `set_node_css_override`,
      `set_node_text` and `set_node_classes` never enter the event pass at all, so
-     `relayouts` stays `0` for them no matter how much work the engine does — but they
-     route through a full relayout, which `layout_passes` counts. "a no-op CSS write
-     must not re-run layout" is `max_layout_passes: 0`, and nothing else expresses it.
+     `relayouts` stays `0` for them.
+   - What a CSS override costs in `layout_passes` depends on the PROPERTY, never on whether
+     the value changed. A paint-only property (color, background-color, background-*,
+     opacity, transform, border-*-color/-style/-radius, box-shadow, text-shadow, filter,
+     cursor) rebuilds the display list only and costs 0 layout passes, correctly, so never
+     put `min_layout_passes` on a recolour. Any other property (width, height, margin,
+     padding, border-width, display, position, overflow, visibility, flex-*,
+     justify-content, align-items, font-*) runs layout; this runner reports 2 passes for a
+     `set_node_css_override` of such a property (1 for `set_node_classes`, `mount` and
+     `resize`).
+   - Re-setting the value a node already has is not recognised as a no-op yet and costs what
+     a real change costs. So "a no-op CSS write must not re-run layout" is
+     `exact_layout_passes: 0`: write it exactly like that, it is a specification the engine
+     does not meet today. The positive control "does spend a layout pass" is
+     `min_layout_passes: 1` and nothing more: never `exact_layout_passes: 1` or
+     `max_layout_passes: 1` unless the line itself says "exactly one" / "at most one".
    - `virtual_view_size_passes` counts the ONE extra pass a content-sized VirtualView
      (a status-bar label, an icon view - no stated width/height) costs when its
      callback reports a size the solver has not seen: on its first frame, and on a
      re-render whose content changed size. Steady state is `0`; a re-render that keeps
      the size is `0`; one per keystroke is a view that never converges.
-   - Rows: "does not re-run layout"      -> assert_work_bounded {{"max_layout_passes": 0}}
+   - Rows: "does not re-run layout"      -> assert_work_bounded {{"exact_layout_passes": 0}}
            "the label re-render re-sized its box once" -> assert_work_bounded {{"exact_virtual_view_size_passes": 1}}
            "costs exactly one layout pass"-> assert_work_bounded {{"exact_layout_passes": 1}}
            "one event pass, no re-entry" -> assert_work_bounded {{"exact_relayouts": 1, "max_dom_regens": 0}}
            "bounded, and it DID run"     -> assert_work_bounded {{"min_relayouts": 1, "max_relayouts": 2}}
            "never trips the depth cap"   -> any assert_work_bounded (it fails on `hit_depth_cap` unless `allow_depth_cap`)
 
-   - "no leak / counters return"         -> assert_resource_counts {{"vs": "baseline", "images": "eq", "fonts": "le"}}
+   - "no leak / counters return"         -> assert_resource_counts {{"vs": "baseline", "parsed_fonts": "eq", "font_chain_cache": "eq", "font_hash_to_families": "eq"}}
    - "the counter PROVABLY moved" (a control)
-                                         -> assert_resource_counts {{"vs": "baseline", "fonts": "gt"}}
-     `gt` / `lt` are what make a leak test mean something: `"fonts": "eq"` is `0 == 0`
-     on a window that never loaded a font, and holds on an engine that was deleted.
+                                         -> a second `mount` (or `set_node_text`) whose text uses a
+                                            font stack the first one did not, then
+                                            assert_resource_counts {{"vs": "baseline", "parsed_fonts": "gt"}}
+     `gt` / `lt` are what make a leak test mean something: an `eq` on a counter that never
+     moved is `0 == 0`, and holds on an engine that was deleted.
+   - COUNTERS THAT NEVER MOVE: in this headless runner only `parsed_fonts`,
+     `font_chain_cache` and `font_hash_to_families` ever move. The renderer-side counters
+     (`fonts`, `font_hash_map`, `font_id_map`, `font_families_map`, `images`, `image_key_map`)
+     stay 0 before and after anything a scenario can do (a text mount, `<img>` +
+     `set_node_image`, `add_image_to_cache`, `background-image: url(id)`), so
+     `"fonts": "eq"` or `"images": "eq"` is `0 == 0` and an `"images": "gt"` control cannot
+     pass. For font growth assert the live counters and always include the font control.
+   - If the line is about the image counters, still write the `eq` assertion AND the `gt`
+     control (the control must reference the image from a node that is on screen) and let
+     the test go red until the runner counts images; a green `0 == 0` is the one outcome that
+     must not happen.
    - "damage kind / no full redraw"      -> assert_damage {{"kind": "rects", "max_area_ratio": 0.5}}  (kind is "none" | "rects" | "full")
+   - DAMAGE ASSERTIONS READ AN ACCUMULATOR. `assert_damage`, `assert_changed` and
+     `assert_damage_covers_changes` look at the damage accumulated since the last
+     `reset_frame_counters`, not at the last frame, unless you pass "frame": "last". "The last
+     frame reports zero paint damage" is therefore {{"op":"assert_damage","kind":"none","frame":"last"}};
+     a plain `assert_damage none` after an input that legitimately repainted once (a :hover
+     restyle, a scrollbar that appeared) fails on the repaint that was supposed to happen.
+   - `which` is exactly "paint" (default: the rects re-rasterised) or "present" (what changed
+     on screen) and `frame` is exactly "accumulated" (default) or "last"; any other value is
+     refused, and "last" is a value of `frame`, never of `which`. A box displaced by a
+     neighbour's size change is moved by a blit: it appears in PRESENT damage and not in PAINT
+     damage, so for that case use "which":"present" on `assert_damage_covers_changes`, and do
+     not use `assert_damage_sound`, which has no `which` and judges paint only.
+   - `assert_changed` means "damage is not none AND pixels differ": never write it straight
+     after an assertion that damage is none, and `min_damage_rects: 0` is meaningless.
    - "nothing panics"                    -> the steps running at all IS the assertion; still end with a liveness or idle assertion.
    - structure survived a mutation       -> assert_exists / assert_not_exists / assert_node_count / assert_text
 7. If the line mentions a NodeId-renumbering mutation (insert/delete/reorder a
    sibling), do the mutation and then assert the DOM still holds
    (assert_node_count / assert_exists) and the window settles (assert_idle_stable).
 
-Node ids: DOM-mutation ops take a numeric `node_id`. The root of a mounted document
-is node 0 and its children follow in document order, so mount a small tree and use
-low ids (1, 2, 3). Prefer selector-based ops (`click`, `assert_exists`) wherever an
-op offers `selector`.
+NAME EVERY NODE BY A SELECTOR. The DOM-mutation ops (`set_node_css_override`,
+`set_node_classes`, `set_node_text`, `set_node_image`, `delete_node`; `insert_node` by its
+`parent_selector`) and `mouse_move`, `focus_node`, `click`, `scroll_node_by` take a CSS `selector`:
+ALWAYS use it, never a numeric `node_id`, and give the elements your markup mounts an `id` so
+that `#box` names exactly the node you mean. The mutation ops and `mouse_move` refuse a selector
+that matches no node or several (an `#id` matches one); `click` and `focus_node` take the first
+match, so a selector that is not unique clicks a node you did not mean. `set_node_text` with a
+selector names the ELEMENT (`#label`, a `<p>`) and writes the one text inside it, so keep one
+text per element. `set_node_image` works only on an `<img>`, after the `wait_frame` that
+follows the `mount`.
+
+WHY NOT A NUMBER: a `node_id` counts EVERY node of the mounted document, and it is not "the
+root is 0 and its children are 1, 2, 3". `mount` wraps your `html` in `<html>` (node 0) and
+`<body>` (node 1), the ids then run depth first over every node, and every newline or indent
+between two tags is a whitespace text node that takes an id of its own. The number you count is
+almost never the box you mean (in a first batch every numeric id landed on `<html>`, `<body>` or
+a whitespace run), and the checker REJECTS such an id. The few ops that have no `selector` and
+need a number (`add_timer`, which takes the id of a TEXT node, `click_node`, `get_node_dataset`)
+take the id of the node they name: count it over the whole mounted document, whitespace runs
+included. To recolour or resize the page itself, give the selector `body` or `html`.
 
 Output the JSON object now — nothing else."#
     )
@@ -5290,6 +5388,205 @@ fn eval_assert_changed(params: &Value) -> AssertionResult {{
         assert!(
             !p.contains("<your test name>.png"),
             "the per-test PNG recipe is gone; images are triage material now"
+        );
+    }
+
+    /// The prompt, with every run of whitespace folded to one space, so a
+    /// sentence can be looked for whatever way it wraps.
+    fn flat_prompt() -> String {
+        let s = parse_schema(&root()).unwrap();
+        let ex = fs::read_to_string(root().join(EXAMPLE_JSON)).unwrap();
+        build_prompt(&schema_doc(&s), &ex, "[a/b] something happens")
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
+    /// D1. The old paragraph told the model the root of a mounted document is
+    /// node 0 and its children are 1, 2, 3. They are not (`<html>` 0, `<body>`
+    /// 1, a whitespace run for every newline between two tags), and 44 of 44
+    /// id-addressed scenarios of the first batch landed on the page or on
+    /// whitespace. The prompt now says: name every node by a selector.
+    #[test]
+    fn the_prompt_names_every_node_by_a_selector_and_no_longer_teaches_the_false_numbering() {
+        let p = flat_prompt();
+        for want in [
+            "NAME EVERY NODE BY A SELECTOR",
+            "never a numeric `node_id`",
+            "WHY NOT A NUMBER",
+            "`<html>` (node 0) and `<body>` (node 1)",
+            "whitespace text node that takes an id of its own",
+            "the checker REJECTS such an id",
+            "`parent_selector`",
+            "AFTER that `wait_frame`",
+        ] {
+            assert!(p.contains(want), "the prompt lost `{want}`");
+        }
+        for false_claim in [
+            "The root of a mounted document is node 0 and its children follow",
+            "use low ids (1, 2, 3)",
+            "(or its `node_id` form)",
+            // the schema's own one-line hints must not undo the rule either
+            "use Click with node_id",
+        ] {
+            assert!(
+                !p.contains(false_claim),
+                "the prompt still says `{false_claim}`"
+            );
+        }
+    }
+
+    /// D2 - D4, D8: the claims the first batch's review proved false are gone,
+    /// and what it measured is there.
+    #[test]
+    fn the_prompt_states_what_the_runner_does_today() {
+        let p = flat_prompt();
+
+        // D2: a CSS override costs 0 passes for a paint-only property and 2 for a
+        // geometry one; a no-op is exactly 0; the control is `min` and nothing else.
+        assert!(p.contains("0 paint-only / 2 geometry"), "the counter table");
+        assert!(
+            p.contains("never put `min_layout_passes` on a recolour"),
+            "a paint-only change spends no layout pass"
+        );
+        assert!(p.contains("is `exact_layout_passes: 0`: write it exactly like that"));
+        assert!(p.contains("is `min_layout_passes: 1` and nothing more"));
+        assert!(
+            !p.contains("route through a full relayout"),
+            "the old claim that every CSS override costs a relayout"
+        );
+        assert!(!p.contains("is `max_layout_passes: 0`, and nothing else expresses it"));
+
+        // D3: damage reads an accumulator, and the closed sets are said.
+        assert!(p.contains("DAMAGE ASSERTIONS READ AN ACCUMULATOR"));
+        assert!(p.contains("\"frame\": \"last\""));
+        assert!(p.contains("\"last\" is a value of `frame`, never of `which`"));
+        assert!(p.contains("not use `assert_damage_sound`, which has no `which`"));
+        assert!(
+            !p.contains("silently treated as \"paint\""),
+            "an unknown `which` is refused now, not read as paint"
+        );
+
+        // D4: the renderer-side counters are inert headless.
+        for want in [
+            "only `parsed_fonts`, `font_chain_cache` and `font_hash_to_families` ever move",
+            "`\"fonts\": \"eq\"` or `\"images\": \"eq\"` is `0 == 0`",
+            "a green `0 == 0` is the one outcome that must not happen",
+        ] {
+            assert!(p.contains(want), "the prompt lost `{want}`");
+        }
+        assert!(
+            !p.contains("\"images\": \"eq\", \"fonts\": \"le\"}"),
+            "the old leak recipe on counters that never move"
+        );
+
+        // D8: a window of identical frames must not overlap the scrollbar fade.
+        assert!(p.contains("must not overlap time-driven state"));
+        assert!(p.contains("`wait_settled` does not help in this runner"));
+    }
+
+    /// D5 - D7, D9, D10.
+    #[test]
+    fn the_prompt_tells_how_to_mount_what_a_control_needs_and_what_a_quantifier_is() {
+        let p = flat_prompt();
+        for want in [
+            // D5
+            "an \"empty body\" is [\"<body></body>\"], never []",
+            "`html, body { margin:0; width:100%; height:100% }`",
+            "do NOT create a VirtualView",
+            "\"pending\": \"needs a mountable VirtualView\"",
+            // D6
+            "A control only counts if it can change a pixel",
+            "a `flex-grow:1` item ignores an overridden `width`",
+            // D7
+            "copy the line's own quantifier",
+            "\"at least one\" is `min_*: 1` and nothing else",
+            // D9
+            "Do not append coverage, soundness or work-counter assertions the line does not name",
+            // D10
+            "a suffix that makes the name unique is appended for you",
+        ] {
+            assert!(p.contains(want), "the prompt lost `{want}`");
+        }
+    }
+
+    /// The braces of every JSON example in the prompt came through `format!`.
+    #[test]
+    fn the_prompt_has_no_unescaped_braces_left() {
+        let p = flat_prompt();
+        assert!(
+            !p.contains("{{") && !p.contains("}}"),
+            "a doubled brace leaked"
+        );
+        for snippet in [
+            "{\"op\":\"assert_damage\",\"kind\":\"none\",\"frame\":\"last\"}",
+            "{\"min_layout_passes\": 1}",
+        ] {
+            assert!(p.contains(snippet), "missing the example {snippet}");
+        }
+    }
+
+    /// The recipes the prompt teaches are accepted by the gate that will check
+    /// the files written from them - a prompt whose own examples were refused
+    /// would be a lie.
+    #[test]
+    fn the_recipes_in_the_prompt_pass_the_gate() {
+        let s = parse_schema(&root()).unwrap();
+        let steps = [
+            r#"{"op":"assert_damage","kind":"none","frame":"last"}"#,
+            r#"{"op":"assert_damage","kind":"rects","max_area_ratio":0.5}"#,
+            r#"{"op":"assert_work_bounded","exact_layout_passes":0}"#,
+            r#"{"op":"assert_work_bounded","min_layout_passes":1}"#,
+            r#"{"op":"assert_damage_covers_changes","vs":"before","which":"present"}"#,
+            r#"{"op":"assert_resource_counts","vs":"baseline","parsed_fonts":"eq","font_chain_cache":"eq","font_hash_to_families":"eq"}"#,
+            r#"{"op":"assert_resource_counts","vs":"baseline","parsed_fonts":"gt"}"#,
+            r#"{"op":"tick_ms","ms":250}"#,
+        ];
+        let scenario = format!(
+            r##"{{"name":"x","pending":"a note the checker ignores","steps":[
+                {{"op":"mount","html":["<body><div id=\"box\"></div></body>"]}},
+                {{"op":"wait_frame"}},{{"op":"wait","ms":100}},
+                {{"op":"reset_frame_counters"}},
+                {{"op":"snapshot_frame","as":"before"}},{{"op":"snapshot_resources","as":"baseline"}},
+                {{"op":"set_node_css_override","selector":"#box","property":"width","value":"9px"}},
+                {{"op":"focus_node","selector":"#box"}},{{"op":"mouse_move","selector":"#box"}},
+                {}]}}"##,
+            steps.join(",")
+        );
+        validate(&s, &scenario).unwrap_or_else(|e| panic!("{e}\n{scenario}"));
+    }
+
+    /// The worked example is part of the prompt, and the prompt says the
+    /// renderer-side resource counters never move: the example must not teach
+    /// the `0 == 0` leak test the first batch copied from it.
+    #[test]
+    fn the_worked_example_does_not_assert_the_counters_the_prompt_calls_inert() {
+        let ex: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(root().join(EXAMPLE_JSON)).unwrap()).unwrap();
+        let inert = [
+            "fonts",
+            "font_hash_map",
+            "font_id_map",
+            "font_families_map",
+            "images",
+            "image_key_map",
+        ];
+        let mut checked = 0;
+        for step in ex["steps"].as_array().unwrap() {
+            if step["op"] != "assert_resource_counts" {
+                continue;
+            }
+            checked += 1;
+            for key in step.as_object().unwrap().keys() {
+                assert!(
+                    !inert.contains(&key.as_str()),
+                    "the example asserts the inert counter `{key}`: {step}"
+                );
+            }
+        }
+        assert!(
+            checked > 0,
+            "the example no longer shows assert_resource_counts"
         );
     }
 

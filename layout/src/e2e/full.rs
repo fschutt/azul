@@ -2998,7 +2998,7 @@ pub enum DebugEvent {
     FindNodeByText {
         text: String,
     },
-    /// Click on a specific node by its ID (deprecated, use Click with node_id)
+    /// Click on a specific node by its ID (deprecated: use `click` with a `selector`)
     ClickNode {
         node_id: u64,
         #[serde(default)]
