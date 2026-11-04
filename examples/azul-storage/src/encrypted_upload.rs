@@ -8,9 +8,12 @@
 //! it is used on, its free space checked first - under a name of its own, and renamed into
 //! place only when it is whole; a record beside it keeps what the drive's index needs of the
 //! object and which version of the file it is (its size and date, the BLAKE3 a sync named it
-//! by). Another version of the file is encrypted anew. Once the object is up, the ciphertext
-//! and its record are gone before the index names the object, as a streamed upload leaves
-//! nothing behind; one nobody resumes is swept after [`STALE_AFTER_SECS`].
+//! by). Another version of the file is encrypted anew. Once the object is up and the index
+//! names it, the ciphertext and its record are gone, as a streamed upload leaves nothing
+//! behind; until then they stay: an index commit that fails after the object went up (a service
+//! that answers 503, a quota refusal) is retried with the same object - the next try finds it
+//! up whole and only names it, it does not encrypt the file again under another id and send it
+//! again. One nobody resumes is swept after [`STALE_AFTER_SECS`].
 //!
 //! The ciphertext holds no plaintext and the record no key: the file key in it is wrapped
 //! with the drive key, as in the object's own header.
@@ -227,13 +230,13 @@ impl<D: Drive> EncryptedDrive<D> {
                     && fs::metadata(&copy).is_ok_and(|m| m.len() == record.object_len)
             })
             .and_then(|record| record.summary());
-        let summary = match kept {
-            Some(summary) => summary,
+        let (summary, kept_copy) = match kept {
+            Some(summary) => (summary, true),
             None => {
                 let _ = fs::remove_file(&copy);
                 let _ = fs::remove_file(&record_path);
                 match self.encrypt_copy(key, path, check, before, &copy, &record_path)? {
-                    Some(summary) => summary,
+                    Some(summary) => (summary, false),
                     None => return Ok(Some(Spooled::Changed)),
                 }
             }
@@ -245,12 +248,28 @@ impl<D: Drive> EncryptedDrive<D> {
             let share = u128::from(sent) * u128::from(plain) / u128::from(stored);
             progress(u64::try_from(share).unwrap_or(plain).min(plain));
         };
-        // A cut upload keeps the copy and its record: the next one resumes with them.
-        self.inner
-            .put_file(&summary.object_id.bucket_key(), &copy, &told)?;
+        // A cut upload keeps the copy and its record: the next one resumes with them. So does a
+        // copy whose object is up whole already - the index's commit failed after it (AZ-M3): it
+        // is named, not sent again. Its id is 128 random bits only this copy knows, and an object
+        // of the copy's length is the copy (a bucket's object appears whole or not at all).
+        let object_key = summary.object_id.bucket_key();
+        let up_already = kept_copy
+            && self
+                .inner
+                .head(&object_key)
+                .is_ok_and(|info| info.size == summary.object_len);
+        if up_already {
+            progress(plain);
+        } else {
+            self.inner.put_file(&object_key, &copy, &told)?;
+        }
+        // The copy and its record go only once the index names the object. A commit that fails
+        // leaves them, and the next try names the same object again; they used to go first, so
+        // it encrypted the file anew under another id, sent it all again, and left the first
+        // object named by nothing.
+        self.bind(key, summary, Expect::Any)?;
         let _ = fs::remove_file(&copy);
         let _ = fs::remove_file(&record_path);
-        self.bind(key, summary, Expect::Any)?;
         Ok(Some(Spooled::Sent(plain)))
     }
 

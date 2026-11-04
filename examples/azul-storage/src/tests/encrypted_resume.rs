@@ -4,7 +4,10 @@
 
 use std::{
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
 };
 
 use super::{
@@ -13,8 +16,8 @@ use super::{
 };
 use crate::{
     crypto::{random_bytes, DriveKey},
-    encrypted::{EncryptedDrive, MemoryIndex, NameIndex},
-    Credentials, Drive, S3Config, S3Drive,
+    encrypted::{EncryptedDrive, IndexChange, IndexPage, MemoryIndex, NameIndex},
+    Credentials, Drive, DriveError, ListRequest, S3Config, S3Drive,
 };
 
 /// 2026-10-10T00:00:00Z.
@@ -117,6 +120,95 @@ fn a_cut_encrypted_upload_resumes_at_its_next_part() {
     assert!(
         files_under(&resume).is_empty(),
         "a finished upload leaves no ciphertext and no state: {:?}",
+        files_under(&resume)
+    );
+}
+
+/// An index whose next `failing` changes get no answer (a commit over a dropped connection, a
+/// service over its quota), then works.
+struct FlakyIndex {
+    inner: MemoryIndex,
+    failing: AtomicUsize,
+}
+
+impl NameIndex for FlakyIndex {
+    fn get(&self, path: &str) -> Result<Option<crate::encrypted::IndexEntry>, DriveError> {
+        self.inner.get(path)
+    }
+
+    fn list(&self, request: &ListRequest) -> Result<IndexPage, DriveError> {
+        self.inner.list(request)
+    }
+
+    fn apply(&self, changes: Vec<IndexChange>) -> Result<Vec<crate::crypto::ObjectId>, DriveError> {
+        if self
+            .failing
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+            .is_ok()
+        {
+            return Err(DriveError::Transport(String::from(
+                "the index's commit got no answer",
+            )));
+        }
+        self.inner.apply(changes)
+    }
+}
+
+/// AZ-M3. A finished upload whose index commit fails keeps its encrypted copy and its record:
+/// the next try finds the object up already and only names it, under the same object id - it
+/// does not encrypt the file anew (a new object id, an orphan nothing names) and does not send
+/// the 20 GB again.
+#[test]
+fn az_m3_a_failed_index_commit_keeps_the_copy_and_the_retry_only_names_the_object() {
+    let tmp = TempDir::new("encrypted-resume-bind");
+    let resume = tmp.path().join("resume");
+    let path = tmp.path().join("film.bin");
+    let plain = noise(10 * PART + 7);
+    std::fs::write(&path, &plain).unwrap();
+    let s3 = FakeBucket::new();
+    let key = DriveKey::generate().unwrap();
+    let index: Arc<dyn NameIndex> = Arc::new(FlakyIndex {
+        inner: MemoryIndex::new(),
+        failing: AtomicUsize::new(1),
+    });
+
+    let first = EncryptedDrive::new(drive_on(&s3, &resume, NOW), key.clone(), Arc::clone(&index));
+    assert!(
+        first.put_file("film.bin", &path, &|_| {}).is_err(),
+        "the object went up whole, then the index's commit failed"
+    );
+    assert_eq!(
+        s3.count("POST complete"),
+        1,
+        "the object is whole: {:?}",
+        s3.log()
+    );
+    let kept = files_under(&resume);
+    let has = |ext: &str| kept.iter().any(|f| f.extension().is_some_and(|e| e == ext));
+    assert!(
+        has("azl1") && has("json"),
+        "the ciphertext and its record stay until the index names the object: {kept:?}"
+    );
+
+    // The next try (the sync's next pass): the commit works now.
+    s3.clear_log();
+    let again = EncryptedDrive::new(drive_on(&s3, &resume, NOW + 60), key, index);
+    let sent = again.put_file("film.bin", &path, &|_| {}).unwrap();
+    assert_eq!(sent, plain.len() as u64);
+    assert_eq!(
+        again.get("film.bin").unwrap(),
+        plain,
+        "the file is named and whole"
+    );
+    assert_eq!(
+        s3.count("POST start") + s3.count("PUT part"),
+        0,
+        "the object is up already: nothing is sent again: {:?}",
+        s3.log()
+    );
+    assert!(
+        files_under(&resume).is_empty(),
+        "the index names the object now: the copy and its record go: {:?}",
         files_under(&resume)
     );
 }
