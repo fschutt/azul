@@ -1409,23 +1409,43 @@ pub fn svg_user_space_mapping(
     }
 }
 
+/// How far beyond a pass's clip, and beyond the pixmap, the rasterizer cuts a
+/// path's geometry, in device pixels.
+///
+/// A cut is rounded to AGG's 1/256 px grid, and what it leaves of an edge that
+/// crosses it is the segment from the last vertex inside to the cut: every
+/// pixel along that segment is anti-aliased against an edge a hair off the
+/// true one, a level in a pixel whose coverage sits on a rounding boundary. So
+/// the cut must lie further from the visible pixels than a segment is long.
+/// AGG steps an arc so that a segment is about `sqrt(radius / scale)` px long:
+/// 4 px for a 30 px corner at 2x, 22 px for a radius of 1000. The 2 px this
+/// was (`069780aa0`) let a corner's segment reach across it: 10 of 2400 random
+/// frames of `an_incremental_cpu_frame_matches_a_full_redraw` (30 seeds, both
+/// dpi) had one pixel a level off the full redraw; none has with this.
+const GEOMETRY_MARGIN: f64 = 32.0;
+
 /// The box the AA rasterizer clips a path's GEOMETRY to for the pixel clip
-/// `clip`: the clip grown by a margin, within the pixmap. Cutting the geometry
-/// exactly at the clip changes the coverage of the pixels along the cut by a
-/// step (the cut's own rounding), so a shape painted in two passes whose clips
-/// meet differed from one pass in the anti-aliased pixels along the seam;
-/// grown, the cut lies in pixels the pixel clip (`clip_box_i`) never writes.
+/// `clip`: the clip grown by [`GEOMETRY_MARGIN`], within the pixmap grown by
+/// the same. Cutting the geometry exactly at the clip changes the coverage of
+/// the pixels along the cut by a step (the cut's own rounding), so a shape
+/// painted in two passes whose clips meet differed from one pass in the
+/// anti-aliased pixels along the seam; grown, the cut lies away from the
+/// pixels the pixel clip (`clip_box_i`) writes. That holds at the pixmap's own
+/// edge as well: a rounded box that reaches past the window was cut AT the
+/// window's edge, so its corner differed by a level in a pixel or two from the
+/// same box in a layer wider than the window (the compositor's group layers).
+/// The pixels beyond the pixmap are never written, so the cut may lie there.
 /// The geometric clip still bounds the sweep (the huge-coordinate guard).
 fn geometry_clip_box(clip: Option<AzRect>, w: u32, h: u32) -> (f64, f64, f64, f64) {
-    const MARGIN: f64 = 2.0;
+    let (right, bottom) = (f64::from(w) + GEOMETRY_MARGIN, f64::from(h) + GEOMETRY_MARGIN);
     clip.map_or_else(
-        || (0.0, 0.0, f64::from(w), f64::from(h)),
+        || (-GEOMETRY_MARGIN, -GEOMETRY_MARGIN, right, bottom),
         |c| {
             (
-                (f64::from(c.x) - MARGIN).max(0.0),
-                (f64::from(c.y) - MARGIN).max(0.0),
-                (f64::from(c.x + c.width) + MARGIN).min(f64::from(w)),
-                (f64::from(c.y + c.height) + MARGIN).min(f64::from(h)),
+                (f64::from(c.x) - GEOMETRY_MARGIN).max(-GEOMETRY_MARGIN),
+                (f64::from(c.y) - GEOMETRY_MARGIN).max(-GEOMETRY_MARGIN),
+                (f64::from(c.x + c.width) + GEOMETRY_MARGIN).min(right),
+                (f64::from(c.y + c.height) + GEOMETRY_MARGIN).min(bottom),
             )
         },
     )
@@ -3734,6 +3754,111 @@ mod autotest_generated {
         assert_eq!(
             painted, 0,
             "an empty clip leaked {painted} painted pixel(s)"
+        );
+    }
+
+    /// The coverage of a rounded box that reaches past the pixmap's edge, from
+    /// the harness of `an_incremental_cpu_frame_matches_a_full_redraw`: seed
+    /// 104 at 2x, a 118 x 47 box with 15 px corners moved by a translate
+    /// (213, 101), its right edge 22 device px past a 640 px window. The cut
+    /// of the geometry at the window's edge (the rasterizer rounds the cut)
+    /// moved the coverage of the pixel at (637, 295), on the corner's arc, by
+    /// a level against the same box in a pixmap wide enough to hold it - the
+    /// pixel the layered compositor, whose group layer is wider than the
+    /// window, paints.
+    fn rounded_box_past_an_edge(pixmap_width: u32) -> AzulPixmap {
+        use agg_rust::rounded_rect::RoundedRect;
+        let mut rr = RoundedRect::default_new();
+        rr.rect(426.0, 202.0, 426.0 + 236.0, 202.0 + 94.0);
+        rr.radius_all(30.0, 30.0, 30.0, 30.0, 30.0, 30.0, 30.0, 30.0);
+        rr.normalize_radius();
+        rr.set_approximation_scale(2.0);
+        let mut path = PathStorage::new();
+        path.concat_path(&mut rr, 0);
+        // Opaque black over nothing: the alpha channel IS the coverage.
+        let mut p = filled(pixmap_width, 400, [0, 0, 0, 0]);
+        agg_fill_path_clipped(
+            &mut p,
+            &mut path,
+            &Rgba8::new(0, 0, 0, 255),
+            FillingRule::NonZero,
+            None,
+        );
+        p
+    }
+
+    #[test]
+    fn a_rounded_box_past_the_pixmaps_edge_has_the_coverage_it_has_in_a_wider_pixmap() {
+        let narrow = rounded_box_past_an_edge(640);
+        let wide = rounded_box_past_an_edge(700);
+        let different: Vec<(u32, u32, u8, u8)> = (0..400)
+            .flat_map(|y| (0..640).map(move |x| (x, y)))
+            .filter_map(|(x, y)| {
+                let (n, w) = (get(&narrow, x, y)[3], get(&wide, x, y)[3]);
+                (n != w).then_some((x, y, n, w))
+            })
+            .collect();
+        assert!(
+            different.is_empty(),
+            "the pixels (x, y, coverage cut at the edge, coverage in a wider pixmap) \
+             differ: {different:?}"
+        );
+        // The pixel is a real anti-aliased one, not an empty one agreeing by accident.
+        let arc = get(&narrow, 637, 295)[3];
+        assert!(arc > 0 && arc < 255, "the arc's pixel has partial coverage, got {arc}");
+    }
+
+    /// A rounded box filled under a clip has, inside the clip, the pixels it has
+    /// filled under none: the pass that repaints a damage rect gives what the
+    /// full repaint gives there. The clip's left edge is walked across the
+    /// corner arcs of boxes of every radius, so the cut of the geometry (which
+    /// lies `GEOMETRY_MARGIN` beyond the clip) crosses a segment of the arc
+    /// somewhere in the grid. With the 2 px margin the cut first had, a corner
+    /// segment (4 px for a 30 px radius at 2x) reached the visible pixels.
+    #[test]
+    fn a_rounded_box_filled_under_a_clip_has_inside_it_the_pixels_it_has_under_none() {
+        use agg_rust::rounded_rect::RoundedRect;
+        fn fill(radius: f64, clip: Option<AzRect>) -> AzulPixmap {
+            let mut rr = RoundedRect::default_new();
+            rr.rect(100.0, 60.0, 340.0, 180.0);
+            rr.radius_all(radius, radius, radius, radius, radius, radius, radius, radius);
+            rr.normalize_radius();
+            rr.set_approximation_scale(2.0);
+            let mut path = PathStorage::new();
+            path.concat_path(&mut rr, 0);
+            let mut p = filled(400, 240, [0, 0, 0, 0]);
+            agg_fill_path_clipped(
+                &mut p,
+                &mut path,
+                &Rgba8::new(0, 0, 0, 255),
+                FillingRule::NonZero,
+                clip,
+            );
+            p
+        }
+        let mut different = Vec::new();
+        for radius in [12.0, 20.0, 30.0, 45.0, 60.0] {
+            let unclipped = fill(radius, None);
+            for left in (96..=170).step_by(2) {
+                let clip = AzRect::from_xywh(f64::from(left) as f32, 40.0, 150.0, 160.0)
+                    .expect("valid");
+                let clipped = fill(radius, Some(clip));
+                for y in 40..200 {
+                    for x in left..left + 150 {
+                        let (c, u) = (get(&clipped, x, y)[3], get(&unclipped, x, y)[3]);
+                        if c != u {
+                            different.push((radius, left, x, y, c, u));
+                        }
+                    }
+                }
+            }
+        }
+        assert!(
+            different.is_empty(),
+            "(radius, clip left, x, y, coverage under the clip, coverage under none) differ: \
+             {:?} ({} in all)",
+            &different[..different.len().min(8)],
+            different.len()
         );
     }
 
