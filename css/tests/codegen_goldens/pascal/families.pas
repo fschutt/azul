@@ -15,6 +15,8 @@ function StyleBorders: TAzCssPropertyWithConditionsVec;
 function StyleScroll: TAzCssPropertyWithConditionsVec;
 function StyleEffects: TAzCssPropertyWithConditionsVec;
 function StyleFragment: TAzCssPropertyWithConditionsVec;
+function StyleFlowContent: TAzCssPropertyWithConditionsVec;
+function StyleExclusion: TAzCssPropertyWithConditionsVec;
 function StyleShape: TAzCssPropertyWithConditionsVec;
 function StyleTable: TAzCssPropertyWithConditionsVec;
 function StyleContent: TAzCssPropertyWithConditionsVec;
@@ -1969,8 +1971,10 @@ var
   t42: TAzFlowFrom;
   t43: TAzCssProperty;
   t44: TAzCssPropertyWithConditions;
-  t45: array[0..14] of TAzCssPropertyWithConditions;
-  t46: TAzCssPropertyWithConditionsVec;
+  t45: TAzCssProperty;
+  t46: TAzCssPropertyWithConditions;
+  t47: array[0..15] of TAzCssPropertyWithConditions;
+  t48: TAzCssPropertyWithConditionsVec;
 begin
   t1 := AzCssPropertyBreakBefore(TAzPageBreak.Page);
   t2 := AzCssPropertyWithConditionsSimple(t1);
@@ -2019,23 +2023,65 @@ begin
   t42 := AzFlowFromNamed(t41);
   t43 := AzCssPropertyFlowFrom(t42);
   t44 := AzCssPropertyWithConditionsSimple(t43);
-  t45[0] := t2;
-  t45[1] := t4;
-  t45[2] := t6;
-  t45[3] := t9;
-  t45[4] := t12;
-  t45[5] := t14;
-  t45[6] := t17;
-  t45[7] := t21;
-  t45[8] := t23;
-  t45[9] := t25;
-  t45[10] := t29;
-  t45[11] := t32;
-  t45[12] := t36;
-  t45[13] := t40;
-  t45[14] := t44;
-  t46 := AzCssPropertyWithConditionsVecCopyFromPtr(@t45[0], 15);
-  Result := t46;
+  t45 := AzCssPropertyRegionFragment(TAzRegionFragment.Break);
+  t46 := AzCssPropertyWithConditionsSimple(t45);
+  t47[0] := t2;
+  t47[1] := t4;
+  t47[2] := t6;
+  t47[3] := t9;
+  t47[4] := t12;
+  t47[5] := t14;
+  t47[6] := t17;
+  t47[7] := t21;
+  t47[8] := t23;
+  t47[9] := t25;
+  t47[10] := t29;
+  t47[11] := t32;
+  t47[12] := t36;
+  t47[13] := t40;
+  t47[14] := t44;
+  t47[15] := t46;
+  t48 := AzCssPropertyWithConditionsVecCopyFromPtr(@t47[0], 16);
+  Result := t48;
+end;
+
+{ CSS: .flow-content }
+function StyleFlowContent: TAzCssPropertyWithConditionsVec;
+var
+  t1: TAzString;
+  t2: TAzFlowInto;
+  t3: TAzCssProperty;
+  t4: TAzCssPropertyWithConditions;
+  t5: array[0..0] of TAzCssPropertyWithConditions;
+  t6: TAzCssPropertyWithConditionsVec;
+begin
+  t1 := azul_string_from('article');
+  t2 := AzFlowIntoNamedContent(t1);
+  t3 := AzCssPropertyFlowInto(t2);
+  t4 := AzCssPropertyWithConditionsSimple(t3);
+  t5[0] := t4;
+  t6 := AzCssPropertyWithConditionsVecCopyFromPtr(@t5[0], 1);
+  Result := t6;
+end;
+
+{ CSS: .exclusion }
+function StyleExclusion: TAzCssPropertyWithConditionsVec;
+var
+  t1: TAzCssProperty;
+  t2: TAzCssPropertyWithConditions;
+  t3: TAzCssProperty;
+  t4: TAzCssPropertyWithConditions;
+  t5: array[0..1] of TAzCssPropertyWithConditions;
+  t6: TAzCssPropertyWithConditionsVec;
+begin
+  t1 := AzCssPropertyWrapFlow(TAzWrapFlow.Both);
+  t2 := AzCssPropertyWithConditionsSimple(t1);
+  t3 := AzCssPropertyWrapThrough(TAzWrapThrough.None);
+  t4 := AzCssPropertyWithConditionsSimple(t3);
+  t5[0] := t2;
+  t5[1] := t4;
+  t6 := AzCssPropertyWithConditionsVecCopyFromPtr(@t5[0], 2);
+  Result := t6;
 end;
 
 { CSS: .shape }

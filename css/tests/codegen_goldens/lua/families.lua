@@ -292,7 +292,7 @@ end
 
 -- CSS: .fragment
 function M.style_fragment()
-    return C.AzCssPropertyWithConditionsVec_copyFromPtr(ffi.new('AzCssPropertyWithConditions[15]', {
+    return C.AzCssPropertyWithConditionsVec_copyFromPtr(ffi.new('AzCssPropertyWithConditions[16]', {
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_breakBefore(C.AzPageBreak_Page)),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_breakAfter(C.AzPageBreak_Avoid)),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_breakInside(C.AzBreakInside_Avoid)),
@@ -308,7 +308,23 @@ function M.style_fragment()
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_columnRuleColor(ffi.new('AzColumnRuleColor', { inner = ffi.new('AzColorU', { r = 204, g = 204, b = 204, a = 255 }) }))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_flowInto(C.AzFlowInto_named(azul._az_string("article")))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_flowFrom(C.AzFlowFrom_named(azul._az_string("article")))),
-    }), 15)
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_regionFragment(C.AzRegionFragment_Break)),
+    }), 16)
+end
+
+-- CSS: .flow-content
+function M.style_flow_content()
+    return C.AzCssPropertyWithConditionsVec_copyFromPtr(ffi.new('AzCssPropertyWithConditions[1]', {
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_flowInto(C.AzFlowInto_namedContent(azul._az_string("article")))),
+    }), 1)
+end
+
+-- CSS: .exclusion
+function M.style_exclusion()
+    return C.AzCssPropertyWithConditionsVec_copyFromPtr(ffi.new('AzCssPropertyWithConditions[2]', {
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_wrapFlow(C.AzWrapFlow_Both)),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_wrapThrough(C.AzWrapThrough_None)),
+    }), 2)
 end
 
 -- CSS: .shape

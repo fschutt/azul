@@ -363,7 +363,27 @@ module AzulStyles
       N.az_css_property_with_conditions_simple(N.az_css_property_column_rule_style(AzulCodegen.struct(N::AzColumnRuleStyle, inner: N::AzBorderStyle::Solid))),
       N.az_css_property_with_conditions_simple(N.az_css_property_column_rule_color(AzulCodegen.struct(N::AzColumnRuleColor, inner: AzulCodegen.struct(N::AzColorU, r: 204, g: 204, b: 204, a: 255)))),
       N.az_css_property_with_conditions_simple(N.az_css_property_flow_into(N.az_flow_into_named(Azul._az_string("article")))),
-      N.az_css_property_with_conditions_simple(N.az_css_property_flow_from(N.az_flow_from_named(Azul._az_string("article"))))
+      N.az_css_property_with_conditions_simple(N.az_css_property_flow_from(N.az_flow_from_named(Azul._az_string("article")))),
+      N.az_css_property_with_conditions_simple(N.az_css_property_region_fragment(N::AzRegionFragment::Break))
+    )
+  end
+
+  # CSS: .flow-content
+  def self.style_flow_content
+    AzulCodegen.vec(
+      :az_css_property_with_conditions_vec_copy_from_ptr,
+      N::AzCssPropertyWithConditions,
+      N.az_css_property_with_conditions_simple(N.az_css_property_flow_into(N.az_flow_into_named_content(Azul._az_string("article"))))
+    )
+  end
+
+  # CSS: .exclusion
+  def self.style_exclusion
+    AzulCodegen.vec(
+      :az_css_property_with_conditions_vec_copy_from_ptr,
+      N::AzCssPropertyWithConditions,
+      N.az_css_property_with_conditions_simple(N.az_css_property_wrap_flow(N::AzWrapFlow::Both)),
+      N.az_css_property_with_conditions_simple(N.az_css_property_wrap_through(N::AzWrapThrough::None))
     )
   end
 

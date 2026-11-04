@@ -287,6 +287,20 @@ proc styleFragment*(): AzCssPropertyWithConditionsVec =
     AzCssPropertyWithConditions_simple(AzCssProperty_columnRuleColor(AzColumnRuleColor(inner: AzColorU(r: 204'u8, g: 204'u8, b: 204'u8, a: 255'u8)))),
     AzCssPropertyWithConditions_simple(AzCssProperty_flowInto(AzFlowInto_named(azStr("article")))),
     AzCssPropertyWithConditions_simple(AzCssProperty_flowFrom(AzFlowFrom_named(azStr("article")))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_regionFragment(AzRegionFragment.`Break`)),
+  ])
+
+# CSS: .flow-content
+proc styleFlowContent*(): AzCssPropertyWithConditionsVec =
+  azVec(AzCssPropertyWithConditionsVec_copyFromPtr, [
+    AzCssPropertyWithConditions_simple(AzCssProperty_flowInto(AzFlowInto_namedContent(azStr("article")))),
+  ])
+
+# CSS: .exclusion
+proc styleExclusion*(): AzCssPropertyWithConditionsVec =
+  azVec(AzCssPropertyWithConditionsVec_copyFromPtr, [
+    AzCssPropertyWithConditions_simple(AzCssProperty_wrapFlow(AzWrapFlow.Both)),
+    AzCssPropertyWithConditions_simple(AzCssProperty_wrapThrough(AzWrapThrough.None)),
   ])
 
 # CSS: .shape

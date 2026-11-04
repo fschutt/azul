@@ -305,7 +305,25 @@ public final class AzulStyles {
             AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_columnRuleStyle(AzulCodegen.with(new AzColumnRuleStyle.ByValue(), columnRuleStyle -> { columnRuleStyle.inner = BorderStyle.Solid.value; }))),
             AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_columnRuleColor(AzulCodegen.with(new AzColumnRuleColor.ByValue(), columnRuleColor -> { columnRuleColor.inner = AzulCodegen.with(new AzColorU.ByValue(), colorU -> { colorU.r = (byte) 204; colorU.g = (byte) 204; colorU.b = (byte) 204; colorU.a = (byte) 255; }); }))),
             AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_flowInto(AzulNativeCss.AzFlowInto_named(AzulCodegen.str("article")))),
-            AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_flowFrom(AzulNativeCss.AzFlowFrom_named(AzulCodegen.str("article"))))
+            AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_flowFrom(AzulNativeCss.AzFlowFrom_named(AzulCodegen.str("article")))),
+            AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_regionFragment(RegionFragment.Break.value))
+        );
+    }
+
+    // CSS: .flow-content
+    public static AzCssPropertyWithConditionsVec.ByValue styleFlowContent() {
+        return AzulCodegen.vec(
+            AzulNativeVec::AzCssPropertyWithConditionsVec_copyFromPtr,
+            AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_flowInto(AzulNativeCss.AzFlowInto_namedContent(AzulCodegen.str("article"))))
+        );
+    }
+
+    // CSS: .exclusion
+    public static AzCssPropertyWithConditionsVec.ByValue styleExclusion() {
+        return AzulCodegen.vec(
+            AzulNativeVec::AzCssPropertyWithConditionsVec_copyFromPtr,
+            AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_wrapFlow(WrapFlow.Both.value)),
+            AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_wrapThrough(WrapThrough.None.value))
         );
     }
 

@@ -218,6 +218,14 @@ pub const FAMILIES: &str = r#"
     column-rule-color: #cccccc;
     flow-into: article;
     flow-from: article;
+    region-fragment: break;
+}
+.flow-content {
+    flow-into: article content;
+}
+.exclusion {
+    wrap-flow: both;
+    wrap-through: none;
 }
 .shape {
     shape-outside: circle(50px);

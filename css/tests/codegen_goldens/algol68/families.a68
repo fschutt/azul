@@ -359,7 +359,7 @@ BEGIN
    AZCOLUMNRULEWIDTH t3;
    AZCOLUMNRULESTYLE t4;
    AZCOLUMNRULECOLOR t5;
-   [15] AZCSSPROPERTYWITHCONDITIONS t6;
+   [16] AZCSSPROPERTYWITHCONDITIONS t6;
    inner OF t1 := 2;
    inner OF t2 := 3;
    inner OF t3 := az pixel value px (1.0);
@@ -380,7 +380,25 @@ BEGIN
    t6[13] := az css property with conditions simple (az css property column rule color (t5));
    t6[14] := az css property with conditions simple (az css property flow into (az flow into named (css str ("article"))));
    t6[15] := az css property with conditions simple (az css property flow from (az flow from named (css str ("article"))));
-   az css property with conditions vec copy from ptr (t6[1], LENG 15)
+   t6[16] := az css property with conditions simple (az css property region fragment (region fragment break));
+   az css property with conditions vec copy from ptr (t6[1], LENG 16)
+END;
+
+# CSS: .flow-content #
+PROC style flow content = AZCSSPROPERTYWITHCONDITIONSVEC:
+BEGIN
+   [1] AZCSSPROPERTYWITHCONDITIONS t1;
+   t1[1] := az css property with conditions simple (az css property flow into (az flow into named content (css str ("article"))));
+   az css property with conditions vec copy from ptr (t1[1], LENG 1)
+END;
+
+# CSS: .exclusion #
+PROC style exclusion = AZCSSPROPERTYWITHCONDITIONSVEC:
+BEGIN
+   [2] AZCSSPROPERTYWITHCONDITIONS t1;
+   t1[1] := az css property with conditions simple (az css property wrap flow (wrap flow both));
+   t1[2] := az css property with conditions simple (az css property wrap through (wrap through none));
+   az css property with conditions vec copy from ptr (t1[1], LENG 2)
 END;
 
 # CSS: .shape #

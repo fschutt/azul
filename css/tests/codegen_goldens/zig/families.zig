@@ -287,7 +287,23 @@ pub fn styleFragment() C.AzCssPropertyWithConditionsVec {
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_columnRuleColor(C.AzColumnRuleColor{ .inner = C.AzColorU{ .r = 204, .g = 204, .b = 204, .a = 255 } })),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_flowInto(C.AzFlowInto_named(C.AzString_copyFromBytes("article", 0, 7)))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_flowFrom(C.AzFlowFrom_named(C.AzString_copyFromBytes("article", 0, 7)))),
-    }, 15);
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_regionFragment(C.AzRegionFragment_Break)),
+    }, 16);
+}
+
+// CSS: .flow-content
+pub fn styleFlowContent() C.AzCssPropertyWithConditionsVec {
+    return C.AzCssPropertyWithConditionsVec_copyFromPtr(&[_]C.AzCssPropertyWithConditions{
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_flowInto(C.AzFlowInto_namedContent(C.AzString_copyFromBytes("article", 0, 7)))),
+    }, 1);
+}
+
+// CSS: .exclusion
+pub fn styleExclusion() C.AzCssPropertyWithConditionsVec {
+    return C.AzCssPropertyWithConditionsVec_copyFromPtr(&[_]C.AzCssPropertyWithConditions{
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_wrapFlow(C.AzWrapFlow_Both)),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_wrapThrough(C.AzWrapThrough_None)),
+    }, 2);
 }
 
 // CSS: .shape

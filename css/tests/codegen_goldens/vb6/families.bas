@@ -28,6 +28,12 @@ Option Explicit
 ' CSS: .fragment
 ' StyleFragment: not expressible with the VB6 bindings: a VB6 Declare cannot pass or return a user-defined type by value, so the bindings skip every CSS constructor (AzCssProperty_width, ...) and do not declare their out-pointer twins (AzCssProperty_widthByref, ...)
 
+' CSS: .flow-content
+' StyleFlowContent: not expressible with the VB6 bindings: a VB6 Declare cannot pass or return a user-defined type by value, so the bindings skip every CSS constructor (AzCssProperty_width, ...) and do not declare their out-pointer twins (AzCssProperty_widthByref, ...)
+
+' CSS: .exclusion
+' StyleExclusion: not expressible with the VB6 bindings: a VB6 Declare cannot pass or return a user-defined type by value, so the bindings skip every CSS constructor (AzCssProperty_width, ...) and do not declare their out-pointer twins (AzCssProperty_widthByref, ...)
+
 ' CSS: .shape
 ' StyleShape: not expressible with the VB6 bindings: a VB6 Declare cannot pass or return a user-defined type by value, so the bindings skip every CSS constructor (AzCssProperty_width, ...) and do not declare their out-pointer twins (AzCssProperty_widthByref, ...)
 

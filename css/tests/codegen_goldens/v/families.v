@@ -251,7 +251,7 @@ fn style_effects() azul.AzCssPropertyWithConditionsVec {
 
 // CSS: .fragment
 fn style_fragment() azul.AzCssPropertyWithConditionsVec {
-	mut t1 := [15]azul.AzCssPropertyWithConditions{}
+	mut t1 := [16]azul.AzCssPropertyWithConditions{}
 	t1[0] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_breakBefore(azul.AzPageBreak.Page))
 	t1[1] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_breakAfter(azul.AzPageBreak.Avoid))
 	t1[2] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_breakInside(azul.AzBreakInside.Avoid))
@@ -267,7 +267,23 @@ fn style_fragment() azul.AzCssPropertyWithConditionsVec {
 	t1[12] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_columnRuleColor(azul.AzColumnRuleColor{ inner: azul.AzColorU{ r: 204, g: 204, b: 204, a: 255 } }))
 	t1[13] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_flowInto(C.AzFlowInto_named(azul.az_str('article'))))
 	t1[14] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_flowFrom(C.AzFlowFrom_named(azul.az_str('article'))))
-	return C.AzCssPropertyWithConditionsVec_copyFromPtr(unsafe { &t1[0] }, 15)
+	t1[15] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_regionFragment(azul.AzRegionFragment.Break))
+	return C.AzCssPropertyWithConditionsVec_copyFromPtr(unsafe { &t1[0] }, 16)
+}
+
+// CSS: .flow-content
+fn style_flow_content() azul.AzCssPropertyWithConditionsVec {
+	mut t1 := [1]azul.AzCssPropertyWithConditions{}
+	t1[0] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_flowInto(C.AzFlowInto_namedContent(azul.az_str('article'))))
+	return C.AzCssPropertyWithConditionsVec_copyFromPtr(unsafe { &t1[0] }, 1)
+}
+
+// CSS: .exclusion
+fn style_exclusion() azul.AzCssPropertyWithConditionsVec {
+	mut t1 := [2]azul.AzCssPropertyWithConditions{}
+	t1[0] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_wrapFlow(azul.AzWrapFlow.Both))
+	t1[1] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_wrapThrough(azul.AzWrapThrough.None))
+	return C.AzCssPropertyWithConditionsVec_copyFromPtr(unsafe { &t1[0] }, 2)
 }
 
 // CSS: .shape

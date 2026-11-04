@@ -291,6 +291,22 @@ pub fn style_fragment() -> CssPropertyWithConditionsVec {
         CssPropertyWithConditions::simple(CssProperty::column_rule_color(ColumnRuleColor { inner: ColorU { r: 204, g: 204, b: 204, a: 255 } })),
         CssPropertyWithConditions::simple(CssProperty::flow_into(FlowInto::Named(azul::str::String::from("article")))),
         CssPropertyWithConditions::simple(CssProperty::flow_from(FlowFrom::Named(azul::str::String::from("article")))),
+        CssPropertyWithConditions::simple(CssProperty::region_fragment(RegionFragment::Break)),
+    ])
+}
+
+/// CSS: .flow-content
+pub fn style_flow_content() -> CssPropertyWithConditionsVec {
+    CssPropertyWithConditionsVec::from(vec![
+        CssPropertyWithConditions::simple(CssProperty::flow_into(FlowInto::NamedContent(azul::str::String::from("article")))),
+    ])
+}
+
+/// CSS: .exclusion
+pub fn style_exclusion() -> CssPropertyWithConditionsVec {
+    CssPropertyWithConditionsVec::from(vec![
+        CssPropertyWithConditions::simple(CssProperty::wrap_flow(WrapFlow::Both)),
+        CssPropertyWithConditions::simple(CssProperty::wrap_through(WrapThrough::None)),
     ])
 }
 

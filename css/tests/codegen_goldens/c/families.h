@@ -323,8 +323,30 @@ static AzCssPropertyWithConditionsVec style_fragment(void) {
             AzCssPropertyWithConditions_simple(AzCssProperty_columnRuleColor((AzColumnRuleColor){ .inner = (AzColorU){ .r = 204, .g = 204, .b = 204, .a = 255 } })),
             AzCssPropertyWithConditions_simple(AzCssProperty_flowInto(AzFlowInto_named(AzString_copyFromBytes((const uint8_t*)"article", 0, 7)))),
             AzCssPropertyWithConditions_simple(AzCssProperty_flowFrom(AzFlowFrom_named(AzString_copyFromBytes((const uint8_t*)"article", 0, 7)))),
+            AzCssPropertyWithConditions_simple(AzCssProperty_regionFragment(AzRegionFragment_Break)),
         },
-        15
+        16
+    );
+}
+
+/* CSS: .flow-content */
+static AzCssPropertyWithConditionsVec style_flow_content(void) {
+    return AzCssPropertyWithConditionsVec_copyFromPtr(
+        (AzCssPropertyWithConditions[]){
+            AzCssPropertyWithConditions_simple(AzCssProperty_flowInto(AzFlowInto_namedContent(AzString_copyFromBytes((const uint8_t*)"article", 0, 7)))),
+        },
+        1
+    );
+}
+
+/* CSS: .exclusion */
+static AzCssPropertyWithConditionsVec style_exclusion(void) {
+    return AzCssPropertyWithConditionsVec_copyFromPtr(
+        (AzCssPropertyWithConditions[]){
+            AzCssPropertyWithConditions_simple(AzCssProperty_wrapFlow(AzWrapFlow_Both)),
+            AzCssPropertyWithConditions_simple(AzCssProperty_wrapThrough(AzWrapThrough_None)),
+        },
+        2
     );
 }
 

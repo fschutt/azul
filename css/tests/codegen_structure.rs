@@ -64,6 +64,56 @@ fn every_css_property_is_in_the_families_case() {
     assert!(property_types(&parse(FAMILIES)).len() > 150);
 }
 
+#[test]
+fn every_keyword_of_the_regions_and_exclusions_properties_lowers_to_its_variant() {
+    // CSS Regions 1 and CSS Exclusions 1. The `families` case writes one value of each of
+    // these properties; here EVERY keyword goes through the parser, the lowering and the
+    // Rust printer, so a variant the lowering forgets, or a keyword the parser stops
+    // reading, fails here and not in a language nobody looked at.
+    const KEYWORDS: &[(&str, &str, &str)] = &[
+        ("wrap-flow", "auto", "WrapFlow::Auto"),
+        ("wrap-flow", "both", "WrapFlow::Both"),
+        ("wrap-flow", "start", "WrapFlow::Start"),
+        ("wrap-flow", "end", "WrapFlow::End"),
+        ("wrap-flow", "minimum", "WrapFlow::Minimum"),
+        ("wrap-flow", "maximum", "WrapFlow::Maximum"),
+        ("wrap-flow", "clear", "WrapFlow::Clear"),
+        ("wrap-through", "wrap", "WrapThrough::Wrap"),
+        ("wrap-through", "none", "WrapThrough::None"),
+        ("region-fragment", "auto", "RegionFragment::Auto"),
+        ("region-fragment", "break", "RegionFragment::Break"),
+        // `none` is the CSS-wide "no value" here: both flows default to it
+        ("flow-into", "none", "CssProperty::none(CssPropertyType::FlowInto)"),
+        ("flow-into", "article", "FlowInto::Named("),
+        ("flow-into", "article element", "FlowInto::Named("),
+        ("flow-into", "article content", "FlowInto::NamedContent("),
+        ("flow-from", "none", "CssProperty::none(CssPropertyType::FlowFrom)"),
+        ("flow-from", "article", "FlowFrom::Named("),
+    ];
+    let rust = azul_css::codegen::backend_for("rust").unwrap();
+    for &(property, value, printed) in KEYWORDS {
+        let css = parse(&format!(".a {{ {property}: {value}; }}"));
+        let wanted = key_map_type(property);
+        assert!(
+            property_types(&css).contains(&wanted),
+            "`{property}: {value}` did not parse to {wanted:?}"
+        );
+        let src = rust.emit_module(&lower_styles(&css));
+        assert!(
+            src.contains(printed),
+            "`{property}: {value}` should print {printed}:\n{src}"
+        );
+    }
+}
+
+/// The property a CSS name stands for.
+fn key_map_type(name: &str) -> CssPropertyType {
+    *get_css_key_map()
+        .non_shorthands
+        .get(name)
+        .unwrap_or_else(|| panic!("no property named {name}"))
+}
+
 /// The only things the bindings cannot express.
 const KNOWN_UNSUPPORTED: &[&str] = &["BoxOrStatic", "minmax()", "FontRef"];
 

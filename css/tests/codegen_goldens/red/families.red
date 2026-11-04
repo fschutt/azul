@@ -27,6 +27,12 @@
 ;; CSS: .fragment
 ;; style-fragment: not expressible with the Red/System bindings: the Red/System bindings declare every tagged union (CssProperty, LayoutWidth, ...) as an 8-byte opaque placeholder, so no CSS property can be passed or returned by value
 
+;; CSS: .flow-content
+;; style-flow-content: not expressible with the Red/System bindings: the Red/System bindings declare every tagged union (CssProperty, LayoutWidth, ...) as an 8-byte opaque placeholder, so no CSS property can be passed or returned by value
+
+;; CSS: .exclusion
+;; style-exclusion: not expressible with the Red/System bindings: the Red/System bindings declare every tagged union (CssProperty, LayoutWidth, ...) as an 8-byte opaque placeholder, so no CSS property can be passed or returned by value
+
 ;; CSS: .shape
 ;; style-shape: not expressible with the Red/System bindings: the Red/System bindings declare every tagged union (CssProperty, LayoutWidth, ...) as an 8-byte opaque placeholder, so no CSS property can be passed or returned by value
 

@@ -265,7 +265,25 @@ AzulStyles class >> styleFragment [
         (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyColumnRuleStyle: (AzColumnRuleStyle new inner: (AzBorderStyle Solid); yourself))).
         (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyColumnRuleColor: (AzColumnRuleColor new inner: (AzColorU new r: 204; g: 204; b: 204; a: 255; yourself); yourself))).
         (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyFlowInto: (AzulNative azFlowIntoNamed: (self str: 'article')))).
-        (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyFlowFrom: (AzulNative azFlowFromNamed: (self str: 'article'))))
+        (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyFlowFrom: (AzulNative azFlowFromNamed: (self str: 'article')))).
+        (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyRegionFragment: (AzRegionFragment Break)))
+    }
+]
+
+"CSS: .flow-content"
+{ #category : 'styles' }
+AzulStyles class >> styleFlowContent [
+    ^ self vec: [ :p :n | AzulNative azCssPropertyWithConditionsVecCopyFromPtr: p len: n ] of: AzCssPropertyWithConditions items: {
+        (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyFlowInto: (AzulNative azFlowIntoNamedContent: (self str: 'article'))))
+    }
+]
+
+"CSS: .exclusion"
+{ #category : 'styles' }
+AzulStyles class >> styleExclusion [
+    ^ self vec: [ :p :n | AzulNative azCssPropertyWithConditionsVecCopyFromPtr: p len: n ] of: AzCssPropertyWithConditions items: {
+        (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyWrapFlow: (AzWrapFlow Both))).
+        (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyWrapThrough: (AzWrapThrough None)))
     }
 ]
 

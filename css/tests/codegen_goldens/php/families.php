@@ -404,6 +404,34 @@ function style_fragment()
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_columnRuleColor(azul_struct('AzColumnRuleColor', ['inner' => azul_struct('AzColorU', ['r' => 204, 'g' => 204, 'b' => 204, 'a' => 255])]))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_flowInto($L->AzFlowInto_named(azul_str('article')))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_flowFrom($L->AzFlowFrom_named(azul_str('article')))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_regionFragment($L->AzRegionFragment_Break)),
+        ]
+    );
+}
+
+// CSS: .flow-content
+function style_flow_content()
+{
+    $L = \Azul\Azul::lib();
+    return azul_vec(
+        'AzCssPropertyWithConditionsVec_copyFromPtr',
+        'AzCssPropertyWithConditions',
+        [
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_flowInto($L->AzFlowInto_namedContent(azul_str('article')))),
+        ]
+    );
+}
+
+// CSS: .exclusion
+function style_exclusion()
+{
+    $L = \Azul\Azul::lib();
+    return azul_vec(
+        'AzCssPropertyWithConditionsVec_copyFromPtr',
+        'AzCssPropertyWithConditions',
+        [
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_wrapFlow($L->AzWrapFlow_Both)),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_wrapThrough($L->AzWrapThrough_None)),
         ]
     );
 }

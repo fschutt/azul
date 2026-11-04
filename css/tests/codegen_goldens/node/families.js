@@ -288,7 +288,23 @@ function styleFragment() {
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_columnRuleColor({ inner: { r: 204, g: 204, b: 204, a: 255 } })),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_flowInto(lib.AzFlowInto_named(azul._azString("article")))),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_flowFrom(lib.AzFlowFrom_named(azul._azString("article")))),
-    ], 15));
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_regionFragment(azul.RegionFragment.Break)),
+    ], 16));
+}
+
+// CSS: .flow-content
+function styleFlowContent() {
+    return new azul.CssPropertyWithConditionsVec(lib.AzCssPropertyWithConditionsVec_copyFromPtr([
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_flowInto(lib.AzFlowInto_namedContent(azul._azString("article")))),
+    ], 1));
+}
+
+// CSS: .exclusion
+function styleExclusion() {
+    return new azul.CssPropertyWithConditionsVec(lib.AzCssPropertyWithConditionsVec_copyFromPtr([
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_wrapFlow(azul.WrapFlow.Both)),
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_wrapThrough(azul.WrapThrough.None)),
+    ], 2));
 }
 
 // CSS: .shape
@@ -336,4 +352,4 @@ function styleAnim() {
     ], 3));
 }
 
-module.exports = { styleText, styleBox, styleFlex, styleGrid, styleBorders, styleScroll, styleEffects, styleFragment, styleShape, styleTable, styleContent, styleAnim };
+module.exports = { styleText, styleBox, styleFlex, styleGrid, styleBorders, styleScroll, styleEffects, styleFragment, styleFlowContent, styleExclusion, styleShape, styleTable, styleContent, styleAnim };

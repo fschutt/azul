@@ -13,6 +13,8 @@ package Styles is
    function Style_Scroll return Az_CssPropertyWithConditionsVec;
    function Style_Effects return Az_CssPropertyWithConditionsVec;
    function Style_Fragment return Az_CssPropertyWithConditionsVec;
+   function Style_Flow_Content return Az_CssPropertyWithConditionsVec;
+   function Style_Exclusion return Az_CssPropertyWithConditionsVec;
    function Style_Shape return Az_CssPropertyWithConditionsVec;
    function Style_Table return Az_CssPropertyWithConditionsVec;
    function Style_Content return Az_CssPropertyWithConditionsVec;
@@ -285,7 +287,7 @@ package body Styles is
 
    --  CSS: .fragment
    function Style_Fragment return Az_CssPropertyWithConditionsVec is
-      t1 : aliased array (0 .. 14) of Az_CssPropertyWithConditions;
+      t1 : aliased array (0 .. 15) of Az_CssPropertyWithConditions;
    begin
       t1 (0) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Break_Before (Az_PageBreak'(Page)));
       t1 (1) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Break_After (Az_PageBreak'(Avoid)));
@@ -302,8 +304,26 @@ package body Styles is
       t1 (12) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Column_Rule_Color (Az_ColumnRuleColor'(Inner => Az_ColorU'(R => 204, G => 204, B => 204, A => 255))));
       t1 (13) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Flow_Into (Az_FlowInto_Named (To_Az_String ("article"))));
       t1 (14) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Flow_From (Az_FlowFrom_Named (To_Az_String ("article"))));
-      return Az_CssPropertyWithConditionsVec_Copy_From_Ptr (t1 (0)'Address, 15);
+      t1 (15) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Region_Fragment (Az_RegionFragment'(Break)));
+      return Az_CssPropertyWithConditionsVec_Copy_From_Ptr (t1 (0)'Address, 16);
    end Style_Fragment;
+
+   --  CSS: .flow-content
+   function Style_Flow_Content return Az_CssPropertyWithConditionsVec is
+      t1 : aliased array (0 .. 0) of Az_CssPropertyWithConditions;
+   begin
+      t1 (0) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Flow_Into (Az_FlowInto_Named_Content (To_Az_String ("article"))));
+      return Az_CssPropertyWithConditionsVec_Copy_From_Ptr (t1 (0)'Address, 1);
+   end Style_Flow_Content;
+
+   --  CSS: .exclusion
+   function Style_Exclusion return Az_CssPropertyWithConditionsVec is
+      t1 : aliased array (0 .. 1) of Az_CssPropertyWithConditions;
+   begin
+      t1 (0) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Wrap_Flow (Az_WrapFlow'(Both)));
+      t1 (1) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Wrap_Through (Az_WrapThrough'(None)));
+      return Az_CssPropertyWithConditionsVec_Copy_From_Ptr (t1 (0)'Address, 2);
+   end Style_Exclusion;
 
    --  CSS: .shape
    function Style_Shape return Az_CssPropertyWithConditionsVec is

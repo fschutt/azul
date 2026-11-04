@@ -337,7 +337,27 @@ function style_fragment()
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_columnRuleStyle(Azul.AzColumnRuleStyle(Azul.AzBorderStyle_Solid))),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_columnRuleColor(Azul.AzColumnRuleColor(Azul.AzColorU(204, 204, 204, 255)))),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_flowInto(Azul.AzFlowInto_named(Azul.az_string("article")))),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_flowFrom(Azul.AzFlowFrom_named(Azul.az_string("article"))))
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_flowFrom(Azul.AzFlowFrom_named(Azul.az_string("article")))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_regionFragment(Azul.AzRegionFragment_Break))
+    )
+end
+
+# CSS: .flow-content
+function style_flow_content()
+    az_vec(
+        Azul.AzCssPropertyWithConditionsVec_copyFromPtr,
+        Azul.AzCssPropertyWithConditions,
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_flowInto(Azul.AzFlowInto_namedContent(Azul.az_string("article"))))
+    )
+end
+
+# CSS: .exclusion
+function style_exclusion()
+    az_vec(
+        Azul.AzCssPropertyWithConditionsVec_copyFromPtr,
+        Azul.AzCssPropertyWithConditions,
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_wrapFlow(Azul.AzWrapFlow_Both)),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_wrapThrough(Azul.AzWrapThrough_None))
     )
 end
 

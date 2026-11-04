@@ -327,8 +327,22 @@ let style_fragment () =
     (azCssPropertyWithConditions_simple (azCssProperty_columnRuleStyle (az_struct az_column_rule_style [ (fun v -> Ctypes.setf v az_column_rule_style_field_inner (BorderStyle.to_int BorderStyle.Solid)) ])));
     (azCssPropertyWithConditions_simple (azCssProperty_columnRuleColor (az_struct az_column_rule_color [ (fun v -> Ctypes.setf v az_column_rule_color_field_inner (az_struct az_color_u [ (fun v -> Ctypes.setf v az_color_u_field_r (Unsigned.UInt8.of_int 204)); (fun v -> Ctypes.setf v az_color_u_field_g (Unsigned.UInt8.of_int 204)); (fun v -> Ctypes.setf v az_color_u_field_b (Unsigned.UInt8.of_int 204)); (fun v -> Ctypes.setf v az_color_u_field_a (Unsigned.UInt8.of_int 255)) ])) ])));
     (azCssPropertyWithConditions_simple (azCssProperty_flowInto (azFlowInto_named (azul_az_string "article"))));
-    (azCssPropertyWithConditions_simple (azCssProperty_flowFrom (azFlowFrom_named (azul_az_string "article"))))
-  ])) (Unsigned.Size_t.of_int 15))
+    (azCssPropertyWithConditions_simple (azCssProperty_flowFrom (azFlowFrom_named (azul_az_string "article"))));
+    (azCssPropertyWithConditions_simple (azCssProperty_regionFragment (RegionFragment.to_int RegionFragment.Break)))
+  ])) (Unsigned.Size_t.of_int 16))
+
+(* CSS: .flow-content *)
+let style_flow_content () =
+  (azCssPropertyWithConditionsVec_copyFromPtr (Ctypes.CArray.start (Ctypes.CArray.of_list az_css_property_with_conditions [
+    (azCssPropertyWithConditions_simple (azCssProperty_flowInto (azFlowInto_namedContent (azul_az_string "article"))))
+  ])) (Unsigned.Size_t.of_int 1))
+
+(* CSS: .exclusion *)
+let style_exclusion () =
+  (azCssPropertyWithConditionsVec_copyFromPtr (Ctypes.CArray.start (Ctypes.CArray.of_list az_css_property_with_conditions [
+    (azCssPropertyWithConditions_simple (azCssProperty_wrapFlow (WrapFlow.to_int WrapFlow.Both)));
+    (azCssPropertyWithConditions_simple (azCssProperty_wrapThrough (WrapThrough.to_int WrapThrough.None)))
+  ])) (Unsigned.Size_t.of_int 2))
 
 (* CSS: .shape *)
 let style_shape () =

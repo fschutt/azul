@@ -238,6 +238,22 @@ sub style_fragment {
         Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_columnRuleColor(Azul::AzColumnRuleColor->new(inner => ${ Azul::AzColorU->new(r => 204, g => 204, b => 204, a => 255) }))),
         Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_flowInto(Azul::FFI::AzFlowInto_named(css_str("article")))),
         Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_flowFrom(Azul::FFI::AzFlowFrom_named(css_str("article")))),
+        Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_regionFragment(Azul::AzRegionFragment::Break())),
+    ];
+}
+
+# CSS: .flow-content
+sub style_flow_content {
+    return [
+        Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_flowInto(Azul::FFI::AzFlowInto_namedContent(css_str("article")))),
+    ];
+}
+
+# CSS: .exclusion
+sub style_exclusion {
+    return [
+        Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_wrapFlow(Azul::AzWrapFlow::Both())),
+        Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_wrapThrough(Azul::AzWrapThrough::None())),
     ];
 }
 

@@ -12,6 +12,8 @@ module azul_styles
   public :: style_scroll
   public :: style_effects
   public :: style_fragment
+  public :: style_flow_content
+  public :: style_exclusion
   public :: style_shape
   public :: style_table
   public :: style_content
@@ -249,7 +251,7 @@ contains
   ! CSS: .fragment
   function style_fragment() result(r)
     type(AzCssPropertyWithConditionsVec) :: r
-    type(AzCssPropertyWithConditions), target :: t1(15)
+    type(AzCssPropertyWithConditions), target :: t1(16)
     t1(1) = az_css_property_with_conditions_simple(az_css_property_break_before(PageBreak_Page))
     t1(2) = az_css_property_with_conditions_simple(az_css_property_break_after(PageBreak_Avoid))
     t1(3) = az_css_property_with_conditions_simple(az_css_property_break_inside(BreakInside_Avoid))
@@ -265,8 +267,26 @@ contains
     t1(13) = az_css_property_with_conditions_simple(az_css_property_column_rule_color(AzColumnRuleColor(inner=AzColorU(r_=-52_c_int8_t, g=-52_c_int8_t, b=-52_c_int8_t, a=-1_c_int8_t))))
     t1(14) = az_css_property_with_conditions_simple(az_css_property_flow_into(az_flow_into_named(azul_string('article'))))
     t1(15) = az_css_property_with_conditions_simple(az_css_property_flow_from(az_flow_from_named(azul_string('article'))))
-    r = az_css_property_with_conditions_vec_copy_from_ptr(c_loc(t1(1)), 15_c_size_t)
+    t1(16) = az_css_property_with_conditions_simple(az_css_property_region_fragment(RegionFragment_Break))
+    r = az_css_property_with_conditions_vec_copy_from_ptr(c_loc(t1(1)), 16_c_size_t)
   end function style_fragment
+
+  ! CSS: .flow-content
+  function style_flow_content() result(r)
+    type(AzCssPropertyWithConditionsVec) :: r
+    type(AzCssPropertyWithConditions), target :: t1(1)
+    t1(1) = az_css_property_with_conditions_simple(az_css_property_flow_into(az_flow_into_named_content(azul_string('article'))))
+    r = az_css_property_with_conditions_vec_copy_from_ptr(c_loc(t1(1)), 1_c_size_t)
+  end function style_flow_content
+
+  ! CSS: .exclusion
+  function style_exclusion() result(r)
+    type(AzCssPropertyWithConditionsVec) :: r
+    type(AzCssPropertyWithConditions), target :: t1(2)
+    t1(1) = az_css_property_with_conditions_simple(az_css_property_wrap_flow(WrapFlow_Both))
+    t1(2) = az_css_property_with_conditions_simple(az_css_property_wrap_through(WrapThrough_None))
+    r = az_css_property_with_conditions_vec_copy_from_ptr(c_loc(t1(1)), 2_c_size_t)
+  end function style_exclusion
 
   ! CSS: .shape
   function style_shape() result(r)

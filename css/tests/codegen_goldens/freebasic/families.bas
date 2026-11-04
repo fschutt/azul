@@ -227,7 +227,7 @@ End Function
 
 ' CSS: .fragment
 Function StyleFragment() As AzCssPropertyWithConditionsVec
-    Dim t1(0 To 14) As AzCssPropertyWithConditions
+    Dim t1(0 To 15) As AzCssPropertyWithConditions
     t1(0) = AzCssPropertyWithConditions_simple(AzCssProperty_breakBefore(AzPageBreak_Page))
     t1(1) = AzCssPropertyWithConditions_simple(AzCssProperty_breakAfter(AzPageBreak_Avoid))
     t1(2) = AzCssPropertyWithConditions_simple(AzCssProperty_breakInside(AzBreakInside_Avoid))
@@ -243,7 +243,23 @@ Function StyleFragment() As AzCssPropertyWithConditionsVec
     t1(12) = AzCssPropertyWithConditions_simple(AzCssProperty_columnRuleColor(Type<AzColumnRuleColor>(Type<AzColorU>(204, 204, 204, 255))))
     t1(13) = AzCssPropertyWithConditions_simple(AzCssProperty_flowInto(AzFlowInto_named(CssStr("article"))))
     t1(14) = AzCssPropertyWithConditions_simple(AzCssProperty_flowFrom(AzFlowFrom_named(CssStr("article"))))
-    Return AzCssPropertyWithConditionsVec_copyFromPtr(@t1(0), 15)
+    t1(15) = AzCssPropertyWithConditions_simple(AzCssProperty_regionFragment(AzRegionFragment_Break))
+    Return AzCssPropertyWithConditionsVec_copyFromPtr(@t1(0), 16)
+End Function
+
+' CSS: .flow-content
+Function StyleFlowContent() As AzCssPropertyWithConditionsVec
+    Dim t1(0 To 0) As AzCssPropertyWithConditions
+    t1(0) = AzCssPropertyWithConditions_simple(AzCssProperty_flowInto(AzFlowInto_namedContent(CssStr("article"))))
+    Return AzCssPropertyWithConditionsVec_copyFromPtr(@t1(0), 1)
+End Function
+
+' CSS: .exclusion
+Function StyleExclusion() As AzCssPropertyWithConditionsVec
+    Dim t1(0 To 1) As AzCssPropertyWithConditions
+    t1(0) = AzCssPropertyWithConditions_simple(AzCssProperty_wrapFlow(AzWrapFlow_Both))
+    t1(1) = AzCssPropertyWithConditions_simple(AzCssProperty_wrapThrough(AzWrapThrough_None))
+    Return AzCssPropertyWithConditionsVec_copyFromPtr(@t1(0), 2)
 End Function
 
 ' CSS: .shape

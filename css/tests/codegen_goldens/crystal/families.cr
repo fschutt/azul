@@ -267,6 +267,22 @@ module AzulStyles
       Azul::CssPropertyWithConditions.simple(Azul::CssProperty.column_rule_color(Azul::ColumnRuleColor.__own(LibAzul::AzColumnRuleColor.new(inner: LibAzul::AzColorU.new(r: 204_u8, g: 204_u8, b: 204_u8, a: 255_u8))))),
       Azul::CssPropertyWithConditions.simple(Azul::CssProperty.flow_into(Azul::FlowInto.named("article"))),
       Azul::CssPropertyWithConditions.simple(Azul::CssProperty.flow_from(Azul::FlowFrom.named("article"))),
+      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.region_fragment(Azul::RegionFragment::Break)),
+    ] of Azul::CssPropertyWithConditions
+  end
+
+  # CSS: .flow-content
+  def self.style_flow_content : Array(Azul::CssPropertyWithConditions)
+    [
+      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.flow_into(Azul::FlowInto.named_content("article"))),
+    ] of Azul::CssPropertyWithConditions
+  end
+
+  # CSS: .exclusion
+  def self.style_exclusion : Array(Azul::CssPropertyWithConditions)
+    [
+      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.wrap_flow(Azul::WrapFlow::Both)),
+      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.wrap_through(Azul::WrapThrough::None)),
     ] of Azul::CssPropertyWithConditions
   end
 

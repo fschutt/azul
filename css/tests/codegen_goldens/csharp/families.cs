@@ -313,7 +313,27 @@ namespace AzulStyles
                 NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_columnRuleStyle(new AzColumnRuleStyle { inner = BorderStyle.Solid })),
                 NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_columnRuleColor(new AzColumnRuleColor { inner = new AzColorU { r = 204, g = 204, b = 204, a = 255 } })),
                 NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_flowInto(NativeMethods.AzFlowInto_named(AzulCodegen.Str("article")))),
-                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_flowFrom(NativeMethods.AzFlowFrom_named(AzulCodegen.Str("article"))))
+                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_flowFrom(NativeMethods.AzFlowFrom_named(AzulCodegen.Str("article")))),
+                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_regionFragment(RegionFragment.Break))
+            );
+        }
+
+        // CSS: .flow-content
+        public static AzCssPropertyWithConditionsVec StyleFlowContent()
+        {
+            return AzulCodegen.Vec<AzCssPropertyWithConditions, AzCssPropertyWithConditionsVec>(
+                NativeMethods.AzCssPropertyWithConditionsVec_copyFromPtr,
+                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_flowInto(NativeMethods.AzFlowInto_namedContent(AzulCodegen.Str("article"))))
+            );
+        }
+
+        // CSS: .exclusion
+        public static AzCssPropertyWithConditionsVec StyleExclusion()
+        {
+            return AzulCodegen.Vec<AzCssPropertyWithConditions, AzCssPropertyWithConditionsVec>(
+                NativeMethods.AzCssPropertyWithConditionsVec_copyFromPtr,
+                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_wrapFlow(WrapFlow.Both)),
+                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_wrapThrough(WrapThrough.None))
             );
         }
 

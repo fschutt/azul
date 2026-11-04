@@ -226,6 +226,19 @@ def style_fragment():
         CssPropertyWithConditions.simple(CssProperty.column_rule_width(_with(ColumnRuleWidth.default(), inner=PixelValue.px(1.0)))),
         CssPropertyWithConditions.simple(CssProperty.column_rule_style(_with(ColumnRuleStyle.default(), inner=BorderStyle.Solid))),
         CssPropertyWithConditions.simple(CssProperty.column_rule_color(_with(ColumnRuleColor.default(), inner=_with(ColorU.default(), r=204, g=204, b=204, a=255)))),
+        CssPropertyWithConditions.simple(CssProperty.region_fragment(RegionFragment.Break)),
+    ]
+
+# CSS: .flow-content
+# dropped a value these bindings cannot build: FlowInto.NamedContent has a String payload, which the Python bindings do not expose
+def style_flow_content():
+    return []
+
+# CSS: .exclusion
+def style_exclusion():
+    return [
+        CssPropertyWithConditions.simple(CssProperty.wrap_flow(WrapFlow.Both)),
+        CssPropertyWithConditions.simple(CssProperty.wrap_through(getattr(WrapThrough, "None"))),
     ]
 
 # CSS: .shape

@@ -319,8 +319,30 @@ inline AzCssPropertyWithConditionsVec style_fragment() {
             AzCssPropertyWithConditions_simple(AzCssProperty_columnRuleColor(AzColumnRuleColor{ AzColorU{ 204, 204, 204, 255 } })),
             AzCssPropertyWithConditions_simple(AzCssProperty_flowInto(AzFlowInto_named(AzString_copyFromBytes(reinterpret_cast<const uint8_t*>("article"), 0, 7)))),
             AzCssPropertyWithConditions_simple(AzCssProperty_flowFrom(AzFlowFrom_named(AzString_copyFromBytes(reinterpret_cast<const uint8_t*>("article"), 0, 7)))),
+            AzCssPropertyWithConditions_simple(AzCssProperty_regionFragment(AzRegionFragment_Break)),
         }.data(),
-        15
+        16
+    );
+}
+
+// CSS: .flow-content
+inline AzCssPropertyWithConditionsVec style_flow_content() {
+    return AzCssPropertyWithConditionsVec_copyFromPtr(
+        std::vector<AzCssPropertyWithConditions>{
+            AzCssPropertyWithConditions_simple(AzCssProperty_flowInto(AzFlowInto_namedContent(AzString_copyFromBytes(reinterpret_cast<const uint8_t*>("article"), 0, 7)))),
+        }.data(),
+        1
+    );
+}
+
+// CSS: .exclusion
+inline AzCssPropertyWithConditionsVec style_exclusion() {
+    return AzCssPropertyWithConditionsVec_copyFromPtr(
+        std::vector<AzCssPropertyWithConditions>{
+            AzCssPropertyWithConditions_simple(AzCssProperty_wrapFlow(AzWrapFlow_Both)),
+            AzCssPropertyWithConditions_simple(AzCssProperty_wrapThrough(AzWrapThrough_None)),
+        }.data(),
+        2
     );
 }
 

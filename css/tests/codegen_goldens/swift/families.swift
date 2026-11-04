@@ -277,6 +277,22 @@ public func styleFragment() -> [CssPropertyWithConditions] {
         CssPropertyWithConditions.simple(CssProperty.columnRuleColor(ColumnRuleColor(inner: ColorU(r: 204, g: 204, b: 204, a: 255)))),
         CssPropertyWithConditions.simple(CssProperty.flowInto(FlowInto.named("article"))),
         CssPropertyWithConditions.simple(CssProperty.flowFrom(FlowFrom.named("article"))),
+        CssPropertyWithConditions.simple(CssProperty.regionFragment(RegionFragment.`break`)),
+    ]
+}
+
+// CSS: .flow-content
+public func styleFlowContent() -> [CssPropertyWithConditions] {
+    return [
+        CssPropertyWithConditions.simple(CssProperty.flowInto(FlowInto.namedContent("article"))),
+    ]
+}
+
+// CSS: .exclusion
+public func styleExclusion() -> [CssPropertyWithConditions] {
+    return [
+        CssPropertyWithConditions.simple(CssProperty.wrapFlow(WrapFlow.both)),
+        CssPropertyWithConditions.simple(CssProperty.wrapThrough(WrapThrough.none)),
     ]
 }
 

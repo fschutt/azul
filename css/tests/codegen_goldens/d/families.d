@@ -287,6 +287,24 @@ CssPropertyWithConditions[] styleFragment()
         CssPropertyWithConditions.simple(CssProperty.columnRuleColor(ColumnRuleColor(ColorU(204, 204, 204, 255)))),
         CssPropertyWithConditions.simple(CssProperty.flowInto(FlowInto.named("article"))),
         CssPropertyWithConditions.simple(CssProperty.flowFrom(FlowFrom.named("article"))),
+        CssPropertyWithConditions.simple(CssProperty.regionFragment(RegionFragment.break_)),
+    ];
+}
+
+// CSS: .flow-content
+CssPropertyWithConditions[] styleFlowContent()
+{
+    return [
+        CssPropertyWithConditions.simple(CssProperty.flowInto(FlowInto.namedContent("article"))),
+    ];
+}
+
+// CSS: .exclusion
+CssPropertyWithConditions[] styleExclusion()
+{
+    return [
+        CssPropertyWithConditions.simple(CssProperty.wrapFlow(WrapFlow.both)),
+        CssPropertyWithConditions.simple(CssProperty.wrapThrough(WrapThrough.none)),
     ];
 }
 

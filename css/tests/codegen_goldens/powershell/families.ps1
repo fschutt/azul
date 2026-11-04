@@ -317,7 +317,23 @@ function Get-StyleFragment {
         [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_columnRuleStyle([Azul.AzColumnRuleStyle]@{ inner = [Azul.BorderStyle]::Solid })),
         [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_columnRuleColor([Azul.AzColumnRuleColor]@{ inner = [Azul.AzColorU]@{ r = [byte]204; g = [byte]204; b = [byte]204; a = [byte]255 } })),
         [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_flowInto([Azul.NativeMethods]::AzFlowInto_named((New-CssString 'article')))),
-        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_flowFrom([Azul.NativeMethods]::AzFlowFrom_named((New-CssString 'article'))))
+        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_flowFrom([Azul.NativeMethods]::AzFlowFrom_named((New-CssString 'article')))),
+        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_regionFragment([Azul.RegionFragment]::Break))
+    ))
+}
+
+# CSS: .flow-content
+function Get-StyleFlowContent {
+    return (New-CssVec 'AzCssPropertyWithConditionsVec_copyFromPtr' ([Azul.AzCssPropertyWithConditions]) @(
+        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_flowInto([Azul.NativeMethods]::AzFlowInto_namedContent((New-CssString 'article'))))
+    ))
+}
+
+# CSS: .exclusion
+function Get-StyleExclusion {
+    return (New-CssVec 'AzCssPropertyWithConditionsVec_copyFromPtr' ([Azul.AzCssPropertyWithConditions]) @(
+        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_wrapFlow([Azul.WrapFlow]::Both)),
+        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_wrapThrough([Azul.WrapThrough]::None))
     ))
 }
 

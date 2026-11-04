@@ -299,7 +299,25 @@ fun styleFragment(): AzCssPropertyWithConditionsVec.ByValue {
         AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_columnRuleStyle(AzColumnRuleStyle.ByValue().apply { inner = BorderStyle.Solid.value })),
         AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_columnRuleColor(AzColumnRuleColor.ByValue().apply { inner = AzColorU.ByValue().apply { r = 204.toByte(); g = 204.toByte(); b = 204.toByte(); a = 255.toByte() } })),
         AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_flowInto(AzulNativeCss.AzFlowInto_named(azStr("article")))),
-        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_flowFrom(AzulNativeCss.AzFlowFrom_named(azStr("article"))))
+        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_flowFrom(AzulNativeCss.AzFlowFrom_named(azStr("article")))),
+        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_regionFragment(RegionFragment.Break.value))
+    )
+}
+
+// CSS: .flow-content
+fun styleFlowContent(): AzCssPropertyWithConditionsVec.ByValue {
+    return azVec(
+        AzulNativeVec::AzCssPropertyWithConditionsVec_copyFromPtr,
+        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_flowInto(AzulNativeCss.AzFlowInto_namedContent(azStr("article"))))
+    )
+}
+
+// CSS: .exclusion
+fun styleExclusion(): AzCssPropertyWithConditionsVec.ByValue {
+    return azVec(
+        AzulNativeVec::AzCssPropertyWithConditionsVec_copyFromPtr,
+        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_wrapFlow(WrapFlow.Both.value)),
+        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_wrapThrough(WrapThrough.None.value))
     )
 }
 

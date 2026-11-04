@@ -292,7 +292,23 @@ style_fragment :: proc() -> azul.AzCssPropertyWithConditionsVec {
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_columnRuleColor(azul.AzColumnRuleColor{inner = azul.AzColorU{r = 204, g = 204, b = 204, a = 255}})),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_flowInto(azul.AzFlowInto_named(css_str("article")))),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_flowFrom(azul.AzFlowFrom_named(css_str("article")))),
-	}[0], 15)
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_regionFragment(azul.AzRegionFragment.Break)),
+	}[0], 16)
+}
+
+// CSS: .flow-content
+style_flow_content :: proc() -> azul.AzCssPropertyWithConditionsVec {
+	return azul.AzCssPropertyWithConditionsVec_copyFromPtr(&[]azul.AzCssPropertyWithConditions{
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_flowInto(azul.AzFlowInto_namedContent(css_str("article")))),
+	}[0], 1)
+}
+
+// CSS: .exclusion
+style_exclusion :: proc() -> azul.AzCssPropertyWithConditionsVec {
+	return azul.AzCssPropertyWithConditionsVec_copyFromPtr(&[]azul.AzCssPropertyWithConditions{
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_wrapFlow(azul.AzWrapFlow.Both)),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_wrapThrough(azul.AzWrapThrough.None)),
+	}[0], 2)
 }
 
 // CSS: .shape
