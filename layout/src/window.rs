@@ -3592,6 +3592,20 @@ impl LayoutWindow {
             }
         }
 
+        // The pass is over for scrolling too. What its tail moved is part of
+        // it: the registration above clamping an offset the layout shrank
+        // under, or letting go of the state of a box that stopped being a
+        // scroll container (its node lives on when the app's rebuild put a
+        // plain box at the scroller's place - React's identity rules), and the
+        // caret's reveal, which rebuilt the list it moved. The clear at the
+        // end of `layout_dom_recursive_impl` came BEFORE all of these, so
+        // their marks outlived the pass: a latch nothing cleared until the
+        // next layout (`assert_state_machines_idle`: "scroll_dirty is still
+        // set"). A scroll AFTER this point is a new change and marks again.
+        if result.is_ok() {
+            self.scroll_manager.clear_scroll_dirty();
+        }
+
         // After successful layout, update the accessibility tree - AFTER the
         // scroll registration and the caret reveal above: a node's scroll
         // surface (its actions, extents and offset) is read from the
@@ -36907,6 +36921,113 @@ mod a_new_dom_through_the_layout_funnel_is_reconciled_tests {
         lw.layout_new_generation(doc(10), &ws, &rr, &sc, &mut None)
             .expect("the third layout");
         assert!((next_y(&lw) - before).abs() < 0.5, "back at y {before}: {}", next_y(&lw));
+    }
+}
+
+/// A layout pass that ends a box's scrolling leaves no scroll change pending.
+///
+/// With React's identity rules, the default since IDENTITY29, a keyless box is
+/// the box of its type at its place, whatever its id or classes: a page
+/// rebuilt with a plain box where a scroller stood keeps the scroller's NODE,
+/// and with it the scroller's scroll state - an offset of 120 px. The
+/// registration at the tail of the pass finds a box that is no scroll
+/// container any more and lets its state go; a state that goes with an offset
+/// marks the manager dirty ("content that was painted scrolled is painted
+/// where it lies now"). That mark came AFTER the pass's own clear, with the
+/// display list it asks for just built, and nothing cleared it again: the
+/// e2e scenario `manager_keys_drop_with_their_nodes` ended on
+/// "scroll_manager.scroll_dirty is still set".
+#[cfg(test)]
+mod a_pass_that_ends_a_boxs_scrolling_leaves_no_scroll_change_pending_tests {
+    use azul_core::{
+        dom::{Dom, DomId, NodeId},
+        geom::{LogicalPosition, LogicalSize},
+        resources::RendererResources,
+        styled_dom::StyledDom,
+    };
+    use rust_fontconfig::FcFontCache;
+
+    use super::LayoutWindow;
+    use crate::{callbacks::ExternalSystemCallbacks, window_state::FullWindowState};
+
+    /// body(0) > box(1).
+    const BOX: NodeId = NodeId::new(1);
+
+    fn page(scrolls: bool) -> StyledDom {
+        let mut boxed = Dom::create_div();
+        if scrolls {
+            boxed = boxed.with_css("width: 200px; height: 100px; overflow-y: scroll;");
+            for _ in 0..10 {
+                boxed = boxed.with_child(Dom::create_div().with_css("height: 50px;"));
+            }
+        } else {
+            boxed = boxed.with_css("width: 200px; height: 40px;");
+        }
+        StyledDom::create_from_dom(Dom::create_body().with_css("margin: 0;").with_child(boxed))
+    }
+
+    #[test]
+    fn a_scrolled_box_rebuilt_as_a_plain_one_leaves_the_scroll_manager_clean() {
+        let mut lw = LayoutWindow::new(FcFontCache::build()).expect("a layout window");
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = LogicalSize::new(400.0, 300.0);
+        lw.current_window_state = ws.clone();
+        let rr = RendererResources::default();
+        let sc = ExternalSystemCallbacks::rust_internal();
+        lw.layout_and_generate_display_list(page(true), &ws, &rr, &sc, &mut None)
+            .expect("the first layout");
+        let now = azul_core::task::Instant::now();
+        lw.scroll_manager.set_scroll_position(
+            DomId::ROOT_ID,
+            BOX,
+            LogicalPosition::new(0.0, 120.0),
+            now.clone(),
+        );
+        assert!(
+            lw.scroll_manager.has_pending_scroll_changes(),
+            "harness: the scroll marks the manager"
+        );
+
+        // The rebuilt page: a plain box where the scroller stood.
+        let mut next = page(false);
+        let pending = lw.begin_reconciliation(DomId::ROOT_ID, &mut next, now);
+        assert!(
+            lw.scroll_manager.state_keys().contains(&(DomId::ROOT_ID, BOX)),
+            "harness: the plain box is the scroller's node, and has its scroll state"
+        );
+        lw.layout_new_generation(next, &ws, &rr, &sc, &mut None)
+            .expect("the second layout");
+        lw.finish_reconciliation(DomId::ROOT_ID, &pending);
+
+        assert!(
+            !lw.scroll_manager.state_keys().contains(&(DomId::ROOT_ID, BOX)),
+            "a box that is no scroll container keeps no scroll state"
+        );
+        assert!(
+            !lw.scroll_manager.has_pending_scroll_changes(),
+            "the pass built the page the box is in; nothing is left to rebuild"
+        );
+    }
+
+    /// The converse: a scroll AFTER the pass is a change nobody has seen.
+    #[test]
+    fn a_scroll_after_the_pass_is_still_pending() {
+        let mut lw = LayoutWindow::new(FcFontCache::build()).expect("a layout window");
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = LogicalSize::new(400.0, 300.0);
+        lw.current_window_state = ws.clone();
+        let rr = RendererResources::default();
+        let sc = ExternalSystemCallbacks::rust_internal();
+        lw.layout_and_generate_display_list(page(true), &ws, &rr, &sc, &mut None)
+            .expect("the layout");
+        assert!(!lw.scroll_manager.has_pending_scroll_changes());
+        lw.scroll_manager.set_scroll_position(
+            DomId::ROOT_ID,
+            BOX,
+            LogicalPosition::new(0.0, 60.0),
+            azul_core::task::Instant::now(),
+        );
+        assert!(lw.scroll_manager.has_pending_scroll_changes());
     }
 }
 
