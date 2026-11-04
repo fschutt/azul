@@ -6409,7 +6409,11 @@ pub fn handle_event_request(
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, Copy, serde::Deserialize, serde::Serialize, Default)]
 pub struct E2eConfig {
-    /// failure instead of aborting the test immediately.  Default: `false`.
+    /// Keep running the steps after a red one and report EVERY red step, instead
+    /// of aborting the test at the first (`azul-doc e2e --keep-going` sets it on
+    /// every scenario). A step after a red one runs against whatever the red one
+    /// left behind, so the first red step is the cause and the later ones may be
+    /// its echo.  Default: `false`.
     #[serde(default)]
     pub continue_on_failure: bool,
     /// Milliseconds to wait between successive steps.  Useful for visual

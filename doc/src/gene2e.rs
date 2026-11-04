@@ -3055,7 +3055,27 @@ impl ReviewEntry {
             .collect()
     }
 
-    /// `generated` / `gate-rejected`, and `pass` / `fail` / `not run`.
+    /// Did the scenario run and fail? A `pending` scenario (it says what it
+    /// waits for - the prompt tells the model to write one for a line the ops
+    /// cannot express) and a skipped one ran no step: they are parked, not red.
+    fn is_red(&self) -> bool {
+        self.run
+            .as_ref()
+            .is_some_and(|r| !matches!(r.status.as_str(), "pass" | "pending" | "skip"))
+    }
+
+    /// The reason a scenario ran no step, if it is parked.
+    fn parked(&self) -> Option<(&str, &str)> {
+        let r = self.run.as_ref()?;
+        matches!(r.status.as_str(), "pending" | "skip").then(|| {
+            (
+                r.status.as_str(),
+                r.skip_reason.as_deref().unwrap_or("(no reason given)"),
+            )
+        })
+    }
+
+    /// `generated` / `gate-rejected`, and `pass` / `fail` / `pending` / `not run`.
     fn status(&self) -> (&'static str, &'static str) {
         let gen = if self.json.is_some() {
             "ok"
@@ -3064,6 +3084,8 @@ impl ReviewEntry {
         };
         let run = match self.run.as_ref().map(|r| r.status.as_str()) {
             Some("pass") => "pass",
+            Some("pending") => "PENDING",
+            Some("skip") => "skip",
             Some(_) => "FAIL",
             None => "not run",
         };
@@ -3161,11 +3183,8 @@ pub fn render_facts(b: &ReviewBatch) -> String {
         .iter()
         .filter(|e| e.run.as_ref().is_some_and(|r| r.status == "pass"))
         .count();
-    let failed = b
-        .entries
-        .iter()
-        .filter(|e| e.run.as_ref().is_some_and(|r| r.status != "pass"))
-        .count();
+    let failed = b.entries.iter().filter(|e| e.is_red()).count();
+    let parked = b.entries.iter().filter(|e| e.parked().is_some()).count();
     let with_png = b
         .entries
         .iter()
@@ -3188,13 +3207,18 @@ pub fn render_facts(b: &ReviewBatch) -> String {
     );
     s.push_str(&format!(
         "- corpus: `{}`\n- out-dir: `{}`\n- batch: **{n}** line(s) — {generated} generated, {} \
-         rejected by the gate\n- run: **{passed} passed, {failed} failed**{}\n- run mode: every \
+         rejected by the gate\n- run: **{passed} passed, {failed} failed**{}{}\n- run mode: every \
          red step of a scenario is reported (keep-going), results are paired with their FILES, \
          not with names\n- scenarios that capture an image: {with_png}/{generated} (NOT \
          required — images are triage material, see below)\n\n",
         b.corpus,
         b.out_dir.display(),
         n - generated,
+        if parked == 0 {
+            String::new()
+        } else {
+            format!(", {parked} parked (pending / skipped: no step ran)")
+        },
         if unrun == 0 {
             String::new()
         } else {
@@ -3233,11 +3257,7 @@ pub fn render_facts(b: &ReviewBatch) -> String {
     s.push_str("```\n");
 
     // ---- failures, attributed -------------------------------------------
-    let failures: Vec<&ReviewEntry> = b
-        .entries
-        .iter()
-        .filter(|e| e.run.as_ref().is_some_and(|r| r.status != "pass"))
-        .collect();
+    let failures: Vec<&ReviewEntry> = b.entries.iter().filter(|e| e.is_red()).collect();
     s.push_str("\n### Failures, attributed\n\n");
     if failures.is_empty() {
         s.push_str(
@@ -3264,6 +3284,24 @@ pub fn render_facts(b: &ReviewBatch) -> String {
                 s.push_str(&format!(
                     "  - step {idx} `{op}`{also}: {}\n",
                     cell(err, 400)
+                ));
+            }
+        }
+    }
+
+    // ---- parked: pending / skipped ---------------------------------------
+    // A scenario that says what it waits for (`pending`) is not a failure and
+    // not a pass - and WHAT it waits for is the reviewer's best evidence of a
+    // missing op.
+    let parked: Vec<&ReviewEntry> = b.entries.iter().filter(|e| e.parked().is_some()).collect();
+    if !parked.is_empty() {
+        s.push_str("\n### Parked (ran no step)\n\n");
+        for e in parked {
+            if let Some((status, why)) = e.parked() {
+                s.push_str(&format!(
+                    "- `{}`\n  - {status}: {}\n",
+                    cell(&e.line, 120),
+                    cell(why, 300)
                 ));
             }
         }
@@ -5989,6 +6027,46 @@ fn eval_assert_changed(params: &Value) -> AssertionResult {{
             ],
         );
         assert_eq!(b2.entries[0].status().1, "pass");
+    }
+
+    /// The prompt tells the model to park a line the ops cannot express with a
+    /// top-level "pending": a parked scenario ran no step, so it is neither a
+    /// pass nor a failure - and the reason it gives is the evidence of a missing op.
+    #[test]
+    fn a_pending_scenario_is_parked_not_failed() {
+        let mut b = sample_batch();
+        let mut parked = result("good", Vec::new());
+        parked.status = "pending".to_string();
+        parked.skip_reason = Some("needs a mountable VirtualView".to_string());
+        b.entries[0].run = Some(parked);
+        let f = render_facts(&b);
+
+        assert!(f.contains("**0 passed, 2 failed**"), "{f}");
+        assert!(
+            f.contains("1 parked (pending / skipped: no step ran)"),
+            "{f}"
+        );
+        assert!(f.contains("| PENDING |"), "{f}");
+        let failures = f
+            .split("### Failures, attributed")
+            .nth(1)
+            .unwrap()
+            .split("### Parked")
+            .next()
+            .unwrap();
+        assert!(
+            !failures.contains("clicking a button repaints only the button"),
+            "a parked scenario is not listed among the failures:\n{failures}"
+        );
+        let section = f
+            .split("### Parked (ran no step)")
+            .nth(1)
+            .expect("a parked section");
+        assert!(
+            section.contains("clicking a button repaints only the button"),
+            "{f}"
+        );
+        assert!(section.contains("needs a mountable VirtualView"), "{f}");
     }
 
     /// A scenario that loaded and got no result back is SAID in the header,
