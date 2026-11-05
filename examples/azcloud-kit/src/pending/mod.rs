@@ -14,6 +14,13 @@
 //! its own (a closed popover, a timeout) takes one off. The proofs and their evidence are in
 //! `proof.rs`, the only file that makes a [`Settled`].
 //!
+//! A new order goes on the list BEFORE its `POST /v1/checkout` is sent ([`begin`], [`place_order`]:
+//! the entry is a "posting", [`PendingCheckout::is_posting`]), under the list's lock: an answer
+//! that is lost leaves a record, the same order asked again goes out under the same claim key
+//! and gets the first answer, and no second order of the same [`Intent`] is open at the same
+//! time - from this window, a second window or the run after a restart - so the buyer never pays
+//! twice for one thing. [`posted`] puts the real checkout in the posting's place.
+//!
 //! An app polls them while its dialog waits, at every start and in the background after "Stop
 //! waiting" ([`poll`]): an approved checkout becomes the drive - its session goes into the
 //! keyring under the drive's lock unless the keyring has it already (idempotent by drive id: a
@@ -50,7 +57,7 @@ use crate::{
 mod proof;
 
 pub use proof::Settled;
-use proof::{ClaimsEnded, GrantKept, NeverIssued, NoSuchCheckout, Strikes};
+use proof::{ClaimsEnded, GrantKept, NeverIssued, NoSuchCheckout, NotMade, Strikes};
 
 /// The keyring entry of the unfinished checkouts.
 pub const PENDING_KEY: &str = "azcloud/checkouts";
@@ -63,6 +70,11 @@ pub const MAX_PENDING_BYTES: usize = 2560;
 /// What an entry's id starts with while its order is on its way (`posting-<claim key's digest>`):
 /// a word no checkout id of the token server (`ck_...`) starts with.
 pub const POSTING_PREFIX: &str = "posting-";
+/// How long the entry of an order that got no answer is kept as the record of it: a day. Its
+/// payment page was never shown, so nobody can pay what it may have made; the entry is there for
+/// the retry (the same claim key, so the same idempotency key, so the first answer) and for
+/// support.
+pub const POSTING_LIFE_SECS: i64 = 86_400;
 /// The longest drive name a checkout keeps, in characters.
 pub const MAX_NAME_CHARS: usize = 64;
 /// The room [`add`] leaves for each unclaimed checkout's [`PendingTokens`] (a drive id of up to
@@ -268,6 +280,46 @@ impl PendingCheckout {
         self.checkout_id.starts_with(POSTING_PREFIX)
     }
 
+    /// The entry of the order about to be sent with `claim` (state `Posting`): it holds the claim
+    /// secret and what the order is for - set `for_drive` and `change_tier` after this, for a
+    /// renewal or a change of tier - so an answer that is lost leaves a record, and the same
+    /// order asked again finds it ([`begin`]).
+    #[must_use]
+    pub fn posting(claim: &ClaimKey, tier: &str, token_url: &str, name: &str) -> PendingCheckout {
+        use sha2::{Digest, Sha256};
+        let digest = Sha256::digest(claim.public_base64().as_bytes());
+        let id = format!("{POSTING_PREFIX}{}", crate::period::hex(&digest[..8]));
+        PendingCheckout::new(&id, claim, tier, token_url, name)
+    }
+
+    /// What the checkout is for. Derived from the entry, never stored: its JSON keeps its shape.
+    #[must_use]
+    pub fn intent(&self) -> Intent {
+        let drive = self.for_drive.trim();
+        if drive.is_empty() {
+            Intent::NewDrive {
+                tier: self.tier.trim().to_string(),
+            }
+        } else if self.change_tier {
+            Intent::Change {
+                drive: drive.to_string(),
+            }
+        } else {
+            Intent::Renew {
+                drive: drive.to_string(),
+            }
+        }
+    }
+
+    /// An order of this computer that may still be paid and has not brought its drive (or
+    /// months) yet - the kind that a second order of the same intent would pay twice. Not a
+    /// claimed one (its months wait for the vault), not one picked up with a claim code (bought
+    /// elsewhere), not a cash order (posted money is the buyer's own act).
+    #[must_use]
+    pub fn is_open_order(&self) -> bool {
+        self.period.is_none() && !self.picked_up && !self.is_cash()
+    }
+
     /// The claim key the checkout named.
     ///
     /// # Errors
@@ -387,33 +439,300 @@ pub fn list(shared: &SharedKeyring) -> CloudResult<Vec<PendingCheckout>> {
     read(shared)
 }
 
+/// What a checkout is for. Two orders of one intent are never open at once - the buyer would pay
+/// twice for one thing ([`begin`]) -; two of different intents (a new drive and a renewal, two
+/// drives' renewals) are.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Intent {
+    /// A new drive of this tier.
+    NewDrive { tier: String },
+    /// The next months of this drive.
+    Renew { drive: String },
+    /// This drive moved to another tier.
+    Change { drive: String },
+}
+
+/// Why the list did not take an entry.
+#[derive(Debug)]
+pub enum AddError {
+    /// An order of the same intent is open: it may be paid, or paid already. The buyer never
+    /// pays twice for one thing, so no second one is started before the first one is ended
+    /// ([`abandon`]) or brought its drive.
+    SameIntentOpen {
+        /// The open order's checkout.
+        checkout_id: String,
+        /// Its abandon found it paid, or could not end it ([`PendingCheckout::in_flight_since`]).
+        may_be_paid: bool,
+    },
+    /// The entry would not fit in the keyring's one entry of the list ([`MAX_PENDING_BYTES`]).
+    NoRoom { waiting: usize },
+    /// The keyring could not be read or written.
+    Keyring(CloudError),
+}
+
+impl fmt::Display for AddError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            AddError::SameIntentOpen {
+                checkout_id,
+                may_be_paid,
+            } => write!(
+                f,
+                "an earlier order for the same ({checkout_id}) is still open{}",
+                if *may_be_paid { " and may be paid" } else { "" }
+            ),
+            AddError::NoRoom { waiting } => write!(
+                f,
+                "{waiting} unfinished checkouts wait already, and the keyring keeps no more of \
+                 them in one entry (Windows keeps {MAX_PENDING_BYTES} bytes): let them be paid or \
+                 expire first"
+            ),
+            AddError::Keyring(e) => write!(f, "{e}"),
+        }
+    }
+}
+
+impl std::error::Error for AddError {}
+
+impl AddError {
+    /// The error as the kit's other calls say it.
+    fn into_cloud(self) -> CloudError {
+        match self {
+            AddError::Keyring(e) => e,
+            other => CloudError::failed(other.to_string()),
+        }
+    }
+}
+
+/// What [`begin`] found.
+#[derive(Debug)]
+pub enum Begun {
+    /// The order's entry is on the list, under the claim key the order brought.
+    Fresh,
+    /// The same order was begun before and got no answer: its entry - claim secret included -
+    /// stays, and the order goes on under THAT claim key, so the token server, which knows the
+    /// first attempt by it, answers with the first attempt's checkout instead of a second one
+    /// ([`IdempotentScope::Checkout`]).
+    Resumed(Box<PendingCheckout>),
+}
+
 /// Adds `checkout` to the list (replacing one with its id; its name cut to
 /// [`MAX_NAME_CHARS`]) - unless the list's entry would grow past [`MAX_PENDING_BYTES`], with
 /// room for every unclaimed checkout's issue key ([`claimed`]): then the checkout is refused,
 /// before its payment page opens (the ones waiting finish or expire first; a paid one is
 /// claimed at the next poll).
 ///
+/// This is the list's primitive. A new ORDER goes in through [`begin`], which also keeps the
+/// buyer from paying twice for one thing.
+///
 /// # Errors
 ///
 /// When the list cannot be read or written, or has no room left.
 pub fn add(shared: &SharedKeyring, checkout: &PendingCheckout) -> CloudResult<()> {
-    let _lock = shared.lock(PENDING_KEY)?;
-    let mut checkouts = read(shared)?;
+    insert(shared, checkout, false)
+        .map(|_| ())
+        .map_err(AddError::into_cloud)
+}
+
+/// The entry of a new order, made BEFORE its `POST /v1/checkout` is sent (state `Posting`, see
+/// [`PendingCheckout::posting`]), under the list's lock - so a second window, and the run after a
+/// restart, see it: an answer that is lost leaves a record of the order, and no second order of
+/// the same [`Intent`] is open at the same time as the first.
+///
+/// - an open order of the same intent that is a real checkout: [`AddError::SameIntentOpen`] (it
+///   is ended with [`abandon`] first, or it brings its drive);
+/// - an entry of the same intent that is a posting (an earlier attempt whose answer was lost):
+///   [`Begun::Resumed`];
+/// - else the entry goes on the list: [`Begun::Fresh`].
+///
+/// A claimed checkout, a cash order and a picked-up one do not count as open
+/// ([`PendingCheckout::is_open_order`]).
+///
+/// # Errors
+///
+/// [`AddError`].
+pub fn begin(shared: &SharedKeyring, order: &PendingCheckout) -> Result<Begun, AddError> {
+    insert(shared, order, true)
+}
+
+/// Puts `checkout` on the list, `guarded` by the intent check of [`begin`].
+fn insert(
+    shared: &SharedKeyring,
+    checkout: &PendingCheckout,
+    guarded: bool,
+) -> Result<Begun, AddError> {
+    let _lock = shared.lock(PENDING_KEY).map_err(AddError::Keyring)?;
+    let mut checkouts = read(shared).map_err(AddError::Keyring)?;
+    if guarded {
+        let intent = checkout.intent();
+        // A posting whose claim key does not read cannot be resumed: it is left to age out
+        // ([`forget_stale_postings`]) and a new one is made beside it.
+        let open = checkouts.iter().find(|c| {
+            c.is_open_order()
+                && c.intent() == intent
+                && (c.checkout_id == checkout.checkout_id
+                    || !c.is_posting()
+                    || c.claim_key().is_ok())
+        });
+        if let Some(open) = open {
+            if open.is_posting() {
+                return Ok(Begun::Resumed(Box::new(open.clone())));
+            }
+            return Err(AddError::SameIntentOpen {
+                checkout_id: open.checkout_id.clone(),
+                may_be_paid: open.in_flight_since.is_some(),
+            });
+        }
+    }
     checkouts.retain(|c| c.checkout_id != checkout.checkout_id);
+    place(shared, checkouts, checkout).map(|()| Begun::Fresh)
+}
+
+/// `checkouts` and `checkout` as the list's one entry, if they fit.
+fn place(
+    shared: &SharedKeyring,
+    mut checkouts: Vec<PendingCheckout>,
+    checkout: &PendingCheckout,
+) -> Result<(), AddError> {
     let waiting = checkouts.len();
     let mut kept = checkout.clone();
     kept.name = short_name(&kept.name);
     checkouts.push(kept);
     let unclaimed = checkouts.iter().filter(|c| c.period.is_none()).count();
-    let text = text_of(checkouts)?;
+    let text = text_of(checkouts).map_err(AddError::Keyring)?;
     if text.len() + unclaimed * PERIOD_ROOM > MAX_PENDING_BYTES {
-        fail!(
-            "{waiting} unfinished checkouts wait already, and the keyring keeps no more of them in \
-             one entry (Windows keeps {MAX_PENDING_BYTES} bytes): let them be paid or expire \
-             first"
-        );
+        return Err(AddError::NoRoom { waiting });
     }
-    shared.set(PENDING_KEY, &text)
+    shared.set(PENDING_KEY, &text).map_err(AddError::Keyring)
+}
+
+/// The order whose entry is `posting_id` (made by [`begin`]) got its answer: `checkout`, the real
+/// entry (the token server's checkout id), takes its place on the list. Whoever made the entry
+/// shows nothing of the checkout before this has returned.
+///
+/// # Errors
+///
+/// [`AddError`]: no room for the real entry (it holds more than the posting), or the keyring. The
+/// posting stays then, and the order asked again gets the same checkout.
+pub fn posted(
+    shared: &SharedKeyring,
+    posting_id: &str,
+    checkout: &PendingCheckout,
+) -> Result<(), AddError> {
+    let _lock = shared.lock(PENDING_KEY).map_err(AddError::Keyring)?;
+    let mut checkouts = read(shared).map_err(AddError::Keyring)?;
+    checkouts.retain(|c| c.checkout_id != posting_id && c.checkout_id != checkout.checkout_id);
+    place(shared, checkouts, checkout)
+}
+
+/// The token server REFUSED the order whose entry is `posting_id` with `refusal`: it made no
+/// checkout, so the entry goes. An error that is not a refusal (no answer, a busy server) leaves
+/// the entry where it is - the checkout may exist - and answers `false`; so does an entry that is
+/// not on the list any more.
+///
+/// # Errors
+///
+/// When the list cannot be read or written.
+pub fn order_refused(
+    shared: &SharedKeyring,
+    posting_id: &str,
+    refusal: &TokenError,
+) -> CloudResult<bool> {
+    match NotMade::refused(refusal) {
+        Some(none) => settle(shared, posting_id, Settled::not_made(&none)),
+        None => Ok(false),
+    }
+}
+
+/// Takes off the list the entries of orders whose answer never came, [`POSTING_LIFE_SECS`] or
+/// more before `now` (seconds since 1970): how many went. Their payment page was never shown.
+///
+/// # Errors
+///
+/// When the list cannot be read or written.
+pub fn forget_stale_postings(shared: &SharedKeyring, now: i64) -> CloudResult<usize> {
+    let mut gone = 0;
+    for entry in list(shared)? {
+        if let Some(none) = NotMade::stale(&entry, now) {
+            if settle(shared, &entry.checkout_id, Settled::not_made(&none))? {
+                gone += 1;
+            }
+        }
+    }
+    Ok(gone)
+}
+
+/// An order placed: the claim key it went out under, the entry it holds on the list until
+/// [`posted`], and what the token server answered.
+#[derive(Debug)]
+pub struct Placed<T> {
+    pub claim: ClaimKey,
+    /// The id of the order's entry on the list (to hand to [`posted`]).
+    pub posting_id: String,
+    pub answer: T,
+}
+
+/// Why an order was not placed.
+#[derive(Debug)]
+pub enum OrderError {
+    /// The list refused to begin it ([`begin`]): nothing was sent.
+    Refused(AddError),
+    /// The token server's answer to the order is an error. A refusal ended the order's entry
+    /// (the server made no checkout); no answer at all, a busy server or a 5xx leaves it as the
+    /// record - the same order asked again goes out under the same claim key ([`Begun::Resumed`]).
+    Token(TokenError),
+}
+
+impl fmt::Display for OrderError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            OrderError::Refused(e) => write!(f, "{e}"),
+            OrderError::Token(e) => write!(f, "{e}"),
+        }
+    }
+}
+
+impl std::error::Error for OrderError {}
+
+/// Places the order `draft` (an entry made by [`PendingCheckout::posting`], with the order's
+/// `for_drive` and `change_tier` set): the entry goes on the list BEFORE anything is sent
+/// ([`begin`]), `send` makes the call under the claim key the entry holds (the draft's, or the
+/// one of an earlier attempt that got no answer), and the answer - or the refusal that ended the
+/// order - is dealt with on the list. The caller turns the answer into the real entry and calls
+/// [`posted`] before it shows anything of the checkout.
+///
+/// # Errors
+///
+/// [`OrderError`].
+pub fn place_order<T>(
+    shared: &SharedKeyring,
+    draft: &PendingCheckout,
+    send: impl FnOnce(&ClaimKey) -> Result<T, TokenError>,
+) -> Result<Placed<T>, OrderError> {
+    let (claim, posting_id) = match begin(shared, draft).map_err(OrderError::Refused)? {
+        Begun::Fresh => (draft.claim_key(), draft.checkout_id.clone()),
+        Begun::Resumed(earlier) => (earlier.claim_key(), earlier.checkout_id.clone()),
+    };
+    let claim = claim.map_err(|e| {
+        OrderError::Refused(AddError::Keyring(CloudError::failed(format!(
+            "the order's claim key cannot be read: {e}"
+        ))))
+    })?;
+    match send(&claim) {
+        Ok(answer) => Ok(Placed {
+            claim,
+            posting_id,
+            answer,
+        }),
+        Err(e) => {
+            // A refusal made no checkout; anything else may have: the entry stays as the record.
+            // A list that cannot be written changes nothing for the caller (the error is the
+            // token server's) and leaves the entry, which ages out.
+            // collapse-ok: the entry is only a record; keeping it is the safe side of a failure
+            let _ = order_refused(shared, &posting_id, &e);
+            Err(OrderError::Token(e))
+        }
+    }
 }
 
 /// `name` trimmed and cut to [`MAX_NAME_CHARS`] characters.

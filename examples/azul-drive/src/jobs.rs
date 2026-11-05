@@ -2345,10 +2345,14 @@ const CLAIM_POLL_SECS: u64 = 10;
 /// How long the background claims go on in one run (the next start asks again).
 const CLAIM_WAIT_SECS: u64 = 3600;
 
-/// A checkout of `tier`, its sign-up sealed to a new claim key; the checkout (its key's secret,
-/// its tier, the drive's `name`, its token server) goes on the keyring's list of unfinished
-/// checkouts BEFORE its payment page opens - a drive paid after this window stopped waiting, or
-/// after AzDrive closed, is claimed with it.
+/// A checkout of `tier`, its sign-up sealed to a claim key. The order's entry (the claim key's
+/// secret, its tier, the drive's `name`, its token server) goes on the keyring's list BEFORE the
+/// order is sent ([`pending::place_order`]): an answer that is lost leaves a record, the same
+/// order asked again goes out under the same claim key and gets the first answer, and no second
+/// order of the same intent is open at the same time - from this window, a second window or after
+/// a restart (AZ-P4, AZ-P8). The checkout takes the entry's place ([`pending::posted`]) before
+/// its payment page opens, so a drive paid after this window stopped waiting, or after AzDrive
+/// closed, is claimed with it.
 #[allow(clippy::too_many_arguments)]
 fn start_checkout(
     token_url: &str,
@@ -2374,27 +2378,84 @@ fn start_checkout(
             let tokens = drive_tokens(&r.store, &r.order.drive_id, r.azlin.as_ref()).ok()?;
             tokens.state().ok()?.renewal_lock(&r.order.tier).cloned()
         });
-    let started = checkout_for(&server, tier, months, method, via, order_of(renew, lock.as_ref()));
-    let (claim, checkout, answer, renews) = match started {
-        Err(e) if lock.is_some() && e.is_lock_refused() => {
-            let (claim, checkout, answer) =
-                checkout_for(&server, tier, months, method, via, order_of(renew, None))
-                    .map_err(|e| token_error_text(&e))?;
-            (claim, checkout, answer, None)
-        }
-        // In the table's words: a busy token server says when the next try is.
-        Err(e) => return Err(token_error_text(&e)),
-        Ok((claim, checkout, answer)) => (claim, checkout, answer, lock.map(|l| l.checkout_id)),
+    let fresh = ClaimKey::generate().map_err(|e| token_error_text(&TokenError::Config(e.to_string())))?;
+    let mut draft = PendingCheckout::posting(&fresh, tier, server.base(), name);
+    if let Some(r) = renew {
+        draft.for_drive = r.order.drive_id.clone();
+        draft.change_tier = r.order.change_tier;
+    }
+    let order = |what: CheckoutFor<'_>| {
+        pending::place_order(keyring, &draft, |claim| {
+            checkout_for(&server, claim, tier, months, method, via, what)
+        })
     };
-    let mut kept = PendingCheckout::new(&checkout.checkout_id, &claim, tier, server.base(), name);
+    let placed = match order(order_of(renew, lock.as_ref())) {
+        Err(pending::OrderError::Token(e)) if lock.is_some() && e.is_lock_refused() => {
+            // The refusal ended that order's entry: the one without the lock is a new one.
+            order(order_of(renew, None)).map(|placed| (placed, None))
+        }
+        other => other.map(|placed| (placed, lock.as_ref().map(|l| l.checkout_id.clone()))),
+    };
+    let (placed, renews) = placed.map_err(|e| order_error_text(&e))?;
+    let (checkout, answer) = placed.answer;
+    let mut kept = PendingCheckout::new(
+        &checkout.checkout_id,
+        &placed.claim,
+        tier,
+        server.base(),
+        name,
+    );
     kept.ladder_version = checkout.ladder_version;
     if let Some(r) = renew {
         kept.for_drive = r.order.drive_id.clone();
         kept.change_tier = r.order.change_tier;
         kept.renews = renews.unwrap_or_default();
     }
-    finish_start(&server, keyring, tier, months, via, checkout, answer, kept)
-        .map_err(|why| crate::l10n::said(&why))
+    finish_start(
+        &server,
+        keyring,
+        &placed.posting_id,
+        tier,
+        months,
+        via,
+        checkout,
+        answer,
+        kept,
+    )
+}
+
+/// An order that was not placed, in the app's words: the token server's error as its table words
+/// it, or why the list did not begin the order.
+fn order_error_text(e: &pending::OrderError) -> Text {
+    match e {
+        pending::OrderError::Token(e) => token_error_text(e),
+        pending::OrderError::Refused(e) => add_error_text(e),
+    }
+}
+
+/// Why the keyring's list did not take an order, in the app's words.
+fn add_error_text(e: &pending::AddError) -> Text {
+    match e {
+        // The earlier order is paid, or may be: its drive comes; nothing new is ordered.
+        pending::AddError::SameIntentOpen {
+            checkout_id,
+            may_be_paid: true,
+        } => Phrase::new("azdrive-order-earlier-paid")
+            .arg("checkout", checkout_id.as_str())
+            .into(),
+        pending::AddError::SameIntentOpen {
+            checkout_id,
+            may_be_paid: false,
+        } => Phrase::new("azdrive-order-earlier-open")
+            .arg("checkout", checkout_id.as_str())
+            .into(),
+        pending::AddError::NoRoom { waiting } => Phrase::new("azdrive-order-no-room")
+            .arg("waiting", *waiting)
+            .into(),
+        pending::AddError::Keyring(e) => Phrase::new("azdrive-order-not-kept")
+            .arg("why", e.to_string())
+            .into(),
+    }
 }
 
 /// What a checkout buys: a new drive, or for a Renew order the drive's next months under
@@ -2413,25 +2474,25 @@ fn order_of<'a>(
 }
 
 /// The checkout of `tier` for `months` through `via` (else the v1 checkout by `method`) for
-/// `what`, its sign-up sealed to a new claim key.
+/// `what`, its sign-up sealed to `claim` (the claim key of the order's entry on the list).
 fn checkout_for(
     server: &TokenServer<'_>,
+    claim: &ClaimKey,
     tier: &str,
     months: u32,
     method: &str,
     via: Option<&PayVia>,
     what: CheckoutFor<'_>,
-) -> Result<(ClaimKey, Checkout, Option<serde_json::Value>), TokenError> {
-    let claim = ClaimKey::generate().map_err(|e| TokenError::Config(e.to_string()))?;
+) -> Result<(Checkout, Option<serde_json::Value>), TokenError> {
     let (checkout, answer) = match via {
         // Cash by post: the method alone (the token server takes it with or without payment
         // options).
         Some(via) if via.surface == SurfaceKind::Paper => {
             let (checkout, answer) =
-                server.checkout_cash(tier, months, &via.country, via.consent, &claim, what)?;
+                server.checkout_cash(tier, months, &via.country, via.consent, claim, what)?;
             (checkout, Some(answer))
         }
-        None => (server.checkout(tier, months, method, &claim, what)?, None),
+        None => (server.checkout(tier, months, method, claim, what)?, None),
         Some(via) => {
             // Only the details the method's provider wants from the app, only for this request.
             let payer: Vec<(&str, &str)> = via
@@ -2453,49 +2514,57 @@ fn checkout_for(
                 withdrawal_consent: via.consent,
                 payer: &payer,
             };
-            let (checkout, answer) = server.checkout_via(tier, months, &through, &claim, what)?;
+            let (checkout, answer) = server.checkout_via(tier, months, &through, claim, what)?;
             (checkout, Some(answer))
         }
     };
-    Ok((claim, checkout, answer))
+    Ok((checkout, answer))
 }
 
-/// A checkout made: onto the keyring's list as `kept` before anything shows it (cash by post
-/// with its slip), and its surface read.
+/// A checkout made: its entry takes the order's place on the keyring's list as `kept` before
+/// anything shows it (cash by post with its slip), and its surface read. `posting_id` is the
+/// order's entry ([`pending::posted`]).
 #[allow(clippy::too_many_arguments)]
 fn finish_start(
     server: &TokenServer<'_>,
     keyring: &SharedKeyring,
+    posting_id: &str,
     tier: &str,
     months: u32,
     via: Option<&PayVia>,
     checkout: Checkout,
     answer: Option<serde_json::Value>,
     mut kept: PendingCheckout,
-) -> Result<Started, String> {
+) -> Result<Started, Text> {
     // Cash by post: the slip, checked, waits in the list with its checkout (it is printed
     // again from there); one that is not this order's is never printed. A new drive's order
     // keeps the drive's key there too, whose id the buyer's copy prints.
     let cash = match (via, &answer) {
         (Some(via), Some(answer)) if via.surface == SurfaceKind::Paper => {
-            let slip = cash_slip(answer, via)?;
-            crate::cash::keep_order(&mut kept, &slip, tier, months)?;
+            let slip = cash_slip(answer, via)
+                .map_err(|why| not_shown(server, keyring, &checkout, Text::plain(why)))?;
+            crate::cash::keep_order(&mut kept, &slip, tier, months)
+                .map_err(|why| not_shown(server, keyring, &checkout, crate::l10n::said(&why)))?;
             Some(slip)
         }
         _ => None,
     };
-    pending::add(keyring, &kept).map_err(|e| {
-        format!("the keyring did not keep the checkout's claim key ({e}), so it was not opened")
-    })?;
+    if let Err(e) = pending::posted(keyring, posting_id, &kept) {
+        return Err(not_shown(server, keyring, &checkout, add_error_text(&e)));
+    }
     let created = match (via, answer) {
         (Some(_), Some(_)) if cash.is_some() => None,
         (Some(via), Some(answer)) => match Created::parse(&answer, &via.choice, &via.look) {
             Ok(created) => Some(created),
             Err(refused) => {
                 // Nothing of it is shown: nobody may pay it. It leaves the list only when the
-                // token server ended it.
-                let _ = pending::abandon(server, keyring, &checkout.checkout_id);
-                return Err(refused.to_string());
+                // token server ended it - and the words say when it did not.
+                return Err(not_shown(
+                    server,
+                    keyring,
+                    &checkout,
+                    Text::plain(refused.to_string()),
+                ));
             }
         },
         _ => None,
@@ -2506,6 +2575,34 @@ fn finish_start(
         created,
         cash,
     })
+}
+
+/// The checkout `checkout` was made and is not shown (`why`): nobody may pay it, so the token
+/// server is asked to end it. Whether it did decides what the buyer is told (X-AR5b-8): an order
+/// that could not be ended stays on the keyring's list, in flight, in case it is paid.
+fn not_shown(
+    server: &TokenServer<'_>,
+    keyring: &SharedKeyring,
+    checkout: &Checkout,
+    why: Text,
+) -> Text {
+    match pending::abandon(server, keyring, &checkout.checkout_id) {
+        Abandoned::Ended | Abandoned::Settled => why,
+        Abandoned::Kept { paid, why: kept } => {
+            eprintln!(
+                "[azdrive] the checkout {} was not shown and stays on the list: {kept}",
+                checkout.checkout_id
+            );
+            why.then(" ").then(
+                Phrase::new(if paid {
+                    "azdrive-order-not-shown-paid"
+                } else {
+                    "azdrive-order-not-shown-open"
+                })
+                .arg("checkout", checkout.checkout_id.as_str()),
+            )
+        }
+    }
 }
 
 /// A cash checkout's answer as its slip: checked by azul-pay (its parts) and by azcloud-kit
@@ -2690,9 +2787,15 @@ fn claim_pending(
     let mut asked_cash: HashMap<String, Instant> = HashMap::new();
     let mut said_in_flight: Vec<String> = Vec::new();
     loop {
+        // The entry of an order whose answer never came is a record, not a checkout to ask
+        // about; after a day nobody can pay what it may have made, and it goes.
+        if let Err(e) = pending::forget_stale_postings(keyring, azcloud_kit::now()) {
+            eprintln!("[azdrive] the records of orders without an answer were not cleared: {e}");
+        }
         let open: Vec<PendingCheckout> = match pending::list(keyring) {
             Ok(checkouts) => checkouts
                 .into_iter()
+                .filter(|c| !c.is_posting())
                 .filter(|c| c.period.is_some() || !reported.contains(&c.checkout_id))
                 .filter(|c| {
                     !(c.is_cash()

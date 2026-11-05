@@ -17,6 +17,9 @@
 //!   the drive's own vault has it, or a second copy was written here;
 //! - [`NeverIssued`]: the token server will never issue the rest (a final refusal, or a grant no
 //!   server issues);
+//! - [`NotMade`]: an order whose entry was made before its `POST /v1/checkout` (state `Posting`)
+//!   and that made no checkout anyone was shown - the token server refused it, or a day is gone
+//!   without an answer;
 //! - a poll's answer that ends the checkout ([`Settled::ended_by`]): declined, expired, gone, the
 //!   hand-over purged;
 //! - an abandon's answer that ended it ([`Settled::abandoned`]).
@@ -25,7 +28,7 @@
 
 use azlin_contract::AbandonAnswer;
 
-use super::{Final, PendingCheckout, UNOPENABLE_AFTER};
+use super::{Final, PendingCheckout, POSTING_LIFE_SECS, UNOPENABLE_AFTER};
 use crate::{
     period::Issued,
     token::{CheckoutStatus, TokenError},
@@ -55,6 +58,8 @@ enum SettledBy {
     Abandoned(AbandonAnswer),
     /// Its sealed sign-up did not open with its claim key, [`UNOPENABLE_AFTER`] times.
     Unopenable,
+    /// The order made no checkout anyone was shown.
+    NotMade,
 }
 
 /// The token server answered the contract's `no_such_checkout`.
@@ -126,6 +131,27 @@ impl NeverIssued {
     }
 }
 
+/// An order that made no checkout anyone was shown: nothing can be paid for it.
+#[derive(Debug)]
+pub struct NotMade(());
+
+impl NotMade {
+    /// The token server REFUSED the order (`e` is an answer with a refusal, not a lost one): it
+    /// made no checkout. A call that got no answer, a busy server and a 5xx are not this: the
+    /// checkout may exist, its entry stays as the record ([`super::PendingCheckout::is_posting`]).
+    pub(super) fn refused(e: &TokenError) -> Option<NotMade> {
+        matches!(e, TokenError::Refused { .. }).then_some(NotMade(()))
+    }
+
+    /// An entry of an order whose answer never came ([`super::PendingCheckout::is_posting`]),
+    /// made [`POSTING_LIFE_SECS`] or more before `now` (seconds since 1970): its payment page
+    /// was never shown, so nobody can pay for what it may have made.
+    pub(super) fn stale(entry: &PendingCheckout, now: i64) -> Option<NotMade> {
+        (entry.is_posting() && now.saturating_sub(entry.started_at) >= POSTING_LIFE_SECS)
+            .then_some(NotMade(()))
+    }
+}
+
 impl Settled {
     /// What it ends the checkout for, for an error's context.
     pub(super) fn what(&self) -> String {
@@ -140,6 +166,7 @@ impl Settled {
                 return format!("ending the checkout: its abandon answered {answer:?}")
             }
             SettledBy::Unopenable => "its sign-up does not open",
+            SettledBy::NotMade => "the order made no checkout",
         };
         format!("ending the checkout: {why}")
     }
@@ -163,6 +190,11 @@ impl Settled {
     /// Its sign-up did not open, often enough.
     pub(super) fn unopenable(_: &Strikes) -> Settled {
         Settled(SettledBy::Unopenable)
+    }
+
+    /// The order made no checkout anyone was shown.
+    pub(super) fn not_made(_: &NotMade) -> Settled {
+        Settled(SettledBy::NotMade)
     }
 
     /// Its period grant is in two places.

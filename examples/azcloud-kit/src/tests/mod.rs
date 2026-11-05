@@ -29,6 +29,9 @@ mod hello;
 mod lane;
 mod lock;
 mod lockdown;
+/// A new order is on the keyring's list before it is sent: a lost answer leaves a record, no
+/// second order of one intent is open at once.
+mod orders;
 mod outbox;
 /// Small files packed by an encrypted drive, through the sync (feature `encryption`).
 #[cfg(feature = "encryption")]
