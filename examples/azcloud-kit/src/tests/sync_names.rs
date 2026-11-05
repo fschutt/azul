@@ -2,8 +2,8 @@
 //! what misleads a reader, and how a disk folds names.
 
 use crate::sync::names::{
-    display_risks, escaped, fold, here_problem, key_problem, nfc, portability, segment_problem,
-    windows_problem, System, Volume,
+    display_risks, escaped, fold, folder_problem, here_problem, key_problem, nfc, portability,
+    segment_problem, windows_problem, System, Volume,
 };
 
 #[test]
@@ -175,4 +175,61 @@ fn a_disk_that_ignores_case_or_normalization_folds_names_together() {
         fold("Report.txt", &casefold_ext4),
         fold("report.txt", &casefold_ext4)
     );
+}
+
+/// AZ-W1. The version-control folders and the folder's bookkeeping are compared without regard
+/// to case on EVERY system: APFS and NTFS read `.GIT` as `.git`, and a drive is shared between
+/// systems, so the answer cannot wait for a probe of this disk. A name only the last of a file
+/// key is a file, not a folder (a submodule's `.git` file is synced).
+#[test]
+fn az_w1_protected_folders_are_refused_in_any_case_on_every_system() {
+    for bad in [
+        "proj/.GIT/hooks/pre-commit",
+        "proj/.Git/config",
+        ".git/config",
+        "a/b/.HG/hgrc",
+        ".hg/hgrc",
+        "x/.Svn/entries",
+        ".SVN/entries",
+        ".AZLIN/sync/trash/20261104/x",
+        ".Azlin/sync/tmp/azcloud-sync-0.blob",
+        ".azLIN",
+    ] {
+        assert!(key_problem(bad).is_some(), "{bad:?}");
+        for system in System::ALL {
+            assert!(
+                here_problem(bad, system, &Volume::default()).is_some(),
+                "{bad:?} on {system:?}, on a disk that tells case apart"
+            );
+        }
+    }
+    for fine in [
+        "x/.azlin/y",
+        "x/.AZLIN/y",
+        "proj/.gitignore",
+        "proj/.gitattributes",
+        ".github/workflows/ci.yml",
+        "my.git/x",
+        "proj/.git",
+        "sub/module/.GIT",
+        "gits/readme.md",
+        ".hgignore",
+        ".svnignore/x",
+    ] {
+        assert_eq!(key_problem(fine), None, "{fine:?}");
+        for system in System::ALL {
+            assert_eq!(
+                here_problem(fine, system, &Volume::default()),
+                None,
+                "{fine:?} on {system:?}"
+            );
+        }
+    }
+    // A folder entry of the drive (no slash at its end) is a folder: its last name counts.
+    for folder in ["proj/.GIT", ".Hg", "a/.svn"] {
+        assert!(folder_problem(folder).is_some(), "{folder:?}");
+    }
+    for folder in ["proj/src", "a/.github", "x/.azlin"] {
+        assert_eq!(folder_problem(folder), None, "{folder:?}");
+    }
 }

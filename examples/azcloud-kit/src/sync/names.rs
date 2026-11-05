@@ -26,6 +26,10 @@ const WINDOWS_KEY_MAX_UNITS: usize = 259 - 40;
 /// The engine's own bookkeeping at the root of a synced folder (the root marker, the trash):
 /// no name from the drive may point into it.
 pub const BOOKKEEPING: &str = ".azlin";
+/// The version-control folders, at any depth: a repository syncs through git, never file by
+/// file, and what a name from the drive writes into `.git/hooks` runs as the user at the next
+/// `git commit`.
+pub const VCS_FOLDERS: [&str; 3] = [".git", ".hg", ".svn"];
 
 /// What the disk under a synced folder does with names, probed once when it is paired: a disk
 /// that ignores case (APFS, NTFS) or Unicode normalization (APFS, HFS+) takes two names of the
@@ -97,12 +101,49 @@ pub fn key_problem(key: &str) -> Option<String> {
     if key.len() > PATH_MAX_BYTES {
         return Some(format!("a path longer than {PATH_MAX_BYTES} bytes"));
     }
-    if key.split('/').next() == Some(BOOKKEEPING) {
+    if let Some(why) = protected_problem(key, false) {
+        return Some(why);
+    }
+    key.split('/').find_map(segment_problem)
+}
+
+/// Why a name of the drive must not point into one of the folder's protected places, or `None`:
+/// the engine's bookkeeping at the root (`.azlin`) and a version-control folder at any depth.
+/// Compared without regard to case on EVERY system and disk (AZ-W1): APFS and NTFS read `.GIT`
+/// as `.git`, so the answer cannot wait for a probe of this disk - and a drive is shared between
+/// systems, so a name that is harmless here is not on the next device. `last_is_folder`: the
+/// key's last name is a folder too (a folder entry); else it is a file's, and a file named `.git`
+/// (a submodule's pointer) is an ordinary file.
+fn protected_problem(key: &str, last_is_folder: bool) -> Option<String> {
+    let names: Vec<&str> = key.split('/').collect();
+    if names
+        .first()
+        .is_some_and(|n| n.eq_ignore_ascii_case(BOOKKEEPING))
+    {
         return Some(String::from(
             "the folder's own bookkeeping (.azlin at its root)",
         ));
     }
-    key.split('/').find_map(segment_problem)
+    let folders = if last_is_folder {
+        &names[..]
+    } else {
+        &names[..names.len().saturating_sub(1)]
+    };
+    let vcs = folders
+        .iter()
+        .find(|n| VCS_FOLDERS.iter().any(|v| n.eq_ignore_ascii_case(v)))?;
+    Some(format!(
+        "a path in a version-control folder ({vcs}): a repository syncs through git, and a disk \
+         may read this name as its own"
+    ))
+}
+
+/// Why a folder entry of the drive (its key without a slash at the end) can never become a
+/// folder here, on any system, or `None`: [`key_problem`]'s rows, and its last name is not a
+/// protected folder either.
+#[must_use]
+pub fn folder_problem(key: &str) -> Option<String> {
+    key_problem(key).or_else(|| protected_problem(key, true))
 }
 
 /// The rows of the name table only Windows refuses: the ones another system keeps and warns of.
@@ -165,13 +206,15 @@ pub fn system_problem(key: &str, system: System) -> Option<String> {
 /// on a disk that refuses what Windows refuses (FAT, exFAT) on any system.
 #[must_use]
 pub fn here_problem(key: &str, system: System, volume: &Volume) -> Option<String> {
-    system_problem(key, system).or_else(|| {
-        if volume.windows_names {
-            windows_problem(key).map(|why| format!("{why} (this disk refuses it too)"))
-        } else {
-            None
-        }
-    })
+    protected_problem(key, false)
+        .or_else(|| system_problem(key, system))
+        .or_else(|| {
+            if volume.windows_names {
+                windows_problem(key).map(|why| format!("{why} (this disk refuses it too)"))
+            } else {
+                None
+            }
+        })
 }
 
 /// The other systems that cannot hold a key this system can: a warning, so the user sees early

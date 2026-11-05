@@ -4271,6 +4271,20 @@ fn fetch_one<R: SyncRemote + ?Sized>(
     key: &str,
 ) -> CloudResult<PathBuf> {
     let mut index = synced_index(root, index_path)?;
+    // The name policy of a pass holds for a file opened from the cloud too (AZ-W1, X2): a
+    // `.GIT/...` entry of the base is not written into `.git` because the user opened it.
+    if let Err(e) = remote::check_key(key) {
+        fail!("{key} cannot be written here ({e}); it stays on the drive");
+    }
+    if let Some(why) = names::here_problem(
+        key,
+        names::System::here(),
+        &index.volume.unwrap_or_default(),
+    )
+    .or_else(|| names::key_problem(key))
+    {
+        fail!("{key} cannot be written here ({why}); it stays on the drive");
+    }
     let path = local::path_of(&root.path, key);
     let kept_in_cloud = index.files.get(key).is_some_and(|e| e.cloud_only);
     let now = local::stat_now(&root.path, key)?;

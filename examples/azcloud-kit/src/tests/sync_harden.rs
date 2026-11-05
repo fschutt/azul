@@ -871,3 +871,111 @@ fn az_s6_a_file_the_scan_refuses_is_unknown_and_never_a_delete() {
         assert!(a.read("big.bin").is_some(), "pass {pass}");
     }
 }
+
+/// AZ-W1 (BLOCKER). The rules (`.git/`, `.azlin/`) match case-sensitively, the name checks only
+/// knew `.azlin` exactly, and the disk folds case: a participant's `proj/.GIT/hooks/pre-commit`
+/// (exec) was written through `Dir::child(".GIT")` into the real `.git` of APFS and NTFS - the
+/// next `git commit` ran it - and the next pass found it in the base, absent here, "deleted
+/// here", and removed it from the drive for everyone. Such an entry is now a bad name, in any
+/// case, on every system: never written, never acted on, listed.
+#[test]
+fn az_w1_a_drive_entry_under_a_vcs_or_bookkeeping_folder_in_any_case_never_lands_here() {
+    let store = S3Bucket::new();
+    let b = Device::new("w1-b");
+    b.write("proj/.git/config", b"[core]\n");
+    put_remote(&store, "fine.txt", b"fine", false);
+    let hostile = [
+        "proj/.GIT/hooks/pre-commit",
+        "proj/.Git/hooks/post-checkout",
+        "x/.HG/hgrc",
+        "y/.Svn/entries",
+        ".AZLIN/sync/trash/20261104-000000-aa/x",
+    ];
+    for key in hostile {
+        put_remote(&store, key, b"#!/bin/sh\necho owned\n", true);
+    }
+    for pass in 0..2 {
+        let report = b.sync(&store);
+        assert_eq!(
+            b.read("fine.txt").as_deref(),
+            Some(&b"fine"[..]),
+            "pass {pass}"
+        );
+        for key in hostile {
+            assert!(b.read(key).is_none(), "pass {pass}: {key} landed here");
+            assert!(
+                lists(&report, Code::BadRemoteName, Some(key)),
+                "pass {pass}: {key}: {:?}",
+                report.problems
+            );
+        }
+        assert_eq!(
+            b.read("proj/.git/hooks/pre-commit"),
+            None,
+            "pass {pass}: nothing reached the repository's hooks"
+        );
+        assert_eq!(
+            b.read("proj/.git/config").as_deref(),
+            Some(&b"[core]\n"[..])
+        );
+        // The entries are kept on the drive as they are: no pass deletes them.
+        let index = index_of(&store);
+        for key in hostile {
+            assert!(
+                index.files.contains_key(key),
+                "pass {pass}: {key} was removed from the drive"
+            );
+        }
+    }
+}
+
+/// AZ-W1, the second way in (X2): opening a cloud-only file wrote its key with no name check at
+/// all, so a `.GIT/...` entry in the base was written into `.git` when the user opened it.
+#[test]
+fn az_w1_opening_a_cloud_only_entry_under_a_protected_folder_writes_nothing() {
+    use crate::sync::{
+        fetch_file,
+        local::{BaseEntry, LocalIndex},
+    };
+    let store = S3Bucket::new();
+    let b = Device::new("w1-open");
+    b.write("seed.txt", b"seed");
+    b.sync(&store);
+    for key in [
+        "proj/.GIT/hooks/pre-commit",
+        ".AZLIN/sync/tmp/x.blob",
+        "ok/readme.txt",
+    ] {
+        let bytes: &[u8] = b"#!/bin/sh\necho owned\n";
+        put_remote(&store, key, bytes, true);
+        let mut base = LocalIndex::load(&b.index()).unwrap().expect("a base");
+        base.files.insert(
+            key.to_string(),
+            BaseEntry {
+                hash: hash_bytes(bytes),
+                size: bytes.len() as u64,
+                cloud_only: true,
+                exec: true,
+                ..BaseEntry::default()
+            },
+        );
+        base.save(&b.index()).unwrap();
+        let opened = fetch_file(Target::Index(&store), &b.root(), &b.index(), &b.opts(), key);
+        if key == "ok/readme.txt" {
+            // The ordinary name still opens: the check refuses names, not cloud-only files.
+            let path = opened.expect("an ordinary cloud-only file opens");
+            assert_eq!(fs::read(path).unwrap(), bytes);
+        } else {
+            let wrong = opened.expect_err("a protected folder is never written to");
+            assert!(
+                wrong.to_string().contains("cannot be written here"),
+                "{wrong}"
+            );
+            assert!(b.read(key).is_none(), "{key} landed here");
+        }
+    }
+    assert!(
+        !b.path().join("proj").exists(),
+        "not even its folder was made"
+    );
+}

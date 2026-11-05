@@ -388,7 +388,7 @@ impl RemoteIndex {
         for (key, id) in folders {
             if let Err(e) = check_key(key) {
                 out.insert(key.clone(), e.to_string());
-            } else if let Some(why) = super::names::key_problem(key) {
+            } else if let Some(why) = super::names::folder_problem(key) {
                 out.insert(key.clone(), why);
             } else if !is_folder_id(id) {
                 out.insert(
