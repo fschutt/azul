@@ -911,3 +911,50 @@ mod archive {
         assert!(!unpaid.is_useless(), "the token is kept for after the proof");
     }
 }
+
+mod claim_refusal {
+    use azlin_contract::ClaimRefusal;
+
+    /// RF51 (AZ-P1 family): the two pick-up refusals are the contract's words, with the
+    /// statuses the token server answers them with (`drives.rs` of azlin-token: 409 and 410).
+    #[test]
+    fn the_pick_up_refusals_are_the_contracts_words_with_the_servers_statuses() {
+        assert_eq!(ClaimRefusal::ClaimsUsed.as_str(), "claims_used");
+        assert_eq!(ClaimRefusal::ClaimExpired.as_str(), "claim_expired");
+        assert_eq!(ClaimRefusal::ClaimsUsed.status(), 409);
+        assert_eq!(ClaimRefusal::ClaimExpired.status(), 410);
+        for refusal in ClaimRefusal::ALL {
+            assert_eq!(ClaimRefusal::parse(refusal.as_str()), Some(refusal));
+            assert!(
+                refusal.is_final(),
+                "{refusal}: no computer can pick the drive up"
+            );
+        }
+        assert_eq!(
+            ClaimRefusal::parse(" claims_used "),
+            Some(ClaimRefusal::ClaimsUsed)
+        );
+        assert_eq!(
+            ClaimRefusal::parse("unknown"),
+            None,
+            "Unknown is not a word the server sends"
+        );
+        assert_eq!(ClaimRefusal::parse("no_such_word"), None);
+    }
+
+    /// A body reads as its refusal, and a word a newer token server sends reads as Unknown,
+    /// which is not final: an update may read it.
+    #[test]
+    fn a_body_reads_as_its_refusal_and_a_newer_word_as_unknown() {
+        let read: ClaimRefusal =
+            serde_json::from_str(r#"{"error":"claim_expired","message":"x"}"#).expect("reads");
+        assert_eq!(read, ClaimRefusal::ClaimExpired);
+        let newer: ClaimRefusal = serde_json::from_str(r#"{"error":"teapot"}"#).expect("reads");
+        assert_eq!(newer, ClaimRefusal::Unknown);
+        assert!(!newer.is_final());
+        assert_eq!(
+            serde_json::to_string(&ClaimRefusal::ClaimsUsed).expect("writes"),
+            r#"{"error":"claims_used"}"#
+        );
+    }
+}

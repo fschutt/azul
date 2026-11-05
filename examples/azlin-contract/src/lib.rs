@@ -15,6 +15,7 @@
 //! - Buying a drive: [`TiersAnswer`] and its [`TierOffer`]s, [`CheckoutAnswer`] with its
 //!   [`CheckoutStatusWire`], [`AbandonAnswer`] and [`CheckoutRefusal`].
 //! - [`RefreshRefusal`]: how the token server refuses a refresh, and whether the token was spent.
+//! - [`ClaimRefusal`]: how it refuses the pick-up of a paid drive by its claim ticket.
 //! - A paid checkout's period tokens: their [`IssueSchedule`] (one instalment a month,
 //!   [`INSTALMENT_SECS`]), the [`IssueAnswer`] and the [`IssueRefusal`]s, final or not.
 //! - [`ReadOnlyWhy`]: why a drive takes no writes, each reason with its node code; what each
@@ -31,6 +32,7 @@
 
 mod archive;
 mod checkout;
+mod claim;
 mod error;
 mod hello;
 mod ids;
@@ -54,6 +56,7 @@ pub use checkout::{
     Settles,
     TierClosed, TierOffer, TierPriceWire, TiersAnswer,
 };
+pub use claim::ClaimRefusal;
 pub use error::{AzlinError, RATE_LIMITED};
 pub use hello::{
     client_too_old, AppName, ClientHello, ClientMinimum, ClientTooOld, SemVer, CLIENT_HEADER,
