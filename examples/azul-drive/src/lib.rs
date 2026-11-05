@@ -1994,12 +1994,16 @@ pub(crate) fn start_find(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
 
 /// Whether a cloud drive's last listing may be kept on this computer: not an encrypted drive's,
 /// nor an Azlin drive's not known to be plain yet - its names would lie in the cache in the
-/// clear.
+/// clear. `state`: the decision of the drive's encryption seam, `None` for a drive without one
+/// (its listing holds the bucket's own keys).
+#[cfg(feature = "encryption")]
+fn keeps_listing_in(state: Option<azul_storage::trust::EncState>) -> bool {
+    state.is_none_or(azul_storage::trust::EncState::may_cache_listing)
+}
+
 #[cfg(feature = "encryption")]
 fn keeps_listing(slot: &Slot) -> bool {
-    slot.auto
-        .as_ref()
-        .is_none_or(|auto| auto.is_encrypted() == Some(false))
+    keeps_listing_in(slot.auto.as_ref().map(|auto| auto.state()))
 }
 
 /// Without encrypted drives a listing holds the bucket's own keys: it may be kept.
@@ -2009,11 +2013,15 @@ fn keeps_listing(_slot: &Slot) -> bool {
 }
 
 /// Whether a drive's names come from its drive index on this computer: an encrypted drive's.
+/// `state`: as for [`keeps_listing_in`].
+#[cfg(feature = "encryption")]
+fn names_from_drive_index_in(state: Option<azul_storage::trust::EncState>) -> bool {
+    state.is_some_and(azul_storage::trust::EncState::has_drive_index)
+}
+
 #[cfg(feature = "encryption")]
 fn names_from_drive_index(slot: &Slot) -> bool {
-    slot.auto
-        .as_ref()
-        .is_some_and(|auto| auto.is_encrypted() == Some(true))
+    names_from_drive_index_in(slot.auto.as_ref().map(|auto| auto.state()))
 }
 
 /// Without encrypted drives every cloud drive's names are its bucket's listing.
@@ -2035,19 +2043,20 @@ const INDEX_REFRESH_SECS: u64 = 600;
 fn index_folder(s: &DriveState, drive_id: &str) -> Option<PathBuf> {
     #[cfg(feature = "encryption")]
     {
+        use azul_storage::trust::IndexHome;
         let auto = s
             .slot_index(drive_id)
             .and_then(|index| s.slots[index].auto.as_ref());
         if let Some(auto) = auto {
-            match auto.is_encrypted() {
-                Some(true) => {
+            match auto.state().index_home() {
+                IndexHome::DriveIndex => {
                     return encryption::search_index_dir(
                         encryption::drive_index_root(),
                         auto.drive(),
                     )
                 }
-                Some(false) => {}
-                None => return None,
+                IndexHome::SharedCache => {}
+                IndexHome::NotYet => return None,
             }
         }
     }

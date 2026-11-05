@@ -1170,6 +1170,38 @@ fn a_trashed_file_says_when_it_was_deleted_and_until_when_it_can_be_restored() {
     }
 }
 
+/// X-AR5b-3 (part): the three readers in lib.rs asked the old two-valued `is_encrypted()` and read
+/// its `None` each their own way; they ask the state's policies now. A listing may be kept
+/// only where the bucket's keys are all there is to the names, the names come from the drive
+/// index only for an encrypted drive, and a drive that is not decided is neither.
+#[cfg(feature = "encryption")]
+#[test]
+fn x_ar5b_3_the_listing_cache_and_the_drive_index_follow_the_encryption_state() {
+    use azul_storage::trust::{EncState, Via, Why};
+
+    // A drive without an encryption seam: its listing holds the bucket's own keys.
+    assert!(crate::keeps_listing_in(None));
+    assert!(!crate::names_from_drive_index_in(None));
+    let encrypted = EncState::Encrypted {
+        key_id: None,
+        via: Via::KeyInKeyring,
+    };
+    for (state, keeps, from_index) in [
+        (EncState::Undecided, false, false),
+        (EncState::SetupPending, true, false),
+        (EncState::Unencrypted(Why::New), true, false),
+        (EncState::Unencrypted(Why::HiddenOrAbsent), true, false),
+        (encrypted, false, true),
+    ] {
+        assert_eq!(crate::keeps_listing_in(Some(state)), keeps, "{state:?}");
+        assert_eq!(
+            crate::names_from_drive_index_in(Some(state)),
+            from_index,
+            "{state:?}"
+        );
+    }
+}
+
 // ==== A drive's session follows its state ====
 
 /// X-AR5b-3: the session of an Azlin drive for every state it can be in. Through the drive's names
