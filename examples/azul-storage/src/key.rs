@@ -410,3 +410,35 @@ pub fn safe_file_name(key: &str) -> Option<String> {
         Some(cleaned)
     }
 }
+
+/// The names `keys` get in a folder on a disk that tells two keys apart only as `fold` does
+/// (APFS and NTFS ignore case, APFS and HFS+ the Unicode form; `fold` is how this disk compares
+/// names - or, for a folder that may move to such a disk, the strongest fold). The first key of
+/// every group the fold makes one keeps its name; each later one gets ` (2)`, ` (3)`, ... before
+/// its extension, the first number that is free. Every key gets a name of its own, in the order
+/// given (a caller that wants the same names every run sorts first), so a copy made from the
+/// keys loses none of them where two would be one file (AZ-W2).
+#[must_use]
+pub fn without_twins(keys: &[&str], fold: &dyn Fn(&str) -> String) -> Vec<String> {
+    let mut taken: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut out = Vec::with_capacity(keys.len());
+    for key in keys {
+        let mut name = (*key).to_string();
+        let mut n = 1u32;
+        while !taken.insert(fold(&name)) {
+            n += 1;
+            name = numbered(key, n);
+        }
+        out.push(name);
+    }
+    out
+}
+
+/// `key` with ` (n)` before the extension of its last name (a leading dot is no extension).
+fn numbered(key: &str, n: u32) -> String {
+    let (folder, name) = key.split_at(key.rfind('/').map_or(0, |i| i + 1));
+    match name.rfind('.') {
+        Some(dot) if dot > 0 => format!("{folder}{} ({n}){}", &name[..dot], &name[dot..]),
+        _ => format!("{folder}{name} ({n})"),
+    }
+}

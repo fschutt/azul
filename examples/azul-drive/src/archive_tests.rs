@@ -8,11 +8,16 @@ use azcloud_kit::{
     azlin_contract::{ArchiveState, ArchiveWire, Rfc3339},
     DriveStatus,
 };
-use azul_storage::{testing::TempDir, Drive, LocalDrive};
+use azul_storage::{
+    key::System, testing::TempDir, ByteRange, Drive, DriveError, ListPage, ListRequest, LocalDrive,
+    ObjectInfo,
+};
 
 use azul_appkit::phrase::{Arg, Phrase};
 
-use crate::archive::{months_needed, run_rescue, stage_of, stage_phrase, target_of, Rescue, Stage};
+use crate::archive::{
+    months_needed, run_rescue, stage_of, stage_phrase, target_of, target_of_on, Rescue, Stage,
+};
 
 /// The argument `name` of `phrase` as text.
 fn arg_text(phrase: &Phrase, name: &str) -> Option<String> {
@@ -185,6 +190,198 @@ fn a_key_that_cannot_be_a_path_is_never_written_outside_the_copy() {
     assert_eq!(target_of(folder, "a//b"), None);
     assert_eq!(target_of(folder, "/abs"), None);
     assert_eq!(target_of(folder, "a\\..\\b"), None);
+}
+
+/// AZ-W2: the rescue copy builds its paths on every computer from keys other devices made. A key
+/// a Windows disk reads as something else - a path relative to another drive (`D:Docs/x`, which
+/// `PathBuf::push` takes as the new base), a device (`nul.txt`), a stream (`a.txt:s`), a name
+/// whose trailing dot is dropped - is no path of the copy, whatever computer checks it.
+#[test]
+fn az_w2_a_key_windows_reads_as_something_else_is_no_path_of_the_copy() {
+    let folder = std::path::Path::new("/home/u/Azlin rescue/Photos");
+    for key in [
+        "D:Docs/x",
+        "D:/Docs/x",
+        "docs/D:x",
+        "nul.txt",
+        "NUL",
+        "con.log",
+        "COM1",
+        "dir/lpt9.dat",
+        "a.txt:s",
+        "dir/b.txt:stream",
+        "name.",
+        "dir/name ",
+        "q?.txt",
+        "a|b",
+        "bell\u{7}",
+    ] {
+        assert_eq!(target_of_on(folder, key, System::Windows), None, "{key:?}");
+    }
+    // The names a Mac or a Linux computer takes as they are (a Windows device's files copied
+    // there keep them), and the ordinary ones on Windows too.
+    for key in ["D:Docs/x", "nul.txt", "a.txt:s", "name.", "dir/name "] {
+        assert!(
+            target_of_on(folder, key, System::Linux).is_some(),
+            "{key:?} on Linux"
+        );
+        assert!(
+            target_of_on(folder, key, System::Macos).is_some(),
+            "{key:?} on macOS"
+        );
+    }
+    assert_eq!(
+        target_of_on(folder, "2026/beach.jpg", System::Windows),
+        Some(folder.join("2026").join("beach.jpg"))
+    );
+    // Absolute and climbing keys are refused everywhere.
+    for system in System::ALL {
+        for key in ["../../etc/passwd", "a//b", "/abs", "C:/x", "a\\b", ""] {
+            assert_eq!(
+                target_of_on(folder, key, system),
+                None,
+                "{key:?} on {system:?}"
+            );
+        }
+    }
+}
+
+/// Some objects of a drive, in memory: keys that one folder on APFS or NTFS could not hold.
+struct Keys(std::collections::BTreeMap<String, Vec<u8>>);
+
+impl Keys {
+    fn new(files: &[(&str, &[u8])]) -> Keys {
+        Keys(
+            files
+                .iter()
+                .map(|(k, b)| (k.to_string(), b.to_vec()))
+                .collect(),
+        )
+    }
+
+    fn not_found(key: &str) -> DriveError {
+        DriveError::NotFound {
+            key: key.to_string(),
+        }
+    }
+}
+
+impl Drive for Keys {
+    fn list(&self, request: &ListRequest) -> Result<ListPage, DriveError> {
+        Ok(ListPage {
+            folders: Vec::new(),
+            objects: self
+                .0
+                .iter()
+                .filter(|(key, _)| key.starts_with(&request.prefix))
+                .map(|(key, bytes)| ObjectInfo {
+                    key: key.clone(),
+                    size: bytes.len() as u64,
+                    modified: None,
+                    etag: None,
+                })
+                .collect(),
+            next: None,
+        })
+    }
+    fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
+        self.0.get(key).cloned().ok_or_else(|| Keys::not_found(key))
+    }
+    fn get_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, DriveError> {
+        let bytes = self.get(key)?;
+        let start = usize::try_from(range.start)
+            .unwrap_or(usize::MAX)
+            .min(bytes.len());
+        let end = range
+            .end
+            .map_or(bytes.len(), |e| {
+                usize::try_from(e).unwrap_or(usize::MAX).saturating_add(1)
+            })
+            .min(bytes.len());
+        Ok(bytes[start..end].to_vec())
+    }
+    fn put(&self, _key: &str, _bytes: &[u8]) -> Result<(), DriveError> {
+        Err(DriveError::Denied {
+            message: String::from("a test source is read-only"),
+        })
+    }
+    fn delete(&self, _key: &str) -> Result<(), DriveError> {
+        Err(DriveError::Denied {
+            message: String::from("a test source is read-only"),
+        })
+    }
+    fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
+        let bytes = self.0.get(key).ok_or_else(|| Keys::not_found(key))?;
+        Ok(ObjectInfo {
+            key: key.to_string(),
+            size: bytes.len() as u64,
+            modified: None,
+            etag: None,
+        })
+    }
+}
+
+/// Every file under `dir` as (its path below `dir`, its bytes).
+fn files_below(dir: &std::path::Path) -> Vec<(String, Vec<u8>)> {
+    let mut out = Vec::new();
+    let mut stack = vec![(dir.to_path_buf(), String::new())];
+    while let Some((folder, rel)) = stack.pop() {
+        for entry in std::fs::read_dir(&folder).unwrap().flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if entry.file_type().unwrap().is_dir() {
+                stack.push((entry.path(), format!("{rel}{name}/")));
+            } else {
+                out.push((format!("{rel}{name}"), std::fs::read(entry.path()).unwrap()));
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
+/// AZ-W2: `Report.txt` and `report.txt` are two files of the drive and one on APFS or NTFS (so
+/// are a name in two Unicode forms): the copy keeps both, and a copy made on a disk that tells
+/// them apart does not lose one when it is moved to a disk that does not.
+#[test]
+fn az_w2_keys_that_differ_only_by_case_or_form_are_both_kept_in_the_copy() {
+    use azcloud_kit::sync::names::{fold, Volume};
+    let tmp = TempDir::new("azdrive-rescue-twins");
+    let drive = Keys::new(&[
+        ("Report.txt", b"upper"),
+        ("report.txt", b"lower"),
+        ("caf\u{e9}.txt", b"composed"),
+        ("cafe\u{301}.txt", b"decomposed"),
+    ]);
+    let folder = tmp.path().join("copy");
+    let state = tmp.path().join("d_x.rescue.json");
+    let report = run_rescue(&drive, &folder, None, &state, &mut |_, _| {});
+    assert_eq!((report.copied, report.total), (4, 4), "{report:?}");
+    assert!(report.missing.is_empty(), "{report:?}");
+    let found = files_below(&folder);
+    let folds = Volume {
+        case_insensitive: true,
+        norm_insensitive: true,
+        ..Volume::default()
+    };
+    let distinct: std::collections::BTreeSet<String> =
+        found.iter().map(|(name, _)| fold(name, &folds)).collect();
+    assert_eq!(
+        distinct.len(),
+        found.len(),
+        "no two files of the copy are one file on a disk that ignores case and form: {:?}",
+        found.iter().map(|(name, _)| name).collect::<Vec<_>>()
+    );
+    let mut contents: Vec<&[u8]> = found.iter().map(|(_, bytes)| bytes.as_slice()).collect();
+    contents.sort_unstable();
+    assert_eq!(
+        contents,
+        [&b"composed"[..], b"decomposed", b"lower", b"upper"],
+        "every file is in the copy"
+    );
+    // The next run finds all four there.
+    let again = run_rescue(&drive, &folder, None, &state, &mut |_, _| {});
+    assert_eq!((again.copied, again.total), (4, 4), "{again:?}");
+    assert_eq!(files_below(&folder), found, "a second run changes nothing");
 }
 
 fn source_with(tmp: &TempDir, files: &[(&str, &[u8])]) -> LocalDrive {

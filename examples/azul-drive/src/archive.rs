@@ -30,13 +30,14 @@ use azcloud_kit::{
         months_owed, ArchiveState, ArchiveWire, LOCK_AFTER_SECS, UNPAID_DAYS,
         WRITABLE_GRACE_SECS,
     },
+    sync::names::{self, Volume},
     DriveStatus, ProofAnswer, SharedKeyring, TokenError, TokenServer,
 };
 use azul::{
     callbacks::ButtonOnClickCallbackType, file::FilePath, prelude::*, str::String as AzString,
 };
 use azul_appkit::l10n::{label, t_phrase, Phrase};
-use azul_storage::{azul_transport::AzulTransport, ByteRange, Drive, ObjectInfo};
+use azul_storage::{azul_transport::AzulTransport, key::System, ByteRange, Drive, ObjectInfo};
 use serde::{Deserialize, Serialize};
 
 use crate::{actions::now_secs, browse::Place, ids, jobs::Job, spawn, DriveState, HOME_ID};
@@ -828,10 +829,25 @@ pub(crate) fn rescue_done(s: &mut DriveState, azlin_id: &str, report: Rescue) {
     s.rescues.insert(azlin_id.to_string(), report);
 }
 
-/// Where the file `key` goes under `folder`: each part of the key a plain name (no `..`, no
-/// empty part), or `None` for a key that cannot be a path.
+/// Where the file `key` goes under `folder`: each part of the key a plain name this computer's
+/// disk takes as it is meant (no `..`, no empty part, and on Windows no `D:Docs` that replaces
+/// the base path, device name, stream or trailing dot), or `None` for a key that cannot be a
+/// path here.
 #[must_use]
 pub(crate) fn target_of(folder: &Path, key: &str) -> Option<PathBuf> {
+    target_of_on(folder, key, System::here())
+}
+
+/// [`target_of`] for a disk of `system` (a test asks for Windows' rules on any computer).
+///
+/// The keys are other devices' words: `D:Docs/x` pushed onto a `PathBuf` on Windows is a path
+/// relative to drive D's current folder that REPLACES the base (the rename then overwrites a
+/// file outside the copy), `nul.txt` opens a device and `a.txt:s` writes a stream. The one name
+/// table ([`azul_storage::key`]) says which keys a disk of `system` reads as something else
+/// (AZ-W2).
+#[must_use]
+pub(crate) fn target_of_on(folder: &Path, key: &str, system: System) -> Option<PathBuf> {
+    azul_storage::key::check_path_key_on(key, system).ok()?;
     let mut path = folder.to_path_buf();
     for part in key.split('/') {
         if part.is_empty() || part == "." || part == ".." || part.contains('\\') {
@@ -842,21 +858,38 @@ pub(crate) fn target_of(folder: &Path, key: &str) -> Option<PathBuf> {
     Some(path)
 }
 
-/// Whether `o` is copied already: a file of its size at its place.
-fn copied_already(folder: &Path, o: &ObjectInfo) -> bool {
-    target_of(folder, &o.key)
+/// Where each of `keys` goes under `folder`, parallel to `keys`: [`target_of`], except that two
+/// keys a disk would take for one name - case (APFS, NTFS) or Unicode form (APFS, HFS+) - get
+/// names of their own (`Report.txt`, `report (2).txt`), whatever disk the copy is made on: it
+/// may be moved to such a disk, and a copy that loses a file when it is must not be made
+/// (AZ-W2). Keys are taken in the order given; the caller sorts them.
+fn targets_of(folder: &Path, keys: &[&str]) -> Vec<Option<PathBuf>> {
+    let strongest = Volume {
+        case_insensitive: true,
+        norm_insensitive: true,
+        ..Volume::default()
+    };
+    azul_storage::key::without_twins(keys, &|name| names::fold(name, &strongest))
+        .iter()
+        .map(|key| target_of(folder, key))
+        .collect()
+}
+
+/// Whether `o` is copied already: a file of its size at `target`.
+fn copied_already(target: Option<&Path>, o: &ObjectInfo) -> bool {
+    target
         .and_then(|path| std::fs::metadata(path).ok())
         .is_some_and(|meta| meta.is_file() && meta.len() == o.size)
 }
 
-/// Copies `o` from `source` into `folder`, in pieces, through a `.part` file renamed at the end
+/// Copies `o` from `source` to `target`, in pieces, through a `.part` file renamed at the end
 /// (a copy cut halfway never looks whole).
-fn copy_one(source: &dyn Drive, folder: &Path, o: &ObjectInfo) -> Result<(), String> {
-    let target = target_of(folder, &o.key).ok_or_else(|| String::from("not a path"))?;
+fn copy_one(source: &dyn Drive, target: Option<&Path>, o: &ObjectInfo) -> Result<(), String> {
+    let target = target.ok_or_else(|| String::from("not a path"))?;
     if let Some(parent) = target.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    let mut part = target.clone().into_os_string();
+    let mut part = target.to_path_buf().into_os_string();
     part.push(".part");
     let part = PathBuf::from(part);
     let mut file = std::fs::File::create(&part).map_err(|e| e.to_string())?;
@@ -874,7 +907,7 @@ fn copy_one(source: &dyn Drive, folder: &Path, o: &ObjectInfo) -> Result<(), Str
     }
     file.sync_all().map_err(|e| e.to_string())?;
     drop(file);
-    std::fs::rename(&part, &target).map_err(|e| e.to_string())
+    std::fs::rename(&part, target).map_err(|e| e.to_string())
 }
 
 /// The free bytes of the disk `path` is on.
@@ -909,24 +942,29 @@ pub(crate) fn run_rescue(
             return keep_report(report, state);
         }
     };
-    let files: Vec<&ObjectInfo> = objects.iter().filter(|o| !o.key.ends_with('/')).collect();
+    let mut files: Vec<&ObjectInfo> = objects.iter().filter(|o| !o.key.ends_with('/')).collect();
+    // The same names every run: a file that was copied under an alias is found under it again.
+    files.sort_by(|a, b| a.key.cmp(&b.key));
     report.total = files.len();
-    let todo: Vec<&ObjectInfo> = files
+    let keys: Vec<&str> = files.iter().map(|o| o.key.as_str()).collect();
+    let targets = targets_of(folder, &keys);
+    let todo: Vec<(&ObjectInfo, Option<&Path>)> = files
         .iter()
         .copied()
-        .filter(|o| !copied_already(folder, o))
+        .zip(targets.iter().map(Option::as_deref))
+        .filter(|(o, target)| !copied_already(*target, o))
         .collect();
     report.copied = report.total - todo.len();
-    let needed: u64 = todo.iter().map(|o| o.size).sum();
+    let needed: u64 = todo.iter().map(|(o, _)| o.size).sum();
     if let Some(free) = free {
         if needed + SPARE_BYTES > free {
             report.no_space = Some((needed, free));
-            report.missing = todo.iter().map(|o| o.key.clone()).collect();
+            report.missing = todo.iter().map(|(o, _)| o.key.clone()).collect();
             return keep_report(report, state);
         }
     }
-    for (n, o) in todo.iter().enumerate() {
-        match copy_one(source, folder, o) {
+    for (n, (o, target)) in todo.iter().enumerate() {
+        match copy_one(source, *target, o) {
             Ok(()) => report.copied += 1,
             Err(_) => report.missing.push(o.key.clone()),
         }
