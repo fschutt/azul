@@ -492,6 +492,18 @@ mod in_drive {
     /// The vault in the drive: the object [`DriveVault::KEY`], the vault's JSON as an AZL1
     /// object of the drive key - the operator holds the bucket, not the key, so neither the
     /// tokens nor the issue keys are readable there.
+    ///
+    /// Every version is sealed under the same object id with a fresh file key, so the storage can
+    /// put an older valid version back (AZ-C15). That costs a delay, nothing else: the state only
+    /// grows by unions, so an older version lacks what a newer one held and holds nothing else; a
+    /// device that ever read the newer one keeps it in this computer's vault, and
+    /// [`DriveTokens::state`](super::DriveTokens::state) joins every vault it can read and writes
+    /// the union back into the ones that lack it - the replayed object is overwritten at the next
+    /// look. A token the replay brings back is still spent here (the union keeps the spent nonce)
+    /// and is refused by the token server where it is not. What a replay can still do - hide a
+    /// version from a device that has no copy of it to heal from - the storage can do by deleting
+    /// the object, which this design never relied on it not doing. A revision counter would only
+    /// add an alarm nobody can act on.
     pub struct DriveVault {
         drive: UnlockedDrive,
         object: ObjectId,

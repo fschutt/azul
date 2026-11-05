@@ -73,3 +73,48 @@ fn tokens_this_computer_kept_alone_move_into_the_drive_at_its_first_look() {
     assert_eq!(seen, vec![stored("aa")], "in the drive now");
     assert_eq!(store.tokens("d_1").unwrap(), vec![stored("aa")], "and still here");
 }
+
+/// AZ-C15: the drive's vault is one object id for every version, so the storage can put an older
+/// valid version back. The laptop that wrote the newer ones still holds them: its next look joins
+/// the two and writes the union back, so the replay is overwritten, the spent token stays spent
+/// and nothing the newer versions held is lost; a device that comes after the heal reads the
+/// newer state.
+#[test]
+fn az_c15_an_older_vault_the_storage_puts_back_is_healed_from_this_computers_copy() {
+    let bucket: Arc<dyn Drive> = Arc::new(MemoryBucket::new());
+    let drive = UnlockedDrive::new("d_1", bucket.clone(), DriveKey::generate().unwrap());
+    let laptop = TempDir::new("azcloud-vault-laptop");
+    let kept = PeriodTokenStore::new(laptop.path().join("period-tokens"))
+        .for_drive(&drive)
+        .unwrap();
+    kept.add_tokens(&[stored("aa")]).unwrap();
+    let first = bucket.get(DriveVault::KEY).unwrap();
+    kept.add_tokens(&[stored("bb")]).unwrap();
+    kept.spend(&"aa".repeat(32)).unwrap();
+    kept.keep_grant(VaultGrant::new("ck_1", "100GB", 3, ISSUE_KEY))
+        .unwrap();
+    assert_ne!(
+        bucket.get(DriveVault::KEY).unwrap(),
+        first,
+        "newer versions were written"
+    );
+    // The storage puts the first version back: valid (the same key, the same id), so it opens.
+    bucket.put(DriveVault::KEY, &first).unwrap();
+    let replayed = DriveVault::new(&drive).read().unwrap();
+    assert_eq!(replayed.tokens, vec![stored("aa")], "the old version opens");
+    assert!(replayed.grant("ck_1").is_none());
+    // The laptop looks: the spent token stays spent, the grant is still there ...
+    let state = kept.state().unwrap();
+    assert_eq!(state.tokens, vec![stored("bb")], "aa stays spent");
+    assert!(state.grant("ck_1").is_some());
+    // ... and the drive's vault holds the union again.
+    let healed = DriveVault::new(&drive).read().unwrap();
+    assert_eq!(healed.tokens, vec![stored("bb")]);
+    assert!(healed.spent.contains(&"aa".repeat(32)));
+    assert!(healed.grant("ck_1").is_some());
+    let phone = TempDir::new("azcloud-vault-phone");
+    let seen = PeriodTokenStore::new(phone.path().join("period-tokens"))
+        .for_drive(&drive)
+        .unwrap();
+    assert_eq!(seen.unspent("100GB").unwrap(), vec![stored("bb")]);
+}
