@@ -2051,7 +2051,10 @@ fn given(step: &serde_json::Map<String, serde_json::Value>, key: &str) -> bool {
 /// DERIVED from the op's params, never from a list of ops: an op with the pair
 /// `selector` / `node_id` (or `parent_selector` / `parent_id`) and no further
 /// way to name a node (`text`, a position) takes exactly one of them, and
-/// `mouse_move`'s `x` + `y` / `selector` is the same rule for a pointer.
+/// `mouse_move`'s `x` + `y` / `selector` is the same rule for a pointer - but
+/// only where the `selector` is OPTIONAL, i.e. an alternative: `assert_scroll`
+/// has a REQUIRED `selector` and its `x` / `y` are the offsets to compare, so
+/// it takes both (batch 2, defect 4).
 /// An op with more ways (`click`: a position, a text, a selector, an id) is
 /// left to the engine, which resolves them in a fixed order.
 fn check_targeting(
@@ -2085,8 +2088,14 @@ fn check_targeting(
         }
     }
 
-    // A pointer op that takes a position OR a selector (`mouse_move`).
-    if has("selector") && has("x") && has("y") && !has("node_id") && !names_by_text {
+    // A pointer op that takes a position OR a selector (`mouse_move`): the selector is an
+    // OPTIONAL second way to name the place. `assert_scroll` has a REQUIRED selector, and its
+    // `x` / `y` are the offset to compare, so it takes both.
+    let selector_is_alternative = def
+        .params
+        .iter()
+        .any(|(n, required)| n == "selector" && !required);
+    if selector_is_alternative && has("x") && has("y") && !has("node_id") && !names_by_text {
         let position = given(step, "x") || given(step, "y");
         if position && given(step, "selector") {
             bail!("step {i}: `{op}` is given both a `selector` and `x` / `y` - give exactly one");
@@ -4279,6 +4288,138 @@ mod tests {
             validate(&s, &on_a_mounted_dom(step))
                 .unwrap_or_else(|e| panic!("the gate refused {step}: {e}"));
         }
+    }
+
+    /// Defect 4 of the batch-2 review. `check_targeting` read "`selector` +
+    /// `x` + `y`, no `node_id`" as `mouse_move`'s "a position OR a selector"
+    /// and applied that to `assert_scroll`, which has all three: its `selector`
+    /// is REQUIRED (the engine refuses the step without one) and `x` / `y` are
+    /// the offsets it compares (at least one is required). The step the engine
+    /// wants - `{selector, y}` - was refused as "both a `selector` and `x` /
+    /// `y`", and a step without the selector was refused by the engine, so no
+    /// form passed both and every scroll scenario was unwritable (line 11 of
+    /// the batch).
+    #[test]
+    fn defect4_assert_scroll_takes_a_selector_and_an_offset() {
+        let s = parse_schema(&root()).unwrap();
+        let def = s.known_op("assert_scroll").unwrap();
+        assert!(
+            def.params.contains(&("selector".to_string(), true)),
+            "assert_scroll REQUIRES its selector: {:?}",
+            def.params
+        );
+        for offset in ["x", "y"] {
+            assert!(
+                def.params.contains(&(offset.to_string(), false)),
+                "`{offset}` is an optional offset of assert_scroll: {:?}",
+                def.params
+            );
+        }
+
+        let after_a_wheel = |step: &str| {
+            format!(
+                r##"{{"name":"x","steps":[
+                    {{"op":"mount","html":["<body><div id=\"list\"></div></body>"],
+                      "css":["#list {{ height: 100px; overflow: auto; }}"]}},
+                    {{"op":"wait_frame"}},
+                    {{"op":"wheel","x":10,"y":10,"delta_x":0,"delta_y":-120}},
+                    {{"op":"wait_frame"}},
+                    {step}]}}"##
+            )
+        };
+        // The forms the engine reads (`eval_assert_scroll`): the selector, and
+        // an offset on at least one axis.
+        for step in [
+            r##"{"op":"assert_scroll","selector":"#list","y":120}"##,
+            r##"{"op":"assert_scroll","selector":"#list","x":0}"##,
+            r##"{"op":"assert_scroll","selector":"#list","x":0,"y":120,"tolerance":1}"##,
+        ] {
+            validate(&s, &after_a_wheel(step))
+                .unwrap_or_else(|e| panic!("the gate refused {step}: {e}"));
+        }
+        // The engine's own refusal of a missing selector is not the gate's to
+        // hide: the required-param check says it first.
+        refused(
+            &s,
+            &after_a_wheel(r#"{"op":"assert_scroll","y":120}"#),
+            "missing required param `selector`",
+        );
+
+        // `mouse_move`'s selector IS the alternative to its position, and a
+        // step that gives both is still refused.
+        let e = validate(
+            &s,
+            &on_a_mounted_dom(r##"{"op":"mouse_move","selector":"#a","x":10,"y":20}"##),
+        )
+        .expect_err("mouse_move {selector, x, y} must stay refused")
+        .to_string();
+        assert!(e.contains("both a `selector` and `x` / `y`"), "{e}");
+    }
+
+    /// The same rule against the corpus the gate must never contradict: every
+    /// `assert_scroll` step of a scenario under `e2e/` - hand-written, and
+    /// running green - passes the gate's targeting, and so does the scenario
+    /// (the nine that assert a scroll offset use only allowed ops, name their
+    /// nodes by selector, and none was written for the gate: it must let them
+    /// through).
+    #[test]
+    fn defect4_every_committed_scroll_scenario_passes_the_gate() {
+        /// Every object with `"op": "assert_scroll"`, wherever the scenario
+        /// keeps its steps.
+        fn scroll_steps<'a>(
+            v: &'a serde_json::Value,
+            out: &mut Vec<&'a serde_json::Map<String, serde_json::Value>>,
+        ) {
+            match v {
+                serde_json::Value::Object(o) => {
+                    if o.get("op").and_then(serde_json::Value::as_str) == Some("assert_scroll") {
+                        out.push(o);
+                    }
+                    o.values().for_each(|v| scroll_steps(v, out));
+                }
+                serde_json::Value::Array(a) => a.iter().for_each(|v| scroll_steps(v, out)),
+                _ => {}
+            }
+        }
+
+        let s = parse_schema(&root()).unwrap();
+        let def = s.known_op("assert_scroll").unwrap();
+        let (mut scenarios, mut seen) = (0, 0);
+        let mut refused = Vec::new();
+        for entry in fs::read_dir(root().join("e2e")).expect("e2e/ must exist") {
+            let path = entry.expect("readable dir entry").path();
+            if path.extension().and_then(|e| e.to_str()) != Some("json") {
+                continue;
+            }
+            let text = fs::read_to_string(&path).unwrap();
+            let json: serde_json::Value = serde_json::from_str(&text)
+                .unwrap_or_else(|e| panic!("{} is not JSON: {e}", path.display()));
+            let mut steps = Vec::new();
+            scroll_steps(&json, &mut steps);
+            if steps.is_empty() {
+                continue;
+            }
+            scenarios += 1;
+            for step in steps {
+                seen += 1;
+                if let Err(e) = check_targeting(0, "assert_scroll", def, step) {
+                    refused.push(format!("{}: {e}", path.display()));
+                }
+            }
+            if let Err(e) = validate(&s, &text) {
+                refused.push(format!("{}: {e}", path.display()));
+            }
+        }
+        assert!(
+            refused.is_empty(),
+            "the gate refuses committed scroll scenarios:\n{}",
+            refused.join("\n")
+        );
+        assert!(
+            scenarios >= 9 && seen >= 10,
+            "only {seen} assert_scroll steps in {scenarios} scenarios found under e2e/ - the scan \
+             lost them"
+        );
     }
 
     // -----------------------------------------------------------------------
