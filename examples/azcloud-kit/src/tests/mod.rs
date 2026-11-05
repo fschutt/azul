@@ -37,6 +37,8 @@ mod pending;
 mod period;
 mod recovery;
 mod recovery_keys;
+/// A refusal of the token server read once, as the contract's typed value (RF51).
+mod refusal;
 mod renewal;
 mod restore;
 mod secrets;

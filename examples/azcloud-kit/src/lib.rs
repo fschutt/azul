@@ -159,7 +159,7 @@ pub use store::RemoteStore;
 pub use token::{
     Ban, BlindSignatures, Checkout, CheckoutFor, CheckoutStatus, CheckoutVia, ClaimedFamily,
     DriveStatus, FoundDrive, IssueAnswer, OptionsQuery, ProofAnswer, RecoveryKeyInfo,
-    RecoveryLockdown, Tier, TierNews, Tiers, TokenError, TokenServer, VoucherRedeemed,
+    RecoveryLockdown, Refusal, Tier, TierNews, Tiers, TokenError, TokenServer, VoucherRedeemed,
 };
 pub use device_key::DeviceKey;
 pub use transport::{CloudDrive, IrohDialer, IrohLane, IrohTarget, Lane, TransportPref};

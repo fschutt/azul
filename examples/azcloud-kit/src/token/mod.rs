@@ -73,6 +73,7 @@ mod members;
 mod period;
 mod recovery;
 mod refresh;
+mod refusal;
 
 pub use archive::ProofAnswer;
 pub use checkout::{
@@ -90,6 +91,7 @@ pub use refresh::{
     ban_fluent_source, ban_reason_arg, banner_phrase, banner_text, closed_phrase, closed_text,
     Ban, DriveStatus, DRIVE_BANNED,
 };
+pub use refusal::Refusal;
 
 /// The tier a sign-up without one gets (the token server's default too).
 pub const DEFAULT_TIER: &str = "100GB";
@@ -131,13 +133,6 @@ pub enum TokenError {
 }
 
 impl TokenError {
-    /// The token server sells drives through a checkout only: it has no development sign-up
-    /// (`POST /v1/drives` answers 404).
-    #[must_use]
-    pub fn is_checkout_only(&self) -> bool {
-        matches!(self, TokenError::Refused { status: 404, .. })
-    }
-
     /// The token server's refusal `code` with `status` (its sentence `message`, the seconds of
     /// its `Retry-After`, what its body says it spent) as what it means ([`crate::answer`]):
     /// [`TokenError::Busy`] when it passes by itself, [`TokenError::Refused`] when it does not.

@@ -292,7 +292,9 @@ pub enum CheckoutStatus {
     Approved(Box<DriveBundle>),
     /// The payment was declined, reversed, or the cash refused: why.
     Declined(String),
-    /// The token server no longer has the checkout (it expired, or it is unknown: a 404): why.
+    /// The token server no longer has the checkout (it expired, or it answered the contract's
+    /// `no_such_checkout`): why. Made by [`TokenServer::checkout_status`] from those two words
+    /// of the server and from nothing else.
     Gone(String),
     /// Paid, but the sealed sign-up is gone (purged 30 days after the payment, or a checkout
     /// from before the claim keys): no poll can bring this drive any more.
@@ -436,7 +438,9 @@ impl<'a> TokenServer<'a> {
         );
         match self.call(Method::Get, &path, None, None) {
             Ok(value) => Ok(Some(value.to_string())),
-            Err(TokenError::Refused { status: 404, .. }) => Ok(None),
+            // A route the server does not have: an older token server, whose checkout is the
+            // v1 one. A failure of the call is no such answer (X-AR5b-19): the caller says so.
+            Err(e) if e.is_route_missing() => Ok(None),
             Err(e) => Err(e),
         }
     }
@@ -590,8 +594,8 @@ impl<'a> TokenServer<'a> {
     ///
     /// # Errors
     ///
-    /// No answer, a refusal other than a 404, an answer that does not read as the contract's
-    /// [`CheckoutAnswer`].
+    /// No answer, a refusal other than `no_such_checkout` (a 404 without that word included),
+    /// an answer that does not read as the contract's [`CheckoutAnswer`].
     pub fn checkout_status(
         &self,
         checkout_id: &str,
@@ -604,18 +608,10 @@ impl<'a> TokenServer<'a> {
         let path = format!("/v1/checkout/{}", uri_encode(id, true));
         let value = match self.call(Method::Get, &path, None, None) {
             Ok(value) => value,
-            Err(TokenError::Refused {
-                status: 404,
-                code,
-                message,
-            }) => {
-                let why = match (message.is_empty(), code.is_empty()) {
-                    (false, _) => message,
-                    (true, false) => code,
-                    (true, true) => String::from("the token server does not know the checkout"),
-                };
-                return Ok(CheckoutStatus::Gone(why));
-            }
+            // The token server's own word, `no_such_checkout`, is the end of the checkout. A
+            // bare 404 (a route missing in a rollback, a proxy's page) and a 404 of another word
+            // are not: the checkout may be paid, so it is asked again (AZ-P1).
+            Err(e) if e.is_no_such_checkout() => return Ok(CheckoutStatus::Gone(e.said())),
             Err(e) => return Err(e),
         };
         let answer: CheckoutAnswer = serde_json::from_value(value).map_err(|e| {

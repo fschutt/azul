@@ -123,17 +123,11 @@ pub(crate) enum TiersFailed {
     Failed(String),
 }
 
-/// The token server's refusal of this buyer (a country it does not serve, 403): asking again
-/// does not change it. In the app's words; `None` for any other error.
+/// The token server's refusal of this buyer (a country it does not serve, in the contract's word
+/// `blocked_country`): asking again does not change it. In the app's words; `None` for any other
+/// error - a 403 of an edge or a firewall is one of those: it gets "Try again" (AZ-P14).
 pub(crate) fn buyer_refused(e: &TokenError) -> Option<Text> {
-    let TokenError::Refused { status, code, .. } = e else {
-        return None;
-    };
-    let blocked = matches!(
-        azcloud_kit::azlin_contract::CheckoutRefusal::parse(code),
-        Some(azcloud_kit::azlin_contract::CheckoutRefusal::BlockedCountry)
-    );
-    (blocked || *status == 403).then(|| token_error_text(e))
+    e.is_blocked_country().then(|| token_error_text(e))
 }
 
 /// A checkout made: the token server's answer, the keyring's entry of it, and - through a
@@ -2381,12 +2375,8 @@ fn start_checkout(
             tokens.state().ok()?.renewal_lock(&r.order.tier).cloned()
         });
     let started = checkout_for(&server, tier, months, method, via, order_of(renew, lock.as_ref()));
-    let lock_refused = |e: &TokenError| {
-        matches!(e, TokenError::Refused { code, .. }
-            if ["lock_used", "lock_key_wrong", "lock_tier", "no_lock", "not_paid"].contains(&code.as_str()))
-    };
     let (claim, checkout, answer, renews) = match started {
-        Err(e) if lock.is_some() && lock_refused(&e) => {
+        Err(e) if lock.is_some() && e.is_lock_refused() => {
             let (claim, checkout, answer) =
                 checkout_for(&server, tier, months, method, via, order_of(renew, None))
                     .map_err(|e| token_error_text(&e))?;

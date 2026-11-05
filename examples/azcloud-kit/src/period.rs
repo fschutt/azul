@@ -744,11 +744,6 @@ fn issuer_key_named(
 /// 30 days to the end - to tomorrow's start for a lapsed drive - so nothing is lost by it).
 pub const REDEEM_AHEAD_SECS: u64 = 7 * 86_400;
 
-/// The token server's refusals of a token that can never buy a month: it was redeemed before
-/// (by another drive), it does not verify, it is too old, or its issuer key is gone. It is
-/// spent in the vaults.
-const USELESS: [&str; 4] = ["token_used", "bad_token", "token_expired", "unknown_issuer"];
-
 /// The most tokens one look redeems and the most months it issues: more than any period needs
 /// at once (a lapsed drive is bought a month from tomorrow, one token at a time).
 const MAX_ROUNDS: usize = 2 * MAX_BLINDED + 2;
@@ -1024,6 +1019,7 @@ fn redeem_with(
         None => until.is_some_and(|at| at <= now.saturating_add(REDEEM_AHEAD_SECS)),
     };
     let mut count = 0;
+    let mut doubted = 0;
     let mut failed: Option<String> = None;
     for _ in 0..MAX_ROUNDS {
         if !due(period_until) {
@@ -1073,7 +1069,24 @@ fn redeem_with(
                 count += 1;
                 period_until = until;
             }
-            Err(TokenError::Refused { code, .. }) if USELESS.contains(&code.as_str()) => {
+            // The contract says which refusals mean the token can never buy a month
+            // (`RedeemRefusal::is_useless`); it is spent in the vaults.
+            Err(e) if e.is_useless_token() => {
+                // A token server that lost an issuer key (or verifies with another) refuses
+                // every token alike: one token of a look is given up on that word, the next
+                // such refusal ends the look and keeps its token (AZ-P16). A token that is
+                // really bad costs nothing: the good ones behind it go on in this look.
+                if e.is_doubtful_token() {
+                    doubted += 1;
+                    if doubted > 1 {
+                        failed = Some(format!(
+                            "the token server refused tokens as {}: the rest are kept for the \
+                             next look",
+                            e.said()
+                        ));
+                        break;
+                    }
+                }
                 let _ = tokens.spend(&candidate.nonce);
             }
             Err(e) => {

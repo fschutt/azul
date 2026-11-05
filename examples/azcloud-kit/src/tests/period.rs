@@ -655,6 +655,54 @@ fn a_used_or_useless_period_token_is_dropped_and_the_next_one_redeemed() {
     assert_eq!(store.tokens("d_1").unwrap(), vec![stored("dd")]);
 }
 
+/// AZ-P16: a token server that lost an issuer key (or verifies with another) refuses EVERY token
+/// as `unknown_issuer` / `bad_token`. One look gives up one token on that word and keeps the
+/// rest for the next look, instead of draining the whole vault; a token that is really bad
+/// (the refusals of the test above) costs nothing, the good ones behind it are redeemed.
+#[test]
+fn az_p16_a_server_that_refuses_every_token_as_unknown_issuer_loses_one_token_per_look() {
+    let dir = TempDir::new("azcloud-period");
+    let shared = keyring_with_session(&dir, "dt_f.0.first");
+    let store = store_in(&dir);
+    store
+        .add(
+            "d_1",
+            &[stored("aa"), stored("bb"), stored("cc"), stored("dd")],
+        )
+        .unwrap();
+    let fake = redeeming_server(shared.locks().clone(), "dt_f.0.first", NOW + DAY, |_| {
+        Some(json(
+            400,
+            r#"{"error": "unknown_issuer", "message": "no issuer key for the token's tier"}"#,
+        ))
+    });
+    let transport = Shared(fake.clone());
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    match redeem_due(&server, &shared, &store.on_this_device("d_1").unwrap(), NOW) {
+        Redeemed::Kept(why) => assert!(why.contains("unknown_issuer"), "{why}"),
+        other => panic!("a server that refuses every token redeemed nothing: {other:?}"),
+    }
+    assert_eq!(
+        store.tokens("d_1").unwrap(),
+        vec![stored("bb"), stored("cc"), stored("dd")],
+        "the first was given up on its word, the second ended the look and stayed"
+    );
+    let asked = fake
+        .calls()
+        .iter()
+        .filter(|c| c.url.ends_with("/redeem"))
+        .count();
+    assert_eq!(asked, 2, "no third token was asked about in this look");
+    // The next look is the same: one token more, never the whole vault at once.
+    let transport = Shared(fake);
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    let _ = redeem_due(&server, &shared, &store.on_this_device("d_1").unwrap(), NOW);
+    assert_eq!(
+        store.tokens("d_1").unwrap(),
+        vec![stored("cc"), stored("dd")]
+    );
+}
+
 #[test]
 fn a_drive_without_kept_tokens_or_a_session_asks_the_token_server_nothing() {
     let dir = TempDir::new("azcloud-period");

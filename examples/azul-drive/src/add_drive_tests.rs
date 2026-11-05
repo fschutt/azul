@@ -837,6 +837,29 @@ fn a_country_azlin_does_not_sell_to_is_said_in_the_windows_words_and_not_offered
     assert!(crate::jobs::buyer_refused(&busy).is_none(), "asked again with Try again");
 }
 
+/// AZ-P14: only the contract's `blocked_country` says "not sold in your country". A 403 of an edge,
+/// a firewall or a proxy (any other word, or none) is an answer to try again, not a lock-out of
+/// every buyer behind it until the dialog is reopened.
+#[test]
+fn az_p14_a_403_without_the_word_blocked_country_is_not_a_refused_buyer() {
+    for (code, message) in [
+        ("forbidden", "denied by the edge"),
+        ("", ""),
+        ("waf_blocked", "request blocked"),
+        ("drive_banned", "this drive was closed"),
+    ] {
+        let edge = azcloud_kit::TokenError::Refused {
+            status: 403,
+            code: code.to_string(),
+            message: message.to_string(),
+        };
+        assert!(
+            crate::jobs::buyer_refused(&edge).is_none(),
+            "a 403 {code:?} is asked again with Try again"
+        );
+    }
+}
+
 /// Every drive is encrypted as it is made: a build of AzDrive that cannot encrypt starts no
 /// purchase, test drive, voucher or claim (no payment is taken for a drive it would leave
 /// plain), and says why; connecting a data source of the user's own goes on.
