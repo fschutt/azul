@@ -494,6 +494,22 @@ fn adopt<'a>(
     })
 }
 
+/// A complete file of the caller's (a download spooled beside the folder's bookkeeping) made
+/// ready to be put in place by [`replace_keeping`] or [`commit`]: its bits and time set, synced
+/// when `o.durability` asks. `old` is the file it will replace (for [`Mode::Keep`] and
+/// [`Mode::Synced`]). The blob stays the caller's: it is not removed when the staged file drops.
+///
+/// # Errors
+///
+/// The I/O error of making it ready.
+pub fn stage_blob<'a>(
+    blob: Blob<'a>,
+    old: Option<&Stat>,
+    o: &Publish<'_>,
+) -> Result<Staged<'a>, PublishError> {
+    adopt(blob, old, o, &Unprobed)
+}
+
 /// What `expect` says about the name now: `Ok` when the new version may go on.
 fn check_expect(dir: &Dir, name: &str, expect: Expect) -> Result<(), PublishError> {
     match expect {

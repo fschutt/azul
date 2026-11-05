@@ -1900,15 +1900,11 @@ fn still_there(dir: &beneath::Dir, name: &str, expect: Option<&LocalFile>) -> bo
 }
 
 /// How the sync puts a new version in place ([`azul_storage::durable`]): the name must still hold
-/// what the scan found (`None`: nothing), the permission bits follow the sync's rule (the old
-/// file's read and write bits, the executable bit when the drive's version has it, never setuid,
-/// setgid or sticky: a remote entry brings no permission of its own), the drive's modification
-/// time when it has one (the merge never decides by it, people and other tools do).
-fn publish_of(expect: Option<&LocalFile>, exec: bool, mtime_ns: u64) -> Publish<'static> {
-    let expect = match expect {
-        Some(file) => Expect::Is(file.fingerprint()),
-        None => Expect::Absent,
-    };
+/// what `expect` says, the permission bits follow the sync's rule (the old file's read and write
+/// bits, the executable bit when the drive's version has it, never setuid, setgid or sticky: a
+/// remote entry brings no permission of its own), the drive's modification time when it has one
+/// (the merge never decides by it, people and other tools do).
+fn synced_publish(expect: Expect, exec: bool, mtime_ns: u64) -> Publish<'static> {
     let publish = Publish::new(
         expect,
         Mode::Synced {
@@ -1921,6 +1917,15 @@ fn publish_of(expect: Option<&LocalFile>, exec: bool, mtime_ns: u64) -> Publish<
     } else {
         publish
     }
+}
+
+/// [`synced_publish`] for a name that must still hold the file the scan found (`None`: nothing).
+fn publish_of(expect: Option<&LocalFile>, exec: bool, mtime_ns: u64) -> Publish<'static> {
+    let expect = match expect {
+        Some(file) => Expect::Is(file.fingerprint()),
+        None => Expect::Absent,
+    };
+    synced_publish(expect, exec, mtime_ns)
 }
 
 /// Writes a new version of `name` in `dir` from `body`: into a new temporary file in the same

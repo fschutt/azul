@@ -1087,6 +1087,61 @@ fn the_read_back_heals_a_damaged_drive_copy_and_puts_back_a_rotted_one_here() {
     assert_eq!(index_of(&store)["files"]["b.bin"]["hash"], crate::sync::local::hash_bytes(b"archive b"));
 }
 
+/// The repair stages the drive's version whole beside the rotted file and swaps the two
+/// (`durable::replace_keeping`): the rotted bytes are in the trash, the good ones in place, and
+/// no staged file or temporary file is left in the folder.
+#[test]
+fn the_repair_swaps_in_the_staged_version_and_keeps_the_rotted_bytes_in_the_trash() {
+    let store = Arc::new(S3Bucket::new());
+    let a = paired("verify-swap", &store, |_| {});
+    a.write("docs/b.bin", b"archive b");
+    a.pass();
+    let path = path_of(a.folder.path(), "docs/b.bin");
+    let mtime = fs::metadata(&path).unwrap().modified().unwrap();
+    fs::write(&path, b"archive X").unwrap();
+    fs::File::options()
+        .write(true)
+        .open(&path)
+        .unwrap()
+        .set_modified(mtime)
+        .unwrap();
+    let report = a.session.verify().unwrap();
+    assert_eq!(
+        report.restored,
+        vec![String::from("docs/b.bin")],
+        "{report:?}"
+    );
+    assert_eq!(a.read("docs/b.bin").as_deref(), Some(&b"archive b"[..]));
+    let trash = a.folder.path().join(".azlin").join("sync").join("trash");
+    let mut trashed = Vec::new();
+    let mut stack = vec![trash];
+    while let Some(folder) = stack.pop() {
+        for entry in fs::read_dir(&folder).into_iter().flatten().flatten() {
+            if entry.path().is_dir() {
+                stack.push(entry.path());
+            } else {
+                trashed.push(entry.path());
+            }
+        }
+    }
+    assert_eq!(trashed.len(), 1, "{trashed:?}");
+    assert_eq!(
+        fs::read(&trashed[0]).unwrap(),
+        b"archive X",
+        "the rotted bytes are kept"
+    );
+    let left: Vec<String> = fs::read_dir(path.parent().unwrap())
+        .unwrap()
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(
+        left,
+        vec![String::from("b.bin")],
+        "no staged or temporary file: {left:?}"
+    );
+}
+
 /// A store whose reads stop answering after a number of fetches: a connection that drops, or a
 /// disk that fills, in the middle of a repair.
 struct DropsAfter {

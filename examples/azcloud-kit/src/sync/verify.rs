@@ -16,7 +16,10 @@
 
 use std::{collections::BTreeSet, path::Path};
 
-use azul_storage::beneath::{self, Kind};
+use azul_storage::{
+    beneath::{self, BeneathError, Fingerprint, Kind},
+    durable::{self, Expect, PublishError},
+};
 use serde::{Deserialize, Serialize};
 
 use super::{
@@ -26,8 +29,8 @@ use super::{
     oplog::{Op, OpKind, OpLog},
     problems::{Code, Problem},
     remote::{self, RemoteFile},
-    replace_checked, replace_from_spool, root, synced_index, BlobIndex, LocalRoot, Replace,
-    SyncOptions, SyncRemote, Target, TempBlob,
+    root, synced_index, synced_publish, BlobIndex, LocalRoot, SyncOptions, SyncRemote, Target,
+    TempBlob,
 };
 use crate::{
     error::{fail, CloudError, CloudResult},
@@ -172,7 +175,18 @@ fn run<R: SyncRemote + ?Sized>(
         let there = drive.files.get(&key).filter(|f| f.hash == entry.hash);
         let restored = match there {
             Some(file) if whole.contains(key.as_str()) => {
-                restore(remote_side, &root.path, &tree, &log, &stamp, &key, &hash, file).is_ok()
+                restore(
+                    remote_side,
+                    &root.path,
+                    &tree,
+                    &log,
+                    &stamp,
+                    &key,
+                    &hash,
+                    Fingerprint::of(&st),
+                    file,
+                )
+                .is_ok()
             }
             _ => false,
         };
@@ -226,13 +240,15 @@ enum Replacement {
 }
 
 /// Puts the drive's version `file` of `key` back over this device's damaged copy (whose bytes
-/// hash to `damaged`), which goes into the trash of `stamp`, logged.
+/// hash to `damaged`, and which was `seen` when they were hashed), which goes into the trash of
+/// `stamp`, logged.
 ///
-/// The replacement is fetched and checked FIRST (AZ-S4): the damaged file leaves its place only
-/// when the version that takes it is here. It used to go to the trash before the fetch, and a
-/// fetch that failed (a dropped connection, a full disk) left the name empty - the next pass read
-/// "gone here, unchanged on the drive" as a delete, wrote a tombstone and trashed the good copy
-/// on every device. A failure after the move puts the damaged file back where it was.
+/// The replacement is fetched and checked FIRST (AZ-S4) and staged whole and synced beside the
+/// damaged file; only then does [`durable::replace_keeping`] move the damaged file into the trash
+/// and the replacement into its place, and put the damaged file back when that fails. The name is
+/// never empty while the replacement is written - a pass that met a gap read "gone here, unchanged
+/// on the drive" as a delete, wrote a tombstone and trashed the good copy on every device - and a
+/// damaged file that was written to since it was hashed (`seen` no longer matches) is left as it is.
 #[allow(clippy::too_many_arguments)]
 fn restore<R: SyncRemote + ?Sized>(
     remote_side: &R,
@@ -242,6 +258,7 @@ fn restore<R: SyncRemote + ?Sized>(
     stamp: &str,
     key: &str,
     damaged: &str,
+    seen: Fingerprint,
     file: &RemoteFile,
 ) -> CloudResult<()> {
     let (dir, name) = tree.parent_of(key, false)?;
@@ -253,21 +270,31 @@ fn restore<R: SyncRemote + ?Sized>(
         Replacement::Bytes(remote_side.fetch(key, &file.hash, file.size)?)
     };
     let (trash, target, rel) = root::trash_target(tree, key, stamp)?;
-    dir.rename(name, &trash, &target)?;
-    let written = match &replacement {
+    let publish = synced_publish(Expect::Is(seen), file.exec, file.modified_ns());
+    let old = dir.lstat(name).ok();
+    let spool;
+    let spooled;
+    let staged = match &replacement {
         Replacement::Spool(blob) => {
-            replace_from_spool(tree, blob, &dir, name, None, file.exec, file.modified_ns())
+            spool = root::spool(tree)?;
+            spooled = blob.name();
+            durable::stage_blob(
+                durable::Blob {
+                    dir: &spool,
+                    name: &spooled,
+                },
+                old.as_ref(),
+                &publish,
+            )
         }
-        Replacement::Bytes(bytes) => replace_checked(
-            &dir,
-            name,
-            None,
-            &mut &bytes[..],
-            file.exec,
-            file.modified_ns(),
-        ),
+        Replacement::Bytes(bytes) => durable::stage(&dir, name, &mut &bytes[..], &publish),
+    }
+    .map_err(BeneathError::from)?;
+    let slot = durable::TrashSlot {
+        dir: &trash,
+        name: &target,
     };
-    match written {
+    match durable::replace_keeping(&dir, name, staged, &slot, Expect::Is(seen)) {
         Ok(_) => {
             let _ = log.record(&Op {
                 t: crate::now() as f64,
@@ -278,14 +305,8 @@ fn restore<R: SyncRemote + ?Sized>(
             });
             Ok(())
         }
-        Err(Replace::Changed) => fail!("{key} turned up again meanwhile; it is left as it is"),
-        Err(Replace::Failed(e)) => {
-            // The name is empty: the damaged copy goes back, so no pass takes the gap for a
-            // delete (a file that turned up there meanwhile is not overwritten).
-            if dir.lstat(name).is_err() {
-                let _ = trash.rename(&target, &dir, name);
-            }
-            Err(CloudError::from(e))
-        }
+        Err(PublishError::Changed) => fail!("{key} turned up again meanwhile; it is left as it is"),
+        // The damaged copy is back in its place (or still is): no pass takes a gap for a delete.
+        Err(e) => Err(CloudError::from(BeneathError::from(e))),
     }
 }
