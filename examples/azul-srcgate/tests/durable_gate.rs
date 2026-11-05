@@ -104,18 +104,19 @@ const ALLOWED: &[Allow] = &[
     ),
     // ---- A. a file that IS a token: a lock, an append-only log, a marker ----
     Allow::exactly(
-        "examples/azcloud-kit/src/lock.rs",
+        "examples/azul-storage/src/lock.rs",
         RAW,
         1,
         "the lock file of a user's processes: opened (or made) to be flock'ed - the file is the \
-         mutual exclusion, there is no content to put in place",
+         mutual exclusion, there is no content to put in place (moved down from azcloud-kit; \
+         StateDir::lock takes it now, with no age: W13)",
     ),
     Allow::exactly(
-        "examples/azcloud-kit/src/state.rs",
+        "examples/azul-storage/src/docs.rs",
         RAW,
         1,
-        "StateDir::lock: a `<name>.lock` made with create_new - its existence is the lock (Z30-R2 \
-         gives it an age with LockDir, W13)",
+        "a document that is no JSON is renamed aside (`.damaged-<time>`) before a fresh one is \
+         written: a quarantine rename, its bytes stay",
     ),
     Allow::exactly(
         "examples/azul-storage/src/meta/bucket.rs",
@@ -175,13 +176,6 @@ const ALLOWED: &[Allow] = &[
         "a state file nobody can read is moved aside to `.unreadable`: a quarantine rename",
     ),
     Allow::exactly(
-        "examples/azul-storage/src/local.rs",
-        RAW,
-        1,
-        "LocalDrive::rename: the user's own rename of a file or folder (never over something), no \
-         content is written",
-    ),
-    Allow::exactly(
         "examples/azcloud-kit/src/sync/quarantine.rs",
         RAW,
         1,
@@ -215,13 +209,6 @@ const ALLOWED: &[Allow] = &[
         1,
         "the piece an encrypted copy is written into until it is whole (then put in place by \
          publish_staged): Z30-R2's Scratch (RF48)",
-    ),
-    Allow::exactly(
-        "examples/azul-drive/src/archive.rs",
-        RAW,
-        3,
-        "the rescue copy's part file, its rename and its state: Z30-R2 (the rescue copy goes \
-         through the transfer engine, RF43)",
     ),
     Allow::exactly(
         "examples/azul-drive/src/encryption.rs",
