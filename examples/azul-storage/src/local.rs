@@ -542,7 +542,7 @@ impl LocalDrive {
         }
         let mut items = dir_read::read_dir_all(&dir)?;
         items.retain(|item| {
-            !beneath::is_temp_name(&item.name) && !(folder.is_empty() && item.name == MANIFEST_DIR)
+            !beneath::is_temp_name(&item.name) && !(folder.is_empty() && crate::names::Protected::is_bookkeeping(&item.name))
         });
         Ok(items)
     }

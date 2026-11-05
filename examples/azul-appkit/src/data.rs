@@ -58,14 +58,15 @@ pub fn app_prefix(app_folder: &str) -> String {
 }
 
 /// The file on disk of a key under a local root (for messages to the user;
-/// reading and writing go through the drive).
+/// reading and writing go through the drive). A key that is no path of plain names - a `..`, an
+/// absolute path, a backslash, a Windows drive or device name - is no place under the root: the
+/// answer is the root itself ([`azul_storage::names::local_key`], AZ-CN17).
 #[must_use]
 pub fn local_path(root: &Path, key: &str) -> PathBuf {
-    let mut path = root.to_path_buf();
-    for segment in key.split('/').filter(|s| !s.is_empty()) {
-        path.push(segment);
+    match azul_storage::names::local_key(key.trim_end_matches('/')) {
+        Ok(key) => key.under(root),
+        Err(_) => root.to_path_buf(),
     }
-    path
 }
 
 // The record-file ids (`contacts/<id>.vcf`): the storage crate's mint
@@ -113,6 +114,28 @@ mod tests {
             local_path(Path::new("/data"), "contacts/abc.vcf"),
             PathBuf::from("/data/contacts/abc.vcf")
         );
+    }
+
+    #[test]
+    fn az_cn17_a_key_that_is_no_path_of_plain_names_is_no_place_under_the_root() {
+        let root = Path::new("/data");
+        assert_eq!(
+            local_path(root, "contacts/"),
+            PathBuf::from("/data/contacts")
+        );
+        assert_eq!(local_path(root, ""), PathBuf::from("/data"));
+        for bad in [
+            "../../etc/passwd",
+            "a/../../b",
+            "/etc/passwd",
+            "a\\b",
+            "C:/Windows",
+            "a//b",
+            "a/./b",
+            "x\0y",
+        ] {
+            assert_eq!(local_path(root, bad), PathBuf::from("/data"), "{bad:?}");
+        }
     }
 
     #[test]

@@ -233,3 +233,46 @@ fn az_w1_protected_folders_are_refused_in_any_case_on_every_system() {
         assert_eq!(folder_problem(folder), None, "{folder:?}");
     }
 }
+
+/// AZ-W7. NTFS gives `.git` the short name `GIT~1` and `.azlin` `AZLIN~1` and reads `.git.`, a
+/// name with a stream suffix or one with a code point it ignores as the folder itself: the
+/// bypass of AZ-W1 on a disk that is not told apart by case alone. Such a name is refused like
+/// the folder, on every system, since a drive is shared between them.
+#[test]
+fn az_w7_the_short_names_and_other_spellings_of_a_protected_folder_are_refused_like_it() {
+    for bad in [
+        "GIT~1/hooks/pre-commit",
+        "proj/git~1/config",
+        "x/HG~1/hgrc",
+        "SVN~2/entries",
+        "AZLIN~1/sync/tmp/x",
+        "azlin~1/cache",
+        "proj/.git./config",
+        "proj/.git /config",
+        ".azlin./sync/x",
+        "proj/.git::$INDEX_ALLOCATION/hooks/x",
+        "proj/.g\u{200c}it/hooks/x",
+        "proj/\u{feff}.git/config",
+    ] {
+        assert!(key_problem(bad).is_some(), "{bad:?}");
+        for system in System::ALL {
+            assert!(
+                here_problem(bad, system, &Volume::default()).is_some(),
+                "{bad:?} on {system:?}"
+            );
+        }
+    }
+    for fine in [
+        "proj/gitx~1/a",
+        "proj/GIT/readme",
+        "git~1",
+        "proj/git~1",
+        "proj/git~/a",
+        "x/azlin~1/y",
+        "proj/.gitx/a",
+    ] {
+        let problem =
+            key_problem(fine).or_else(|| here_problem(fine, System::Linux, &Volume::default()));
+        assert_eq!(problem, None, "{fine:?}");
+    }
+}

@@ -41,7 +41,7 @@ pub const FOLDERS_FEATURE: &str = "folders";
 /// know them would write each as a file holding its target.
 pub const LINKS_FEATURE: &str = "links";
 /// The bookkeeping folder under a prefix.
-pub const META_DIR: &str = ".azlin";
+pub const META_DIR: &str = azul_storage::names::BOOKKEEPING;
 
 /// A prefix as the sync uses it: no leading slash, a trailing one unless it
 /// is the bucket's root (empty).
@@ -61,7 +61,7 @@ pub fn normalize_prefix(prefix: &str) -> CloudResult<String> {
     };
     azul_storage::key::check_prefix(&p)
         .map_err(|e| CloudError::failed(format!("the prefix {prefix:?}: {e}")))?;
-    if p.split('/').any(|segment| segment == META_DIR) {
+    if p.split('/').any(azul_storage::names::Protected::is_bookkeeping) {
         fail!("the prefix {prefix:?} names {META_DIR}, the bookkeeping folder");
     }
     Ok(p)

@@ -78,19 +78,9 @@ pub(crate) fn sync_text(ban: &Ban, now: u64) -> Phrase {
 /// The folder "Copy everything" fills: the drive's name as a folder name (`Photos 2026/`).
 #[must_use]
 pub(crate) fn copy_prefix(drive_name: &str) -> String {
-    let cleaned: String = drive_name
-        .trim()
-        .chars()
-        .map(|c| {
-            if matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') || c.is_control()
-            {
-                '-'
-            } else {
-                c
-            }
-        })
-        .collect();
-    let cleaned = cleaned.trim().trim_matches('.').trim();
+    // The one name policy makes the folder name: device names, protected names and the dots at
+    // its end are handled there (AZ-C8, X-AR5a-17).
+    let cleaned = azul_storage::names::leaf_for_text(drive_name);
     if cleaned.is_empty() {
         // A folder on disk: the word in the window's language, its English without the
         // resources - never the key.

@@ -182,3 +182,66 @@ fn keys_a_disk_would_take_for_one_name_get_names_of_their_own_in_the_order_given
     let again = without_twins(&["Report.txt", "report.txt"], &lower);
     assert_eq!(again, without_twins(&["Report.txt", "report.txt"], &lower));
 }
+
+/// AZ-C8. `safe_file_name` replaced separators and characters Windows refuses and nothing else:
+/// `CON` and `NUL.txt` opened a device on a download carried to Windows, and `a.` and `a` were one
+/// file there. The name table says what the others are: a device name gets a `_` before it, the
+/// dots and spaces at the end go, and a name over 255 bytes is cut in its stem.
+#[test]
+fn az_c8_a_download_never_gets_a_device_name_a_trailing_dot_or_more_than_255_bytes() {
+    for (key, name) in [
+        ("docs/CON", "_CON"),
+        ("docs/con", "_con"),
+        ("nul.txt", "_nul.txt"),
+        ("docs/aux.TXT", "_aux.TXT"),
+        ("COM1", "_COM1"),
+        ("lpt9.log", "_lpt9.log"),
+        ("COM\u{b9}", "_COM\u{b9}"),
+        ("CONIN$", "_CONIN$"),
+        ("a.", "a"),
+        ("a...", "a"),
+        ("report.pdf  ", "report.pdf"),
+        ("x/y.txt. .", "y.txt"),
+        // Names that only look like a device are ordinary.
+        ("console.log", "console.log"),
+        ("auxiliary", "auxiliary"),
+        ("COM10", "COM10"),
+        ("nullable.rs", "nullable.rs"),
+        // Colons and the rest were replaced before; they still are.
+        ("con:x?.txt", "con_x_.txt"),
+    ] {
+        assert_eq!(safe_file_name(key).as_deref(), Some(name), "{key:?}");
+    }
+    for key in ["...", "x/...", "  ", "x/ . ", "..", "."] {
+        assert_eq!(safe_file_name(key), None, "{key:?}");
+    }
+    let long = format!("{}.pdf", "n".repeat(300));
+    let cut = safe_file_name(&long).unwrap();
+    assert!(
+        cut.len() <= 255 && cut.ends_with(".pdf") && cut.starts_with("nnn"),
+        "{}",
+        cut.len()
+    );
+    let wide = safe_file_name(&"é".repeat(200)).unwrap();
+    assert!(
+        wide.len() <= 255 && wide.chars().all(|c| c == 'é'),
+        "{}",
+        wide.len()
+    );
+    // Whatever it makes passes the table of the system a download is carried to.
+    for key in [
+        "CON",
+        "nul.txt",
+        "a.",
+        "docs/aux.TXT",
+        "x...",
+        "e\u{301}.txt",
+    ] {
+        let name = safe_file_name(key).unwrap();
+        assert_eq!(
+            crate::key::windows_name_problem(&name),
+            None,
+            "{key:?} -> {name:?}"
+        );
+    }
+}

@@ -62,7 +62,7 @@ pub struct CachedEntry {
 fn entries_of(objects: &Objects, root: &ObjectId) -> Result<Vec<CachedEntry>, MetaError> {
     let mut out = Vec::new();
     for (path, (mode, id)) in walk(objects, root)? {
-        if path == ".azlin" || path.starts_with(".azlin/") {
+        if crate::names::Protected::is_bookkeeping(path.split('/').next().unwrap_or(&path)) {
             continue;
         }
         let (folder, name) = match path.rsplit_once('/') {

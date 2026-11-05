@@ -18,6 +18,8 @@ use std::{
     time::{Duration, Instant, SystemTime},
 };
 
+use azul_storage::names::Protected;
+
 /// How often a full pass runs even when the watcher heard nothing.
 pub const FULL_RESCAN: Duration = Duration::from_secs(15 * 60);
 /// A gap between the wall clock and the monotonic clock past this means the computer slept.
@@ -109,7 +111,7 @@ pub fn folder_key(root: &Path, path: &Path) -> Option<String> {
         .components()
         .map(|c| c.as_os_str().to_string_lossy().into_owned())
         .collect();
-    if parts.first().is_some_and(|p| p == ".azlin") {
+    if parts.first().is_some_and(|p| Protected::is_bookkeeping(p)) {
         return None;
     }
     // The folder that holds the changed entry.
@@ -439,7 +441,7 @@ mod imp {
             for entry in entries.flatten() {
                 let is_dir = entry.file_type().is_ok_and(|t| t.is_dir());
                 let name = entry.file_name().to_string_lossy().into_owned();
-                if is_dir && !(key.is_empty() && name == ".azlin") {
+                if is_dir && !(key.is_empty() && Protected::is_bookkeeping(&name)) {
                     let child = if key.is_empty() { name } else { format!("{key}/{name}") };
                     self.add_tree(&child);
                 }
@@ -519,7 +521,7 @@ mod imp {
                 if event.mask & (libc::IN_DELETE_SELF | libc::IN_MOVE_SELF) != 0 && folder.is_empty() {
                     rescan = Some("the folder itself moved or was removed");
                 }
-                if folder.is_empty() && name == ".azlin" {
+                if folder.is_empty() && Protected::is_bookkeeping(&name) {
                     continue;
                 }
                 if event.mask & libc::IN_ISDIR != 0
@@ -584,7 +586,7 @@ mod imp {
         };
         for entry in entries.flatten() {
             let name = entry.file_name().to_string_lossy().into_owned();
-            if key.is_empty() && name == ".azlin" {
+            if key.is_empty() && Protected::is_bookkeeping(&name) {
                 continue;
             }
             let child = if key.is_empty() { name } else { format!("{key}/{name}") };

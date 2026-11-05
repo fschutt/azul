@@ -58,7 +58,7 @@ pub const HEADER_PX: f32 = 30.0;
 pub fn listed_name(name: &str, at_root: bool) -> bool {
     let temporary =
         name.starts_with('.') && name.contains(".azul-storage-") && name.ends_with(".tmp");
-    !temporary && !(at_root && name == azul_storage::manifest::MANIFEST_DIR)
+    !temporary && !(at_root && azul_storage::names::Protected::is_bookkeeping(name))
 }
 
 /// The row of an entry the folder read gave (`azul_storage::dir_read`): known at once when the

@@ -642,7 +642,10 @@ impl SyncRemote for NamedFiles<'_> {
             // (its `.azlin/` at the prefix's root; a `.azlin` folder deeper down is the user's,
             // but never the record of a folder synced there).
             if key.is_empty()
-                || key.split('/').next() == Some(remote::META_DIR)
+                || key
+                    .split('/')
+                    .next()
+                    .is_some_and(azul_storage::names::Protected::is_bookkeeping)
                 || record::is_record(key)
             {
                 continue;

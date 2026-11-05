@@ -166,3 +166,49 @@ fn an_escaped_bang_is_a_name_that_starts_with_it() {
     assert_eq!(rules.excluded("!important.txt"), Some(IGNORED));
     assert_eq!(rules.excluded("important.txt"), None);
 }
+
+/// AZ-Y5. The `.azlin` folder holds the installed programs (`apps/<app>/current/..`, the
+/// `staged.json` and `request.json` of an update) and the links to them (`bin/`). A synced file
+/// there is run at the next start with no signature chain involved: the folder's sync leaves them
+/// out, on both sides, and no `!` rule takes them back.
+#[test]
+fn az_y5_the_install_tree_of_the_azlin_folder_is_never_synced() {
+    let home = Rules::azlin_home();
+    for key in [
+        "apps/azdrive/current/AzDrive",
+        "apps/azdrive/staged.json",
+        "apps/azmail/request.json",
+        "apps/azmail/current.json",
+        "bin/azdrive",
+        "bin/git",
+    ] {
+        assert!(home.excluded(key).is_some(), "{key}");
+    }
+    assert_eq!(
+        home.excluded("apps/azdrive/current/AzDrive"),
+        Some(crate::sync::rules::INSTALL)
+    );
+    // The rest of the folder syncs, and a folder of that name deeper down is the user's.
+    for key in [
+        "config.json",
+        "notes/apps/x.md",
+        "docs/bin/tool",
+        "appsy/x",
+        "binders/x",
+        "roots/company.pem.txt",
+    ] {
+        assert_eq!(home.excluded(key), None, "{key}");
+    }
+    // Not the data root's: a data root's `apps/` is somebody's folder.
+    for key in ["apps/x/y", "bin/z"] {
+        assert_eq!(Rules::azlin_data().excluded(key), None, "{key}");
+        assert_eq!(Rules::base().excluded(key), None, "{key}");
+    }
+    // A rule that takes back is never taken for the install tree's.
+    let mut home = Rules::azlin_home();
+    home.add("!/apps/", "back");
+    home.add("!apps/azdrive/current/AzDrive", "back");
+    home.add_ignore_file("!bin/\n!apps/\n");
+    assert!(home.excluded("apps/azdrive/current/AzDrive").is_some());
+    assert!(home.excluded("bin/azdrive").is_some());
+}

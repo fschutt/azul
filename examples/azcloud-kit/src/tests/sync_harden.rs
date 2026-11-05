@@ -979,3 +979,139 @@ fn az_w1_opening_a_cloud_only_entry_under_a_protected_folder_writes_nothing() {
         "not even its folder was made"
     );
 }
+
+/// AZ-W7: the same hostile entries as AZ-W1's, spelt as NTFS spells them (`GIT~1`, a dot at the
+/// end, a stream suffix, a code point the disk ignores): none lands, each is listed, the drive
+/// keeps them.
+#[test]
+fn az_w7_a_drive_entry_under_a_short_name_of_a_protected_folder_never_lands_here() {
+    let store = S3Bucket::new();
+    let b = Device::new("w7-b");
+    b.write("proj/.git/config", b"[core]\n");
+    let hostile = [
+        "proj/GIT~1/hooks/pre-commit",
+        "AZLIN~1/sync/trash/20261104-000000-aa/x",
+        "proj/.git./hooks/post-checkout",
+        "proj/.git::$INDEX_ALLOCATION/hooks/post-merge",
+        "proj/.g\u{200c}it/hooks/pre-push",
+    ];
+    for key in hostile {
+        put_remote(&store, key, b"#!/bin/sh\necho owned\n", true);
+    }
+    for pass in 0..2 {
+        let report = b.sync(&store);
+        for key in hostile {
+            assert!(b.read(key).is_none(), "pass {pass}: {key} landed here");
+            assert!(
+                lists(&report, Code::BadRemoteName, Some(key)),
+                "pass {pass}: {key}: {:?}",
+                report.problems
+            );
+        }
+        assert_eq!(b.read("proj/.git/hooks/pre-commit"), None, "pass {pass}");
+        let index = index_of(&store);
+        for key in hostile {
+            assert!(
+                index.files.contains_key(key),
+                "pass {pass}: {key} left the drive"
+            );
+        }
+    }
+}
+
+/// X2 (the rules): opening a cloud-only entry that a rule of the folder leaves out writes
+/// nothing. The `.azlin` folder's install tree is such a rule's (AZ-Y5): `apps/azdrive/current/
+/// AzDrive` in the drive is not installed because somebody opened it.
+#[test]
+fn x_ar5a_2_opening_a_cloud_only_entry_that_a_rule_leaves_out_writes_nothing() {
+    use crate::sync::{
+        fetch_file,
+        local::{BaseEntry, LocalIndex},
+        rules::Rules,
+        LocalRoot,
+    };
+    let store = S3Bucket::new();
+    let b = Device::new("x2-rules");
+    b.write("seed.txt", b"seed");
+    b.sync(&store);
+    let home = LocalRoot {
+        rules: Rules::azlin_home(),
+        ..b.root()
+    };
+    for key in [
+        "apps/azdrive/current/AzDrive",
+        "bin/git",
+        "notes/readme.txt",
+    ] {
+        let bytes: &[u8] = b"#!/bin/sh\necho owned\n";
+        put_remote(&store, key, bytes, true);
+        let mut base = LocalIndex::load(&b.index()).unwrap().expect("a base");
+        base.files.insert(
+            key.to_string(),
+            BaseEntry {
+                hash: hash_bytes(bytes),
+                size: bytes.len() as u64,
+                cloud_only: true,
+                exec: true,
+                ..BaseEntry::default()
+            },
+        );
+        base.save(&b.index()).unwrap();
+        let opened = fetch_file(Target::Index(&store), &home, &b.index(), &b.opts(), key);
+        if key == "notes/readme.txt" {
+            // What no rule leaves out still opens.
+            let path = opened.expect("an ordinary cloud-only file opens");
+            assert_eq!(fs::read(path).unwrap(), bytes);
+        } else {
+            let wrong = opened.expect_err("a rule leaves it out: it is not written");
+            assert!(
+                wrong.to_string().contains("left out of this folder's sync"),
+                "{wrong}"
+            );
+            assert!(b.read(key).is_none(), "{key} landed here");
+        }
+    }
+    assert!(!b.path().join("apps").exists() && !b.path().join("bin").exists());
+}
+
+/// AZ-Y5, end to end: a pass over the `.azlin` folder downloads nothing into `apps/` and `bin/`
+/// and uploads nothing from them.
+#[test]
+fn az_y5_a_pass_over_the_azlin_folder_neither_installs_nor_sends_the_install_tree() {
+    use crate::sync::{rules::Rules, sync_folder, LocalRoot};
+    let store = S3Bucket::new();
+    let b = Device::new("y5-home");
+    let home = LocalRoot {
+        rules: Rules::azlin_home(),
+        ..b.root()
+    };
+    let owned: &[u8] = b"#!/bin/sh\necho owned\n";
+    put_remote(&store, "apps/azdrive/current/AzDrive", owned, true);
+    put_remote(&store, "bin/git", owned, true);
+    put_remote(&store, "roots/company.pem.txt", b"a note", false);
+    b.write("apps/azmail/current/AzMail", b"the real program");
+    b.write("bin/azmail", b"a link in effect");
+    b.write("config.json", b"{}");
+    for pass in 0..2 {
+        sync_folder(&store, &home, &b.index(), &b.opts()).unwrap();
+        let missing = |key: &str| b.read(key).is_none();
+        assert!(missing("apps/azdrive/current/AzDrive"), "pass {pass}");
+        assert!(missing("bin/git"), "pass {pass}");
+        assert_eq!(
+            b.read("roots/company.pem.txt").as_deref(),
+            Some(&b"a note"[..])
+        );
+        let index = index_of(&store);
+        let listed = |key: &str| index.files.contains_key(key);
+        assert!(listed("config.json"), "pass {pass}");
+        assert!(!listed("apps/azmail/current/AzMail"), "pass {pass}");
+        assert!(!listed("bin/azmail"), "pass {pass}");
+        // The drive's own entries are not deleted by a pass that leaves them out.
+        assert!(listed("apps/azdrive/current/AzDrive"), "pass {pass}");
+    }
+    assert_eq!(
+        b.read("apps/azmail/current/AzMail").as_deref(),
+        Some(&b"the real program"[..]),
+        "the local install tree is untouched"
+    );
+}

@@ -29,6 +29,9 @@ serde_json = "1"
 # md-5 0.11.0 and base64 0.22.1; both in scripts/dependency-justifications.toml).
 md-5 = "0.11"
 base64 = "0.22"
+# The name policy compares names in NFC, as macOS stores them decomposed and other systems
+# composed (src/names.rs; no new crate: azcloud-kit and azul-layout have it in Cargo.lock).
+unicode-normalization = "0.1"
 # The Azlin nodes' error codes (`x-azlin-error`), one enum the apps and the services share.
 azlin-contract = { path = "../azlin-contract" }
 # Only for `AzulTransport` (feature `azul`), which sends the requests through

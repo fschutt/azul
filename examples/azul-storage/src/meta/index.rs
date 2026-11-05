@@ -68,7 +68,10 @@ pub const SYNC_BOOKKEEPING: &str = ".azlin/sync/";
 /// the root (but the sync's bookkeeping in it), or a segment of a shard's name.
 fn reserved(path: &str) -> bool {
     let mut segments = path.trim_end_matches('/').split('/');
-    (segments.next() == Some(".azlin") && !path.starts_with(SYNC_BOOKKEEPING))
+    (segments
+        .next()
+        .is_some_and(crate::names::Protected::is_bookkeeping)
+        && !path.starts_with(SYNC_BOOKKEEPING))
         || path.split('/').any(|segment| segment.starts_with(SHARD_PREFIX))
 }
 
@@ -436,7 +439,7 @@ impl<B: Bucket, S: Sealer> NameIndex for MetaIndex<B, S> {
             }
             let entries = shard::read_folder(repo.objects(), &folder_id).map_err(to_drive)?;
             for entry in entries.entries() {
-                if dir.is_empty() && entry.name == ".azlin" {
+                if dir.is_empty() && crate::names::Protected::is_bookkeeping(&entry.name) {
                     continue;
                 }
                 let key = format!("{dir}{}", entry.name);

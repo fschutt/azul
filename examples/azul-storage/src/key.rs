@@ -387,9 +387,13 @@ pub fn folder_trail(prefix: &str) -> Vec<(String, String)> {
     trail
 }
 
-/// The local file name for a download of `key`: its last segment with path
-/// separators, control characters and characters Windows refuses replaced by
-/// `_`. `None` when nothing usable is left (`..`, `.`, empty).
+/// The local file name for a download of `key`: its last segment with path separators, control
+/// characters and characters Windows refuses replaced by `_`, the dots and spaces at its end
+/// dropped (Windows drops them, so `a.` and `a` would be one file), a Windows device name
+/// (`CON`, `NUL.txt`, `COM1`) given a `_` before it, and cut to [`NAME_MAX_BYTES`] at a character,
+/// keeping its extension. Every system gets the same name: a download may be carried to a Windows
+/// computer, and a name that is a device there is a mistake here too. `None` when nothing usable
+/// is left (`..`, `.`, empty).
 #[must_use]
 pub fn safe_file_name(key: &str) -> Option<String> {
     let name = last_segment(key);
@@ -404,11 +408,26 @@ pub fn safe_file_name(key: &str) -> Option<String> {
             c => c,
         })
         .collect();
+    let mut cleaned = cleaned.trim_end_matches(['.', ' ']).to_string();
     if cleaned.trim().is_empty() {
-        None
-    } else {
-        Some(cleaned)
+        return None;
     }
+    if NameProblem::DeviceName.holds(&cleaned) {
+        cleaned.insert(0, '_');
+    }
+    if cleaned.len() > NAME_MAX_BYTES {
+        // Cut in the stem, so the extension (what opens the file) stays.
+        let (stem, extension) = match cleaned.rfind('.') {
+            Some(dot) if dot > 0 && cleaned.len() - dot <= 16 => cleaned.split_at(dot),
+            _ => (cleaned.as_str(), ""),
+        };
+        let mut end = NAME_MAX_BYTES - extension.len();
+        while !stem.is_char_boundary(end) {
+            end -= 1;
+        }
+        cleaned = format!("{}{extension}", &stem[..end]);
+    }
+    Some(cleaned)
 }
 
 /// The names `keys` get in a folder on a disk that tells two keys apart only as `fold` does

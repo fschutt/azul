@@ -66,6 +66,9 @@ pub mod manifest;
 pub mod meta;
 /// Big uploads to a bucket: parts of 16 MiB four at once, resumable after the app was killed.
 pub mod multipart;
+/// What a name from a drive, a device or a user may be before it becomes a path: the policy, the
+/// protected names, the key that passed.
+pub mod names;
 /// OAuth 2.0 for the consumer clouds (Google Drive, Dropbox, OneDrive): the token endpoint and
 /// the transport that keeps a signed-in drive's access token fresh.
 pub mod oauth;

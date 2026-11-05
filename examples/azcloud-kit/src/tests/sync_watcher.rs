@@ -32,6 +32,25 @@ fn a_change_names_its_folder_and_the_bookkeeping_wakes_nothing() {
     assert_eq!(folder_key(root, Path::new("/elsewhere/a.txt")), None);
 }
 
+/// X13: the bookkeeping folder is told in every spelling a disk reads as its name, not only the
+/// one the engine made (a case-folding disk lists `.AZLIN` for `.azlin`).
+#[test]
+fn x_ar5a_13_the_bookkeeping_wakes_nothing_in_any_spelling_and_a_folder_of_that_name_deeper_down_does() {
+    let root = Path::new("/r");
+    for spelling in [".azlin", ".AZLIN", ".Azlin", "AZLIN~1", ".azlin."] {
+        assert_eq!(
+            folder_key(root, &root.join(spelling).join("sync").join("root-id")),
+            None,
+            "{spelling}"
+        );
+    }
+    // Only the root's own bookkeeping: `docs/.azlin` is the user's folder.
+    assert_eq!(
+        folder_key(root, Path::new("/r/docs/.azlin/a.txt")).as_deref(),
+        Some("docs/.azlin")
+    );
+}
+
 #[test]
 fn a_full_pass_is_due_at_start_after_sleep_and_every_fifteen_minutes() {
     let wall = SystemTime::now();

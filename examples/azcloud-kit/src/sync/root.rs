@@ -26,14 +26,9 @@ use super::{
     names::{System, Volume},
 };
 
-/// The bookkeeping folder of a synced folder, from its root.
-pub const SYNC_DIR: &str = ".azlin/sync";
-/// The marker's file in it.
+pub use azul_storage::names::{SPOOL_DIR, SYNC_DIR, TRASH_DIR};
+/// The marker's file in the bookkeeping folder ([`SYNC_DIR`]).
 pub const MARKER_FILE: &str = "root-id";
-/// The trash, in it.
-pub const TRASH_DIR: &str = ".azlin/sync/trash";
-/// Where big downloads are spooled, in it.
-pub const SPOOL_DIR: &str = ".azlin/sync/tmp";
 /// How long a file stays in the trash here; the drive keeps its versions for longer.
 pub const TRASH_DAYS: i64 = 30;
 

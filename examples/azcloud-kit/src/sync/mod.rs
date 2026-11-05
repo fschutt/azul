@@ -314,7 +314,7 @@ pub fn azlin_roots(data_root: &Path, azlin_home: &Path) -> Vec<(LocalRoot, &'sta
         );
         // The .azlin folder is the data root's bookkeeping folder: its sync/ holds the data
         // root's marker and trash, which no other device may get.
-        if inner == ".azlin" {
+        if inner == names::BOOKKEEPING {
             home.rules.add(
                 "/sync/",
                 "the data root's sync bookkeeping (its marker, its trash)",
@@ -4263,6 +4263,12 @@ fn fetch_one<R: SyncRemote + ?Sized>(
     .or_else(|| names::key_problem(key))
     {
         fail!("{key} cannot be written here ({why}); it stays on the drive");
+    }
+    // The rules of the folder hold for a file opened from the cloud as they do for a pass: what
+    // they leave out is neither downloaded nor written because someone asked for it by name (a
+    // cloud-only `apps/..` entry of the `.azlin` folder is not installed by opening it).
+    if let Some(why) = root.rules.excluded(key) {
+        fail!("{key} is left out of this folder's sync ({why}); it stays on the drive");
     }
     let path = local::path_of(&root.path, key);
     let kept_in_cloud = index.files.get(key).is_some_and(|e| e.cloud_only);

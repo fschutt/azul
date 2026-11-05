@@ -35,6 +35,7 @@ pub const CACHE: &str = "a cache (every computer builds its own)";
 pub const LOG: &str = "a log of this computer";
 pub const SECRET: &str = "shaped like a secret (secrets live in the OS keyring)";
 pub const STATE: &str = "a device's azcloud state (never synced)";
+pub const INSTALL: &str = "the installed programs and their update staging (never synced)";
 pub const IGNORED: &str = "the folder's .azcloudignore";
 
 /// The file a folder lists its own exclusions in.
@@ -114,8 +115,13 @@ pub const AZLIN_RULES: &[(&str, &str)] = &[
     ("credentials.json", SECRET),
 ];
 
-/// What the `.azlin` folder adds: a state folder someone put there.
-pub const HOME_RULES: &[(&str, &str)] = &[("azcloud/", STATE)];
+/// What the `.azlin` folder adds: a state folder someone put there, and the install tree - the
+/// programs the updater installed (`apps/<app>/current/..`, their `staged.json` and
+/// `request.json`) and the links to them (`bin/`). What a program runs at its next start is
+/// installed by the updater's signature chain and nothing else: a synced file there would be run
+/// with no chain involved (AZ-Y5).
+pub const HOME_RULES: &[(&str, &str)] =
+    &[("azcloud/", STATE), ("/apps/", INSTALL), ("/bin/", INSTALL)];
 
 /// One rule.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -171,7 +177,8 @@ impl Rule {
 
     /// A rule no `!` takes back: the folder's own bookkeeping.
     fn protected(&self) -> bool {
-        !self.negated && (self.reason == BOOKKEEPING || self.reason == STATE)
+        !self.negated
+            && (self.reason == BOOKKEEPING || self.reason == STATE || self.reason == INSTALL)
     }
 
     /// Whether the rule takes the entry whose path from the root is `parts`

@@ -54,7 +54,7 @@ use crate::{
 };
 
 /// The folder of the drive's own bookkeeping, at its root.
-pub const MANIFEST_DIR: &str = ".azlin";
+pub const MANIFEST_DIR: &str = crate::names::BOOKKEEPING;
 
 /// The manifest's file in [`MANIFEST_DIR`].
 pub const CACHE_FILE: &str = "cache";
@@ -76,13 +76,11 @@ pub(crate) const COMPACT_MIN_BYTES: u64 = 256 * 1024;
 pub(crate) const COMPACT_MIN_BYTES: u64 = 4 * 1024;
 
 /// Whether `key` names the drive's own bookkeeping: `.azlin` or anything in
-/// `.azlin/`, at the drive's root.
+/// `.azlin/`, at the drive's root - in any spelling a disk reads as the folder (`.AZLIN`,
+/// `AZLIN~1`, `.azlin.`: [`crate::names::Protected`]).
 #[must_use]
 pub fn is_reserved_key(key: &str) -> bool {
-    key == MANIFEST_DIR
-        || key
-            .strip_prefix(MANIFEST_DIR)
-            .is_some_and(|rest| rest.starts_with('/'))
+    crate::names::Protected::is_bookkeeping(key.split('/').next().unwrap_or(key))
 }
 
 /// What the manifest knows about one object.
