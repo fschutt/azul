@@ -2146,7 +2146,6 @@ pub(crate) fn enqueue_routed(
     let label = transfer_label(kind, &items, target_name);
     let notice = s.actions.queued(action, kind, &items, target_name);
     let id = s.queue.push(label);
-    let same_drive = source.0 == target.0;
     s.transfers.insert(
         id,
         TransferJob {
@@ -2157,7 +2156,6 @@ pub(crate) fn enqueue_routed(
             target: target.1,
             items,
             target_prefix: target_prefix.to_string(),
-            same_drive,
             plan: None,
             cancel: Arc::new(AtomicBool::new(false)),
             auto,
@@ -2190,7 +2188,6 @@ pub(crate) fn pump_queue(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
         items: job.items.clone(),
         target: job.target.clone(),
         target_prefix: job.target_prefix.clone(),
-        same_drive: job.same_drive,
         kind: job.kind,
         copy: t("azdrive-copy-word"),
     };
@@ -2428,7 +2425,7 @@ pub(crate) fn transfer_ran(
                 s.selection.set(plan.tops.clone());
             }
             if job.kind == TransferKind::Move
-                && job.same_drive
+                && plan.same_drive
                 && !plan.moves.is_empty()
                 && plan.files.is_empty()
             {

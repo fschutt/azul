@@ -931,7 +931,6 @@ pub(crate) struct TransferJob {
     pub target: Arc<dyn Drive>,
     pub items: Vec<SourceItem>,
     pub target_prefix: String,
-    pub same_drive: bool,
     /// Planned (`None` until the plan is back).
     pub plan: Option<Plan>,
     pub cancel: Arc<AtomicBool>,

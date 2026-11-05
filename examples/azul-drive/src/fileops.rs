@@ -6,19 +6,20 @@
 //! makes ("a - Copy.txt", "a (2).txt", "New folder (2)"). Everything here
 //! blocks: the app runs it on an azul `Thread`. No azul types.
 
-use std::{
-    collections::HashSet,
-    sync::atomic::{AtomicBool, Ordering},
-};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use azul_appkit::l10n::{Phrase, Text};
 use azul_storage::{
     key, ops as storage_ops, transfer,
-    xfer::{overlap, Overlap},
+    xfer::{self, overlap, Overlap},
     BatchDelete, BatchMove, BatchPut, Drive, DriveError,
 };
 
 use crate::browse;
+
+// The plan of a transfer is the storage crate's (`xfer::plan`): AzDrive says it in words and
+// queues it.
+pub use azul_storage::xfer::{parent_of, Choice as ConflictChoice, Plan, PlannedFile};
 
 /// The trash folder at the root of a local drive: a deleted item goes to
 /// `.azdrive-trash/<stamp>/<its key>`, so it can come back where it was.
@@ -31,69 +32,33 @@ pub const TRASH_FOLDER: &str = ".azdrive-trash/";
 /// extension.
 #[must_use]
 pub fn split_extension(name: &str) -> (&str, &str) {
-    match browse::extension_of(name) {
-        Some(ext) => {
-            let cut = name.len() - ext.len() - 1;
-            (&name[..cut], &name[cut..])
-        }
-        None => (name, ""),
-    }
-}
-
-/// `stem<suffix>ext` for the first suffix of `suffixes` whose name is free.
-fn first_free(
-    stem: &str,
-    ext: &str,
-    suffixes: impl Iterator<Item = String>,
-    taken: &dyn Fn(&str) -> bool,
-) -> String {
-    let mut last = format!("{stem}{ext}");
-    for suffix in suffixes {
-        let candidate = format!("{stem}{suffix}{ext}");
-        if !taken(&candidate) {
-            return candidate;
-        }
-        last = candidate;
-    }
-    last
+    xfer::names::split_extension(name)
 }
 
 /// The name Explorer gives a copy pasted into the folder it came from: `a - Copy.txt`, then
 /// `a - Copy (2).txt`, ... - `copy` the window's language's word ("Kopie").
 #[must_use]
 pub fn copy_name(name: &str, copy: &str, taken: &dyn Fn(&str) -> bool) -> String {
-    let (stem, ext) = split_extension(name);
-    first_free(stem, ext, copy_suffixes(copy), taken)
+    xfer::names::copy_name(name, copy, &mut |n| taken(n))
 }
 
 /// [`copy_name`] for a folder (a dot in its name is not an extension).
 #[must_use]
 pub fn copy_folder_name(name: &str, copy: &str, taken: &dyn Fn(&str) -> bool) -> String {
-    first_free(name, "", copy_suffixes(copy), taken)
-}
-
-/// ` - Copy`, ` - Copy (2)`, ...
-fn copy_suffixes(copy: &str) -> impl Iterator<Item = String> + '_ {
-    std::iter::once(format!(" - {copy}"))
-        .chain((2..10_000).map(move |n| format!(" - {copy} ({n})")))
+    xfer::names::copy_folder_name(name, copy, &mut |n| taken(n))
 }
 
 /// The name "Keep both files" gives the newcomer: `a (2).txt`, `a (3).txt`.
 #[must_use]
 pub fn keep_both_name(name: &str, taken: &dyn Fn(&str) -> bool) -> String {
-    let (stem, ext) = split_extension(name);
-    first_free(stem, ext, (2..10_000).map(|n| format!(" ({n})")), taken)
+    xfer::names::keep_both_name(name, &mut |n| taken(n))
 }
 
 /// A new item's name: `name` when free, else `name (2)`, `name (3)`, ...
 /// ("New folder", "New Text Document.txt").
 #[must_use]
 pub fn new_name(name: &str, taken: &dyn Fn(&str) -> bool) -> String {
-    if taken(name) {
-        keep_both_name(name, taken)
-    } else {
-        name.to_string()
-    }
+    xfer::names::new_name(name, &mut |n| taken(n))
 }
 
 /// The characters Explorer refuses in a name.
@@ -162,17 +127,6 @@ impl TransferKind {
     }
 }
 
-/// What the user decided for a name that is taken at the target.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum ConflictChoice {
-    /// "Replace the file in the destination".
-    Replace,
-    /// "Skip this file".
-    Skip,
-    /// "Keep both files": the newcomer gets ` (2)`.
-    KeepBoth,
-}
-
 /// One item the user picked: a file, or a folder (`key` ending in `/`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceItem {
@@ -194,269 +148,38 @@ impl SourceItem {
     }
 }
 
-/// One file the transfer copies.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PlannedFile {
-    pub source_key: String,
-    pub target_key: String,
-    pub size: Option<u64>,
-    /// Something has `target_key` already.
-    pub conflict: bool,
-    /// What the user chose for a conflict (`None`: not asked yet).
-    pub choice: Option<ConflictChoice>,
-}
-
-/// Everything a transfer will do, decided before it starts.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Plan {
-    /// The files to copy (under the folders too), in order.
-    pub files: Vec<PlannedFile>,
-    /// The folders to create at the target, parents first (empty ones too).
-    pub folders: Vec<String>,
-    /// Whole items renamed in place: a move within one drive with nothing
-    /// in the way (one `rename`, not a copy).
-    pub moves: Vec<(String, String)>,
-    /// The folders a move empties, removed after their files went.
-    pub source_folders: Vec<String>,
-    /// The items the transfer makes at the target (what to select after).
-    pub tops: Vec<String>,
-    /// Source and target are one drive. In a bucket a file then goes by the
-    /// drive's own copy (CopyObject, no byte through AzDrive); on disk by the
-    /// chunked file copy, which reports its progress megabyte by megabyte.
-    pub same_drive: bool,
-    /// The target keys that are taken (for "Keep both" names).
-    taken: HashSet<String>,
-}
-
-impl Plan {
-    /// The files whose names are taken at the target, by index.
-    #[must_use]
-    pub fn conflicts(&self) -> Vec<usize> {
-        self.files
-            .iter()
-            .enumerate()
-            .filter(|(_, f)| f.conflict)
-            .map(|(i, _)| i)
-            .collect()
-    }
-
-    /// The first conflict nobody decided yet.
-    #[must_use]
-    pub fn unresolved(&self) -> Option<usize> {
-        self.files
-            .iter()
-            .position(|f| f.conflict && f.choice.is_none())
-    }
-
-    /// The unresolved conflicts from `from` on (for "Do this for all").
-    #[must_use]
-    pub fn unresolved_count(&self) -> usize {
-        self.files
-            .iter()
-            .filter(|f| f.conflict && f.choice.is_none())
-            .count()
-    }
-
-    /// Decides the conflict of file `index`; "Keep both" renames the
-    /// newcomer to the first free ` (n)` name.
-    pub fn choose(&mut self, index: usize, choice: ConflictChoice) {
-        let Some(file) = self.files.get(index) else {
-            return;
-        };
-        let mut target_key = file.target_key.clone();
-        if choice == ConflictChoice::KeepBoth {
-            let folder = key::folder_of(&target_key).to_string();
-            let name = key::last_segment(&target_key).to_string();
-            let taken = &self.taken;
-            let free = keep_both_name(&name, &|n: &str| taken.contains(&format!("{folder}{n}")));
-            target_key = format!("{folder}{free}");
-            self.taken.insert(target_key.clone());
-        }
-        if let Some(file) = self.files.get_mut(index) {
-            file.target_key = target_key;
-            file.choice = Some(choice);
-        }
-    }
-
-    /// The bytes the files hold (as far as known).
-    #[must_use]
-    pub fn total_bytes(&self) -> u64 {
-        self.files.iter().filter_map(|f| f.size).sum()
-    }
-
-    /// Nothing to do.
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.files.is_empty() && self.folders.is_empty() && self.moves.is_empty()
-    }
-}
-
-/// The folder an item sits in: `docs/a.txt` -> `docs/`, `docs/sub/` -> `docs/`.
-#[must_use]
-pub fn parent_of(item_key: &str) -> String {
-    if item_key.ends_with('/') {
-        key::parent_prefix(item_key)
-    } else {
-        key::folder_of(item_key).to_string()
-    }
-}
-
-/// Plans copying or moving `items` of `source` into the folder
-/// `target_prefix` of `target` (`same_drive`: they are one drive). Lists
-/// every folder (one recursive listing each) and every taken name at the
-/// target (one listing per folder that is there, one HEAD per file).
-/// Explorer's rules: a copy into the folder it came from is named
-/// "a - Copy"; a move into it does nothing; a folder never goes into
-/// itself. A move within one drive with nothing in the way is one rename.
+/// Plans copying or moving `items` of `source` into the folder `target_prefix` of `target`: the
+/// storage crate's plan ([`xfer::plan`]) of the items, with the kind's one difference - only a
+/// move takes the items away. Whether the two are one drive is the drives' own answer
+/// ([`Drive::site`]), not the caller's.
+///
+/// # Errors
+///
+/// As [`xfer::plan`].
 pub fn plan_transfer(
     source: &dyn Drive,
     items: &[SourceItem],
     target: &dyn Drive,
     target_prefix: &str,
-    same_drive: bool,
     kind: TransferKind,
     copy: &str,
 ) -> Result<Plan, DriveError> {
-    let mut plan = Plan {
-        same_drive,
-        ..Plan::default()
-    };
-    // A folder item of the drive's root ("Copy everything") stands for everything in it.
-    let expanded: Vec<SourceItem>;
-    let items = if items.iter().any(|i| i.is_folder && i.key.is_empty()) {
-        let root = storage_ops::list_folder_all(source, "")?;
-        expanded = root
-            .folders
-            .into_iter()
-            .map(|key| SourceItem {
-                key,
-                is_folder: true,
-                size: None,
-            })
-            .chain(root.objects.into_iter().map(|object| SourceItem {
-                key: object.key,
-                is_folder: false,
-                size: Some(object.size),
-            }))
-            .chain(
-                items
-                    .iter()
-                    .filter(|i| !(i.is_folder && i.key.is_empty()))
-                    .cloned(),
-            )
-            .collect();
-        &expanded[..]
-    } else {
-        items
-    };
-    for item in items {
-        let name = key::last_segment(&item.key).to_string();
-        let parent = parent_of(&item.key);
-        if item.is_folder && same_drive && target_prefix.starts_with(item.key.as_str()) {
-            return Err(DriveError::InvalidKey {
-                key: target_prefix.to_string(),
-                reason: "the destination folder is inside the folder it would receive",
-            });
-        }
-        let same_place = same_drive && parent == target_prefix;
-        if same_place && kind == TransferKind::Move {
-            continue;
-        }
-        let target_name = if same_place {
-            if item.is_folder {
-                copy_folder_name(&name, copy, &|n: &str| {
-                    storage_ops::folder_exists(target, &format!("{target_prefix}{n}/"))
-                        .unwrap_or(true)
-                })
-            } else {
-                copy_name(&name, copy, &|n: &str| {
-                    storage_ops::exists(target, &format!("{target_prefix}{n}")).unwrap_or(true)
-                })
-            }
-        } else {
-            name.clone()
-        };
-        if item.is_folder {
-            let target_key = format!("{target_prefix}{target_name}/");
-            // The guard above knows drive ids and key text. The app makes more than one drive
-            // over a tree (Home and a folder added inside it, a synced listing, an upload's
-            // `os:` folder): the ids differ and the folder would be copied below itself, and a
-            // Move would then delete the source folder with the new copies in it (AZ-U1). The
-            // drives' sites say where the folder lands, the disk which file is which.
-            if overlap(&source.site(), &item.key, &target.site(), &target_key)
-                .target_inside_source()
-            {
-                return Err(DriveError::InvalidKey {
-                    key: target_prefix.to_string(),
-                    reason: "the destination folder is inside the folder it would receive",
-                });
-            }
-            plan.tops.push(target_key.clone());
-            let target_exists = storage_ops::folder_exists(target, &target_key)?;
-            if same_drive && kind == TransferKind::Move && !target_exists {
-                plan.moves.push((item.key.clone(), target_key));
-                continue;
-            }
-            let existing: HashSet<String> = if target_exists {
-                storage_ops::list_all(target, &target_key)?
-                    .into_iter()
-                    .map(|o| o.key)
-                    .collect()
-            } else {
-                HashSet::new()
-            };
-            plan.folders.push(target_key.clone());
-            for object in storage_ops::list_all(source, &item.key)? {
-                let rest = &object.key[item.key.len()..];
-                if rest.is_empty() {
-                    continue; // the folder's own marker
-                }
-                let to = format!("{target_key}{rest}");
-                if rest.ends_with('/') {
-                    plan.folders.push(to);
-                    continue;
-                }
-                let conflict = existing.contains(&to);
-                if conflict {
-                    plan.taken.insert(to.clone());
-                }
-                plan.files.push(PlannedFile {
-                    source_key: object.key.clone(),
-                    target_key: to,
-                    size: Some(object.size),
-                    conflict,
-                    choice: None,
-                });
-            }
-            plan.taken.extend(existing);
-            if kind.removes_source() {
-                plan.source_folders.push(item.key.clone());
-            }
-        } else {
-            let target_key = format!("{target_prefix}{target_name}");
-            plan.tops.push(target_key.clone());
-            let taken = storage_ops::exists(target, &target_key)?;
-            if same_drive && kind == TransferKind::Move && !taken {
-                plan.moves.push((item.key.clone(), target_key));
-                continue;
-            }
-            let size = match item.size {
-                Some(size) => Some(size),
-                None => source.head(&item.key).ok().map(|info| info.size),
-            };
-            if taken {
-                plan.taken.insert(target_key.clone());
-            }
-            plan.files.push(PlannedFile {
-                source_key: item.key.clone(),
-                target_key,
-                size,
-                conflict: taken,
-                choice: None,
-            });
-        }
-    }
-    Ok(plan)
+    let items: Vec<xfer::Item> = items
+        .iter()
+        .map(|item| xfer::Item {
+            key: item.key.clone(),
+            is_folder: item.is_folder,
+            size: item.size,
+        })
+        .collect();
+    xfer::plan(
+        source,
+        &items,
+        target,
+        target_prefix,
+        kind.removes_source(),
+        copy,
+    )
 }
 
 // ==== Running ====
@@ -1127,7 +850,6 @@ mod tests {
             &[item("docs/"), item("readme.txt"), item("empty/")],
             &target,
             "in/",
-            false,
             TransferKind::Copy,
             "Copy",
         )
@@ -1156,7 +878,6 @@ mod tests {
             &[item("readme.txt")],
             &home,
             "",
-            true,
             TransferKind::Copy,
             "Copy",
         )
@@ -1169,7 +890,6 @@ mod tests {
             &[item("readme.txt")],
             &home,
             "",
-            true,
             TransferKind::Move,
             "Copy",
         )
@@ -1180,7 +900,6 @@ mod tests {
             &[item("docs/")],
             &home,
             "docs/sub/",
-            true,
             TransferKind::Move,
             "Copy",
         )
@@ -1199,7 +918,6 @@ mod tests {
             &[item("docs/"), item("readme.txt")],
             &target,
             "",
-            false,
             TransferKind::Copy,
             "Copy",
         )
@@ -1249,7 +967,6 @@ mod tests {
             &[item("docs/"), item("readme.txt")],
             &target,
             "",
-            false,
             TransferKind::Move,
             "Copy",
         )
@@ -1285,7 +1002,6 @@ mod tests {
             &[item("docs/")],
             &home,
             "archive/",
-            true,
             TransferKind::Move,
             "Copy",
         )
@@ -1306,7 +1022,6 @@ mod tests {
             &[item("archive/")],
             &home,
             "",
-            true,
             TransferKind::Copy,
             "Copy",
         )
@@ -1489,7 +1204,6 @@ mod tests {
             &[item("docs/"), item("readme.txt")],
             &drive,
             "backup/",
-            true,
             TransferKind::Copy,
             "Copy",
         )
@@ -1532,7 +1246,6 @@ mod tests {
             }],
             &drive,
             "backup/",
-            true,
             TransferKind::Copy,
             "Copy",
         )
@@ -1607,7 +1320,6 @@ mod tests {
             &[item("readme.txt")],
             &target,
             "",
-            false,
             TransferKind::Copy,
             "Copy",
         )
@@ -1638,25 +1350,50 @@ mod tests {
             // The second drive over the same tree the app builds itself (`os:<folder>`,
             // `sync:<drive>`).
             let os = LocalDrive::new(tmp.path().join("home"));
-            let mut plan =
-                plan_transfer(&os, &[item("readme.txt")], &home, "", false, kind, "Copy").unwrap();
+            let plan =
+                plan_transfer(&os, &[item("readme.txt")], &home, "", kind, "Copy").unwrap();
             assert_eq!(
                 plan.conflicts().len(),
-                1,
-                "the same file is 'there' already"
+                0,
+                "{kind:?}: the file is where it would land - not 'there already' as another file"
             );
-            plan.choose(0, ConflictChoice::Replace);
+            match kind {
+                TransferKind::Move => assert!(plan.is_empty(), "a move onto itself does nothing"),
+                _ => assert_eq!(plan.files[0].target_key, "readme - Copy.txt"),
+            }
             let report = run_transfer(&plan, &os, &home, kind, &never_cancel(), &mut |_| {});
+            assert!(report.failed.is_empty(), "{kind:?}: {report:?}");
             assert_eq!(
                 home.get("readme.txt").unwrap(),
                 b"hello",
                 "{kind:?}: the only copy is still there"
             );
-            assert_eq!(
-                report.failed.len(),
-                1,
-                "{kind:?}: it is refused, not done: {report:?}"
-            );
+        }
+    }
+
+    /// A plan that names a file as its own destination (made some other way than by the planner)
+    /// is refused at the run: the file is not replaced by itself, and a Move does not delete it
+    /// as a done source.
+    #[test]
+    fn az_u4_s1_the_run_refuses_a_file_that_is_its_own_destination() {
+        for kind in [TransferKind::Move, TransferKind::Copy] {
+            let tmp = TempDir::new("replace-self-run");
+            let home = seeded(&tmp);
+            let os = LocalDrive::new(tmp.path().join("home"));
+            let mut plan = Plan::default();
+            plan.files.push(PlannedFile {
+                source_key: String::from("readme.txt"),
+                target_key: String::from("readme.txt"),
+                size: Some(5),
+                conflict: true,
+                choice: Some(ConflictChoice::Replace),
+                source_etag: None,
+                target_etag: None,
+                keep_as: None,
+            });
+            let report = run_transfer(&plan, &os, &home, kind, &never_cancel(), &mut |_| {});
+            assert_eq!(home.get("readme.txt").unwrap(), b"hello", "{kind:?}");
+            assert_eq!(report.failed.len(), 1, "{kind:?}: refused, not done: {report:?}");
             assert_eq!(report.done, 0, "{kind:?}");
         }
     }
@@ -1677,7 +1414,6 @@ mod tests {
                 &[item(key)],
                 target,
                 prefix,
-                false,
                 TransferKind::Move,
                 "Copy",
             )
@@ -1688,8 +1424,8 @@ mod tests {
         assert!(plan(&home, "docs/", &inner, "sub/").is_err());
         // Into the inner drive's root: it would land as docs/docs/.
         assert!(plan(&home, "docs/", &inner, "").is_err());
-        // Onto its own place: the root of the same tree, as docs/ it already is.
-        assert!(plan(&home, "docs/", &os, "").is_err());
+        // Onto its own place: the root of the same tree, as docs/ it already is - nothing to do.
+        assert!(plan(&home, "docs/", &os, "").unwrap().is_empty());
         // The error is the guard's, not a listing failure.
         assert!(matches!(
             plan(&home, "docs/", &os, "docs/sub/"),

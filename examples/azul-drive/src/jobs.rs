@@ -216,7 +216,6 @@ pub(crate) enum Job {
         items: Vec<SourceItem>,
         target: Arc<dyn Drive>,
         target_prefix: String,
-        same_drive: bool,
         kind: TransferKind,
         /// The window's language's word of a copy's name ("a - Copy.txt").
         copy: String,
@@ -3292,7 +3291,6 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
             items,
             target,
             target_prefix,
-            same_drive,
             kind,
             copy,
         } => Outcome::Planned {
@@ -3302,7 +3300,6 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
                 &items,
                 &*target,
                 &target_prefix,
-                same_drive,
                 kind,
                 &copy,
             ),

@@ -118,7 +118,7 @@ fn a_multi_select_move_within_a_drive_is_one_batch() {
     let tmp = TempDir::new("batch-move");
     let drive = Batching::new(&tmp);
     let items = [file("a.txt"), file("b.txt")];
-    let plan = plan_transfer(&drive, &items, &drive, "docs/", true, TransferKind::Move, "Copy")
+    let plan = plan_transfer(&drive, &items, &drive, "docs/", TransferKind::Move, "Copy")
         .expect("the plan");
     assert_eq!(plan.moves.len(), 2, "renamed in place, nothing copied");
     let report = run_transfer(
@@ -224,7 +224,7 @@ fn pasted(source: &LocalDrive, target: &Bucket) -> (crate::fileops::TransferRepo
         is_folder: true,
         size: None,
     }];
-    let plan = plan_transfer(source, &items, target, "", false, TransferKind::Copy, "Copy").expect("the plan");
+    let plan = plan_transfer(source, &items, target, "", TransferKind::Copy, "Copy").expect("the plan");
     let mut files_done = 0;
     let report = run_transfer(
         &plan,

@@ -106,7 +106,6 @@ fn copy_everything_plans_the_whole_drive_into_a_folder_named_after_it() {
         &[everything],
         &here,
         &prefix,
-        false,
         TransferKind::Download,
         "Copy",
     )

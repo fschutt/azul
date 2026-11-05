@@ -38,6 +38,8 @@ mod time;
 mod transfer;
 /// Names a Windows disk cannot hold, refused before a key becomes a path there.
 mod windows_names;
+/// The plan of a transfer: the names a target holds and the names the plan reserves.
+mod xfer_plan;
 /// Where drives are and whether two places overlap: two drives over one tree, a bucket twice.
 mod xfer_site;
 mod xml;
