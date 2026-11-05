@@ -2594,10 +2594,19 @@ impl Runner {
                 node_id,
                 properties,
             } => {
-                // Same one-line delegation as the DLL host — the chokepoint
-                // owns inline-vec sync, cascade restyle, DL rebuild and tier.
+                // The shells' arm (`apply_user_change` with `defer_content_layout` set): the
+                // chokepoint owns inline-vec sync, cascade restyle and the tier, and lays
+                // NOTHING out itself (`apply_content_change_for_host`). The one relayout - or
+                // display-list rebuild - the returned tier asks for is `run_frame`'s, run once
+                // on the result of the pass; every result this runner collects is acted on by
+                // `service`, so no write here is one that nothing would lay out.
+                //
+                // Without this the write laid the window out at once AND `run_frame` laid it
+                // out again for the tier: every geometry override cost 2 `layout_passes` (a
+                // shell: 1), and the second pass diffed against the display list the first had
+                // cached - the `justify-content` stale frame of `gen-e2e` batch 2 (line 27).
                 self.layout_window
-                    .apply_content_change(crate::overlay::ContentChange::NodeCss {
+                    .apply_content_change_for_host(crate::overlay::ContentChange::NodeCss {
                         dom_id: *dom_id,
                         node_id: *node_id,
                         props: properties.as_ref().to_vec(),
@@ -2622,14 +2631,15 @@ impl Runner {
                 .tier
                 .to_process_event_result(),
 
-            // Same one-line delegation as the DLL host.
+            // The shells' arm, like `ChangeNodeCssProperties` above: written here, laid out
+            // once by `run_frame` on the tier.
             CallbackChange::SetNodeStyle {
                 dom_id,
                 node_id,
                 style,
             } => self
                 .layout_window
-                .apply_content_change(crate::overlay::ContentChange::NodeStyle {
+                .apply_content_change_for_host(crate::overlay::ContentChange::NodeStyle {
                     dom_id: *dom_id,
                     node_id: *node_id,
                     style: style.clone(),

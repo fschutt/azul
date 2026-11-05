@@ -104,6 +104,11 @@ mod resource_counts_tests;
 #[cfg(test)]
 mod changed_attribution_tests;
 
+// What a `set_node_css_override` costs in layout passes: one for a geometry
+// property, none for a paint-only one or for the value the node already has.
+#[cfg(test)]
+mod css_override_cost_tests;
+
 pub mod hooks {
     //! Dependency-injection seam for the three host-coupled call sites in
     //! [`super::full`]. See the module docs above.
