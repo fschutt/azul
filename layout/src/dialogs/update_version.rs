@@ -275,18 +275,18 @@ extern "C" fn install_worker(mut init: RefAny, mut sender: ThreadSender, _recv: 
     // call, so a file tampered on disk between staging and consent can
     // never reach apply_update - which takes the proof, not a path, and
     // hashes the copy it installs.
-    let verified = {
-        let mut state = UpdateState::load(&state_dir);
-        let r = download_and_verify(
+    let verified = UpdateState::read(&state_dir).and_then(|mut state| {
+        let verified = download_and_verify(
             &release,
             &crate::updater::Expect::here(&app_name),
             &staging_dir,
             &policy,
             &mut state,
-        );
-        state.save(&state_dir);
-        r
-    };
+        )?;
+        // Marks that cannot be recorded mean no install: the rollback marks are the point.
+        state.try_save(&state_dir)?;
+        Ok(verified)
+    });
     let outcome = verified.and_then(|artifact| {
         let target = std::env::current_exe().map_err(|e| e.to_string())?;
         apply_update(&artifact, &target)

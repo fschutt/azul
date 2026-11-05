@@ -255,13 +255,44 @@ pub enum UpdateCheckResult {
     Error(AzString),
 }
 
-/// Dotted-numeric version compare (`1.10.2 > 1.9.9`); non-numeric segments
-/// compare lexically as a tiebreaker. Enough for the manifest v1; a full
-/// `VersionScheme` trait rides in when a source needs another scheme.
+/// Version precedence, semver-style (`1.10.2 > 1.9.9`, `2.0.0-rc1 < 2.0.0`).
+///
+/// The dotted core (`1.10.2`) compares segment by segment, numerically (a non-numeric segment
+/// lexically); a missing segment is below a present one (`1.2 < 1.2.1`). When the cores are equal a
+/// version WITH a pre-release (`-rc1`, `-beta.2`) is below the one without; two pre-releases
+/// compare identifier by identifier, numbers numerically and below words, words in ASCII order,
+/// and a list that is the start of a longer one is below it. Build metadata (`+abc`) and a leading
+/// `v` do not count. (REVIEW Y11: `2.0.0-rc1` used to order ABOVE `2.0.0`, so once a channel had
+/// offered a release candidate the final was refused as a downgrade.) A full `VersionScheme` trait
+/// rides in when a source needs another scheme.
 #[must_use]
 pub fn compare_versions(a: &str, b: &str) -> core::cmp::Ordering {
-    let mut xs = a.trim_start_matches('v').split('.');
-    let mut ys = b.trim_start_matches('v').split('.');
+    use core::cmp::Ordering;
+    let ((core_a, pre_a), (core_b, pre_b)) = (split_version(a), split_version(b));
+    compare_dotted(core_a, core_b).then_with(|| match (pre_a, pre_b) {
+        (None, None) => Ordering::Equal,
+        (None, Some(_)) => Ordering::Greater,
+        (Some(_), None) => Ordering::Less,
+        (Some(x), Some(y)) => compare_pre_release(x, y),
+    })
+}
+
+/// `v1.2.3-rc.1+build` -> (`1.2.3`, `Some("rc.1")`): the core and the pre-release, without the
+/// build metadata and the leading `v`. A `-` with nothing after it is no pre-release.
+fn split_version(version: &str) -> (&str, Option<&str>) {
+    let version = version.trim_start_matches('v');
+    let version = version.split_once('+').map_or(version, |(head, _)| head);
+    match version.split_once('-') {
+        Some((core, pre)) if !pre.is_empty() => (core, Some(pre)),
+        Some((core, _)) => (core, None),
+        None => (version, None),
+    }
+}
+
+/// The dotted core: numeric segments numerically, others lexically, a missing segment below.
+fn compare_dotted(a: &str, b: &str) -> core::cmp::Ordering {
+    let mut xs = a.split('.');
+    let mut ys = b.split('.');
     loop {
         match (xs.next(), ys.next()) {
             (None, None) => return core::cmp::Ordering::Equal,
@@ -273,6 +304,31 @@ pub fn compare_versions(a: &str, b: &str) -> core::cmp::Ordering {
                     _ => x.cmp(y),
                 };
                 if ord != core::cmp::Ordering::Equal {
+                    return ord;
+                }
+            }
+        }
+    }
+}
+
+/// Two pre-release lists (`alpha.1`, `rc.2`): semver 2.0.0 section 11.
+fn compare_pre_release(a: &str, b: &str) -> core::cmp::Ordering {
+    use core::cmp::Ordering;
+    let mut xs = a.split('.');
+    let mut ys = b.split('.');
+    loop {
+        match (xs.next(), ys.next()) {
+            (None, None) => return Ordering::Equal,
+            (None, Some(_)) => return Ordering::Less,
+            (Some(_), None) => return Ordering::Greater,
+            (Some(x), Some(y)) => {
+                let ord = match (x.parse::<u64>(), y.parse::<u64>()) {
+                    (Ok(xn), Ok(yn)) => xn.cmp(&yn),
+                    (Ok(_), Err(_)) => Ordering::Less,
+                    (Err(_), Ok(_)) => Ordering::Greater,
+                    (Err(_), Err(_)) => x.cmp(y),
+                };
+                if ord != Ordering::Equal {
                     return ord;
                 }
             }
@@ -303,18 +359,40 @@ pub struct UpdateState {
     pub key_generation: u64,
 }
 
+/// The file of [`UpdateState`] in a state folder.
+const STATE_FILE: &str = "update-state.json";
+
 impl UpdateState {
-    /// Loads from `dir/update-state.json` (missing file = default).
-    #[must_use]
-    pub fn load(dir: &Path) -> Self {
-        let path = dir.join("update-state.json");
-        let Ok(text) = std::fs::read_to_string(path) else {
-            return Self::default();
+    /// Reads `dir/update-state.json`. A file that is not there is a first run (`Ok(default)`); a
+    /// file that is there and cannot be read or parsed is an ERROR, not a fresh start: the marks it
+    /// held (the highest version, the key generation) are what refuse a rollback to a retired,
+    /// possibly leaked signing key, and starting again from zero would accept that key once more
+    /// (REVIEW Y7). The message says which file to delete to start over, knowingly.
+    ///
+    /// # Errors
+    ///
+    /// Why the file could not be read or understood.
+    pub fn read(dir: &Path) -> Result<Self, String> {
+        let path = dir.join(STATE_FILE);
+        let text = match std::fs::read_to_string(&path) {
+            Ok(text) => text,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Self::default()),
+            Err(e) => return Err(format!("update state {}: {e}", path.display())),
         };
-        let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) else {
-            return Self::default();
+        let damaged = |why: &str| {
+            format!(
+                "update state {} is damaged ({why}): the marks that refuse an older release are \
+                 in it, so it is not replaced silently - delete the file to start over, knowing \
+                 that an older release is then accepted again",
+                path.display()
+            )
         };
-        Self {
+        let v = serde_json::from_str::<serde_json::Value>(&text)
+            .map_err(|e| damaged(&e.to_string()))?;
+        if !v.is_object() {
+            return Err(damaged("not a JSON object"));
+        }
+        Ok(Self {
             highest_seen: v
                 .get("highest_seen")
                 .and_then(serde_json::Value::as_str)
@@ -337,6 +415,28 @@ impl UpdateState {
                 .get("key_generation")
                 .and_then(serde_json::Value::as_u64)
                 .unwrap_or(0),
+        })
+    }
+
+    /// Loads from `dir/update-state.json` (a missing file = default). For a state that is only
+    /// about a check (the cooldown, the cohort): a damaged file also reads as the default HERE, but
+    /// [`UpdateState::try_save`] will not write over it, so the marks in it are not lost. Whatever
+    /// installs something uses [`UpdateState::read`].
+    #[must_use]
+    pub fn load(dir: &Path) -> Self {
+        Self::read(dir).unwrap_or_default()
+    }
+
+    /// The marks only go up: raises this state's highest version and key generation to the ones
+    /// `other` holds, and takes its cohort when this has none.
+    fn raise_marks_to(&mut self, other: &Self) {
+        if compare_versions(&other.highest_seen, &self.highest_seen) == core::cmp::Ordering::Greater
+        {
+            self.highest_seen.clone_from(&other.highest_seen);
+        }
+        self.key_generation = self.key_generation.max(other.key_generation);
+        if self.rollout_bucket.is_none() {
+            self.rollout_bucket = other.rollout_bucket;
         }
     }
 
@@ -366,20 +466,48 @@ impl UpdateState {
         bucket
     }
 
-    /// Writes to `dir/update-state.json`.
+    /// Writes to `dir/update-state.json`, atomically (a temp file in the same folder, then a
+    /// rename: a crash leaves the old file or the new one, never half of one), and never LOWER
+    /// than what is on disk - the app and the install manager each hold the marks of a program
+    /// and may both write, and the marks only go up. A file on disk that is damaged is not written
+    /// over (see [`UpdateState::read`]).
+    ///
+    /// # Errors
+    ///
+    /// Why the state could not be recorded; whatever installs something refuses to go on then.
+    pub fn try_save(&self, dir: &Path) -> Result<(), String> {
+        let path = dir.join(STATE_FILE);
+        std::fs::create_dir_all(dir).map_err(|e| format!("update state {}: {e}", dir.display()))?;
+        let mut merged = self.clone();
+        merged.raise_marks_to(&Self::read(dir)?);
+        let text = serde_json::json!({
+            "highest_seen": merged.highest_seen,
+            "last_check_unix": merged.last_check_unix,
+            "suspended_until_unix": merged.suspended_until_unix,
+            "rollout_bucket": merged.rollout_bucket,
+            "key_generation": merged.key_generation,
+        })
+        .to_string();
+        let temp = dir.join(format!("{STATE_FILE}.{}.tmp", unique_suffix()));
+        let written = (|| -> std::io::Result<()> {
+            use std::io::Write as _;
+            let mut file = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&temp)?;
+            file.write_all(text.as_bytes())?;
+            file.sync_all()?;
+            std::fs::rename(&temp, &path)
+        })();
+        written.map_err(|e| {
+            drop(std::fs::remove_file(&temp));
+            format!("update state {}: {e}", path.display())
+        })
+    }
+
+    /// [`UpdateState::try_save`] for a state that is only about a check: a failure is dropped.
     pub fn save(&self, dir: &Path) {
-        let value = serde_json::json!({
-            "highest_seen": self.highest_seen,
-            "last_check_unix": self.last_check_unix,
-            "suspended_until_unix": self.suspended_until_unix,
-            "rollout_bucket": self.rollout_bucket,
-            "key_generation": self.key_generation,
-        });
-        drop(std::fs::create_dir_all(dir));
-        drop(std::fs::write(
-            dir.join("update-state.json"),
-            value.to_string(),
-        ));
+        drop(self.try_save(dir));
     }
 }
 
@@ -2553,6 +2681,53 @@ fn check_pin(path: &Path, release: &ReleaseInfo) -> Result<(), String> {
     }
 }
 
+/// The most bytes one update artifact may have. A server that answers `206` for ever (or lies
+/// about the size) used to fill the disk, one 1 MiB window after another (REVIEW Y8).
+const MAX_UPDATE_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+
+/// The file name of the artifact in the staging folder: the last segment of the download URL, or
+/// `update-<version>.bin` when that is empty or only dots. Every character outside
+/// `[A-Za-z0-9._+-]` becomes `-` - an OCI blob URL ends in `sha256:<hex>` and `:` cannot appear
+/// in a Windows file name, and a version such as `..\..\x` must not climb out of the folder
+/// (REVIEW Y8: the version-based name was the one unsanitised name).
+fn staged_artifact_name(download_url: &str, version: &str) -> String {
+    let safe = |text: &str| -> String {
+        text.chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | '+') {
+                    c
+                } else {
+                    '-'
+                }
+            })
+            .collect()
+    };
+    let from_url = safe(download_url.rsplit('/').next().unwrap_or_default());
+    if from_url.is_empty() || from_url.chars().all(|c| c == '.') {
+        format!("update-{}.bin", safe(version))
+    } else {
+        from_url
+    }
+}
+
+/// `Content-Range: bytes <start>-<end>/<total>` (`total` may be `*`): the range and the total
+/// size when the server knows it.
+fn parse_content_range(value: &str) -> Option<(u64, u64, Option<u64>)> {
+    let rest = value.trim().strip_prefix("bytes")?.trim_start();
+    let (range, total) = rest.split_once('/')?;
+    let (start, end) = range.split_once('-')?;
+    let start = start.trim().parse::<u64>().ok()?;
+    let end = end.trim().parse::<u64>().ok()?;
+    if end < start {
+        return None;
+    }
+    let total = match total.trim() {
+        "*" => None,
+        digits => Some(digits.parse::<u64>().ok()?),
+    };
+    Some((start, end, total))
+}
+
 /// Downloads a release artifact into `staging_dir`, CACHED and RESUMABLE:
 ///
 /// * a fully staged artifact from an earlier call is reused verbatim (`used_cached`) — "download
@@ -2561,6 +2736,11 @@ fn check_pin(path: &Path, release: &ReleaseInfo) -> Result<(), String> {
 ///   appends on `206 Partial Content`. A server without range support answers `200` and the file
 ///   restarts from zero (correct, just not incremental) — `server_supports_resume` reports which
 ///   happened.
+///
+/// A `206` is believed only as far as it can be checked: its `Content-Range` has to start where
+/// the request did and describe the bytes that came, the size it names may not change from one
+/// window to the next, and nothing larger than 2 GiB is taken (the partial file of a refused
+/// download is deleted, so the next attempt starts clean).
 ///
 /// Verification beyond the transport (digest/minisign) is the documented
 /// next rung.
@@ -2573,6 +2753,16 @@ pub fn download_update(
     release: &ReleaseInfo,
     staging_dir: &Path,
 ) -> Result<DownloadOutcome, String> {
+    download_update_capped(release, staging_dir, MAX_UPDATE_BYTES)
+}
+
+/// [`download_update`] with the limit as a parameter (the tests use a small one).
+#[cfg(feature = "http")]
+fn download_update_capped(
+    release: &ReleaseInfo,
+    staging_dir: &Path,
+    max_bytes: u64,
+) -> Result<DownloadOutcome, String> {
     if release.download_url.as_str().trim().is_empty() {
         // Sources legitimately answer "there is a newer version" without
         // naming an artifact for THIS platform (a VERSION file, a release
@@ -2584,28 +2774,7 @@ pub fn download_update(
         ));
     }
     std::fs::create_dir_all(staging_dir).map_err(|e| e.to_string())?;
-    // An OCI blob URL ends in `sha256:<hex>`, and `:` cannot appear in a
-    // Windows filename — sanitise anything that is not safe everywhere.
-    let file_name = release
-        .download_url
-        .as_str()
-        .rsplit('/')
-        .next()
-        .filter(|n| !n.is_empty())
-        .map_or_else(
-            || format!("update-{}.bin", release.version.as_str()),
-            |n| {
-                n.chars()
-                    .map(|c| {
-                        if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | '+') {
-                            c
-                        } else {
-                            '-'
-                        }
-                    })
-                    .collect()
-            },
-        );
+    let file_name = staged_artifact_name(release.download_url.as_str(), release.version.as_str());
     let final_path = staging_dir.join(&file_name);
     if final_path.exists() {
         // A cached artifact is only reusable if it still matches the pin —
@@ -2626,6 +2795,20 @@ pub fn download_update(
     }
     let partial_path = staging_dir.join(format!("{file_name}.partial"));
     let resumed_from = std::fs::metadata(&partial_path).map_or(0, |m| m.len());
+    // A refused download leaves no partial file behind.
+    let refuse = |why: String| -> String {
+        drop(std::fs::remove_file(&partial_path));
+        why
+    };
+    let too_large = || {
+        format!(
+            "download: the file is larger than the {} MiB an update may be",
+            max_bytes / (1024 * 1024)
+        )
+    };
+    if resumed_from > max_bytes {
+        return Err(refuse(too_large()));
+    }
 
     // CHUNKED-RANGE loop: each 1 MiB window lands on disk as it completes,
     // so killing the process mid-download keeps every finished chunk and
@@ -2639,6 +2822,7 @@ pub fn download_update(
     let mut offset = resumed_from;
     let mut written_this_call = 0u64;
     let mut honored = false;
+    let mut known_total: Option<u64> = None;
     loop {
         let mut config = crate::http::HttpRequestConfig::new()
             .with_header("Range", format!("bytes={offset}-{}", offset + CHUNK - 1));
@@ -2650,20 +2834,52 @@ pub fn download_update(
             .map_err(|e| format!("download: {e:?}"))?;
         match response.status_code {
             206 => {
-                honored = true;
                 let bytes = response.body.as_ref();
-                if !bytes.is_empty() {
-                    let mut file = std::fs::OpenOptions::new()
-                        .create(true)
-                        .append(true)
-                        .open(&partial_path)
-                        .map_err(|e| e.to_string())?;
-                    file.write_all(bytes).map_err(|e| e.to_string())?;
-                    offset += bytes.len() as u64;
-                    written_this_call += bytes.len() as u64;
+                let length = bytes.len() as u64;
+                let range = response
+                    .headers
+                    .as_ref()
+                    .iter()
+                    .find(|h| h.name.as_str().eq_ignore_ascii_case("content-range"))
+                    .and_then(|h| parse_content_range(h.value.as_str()));
+                let Some((start, end, total)) = range else {
+                    return Err(refuse(
+                        "download: the server answered 206 without a usable Content-Range"
+                            .to_owned(),
+                    ));
+                };
+                // The bytes have to be the window that was asked for, where it was asked for.
+                if start != offset || end - start + 1 != length || length > CHUNK {
+                    return Err(refuse(format!(
+                        "download: the server sent bytes {start}-{end} ({length} bytes) for a                          request at {offset}"
+                    )));
                 }
-                // A short (or empty) chunk is the end of the file.
-                if (bytes.len() as u64) < CHUNK {
+                if let Some(total) = total {
+                    if known_total.is_some_and(|known| known != total) {
+                        return Err(refuse(
+                            "download: the size of the file changed during the download".to_owned(),
+                        ));
+                    }
+                    if total > max_bytes {
+                        return Err(refuse(too_large()));
+                    }
+                    known_total = Some(total);
+                }
+                honored = true;
+                let mut file = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(&partial_path)
+                    .map_err(|e| e.to_string())?;
+                file.write_all(bytes).map_err(|e| e.to_string())?;
+                offset += length;
+                written_this_call += length;
+                if offset > max_bytes {
+                    return Err(refuse(too_large()));
+                }
+                // The end of the file: the size the server named is reached, or the window came
+                // back short.
+                if known_total.is_some_and(|total| offset >= total) || length < CHUNK {
                     break;
                 }
             }
@@ -2671,6 +2887,9 @@ pub fn download_update(
             // file; a previous partial is superseded.
             200 => {
                 let bytes = response.body.as_ref();
+                if bytes.len() as u64 > max_bytes {
+                    return Err(refuse(too_large()));
+                }
                 std::fs::write(&partial_path, bytes).map_err(|e| e.to_string())?;
                 written_this_call = bytes.len() as u64;
                 honored = false;
@@ -2800,18 +3019,70 @@ fn copy_verified(from: &Path, to: &Path, expected: &[u8; 32]) -> Result<(), Stri
     }
 }
 
+/// The kind of archive or compressed stream `head` (the first bytes of a file) starts like, if it
+/// does. This updater replaces the program with the artifact AS IT IS and unpacks nothing, so an
+/// archive would overwrite the executable with a `.tar.gz` (REVIEW Y10).
+fn archive_kind(head: &[u8]) -> Option<&'static str> {
+    const MAGIC: [(&[u8], &str); 8] = [
+        (&[0x1f, 0x8b], "gzip"),
+        (b"PK\x03\x04", "zip"),
+        (b"PK\x05\x06", "zip"),
+        (&[0xfd, b'7', b'z', b'X', b'Z', 0x00], "xz"),
+        (b"BZh", "bzip2"),
+        (&[0x28, 0xb5, 0x2f, 0xfd], "zstd"),
+        (&[b'7', b'z', 0xbc, 0xaf, 0x27, 0x1c], "7z"),
+        (b"!<arch>\n", "ar"),
+    ];
+    for (magic, kind) in MAGIC {
+        if head.starts_with(magic) {
+            return Some(kind);
+        }
+    }
+    // A tar archive says "ustar" at byte 257.
+    (head.len() >= 262 && &head[257..262] == b"ustar").then_some("tar")
+}
+
+/// The swap on a platform where the running program cannot be replaced but CAN be renamed: the old
+/// file moves to `aside`, the new one takes its place. When the second move fails the old file is
+/// moved BACK - the program must not be left without its executable (REVIEW Y10: it was). `rename`
+/// is a parameter so the failure can be made to happen in a test.
+#[cfg(any(windows, test))]
+fn swap_moving_the_old_aside(
+    incoming: &Path,
+    target: &Path,
+    aside: &Path,
+    rename: impl Fn(&Path, &Path) -> std::io::Result<()>,
+) -> Result<(), String> {
+    drop(std::fs::remove_file(aside));
+    if let Err(e) = rename(target, aside) {
+        return Err(format!("move-aside: {e}"));
+    }
+    if let Err(e) = rename(incoming, target) {
+        return Err(match rename(aside, target) {
+            Ok(()) => format!("swap: {e} (the previous version was put back)"),
+            Err(back) => format!(
+                "swap: {e}; and the previous version could not be put back ({back}): it is at {}",
+                aside.display()
+            ),
+        });
+    }
+    Ok(())
+}
+
 /// Applies a VERIFIED update over `target`: a same-directory temp copy and an ATOMIC rename (the
 /// classic swap; on Windows a running image cannot be replaced in place - the rename dance moves
-/// the OLD file aside first). The COPY is hashed as it is written and has to be the bytes that
-/// passed the checks ([`VerifiedArtifact`]), so a file swapped between the check and the install
-/// is caught in the bytes about to become the program (REVIEW Y6); the copy's name is new and
-/// created exclusively, so a link planted at a fixed name leads nowhere. Callers verify
-/// [`InstallKind::allows_self_update`] first - this function only does the mechanics.
+/// the OLD file aside first, and back if the new one cannot take its place). The COPY is hashed
+/// as it is written and has to be the bytes that passed the checks ([`VerifiedArtifact`]), so a
+/// file swapped between the check and the install is caught in the bytes about to become the
+/// program (REVIEW Y6); the copy's name is new and created exclusively, so a link planted at a
+/// fixed name leads nowhere. An archive is refused: this unpacks nothing, so it would overwrite
+/// the program with the archive. Callers verify [`InstallKind::allows_self_update`] first - this
+/// function only does the mechanics.
 ///
 /// # Errors
 ///
-/// Returns a description on filesystem failure, or when the staged file is no longer the file
-/// that was verified.
+/// Returns a description on filesystem failure, when the staged file is no longer the file that
+/// was verified, or when it is an archive.
 pub fn apply_update(artifact: &VerifiedArtifact, target: &Path) -> Result<(), String> {
     let dir = target
         .parent()
@@ -2820,6 +3091,19 @@ pub fn apply_update(artifact: &VerifiedArtifact, target: &Path) -> Result<(), St
     if let Err(e) = copy_verified(artifact.path(), &incoming, &artifact.sha256) {
         drop(std::fs::remove_file(&incoming));
         return Err(e);
+    }
+    // The bytes that are about to become the program, not the staged file (which may change).
+    if let Some(kind) = std::fs::File::open(&incoming).ok().and_then(|mut f| {
+        use std::io::Read as _;
+        let mut head = [0u8; 512];
+        let n = f.read(&mut head).ok()?;
+        archive_kind(&head[..n])
+    }) {
+        drop(std::fs::remove_file(&incoming));
+        return Err(format!(
+            "the update is a {kind} archive, and this updater does not unpack: it would replace \
+             the program with the archive. Publish the bare executable"
+        ));
     }
     #[cfg(unix)]
     {
@@ -2830,19 +3114,26 @@ pub fn apply_update(artifact: &VerifiedArtifact, target: &Path) -> Result<(), St
     #[cfg(windows)]
     {
         // A running image is locked against replacement but CAN be renamed:
-        // move it aside, then move the new file in.
-        let old = dir.join(".update-previous");
-        drop(std::fs::remove_file(&old));
-        if let Err(e) = std::fs::rename(target, &old) {
+        // move it aside, then move the new file in (and the old one back if that fails).
+        let swapped = swap_moving_the_old_aside(
+            &incoming,
+            target,
+            &dir.join(".update-previous"),
+            |from, to| std::fs::rename(from, to),
+        );
+        if swapped.is_err() {
             drop(std::fs::remove_file(&incoming));
-            return Err(format!("move-aside: {e}"));
         }
+        return swapped;
     }
-    if let Err(e) = std::fs::rename(&incoming, target) {
-        drop(std::fs::remove_file(&incoming));
-        return Err(format!("swap: {e}"));
+    #[cfg(not(windows))]
+    {
+        if let Err(e) = std::fs::rename(&incoming, target) {
+            drop(std::fs::remove_file(&incoming));
+            return Err(format!("swap: {e}"));
+        }
+        Ok(())
     }
-    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -2915,10 +3206,19 @@ pub fn stage_program_update_with(
     policy: &UpdatePolicy,
     state_dir: &Path,
 ) -> Result<VerifiedArtifact, String> {
-    let mut state = UpdateState::load(state_dir);
+    // The marks of this program: unreadable ones stop the staging (see `UpdateState::read`), and
+    // marks that cannot be recorded take the staged file with them - an update that cannot move
+    // the rollback marks is not installed.
+    let mut state = UpdateState::read(state_dir)?;
     let staged = download_and_verify(release, expect, staging_dir, policy, &mut state);
-    state.save(state_dir);
-    staged
+    match (staged, state.try_save(state_dir)) {
+        (Ok(artifact), Ok(())) => Ok(artifact),
+        (Ok(artifact), Err(e)) => {
+            drop(std::fs::remove_file(artifact.path()));
+            Err(format!("{e}; the update was not staged"))
+        }
+        (Err(e), _) => Err(e),
+    }
 }
 
 /// Checks a staged file once more right before it is installed: what the policy demands (the
@@ -2955,9 +3255,9 @@ pub fn verify_staged_program_update_with(
 ) -> Result<VerifiedArtifact, String> {
     can_meet(release, policy)?;
     let now = unix_seconds()?;
-    let mut state = UpdateState::load(state_dir);
+    let mut state = UpdateState::read(state_dir)?;
     let (sha256, signed) = verify_artifact(path, release, policy, expect, &mut state, now)?;
-    state.save(state_dir);
+    state.try_save(state_dir)?;
     Ok(VerifiedArtifact {
         path: path.to_path_buf(),
         sha256,
@@ -3249,7 +3549,9 @@ fn stage_automatically(
     let Ok(policy) = env.update_policy() else {
         return azul_css::OptionString::None;
     };
-    let mut state = UpdateState::load(state_dir);
+    let Ok(mut state) = UpdateState::read(state_dir) else {
+        return azul_css::OptionString::None;
+    };
     let expect = Expect::here(&env.app_name);
     let staged = download_and_verify(
         release,
@@ -3258,12 +3560,15 @@ fn stage_automatically(
         &policy,
         &mut state,
     );
-    state.save(state_dir);
-    match staged {
-        Ok(artifact) => {
+    match (staged, state.try_save(state_dir)) {
+        (Ok(artifact), Ok(())) => {
             azul_css::OptionString::Some(artifact.path().to_string_lossy().as_ref().into())
         }
-        Err(_) => azul_css::OptionString::None,
+        (Ok(artifact), Err(_)) => {
+            drop(std::fs::remove_file(artifact.path()));
+            azul_css::OptionString::None
+        }
+        (Err(_), _) => azul_css::OptionString::None,
     }
 }
 
@@ -3368,6 +3673,51 @@ mod tests {
         assert_eq!(compare_versions("v1.2.3", "1.2.3"), Ordering::Equal);
         assert_eq!(compare_versions("1.2", "1.2.1"), Ordering::Less);
         assert_eq!(compare_versions("2.0.0", "10.0.0"), Ordering::Less);
+    }
+
+    /// AZ-Y11: `0-rc1` used to fail to parse and fall back to a lexical compare, so
+    /// `2.0.0-rc1 > 2.0.0`. Fails on the old code at the first assertion.
+    #[test]
+    fn y11_a_pre_release_orders_below_its_final_and_semver_among_themselves() {
+        assert_eq!(compare_versions("2.0.0-rc1", "2.0.0"), Ordering::Less);
+        assert_eq!(compare_versions("2.0.0", "2.0.0-rc1"), Ordering::Greater);
+        // The chain semver 2.0.0 gives in section 11, each below the next.
+        let chain = [
+            "1.0.0-alpha",
+            "1.0.0-alpha.1",
+            "1.0.0-alpha.beta",
+            "1.0.0-beta",
+            "1.0.0-beta.2",
+            "1.0.0-beta.11",
+            "1.0.0-rc.1",
+            "1.0.0",
+        ];
+        for pair in chain.windows(2) {
+            assert_eq!(
+                compare_versions(pair[0], pair[1]),
+                Ordering::Less,
+                "{} < {}",
+                pair[0],
+                pair[1]
+            );
+            assert_eq!(
+                compare_versions(pair[1], pair[0]),
+                Ordering::Greater,
+                "{} > {}",
+                pair[1],
+                pair[0]
+            );
+        }
+        // The core decides before the pre-release does.
+        assert_eq!(compare_versions("2.0.1-rc1", "2.0.0"), Ordering::Greater);
+        assert_eq!(compare_versions("1.9.9", "2.0.0-rc1"), Ordering::Less);
+        // Build metadata, the leading v and an empty pre-release do not count.
+        assert_eq!(compare_versions("v2.0.0+abc", "2.0.0+def"), Ordering::Equal);
+        assert_eq!(
+            compare_versions("2.0.0-rc1+x", "2.0.0-rc1"),
+            Ordering::Equal
+        );
+        assert_eq!(compare_versions("2.0.0-", "2.0.0"), Ordering::Equal);
     }
 
     #[test]
@@ -4582,6 +4932,629 @@ mod tests {
         drop(std::fs::remove_dir_all(&f._dir));
     }
 
+    // ---- REVIEW Y8: the downloader's limits and its one unsanitised name ----------------------
+
+    /// How a test server treats a `Range` request.
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum RangeMode {
+        /// A real server: `206` with the right `Content-Range`, `416` past the end.
+        Honest,
+        /// Every request gets the whole body as `200`: no range support.
+        IgnoresRange,
+        /// Every request gets a full 1 MiB window as `206` whatever the offset, with a right
+        /// `Content-Range` and an unknown total (`/*`): a file with no end.
+        Endless,
+        /// Honest windows, but the total it names is 1 PiB.
+        HugeTotal,
+        /// `206`, but the `Content-Range` starts at 0 whatever was asked.
+        WrongPlace,
+        /// `206` with no `Content-Range` at all.
+        NoContentRange,
+        /// Honest, but the total it names grows by one with every request.
+        ChangingTotal,
+    }
+
+    fn http_answer(status: u16, headers: &str, body: &[u8]) -> Vec<u8> {
+        let reason = match status {
+            200 => "OK",
+            206 => "Partial Content",
+            _ => "Range Not Satisfiable",
+        };
+        let mut out = format!(
+            "HTTP/1.1 {status} {reason}\r\nContent-Length: {}\r\n{headers}\r\n",
+            body.len()
+        )
+        .into_bytes();
+        out.extend_from_slice(body);
+        out
+    }
+
+    /// A localhost server for `body` that reads the `Range` header; the URL of `name` on it and
+    /// the number of requests it answered.
+    fn serve_ranges(
+        body: Vec<u8>,
+        mode: RangeMode,
+        name: &str,
+    ) -> (String, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
+        use std::io::{BufRead, BufReader, Write};
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        const WINDOW: usize = 1024 * 1024;
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+        let url = format!("http://{}/{name}", listener.local_addr().expect("addr"));
+        let served = std::sync::Arc::new(AtomicUsize::new(0));
+        let counter = served.clone();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { return };
+                let mut reader = BufReader::new(stream.try_clone().expect("clone"));
+                'requests: loop {
+                    let mut range: Option<(usize, usize)> = None;
+                    let mut line = String::new();
+                    loop {
+                        line.clear();
+                        match reader.read_line(&mut line) {
+                            Ok(0) | Err(_) => break 'requests,
+                            Ok(_) if line == "\r\n" => break,
+                            Ok(_) => {
+                                let lower = line.to_ascii_lowercase();
+                                if let Some(value) = lower.strip_prefix("range: bytes=") {
+                                    let (a, b) = value.trim().split_once('-').unwrap_or(("0", "0"));
+                                    range = Some((a.parse().unwrap_or(0), b.parse().unwrap_or(0)));
+                                }
+                            }
+                        }
+                    }
+                    let nth = counter.fetch_add(1, Ordering::SeqCst);
+                    let total = body.len();
+                    let window = |from: usize, to: usize| body[from..=to.min(total - 1)].to_vec();
+                    let answer = match (mode, range) {
+                        (RangeMode::IgnoresRange, _) | (_, None) => http_answer(200, "", &body),
+                        (_, Some((from, _))) if from >= total && mode != RangeMode::Endless => {
+                            http_answer(416, &format!("Content-Range: bytes */{total}\r\n"), &[])
+                        }
+                        (RangeMode::Honest, Some((from, to))) => {
+                            let part = window(from, to);
+                            let head = format!(
+                                "Content-Range: bytes {from}-{}/{total}\r\n",
+                                from + part.len() - 1
+                            );
+                            http_answer(206, &head, &part)
+                        }
+                        (RangeMode::ChangingTotal, Some((from, to))) => {
+                            let part = window(from, to);
+                            let head = format!(
+                                "Content-Range: bytes {from}-{}/{}\r\n",
+                                from + part.len() - 1,
+                                total + nth
+                            );
+                            http_answer(206, &head, &part)
+                        }
+                        (RangeMode::HugeTotal, Some((from, to))) => {
+                            let part = window(from, to);
+                            let head = format!(
+                                "Content-Range: bytes {from}-{}/{}\r\n",
+                                from + part.len() - 1,
+                                1u64 << 50
+                            );
+                            http_answer(206, &head, &part)
+                        }
+                        (RangeMode::Endless, Some((from, _))) => {
+                            let head =
+                                format!("Content-Range: bytes {from}-{}/*\r\n", from + WINDOW - 1);
+                            http_answer(206, &head, &vec![7u8; WINDOW])
+                        }
+                        (RangeMode::WrongPlace, Some((from, to))) => {
+                            let part = window(from, to);
+                            let head =
+                                format!("Content-Range: bytes 0-{}/{total}\r\n", part.len() - 1);
+                            http_answer(206, &head, &part)
+                        }
+                        (RangeMode::NoContentRange, Some((from, to))) => {
+                            http_answer(206, "", &window(from, to))
+                        }
+                    };
+                    if stream.write_all(&answer).is_err() {
+                        break;
+                    }
+                }
+            }
+        });
+        (url, served)
+    }
+
+    fn range_body(len: usize) -> Vec<u8> {
+        (0..len)
+            .map(|i| (i.wrapping_mul(2_654_435_761) >> 7) as u8)
+            .collect()
+    }
+
+    /// A release of `body` at `url`, pinned by its digest.
+    fn pinned_release_of(url: &str, body: &[u8]) -> ReleaseInfo {
+        ReleaseInfo {
+            version: "2.0.0".into(),
+            download_url: url.into(),
+            digest: format!("sha256:{}", sha256_hex(&sha256_of(body))).into(),
+            ..ReleaseInfo::default()
+        }
+    }
+
+    fn scratch_dir(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("azul-{tag}-{}", std::process::id()));
+        drop(std::fs::remove_dir_all(&dir));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn requests(served: &std::sync::Arc<std::sync::atomic::AtomicUsize>) -> usize {
+        served.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    #[test]
+    fn y8_an_honest_range_server_is_downloaded_in_windows_and_ends_at_the_size_it_names() {
+        let body = range_body(2 * 1024 * 1024 + 1000);
+        let (url, served) = serve_ranges(body.clone(), RangeMode::Honest, "a-2.0.0.bin");
+        let dir = scratch_dir("y8-honest");
+        let outcome = download_update(&pinned_release_of(&url, &body), &dir).expect("downloads");
+        assert_eq!(std::fs::read(&outcome.path).unwrap(), body);
+        assert!(outcome.server_supports_resume);
+        assert_eq!(outcome.bytes_written, body.len() as u64);
+        assert_eq!(
+            requests(&served),
+            3,
+            "three windows, and no fourth request to learn that the file ended"
+        );
+        assert!(!dir.join("a-2.0.0.bin.partial").exists());
+        drop(std::fs::remove_dir_all(&dir));
+    }
+
+    #[test]
+    fn y8_a_download_continues_from_the_partial_file() {
+        let body = range_body(2 * 1024 * 1024 + 500);
+        let (url, served) = serve_ranges(body.clone(), RangeMode::Honest, "a-2.0.0.bin");
+        let dir = scratch_dir("y8-resume");
+        std::fs::write(dir.join("a-2.0.0.bin.partial"), &body[..1024 * 1024]).unwrap();
+        let outcome = download_update(&pinned_release_of(&url, &body), &dir).expect("resumes");
+        assert_eq!(outcome.resumed_from_bytes, 1024 * 1024);
+        assert_eq!(outcome.bytes_written, body.len() as u64 - 1024 * 1024);
+        assert_eq!(std::fs::read(&outcome.path).unwrap(), body);
+        assert_eq!(requests(&served), 2);
+        drop(std::fs::remove_dir_all(&dir));
+    }
+
+    #[test]
+    fn y8_a_server_without_range_support_restarts_the_file() {
+        let body = range_body(300_000);
+        let (url, served) = serve_ranges(body.clone(), RangeMode::IgnoresRange, "a-2.0.0.bin");
+        let dir = scratch_dir("y8-norange");
+        std::fs::write(
+            dir.join("a-2.0.0.bin.partial"),
+            b"garbage from an older attempt",
+        )
+        .unwrap();
+        let outcome = download_update(&pinned_release_of(&url, &body), &dir).expect("downloads");
+        assert!(!outcome.server_supports_resume);
+        assert_eq!(std::fs::read(&outcome.path).unwrap(), body);
+        assert_eq!(requests(&served), 1);
+        drop(std::fs::remove_dir_all(&dir));
+    }
+
+    /// The register's case: a server that answers `206` for every window for ever. Fails on the old
+    /// loop, which asked for the next window until the disk was full.
+    #[test]
+    fn y8_an_endless_server_is_stopped_by_the_cap_and_leaves_no_partial_file() {
+        let (url, served) = serve_ranges(Vec::new(), RangeMode::Endless, "endless-2.0.0.bin");
+        let dir = scratch_dir("y8-endless");
+        let release = ReleaseInfo {
+            version: "2.0.0".into(),
+            download_url: url.into(),
+            ..ReleaseInfo::default()
+        };
+        let err = download_update_capped(&release, &dir, 3 * 1024 * 1024)
+            .expect_err("a file with no end must be refused");
+        assert!(err.contains("larger than"), "{err}");
+        assert!(
+            requests(&served) <= 5,
+            "it stopped after the cap, not at the end of the disk: {} requests",
+            requests(&served)
+        );
+        assert_eq!(files_in(&dir), 0, "no partial file stays");
+        drop(std::fs::remove_dir_all(&dir));
+    }
+
+    #[test]
+    fn y8_a_total_above_the_cap_is_refused_at_the_first_window() {
+        let body = range_body(1024 * 1024 + 10);
+        let (url, served) = serve_ranges(body.clone(), RangeMode::HugeTotal, "huge-2.0.0.bin");
+        let dir = scratch_dir("y8-huge");
+        let err = download_update(&pinned_release_of(&url, &body), &dir)
+            .expect_err("a petabyte update is refused");
+        assert!(err.contains("larger than"), "{err}");
+        assert_eq!(requests(&served), 1);
+        assert_eq!(files_in(&dir), 0);
+        drop(std::fs::remove_dir_all(&dir));
+    }
+
+    #[test]
+    fn y8_a_206_that_starts_elsewhere_or_names_no_range_is_refused() {
+        let body = range_body(2 * 1024 * 1024);
+        for (mode, tag) in [
+            (RangeMode::WrongPlace, "wrong-place"),
+            (RangeMode::NoContentRange, "no-range"),
+        ] {
+            let (url, _) = serve_ranges(body.clone(), mode, "a-2.0.0.bin");
+            let dir = scratch_dir(&format!("y8-{tag}"));
+            // A partial file, so that the second window is asked for at a real offset.
+            std::fs::write(dir.join("a-2.0.0.bin.partial"), &body[..1024 * 1024]).unwrap();
+            let err = download_update(&pinned_release_of(&url, &body), &dir)
+                .expect_err("bytes that cannot be placed are refused");
+            assert!(
+                err.contains("Content-Range") || err.contains("bytes"),
+                "{tag}: {err}"
+            );
+            assert!(
+                !dir.join("a-2.0.0.bin.partial").exists(),
+                "{tag}: the partial is deleted"
+            );
+            assert!(
+                !dir.join("a-2.0.0.bin").exists(),
+                "{tag}: nothing is staged"
+            );
+            drop(std::fs::remove_dir_all(&dir));
+        }
+    }
+
+    #[test]
+    fn y8_a_file_whose_size_changes_during_the_download_is_refused() {
+        let body = range_body(2 * 1024 * 1024 + 7);
+        let (url, _) = serve_ranges(body.clone(), RangeMode::ChangingTotal, "a-2.0.0.bin");
+        let dir = scratch_dir("y8-changing");
+        let err = download_update(&pinned_release_of(&url, &body), &dir)
+            .expect_err("a size that moves is refused");
+        assert!(err.contains("changed"), "{err}");
+        assert_eq!(files_in(&dir), 0);
+        drop(std::fs::remove_dir_all(&dir));
+    }
+
+    #[test]
+    fn y8_a_cached_artifact_is_reused_only_while_it_matches_its_pin() {
+        let body = range_body(10_000);
+        let (url, served) = serve_ranges(body.clone(), RangeMode::Honest, "a-2.0.0.bin");
+        let dir = scratch_dir("y8-cache");
+        std::fs::write(dir.join("a-2.0.0.bin"), b"a file somebody changed").unwrap();
+        let err = download_update(&pinned_release_of(&url, &body), &dir)
+            .expect_err("a stale cached file is not reused");
+        assert!(err.contains("cached artifact failed verification"), "{err}");
+        assert!(!dir.join("a-2.0.0.bin").exists(), "and it is removed");
+
+        std::fs::write(dir.join("a-2.0.0.bin"), &body).unwrap();
+        let outcome = download_update(&pinned_release_of(&url, &body), &dir).expect("cached");
+        assert!(outcome.used_cached);
+        assert_eq!(requests(&served), 0, "nothing was transferred");
+        drop(std::fs::remove_dir_all(&dir));
+    }
+
+    /// The one unsanitised name: with no file name in the URL the version made one, and a version
+    /// such as `..\..\x` climbed out of the staging folder on Windows. Fails on the old code: the
+    /// download cannot even open its partial file under `update-../../escape.bin.partial`.
+    #[test]
+    fn y8_the_name_made_from_the_version_cannot_climb_out_of_the_staging_folder() {
+        let body = range_body(5_000);
+        let (url, _) = serve_ranges(body.clone(), RangeMode::Honest, "");
+        let dir = scratch_dir("y8-name");
+        let mut release = pinned_release_of(&url, &body);
+        release.version = "../../escape".into();
+        let outcome = download_update(&release, &dir).expect("a hostile version is just a label");
+        assert_eq!(outcome.path.parent(), Some(dir.as_path()));
+        assert_eq!(
+            outcome.path.file_name().and_then(|n| n.to_str()),
+            Some("update-..-..-escape.bin")
+        );
+        assert_eq!(files_in(&dir), 1);
+
+        assert_eq!(
+            staged_artifact_name("https://x/app-2.0.0.bin", "9"),
+            "app-2.0.0.bin"
+        );
+        assert_eq!(
+            staged_artifact_name("https://x/", "..\\..\\x"),
+            "update-..-..-x.bin"
+        );
+        assert_eq!(
+            staged_artifact_name("https://x/..", "1.0.0"),
+            "update-1.0.0.bin"
+        );
+        assert_eq!(
+            staged_artifact_name("https://r/v2/blobs/sha256:abc", "1"),
+            "sha256-abc"
+        );
+        for version in ["../../etc/passwd", "a/b", "C:\\x", ""] {
+            let name = staged_artifact_name("https://x/", version);
+            assert!(!name.contains(['/', '\\', ':']), "{name}");
+            assert!(name.starts_with("update-"), "{name}");
+        }
+        drop(std::fs::remove_dir_all(&dir));
+    }
+
+    #[test]
+    fn y8_a_content_range_is_read_strictly() {
+        assert_eq!(
+            parse_content_range("bytes 0-1048575/3145728"),
+            Some((0, 1_048_575, Some(3_145_728)))
+        );
+        assert_eq!(parse_content_range("bytes 10-19/*"), Some((10, 19, None)));
+        assert_eq!(parse_content_range(" bytes  5-5/9 "), Some((5, 5, Some(9))));
+        for bad in [
+            "",
+            "bytes */100",
+            "bytes 5-4/100",
+            "bytes a-b/100",
+            "items 0-9/10",
+            "bytes 0-9",
+            "bytes 0-9/x",
+        ] {
+            assert_eq!(parse_content_range(bad), None, "{bad:?}");
+        }
+    }
+
+    // ---- REVIEW Y10: the generic self-update --------------------------------------------------
+
+    /// The Windows branch cannot run here, so the swap it is made of takes its `rename`: the second
+    /// move fails, and the program must still be there (it was left without its executable).
+    #[test]
+    fn y10_the_old_program_is_put_back_when_the_new_one_cannot_take_its_place() {
+        let dir = scratch_dir("y10-swap");
+        let (target, incoming, aside) = (
+            dir.join("app.exe"),
+            dir.join(".update-incoming"),
+            dir.join(".update-previous"),
+        );
+        std::fs::write(&target, b"the old program").unwrap();
+        std::fs::write(&incoming, b"the new program").unwrap();
+
+        let err = swap_moving_the_old_aside(&incoming, &target, &aside, |from, to| {
+            if from == incoming.as_path() {
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    "locked",
+                ))
+            } else {
+                std::fs::rename(from, to)
+            }
+        })
+        .expect_err("the second move fails");
+        assert!(err.contains("put back"), "{err}");
+        assert_eq!(std::fs::read(&target).unwrap(), b"the old program");
+        assert!(!aside.exists(), "nothing is left aside");
+
+        // And when nothing fails: the new program is in place and the old one is aside.
+        swap_moving_the_old_aside(&incoming, &target, &aside, |from, to| {
+            std::fs::rename(from, to)
+        })
+        .expect("swaps");
+        assert_eq!(std::fs::read(&target).unwrap(), b"the new program");
+        assert_eq!(std::fs::read(&aside).unwrap(), b"the old program");
+        drop(std::fs::remove_dir_all(&dir));
+    }
+
+    #[test]
+    fn y10_archive_kind_names_the_formats_this_updater_does_not_unpack() {
+        assert_eq!(archive_kind(&[0x1f, 0x8b, 0x08, 0x00]), Some("gzip"));
+        assert_eq!(archive_kind(b"PK\x03\x04rest"), Some("zip"));
+        assert_eq!(archive_kind(b"BZh91AY"), Some("bzip2"));
+        assert_eq!(
+            archive_kind(&[0xfd, b'7', b'z', b'X', b'Z', 0x00, 1]),
+            Some("xz")
+        );
+        assert_eq!(archive_kind(&[0x28, 0xb5, 0x2f, 0xfd, 0]), Some("zstd"));
+        let mut tar = vec![0u8; 512];
+        tar[257..262].copy_from_slice(b"ustar");
+        assert_eq!(archive_kind(&tar), Some("tar"));
+        // Programs, scripts and nothing at all are not archives.
+        assert_eq!(archive_kind(b"\x7fELF\x02\x01"), None);
+        assert_eq!(archive_kind(&[0xcf, 0xfa, 0xed, 0xfe]), None);
+        assert_eq!(archive_kind(b"MZ\x90\x00"), None);
+        assert_eq!(archive_kind(b"#!/bin/sh\n"), None);
+        assert_eq!(archive_kind(b""), None);
+    }
+
+    #[test]
+    fn y10_an_archive_is_not_installed_over_the_program() {
+        let dir = scratch_dir("y10-archive");
+        let target = dir.join("installed-app");
+        std::fs::write(&target, b"the old program").unwrap();
+        let staged = |name: &str, bytes: &[u8]| {
+            let path = dir.join(name);
+            std::fs::write(&path, bytes).unwrap();
+            VerifiedArtifact {
+                path,
+                sha256: sha256_of(bytes),
+                version: "2.0.0".into(),
+                signed: true,
+                download: None,
+            }
+        };
+
+        let mut gzip = vec![0x1f, 0x8b, 0x08, 0x00];
+        gzip.extend_from_slice(&[1; 600]);
+        let err = apply_update(&staged("app.tar.gz", &gzip), &target)
+            .expect_err("a .tar.gz would replace the program with the archive");
+        assert!(err.contains("gzip archive"), "{err}");
+        assert_eq!(std::fs::read(&target).unwrap(), b"the old program");
+        let leftovers: Vec<String> = std::fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|n| n.starts_with(".update-incoming"))
+            .collect();
+        assert!(leftovers.is_empty(), "no half-copy is left: {leftovers:?}");
+
+        // A program installs.
+        apply_update(&staged("app.bin", b"\x7fELF the new program"), &target).expect("installs");
+        assert_eq!(std::fs::read(&target).unwrap(), b"\x7fELF the new program");
+        drop(std::fs::remove_dir_all(&dir));
+    }
+
+    // ---- REVIEW Y7: the anti-rollback state ---------------------------------------------------
+
+    /// A parse error used to reset the marks to "" and 0, and the next save wrote them over the
+    /// file: a retired, unexpired signing key was accepted again.
+    #[test]
+    fn y7_a_damaged_state_file_is_an_error_and_is_not_written_over() {
+        let dir = scratch_dir("y7-damaged");
+        let file = dir.join("update-state.json");
+        std::fs::write(&file, b"{\"highest_seen\": \"4.0.0\", \"key_gener").unwrap();
+
+        let err = UpdateState::read(&dir).expect_err("half a file is not a fresh start");
+        assert!(
+            err.contains("damaged") && err.contains("delete the file"),
+            "{err}"
+        );
+        assert_eq!(UpdateState::load(&dir), UpdateState::default());
+
+        let fresh = UpdateState {
+            highest_seen: "1.0.0".into(),
+            ..UpdateState::default()
+        };
+        assert!(
+            fresh.try_save(&dir).is_err(),
+            "the marks in the file are not replaced"
+        );
+        fresh.save(&dir);
+        assert_eq!(
+            std::fs::read(&file).unwrap(),
+            b"{\"highest_seen\": \"4.0.0\", \"key_gener",
+            "the damaged file is as it was"
+        );
+
+        // A file that is not an object is damaged too; a missing one is a first run.
+        std::fs::write(&file, b"[1, 2]").unwrap();
+        assert!(UpdateState::read(&dir).is_err());
+        std::fs::remove_file(&file).unwrap();
+        assert_eq!(UpdateState::read(&dir), Ok(UpdateState::default()));
+        drop(std::fs::remove_dir_all(&dir));
+    }
+
+    /// The app and the install manager both write the marks of a program, with no lock between
+    /// them: a writer that loaded before the other one saved must not lower what the other raised.
+    #[test]
+    fn y7_a_stale_writer_does_not_lower_the_marks_another_one_raised() {
+        let dir = scratch_dir("y7-merge");
+        let stale = UpdateState::load(&dir);
+        UpdateState {
+            highest_seen: "3.0.0".into(),
+            key_generation: 5,
+            rollout_bucket: Some(42),
+            ..UpdateState::default()
+        }
+        .try_save(&dir)
+        .unwrap();
+
+        let mut late = stale;
+        late.highest_seen = "1.0.0".into();
+        late.key_generation = 1;
+        late.last_check_unix = 1_800_000_123;
+        late.try_save(&dir).unwrap();
+
+        let on_disk = UpdateState::read(&dir).unwrap();
+        assert_eq!(on_disk.highest_seen, "3.0.0");
+        assert_eq!(on_disk.key_generation, 5);
+        assert_eq!(on_disk.rollout_bucket, Some(42), "the cohort stays");
+        assert_eq!(
+            on_disk.last_check_unix, 1_800_000_123,
+            "what is not a mark is the writer's"
+        );
+
+        // The marks do go up.
+        let mut up = on_disk;
+        up.highest_seen = "3.1.0".into();
+        up.key_generation = 6;
+        up.try_save(&dir).unwrap();
+        let on_disk = UpdateState::read(&dir).unwrap();
+        assert_eq!(
+            (on_disk.highest_seen.as_str(), on_disk.key_generation),
+            ("3.1.0", 6)
+        );
+        drop(std::fs::remove_dir_all(&dir));
+    }
+
+    #[test]
+    fn y7_a_save_is_one_rename_and_leaves_no_temp_file() {
+        let dir = scratch_dir("y7-atomic");
+        UpdateState::default().try_save(&dir).unwrap();
+        UpdateState::default().try_save(&dir).unwrap();
+        let names: Vec<String> = std::fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(names, vec!["update-state.json".to_owned()]);
+        drop(std::fs::remove_dir_all(&dir));
+    }
+
+    /// Marks that cannot be recorded mean an update that is not staged: the staging used to drop
+    /// the write error and hand the file over anyway.
+    #[cfg(unix)]
+    #[test]
+    fn y7_a_state_that_cannot_be_recorded_takes_the_staged_file_with_it() {
+        use std::os::unix::fs::PermissionsExt;
+        let f = chain_fixture(CHAIN_NOW * 2, 1, "y7-unrecordable");
+        let mut release = f.release.clone();
+        release.download_url =
+            serve_bytes(std::fs::read(&f.artifact).unwrap(), "a-2.0.0.bin").into();
+        let state_dir = f._dir.join("state");
+        std::fs::create_dir_all(&state_dir).unwrap();
+        std::fs::set_permissions(&state_dir, std::fs::Permissions::from_mode(0o555)).unwrap();
+        if std::fs::write(state_dir.join("probe"), b"x").is_ok() {
+            // Running as a user the permission bits do not bind (root): nothing to show.
+            std::fs::set_permissions(&state_dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+            drop(std::fs::remove_dir_all(&f._dir));
+            return;
+        }
+        let staging = f._dir.join("staging");
+        let err = stage_program_update_with(
+            &release,
+            &expect(),
+            &staging,
+            &UpdatePolicy::Signed(roots_of(&f)),
+            &state_dir,
+        )
+        .expect_err("the marks cannot move, so nothing is staged");
+        assert!(
+            err.contains("update state") && err.contains("not staged"),
+            "{err}"
+        );
+        assert_eq!(files_in(&staging), 0, "the verified file went with it");
+        std::fs::set_permissions(&state_dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+        drop(std::fs::remove_dir_all(&f._dir));
+    }
+
+    /// Unreadable marks stop the staging before a byte is downloaded.
+    #[test]
+    fn y7_unreadable_marks_stop_the_staging() {
+        let f = chain_fixture(CHAIN_NOW * 2, 1, "y7-unreadable");
+        let state_dir = f._dir.join("state");
+        std::fs::create_dir_all(&state_dir).unwrap();
+        std::fs::write(state_dir.join("update-state.json"), b"not json").unwrap();
+        let mut release = f.release.clone();
+        let (url, served) = serve_ranges(
+            std::fs::read(&f.artifact).unwrap(),
+            RangeMode::Honest,
+            "a.bin",
+        );
+        release.download_url = url.into();
+        let err = stage_program_update_with(
+            &release,
+            &expect(),
+            &f._dir.join("staging"),
+            &UpdatePolicy::Signed(roots_of(&f)),
+            &state_dir,
+        )
+        .expect_err("damaged marks stop the staging");
+        assert!(err.contains("damaged"), "{err}");
+        assert_eq!(requests(&served), 0, "before anything was downloaded");
+        drop(std::fs::remove_dir_all(&f._dir));
+    }
+
     // ---- REVIEW Y3: the release statement binds the artifact to its app, version, platform ---
 
     fn good_statement(extra: &str) -> String {
@@ -4823,6 +5796,29 @@ mod tests {
         )
         .expect("verifies again");
         assert_eq!(state.highest_seen, "5.0.0");
+        drop(std::fs::remove_dir_all(&f._dir));
+    }
+
+    /// AZ-Y11 through the mark: a client that verified `2.0.0-rc1` takes the final `2.0.0` as a
+    /// newer release and its mark moves to it (it used to stay at the rc, and the final was
+    /// refused as `downgrade_refused`).
+    #[test]
+    fn y11_the_final_release_moves_the_mark_past_a_release_candidate() {
+        let f = chain_fixture(CHAIN_NOW + DAY, 1, "y11-mark");
+        let mut state = UpdateState {
+            highest_seen: "2.0.0-rc1".into(),
+            ..UpdateState::default()
+        };
+        verify_release_signature(
+            &f.artifact,
+            &f.release,
+            &roots_of(&f),
+            &expect(),
+            &mut state,
+            CHAIN_NOW,
+        )
+        .expect("the genuine 2.0.0 verifies");
+        assert_eq!(state.highest_seen, "2.0.0");
         drop(std::fs::remove_dir_all(&f._dir));
     }
 
