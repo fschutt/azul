@@ -283,6 +283,8 @@ impl DriveBundle {
             read_only_why: value["read_only_reason"]
                 .as_str()
                 .map(azlin_contract::ReadOnlyWhy::from_wire),
+            // The announcement keeps what the token server sends of it: its kind and the moment
+            // the restored data is from, not only the epoch and the prefix (RF45).
             restore: value["restore"]["epoch"]
                 .as_u64()
                 .map(|epoch| crate::sync::RestoreNotice {
@@ -291,6 +293,11 @@ impl DriveBundle {
                         .as_str()
                         .unwrap_or_default()
                         .to_string(),
+                    kind: crate::sync::RestoreKind::from_wire(
+                        value["restore"]["kind"].as_str().unwrap_or_default(),
+                    ),
+                    as_of: time_of(&value["restore"]["as_of"])
+                        .and_then(|moment| i64::try_from(moment).ok()),
                 }),
         })
     }

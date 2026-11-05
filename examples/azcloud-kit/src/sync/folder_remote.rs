@@ -936,6 +936,7 @@ pub fn sync(
             opts.restore = Some(super::RestoreNotice {
                 epoch: index.restore_epoch,
                 prefix: String::new(),
+                ..super::RestoreNotice::default()
             });
         }
     }

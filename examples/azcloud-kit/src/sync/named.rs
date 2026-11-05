@@ -606,6 +606,13 @@ impl SyncRemote for NamedFiles<'_> {
         true
     }
 
+    /// The generation of a drive synced by name is this device's own commit counter
+    /// (`memo.generation`): it can never be older than what this device saw, and says nothing of
+    /// a restore. Only the announced epoch decides (AZ-S5).
+    fn clock(&self) -> azul_storage::restore::Clock {
+        azul_storage::restore::Clock::Own
+    }
+
     /// The folder record keeps each file's executable bit; a drive that keeps no record names
     /// a file's content only, and the bit stays out of every comparison there.
     fn tracks_exec(&self) -> bool {

@@ -649,10 +649,23 @@ fn the_token_servers_restore_announcement_reaches_the_sync_and_the_account_recor
         announced.restore,
         Some(crate::sync::RestoreNotice {
             epoch: 3,
-            prefix: String::new()
+            prefix: String::new(),
+            kind: crate::sync::RestoreKind::Offsite,
+            as_of: None,
         })
     );
     assert_eq!(bundle("null").restore, None);
+    // RF45: the announcement keeps its kind and its moment (the token server sends both; the
+    // bundle used to keep the epoch and the prefix only).
+    let timed = bundle(
+        r#"{"epoch": 4, "kind": "point_in_time", "as_of": "2026-10-24T09:00:00Z",
+            "prefix": "docs/", "announced_at": "2026-10-24T10:00:00Z", "generation": 1,
+            "sig": "c2ln"}"#,
+    );
+    let kept = timed.restore.expect("a restore");
+    assert_eq!(kept.kind, crate::sync::RestoreKind::PointInTime);
+    assert_eq!(kept.as_of, crate::parse_rfc3339("2026-10-24T09:00:00Z"));
+    assert_eq!(kept.prefix, "docs/");
     let grant = crate::account::grant_of(&announced, "http://127.0.0.1:18081", "owner", 1).unwrap();
     assert_eq!(grant.record.restore, announced.restore);
 }

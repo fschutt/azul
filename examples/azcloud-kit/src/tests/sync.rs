@@ -546,6 +546,7 @@ fn an_announced_restore_heals_from_this_device_and_deletes_nothing() {
     opts.restore = Some(RestoreNotice {
         epoch: 1,
         prefix: String::new(),
+        ..RestoreNotice::default()
     });
     let report = a.sync_with(&store, &opts).unwrap();
     assert!(report.refused.is_none(), "{}", report.summary());
@@ -595,6 +596,7 @@ fn az_s3_an_announced_restore_heals_although_another_device_committed_first() {
     opts.restore = Some(RestoreNotice {
         epoch: 1,
         prefix: String::new(),
+        ..RestoreNotice::default()
     });
     let report = a.sync_with(&store, &opts).unwrap();
     assert!(report.refused.is_none(), "{}", report.summary());
@@ -653,6 +655,7 @@ fn az_s2_an_announced_restore_keeps_a_file_edited_after_the_off_site_copy() {
     opts.restore = Some(RestoreNotice {
         epoch: 1,
         prefix: String::new(),
+        ..RestoreNotice::default()
     });
     let report = a.sync_with(&store, &opts).unwrap();
     assert!(report.refused.is_none(), "{}", report.summary());
@@ -669,6 +672,50 @@ fn az_s2_an_announced_restore_keeps_a_file_edited_after_the_off_site_copy() {
         index.files.values().any(|f| f.hash == edited),
         "sent again: {:?}",
         index.files.keys().collect::<Vec<_>>()
+    );
+}
+
+/// AZ-S3 (its second half), RF45 `baseline`. A pairing made after an announcement starts at that
+/// epoch, not at 0: the announcement is not new to it, so it neither heals anything nor excuses
+/// a LATER rollback.
+#[test]
+fn az_s3_a_pairing_made_after_an_announcement_starts_at_its_epoch() {
+    let store = S3Bucket::new();
+    let a = Device::new("dev-s3-baseline");
+    a.write("a.md", b"a");
+    let mut opts = a.opts();
+    opts.restore = Some(RestoreNotice {
+        epoch: 3,
+        ..RestoreNotice::default()
+    });
+    let first = a.sync_with(&store, &opts).unwrap();
+    assert!(
+        !first
+            .problems
+            .iter()
+            .any(|p| p.code == Code::ServerRestored),
+        "a new pairing has nothing to heal: {:?}",
+        first.problems
+    );
+    let kept = crate::sync::LocalIndex::load(&a.index())
+        .unwrap()
+        .expect("a base");
+    assert_eq!(
+        kept.restore_epoch, 3,
+        "the pairing was born at the announcement's epoch"
+    );
+    let old = store.read(&index_key(PREFIX)).unwrap();
+    a.write("b.md", b"b");
+    a.sync_with(&store, &opts).unwrap();
+    store.write(&index_key(PREFIX), old);
+    let report = a.sync_with(&store, &opts).unwrap();
+    assert!(
+        report
+            .problems
+            .iter()
+            .any(|p| p.code == Code::RemoteRollback),
+        "the old announcement does not excuse a rollback: {:?}",
+        report.problems
     );
 }
 

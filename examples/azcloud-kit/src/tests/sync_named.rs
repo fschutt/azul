@@ -547,6 +547,109 @@ fn a_relative_link_travels_through_a_drive_synced_by_name_as_a_link() {
     assert_eq!((again.files_up, again.files_down), (0, 0), "{}", again.summary());
 }
 
+/// AZ-S5, AZ-S15. The generation of a drive synced by name is this device's own commit counter
+/// (the memo beside the base), so it says nothing of the drive: a memo that is lost starts it at 0
+/// again, and the old rule (an index older than the last one seen is a rollback) refused the
+/// drive on every poll for ever with a base that remembered the high number.
+#[test]
+fn az_s5_a_drive_synced_by_name_whose_memo_is_lost_is_no_rollback() {
+    let s3 = FakeS3::new();
+    let drive = s3_drive(&s3);
+    let a = Device::new("dev-s5-memo");
+    a.write("one.md", b"1");
+    a.sync(&*drive);
+    a.write("two.md", b"2");
+    a.sync(&*drive);
+    fs::remove_file(a.state.path().join("index.named.json")).expect("the memo is beside the base");
+    let report = a.sync(&*drive);
+    assert!(report.refused.is_none(), "{}", report.summary());
+    assert!(
+        !report
+            .problems
+            .iter()
+            .any(|p| p.code == Code::RemoteRollback),
+        "{:?}",
+        report.problems
+    );
+    a.write("three.md", b"3");
+    let sent = a.sync(&*drive);
+    assert_eq!(sent.files_up, 1, "{}", sent.summary());
+    assert_eq!(s3.read("Documents/three.md").as_deref(), Some(&b"3"[..]));
+}
+
+/// AZ-S5, RF45. An announced restore of a drive synced by name is taken as the restore it is,
+/// whatever its generation says: what the copy lacks is sent again from here, and a file edited
+/// after the copy is kept (here and on the drive) as a conflict copy, never overwritten.
+#[test]
+fn az_s5_a_drive_synced_by_name_takes_an_announced_restore_and_keeps_what_the_copy_lacks() {
+    let s3 = FakeS3::new();
+    let drive = NamesHashes(s3_drive(&s3));
+    let a = Device::new("dev-s5-restore");
+    a.write("kept.md", b"in the copy");
+    a.sync(&drive);
+    // The off-site copy: every object of the drive as it is now.
+    let copy: Vec<(String, Vec<u8>)> = s3
+        .keys()
+        .into_iter()
+        .filter_map(|key| s3.read(&key).map(|bytes| (key, bytes)))
+        .collect();
+    a.write("lag.md", b"committed after the copy");
+    a.write("kept.md", b"edited after the copy");
+    a.sync(&drive);
+    // The drive is restored from the copy.
+    for key in s3.keys() {
+        s3.remove(&key);
+    }
+    for (key, bytes) in copy {
+        s3.write(&key, bytes);
+    }
+    let mut opts = a.opts();
+    opts.restore = Some(crate::sync::RestoreNotice {
+        epoch: 1,
+        ..crate::sync::RestoreNotice::default()
+    });
+    let report = sync_to(
+        Target::Named(&drive),
+        &a.root(),
+        &a.index(),
+        &opts,
+        &RunHooks::default(),
+    )
+    .unwrap();
+    assert!(report.refused.is_none(), "{}", report.summary());
+    assert!(
+        report
+            .problems
+            .iter()
+            .any(|p| p.code == Code::ServerRestored),
+        "{:?}",
+        report.problems
+    );
+    assert_eq!(
+        s3.read("Documents/lag.md").as_deref(),
+        Some(&b"committed after the copy"[..]),
+        "sent again"
+    );
+    let on_drive = |bytes: &[u8]| {
+        s3.keys()
+            .iter()
+            .any(|k| s3.read(k).as_deref() == Some(bytes))
+    };
+    assert!(
+        on_drive(b"edited after the copy"),
+        "the edit is on the drive again: {:?}",
+        s3.keys()
+    );
+    assert!(
+        a.tree()
+            .values()
+            .any(|bytes| bytes == b"edited after the copy"),
+        "the edit is still here: {:?}",
+        a.tree().keys().collect::<Vec<_>>()
+    );
+    assert_eq!(report.deleted_here, 0, "{}", report.summary());
+}
+
 // ==== A drive as the plain sync's store ====
 
 #[test]

@@ -110,6 +110,7 @@ use azul_storage::{
     checked::FileCheck,
     ctl::Quiet,
     durable::{self, Expect, Mode, Publish, PublishError},
+    restore::{self, Standing},
     LocalDrive,
 };
 use serde::{Deserialize, Serialize};
@@ -131,6 +132,9 @@ use crate::{
     store::BIG_BLOB,
     user_errors::{Behaviour, Class, UserError},
 };
+/// A restore of the drive announced by the token server: the storage crate's, where the
+/// decision about it is ([`azul_storage::restore`]).
+pub use azul_storage::restore::{RestoreKind, RestoreNotice};
 
 /// The data root of every Azlin app, in the drive.
 pub const DATA_PREFIX: &str = "azlin/data/";
@@ -188,30 +192,11 @@ pub struct SyncOptions {
     /// A download that would leave less than this many bytes free on the folder's disk is not
     /// started (listed): another person's files never fill this disk ([`DISK_RESERVE`]).
     pub disk_reserve: u64,
-    /// The drive's newest restore announcement, as the token server hands it out: an index
-    /// older than the last one seen is taken as that restore (and healed from here) when its
-    /// epoch is above the one the base saw; without one such an index is refused.
+    /// The drive's newest restore announcement, as the token server hands it out: what the
+    /// drive serves is taken as that restore (and healed from here) when its epoch is above the
+    /// one the base saw - whatever the drive's counter says ([`restore::judge`]); without one an
+    /// index older than the last one seen is refused.
     pub restore: Option<RestoreNotice>,
-}
-
-/// A restore of the drive (from its off-site copy, or of a folder as of a moment), announced
-/// by the token server with an epoch one above the drive's last one.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct RestoreNotice {
-    pub epoch: u64,
-    /// The key prefix the restore covered; empty for the whole drive.
-    #[serde(default)]
-    pub prefix: String,
-}
-
-impl RestoreNotice {
-    /// Whether the restore covered the folder synced to `prefix`.
-    #[must_use]
-    pub fn covers(&self, prefix: &str) -> bool {
-        self.prefix.is_empty()
-            || prefix.starts_with(&self.prefix)
-            || self.prefix.starts_with(prefix)
-    }
 }
 
 impl SyncOptions {
@@ -961,6 +946,13 @@ trait SyncRemote: Sync {
     /// a device read or wrote it. Anywhere else such an entry is a damaged one.
     fn names_versions(&self) -> bool {
         false
+    }
+
+    /// What the generation this side serves counts ([`restore::judge`]): every device's commits
+    /// (a plain drive's index) or this device's own (a drive synced by name, whose generation
+    /// says nothing about the drive and so never marks a rollback).
+    fn clock(&self) -> restore::Clock {
+        restore::Clock::Shared
     }
 
     /// [`SyncRemote::fetch`] into the file `dest` (a big file: in ranges, never whole in
@@ -2821,6 +2813,31 @@ fn hold_big(
     held
 }
 
+/// How the restored drive `remote` relates to the base's `entry` of `key`, for
+/// [`restore::rebase`]: the files it lost (no entry, no recorded delete), the ones it holds in
+/// another version than the base's (the edit may exist nowhere else; an entry that holds no
+/// bytes here is no edit - a new version of it on the drive is an ordinary download), and the
+/// ones it agrees with or recorded the delete of.
+fn restore_relation(remote: &RemoteIndex, key: &str, entry: &BaseEntry) -> restore::Remote {
+    match remote.files.get(key) {
+        None if remote.deleted.contains_key(key) => restore::Remote::Deleted,
+        None => restore::Remote::Lost,
+        Some(file) if !entry.cloud_only && !merge::same_version(entry, file) => {
+            restore::Remote::Other
+        }
+        Some(_) => restore::Remote::Same,
+    }
+}
+
+/// The base of a pairing made now (a folder never synced, or whose base was lost or damaged):
+/// it starts at the current restore epoch, so an announcement made before it existed never
+/// excuses a later unannounced rollback ([`restore::baseline`]).
+fn fresh_index(root: &LocalRoot, opts: &SyncOptions) -> LocalIndex {
+    let mut index = LocalIndex::new(&root.path, &opts.bucket, &opts.prefix);
+    index.restore_epoch = restore::baseline(opts.restore.as_ref());
+    index
+}
+
 /// `map` with every key under a folder of `finals` (base key -> final key) at its final key.
 fn rebase_keys<V: Clone>(
     map: &BTreeMap<String, V>,
@@ -3667,7 +3684,7 @@ fn run<R: SyncRemote + ?Sized>(
                      it with the drive by content and deletes nothing",
                 );
             }
-            LocalIndex::new(&root.path, &opts.bucket, &opts.prefix)
+            fresh_index(root, opts)
         }
         Err(e) => {
             report.tell(
@@ -3687,7 +3704,7 @@ fn run<R: SyncRemote + ?Sized>(
                     ))
                 })?;
             }
-            LocalIndex::new(&root.path, &opts.bucket, &opts.prefix)
+            fresh_index(root, opts)
         }
     };
     // D3: the paired folder, or nothing changes anywhere. A missing folder, or one without the
@@ -3851,73 +3868,74 @@ fn run<R: SyncRemote + ?Sized>(
         let mut restore_epoch = index.restore_epoch;
         let healed;
         let renamed;
-        // The announcement is looked at whatever the generation says (S3): another device that
-        // synced first and committed on top of the restored index makes the generations equal,
-        // and the files committed after the copy would read as deleted elsewhere.
-        let announced = opts
-            .restore
-            .as_ref()
-            .filter(|r| r.epoch > index.restore_epoch && r.covers(&opts.prefix));
-        let rolled_back = remote.generation < index.generation;
-        let base: &BTreeMap<String, BaseEntry> = if rolled_back || announced.is_some() {
-            let Some(notice) = announced else {
+        // One decision for plain and encrypted drives ([`restore::judge`]): the announcement is
+        // looked at whatever the generation says (S3 - another device that synced first and
+        // committed on top of the restored index makes the generations equal, and the files
+        // committed after the copy would read as deleted elsewhere), and the generation of a
+        // drive synced by name counts this device's commits only, so it decides nothing (S5).
+        let seen = restore::Seen {
+            epoch: index.restore_epoch,
+            clock: index.generation,
+        };
+        let clock = remote_side.clock();
+        let standing = restore::judge(
+            &seen,
+            remote.generation,
+            clock,
+            opts.restore.as_ref(),
+            &opts.prefix,
+        );
+        let base: &BTreeMap<String, BaseEntry> = match standing {
+            Standing::Rollback {
+                seen: newest,
+                served,
+            } => {
                 report.refuse(
                     Code::RemoteRollback,
                     format!(
-                        "the drive answered generation {}, older than the {} this folder saw: a \
-                         rolled-back or replayed index; nothing was changed (if you replaced the \
-                         drive's folder yourself, pair this folder again)",
-                        remote.generation, index.generation
+                        "the drive answered generation {served}, older than the {newest} this \
+                         folder saw: a rolled-back or replayed index; nothing was changed (if \
+                         you replaced the drive's folder yourself, pair this folder again)"
                     ),
                 );
                 report.generation = remote.generation;
                 return Ok(report);
-            };
-            let lost: Vec<&String> = index
-                .files
-                .keys()
-                .filter(|k| !remote.files.contains_key(*k) && !remote.deleted.contains_key(*k))
-                .collect();
-            // The files this device holds in another version than the restored drive's: the
-            // edit may exist nowhere else. (A cloud-only entry holds no bytes here: a new
-            // version of it on the drive is an ordinary download.)
-            let edited: Vec<&String> = index
-                .files
-                .iter()
-                .filter(|(k, e)| {
-                    !e.cloud_only
-                        && remote
-                            .files
-                            .get(*k)
-                            .is_some_and(|r| !merge::same_version(e, r))
-                })
-                .map(|(k, _)| k)
-                .collect();
-            if rolled_back || !lost.is_empty() || !edited.is_empty() {
-                report.tell(
-                    Code::ServerRestored,
-                    "",
-                    format!(
-                        "the drive was restored from its backup; {} file(s) newer than the \
-                         backup are sent again from here, {} file(s) in another version than \
-                         the backup's are kept (a conflict copy where both differ)",
-                        lost.len(),
-                        edited.len()
-                    ),
-                );
             }
-            let mut trusted = index.files.clone();
-            for key in lost.into_iter().chain(edited) {
-                trusted.remove(key);
+            Standing::Restored(notice) => {
+                // The base is untrusted where the restored drive disagrees ([`restore::rebase`],
+                // pure): a file it lacks is sent again, a file it holds in another version than
+                // the base's is kept - this side's edit may exist nowhere else.
+                let rebased = restore::rebase(&index.files, &|key, entry| {
+                    restore_relation(&remote, key, entry)
+                });
+                if restore::went_back(&seen, remote.generation, clock)
+                    || !rebased.lost.is_empty()
+                    || !rebased.edited.is_empty()
+                {
+                    report.tell(
+                        Code::ServerRestored,
+                        "",
+                        format!(
+                            "the drive was restored from its backup; {} file(s) newer than the \
+                             backup are sent again from here, {} file(s) in another version \
+                             than the backup's are kept (a conflict copy where both differ)",
+                            rebased.lost.len(),
+                            rebased.edited.len()
+                        ),
+                    );
+                }
+                restore_epoch = notice.epoch;
+                healed = rebased.trusted;
+                &healed
             }
-            restore_epoch = notice.epoch;
-            healed = trusted;
-            &healed
-        } else if !finals.is_empty() {
-            renamed = rebase_keys(&index.files, &finals);
-            &renamed
-        } else {
-            &index.files
+            Standing::InSync | Standing::Behind => {
+                if finals.is_empty() {
+                    &index.files
+                } else {
+                    renamed = rebase_keys(&index.files, &finals);
+                    &renamed
+                }
+            }
         };
         // The base's folders under the names both sides end with.
         let folders_renamed = (!finals.is_empty()).then(|| rebase_keys(&index.folders, &finals));
