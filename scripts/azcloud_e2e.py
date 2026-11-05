@@ -181,7 +181,7 @@ class Machine:
         self.env = env
 
     def az(self, *args, check=True, timeout=900):
-        cmd = [self.binary, "--json"] + [str(a) for a in args]
+        cmd = [self.binary, "--json", "--allow-plain-secrets"] + [str(a) for a in args]
         started = time.time()
         r = subprocess.run(cmd, env=self.env, capture_output=True, text=True, timeout=timeout)
         took = time.time() - started

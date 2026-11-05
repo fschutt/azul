@@ -19,7 +19,10 @@
 
 use std::{collections::BTreeMap, path::PathBuf};
 
-use azul_storage::keyring::{KeyringError, KeyringStore};
+use azul_storage::{
+    footprint::{Allow, KeyEntry, Protection},
+    keyring::{KeyringError, KeyringStore},
+};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -39,7 +42,7 @@ pub fn credentials_entry(drive_id: &str) -> String {
 /// The keyring entry of a drive's drive token.
 #[must_use]
 pub fn drive_token_entry(drive_id: &str) -> String {
-    format!("azul-storage/azlin/{drive_id}")
+    KeyEntry::AzlinToken.name(drive_id)
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -49,10 +52,13 @@ struct SecretsFile {
     entries: BTreeMap<String, String>,
 }
 
-/// The secrets file of a state folder.
+/// The secrets file of a state folder. A plain file: any program of this user reads it, so a
+/// drive's key goes into it only when the user said so ([`FileSecrets::allowing`]); the drive
+/// token and the credentials, which the token server revokes and which expire, always do.
 #[derive(Clone)]
 pub struct FileSecrets {
     path: PathBuf,
+    allow: Allow,
 }
 
 impl std::fmt::Debug for FileSecrets {
@@ -64,9 +70,21 @@ impl std::fmt::Debug for FileSecrets {
 }
 
 impl FileSecrets {
+    /// The secrets file at `path`, which takes no drive key ([`FileSecrets::allowing`]).
     #[must_use]
     pub fn new(path: PathBuf) -> FileSecrets {
-        FileSecrets { path }
+        FileSecrets {
+            path,
+            allow: Allow::Nothing,
+        }
+    }
+
+    /// This file with the user's word on keeping a drive's keys in it: `--allow-plain-secrets`
+    /// at the command line, the bridge's `plain_secrets` setting (AZ-K7).
+    #[must_use]
+    pub fn allowing(mut self, allow: Allow) -> FileSecrets {
+        self.allow = allow;
+        self
     }
 
     #[must_use]
@@ -155,5 +173,9 @@ impl KeyringStore for FileSecrets {
         self.remove(key)
             .map(|_| ())
             .map_err(|e| KeyringError::Failed(e.to_string()))
+    }
+
+    fn protection(&self) -> Protection {
+        Protection::PlainFile { allow: self.allow }
     }
 }

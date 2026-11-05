@@ -35,7 +35,7 @@ use azcloud_kit::{
     CloudError,
 };
 use azul_appkit::azlin_config::{Endpoint, EndpointFlags};
-use azul_storage::Transport;
+use azul_storage::{footprint::Allow, Transport};
 use serde_json::{json, Value};
 
 const USAGE: &str = "\
@@ -112,6 +112,10 @@ flags (every one also has an environment variable; flag > environment > config f
   --drive ID        which drive of the state folder (default the current one)
   --device-name N   this device's name the first time (AZCLOUD_DEVICE)
   --no-refresh      do not renew credentials first
+  --allow-plain-secrets
+                    this computer has no keyring: keep the drive's keys in the state folder's
+                    secrets file (readable by this user only; any program of this user reads
+                    it). Without it a command that would keep a key there stops and says so
   --json            one JSON object on stdout
 ";
 
@@ -156,6 +160,7 @@ const SWITCHES: &[&str] = &[
     "--help",
     "-h",
     "--no-refresh",
+    "--allow-plain-secrets",
 ];
 
 /// The command line, parsed.
@@ -308,14 +313,21 @@ fn listing_time(unix: Option<u64>) -> String {
     }
 }
 
-fn open_state(settings: &Settings) -> Result<StateDir> {
-    Ok(StateDir::open(settings.state_path()?)?)
+/// The state folder of this device. Its secrets file takes a drive's keys only when
+/// `--allow-plain-secrets` was given (AZ-K7): the command line cannot reach the OS keyring.
+fn open_state(settings: &Settings, args: &Args) -> Result<StateDir> {
+    let allow = if args.on("--allow-plain-secrets") {
+        Allow::PlainSecrets
+    } else {
+        Allow::Nothing
+    };
+    Ok(StateDir::open(settings.state_path()?)?.allowing_plain_secrets(allow))
 }
 
 /// The account of this device's state folder, its credentials renewed when
 /// they are due (unless `--no-refresh`).
 fn open_account(settings: &Settings, net: &Net, args: &Args) -> Result<Account> {
-    let state = open_state(settings)?;
+    let state = open_state(settings, args)?;
     let mut account = Account::open(
         &state,
         settings.token_url()?,
@@ -396,7 +408,7 @@ fn give_recovery_code(
 }
 
 fn cmd_signup(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
-    let state = open_state(settings)?;
+    let state = open_state(settings, args)?;
     let device = state.device(args.value("--device-name"))?;
     let tier = args.value("--tier").unwrap_or("100GB");
     let name = args.value("--name").unwrap_or("Azlin Storage");
@@ -532,7 +544,7 @@ fn recovery_code_argument(
 fn cmd_join(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
     let text = code_argument(args, "join", "join")?;
     let code = JoinCode::decode(&text)?;
-    let state = open_state(settings)?;
+    let state = open_state(settings, args)?;
     let device = state.device(args.value("--device-name"))?;
     let token_url = settings.token_url()?;
     let account = Account::join(&state, token_url, net.transports.clone(), &code)?;
@@ -575,7 +587,7 @@ fn cmd_join(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
 }
 
 fn cmd_status(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
-    let state = open_state(settings)?;
+    let state = open_state(settings, args)?;
     let account = Account::open(
         &state,
         settings.token_url()?,
@@ -635,7 +647,7 @@ fn cmd_info(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
 }
 
 fn cmd_refresh(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
-    let state = open_state(settings)?;
+    let state = open_state(settings, args)?;
     let mut account = Account::open(
         &state,
         settings.token_url()?,

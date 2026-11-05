@@ -586,7 +586,7 @@ def step_encrypted(binary, azcloud, work, stack, s3_root):
     encryption, nothing in the clear in the bucket."""
     bridge = Bridge(binary, os.path.join(work, 'encrypted'), stack.token_url)
     try:
-        out = bridge.run('--keyring', 'file', 'init', '--address', ADDRESS)
+        out = bridge.run('--keyring', 'file', '--allow-plain-secrets', 'init', '--address', ADDRESS)
         found = [l.split(' ', 1)[1] for l in out.splitlines() if l.startswith('AZUL_BRIDGE_PASSWORD ')]
         expect(len(found) == 1, 'init printed no password')
         password = found[0].strip()
@@ -689,7 +689,7 @@ def main():
         sending = os.path.join(work, 'sending.json')
         with open(sending, 'w') as f:
             json.dump({'route': {'kind': 'smtp', 'host': '127.0.0.1', 'port': sink_port}, 'tls': 'off'}, f)
-        out = bridge.run('init', '--address', ADDRESS, '--sending', sending)
+        out = bridge.run('--allow-plain-secrets', 'init', '--address', ADDRESS, '--sending', sending)
         found = [l.split(' ', 1)[1] for l in out.splitlines() if l.startswith('AZUL_BRIDGE_PASSWORD ')]
         expect(len(found) == 1, 'init printed no password')
         password = found[0].strip()

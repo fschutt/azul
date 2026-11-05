@@ -666,7 +666,7 @@ class Desktop:
         if not self.ctx.azcloud:
             raise Skip("no azcloud binary (--azcloud, AZCLOUD_BIN or examples/azcloud-api/"
                        "target/release/azcloud)")
-        command = [self.ctx.azcloud, "--json"] + [str(a) for a in args]
+        command = [self.ctx.azcloud, "--json", "--allow-plain-secrets"] + [str(a) for a in args]
         done = subprocess.run(command, env=self.env, capture_output=True, text=True,
                               timeout=timeout)
         try:

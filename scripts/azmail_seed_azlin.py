@@ -253,7 +253,8 @@ class CliDrive:
 
     def run(self, *args):
         import subprocess  # noqa: PLC0415
-        command = [self.azcloud, '--state-dir', self.state, '--token-url', self.token_url]
+        command = [self.azcloud, '--state-dir', self.state, '--token-url', self.token_url,
+                   '--allow-plain-secrets']
         if self.s3_url:
             command += ['--s3-url', self.s3_url]
         env = dict(os.environ, AZLIN_CONFIG='off')

@@ -60,3 +60,56 @@ fn a_secret_is_kept_under_its_keyring_name_and_errors_never_show_it() {
     let err = secrets.get("a").unwrap_err().to_string();
     assert!(!err.contains("sesame"), "a file that does not parse is not quoted: {err}");
 }
+
+/// AZ-K7: the secrets file is a plain file. It says so, and a drive's key goes into it only when
+/// the user allowed it (the command line's `--allow-plain-secrets`); a credential does either way.
+#[cfg(feature = "encryption")]
+#[test]
+fn az_k7_the_secrets_file_takes_a_drives_key_only_when_the_user_allowed_it() {
+    use azul_storage::{
+        crypto::{device::plan_drive_key, DriveKey},
+        footprint::{Allow, KeyEntry, Protection},
+    };
+
+    let dir = TempDir::new("azcloud-secrets-plain");
+    let path = dir.path().join("secrets.json");
+    let file = FileSecrets::new(path.clone());
+    assert_eq!(file.protection(), Protection::PlainFile { allow: Allow::Nothing });
+
+    let key = DriveKey::generate().unwrap();
+    let refused = plan_drive_key(&file, "d_1", &key).unwrap_err().to_string();
+    assert!(refused.contains("plain file"), "{refused}");
+    assert!(!refused.contains("sesame"), "{refused}");
+    assert!(!path.exists(), "nothing was written for a refused key");
+
+    // A credential is kept in it all the same.
+    file.set(&credentials_entry("d_1"), "{}").unwrap();
+    file.set(&drive_token_entry("d_1"), "dt_f.0.sesame").unwrap();
+
+    let allowed = file.clone().allowing(Allow::PlainSecrets);
+    assert_eq!(allowed.protection(), Protection::PlainFile { allow: Allow::PlainSecrets });
+    plan_drive_key(&allowed, "d_1", &key).unwrap();
+    assert!(allowed.get(&KeyEntry::PlannedKey.name("d_1")).unwrap().is_some());
+}
+
+/// AZ-K7: the state folder carries the user's word to every secrets file it hands out - the
+/// account holds a copy of the folder, so a command that opened the folder allowed gets it.
+#[test]
+fn az_k7_the_state_folder_hands_out_a_secrets_file_that_carries_the_users_word() {
+    use azul_storage::{
+        footprint::{Allow, Protection},
+        keyring::KeyringStore,
+    };
+
+    let dir = TempDir::new("azcloud-state-plain");
+    let state = crate::state::StateDir::open(dir.path()).unwrap();
+    assert_eq!(
+        state.secrets().protection(),
+        Protection::PlainFile { allow: Allow::Nothing }
+    );
+    let allowed = state.allowing_plain_secrets(Allow::PlainSecrets);
+    assert_eq!(
+        allowed.clone().secrets().protection(),
+        Protection::PlainFile { allow: Allow::PlainSecrets }
+    );
+}

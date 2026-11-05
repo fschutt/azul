@@ -64,6 +64,10 @@ pub struct BridgeConfig {
     /// a settings file of a bridge before the choice existed said nothing: `file`.
     #[serde(default = "file_keyring")]
     pub keyring: String,
+    /// The user's word (`init --allow-plain-secrets`) that the secrets file may hold the drive's
+    /// keys, on a machine with no OS keyring. A settings file without it says no.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub plain_secrets: bool,
 }
 
 fn file_keyring() -> String {
@@ -89,6 +93,7 @@ impl BridgeConfig {
             pim_port: PIM_PORT,
             sending_file: None,
             keyring: crate::secrets::KeyringChoice::default_for_build().name().to_string(),
+            plain_secrets: false,
         }
     }
 

@@ -27,6 +27,7 @@ use std::{
     time::Duration,
 };
 
+use azul_storage::footprint::Allow;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 use crate::{
@@ -100,6 +101,8 @@ fn random_name() -> String {
 #[derive(Clone, Debug)]
 pub struct StateDir {
     root: PathBuf,
+    /// Whether its secrets file may hold a drive's keys (the user said so).
+    allow: Allow,
 }
 
 impl StateDir {
@@ -114,7 +117,17 @@ impl StateDir {
             .with_context(|| format!("the state folder {}", root.display()))?;
         Ok(StateDir {
             root: root.to_path_buf(),
+            allow: Allow::Nothing,
         })
+    }
+
+    /// This folder with the user's word on keeping a drive's keys in its secrets file
+    /// (`--allow-plain-secrets`): without it a command that would keep a key there stops and says
+    /// so (AZ-K7).
+    #[must_use]
+    pub fn allowing_plain_secrets(mut self, allow: Allow) -> StateDir {
+        self.allow = allow;
+        self
     }
 
     #[must_use]
@@ -151,7 +164,7 @@ impl StateDir {
     /// The secrets file.
     #[must_use]
     pub fn secrets(&self) -> FileSecrets {
-        FileSecrets::new(self.root.join(SECRETS_FILE))
+        FileSecrets::new(self.root.join(SECRETS_FILE)).allowing(self.allow)
     }
 
     /// This device, minted the first time: named `name`, else what

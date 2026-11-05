@@ -17,7 +17,7 @@
 use std::sync::Arc;
 
 use azcloud_kit::secrets::FileSecrets;
-pub use azul_storage::keyring::{KeyringError, KeyringStore};
+pub use azul_storage::keyring::{KeyringError, KeyringStore, Protection};
 
 /// The entry of the bridge's own password.
 pub const PASSWORD_ENTRY: &str = azcloud_kit::bridge::PASSWORD_ENTRY;
@@ -53,6 +53,10 @@ impl KeyringStore for FileKeyring {
 
     fn delete(&self, key: &str) -> Result<(), KeyringError> {
         self.0.remove(key).map(|_| ()).map_err(failed)
+    }
+
+    fn protection(&self) -> Protection {
+        self.0.protection()
     }
 }
 

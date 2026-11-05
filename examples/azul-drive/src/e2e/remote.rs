@@ -186,6 +186,10 @@ impl KeyringStore for MemKeyring {
         lock(&self.entries).remove(key);
         Ok(())
     }
+
+    fn protection(&self) -> azul_storage::keyring::Protection {
+        azul_storage::keyring::Protection::Memory
+    }
 }
 
 /// A remote: the folder, its devices' faults and counters, its keys.

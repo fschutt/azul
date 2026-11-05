@@ -41,7 +41,7 @@ use std::{
 
 use azcloud_kit::{drive::TransportFactory, Account, JoinCode, StateDir};
 use azul_appkit::azlin_config::{Endpoint, EndpointFlags};
-use azul_storage::{Drive, LocalDrive, ScopedDrive, Transport};
+use azul_storage::{footprint::Allow, Drive, LocalDrive, ScopedDrive, Transport};
 
 use crate::{
     account::AccountDrive,
@@ -91,13 +91,16 @@ pub struct Options {
     pub idle_poll: Option<u64>,
     /// `os` (the OS keyring; a build with the os-keyring feature) or `file`.
     pub keyring: Option<String>,
+    /// The user's word that the secrets file may hold the drive's keys (`--allow-plain-secrets`;
+    /// `init` writes it into bridge.json, so the later runs need not repeat it).
+    pub allow_plain_secrets: bool,
     /// `autostart`'s `enable` / `disable` / `status`.
     pub action: Option<String>,
 }
 
 /// The usage text.
 pub const USAGE: &str = "usage: azul-bridge [--state-dir DIR] [--token-url URL] [--s3-url URL] [--keyring os|file] \
-     <init --address ADDR [--account ID] [--alias ADDR]... [--sending FILE] [--imap-port N] \
+     [--allow-plain-secrets] <init --address ADDR [--account ID] [--alias ADDR]... [--sending FILE] [--imap-port N] \
      [--smtp-port N] [--dav-port N] [--pim-port N] | password | signup [--name NAME] [--tier TIER] | \
      join --code-file FILE | autostart enable|disable|status | serve [--imap-port N] [--smtp-port N] [--dav-port N] \
      [--pim-port N] [--folder DIR | --memory] [--calendar-folder DIR] [--idle-poll SECS] | status>";
@@ -147,6 +150,7 @@ pub fn parse_args(args: &[String]) -> Result<Options, String> {
                 ))
             }
             "--keyring" => options.keyring = Some(value(&mut i, arg)?),
+            "--allow-plain-secrets" => options.allow_plain_secrets = true,
             "--idle-poll" => {
                 let text = value(&mut i, arg)?;
                 let secs = text
@@ -299,14 +303,23 @@ pub fn open_state(options: &Options) -> Result<Opened, String> {
     )
     .ok_or("no state folder: pass --state-dir or set AZUL_BRIDGE_HOME")?;
     let state_dir = StateDir::open(&state).map_err(|e| e.to_string())?;
+    let config = BridgeConfig::load(&state).ok().flatten();
     let choice = match &options.keyring {
         Some(text) => KeyringChoice::parse(text).ok_or("--keyring takes os or file")?,
-        None => BridgeConfig::load(&state)
-            .ok()
-            .flatten()
+        None => config
+            .as_ref()
             .and_then(|config| KeyringChoice::parse(&config.keyring))
             .unwrap_or_else(KeyringChoice::default_for_build),
     };
+    // The secrets file keeps the drive's keys only when the user said it may (AZ-K7): the flag of
+    // this run, or the setting `init --allow-plain-secrets` wrote down.
+    let allow = if options.allow_plain_secrets || config.as_ref().is_some_and(|c| c.plain_secrets)
+    {
+        Allow::PlainSecrets
+    } else {
+        Allow::Nothing
+    };
+    let state_dir = state_dir.allowing_plain_secrets(allow);
     let secrets: Arc<dyn KeyringStore> = secrets::open(choice, state_dir.secrets())?;
     Ok(Opened {
         state,
@@ -505,6 +518,9 @@ fn init(
         config.pim_port = port;
     }
     config.keyring = keyring.name().to_string();
+    if options.allow_plain_secrets {
+        config.plain_secrets = true;
+    }
     config.save(state).map_err(|e| e.to_string())?;
     if secrets.get(PASSWORD_ENTRY).map_err(|e| e.to_string())?.is_none() {
         let password = auth::new_password()?;
@@ -775,6 +791,52 @@ mod tests {
             let mode = std::fs::metadata(state_dir_secrets(&state)).unwrap().permissions().mode();
             assert_eq!(mode & 0o077, 0, "the secrets file is this user's only: {mode:o}");
         }
+    }
+
+    /// AZ-K7: the secrets file is a plain file, and the bridge keeps a drive's key in it only when
+    /// the user said so - `init --allow-plain-secrets` writes the word into bridge.json, so a later
+    /// run needs no flag - and a run that was not told refuses the key and says why.
+    #[test]
+    fn az_k7_the_secrets_file_keeps_a_drives_key_only_when_the_user_said_it_may() {
+        use azul_storage::{
+            crypto::{device::plan_drive_key, DriveKey},
+            footprint::Protection,
+        };
+        let dir = azul_storage::testing::TempDir::new("bridge-plain-secrets");
+        let state = dir.0.join("state");
+        let line = |rest: &str| format!("--state-dir {} --keyring file {rest}", state.display());
+        let key = DriveKey::generate().unwrap();
+
+        // Set up without the word: the file says it is plain, and takes no key.
+        let init = parse_args(&args(&line("init --address ada@example.org"))).unwrap();
+        run(&init).unwrap();
+        assert!(!BridgeConfig::load(&state).unwrap().unwrap().plain_secrets);
+        let opened = open_state(&init).unwrap();
+        assert_eq!(
+            opened.secrets.protection(),
+            Protection::PlainFile { allow: Allow::Nothing }
+        );
+        let refused = plan_drive_key(&*opened.secrets, "d_1", &key).unwrap_err().to_string();
+        assert!(refused.contains("plain file"), "{refused}");
+        assert!(refused.contains("--allow-plain-secrets"), "{refused}");
+
+        // The flag for one run.
+        let once = parse_args(&args(&line("--allow-plain-secrets status"))).unwrap();
+        let opened = open_state(&once).unwrap();
+        plan_drive_key(&*opened.secrets, "d_1", &key).unwrap();
+
+        // The word at init is written down; the later runs have it without the flag.
+        let init = parse_args(&args(&line("--allow-plain-secrets init --address ada@example.org")))
+            .unwrap();
+        run(&init).unwrap();
+        assert!(BridgeConfig::load(&state).unwrap().unwrap().plain_secrets);
+        let text = std::fs::read_to_string(state.join(config::CONFIG_FILE)).unwrap();
+        assert!(text.contains("\"plain_secrets\": true"), "{text}");
+        let later = parse_args(&args(&line("status"))).unwrap();
+        assert_eq!(
+            open_state(&later).unwrap().secrets.protection(),
+            Protection::PlainFile { allow: Allow::PlainSecrets }
+        );
     }
 
     #[cfg(unix)]
