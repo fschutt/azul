@@ -189,8 +189,9 @@ mod tests {
             assert!(RootKeys::parse(key).is_ok(), "{key}");
         }
         // And what the constant makes of it: no keys, no updates; keys, a signed policy.
-        let policy = policy_of(UPDATE_ROOT_KEYS);
-        assert_eq!(policy.is_err(), UPDATE_ROOT_KEYS.first().is_none());
+        let keys = UPDATE_ROOT_KEYS.to_vec();
+        let policy = policy_of(&keys);
+        assert_eq!(policy.is_err(), keys.is_empty());
         if let Err(why) = policy {
             assert_eq!(
                 why,

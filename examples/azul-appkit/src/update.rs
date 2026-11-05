@@ -57,6 +57,8 @@ pub const MANAGER_KEY: &str = "installmgr";
 /// The folders of one app.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AppPaths {
+    /// The app's key (`azwriter`).
+    pub key: String,
     /// `<azlin>/apps/<key>`: the registration, the staged update, the request, the engine's state.
     pub registry: PathBuf,
     /// `<install_dir>/<key>`: `current/` and `prev/`.
@@ -69,6 +71,7 @@ impl AppPaths {
     #[must_use]
     pub fn new(azlin_dir: &Path, install_dir: &Path, key: &str) -> AppPaths {
         AppPaths {
+            key: key.to_string(),
             registry: azlin_dir.join(APPS_DIR).join(key),
             install: install_dir.join(key),
         }
@@ -102,6 +105,16 @@ impl AppPaths {
     #[must_use]
     pub fn staging(&self) -> PathBuf {
         self.registry.join("staging")
+    }
+
+    /// The file a staged update of `version` is kept in: `staging/<key>-<version>.bin`, BUILT here
+    /// from the app and the version. `staged.json` names a file too, but nothing reads a path
+    /// out of it: whoever can write that file (a process of the user, a synced folder) must not
+    /// choose what is installed or deleted (REVIEW Y4). `None` when `version` is not a name a
+    /// file can carry ([`safe_version`]).
+    #[must_use]
+    pub fn staged_file(&self, version: &str) -> Option<PathBuf> {
+        safe_version(version).then(|| self.staging().join(format!("{}-{version}.bin", self.key)))
     }
 
     /// The installed version.
@@ -140,6 +153,18 @@ pub fn manifest_url_for(updates: &UpdatesSection, key: &str, channel: Channel) -
             .replace("{app}", key)
             .replace("{channel}", channel.name()),
     )
+}
+
+/// Whether `version` can be a part of a file's name: 1 to 64 letters, digits, `.`, `-`, `_` or
+/// `+`, not starting with a dot. A version comes from a manifest or from a file another process
+/// wrote; it never reaches a path otherwise.
+#[must_use]
+pub fn safe_version(version: &str) -> bool {
+    (1..=64).contains(&version.len())
+        && !version.starts_with('.')
+        && version
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_' | b'+'))
 }
 
 /// The seconds since 1970.
@@ -209,7 +234,8 @@ pub struct Registration {
 pub struct Staged {
     /// The release it is.
     pub release: Release,
-    /// The downloaded file.
+    /// The downloaded file, for people and older readers: NOTHING reads a path out of this field
+    /// ([`AppPaths::staged_file`] builds it from the app and the version).
     pub file: String,
     /// The channel it came from.
     pub channel: String,
@@ -552,6 +578,20 @@ pub fn machine_cohort(
 // One app's background round
 // ---------------------------------------------------------------------------
 
+/// Moves the verified file to `kept` (`staging/<key>-<version>.bin`): the name every reader
+/// derives. The bytes are the bytes that passed; only the name changes.
+fn keep_as(verified: &Verified, kept: &Path) -> Result<(), String> {
+    if verified.path() == kept {
+        return Ok(());
+    }
+    // A file of an earlier attempt under that name goes; a rename onto it fails on Windows.
+    let _ = std::fs::remove_file(kept);
+    std::fs::rename(verified.path(), kept).map_err(|e| {
+        let _ = std::fs::remove_file(verified.path());
+        format!("{}: {e}", kept.display())
+    })
+}
+
 /// What one background round works with.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Round {
@@ -608,9 +648,21 @@ pub fn background_round(engine: &dyn UpdateEngine, round: &Round, now_unix: u64)
     if round.skip_version.as_deref() == Some(release.version.as_str()) {
         return RoundOutcome::Skipped(release.version);
     }
+    // Where this release is kept is BUILT from the app and the version, never read from a file.
+    let Some(kept) = round.paths.staged_file(&release.version) else {
+        return RoundOutcome::Failed(format!(
+            "the version {:?} the update source names cannot be a file's name",
+            release.version
+        ));
+    };
     if let Some(staged) = read_json::<Staged>(&round.paths.staged()) {
-        if staged.release.version == release.version && Path::new(&staged.file).exists() {
-            return RoundOutcome::Staged(staged);
+        if staged.release.version == release.version && kept.exists() {
+            // The record only says "it was staged"; the release is the one just checked.
+            return RoundOutcome::Staged(Staged {
+                release,
+                file: kept.to_string_lossy().into_owned(),
+                ..staged
+            });
         }
     }
     let unattended = round.autoupdate
@@ -621,9 +673,12 @@ pub fn background_round(engine: &dyn UpdateEngine, round: &Round, now_unix: u64)
     }
     match engine.stage(&release, &round.paths.staging(), &round.policy, &state_dir) {
         Ok(verified) => {
+            if let Err(why) = keep_as(&verified, &kept) {
+                return RoundOutcome::Failed(why);
+            }
             let staged = Staged {
                 release,
-                file: verified.path().to_string_lossy().into_owned(),
+                file: kept.to_string_lossy().into_owned(),
                 channel: round.channel.name().to_string(),
                 staged_unix: now_unix,
             };
@@ -989,6 +1044,11 @@ mod tests {
         assert_eq!(staged.release.version, "2.0.0");
         assert_eq!(staged.channel, "stable");
         assert!(Path::new(&staged.file).exists());
+        assert_eq!(
+            Path::new(&staged.file),
+            r.paths.staged_file("2.0.0").unwrap(),
+            "kept under the name built from the app and the version"
+        );
         assert_eq!(read_json::<Staged>(&r.paths.staged()), Some(staged.clone()));
         // The next round finds it staged: no second download.
         assert_eq!(background_round(&engine, &r, 200), RoundOutcome::Staged(staged));
@@ -1048,6 +1108,76 @@ mod tests {
         let mut kept = c.updates.clone();
         kept.cohort = Some(7);
         assert_eq!(machine_cohort(&engine, &config, &kept).0, 7, "a kept cohort is never drawn again");
+    }
+
+    /// REVIEW Y4: staged.json is a file any process of the user (or a synced folder) can write; the
+    /// file a staged update is kept in is built by the code from the app and the version.
+    #[test]
+    fn y4_the_staged_file_is_where_the_code_keeps_it_not_where_staged_json_says() {
+        let dir = TempDir::new("update-y4");
+        let engine = FakeEngine::answering(Check::Available(release("2.0.0")));
+        let r = round(dir.path());
+        let kept = r.paths.staged_file("2.0.0").unwrap();
+        assert_eq!(kept, r.paths.staging().join("azwriter-2.0.0.bin"));
+        let RoundOutcome::Staged(staged) = background_round(&engine, &r, 1) else {
+            panic!("staged");
+        };
+        assert!(kept.exists() && !r.paths.staging().join("app-2.0.0.bin").exists());
+        assert_eq!(staged.file, kept.to_string_lossy());
+
+        // A planted record names a file elsewhere: only the file under the code's name counts.
+        let elsewhere = dir.path().join("planted.bin");
+        std::fs::write(&elsewhere, b"x").unwrap();
+        std::fs::remove_file(&kept).unwrap();
+        write_json(
+            &r.paths.staged(),
+            &Staged {
+                release: release("2.0.0"),
+                file: elsewhere.to_string_lossy().into_owned(),
+                channel: "stable".into(),
+                staged_unix: 1,
+            },
+        )
+        .unwrap();
+        let again = background_round(&engine, &r, 2);
+        let RoundOutcome::Staged(fresh) = again else {
+            panic!("a record whose file is gone stages again");
+        };
+        assert_eq!(fresh.file, kept.to_string_lossy(), "the planted path is not carried on");
+        assert_eq!(*engine.staged_versions.lock().unwrap(), vec!["2.0.0".to_string(); 2]);
+        assert!(elsewhere.exists(), "and it is not touched");
+    }
+
+    #[test]
+    fn y4_a_version_that_is_no_file_name_is_never_staged_and_never_makes_a_path() {
+        let dir = TempDir::new("update-y4-name");
+        let paths = AppPaths::new(dir.path(), &dir.path().join("apps"), "azwriter");
+        for bad in [
+            "",
+            ".",
+            "..",
+            "../../x",
+            "2.0.0/../../x",
+            "2.0.0\\x",
+            ".hidden",
+            "a b",
+            "2.0.0\n",
+            &"9".repeat(65),
+        ] {
+            assert!(!safe_version(bad), "{bad:?}");
+            assert_eq!(paths.staged_file(bad), None, "{bad:?}");
+        }
+        for good in ["1", "2.0.0", "2.1.0-rc.1", "2.0.0+build_5", "v1.2"] {
+            assert!(safe_version(good), "{good}");
+            assert!(paths.staged_file(good).unwrap().starts_with(paths.staging()), "{good}");
+        }
+        // A manifest that names such a version stages nothing, outside the folder or in it.
+        let engine = FakeEngine::answering(Check::Available(release("../../escape")));
+        let r = round(dir.path());
+        let outcome = background_round(&engine, &r, 1);
+        assert!(matches!(outcome, RoundOutcome::Failed(_)), "{outcome:?}");
+        assert!(engine.staged_versions.lock().unwrap().is_empty(), "not even downloaded");
+        assert!(!dir.path().join("escape").exists());
     }
 
     #[test]

@@ -758,13 +758,19 @@ pub fn place(
     };
     write_json(&paths.registration(), &registration)
         .map_err(|e| format!("{}: {e}", paths.registration().display()))?;
-    if let Some(staged) = read_json::<Staged>(&paths.staged()) {
-        if staged.release.version == release.version {
-            let _ = std::fs::remove_file(&staged.file);
-            let _ = std::fs::remove_file(paths.staged());
-        }
-    }
+    forget_staged(&paths, &release.version);
     Ok(registration)
+}
+
+/// Throws away the staged update of `version`: its file (the one the code names, never the one
+/// `staged.json` does: REVIEW Y4) and the record, when the record is of that version.
+fn forget_staged(paths: &AppPaths, version: &str) {
+    if let Some(file) = paths.staged_file(version) {
+        let _ = std::fs::remove_file(file);
+    }
+    if read_json::<Staged>(&paths.staged()).is_some_and(|s| s.release.version == version) {
+        let _ = std::fs::remove_file(paths.staged());
+    }
 }
 
 /// The version kept for Revert (`prev/`), if there is one.
@@ -826,12 +832,7 @@ pub fn revert(
         .map_err(|e| format!("{}: {e}", places.config.display()))?;
     }
     // A staged copy of the version just left would be offered again.
-    if let Some(staged) = read_json::<Staged>(&paths.staged()) {
-        if staged.release.version == from {
-            let _ = std::fs::remove_file(&staged.file);
-            let _ = std::fs::remove_file(paths.staged());
-        }
-    }
+    forget_staged(&paths, &from);
     Ok((from, registration))
 }
 
@@ -1132,20 +1133,18 @@ pub fn update_to(
     let policy = fetching.policy().map_err(|e| e.to_string())?;
     let paths = fetching.places.app(entry.key);
     let state = paths.state(channel);
-    let staged = read_json::<Staged>(&paths.staged())
-        .filter(|s| s.release.version == release.version && Path::new(&s.file).exists());
-    let verified = match staged {
-        Some(staged) => {
-            let file = PathBuf::from(&staged.file);
-            match engine.verify(&file, &staged.release, &policy, &state) {
-                Ok(verified) => verified,
-                Err(why) => {
-                    let _ = std::fs::remove_file(&file);
-                    let _ = std::fs::remove_file(paths.staged());
-                    return Err(why);
-                }
+    // The staged file of this release is where the code keeps it; what staged.json says is not
+    // read. It is checked again against the release in hand (a file on disk is not trusted
+    // across runs); a file that fails is thrown away.
+    let kept = paths.staged_file(&release.version).filter(|f| f.exists());
+    let verified = match kept {
+        Some(file) => match engine.verify(&file, release, &policy, &state) {
+            Ok(verified) => verified,
+            Err(why) => {
+                forget_staged(&paths, &release.version);
+                return Err(why);
             }
-        }
+        },
         None => engine.stage(release, &paths.staging(), &policy, &state)?,
     };
     let placed = place(
@@ -1341,6 +1340,41 @@ pub fn release_now(
 // ---------------------------------------------------------------------------
 // The apps' "Update now"
 // ---------------------------------------------------------------------------
+
+/// How old an "Update now" may be before it is void. The app writes it and quits; the manager
+/// installs within seconds. An older one is a leftover - or something another process wrote.
+pub const REQUEST_MAX_AGE_SECS: u64 = 24 * 3600;
+
+/// Whether `request` is too old to carry out.
+#[must_use]
+pub fn request_is_stale(request: &ApplyRequest, now_unix: u64) -> bool {
+    now_unix.saturating_sub(request.asked_unix) > REQUEST_MAX_AGE_SECS
+}
+
+/// Carries out an app's "Update now": installs the newest release the update source offers it
+/// NOW, checked again under the build's policy. The request is a trigger and nothing more -
+/// `request.json` and `staged.json` are files any process of the user can write, so neither
+/// chooses the version or the file (REVIEW Y4, X-AR5b-26). A release staged for it is used if
+/// it is where the code keeps it and passes the checks again; the engine's check only offers a
+/// release newer than the installed one.
+///
+/// # Errors
+///
+/// In words: the app was not installed by the manager, the check failed or found nothing newer,
+/// or the release could not be installed.
+pub fn carry_out(
+    engine: &dyn UpdateEngine,
+    fetching: &Fetching,
+    entry: &AppEntry,
+    now_unix: u64,
+) -> Result<Registration, String> {
+    let app = installed(engine, &fetching.places, &fetching.updates)
+        .into_iter()
+        .find(|a| a.entry.key == entry.key && a.is_managed())
+        .ok_or_else(|| format!("{} was not installed by AzInstallManager", entry.name))?;
+    let release = release_now(engine, fetching, &app, now_unix)?;
+    update_to(engine, fetching, entry, &release, app.channel, now_unix)
+}
 
 /// Every app's waiting "Update now" (`<azlin>/apps/<key>/request.json`), by key.
 #[must_use]
@@ -1998,7 +2032,7 @@ mod model_tests {
         let mut f = f;
         f.updates = AzlinConfig::load(&f.places.config).0.updates;
         std::fs::create_dir_all(paths.staging()).unwrap();
-        let staged_file = paths.staging().join("2.0.0.bin");
+        let staged_file = paths.staged_file("2.0.0").unwrap();
         std::fs::write(&staged_file, "staged 2.0.0").unwrap();
         write_json(
             &paths.staged(),
@@ -2128,6 +2162,161 @@ mod model_tests {
         assert!(
             !paths.install.join("next").exists(),
             "no half-laid version stays"
+        );
+    }
+
+    /// REVIEW Y4: staged.json names a file, and the manager used to install it and delete it. Any
+    /// process of the user can write that record; the file a staged update is kept in is the
+    /// one the code names.
+    #[test]
+    fn y4_a_staged_json_that_names_another_file_neither_installs_nor_deletes_it() {
+        let dir = TempDir::new("installmgr-y4-staged");
+        let f = fetching(dir.path());
+        let paths = f.places.app("azwriter");
+        place(
+            &f.places,
+            writer(),
+            &file_with(dir.path(), "v1"),
+            &release("1.0.0"),
+            Channel::Stable,
+            1,
+        )
+        .unwrap();
+        let precious = dir.path().join("precious.txt");
+        std::fs::write(&precious, "keep me").unwrap();
+        write_json(
+            &paths.staged(),
+            &Staged {
+                release: release("2.0.0"),
+                file: precious.to_string_lossy().into_owned(),
+                channel: "stable".into(),
+                staged_unix: 5,
+            },
+        )
+        .unwrap();
+        let reg = update_to(
+            &FakeEngine::default(),
+            &f,
+            writer(),
+            &release("2.0.0"),
+            Channel::Stable,
+            6,
+        )
+        .unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&reg.binary).unwrap(),
+            "program 2.0.0",
+            "what the engine staged is installed, not the file the record names"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&precious).unwrap(),
+            "keep me",
+            "and it is not deleted"
+        );
+        assert!(!paths.staged().exists(), "the used-up record goes");
+        // Reverting away from a version does not delete what a record names either.
+        write_json(
+            &paths.staged(),
+            &Staged {
+                release: release("2.0.0"),
+                file: precious.to_string_lossy().into_owned(),
+                ..Staged::default()
+            },
+        )
+        .unwrap();
+        revert(&f.places, writer(), 7).unwrap();
+        assert!(precious.exists());
+    }
+
+    /// REVIEW Y4 / X-AR5b-26: an app's "Update now" is a trigger. The manager installs what a fresh
+    /// check of the update source finds, whatever version request.json names and whatever
+    /// staged.json says is staged.
+    #[test]
+    fn y4_update_now_installs_what_a_fresh_check_finds_and_names_no_version_or_file() {
+        let dir = TempDir::new("installmgr-y4-request");
+        let engine = FakeEngine {
+            releases: vec![("azwriter", "2.0.0", false)],
+            ..FakeEngine::default()
+        };
+        let f = fetching(dir.path());
+        let paths = f.places.app("azwriter");
+        place(
+            &f.places,
+            writer(),
+            &file_with(dir.path(), "v1"),
+            &release("1.0.0"),
+            Channel::Stable,
+            1,
+        )
+        .unwrap();
+        let precious = dir.path().join("precious.txt");
+        std::fs::write(&precious, "keep me").unwrap();
+        azul_appkit::update::request_apply(
+            &paths,
+            &ApplyRequest {
+                version: "9.9.9".into(),
+                pid: 0,
+                relaunch: false,
+                asked_unix: 100,
+            },
+        )
+        .unwrap();
+        write_json(
+            &paths.staged(),
+            &Staged {
+                release: release("9.9.9"),
+                file: precious.to_string_lossy().into_owned(),
+                ..Staged::default()
+            },
+        )
+        .unwrap();
+        let reg = carry_out(&engine, &f, writer(), 101).unwrap();
+        assert_eq!(
+            reg.version, "2.0.0",
+            "the version the check found, not the one the request says"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&reg.binary).unwrap(),
+            "program 2.0.0"
+        );
+        assert_eq!(std::fs::read_to_string(&precious).unwrap(), "keep me");
+
+        // An app the manager did not install is not updated on its say-so.
+        let other = fetching(dir.path());
+        let none = carry_out(&engine, &other, entry("azclock").unwrap(), 102).unwrap_err();
+        assert!(
+            none.contains("was not installed by AzInstallManager"),
+            "{none}"
+        );
+    }
+
+    #[test]
+    fn y4_an_update_now_that_is_a_day_old_is_void() {
+        let asked = |asked_unix| ApplyRequest {
+            version: "2.0.0".into(),
+            pid: 0,
+            relaunch: true,
+            asked_unix,
+        };
+        assert!(
+            !request_is_stale(&asked(1_000), 1_000 + 3_000),
+            "the manager installs within seconds"
+        );
+        assert!(!request_is_stale(
+            &asked(1_000),
+            1_000 + REQUEST_MAX_AGE_SECS
+        ));
+        assert!(request_is_stale(
+            &asked(1_000),
+            1_000 + REQUEST_MAX_AGE_SECS + 1
+        ));
+        assert!(
+            request_is_stale(&asked(0), 1_800_000_000),
+            "a request without a time is no request"
+        );
+        assert!(
+            !request_is_stale(&asked(2_000), 1_000),
+            "a time in the future is not old"
         );
     }
 

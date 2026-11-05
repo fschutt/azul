@@ -163,7 +163,9 @@ pub fn start(kit_ref: &RefAny, config: &mut AppConfig, key: &'static str) {
         .filter(|s| {
             managed
                 && s.release.version != version
-                && Path::new(&s.file).exists()
+                && paths
+                    .staged_file(&s.release.version)
+                    .is_some_and(|f| f.exists())
                 && policy.skip_version.as_deref() != Some(s.release.version.as_str())
         })
         .map(|s| Offer {
@@ -453,7 +455,10 @@ extern "C" fn on_skip(mut data: RefAny, _info: CallbackInfo) -> Update {
     }
     if let Some(staged) = read_json::<Staged>(&u.paths.staged()) {
         if staged.release.version == version {
-            let _ = std::fs::remove_file(&staged.file);
+            // The file it is kept in is the one the code names, not the one the record does.
+            if let Some(file) = u.paths.staged_file(&version) {
+                let _ = std::fs::remove_file(file);
+            }
             let _ = std::fs::remove_file(u.paths.staged());
         }
     }

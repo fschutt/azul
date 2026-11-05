@@ -10,7 +10,7 @@ use azul::{
 };
 use azul_appkit::{
     azlin_config::{AzlinConfig, Channel},
-    update::{read_json, unix_now, AzulEngine, Registration, Release, Staged, UpdateEngine},
+    update::{unix_now, AzulEngine, Registration, Release, UpdateEngine},
 };
 
 use crate::model::{self, AppEntry, Fetching, Installed, PackageManager, Status};
@@ -317,10 +317,11 @@ fn install(
     }
 }
 
-/// The apps' "Update now": for each request whose app has quit, the version it said yes to is
-/// installed - the staged file checked once more, or (auto-update off: nothing was staged) the
-/// release fetched now - and the app starts again when it asked. A request of an app still
-/// running waits for the next poll.
+/// The apps' "Update now": for each request whose app has quit, the newest release the update
+/// source offers is installed (a staged file of it is checked once more and used; see
+/// [`model::carry_out`]: the request is a trigger, it names no version and no file), and the app
+/// starts again when it asked. A request of an app still running waits for the next poll; one
+/// that is a day old is void.
 fn requests(engine: &dyn UpdateEngine, fetching: &Fetching, send: &mut dyn FnMut(Progress)) {
     for (key, request) in model::pending_requests(&fetching.places.azlin_dir) {
         if model::process_alive(request.pid) {
@@ -331,23 +332,12 @@ fn requests(engine: &dyn UpdateEngine, fetching: &Fetching, send: &mut dyn FnMut
         };
         let paths = fetching.places.app(&key);
         let _ = std::fs::remove_file(paths.request());
+        if model::request_is_stale(&request, unix_now()) {
+            eprintln!("[installmgr] the Update now of {key} is too old; ignored");
+            continue;
+        }
         send(Progress::Started { key: key.clone() });
-        let channel = fetching.updates.policy_for(&key).channel;
-        let staged = read_json::<Staged>(&paths.staged())
-            .filter(|s| s.release.version == request.version);
-        let result = match staged {
-            Some(staged) => {
-                model::update_to(engine, fetching, entry, &staged.release, channel, unix_now())
-            }
-            None => model::installed(engine, &fetching.places, &fetching.updates)
-                .into_iter()
-                .find(|a| a.entry.key == entry.key && a.is_managed())
-                .ok_or_else(|| format!("{} was not installed by AzInstallManager", entry.name))
-                .and_then(|a| model::release_now(engine, fetching, &a, unix_now()))
-                .and_then(|release| {
-                    model::update_to(engine, fetching, entry, &release, channel, unix_now())
-                }),
-        };
+        let result = model::carry_out(engine, fetching, entry, unix_now());
         if let (Ok(registration), true) = (&result, request.relaunch) {
             if let Err(why) = model::launch(Path::new(&registration.binary)) {
                 eprintln!("[installmgr] {why}");
