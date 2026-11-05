@@ -9913,6 +9913,11 @@ fn eval_assert_work_bounded(
 /// Known counters: `fonts`, `font_hash_map`, `font_id_map`, `font_families_map`,
 /// `images`, `image_key_map`, `parsed_fonts`, `font_hash_to_families`,
 /// `font_chain_cache`.
+///
+/// EVERY counter given is judged and every red one is reported (see
+/// [`counters_red`]): the renderer-side counters (`fonts`, `images`, ...) stay 0
+/// on a headless window, so one of them next to a live counter is red for a
+/// reason that says nothing about the live one - and must not hide it.
 #[cfg(feature = "std")]
 fn eval_assert_resource_counts(
     params: &serde_json::Value,
@@ -9936,38 +9941,46 @@ fn eval_assert_resource_counts(
         return AssertionResult::fail("assert_resource_counts: params must be an object");
     };
 
+    // The keys come in alphabetical order, and this used to RETURN at the first red one: a
+    // dead renderer-side counter (`fonts`, `images`) always ended the call before
+    // `parsed_fonts`, which sorts after both, was read (the review of `gen-e2e` batch 2,
+    // note B). Now each is judged, and the red ones are collected.
     let mut checked = 0usize;
+    let mut red: Vec<CounterFailure> = Vec::new();
     for (key, want) in obj {
         if key == "op" || key == "vs" || key == "screenshot" {
             continue;
         }
         let Some(&actual) = current.get(key.as_str()) else {
-            return AssertionResult::fail(format!(
+            red.push(CounterFailure::said(format!(
                 "assert_resource_counts: unknown counter '{key}' (known: {})",
                 current.keys().cloned().collect::<Vec<_>>().join(", ")
-            ));
+            )));
+            continue;
         };
         checked += 1;
 
         if let Some(expected) = want.as_u64() {
             if actual != expected {
-                return AssertionResult::fail_with(
+                red.push(CounterFailure::measured(
                     format!("assert_resource_counts: '{key}' mismatch"),
                     expected.to_string(),
                     actual.to_string(),
-                );
+                ));
             }
             continue;
         }
         let Some(mode) = want.as_str() else {
-            return AssertionResult::fail(format!(
+            red.push(CounterFailure::said(format!(
                 "assert_resource_counts: '{key}' must be a number or one of \"eq\"/\"le\"/\"ge\""
-            ));
+            )));
+            continue;
         };
         let Some(base) = baseline.as_ref().and_then(|b| b.get(key.as_str()).copied()) else {
-            return AssertionResult::fail(format!(
+            red.push(CounterFailure::said(format!(
                 "assert_resource_counts: '{key}': \"{mode}\" needs a 'vs' baseline snapshot"
-            ));
+            )));
+            continue;
         };
         let ok = match mode {
             "eq" => actual == base,
@@ -9982,21 +9995,25 @@ fn eval_assert_resource_counts(
             "gt" => actual > base,
             "lt" => actual < base,
             other => {
-                return AssertionResult::fail(format!(
+                red.push(CounterFailure::said(format!(
                     "assert_resource_counts: unknown mode '{other}' for '{key}' (known: eq, le, \
                      ge, gt, lt)"
-                ))
+                )));
+                continue;
             }
         };
         if !ok {
-            return AssertionResult::fail_with(
+            red.push(CounterFailure::measured(
                 format!("assert_resource_counts: '{key}' leaked / drifted from the baseline"),
                 format!("{mode} {base}"),
                 actual.to_string(),
-            );
+            ));
         }
     }
 
+    if let Some(failed) = counters_red(red) {
+        return failed;
+    }
     if checked == 0 {
         return AssertionResult::fail(
             "assert_resource_counts: no counters given (e.g. \"fonts\": \"eq\")",
@@ -10010,6 +10027,72 @@ fn eval_assert_resource_counts(
             .collect::<Vec<_>>()
             .join(" ")
     ))
+}
+
+/// One counter of `assert_resource_counts` that is red: what it says and, when
+/// it was measured, the `(expected, got)` pair it reports.
+#[cfg(feature = "std")]
+struct CounterFailure {
+    message: String,
+    measured: Option<(String, String)>,
+}
+
+#[cfg(feature = "std")]
+impl CounterFailure {
+    /// A counter that is red without a measurement: unknown, or asked wrongly.
+    fn said(message: String) -> Self {
+        Self {
+            message,
+            measured: None,
+        }
+    }
+
+    /// A counter whose value broke its bound.
+    fn measured(message: String, expected: String, got: String) -> Self {
+        Self {
+            message,
+            measured: Some((expected, got)),
+        }
+    }
+}
+
+/// The answer of `assert_resource_counts` to the counters that were red:
+/// `None` when none was; the one failure in its own words (and its `expected` /
+/// `got`, as it always read) when one was; and ONE message naming every one when
+/// several were, so that a dead counter next to a live one shows both.
+#[cfg(feature = "std")]
+fn counters_red(mut red: Vec<CounterFailure>) -> Option<AssertionResult> {
+    const PREFIX: &str = "assert_resource_counts: ";
+    match red.len() {
+        0 => None,
+        1 => {
+            let only = red.remove(0);
+            Some(match only.measured {
+                Some((expected, got)) => AssertionResult::fail_with(only.message, expected, got),
+                None => AssertionResult::fail(only.message),
+            })
+        }
+        n => {
+            let each: Vec<String> = red
+                .into_iter()
+                .map(|failure| {
+                    let said = failure
+                        .message
+                        .strip_prefix(PREFIX)
+                        .unwrap_or(&failure.message)
+                        .to_string();
+                    match failure.measured {
+                        Some((expected, got)) => format!("{said} (expected {expected}, got {got})"),
+                        None => said,
+                    }
+                })
+                .collect();
+            Some(AssertionResult::fail(format!(
+                "{PREFIX}{n} counters are red: {}",
+                each.join("; ")
+            )))
+        }
+    }
 }
 
 // ==================== Manager / composition / damage-soundness assertions ====

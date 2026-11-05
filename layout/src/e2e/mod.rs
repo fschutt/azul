@@ -93,6 +93,11 @@ mod closed_values_tests;
 #[cfg(test)]
 mod mounted_nodes_tests;
 
+// `assert_resource_counts` judges every counter it is given and reports each one
+// that fails: a dead counter no longer hides a live one.
+#[cfg(test)]
+mod resource_counts_tests;
+
 pub mod hooks {
     //! Dependency-injection seam for the three host-coupled call sites in
     //! [`super::full`]. See the module docs above.
