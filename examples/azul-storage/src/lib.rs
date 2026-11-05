@@ -51,9 +51,13 @@ pub mod beneath;
 pub mod catalog;
 pub mod checked;
 pub mod config;
+/// What a running transfer is told (the bytes done) and asks (whether to stop).
+pub mod ctl;
 /// One folder on disk read in batches: names, kinds and (where the platform has them with the
 /// names) sizes, dates and inodes, without a stat per entry.
 pub mod dir_read;
+/// The one way a file is put in place: staged beside the name, synced, checked, renamed.
+pub mod durable;
 pub mod ids;
 pub mod key;
 pub mod keyring;
@@ -149,6 +153,7 @@ use std::{
 
 pub use azlin_contract::AzlinError;
 pub use config::SecretOptions;
+pub use ctl::Ctl;
 #[cfg(feature = "sql")]
 pub use database::DatabaseDrive;
 pub use local::LocalDrive;

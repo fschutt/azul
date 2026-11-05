@@ -5,7 +5,7 @@ use std::fs;
 
 use super::TempDir;
 use crate::{
-    beneath::{self, BeneathError, Kind, Root},
+    beneath::{self, BeneathError, FileId, Fingerprint, Kind, Root, Stat, Tri},
     local::THROUGH_LINK,
     Drive, DriveError, LocalDrive,
 };
@@ -235,4 +235,80 @@ fn a_temp_name_of_a_long_name_is_still_a_valid_name() {
     let tmp = beneath::temp_name(&long);
     assert!(tmp.len() <= 255, "{}", tmp.len());
     assert!(beneath::is_temp_name(&tmp));
+}
+
+/// A `Stat` as a system that gives no file identity (Windows until its file index is read, the
+/// records written before ids were kept) shows it: inode and device 0.
+fn stat_without_identity(size: u64, mtime_ns: u64) -> Stat {
+    Stat {
+        kind: Kind::File,
+        size,
+        mtime_ns,
+        ctime_ns: 0,
+        ino: 0,
+        dev: 0,
+        mode: 0o644,
+        nlink: 1,
+    }
+}
+
+#[test]
+fn x_ar5a_8_a_file_id_the_system_did_not_give_is_never_the_same_file() {
+    // 0 == 0 used to read as "the same file": every file of a system without ids was one file.
+    let none = FileId::new(0, 0);
+    assert!(!none.is_known());
+    assert_eq!(none.same(&FileId::new(0, 0)), Tri::Unknown);
+    assert_eq!(none.same(&FileId::UNKNOWN), Tri::Unknown);
+    let a = FileId::new(3, 77);
+    assert_eq!(a.same(&FileId::new(3, 77)), Tri::Same);
+    assert_eq!(a.same(&FileId::new(3, 78)), Tri::Different, "another inode");
+    assert_eq!(a.same(&FileId::new(4, 77)), Tri::Different, "another device");
+    assert_eq!(a.same(&none), Tri::Unknown, "known against unknown is unknown");
+    assert_eq!(none.same(&a), Tri::Unknown);
+    assert_eq!(a.known(), Some((3, 77)));
+    assert_eq!(none.parts(), (0, 0));
+
+    let st = stat_without_identity(10, 5);
+    assert!(!st.same_file(&st), "an entry without an identity is not its own twin");
+    assert!(!st.unchanged(&st), "and is never certain to be unchanged");
+    assert_eq!(st.fingerprint().matches(&st), Tri::Unknown);
+    // What differs is still seen to differ: a size or a time says "not the same" for certain.
+    assert_eq!(
+        st.fingerprint().matches(&stat_without_identity(11, 5)),
+        Tri::Different
+    );
+    assert_eq!(
+        st.fingerprint().matches(&stat_without_identity(10, 6)),
+        Tri::Different
+    );
+    // The answers combine: one "different" wins over an unknown, an unknown over a "same".
+    assert_eq!(Tri::Same.and(Tri::Unknown), Tri::Unknown);
+    assert_eq!(Tri::Unknown.and(Tri::Different), Tri::Different);
+    assert_eq!(Tri::Same.and(Tri::Same), Tri::Same);
+    assert!(Tri::Same.is_same() && !Tri::Unknown.is_same() && !Tri::Unknown.is_different());
+}
+
+#[cfg(unix)]
+#[test]
+fn x_ar5a_8_a_fingerprint_is_the_same_only_for_the_known_untouched_file() {
+    let w = World::new("fingerprint");
+    fs::write(w.root.path().join("f"), b"first").unwrap();
+    fs::write(w.root.path().join("g"), b"first").unwrap();
+    let top = Root::open(w.root.path()).unwrap().top().unwrap();
+    let f = top.lstat("f").unwrap();
+    assert!(f.id().is_known(), "a real inode is an identity");
+    let print = Fingerprint::of(&f);
+    assert_eq!(print.matches(&top.lstat("f").unwrap()), Tri::Same);
+    assert!(f.same_file(&top.lstat("f").unwrap()));
+    assert!(f.unchanged(&top.lstat("f").unwrap()));
+    // Another file with the same size, kind and (nearly) the same time is another file.
+    let g = top.lstat("g").unwrap();
+    assert!(!f.same_file(&g));
+    assert_ne!(print.matches(&Stat { mtime_ns: f.mtime_ns, ..g }), Tri::Same);
+    // A write changes the size.
+    fs::write(w.root.path().join("f"), b"second!").unwrap();
+    assert_eq!(print.matches(&top.lstat("f").unwrap()), Tri::Different);
+    // The same stat read back from a record that kept no inode is unknown, not equal.
+    let from_record = Fingerprint::from_parts(Kind::File, f.size, f.mtime_ns, f.ctime_ns, f.dev, 0);
+    assert_eq!(from_record.matches(&f), Tri::Unknown);
 }

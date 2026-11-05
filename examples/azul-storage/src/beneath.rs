@@ -74,11 +74,20 @@ impl BeneathError {
     pub fn is_disk_full(&self) -> bool {
         matches!(self, BeneathError::Io(e) if is_disk_full(e))
     }
+
+    /// Something has the name already (a create or a rename that must not replace found a file).
+    #[must_use]
+    pub fn is_already_exists(&self) -> bool {
+        matches!(self, BeneathError::Io(e) if e.kind() == io::ErrorKind::AlreadyExists)
+    }
 }
 
 /// Whether `e` says the disk is full.
 #[must_use]
 pub fn is_disk_full(e: &io::Error) -> bool {
+    if e.kind() == io::ErrorKind::StorageFull {
+        return true;
+    }
     #[cfg(unix)]
     {
         e.raw_os_error() == Some(libc::ENOSPC)
@@ -125,22 +134,182 @@ pub struct Stat {
     pub nlink: u64,
 }
 
-impl Stat {
-    /// Whether it is the same file as `other` (inode and device).
+/// The answer to "is it the same?" when the answer may be "cannot tell". `Unknown` is a third
+/// answer of its own, never `Same` and never `Different`: a caller that deletes, replaces or
+/// reuses on the strength of "the same" takes `Same` only; one that only has to be careful may
+/// take `Different` as the one answer that stops it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Tri {
+    /// Known, and the same.
+    Same,
+    /// Known, and not the same.
+    Different,
+    /// The system gave no identity (or no time) to tell by.
+    Unknown,
+}
+
+impl Tri {
+    /// Known and the same: the only answer a destructive step goes on.
     #[must_use]
-    pub fn same_file(&self, other: &Stat) -> bool {
-        self.ino == other.ino && self.dev == other.dev
+    pub fn is_same(self) -> bool {
+        self == Tri::Same
     }
 
-    /// Whether it is the same file with the same size and times as `other`: nothing wrote to
-    /// it in between.
+    /// Known and not the same: the only answer that is a change for certain.
+    #[must_use]
+    pub fn is_different(self) -> bool {
+        self == Tri::Different
+    }
+
+    /// Both answers at once: `Different` beats `Unknown`, which beats `Same`.
+    #[must_use]
+    pub fn and(self, other: Tri) -> Tri {
+        match (self, other) {
+            (Tri::Different, _) | (_, Tri::Different) => Tri::Different,
+            (Tri::Unknown, _) | (_, Tri::Unknown) => Tri::Unknown,
+            (Tri::Same, Tri::Same) => Tri::Same,
+        }
+    }
+}
+
+/// Which file: the device and the inode, where the system tells them (Windows' file index
+/// once `win.rs` reads it). There is no `==` on it: two files whose identity is unknown are not
+/// "the same file", so [`FileId::same`] answers a [`Tri`].
+#[derive(Clone, Copy, Debug)]
+pub struct FileId(Option<(u64, u64)>);
+
+impl FileId {
+    /// No identity: the system gave none.
+    pub const UNKNOWN: FileId = FileId(None);
+
+    /// The file of inode `ino` on device `dev`; an inode of 0 is no identity (the value the
+    /// systems that have none, and the records written before ids were kept, hold).
+    #[must_use]
+    pub fn new(dev: u64, ino: u64) -> FileId {
+        if ino == 0 {
+            FileId(None)
+        } else {
+            FileId(Some((dev, ino)))
+        }
+    }
+
+    /// Whether the system gave an identity.
+    #[must_use]
+    pub fn is_known(&self) -> bool {
+        self.0.is_some()
+    }
+
+    /// The device and the inode, when known.
+    #[must_use]
+    pub fn known(&self) -> Option<(u64, u64)> {
+        self.0
+    }
+
+    /// The device and the inode as a record keeps them (`(0, 0)` for none).
+    #[must_use]
+    pub fn parts(&self) -> (u64, u64) {
+        self.0.unwrap_or((0, 0))
+    }
+
+    /// Whether `other` is the same file: `Unknown` when either has no identity.
+    #[must_use]
+    pub fn same(&self, other: &FileId) -> Tri {
+        match (self.0, other.0) {
+            (Some(a), Some(b)) if a == b => Tri::Same,
+            (Some(_), Some(_)) => Tri::Different,
+            _ => Tri::Unknown,
+        }
+    }
+}
+
+/// What an entry was when it was looked at: enough to tell, later, whether it is still that
+/// file and nothing wrote to it ([`Fingerprint::matches`]). A step that replaces or removes a
+/// file on the strength of a fingerprint goes on only when the answer is [`Tri::Same`].
+#[derive(Clone, Copy, Debug)]
+pub struct Fingerprint {
+    pub kind: Kind,
+    pub size: u64,
+    /// Nanoseconds since 1970; 0 where the system gives none.
+    pub mtime_ns: u64,
+    /// The status-change time; 0 where the system gives none (then it is not compared).
+    pub ctime_ns: u64,
+    pub id: FileId,
+}
+
+impl Fingerprint {
+    /// The fingerprint of an `lstat`.
+    #[must_use]
+    pub fn of(st: &Stat) -> Fingerprint {
+        Fingerprint {
+            kind: st.kind,
+            size: st.size,
+            mtime_ns: st.mtime_ns,
+            ctime_ns: st.ctime_ns,
+            id: st.id(),
+        }
+    }
+
+    /// The fingerprint a record kept as its parts (an inode of 0: no identity).
+    #[must_use]
+    pub fn from_parts(
+        kind: Kind,
+        size: u64,
+        mtime_ns: u64,
+        ctime_ns: u64,
+        dev: u64,
+        ino: u64,
+    ) -> Fingerprint {
+        Fingerprint {
+            kind,
+            size,
+            mtime_ns,
+            ctime_ns,
+            id: FileId::new(dev, ino),
+        }
+    }
+
+    /// Whether `st` (an `lstat` now) is still this file untouched: [`Tri::Different`] when its
+    /// kind, size or times differ or it is another file, [`Tri::Same`] only when all of them
+    /// match and the identity is known on both sides, [`Tri::Unknown`] when everything that can
+    /// be told matches and the identity cannot (then a destructive step degrades to a content
+    /// hash or refuses - it does not go on).
+    #[must_use]
+    pub fn matches(&self, st: &Stat) -> Tri {
+        if self.kind != st.kind || self.size != st.size || self.mtime_ns != st.mtime_ns {
+            return Tri::Different;
+        }
+        if self.ctime_ns != 0 && st.ctime_ns != 0 && self.ctime_ns != st.ctime_ns {
+            return Tri::Different;
+        }
+        self.id.same(&st.id())
+    }
+}
+
+impl Stat {
+    /// Which file it is.
+    #[must_use]
+    pub fn id(&self) -> FileId {
+        FileId::new(self.dev, self.ino)
+    }
+
+    /// What it is now, to be matched against later ([`Fingerprint::matches`]).
+    #[must_use]
+    pub fn fingerprint(&self) -> Fingerprint {
+        Fingerprint::of(self)
+    }
+
+    /// Whether it is, for certain, the same file as `other` (inode and device known and
+    /// equal). Two entries the system gave no identity are not.
+    #[must_use]
+    pub fn same_file(&self, other: &Stat) -> bool {
+        self.id().same(&other.id()).is_same()
+    }
+
+    /// Whether it is, for certain, the same file with the same size and times as `other`:
+    /// nothing wrote to it in between.
     #[must_use]
     pub fn unchanged(&self, other: &Stat) -> bool {
-        self.same_file(other)
-            && self.kind == other.kind
-            && self.size == other.size
-            && self.mtime_ns == other.mtime_ns
-            && self.ctime_ns == other.ctime_ns
+        self.fingerprint().matches(other).is_same()
     }
 
     /// The user's executable bit.
@@ -167,6 +336,16 @@ fn check_name(name: &str) -> Result<(), BeneathError> {
         return Err(BeneathError::BadName(name.to_string()));
     }
     Ok(())
+}
+
+/// Whether `name` can be one file name of a folder here: no separator, no NUL, not `.`, `..` or
+/// empty, and on Windows none that system misreads.
+///
+/// # Errors
+///
+/// [`BeneathError::BadName`].
+pub fn check_file_name(name: &str) -> Result<(), BeneathError> {
+    check_name(name)
 }
 
 /// The folder part and the name of a key: `a/b/c.txt` -> (`a/b`, `c.txt`).
@@ -567,6 +746,54 @@ impl Dir {
         {
             Ok(std::fs::rename(self.path.join(from), target.path.join(to))?)
         }
+    }
+
+    /// [`Dir::rename`] that never replaces: `to` is taken only when nothing has that name, in
+    /// one step no other writer can come between (`renameat2(RENAME_NOREPLACE)` on Linux,
+    /// `renameatx_np(RENAME_EXCL)` on macOS; a disk that has neither gets a hard link and an
+    /// unlink, and one that has no links either gets a look and a rename - the weakest of the
+    /// three, a short window between the look and the rename).
+    ///
+    /// # Errors
+    ///
+    /// [`BeneathError::Io`] of kind `AlreadyExists` ([`BeneathError::is_already_exists`]) when
+    /// something has the name; otherwise as [`Dir::rename`].
+    pub fn rename_noreplace(&self, from: &str, target: &Dir, to: &str) -> Result<(), BeneathError> {
+        check_name(from)?;
+        check_name(to)?;
+        #[cfg(unix)]
+        {
+            Ok(sys::renameat_noreplace(
+                &self.fd,
+                OsStr::new(from),
+                &target.fd,
+                OsStr::new(to),
+            )?)
+        }
+        #[cfg(not(unix))]
+        {
+            if std::fs::symlink_metadata(target.path.join(to)).is_ok() {
+                return Err(BeneathError::Io(io::Error::from(
+                    io::ErrorKind::AlreadyExists,
+                )));
+            }
+            Ok(std::fs::rename(self.path.join(from), target.path.join(to))?)
+        }
+    }
+
+    /// The folder at `path` as a [`Dir`], links followed: the folder a user chose (the folder of
+    /// a download, of a settings file), whose own links are the user's, not a name from another
+    /// device. Everything below it is reached without a link, as for any [`Dir`].
+    ///
+    /// # Errors
+    ///
+    /// When it does not exist or is no folder.
+    pub fn open_following(path: &Path) -> io::Result<Dir> {
+        let root = Root::open(path)?;
+        root.top().map_err(|e| match e {
+            BeneathError::Io(e) => e,
+            other => io::Error::new(io::ErrorKind::Other, other.to_string()),
+        })
     }
 
     /// Removes the file (or link) `name`.
@@ -1084,10 +1311,115 @@ mod sys {
         Ok(OsString::from_vec(buf))
     }
 
+    /// Makes what was written to the descriptor's file or folder durable. On macOS a plain
+    /// `fsync` only hands the data to the drive, which may keep it in its cache through a power
+    /// cut (and std's `sync_all` asks `F_FULLFSYNC` for the same reason): the full sync is asked
+    /// first, and a file system that does not know it (FAT, a network share) gets the plain one.
     pub fn fsync(fd: &OwnedFd) -> io::Result<()> {
+        #[cfg(target_vendor = "apple")]
+        {
+            // SAFETY: an open descriptor; F_FULLFSYNC takes no argument.
+            if unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_FULLFSYNC) } == 0 {
+                return Ok(());
+            }
+        }
         // SAFETY: an open descriptor.
         cvt(unsafe { libc::fsync(fd.as_raw_fd()) })?;
         Ok(())
+    }
+
+    /// `renameat` that fails with `EEXIST` instead of replacing `n2`.
+    pub fn renameat_noreplace(
+        d1: &OwnedFd,
+        n1: &OsStr,
+        d2: &OwnedFd,
+        n2: &OsStr,
+    ) -> io::Result<()> {
+        let (c1, c2) = (cstr(n1)?, cstr(n2)?);
+        #[cfg(target_os = "linux")]
+        {
+            // SAFETY: open descriptors, valid C strings and the flag the call defines; the
+            // arguments are passed as the `long`s the system call takes.
+            let done = unsafe {
+                libc::syscall(
+                    libc::SYS_renameat2,
+                    libc::c_long::from(d1.as_raw_fd()),
+                    c1.as_ptr() as libc::c_long,
+                    libc::c_long::from(d2.as_raw_fd()),
+                    c2.as_ptr() as libc::c_long,
+                    libc::RENAME_NOREPLACE as libc::c_long,
+                )
+            };
+            if done == 0 {
+                return Ok(());
+            }
+            let e = io::Error::last_os_error();
+            if !flag_unsupported(&e) {
+                return Err(e);
+            }
+        }
+        #[cfg(target_vendor = "apple")]
+        {
+            // SAFETY: open descriptors, valid C strings and the flag the call defines.
+            let done = unsafe {
+                libc::renameatx_np(
+                    d1.as_raw_fd(),
+                    c1.as_ptr(),
+                    d2.as_raw_fd(),
+                    c2.as_ptr(),
+                    libc::RENAME_EXCL,
+                )
+            };
+            if done == 0 {
+                return Ok(());
+            }
+            let e = io::Error::last_os_error();
+            if !flag_unsupported(&e) {
+                return Err(e);
+            }
+        }
+        // The file system does not take the flag: a hard link takes the new name or fails if it
+        // is taken, then the old name goes.
+        // SAFETY: open descriptors and valid C strings.
+        let linked =
+            unsafe { libc::linkat(d1.as_raw_fd(), c1.as_ptr(), d2.as_raw_fd(), c2.as_ptr(), 0) };
+        if linked == 0 {
+            // SAFETY: an open descriptor and a valid C string.
+            cvt(unsafe { libc::unlinkat(d1.as_raw_fd(), c1.as_ptr(), 0) })?;
+            return Ok(());
+        }
+        let e = io::Error::last_os_error();
+        if e.kind() == io::ErrorKind::AlreadyExists || (!flag_unsupported(&e) && !no_links(&e)) {
+            return Err(e);
+        }
+        // No links either (FAT, exFAT, some shares): a look, then the rename.
+        match fstatat(d2, n2) {
+            Ok(_) => Err(io::Error::from(io::ErrorKind::AlreadyExists)),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => renameat(d1, n1, d2, n2),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Whether `e` says the file system does not know the rename flag asked for.
+    fn flag_unsupported(e: &io::Error) -> bool {
+        matches!(
+            e.raw_os_error(),
+            Some(code) if code == libc::ENOSYS
+                || code == libc::EINVAL
+                || code == libc::ENOTSUP
+                || code == libc::EOPNOTSUPP
+        )
+    }
+
+    /// Whether `e` says the file system makes no hard links.
+    fn no_links(e: &io::Error) -> bool {
+        matches!(
+            e.raw_os_error(),
+            Some(code) if code == libc::EPERM
+                || code == libc::ENOTSUP
+                || code == libc::EOPNOTSUPP
+                || code == libc::EMLINK
+        )
     }
 
     /// errno set to 0, so the end of a listing is told from an error.

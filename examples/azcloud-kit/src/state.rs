@@ -15,15 +15,15 @@
 //! - `sync/`: one local index per synced folder ([`crate::sync`]).
 //! - `outbox/`: the grant calls whose answer was not read yet ([`crate::outbox`]).
 //!
-//! Files are written through a temporary file and a rename, so a crash never
-//! leaves half of one; the secrets and the drive token are flushed to disk
-//! before the rename, since a rotated token that is lost locks the device out.
+//! Files are written through a temporary file and a rename
+//! (`azul_storage::durable::replace`), so a crash never leaves half of one; every one is
+//! flushed to disk before the rename and its folder after, since a rotated token that is lost
+//! locks the device out and a base that is lost makes every file a new one.
 
 use std::{
     fs,
     io::{ErrorKind, Write},
     path::{Path, PathBuf},
-    sync::atomic::{AtomicU32, Ordering},
     time::{Duration, Instant, SystemTime},
 };
 
@@ -295,60 +295,21 @@ fn private_dir_mode(builder: &mut fs::DirBuilder) {
 #[cfg(not(unix))]
 fn private_dir_mode(_builder: &mut fs::DirBuilder) {}
 
-#[cfg(unix)]
-fn private_file_mode(options: &mut fs::OpenOptions) {
-    use std::os::unix::fs::OpenOptionsExt;
-    options.mode(0o600);
-}
-
-#[cfg(not(unix))]
-fn private_file_mode(_options: &mut fs::OpenOptions) {}
-
-/// Writes `bytes` to `path` through a temporary file beside it and a rename;
-/// `private` makes it readable by this user only (Unix) and flushes it to
-/// the disk before the rename.
+/// Writes `bytes` to `path` through a temporary file beside it and a rename
+/// ([`azul_storage::durable::replace`]): the file is synced to the disk before the rename and the
+/// folder after, so a power cut leaves the old file or the new one and never an empty one;
+/// `private` makes it (and the folders made on the way) readable by this user only (Unix).
 ///
 /// # Errors
 ///
 /// The I/O error that stopped the write (the old file stays then).
 pub fn write_atomic(path: &Path, bytes: &[u8], private: bool) -> std::io::Result<()> {
-    static COUNTER: AtomicU32 = AtomicU32::new(0);
-    if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
-        // A private file's folder is made owner-only too (a sync's state folder names the
-        // user's files in its own name's files).
-        if private {
-            create_private_dir(dir)?;
-        } else {
-            fs::create_dir_all(dir)?;
-        }
-    }
-    let name = path
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    let tmp = path.with_file_name(format!(
-        ".{name}.azcloud-{}-{}.tmp",
-        std::process::id(),
-        COUNTER.fetch_add(1, Ordering::SeqCst)
-    ));
-    let written = (|| {
-        let mut options = fs::OpenOptions::new();
-        options.write(true).create_new(true);
-        if private {
-            private_file_mode(&mut options);
-        }
-        let mut file = options.open(&tmp)?;
-        file.write_all(bytes)?;
-        if private {
-            file.sync_all()?;
-        }
-        Ok::<(), std::io::Error>(())
-    })();
-    if let Err(e) = written.and_then(|()| fs::rename(&tmp, path)) {
-        let _ = fs::remove_file(&tmp);
-        return Err(e);
-    }
-    Ok(())
+    let mode = if private {
+        azul_storage::durable::Mode::Private
+    } else {
+        azul_storage::durable::Mode::Shared
+    };
+    azul_storage::durable::replace(path, bytes, mode)
 }
 
 /// Reads the JSON file at `path`; `None` when there is none.

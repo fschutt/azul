@@ -9,6 +9,9 @@ mod config;
 mod contained_links;
 /// A folder read in batches, a listing page that stats only its own entries.
 mod dir_read;
+/// The one durable write path: the order of its steps, what a cut at each leaves, what the name
+/// must hold, the bits and the time, a stop, the old file kept in a slot.
+mod durable;
 #[cfg(feature = "sql")]
 mod database;
 mod key;

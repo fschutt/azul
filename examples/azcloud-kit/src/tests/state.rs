@@ -74,3 +74,39 @@ fn an_atomic_write_replaces_the_file_whole_and_a_private_one_is_the_users_only()
         assert_eq!(mode & 0o077, 0, "{mode:o}");
     }
 }
+
+#[test]
+fn az_s19_a_state_file_that_cannot_be_replaced_leaves_the_old_one_and_no_temporary_file() {
+    // The base, the device and the outbox keys all go in through `write_atomic`, which is
+    // `azul_storage::durable::replace`: file synced, renamed, folder synced - or nothing.
+    let dir = TempDir::new("azcloud-s19");
+    let state = dir.path().join("state");
+    let path = state.join("device.json");
+    write_atomic(&path, b"first", false).unwrap();
+    // A folder in the file's place: the rename is refused, as a full disk refuses a write.
+    let blocked = state.join("blocked.json");
+    fs::create_dir_all(blocked.join("inner")).unwrap();
+    assert!(write_atomic(&blocked, b"new", false).is_err());
+    assert!(blocked.is_dir(), "the folder in the way is not replaced");
+    let mut names: Vec<String> = fs::read_dir(&state)
+        .unwrap()
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    assert_eq!(
+        names,
+        vec!["blocked.json", "device.json"],
+        "no temporary file of either name convention is left"
+    );
+    assert_eq!(fs::read(&path).unwrap(), b"first");
+    // A shared file is readable by others as a new file is; a private one is not.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let bits = |p: &std::path::Path| fs::metadata(p).unwrap().permissions().mode() & 0o777;
+        assert_eq!(bits(&path) & 0o600, 0o600);
+        write_atomic(&state.join("keys.json"), b"k", true).unwrap();
+        assert_eq!(bits(&state.join("keys.json")), 0o600);
+    }
+}

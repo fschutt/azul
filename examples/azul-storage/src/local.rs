@@ -90,24 +90,10 @@ pub(crate) fn temp_sibling(path: &Path) -> PathBuf {
 /// Writes `bytes` to `path` through a temporary file, so a reader never sees half
 /// a file and a failure leaves the old one. The file is on the disk before it is renamed
 /// in and the folder after: a power cut leaves the old version or the new one, never an
-/// empty file under the real name.
+/// empty file under the real name. ([`crate::durable::replace`], which every writer of a
+/// document goes through; this name stays for the callers that have it.)
 pub(crate) fn write_atomically(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    use std::io::Write as _;
-    let tmp = temp_sibling(path);
-    let written = File::create(&tmp).and_then(|mut file| {
-        file.write_all(bytes)?;
-        file.sync_all()
-    });
-    if let Err(e) = written {
-        let _ = fs::remove_file(&tmp);
-        return Err(e);
-    }
-    fs::rename(&tmp, path).map_err(|e| {
-        let _ = fs::remove_file(&tmp);
-        e
-    })?;
-    sync_parent(path);
-    Ok(())
+    crate::durable::replace(path, bytes, crate::durable::Mode::Shared)
 }
 
 /// Makes a rename into the folder of `path` durable (some file systems refuse a folder's
