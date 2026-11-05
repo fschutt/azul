@@ -136,12 +136,12 @@ Three more plain ops make the frame report directly observable:
 The `assert_damage*` ops look at the damage **accumulated since the last `reset_frame_counters`**, not at the last frame — between the step that changed something and the assertion, the engine may render further idle frames whose damage is `None`, and those would otherwise clobber it. Pass `"frame": "last"` to look at the most recent frame only. `assert_idle_stable` always looks at the last frame.
 
 - `assert_damage` (params: `which?` = `paint`|`present`, `kind?` = `none`|`rects`|`full`, `min_rects?`, `max_rects?`, `max_area_ratio?`, `frame?`).
-- `assert_changed` (params: `vs`, `min_damage_rects?`, `threshold?`). LIVENESS: damage must be non-empty **and** pixels must actually differ from the snapshot.
+- `assert_changed` (params: `vs`, `min_damage_rects?`, `threshold?`, `which?`, `frame?`). LIVENESS: damage must be non-empty **and** pixels must actually differ from the snapshot. With no damage and a `vs` snapshot, the failure says whose fault it is by rendering the window afresh and comparing: pixels that differ are `STALE SCREEN (engine)` (what the window shows changed and nothing was repainted), pixels that do not are `DEAD CONTROL (the test)` (nothing the scenario did could change a pixel, so a control that expected one proves nothing).
 - `assert_damage_covers_changes` (params: `vs`, `threshold?`, `slack_px?`). SOUNDNESS: every changed pixel lies inside the damage rects (under-paint ⇒ stale screen).
 - `assert_damage_incremental` (params: `max_area_ratio?`, default `0.5`). The repaint is a PATCH, not a full redraw.
 - `assert_idle_stable` (params: `vs?`). No input ⇒ damage drained to `none` (and pixels identical to `vs`). The infinite-redraw detector.
 - `assert_work_bounded` (params: `max_relayouts?`, `max_dom_regens?`, `allow_depth_cap?`). Measured since the last `reset_frame_counters`. Fails if `MAX_EVENT_RECURSION_DEPTH` was hit — an invalidation loop is now a red test rather than a `log_warn`.
-- `assert_resource_counts` (params: `vs`, then one mode per counter: `"eq"`|`"le"`|`"ge"` or an exact number). Counters: `fonts`, `font_hash_map`, `font_id_map`, `font_families_map`, `images`, `image_key_map`, `parsed_fonts`, `font_hash_to_families`, `font_chain_cache`.
+- `assert_resource_counts` (params: `vs`, then one mode per counter: `"eq"`|`"le"`|`"ge"`|`"gt"`|`"lt"` or an exact number). Every counter given is judged and every red one is reported in the one failure, so a counter that cannot move on a headless window does not hide one that can. Counters: `fonts`, `font_hash_map`, `font_id_map`, `font_families_map`, `images`, `image_key_map`, `parsed_fonts`, `font_hash_to_families`, `font_chain_cache`.
 
 ### Manager assertions: consistency, and non-interference
 
