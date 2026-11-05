@@ -113,8 +113,8 @@ pub fn open(choice: KeyringChoice, secrets: FileSecrets) -> Result<Arc<dyn Keyri
 #[cfg(feature = "os-keyring")]
 fn os_keyring() -> Result<Arc<dyn KeyringStore>, String> {
     // The namespace AzDrive and AzMail keep the drive sessions in.
-    Ok(Arc::new(azul_storage::azul_keyring::AzulKeyring::new(
-        azul_storage::keyring::KeyringNamespace::azlin_shared(),
+    Ok(Arc::new(azul_storage::azul_keyring::azlin_keyring(
+        azul_storage::keyring::Asking::User,
     )))
 }
 

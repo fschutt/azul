@@ -16,7 +16,10 @@ use azul::{
     misc::{Keyring, KeyringNamespace as AzulNamespace},
 };
 
-use crate::keyring::{KeyringError, KeyringNamespace, KeyringStore, Protection};
+use crate::{
+    keyring::{Asking, KeyringError, KeyringNamespace, KeyringStore, Protection, ENTRY_LOCK_WAIT},
+    lock::{HeldLock, LockDir},
+};
 
 /// The system keyring through azul, in one namespace. Call only from an azul `Thread`.
 #[derive(Debug, Clone)]
@@ -25,6 +28,9 @@ pub struct AzulKeyring {
     namespace: KeyringNamespace,
     /// Never show the system's prompt ([`AzulKeyring::quiet`]): background work's keyring.
     quiet: bool,
+    /// The folder of the locks every process of this user shares, which the entries changed in
+    /// several steps are held under ([`KeyringStore::hold`]); `None`: this process's threads only.
+    locks: Option<LockDir>,
 }
 
 impl AzulKeyring {
@@ -35,6 +41,7 @@ impl AzulKeyring {
         AzulKeyring {
             namespace,
             quiet: false,
+            locks: None,
         }
     }
 
@@ -45,7 +52,16 @@ impl AzulKeyring {
         AzulKeyring {
             namespace,
             quiet: true,
+            locks: None,
         }
+    }
+
+    /// This keyring with `locks` as the folder its entries are held under: every app and window of
+    /// the user that reaches the same entries takes turns at the same locks.
+    #[must_use]
+    pub fn with_locks(mut self, locks: LockDir) -> Self {
+        self.locks = Some(locks);
+        self
     }
 
     /// Whether this keyring never shows a prompt.
@@ -62,6 +78,31 @@ impl AzulKeyring {
 
     fn service(&self) -> AzulNamespace {
         azul_namespace(&self.namespace)
+    }
+}
+
+/// The keyring of the Azlin apps - AzDrive, AzMail, the bridge - in their shared namespace: the
+/// ONE place such a keyring is built (the K5/K7 policy of what a keyring is, and the locks its
+/// entries are changed under, are applied here and nowhere else). `asking` says whether it may
+/// show the system's prompt: `Asking::User` for what the user asked for, `Asking::Never` for
+/// background work. Its entries are held under the locks every process of this user shares
+/// (`<config dir>/azlin/locks/<namespace>`) when the system names a configuration folder.
+#[must_use]
+pub fn azlin_keyring(asking: Asking) -> AzulKeyring {
+    let namespace = KeyringNamespace::azlin_shared();
+    let locks = crate::lock::user_config_dir().map(|config| {
+        LockDir::new(
+            crate::lock::keyring_lock_root(&config)
+                .join(crate::lock::namespace_folder(namespace.as_str())),
+        )
+    });
+    let keyring = match asking {
+        Asking::User => AzulKeyring::new(namespace),
+        Asking::Never => AzulKeyring::quiet(namespace),
+    };
+    match locks {
+        Some(locks) => keyring.with_locks(locks),
+        None => keyring,
     }
 }
 
@@ -123,5 +164,13 @@ impl KeyringStore for AzulKeyring {
 
     fn protection(&self) -> Protection {
         Protection::Os
+    }
+
+    fn hold(&self, key: &str) -> Result<HeldLock, KeyringError> {
+        match &self.locks {
+            Some(locks) => locks.lock(key, ENTRY_LOCK_WAIT),
+            None => crate::lock::in_process(key, ENTRY_LOCK_WAIT),
+        }
+        .map_err(|e| KeyringError::Failed(e.to_string()))
     }
 }

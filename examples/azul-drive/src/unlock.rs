@@ -51,9 +51,9 @@ use azul::{
 };
 use azul_appkit::l10n::{label, t_phrase, Phrase, Text};
 use azul_storage::{
-    azul_keyring::AzulKeyring,
+    azul_keyring::azlin_keyring,
     config,
-    keyring::{read_entries, Asking, KeyringError, KeyringNamespace},
+    keyring::{read_entries, Asking, KeyringError},
 };
 
 use crate::{ids, jobs::Job, spawn, with_state, DriveState, Slot};
@@ -223,11 +223,7 @@ pub(crate) struct KeysRead {
 /// after the other - quietly, or asking until the user's first "No".
 pub(crate) fn read_round(round: KeysRound) -> KeysRead {
     let asking = round.asking;
-    let namespace = KeyringNamespace::azlin_shared();
-    let keyring = match asking {
-        Asking::User => AzulKeyring::new(namespace),
-        Asking::Never => AzulKeyring::quiet(namespace),
-    };
+    let keyring = azlin_keyring(asking);
     let keys: Vec<String> = round.drives.iter().map(|id| config::keyring_key(id)).collect();
     let answers = read_entries(&keyring, &keys, asking);
     let reads = round

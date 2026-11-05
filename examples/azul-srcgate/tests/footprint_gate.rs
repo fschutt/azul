@@ -1,24 +1,27 @@
 //! Gate: what a drive leaves on a device is named in one place, and a keyring says what it is
-//! (ARCH28 RF53 / AR5b-4; AZ-K7, AZ-K6, LANE-AZ-2).
+//! (ARCH28 RF53 / AR5b-4; AZ-K7, AZ-K6, LANE-AZ-2, X-AR5b-14).
 //!
 //! A drive has at least eight kinds of keyring entry; every flow listed "its" entries by hand and
 //! a removed drive left the rest behind, readable by every program of the user. `KeyEntry`
 //! (`azul-storage/src/footprint.rs`) is the one place that writes an entry's name, a golden test
 //! pins the names (users' keys are in them), and `forget_drive` takes the drive off the device
-//! through the stores. Two rules keep it so, with no allowance at all:
+//! through the stores. Three rules keep it so:
 //!
 //! - a string that starts with `azul-storage/` is the first half of an entry name written by hand:
-//!   it belongs to `KeyEntry::name` (or `contact_key_entry`), nowhere else;
+//!   it belongs to `KeyEntry::name` (or `contact_key_entry`), nowhere else (no allowance);
 //! - every `impl KeyringStore for X` in shipped code has a `fn protection`: the keyring says whether
 //!   it is the system's, a plain file (which takes no drive key unless the user allowed it) or
 //!   memory. The default of the trait is `Memory` for a test's stand-in; a store that keeps entries
-//!   on a disk must not be left with it by a copy of another store's impl.
+//!   on a disk must not be left with it by a copy of another store's impl (no allowance);
+//! - `AzulKeyring::new(` and `::quiet(` are called in `azlin_keyring` only - the one place the
+//!   Azlin apps' keyring is built, where its locks and its policy are applied. What still builds
+//!   one by hand is listed with its owner; the counts only go down.
 //!
 //! Comments and test items are not read.
 
 use std::path::{Path, PathBuf};
 
-use azul_srcgate::{strings, Budget, Gate, Located, Orphans, Root, Rule};
+use azul_srcgate::{calls, strings, Allow, Budget, Gate, Located, Orphans, Root, Rule};
 
 const ROOTS: &[Root] = &[
     Root {
@@ -57,6 +60,35 @@ const ROOTS: &[Root] = &[
 
 const BY_HAND: &str = "entry-name-written-by-hand";
 const NO_PROTECTION: &str = "keyring-store-without-protection";
+const BUILT_BY_HAND: &str = "azul-keyring-built-by-hand";
+
+/// Where an `AzulKeyring` is still built by hand, and who changes it. TO SHRINK.
+const ALLOWED: &[Allow] = &[
+    Allow::exactly(
+        "examples/azul-storage/src/azul_keyring.rs",
+        BUILT_BY_HAND,
+        2,
+        "azlin_keyring: the one place (`new` for a keyring that may ask, `quiet` for one that never does)",
+    ),
+    Allow::exactly(
+        "examples/azul-drive/src/jobs.rs",
+        BUILT_BY_HAND,
+        1,
+        "the checkout job's keyring: jobs.rs is Z30-R2's while this lane works; it becomes azlin_keyring(Asking::User)",
+    ),
+    Allow::exactly(
+        "examples/azul-drive/src/lib.rs",
+        BUILT_BY_HAND,
+        2,
+        "the start's keyring, asking and quiet: lib.rs is Z30-R2's while this lane works; they become azlin_keyring(..)",
+    ),
+    Allow::exactly(
+        "examples/azul-mail/src/lib.rs",
+        BUILT_BY_HAND,
+        5,
+        "AzMail's five: azul-mail/** is Z30-C2's (wave 2); they become azlin_keyring(Asking::User)",
+    ),
+];
 
 /// The index of the closer that matches the opener at `open`, or the end.
 fn close_of(t: &[Located], open: usize) -> usize {
@@ -139,22 +171,40 @@ fn rules() -> Vec<Rule> {
                 "impl Debug for KeyringStoreName { fn fmt(&self) {} }",
             ],
         ),
+        Rule::new(
+            BUILT_BY_HAND,
+            |t| {
+                let mut lines = calls(t, "AzulKeyring::new");
+                lines.extend(calls(t, "AzulKeyring::quiet"));
+                lines.sort_unstable();
+                lines
+            },
+            &[
+                "let k = AzulKeyring::new(KeyringNamespace::azlin_shared());",
+                "let k = Arc::new(azul_storage::azul_keyring::AzulKeyring::quiet(ns));",
+            ],
+            &[
+                "let k = azlin_keyring(Asking::User);",
+                "let k = AzulKeyringStub::new();",
+                "let k = Keyring::new(ns);",
+            ],
+        ),
     ]
 }
 
-fn gate(roots: &'static [Root]) -> Gate<'static> {
+fn gate(roots: &'static [Root], allowed: &'static [Allow]) -> Gate<'static> {
     Gate {
         name: "what a drive leaves on a device is named in one place",
         roots,
         rules: rules(),
-        budget: Budget(&[]),
+        budget: Budget(allowed),
         orphans: Orphans::Ignore,
     }
 }
 
 #[test]
 fn lane_az_2_an_entry_name_is_written_in_one_place_and_a_keyring_says_what_it_is() {
-    gate(ROOTS).run();
+    gate(ROOTS, ALLOWED).run();
 }
 
 /// A tree on disk below a fresh base: (path below the base, text).
@@ -178,11 +228,11 @@ const SMALL: &[Root] = &[Root {
 }];
 
 fn check(base: &Path) -> Result<usize, Vec<String>> {
-    gate(SMALL).check(base).map(|hits| hits.len())
+    gate(SMALL, &[]).check(base).map(|hits| hits.len())
 }
 
 #[test]
-fn lane_az_2_a_name_written_by_hand_and_a_store_that_says_nothing_are_caught_with_their_lines() {
+fn lane_az_2_each_of_the_three_plants_is_caught_with_its_line() {
     let planted = "pub fn session(drive: &str) -> String {\n\
     format!(\"azul-storage/s3/{drive}\")\n\
 }\n\
@@ -190,11 +240,14 @@ impl KeyringStore for Plain {\n\
     fn get(&self, key: &str) -> Result<Option<String>, KeyringError> {\n\
         read(key)\n\
     }\n\
+}\n\
+pub fn keyring() -> AzulKeyring {\n\
+    AzulKeyring::new(KeyringNamespace::azlin_shared())\n\
 }\n";
     let base = base_with("planted", &[("examples/azul-storage/src/lib.rs", planted)]);
     let wrong = check(&base).expect_err("both plants are findings");
     let _ = std::fs::remove_dir_all(&base);
-    assert_eq!(wrong.len(), 2, "{wrong:?}");
+    assert_eq!(wrong.len(), 3, "{wrong:?}");
     assert!(
         wrong
             .iter()
@@ -205,6 +258,12 @@ impl KeyringStore for Plain {\n\
         wrong
             .iter()
             .any(|w| w.contains("lib.rs:4") && w.contains(NO_PROTECTION)),
+        "{wrong:?}"
+    );
+    assert!(
+        wrong
+            .iter()
+            .any(|w| w.contains("lib.rs:10") && w.contains(BUILT_BY_HAND)),
         "{wrong:?}"
     );
 }

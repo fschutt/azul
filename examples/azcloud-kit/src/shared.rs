@@ -69,37 +69,10 @@ impl fmt::Debug for SharedKeyring {
     }
 }
 
-/// The user's configuration folder, as the OS names it (the kit has no azul to ask).
-fn user_config_dir() -> Option<PathBuf> {
-    let var = |name: &str| std::env::var_os(name).filter(|v| !v.is_empty()).map(PathBuf::from);
-    if cfg!(windows) {
-        return var("APPDATA");
-    }
-    if cfg!(target_os = "macos") {
-        return var("HOME").map(|home| home.join("Library").join("Application Support"));
-    }
-    var("XDG_CONFIG_HOME").or_else(|| var("HOME").map(|home| home.join(".config")))
-}
-
 /// The folder name of `namespace` among the locks: its letters, digits, `.`, `-` and `_`;
-/// `app` for an app's own namespace.
+/// `app` for an app's own namespace (azul-storage's, which the keyring's own holds use too).
 fn namespace_folder(namespace: &KeyringNamespace) -> String {
-    let name: String = namespace
-        .as_str()
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_') {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect();
-    if name.is_empty() || name.chars().all(|c| c == '.') {
-        String::from("app")
-    } else {
-        name
-    }
+    azul_storage::lock::namespace_folder(namespace.as_str())
 }
 
 /// Where the locks of the keyring entries of `namespace` are: one folder per keyring and
@@ -114,7 +87,7 @@ pub fn lock_folder(namespace: &KeyringNamespace) -> PathBuf {
     } else {
         None
     };
-    lock_folder_for(keyring_file, user_config_dir(), namespace)
+    lock_folder_for(keyring_file, azul_storage::lock::user_config_dir(), namespace)
 }
 
 /// [`lock_folder`] for the stand-in file `keyring_file` (if any) and the configuration folder
@@ -130,10 +103,9 @@ pub fn lock_folder_for(
             file.push(".locks");
             PathBuf::from(file)
         }
-        None => config_dir
-            .unwrap_or_else(std::env::temp_dir)
-            .join("azlin")
-            .join("locks"),
+        None => azul_storage::lock::keyring_lock_root(
+            &config_dir.unwrap_or_else(std::env::temp_dir),
+        ),
     };
     root.join(namespace_folder(namespace))
 }
@@ -286,6 +258,9 @@ impl SharedKeyring {
         if unsaved().contains_key(&file) {
             return Ok(());
         }
+        // collapse-ok: the one flattened keyring read. A keyring that cannot be read (locked, not
+        // there) tells this process nothing about the entry, and the session it was opened with must
+        // not be lost for that: it is kept here as the entry's text, stored again by the next spend.
         let has = self.keyring.get(key).ok().flatten().is_some_and(|text| ours(&text));
         if !has && ours(held) {
             unsaved().insert(file, Zeroizing::new(held.to_string()));

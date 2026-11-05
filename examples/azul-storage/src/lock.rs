@@ -125,7 +125,7 @@ impl LockDir {
             match file.try_lock() {
                 Ok(()) => {
                     return Ok(HeldLock {
-                        _file: file,
+                        _file: Some(file),
                         _slot: slot,
                     })
                 }
@@ -151,8 +151,76 @@ impl LockDir {
 /// process.
 #[derive(Debug)]
 pub struct HeldLock {
-    _file: File,
+    _file: Option<File>,
     _slot: ProcessSlot,
+}
+
+/// Takes the lock `name` among the threads of this process only, waiting up to `wait`: for what a
+/// store with no folder of locks changes in several steps (a keyring entry read, decided and
+/// written back). Another program of the user is not kept out; a folder of locks
+/// ([`LockDir::lock`]) does that too.
+///
+/// # Errors
+///
+/// When it is still held after `wait`.
+pub fn in_process(name: &str, wait: Duration) -> Result<HeldLock, LockError> {
+    // A path that is no file: the in-process names live beside the lock files in one set.
+    let path = PathBuf::from(format!("in-process:{name}"));
+    match ProcessSlot::take(&path, Instant::now() + wait) {
+        Some(slot) => Ok(HeldLock {
+            _file: None,
+            _slot: slot,
+        }),
+        None => Err(LockError::new(format!(
+            "the lock {name} is held by another task of this app for more than {} s",
+            wait.as_secs()
+        ))),
+    }
+}
+
+/// The user's configuration folder, as the OS names it (this crate has no azul to ask).
+#[must_use]
+pub fn user_config_dir() -> Option<PathBuf> {
+    let var = |name: &str| {
+        std::env::var_os(name)
+            .filter(|v| !v.is_empty())
+            .map(PathBuf::from)
+    };
+    if cfg!(windows) {
+        return var("APPDATA");
+    }
+    if cfg!(target_os = "macos") {
+        return var("HOME").map(|home| home.join("Library").join("Application Support"));
+    }
+    var("XDG_CONFIG_HOME").or_else(|| var("HOME").map(|home| home.join(".config")))
+}
+
+/// The folder where the locks of the keyring entries of every namespace are, beside each other:
+/// `<config dir>/azlin/locks`.
+#[must_use]
+pub fn keyring_lock_root(config_dir: &Path) -> PathBuf {
+    config_dir.join("azlin").join("locks")
+}
+
+/// The folder name of the keyring namespace `namespace` among the locks: its letters, digits, `.`,
+/// `-` and `_`; `app` for an app's own (empty) namespace.
+#[must_use]
+pub fn namespace_folder(namespace: &str) -> String {
+    let name: String = namespace
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_') {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    if name.is_empty() || name.chars().all(|c| c == '.') {
+        String::from("app")
+    } else {
+        name
+    }
 }
 
 /// One lock file held by this process: the next thread of the process waits for it to drop.

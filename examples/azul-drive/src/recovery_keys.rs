@@ -50,7 +50,7 @@ use azul::{
 };
 use azul_appkit::l10n::{t, t_args, t_label, Arg, Phrase};
 use azul_storage::{
-    azul_keyring::AzulKeyring,
+    azul_keyring::azlin_keyring,
     azul_transport::AzulTransport,
     config::DriveEntry,
     crypto::{
@@ -1033,7 +1033,7 @@ pub(crate) fn run(job: KeysJob) -> KeysDone {
                 let kdf = RecoveryKdf::fresh().map_err(|e| e.to_string())?;
                 let (file, code) = device::add_recovery_code(
                     auto.bucket().as_ref(),
-                    &AzulKeyring::new(azul_storage::keyring::KeyringNamespace::azlin_shared()),
+                    &azlin_keyring(azul_storage::keyring::Asking::User),
                     auto.drive(),
                     kdf,
                 )

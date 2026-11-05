@@ -543,3 +543,96 @@ fn forgetting_tries_every_entry_and_reports_the_first_refusal() {
     );
     assert!(keyring.get(&member_key_entry(DRIVE)).unwrap().is_some());
 }
+
+// ==== K19: the member key is made once ====
+
+/// A keyring whose reads take a while - the window in which a second enrolment reads "no member
+/// key" too - and that records what was held.
+struct SlowReads {
+    inner: MemoryKeyring,
+    held: std::sync::Mutex<Vec<String>>,
+}
+
+impl SlowReads {
+    fn new() -> SlowReads {
+        SlowReads {
+            inner: MemoryKeyring::new(),
+            held: std::sync::Mutex::new(Vec::new()),
+        }
+    }
+
+    fn held(&self) -> Vec<String> {
+        self.held.lock().unwrap().clone()
+    }
+}
+
+impl KeyringStore for SlowReads {
+    fn get(&self, key: &str) -> Result<Option<String>, KeyringError> {
+        let answer = self.inner.get(key);
+        std::thread::sleep(std::time::Duration::from_millis(80));
+        answer
+    }
+    fn set(&self, key: &str, secret: &str) -> Result<(), KeyringError> {
+        self.inner.set(key, secret)
+    }
+    fn delete(&self, key: &str) -> Result<(), KeyringError> {
+        self.inner.delete(key)
+    }
+    /// The default hold of a store, recorded - and short, so a hold that nests fails the test
+    /// instead of waiting out the default.
+    fn hold(&self, key: &str) -> Result<crate::lock::HeldLock, KeyringError> {
+        self.held.lock().unwrap().push(key.to_string());
+        crate::lock::in_process(key, std::time::Duration::from_secs(3))
+            .map_err(|e| KeyringError::Failed(e.to_string()))
+    }
+}
+
+/// AZ-K19: two windows (or two apps) first-enrolling at once each read "no member key", each made
+/// one, and the loser's wrap was sealed to a key no keyring held. The entry is held while the key is
+/// made: the second one waits and finds the first's.
+#[test]
+fn az_k19_two_enrolments_at_once_share_one_member_secret() {
+    use std::sync::{Arc, Barrier};
+
+    let keyring = Arc::new(SlowReads::new());
+    let barrier = Arc::new(Barrier::new(2));
+    let enrol = |keyring: Arc<SlowReads>, barrier: Arc<Barrier>| {
+        std::thread::spawn(move || {
+            barrier.wait();
+            crate::crypto::device::member_secret(keyring.as_ref(), DRIVE)
+                .unwrap()
+                .public()
+                .id()
+        })
+    };
+    let first = enrol(Arc::clone(&keyring), Arc::clone(&barrier));
+    let second = enrol(Arc::clone(&keyring), Arc::clone(&barrier));
+    let (first, second) = (first.join().unwrap(), second.join().unwrap());
+    assert_eq!(first, second, "one member key for the drive, not one per window");
+    assert_eq!(
+        keyring.held(),
+        vec![member_key_entry(DRIVE), member_key_entry(DRIVE)],
+        "both took the member key's entry"
+    );
+}
+
+/// AZ-K19: the pin and the claim code's commitment are read, decided and written back under the
+/// same hold - once each, never inside another hold of the entry (that would wait for itself).
+#[test]
+fn az_k19_enrolling_and_committing_hold_the_member_key_once_each() {
+    let keyring = SlowReads::new();
+    let bucket = MemBucket::new();
+    let key = crate::crypto::DriveKey::generate().unwrap();
+    enroll(&bucket, &keyring, DRIVE, &key).unwrap();
+    let held = keyring.held();
+    assert!(held.len() >= 2, "the member key, then its pin: {held:?}");
+    assert!(
+        held.iter().all(|entry| *entry == member_key_entry(DRIVE)),
+        "{held:?}"
+    );
+
+    let committed = SlowReads::new();
+    let before = committed.held().len();
+    crate::crypto::device::commit_drive_key(&committed, DRIVE, &key.id()).unwrap();
+    assert_eq!(committed.held().len() - before, 1, "{:?}", committed.held());
+}

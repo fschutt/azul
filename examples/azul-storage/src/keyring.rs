@@ -104,7 +104,26 @@ pub trait KeyringStore: Send + Sync {
     fn protection(&self) -> Protection {
         Protection::Memory
     }
+
+    /// Holds the entry `key` while the caller reads it, decides and writes it back (a member key
+    /// made when there is none, a pin added to it): one holder at a time among the threads of this
+    /// process, and - where the store knows the folder of the locks every process of the user
+    /// shares - in every process, so two windows or two apps enrolling at once do not make two
+    /// member keys (AZ-K19). The default holds in this process only.
+    ///
+    /// # Errors
+    ///
+    /// When the entry stays held by someone else for [`ENTRY_LOCK_WAIT`], or its lock cannot be
+    /// taken.
+    fn hold(&self, key: &str) -> Result<crate::lock::HeldLock, KeyringError> {
+        crate::lock::in_process(key, ENTRY_LOCK_WAIT)
+            .map_err(|e| KeyringError::Failed(e.to_string()))
+    }
 }
+
+/// How long a holder of a keyring entry ([`KeyringStore::hold`]) waits for another: the entries
+/// changed in several steps are changed in a blink, not across a network call.
+pub const ENTRY_LOCK_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// Whether a keyring read may ask the user (the system's unlock or "allow" dialog, Touch ID).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

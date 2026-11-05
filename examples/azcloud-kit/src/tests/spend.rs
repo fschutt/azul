@@ -323,3 +323,40 @@ fn the_locks_follow_the_keyring_and_its_namespace_not_the_app() {
     let b = SharedKeyring::new(memory, shared);
     assert_eq!(a.locks(), b.locks());
 }
+
+/// A keyring that cannot be read.
+struct Unreadable;
+
+impl KeyringStore for Unreadable {
+    fn get(&self, _: &str) -> Result<Option<String>, KeyringError> {
+        Err(KeyringError::Failed(String::from("locked")))
+    }
+    fn set(&self, _: &str, _: &str) -> Result<(), KeyringError> {
+        Ok(())
+    }
+    fn delete(&self, _: &str) -> Result<(), KeyringError> {
+        Ok(())
+    }
+}
+
+/// X-AR5b-15: the one place a keyring read is flattened - `adopt`, with its `collapse-ok` - does
+/// what it says: a keyring that cannot be read leaves the session the app opened the drive with in
+/// this process, as the entry's text; it is not lost for a locked keyring.
+#[test]
+fn x_ar5b_15_a_keyring_that_cannot_be_read_leaves_the_adopted_session_in_this_process() {
+    let dir = TempDir::new("azcloud-adopt-unreadable");
+    let held = DriveBundle::parse(&bundle("AKID1", "2026-10-09T21:15:00Z", "dt_f.0.aaa"))
+        .unwrap()
+        .session();
+    let shared = SharedKeyring::with_lock_root(
+        Arc::new(Unreadable),
+        KeyringNamespace::azlin_shared(),
+        dir.path(),
+    );
+    shared.adopt(&held).unwrap();
+    let kept = shared
+        .get(&keyring_key(&held.drive_id))
+        .unwrap()
+        .expect("this process keeps the session");
+    assert_eq!(kept, held.to_keyring_secret());
+}

@@ -64,9 +64,9 @@ use azul_appkit::{
     l10n::{t, t_args, t_label, Arg, Phrase, Text},
 };
 use azul_storage::{
-    azul_keyring::AzulKeyring,
+    azul_keyring::azlin_keyring,
     azul_transport::AzulTransport,
-    keyring::KeyringNamespace,
+    keyring::Asking,
     crypto::{
         device,
         keys::{load_recovery_wrap, RecoveryCode, RecoveryKdf, RecoveryWrap},
@@ -187,7 +187,7 @@ pub(crate) fn wrap(
     records: &crate::KeyRecords,
 ) -> Arc<AutoEncrypted> {
     wrap_with(
-        Arc::new(AzulKeyring::new(KeyringNamespace::azlin_shared())),
+        Arc::new(azlin_keyring(Asking::User)),
         index_provider(),
         drive_id,
         bucket,
@@ -1339,7 +1339,7 @@ fn restore_encrypted(auto: &AutoEncrypted, as_of: i64) -> Result<usize, String> 
     }
     let bucket = Arc::clone(auto.bucket());
     let restored = (|| -> Result<usize, String> {
-        let key = device::unlock(bucket.as_ref(), &AzulKeyring::new(KeyringNamespace::azlin_shared()), auto.drive())
+        let key = device::unlock(bucket.as_ref(), &azlin_keyring(Asking::User), auto.drive())
             .map_err(|e| e.to_string())?
             .ok_or_else(|| String::from("azdrive-enc-err-device-no-key"))?;
         let device_id = azul_storage::ids::new_uuid();
@@ -2000,7 +2000,7 @@ pub(crate) enum EncryptionOutcome {
 
 /// Runs on a worker thread.
 pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
-    let keyring = AzulKeyring::new(KeyringNamespace::azlin_shared());
+    let keyring = azlin_keyring(Asking::User);
     match job {
         EncryptionJob::SetUp {
             drive_id,

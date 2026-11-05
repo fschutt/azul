@@ -434,18 +434,20 @@ pub fn committed_drive_key(
 /// Pins the drive key `id` on this device: from now on it takes no wrap of another key for the
 /// drive. The member key is made when there is none yet.
 fn pin(keyring: &dyn KeyringStore, drive: &str, id: &KeyId) -> Result<(), DriveError> {
-    member_secret(keyring, drive)?;
-    let Some(mut member) = load_member(keyring, drive)? else {
-        return Err(DriveError::Io(format!(
-            "the keyring did not keep the member key of {drive}"
-        )));
-    };
-    if member.pin == Some(*id) && member.committed.is_none() {
-        return Ok(());
-    }
-    member.pin = Some(*id);
-    member.committed = None;
-    store_member(keyring, drive, &member)
+    changing(keyring, &member_key_entry(drive), || {
+        member_secret_held(keyring, drive)?;
+        let Some(mut member) = load_member(keyring, drive)? else {
+            return Err(DriveError::Io(format!(
+                "the keyring did not keep the member key of {drive}"
+            )));
+        };
+        if member.pin == Some(*id) && member.committed.is_none() {
+            return Ok(());
+        }
+        member.pin = Some(*id);
+        member.committed = None;
+        store_member(keyring, drive, &member)
+    })
 }
 
 /// A claim code names the id of the drive's key before this device holds it: every key the
@@ -453,17 +455,19 @@ fn pin(keyring: &dyn KeyringStore, drive: &str, id: &KeyId) -> Result<(), DriveE
 /// must have that id (a join code that names another one is the newer word). A device that
 /// holds the drive's key already keeps its pin.
 pub fn commit_drive_key(keyring: &dyn KeyringStore, drive: &str, id: &KeyId) -> Result<(), DriveError> {
-    member_secret(keyring, drive)?;
-    let Some(mut member) = load_member(keyring, drive)? else {
-        return Err(DriveError::Io(format!(
-            "the keyring did not keep the member key of {drive}"
-        )));
-    };
-    if member.pin.is_some() || member.committed == Some(*id) {
-        return Ok(());
-    }
-    member.committed = Some(*id);
-    store_member(keyring, drive, &member)
+    changing(keyring, &member_key_entry(drive), || {
+        member_secret_held(keyring, drive)?;
+        let Some(mut member) = load_member(keyring, drive)? else {
+            return Err(DriveError::Io(format!(
+                "the keyring did not keep the member key of {drive}"
+            )));
+        };
+        if member.pin.is_some() || member.committed == Some(*id) {
+            return Ok(());
+        }
+        member.committed = Some(*id);
+        store_member(keyring, drive, &member)
+    })
 }
 
 /// Keeps `key` as the drive key the drive `drive` is set up with ([`setup_new_drive`]): a key
@@ -498,9 +502,28 @@ pub fn load_member_secret(
     Ok(load_member(keyring, drive)?.map(|member| member.secret))
 }
 
+/// Runs `change` - a read, a decision and a write of the keyring entry `entry` - holding the
+/// entry ([`KeyringStore::hold`]): two windows or two apps first-enrolling at once made two member
+/// secrets, and the loser's wrap was sealed to a key no keyring holds (AZ-K19).
+fn changing<T>(
+    keyring: &dyn KeyringStore,
+    entry: &str,
+    change: impl FnOnce() -> Result<T, DriveError>,
+) -> Result<T, DriveError> {
+    let _held = keyring.hold(entry).map_err(|e| keyring_error(entry, e))?;
+    change()
+}
+
 /// This device's member secret for the drive: the keyring's, else a new one, kept there
-/// before it is used.
+/// before it is used. The entry is held while it is made, so two enrolments at once share it.
 pub fn member_secret(keyring: &dyn KeyringStore, drive: &str) -> Result<MemberSecret, DriveError> {
+    changing(keyring, &member_key_entry(drive), || {
+        member_secret_held(keyring, drive)
+    })
+}
+
+/// [`member_secret`] by a caller that holds the member key's entry already.
+fn member_secret_held(keyring: &dyn KeyringStore, drive: &str) -> Result<MemberSecret, DriveError> {
     if let Some(secret) = load_member_secret(keyring, drive)? {
         return Ok(secret);
     }
