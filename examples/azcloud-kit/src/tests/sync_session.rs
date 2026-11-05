@@ -1095,11 +1095,11 @@ struct DropsAfter {
 }
 
 impl DropsAfter {
-    fn spend(&self) -> CloudResult<()> {
+    /// Whether this fetch is one that still gets an answer.
+    fn answers(&self) -> bool {
         self.fetches_left
             .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
-            .map(|_| ())
-            .map_err(|_| CloudError::failed("connection reset by peer"))
+            .is_ok()
     }
 }
 
@@ -1108,7 +1108,9 @@ impl RemoteStore for DropsAfter {
         self.inner.get_unless(key, etag)
     }
     fn fetch(&self, key: &str, size: u64) -> CloudResult<Option<Vec<u8>>> {
-        self.spend()?;
+        if !self.answers() {
+            return Err(CloudError::failed("connection reset by peer"));
+        }
         self.inner.fetch(key, size)
     }
     fn put(&self, key: &str, data: &[u8]) -> CloudResult<String> {
