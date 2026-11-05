@@ -124,6 +124,10 @@ The updater then maps a release onto a `ReleaseInfo`:
   `*` globs are allowed. If nothing matches this platform the updater
   reports the new version but **refuses to nominate a download**: handing
   someone an arbitrary binary is worse than telling them to fetch it.
+  The updater installs the artifact exactly as it is and unpacks nothing, so
+  an app that updates itself needs the bare executable as its asset: an
+  archive (`.tar.gz`, `.zip`, ...) is recognised by its first bytes and
+  refused at install time instead of replacing the program with the archive.
 * The **digest** comes from the asset's own `digest` field where GitHub
   provides one, and otherwise from a sibling `myapp.bin.sha256` or
   `SHA256SUMS` asset, matched by filename.
@@ -333,6 +337,23 @@ a quick way to see the byte formats without touching real keys:
 ```bash
 cargo run -p azul-layout --features updater --example verify_update_manifest -- --selftest
 ```
+
+## What a client remembers
+
+Each program keeps `update-state.json` in its state folder: the highest version
+it has seen **verified**, the highest signing-key generation it has accepted, and
+the cooldown and cohort of the checks. The two marks are what refuse an
+older release or a retired key, so they are handled with care: the file is
+replaced atomically, a writer never lowers a mark another one raised (the app
+and the install manager both write them), and a file that cannot be read is
+**not** treated as a fresh start. Staging and installing stop with an error
+that names the file; delete it to start over, knowing that an older release is
+accepted again from then on. The install manager keeps the marks of an app it
+uninstalls for the same reason.
+
+Download limits: a release is taken in 1 MiB windows and a `206` answer is
+believed only when its `Content-Range` starts where the request did and the
+size it names does not change; nothing larger than 2 GiB is taken.
 
 ## Testing the whole path locally
 

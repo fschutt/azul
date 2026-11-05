@@ -236,6 +236,7 @@ platform_of_this_machine() {
 # ---------------------------------------------------------------------------- init-root
 if [ "$COMMAND" = init-root ]; then
   keys_dir_is_safe create
+  ROOT_PUB="$KEYS_DIR/root.pub"   # --root-pub names the key a release is checked against, not where one is minted
   [ ! -e "$ROOT_SEC" ] && [ ! -e "$ROOT_PUB" ] || die "a root key is already in $KEYS_DIR: refusing to overwrite it"
   note "minting the ROOT key pair (the secret key is encrypted: choose a passphrase)…"
   gen_key "$ROOT_PUB" "$ROOT_SEC" 1 "azul update ROOT key"
