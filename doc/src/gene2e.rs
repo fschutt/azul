@@ -101,6 +101,7 @@ use anyhow::{bail, Context, Result};
 use azul_layout::e2e::{
     closed_param_values, load_e2e_tests, mounted_nodes, parse_debug_event, render_report,
     DebugEvent, E2eTest, E2eTestResult, MountedKind, MountedNode, CLOSED_STRING_PARAMS,
+    DEAD_CONTROL_MARKER, STALE_SCREEN_MARKER,
 };
 
 /// Relative path of the file that DEFINES the e2e schema. Single source of truth.
@@ -3215,6 +3216,23 @@ fn cell(s: &str, max: usize) -> String {
     flat.chars().take(max.saturating_sub(1)).collect::<String>() + "…"
 }
 
+/// Whose fault the RUNNER says a red step is, when the error itself carries it.
+///
+/// `assert_changed` found no damage and compared a fresh render with the
+/// snapshot (`azul_layout::e2e` writes the two markers, this reads them): pixels
+/// that differ are an `ENGINE` fault (the window changed and nothing was
+/// repainted), pixels that do not are a `BAD TEST` (a control that cannot move
+/// one). A fact of the run, not an opinion; any other red step stays open.
+fn runner_attribution(error: &str) -> Option<&'static str> {
+    if error.contains(STALE_SCREEN_MARKER) {
+        Some("ENGINE")
+    } else if error.contains(DEAD_CONTROL_MARKER) {
+        Some("BAD TEST")
+    } else {
+        None
+    }
+}
+
 /// THE MACHINE-CHECKED HALF OF THE REPORT. PURE.
 ///
 /// Everything here is a fact the agent cannot talk its way out of: what ran,
@@ -3328,8 +3346,13 @@ pub fn render_facts(b: &ReviewBatch) -> String {
                 } else {
                     " (also red; may follow from the first)"
                 };
+                // What the runner settled itself: `assert_changed` compared a fresh
+                // render with the snapshot (see `runner_attribution`).
+                let attributed = runner_attribution(err).map_or_else(String::new, |who| {
+                    format!(" **[{who}, attributed by the runner]**")
+                });
                 s.push_str(&format!(
-                    "  - step {idx} `{op}`{also}: {}\n",
+                    "  - step {idx} `{op}`{also}{attributed}: {}\n",
                     cell(err, 400)
                 ));
             }
@@ -3626,7 +3649,12 @@ find), HARNESS (the headless runner cannot drive it — a port task, the test ma
 TEST (it asserts something the line never claimed). The facts section already marks the
 mechanical ones: any error containing "{HARNESS_MARKER}" is a runner gap
 by construction, and names the `CallbackChange` arm to port from
-`dll/src/desktop/shell2/common/event.rs::apply_user_change`. For everything else, USE THE TRIAGE
+`dll/src/desktop/shell2/common/event.rs::apply_user_change`. The runner also settles a missing
+repaint itself: an `assert_changed` error containing "{STALE_SCREEN_MARKER}" means no damage was
+reported although a fresh render differs from the snapshot (ENGINE), and one containing
+"{DEAD_CONTROL_MARKER}" means the fresh render equals the snapshot, so nothing the scenario did
+could change a pixel (BAD TEST: the control is dead); the facts tag those steps. For everything
+else, USE THE TRIAGE
 PROCEDURE ABOVE — copy the scenario, add `{PNG_OP}` steps, run it, and look at the image — before
 you commit to an answer, and say what the image showed. Do not label a failure ENGINE just
 because it is not marked HARNESS; "I could not tell, and here is the experiment that would" is
@@ -6110,6 +6138,85 @@ fn eval_assert_changed(params: &Value) -> AssertionResult {{
             !f.contains('\u{1b}'),
             "ANSI escapes leaked into the markdown"
         );
+    }
+
+    /// The pair test of the two markers `assert_changed` writes and the report
+    /// reads (one owner: `azul_layout::e2e`): the REAL producer - `assert_changed`
+    /// in a real headless run - and the REAL consumer - the facts and the review
+    /// prompt. A step the runner attributed itself is tagged with whose fault it
+    /// is; any other red step stays open.
+    #[test]
+    fn the_report_marks_what_the_runner_attributed_itself() {
+        let run = |tail: serde_json::Value| -> E2eTestResult {
+            let mut steps = vec![
+                serde_json::json!({ "op": "mount",
+                    "html": ["<body><div id=\"box\"></div></body>"],
+                    "css": ["html, body { margin: 0; }",
+                            "#box { width: 100px; height: 80px; background: #0000ff; }"] }),
+                serde_json::json!({ "op": "wait_frame" }),
+                serde_json::json!({ "op": "wait", "ms": 100 }),
+                serde_json::json!({ "op": "snapshot_frame", "as": "before" }),
+            ];
+            steps.extend(tail.as_array().unwrap().iter().cloned());
+            let test: E2eTest = serde_json::from_value(serde_json::json!({
+                "name": "attributed",
+                "config": { "continue_on_failure": true },
+                "setup": { "window_width": 400, "window_height": 300, "dpi": 96 },
+                "steps": steps,
+            }))
+            .unwrap();
+            azul_layout::e2e::run_e2e_test(&test)
+        };
+        // Nothing happens, nothing is repainted: the control is dead.
+        let dead = run(serde_json::json!([
+            { "op": "reset_frame_counters" },
+            { "op": "wait_frame" },
+            { "op": "assert_changed", "vs": "before" },
+        ]));
+        // The box is recoloured, then the damage is zeroed: the screen moved and
+        // nothing says so.
+        let stale = run(serde_json::json!([
+            { "op": "set_node_css_override", "selector": "#box",
+              "property": "background-color", "value": "#ff0000" },
+            { "op": "wait_frame" },
+            { "op": "reset_frame_counters" },
+            { "op": "assert_changed", "vs": "before" },
+        ]));
+
+        for (result, marker, who) in [
+            (dead, DEAD_CONTROL_MARKER, "BAD TEST"),
+            (stale, STALE_SCREEN_MARKER, "ENGINE"),
+        ] {
+            let facts = {
+                let mut b = sample_batch();
+                b.entries.truncate(1);
+                b.entries[0].run = Some(result);
+                render_facts(&b)
+            };
+            assert!(
+                facts.contains(marker),
+                "the runner's own words ({marker}) are in the facts: {facts}"
+            );
+            assert!(
+                facts.contains(&format!("**[{who}, attributed by the runner]**")),
+                "the step is tagged {who}: {facts}"
+            );
+        }
+
+        // A red step the runner said nothing about stays untagged.
+        assert_eq!(runner_attribution("assert_work_bounded: got 2"), None);
+
+        // The reviewer is told both markers, so it does not re-derive them.
+        let s = parse_schema(&root()).unwrap();
+        let p = build_review_prompt(
+            &sample_batch(),
+            "the generator prompt",
+            &policy_doc(&s),
+            &triage_doc(&s),
+        );
+        for marker in [STALE_SCREEN_MARKER, DEAD_CONTROL_MARKER] {
+            assert!(p.contains(marker), "the review prompt never names {marker}");
+        }
     }
 
     #[test]
