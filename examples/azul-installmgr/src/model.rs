@@ -14,14 +14,30 @@ use azul_appkit::{
     anchors::{self, NoRootKey, UpdatePolicy},
     azlin_config::{AzlinConfig, Channel, UpdatesSection},
     update::{
-        audience_for, background_round, copy_verified, manifest_url_for, read_json, write_json,
-        AppPaths, ApplyRequest, Audience, Check, CheckRequest, InstallKind, Registration, Release,
-        Round, RoundOutcome, Staged, UpdateEngine, Verified, APPS_DIR, RELEASE_FILE, REQUEST_FILE,
+        audience_for, background_round, copy_verified, manifest_url_for, read_json, sha256_of_file,
+        write_json, AppPaths, ApplyRequest, Audience, Check, CheckRequest, InstallKind,
+        Registration, Release, Round, RoundOutcome, Staged, UpdateEngine, Verified, APPS_DIR,
+        RELEASE_FILE, REQUEST_FILE,
     },
 };
 
 /// One megabyte.
 pub const MB: u64 = 1024 * 1024;
+
+/// The file in a version's folder that holds the SHA-256 of its program as it was installed
+/// (the hash of the bytes that passed the engine's checks): Revert checks the version it brings
+/// back against it, since that version has not been through the engine since.
+const PROGRAM_HASH_FILE: &str = "program.sha256";
+
+/// The folder the version being replaced waits in while its successor is moved into place.
+const REPLACED_DIR: &str = "replaced";
+
+/// The folder the version Revert leaves waits in while the previous one is moved into place.
+const REVERTED_DIR: &str = "reverted";
+
+/// The rollback marks the engine keeps for an app: `<registry>/state/<channel>/update-state.json`
+/// (azul-layout's `UpdateState`). They outlive the program: see [`uninstall`].
+const UPDATE_STATE_FILE: &str = "update-state.json";
 
 // ---------------------------------------------------------------------------
 // The apps
@@ -695,9 +711,15 @@ fn not_writable(dir: &Path, e: &std::io::Error) -> String {
 /// Puts the VERIFIED file `verified` in place as the app's current version: the new version is
 /// laid out in `next/` first (a failure there leaves the installed one untouched; the copy is
 /// hashed and has to be the bytes that passed the engine's checks, so a file swapped between the
-/// check and now is not installed), the current one becomes the previous one (the one before that
-/// is removed: one is kept), and the registration says so. A staged update of this version is
-/// used up.
+/// check and now is not installed, and the hash is kept beside it for Revert), the current one
+/// becomes the previous one, and the registration says so. A staged update of this version is used
+/// up.
+///
+/// The order protects both versions that are kept: the installed one moves aside to `replaced/`,
+/// the new one takes its name, and only then does the old previous version go and `replaced/`
+/// become `prev/`. A move that fails ("in use" on Windows) leaves the previous version where it was
+/// (it used to be deleted first, and with it the Revert target), and a crash in the middle is
+/// finished or undone by [`settle`].
 ///
 /// # Errors
 ///
@@ -712,6 +734,7 @@ pub fn place(
 ) -> Result<Registration, String> {
     let paths = places.app(entry.key);
     std::fs::create_dir_all(&paths.install).map_err(|e| not_writable(&paths.install, &e))?;
+    settle(&paths);
     let next = paths.install.join("next");
     let _ = std::fs::remove_dir_all(&next);
     let program = entry.file_name(places.os);
@@ -724,25 +747,18 @@ pub fn place(
             std::fs::set_permissions(next.join(&program), std::fs::Permissions::from_mode(0o755))
                 .map_err(|e| not_writable(&paths.install, &e))?;
         }
+        std::fs::write(next.join(PROGRAM_HASH_FILE), verified.sha256())
+            .map_err(|e| not_writable(&paths.install, &e))?;
         write_json(&next.join(RELEASE_FILE), release).map_err(|e| not_writable(&paths.install, &e))
     })();
     if let Err(why) = laid_out {
         let _ = std::fs::remove_dir_all(&next);
         return Err(why);
     }
-    let (current, prev) = (paths.current(), paths.prev());
-    if current.exists() {
-        let _ = std::fs::remove_dir_all(&prev);
-        std::fs::rename(&current, &prev).map_err(|e| {
-            let _ = std::fs::remove_dir_all(&next);
-            format!("{} is in use ({e}); close {} and try again", current.display(), entry.name)
-        })?;
-    }
-    if let Err(e) = std::fs::rename(&next, &current) {
-        // Put the installed version back.
-        let _ = std::fs::rename(&prev, &current);
+    let current = paths.current();
+    if let Err(why) = activate(&paths, entry.name, |from, to| std::fs::rename(from, to)) {
         let _ = std::fs::remove_dir_all(&next);
-        return Err(format!("{}: {e}", current.display()));
+        return Err(why);
     }
     let before: Option<Registration> = read_json(&paths.registration());
     let registration = Registration {
@@ -760,6 +776,84 @@ pub fn place(
         .map_err(|e| format!("{}: {e}", paths.registration().display()))?;
     forget_staged(&paths, &release.version);
     Ok(registration)
+}
+
+/// Moves the version laid out in `next/` into `current/`: the installed one waits in `replaced/`
+/// meanwhile, the one kept for Revert (`prev/`) is not touched until the new one is in place, and
+/// then [`settle`] makes the replaced one the previous one. A move that fails puts the installed
+/// version back. `rename` is a parameter so a refused move ("in use" on Windows) can be made to
+/// happen in a test.
+fn activate(
+    paths: &AppPaths,
+    name: &str,
+    rename: impl Fn(&Path, &Path) -> std::io::Result<()>,
+) -> Result<(), String> {
+    let (next, current) = (paths.install.join("next"), paths.current());
+    let replaced = paths.install.join(REPLACED_DIR);
+    if current.exists() {
+        rename(&current, &replaced).map_err(|e| {
+            format!(
+                "{} is in use ({e}); close {name} and try again",
+                current.display()
+            )
+        })?;
+    }
+    if let Err(e) = rename(&next, &current) {
+        // Put the installed version back.
+        if replaced.exists() {
+            let _ = rename(&replaced, &current);
+        }
+        return Err(format!("{}: {e}", current.display()));
+    }
+    settle(paths);
+    Ok(())
+}
+
+/// Finishes or undoes what a crash (or a refused move) left in the middle of [`place`]: a
+/// `replaced/` folder with no `current/` is the installed version, moved aside and not replaced
+/// (it is put back); next to a `current/` it is the version that was replaced (the previous
+/// version before it goes, and it becomes `prev/`). Cheap when there is nothing to do.
+pub fn settle(paths: &AppPaths) {
+    let replaced = paths.install.join(REPLACED_DIR);
+    if replaced.exists() && !replaced.is_dir() {
+        let _ = std::fs::remove_file(&replaced);
+    }
+    if replaced.is_dir() {
+        if paths.current().exists() {
+            let _ = std::fs::remove_dir_all(paths.prev());
+            if std::fs::rename(&replaced, paths.prev()).is_err() {
+                let _ = std::fs::remove_dir_all(&replaced);
+            }
+        } else {
+            let _ = std::fs::rename(&replaced, paths.current());
+        }
+    }
+    // The same for a Revert that stopped between its two moves ([`revert`]): the version being
+    // left is the installed one while `current/` is missing, a leftover once it is there.
+    let left = paths.install.join(REVERTED_DIR);
+    if left.is_dir() {
+        if paths.current().exists() {
+            let _ = std::fs::remove_dir_all(&left);
+        } else {
+            let _ = std::fs::rename(&left, paths.current());
+        }
+    }
+}
+
+/// Whether the program in `dir` is the one whose hash was recorded when it was installed
+/// ([`PROGRAM_HASH_FILE`]).
+fn program_matches_its_record(dir: &Path, program: &str) -> Result<(), String> {
+    let recorded = std::fs::read_to_string(dir.join(PROGRAM_HASH_FILE))
+        .map_err(|_| "it has no recorded hash (it was not placed by this manager)".to_string())?;
+    let actual = sha256_of_file(&dir.join(program))?;
+    if actual.eq_ignore_ascii_case(recorded.trim()) {
+        Ok(())
+    } else {
+        Err(format!(
+            "its program is not the one that was installed (sha256:{} then, sha256:{actual} now)",
+            recorded.trim()
+        ))
+    }
 }
 
 /// Throws away the staged update of `version`: its file (the one the code names, never the one
@@ -793,11 +887,20 @@ pub fn revert(
     now_unix: u64,
 ) -> Result<(String, Registration), String> {
     let paths = places.app(entry.key);
+    settle(&paths);
     let previous = previous_release(&paths)
         .ok_or_else(|| format!("{} has no previous version to go back to", entry.name))?;
+    // The version brought back has not been through the engine since it was installed: it has to
+    // be the program whose hash was recorded then (REVIEW Y7: it was re-activated unchecked).
+    program_matches_its_record(&paths.prev(), &entry.file_name(places.os)).map_err(|why| {
+        format!(
+            "the previous version of {} is not restored: {why}",
+            entry.name
+        )
+    })?;
     let current: Option<Release> = read_json(&paths.current().join(RELEASE_FILE));
     let from = current.map(|r| r.version).unwrap_or_default();
-    let dropped = paths.install.join("reverted");
+    let dropped = paths.install.join(REVERTED_DIR);
     let _ = std::fs::remove_dir_all(&dropped);
     if paths.current().exists() {
         std::fs::rename(paths.current(), &dropped).map_err(|e| {
@@ -836,8 +939,27 @@ pub fn revert(
     Ok((from, registration))
 }
 
+/// The rollback marks the engine keeps for the app (`state/<channel>/update-state.json`): the
+/// files and their bytes.
+fn rollback_marks(paths: &AppPaths) -> Vec<(PathBuf, Vec<u8>)> {
+    let Ok(channels) = std::fs::read_dir(paths.registry.join("state")) else {
+        return Vec::new();
+    };
+    channels
+        .flatten()
+        .filter_map(|channel| {
+            let file = channel.path().join(UPDATE_STATE_FILE);
+            let bytes = std::fs::read(&file).ok()?;
+            Some((file, bytes))
+        })
+        .collect()
+}
+
 /// Removes the app: its shortcuts, its install folder and its registry folder (its data in the
-/// data folder stays: that is the user's).
+/// data folder stays: that is the user's). Its rollback marks stay: they hold the highest key
+/// generation the engine accepted, and a reinstall that began again at generation 0 would accept a
+/// retired, unexpired signing key once more (REVIEW Y7). They are no user data and no program,
+/// just two numbers and a version per channel.
 ///
 /// # Errors
 ///
@@ -853,8 +975,15 @@ pub fn uninstall(places: &Places, entry: &AppEntry) -> Result<(), String> {
             .map_err(|e| format!("{}: {e}", paths.install.display()))?;
     }
     if paths.registry.exists() {
+        let marks = rollback_marks(&paths);
         std::fs::remove_dir_all(&paths.registry)
             .map_err(|e| format!("{}: {e}", paths.registry.display()))?;
+        for (file, bytes) in marks {
+            if let Some(dir) = file.parent() {
+                std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+            }
+            std::fs::write(&file, bytes).map_err(|e| format!("{}: {e}", file.display()))?;
+        }
     }
     Ok(())
 }
@@ -865,6 +994,56 @@ pub fn uninstall(places: &Places, entry: &AppEntry) -> Result<(), String> {
 
 /// The marker of the line the manager adds to a shell's rc file.
 pub const RC_MARKER: &str = "# Azlin apps (AzInstallManager)";
+
+/// `text` as ONE word for a POSIX shell: in single quotes, where nothing is special, with a single
+/// quote written as `'\''`.
+#[must_use]
+pub fn sh_quote(text: &str) -> String {
+    format!("'{}'", text.replace('\'', "'\\''"))
+}
+
+/// `text` as one quoted argument of the `Exec` key of a `.desktop` file (Desktop Entry
+/// Specification, "The Exec key"): in double quotes, with `"`, `` ` ``, `$` and `\` escaped by a
+/// backslash; that backslash is itself doubled by the file's string escaping (so a literal
+/// backslash is written with four), and a literal `%` is `%%` (a field code otherwise).
+#[must_use]
+pub fn desktop_exec_quote(text: &str) -> String {
+    let mut out = String::from("\"");
+    for c in text.chars() {
+        match c {
+            '"' | '`' | '$' => {
+                out.push_str("\\\\");
+                out.push(c);
+            }
+            '\\' => out.push_str("\\\\\\\\"),
+            '%' => out.push_str("%%"),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
+/// `text` as the inside of a PowerShell single-quoted string: every character PowerShell takes
+/// for a single quote is doubled - the ASCII `'` and also U+2018, U+2019, U+201A and U+201B,
+/// which its parser treats the same way (doubling only the ASCII one let a path end the string).
+#[must_use]
+pub fn ps_quote(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        out.push(c);
+        if matches!(c, '\'' | '\u{2018}' | '\u{2019}' | '\u{201A}' | '\u{201B}') {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// Whether `text` holds a control character (a new line, a NUL): no quoting carries one into a
+/// line of an rc file or a key of a `.desktop` file.
+fn has_control_character(text: &str) -> bool {
+    text.chars().any(char::is_control)
+}
 
 /// One thing that makes an installed app easy to start.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -886,7 +1065,7 @@ pub enum Shortcut {
 /// of zsh (and bash when it has a profile), on Windows a Start Menu entry. None for the runtime.
 #[must_use]
 pub fn shortcuts(places: &Places, entry: &AppEntry, program: &Path) -> Vec<Shortcut> {
-    if entry.is_runtime() {
+    if entry.is_runtime() || has_control_character(&program.to_string_lossy()) {
         return Vec::new();
     }
     match places.os {
@@ -898,20 +1077,25 @@ pub fn shortcuts(places: &Places, entry: &AppEntry, program: &Path) -> Vec<Short
             text: desktop_file(entry, program),
         }],
         Os::MacOs => {
-            let line = format!("export PATH=\"{}:$PATH\"", places.bin_dir().display());
-            let mut out = vec![
-                Shortcut::Link {
-                    link: places.bin_dir().join(entry.key),
-                    target: program.to_path_buf(),
-                },
-                Shortcut::RcLine {
+            // The folder goes LAST in the PATH and in single quotes: first, a folder that an
+            // environment variable moved (AZLIN_CONFIG=/tmp/x/config.json) would shadow the
+            // system's commands, and unquoted, a `"` or a `$(...)` in it would run (REVIEW Y9).
+            let bin_dir = places.bin_dir().to_string_lossy().into_owned();
+            let line = format!("export PATH=\"$PATH\":{}", sh_quote(&bin_dir));
+            let mut out = vec![Shortcut::Link {
+                link: places.bin_dir().join(entry.key),
+                target: program.to_path_buf(),
+            }];
+            // A folder with a new line in its name cannot be one line of an rc file.
+            if !has_control_character(&bin_dir) {
+                out.push(Shortcut::RcLine {
                     path: places.home.join(".zshrc"),
                     line: line.clone(),
-                },
-            ];
-            let bash = places.home.join(".bash_profile");
-            if bash.exists() {
-                out.push(Shortcut::RcLine { path: bash, line });
+                });
+                let bash = places.home.join(".bash_profile");
+                if bash.exists() {
+                    out.push(Shortcut::RcLine { path: bash, line });
+                }
             }
             out
         }
@@ -929,10 +1113,10 @@ pub fn shortcuts(places: &Places, entry: &AppEntry, program: &Path) -> Vec<Short
 #[must_use]
 pub fn desktop_file(entry: &AppEntry, program: &Path) -> String {
     format!(
-        "[Desktop Entry]\nType=Application\nName={}\nExec=\"{}\" %F\nTerminal=false\n\
+        "[Desktop Entry]\nType=Application\nName={}\nExec={} %F\nTerminal=false\n\
          Categories={}\nX-Azlin-Key={}\n",
         entry.name,
-        program.display(),
+        desktop_exec_quote(&program.to_string_lossy()),
         entry.category,
         entry.key
     )
@@ -984,7 +1168,7 @@ impl Shortcut {
             }
             Shortcut::StartMenu { path, target } => {
                 mkdir(path)?;
-                let quote = |p: &Path| p.display().to_string().replace('\'', "''");
+                let quote = |p: &Path| ps_quote(&p.display().to_string());
                 let script = format!(
                     "$s = (New-Object -ComObject WScript.Shell).CreateShortcut('{}'); \
                      $s.TargetPath = '{}'; $s.Save()",
@@ -1236,6 +1420,7 @@ pub fn installed(engine: &dyn UpdateEngine, places: &Places, updates: &UpdatesSe
         .chain(APPS.iter())
         .filter_map(|entry| {
             let paths = places.app(entry.key);
+            settle(&paths);
             // A copy installed under the app's former name is the app until it is updated.
             let registration: Registration = read_json(&paths.registration()).or_else(|| {
                 let former = azul_appkit::azlin_config::former_app_key(entry.key)?;
@@ -2336,6 +2521,411 @@ mod model_tests {
         uninstall(&f.places, writer()).unwrap();
         let paths = f.places.app("azwriter");
         assert!(!paths.install.exists() && !paths.registry.exists() && !desktop.exists());
+    }
+
+    // ---- REVIEW Y7: what an update, a revert and an uninstall keep --------------------------
+
+    /// The files under `dir`, relative to it, sorted.
+    fn files_under(dir: &Path) -> Vec<String> {
+        fn walk(dir: &Path, base: &Path, out: &mut Vec<String>) {
+            for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    walk(&path, base, out);
+                } else {
+                    out.push(
+                        path.strip_prefix(base)
+                            .unwrap()
+                            .to_string_lossy()
+                            .into_owned(),
+                    );
+                }
+            }
+        }
+        let mut out = Vec::new();
+        walk(dir, dir, &mut out);
+        out.sort();
+        out
+    }
+
+    /// The text of the program in a version's folder.
+    fn program_of(dir: &Path) -> String {
+        std::fs::read_to_string(dir.join("AzWriter")).unwrap_or_default()
+    }
+
+    /// Uninstalling removed the registry folder with the rollback marks in it, so a reinstall
+    /// began at key generation 0 and accepted a retired, unexpired signing key again.
+    #[test]
+    fn y7_uninstall_keeps_the_rollback_marks_and_removes_the_rest() {
+        let dir = TempDir::new("installmgr-marks");
+        let engine = FakeEngine {
+            releases: vec![("azwriter", "2.0.0", false)],
+            ..FakeEngine::default()
+        };
+        let f = fetching(dir.path());
+        install_new(&engine, &f, writer(), Channel::Stable, 1).unwrap();
+        let paths = f.places.app("azwriter");
+        let marks = paths.state(Channel::Stable).join("update-state.json");
+        std::fs::create_dir_all(marks.parent().unwrap()).unwrap();
+        let text = r#"{"highest_seen":"2.0.0","key_generation":4}"#;
+        std::fs::write(&marks, text).unwrap();
+        std::fs::write(paths.state(Channel::Stable).join("cache.txt"), "x").unwrap();
+
+        uninstall(&f.places, writer()).unwrap();
+        assert!(!paths.install.exists());
+        assert_eq!(
+            files_under(&paths.registry),
+            vec!["state/stable/update-state.json".to_string()],
+            "the marks and nothing else of the registry"
+        );
+        assert_eq!(std::fs::read_to_string(&marks).unwrap(), text);
+        assert!(
+            installed(&FakeEngine::default(), &f.places, &f.updates).is_empty(),
+            "a folder of marks is not an installed app"
+        );
+    }
+
+    /// The version Revert brings back has not been through the engine since it was installed: it
+    /// has to be the program whose hash was recorded then.
+    #[test]
+    fn y7_revert_brings_back_only_the_program_that_was_installed() {
+        let dir = TempDir::new("installmgr-revert-hash");
+        let p = places(dir.path(), Os::Linux);
+        let paths = p.app("azwriter");
+        place(
+            &p,
+            writer(),
+            &file_with(dir.path(), "v1"),
+            &release("1.0.0"),
+            Channel::Stable,
+            1,
+        )
+        .unwrap();
+        place(
+            &p,
+            writer(),
+            &file_with(dir.path(), "v2"),
+            &release("2.0.0"),
+            Channel::Stable,
+            2,
+        )
+        .unwrap();
+        let hash = std::fs::read_to_string(paths.prev().join(PROGRAM_HASH_FILE)).unwrap();
+        assert_eq!(
+            hash.len(),
+            64,
+            "the hash of the installed program is kept: {hash}"
+        );
+
+        // The kept version changed on disk.
+        std::fs::write(paths.prev().join("AzWriter"), "EVIL").unwrap();
+        let err = revert(&p, writer(), 3).unwrap_err();
+        assert!(
+            err.contains("not restored") && err.contains("not the one that was installed"),
+            "{err}"
+        );
+        assert_eq!(
+            program_of(&paths.current()),
+            "v2",
+            "the installed version stays"
+        );
+        assert_eq!(program_of(&paths.prev()), "EVIL", "and nothing is moved");
+
+        // A version nobody recorded a hash for.
+        std::fs::write(paths.prev().join("AzWriter"), "v1").unwrap();
+        std::fs::remove_file(paths.prev().join(PROGRAM_HASH_FILE)).unwrap();
+        let err = revert(&p, writer(), 4).unwrap_err();
+        assert!(err.contains("no recorded hash"), "{err}");
+
+        // The program that was installed comes back.
+        std::fs::write(paths.prev().join(PROGRAM_HASH_FILE), hash).unwrap();
+        let (from, reg) = revert(&p, writer(), 5).unwrap();
+        assert_eq!((from.as_str(), reg.version.as_str()), ("2.0.0", "1.0.0"));
+        assert_eq!(program_of(&paths.current()), "v1");
+    }
+
+    /// An update used to delete `prev/` BEFORE it moved the installed version: a refused move
+    /// ("in use" on Windows) cost the Revert target, and a crash between the two renames left no
+    /// `current/` at all. The moves are injected here so that the refusal happens on any host.
+    #[test]
+    fn y7_a_refused_move_leaves_the_installed_version_and_the_revert_target() {
+        let dir = TempDir::new("installmgr-refused");
+        let p = places(dir.path(), Os::Linux);
+        let paths = p.app("azwriter");
+        place(
+            &p,
+            writer(),
+            &file_with(dir.path(), "v1"),
+            &release("1.0.0"),
+            Channel::Stable,
+            1,
+        )
+        .unwrap();
+        place(
+            &p,
+            writer(),
+            &file_with(dir.path(), "v2"),
+            &release("2.0.0"),
+            Channel::Stable,
+            2,
+        )
+        .unwrap();
+        let next = paths.install.join("next");
+        std::fs::create_dir_all(&next).unwrap();
+        std::fs::write(next.join("AzWriter"), "v3").unwrap();
+
+        // The installed version is in use: its move aside is refused.
+        let err = activate(&paths, "AzWriter", |from, to| {
+            if from == paths.current().as_path() {
+                Err(std::io::Error::other("in use"))
+            } else {
+                std::fs::rename(from, to)
+            }
+        })
+        .unwrap_err();
+        assert!(err.contains("is in use"), "{err}");
+        assert_eq!(program_of(&paths.current()), "v2");
+        assert_eq!(
+            program_of(&paths.prev()),
+            "v1",
+            "the Revert target survives a refused update"
+        );
+
+        // The new version cannot take its place: the installed one is put back.
+        let err = activate(&paths, "AzWriter", |from, to| {
+            if from == next.as_path() {
+                Err(std::io::Error::other("denied"))
+            } else {
+                std::fs::rename(from, to)
+            }
+        })
+        .unwrap_err();
+        assert!(err.contains("denied"), "{err}");
+        assert_eq!(program_of(&paths.current()), "v2");
+        assert_eq!(program_of(&paths.prev()), "v1");
+        assert!(!paths.install.join(REPLACED_DIR).exists());
+
+        // Nothing refused: v3 is in, v2 is the previous version, v1 is gone.
+        activate(&paths, "AzWriter", |from, to| std::fs::rename(from, to)).unwrap();
+        assert_eq!(program_of(&paths.current()), "v3");
+        assert_eq!(program_of(&paths.prev()), "v2");
+        assert!(!paths.install.join(REPLACED_DIR).exists());
+    }
+
+    #[test]
+    fn y7_a_crash_between_the_two_moves_of_an_update_leaves_a_program_again() {
+        let dir = TempDir::new("installmgr-crash-a");
+        let f = fetching(dir.path());
+        let paths = f.places.app("azwriter");
+        place(
+            &f.places,
+            writer(),
+            &file_with(dir.path(), "v1"),
+            &release("1.0.0"),
+            Channel::Stable,
+            1,
+        )
+        .unwrap();
+        place(
+            &f.places,
+            writer(),
+            &file_with(dir.path(), "v2"),
+            &release("2.0.0"),
+            Channel::Stable,
+            2,
+        )
+        .unwrap();
+        // The crash: the installed version had moved aside and the new one was not in yet.
+        std::fs::rename(paths.current(), paths.install.join(REPLACED_DIR)).unwrap();
+        std::fs::create_dir_all(paths.install.join("next")).unwrap();
+        assert!(!paths.current().exists());
+
+        // Listing the installed apps heals it.
+        let apps = installed(&FakeEngine::default(), &f.places, &f.updates);
+        assert_eq!(apps.len(), 1);
+        assert_eq!(program_of(&paths.current()), "v2");
+        assert!(!paths.install.join(REPLACED_DIR).exists());
+        assert_eq!(
+            program_of(&paths.prev()),
+            "v1",
+            "the Revert target is untouched"
+        );
+    }
+
+    #[test]
+    fn y7_a_crash_after_the_new_version_is_in_is_finished() {
+        let dir = TempDir::new("installmgr-crash-b");
+        let p = places(dir.path(), Os::Linux);
+        let paths = p.app("azwriter");
+        place(
+            &p,
+            writer(),
+            &file_with(dir.path(), "v1"),
+            &release("1.0.0"),
+            Channel::Stable,
+            1,
+        )
+        .unwrap();
+        place(
+            &p,
+            writer(),
+            &file_with(dir.path(), "v2"),
+            &release("2.0.0"),
+            Channel::Stable,
+            2,
+        )
+        .unwrap();
+        // The crash: v2 moved aside and v3 moved in, the old previous version not yet gone.
+        std::fs::rename(paths.current(), paths.install.join(REPLACED_DIR)).unwrap();
+        std::fs::create_dir_all(paths.current()).unwrap();
+        std::fs::write(paths.current().join("AzWriter"), "v3").unwrap();
+
+        settle(&paths);
+        assert_eq!(program_of(&paths.current()), "v3");
+        assert_eq!(program_of(&paths.prev()), "v2");
+        assert!(!paths.install.join(REPLACED_DIR).exists());
+        // A stray FILE of that name is no version and is not taken for one.
+        std::fs::write(paths.install.join(REPLACED_DIR), "junk").unwrap();
+        settle(&paths);
+        assert!(!paths.install.join(REPLACED_DIR).exists());
+        assert_eq!(program_of(&paths.prev()), "v2");
+    }
+
+    // ---- REVIEW Y9: what a launcher line carries --------------------------------------------
+
+    #[test]
+    fn y9_sh_quote_is_one_word() {
+        assert_eq!(sh_quote("/a b/c"), "'/a b/c'");
+        assert_eq!(sh_quote("it's"), "'it'\\''s'");
+        assert_eq!(sh_quote("$(x)\"`"), "'$(x)\"`'");
+    }
+
+    /// The PATH line was `export PATH="<folder>:$PATH"`: a `"` ended the string and a `$(...)` in
+    /// the folder's name ran when the shell started, and the folder was FIRST in the PATH. The
+    /// line is run by `sh` here.
+    #[cfg(unix)]
+    #[test]
+    fn y9_the_path_line_runs_nothing_from_the_folder_name_and_puts_it_last() {
+        let dir = TempDir::new("installmgr-pathline");
+        let marker = dir.path().join("ran");
+        let mut p = places(dir.path(), Os::MacOs);
+        p.azlin_dir = dir
+            .path()
+            .join(format!("a b\"c$(touch {})'d", marker.display()));
+        let made = shortcuts(&p, writer(), Path::new("/x/AzWriter"));
+        let line = made
+            .iter()
+            .find_map(|s| match s {
+                Shortcut::RcLine { line, .. } => Some(line.clone()),
+                _ => None,
+            })
+            .expect("an rc line");
+        assert!(line.starts_with("export PATH=\"$PATH\":'"), "{line}");
+        let out = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(format!("PATH=/usr/bin:/bin; {line}; printf '%s' \"$PATH\""))
+            .output()
+            .expect("sh runs");
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&out.stdout),
+            format!("/usr/bin:/bin:{}", p.bin_dir().display()),
+            "the folder is one word, appended last"
+        );
+        assert!(
+            !marker.exists(),
+            "the command in the folder's name did not run"
+        );
+    }
+
+    #[test]
+    fn y9_a_name_with_a_new_line_gets_no_line_in_an_rc_file_and_no_desktop_file() {
+        let dir = TempDir::new("installmgr-newline");
+        let mut p = places(dir.path(), Os::MacOs);
+        p.azlin_dir = dir.path().join("a\nb");
+        let made = shortcuts(&p, writer(), Path::new("/x/AzWriter"));
+        assert!(
+            made.iter().all(|s| !matches!(s, Shortcut::RcLine { .. })),
+            "{made:?}"
+        );
+        assert!(made.iter().any(|s| matches!(s, Shortcut::Link { .. })));
+        let linux = places(dir.path(), Os::Linux);
+        assert!(shortcuts(&linux, writer(), Path::new("/x/Az\nWriter")).is_empty());
+    }
+
+    /// The `Exec` value as the Desktop Entry Specification reads it back: the file's own string
+    /// escapes first, then one double-quoted argument.
+    fn exec_argument(file_text: &str) -> String {
+        let mut unescaped = String::new();
+        let mut chars = file_text.chars();
+        while let Some(c) = chars.next() {
+            if c != '\\' {
+                unescaped.push(c);
+                continue;
+            }
+            match chars.next() {
+                Some('\\') => unescaped.push('\\'),
+                Some(other) => {
+                    unescaped.push('\\');
+                    unescaped.push(other);
+                }
+                None => unescaped.push('\\'),
+            }
+        }
+        let inner = unescaped
+            .strip_prefix('"')
+            .and_then(|t| t.strip_suffix('"'))
+            .expect("one double-quoted argument");
+        let mut out = String::new();
+        let mut chars = inner.chars();
+        while let Some(c) = chars.next() {
+            match c {
+                '\\' => out.push(chars.next().expect("a character after the backslash")),
+                '%' => {
+                    assert_eq!(chars.next(), Some('%'), "a lone % is a field code");
+                    out.push('%');
+                }
+                '"' | '`' | '$' => panic!("{c} unescaped inside the quotes"),
+                c => out.push(c),
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn y9_the_desktop_exec_reads_back_as_the_path() {
+        for path in [
+            "/home/ann/.azlin/apps/azwriter/current/AzWriter",
+            "/home/a b/Az\"W$x`y\\z%f",
+            "/tmp/$(rm -rf ~)/x",
+            "/p/100%/q",
+            "/p/\\\\/q",
+            "/p/'single'/q",
+        ] {
+            assert_eq!(exec_argument(&desktop_exec_quote(path)), path, "{path}");
+        }
+        // The specification's own rule: a literal backslash takes four.
+        assert_eq!(desktop_exec_quote("a\\b"), "\"a\\\\\\\\b\"");
+        assert_eq!(desktop_exec_quote("a$b"), "\"a\\\\$b\"");
+        let text = desktop_file(writer(), Path::new("/home/a b/AzWriter"));
+        assert!(
+            text.contains("\nExec=\"/home/a b/AzWriter\" %F\n"),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn y9_powershell_quotes_double_every_quote_it_knows() {
+        assert_eq!(ps_quote("C:\\a b\\x"), "C:\\a b\\x");
+        assert_eq!(ps_quote("it's"), "it''s");
+        assert_eq!(
+            ps_quote("a\u{2018}b\u{2019}c\u{201A}d\u{201B}e"),
+            "a\u{2018}\u{2018}b\u{2019}\u{2019}c\u{201A}\u{201A}d\u{201B}\u{201B}e"
+        );
     }
 
     #[test]

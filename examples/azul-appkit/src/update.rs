@@ -451,6 +451,17 @@ pub struct Verified {
     sha256: String,
 }
 
+/// The SHA-256 of the file `path`, 64 lowercase hex digits.
+///
+/// # Errors
+///
+/// Why the file could not be read.
+pub fn sha256_of_file(path: &Path) -> Result<String, String> {
+    std::fs::File::open(path)
+        .and_then(azul_storage::sigv4::sha256_hex_of)
+        .map_err(|e| format!("{}: {e}", path.display()))
+}
+
 impl Verified {
     /// The verified file `file`, hashed now. Only an [`UpdateEngine`] makes one, right after the
     /// check that passed; nothing else calls this.
@@ -459,9 +470,7 @@ impl Verified {
     ///
     /// Why the file could not be read.
     pub fn of(file: PathBuf) -> Result<Verified, String> {
-        let sha256 = std::fs::File::open(&file)
-            .and_then(azul_storage::sigv4::sha256_hex_of)
-            .map_err(|e| format!("{}: {e}", file.display()))?;
+        let sha256 = sha256_of_file(&file)?;
         Ok(Verified { file, sha256 })
     }
 
