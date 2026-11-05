@@ -4167,6 +4167,82 @@ pub fn translate_hint_for_patch(
     }
 }
 
+/// What a present has found out about the frame by the time it asks whether
+/// there is anything to draw at all ([`FrameChanges::is_idle`]).
+///
+/// ONE definition for BOTH presenters: the shells' `CpuBackend::render_frame`
+/// (`dll/.../headless/mod.rs`) and the e2e twin
+/// (`layout/src/e2e/cpu_backend.rs`). Each spelled the skip condition out by
+/// hand, and the twin never got the term 6f705cd6f added to the shells - a
+/// layout MOVE with an empty damage list is not an idle frame. A uniform
+/// translation of every moved box (`justify-content: space-between` on two flex
+/// items) was skipped there: the frame on screen stayed the old one, the report
+/// said `FrameDamage::None`, and a fresh render differed in 36 000 px. Three
+/// scenarios of the third `gen-e2e` batch read that as an engine bug the device
+/// does not have.
+///
+/// Every field is required and there is no `Default`: a term added here is a
+/// compile error in both callers until each fills it in, which is how the next
+/// one cannot be missed by one of them. A field is `true` when that part of
+/// the frame has something to do.
+#[derive(Debug, Clone, Copy)]
+pub struct FrameChanges {
+    /// The display-list diff found changed items, or could not tell (it gave
+    /// `None`: a first frame, a shrink, a structural change - a full repaint).
+    pub items: bool,
+    /// A `VirtualView` whose content scrolled is moved or damaged after the
+    /// target is acquired ([`collect_virtual_view_shifts`]).
+    pub view_shifts: bool,
+    /// The backing store changed size. Skipping would leave `last_frame` at the
+    /// old dimensions while the compositor is already at the new ones, so the
+    /// host would present a wrongly sized buffer.
+    pub resized: bool,
+    /// The newly exposed strip of a grown window ([`compute_resize_damage`]).
+    pub resize_damage: bool,
+    /// A scroll frame's offset changed ([`collect_scroll_shifts`]).
+    pub scrolled: bool,
+    /// A `VirtualView`'s child DOM changed in place ([`compute_virtual_view_damage`]).
+    pub view_content: bool,
+    /// A GPU-animated value moved without any item changing: scrollbar thumb,
+    /// fade opacity, transform, bound colour.
+    pub gpu_values: bool,
+    /// An exit is retained and repaints every tick.
+    pub zombies: bool,
+    /// The item diff counted boxes as MOVED by the layout pass's delta
+    /// (`compute_display_list_damage_live` returned a moved union). A move
+    /// carries no damage: [`execute_translate_blit`] moves its pixels, and
+    /// that only runs on a frame that is not skipped.
+    pub layout_move: bool,
+}
+
+impl FrameChanges {
+    /// Nothing to draw: the frame is skipped entirely, no pixel is written and
+    /// the frame reports no damage.
+    #[must_use]
+    pub fn is_idle(&self) -> bool {
+        let Self {
+            items,
+            view_shifts,
+            resized,
+            resize_damage,
+            scrolled,
+            view_content,
+            gpu_values,
+            zombies,
+            layout_move,
+        } = *self;
+        !(items
+            || view_shifts
+            || resized
+            || resize_damage
+            || scrolled
+            || view_content
+            || gpu_values
+            || zombies
+            || layout_move)
+    }
+}
+
 /// What [`execute_translate_blit`] produced: paint damage to merge, and
 /// present-only regions (whole mover clips — every pixel in them changed on
 /// screen even though only strips were rasterised).
@@ -5888,6 +5964,85 @@ mod translate_hint_contract {
         // offset must kill the blit (the memmove would garble scrolled
         // content) and fall back to plain damage.
         assert!(translate_hint_for_patch(Some(&mv(0.0, 12.0)), 1.0, true, false, true).is_none());
+    }
+}
+
+/// The skip condition both presenters share (`FrameChanges::is_idle`).
+#[cfg(test)]
+mod idle_frame_contract {
+    use super::*;
+
+    /// A frame with nothing to do. A fixture of this module: production code
+    /// fills every field itself, there is no `Default` to fall back on.
+    const NOTHING: FrameChanges = FrameChanges {
+        items: false,
+        view_shifts: false,
+        resized: false,
+        resize_damage: false,
+        scrolled: false,
+        view_content: false,
+        gpu_values: false,
+        zombies: false,
+        layout_move: false,
+    };
+
+    /// A frame nothing happened in is the one that is skipped.
+    #[test]
+    fn a_frame_with_nothing_to_do_is_idle() {
+        assert!(NOTHING.is_idle());
+    }
+
+    /// b3_27 / b3_38 / b3_40 (the harness gap of the third `gen-e2e` batch): a
+    /// layout MOVE whose damage list is empty is not an idle frame. The item
+    /// diff counts a box translated by the layout pass's delta as moved, not as
+    /// damaged, so `justify-content: space-between` on two flex items leaves an
+    /// empty damage list and a moved union - and the pixels travel only in
+    /// `execute_translate_blit`, which a skipped frame never reaches. The e2e
+    /// twin skipped it; the shells did not.
+    #[test]
+    fn b3_27_a_layout_move_with_empty_damage_is_not_idle() {
+        let moved = FrameChanges {
+            layout_move: true,
+            ..NOTHING
+        };
+        assert!(!moved.is_idle());
+    }
+
+    /// Each thing that can happen to a frame keeps it from being skipped, alone.
+    /// The destructuring names every field of the struct: a field added without a
+    /// row here does not compile.
+    #[test]
+    fn each_change_alone_keeps_a_frame_from_being_skipped() {
+        let FrameChanges {
+            items: _,
+            view_shifts: _,
+            resized: _,
+            resize_damage: _,
+            scrolled: _,
+            view_content: _,
+            gpu_values: _,
+            zombies: _,
+            layout_move: _,
+        } = NOTHING;
+        let each: [(&str, fn(&mut FrameChanges)); 9] = [
+            ("items", |c| c.items = true),
+            ("view_shifts", |c| c.view_shifts = true),
+            ("resized", |c| c.resized = true),
+            ("resize_damage", |c| c.resize_damage = true),
+            ("scrolled", |c| c.scrolled = true),
+            ("view_content", |c| c.view_content = true),
+            ("gpu_values", |c| c.gpu_values = true),
+            ("zombies", |c| c.zombies = true),
+            ("layout_move", |c| c.layout_move = true),
+        ];
+        for (what, pending) in each {
+            let mut changes = NOTHING;
+            pending(&mut changes);
+            assert!(
+                !changes.is_idle(),
+                "a frame with `{what}` pending was skipped"
+            );
+        }
     }
 }
 

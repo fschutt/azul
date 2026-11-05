@@ -109,6 +109,12 @@ mod changed_attribution_tests;
 #[cfg(test)]
 mod css_override_cost_tests;
 
+// A frame whose only change is a MOVE (every moved box translated by one delta,
+// an empty damage list) is rendered, not skipped: the runner's presenter asks the
+// same `cpurender::FrameChanges::is_idle` as the shells'.
+#[cfg(test)]
+mod moved_frame_tests;
+
 pub mod hooks {
     //! Dependency-injection seam for the three host-coupled call sites in
     //! [`super::full`]. See the module docs above.

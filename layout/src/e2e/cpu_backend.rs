@@ -77,8 +77,7 @@ pub(super) struct CpuBackend {
     pub(super) previous_gpu_opacities: std::collections::HashMap<usize, f32>,
     /// Bound background colours of the previous frame (`key.id -> colour`),
     /// for the same diff: a colour fade changes no item either.
-    pub(super) previous_gpu_colors:
-        crate::cpurender::GpuColors,
+    pub(super) previous_gpu_colors: crate::cpurender::GpuColors,
 }
 
 impl Default for CpuBackend {
@@ -278,7 +277,8 @@ impl CpuBackend {
             .collect();
         // The frame before's matrices stay for the list diff below: a change
         // under an animated frame is damaged where each frame painted it.
-        let old_gpu_transforms = core::mem::replace(&mut self.previous_gpu_transforms, gpu_transforms);
+        let old_gpu_transforms =
+            core::mem::replace(&mut self.previous_gpu_transforms, gpu_transforms);
         self.previous_gpu_opacities = gpu_opacities;
         self.previous_gpu_colors = gpu_colors;
 
@@ -293,9 +293,14 @@ impl CpuBackend {
         // structurally untestable here).
         let dl_arc_ptr = Arc::as_ptr(display_list) as usize;
         let patch_hint = cpurender::translate_hint_for_patch(
-            layout_window.layout_cache.last_patch_move.as_ref().filter(|_| {
-                self.presented_layout_seq == Some(layout_window.layout_cache.last_patch_move_from_seq)
-            }),
+            layout_window
+                .layout_cache
+                .last_patch_move
+                .as_ref()
+                .filter(|_| {
+                    self.presented_layout_seq
+                        == Some(layout_window.layout_cache.last_patch_move_from_seq)
+                }),
             dpi_factor,
             can_reuse_previous_frame,
             self.last_patch_shift_dl == dl_arc_ptr,
@@ -457,7 +462,7 @@ impl CpuBackend {
         if std::env::var_os("AZ_PATCH_DEBUG").is_some() {
             eprintln!(
                 "[E2EDMG] dl_damage={:?} diff_ran={} patched={} resize={:?} gpu_full={} \
-                 gpu_rects={} zombie={}",
+                 gpu_rects={} zombie={} patch_moved={}",
                 dl_damage.as_ref().map(|r| {
                     r.iter()
                         .map(|x| {
@@ -476,6 +481,7 @@ impl CpuBackend {
                 gpu_damage.needs_full,
                 gpu_damage.rects.len(),
                 zombie_damage.len(),
+                patch_moved_union.is_some(),
             );
         }
         // Views whose content scrolled: moved (or damaged) after the target
@@ -489,27 +495,37 @@ impl CpuBackend {
             ),
             _ => Vec::new(),
         };
+        // The ONE skip condition, shared with the shells' presenter
+        // (`dll/.../headless/mod.rs`): see `cpurender::FrameChanges`. This arm
+        // spelled it out by hand and never had the shells' last term - a pending
+        // layout MOVE with an empty damage list is not an idle frame - so a
+        // uniform translation of every moved box (`justify-content:
+        // space-between` on two flex items) was skipped here: no pixel moved,
+        // `FrameDamage::None` was reported and `assert_changed` read it as an
+        // engine bug (STALE SCREEN) that the device does not have.
+        let frame_is_idle = cpurender::FrameChanges {
+            items: dl_damage.as_ref().is_none_or(|rects| !rects.is_empty()),
+            view_shifts: !view_shifts.is_empty(),
+            resized: needs_resize,
+            resize_damage: !resize_damage.is_empty(),
+            scrolled: has_scroll,
+            view_content: has_vview_damage,
+            gpu_values: has_gpu_damage,
+            zombies: !zombie_damage.is_empty(),
+            layout_move: patch_moved_union.is_some(),
+        }
+        .is_idle();
         match dl_damage {
-            Some(rects)
-                if rects.is_empty()
-                    && view_shifts.is_empty()
-                    && !needs_resize
-                    && resize_damage.is_empty()
-                    && !has_scroll
-                    && !has_vview_damage
-                    && !has_gpu_damage
-                    && zombie_damage.is_empty() =>
-            {
+            Some(_) if frame_is_idle => {
                 // Nothing changed — skip rendering entirely.
                 //
-                // `!needs_resize` is load-bearing now that a resize can reach
-                // this match at all: skipping leaves `last_frame` at the OLD
-                // dimensions while the compositor is already at the new ones, so
-                // the host would publish (and present) a wrongly-sized buffer.
-                // A frame whose backing store changed size is never "nothing".
+                // A resize is never "nothing" (`FrameChanges::resized`): skipping
+                // leaves `last_frame` at the OLD dimensions while the compositor
+                // is already at the new ones, so the host would publish (and
+                // present) a wrongly-sized buffer.
                 self.previous_display_list = Some(display_list.clone());
                 self.last_consumed_build_seq = layout_window.layout_cache.build_seq;
-        self.presented_layout_seq = Some(layout_window.layout_cache.layout_seq);
+                self.presented_layout_seq = Some(layout_window.layout_cache.layout_seq);
                 self.previous_scroll_offsets = next_scroll_baseline;
                 self.last_frame_damage = FrameDamage::None;
                 self.last_present_damage = FrameDamage::None;
@@ -958,16 +974,15 @@ mod tests {
             let (w, data) = (frame.width() as usize, frame.data());
             let x0 = ((pos.x + 4.0) * dpi) as usize;
             let x1 = ((pos.x + size.width - 4.0) * dpi) as usize;
-            let rows: Vec<usize> =
-                (0..frame.height() as usize)
-                    .filter(|y| {
-                        (x0..x1).any(|x| {
-                            let i = ((y * w + x) * 4).min(data.len().saturating_sub(4)); // clamp: field can overflow the window row
-                            (u16::from(data[i]) + u16::from(data[i + 1]) + u16::from(data[i + 2]))
-                                < 690 // engine prompt = host colour at half alpha (~#A6A6A6)
-                        })
+            let rows: Vec<usize> = (0..frame.height() as usize)
+                .filter(|y| {
+                    (x0..x1).any(|x| {
+                        let i = ((y * w + x) * 4).min(data.len().saturating_sub(4)); // clamp: field can overflow the window row
+                        (u16::from(data[i]) + u16::from(data[i + 1]) + u16::from(data[i + 2])) < 690
+                        // engine prompt = host colour at half alpha (~#A6A6A6)
                     })
-                    .collect();
+                })
+                .collect();
             let y0 = ((pos.y + 2.0) * dpi) as usize;
             let y1 = ((pos.y + size.height - 2.0) * dpi) as usize;
             let inside = rows.iter().filter(|y| (y0..y1).contains(y)).count();

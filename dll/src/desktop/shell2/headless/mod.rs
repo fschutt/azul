@@ -1128,32 +1128,36 @@ impl CpuBackend {
             ),
             _ => Vec::new(),
         };
+        // The ONE skip condition, shared with the e2e runner's twin
+        // (`layout/src/e2e/cpu_backend.rs`): see `cpurender::FrameChanges`. A
+        // pending patch MOVE with empty damage is NOT an idle frame - skipping
+        // would swallow the translation (`layout_move`).
+        let frame_is_idle = cpurender::FrameChanges {
+            items: dl_damage.as_ref().is_none_or(|rects| !rects.is_empty()),
+            view_shifts: !view_shifts.is_empty(),
+            resized: needs_resize,
+            resize_damage: !resize_damage.is_empty(),
+            scrolled: has_scroll,
+            view_content: has_vview_damage,
+            gpu_values: has_gpu_damage,
+            zombies: !zombie_damage.is_empty(),
+            layout_move: patch_moved_union.is_some(),
+        }
+        .is_idle();
         match dl_damage {
-            Some(rects)
-                if rects.is_empty()
-                    && view_shifts.is_empty()
-                    && !needs_resize
-                    && resize_damage.is_empty()
-                    && !has_scroll
-                    && !has_vview_damage
-                    && !has_gpu_damage
-                    && zombie_damage.is_empty()
-                    // A pending patch MOVE with empty damage is NOT an idle
-                    // frame — skipping would swallow the translation.
-                    && patch_moved_union.is_none() =>
-            {
-                // `!needs_resize` is load-bearing now that a resize can reach
-                // this match at all: skipping leaves `last_frame` at the OLD
-                // dimensions while the compositor is already at the new ones, so
-                // the host would publish (and present) a wrongly-sized buffer.
-                // A frame whose backing store changed size is never "nothing".
+            Some(_) if frame_is_idle => {
+                // A resize is never "nothing" (`FrameChanges::resized`): skipping
+                // leaves `last_frame` at the OLD dimensions while the compositor
+                // is already at the new ones, so the host would publish (and
+                // present) a wrongly-sized buffer. A frame whose backing store
+                // changed size is never "nothing".
                 //
-                // Nothing changed — skip rendering entirely. (`!has_vview_damage`
-                // keeps us out of this branch when only a VirtualView child DOM
-                // changed — that case must still re-composite, see below.)
+                // Nothing changed — skip rendering entirely. (A VirtualView child
+                // DOM that changed (`view_content`) keeps us out of this branch —
+                // that case must still re-composite, see below.)
                 self.previous_display_list = Some(display_list.clone());
                 self.last_consumed_build_seq = layout_window.layout_cache.build_seq;
-        self.presented_layout_seq = Some(layout_window.layout_cache.layout_seq);
+                self.presented_layout_seq = Some(layout_window.layout_cache.layout_seq);
                 // Nothing painted: baseline keeps accumulating dropped
                 // sub-pixel scroll deltas (see next_scroll_baseline above).
                 self.previous_scroll_offsets = next_scroll_baseline;
