@@ -109,6 +109,12 @@ impl From<std::io::Error> for CloudError {
     }
 }
 
+impl From<azul_storage::lock::LockError> for CloudError {
+    fn from(e: azul_storage::lock::LockError) -> Self {
+        CloudError::Failed(e.to_string())
+    }
+}
+
 impl From<azul_storage::beneath::BeneathError> for CloudError {
     fn from(e: azul_storage::beneath::BeneathError) -> Self {
         CloudError::Io(e.to_string())

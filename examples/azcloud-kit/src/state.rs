@@ -22,15 +22,16 @@
 
 use std::{
     fs,
-    io::{ErrorKind, Write},
+    io::ErrorKind,
     path::{Path, PathBuf},
-    time::{Duration, Instant, SystemTime},
+    time::Duration,
 };
 
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 use crate::{
-    error::{fail, CloudError, CloudResult, Context},
+    error::{CloudError, CloudResult, Context},
+    lock::{HeldLock, LockDir},
     secrets::FileSecrets,
 };
 
@@ -48,8 +49,8 @@ pub const DEVICE_FILE: &str = "device.json";
 pub const SYNC_DIR: &str = "sync";
 /// The variable naming this device the first time (else its id is its name).
 pub const DEVICE_VAR: &str = "AZCLOUD_DEVICE";
-/// A lock older than this was left by a process that died.
-const STALE_LOCK: Duration = Duration::from_secs(120);
+/// The folder of the locks, in the state folder.
+const LOCKS_DIR: &str = "locks";
 /// The longest device name kept.
 const MAX_DEVICE_NAME: usize = 32;
 
@@ -179,44 +180,18 @@ impl StateDir {
         Ok(device)
     }
 
-    /// Takes the lock `name` (a file `<name>.lock` made with `create_new`),
-    /// waiting up to `wait` for another process to drop it. A lock older than
-    /// two minutes is taken over: its process died.
+    /// Takes the lock `name`, waiting up to `wait` for another process (or thread) to drop it. The
+    /// OS's own file lock ([`azul_storage::lock::LockDir`], in `locks/`): the OS drops it when
+    /// its process ends, so a crash leaves nothing to wait out - and a holder that takes longer
+    /// than any age (a refresh across a slow network) is never judged dead by the time it has
+    /// held it (AZ-W13: a lock "older than two minutes" was taken over from a live process).
     ///
     /// # Errors
     ///
-    /// When the lock is still held after `wait`, or the file cannot be made.
+    /// When the lock is still held after `wait`, or its file cannot be made or locked.
     pub fn lock(&self, name: &str, wait: Duration) -> CloudResult<StateLock> {
-        let path = self.root.join(format!("{name}.lock"));
-        let start = Instant::now();
-        loop {
-            match fs::OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(&path)
-            {
-                Ok(mut file) => {
-                    let _ = writeln!(file, "{}", std::process::id());
-                    return Ok(StateLock { path });
-                }
-                Err(e) if e.kind() == ErrorKind::AlreadyExists => {
-                    if is_stale(&path) {
-                        let _ = fs::remove_file(&path);
-                        continue;
-                    }
-                    if start.elapsed() >= wait {
-                        fail!(
-                            "{} is held by another azcloud; remove the file if none runs",
-                            path.display()
-                        );
-                    }
-                    std::thread::sleep(Duration::from_millis(100));
-                }
-                Err(e) => {
-                    return Err(e).with_context(|| format!("the lock {}", path.display()));
-                }
-            }
-        }
+        let held = LockDir::new(self.root.join(LOCKS_DIR)).lock(name, wait)?;
+        Ok(StateLock { _held: held })
     }
 
     /// Whether `folder` holds this state folder or lies inside it: syncing it
@@ -232,21 +207,7 @@ impl StateDir {
 /// A held lock; dropped = released.
 #[derive(Debug)]
 pub struct StateLock {
-    path: PathBuf,
-}
-
-impl Drop for StateLock {
-    fn drop(&mut self) {
-        let _ = fs::remove_file(&self.path);
-    }
-}
-
-fn is_stale(path: &Path) -> bool {
-    fs::metadata(path)
-        .and_then(|m| m.modified())
-        .ok()
-        .and_then(|t| SystemTime::now().duration_since(t).ok())
-        .is_some_and(|age| age > STALE_LOCK)
+    _held: HeldLock,
 }
 
 /// The path made absolute, with the longest part of it that exists resolved

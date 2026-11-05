@@ -694,17 +694,14 @@ fn save_entry(path: Option<&std::path::Path>, entry: &DriveEntry) -> Result<(), 
     let Some(path) = path else {
         return Err(t("azdrive-add-no-config-folder"));
     };
-    DrivesFile::load(path)
-        .and_then(|mut file| {
-            file.add(entry.clone());
-            file.save(path)
-        })
-        .map_err(|e: DriveError| {
-            t_args(
-                "azdrive-drive-not-saved",
-                &[("detail", Arg::from(e.to_string()))],
-            )
-        })
+    // Under the file's lock, on the list as it is now (a second window, a drive bought while
+    // another is forgotten): nobody's change is dropped.
+    DrivesFile::update(path, |file| file.add(entry.clone())).map_err(|e: DriveError| {
+        t_args(
+            "azdrive-drive-not-saved",
+            &[("detail", Arg::from(e.to_string()))],
+        )
+    })
 }
 
 /// A new (or re-keyed) drive joins the source list with its secret (into the keyring too,

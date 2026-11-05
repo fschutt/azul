@@ -208,7 +208,7 @@ impl SharedKeyring {
     ///
     /// When another holder keeps it longer than [`LOCK_WAIT`], or it cannot be taken.
     pub fn lock(&self, key: &str) -> CloudResult<HeldLock> {
-        self.locks.lock(key, LOCK_WAIT)
+        Ok(self.locks.lock(key, LOCK_WAIT)?)
     }
 
     /// The text of the entry `key`; `None` when there is none.

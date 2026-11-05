@@ -835,6 +835,11 @@ pub struct Settings {
     pub residence_country: Option<String>,
 }
 
+/// The settings file is a document several windows (processes) change: it is saved by merging
+/// ([`azul_storage::docs::Doc::save_merged`]), never by writing the whole snapshot a window read
+/// at its start (AZ-U7).
+impl azul_storage::docs::Document for Settings {}
+
 impl Default for Settings {
     fn default() -> Self {
         Settings {
@@ -1310,5 +1315,62 @@ mod tests {
                 "{layout:?}"
             );
         }
+    }
+
+    /// AZ-U7: "File > Open new window" starts a second process with its own copy of the settings;
+    /// any change in it rewrote view.json whole and dropped what the first window had added since:
+    /// its sync pairings, its recovery records, the share it holds for a trusted contact.
+    #[test]
+    fn az_u7_the_settings_of_two_windows_merge_and_neither_drops_the_others_lists() {
+        use azul_storage::{testing::TempDir, Drive, LocalDrive};
+        let tmp = TempDir::new("settings-two-windows");
+        let drive = LocalDrive::new(tmp.path());
+        let start = Settings::default();
+        crate::save_settings_merged(&drive, &Settings::default(), &start).unwrap();
+        // The first window pairs a folder, pins one and holds a share; the second (which started
+        // from the same file) changes the sort and pins another folder.
+        let mut a = start.clone();
+        a.synced.push(azcloud_kit::sync::session::SyncSetup::new(
+            "d1",
+            "",
+            std::path::Path::new("/sync/d1"),
+        ));
+        a.pinned.push(Pinned {
+            drive: String::from("home"),
+            prefix: String::from("Documents/"),
+            name: String::from("Documents"),
+        });
+        a.recovery.held.push(crate::recovery_health::HeldShare {
+            key_id: String::from("k1"),
+            label: String::from("Ann"),
+            sealed: String::from("sealed share"),
+            made: 1,
+            received: Some(2),
+        });
+        let mut b = start.clone();
+        b.show_hidden = true;
+        b.pinned.push(Pinned {
+            drive: String::from("home"),
+            prefix: String::from("Music/"),
+            name: String::from("Music"),
+        });
+        crate::save_settings_merged(&drive, &start, &a).unwrap();
+        crate::save_settings_merged(&drive, &start, &b).unwrap();
+        let on_disk = crate::read_settings(&drive);
+        assert!(on_disk.show_hidden, "the second window's change is written");
+        assert_eq!(on_disk.synced.len(), 1, "the first window's pairing stays");
+        assert_eq!(
+            on_disk.recovery.held.len(),
+            1,
+            "the share held for a contact stays"
+        );
+        let pinned: Vec<&str> = on_disk.pinned.iter().map(|p| p.prefix.as_str()).collect();
+        assert_eq!(pinned, vec!["Documents/", "Music/"], "both pins");
+        // The last good copy is the merged settings too.
+        let backup = Settings::parse(&String::from_utf8_lossy(
+            &drive.get(crate::SETTINGS_BACKUP_KEY).unwrap(),
+        ))
+        .expect("a settings file");
+        assert_eq!(backup, on_disk);
     }
 }

@@ -34,8 +34,10 @@ use std::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    local::write_atomically, sigv4::sha256_hex, Credentials, Drive, DriveError, LocalDrive,
-    S3Config, S3Drive, Transport,
+    docs::{Doc, DocError, Document},
+    local::write_atomically,
+    sigv4::sha256_hex,
+    Credentials, Drive, DriveError, LocalDrive, S3Config, S3Drive, Transport,
 };
 
 /// The `format` of a drives file.
@@ -496,6 +498,30 @@ pub struct DrivesFile {
     pub drives: Vec<DriveEntry>,
 }
 
+impl Default for DrivesFile {
+    fn default() -> Self {
+        DrivesFile::empty()
+    }
+}
+
+impl Document for DrivesFile {
+    fn check(&self) -> Result<(), String> {
+        if self.format != DRIVES_FORMAT {
+            return Err(format!(
+                "the drives file is \"{}\", not \"{DRIVES_FORMAT}\"",
+                self.format
+            ));
+        }
+        if self.version == 0 || self.version > DRIVES_VERSION {
+            return Err(format!(
+                "the drives file is version {}; this app reads up to version {DRIVES_VERSION}",
+                self.version
+            ));
+        }
+        Ok(())
+    }
+}
+
 impl DrivesFile {
     #[must_use]
     pub fn empty() -> Self {
@@ -511,18 +537,7 @@ impl DrivesFile {
         let file: DrivesFile = serde_json::from_str(json).map_err(|e| {
             DriveError::InvalidConfig(format!("the drives file cannot be read: {e}"))
         })?;
-        if file.format != DRIVES_FORMAT {
-            return Err(DriveError::InvalidConfig(format!(
-                "the drives file is \"{}\", not \"{DRIVES_FORMAT}\"",
-                file.format
-            )));
-        }
-        if file.version == 0 || file.version > DRIVES_VERSION {
-            return Err(DriveError::InvalidConfig(format!(
-                "the drives file is version {}; this app reads up to version {DRIVES_VERSION}",
-                file.version
-            )));
-        }
+        file.check().map_err(DriveError::InvalidConfig)?;
         Ok(file)
     }
 
@@ -542,8 +557,11 @@ impl DrivesFile {
         }
     }
 
-    /// Writes the file (its folder is created), through a temporary file.
-    pub fn save(&self, path: &Path) -> Result<(), DriveError> {
+    /// Writes the file as this process has it (its folder is created), through a temporary file.
+    /// Only for a file nobody else writes: a writer that reads the file, changes it and writes it
+    /// back loses what another process changed in between - changes go through
+    /// [`DrivesFile::update`].
+    pub(crate) fn save(&self, path: &Path) -> Result<(), DriveError> {
         if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
             std::fs::create_dir_all(parent)?;
         }
@@ -565,19 +583,41 @@ impl DrivesFile {
         Some(self.drives.remove(index))
     }
 
+    /// Changes the drives file at `path`: under the file's lock, on what is in the file NOW (the
+    /// list another process changed since this one read it included), the rest of it - fields this
+    /// build does not know among them - as it was; a change that leaves the list as it was writes
+    /// nothing. The only way a drive is added, forgotten or changed: five writers loaded the file,
+    /// changed it and saved it back, and two of them at a time dropped each other's change
+    /// (AZ-U21, X-AR5a-18).
+    ///
+    /// # Errors
+    ///
+    /// [`DriveError::InvalidConfig`] for a file of another format or a newer version (never
+    /// written over), [`DriveError::Io`] when the lock is held for long or the file cannot be
+    /// read or written.
+    pub fn update<R>(
+        path: &Path,
+        change: impl FnOnce(&mut DrivesFile) -> R,
+    ) -> Result<R, DriveError> {
+        Doc::<DrivesFile>::new(path)
+            .update(change)
+            .map(|(_, answer)| answer)
+            .map_err(|e| match e {
+                DocError::Foreign(why) => DriveError::InvalidConfig(why),
+                other => DriveError::Io(format!("{}: {other}", path.display())),
+            })
+    }
+
     /// Writes down in the file at `path` that this device found the Azlin drive `id` encrypted,
     /// with the id of its drive key ([`DriveEntry::record_encryption`]). Whether the file
     /// changed: not when the drive is not in it, is no Azlin drive, or says so already.
     pub fn record_encryption(path: &Path, id: &str, key: &str) -> Result<bool, DriveError> {
-        let mut file = Self::load(path)?;
-        let Some(entry) = file.drives.iter_mut().find(|d| d.id == id) else {
-            return Ok(false);
-        };
-        if !entry.record_encryption(key) {
-            return Ok(false);
-        }
-        file.save(path)?;
-        Ok(true)
+        Self::update(path, |file| {
+            file.drives
+                .iter_mut()
+                .find(|d| d.id == id)
+                .is_some_and(|entry| entry.record_encryption(key))
+        })
     }
 
     #[must_use]

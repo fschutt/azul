@@ -3828,10 +3828,8 @@ extern "C" fn on_local_drive_picked(
             },
         };
         if let Some(file_path) = s.drives_file.clone() {
-            let saved = DrivesFile::load(&file_path).and_then(|mut file| {
-                file.add(entry.clone());
-                file.save(&file_path)
-            });
+            // Under the file's lock, on the list as it is now: a second window's change is kept.
+            let saved = DrivesFile::update(&file_path, |file| file.add(entry.clone()));
             if let Err(e) = saved {
                 s.error(Phrase::new("azdrive-drive-not-saved").arg("detail", e.to_string()));
                 return;
@@ -3896,9 +3894,8 @@ pub(crate) fn forget_drive(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveS
         return;
     };
     if let Some(file_path) = s.drives_file.clone() {
-        let saved = DrivesFile::load(&file_path).and_then(|mut file| {
+        let saved = DrivesFile::update(&file_path, |file| {
             file.remove(&drive_id);
-            file.save(&file_path)
         });
         if let Err(e) = saved {
             s.error(Phrase::new("azdrive-drives-file-failed").arg("detail", e.to_string()));

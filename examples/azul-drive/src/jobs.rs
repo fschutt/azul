@@ -457,10 +457,13 @@ pub(crate) enum Job {
         /// period tokens are kept in its vault then).
         drives: Vec<(String, String, Option<Arc<azcloud_kit::AzlinDrive>>)>,
     },
-    /// The settings file written (through a LocalDrive on the config folder).
+    /// The settings file saved by a merge (through a LocalDrive on the data tree): `mine` is
+    /// what the window has, `start` what it last read from the file or saved to it - only what
+    /// `mine` changed since is written, what another window changed stays (AZ-U7).
     SaveSettings {
         drive: LocalDrive,
-        text: String,
+        start: crate::model::Settings,
+        mine: crate::model::Settings,
     },
     /// The pictures of the open folder as thumbnails for the icon layouts:
     /// (key, size) each, one `Thumbnail` answer per picture.
@@ -779,8 +782,11 @@ pub(crate) enum Outcome {
         report: crate::archive::Rescue,
     },
     NoticeSaved { key: String, result: Result<(), DriveError> },
+    /// The settings saved (or why not); `sent` is what the window sent, which the next save is
+    /// measured from.
     SettingsSaved {
         result: Result<(), DriveError>,
+        sent: crate::model::Settings,
     },
     /// One picture's thumbnail (`None`: it could not be made).
     Thumbnail {
@@ -3702,8 +3708,9 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
                 crate::archive::run_rescue(&*source, &folder, free, state.as_deref(), &mut progress);
             Outcome::RescueDone { drive_id, report }
         }
-        Job::SaveSettings { drive, text } => Outcome::SettingsSaved {
-            result: crate::write_settings(&drive, &text),
+        Job::SaveSettings { drive, start, mine } => Outcome::SettingsSaved {
+            result: crate::save_settings_merged(&drive, &start, &mine),
+            sent: mine,
         },
         Job::Thumbnails {
             drive,

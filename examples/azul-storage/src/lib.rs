@@ -58,6 +58,9 @@ pub mod ctl;
 /// One folder on disk read in batches: names, kinds and (where the platform has them with the
 /// names) sizes, dates and inodes, without a stat per entry.
 pub mod dir_read;
+/// Documents with an owner: a JSON file several writers change, each applying its change to what
+/// is there under a lock.
+pub mod docs;
 /// The one way a file is put in place: staged beside the name, synced, checked, renamed.
 pub mod durable;
 pub mod ids;
@@ -66,6 +69,8 @@ pub mod keyring;
 /// Named maximums for numbers somebody else wrote: what an object may weigh before it is read.
 pub mod limits;
 pub mod local;
+/// Locks every process of this user shares: the OS's own file lock, dropped with its process.
+pub mod lock;
 pub mod manifest;
 pub mod meta;
 /// Big uploads to a bucket: parts of 16 MiB four at once, resumable after the app was killed.

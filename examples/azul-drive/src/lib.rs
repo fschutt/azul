@@ -424,6 +424,47 @@ pub(crate) fn write_settings(drive: &LocalDrive, text: &str) -> Result<(), azul_
     drive.put(SETTINGS_KEY, text.as_bytes())?;
     drive.put(SETTINGS_BACKUP_KEY, text.as_bytes())
 }
+
+/// How the entries of the settings' lists are told apart when two windows' versions are merged:
+/// a pinned folder by its drive and folder, a pairing by its drive and folder, a recovery by its
+/// drive, a held share by its key, a saved search by its name, a plain string by itself.
+pub(crate) fn settings_key(path: &str, item: &serde_json::Value) -> Option<String> {
+    let text = |field: &str| item.get(field).and_then(serde_json::Value::as_str);
+    match path {
+        ".pinned" => Some(format!("{}\u{0}{}", text("drive")?, text("prefix")?)),
+        ".synced" => Some(format!(
+            "{}\u{0}{}",
+            text("drive_id")?,
+            text("prefix").unwrap_or("")
+        )),
+        ".saved_searches" => text("name").map(str::to_string),
+        ".recovery.drives" | ".recovery.pending" => text("drive_id").map(str::to_string),
+        ".recovery.held" => text("key_id").map(str::to_string),
+        ".indexed_drives" | ".recent_searches" => item.as_str().map(str::to_string),
+        _ => None,
+    }
+}
+
+/// Saves the settings by merging them into the file ([`azul_storage::docs::Doc::save_merged`]):
+/// `mine` is what this window has, `start` what it last read from the file or saved to it. What
+/// this window changed is written; what another window (another process) changed in the meantime
+/// - a pairing, a recovery record, a held share - stays. Then the last good copy.
+///
+/// # Errors
+///
+/// When the file is another build's, is held by another writer for long, or cannot be written.
+pub(crate) fn save_settings_merged(
+    drive: &LocalDrive,
+    start: &Settings,
+    mine: &Settings,
+) -> Result<(), azul_storage::DriveError> {
+    let path = drive.root().join(SETTINGS_KEY);
+    let merged = azul_storage::docs::Doc::<Settings>::new(&path)
+        .save_merged(start, mine, settings_key)
+        .map_err(|e| azul_storage::DriveError::Io(format!("{}: {e}", path.display())))?;
+    drive.note_written(SETTINGS_KEY);
+    drive.put(SETTINGS_BACKUP_KEY, merged.to_json().as_bytes())
+}
 /// The data tree's drive id (the data root, a `LocalDrive` now, the user's bucket later).
 pub(crate) const DATA_ID: &str = "azlin";
 /// What the About page and azul-appkit say about AzDrive.
@@ -1128,6 +1169,13 @@ pub(crate) struct DriveState {
     pub selected_pin: Option<usize>,
     pub type_ahead: TypeAhead,
     pub settings: Settings,
+    /// The settings as this window last read them from the file or saved them to it: the next
+    /// save writes what `settings` changed since, and leaves what another window changed.
+    pub settings_base: Settings,
+    /// A save of the settings is running (the next one waits for it).
+    pub settings_saving: bool,
+    /// The settings changed while a save ran: one more save follows.
+    pub settings_dirty: bool,
     /// The search box's text.
     pub search: String,
     /// The search of the open folder and every folder below it, while the search box holds
@@ -2466,13 +2514,24 @@ pub(crate) fn settings_after_cancel(found: model::Settings, now: &model::Setting
     }
 }
 
-/// Writes the settings file (on a Thread, through the settings folder's drive).
+/// Saves the settings (on a Thread, through the settings folder's drive): merged into the file,
+/// one save at a time and in order - a save asked while one runs is made when it ends, with
+/// whatever the settings are by then, so two saves never land out of order.
 pub(crate) fn save_settings(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
     let Some(drive) = s.settings_drive.clone() else {
         return;
     };
-    let text = s.settings.to_json();
-    spawn(info, app, s, Job::SaveSettings { drive, text });
+    if s.settings_saving {
+        s.settings_dirty = true;
+        return;
+    }
+    s.settings_saving = true;
+    let job = Job::SaveSettings {
+        drive,
+        start: s.settings_base.clone(),
+        mine: s.settings.clone(),
+    };
+    spawn(info, app, s, job);
 }
 
 // ==== Keyring ====
@@ -3218,9 +3277,17 @@ pub(crate) extern "C" fn on_job_done(
             #[cfg(feature = "encryption")]
             encryption::request_totals(&mut info, &handle, s);
         }
-        Outcome::SettingsSaved { result } => {
-            if let Err(e) = result {
-                s.error(failed("azdrive-settings-not-saved", &e));
+        Outcome::SettingsSaved { result, sent } => {
+            s.settings_saving = false;
+            match result {
+                // The file holds what this window sent (and whatever other windows changed): the
+                // next save is measured from what was sent.
+                Ok(()) => s.settings_base = sent,
+                Err(e) => s.error(failed("azdrive-settings-not-saved", &e)),
+            }
+            if s.settings_dirty {
+                s.settings_dirty = false;
+                save_settings(&mut info, &handle, s);
             }
         }
         Outcome::Thumbnail { key, image } => {
@@ -3828,10 +3895,11 @@ pub fn start() {
     }
 
     // The settings, read once before the window opens (no callback waits).
-    let mut settings = settings_drive
+    let settings_base = settings_drive
         .as_ref()
         .map(read_settings)
         .unwrap_or_default();
+    let mut settings = settings_base.clone();
     if let Some(layout) = args.layout {
         settings.layout = layout;
     }
@@ -3975,6 +4043,9 @@ pub fn start() {
         selected_pin: None,
         type_ahead: TypeAhead::default(),
         settings,
+        settings_base,
+        settings_saving: false,
+        settings_dirty: false,
         search: String::new(),
         find: None,
         find_serial: 0,

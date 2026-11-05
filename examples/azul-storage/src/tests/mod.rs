@@ -13,6 +13,8 @@ mod contained_links;
 mod ctl;
 /// A folder read in batches, a listing page that stats only its own entries.
 mod dir_read;
+/// Documents with an owner: the drives file changed by several writers, a newer build's fields.
+mod docs;
 /// Which `Drive` methods the folder on disk overrides and which it leaves to the defaults.
 mod drive_coverage;
 /// The one durable write path: the order of its steps, what a cut at each leaves, what the name
