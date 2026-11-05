@@ -607,21 +607,19 @@ fn start_copy(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, drive_i
         answer(info, s, &PickAnswer::error(t("azdrive-pick-drive-closed")));
         return;
     };
-    // In the cache folder; without one, in scratch (a private folder, swept), never the shared temp
-    // folder under a name every user can guess (X-AR5a-23).
+    // In the cache folder; without one, in scratch (a private folder of its own per drive, swept
+    // when a day old), never the shared temp folder under a name every user can guess (X-AR5a-23).
     let root = match s.cache_dir.clone() {
-        Some(cache) => cache.join("picked"),
-        None => {
-            let scratch = Scratch::new("picked");
-            if let Err(e) = scratch.ensure() {
+        Some(cache) => cache.join("picked").join(drive_id),
+        None => match Scratch::new("picked").keep(drive_id) {
+            Ok(folder) => folder,
+            Err(e) => {
                 eprintln!("[azdrive] the picker's copies cannot wait in scratch: {e}");
                 answer(info, s, &PickAnswer::error(t("azdrive-pick-fetch-failed")));
                 return;
             }
-            scratch.dir().to_path_buf()
-        }
-    }
-    .join(drive_id);
+        },
+    };
     let items: Vec<SourceItem> = refs
         .iter()
         .map(|r| SourceItem {
