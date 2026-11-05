@@ -50,7 +50,7 @@
 //! file or a QR code, never by a channel others read.
 
 use serde::{Deserialize, Serialize};
-use zeroize::Zeroizing;
+use zeroize::{Zeroize, Zeroizing};
 
 use super::{
     hex_array,
@@ -239,7 +239,9 @@ pub fn publish_recovery_wrap(
     }
 }
 
-/// A key as the keyring keeps it (JSON): what it is and its bytes in hex.
+/// A key as the keyring keeps it (JSON): what it is and its bytes in hex. The hex text is wiped
+/// when the value is dropped (AZ-C7): the string that held the key must not outlive it in freed
+/// heap.
 #[derive(Serialize, Deserialize)]
 struct StoredKey {
     kind: String,
@@ -251,6 +253,12 @@ struct StoredKey {
     /// device has not held the key yet.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     committed: Option<String>,
+}
+
+impl Drop for StoredKey {
+    fn drop(&mut self) {
+        self.key.zeroize();
+    }
 }
 
 /// A key entry read: the key's bytes, and a member key's pin and commitment.
@@ -356,10 +364,11 @@ fn load_entry(
     };
     let text = Zeroizing::new(text);
     // The parser's message is not passed on: it could quote the key.
-    let stored: StoredKey = serde_json::from_str(&text).map_err(|_| {
+    let mut stored: StoredKey = serde_json::from_str(&text).map_err(|_| {
         DriveError::InvalidConfig(format!("the keyring entry {entry} holds no key"))
     })?;
-    let hex = Zeroizing::new(stored.key);
+    // The hex text moves into a wiped string (the stored value's own is left empty).
+    let hex = Zeroizing::new(std::mem::take(&mut stored.key));
     if stored.kind != kind {
         return Err(DriveError::InvalidConfig(format!(
             "the keyring entry {entry} holds a {} where a {kind} belongs",
@@ -382,8 +391,8 @@ fn load_entry(
     };
     Ok(Some(Entry {
         bytes: Zeroizing::new(bytes),
-        drive_key_id: id(stored.drive_key_id)?,
-        committed: id(stored.committed)?,
+        drive_key_id: id(std::mem::take(&mut stored.drive_key_id))?,
+        committed: id(std::mem::take(&mut stored.committed))?,
     }))
 }
 

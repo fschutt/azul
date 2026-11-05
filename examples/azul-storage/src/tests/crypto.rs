@@ -627,3 +627,38 @@ fn a_share_key_opens_the_file_it_covers_and_not_another() {
         CryptoError::WrongKey
     );
 }
+
+/// AZ-C7: a plaintext buffer is reserved whole before it is read into. `Zeroizing` wipes the buffer
+/// a vector ends in, not the ones it outgrew: a `read_to_end` into an empty vector doubled its way
+/// up and left a copy of the plaintext in freed heap at every step. The buffer has the room of
+/// what is expected (the prefix and the source's known length) from the start, and keeps it.
+#[test]
+fn az_c7_a_plaintext_buffer_is_reserved_whole_before_it_is_read() {
+    use crate::crypto::{read_wiped, read_wiped_from};
+    use std::io::Cursor;
+
+    let data = vec![7u8; 10_000];
+    // A known length: the reservation is the prefix and that length, not the limit's.
+    let mut source = Cursor::new(data.clone());
+    let buf = read_wiped_from(&[1, 2, 3], &mut source, 20_000, Some(10_000)).unwrap();
+    assert_eq!(&buf[..3], &[1, 2, 3]);
+    assert_eq!(&buf[3..], &data[..]);
+    assert_eq!(buf.capacity(), 10_003, "reserved once, never grown");
+
+    // An unknown length with a limit the source passes: the limit's room, filled to the brim.
+    let mut source = Cursor::new(data.clone());
+    let buf = read_wiped(&mut source, 5_000).unwrap();
+    assert_eq!(buf.len(), 5_000);
+    assert_eq!(buf.capacity(), 5_000, "no doubling on the way");
+
+    // A source shorter than the limit: only what is there, in the room asked for.
+    let mut source = Cursor::new(vec![9u8; 100]);
+    let buf = read_wiped(&mut source, 4_096).unwrap();
+    assert_eq!(buf.len(), 100);
+    assert_eq!(buf.capacity(), 4_096);
+
+    // The reader is the caller's, and what the limit left is still in it.
+    let mut source = Cursor::new(data);
+    let _ = read_wiped(&mut source, 1_000).unwrap();
+    assert_eq!(source.position(), 1_000);
+}

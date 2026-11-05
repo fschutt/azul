@@ -57,6 +57,46 @@ use zeroize::Zeroize;
 /// invite's secret): zeroize's, for apps without a dependency of their own on it.
 pub use zeroize::Zeroizing;
 
+/// The most that [`read_wiped_from`] reserves up front: 128 MiB. A reservation is address space
+/// until it is written; the bound is for a limit nobody should trust to be the size of the thing.
+const WIPED_ROOM_MAX: u64 = 128 << 20;
+
+/// `prefix` and then up to `more` bytes of `source`, in ONE buffer whose room is reserved before
+/// anything is read. `Zeroizing` wipes the buffer a vector ends in, not the ones it outgrew: a
+/// `read_to_end` into an empty vector doubled its way up and left a copy of the plaintext in freed
+/// heap at every step (AZ-C7). `expected` is the length the caller knows the source to have, so a
+/// small file reserves its own size and not the limit's.
+///
+/// # Errors
+///
+/// The source's.
+pub(crate) fn read_wiped_from<R: std::io::Read + ?Sized>(
+    prefix: &[u8],
+    source: &mut R,
+    more: u64,
+    expected: Option<u64>,
+) -> std::io::Result<Zeroizing<Vec<u8>>> {
+    use std::io::Read;
+    let room = more.min(expected.unwrap_or(more)).min(WIPED_ROOM_MAX);
+    let room = prefix.len() + usize::try_from(room).unwrap_or(usize::MAX >> 1);
+    let mut buf = Zeroizing::new(Vec::with_capacity(room));
+    buf.extend_from_slice(prefix);
+    (&mut *source).take(more).read_to_end(&mut buf)?;
+    Ok(buf)
+}
+
+/// Up to `limit` bytes of `source` in one buffer reserved up front ([`read_wiped_from`]).
+///
+/// # Errors
+///
+/// The source's.
+pub(crate) fn read_wiped<R: std::io::Read + ?Sized>(
+    source: &mut R,
+    limit: u64,
+) -> std::io::Result<Zeroizing<Vec<u8>>> {
+    read_wiped_from(&[], source, limit, None)
+}
+
 use crate::DriveError;
 
 /// Bytes of every key here (256 bits).

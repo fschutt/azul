@@ -920,15 +920,20 @@ pub fn encrypt_stream_as<R: Read + ?Sized, W: Write + Seek>(
         .compression
         .options(options.segment_size, hint.extension.as_deref())
     {
-        (&mut *source)
-            .take(codec::SNIFF_LEN as u64)
-            .read_to_end(&mut head)?;
+        // Each buffer is reserved whole before it is read into: a vector that grew would leave
+        // the plaintext it outgrew in freed heap (AZ-C7).
+        head = super::read_wiped(&mut *source, codec::SNIFF_LEN as u64)?;
         let max = codec_options.limits.max_transform_input;
         // An unknown length is tried: the stream is read until it ends or passes the cap.
         let len = hint.len.unwrap_or(max);
         if azlin_compress::plan(&head, len, &codec_options).transform.is_some() {
             let rest = (max + 1).saturating_sub(head.len() as u64);
-            (&mut *source).take(rest).read_to_end(&mut head)?;
+            head = super::read_wiped_from(
+                &head,
+                &mut *source,
+                rest,
+                hint.len.map(|known| known.saturating_sub(head.len() as u64)),
+            )?;
             if head.len() as u64 <= max {
                 // The whole file is in memory.
                 hint.len = Some(head.len() as u64);

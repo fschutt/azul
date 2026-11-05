@@ -1676,8 +1676,7 @@ impl<D: Drive> EncryptedDrive<D> {
         let Some(threshold) = self.pack_threshold() else {
             return self.write_stream(path, body, expect);
         };
-        let mut head: zeroize::Zeroizing<Vec<u8>> = zeroize::Zeroizing::new(Vec::new());
-        (&mut *body).take(threshold).read_to_end(&mut head)?;
+        let head = crate::crypto::read_wiped(&mut *body, threshold)?;
         if (head.len() as u64) < threshold {
             return self.write_packed(path, &head, expect);
         }
@@ -1953,11 +1952,13 @@ impl<D: Drive> EncryptedDrive<D> {
                 large.push((i, key, expect, Box::new(body)));
                 continue;
             };
-            let mut head: zeroize::Zeroizing<Vec<u8>> = zeroize::Zeroizing::new(Vec::new());
-            if let Err(e) = (&mut *body).take(threshold).read_to_end(&mut head) {
-                results[i] = Some(Err(e.into()));
-                continue;
-            }
+            let head = match crate::crypto::read_wiped(&mut *body, threshold) {
+                Ok(head) => head,
+                Err(e) => {
+                    results[i] = Some(Err(e.into()));
+                    continue;
+                }
+            };
             if (head.len() as u64) < threshold {
                 small.push((i, key, condition, head));
             } else {
