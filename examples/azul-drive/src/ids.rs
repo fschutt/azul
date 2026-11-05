@@ -365,6 +365,19 @@ pub fn sync_on_metered(drive_id: &str) -> AzString {
 pub fn voucher_button(drive_id: &str) -> AzString {
     AzString::from(format!("__azdrive_voucher_{}", id_part(drive_id)))
 }
+
+/// Options > Drives' "Receipts" of a drive: `__azdrive_receipts_<id>`.
+#[must_use]
+pub fn receipts_button(drive_id: &str) -> AzString {
+    AzString::from(format!("__azdrive_receipts_{}", id_part(drive_id)))
+}
+
+/// The receipts dialog, and the Save of the receipt of a checkout: `__azdrive_receipt_save_<id>`.
+pub const RECEIPTS: AzString = AzString::from_const_str("__azdrive_receipts");
+#[must_use]
+pub fn receipt_save(checkout_id: &str) -> AzString {
+    AzString::from(format!("__azdrive_receipt_save_{}", id_part(checkout_id)))
+}
 /// "Replace or Skip Files" and its three answers.
 pub const CONFLICT: AzString = AzString::from_const_str("__azdrive_conflict");
 pub const CONFLICT_REPLACE: AzString = AzString::from_const_str("__azdrive_conflict_replace");

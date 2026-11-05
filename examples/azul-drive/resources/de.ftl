@@ -1701,6 +1701,35 @@ azdrive-add-options-failed-short = Die Zahlungsoptionen sind noch nicht da. Vers
 azdrive-add-options-missing = Der Token-Server hat keine Zahlungsoptionen geantwortet. Versuche es gleich noch einmal.
 azdrive-order-page-not-ours = Die Zahlungsseite, die der Token-Server nannte, ist keine seiner eigenen, deshalb wurde die Bestellung abgebrochen und nichts berechnet. Prüfe den Token-Server in den Einstellungen.
 azdrive-order-price-changed = Der Preis hat sich beim Bestellen von { $shown } auf { $charged } geändert, deshalb wurde nichts bestellt. Die Preise werden neu geladen: Prüfe sie und bestelle noch einmal.
+azdrive-options-receipts = Belege
+azdrive-receipts-title = Belege von { $name }
+azdrive-receipts-none = Für dieses Laufwerk wurde auf diesem Computer noch nichts bezahlt.
+azdrive-receipts-unreadable = Die Liste der Zahlungen konnte nicht gelesen werden: { $why }
+azdrive-receipts-row = { $date }: { $tier }, { $months ->
+        [one] 1 Monat
+       *[other] { $months } Monate
+    } { $amount }
+azdrive-receipts-save = Als PDF speichern
+azdrive-receipt-title = Zahlungsbeleg
+azdrive-receipt-subtitle = Azlin Storage
+azdrive-receipt-note = Diese Seite nennt, was der Token-Server für diese Zahlung gebucht hat. Sie ist keine Steuerberatung.
+azdrive-receipt-no-sale = Der Token-Server hat für diese Zahlung keinen Verkauf gebucht, deshalb gibt es keinen Betrag.
+azdrive-receipt-checkout = Bestellung
+azdrive-receipt-drive = Laufwerk
+azdrive-receipt-tier = Speicher
+azdrive-receipt-months = Bezahlte Monate
+azdrive-receipt-date = Datum
+azdrive-receipt-service = Leistung
+azdrive-receipt-amount = Bezahlter Betrag
+azdrive-receipt-vat = Mehrwertsteuersatz
+azdrive-receipt-vat-rate = { $rate } %
+azdrive-receipt-country = Land
+azdrive-receipt-method = Bezahlt mit
+azdrive-receipt-document = Beleg
+azdrive-receipt-kind-receipt = Zahlungsbeleg
+azdrive-receipt-kind-small = Kleinbetragsrechnung
+azdrive-receipt-eur = Betrag in Euro
+azdrive-receipt-eur-rate = { $amount } zum Kurs ({ $source }) vom { $day }
 azdrive-order-earlier-paid = Ihre frühere Bestellung dafür ({ $checkout }) ist bezahlt: Das Laufwerk kommt, sobald die Zahlung bestätigt ist. Es wurde nichts Neues bestellt.
 azdrive-order-earlier-open = Ihre frühere Bestellung dafür ({ $checkout }) kann noch bezahlt werden, deshalb startet AzDrive noch keine weitere. Versuchen Sie es gleich noch einmal.
 azdrive-order-no-room = { $waiting } unfertige Bestellungen warten schon. Lassen Sie sie bezahlen oder beenden Sie sie zuerst.

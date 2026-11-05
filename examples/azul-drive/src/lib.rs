@@ -236,6 +236,10 @@ mod iroh_lane;
 mod problems;
 /// An Azlin drive's space: the quota counts stored bytes, the original size as extra information.
 mod usage_view;
+/// The customer's receipts, saved as PDF (Options > Drives).
+mod receipt;
+#[cfg(test)]
+mod receipt_tests;
 /// Vouchers on a drive (Options > Drives).
 mod vouchers;
 /// The devices of an Azlin drive and their removal (Options > Drives).
@@ -1007,6 +1011,13 @@ pub(crate) enum Popup {
         text: String,
         error: azul_appkit::l10n::Text,
         busy: bool,
+    },
+    /// Options > Drives' "Receipts" of an Azlin drive: what this computer paid for it, newest
+    /// first, each page saved as a PDF (ENT27-B06).
+    Receipts {
+        drive_id: String,
+        records: Vec<azcloud_kit::pending::PaidRecord>,
+        error: azul_appkit::l10n::Text,
     },
 }
 

@@ -1703,6 +1703,35 @@ azdrive-add-options-failed-short = The payment options are not here yet. Try aga
 azdrive-add-options-missing = The token server answered no payment options. Try again in a moment.
 azdrive-order-page-not-ours = The payment page the token server named is not one of its own, so the order was cancelled and nothing was charged. Check the token server in the settings.
 azdrive-order-price-changed = The price changed from { $shown } to { $charged } while the order was made, so nothing was ordered. The prices are loaded again: check them and order once more.
+azdrive-options-receipts = Receipts
+azdrive-receipts-title = Receipts of { $name }
+azdrive-receipts-none = Nothing was paid for this drive on this computer yet.
+azdrive-receipts-unreadable = The list of payments could not be read: { $why }
+azdrive-receipts-row = { $date }: { $tier }, { $months ->
+        [one] 1 month
+       *[other] { $months } months
+    } { $amount }
+azdrive-receipts-save = Save as PDF
+azdrive-receipt-title = Payment receipt
+azdrive-receipt-subtitle = Azlin Storage
+azdrive-receipt-note = This page lists what the token server booked for this payment. It gives no tax advice.
+azdrive-receipt-no-sale = The token server booked no sale for this payment, so there is no amount to show.
+azdrive-receipt-checkout = Order
+azdrive-receipt-drive = Drive
+azdrive-receipt-tier = Storage
+azdrive-receipt-months = Months paid
+azdrive-receipt-date = Date
+azdrive-receipt-service = Service
+azdrive-receipt-amount = Amount paid
+azdrive-receipt-vat = VAT rate
+azdrive-receipt-vat-rate = { $rate } %
+azdrive-receipt-country = Country
+azdrive-receipt-method = Paid by
+azdrive-receipt-document = Document
+azdrive-receipt-kind-receipt = Payment receipt
+azdrive-receipt-kind-small = Small-amount invoice
+azdrive-receipt-eur = Amount in euros
+azdrive-receipt-eur-rate = { $amount } at the rate of { $source } of { $day }
 azdrive-order-earlier-paid = Your earlier order for this ({ $checkout }) is paid: its drive arrives as soon as the payment is confirmed. Nothing new was ordered.
 azdrive-order-earlier-open = Your earlier order for this ({ $checkout }) may still be paid, so AzDrive does not start another one yet. Try again in a moment.
 azdrive-order-no-room = { $waiting } unfinished orders wait already. Let them be paid or end them first.

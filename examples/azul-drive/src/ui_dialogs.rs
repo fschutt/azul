@@ -308,6 +308,11 @@ pub(crate) fn popup_parts(popup: &Popup, s: &DriveState, app: &RefAny) -> (Strin
             ]));
             (t_args("azdrive-voucher-title", &[("name", Arg::from(name))]), body)
         }
+        Popup::Receipts {
+            drive_id,
+            records,
+            error,
+        } => crate::receipt::dialog_parts(s, app, drive_id, records, error),
         #[cfg(feature = "encryption")]
         Popup::Encryption(dialog) => crate::encryption::dialog_parts(dialog, s, app),
         Popup::Sync(dialog) => crate::sync_view::dialog_parts(dialog, s, app),
@@ -1157,6 +1162,18 @@ fn options_of(s: &DriveState, app: &RefAny, category: usize) -> Vec<(String, Dom
                                 .with_id(ids::voucher_button(&slot.entry.id)),
                         );
                         row.add_child(
+                            Button::create(l10n::label("azdrive-options-receipts"))
+                                .with_on_click(
+                                    RefAny::new(DriveRef {
+                                        app: app.clone(),
+                                        index,
+                                    }),
+                                    on_receipts_drive as ButtonOnClickCallbackType,
+                                )
+                                .dom()
+                                .with_id(ids::receipts_button(&slot.entry.id)),
+                        );
+                        row.add_child(
                             Button::create(l10n::label("azdrive-options-restore"))
                                 .with_on_click(
                                     RefAny::new(DriveRef {
@@ -1313,6 +1330,21 @@ extern "C" fn on_voucher_drive(mut data: RefAny, mut info: CallbackInfo) -> Upda
     with_state(&mut app, &mut info, |_info, _app, s| {
         if let Some(drive_id) = s.slots.get(index).map(|slot| slot.entry.id.clone()) {
             crate::vouchers::open(s, &drive_id);
+        }
+    })
+}
+
+/// Options > Drives' "Receipts" of an Azlin drive: its dialog.
+extern "C" fn on_receipts_drive(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((mut app, index)) = data
+        .downcast_ref::<DriveRef>()
+        .map(|d| (d.app.clone(), d.index))
+    else {
+        return Update::DoNothing;
+    };
+    with_state(&mut app, &mut info, |_info, _app, s| {
+        if let Some(drive_id) = s.slots.get(index).map(|slot| slot.entry.id.clone()) {
+            crate::receipt::open(s, &drive_id);
         }
     })
 }
