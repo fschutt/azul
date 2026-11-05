@@ -1865,8 +1865,8 @@ pub(crate) fn activate(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState
         let Some(drive) = open_drive(s, &drive_id) else {
             return;
         };
-        let folder = s.open_dir.join(&drive_id);
-        s.info(Phrase::new("azdrive-opening").arg("name", entry.name.as_str()));
+        s.info(opening_phrase(&*drive, &item, &entry.name));
+        let copies = s.opened.clone();
         spawn(
             info,
             app,
@@ -1874,8 +1874,7 @@ pub(crate) fn activate(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState
             Job::Open {
                 drive,
                 key: item,
-                size: entry.size,
-                folder,
+                copies,
             },
         );
         return;
@@ -1900,8 +1899,8 @@ pub(crate) fn activate(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState
     let Some(drive) = open_current(s) else {
         return;
     };
-    let folder = s.open_dir.join(&drive_id);
-    s.info(Phrase::new("azdrive-opening").arg("name", entry.name.as_str()));
+    s.info(opening_phrase(&*drive, &entry.key, &entry.name));
+    let copies = s.opened.clone();
     spawn(
         info,
         app,
@@ -1909,10 +1908,21 @@ pub(crate) fn activate(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState
         Job::Open {
             drive,
             key: entry.key,
-            size: entry.size,
-            folder,
+            copies,
         },
     );
+}
+
+/// What the status line says while `name` opens: its own name where it opens in place, and that
+/// it is a read-only copy for a file of a cloud drive (AZ-U13: an edit of that copy cannot be
+/// saved where it was opened, and the line is the place to say why).
+pub(crate) fn opening_phrase(drive: &dyn Drive, key: &str, name: &str) -> Phrase {
+    let said = if drive.local_path(key).is_some() {
+        "azdrive-opening"
+    } else {
+        "azdrive-opening-copy"
+    };
+    Phrase::new(said).arg("name", name)
 }
 
 // ==== Clipboard ====
@@ -3106,7 +3116,7 @@ pub(crate) fn request_preview(info: &mut CallbackInfo, app: &RefAny, s: &mut Dri
         key: entry.key.clone(),
         content: None,
     });
-    let temp_dir = s.open_dir.join("preview");
+    let copies = s.opened.clone();
     spawn(
         info,
         app,
@@ -3116,7 +3126,7 @@ pub(crate) fn request_preview(info: &mut CallbackInfo, app: &RefAny, s: &mut Dri
             key: entry.key,
             size: entry.size,
             kind,
-            temp_dir,
+            copies,
         },
     );
 }

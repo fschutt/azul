@@ -40,8 +40,13 @@ use azul_search_index::{
     DriveIndex, ExtractFn, Extractors, IndexStatus, Kind, UpdateProgress, UpdateSummary,
 };
 use azul_storage::{
-    azul_transport::AzulTransport, config::DriveEntry, ops as storage_ops, transfer, ByteRange,
-    Drive, DriveError, ListPage, ListRequest, LocalDrive, ObjectInfo,
+    azul_transport::AzulTransport,
+    config::DriveEntry,
+    ctl::Quiet,
+    durable::Expect,
+    ops as storage_ops,
+    scratch::{self, Scratch},
+    transfer, ByteRange, Drive, DriveError, ListPage, ListRequest, LocalDrive, ObjectInfo,
 };
 
 use crate::{
@@ -260,8 +265,8 @@ pub(crate) enum Job {
         key: String,
         size: Option<u64>,
         kind: PreviewKind,
-        /// Where a cloud video is fetched to.
-        temp_dir: PathBuf,
+        /// Where a cloud video is fetched to ([`opened_copy`]).
+        copies: Scratch,
     },
     /// Every object under a folder, counted.
     Measure {
@@ -279,12 +284,12 @@ pub(crate) enum Job {
         items: Vec<SourceItem>,
         zip_key: String,
     },
-    /// A file fetched to `folder` and handed to the OS's app.
+    /// A file handed to the OS's app: where it is on this computer, else a read-only copy made
+    /// in `copies` ([`opened_copy`]).
     Open {
         drive: Arc<dyn Drive>,
         key: String,
-        size: Option<u64>,
-        folder: PathBuf,
+        copies: Scratch,
     },
     /// Add drive's "Test connection": the source `entry` opened with its keyring text
     /// `secret`, then ONE listing of its root, one entry at most.
@@ -1029,13 +1034,80 @@ fn pdf_first_page(bytes: &[u8]) -> PreviewContent {
     }
 }
 
+/// How long a copy handed to an app is kept before a sweep removes it (at the start and before
+/// the next copy): "swept after use" for a copy nobody can tell the end of use of.
+pub(crate) const OPEN_COPY_KEPT: Duration = Duration::from_secs(24 * 3600);
+
+/// The copy of the cloud file `key` an app (or the video preview) is handed (AZ-W4, AZ-U13,
+/// AZ-U14). It was `<system temp>/AzDrive-open/<drive>/<name>`: a folder every user could read
+/// and make first (a link planted there was followed), never cleaned, and a name that became
+/// `name (1)` the next time. Now:
+///
+/// - in `copies` (scratch): a folder only this user can enter, checked, swept after a day;
+/// - one folder per file AND VERSION (the key with the etag, size and date the drive reports
+///   NOW): opened again, the same copy opens, and a changed file is a new copy;
+/// - READ-ONLY: the product decision of U13 (Q17) - an edit of a copy nobody uploads was lost
+///   silently; now the app that opens it cannot save in place and says so;
+/// - put in place only if the name is still free ([`Expect::Absent`]): two windows opening the
+///   same file make one copy.
+fn opened_copy(drive: &dyn Drive, copies: &Scratch, key: &str) -> Result<PathBuf, DriveError> {
+    let name = azul_storage::key::safe_file_name(key).ok_or_else(|| DriveError::InvalidKey {
+        key: key.to_string(),
+        reason: "it has no usable file name",
+    })?;
+    let head = drive.head(key)?;
+    // A drive that reports neither an etag nor a date cannot tell one version from the next:
+    // its copy is never reused.
+    let version = match (&head.etag, head.modified) {
+        (None, None) => format!("unversioned-{:x}", azul_storage::ids::random_seed()),
+        (etag, modified) => format!("{}-{modified:?}", etag.as_deref().unwrap_or("")),
+    };
+    // What a run before left, and old copies of this one, go before a new copy comes.
+    copies.sweep(OPEN_COPY_KEPT);
+    let folder = copies
+        .keep(&format!("{key}\0{version}\0{}", head.size))
+        .map_err(|e| DriveError::Io(format!("{key}: {e}")))?;
+    let dest = folder.join(name);
+    let whole = |path: &Path| fs::metadata(path).is_ok_and(|m| m.is_file() && m.len() == head.size);
+    if whole(&dest) {
+        return Ok(dest);
+    }
+    let mut cleared = false;
+    loop {
+        match transfer::download_guarded(
+            drive,
+            key,
+            Some(head.size),
+            &dest,
+            transfer::CHUNK,
+            Expect::Absent,
+            &Quiet,
+        ) {
+            Ok(_) => break,
+            // Another window made the same copy in the same moment.
+            Err(DriveError::Conflict { .. }) if whole(&dest) => return Ok(dest),
+            // Something that is not this version's bytes stands under the name (a copy somebody
+            // changed): it goes, once, and the copy is fetched.
+            Err(DriveError::Conflict { .. }) if !cleared => {
+                cleared = true;
+                fs::remove_file(&dest).map_err(|e| DriveError::Io(format!("{key}: {e}")))?;
+            }
+            Err(e) => return Err(e),
+        }
+    }
+    // collapse-ok: a copy that stays writable is still private to this user; what a refusal
+    // loses is only the loud failure of a save in place.
+    let _ = scratch::make_read_only(&dest);
+    Ok(dest)
+}
+
 /// The preview of `key`, made on the worker thread.
 fn make_preview(
     drive: &dyn Drive,
     key: &str,
     size: Option<u64>,
     kind: PreviewKind,
-    temp_dir: &std::path::Path,
+    copies: &Scratch,
 ) -> PreviewContent {
     // A row a scan listed has no size before its stat: the file's own, here (the limits below
     // read it).
@@ -1068,15 +1140,7 @@ fn make_preview(
         if !preview::fits_preview(kind, size) {
             return PreviewContent::Message(Text::key("azdrive-preview-video-too-big"));
         }
-        return match transfer::download_path(temp_dir, key)
-            .ok_or_else(|| DriveError::InvalidKey {
-                key: key.to_string(),
-                reason: "it has no usable file name",
-            })
-            .and_then(|dest| {
-                transfer::download_to_file(drive, key, size, &dest, transfer::CHUNK)?;
-                Ok(dest)
-            }) {
+        return match opened_copy(drive, copies, key) {
             Ok(path) => PreviewContent::Video(path),
             Err(e) => no_preview(drive_error_text(&e)),
         };
@@ -3473,9 +3537,9 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
             key,
             size,
             kind,
-            temp_dir,
+            copies,
         } => Outcome::Previewed {
-            content: make_preview(&*drive, &key, size, kind, &temp_dir),
+            content: make_preview(&*drive, &key, size, kind, &copies),
             key,
         },
         Job::Measure {
@@ -3498,24 +3562,11 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
             result: make_zip(&*drive, &items, &zip_key),
             zip_key,
         },
-        Job::Open {
-            drive,
-            key,
-            size,
-            folder,
-        } => {
+        Job::Open { drive, key, copies } => {
             let result = match drive.local_path(&key) {
                 // A local file opens where it is.
                 Some(path) => Ok(path),
-                None => transfer::download_path(&folder, &key)
-                    .ok_or_else(|| DriveError::InvalidKey {
-                        key: key.clone(),
-                        reason: "it has no usable file name",
-                    })
-                    .and_then(|dest| {
-                        transfer::download_to_file(&*drive, &key, size, &dest, transfer::CHUNK)?;
-                        Ok(dest)
-                    }),
+                None => opened_copy(&*drive, &copies, &key),
             };
             Outcome::Opened { key, result }
         }
@@ -5184,5 +5235,209 @@ mod tests {
         assert_eq!(backoff_secs(10, 9, 300, None), 300);
         // A cap below the base never shortens the base.
         assert_eq!(backoff_secs(10, 4, 5, None), 10);
+    }
+
+    /// A cloud drive of ONE file whose version a test moves on; every `get` is counted.
+    struct Cloud {
+        bytes: std::sync::Mutex<Vec<u8>>,
+        /// `None`: the drive reports neither an etag nor a date.
+        etag: std::sync::Mutex<Option<String>>,
+        gets: AtomicUsize,
+    }
+
+    impl Cloud {
+        fn new(bytes: &[u8], etag: Option<&str>) -> Cloud {
+            Cloud {
+                bytes: std::sync::Mutex::new(bytes.to_vec()),
+                etag: std::sync::Mutex::new(etag.map(str::to_string)),
+                gets: AtomicUsize::new(0),
+            }
+        }
+
+        /// The file changed in the cloud.
+        fn change(&self, bytes: &[u8], etag: Option<&str>) {
+            *self.bytes.lock().unwrap() = bytes.to_vec();
+            *self.etag.lock().unwrap() = etag.map(str::to_string);
+        }
+
+        fn gets(&self) -> usize {
+            self.gets.load(Ordering::SeqCst)
+        }
+    }
+
+    impl Drive for Cloud {
+        fn list(&self, _request: &ListRequest) -> Result<ListPage, DriveError> {
+            Ok(ListPage {
+                folders: Vec::new(),
+                objects: Vec::new(),
+                next: None,
+            })
+        }
+        fn get(&self, _key: &str) -> Result<Vec<u8>, DriveError> {
+            self.gets.fetch_add(1, Ordering::SeqCst);
+            Ok(self.bytes.lock().unwrap().clone())
+        }
+        fn get_range(&self, key: &str, _range: ByteRange) -> Result<Vec<u8>, DriveError> {
+            self.get(key)
+        }
+        fn put(&self, _key: &str, _bytes: &[u8]) -> Result<(), DriveError> {
+            Ok(())
+        }
+        fn delete(&self, _key: &str) -> Result<(), DriveError> {
+            Ok(())
+        }
+        fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
+            let etag = self.etag.lock().unwrap().clone();
+            Ok(ObjectInfo {
+                key: key.to_string(),
+                size: self.bytes.lock().unwrap().len() as u64,
+                modified: etag.as_ref().map(|_| 1_700_000_000),
+                etag,
+            })
+        }
+    }
+
+    #[cfg(unix)]
+    fn mode_of(path: &Path) -> u32 {
+        use std::os::unix::fs::PermissionsExt;
+        fs::metadata(path).unwrap().permissions().mode() & 0o777
+    }
+
+    /// AZ-W4 / AZ-U14: Open and the video preview wrote the file to `<system temp>/AzDrive-open/
+    /// <drive>/<name>` - shared, world-readable, never cleaned, a link planted there followed.
+    /// The copy is in scratch now: folders only this user can enter (the root of scratch, the
+    /// purpose, the file's own), and the file read-only.
+    #[test]
+    fn az_w4_a_cloud_file_opens_as_a_private_read_only_copy_in_scratch() {
+        let base = TempDir::new("azdrive-open-copy");
+        let copies = Scratch::under(base.path(), "open");
+        let cloud = Cloud::new(b"cloud bytes", Some("e1"));
+        let path = opened_copy(&cloud, &copies, "docs/report.docx").expect("a copy");
+        assert!(path.starts_with(copies.dir()), "{path:?}");
+        assert_eq!(path.file_name().unwrap(), "report.docx");
+        assert_eq!(fs::read(&path).unwrap(), b"cloud bytes");
+        assert!(
+            fs::metadata(&path).unwrap().permissions().readonly(),
+            "a save in place fails loudly (AZ-U13)"
+        );
+        #[cfg(unix)]
+        {
+            assert_eq!(mode_of(&path), 0o400);
+            assert_eq!(
+                mode_of(path.parent().unwrap()),
+                0o700,
+                "the file's own folder"
+            );
+            assert_eq!(mode_of(copies.dir()), 0o700, "the purpose's folder");
+            assert_eq!(mode_of(base.path()), 0o700, "the root of scratch");
+        }
+    }
+
+    /// AZ-U13: opened again, the same version opens the same copy (the old code made `name (1)`
+    /// from the drive's bytes and the user's edit was in the other file); a version the drive
+    /// changed since is a new copy and the first is not touched.
+    #[test]
+    fn az_u13_the_same_version_opens_the_same_copy_and_a_new_version_a_new_one() {
+        let base = TempDir::new("azdrive-open-version");
+        let copies = Scratch::under(base.path(), "open");
+        let cloud = Cloud::new(b"cloud bytes", Some("e1"));
+        let first = opened_copy(&cloud, &copies, "docs/report.docx").unwrap();
+        let again = opened_copy(&cloud, &copies, "docs/report.docx").unwrap();
+        assert_eq!(first, again, "the same version, the same copy");
+        assert_eq!(cloud.gets(), 1, "fetched once");
+
+        cloud.change(b"edited in the cloud", Some("e2"));
+        let newer = opened_copy(&cloud, &copies, "docs/report.docx").unwrap();
+        assert_ne!(newer, first);
+        assert_eq!(fs::read(&newer).unwrap(), b"edited in the cloud");
+        assert_eq!(
+            fs::read(&first).unwrap(),
+            b"cloud bytes",
+            "the first copy stays as it was"
+        );
+        assert_eq!(cloud.gets(), 2);
+    }
+
+    /// AZ-U13: a drive that reports neither an etag nor a date cannot say a file is the same one:
+    /// its copy is made again every time.
+    #[test]
+    fn az_u13_a_drive_that_cannot_tell_versions_apart_never_reuses_a_copy() {
+        let base = TempDir::new("azdrive-open-unversioned");
+        let copies = Scratch::under(base.path(), "open");
+        let cloud = Cloud::new(b"cloud bytes", None);
+        let first = opened_copy(&cloud, &copies, "a.txt").unwrap();
+        let second = opened_copy(&cloud, &copies, "a.txt").unwrap();
+        assert_ne!(first, second);
+        assert_eq!(cloud.gets(), 2);
+    }
+
+    /// AZ-W4: a copy somebody changed (made writable and shortened) is not this version's bytes:
+    /// it is fetched again, in the same place. And a copy older than the horizon goes before the
+    /// next one is made (the sweep).
+    #[cfg(unix)]
+    #[test]
+    fn az_w4_a_changed_copy_is_fetched_again_and_old_copies_are_swept() {
+        use std::os::unix::fs::PermissionsExt;
+        let base = TempDir::new("azdrive-open-changed");
+        let copies = Scratch::under(base.path(), "open");
+        let cloud = Cloud::new(b"cloud bytes", Some("e1"));
+        let path = opened_copy(&cloud, &copies, "a.txt").unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        fs::write(&path, b"x").unwrap();
+        let again = opened_copy(&cloud, &copies, "a.txt").unwrap();
+        assert_eq!(again, path);
+        assert_eq!(fs::read(&again).unwrap(), b"cloud bytes");
+        assert_eq!(mode_of(&again), 0o400);
+
+        let old = copies.keep("an old copy").unwrap();
+        fs::write(old.join("old.txt"), b"x").unwrap();
+        let long_ago = SystemTime::now() - OPEN_COPY_KEPT * 3;
+        fs::File::open(&old)
+            .unwrap()
+            .set_modified(long_ago)
+            .unwrap();
+        cloud.change(b"cloud bytes 2", Some("e2"));
+        opened_copy(&cloud, &copies, "a.txt").unwrap();
+        assert!(
+            !old.exists(),
+            "a copy older than a day is swept before the next is made"
+        );
+        assert!(again.exists(), "a young copy stays");
+    }
+
+    /// AZ-U13: the status line says that a cloud file opens as a read-only copy, and a file on
+    /// this computer by its own name.
+    #[test]
+    fn az_u13_the_status_line_says_a_cloud_file_opens_as_a_read_only_copy() {
+        let base = TempDir::new("azdrive-opening-phrase");
+        fs::write(base.path().join("a.txt"), b"x").unwrap();
+        let local = LocalDrive::without_manifest(base.path().to_path_buf());
+        let here = crate::actions::opening_phrase(&local, "a.txt", "a.txt");
+        assert_eq!(here.key, "azdrive-opening");
+        let cloud = Cloud::new(b"x", Some("e"));
+        let there = crate::actions::opening_phrase(&cloud, "a.txt", "a.txt");
+        assert_eq!(there.key, "azdrive-opening-copy");
+        assert_eq!(
+            there.get("name").map(ToString::to_string).as_deref(),
+            Some("a.txt")
+        );
+    }
+
+    /// X-AR5a-23: with no drives file the paid months' tokens were kept in
+    /// `<system temp>/azul-storage-period-tokens` - a name every user can guess, in a folder every
+    /// user can make first. They wait in a private folder of scratch.
+    #[test]
+    fn x_ar5a_23_without_a_drives_file_the_period_tokens_wait_in_scratch_not_in_the_temp_folder() {
+        let dir = crate::period_tokens_dir(None);
+        assert_eq!(dir, Scratch::new("period-tokens").dir());
+        assert!(!dir.starts_with(std::env::temp_dir().join("azul-storage-period-tokens")));
+        assert!(dir
+            .parent()
+            .is_some_and(|root| root != std::env::temp_dir()));
+        // With a drives file the folder is beside it, as before.
+        assert_eq!(
+            crate::period_tokens_dir(Some(Path::new("/home/ann/.config/azul/drives.json"))),
+            Path::new("/home/ann/.config/azul/period-tokens")
+        );
     }
 }

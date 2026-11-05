@@ -376,7 +376,9 @@ use azul_storage::{
     azul_transport::AzulTransport,
     config::{self, DriveEntry, DriveLocation, DrivesFile},
     keyring::KeyringNamespace,
-    key, Credentials, Drive, DriveError, LocalDrive,
+    key,
+    scratch::{self, Scratch},
+    Credentials, Drive, DriveError, LocalDrive,
 };
 use azul_appkit::l10n::{Phrase, Text};
 use browse::{Entry, History, Place};
@@ -1280,7 +1282,9 @@ pub(crate) struct DriveState {
     /// The data tree (the data root) the view settings are written into.
     pub settings_drive: Option<LocalDrive>,
     pub downloads: PathBuf,
-    pub open_dir: PathBuf,
+    /// Where the copies of cloud files handed to their app wait (AZ-W4, AZ-U13): scratch
+    /// purpose `open`, a private folder, one folder per file and version, read-only, swept.
+    pub opened: Scratch,
     /// Where the caches are kept (a cloud drive's last listing, the drives' indexes):
     /// `--cache-dir`, else AzDrive's folder in the user's cache folder; `None` in a `--shot` run
     /// without the switch (nothing kept) or on a system without a cache folder.
@@ -3700,10 +3704,12 @@ fn set_nodes_root(folder: PathBuf) {
 /// Where an Azlin drive keeps the node list of its last credential refresh (not secret).
 fn nodes_file(drive_id: &str) -> PathBuf {
     let root = NODES_ROOT.get().cloned().unwrap_or_else(|| {
-        path_of(FilePath::get_cache_dir().into_option())
-            .unwrap_or_else(std::env::temp_dir)
-            .join("AzDrive")
-            .join("nodes")
+        match path_of(FilePath::get_cache_dir().into_option()) {
+            Some(cache) => cache.join("AzDrive").join("nodes"),
+            // No cache folder at all: a private folder of this run's scratch, never the shared
+            // temp folder (X-AR5a-23).
+            None => Scratch::new("nodes").dir().to_path_buf(),
+        }
     });
     root.join(format!("{}.json", azul_storage::key::safe_file_name(drive_id).unwrap_or_default()))
 }
@@ -3760,13 +3766,15 @@ extern "C" fn startup(mut data: RefAny, mut info: CallbackInfo) -> Update {
 }
 
 /// The folder of the paid checkouts' period tokens (one 0600 file per drive): beside the drives
-/// file (`<config dir>/azul-storage/period-tokens`), else in the temporary folder.
+/// file (`<config dir>/azul-storage/period-tokens`), else a private folder of scratch - never
+/// the shared temp folder under a name every user can guess, where another user could have made
+/// the folder first (X-AR5a-23). The sweep leaves it alone: it removes only what scratch made.
 fn period_tokens_dir(drives_file: Option<&Path>) -> PathBuf {
     drives_file
         .and_then(Path::parent)
         .filter(|dir| !dir.as_os_str().is_empty())
         .map_or_else(
-            || std::env::temp_dir().join("azul-storage-period-tokens"),
+            || Scratch::new("period-tokens").dir().to_path_buf(),
             |dir| dir.join("period-tokens"),
         )
 }
@@ -4006,8 +4014,6 @@ pub fn start() {
         )),
         KeyringNamespace::azlin_shared(),
     );
-    let period_tokens =
-        azcloud_kit::PeriodTokenStore::new(period_tokens_dir(drives_file.as_deref()));
     // The caches' folder: `--cache-dir`, else AzDrive's in the user's cache folder; none in a
     // `--shot` run without the switch. The drives' index copies (encryption) live there too.
     let cache_dir = match &args.cache_dir {
@@ -4015,6 +4021,13 @@ pub fn start() {
         None if args.kit.shot.is_some() => None,
         None => path_of(FilePath::get_cache_dir().into_option()).map(|dir| dir.join("AzDrive")),
     };
+    // What the app keeps for a while and nobody asked for (the copies of cloud files in their
+    // apps, a page waiting for the PDF reader, the encrypted write's spool) lives in scratch
+    // under the cache folder; what a run before left behind and nothing uses any more goes.
+    scratch::set_root(cache_dir.as_deref());
+    scratch::sweep_all(jobs::OPEN_COPY_KEPT);
+    let period_tokens =
+        azcloud_kit::PeriodTokenStore::new(period_tokens_dir(drives_file.as_deref()));
     // Print's copies of a page (an emergency kit, cash by post's two) live there; a run before's
     // go first.
     paper::set_print_root(cache_dir.clone());
@@ -4118,7 +4131,7 @@ pub fn start() {
         drives_file,
         settings_drive,
         downloads,
-        open_dir: std::env::temp_dir().join("AzDrive-open"),
+        opened: Scratch::new("open"),
         sync: Arc::new(sync_lookup::NoSync),
         cache_dir,
         inline_dialogs,

@@ -233,6 +233,7 @@ azdrive-hid-items = Hid { $count ->
        *[other] { $count } items
     } (View > Hidden items shows them).
 azdrive-opening = Opening "{ $name }"…
+azdrive-opening-copy = Opening a read-only copy of "{ $name }"…
 azdrive-clipboard-cut = Cut { $count ->
         [one] one item
        *[other] { $count } items

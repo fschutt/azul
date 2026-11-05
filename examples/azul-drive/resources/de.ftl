@@ -231,6 +231,7 @@ azdrive-hid-items = { $count ->
        *[other] { $count } Elemente sind
     } ausgeblendet (Ansicht > Ausgeblendete Elemente zeigt sie).
 azdrive-opening = „{ $name }“ wird geöffnet…
+azdrive-opening-copy = Eine schreibgeschützte Kopie von „{ $name }“ wird geöffnet…
 azdrive-clipboard-cut = { $count ->
         [one] Ein Element ausgeschnitten
        *[other] { $count } Elemente ausgeschnitten

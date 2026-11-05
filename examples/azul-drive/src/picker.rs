@@ -31,7 +31,7 @@ use azul::{
     },
 };
 use azul_appkit::l10n::{label, t, Phrase};
-use azul_storage::{Drive, LocalDrive};
+use azul_storage::{scratch::Scratch, Drive, LocalDrive};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -607,12 +607,21 @@ fn start_copy(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, drive_i
         answer(info, s, &PickAnswer::error(t("azdrive-pick-drive-closed")));
         return;
     };
-    let root = s
-        .cache_dir
-        .clone()
-        .unwrap_or_else(|| std::env::temp_dir().join("AzDrive"))
-        .join("picked")
-        .join(drive_id);
+    // In the cache folder; without one, in scratch (a private folder, swept), never the shared temp
+    // folder under a name every user can guess (X-AR5a-23).
+    let root = match s.cache_dir.clone() {
+        Some(cache) => cache.join("picked"),
+        None => {
+            let scratch = Scratch::new("picked");
+            if let Err(e) = scratch.ensure() {
+                eprintln!("[azdrive] the picker's copies cannot wait in scratch: {e}");
+                answer(info, s, &PickAnswer::error(t("azdrive-pick-fetch-failed")));
+                return;
+            }
+            scratch.dir().to_path_buf()
+        }
+    }
+    .join(drive_id);
     let items: Vec<SourceItem> = refs
         .iter()
         .map(|r| SourceItem {

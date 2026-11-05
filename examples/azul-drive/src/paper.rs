@@ -21,6 +21,7 @@ use azul_appkit::{
     qr::QrCode,
     ui::qr_dom,
 };
+use azul_storage::scratch::Scratch;
 
 /// A4 at 96 dpi in CSS px (the page AzMail prints on).
 pub(crate) const A4: (f32, f32) = (794.0, 1123.0);
@@ -119,12 +120,12 @@ pub(crate) fn set_print_root(cache_dir: Option<PathBuf>) {
 /// Where Print's private copies of a page wait for the PDF viewer: `kit-print/` in the run's
 /// cache folder.
 fn print_dir() -> PathBuf {
-    PRINT_ROOT
-        .get()
-        .cloned()
-        .flatten()
-        .unwrap_or_else(std::env::temp_dir)
-        .join("kit-print")
+    match PRINT_ROOT.get().cloned().flatten() {
+        Some(root) => root.join("kit-print"),
+        // No cache folder (a `--shot` run): the copies wait in scratch, a folder of this user's
+        // only - a page may carry a recovery code, and the shared temp folder is no place for it.
+        None => Scratch::new("kit-print").dir().to_path_buf(),
+    }
 }
 
 /// Deletes Print's copies (when the sheet closes, at the start).
@@ -150,6 +151,12 @@ pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 pub(crate) fn print_copy(file_name: &str, bytes: &[u8]) -> Result<PathBuf, String> {
     // A folder of its own per copy (its name need not be secret: the folder is this user's).
     let folder = format!("{:016x}", azul_storage::ids::random_seed());
+    if PRINT_ROOT.get().cloned().flatten().is_none() {
+        // Scratch's folders are made private and checked before anything is put in them.
+        Scratch::new("kit-print")
+            .ensure()
+            .map_err(|e| e.to_string())?;
+    }
     let dir = print_dir().join(folder);
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     #[cfg(unix)]
@@ -162,4 +169,33 @@ pub(crate) fn print_copy(file_name: &str, bytes: &[u8]) -> Result<PathBuf, Strin
     let path = dir.join(file_name);
     write_private(&path, bytes).map_err(|e| e.to_string())?;
     Ok(path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// X-AR5a-23: with no cache folder (a `--shot` run) Print's copy of a page - it may carry a
+    /// recovery code - waited in `<system temp>/kit-print`, a name every user can guess. It waits
+    /// in a private folder of scratch now: the folders only this user can enter, the file 0600.
+    #[cfg(unix)]
+    #[test]
+    fn x_ar5a_23_a_printed_copy_without_a_cache_folder_waits_in_private_scratch() {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = |path: &Path| std::fs::metadata(path).unwrap().permissions().mode() & 0o777;
+        let scratch = Scratch::new("kit-print");
+        let path = print_copy("sheet.pdf", b"%PDF-1.4 a recovery code").expect("a copy");
+        assert!(path.starts_with(scratch.dir()), "{path:?}");
+        assert!(!path.starts_with(std::env::temp_dir().join("kit-print")));
+        assert_eq!(mode(&path), 0o600);
+        assert_eq!(mode(path.parent().unwrap()), 0o700, "the copy's own folder");
+        assert_eq!(mode(scratch.dir()), 0o700, "the purpose's folder");
+        assert_eq!(
+            mode(scratch.dir().parent().unwrap()),
+            0o700,
+            "the root of scratch"
+        );
+        forget_print_copies();
+        assert!(!path.exists(), "the copies go when the sheet closes");
+    }
 }
