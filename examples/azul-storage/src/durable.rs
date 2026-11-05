@@ -33,7 +33,7 @@ use std::{
     fs::File,
     io::{self, Read, Write},
     path::Path,
-    time::SystemTime,
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use crate::{
@@ -54,7 +54,8 @@ pub enum Mode {
     Shared,
     /// The bits of the file that is replaced; [`Mode::Shared`] when there is none.
     Keep,
-    /// The bits of the file this one is a copy of, never setuid, setgid or sticky.
+    /// Exactly these bits - the file this one is a copy of has them, or a fixed `0o644` - never
+    /// setuid, setgid or sticky.
     FromSource(u32),
     /// A sync's rule: the replaced file's read and write bits (the user's own choice), else
     /// `rw-r--r--`; and the executable bit wherever a read bit is when the drive's version is
@@ -200,6 +201,15 @@ impl From<PublishError> for io::Error {
                 io::Error::new(io::ErrorKind::StorageFull, "the disk is full")
             }
             other => io::Error::other(other.to_string()),
+        }
+    }
+}
+
+impl From<PublishError> for BeneathError {
+    fn from(e: PublishError) -> Self {
+        match e {
+            PublishError::Walk(e) => e,
+            other => BeneathError::Io(other.into()),
         }
     }
 }
@@ -766,4 +776,89 @@ pub fn replace(path: &Path, bytes: &[u8], mode: Mode) -> io::Result<()> {
 /// The I/O error that stopped the write (the old file stays then).
 pub fn replace_cache(path: &Path, bytes: &[u8]) -> io::Result<()> {
     replace_probed(path, bytes, Mode::Shared, Durability::Cache, &Unprobed)
+}
+
+/// What a cut-off write leaves in a folder: a temporary file of [`stage`] (its name carries the
+/// process that made it), or a hidden partial download.
+enum Leftover {
+    Temp,
+    Partial,
+}
+
+fn leftover(name: &str) -> Option<Leftover> {
+    if beneath::is_temp_name(name) {
+        Some(Leftover::Temp)
+    } else if name.starts_with('.')
+        && (name.ends_with(".download.part") || name.ends_with(".download-state.part"))
+    {
+        Some(Leftover::Partial)
+    } else {
+        None
+    }
+}
+
+/// The process a temporary file's name (`.<name>.azul-storage-<pid>-<n>.tmp`) says made it.
+fn owner_of(name: &str) -> Option<u32> {
+    let rest = &name[name.rfind(".azul-storage-")? + ".azul-storage-".len()..];
+    rest.split('-').next()?.parse().ok()
+}
+
+/// Whether the process `pid` runs (or may: a process of another user, or a system that cannot
+/// be asked, counts as running).
+fn process_runs(pid: u32) -> bool {
+    #[cfg(unix)]
+    {
+        let Ok(pid) = libc::pid_t::try_from(pid) else {
+            return true;
+        };
+        if pid <= 0 {
+            return true;
+        }
+        // SAFETY: signal 0 only asks whether the process exists.
+        let asked = unsafe { libc::kill(pid, 0) };
+        asked == 0 || io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = pid;
+        true
+    }
+}
+
+/// Removes what writes that were cut off left in `dir` (a killed app, a power cut): a temporary
+/// file of this module whose process is gone or that is older than `older_than`, and a hidden
+/// partial download (`.<name>.download.part` with its state file) older than that - a download
+/// nobody resumed. A file of a process that runs, or a young partial, stays. How many went.
+pub fn sweep_temps(dir: &Dir, older_than: Duration) -> usize {
+    let Ok(names) = dir.names() else {
+        return 0;
+    };
+    let now = SystemTime::now();
+    let mut removed = 0;
+    for name in &names {
+        let Some(name) = name.to_str() else {
+            continue;
+        };
+        let Some(what) = leftover(name) else {
+            continue;
+        };
+        let Ok(st) = dir.lstat(name) else {
+            continue;
+        };
+        if st.kind != Kind::File {
+            continue;
+        }
+        let age = now
+            .duration_since(UNIX_EPOCH + Duration::from_nanos(st.mtime_ns))
+            .unwrap_or_default();
+        let old = age >= older_than;
+        let orphaned = match what {
+            Leftover::Temp => owner_of(name).is_some_and(|pid| !process_runs(pid)),
+            Leftover::Partial => false,
+        };
+        if (old || orphaned) && dir.unlink(name).is_ok() {
+            removed += 1;
+        }
+    }
+    removed
 }

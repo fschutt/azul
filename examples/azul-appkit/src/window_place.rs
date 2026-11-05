@@ -145,15 +145,12 @@ pub fn load(path: &Path) -> Option<WindowPlace> {
     WindowPlace::parse(&std::fs::read_to_string(path).ok()?)
 }
 
-/// Keeps `place` at `path`: written beside it, then moved over it, so a crash never leaves
-/// half a file.
+/// Keeps `place` at `path`: written beside it, then moved over it ([`azul_storage::durable::
+/// replace_cache`]), so a crash never leaves half a file. A place is read back with a check
+/// ([`WindowPlace::parse`]: a file that is no place is none), so it takes the rename only, not a
+/// sync of the disk on every move of the window.
 pub fn save(path: &Path, place: &WindowPlace) -> std::io::Result<()> {
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)?;
-    }
-    let partial = path.with_extension("json.partial");
-    std::fs::write(&partial, place.to_json())?;
-    std::fs::rename(&partial, path)
+    azul_storage::durable::replace_cache(path, place.to_json().as_bytes())
 }
 
 #[cfg(test)]
@@ -276,6 +273,31 @@ mod tests {
         );
         assert_eq!(WindowPlace::parse("not json"), None);
         assert_eq!(WindowPlace::parse(r#"{"width": 0, "height": 480}"#), None);
+    }
+
+    #[test]
+    fn x_ar5a_6_a_saved_place_is_read_back_and_nothing_partial_is_left_beside_it() {
+        let dir = azul_storage::testing::TempDir::new("window-place-save");
+        let path = place_path(dir.path(), "drive");
+        let place = normal(800.0, 500.0, 10, 20);
+        save(&path, &place).unwrap();
+        assert_eq!(load(&path), Some(place));
+        let later = WindowPlace {
+            maximized: true,
+            ..place
+        };
+        save(&path, &later).unwrap();
+        assert_eq!(load(&path), Some(later));
+        let names: Vec<String> = std::fs::read_dir(path.parent().unwrap())
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(
+            names,
+            vec![String::from("drive.json")],
+            "no .partial or temporary file"
+        );
     }
 
     #[test]

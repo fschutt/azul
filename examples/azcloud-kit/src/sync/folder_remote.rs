@@ -160,17 +160,8 @@ fn io(e: impl std::fmt::Display) -> CloudError {
 }
 
 fn write_atomic(path: &Path, bytes: &[u8]) -> CloudResult<()> {
-    let tmp = path.with_extension(format!("tmp-{}", std::process::id()));
-    (|| {
-        let mut f = fs::File::create(&tmp)?;
-        f.write_all(bytes)?;
-        f.sync_all()?;
-        fs::rename(&tmp, path)
-    })()
-    .map_err(|e| {
-        let _ = fs::remove_file(&tmp);
-        io(format!("{}: {e}", path.display()))
-    })
+    azul_storage::durable::replace(path, bytes, azul_storage::durable::Mode::Shared)
+        .map_err(|e| io(format!("{}: {e}", path.display())))
 }
 
 /// The folder's `lock`, held while it lives (flock, as the harness takes it).

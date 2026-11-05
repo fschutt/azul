@@ -6,13 +6,14 @@ use std::{
     fs::{self, File},
     io::{ErrorKind, Read, Seek, SeekFrom},
     path::{Path, PathBuf},
-    sync::atomic::{AtomicU32, Ordering},
-    time::UNIX_EPOCH,
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use crate::{
-    beneath::{self, BeneathError, Kind},
+    beneath::{self, BeneathError, Dir, Kind},
+    ctl::Quiet,
     dir_read::{self, DirItem, ItemKind},
+    durable::{self, Expect, Mode, Publish},
     key::{check_path_key, check_path_prefix, folder_of},
     manifest::{self, is_reserved_key, Changes, Manifest, ManifestEntry, Record, MANIFEST_DIR},
     ops::check_folder,
@@ -73,20 +74,6 @@ fn file_entry(key: String, item: &DirItem) -> Entry {
     }
 }
 
-/// A file next to `path` to write before renaming it over `path`.
-pub(crate) fn temp_sibling(path: &Path) -> PathBuf {
-    static COUNTER: AtomicU32 = AtomicU32::new(0);
-    let name = path
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    path.with_file_name(format!(
-        ".{name}.azul-storage-{}-{}.tmp",
-        std::process::id(),
-        COUNTER.fetch_add(1, Ordering::SeqCst)
-    ))
-}
-
 /// Writes `bytes` to `path` through a temporary file, so a reader never sees half
 /// a file and a failure leaves the old one. The file is on the disk before it is renamed
 /// in and the folder after: a power cut leaves the old version or the new one, never an
@@ -96,25 +83,8 @@ pub(crate) fn write_atomically(path: &Path, bytes: &[u8]) -> std::io::Result<()>
     crate::durable::replace(path, bytes, crate::durable::Mode::Shared)
 }
 
-/// Makes a rename into the folder of `path` durable (some file systems refuse a folder's
-/// fsync: no failure of the write).
-pub(crate) fn sync_parent(path: &Path) {
-    #[cfg(unix)]
-    {
-        if let Some(parent) = path.parent() {
-            if let Ok(dir) = File::open(parent) {
-                let _ = dir.sync_all();
-            }
-        }
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = path;
-    }
-}
-
 /// A walk of a contained drive that failed, as the drive says it.
-fn beneath_error(key: &str, e: BeneathError) -> DriveError {
+pub(crate) fn beneath_error(key: &str, e: BeneathError) -> DriveError {
     match e {
         BeneathError::ThroughLink(_) | BeneathError::CrossesMount(_) => DriveError::InvalidKey {
             key: key.to_string(),
@@ -150,11 +120,6 @@ fn remove_all(dir: &beneath::Dir) -> Result<(), BeneathError> {
 pub const THROUGH_LINK: &str =
     "a folder of its path here is a link or another disk: nothing is written or read through it";
 
-/// A temporary file of [`temp_sibling`] (left over by a crash): not listed.
-fn is_temp_name(name: &str) -> bool {
-    name.starts_with('.') && name.contains(".azul-storage-") && name.ends_with(".tmp")
-}
-
 fn object_info(key: String, meta: &fs::Metadata) -> ObjectInfo {
     ObjectInfo {
         key,
@@ -182,6 +147,18 @@ fn not_found_or_io(key: &str, e: std::io::Error) -> DriveError {
         }
     } else {
         DriveError::Io(format!("{key}: {e}"))
+    }
+}
+
+/// The permission bits and the modification time of an open file, for the copy of it
+/// ([`Mode::FromSource`]; the system's own bits where it has none).
+pub fn source_bits(file: &File) -> (Mode, Option<SystemTime>) {
+    match beneath::stat_of(file) {
+        Ok(st) => {
+            let mtime = (st.mtime_ns > 0).then(|| UNIX_EPOCH + Duration::from_nanos(st.mtime_ns));
+            (Mode::FromSource(st.mode), mtime)
+        }
+        Err(_) => (Mode::Shared, None),
     }
 }
 
@@ -273,17 +250,58 @@ impl LocalDrive {
     }
 
     /// A contained drive's write of `key` from `body`: through a new file in the key's own
-    /// folder, synced, renamed in, the folder synced.
-    fn contained_write(&self, key: &str, body: &mut dyn Read) -> Result<u64, DriveError> {
+    /// folder, synced, renamed in, the folder synced ([`durable::publish`]).
+    fn contained_write(
+        &self,
+        key: &str,
+        body: &mut dyn Read,
+        mode: Mode,
+        mtime: Option<SystemTime>,
+    ) -> Result<u64, DriveError> {
         let (dir, name) = self.contained_parent(key, true)?;
-        if dir.lstat(&name).is_ok_and(|st| st.kind == Kind::Dir) {
+        self.write_into(key, &dir, &name, body, mode, mtime)
+    }
+
+    /// `body` as the file `name` of `dir` (the folder of `key`): refused where a folder has the
+    /// name, else put in place whole or not at all.
+    fn write_into(
+        &self,
+        key: &str,
+        dir: &Dir,
+        name: &str,
+        body: &mut dyn Read,
+        mode: Mode,
+        mtime: Option<SystemTime>,
+    ) -> Result<u64, DriveError> {
+        if dir.lstat(name).is_ok_and(|st| st.kind == Kind::Dir) {
             return Err(DriveError::InvalidKey {
                 key: key.to_string(),
                 reason: "a folder has this name",
             });
         }
-        dir.write_from(&name, body, 0o666)
-            .map_err(|e| beneath_error(key, e))
+        let mut publish = Publish::new(Expect::Any, mode, &Quiet);
+        if let Some(mtime) = mtime {
+            publish = publish.with_mtime(mtime);
+        }
+        durable::publish(dir, name, body, publish)
+            .map(|landed| landed.len)
+            .map_err(|e| e.into_drive(key))
+    }
+
+    /// The folder of the path `path` (made when missing, links followed: it is the user's own
+    /// folder) and the file's name in it, for a drive that is not contained.
+    fn open_parent(&self, key: &str, path: &Path) -> Result<(Dir, String), DriveError> {
+        let parent = path.parent().unwrap_or(&self.root);
+        fs::create_dir_all(parent)?;
+        let name =
+            path.file_name()
+                .and_then(|n| n.to_str())
+                .ok_or_else(|| DriveError::InvalidKey {
+                    key: key.to_string(),
+                    reason: "it has a name that cannot be a file name",
+                })?;
+        let dir = Dir::open_following(parent).map_err(|e| not_found_or_io(key, e))?;
+        Ok((dir, name.to_string()))
     }
 
     /// A contained drive's rename: both folders walked without a link, nothing replaced.
@@ -524,7 +542,7 @@ impl LocalDrive {
         }
         let mut items = dir_read::read_dir_all(&dir)?;
         items.retain(|item| {
-            !is_temp_name(&item.name) && !(folder.is_empty() && item.name == MANIFEST_DIR)
+            !beneath::is_temp_name(&item.name) && !(folder.is_empty() && item.name == MANIFEST_DIR)
         });
         Ok(items)
     }
@@ -684,7 +702,7 @@ impl Drive for LocalDrive {
     fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
         let path = self.path_of(key)?;
         if self.contained {
-            self.contained_write(key, &mut &bytes[..])?;
+            self.contained_write(key, &mut &bytes[..], Mode::Shared, None)?;
             if self.manifest {
                 if let Ok(meta) = fs::symlink_metadata(&path) {
                     let info = object_info(key.to_string(), &meta);
@@ -727,17 +745,14 @@ impl Drive for LocalDrive {
     }
 
     /// The bytes go into a temporary file next to the target as they are read, then the
-    /// file is renamed over it: a reader never sees half a file, a failed read leaves the
-    /// old one.
+    /// file is synced and renamed over it ([`durable::publish`]): a reader never sees half a
+    /// file, a failed read leaves the old one.
     fn put_from(&self, key: &str, body: &mut dyn Read) -> Result<u64, DriveError> {
         let path = self.path_of(key)?;
         if self.contained {
-            let written = self.contained_write(key, body)?;
+            let written = self.contained_write(key, body, Mode::Shared, None)?;
             self.record_file(key);
             return Ok(written);
-        }
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
         }
         if path.is_dir() {
             return Err(DriveError::InvalidKey {
@@ -745,22 +760,8 @@ impl Drive for LocalDrive {
                 reason: "a folder has this name",
             });
         }
-        let tmp = temp_sibling(&path);
-        let written = File::create(&tmp)
-            .and_then(|mut file| {
-                let written = std::io::copy(body, &mut file)?;
-                file.sync_all()?;
-                Ok(written)
-            })
-            .and_then(|written| fs::rename(&tmp, &path).map(|()| written));
-        let written = match written {
-            Ok(written) => written,
-            Err(e) => {
-                let _ = fs::remove_file(&tmp);
-                return Err(DriveError::Io(format!("{key}: {e}")));
-            }
-        };
-        sync_parent(&path);
+        let (dir, name) = self.open_parent(key, &path)?;
+        let written = self.write_into(key, &dir, &name, body, Mode::Shared, None)?;
         self.record_file(key);
         Ok(written)
     }
@@ -833,13 +834,16 @@ impl Drive for LocalDrive {
         Ok(object_info(key.to_string(), &meta))
     }
 
-    /// A file copy on disk, through a temporary file next to the target.
+    /// A file copy on disk, through a temporary file next to the target; the copy has the
+    /// file's permission bits (never setuid, setgid or sticky) and its modification time, as a
+    /// copy in a file manager has.
     fn copy(&self, from: &str, to: &str) -> Result<(), DriveError> {
         let source = self.path_of(from)?;
         let target = self.path_of(to)?;
         if self.contained {
             let mut file = self.contained_open(from)?;
-            self.contained_write(to, &mut file)?;
+            let (mode, mtime) = source_bits(&file);
+            self.contained_write(to, &mut file, mode, mtime)?;
             self.record_file(to);
             return Ok(());
         }
@@ -859,15 +863,10 @@ impl Drive for LocalDrive {
                 reason: "a folder has this name",
             });
         }
-        if let Some(parent) = target.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        let tmp = temp_sibling(&target);
-        let copied = fs::copy(&source, &tmp).and_then(|_| fs::rename(&tmp, &target));
-        if let Err(e) = copied {
-            let _ = fs::remove_file(&tmp);
-            return Err(DriveError::Io(format!("{from}: {e}")));
-        }
+        let mut file = File::open(&source).map_err(|e| not_found_or_io(from, e))?;
+        let (mode, mtime) = source_bits(&file);
+        let (dir, name) = self.open_parent(to, &target)?;
+        self.write_into(to, &dir, &name, &mut file, mode, mtime)?;
         self.record_file(to);
         Ok(())
     }

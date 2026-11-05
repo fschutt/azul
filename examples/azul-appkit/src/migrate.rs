@@ -22,7 +22,13 @@
 
 use std::{fs, io::Write, path::Path};
 
-use azul_storage::time::{iso8601, now_unix};
+use azul_storage::{
+    beneath::{Dir, Fingerprint},
+    ctl::Quiet,
+    durable::{self, Expect, Publish, PublishError},
+    local::source_bits,
+    time::{iso8601, now_unix},
+};
 
 use crate::data::ROOT_DIR;
 
@@ -132,6 +138,53 @@ fn move_tree(source: &Path, target: &Path, key: &str, out: &mut Migration) {
     }
 }
 
+/// The folder of `path` (links followed: the user's own folders) and the file's name in it.
+fn folder_and_name(path: &Path) -> std::io::Result<(Dir, String)> {
+    let parent = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidInput, "no file name"))?;
+    Ok((Dir::open_following(parent)?, name.to_string()))
+}
+
+/// How a file got to its place.
+enum Placed {
+    Moved,
+    /// A file has the name at the target: nothing was replaced.
+    Taken,
+    Failed(std::io::Error),
+}
+
+/// Puts the file `source` at `target`: renamed where both are on one disk - the name at the target
+/// taken in the one step of the rename, so a file that turns up there between a look and the
+/// move is not replaced either - else copied.
+fn place(source: &Path, target: &Path) -> Placed {
+    let ((from_dir, from), (to_dir, to)) = match (folder_and_name(source), folder_and_name(target))
+    {
+        (Ok(from), Ok(to)) => (from, to),
+        (Err(e), _) | (_, Err(e)) => return Placed::Failed(e),
+    };
+    match from_dir.rename_noreplace(&from, &to_dir, &to) {
+        Ok(()) => {
+            // The entries are on the disk before the old folder forgets the file.
+            to_dir.sync();
+            from_dir.sync();
+            Placed::Moved
+        }
+        Err(e) if e.is_already_exists() => Placed::Taken,
+        // Another disk, or one that cannot rename: copied instead.
+        Err(_) => match copy_then_remove(source, target) {
+            Ok(()) => Placed::Moved,
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Placed::Taken,
+            Err(e) => Placed::Failed(e),
+        },
+    }
+}
+
 /// Moves one file, never over another one.
 fn move_file(source: &Path, target: &Path, key: String, out: &mut Migration) {
     if fs::symlink_metadata(target).is_ok() {
@@ -144,27 +197,43 @@ fn move_file(source: &Path, target: &Path, key: String, out: &mut Migration) {
             return;
         }
     }
-    let moved = fs::rename(source, target).or_else(|_| copy_then_remove(source, target));
-    match moved {
-        Ok(()) => out.moved.push(key),
-        Err(e) => out.failed.push((key, e.to_string())),
+    match place(source, target) {
+        Placed::Moved => out.moved.push(key),
+        Placed::Taken => out.kept.push(key),
+        Placed::Failed(e) => out.failed.push((key, e.to_string())),
     }
 }
 
-/// A move across file systems: copied next to the target, renamed into
-/// place, then the source removed.
+/// A move across file systems: copied into a new file next to the target ([`durable::publish`]:
+/// written, synced, renamed in where nothing is, the folder synced), and the source removed only
+/// once the copy is whole on the disk and the source is still the file that was copied. A source
+/// that changed meanwhile stays where it is and the copy goes.
 fn copy_then_remove(source: &Path, target: &Path) -> std::io::Result<()> {
-    let name = target
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    let tmp = target.with_file_name(format!(".{name}.azlin-migrate.tmp"));
-    let copied = fs::copy(source, &tmp).and_then(|_| fs::rename(&tmp, target));
-    if let Err(e) = copied {
-        let _ = fs::remove_file(&tmp);
-        return Err(e);
+    let mut from = fs::File::open(source)?;
+    let before = Fingerprint::of(&azul_storage::beneath::stat_of(&from)?);
+    let (mode, mtime) = source_bits(&from);
+    let (to_dir, to) = folder_and_name(target)?;
+    let mut publish = Publish::new(Expect::Absent, mode, &Quiet);
+    if let Some(mtime) = mtime {
+        publish = publish.with_mtime(mtime);
     }
-    fs::remove_file(source)
+    durable::publish(&to_dir, &to, &mut from, publish).map_err(|e| match e {
+        PublishError::Changed => std::io::Error::from(std::io::ErrorKind::AlreadyExists),
+        other => other.into(),
+    })?;
+    let (from_dir, from_name) = folder_and_name(source)?;
+    let still_the_file = from_dir
+        .lstat(&from_name)
+        .is_ok_and(|now| !before.matches(&now).is_different());
+    if !still_the_file {
+        let _ = to_dir.unlink(&to);
+        return Err(std::io::Error::other(
+            "it changed while it was copied: it stays where it was",
+        ));
+    }
+    fs::remove_file(source)?;
+    from_dir.sync();
+    Ok(())
 }
 
 /// Removes the folders under `dir` (and `dir`) that the move left empty.
@@ -374,5 +443,72 @@ mod tests {
             );
         }
         assert_eq!(read(&os.path().join("azul/styles/x.css")), b"x");
+    }
+    #[test]
+    fn x_ar5a_4_the_copy_across_disks_is_whole_and_synced_keeps_mode_and_time_and_never_replaces() {
+        let os = TempDir::new("migrate-copy");
+        let source = os.path().join("old/show/deck.json");
+        write(&source, b"{\"deck\":1}");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&source, fs::Permissions::from_mode(0o600)).unwrap();
+        }
+        let long_ago = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_300_000_000);
+        fs::File::options()
+            .write(true)
+            .open(&source)
+            .unwrap()
+            .set_modified(long_ago)
+            .unwrap();
+        let target = os.path().join("Azlin/show/deck.json");
+        fs::create_dir_all(target.parent().unwrap()).unwrap();
+        copy_then_remove(&source, &target).unwrap();
+        assert_eq!(read(&target), b"{\"deck\":1}");
+        assert!(
+            !source.exists(),
+            "the source goes once the copy is on the disk"
+        );
+        assert_eq!(fs::metadata(&target).unwrap().modified().unwrap(), long_ago);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                fs::metadata(&target).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+        }
+        let left: Vec<String> = fs::read_dir(target.parent().unwrap())
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(left, vec![String::from("deck.json")], "no temporary file");
+        // A file that is at the target is never replaced, and the source stays.
+        write(&source, b"newer");
+        let refused = copy_then_remove(&source, &target).unwrap_err();
+        assert_eq!(refused.kind(), std::io::ErrorKind::AlreadyExists);
+        assert_eq!(read(&target), b"{\"deck\":1}");
+        assert_eq!(read(&source), b"newer");
+    }
+
+    #[test]
+    fn x_ar5a_4_a_file_that_turns_up_at_the_target_is_kept_not_replaced() {
+        // The rename itself refuses a taken name: `kept`, the legacy file stays, the new one is
+        // untouched (the look before it is only the quick answer).
+        let os = TempDir::new("migrate-noreplace");
+        let legacy = os.path().join("azul");
+        let root = root_of(os.path());
+        write(&legacy.join("show/d/deck.json"), b"old");
+        write(&root.join("show/d/deck.json"), b"new");
+        assert!(matches!(
+            place(
+                &legacy.join("show/d/deck.json"),
+                &root.join("show/d/deck.json")
+            ),
+            Placed::Taken
+        ));
+        assert_eq!(read(&root.join("show/d/deck.json")), b"new");
+        assert_eq!(read(&legacy.join("show/d/deck.json")), b"old");
     }
 }

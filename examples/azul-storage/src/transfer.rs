@@ -12,19 +12,23 @@
 //!   [`Drive::put_from`]: no object passes through memory whole.
 
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeSet, HashSet},
     fs::{self, File, OpenOptions},
     io::{Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     sync::{mpsc, Mutex, PoisonError},
+    time::Duration,
 };
 
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    beneath::Dir,
+    ctl::Quiet,
+    durable::{self, Blob, Expect, Mode, Publish},
     key::safe_file_name,
-    local::{temp_sibling, write_atomically},
-    multipart::in_parallel,
+    local::{beneath_error, source_bits},
+    multipart::{in_parallel, STALE_AFTER_SECS},
     ByteRange, Drive, DriveError, ObjectInfo,
 };
 
@@ -158,17 +162,76 @@ impl DownloadState {
     }
 }
 
-/// The hidden file a download of `dest` keeps its bytes in, and its state file.
-fn partial_paths(dest: &Path) -> (PathBuf, PathBuf) {
+/// A hidden file beside `dest`, named `.<name>.<tail>`. A name longer than the stem allows is
+/// cut and given a hash of the whole, so that the hidden name is a valid name too (255 bytes)
+/// and two long names that start alike do not share a partial file (AZ-W19).
+fn hidden_sibling(dest: &Path, tail: &str) -> PathBuf {
+    /// The longest stem of a hidden name: with a dot, a hash and the longest tail it stays far
+    /// below the 255 bytes a file name may have.
+    const STEM_MAX: usize = 160;
     let name = dest
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default();
+    let stem = if name.len() <= STEM_MAX {
+        name
+    } else {
+        let mut cut = String::new();
+        for c in name.chars() {
+            if cut.len() + c.len_utf8() > STEM_MAX - 9 {
+                break;
+            }
+            cut.push(c);
+        }
+        let hash = blake3::hash(name.as_bytes()).to_hex();
+        format!("{cut}~{}", &hash.as_str()[..8])
+    };
+    dest.with_file_name(format!(".{stem}.{tail}"))
+}
+
+/// The hidden file a download of `dest` keeps its bytes in, and its state file.
+fn partial_paths(dest: &Path) -> (PathBuf, PathBuf) {
     // Both end in `.part`: a sync never takes them (its base rules leave `*.part` out).
     (
-        dest.with_file_name(format!(".{name}.download.part")),
-        dest.with_file_name(format!(".{name}.download-state.part")),
+        hidden_sibling(dest, "download.part"),
+        hidden_sibling(dest, "download-state.part"),
     )
+}
+
+/// The folder of `dest` (made when missing; links followed: it is the user's own) and the file's
+/// name in it.
+fn folder_of(dest: &Path, key: &str) -> Result<(Dir, String), DriveError> {
+    let parent = dest
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    fs::create_dir_all(parent)?;
+    let name = dest
+        .file_name()
+        .and_then(|n| n.to_str())
+        .ok_or_else(|| DriveError::InvalidKey {
+            key: key.to_string(),
+            reason: "it has a name that cannot be a file name",
+        })?;
+    let dir = Dir::open_following(parent)?;
+    sweep_once(&dir, parent);
+    Ok((dir, name.to_string()))
+}
+
+/// Removes, once per folder and process, what writes that were cut off left in it
+/// ([`durable::sweep_temps`]): the hidden temporary files and partial downloads a failed or
+/// stopped copy of an earlier run left in the user's folder, which no listing shows and nothing
+/// else removes (AZ-U15).
+fn sweep_once(dir: &Dir, folder: &Path) {
+    static SWEPT: Mutex<Option<HashSet<PathBuf>>> = Mutex::new(None);
+    let first = SWEPT
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .get_or_insert_with(HashSet::new)
+        .insert(folder.to_path_buf());
+    if first {
+        durable::sweep_temps(dir, Duration::from_secs(STALE_AFTER_SECS));
+    }
 }
 
 /// The object as `head` says, keyed as asked (a drive may answer with another key form).
@@ -179,8 +242,9 @@ fn info_of(drive: &dyn Drive, key: &str) -> Result<ObjectInfo, DriveError> {
 }
 
 /// Fetches the ranges of `info`'s object into its hidden file next to `dest` - the ones a
-/// failed download of the same version left there are kept - several at once, then renames
-/// it into place when the object did not change meanwhile.
+/// failed download of the same version left there are kept - several at once, then puts it in
+/// place when the object did not change meanwhile ([`durable::publish_staged`]: synced to the
+/// disk, renamed, the folder synced).
 fn download_ranges(
     drive: &dyn Drive,
     info: &ObjectInfo,
@@ -191,6 +255,12 @@ fn download_ranges(
     let key = info.key.as_str();
     let size = info.size;
     let (partial, state_path) = partial_paths(dest);
+    let (folder, dest_name) = folder_of(dest, key)?;
+    let partial_name = partial
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or_default()
+        .to_string();
     let kept = fs::read(&state_path)
         .ok()
         .and_then(|text| serde_json::from_slice::<DownloadState>(&text).ok())
@@ -199,7 +269,11 @@ fn download_ranges(
     let state = match kept {
         Some(state) => state,
         None => {
-            let file = File::create(&partial)?;
+            // A new file of its own, as long as the object (sparse until its ranges are in).
+            let _ = folder.unlink(&partial_name);
+            let file = folder
+                .create_new(&partial_name, 0o666)
+                .map_err(|e| beneath_error(key, e))?;
             file.set_len(size)?;
             let _ = fs::remove_file(&state_path);
             DownloadState {
@@ -239,7 +313,9 @@ fn download_ranges(
             let mut state = state.lock().unwrap_or_else(PoisonError::into_inner);
             state.done.insert(i);
             if let Ok(text) = serde_json::to_vec(&*state) {
-                let _ = write_atomically(&state_path, &text);
+                // A hint for the next try (it checks the version and the file's length): a
+                // lost one costs the ranges, never a wrong file.
+                let _ = durable::replace_cache(&state_path, &text);
             }
         }
         progress(fetched.fetch_add(len, std::sync::atomic::Ordering::SeqCst) + len);
@@ -256,7 +332,17 @@ fn download_ranges(
             key: key.to_string(),
         });
     }
-    fs::rename(&partial, dest)?;
+    let blob = Blob {
+        dir: &folder,
+        name: &partial_name,
+    };
+    durable::publish_staged(
+        &folder,
+        &dest_name,
+        blob,
+        Publish::new(Expect::Any, Mode::Shared, &Quiet),
+    )
+    .map_err(|e| e.into_drive(key))?;
     let _ = fs::remove_file(&state_path);
     Ok(size)
 }
@@ -298,12 +384,16 @@ pub fn download_with_progress(
             size
         }
     };
-    if let Some(parent) = dest.parent().filter(|p| !p.as_os_str().is_empty()) {
-        fs::create_dir_all(parent)?;
-    }
     if size <= chunk {
         let bytes = drive.get(key)?;
-        write_atomically(dest, &bytes)?;
+        let (folder, name) = folder_of(dest, key)?;
+        durable::publish(
+            &folder,
+            &name,
+            &mut &bytes[..],
+            Publish::new(Expect::Any, Mode::Shared, &Quiet),
+        )
+        .map_err(|e| e.into_drive(key))?;
         progress(bytes.len() as u64);
         return Ok(bytes.len() as u64);
     }
@@ -353,39 +443,27 @@ pub fn upload_with_progress(
     relay_progress(progress, |tell| drive.put_file(key, path, tell))
 }
 
-/// Bytes per read when a file is copied on disk.
-const DISK_CHUNK: usize = 1024 * 1024;
-
-/// Copies the file `source` to `dest` through a temporary file next to it,
-/// telling `progress` the bytes copied so far after every megabyte.
+/// Copies the file `source` to `dest` through a temporary file next to it, synced and renamed
+/// in ([`durable::publish`]), telling `progress` the bytes copied so far after every chunk. The
+/// copy has the file's permission bits (never setuid, setgid or sticky) and its modification
+/// time: a 0600 key stays private and a photo keeps its date.
 fn copy_file(source: &Path, dest: &Path, progress: &mut dyn FnMut(u64)) -> Result<u64, DriveError> {
-    if let Some(parent) = dest.parent().filter(|p| !p.as_os_str().is_empty()) {
-        fs::create_dir_all(parent)?;
+    let mut from = File::open(source)?;
+    let (mode, mtime) = source_bits(&from);
+    let shown = dest.to_string_lossy();
+    let (folder, name) = folder_of(dest, &shown)?;
+    let mut publish = Publish::new(Expect::Any, mode, &Quiet);
+    if let Some(mtime) = mtime {
+        publish = publish.with_mtime(mtime);
     }
-    let tmp = temp_sibling(dest);
-    let copied = (|| -> Result<u64, DriveError> {
-        let mut from = File::open(source)?;
-        let mut to = File::create(&tmp)?;
-        let mut buffer = vec![0u8; DISK_CHUNK];
-        let mut total = 0u64;
-        loop {
-            let read = from.read(&mut buffer)?;
-            if read == 0 {
-                break;
-            }
-            to.write_all(&buffer[..read])?;
-            total += read as u64;
-            progress(total);
-        }
-        to.flush()?;
-        drop(to);
-        fs::rename(&tmp, dest)?;
-        Ok(total)
-    })();
-    if copied.is_err() {
-        let _ = fs::remove_file(&tmp);
-    }
-    copied
+    let mut reader = TellingReader {
+        inner: &mut from,
+        read: 0,
+        progress,
+    };
+    durable::publish(&folder, &name, &mut reader, publish)
+        .map(|landed| landed.len)
+        .map_err(|e| e.into_drive(&shown))
 }
 
 /// A reader that tells `progress` (on the reading thread) the bytes read so far.

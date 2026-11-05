@@ -9,7 +9,11 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use azul_storage::beneath::Root;
+use azul_storage::{
+    beneath::{BeneathError, Root},
+    ctl::Quiet,
+    durable::{self, Expect, Mode, Publish},
+};
 use serde::{Deserialize, Serialize};
 
 use super::{local::hash_file, remote::RemoteIndex};
@@ -116,7 +120,14 @@ fn copy_one(
     #[cfg(not(unix))]
     let mode = 0o644;
     let (dir, name) = tree.parent_of(key, true).context(key)?;
-    dir.write_from(name, &mut source, mode).context(key)?;
+    durable::publish(
+        &dir,
+        name,
+        &mut source,
+        Publish::new(Expect::Any, Mode::FromSource(mode), &Quiet),
+    )
+    .map_err(BeneathError::from)
+    .context(key)?;
     let hash = hash_file(from).with_context(|| from.display())?;
     pending.moves.push(PendingMove {
         source: from.to_path_buf(),

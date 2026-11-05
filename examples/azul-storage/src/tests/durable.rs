@@ -614,3 +614,49 @@ fn az_s19_az_p20_a_private_document_is_synced_before_the_rename_and_its_folder_a
     assert!(!path.exists());
     assert_eq!(names(&tmp.path().join("state")), vec!["outbox.json"]);
 }
+
+#[test]
+fn az_u15_a_sweep_removes_the_temp_files_of_dead_processes_and_old_partial_downloads() {
+    use crate::durable::sweep_temps;
+    let tmp = TempDir::new("durable-sweep");
+    let dir = Dir::open_following(tmp.path()).unwrap();
+    // A process that cannot exist: its temporary file is a leftover, young as it is.
+    let dead = ".a.txt.azul-storage-2000000000-0.tmp";
+    // This process's own, still being written.
+    let mine = format!(".b.txt.azul-storage-{}-0.tmp", std::process::id());
+    for name in [
+        dead,
+        mine.as_str(),
+        ".c.bin.download.part",
+        ".d.bin.download.part",
+    ] {
+        fs::write(tmp.path().join(name), b"x").unwrap();
+    }
+    fs::write(tmp.path().join(".c.bin.download-state.part"), b"{}").unwrap();
+    fs::write(tmp.path().join("e.txt"), b"mine").unwrap();
+    fs::write(tmp.path().join(".hidden"), b"mine too").unwrap();
+    let ten_days_ago = SystemTime::now() - Duration::from_secs(10 * 24 * 3600);
+    for old in [".c.bin.download.part", ".c.bin.download-state.part"] {
+        fs::File::options()
+            .write(true)
+            .open(tmp.path().join(old))
+            .unwrap()
+            .set_modified(ten_days_ago)
+            .unwrap();
+    }
+    let removed = sweep_temps(&dir, Duration::from_secs(6 * 24 * 3600));
+    assert_eq!(
+        removed, 3,
+        "the dead process's temp file and the old partial with its state"
+    );
+    let mut kept = vec![
+        mine,
+        String::from(".d.bin.download.part"),
+        String::from(".hidden"),
+        String::from("e.txt"),
+    ];
+    kept.sort();
+    assert_eq!(names(tmp.path()), kept);
+    // Nothing more to sweep: a second sweep removes nothing.
+    assert_eq!(sweep_temps(&dir, Duration::from_secs(6 * 24 * 3600)), 0);
+}

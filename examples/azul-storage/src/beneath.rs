@@ -860,54 +860,6 @@ impl Dir {
             let _ = sys::fsync(&self.fd);
         }
     }
-
-    /// Writes `bytes` to `name` through a new temporary file in this folder: written, synced to
-    /// disk, then renamed over `name`, and the folder synced. A reader never sees half a file,
-    /// a crash leaves the old version or the new one, a failure leaves the old one and no
-    /// temporary file.
-    ///
-    /// # Errors
-    ///
-    /// When it cannot be written.
-    pub fn write_atomically(
-        &self,
-        name: &str,
-        bytes: &[u8],
-        mode: u32,
-    ) -> Result<(), BeneathError> {
-        self.write_from(name, &mut &bytes[..], mode).map(|_| ())
-    }
-
-    /// [`Dir::write_atomically`] from a reader; the bytes written.
-    ///
-    /// # Errors
-    ///
-    /// When it cannot be read or written.
-    pub fn write_from(
-        &self,
-        name: &str,
-        body: &mut dyn io::Read,
-        mode: u32,
-    ) -> Result<u64, BeneathError> {
-        check_name(name)?;
-        let tmp = temp_name(name);
-        let mut file = self.create_new(&tmp, mode)?;
-        let written = io::copy(body, &mut file).and_then(|n| file.sync_all().map(|()| n));
-        drop(file);
-        let written = match written {
-            Ok(n) => n,
-            Err(e) => {
-                let _ = self.unlink(&tmp);
-                return Err(e.into());
-            }
-        };
-        if let Err(e) = self.rename(&tmp, self, name) {
-            let _ = self.unlink(&tmp);
-            return Err(e);
-        }
-        self.sync();
-        Ok(written)
-    }
 }
 
 /// The name of a temporary file for `name` in its own folder; [`is_temp_name`] knows it.

@@ -927,14 +927,10 @@ pub fn read_nodes(path: &std::path::Path) -> Vec<Node> {
 }
 
 /// Keeps `nodes` in `path` for the next start (best effort: the next refresh lists them again).
+/// A node list is read back with a check (a file that is no list is none), so it takes the
+/// rename only ([`azul_storage::durable::replace_cache`]).
 pub fn write_nodes(path: &std::path::Path, nodes: &[Node]) {
-    if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
     if let Ok(text) = serde_json::to_vec_pretty(nodes) {
-        let tmp = path.with_extension("json.tmp");
-        if std::fs::write(&tmp, text).is_ok() {
-            let _ = std::fs::rename(&tmp, path);
-        }
+        let _ = azul_storage::durable::replace_cache(path, &text);
     }
 }

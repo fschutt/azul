@@ -107,6 +107,8 @@ use std::{
 use azul_storage::{
     beneath::{self, BeneathError, Kind, Stat},
     checked::FileCheck,
+    ctl::Quiet,
+    durable::{self, Expect, Mode, Publish, PublishError},
     LocalDrive,
 };
 use serde::{Deserialize, Serialize};
@@ -1871,41 +1873,21 @@ fn read_here(root: &Path, key: &str) -> Option<Vec<u8>> {
     Some(bytes)
 }
 
-/// The permission bits of a new version: the old file's read and write bits (the user's own
-/// choice), else `rw-r--r--`, and the executable bit wherever a read bit is when the drive's
-/// version is executable. Never setuid, setgid or sticky, never more than the old file or
-/// `rwxr-xr-x` allow: a remote entry brings no permission of its own.
-#[cfg(unix)]
-fn set_mode(file: &fs::File, exec: bool, old: Option<&Stat>) -> std::io::Result<()> {
-    use std::os::unix::fs::PermissionsExt;
-    let mut mode = old
-        .filter(|st| st.kind == Kind::File)
-        .map_or(0o644, |st| (st.mode & 0o666) | 0o600);
-    if exec && merge::TRACKS_EXEC {
-        mode |= (mode & 0o444) >> 2;
-    }
-    file.set_permissions(fs::Permissions::from_mode(mode))
-}
-
-#[cfg(not(unix))]
-fn set_mode(_file: &fs::File, _exec: bool, _old: Option<&Stat>) -> std::io::Result<()> {
-    Ok(())
-}
-
-/// Sets the drive's modification time (nanoseconds; 0: none) on a new version: the merge never
-/// decides by it, people and other tools do.
-fn set_mtime(file: &fs::File, mtime_ns: u64) -> std::io::Result<()> {
-    if mtime_ns > 0 {
-        file.set_modified(std::time::UNIX_EPOCH + Duration::from_nanos(mtime_ns))?;
-    }
-    Ok(())
-}
-
 /// Why a new version was not renamed in.
 enum Replace {
     /// The file here changed since the scan (or a file turned up): the next run takes it.
     Changed,
     Failed(BeneathError),
+}
+
+impl From<PublishError> for Replace {
+    fn from(e: PublishError) -> Replace {
+        match e {
+            PublishError::Changed => Replace::Changed,
+            PublishError::Walk(e) => Replace::Failed(e),
+            other => Replace::Failed(BeneathError::Io(other.into())),
+        }
+    }
 }
 
 /// Whether the file `name` of `dir` is still what the scan found (`None`: still absent).
@@ -1914,6 +1896,30 @@ fn still_there(dir: &beneath::Dir, name: &str, expect: Option<&LocalFile>) -> bo
         (Err(e), None) => e.kind() == std::io::ErrorKind::NotFound,
         (Ok(st), Some(file)) => file.matches(&st),
         _ => false,
+    }
+}
+
+/// How the sync puts a new version in place ([`azul_storage::durable`]): the name must still hold
+/// what the scan found (`None`: nothing), the permission bits follow the sync's rule (the old
+/// file's read and write bits, the executable bit when the drive's version has it, never setuid,
+/// setgid or sticky: a remote entry brings no permission of its own), the drive's modification
+/// time when it has one (the merge never decides by it, people and other tools do).
+fn publish_of(expect: Option<&LocalFile>, exec: bool, mtime_ns: u64) -> Publish<'static> {
+    let expect = match expect {
+        Some(file) => Expect::Is(file.fingerprint()),
+        None => Expect::Absent,
+    };
+    let publish = Publish::new(
+        expect,
+        Mode::Synced {
+            exec: exec && merge::TRACKS_EXEC,
+        },
+        &Quiet,
+    );
+    if mtime_ns > 0 {
+        publish.with_mtime(std::time::UNIX_EPOCH + Duration::from_nanos(mtime_ns))
+    } else {
+        publish
     }
 }
 
@@ -1930,33 +1936,9 @@ fn replace_checked(
     exec: bool,
     mtime_ns: u64,
 ) -> Result<u64, Replace> {
-    let old = dir.lstat(name).ok();
-    let tmp = beneath::temp_name(name);
-    let mut file = dir.create_new(&tmp, 0o600).map_err(Replace::Failed)?;
-    let written = std::io::copy(body, &mut file).and_then(|n| {
-        set_mode(&file, exec, old.as_ref())?;
-        set_mtime(&file, mtime_ns)?;
-        file.sync_all()?;
-        Ok(n)
-    });
-    drop(file);
-    let written = match written {
-        Ok(n) => n,
-        Err(e) => {
-            let _ = dir.unlink(&tmp);
-            return Err(Replace::Failed(e.into()));
-        }
-    };
-    if !still_there(dir, name, expect) {
-        let _ = dir.unlink(&tmp);
-        return Err(Replace::Changed);
-    }
-    if let Err(e) = dir.rename(&tmp, dir, name) {
-        let _ = dir.unlink(&tmp);
-        return Err(Replace::Failed(e));
-    }
-    dir.sync();
-    Ok(written)
+    durable::publish(dir, name, body, publish_of(expect, exec, mtime_ns))
+        .map(|landed| landed.len)
+        .map_err(Replace::from)
 }
 
 /// [`replace_checked`] for a big download already in the spool (`spool`, its file `blob`):
@@ -1973,26 +1955,13 @@ fn replace_from_spool(
 ) -> Result<u64, Replace> {
     let spool = root::spool(tree).map_err(Replace::Failed)?;
     let spooled = blob.name();
-    let (file, st) = spool.open_read(&spooled).map_err(Replace::Failed)?;
-    drop(file);
-    let old = dir.lstat(name).ok();
-    let prepared = fs::OpenOptions::new()
-        .write(true)
-        .open(blob.path())
-        .and_then(|file| {
-            set_mode(&file, exec, old.as_ref())?;
-            set_mtime(&file, mtime_ns)?;
-            file.sync_all()
-        });
-    if let Err(e) = prepared {
-        return Err(Replace::Failed(e.into()));
-    }
-    if !still_there(dir, name, expect) {
-        return Err(Replace::Changed);
-    }
-    spool.rename(&spooled, dir, name).map_err(Replace::Failed)?;
-    dir.sync();
-    Ok(st.size)
+    let blob = durable::Blob {
+        dir: &spool,
+        name: &spooled,
+    };
+    durable::publish_staged(dir, name, blob, publish_of(expect, exec, mtime_ns))
+        .map(|landed| landed.len)
+        .map_err(Replace::from)
 }
 
 /// The files the drive moved, as this plan sees them: a delete here whose content the plan

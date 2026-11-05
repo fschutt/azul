@@ -14,7 +14,11 @@
 
 use std::{collections::BTreeMap, path::Path};
 
-use azul_storage::beneath::{self, BeneathError, Kind, Root};
+use azul_storage::{
+    beneath::{self, BeneathError, Kind, Root},
+    ctl::Quiet,
+    durable::{self, Expect, Mode, Publish},
+};
 use serde::{Deserialize, Serialize};
 
 use super::{
@@ -94,7 +98,13 @@ pub fn write_marker(root: &Path) -> Result<Marker, BeneathError> {
     let root = Root::open(root)?;
     let dir = root.dir(SYNC_DIR, true)?;
     let text = serde_json::to_string_pretty(&marker).unwrap_or_default();
-    dir.write_atomically(MARKER_FILE, text.as_bytes(), 0o644)?;
+    durable::publish(
+        &dir,
+        MARKER_FILE,
+        &mut text.as_bytes(),
+        Publish::new(Expect::Any, Mode::FromSource(0o644), &Quiet),
+    )
+    .map_err(BeneathError::from)?;
     Ok(marker)
 }
 

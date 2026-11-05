@@ -348,3 +348,202 @@ fn copying_a_big_object_between_two_remote_drives_streams_it_in_ranges() {
     );
     assert_eq!(seen.last().copied(), Some(big.len() as u64));
 }
+
+/// A file's permission bits (Unix; 0 elsewhere, where the test does not look).
+#[cfg(unix)]
+fn mode_of(path: &Path) -> u32 {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::metadata(path).unwrap().permissions().mode() & 0o777
+}
+
+fn give_time(path: &Path, at: std::time::SystemTime) {
+    std::fs::File::options()
+        .write(true)
+        .open(path)
+        .unwrap()
+        .set_modified(at)
+        .unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn az_u9_a_copy_on_disk_keeps_the_mode_and_the_time_of_the_file() {
+    use std::os::unix::fs::PermissionsExt;
+    let tmp = TempDir::new("transfer-u9");
+    let source = LocalDrive::without_manifest(tmp.path().join("here"));
+    source.put("keys/id_key", b"private key").unwrap();
+    source.put("tools/run.sh", b"#!/bin/sh\n").unwrap();
+    let key = tmp.path().join("here/keys/id_key");
+    let script = tmp.path().join("here/tools/run.sh");
+    std::fs::set_permissions(&key, std::fs::Permissions::from_mode(0o600)).unwrap();
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let long_ago = std::time::UNIX_EPOCH + Duration::from_secs(1_200_000_000);
+    give_time(&key, long_ago);
+    give_time(&script, long_ago);
+    let target = LocalDrive::without_manifest(tmp.path().join("there"));
+    // The UI's copy and move between two drives on this disk: copy_object.
+    copy_object(&source, "keys/id_key", None, &target, "id_key", &mut |_| {}).unwrap();
+    copy_object(
+        &source,
+        "tools/run.sh",
+        None,
+        &target,
+        "run.sh",
+        &mut |_| {},
+    )
+    .unwrap();
+    let copied = tmp.path().join("there/id_key");
+    assert_eq!(std::fs::read(&copied).unwrap(), b"private key");
+    assert_eq!(mode_of(&copied), 0o600, "a private key stays private");
+    assert_eq!(
+        mode_of(&tmp.path().join("there/run.sh")),
+        0o755,
+        "a script stays executable"
+    );
+    assert_eq!(
+        std::fs::metadata(&copied).unwrap().modified().unwrap(),
+        long_ago,
+        "the copy has the date of the file"
+    );
+    // Inside one drive: LocalDrive::copy, plain and contained.
+    source.copy("keys/id_key", "keys/id_key.bak").unwrap();
+    assert_eq!(mode_of(&tmp.path().join("here/keys/id_key.bak")), 0o600);
+    let contained = LocalDrive::without_manifest(tmp.path().join("here")).contained();
+    contained.copy("tools/run.sh", "tools/run-copy.sh").unwrap();
+    assert_eq!(mode_of(&tmp.path().join("here/tools/run-copy.sh")), 0o755);
+    assert_eq!(
+        std::fs::metadata(tmp.path().join("here/tools/run-copy.sh"))
+            .unwrap()
+            .modified()
+            .unwrap(),
+        long_ago
+    );
+    // No temporary file is left beside any of them.
+    for dir in ["there", "here/keys", "here/tools"] {
+        assert!(
+            files_named(&tmp.path().join(dir), ".azul-storage-").is_empty(),
+            "{dir}: {:?}",
+            files_named(&tmp.path().join(dir), "")
+        );
+    }
+}
+
+#[test]
+fn az_u5_az_m7_a_ranged_download_and_a_copy_come_in_whole_and_leave_nothing_hidden() {
+    let tmp = TempDir::new("transfer-u5");
+    let s3 = FakeBucket::new();
+    let bytes = eleven_chunks(9);
+    s3.write("big.bin", &bytes);
+    let dest = tmp.path().join("out").join("big.bin");
+    download_to_file(
+        &bucket_on(&s3),
+        "big.bin",
+        Some(bytes.len() as u64),
+        &dest,
+        1024,
+    )
+    .unwrap();
+    assert_eq!(std::fs::read(&dest).unwrap(), bytes);
+    let copy = tmp.path().join("out").join("copy.bin");
+    let local = LocalDrive::without_manifest(tmp.path().join("out"));
+    let there = LocalDrive::without_manifest(tmp.path().join("there"));
+    copy_object(&local, "big.bin", None, &there, "copy.bin", &mut |_| {}).unwrap();
+    assert_eq!(
+        std::fs::read(tmp.path().join("there/copy.bin")).unwrap(),
+        bytes
+    );
+    assert!(!copy.exists());
+    for dir in ["out", "there"] {
+        let all = files_named(&tmp.path().join(dir), "");
+        assert!(
+            all.iter().all(|name| !name.starts_with('.')),
+            "{dir} holds a hidden file: {all:?}"
+        );
+    }
+}
+
+#[test]
+fn az_w19_a_name_of_240_bytes_is_written_copied_and_downloaded_like_any_other() {
+    // The temporary and the partial name of such a name were longer than the 255 bytes a name
+    // may have, so the sync took it and every other path failed.
+    let tmp = TempDir::new("transfer-w19");
+    let long = format!("{}.txt", "n".repeat(240));
+    let longer = format!("{}.bak", "m".repeat(240));
+    let drive = LocalDrive::without_manifest(tmp.path().join("drive"));
+    drive.put(&long, b"put").unwrap();
+    assert_eq!(drive.get(&long).unwrap(), b"put");
+    drive.put_from(&longer, &mut &b"streamed"[..]).unwrap();
+    assert_eq!(drive.get(&longer).unwrap(), b"streamed");
+    let copied = format!("{}.cpy", "c".repeat(240));
+    drive.copy(&long, &copied).unwrap();
+    assert_eq!(drive.get(&copied).unwrap(), b"put");
+    let contained = LocalDrive::without_manifest(tmp.path().join("drive")).contained();
+    contained
+        .put(&format!("{}.d", "d".repeat(240)), b"contained")
+        .unwrap();
+    // A download: one GET, and ranged (a partial file and its state beside the name).
+    let dest = tmp.path().join("out").join(&long);
+    download_to_file(&drive, &long, Some(3), &dest, 1024).unwrap();
+    assert_eq!(std::fs::read(&dest).unwrap(), b"put");
+    let bigger = format!("{}.bin", "b".repeat(240));
+    let bytes = eleven_chunks(5);
+    drive.put(&bigger, &bytes).unwrap();
+    let dest = tmp.path().join("out").join(&bigger);
+    download_to_file(&drive, &bigger, Some(bytes.len() as u64), &dest, 1024).unwrap();
+    assert_eq!(std::fs::read(&dest).unwrap(), bytes);
+    for name in files_named(&tmp.path().join("out"), "") {
+        assert!(name.len() <= 255 && !name.starts_with('.'), "{name}");
+    }
+}
+
+#[test]
+fn az_u15_the_first_copy_into_a_folder_sweeps_what_an_earlier_run_left_there() {
+    let tmp = TempDir::new("transfer-u15");
+    let out = tmp.path().join("Downloads");
+    std::fs::create_dir_all(&out).unwrap();
+    // A copy of a run that was killed, and a download nobody resumed for ten days.
+    std::fs::write(
+        out.join(".report.pdf.azul-storage-2000000000-3.tmp"),
+        b"half",
+    )
+    .unwrap();
+    std::fs::write(out.join(".big.zip.download.part"), b"half").unwrap();
+    std::fs::write(out.join(".big.zip.download-state.part"), b"{}").unwrap();
+    std::fs::write(out.join(".mine"), b"the user's own hidden file").unwrap();
+    let ten_days_ago = std::time::SystemTime::now() - Duration::from_secs(10 * 24 * 3600);
+    give_time(&out.join(".big.zip.download.part"), ten_days_ago);
+    give_time(&out.join(".big.zip.download-state.part"), ten_days_ago);
+    let drive = LocalDrive::without_manifest(tmp.path().join("drive"));
+    drive.put("a.txt", b"alpha").unwrap();
+    download_to_file(&drive, "a.txt", Some(5), &out.join("a.txt"), 1024).unwrap();
+    assert_eq!(std::fs::read(out.join("a.txt")).unwrap(), b"alpha");
+    let mut left = files_named(&out, "");
+    left.sort();
+    assert_eq!(left, vec![String::from(".mine"), String::from("a.txt")]);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_streamed_write_over_a_link_to_a_folder_is_refused_as_a_put_is() {
+    let tmp = TempDir::new("transfer-link-folder");
+    let drive = LocalDrive::without_manifest(tmp.path().join("drive"));
+    drive.put("real/inside.txt", b"in").unwrap();
+    std::os::unix::fs::symlink(
+        tmp.path().join("drive/real"),
+        tmp.path().join("drive/alias"),
+    )
+    .unwrap();
+    assert!(matches!(
+        drive.put("alias", b"x"),
+        Err(DriveError::InvalidKey { .. })
+    ));
+    assert!(matches!(
+        drive.put_from("alias", &mut &b"x"[..]),
+        Err(DriveError::InvalidKey { .. })
+    ));
+    assert_eq!(drive.get("real/inside.txt").unwrap(), b"in");
+    assert!(std::fs::symlink_metadata(tmp.path().join("drive/alias"))
+        .unwrap()
+        .file_type()
+        .is_symlink());
+}

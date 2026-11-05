@@ -210,26 +210,6 @@ fn names_lists_every_entry_and_a_second_listing_lists_them_again() {
 }
 
 #[test]
-fn write_atomically_replaces_the_file_whole_and_leaves_no_temp_file() {
-    let w = World::new("atomic");
-    let root = Root::open(w.root.path()).unwrap();
-    let dir = root.dir("x/y", true).unwrap();
-    dir.write_atomically("f.txt", b"first", 0o644).unwrap();
-    dir.write_atomically("f.txt", b"second", 0o644).unwrap();
-    assert_eq!(
-        fs::read(w.root.path().join("x/y/f.txt")).unwrap(),
-        b"second"
-    );
-    let names: Vec<String> = dir
-        .names()
-        .unwrap()
-        .into_iter()
-        .map(|n| n.to_string_lossy().into_owned())
-        .collect();
-    assert_eq!(names, vec!["f.txt"]);
-}
-
-#[test]
 fn a_temp_name_of_a_long_name_is_still_a_valid_name() {
     let long = "n".repeat(250);
     let tmp = beneath::temp_name(&long);
