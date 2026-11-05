@@ -224,6 +224,15 @@ pub struct ReleaseInfo {
     /// Minisign signature of the STATEMENT string by the ROOT key
     /// (full `.minisig` text).
     pub signing_key_statement_sig: AzString,
+    /// The signed release statement: `azul-release-v1|app=<id>|version=<semver>|`
+    /// `platform=<os-arch>|sha256=<hex>|released=<unix>|min_generation=<n>`. It binds the
+    /// artifact's hash to the app, the version and the platform it is for: the manifest's own
+    /// `version`, `download_url` and rollout are unsigned, and without this a genuine old
+    /// release could be served under a new version label (REVIEW Y3).
+    pub release_statement: AzString,
+    /// Minisign signature of the release statement by the SIGNING key the root-signed
+    /// statement names (full `.minisig` text).
+    pub release_statement_sig: AzString,
     /// Headers the DOWNLOAD needs, when the artifact is not on open HTTP —
     /// an OCI registry blob wants the same bearer token the manifest
     /// request used. Empty for ordinary downloads.
@@ -608,6 +617,8 @@ pub fn parse_manifest_v1(json: &str) -> Result<(ReleaseInfo, RolloutPlan), Strin
         signature: get("signature").into(),
         signing_key_statement: get("signing_key_statement").into(),
         signing_key_statement_sig: get("signing_key_statement_sig").into(),
+        release_statement: get("release_statement").into(),
+        release_statement_sig: get("release_statement_sig").into(),
         download_headers: Vec::new().into(),
     };
     Ok((release, parse_rollout(latest)))
@@ -694,6 +705,10 @@ pub enum SidecarField {
     Statement,
     /// `ReleaseInfo::signing_key_statement_sig`.
     StatementSig,
+    /// `ReleaseInfo::release_statement`.
+    ReleaseStatement,
+    /// `ReleaseInfo::release_statement_sig`.
+    ReleaseStatementSig,
     /// `ReleaseInfo::digest`, from a `.sha256` / `SHA256SUMS`-style file.
     Digest,
 }
@@ -1146,6 +1161,8 @@ fn manifest_entry_to_release(entry: &serde_json::Value) -> ResolvedRelease {
             signature: get("signature").into(),
             signing_key_statement: get("signing_key_statement").into(),
             signing_key_statement_sig: get("signing_key_statement_sig").into(),
+            release_statement: get("release_statement").into(),
+            release_statement_sig: get("release_statement_sig").into(),
             download_headers: Vec::new().into(),
         },
         rollout: parse_rollout(entry),
@@ -1254,6 +1271,35 @@ fn parse_github_release(
         sidecars.push(Sidecar {
             field: SidecarField::StatementSig,
             url: asset_str(sts, "browser_download_url"),
+        });
+    }
+    // The release statement names the platform and the hash of ONE artifact, so a release with an
+    // asset per platform carries one statement per asset (`<asset>.release-statement.txt`); the
+    // shared names are for a release that has a single artifact.
+    if let Some(rs) = find_asset(assets, |n| {
+        n == format!("{artifact_name}.release-statement.txt")
+    })
+    .or_else(|| {
+        find_asset(assets, |n| {
+            n == "release-statement.txt" || n == "release-statement"
+        })
+    }) {
+        sidecars.push(Sidecar {
+            field: SidecarField::ReleaseStatement,
+            url: asset_str(rs, "browser_download_url"),
+        });
+    }
+    if let Some(rss) = find_asset(assets, |n| {
+        n == format!("{artifact_name}.release-statement.txt.minisig")
+    })
+    .or_else(|| {
+        find_asset(assets, |n| {
+            n == "release-statement.txt.minisig" || n == "release-statement.minisig"
+        })
+    }) {
+        sidecars.push(Sidecar {
+            field: SidecarField::ReleaseStatementSig,
+            url: asset_str(rss, "browser_download_url"),
         });
     }
 
@@ -1550,6 +1596,13 @@ pub fn hydrate_sidecars(resolved: &mut ResolvedRelease) {
             SidecarField::StatementSig => {
                 resolved.release.signing_key_statement_sig = text.trim().into();
             }
+            SidecarField::ReleaseStatement => {
+                // Signed as exact bytes, like the key statement: no editor newline.
+                resolved.release.release_statement = text.trim_end_matches(['\n', '\r']).into();
+            }
+            SidecarField::ReleaseStatementSig => {
+                resolved.release.release_statement_sig = text.trim().into();
+            }
             SidecarField::Digest => {
                 if let Some(hex) =
                     parse_checksum_file(&text, resolved.release.download_url.as_str())
@@ -1700,7 +1753,8 @@ pub fn check_for_updates_blocking(
     // attack it stops is a manifest that regresses wholesale to an old,
     // vulnerable version. Individual candidates below the high-water mark
     // are fine — that is exactly how a client takes the newest release it
-    // is eligible for while a newer one is still rolling out.
+    // is eligible for while a newer one is still rolling out. The mark is the
+    // highest version of a release that was VERIFIED.
     let highest_offered = candidates
         .iter()
         .map(|c| c.release.version.as_str())
@@ -1713,9 +1767,9 @@ pub fn check_for_updates_blocking(
         record_check("downgrade_refused");
         return UpdateCheckResult::UpToDate;
     }
-    if compare_versions(&highest_offered, &state.highest_seen) == Ordering::Greater {
-        state.highest_seen.clone_from(&highest_offered);
-    }
+    // The mark does NOT move here. This manifest is unauthenticated - it can say "999.0.0" - and
+    // a mark set from it would refuse every genuine release afterwards (REVIEW Y3, X-AR5b-26).
+    // It moves in `verify_release_signature`, from a release statement the signing key signed.
 
     if state.suspended_until_unix > now {
         record_check("suspended");
@@ -2100,18 +2154,219 @@ pub fn parse_signing_key_statement(statement: &str) -> Result<SigningKeyStatemen
     })
 }
 
+/// A parsed release statement (see [`ReleaseInfo::release_statement`]): what the SIGNING key says
+/// about one artifact.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReleaseStatement {
+    /// The app the artifact is for (`azwriter`).
+    pub app: String,
+    /// Its version, as the manifest must also say it.
+    pub version: String,
+    /// The platform it is built for, `<os>-<arch>` ([`platform_label`]).
+    pub platform: String,
+    /// The SHA-256 of the artifact's bytes.
+    pub sha256: [u8; 32],
+    /// When it was released, seconds since 1970.
+    pub released_unix: u64,
+    /// The lowest signing-key generation that may sign releases from now on: a client that accepts
+    /// this release refuses every statement of a lower generation afterwards, so a retired key
+    /// stays dead for it even if it never saw the statement that retired it.
+    pub min_generation: u64,
+}
+
+/// The platform this build runs on, as a release statement names one: `<os>-<arch>` in Rust's
+/// words (`macos-aarch64`, `linux-x86_64`, `windows-x86_64`).
+#[must_use]
+pub fn platform_label() -> String {
+    format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH)
+}
+
+/// Parses the canonical release statement
+/// `azul-release-v1|app=<id>|version=<semver>|platform=<os-arch>|sha256=<hex>|released=<unix>|min_generation=<n>`.
+/// STRICT, like the signing-key statement: an unknown format or field, a missing or repeated
+/// field, a value that does not parse is an error - a statement is a security boundary, not a
+/// config file.
+///
+/// # Errors
+///
+/// Returns a description of the first malformed field.
+pub fn parse_release_statement(statement: &str) -> Result<ReleaseStatement, String> {
+    let mut parts = statement.split('|');
+    if parts.next() != Some("azul-release-v1") {
+        return Err(format!(
+            "release statement: unknown format (expected `azul-release-v1|...`, got \
+             {statement:?})"
+        ));
+    }
+    let mut app = None;
+    let mut version = None;
+    let mut platform = None;
+    let mut sha256 = None;
+    let mut released = None;
+    let mut min_generation = None;
+    for part in parts {
+        let Some((key, value)) = part.split_once('=') else {
+            return Err(format!("release statement: field {part:?} has no value"));
+        };
+        let repeated = || format!("release statement: `{key}` twice");
+        match key {
+            "app" => {
+                if app.replace(value.to_owned()).is_some() {
+                    return Err(repeated());
+                }
+            }
+            "version" => {
+                if version.replace(value.to_owned()).is_some() {
+                    return Err(repeated());
+                }
+            }
+            "platform" => {
+                if platform.replace(value.to_owned()).is_some() {
+                    return Err(repeated());
+                }
+            }
+            "sha256" => {
+                let hash = parse_sha256_hex(value)
+                    .ok_or_else(|| format!("release statement sha256: {value:?} is no sha256"))?;
+                if sha256.replace(hash).is_some() {
+                    return Err(repeated());
+                }
+            }
+            "released" => {
+                let at = value
+                    .parse::<u64>()
+                    .map_err(|e| format!("release statement released: {e}"))?;
+                if released.replace(at).is_some() {
+                    return Err(repeated());
+                }
+            }
+            "min_generation" => {
+                let n = value
+                    .parse::<u64>()
+                    .map_err(|e| format!("release statement min_generation: {e}"))?;
+                if min_generation.replace(n).is_some() {
+                    return Err(repeated());
+                }
+            }
+            _ => return Err(format!("release statement: unknown field {key:?}")),
+        }
+    }
+    let present = |field: Option<String>, name: &str| {
+        field
+            .filter(|v| !v.is_empty())
+            .ok_or_else(|| format!("release statement: missing {name}"))
+    };
+    Ok(ReleaseStatement {
+        app: present(app, "app")?,
+        version: present(version, "version")?,
+        platform: present(platform, "platform")?,
+        sha256: sha256.ok_or("release statement: missing sha256")?,
+        released_unix: released.ok_or("release statement: missing released")?,
+        min_generation: min_generation.ok_or("release statement: missing min_generation")?,
+    })
+}
+
 /// The manifest names every link of the signature chain (it may still be wrong, but nothing is
-/// missing): the artifact's signature, the signing-key statement and the root's signature of it.
+/// missing): the artifact's signature, the signing-key statement and the root's signature of it,
+/// and the release statement with the signing key's signature of it.
 fn chain_is_complete(release: &ReleaseInfo) -> bool {
     !release.signature.as_str().trim().is_empty()
         && !release.signing_key_statement.as_str().trim().is_empty()
         && !release.signing_key_statement_sig.as_str().trim().is_empty()
+        && !release.release_statement.as_str().trim().is_empty()
+        && !release.release_statement_sig.as_str().trim().is_empty()
 }
 
 /// The error of a release that does not carry the chain a signed policy needs.
 const UNSIGNED_RELEASE: &str = "this app pins an update root key but the manifest offers an \
                                 UNSIGNED release (missing signature / signing_key_statement / \
-                                signing_key_statement_sig)";
+                                signing_key_statement_sig / release_statement / \
+                                release_statement_sig)";
+
+/// What a client knows about the release it is looking for, apart from the keys: which app it is
+/// and which platform it runs on. The manifest says its own app, version and platform, but those
+/// are unsigned words; the release statement is signed, and it has to agree with THIS.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Expect {
+    /// The app (`azwriter`): the key its manifest, registry folder and statement go by.
+    pub app: String,
+    /// The platform, `<os>-<arch>` ([`platform_label`]).
+    pub platform: String,
+}
+
+impl Expect {
+    /// `app` on the platform this build runs on.
+    #[must_use]
+    pub fn here(app: &str) -> Self {
+        Self {
+            app: app.to_owned(),
+            platform: platform_label(),
+        }
+    }
+}
+
+/// The error of a statement for another artifact than the one that arrived.
+fn statement_mismatch(what: &str, said: &str, expected: &str) -> String {
+    format!(
+        "release statement does not match this release: {what} is {said:?} but this is \
+         {expected:?}"
+    )
+}
+
+/// How far into the future a release statement may be dated (clocks differ).
+const STATEMENT_CLOCK_SKEW_SECS: u64 = 86_400;
+
+/// Checks a parsed release statement against what arrived: the app and platform the client
+/// expects, the manifest's version label, the hash of the bytes, the key statement that vouches
+/// for the signing key (REVIEW Y3). Pure.
+fn check_release_statement(
+    statement: &ReleaseStatement,
+    release: &ReleaseInfo,
+    expect: &Expect,
+    sha256: &[u8; 32],
+    key: &SigningKeyStatement,
+    now_unix: u64,
+) -> Result<(), String> {
+    if statement.app != expect.app {
+        return Err(statement_mismatch("the app", &statement.app, &expect.app));
+    }
+    if statement.platform != expect.platform {
+        return Err(statement_mismatch(
+            "the platform",
+            &statement.platform,
+            &expect.platform,
+        ));
+    }
+    let label = strip_version_prefix(release.version.as_str());
+    if statement.version != label {
+        return Err(statement_mismatch(
+            "the version",
+            &statement.version,
+            &label,
+        ));
+    }
+    if statement.sha256 != *sha256 {
+        return Err(statement_mismatch(
+            "the artifact's sha256",
+            &sha256_hex(&statement.sha256),
+            &sha256_hex(sha256),
+        ));
+    }
+    if statement.released_unix > now_unix.saturating_add(STATEMENT_CLOCK_SKEW_SECS) {
+        return Err(format!(
+            "release statement is dated in the future (unix {}, now {now_unix})",
+            statement.released_unix
+        ));
+    }
+    if statement.min_generation > key.generation {
+        return Err(format!(
+            "this release requires a signing-key generation of at least {} but the statement \
+             that names the signing key is generation {}",
+            statement.min_generation, key.generation
+        ));
+    }
+    Ok(())
+}
 
 /// Verifies a staged artifact's SIGNATURE CHAIN against the app's compiled-in minisign root
 /// public key(s):
@@ -2119,8 +2374,17 @@ const UNSIGNED_RELEASE: &str = "this app pins an update root key but the manifes
 /// 1. a ROOT key must verify `signing_key_statement_sig` over the statement string - only the
 ///    root can appoint a signing key;
 /// 2. the statement must not be expired and its `generation` must be at least
-///    `state.key_generation` (rollback refusal; the high-water mark advances on success);
-/// 3. the SIGNING key from the statement must verify `signature` over the artifact bytes.
+///    `state.key_generation` (rollback refusal);
+/// 3. the SIGNING key from the statement must verify `signature` over the artifact bytes;
+/// 4. the SAME signing key must verify `release_statement_sig` over the release statement, and
+///    the statement must name this app, this platform, the version the manifest says, the hash
+///    of the bytes that were just read, a date that is not in the future and a minimum
+///    generation the key statement meets (REVIEW Y3: a manifest's version, URL and rollout are
+///    unsigned words; the bytes of a genuine old release must not pass under a new label).
+///
+/// Only a fully verified chain advances the marks: the highest signing-key generation accepted
+/// (also to the release's `min_generation`) and the highest VERSION seen - an unverified
+/// manifest, which can say anything, moves neither.
 ///
 /// A manifest that omits any part of the chain is a HARD error: "this release is unsigned" is
 /// never a downgrade path, and there is no root key that is empty ([`RootKeys`]). The file is
@@ -2134,6 +2398,7 @@ pub fn verify_release_signature(
     path: &Path,
     release: &ReleaseInfo,
     roots: &RootKeys,
+    expect: &Expect,
     state: &mut UpdateState,
     now_unix: u64,
 ) -> Result<[u8; 32], String> {
@@ -2183,8 +2448,27 @@ pub fn verify_release_signature(
     let mut sha256 = [0u8; 32];
     sha256.copy_from_slice(&sha2::Digest::finalize(hasher));
 
-    // Only a fully verified chain advances the rotation high-water mark.
-    state.key_generation = state.key_generation.max(statement.generation);
+    // The release statement: what the signing key says about THIS artifact.
+    let release_sig = minisign_verify::Signature::decode(release.release_statement_sig.as_str())
+        .map_err(|e| format!("release statement signature: {e}"))?;
+    signing
+        .verify(
+            release.release_statement.as_str().as_bytes(),
+            &release_sig,
+            false,
+        )
+        .map_err(|e| format!("release statement not signed by the signing key: {e}"))?;
+    let released = parse_release_statement(release.release_statement.as_str())?;
+    check_release_statement(&released, release, expect, &sha256, &statement, now_unix)?;
+
+    // Only a fully verified chain advances the marks.
+    state.key_generation = state
+        .key_generation
+        .max(statement.generation)
+        .max(released.min_generation);
+    if compare_versions(&released.version, &state.highest_seen) == core::cmp::Ordering::Greater {
+        state.highest_seen.clone_from(&released.version);
+    }
     Ok(sha256)
 }
 
@@ -2194,12 +2478,13 @@ fn verify_artifact(
     path: &Path,
     release: &ReleaseInfo,
     policy: &UpdatePolicy,
+    expect: &Expect,
     state: &mut UpdateState,
     now_unix: u64,
 ) -> Result<([u8; 32], bool), String> {
     match policy {
         UpdatePolicy::Signed(roots) => {
-            let sha256 = verify_release_signature(path, release, roots, state, now_unix)?;
+            let sha256 = verify_release_signature(path, release, roots, expect, state, now_unix)?;
             // The chain vouches for the bytes; a digest the manifest pins besides must agree.
             if let Some(pin) = pinned_digest(release)? {
                 if pin != sha256 {
@@ -2428,6 +2713,7 @@ pub fn download_update(
 #[cfg(feature = "http")]
 pub fn download_and_verify(
     release: &ReleaseInfo,
+    expect: &Expect,
     staging_dir: &Path,
     policy: &UpdatePolicy,
     state: &mut UpdateState,
@@ -2435,7 +2721,7 @@ pub fn download_and_verify(
     let now = unix_seconds()?;
     can_meet(release, policy)?;
     let outcome = download_update(release, staging_dir)?;
-    match verify_artifact(&outcome.path, release, policy, state, now) {
+    match verify_artifact(&outcome.path, release, policy, expect, state, now) {
         Ok((sha256, signed)) => Ok(VerifiedArtifact {
             path: outcome.path.clone(),
             sha256,
@@ -2593,9 +2879,11 @@ pub fn check_program_for_updates(
 
 /// [`download_and_verify`] for another program, as the C API calls it: the root key is TEXT
 /// because that is what crosses the C boundary, and it is parsed HERE - an empty or unreadable
-/// one is an error, never "no check" ([`UpdatePolicy::from_text`]). The artifact lands in
-/// `staging_dir`, the accepted key generation in `state_dir`. Returns the staged file. Blocking:
-/// run it on a `Thread`.
+/// one is an error, never "no check" ([`UpdatePolicy::from_text`]); `allow_unsigned` is the
+/// program's explicit choice of the digest pin alone. `app` is the program's key (`azwriter`):
+/// the release statement has to be for it. The artifact lands in `staging_dir`, the accepted key
+/// generation and the highest verified version in `state_dir`. Returns the proof of what was
+/// staged. Blocking: run it on a `Thread`.
 ///
 /// # Errors
 ///
@@ -2604,16 +2892,17 @@ pub fn check_program_for_updates(
 #[cfg(feature = "http")]
 pub fn stage_program_update(
     release: &ReleaseInfo,
+    app: &str,
     staging_dir: &Path,
     root_public_key: &str,
+    allow_unsigned: bool,
     state_dir: &Path,
-) -> Result<PathBuf, String> {
-    let policy = UpdatePolicy::from_text(root_public_key, false)?;
-    stage_program_update_with(release, staging_dir, &policy, state_dir)
-        .map(|artifact| artifact.path)
+) -> Result<VerifiedArtifact, String> {
+    let policy = UpdatePolicy::from_text(root_public_key, allow_unsigned)?;
+    stage_program_update_with(release, &Expect::here(app), staging_dir, &policy, state_dir)
 }
 
-/// [`stage_program_update`] under a policy that is already a policy: the proof of what passed.
+/// [`stage_program_update`] under a policy that is already a policy.
 ///
 /// # Errors
 ///
@@ -2621,12 +2910,13 @@ pub fn stage_program_update(
 #[cfg(feature = "http")]
 pub fn stage_program_update_with(
     release: &ReleaseInfo,
+    expect: &Expect,
     staging_dir: &Path,
     policy: &UpdatePolicy,
     state_dir: &Path,
 ) -> Result<VerifiedArtifact, String> {
     let mut state = UpdateState::load(state_dir);
-    let staged = download_and_verify(release, staging_dir, policy, &mut state);
+    let staged = download_and_verify(release, expect, staging_dir, policy, &mut state);
     state.save(state_dir);
     staged
 }
@@ -2641,16 +2931,17 @@ pub fn stage_program_update_with(
 pub fn verify_staged_program_update(
     path: &Path,
     release: &ReleaseInfo,
+    app: &str,
     root_public_key: &str,
+    allow_unsigned: bool,
     state_dir: &Path,
-) -> Result<(), String> {
-    let policy = UpdatePolicy::from_text(root_public_key, false)?;
-    verify_staged_program_update_with(path, release, &policy, state_dir).map(|_| ())
+) -> Result<VerifiedArtifact, String> {
+    let policy = UpdatePolicy::from_text(root_public_key, allow_unsigned)?;
+    verify_staged_program_update_with(path, release, &Expect::here(app), &policy, state_dir)
 }
 
-/// [`verify_staged_program_update`] under a policy that is already a policy: the proof of what
-/// passed. The file is read once; the hash in the proof is the hash of the bytes that were
-/// checked.
+/// [`verify_staged_program_update`] under a policy that is already a policy. The file is read
+/// once; the hash in the proof is the hash of the bytes that were checked.
 ///
 /// # Errors
 ///
@@ -2658,13 +2949,14 @@ pub fn verify_staged_program_update(
 pub fn verify_staged_program_update_with(
     path: &Path,
     release: &ReleaseInfo,
+    expect: &Expect,
     policy: &UpdatePolicy,
     state_dir: &Path,
 ) -> Result<VerifiedArtifact, String> {
     can_meet(release, policy)?;
     let now = unix_seconds()?;
     let mut state = UpdateState::load(state_dir);
-    let (sha256, signed) = verify_artifact(path, release, policy, &mut state, now)?;
+    let (sha256, signed) = verify_artifact(path, release, policy, expect, &mut state, now)?;
     state.save(state_dir);
     Ok(VerifiedArtifact {
         path: path.to_path_buf(),
@@ -2675,22 +2967,47 @@ pub fn verify_staged_program_update_with(
     })
 }
 
+/// A file that passed its checks, as the C API hands it over: where it is, the hash of the bytes
+/// that passed (64 hex digits) and the version the release said. The caller installs from the
+/// path and compares what it copies with the hash ([`VerifiedArtifact`]'s counterpart across the
+/// C boundary).
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[repr(C)]
+pub struct StagedUpdate {
+    /// The verified file.
+    pub path: AzString,
+    /// The SHA-256 of the bytes that passed.
+    pub sha256: AzString,
+    /// The version the release said.
+    pub version: AzString,
+}
+
+impl From<&VerifiedArtifact> for StagedUpdate {
+    fn from(artifact: &VerifiedArtifact) -> Self {
+        Self {
+            path: artifact.path.to_string_lossy().as_ref().into(),
+            sha256: artifact.sha256_hex().into(),
+            version: artifact.version.clone().into(),
+        }
+    }
+}
+
 /// What staging or checking a program's update concluded: the C API's
-/// `Result<PathBuf, String>` for [`stage_program_update`] and
+/// `Result<VerifiedArtifact, String>` for [`stage_program_update`] and
 /// [`verify_staged_program_update`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum UpdateStageResult {
-    /// The verified file, ready to install.
-    Staged(AzString),
+    /// The verified file, ready to install, with the hash of the bytes that passed.
+    Staged(StagedUpdate),
     /// Why the file must not be installed.
     Error(AzString),
 }
 
-impl From<Result<PathBuf, String>> for UpdateStageResult {
-    fn from(result: Result<PathBuf, String>) -> Self {
+impl From<Result<VerifiedArtifact, String>> for UpdateStageResult {
+    fn from(result: Result<VerifiedArtifact, String>) -> Self {
         match result {
-            Ok(path) => Self::Staged(path.to_string_lossy().as_ref().into()),
+            Ok(artifact) => Self::Staged(StagedUpdate::from(&artifact)),
             Err(e) => Self::Error(e.into()),
         }
     }
@@ -2933,7 +3250,14 @@ fn stage_automatically(
         return azul_css::OptionString::None;
     };
     let mut state = UpdateState::load(state_dir);
-    let staged = download_and_verify(release, &state_dir.join("staging"), &policy, &mut state);
+    let expect = Expect::here(&env.app_name);
+    let staged = download_and_verify(
+        release,
+        &expect,
+        &state_dir.join("staging"),
+        &policy,
+        &mut state,
+    );
     state.save(state_dir);
     match staged {
         Ok(artifact) => {
@@ -3207,6 +3531,8 @@ mod tests {
                 gh_asset(&format!("{target}.minisig"), None),
                 gh_asset("signing-key-statement.txt", None),
                 gh_asset("signing-key-statement.txt.minisig", None),
+                gh_asset("release-statement.txt", None),
+                gh_asset("release-statement.txt.minisig", None),
             ],
         });
         let r = parse_github_release(&release, None).unwrap();
@@ -3233,6 +3559,51 @@ mod tests {
         assert!(fields.contains(&SidecarField::Signature));
         assert!(fields.contains(&SidecarField::Statement));
         assert!(fields.contains(&SidecarField::StatementSig));
+        // ... and so does the signed release statement that binds the artifact to its version.
+        assert!(fields.contains(&SidecarField::ReleaseStatement));
+        assert!(fields.contains(&SidecarField::ReleaseStatementSig));
+    }
+
+    /// AZ-Y3: a release statement names one artifact's platform and hash, so a GitHub release with an
+    /// asset per platform has one statement per asset; the asset of THIS platform's own statement
+    /// is the one read, and the shared name is only for a release with a single artifact.
+    #[test]
+    fn y3_a_github_release_reads_the_statement_of_its_own_asset() {
+        let target = format!(
+            "app-2.0.0-{}-{}.bin",
+            std::env::consts::ARCH,
+            std::env::consts::OS
+        );
+        let release = serde_json::json!({
+            "tag_name": "v2.0.0",
+            "assets": [
+                gh_asset("app-2.0.0-somethingelse.bin", None),
+                gh_asset("app-2.0.0-somethingelse.bin.release-statement.txt", None),
+                gh_asset("app-2.0.0-somethingelse.bin.release-statement.txt.minisig", None),
+                gh_asset(&target, None),
+                gh_asset(&format!("{target}.release-statement.txt"), None),
+                gh_asset(&format!("{target}.release-statement.txt.minisig"), None),
+                gh_asset("release-statement.txt", None),
+                gh_asset("release-statement.txt.minisig", None),
+            ],
+        });
+        let r = parse_github_release(&release, None).unwrap();
+        let url_of = |field: SidecarField| {
+            r.sidecars
+                .iter()
+                .find(|s| s.field == field)
+                .map(|s| s.url.clone())
+                .expect("the sidecar is there")
+        };
+        assert_eq!(
+            url_of(SidecarField::ReleaseStatement),
+            format!("https://dl.invalid/{target}.release-statement.txt"),
+            "the statement of the asset this platform downloads, not another platform's and not the shared one"
+        );
+        assert_eq!(
+            url_of(SidecarField::ReleaseStatementSig),
+            format!("https://dl.invalid/{target}.release-statement.txt.minisig")
+        );
     }
 
     /// LAW: with no asset for this platform we still report the VERSION but
@@ -3622,9 +3993,60 @@ mod tests {
     /// statement delegating root→signing, and a signed artifact on disk.
     struct ChainFixture {
         root_pub_b64: String,
+        /// The signing key pair (a test signs more than the fixture's own statements with it).
+        signing: minisign::KeyPair,
         release: ReleaseInfo,
         artifact: std::path::PathBuf,
         _dir: std::path::PathBuf,
+    }
+
+    /// The app every fixture release is for.
+    const FIXTURE_APP: &str = "fixture-app";
+    /// When the fixture's releases were made (before every `now` a test uses).
+    const FIXTURE_RELEASED: u64 = 1_700_000_000;
+    /// The bytes of the fixture's artifact.
+    const FIXTURE_BYTES: &[u8] = b"the update artifact bytes";
+
+    /// What a client of the fixture's app on this platform expects.
+    fn expect() -> Expect {
+        Expect::here(FIXTURE_APP)
+    }
+
+    /// A release statement's text.
+    fn release_statement_text(
+        app: &str,
+        version: &str,
+        platform: &str,
+        sha256: &[u8; 32],
+        released: u64,
+        min_generation: u64,
+    ) -> String {
+        format!(
+            "azul-release-v1|app={app}|version={version}|platform={platform}|sha256={}|released={released}|min_generation={min_generation}",
+            sha256_hex(sha256)
+        )
+    }
+
+    /// `text` signed by the fixture's SIGNING key.
+    fn signed_by_the_signing_key(f: &ChainFixture, text: &str) -> String {
+        minisign::sign(
+            Some(&f.signing.pk),
+            &f.signing.sk,
+            std::io::Cursor::new(text.as_bytes()),
+            Some("azul release statement"),
+            None,
+        )
+        .unwrap()
+        .to_string()
+    }
+
+    /// The fixture's release with `text` as its release statement, signed by the signing key.
+    fn with_release_statement(f: &ChainFixture, text: &str) -> ReleaseInfo {
+        ReleaseInfo {
+            release_statement: text.to_owned().into(),
+            release_statement_sig: signed_by_the_signing_key(f, text).into(),
+            ..f.release.clone()
+        }
     }
 
     /// Signs with the REAL `minisign` crate so `minisign-verify` is checked
@@ -3649,12 +4071,29 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("azul-sigchain-{tag}-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let artifact = dir.join("update-2.0.0.bin");
-        std::fs::write(&artifact, b"the update artifact bytes").unwrap();
+        std::fs::write(&artifact, FIXTURE_BYTES).unwrap();
         let artifact_sig = minisign::sign(
             Some(&signing.pk),
             &signing.sk,
-            std::io::Cursor::new(&b"the update artifact bytes"[..]),
+            std::io::Cursor::new(FIXTURE_BYTES),
             Some("azul release 2.0.0"),
+            None,
+        )
+        .unwrap()
+        .to_string();
+        let release_statement = release_statement_text(
+            FIXTURE_APP,
+            "2.0.0",
+            &platform_label(),
+            &sha256_of(FIXTURE_BYTES),
+            FIXTURE_RELEASED,
+            generation,
+        );
+        let release_statement_sig = minisign::sign(
+            Some(&signing.pk),
+            &signing.sk,
+            std::io::Cursor::new(release_statement.as_bytes()),
+            Some("azul release statement"),
             None,
         )
         .unwrap()
@@ -3662,6 +4101,7 @@ mod tests {
 
         ChainFixture {
             root_pub_b64: root.pk.to_base64(),
+            signing,
             release: ReleaseInfo {
                 version: "2.0.0".into(),
                 download_url: "http://x/update-2.0.0.bin".into(),
@@ -3671,6 +4111,8 @@ mod tests {
                 signature: artifact_sig.into(),
                 signing_key_statement: statement.into(),
                 signing_key_statement_sig: statement_sig.into(),
+                release_statement: release_statement.into(),
+                release_statement_sig: release_statement_sig.into(),
                 download_headers: Vec::new().into(),
             },
             artifact,
@@ -3699,6 +4141,7 @@ mod tests {
             &f.artifact,
             &f.release,
             &roots_of(&f),
+            &expect(),
             &mut state,
             CHAIN_NOW,
         )
@@ -3726,6 +4169,7 @@ mod tests {
             &f.artifact,
             &f.release,
             &roots_of(&f),
+            &expect(),
             &mut state,
             CHAIN_NOW,
         )
@@ -3745,6 +4189,7 @@ mod tests {
             &f.artifact,
             &f.release,
             &roots_of(&f),
+            &expect(),
             &mut state,
             CHAIN_NOW + 2 * DAY,
         )
@@ -3760,6 +4205,7 @@ mod tests {
             &f.artifact,
             &f.release,
             &roots_of(&f),
+            &expect(),
             &mut rolled,
             CHAIN_NOW,
         )
@@ -3773,6 +4219,7 @@ mod tests {
             &f.artifact,
             &f.release,
             &RootKeys::from_text(&foreign.pk.to_base64()).expect("a foreign key parses"),
+            &expect(),
             &mut state,
             CHAIN_NOW,
         )
@@ -3786,9 +4233,15 @@ mod tests {
             signing_key_statement_sig: "".into(),
             ..f.release.clone()
         };
-        let err =
-            verify_release_signature(&f.artifact, &unsigned, &roots_of(&f), &mut state, CHAIN_NOW)
-                .expect_err("unsigned release with an armed root MUST fail");
+        let err = verify_release_signature(
+            &f.artifact,
+            &unsigned,
+            &roots_of(&f),
+            &expect(),
+            &mut state,
+            CHAIN_NOW,
+        )
+        .expect_err("unsigned release with an armed root MUST fail");
         assert!(err.contains("UNSIGNED"), "wrong link blamed: {err}");
         drop(std::fs::remove_dir_all(&f._dir));
     }
@@ -3848,7 +4301,14 @@ mod tests {
         let f = chain_fixture(CHAIN_NOW * 2, 1, "y1-manager");
         let release = unsigned_release_on_a_server(&f);
         let staging = f._dir.join("staging");
-        let staged = stage_program_update(&release, &staging, "", &f._dir.join("state"));
+        let staged = stage_program_update(
+            &release,
+            FIXTURE_APP,
+            &staging,
+            "",
+            false,
+            &f._dir.join("state"),
+        );
         assert!(
             staged.is_err(),
             "an unsigned release and no root key must be refused, it was staged: {staged:?}"
@@ -3874,7 +4334,7 @@ mod tests {
         // And the unsigned release is refused even under a policy that does have a key.
         let signed = UpdatePolicy::Signed(roots_of(&f));
         let mut state = UpdateState::default();
-        let staged = download_and_verify(&release, &staging, &signed, &mut state);
+        let staged = download_and_verify(&release, &expect(), &staging, &signed, &mut state);
         assert!(
             staged.is_err(),
             "an unsigned release under a signed policy must be refused, it was staged: {staged:?}"
@@ -3944,8 +4404,15 @@ mod tests {
             .expect("two keys");
         assert_eq!(both.len(), 2);
         let mut state = UpdateState::default();
-        verify_release_signature(&f.artifact, &f.release, &both, &mut state, CHAIN_NOW)
-            .expect("the second key signed the statement");
+        verify_release_signature(
+            &f.artifact,
+            &f.release,
+            &both,
+            &expect(),
+            &mut state,
+            CHAIN_NOW,
+        )
+        .expect("the second key signed the statement");
         // A typo in one of them is an error, not a list of one.
         assert!(RootKeys::from_text(&format!("{} oops", f.root_pub_b64)).is_err());
         // Neither of two unrelated keys signed it.
@@ -3962,6 +4429,7 @@ mod tests {
             &f.artifact,
             &f.release,
             &strangers,
+            &expect(),
             &mut UpdateState::default(),
             CHAIN_NOW
         )
@@ -3978,6 +4446,7 @@ mod tests {
         let release = unsigned_release_on_a_server(&f);
         let verified = download_and_verify(
             &release,
+            &expect(),
             &f._dir.join("digest-ok"),
             &UpdatePolicy::DigestOnly,
             &mut state,
@@ -3995,7 +4464,13 @@ mod tests {
             ..release.clone()
         };
         let staging = f._dir.join("digest-none");
-        let refused = download_and_verify(&no_pin, &staging, &UpdatePolicy::DigestOnly, &mut state);
+        let refused = download_and_verify(
+            &no_pin,
+            &expect(),
+            &staging,
+            &UpdatePolicy::DigestOnly,
+            &mut state,
+        );
         assert!(
             refused
                 .as_ref()
@@ -4010,7 +4485,13 @@ mod tests {
             ..release
         };
         let staging = f._dir.join("digest-wrong");
-        let refused = download_and_verify(&wrong, &staging, &UpdatePolicy::DigestOnly, &mut state);
+        let refused = download_and_verify(
+            &wrong,
+            &expect(),
+            &staging,
+            &UpdatePolicy::DigestOnly,
+            &mut state,
+        );
         assert!(
             refused.as_ref().is_err_and(|e| e.contains("mismatch")),
             "{refused:?}"
@@ -4028,6 +4509,7 @@ mod tests {
         let mut state = UpdateState::default();
         let verified = download_and_verify(
             &release,
+            &expect(),
             &f._dir.join("staging"),
             &UpdatePolicy::Signed(roots_of(&f)),
             &mut state,
@@ -4036,6 +4518,10 @@ mod tests {
         assert!(verified.is_signed());
         assert_eq!(verified.version(), "2.0.0");
         assert_eq!(state.key_generation, 5);
+        assert_eq!(
+            state.highest_seen, "2.0.0",
+            "the version mark moves from a verified release statement"
+        );
         assert_eq!(
             std::fs::read(verified.path()).unwrap(),
             b"the update artifact bytes"
@@ -4055,6 +4541,7 @@ mod tests {
         let mut state = UpdateState::default();
         let verified = download_and_verify(
             &release,
+            &expect(),
             &f._dir.join("staging"),
             &UpdatePolicy::Signed(roots_of(&f)),
             &mut state,
@@ -4093,6 +4580,274 @@ mod tests {
             b"the update artifact bytes"
         );
         drop(std::fs::remove_dir_all(&f._dir));
+    }
+
+    // ---- REVIEW Y3: the release statement binds the artifact to its app, version, platform ---
+
+    fn good_statement(extra: &str) -> String {
+        format!(
+            "azul-release-v1|app=azwriter|version=2.0.0|platform=macos-aarch64|sha256={}|released=1700000000|min_generation=3{extra}",
+            "ab".repeat(32)
+        )
+    }
+
+    #[test]
+    fn y3_the_release_statement_parse_is_strict() {
+        let ok = parse_release_statement(&good_statement("")).unwrap();
+        assert_eq!(ok.app, "azwriter");
+        assert_eq!(ok.version, "2.0.0");
+        assert_eq!(ok.platform, "macos-aarch64");
+        assert_eq!(sha256_hex(&ok.sha256), "ab".repeat(32));
+        assert_eq!((ok.released_unix, ok.min_generation), (1_700_000_000, 3));
+        // Every deviation is an error, not a default.
+        let hash = "ab".repeat(32);
+        let bad = [
+            good_statement("").replace("azul-release-v1", "azul-release-v2"),
+            good_statement("|extra=x"),
+            good_statement("|app=again"),
+            good_statement("|nonsense"),
+            good_statement("").replace("|app=azwriter", ""),
+            good_statement("").replace("|min_generation=3", ""),
+            good_statement("").replace("released=1700000000", "released=soon"),
+            good_statement("").replace(&hash, &"ab".repeat(31)),
+            good_statement("").replace("app=azwriter", "app="),
+            good_statement("").replace(&hash, &"zz".repeat(32)),
+            String::new(),
+        ];
+        for statement in bad {
+            assert!(
+                parse_release_statement(&statement).is_err(),
+                "{statement:?} must not parse"
+            );
+        }
+    }
+
+    #[test]
+    fn y3_the_manifest_and_the_github_assets_carry_the_release_statement() {
+        let (release, _) = parse_manifest_v1(
+            r#"{"latest": {"version": "2.0.0", "release_statement": "azul-release-v1|x", "release_statement_sig": "sig"}}"#,
+        )
+        .unwrap();
+        assert_eq!(release.release_statement.as_str(), "azul-release-v1|x");
+        assert_eq!(release.release_statement_sig.as_str(), "sig");
+    }
+
+    #[test]
+    fn y3_a_genuine_old_release_does_not_pass_under_a_new_version_label() {
+        let f = chain_fixture(CHAIN_NOW + DAY, 3, "y3-label");
+        // The manifest of an attacker: the bytes, the signatures and both statements of the
+        // genuine 2.0.0, under the version "99.0.0".
+        let mut relabelled = f.release.clone();
+        relabelled.version = "99.0.0".into();
+        let mut state = UpdateState::default();
+        let err = verify_release_signature(
+            &f.artifact,
+            &relabelled,
+            &roots_of(&f),
+            &expect(),
+            &mut state,
+            CHAIN_NOW,
+        )
+        .expect_err("a relabelled release must be refused");
+        assert!(err.contains("the version"), "{err}");
+        assert_eq!(
+            (state.highest_seen.as_str(), state.key_generation),
+            ("", 0),
+            "a refused release moves no mark"
+        );
+        drop(std::fs::remove_dir_all(&f._dir));
+    }
+
+    #[test]
+    fn y3_a_release_for_another_app_or_another_platform_is_refused() {
+        let f = chain_fixture(CHAIN_NOW + DAY, 3, "y3-who");
+        let mut state = UpdateState::default();
+        let other_app = Expect {
+            app: "azmail".into(),
+            platform: platform_label(),
+        };
+        let err = verify_release_signature(
+            &f.artifact,
+            &f.release,
+            &roots_of(&f),
+            &other_app,
+            &mut state,
+            CHAIN_NOW,
+        )
+        .expect_err("another app's release");
+        assert!(err.contains("the app"), "{err}");
+        let other_platform = Expect {
+            app: FIXTURE_APP.into(),
+            platform: "plan9-mips".into(),
+        };
+        let err = verify_release_signature(
+            &f.artifact,
+            &f.release,
+            &roots_of(&f),
+            &other_platform,
+            &mut state,
+            CHAIN_NOW,
+        )
+        .expect_err("another platform's release");
+        assert!(err.contains("the platform"), "{err}");
+        drop(std::fs::remove_dir_all(&f._dir));
+    }
+
+    #[test]
+    fn y3_a_statement_of_other_bytes_is_refused_even_when_the_artifact_signature_is_good() {
+        let f = chain_fixture(CHAIN_NOW + DAY, 3, "y3-bytes");
+        // Another artifact, genuinely signed by the signing key, offered with the statement of
+        // the first one.
+        let other = b"another genuine artifact";
+        std::fs::write(&f.artifact, other).unwrap();
+        let signature = minisign::sign(
+            Some(&f.signing.pk),
+            &f.signing.sk,
+            std::io::Cursor::new(&other[..]),
+            Some("azul release 2.0.0"),
+            None,
+        )
+        .unwrap()
+        .to_string();
+        let release = ReleaseInfo {
+            signature: signature.into(),
+            ..f.release.clone()
+        };
+        let err = verify_release_signature(
+            &f.artifact,
+            &release,
+            &roots_of(&f),
+            &expect(),
+            &mut UpdateState::default(),
+            CHAIN_NOW,
+        )
+        .expect_err("the statement names other bytes");
+        assert!(err.contains("sha256"), "{err}");
+        drop(std::fs::remove_dir_all(&f._dir));
+    }
+
+    #[test]
+    fn y3_a_statement_from_the_future_or_above_its_key_generation_is_refused() {
+        let f = chain_fixture(CHAIN_NOW + DAY, 3, "y3-dates");
+        let sha = sha256_of(FIXTURE_BYTES);
+        let platform = platform_label();
+        let future = release_statement_text(
+            FIXTURE_APP,
+            "2.0.0",
+            &platform,
+            &sha,
+            CHAIN_NOW + 2 * DAY,
+            3,
+        );
+        let err = verify_release_signature(
+            &f.artifact,
+            &with_release_statement(&f, &future),
+            &roots_of(&f),
+            &expect(),
+            &mut UpdateState::default(),
+            CHAIN_NOW,
+        )
+        .expect_err("dated in the future");
+        assert!(err.contains("future"), "{err}");
+        // A floor above the generation of the statement that names the signing key.
+        let high =
+            release_statement_text(FIXTURE_APP, "2.0.0", &platform, &sha, FIXTURE_RELEASED, 4);
+        let err = verify_release_signature(
+            &f.artifact,
+            &with_release_statement(&f, &high),
+            &roots_of(&f),
+            &expect(),
+            &mut UpdateState::default(),
+            CHAIN_NOW,
+        )
+        .expect_err("a floor the signing key does not meet");
+        assert!(err.contains("requires a signing-key generation"), "{err}");
+        // A statement the signing key did not sign.
+        let mut forged = with_release_statement(&f, &good_statement(""));
+        forged.release_statement_sig = f.release.signing_key_statement_sig.clone();
+        let err = verify_release_signature(
+            &f.artifact,
+            &forged,
+            &roots_of(&f),
+            &expect(),
+            &mut UpdateState::default(),
+            CHAIN_NOW,
+        )
+        .expect_err("not signed by the signing key");
+        assert!(err.contains("release statement"), "{err}");
+        drop(std::fs::remove_dir_all(&f._dir));
+    }
+
+    #[test]
+    fn y3_the_marks_move_only_when_the_whole_chain_verified() {
+        let f = chain_fixture(CHAIN_NOW + DAY, 3, "y3-marks");
+        let mut state = UpdateState::default();
+        let stranger = Expect {
+            app: "azmail".into(),
+            platform: platform_label(),
+        };
+        drop(
+            verify_release_signature(
+                &f.artifact,
+                &f.release,
+                &roots_of(&f),
+                &stranger,
+                &mut state,
+                CHAIN_NOW,
+            )
+            .unwrap_err(),
+        );
+        assert_eq!((state.highest_seen.as_str(), state.key_generation), ("", 0));
+        verify_release_signature(
+            &f.artifact,
+            &f.release,
+            &roots_of(&f),
+            &expect(),
+            &mut state,
+            CHAIN_NOW,
+        )
+        .expect("the chain verifies");
+        assert_eq!(
+            (state.highest_seen.as_str(), state.key_generation),
+            ("2.0.0", 3)
+        );
+        // A verified release below the mark does not lower it.
+        state.highest_seen = "5.0.0".into();
+        verify_release_signature(
+            &f.artifact,
+            &f.release,
+            &roots_of(&f),
+            &expect(),
+            &mut state,
+            CHAIN_NOW,
+        )
+        .expect("verifies again");
+        assert_eq!(state.highest_seen, "5.0.0");
+        drop(std::fs::remove_dir_all(&f._dir));
+    }
+
+    /// The manifest is unauthenticated: it can say "999.0.0". The mark that refuses every genuine
+    /// release afterwards must not move on its word (the freeze of REVIEW Y3).
+    #[test]
+    fn y3_a_manifest_that_claims_999_moves_no_highest_seen() {
+        let manifest = r#"{"latest": {"version": "999.0.0", "download_url": "http://127.0.0.1:9/app.bin", "slow": "off"}}"#;
+        let url = serve_bytes(manifest.as_bytes().to_vec(), "updates.json");
+        let mut state = UpdateState::default();
+        let result = check_for_updates_blocking(
+            &url,
+            "1.0.0",
+            "stable",
+            &mut state,
+            UpdateAudience::AutoUpdate,
+        );
+        assert!(
+            matches!(&result, UpdateCheckResult::Available(r) if r.version.as_str() == "999.0.0"),
+            "{result:?}"
+        );
+        assert_eq!(
+            state.highest_seen, "",
+            "an unverified manifest moves no mark"
+        );
     }
 
     // ---- slow rollout -----------------------------------------------------
@@ -4380,16 +5135,19 @@ mod tests {
             serve_bytes(b"the update artifact bytes".to_vec(), "app-2.0.0.bin").into();
         let staged = stage_program_update(
             &release,
+            FIXTURE_APP,
             &f._dir.join("staging"),
             &f.root_pub_b64,
+            false,
             &f._dir.join("state"),
         )
         .expect("a signed artifact is staged");
-        assert_eq!(staged, f._dir.join("staging").join("app-2.0.0.bin"));
+        assert_eq!(staged.path(), f._dir.join("staging").join("app-2.0.0.bin"));
         assert_eq!(
-            std::fs::read(&staged).unwrap(),
+            std::fs::read(staged.path()).unwrap(),
             b"the update artifact bytes"
         );
+        assert_eq!(staged.sha256_hex(), sha256_hex(&sha256_of(FIXTURE_BYTES)));
         assert_eq!(UpdateState::load(&f._dir.join("state")).key_generation, 2);
 
         // The statement's signature is no signature of the artifact.
@@ -4397,8 +5155,10 @@ mod tests {
         forged.signature = f.release.signing_key_statement_sig.clone();
         let err = stage_program_update(
             &forged,
+            FIXTURE_APP,
             &f._dir.join("staging-forged"),
             &f.root_pub_b64,
+            false,
             &f._dir.join("state"),
         )
         .expect_err("a forged signature is refused");
@@ -4412,8 +5172,15 @@ mod tests {
     fn a_manager_verifies_a_staged_program_by_its_digest_and_its_signature_chain() {
         let f = chain_fixture(CHAIN_NOW * 2, 4, "program");
         let state_dir = f._dir.join("state");
-        verify_staged_program_update(&f.artifact, &f.release, &f.root_pub_b64, &state_dir)
-            .expect("the chain verifies");
+        verify_staged_program_update(
+            &f.artifact,
+            &f.release,
+            FIXTURE_APP,
+            &f.root_pub_b64,
+            false,
+            &state_dir,
+        )
+        .expect("the chain verifies");
         assert_eq!(
             UpdateState::load(&state_dir).key_generation,
             4,
@@ -4422,15 +5189,28 @@ mod tests {
 
         let mut wrong_pin = f.release.clone();
         wrong_pin.digest = format!("sha256:{}", "0".repeat(64)).into();
-        let err =
-            verify_staged_program_update(&f.artifact, &wrong_pin, &f.root_pub_b64, &state_dir)
-                .expect_err("a wrong pin is refused besides a good chain");
+        let err = verify_staged_program_update(
+            &f.artifact,
+            &wrong_pin,
+            FIXTURE_APP,
+            &f.root_pub_b64,
+            false,
+            &state_dir,
+        )
+        .expect_err("a wrong pin is refused besides a good chain");
         assert!(err.contains("mismatch"), "{err}");
 
         std::fs::write(&f.artifact, b"tampered bytes").unwrap();
         assert!(
-            verify_staged_program_update(&f.artifact, &f.release, &f.root_pub_b64, &state_dir)
-                .is_err(),
+            verify_staged_program_update(
+                &f.artifact,
+                &f.release,
+                FIXTURE_APP,
+                &f.root_pub_b64,
+                false,
+                &state_dir
+            )
+            .is_err(),
             "a file changed after staging is refused"
         );
         drop(std::fs::remove_dir_all(&f._dir));

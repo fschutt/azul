@@ -74,7 +74,7 @@ impl AppEnv {
             update_mode: config.updates.mode,
             update_manifest: opt(&config.updates.manifest_url),
             update_root_public_key: config.updates.root_public_key.as_str().to_owned(),
-            update_allow_unsigned: false,
+            update_allow_unsigned: config.updates.allow_unsigned,
             update_channel: config.updates.channel.as_str().to_owned(),
             changelog_md: opt(&config.changelog_md),
             report_problem: match &config.report_problem {

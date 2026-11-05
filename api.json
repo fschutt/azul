@@ -23699,7 +23699,13 @@
                                 "root_public_key": {
                                     "type": "String",
                                     "doc": [
-                                        "Base64 minisign ROOT public key compiled in by the app. Non-empty arms the update signature chain (root-signed signing-key statement + artifact signature required); empty = digest verification only."
+                                        "Base64 minisign ROOT public key(s) compiled in by the app (the current one and, during a rotation, the next: comma-separated). The update signature chain ends in it: the manifest must carry a root-signed signing-key statement, an artifact signature and a signed release statement (the app, version, platform and hash of the artifact), and an unsigned release is a hard error. Empty = the app has NO way to prove an update and installs none (\"updates are not available in this build\"), unless it says so with allow_unsigned. A key that does not parse is an error too."
+                                    ]
+                                },
+                                "allow_unsigned": {
+                                    "type": "bool",
+                                    "doc": [
+                                        "The app spells out that it accepts an update pinned by its digest alone (no signature chain). Only meaningful with an empty root_public_key: a key always wins. Default false: an app that sets neither can check and notify, and installs nothing."
                                     ]
                                 }
                             }
@@ -25556,6 +25562,41 @@
                         ],
                         "repr": "C"
                     },
+                    "StagedUpdate": {
+                        "doc": [
+                            "A file that passed its checks, as the C API hands it over: where it is, the SHA-256 of the bytes that passed and the version the release said."
+                        ],
+                        "external": "azul_layout::updater::StagedUpdate",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Eq",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "path": {
+                                    "type": "String",
+                                    "doc": [
+                                        "The verified file."
+                                    ]
+                                },
+                                "sha256": {
+                                    "type": "String",
+                                    "doc": [
+                                        "The SHA-256 of the bytes that passed, 64 lowercase hex digits."
+                                    ]
+                                },
+                                "version": {
+                                    "type": "String",
+                                    "doc": [
+                                        "The version the release said."
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
                     "UpdateStageResult": {
                         "doc": [
                             "What staging or checking a program's update concluded."
@@ -25573,9 +25614,9 @@
                         "enum_fields": [
                             {
                                 "Staged": {
-                                    "type": "String",
+                                    "type": "StagedUpdate",
                                     "doc": [
-                                        "The verified file, ready to install."
+                                        "The verified file, ready to install, with the hash of the bytes that passed."
                                     ]
                                 },
                                 "Error": {
@@ -195941,7 +195982,7 @@
                                 "signature": {
                                     "type": "String",
                                     "doc": [
-                                        "Minisign signature of the artifact by the release-signing key (full .minisig text); required whenever the app pins a root_public_key."
+                                        "Minisign signature of the artifact by the release-signing key (full .minisig text); required whenever the app has a root_public_key."
                                     ]
                                 },
                                 "signing_key_statement": {
@@ -195954,6 +195995,18 @@
                                     "type": "String",
                                     "doc": [
                                         "Minisign signature of the statement string by the ROOT key (full .minisig text)."
+                                    ]
+                                },
+                                "release_statement": {
+                                    "type": "String",
+                                    "doc": [
+                                        "Signed release statement: azul-release-v1|app=..|version=..|platform=..|sha256=..|released=..|min_generation=.. It binds the artifact's hash to the app, version and platform it is for."
+                                    ]
+                                },
+                                "release_statement_sig": {
+                                    "type": "String",
+                                    "doc": [
+                                        "Minisign signature of the release statement by the SIGNING key the root-signed statement names (full .minisig text)."
                                     ]
                                 },
                                 "download_headers": {
@@ -195996,11 +196049,14 @@
                             },
                             "stage": {
                                 "doc": [
-                                    "Downloads and verifies this release for another program. The file lands in staging_dir, the accepted key generation in state_dir. Blocking: run it on a Thread."
+                                    "Downloads and verifies this release for another program, named by app (its key, e.g. azwriter: the signed release statement has to be for it). Under root_public_key (comma-separated) the whole signature chain is checked; an empty key is an error unless allow_unsigned says the digest pin alone is enough. The file lands in staging_dir, the accepted key generation and the highest verified version in state_dir. Returns the verified file with the SHA-256 of the bytes that passed. Blocking: run it on a Thread."
                                 ],
                                 "fn_args": [
                                     {
                                         "self": "ref"
+                                    },
+                                    {
+                                        "app": "String"
                                     },
                                     {
                                         "staging_dir": "String"
@@ -196009,21 +196065,27 @@
                                         "root_public_key": "String"
                                     },
                                     {
+                                        "allow_unsigned": "bool"
+                                    },
+                                    {
                                         "state_dir": "String"
                                     }
                                 ],
                                 "returns": {
                                     "type": "UpdateStageResult"
                                 },
-                                "fn_body": "azul_layout::updater::stage_program_update(release_info, std::path::Path::new(staging_dir.as_str()), root_public_key.as_str(), std::path::Path::new(state_dir.as_str())).into()"
+                                "fn_body": "azul_layout::updater::stage_program_update(release_info, app.as_str(), std::path::Path::new(staging_dir.as_str()), root_public_key.as_str(), allow_unsigned, std::path::Path::new(state_dir.as_str())).into()"
                             },
                             "verify_staged": {
                                 "doc": [
-                                    "Checks a staged file once more right before it is installed: the digest pin and the signature chain. A file on disk is not trusted across runs."
+                                    "Checks a staged file once more right before it is installed, under the same rules as stage (app, root_public_key, allow_unsigned): the signature chain or the digest pin. A file on disk is not trusted across runs. Returns the file with the SHA-256 of the bytes that passed."
                                 ],
                                 "fn_args": [
                                     {
                                         "self": "ref"
+                                    },
+                                    {
+                                        "app": "String"
                                     },
                                     {
                                         "path": "String"
@@ -196032,13 +196094,16 @@
                                         "root_public_key": "String"
                                     },
                                     {
+                                        "allow_unsigned": "bool"
+                                    },
+                                    {
                                         "state_dir": "String"
                                     }
                                 ],
                                 "returns": {
                                     "type": "UpdateStageResult"
                                 },
-                                "fn_body": "azul_layout::updater::verify_staged_program_update(std::path::Path::new(path.as_str()), release_info, root_public_key.as_str(), std::path::Path::new(state_dir.as_str())).map(|()| std::path::PathBuf::from(path.as_str())).into()"
+                                "fn_body": "azul_layout::updater::verify_staged_program_update(std::path::Path::new(path.as_str()), release_info, app.as_str(), root_public_key.as_str(), allow_unsigned, std::path::Path::new(state_dir.as_str())).into()"
                             },
                             "draw_rollout_bucket": {
                                 "doc": [

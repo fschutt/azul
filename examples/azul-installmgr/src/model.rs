@@ -1097,7 +1097,7 @@ pub fn install_new(
         },
         Check::Failed(why) => return Err(why),
     };
-    let verified = engine.stage(&release, &paths.staging(), &policy, &state)?;
+    let verified = engine.stage(entry.key, &release, &paths.staging(), &policy, &state)?;
     let placed = place(
         &fetching.places,
         entry,
@@ -1138,14 +1138,14 @@ pub fn update_to(
     // across runs); a file that fails is thrown away.
     let kept = paths.staged_file(&release.version).filter(|f| f.exists());
     let verified = match kept {
-        Some(file) => match engine.verify(&file, release, &policy, &state) {
+        Some(file) => match engine.verify(entry.key, &file, release, &policy, &state) {
             Ok(verified) => verified,
             Err(why) => {
                 forget_staged(&paths, &release.version);
                 return Err(why);
             }
         },
-        None => engine.stage(release, &paths.staging(), &policy, &state)?,
+        None => engine.stage(entry.key, release, &paths.staging(), &policy, &state)?,
     };
     let placed = place(
         &fetching.places,
@@ -1703,6 +1703,7 @@ mod model_tests {
         }
         fn stage(
             &self,
+            _: &str,
             r: &Release,
             dir: &Path,
             _: &UpdatePolicy,
@@ -1715,6 +1716,7 @@ mod model_tests {
         }
         fn verify(
             &self,
+            _: &str,
             file: &Path,
             _: &Release,
             _: &UpdatePolicy,

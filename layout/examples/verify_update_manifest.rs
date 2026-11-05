@@ -10,12 +10,16 @@
 //!
 //! ```text
 //! cargo run -p azul-layout --features updater --example verify_update_manifest -- \
-//!     manifest.json ./azul-app-2.0.0.bin RWQ...rootpubkey
+//!     manifest.json ./azul-app-2.0.0.bin RWQ...rootpubkey --app azul-app
 //!
 //! # or, with the root key as a minisign .pub file:
 //! cargo run -p azul-layout --features updater --example verify_update_manifest -- \
-//!     manifest.json ./azul-app-2.0.0.bin --root-pub-file root.pub
+//!     manifest.json ./azul-app-2.0.0.bin --root-pub-file root.pub --app azul-app
 //! ```
+//!
+//! `--app` is the app the release is for (`AppConfig.updates.app_name`): the signed release
+//! statement has to name it. The platform defaults to the one this runs on; `--platform
+//! <os-arch>` (`linux-x86_64`) checks a release built for another.
 //!
 //! `--selftest` mints a throwaway key hierarchy, signs a throwaway artifact
 //! and verifies the result end to end — a way to check the chain code and to
@@ -27,8 +31,8 @@
 use std::{path::Path, process::ExitCode};
 
 use azul_layout::updater::{
-    parse_manifest_v1, parse_signing_key_statement, verify_digest, verify_release_signature,
-    ReleaseInfo, RootKeys, UpdateState,
+    parse_manifest_v1, parse_release_statement, parse_signing_key_statement, platform_label,
+    verify_digest, verify_release_signature, Expect, ReleaseInfo, RootKeys, UpdateState,
 };
 
 fn main() -> ExitCode {
@@ -36,14 +40,24 @@ fn main() -> ExitCode {
     if args.first().map(String::as_str) == Some("--selftest") {
         return selftest();
     }
-    if args.len() < 3 {
+    let option = |name: &str| {
+        args.iter()
+            .position(|a| a == name)
+            .and_then(|at| args.get(at + 1))
+            .cloned()
+    };
+    let (Some(app), true) = (option("--app"), args.len() >= 3) else {
         eprintln!(
-            "usage: verify_update_manifest <manifest.json> <artifact> <root-pubkey-base64>\n\
-             \x20      verify_update_manifest <manifest.json> <artifact> --root-pub-file <root.pub>\n\
+            "usage: verify_update_manifest <manifest.json> <artifact> <root-pubkey-base64> --app <id> [--platform <os-arch>]\n\
+             \x20      verify_update_manifest <manifest.json> <artifact> --root-pub-file <root.pub> --app <id>\n\
              \x20      verify_update_manifest --selftest"
         );
         return ExitCode::from(2);
-    }
+    };
+    let expect = Expect {
+        app,
+        platform: option("--platform").unwrap_or_else(platform_label),
+    };
 
     let manifest_path = &args[0];
     let artifact_path = &args[1];
@@ -78,7 +92,7 @@ fn main() -> ExitCode {
         }
     };
 
-    match check(&release, Path::new(artifact_path), &root_key) {
+    match check(&release, Path::new(artifact_path), &root_key, &expect) {
         Ok(report) => {
             println!("{report}");
             println!("OK: a client with this root key will accept this release.");
@@ -93,7 +107,12 @@ fn main() -> ExitCode {
 }
 
 /// The client's own checks, in the client's order.
-fn check(release: &ReleaseInfo, artifact: &Path, root_key: &str) -> Result<String, String> {
+fn check(
+    release: &ReleaseInfo,
+    artifact: &Path,
+    root_key: &str,
+    expect: &Expect,
+) -> Result<String, String> {
     use std::fmt::Write as _;
     let mut out = String::new();
     let _ = writeln!(out, "version         {}", release.version.as_str());
@@ -119,7 +138,8 @@ fn check(release: &ReleaseInfo, artifact: &Path, root_key: &str) -> Result<Strin
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_secs());
     let mut state = UpdateState::default();
-    verify_release_signature(artifact, release, &roots, &mut state, now)?;
+    verify_release_signature(artifact, release, &roots, expect, &mut state, now)?;
+    let released = parse_release_statement(release.release_statement.as_str())?;
 
     let _ = writeln!(out, "signing key     {}", statement.pubkey_b64);
     let _ = writeln!(out, "generation      {}", statement.generation);
@@ -129,6 +149,15 @@ fn check(release: &ReleaseInfo, artifact: &Path, root_key: &str) -> Result<Strin
         "statement       valid, expires in {} days ({})",
         remaining / 86_400,
         statement.expires_unix
+    );
+    let _ = writeln!(
+        out,
+        "release         app {} version {} platform {} released {} min generation {}",
+        released.app,
+        released.version,
+        released.platform,
+        released.released_unix,
+        released.min_generation
     );
     let _ = writeln!(out, "signature       OK (prehashed, root-delegated)");
     Ok(out)
@@ -190,6 +219,21 @@ fn selftest() -> ExitCode {
     .to_string();
 
     let digest = sha256_hex(&artifact_bytes);
+    // The release statement binds these bytes to the app, version and platform; the SIGNING key
+    // signs it, as it signs the artifact.
+    let release_statement = format!(
+        "azul-release-v1|app=azul-app|version=2.0.0|platform={}|sha256={digest}|released={now}|min_generation=1",
+        platform_label()
+    );
+    let release_statement_sig = minisign::sign(
+        Some(&signing.pk),
+        &signing.sk,
+        std::io::Cursor::new(release_statement.as_bytes()),
+        Some("azul release statement"),
+        None,
+    )
+    .expect("sign release statement")
+    .to_string();
     let manifest = serde_json::json!({
         "latest": {
             "version": "2.0.0",
@@ -199,12 +243,16 @@ fn selftest() -> ExitCode {
             "signature": artifact_sig,
             "signing_key_statement": statement,
             "signing_key_statement_sig": statement_sig,
+            "release_statement": release_statement,
+            "release_statement_sig": release_statement_sig,
         }
     })
     .to_string();
+    let expect = Expect::here("azul-app");
 
     println!("root public key : {}", root.pk.to_base64());
     println!("statement       : {statement}");
+    println!("release         : {release_statement}");
     println!(
         "manifest        : {}\n",
         dir.join("manifest.json").display()
@@ -218,7 +266,7 @@ fn selftest() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    match check(&release, &artifact_path, &root.pk.to_base64()) {
+    match check(&release, &artifact_path, &root.pk.to_base64(), &expect) {
         Ok(report) => {
             print!("{report}");
             println!("\nselftest OK - the chain this recipe produces verifies.");
@@ -232,7 +280,7 @@ fn selftest() -> ExitCode {
     // And the negative half: a tampered artifact must be refused, or the
     // "OK" above means nothing.
     std::fs::write(&artifact_path, b"tampered").expect("tamper");
-    match check(&release, &artifact_path, &root.pk.to_base64()) {
+    match check(&release, &artifact_path, &root.pk.to_base64(), &expect) {
         Ok(_) => {
             eprintln!("selftest FAILED: a tampered artifact was ACCEPTED");
             return ExitCode::FAILURE;

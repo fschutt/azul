@@ -997,6 +997,9 @@ fn run_update_drill(
     }
 
     let staging = state_dir.join("staging");
+    // A signed release names the app it is for (its signed release statement): this demo is
+    // `telemetry-demo`.
+    let expect = up::Expect::here("telemetry-demo");
     // The drill takes the policy a real client has. With a root key that is the SIGNED chain:
     // digest pin + root-delegated signature, checked on THIS call. Without one it SPELLS OUT
     // the digest-only policy (the manifest has to pin a digest) and says it is unsigned - a
@@ -1018,7 +1021,7 @@ fn run_update_drill(
     };
     if auto {
         // AUTO: stage in the background; consent still gates the swap.
-        match up::download_and_verify(&release, &staging, &policy, &mut state) {
+        match up::download_and_verify(&release, &expect, &staging, &policy, &mut state) {
             Ok(a) => {
                 let outcome = a.download();
                 println!(
@@ -1048,7 +1051,7 @@ fn run_update_drill(
     // verify + apply onto a scratch installed-app copy (never the running
     // binary in a demo).
     println!("update: [dialog] user consents to install");
-    let verified = match up::download_and_verify(&release, &staging, &policy, &mut state) {
+    let verified = match up::download_and_verify(&release, &expect, &staging, &policy, &mut state) {
         Ok(a) => a,
         Err(e) => {
             println!("update: REFUSED by verification: {e}");

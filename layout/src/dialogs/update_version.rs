@@ -277,7 +277,13 @@ extern "C" fn install_worker(mut init: RefAny, mut sender: ThreadSender, _recv: 
     // hashes the copy it installs.
     let verified = {
         let mut state = UpdateState::load(&state_dir);
-        let r = download_and_verify(&release, &staging_dir, &policy, &mut state);
+        let r = download_and_verify(
+            &release,
+            &crate::updater::Expect::here(&app_name),
+            &staging_dir,
+            &policy,
+            &mut state,
+        );
         state.save(&state_dir);
         r
     };

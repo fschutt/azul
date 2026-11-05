@@ -183,12 +183,19 @@ pub struct UpdateSettings {
     /// track by a manifest: the binary decides which channel it reads, the
     /// publisher decides what is in it.
     pub channel: AzString,
-    /// Base64 minisign ROOT public key, compiled in by the APP. Non-empty
-    /// arms the update SIGNATURE CHAIN: the manifest must then carry a
-    /// root-signed signing-key statement and an artifact signature, and an
-    /// unsigned release is a hard error instead of a fallback. Empty (the
-    /// default) = digest verification only.
+    /// Base64 minisign ROOT public key(s), compiled in by the APP (the current one and, during a
+    /// rotation, the next: comma-separated). The update SIGNATURE CHAIN ends in it: the manifest
+    /// must carry a root-signed signing-key statement, an artifact signature and a signed
+    /// release statement (the app, version, platform and hash of the artifact), and an unsigned
+    /// release is a hard error instead of a fallback. Empty (the default) = the app has NO way
+    /// to prove an update and installs none ("updates are not available in this build"), unless
+    /// it says so explicitly with `allow_unsigned`. A key that does not parse is an error too.
     pub root_public_key: AzString,
+    /// The app SPELLS OUT that it accepts an update pinned by its digest alone (no signature
+    /// chain): only meaningful with an empty `root_public_key` (a key always wins - the flag
+    /// never lowers a chain that is configured). The default is `false`: an app that sets
+    /// neither can check and notify, and installs nothing.
+    pub allow_unsigned: bool,
 }
 
 impl Default for UpdateSettings {
@@ -202,6 +209,7 @@ impl Default for UpdateSettings {
             build_tag: AzString::from_const_str(""),
             channel: AzString::from_const_str(""),
             root_public_key: AzString::from_const_str(""),
+            allow_unsigned: false,
         }
     }
 }

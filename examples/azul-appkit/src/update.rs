@@ -199,6 +199,10 @@ pub struct Release {
     pub signature: String,
     pub signing_key_statement: String,
     pub signing_key_statement_sig: String,
+    /// The signed release statement that binds the artifact's hash to the app, the version and
+    /// the platform it is for, and the signing key's signature of it.
+    pub release_statement: String,
+    pub release_statement_sig: String,
 }
 
 /// `current.json`: which version of an app is where.
@@ -461,6 +465,29 @@ impl Verified {
         Ok(Verified { file, sha256 })
     }
 
+    /// The verified file `file`, hashed now, which has to be the file the engine's check read:
+    /// `claimed_sha256` is the hash that check reported for the bytes it looked at. A file
+    /// swapped between that check and this call has another hash and is refused here, not
+    /// installed (REVIEW Y6: the check and the use are one read).
+    ///
+    /// # Errors
+    ///
+    /// Why the file could not be read, or that it is not the file that was checked.
+    pub fn checked(file: PathBuf, claimed_sha256: &str) -> Result<Verified, String> {
+        let verified = Verified::of(file)?;
+        if verified.sha256.eq_ignore_ascii_case(claimed_sha256.trim()) {
+            Ok(verified)
+        } else {
+            Err(format!(
+                "{} changed after it was checked (the check read sha256:{}, it is sha256:{}): \
+                 not used",
+                verified.file.display(),
+                claimed_sha256.trim(),
+                verified.sha256
+            ))
+        }
+    }
+
     /// The verified file.
     #[must_use]
     pub fn path(&self) -> &Path {
@@ -515,15 +542,16 @@ pub fn copy_verified(verified: &Verified, to: &Path) -> Result<(), String> {
 pub trait UpdateEngine: Send + Sync {
     /// Reads the manifest and answers under the cohort and the gate.
     fn check(&self, request: &CheckRequest<'_>) -> Check;
-    /// Downloads `release` into `staging_dir` and verifies what `policy` demands (the signature
-    /// chain, or a digest pin the policy accepts alone); the verified file. Nothing refused
-    /// stays.
+    /// Downloads `release` of the app `app` (its key) into `staging_dir` and verifies what
+    /// `policy` demands (the signature chain, whose signed release statement has to be for that
+    /// app; or a digest pin the policy accepts alone); the verified file. Nothing refused stays.
     ///
     /// # Errors
     ///
     /// Why the release was refused or could not be fetched.
     fn stage(
         &self,
+        app: &str,
         release: &Release,
         staging_dir: &Path,
         policy: &UpdatePolicy,
@@ -537,6 +565,7 @@ pub trait UpdateEngine: Send + Sync {
     /// Why the file must not be installed.
     fn verify(
         &self,
+        app: &str,
         file: &Path,
         release: &Release,
         policy: &UpdatePolicy,
@@ -671,7 +700,13 @@ pub fn background_round(engine: &dyn UpdateEngine, round: &Round, now_unix: u64)
     if !unattended {
         return RoundOutcome::Available(release);
     }
-    match engine.stage(&release, &round.paths.staging(), &round.policy, &state_dir) {
+    match engine.stage(
+        &round.paths.key,
+        &release,
+        &round.paths.staging(),
+        &round.policy,
+        &state_dir,
+    ) {
         Ok(verified) => {
             if let Err(why) = keep_as(&verified, &kept) {
                 return RoundOutcome::Failed(why);
@@ -721,16 +756,12 @@ mod azul_engine {
         AzString::from(text)
     }
 
-    /// The root key text libazul's C API takes: the keys of a signed policy. That API has no way
-    /// to say "unsigned" yet, so a digest-only policy cannot be carried out here: refused, never
-    /// run as a signed one.
-    fn root_text(policy: &UpdatePolicy) -> Result<String, String> {
+    /// What libazul's C API takes of a policy: the root keys as text and the explicit
+    /// `allow_unsigned` (only a digest-only policy sets it, and then the text is empty).
+    fn policy_args(policy: &UpdatePolicy) -> (String, bool) {
         match policy {
-            UpdatePolicy::Signed(keys) => Ok(keys.as_text()),
-            UpdatePolicy::DigestOnly => Err(
-                "an unsigned update needs libazul's allow_unsigned flag; this libazul has none"
-                    .to_string(),
-            ),
+            UpdatePolicy::Signed(keys) => (keys.as_text(), false),
+            UpdatePolicy::DigestOnly => (String::new(), true),
         }
     }
 
@@ -749,6 +780,8 @@ mod azul_engine {
             signature: az(&r.signature),
             signing_key_statement: az(&r.signing_key_statement),
             signing_key_statement_sig: az(&r.signing_key_statement_sig),
+            release_statement: az(&r.release_statement),
+            release_statement_sig: az(&r.release_statement_sig),
             download_headers: StringPairVec::from_vec(Vec::new()),
         }
     }
@@ -765,6 +798,8 @@ mod azul_engine {
             signature: r.signature.as_str().to_string(),
             signing_key_statement: r.signing_key_statement.as_str().to_string(),
             signing_key_statement_sig: r.signing_key_statement_sig.as_str().to_string(),
+            release_statement: r.release_statement.as_str().to_string(),
+            release_statement_sig: r.release_statement_sig.as_str().to_string(),
         }
     }
 
@@ -791,36 +826,47 @@ mod azul_engine {
 
         fn stage(
             &self,
+            app: &str,
             release: &Release,
             staging_dir: &Path,
             policy: &UpdatePolicy,
             state_dir: &Path,
         ) -> Result<Verified, String> {
-            let root = root_text(policy)?;
+            let (root, allow_unsigned) = policy_args(policy);
             match release_info(release).stage(
+                az(app),
                 path_text(staging_dir),
                 az(&root),
+                allow_unsigned,
                 path_text(state_dir),
             ) {
-                UpdateStageResult::Staged(file) => Verified::of(PathBuf::from(file.as_str())),
+                // The check reported the hash of the bytes it read: the file must still be them.
+                UpdateStageResult::Staged(staged) => {
+                    Verified::checked(PathBuf::from(staged.path.as_str()), staged.sha256.as_str())
+                }
                 UpdateStageResult::Error(why) => Err(why.as_str().to_string()),
             }
         }
 
         fn verify(
             &self,
+            app: &str,
             file: &Path,
             release: &Release,
             policy: &UpdatePolicy,
             state_dir: &Path,
         ) -> Result<Verified, String> {
-            let root = root_text(policy)?;
+            let (root, allow_unsigned) = policy_args(policy);
             match release_info(release).verify_staged(
+                az(app),
                 path_text(file),
                 az(&root),
+                allow_unsigned,
                 path_text(state_dir),
             ) {
-                UpdateStageResult::Staged(_) => Verified::of(file.to_path_buf()),
+                UpdateStageResult::Staged(staged) => {
+                    Verified::checked(PathBuf::from(staged.path.as_str()), staged.sha256.as_str())
+                }
                 UpdateStageResult::Error(why) => Err(why.as_str().to_string()),
             }
         }
@@ -879,6 +925,7 @@ mod tests {
         }
         fn stage(
             &self,
+            _: &str,
             release: &Release,
             staging_dir: &Path,
             _: &UpdatePolicy,
@@ -895,6 +942,7 @@ mod tests {
         }
         fn verify(
             &self,
+            _: &str,
             file: &Path,
             _: &Release,
             _: &UpdatePolicy,
@@ -1112,6 +1160,23 @@ mod tests {
 
     /// REVIEW Y4: staged.json is a file any process of the user (or a synced folder) can write; the
     /// file a staged update is kept in is built by the code from the app and the version.
+    #[test]
+    fn y6_a_file_must_still_be_the_bytes_the_engines_check_read() {
+        let dir = TempDir::new("update-checked");
+        let file = dir.path().join("AzWriter.download");
+        std::fs::write(&file, b"program 2.0.0").unwrap();
+        let read = Verified::of(file.clone()).unwrap();
+        // The hash the check reported is the file's: accepted (any case).
+        let ok = Verified::checked(file.clone(), &read.sha256().to_ascii_uppercase()).unwrap();
+        assert_eq!(ok.sha256(), read.sha256());
+        // A file swapped after the check hashes differently: refused.
+        std::fs::write(&file, b"EVIL program").unwrap();
+        let refused = Verified::checked(file.clone(), read.sha256()).unwrap_err();
+        assert!(refused.contains("changed after it was checked"), "{refused}");
+        // A hash that is not even a hash: refused.
+        assert!(Verified::checked(file, "").is_err());
+    }
+
     #[test]
     fn y4_the_staged_file_is_where_the_code_keeps_it_not_where_staged_json_says() {
         let dir = TempDir::new("update-y4");
