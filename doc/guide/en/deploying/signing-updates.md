@@ -58,6 +58,8 @@ and you publish a manifest at that URL:
     "signature": "untrusted comment: …\nRUThI3d5…\ntrusted comment: …\n…\n",
     "signing_key_statement": "azul-signing-key-v1|pubkey=RWThI3d5…|expires=1818627834|generation=1",
     "signing_key_statement_sig": "untrusted comment: …\n…\n",
+    "release_statement": "azul-release-v1|app=myapp|version=2.0.0|platform=linux-x86_64|sha256=49dba348…|released=1787054400|min_generation=1",
+    "release_statement_sig": "untrusted comment: …\n…\n",
     "release_date": "2026-08-18T12:00:00Z",
     "slow": { "10": "…", "50": "…" }
   }
@@ -68,6 +70,15 @@ and you publish a manifest at that URL:
 optional. Everything else about delivery — where you host it, whether it is
 S3 or a static file — is up to you; the client only needs to be able to GET
 those two URLs.
+
+`version`, `download_url` and `release_date` are the manifest's own words and
+nobody signs them; what a client trusts is the **release statement**: a line
+the signing key signed that says which app, which version, which platform and
+which bytes (the SHA-256) this release is. A client installs a release only
+when the statement names the app it is, the platform it runs on, the version
+the manifest says and the hash of what it downloaded. So an attacker who can
+rewrite the manifest still cannot serve a genuine old release under a new
+version label, or one platform's build to another.
 
 ## You do not have to publish that manifest
 
@@ -117,10 +128,14 @@ The updater then maps a release onto a `ReleaseInfo`:
   provides one, and otherwise from a sibling `myapp.bin.sha256` or
   `SHA256SUMS` asset, matched by filename.
 * The **signature chain** rides as sibling assets:
-  `myapp.bin.minisig`, `signing-key-statement.txt` and
-  `signing-key-statement.txt.minisig`. Upload the files
-  `scripts/sign-release.sh` produced alongside the artifact and the chain
-  verifies exactly as it does from a manifest.
+  `myapp.bin.minisig`, `signing-key-statement.txt`,
+  `signing-key-statement.txt.minisig`, and the release statement of that asset,
+  `myapp.bin.release-statement.txt` with its `.minisig` (a release with a
+  single artifact may use the shared names `release-statement.txt[.minisig]`;
+  a release with an asset per platform needs one statement per asset, because
+  a statement names one platform and one hash). `scripts/sign-release.sh
+  release … --sidecars DIR` writes exactly these files: upload them next to
+  the artifact and the chain verifies as it does from a manifest.
 
 Draft and pre-release entries are skipped. An unauthenticated client makes
 one or two API calls per check, well inside GitHub's rate limit for a
@@ -174,6 +189,7 @@ about which signing key is currently valid:
 
 ```
 root key ──signs──> signing-key statement ──names──> signing key ──signs──> artifact
+                                                                  └─signs──> release statement
 ```
 
 The statement is a single line with no trailing newline:
@@ -191,6 +207,27 @@ azul-signing-key-v1|pubkey=<base64>|expires=<unix>|generation=<n>
   key, publish a statement with `generation` one higher. No new binary.
 * `expires` bounds the damage of a leak you never noticed.
 
+The release statement is a second single line, signed by the signing key
+the first one names, also with no trailing newline:
+
+```
+azul-release-v1|app=<id>|version=<semver>|platform=<os-arch>|sha256=<hex>|released=<unix>|min_generation=<n>
+```
+
+* `app` is `AppConfig.updates.app_name` (for the Azlin apps, the app's key such
+  as `azwriter`) and `platform` is `<os>-<arch>` in Rust's words
+  (`linux-x86_64`, `macos-aarch64`, `windows-x86_64`).
+* `released` may not lie in the future (a day of clock skew is allowed).
+* `min_generation` raises the client's key-generation mark when the release
+  verifies: sign releases with `min_generation` = the new generation after a
+  rotation and every client that installs one refuses the retired key from
+  then on, whether or not it ever saw the new key statement. It can never be
+  above the generation of the key statement that vouches for the key.
+* The client's marks (the highest version it has seen, the lowest key
+  generation it accepts) move only after a release has verified in full. A
+  release that fails halfway - say a forged `version` of `99.0.0` - moves
+  nothing, so it cannot lock the client out of the genuine updates.
+
 A manifest cannot name its own signing key — only a root-signed statement
 can. That is the whole point: an attacker who controls your download server
 and your manifest still cannot make a client install anything, because they
@@ -205,22 +242,50 @@ update falls back to when a key is missing or unreadable (a key that does not
 parse is an error too). The key text may list the current and the next root
 key, separated by commas, so a root can be replaced without a flag day.
 
+The only way to install without the chain is to say so: an app that sets
+`config.updates.allow_unsigned = true` (and has no root key) accepts a release
+pinned by its `digest` alone. That is a decision, written in the app's source or
+in a test configuration; it is never what an empty or broken key turns into, and
+a key, when there is one, always wins. The Azlin apps compile their root keys in
+(`UPDATE_ROOT_KEYS` in `examples/azul-appkit/src/anchors.rs`) and hold no switch
+for it in a shipped build; the key list is empty until the owner puts the real
+root key there.
+
 ## Signing a release
 
-```bash
-# First run: mint the two key pairs, then STOP so you can put the root
-# secret key somewhere safe before it has ever signed anything.
-scripts/sign-release.sh --keys ./release-keys
+Four commands, so that no run of one of them can do what only another may. Keys
+live in `--keys DIR` (default `$AZUL_RELEASE_KEYS`, else `~/.azul-release-keys`);
+the script refuses a folder inside a git work tree that git does not ignore.
 
-# Then, per release:
-scripts/sign-release.sh \
-    --keys ./release-keys \
+```bash
+# Once, on an OFFLINE machine: mint the ROOT key pair. The secret key is
+# passphrase-encrypted and the command never overwrites a key.
+scripts/sign-release.sh init-root
+
+# Once, on the build machine: the SIGNING key pair (encrypted too; add
+# --unencrypted only for a CI runner that cannot answer a prompt).
+scripts/sign-release.sh init-signing
+
+# On the offline machine, about once a year or when the signing key changes:
+# the ROOT key signs "this signing key, until <date>, generation <n>".
+scripts/sign-release.sh statement --generation 1
+
+# Per release, on the build machine. The root secret key is not needed and
+# not read; the signing key signs the artifact and its release statement.
+scripts/sign-release.sh release \
+    --app myapp \
     --artifact ./target/release/myapp \
     --version 2.0.0 \
+    --platform linux-x86_64 \
     --url https://downloads.example.com/myapp-2.0.0.bin \
     --changelog https://downloads.example.com/CHANGELOG.md \
     --out manifest.json
 ```
+
+Nothing here generates a key for you behind your back, and nothing in the source
+tree holds one. Put the root key's PUBLIC half into the app (the `init-root`
+output prints it) before the first release: until you do, every build says
+"updates are not available in this build".
 
 The script needs a minisign implementation. Either works:
 
@@ -230,18 +295,22 @@ apt install minisign          # or: brew install minisign
 ```
 
 Before printing anything the script **verifies its own output with azul's
-real client-side code**. Do not remove that step. A signature can be
-perfectly valid to the tool that made it and still be refused by the app:
+real client-side code**, for this `--app` and `--platform`, and writes the
+manifest to `--out` only if that passed. Do not remove that step. A signature
+can be perfectly valid to the tool that made it and still be refused by the app:
 
 * **Prehashing.** The client accepts only prehashed signatures (`ED`), not
   the legacy form (`Ed`). `rsign2` always prehashes; some `minisign` builds
   need `-H`, which the script passes.
-* **The statement is signed as exact bytes.** `echo` appends a newline and
+* **The statements are signed as exact bytes.** `echo` appends a newline and
   the signature then covers a string that is not the one in the manifest.
   The script uses `printf '%s'`.
 
 Neither mistake is visible by inspection, and both produce a release that
 looks fine until every client rejects it.
+
+To retire a leaked signing key: `init-signing` with a fresh `--keys` folder,
+`statement --generation 2` (offline), and `release … --min-generation 2`.
 
 ## Verifying before you publish
 
@@ -249,12 +318,14 @@ The same check runs standalone:
 
 ```bash
 cargo run -p azul-layout --features updater --example verify_update_manifest -- \
-    manifest.json ./myapp-2.0.0.bin RWQ…rootpubkey
+    manifest.json ./myapp-2.0.0.bin RWQ…rootpubkey --app myapp --platform linux-x86_64
 ```
 
 It prints the resolved signing key, the generation, when the statement
-expires and whether the artifact matches — and exits non-zero if a client
-would refuse the release.
+expires and whether the artifact matches the release statement — and exits
+non-zero if a client would refuse the release. `--app` is required (the
+release statement has to name it); `--platform` defaults to the machine it
+runs on.
 
 `--selftest` mints a throwaway hierarchy and walks the whole chain, which is
 a quick way to see the byte formats without touching real keys:
@@ -278,6 +349,9 @@ cargo run -p azul-layout --features updater,telemetry \
     --version 1.0.0 \
     --update-root-key RWQ…rootpubkey
 ```
+
+(The drill is the app `telemetry-demo`: sign its test release with
+`--app telemetry-demo`.)
 
 ```text
 update: install=UserWritable effective_mode=SelfUpdate
@@ -352,11 +426,14 @@ blocking, so a manager runs them on a `Thread`:
   high-water mark, the accepted key generation) under the cohort the
   manager passes in: one computer sits in one cohort for every program it
   runs. `ReleaseInfo::draw_rollout_bucket()` draws that cohort once.
-* `release.stage(staging_dir, root_public_key, state_dir)` downloads and
-  verifies the digest and the signature chain; nothing refused stays.
-* `release.verify_staged(path, root_public_key, state_dir)` checks a staged
-  file once more right before it is installed: a file on disk is not
-  trusted across runs.
+* `release.stage(app, staging_dir, root_public_key, allow_unsigned, state_dir)`
+  downloads and verifies the digest and the signature chain for the program
+  named `app` (its release statement has to say so); nothing refused stays.
+  It returns the verified file with the SHA-256 of the bytes that passed
+  (`StagedUpdate`), so the manager can install exactly those bytes.
+* `release.verify_staged(app, path, root_public_key, allow_unsigned,
+  state_dir)` checks a staged file once more right before it is installed: a
+  file on disk is not trusted across runs.
 * `UpdateAudience::Tester` is the gate of a beta tester: every release the
   moment it is published, whatever the rollout says.
 * `ReleaseInfo::within_maintenance_window(rule, now)` evaluates a window
@@ -371,7 +448,10 @@ package manager's (it then shows the update command instead of installing).
   their own signing key and there is no in-band recovery — that is why it
   signs once a year and lives offline.
 * The signing key on the build machine is the one you expect to rotate.
-  Practise the rotation *before* you need it: bump `--generation`, publish,
-  confirm clients accept the new statement.
+  Practise the rotation *before* you need it: bump `--generation`, publish
+  with `--min-generation`, confirm clients accept the new statement.
+* Keep key folders out of the repository. `release-keys/`, `root.key` and
+  `signing.key` are in `.gitignore`, and the script refuses a folder in a work
+  tree that git does not ignore - but the right place is outside the tree.
 * Keep the statement's `expires` shorter than the interval at which you are
   confident you would notice a compromise.
