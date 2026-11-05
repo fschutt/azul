@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use serde_json::{json, Value};
 
 use crate::sync::{
-    local::{BaseEntry, Content, LocalFile},
+    local::{BaseEntry, Content, LocalFile, LocalView},
     merge::{conflict_name, deleted_elsewhere, merge_json, plan, Action, PlanInput},
     remote::{RemoteFile, RemoteIndex, Tombstone},
 };
@@ -64,7 +64,7 @@ fn one(b: Option<char>, l: Option<char>, r: Option<char>) -> Action {
     let never = |_: &str| false;
     let actions = plan(&PlanInput {
         base: &bases,
-        local: &locals,
+        local: &LocalView::of_files(&locals),
         remote: &remote,
         excluded: &never,
         device: "laptop",
@@ -164,7 +164,7 @@ fn a_copy_of_a_file_deleted_elsewhere_before_this_side_knew_it_is_kept_and_not_s
     let never = |_: &str| false;
     let input = PlanInput {
         base: &BTreeMap::new(),
-        local: &locals,
+        local: &LocalView::of_files(&locals),
         remote: &remote,
         excluded: &never,
         device: "d",
@@ -193,7 +193,7 @@ fn the_executable_bit_is_part_of_a_files_content() {
     let never = |_: &str| false;
     let actions = plan(&PlanInput {
         base: &bases,
-        local: &locals,
+        local: &LocalView::of_files(&locals),
         remote: &remote,
         excluded: &never,
         device: "d",
@@ -219,7 +219,7 @@ fn an_excluded_key_is_never_downloaded_nor_deleted_on_either_side() {
     let logs = |k: &str| k.ends_with(".log");
     let actions = plan(&PlanInput {
         base: &bases,
-        local: &BTreeMap::new(),
+        local: &LocalView::empty(),
         remote: &remote,
         excluded: &logs,
         device: "d",
@@ -266,7 +266,7 @@ fn two_conflicts_in_one_plan_never_pick_the_same_copy_name() {
     let never = |_: &str| false;
     let actions = plan(&PlanInput {
         base: &BTreeMap::new(),
-        local: &locals,
+        local: &LocalView::of_files(&locals),
         remote: &remote,
         excluded: &never,
         device: "l",
@@ -316,7 +316,7 @@ fn a_json_merge_file_changed_on_both_sides_merges_instead_of_conflicting() {
     let never = |_: &str| false;
     let actions = plan(&PlanInput {
         base: &bases,
-        local: &locals,
+        local: &LocalView::of_files(&locals),
         remote: &remote,
         excluded: &never,
         device: "l",
@@ -349,7 +349,7 @@ fn a_conflict_whose_copy_the_drive_already_holds_from_this_side_is_finished_not_
     let never = |_: &str| false;
     let actions = plan(&PlanInput {
         base: &bases,
-        local: &locals,
+        local: &LocalView::of_files(&locals),
         remote: &remote,
         excluded: &never,
         device: "laptop",
@@ -368,7 +368,7 @@ fn a_conflict_whose_copy_the_drive_already_holds_from_this_side_is_finished_not_
     other.files.get_mut(copy).unwrap().hash = h('x');
     let actions = plan(&PlanInput {
         base: &bases,
-        local: &locals,
+        local: &LocalView::of_files(&locals),
         remote: &other,
         excluded: &never,
         device: "laptop",
@@ -382,4 +382,205 @@ fn a_conflict_whose_copy_the_drive_already_holds_from_this_side_is_finished_not_
         }),
         "{actions:?}"
     );
+}
+
+/// RF46: what the scan could not tell is neither present nor absent. A name under a folder that
+/// could not be read, a link or another disk is told with it; a folder that took a file's name
+/// makes the file absent (known); a view not listed to its end knows no name absent.
+#[test]
+fn rf46_a_view_tells_present_absent_and_unknown_apart() {
+    use crate::sync::local::{Entry, Local, Why};
+    let files: BTreeMap<String, LocalFile> = [(String::from("notes/a.md"), local('1'))].into();
+    let view = LocalView::of_files(&files)
+        .with("locked", Entry::Unknown(Why::Locked))
+        .with("secret", Entry::Unknown(Why::Unreadable))
+        .with("ln", Entry::Link(String::from("notes")))
+        .with("disk", Entry::Mount)
+        .with("folder", Entry::Dir);
+    assert!(matches!(view.get("notes/a.md"), Local::Present(f) if f.hash == h('1')));
+    assert_eq!(
+        view.get("notes/none.md"),
+        Local::Absent,
+        "listed completely: absent"
+    );
+    assert_eq!(view.get("locked"), Local::Unknown(Why::Locked));
+    assert_eq!(
+        view.get("secret/deep/er.md"),
+        Local::Unknown(Why::Unreadable),
+        "below it too"
+    );
+    assert_eq!(view.get("ln"), Local::Unknown(Why::Link));
+    assert_eq!(
+        view.get("ln/x.md"),
+        Local::Unknown(Why::Link),
+        "behind a link: unknown"
+    );
+    assert_eq!(view.get("disk/x.md"), Local::Unknown(Why::Mount));
+    assert_eq!(
+        view.get("folder"),
+        Local::Absent,
+        "a folder took the name: the file is not there"
+    );
+    assert_eq!(
+        view.get("lockedx"),
+        Local::Absent,
+        "only a whole name hides what is below it"
+    );
+    let names: Vec<&str> = view.files().map(|(k, _)| k.as_str()).collect();
+    assert_eq!(names, ["notes/a.md"]);
+    // A view that was not listed to its end knows no name absent.
+    let partial = LocalView::empty().incomplete();
+    assert_eq!(partial.get("anything.md"), Local::Unknown(Why::Unreadable));
+    // A cloud-only entry is here, unchanged; one the scan could not tell stays unknown.
+    let mut bases = BTreeMap::new();
+    let mut cloud = base('9');
+    cloud.cloud_only = true;
+    bases.insert(String::from("away.bin"), cloud.clone());
+    bases.insert(String::from("locked"), cloud);
+    let with = view.with_cloud_only(&bases);
+    assert!(matches!(with.get("away.bin"), Local::Present(f) if f.hash == h('9')));
+    assert_eq!(with.get("locked"), Local::Unknown(Why::Locked));
+}
+
+/// RF46 acceptance gate: the three-way table over base {none, h0, h1} x local {absent, unknown,
+/// h0, h1, h2} x remote {none, tombstone, h0, h1, h2} - 75 cases - with the invariants every row
+/// must keep, checked on a two-sided model:
+///  - nothing is planned for a name that is unknown here;
+///  - a download comes only over a file that is what the base says (or over nothing);
+///  - a file here is deleted only when it is what the base says (it goes to the trash);
+///  - a delete on the drive comes only for a file known to be gone here, that the drive still
+///    holds as the base says;
+///  - conservation: every content that existed on either side and is not the base's (so it is a
+///    change since the last sync) exists after the action on a side, as a conflict copy or in the
+///    trash.
+#[test]
+fn rf46_the_three_way_table_keeps_its_invariants_over_75_cases() {
+    use crate::sync::local::{Entry, Why};
+
+    #[derive(Clone, Copy, Debug)]
+    enum Here {
+        Absent,
+        Unknown,
+        Is(char),
+    }
+    #[derive(Clone, Copy, Debug)]
+    enum There {
+        None,
+        Tombstone,
+        Is(char),
+    }
+
+    let mut cases = 0;
+    for b in [None, Some('0'), Some('1')] {
+        for l in [
+            Here::Absent,
+            Here::Unknown,
+            Here::Is('0'),
+            Here::Is('1'),
+            Here::Is('2'),
+        ] {
+            for r in [
+                There::None,
+                There::Tombstone,
+                There::Is('0'),
+                There::Is('1'),
+                There::Is('2'),
+            ] {
+                cases += 1;
+                let mut bases = BTreeMap::new();
+                if let Some(c) = b {
+                    bases.insert(String::from("a.md"), base(c));
+                }
+                let mut view = LocalView::empty();
+                match l {
+                    Here::Absent => {}
+                    Here::Unknown => view = view.with("a.md", Entry::Unknown(Why::Unreadable)),
+                    Here::Is(c) => view = view.with("a.md", Entry::File(local(c))),
+                }
+                let mut remote = RemoteIndex::empty();
+                match r {
+                    There::None => {}
+                    There::Tombstone => {
+                        remote.deleted.insert(
+                            String::from("a.md"),
+                            Tombstone {
+                                hash: h('0'),
+                                gen: 1,
+                                at: 0,
+                                device: String::from("dev-b"),
+                                confirmed: false,
+                            },
+                        );
+                    }
+                    There::Is(c) => {
+                        remote.files.insert(String::from("a.md"), remote_file(c));
+                    }
+                }
+                let never = |_: &str| false;
+                let actions = plan(&PlanInput {
+                    base: &bases,
+                    local: &view,
+                    remote: &remote,
+                    excluded: &never,
+                    device: "laptop",
+                    date: "2026-10-08",
+                });
+                let case = format!("base {b:?}, here {l:?}, there {r:?}: {actions:?}");
+                assert!(actions.len() <= 1, "{case}");
+                let action = actions.first();
+                let here = match l {
+                    Here::Is(c) => Some(c),
+                    _ => None,
+                };
+                let there = match r {
+                    There::Is(c) => Some(c),
+                    _ => None,
+                };
+                // Nothing is planned for a name that is unknown here.
+                if matches!(l, Here::Unknown) {
+                    assert!(action.is_none(), "{case}");
+                }
+                // A download only over a file that is what the base says, or over nothing.
+                if matches!(action, Some(Action::Download { .. })) {
+                    assert!(here.is_none() || here == b, "{case}");
+                }
+                // A file here is deleted only when it is what the base says.
+                if matches!(action, Some(Action::DeleteLocal { .. })) {
+                    assert!(here.is_some() && here == b, "{case}");
+                }
+                // A delete on the drive: gone here for sure, and the drive holds what the base says.
+                if matches!(action, Some(Action::DeleteRemote { .. })) {
+                    assert!(matches!(l, Here::Absent), "{case}");
+                    assert!(there.is_some() && there == b, "{case}");
+                }
+                // Conservation on a two-sided model.
+                let (mut after_here, mut after_there) = (here, there);
+                let (mut copy, mut trash) = (None, None);
+                match action {
+                    Some(Action::Upload { .. }) => after_there = here,
+                    Some(Action::Download { .. }) => after_here = there,
+                    Some(Action::DeleteLocal { .. }) => {
+                        trash = here;
+                        after_here = None;
+                    }
+                    Some(Action::DeleteRemote { .. }) => after_there = None,
+                    Some(Action::Conflict { .. }) => {
+                        copy = here;
+                        after_here = there;
+                    }
+                    _ => {}
+                }
+                for content in [here, there].into_iter().flatten() {
+                    if Some(content) == b {
+                        continue;
+                    }
+                    assert!(
+                        [after_here, after_there, copy, trash].contains(&Some(content)),
+                        "content {content} of a change since the last sync is lost: {case}"
+                    );
+                }
+            }
+        }
+    }
+    assert_eq!(cases, 75);
 }

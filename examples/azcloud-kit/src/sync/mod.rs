@@ -2709,27 +2709,6 @@ fn same_name(other: &str) -> String {
     )
 }
 
-/// This device's files as the plan sees them: the ones on disk, and the ones it keeps in the
-/// cloud only - unchanged here, at their base's version.
-fn with_cloud_only(
-    files: &BTreeMap<String, LocalFile>,
-    base: &BTreeMap<String, BaseEntry>,
-) -> BTreeMap<String, LocalFile> {
-    let mut here = files.clone();
-    for (key, entry) in base.iter().filter(|(_, e)| e.cloud_only) {
-        here.entry(key.clone()).or_insert_with(|| LocalFile {
-            hash: entry.hash.clone(),
-            size: entry.size,
-            mtime_ns: 0,
-            blob_size: entry.size,
-            content: Content::Raw,
-            exec: entry.exec,
-            ..LocalFile::default()
-        });
-    }
-    here
-}
-
 /// What an app's hooks make of a plan: a file kept in the cloud only is forgotten when the
 /// drive deleted it and stays in the cloud when the drive changed it; a file new to this
 /// device comes down when `fetch` says so; a conflict the app holds is taken out (and
@@ -2852,7 +2831,7 @@ fn rebase_keys<V: Clone>(
 fn present_here(scan: &Scan) -> BTreeSet<String> {
     let mut out: BTreeSet<String> = scan.files.keys().cloned().collect();
     out.extend(scan.dirs.iter().cloned());
-    out.extend(scan.unknown.iter().cloned());
+    out.extend(scan.unknown.keys().cloned());
     out.extend(scan.temps.keys().cloned());
     out.extend(scan.links.keys().cloned());
     out.extend(scan.mounts.iter().cloned());
@@ -2909,7 +2888,11 @@ fn moved_scan(scan: &mut Scan, moves: &[(String, String)]) {
         .into_iter()
         .map(|(key, spelling)| (m(key.as_str()), m(spelling.as_str())))
         .collect();
-    for set in [&mut scan.dirs, &mut scan.unknown, &mut scan.mounts] {
+    scan.unknown = std::mem::take(&mut scan.unknown)
+        .into_iter()
+        .map(|(key, why)| (m(key.as_str()), why))
+        .collect();
+    for set in [&mut scan.dirs, &mut scan.mounts] {
         *set = std::mem::take(set)
             .into_iter()
             .map(|key| m(key.as_str()))
@@ -3089,7 +3072,7 @@ fn files_after(
     unreadable: &BTreeMap<String, String>,
 ) -> (BTreeSet<String>, BTreeSet<String>) {
     let mut here: BTreeSet<String> = scan.files.keys().cloned().collect();
-    here.extend(scan.unknown.iter().cloned());
+    here.extend(scan.unknown.keys().cloned());
     here.extend(scan.temps.keys().cloned());
     here.extend(scan.links.keys().cloned());
     here.extend(scan.mounts.iter().cloned());
@@ -3810,7 +3793,7 @@ fn run<R: SyncRemote + ?Sized>(
     let mut pause = None;
     let mut attempt = 0u32;
     // The files D5 keeps (the last attempt's), remembered in the base.
-    let mut kept: BTreeSet<String> = BTreeSet::new();
+    let mut kept: BTreeSet<String>;
     // Where the base's folders end, as the last attempt renamed them.
     let mut finals_done: BTreeMap<String, String> = BTreeMap::new();
     let (committed, actions, folder_actions, merged, etag, scan, base_after, restore_epoch) = loop {
@@ -3994,7 +3977,9 @@ fn run<R: SyncRemote + ?Sized>(
                 );
             }
         }
-        let here = with_cloud_only(&scan.files, base);
+        // The folder as the merge sees it: what the scan could not tell is unknown, never absent;
+        // the files this device keeps in the cloud only count as here, unchanged.
+        let here = scan.view().with_cloud_only(base);
         let input = merge::PlanInput {
             base,
             local: &here,

@@ -388,8 +388,9 @@ pub struct Scan {
     /// unmounting one deletes nothing.
     pub mounts: BTreeSet<String>,
     /// Files and folders that could not be read, or changed while read, or are still being
-    /// written: unknown this pass, never a delete (nothing below such a folder either).
-    pub unknown: BTreeSet<String>,
+    /// written, and why: unknown this pass, never a delete (nothing below such a folder
+    /// either).
+    pub unknown: BTreeMap<String, Why>,
     /// The files the rules leave out, with their sizes: an app that saves a file writes it
     /// aside and renames the old one to such a name for a moment, which is no delete.
     pub temps: BTreeMap<String, u64>,
@@ -412,13 +413,206 @@ impl Scan {
     #[must_use]
     pub fn hides(&self, key: &str) -> bool {
         let covers = |p: &str| key == p || key.strip_prefix(p).is_some_and(|r| r.starts_with('/'));
-        self.unknown.iter().any(|p| covers(p))
+        self.unknown.keys().any(|p| covers(p))
             || self.links.keys().any(|p| covers(p))
             || self.mounts.iter().any(|p| covers(p))
     }
 
     fn tell(&mut self, code: Code, key: &str, detail: impl Into<String>) {
         self.problems.push(Problem::new(code, key, detail));
+    }
+
+    /// The folder as the merge sees it: every entry the scan met, a file that could not be told
+    /// kept apart from one that is not there ([`LocalView`]).
+    #[must_use]
+    pub fn view(&self) -> LocalView {
+        let mut entries: BTreeMap<String, Entry> = BTreeMap::new();
+        for key in &self.dirs {
+            entries.insert(key.clone(), Entry::Dir);
+        }
+        for (key, file) in &self.files {
+            entries.insert(key.clone(), Entry::File(file.clone()));
+        }
+        // What could not be told wins over anything else met under the name.
+        for (key, target) in &self.links {
+            entries.insert(key.clone(), Entry::Link(target.clone()));
+        }
+        for key in &self.mounts {
+            entries.insert(key.clone(), Entry::Mount);
+        }
+        for (key, why) in &self.unknown {
+            entries.insert(key.clone(), Entry::Unknown(*why));
+        }
+        LocalView {
+            entries,
+            complete: true,
+        }
+    }
+}
+
+/// Why a file or folder here is unknown this pass: what the scan could not tell. Such a name is
+/// never taken for deleted and never overwritten - nothing is planned for it, whatever the base
+/// and the drive say.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Why {
+    /// It, or a folder above it, could not be read.
+    Unreadable,
+    /// Another app holds it locked: it is mid-write.
+    Locked,
+    /// It changed (or was swapped for something else) while it was read.
+    Changed,
+    /// The scan refused it for a reason of its own (too big, not a JSON object).
+    Refused(Code),
+    /// It changed moments ago; it is taken once it is quiet.
+    Settling,
+    /// A link is here (never followed): what it hides is unknown.
+    Link,
+    /// Another disk is mounted here (never walked into).
+    Mount,
+}
+
+/// One entry of the folder as the scan met it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Entry {
+    /// A file (or a link the sync takes as one), read.
+    File(LocalFile),
+    /// A folder: the name is no file.
+    Dir,
+    /// A link that is not synced (never followed), with its target.
+    Link(String),
+    /// Another disk mounted here.
+    Mount,
+    /// Met, and not told.
+    Unknown(Why),
+}
+
+/// What the folder says about one name.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Local<'a> {
+    /// The file is here, as read.
+    Present(&'a LocalFile),
+    /// Known to be absent: the folder it would be in was listed completely and holds nothing of
+    /// that name. Only this is a delete.
+    Absent,
+    /// Not told. Never a delete, never an overwrite.
+    Unknown(Why),
+}
+
+/// The folder as the merge sees it (RF46): for every name, present, absent or unknown. The merge
+/// reads nothing else of the disk, so a file the scan refused, could not read or found locked
+/// cannot be taken for a delete by a parallel collection a closure forgot to consult (S6).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LocalView {
+    entries: BTreeMap<String, Entry>,
+    /// Every folder was listed to its end. A view that is not complete knows nothing: no name is
+    /// absent in it.
+    complete: bool,
+}
+
+impl LocalView {
+    /// A complete view of a folder that holds nothing.
+    #[must_use]
+    pub fn empty() -> LocalView {
+        LocalView {
+            entries: BTreeMap::new(),
+            complete: true,
+        }
+    }
+
+    /// A complete view of a folder that holds exactly these files.
+    #[must_use]
+    pub fn of_files(files: &BTreeMap<String, LocalFile>) -> LocalView {
+        LocalView {
+            entries: files
+                .iter()
+                .map(|(key, file)| (key.clone(), Entry::File(file.clone())))
+                .collect(),
+            complete: true,
+        }
+    }
+
+    /// The same view with `key` met as `entry`.
+    #[must_use]
+    pub fn with(mut self, key: &str, entry: Entry) -> LocalView {
+        self.entries.insert(key.to_string(), entry);
+        self
+    }
+
+    /// The same view, not listed to its end: nothing in it is absent.
+    #[must_use]
+    pub fn incomplete(mut self) -> LocalView {
+        self.complete = false;
+        self
+    }
+
+    /// The same view with the files this device keeps in the cloud only - unchanged here, at their
+    /// base's version - as present (an app's on-demand files): a name the scan could not tell
+    /// stays unknown.
+    #[must_use]
+    pub fn with_cloud_only(mut self, base: &BTreeMap<String, BaseEntry>) -> LocalView {
+        for (key, entry) in base.iter().filter(|(_, e)| e.cloud_only) {
+            let taken = matches!(
+                self.entries.get(key),
+                Some(Entry::File(_) | Entry::Unknown(_) | Entry::Link(_) | Entry::Mount)
+            );
+            if !taken {
+                self.entries.insert(
+                    key.clone(),
+                    Entry::File(LocalFile {
+                        hash: entry.hash.clone(),
+                        size: entry.size,
+                        mtime_ns: 0,
+                        blob_size: entry.size,
+                        content: Content::Raw,
+                        exec: entry.exec,
+                        ..LocalFile::default()
+                    }),
+                );
+            }
+        }
+        self
+    }
+
+    /// What the folder says about `key`. A name under a folder that could not be read, a link or
+    /// another disk is unknown with it (nothing below such a folder is told).
+    #[must_use]
+    pub fn get(&self, key: &str) -> Local<'_> {
+        let mut end = 0;
+        while let Some(at) = key[end..].find('/') {
+            end += at;
+            match self.entries.get(&key[..end]) {
+                Some(Entry::Unknown(why)) => return Local::Unknown(*why),
+                Some(Entry::Link(_)) => return Local::Unknown(Why::Link),
+                Some(Entry::Mount) => return Local::Unknown(Why::Mount),
+                _ => {}
+            }
+            end += 1;
+        }
+        match self.entries.get(key) {
+            Some(Entry::File(file)) => Local::Present(file),
+            Some(Entry::Unknown(why)) => Local::Unknown(*why),
+            Some(Entry::Link(_)) => Local::Unknown(Why::Link),
+            Some(Entry::Mount) => Local::Unknown(Why::Mount),
+            // A folder took the name: the file is not there, and that is known.
+            Some(Entry::Dir) => Local::Absent,
+            None if self.complete => Local::Absent,
+            None => Local::Unknown(Why::Unreadable),
+        }
+    }
+
+    /// Whether the name is known to be absent.
+    #[must_use]
+    pub fn is_absent(&self, key: &str) -> bool {
+        matches!(self.get(key), Local::Absent)
+    }
+
+    /// The files that are present (not the ones hidden under a folder that could not be read), in
+    /// key order.
+    pub fn files(&self) -> impl Iterator<Item = (&String, &LocalFile)> {
+        self.entries.iter().filter_map(|(key, entry)| match entry {
+            Entry::File(file) if matches!(self.get(key), Local::Present(_)) => Some((key, file)),
+            _ => None,
+        })
     }
 }
 
@@ -750,7 +944,7 @@ pub fn scan_settled(
                 return Err(e).with_context(|| format!("the folder {}", root.display()));
             }
             Err(e) => {
-                out.unknown.insert(folder.clone());
+                out.unknown.insert(folder.clone(), Why::Unreadable);
                 out.skipped
                     .push((folder.clone(), format!("cannot be read ({e})")));
                 out.tell(
@@ -790,7 +984,7 @@ pub fn scan_settled(
                         out.tell(Code::BadName, &key, format!("not synced: {why}"));
                         continue;
                     }
-                    out.unknown.insert(key.clone());
+                    out.unknown.insert(key.clone(), Why::Unreadable);
                     out.skipped
                         .push((key.clone(), format!("cannot be read ({e})")));
                     out.tell(
@@ -892,7 +1086,7 @@ pub fn scan_settled(
                                      for deleted"
                                 ),
                             );
-                            out.unknown.insert(key);
+                            out.unknown.insert(key, Why::Unreadable);
                         }
                     }
                     continue;
@@ -939,7 +1133,7 @@ pub fn scan_settled(
                 && st.mtime_ns <= now_ns
                 && st.mtime_ns.saturating_add(settle_ns) > now_ns
             {
-                out.unknown.insert(key.clone());
+                out.unknown.insert(key.clone(), Why::Settling);
                 out.tell(
                     Code::Settling,
                     &key,
@@ -983,7 +1177,7 @@ pub fn scan_settled(
                 }
                 Ok(None) => {}
                 Err(Skip::Changed) => {
-                    out.unknown.insert(key.clone());
+                    out.unknown.insert(key.clone(), Why::Changed);
                     out.tell(
                         Code::ChangedDuringSync,
                         &key,
@@ -991,7 +1185,7 @@ pub fn scan_settled(
                     );
                 }
                 Err(Skip::Unreadable(why)) => {
-                    out.unknown.insert(key.clone());
+                    out.unknown.insert(key.clone(), Why::Unreadable);
                     out.skipped.push((key.clone(), why));
                     out.tell(
                         Code::Unreadable,
@@ -1002,12 +1196,12 @@ pub fn scan_settled(
                 Err(Skip::Refused(code, why)) => {
                     // Not synced, and not gone: a file the base and the drive agree on that the
                     // scan refuses (grown past the size cap) is unknown, never a delete (AZ-S6).
-                    out.unknown.insert(key.clone());
+                    out.unknown.insert(key.clone(), Why::Refused(code));
                     out.skipped.push((key.clone(), why.clone()));
                     out.tell(code, &key, why);
                 }
                 Err(Skip::Locked) => {
-                    out.unknown.insert(key.clone());
+                    out.unknown.insert(key.clone(), Why::Locked);
                     out.tell(
                         Code::Locked,
                         &key,

@@ -21,13 +21,18 @@
 //! never loses a byte, and two devices that sync in turn end with the same files: the side that
 //! committed first keeps the name, the other adds its copy. No row deletes a file because of
 //! its time, and no login path (a re-pairing, a lost base) deletes one either.
+//!
+//! "Here" is a [`LocalView`], not a map of the files found: a name the scan could not tell
+//! (unreadable, locked, changed while read, refused, settling, behind a link) is
+//! [`Local::Unknown`], and the merge plans NOTHING for it - no delete, no overwrite, no
+//! download, whatever the base and the drive say. Only a name known to be absent is a delete.
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::{Map, Value};
 
 use super::{
-    local::{BaseEntry, Content, LocalFile},
+    local::{BaseEntry, Content, Local, LocalView},
     remote::{RemoteFile, RemoteIndex},
 };
 
@@ -97,7 +102,7 @@ impl Action {
 /// What the merge looks at.
 pub struct PlanInput<'a> {
     pub base: &'a BTreeMap<String, BaseEntry>,
-    pub local: &'a BTreeMap<String, LocalFile>,
+    pub local: &'a LocalView,
     pub remote: &'a RemoteIndex,
     /// Keys this side never syncs (its rules): they are neither downloaded
     /// nor deleted on either side.
@@ -170,7 +175,7 @@ fn is_conflict_copy_of(name: &str, key: &str, device: &str) -> bool {
 /// nor copied a second time.
 fn cut_conflicts(input: &PlanInput<'_>) -> BTreeMap<String, String> {
     let mut found = BTreeMap::new();
-    for (key, file) in input.local {
+    for (key, file) in input.local.files() {
         let here = ident(&file.hash, file.exec, file.link.is_some());
         let there = input
             .remote
@@ -199,7 +204,7 @@ fn cut_conflicts(input: &PlanInput<'_>) -> BTreeMap<String, String> {
                 is_conflict_copy_of(name, key, input.device)
                     && ident(&f.hash, f.exec, f.link.is_some()) == here
                     && !input.base.contains_key(*name)
-                    && !input.local.contains_key(*name)
+                    && input.local.is_absent(name)
                     && !(input.excluded)(name)
             });
         if let Some((name, _)) = copy {
@@ -234,7 +239,7 @@ pub fn same_version(base: &BaseEntry, remote: &RemoteFile) -> bool {
 pub fn deleted_elsewhere(input: &PlanInput<'_>) -> Vec<String> {
     input
         .local
-        .iter()
+        .files()
         .filter(|(key, file)| {
             !(input.excluded)(key)
                 && !input.base.contains_key(*key)
@@ -255,7 +260,7 @@ pub fn deleted_elsewhere(input: &PlanInput<'_>) -> Vec<String> {
 pub fn plan(input: &PlanInput<'_>) -> Vec<Action> {
     let mut keys: BTreeSet<&str> = BTreeSet::new();
     keys.extend(input.base.keys().map(String::as_str));
-    keys.extend(input.local.keys().map(String::as_str));
+    keys.extend(input.local.files().map(|(key, _)| key.as_str()));
     keys.extend(input.remote.files.keys().map(String::as_str));
     let mut chosen: BTreeSet<String> = BTreeSet::new();
     let cut = cut_conflicts(input);
@@ -266,7 +271,13 @@ pub fn plan(input: &PlanInput<'_>) -> Vec<Action> {
             continue;
         }
         let base = input.base.get(key).map(|e| ident(&e.hash, e.exec, e.link));
-        let local = input.local.get(key);
+        // A name the scan could not tell gets no action, whatever else says: it is neither
+        // deleted nor overwritten, uploaded nor downloaded (S6).
+        let local = match input.local.get(key) {
+            Local::Unknown(_) => continue,
+            Local::Present(file) => Some(file),
+            Local::Absent => None,
+        };
         let here = local.map(|f| ident(&f.hash, f.exec, f.link.is_some()));
         let there = input
             .remote
@@ -302,7 +313,7 @@ pub fn plan(input: &PlanInput<'_>) -> Vec<Action> {
                 }
                 _ => {
                     let taken = |name: &str| {
-                        input.local.contains_key(name)
+                        !input.local.is_absent(name)
                             || input.remote.files.contains_key(name)
                             || chosen.contains(name)
                     };

@@ -321,8 +321,14 @@ fn a_file_another_app_holds_locked_waits_and_is_never_taken_for_deleted() {
         .unwrap();
     held.lock().unwrap();
     let locked = scan(root, &Rules::base(), &BTreeMap::new(), 0, &[], u64::MAX).unwrap();
-    assert!(!locked.files.contains_key("open-in-word.docx"), "not read mid-write");
-    assert!(locked.unknown.contains("open-in-word.docx"), "unknown: never a delete");
+    assert!(
+        !locked.files.contains_key("open-in-word.docx"),
+        "not read mid-write"
+    );
+    assert!(
+        locked.unknown.contains_key("open-in-word.docx"),
+        "unknown: never a delete"
+    );
     assert!(locked
         .problems
         .iter()
