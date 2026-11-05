@@ -98,6 +98,12 @@ mod mounted_nodes_tests;
 #[cfg(test)]
 mod resource_counts_tests;
 
+// `assert_changed` says whose fault a missing repaint is: a fresh render that
+// differs from the snapshot is a STALE SCREEN (engine), one that does not is a
+// DEAD CONTROL (the test).
+#[cfg(test)]
+mod changed_attribution_tests;
+
 pub mod hooks {
     //! Dependency-injection seam for the three host-coupled call sites in
     //! [`super::full`]. See the module docs above.

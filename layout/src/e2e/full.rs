@@ -9255,10 +9255,75 @@ fn render_current(
     azul_layout::cpurender::AzulPixmap::decode_png(&png)
 }
 
+/// What `assert_changed` says when NOTHING was repainted.
+///
+/// From the damage alone two different situations look alike: the engine changed
+/// what is shown and did not repaint it (a stale screen), or nothing the scenario
+/// did changed a pixel in the first place (a control that cannot move one). Both
+/// read "stale screen", and the review of `gen-e2e` batch 2 told them apart by
+/// hand for every red control. The pixels tell: a fresh full render is diffed
+/// against the named snapshot. Pixels that differ are [`STALE_SCREEN_MARKER`],
+/// pixels that do not are [`DEAD_CONTROL_MARKER`]. Without a snapshot, or when
+/// the two frames cannot be compared, there is nothing to attribute and the words
+/// stay what they were.
+#[cfg(all(feature = "std", feature = "cpurender"))]
+fn nothing_repainted(
+    vs: Option<&str>,
+    threshold: u8,
+    callback_info: &azul_layout::callbacks::CallbackInfo,
+) -> String {
+    const PLAIN: &str = "assert_changed: nothing was repainted (stale screen)";
+    let Some(vs) = vs else {
+        return PLAIN.to_string();
+    };
+    let (Ok(before), Ok(after)) = (
+        load_snapshot(vs, callback_info),
+        render_current(callback_info),
+    ) else {
+        return PLAIN.to_string();
+    };
+    let diff = azul_layout::cpurender::pixel_diff(&before, &after, threshold);
+    if !diff.dimensions_match {
+        return format!(
+            "{PLAIN}; the frame size changed since snapshot '{vs}', so whose fault it is cannot \
+             be told from the pixels"
+        );
+    }
+    if diff.diff_count > 0 {
+        format!(
+            "assert_changed: {STALE_SCREEN_MARKER}: nothing was repainted, but a fresh render \
+             differs from snapshot '{vs}' in {} px - what the window shows has moved and no \
+             damage says so",
+            diff.diff_count
+        )
+    } else {
+        format!(
+            "assert_changed: {DEAD_CONTROL_MARKER}: nothing was repainted and a fresh render is \
+             identical to snapshot '{vs}' - nothing the scenario did changed a pixel, so this \
+             control proves nothing"
+        )
+    }
+}
+
+/// What `assert_changed` calls a missing repaint when a fresh render DIFFERS from
+/// the snapshot: the window shows something new and no damage says so. The fault
+/// is the engine's. (`gen-e2e` reads this text; `nothing_repainted` writes it.)
+pub const STALE_SCREEN_MARKER: &str = "STALE SCREEN (engine)";
+
+/// What `assert_changed` calls a missing repaint when a fresh render is IDENTICAL
+/// to the snapshot: nothing the scenario did changed a pixel, so a control that
+/// expected one proves nothing. The fault is the test's.
+pub const DEAD_CONTROL_MARKER: &str = "DEAD CONTROL (the test)";
+
 /// `assert_changed` — LIVENESS, the stale-screen detector.
 ///
 /// After a step that must alter pixels: the damage set must be NON-EMPTY *and*
 /// the pixels must actually differ from the named `snapshot_frame`.
+///
+/// When there is NO damage and a snapshot to compare with, the failure says whose
+/// fault it is: a fresh render that differs from the snapshot is
+/// [`STALE_SCREEN_MARKER`] (the engine), one that does not is
+/// [`DEAD_CONTROL_MARKER`] (the test).
 ///
 /// Parameters: `vs` (snapshot name, required), `min_damage_rects` (default 1),
 /// `threshold` (per-channel, default 2).
@@ -9296,7 +9361,11 @@ fn eval_assert_changed(
         };
         if damage.is_none() {
             return AssertionResult::fail_with(
-                "assert_changed: nothing was repainted (stale screen)".to_string(),
+                nothing_repainted(
+                    params.get("vs").and_then(|v| v.as_str()),
+                    threshold,
+                    callback_info,
+                ),
                 format!("{which} damage != none"),
                 "none".to_string(),
             );
