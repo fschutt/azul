@@ -164,7 +164,7 @@ pub use token::{
 pub use device_key::DeviceKey;
 pub use transport::{CloudDrive, IrohDialer, IrohLane, IrohTarget, Lane, TransportPref};
 pub use user_errors::{Lang, UserError};
-pub use vault::{DriveTokens, RenewalLock, TokenVault, VaultGrant, VaultState};
+pub use vault::{DriveKeep, DriveTokens, NoVault, RenewalLock, TokenVault, VaultGrant, VaultState};
 #[cfg(feature = "encryption")]
 pub use vault::{DriveVault, UnlockedDrive};
 /// The secrets the kit hands out (a claim code's text) wipe their memory when dropped.

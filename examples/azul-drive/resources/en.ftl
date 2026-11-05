@@ -1698,6 +1698,7 @@ azdrive-add-picked-up = Picked up. AzDrive asks for the drive now, then once a d
 azdrive-add-claim-not-kept = The claim code was not kept: { $why }
 azdrive-add-months-not-fetched = The paid months of the checkout { $checkout } could not be fetched: { $why }.
 azdrive-add-checkout-unfinished = The checkout { $checkout } could not be finished in the keyring's list ({ $why }); AzDrive asks about it again at its next start.
+azdrive-grant-local-only = The months you paid for ({ $drive }) are kept on this computer only: { $why }. Back up AzDrive's data folder so that they are not lost with it.
 azdrive-add-no-sign-in-waits = No sign-in waits for an answer.
 azdrive-add-buy-tier-price = Buy { $quota } - { $price }
 azdrive-add-buy-tier = Buy { $quota }

@@ -1,0 +1,220 @@
+//! The proofs that take a checkout off the keyring's list (ARCH28 RF51 / AR5b-6).
+//!
+//! A checkout's claim secret is the only key to the drive it pays for, and its issue key the only
+//! key to the months that drive is still owed. A checkout therefore leaves the list only through
+//! [`super::settle`], with a [`Settled`] - and a [`Settled`] is made here and nowhere else, from
+//! a piece of EVIDENCE that has no public constructor either:
+//!
+//! - [`NoSuchCheckout`]: the token server answered the contract's `no_such_checkout` - not a bare
+//!   404, not an HTML page, not a 404 of another word;
+//! - [`ClaimsEnded`]: it refused the pick-up of the drive for good (`claims_used`,
+//!   `claim_expired`);
+//! - [`Strikes`]: the sign-up did not OPEN with the claim key [`super::UNOPENABLE_AFTER`] times -
+//!   an AEAD failure; a sign-up that opens and does not read, or an answer that is not a sealed
+//!   text, is never a strike (the sealed text is intact for 30 days: update the app, not erase
+//!   its key);
+//! - [`GrantKept`]: the period grant is in two places ([`crate::vault::Kept::is_redundant`]) -
+//!   the drive's own vault has it, or a second copy was written here;
+//! - [`NeverIssued`]: the token server will never issue the rest (a final refusal, or a grant no
+//!   server issues);
+//! - a poll's answer that ends the checkout ([`Settled::ended_by`]): declined, expired, gone, the
+//!   hand-over purged;
+//! - an abandon's answer that ended it ([`Settled::abandoned`]).
+//!
+//! `money_gate` reads the sources: `Settled(` and `SettledBy::` stand in this file only.
+
+use azlin_contract::AbandonAnswer;
+
+use super::{Final, PendingCheckout, UNOPENABLE_AFTER};
+use crate::{
+    period::Issued,
+    token::{CheckoutStatus, TokenError},
+    vault::Kept,
+};
+
+/// What the token server said that ends a checkout: the only thing that takes one off the list
+/// ([`super::settle`]). Made from its answers in this file, never from a guess.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Settled(SettledBy);
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum SettledBy {
+    /// Its drive is in the drives file and nothing more is owed for it.
+    Claimed,
+    /// Its period grant is in two places.
+    Finished,
+    /// The token server will never issue the rest of its grant.
+    NeverIssued,
+    /// The payment did not go through, or went back.
+    Declined,
+    /// The token server no longer has it, or its drive's hand-over is gone.
+    Gone,
+    /// The token server refused the drive's pick-up for good.
+    ClaimsEnded,
+    /// Its abandon ended it at the token server.
+    Abandoned(AbandonAnswer),
+    /// Its sealed sign-up did not open with its claim key, [`UNOPENABLE_AFTER`] times.
+    Unopenable,
+}
+
+/// The token server answered the contract's `no_such_checkout`.
+#[derive(Debug)]
+pub struct NoSuchCheckout(());
+
+impl NoSuchCheckout {
+    /// The word of `e`, when it is that one.
+    pub(super) fn said_by(e: &TokenError) -> Option<NoSuchCheckout> {
+        e.is_no_such_checkout().then_some(NoSuchCheckout(()))
+    }
+}
+
+/// The token server refused the pick-up of a drive for good.
+#[derive(Debug)]
+pub struct ClaimsEnded(());
+
+impl ClaimsEnded {
+    /// The refusal of `e`, when it is one that cannot change.
+    pub(super) fn said_by(e: &TokenError) -> Option<ClaimsEnded> {
+        e.claim_refusal()
+            .is_some_and(|refusal| refusal.is_final())
+            .then_some(ClaimsEnded(()))
+    }
+}
+
+/// A checkout's sealed sign-up did not open with its claim key often enough to give it up.
+#[derive(Debug)]
+pub struct Strikes(());
+
+impl Strikes {
+    /// What the list counted of `checkout`: [`UNOPENABLE_AFTER`] failures to open, no fewer.
+    pub(super) fn of(checkout: &PendingCheckout) -> Option<Strikes> {
+        (checkout.open_failures >= UNOPENABLE_AFTER).then_some(Strikes(()))
+    }
+}
+
+/// A period grant is in two places: the drive's vault and this computer's, or this computer's
+/// two copies.
+#[derive(Debug)]
+pub struct GrantKept(());
+
+impl GrantKept {
+    /// Where a join landed, when that is two places.
+    pub(super) fn of(kept: &Kept) -> Option<GrantKept> {
+        kept.is_redundant().then_some(GrantKept(()))
+    }
+}
+
+/// The token server will never issue the rest of a grant.
+#[derive(Debug)]
+pub struct NeverIssued(());
+
+impl NeverIssued {
+    /// A grant no token server issues: no month, more months than one issue takes, or no issue
+    /// key (`most`: the most months one issue takes).
+    pub(super) fn unusable_grant(months: u32, issue_key: &str, most: usize) -> Option<NeverIssued> {
+        let months_ok = usize::try_from(months).is_ok_and(|m| (1..=most).contains(&m));
+        (!months_ok || issue_key.trim().is_empty()).then_some(NeverIssued(()))
+    }
+
+    /// An issue that ended the grant at the token server (a reversed payment, a wrong issue
+    /// key, every month issued to another request), with why.
+    pub(super) fn ended(issued: &Issued) -> Option<(NeverIssued, String)> {
+        match issued {
+            Issued::Ended(why) => Some((NeverIssued(()), why.clone())),
+            Issued::Tokens(_) | Issued::NotDue { .. } => None,
+        }
+    }
+}
+
+impl Settled {
+    /// What it ends the checkout for, for an error's context.
+    pub(super) fn what(&self) -> String {
+        let why = match &self.0 {
+            SettledBy::Claimed => "its drive is saved",
+            SettledBy::Finished => "its period grant is kept with its drive",
+            SettledBy::NeverIssued => "the token server will issue no more of its grant",
+            SettledBy::Declined => "its payment did not go through",
+            SettledBy::Gone => "the token server no longer has it",
+            SettledBy::ClaimsEnded => "the drive can be picked up here no more",
+            SettledBy::Abandoned(answer) => {
+                return format!("ending the checkout: its abandon answered {answer:?}")
+            }
+            SettledBy::Unopenable => "its sign-up does not open",
+        };
+        format!("ending the checkout: {why}")
+    }
+
+    /// Its drive is saved in the drives file and it has no period grant: nothing more is owed.
+    /// (A development sign-up, a checkout approved before period tokens.)
+    pub(super) fn claimed() -> Settled {
+        Settled(SettledBy::Claimed)
+    }
+
+    /// The token server has no such checkout.
+    pub(super) fn gone(_: &NoSuchCheckout) -> Settled {
+        Settled(SettledBy::Gone)
+    }
+
+    /// The drive can be picked up here no more.
+    pub(super) fn claims_ended(_: &ClaimsEnded) -> Settled {
+        Settled(SettledBy::ClaimsEnded)
+    }
+
+    /// Its sign-up did not open, often enough.
+    pub(super) fn unopenable(_: &Strikes) -> Settled {
+        Settled(SettledBy::Unopenable)
+    }
+
+    /// Its period grant is in two places.
+    pub(super) fn finished(_: &GrantKept) -> Settled {
+        Settled(SettledBy::Finished)
+    }
+
+    /// Nothing more will be issued for it.
+    pub(super) fn never_issued(_: &NeverIssued) -> Settled {
+        Settled(SettledBy::NeverIssued)
+    }
+
+    /// The abandon's answer, when it ended the checkout ([`AbandonAnswer::is_over`]); `None`
+    /// when the checkout may still be paid.
+    #[must_use]
+    pub fn abandoned(answer: AbandonAnswer) -> Option<Settled> {
+        answer
+            .is_over()
+            .then_some(Settled(SettledBy::Abandoned(answer)))
+    }
+
+    /// What a poll's answer `status` ends - the payment declined or taken back, the checkout
+    /// gone (expired, or the token server's own `no_such_checkout`), its drive's hand-over
+    /// purged - with what is said of it, once; `None` for an answer that ends nothing.
+    ///
+    /// [`CheckoutStatus::Declined`], [`CheckoutStatus::Gone`] and [`CheckoutStatus::HandoverGone`]
+    /// are made by [`crate::token::TokenServer::checkout_status`] from those words of the token
+    /// server and from nothing else.
+    pub(super) fn ended_by(status: &CheckoutStatus, checkout_id: &str) -> Option<(Settled, Final)> {
+        match status {
+            CheckoutStatus::Declined(why) => Some((
+                Settled(SettledBy::Declined),
+                Final::Declined(format!("the payment did not go through: {why}")),
+            )),
+            CheckoutStatus::Gone(why) => Some((
+                Settled(SettledBy::Gone),
+                Final::Gone(format!("the token server no longer has it: {why}")),
+            )),
+            CheckoutStatus::HandoverGone => Some((
+                Settled(SettledBy::Gone),
+                Final::Gone(format!(
+                    "it was paid, but the token server keeps its drive's hand-over only 30 days \
+                     after the payment and has it no more: support can help with the checkout \
+                     {checkout_id}"
+                )),
+            )),
+            CheckoutStatus::Pending
+            | CheckoutStatus::Approved(_)
+            | CheckoutStatus::Unopenable(_)
+            | CheckoutStatus::Unreadable(_)
+            | CheckoutStatus::Renewal(_)
+            | CheckoutStatus::Unknown(_) => None,
+        }
+    }
+}

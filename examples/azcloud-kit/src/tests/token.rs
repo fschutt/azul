@@ -298,7 +298,8 @@ fn an_approved_checkout_whose_signup_is_not_sealed_to_its_claim_key_is_refused()
         server.checkout_status("ck_1", &claim).unwrap(),
         CheckoutStatus::HandoverGone
     );
-    for case in 1..4 {
+    // Sealed to another key, sealed for another checkout: it does not OPEN - a strike.
+    for case in 1..3 {
         assert!(
             matches!(
                 server.checkout_status("ck_1", &claim),
@@ -307,6 +308,14 @@ fn an_approved_checkout_whose_signup_is_not_sealed_to_its_claim_key_is_refused()
             "answer {case}"
         );
     }
+    // Opens, and holds no drive bundle: it does not READ - never a strike (AZ-P6).
+    assert!(
+        matches!(
+            server.checkout_status("ck_1", &claim),
+            Ok(CheckoutStatus::Unreadable(_))
+        ),
+        "answer 3"
+    );
 }
 
 #[test]

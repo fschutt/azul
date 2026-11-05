@@ -19,9 +19,11 @@ use super::{
 use crate::{
     bundle::PeriodTokens,
     claim::seal,
+    error::{CloudError, CloudResult},
     pending::{self, Abandoned, Final, Finished, PendingCheckout, Polled, Settled, Transient},
     period::{Issuer, PeriodTokenStore},
     shared::SharedKeyring,
+    vault::{DriveTokens, NoVault, TokenVault, VaultState},
     AzlinSession, ClaimKey, TokenServer,
 };
 
@@ -84,6 +86,54 @@ fn token_of(text: &str) -> String {
         .drive_token
         .as_str()
         .to_string()
+}
+
+/// A drive's own vault in memory (the real one needs the drive key: feature `encryption`).
+#[derive(Default)]
+struct MemoryVault(std::sync::Mutex<VaultState>);
+
+impl TokenVault for MemoryVault {
+    fn read(&self) -> CloudResult<VaultState> {
+        Ok(self.0.lock().unwrap().clone())
+    }
+
+    fn join(&self, change: &VaultState) -> CloudResult<VaultState> {
+        let mut state = self.0.lock().unwrap();
+        state.join(change);
+        Ok(state.clone())
+    }
+
+    fn place(&self) -> &'static str {
+        "the drive"
+    }
+}
+
+/// A drive's vault that does not answer.
+struct DownVault;
+
+impl TokenVault for DownVault {
+    fn read(&self) -> CloudResult<VaultState> {
+        Err(CloudError::failed("no answer from the drive"))
+    }
+
+    fn join(&self, _: &VaultState) -> CloudResult<VaultState> {
+        Err(CloudError::failed("no answer from the drive"))
+    }
+
+    fn place(&self) -> &'static str {
+        "the drive"
+    }
+}
+
+/// `d_1`'s tokens on this computer and in a vault of the drive.
+fn tokens_in_drive(store: &PeriodTokenStore) -> (DriveTokens, Arc<MemoryVault>) {
+    let vault = Arc::new(MemoryVault::default());
+    let tokens = DriveTokens::new(
+        "d_1",
+        store.local("d_1").unwrap(),
+        Some(vault.clone() as Arc<dyn TokenVault>),
+    );
+    (tokens, vault)
 }
 
 #[test]
@@ -536,11 +586,15 @@ fn a_claimed_checkout_keeps_its_issue_key_with_its_claim_secret_until_its_grant_
     let transport = Shared(fake.clone());
     let server = TokenServer::new(TOKEN, &transport).unwrap();
     let store = PeriodTokenStore::new(dir.path().join("period-tokens"));
-    let tokens = store.on_this_device("d_1").unwrap();
+    let (tokens, in_drive) = tokens_in_drive(&store);
     match pending::finish(&server, &shared, &store, &tokens, &ck, &owed, NOW) {
         Finished::Issued { drive_id, count } => assert_eq!((drive_id.as_str(), count), ("d_1", 1)),
         other => panic!("not issued: {other:?}"),
     }
+    assert!(
+        in_drive.read().unwrap().grant("ck_1").is_some(),
+        "the grant is in the drive's vault before the keyring lets go of it"
+    );
     let state = tokens.state().unwrap();
     assert_eq!(state.tokens.len(), 1, "the first month");
     let issuer = Issuer::new("100GB", 2026, &pem(N1)).unwrap();
@@ -599,7 +653,7 @@ fn a_first_month_without_an_answer_waits_with_the_drive_and_a_reversed_payment_i
     let transport = Shared(fake);
     let server = TokenServer::new(TOKEN, &transport).unwrap();
     let store = PeriodTokenStore::new(dir.path().join("period-tokens"));
-    let tokens = store.on_this_device("d_1").unwrap();
+    let (tokens, _) = tokens_in_drive(&store);
     let claimed = |id: &str| {
         pending::add(&shared, &checkout(id, &claim)).unwrap();
         let mut grant = grant(3);
@@ -663,4 +717,298 @@ fn a_full_list_of_checkouts_still_has_room_for_each_ones_issue_key_after_its_cla
     let listed = pending::list(&shared).unwrap();
     assert_eq!(listed.len(), ids.len());
     assert!(listed.iter().all(|c| c.period.is_some()));
+}
+
+// ==== RF51: evidence, not a guess (AZ-P1, AZ-P5, AZ-P6, X-AR5b-7) ====
+
+/// A claimed checkout `ck_1` on the list, started at `started_at`, with what its issue needs.
+fn claimed_on_the_list(
+    shared: &SharedKeyring,
+    started_at: i64,
+) -> (PendingCheckout, pending::PendingTokens) {
+    let claim = ClaimKey::generate().unwrap();
+    let mut ck = checkout("ck_1", &claim);
+    ck.started_at = started_at;
+    pending::add(shared, &ck).unwrap();
+    pending::claimed(shared, "ck_1", "d_1", Some(&grant(3))).unwrap();
+    let ck = pending::list(shared).unwrap().remove(0);
+    let owed = ck.period.clone().expect("what the issue needs");
+    (ck, owed)
+}
+
+/// AZ-P1: the poll and the abandon end a checkout, and erase its claim secret, only on the
+/// token server's own word `no_such_checkout`. A bare `not_found` (a route missing in a rollback)
+/// and a page of a proxy leave it where it is: it may be paid, and the secret is the only key to
+/// the drive.
+#[test]
+fn az_p1_a_404_without_the_contracts_word_neither_ends_a_poll_nor_an_abandon() {
+    let dir = TempDir::new("azcloud-pending");
+    let (shared, _) = shared(&dir);
+    let claim = ClaimKey::generate().unwrap();
+    let ck = checkout("ck_1", &claim);
+    pending::add(&shared, &ck).unwrap();
+    for body in [
+        r#"{"error": "not_found", "message": "no route"}"#,
+        "<html><body>404 Not Found</body></html>",
+    ] {
+        let fake = Fake::new(move |_, _| Ok(json(404, body)));
+        let transport = Shared(fake);
+        let server = TokenServer::new(TOKEN, &transport).unwrap();
+        assert!(
+            matches!(
+                pending::poll(&server, &shared, &ck),
+                Polled::Transient(Transient::Unread(_))
+            ),
+            "{body}: asked again, nothing ended"
+        );
+        assert!(
+            matches!(
+                pending::abandon(&server, &shared, "ck_1"),
+                Abandoned::Kept { paid: false, .. }
+            ),
+            "{body}: the abandon did not end it"
+        );
+        let listed = pending::list(&shared).unwrap();
+        assert_eq!(listed.len(), 1, "{body}: the claim secret stays");
+        assert_eq!(listed[0].claim_secret, ck.claim_secret);
+    }
+    // The contract's word ends both.
+    let fake = Fake::new(|_, _| {
+        Ok(json(
+            404,
+            r#"{"error": "no_such_checkout", "message": "unknown checkout"}"#,
+        ))
+    });
+    let transport = Shared(fake);
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    assert!(matches!(
+        pending::poll(&server, &shared, &ck),
+        Polled::Final(Final::Gone(_))
+    ));
+    assert!(pending::list(&shared).unwrap().is_empty());
+    pending::add(&shared, &checkout("ck_2", &claim)).unwrap();
+    assert_eq!(pending::abandon(&server, &shared, "ck_2"), Abandoned::Ended);
+    assert!(pending::list(&shared).unwrap().is_empty());
+}
+
+/// AZ-P6: a sealed sign-up that OPENS and does not read (a newer contract, a field renamed) is
+/// never a strike: the text is intact for 30 days, an update reads it. Only a sign-up that does
+/// not open at all is counted (the test of two strikes above).
+#[test]
+fn az_p6_a_sign_up_that_opens_and_does_not_read_is_kept_however_often_it_is_asked() {
+    let dir = TempDir::new("azcloud-pending");
+    let (shared, _) = shared(&dir);
+    let claim = ClaimKey::generate().unwrap();
+    let ck = checkout("ck_1", &claim);
+    pending::add(&shared, &ck).unwrap();
+    let sealed = seal(&claim.public_base64(), "ck_1", b"{}");
+    let fake = Fake::new(move |_, _| {
+        Ok(json(
+            200,
+            &format!(
+                r#"{{"checkout_id": "ck_1", "status": "approved", "sealed_signup": "{sealed}"}}"#
+            ),
+        ))
+    });
+    let transport = Shared(fake);
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    for round in 0..5 {
+        match pending::poll(&server, &shared, &ck) {
+            Polled::Transient(Transient::Unread(why)) => {
+                assert!(why.contains("update"), "round {round}: {why}")
+            }
+            other => panic!("round {round}: not kept: {other:?}"),
+        }
+    }
+    let listed = pending::list(&shared).unwrap();
+    assert_eq!(listed.len(), 1, "the claim secret stays");
+    assert_eq!(listed[0].open_failures, 0, "nothing was counted");
+    assert_eq!(listed[0].claim_secret, ck.claim_secret);
+}
+
+/// AZ-P6: a kept claim secret that does not read is not erased on that: the entry stays and says
+/// so.
+#[test]
+fn az_p6_a_kept_claim_secret_that_does_not_read_is_not_erased() {
+    let dir = TempDir::new("azcloud-pending");
+    let (shared, _) = shared(&dir);
+    let claim = ClaimKey::generate().unwrap();
+    let mut ck = checkout("ck_1", &claim);
+    ck.claim_secret = String::from("not a claim key");
+    pending::add(&shared, &ck).unwrap();
+    let fake = Fake::new(|call, _| {
+        panic!(
+            "nothing is asked about a secret that does not read: {}",
+            call.url
+        )
+    });
+    let transport = Shared(fake);
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    match pending::poll(&server, &shared, &ck) {
+        Polled::Transient(Transient::Unread(why)) => assert!(why.contains("claim key"), "{why}"),
+        other => panic!("not kept: {other:?}"),
+    }
+    assert_eq!(pending::list(&shared).unwrap().len(), 1);
+}
+
+/// AZ-P5: the claim secret and the issue key leave the keyring only when the period grant is in
+/// two places. A drive that has no vault for it - no key of it here yet - leaves the keyring's
+/// entry as the second copy; the first month is issued and kept all the same. When the key
+/// arrives the next try puts the grant in the drive's vault and lets go.
+#[test]
+fn az_p5_a_grant_that_only_this_computer_holds_keeps_the_claim_secret_and_the_issue_key() {
+    let dir = TempDir::new("azcloud-pending");
+    let (shared, keyring) = shared(&dir);
+    let (ck, owed) = claimed_on_the_list(&shared, i64::try_from(NOW).unwrap());
+    let fake = issuing_server(keys(), N1, D1, "100GB/2026");
+    let transport = Shared(fake);
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    let store = PeriodTokenStore::new(dir.path().join("period-tokens"));
+    let local_only = store.on_this_device("d_1").unwrap();
+    match pending::finish(&server, &shared, &store, &local_only, &ck, &owed, NOW) {
+        Finished::Waits {
+            drive_id,
+            count,
+            why,
+        } => {
+            assert_eq!(
+                (drive_id.as_str(), count),
+                ("d_1", 1),
+                "the first month is issued here"
+            );
+            assert!(why.contains("no key"), "{why}");
+        }
+        other => panic!("not waiting: {other:?}"),
+    }
+    let listed = pending::list(&shared).unwrap();
+    assert_eq!(listed.len(), 1, "the checkout stays");
+    assert_eq!(
+        listed[0].claim_secret, ck.claim_secret,
+        "the claim secret stays"
+    );
+    assert_eq!(
+        listed[0].period.as_ref().map(|p| p.issue_key.as_str()),
+        Some(ISSUE_KEY),
+        "the issue key stays"
+    );
+    let text = keyring.get(pending::PENDING_KEY).unwrap().unwrap();
+    assert!(
+        text.contains(ISSUE_KEY) && text.contains(&ck.claim_secret),
+        "{text}"
+    );
+    assert_eq!(
+        local_only.state().unwrap().tokens.len(),
+        1,
+        "the month is kept here"
+    );
+    // The key arrives, the drive has its vault: the grant goes in, and only then the keyring
+    // lets go.
+    let (with_key, in_drive) = tokens_in_drive(&store);
+    match pending::finish(&server, &shared, &store, &with_key, &ck, &owed, NOW) {
+        Finished::Issued { .. } | Finished::Granted { .. } => {}
+        other => panic!("not finished: {other:?}"),
+    }
+    assert!(in_drive.read().unwrap().grant("ck_1").is_some());
+    assert!(pending::list(&shared).unwrap().is_empty());
+    assert!(keyring.get(pending::PENDING_KEY).unwrap().is_none());
+}
+
+/// AZ-P5: a vault of the drive that does not answer is no place either.
+#[test]
+fn az_p5_a_drive_vault_that_does_not_answer_keeps_the_claim_secret_too() {
+    let dir = TempDir::new("azcloud-pending");
+    let (shared, _) = shared(&dir);
+    let (ck, owed) = claimed_on_the_list(&shared, i64::try_from(NOW).unwrap());
+    let fake = issuing_server(keys(), N1, D1, "100GB/2026");
+    let transport = Shared(fake);
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    let store = PeriodTokenStore::new(dir.path().join("period-tokens"));
+    let tokens = DriveTokens::new(
+        "d_1",
+        store.local("d_1").unwrap(),
+        Some(Arc::new(DownVault) as Arc<dyn TokenVault>),
+    );
+    match pending::finish(&server, &shared, &store, &tokens, &ck, &owed, NOW) {
+        Finished::Waits { why, .. } => assert!(why.contains("did not take"), "{why}"),
+        other => panic!("not waiting: {other:?}"),
+    }
+    assert_eq!(pending::list(&shared).unwrap().len(), 1);
+}
+
+/// X-AR5b-7: a drive that could not be opened (not open in the app, a refused unlock) is a
+/// reason, not a silent choice of "this computer only": the grant waits, and says why.
+#[test]
+fn x_ar5b_7_a_drive_that_could_not_be_opened_says_why_and_its_grant_waits() {
+    let dir = TempDir::new("azcloud-pending");
+    let (shared, _) = shared(&dir);
+    let (ck, owed) = claimed_on_the_list(&shared, i64::try_from(NOW).unwrap());
+    let fake = issuing_server(keys(), N1, D1, "100GB/2026");
+    let transport = Shared(fake);
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    let store = PeriodTokenStore::new(dir.path().join("period-tokens"));
+    let tokens = store
+        .on_this_device_because(
+            "d_1",
+            NoVault::NotOpened(String::from("the drive is not open")),
+        )
+        .unwrap();
+    match pending::finish(&server, &shared, &store, &tokens, &ck, &owed, NOW) {
+        Finished::Waits { why, .. } => assert!(why.contains("the drive is not open"), "{why}"),
+        other => panic!("not waiting: {other:?}"),
+    }
+    assert_eq!(pending::list(&shared).unwrap().len(), 1);
+}
+
+/// AZ-P5 / Q20: after thirty days - the sealed sign-up is purged at the token server by then -
+/// a drive that still has no vault gets a SECOND COPY of the grant on this computer, and only
+/// then the keyring lets go; the app is told that the months are on this computer only. One
+/// second short of it, the checkout still waits.
+#[test]
+fn az_p5_after_thirty_days_without_a_vault_of_the_drive_a_second_copy_is_kept_and_the_checkout_goes(
+) {
+    let dir = TempDir::new("azcloud-pending");
+    let (shared, _) = shared(&dir);
+    let started = i64::try_from(NOW).unwrap() - pending::GRANT_WAIT_SECS;
+    let (ck, owed) = claimed_on_the_list(&shared, started + 1);
+    let fake = issuing_server(keys(), N1, D1, "100GB/2026");
+    let transport = Shared(fake);
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    let store = PeriodTokenStore::new(dir.path().join("period-tokens"));
+    let tokens = store.on_this_device("d_1").unwrap();
+    assert!(
+        matches!(
+            pending::finish(&server, &shared, &store, &tokens, &ck, &owed, NOW),
+            Finished::Waits { .. }
+        ),
+        "one second short of the thirtieth day"
+    );
+    assert!(
+        !store.dir().join("d_1.copy.json").exists(),
+        "no second copy yet"
+    );
+    // The thirtieth day: the same checkout, started a second earlier.
+    let mut older = ck.clone();
+    older.started_at = started;
+    match pending::finish(&server, &shared, &store, &tokens, &older, &owed, NOW) {
+        Finished::LocalOnly { drive_id, why, .. } => {
+            assert_eq!(drive_id, "d_1");
+            assert!(why.contains("no key"), "{why}");
+        }
+        other => panic!("not kept locally: {other:?}"),
+    }
+    assert!(
+        pending::list(&shared).unwrap().is_empty(),
+        "the keyring let go"
+    );
+    let copy = std::fs::read_to_string(store.dir().join("d_1.copy.json")).expect("a second copy");
+    assert!(copy.contains("ck_1") && copy.contains(ISSUE_KEY), "{copy}");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(store.dir().join("d_1.copy.json"))
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o077, 0, "readable by this user only: {mode:o}");
+    }
 }

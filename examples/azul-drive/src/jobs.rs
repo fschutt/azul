@@ -2741,8 +2741,12 @@ fn claim_pending(
                 };
                 let now = crate::actions::now_secs();
                 let finished = pending::finish(&server, keyring, store, &tokens, &checkout, owed, now);
-                // A try that failed is tried again next round, quietly.
-                if !matches!(finished, Finished::Kept(_)) {
+                // A try that failed, and a grant that waits for the drive's vault with nothing
+                // new to say, is tried again next round, quietly.
+                if !matches!(
+                    finished,
+                    Finished::Kept(_) | Finished::Waits { count: 0, .. }
+                ) {
                     send(
                         sender,
                         Outcome::CheckoutFinished {
@@ -2813,29 +2817,40 @@ fn claim_pending(
 }
 
 /// A drive's period tokens: kept with the drive when its key is on this computer (every device
-/// of the drive redeems them and issues its next months), else on this computer only.
+/// of the drive redeems them and issues its next months), else on this computer only - and then
+/// the tokens say why ([`azcloud_kit::NoVault`]): a paid grant is erased from the keyring only
+/// when it is in two places ([`pending::finish`], X-AR5b-7), so whether the drive happened to be
+/// open decides nothing about a paid month.
 fn drive_tokens(
     store: &PeriodTokenStore,
     drive_id: &str,
     azlin: Option<&Arc<azcloud_kit::AzlinDrive>>,
 ) -> Result<DriveTokens, String> {
+    use azcloud_kit::NoVault;
     #[cfg(feature = "encryption")]
-    if let Some(azlin) = azlin {
-        let bucket: Arc<dyn Drive> = azlin.clone();
-        let keyring = azul_storage::azul_keyring::AzulKeyring::new(
-            azul_storage::keyring::KeyringNamespace::azlin_shared(),
-        );
-        match azcloud_kit::UnlockedDrive::open(drive_id, bucket, &keyring) {
-            Ok(Some(unlocked)) => return store.for_drive(&unlocked).map_err(|e| e.to_string()),
-            // a plain drive, or its key not here yet: this computer's vault, joined into the
-            // drive's at a look that has the key
-            Ok(None) => {}
-            Err(e) => eprintln!("[azdrive] the period vault of {drive_id} is not reachable: {e}"),
+    let why = match azlin {
+        Some(azlin) => {
+            let bucket: Arc<dyn Drive> = azlin.clone();
+            let keyring = azul_storage::azul_keyring::AzulKeyring::new(
+                azul_storage::keyring::KeyringNamespace::azlin_shared(),
+            );
+            match azcloud_kit::UnlockedDrive::open(drive_id, bucket, &keyring) {
+                Ok(Some(unlocked)) => return store.for_drive(&unlocked).map_err(|e| e.to_string()),
+                // a plain drive, or its key not here yet
+                Ok(None) => NoVault::NoKey,
+                Err(e) => NoVault::NotOpened(e.to_string()),
+            }
         }
-    }
+        None => NoVault::NotOpened(String::from("the drive is not open")),
+    };
     #[cfg(not(feature = "encryption"))]
-    let _ = azlin;
-    store.on_this_device(drive_id).map_err(|e| e.to_string())
+    let why = {
+        let _ = azlin;
+        NoVault::NoKey
+    };
+    store
+        .on_this_device_because(drive_id, why)
+        .map_err(|e| e.to_string())
 }
 
 /// A look at each of `drives` (its id, token server and the drive when it is open): its status
@@ -3732,6 +3747,26 @@ mod tests {
     use azul_storage::testing::TempDir;
 
     use super::*;
+
+    /// X-AR5b-7: a drive that is not open has tokens that say why they have no vault of the
+    /// drive; the grant of a paid checkout then waits in the keyring (AZ-P5). It does not
+    /// silently become "this computer only".
+    #[test]
+    fn x_ar5b_7_a_drive_that_is_not_open_says_why_its_tokens_have_no_vault() {
+        let dir = TempDir::new("azdrive-tokens");
+        let store = PeriodTokenStore::new(dir.path().join("period-tokens"));
+        let tokens = drive_tokens(&store, "d_1", None).expect("this computer's vault");
+        let kept = tokens
+            .join(&azcloud_kit::VaultState::with_spent("aa"))
+            .expect("kept on this computer");
+        match kept.drive() {
+            azcloud_kit::DriveKeep::NotAvailable(azcloud_kit::NoVault::NotOpened(why)) => {
+                assert!(why.contains("not open"), "{why}")
+            }
+            other => panic!("not a reason: {other:?}"),
+        }
+        assert!(!kept.is_redundant(), "one file is not two places");
+    }
 
     /// F5 asks the drive again: a refresh's first page is a `refreshed` listing (an encrypted
     /// drive's index pulls first, so a node that refuses shows); its next pages, and a listing

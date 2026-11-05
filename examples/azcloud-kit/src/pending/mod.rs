@@ -8,9 +8,11 @@
 //!
 //! A checkout's claim secret is the only key to the drive it pays for, so a checkout leaves the
 //! list only through [`settle`], with a [`Settled`] made from what the token server answered:
-//! the drive claimed and nothing more owed, the payment declined, the checkout gone or ended by
-//! its abandon ([`abandon`]), a sealed sign-up that did not open twice. Nothing the app decides
-//! on its own (a closed popover, a timeout) takes one off.
+//! the drive claimed and nothing more owed, the payment declined, the checkout gone ("no such
+//! checkout" in the contract's word, not any 404) or ended by its abandon ([`abandon`]), a sealed
+//! sign-up that did not OPEN twice, a period grant kept in two places. Nothing the app decides on
+//! its own (a closed popover, a timeout) takes one off. The proofs and their evidence are in
+//! `proof.rs`, the only file that makes a [`Settled`].
 //!
 //! An app polls them while its dialog waits, at every start and in the background after "Stop
 //! waiting" ([`poll`]): an approved checkout becomes the drive - its session goes into the
@@ -29,7 +31,7 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
-use azlin_contract::{AbandonAnswer, IdempotentScope};
+use azlin_contract::IdempotentScope;
 #[cfg(feature = "encryption")]
 use azul_storage::crypto::{device, DriveKey, KeyId, KEY_LEN};
 #[cfg(feature = "encryption")]
@@ -45,6 +47,11 @@ use crate::{
     vault::{DriveTokens, RenewalLock, VaultGrant, VaultState},
 };
 
+mod proof;
+
+pub use proof::Settled;
+use proof::{ClaimsEnded, GrantKept, NeverIssued, NoSuchCheckout, Strikes};
+
 /// The keyring entry of the unfinished checkouts.
 pub const PENDING_KEY: &str = "azcloud/checkouts";
 /// The `format` of its text.
@@ -53,6 +60,9 @@ pub const PENDING_FORMAT: &str = "azcloud.checkouts";
 /// credential (`CRED_MAX_CREDENTIAL_BLOB_SIZE`), the strictest of the keyrings - about ten
 /// checkouts.
 pub const MAX_PENDING_BYTES: usize = 2560;
+/// What an entry's id starts with while its order is on its way (`posting-<claim key's digest>`):
+/// a word no checkout id of the token server (`ck_...`) starts with.
+pub const POSTING_PREFIX: &str = "posting-";
 /// The longest drive name a checkout keeps, in characters.
 pub const MAX_NAME_CHARS: usize = 64;
 /// The room [`add`] leaves for each unclaimed checkout's [`PendingTokens`] (a drive id of up to
@@ -251,6 +261,13 @@ impl PendingCheckout {
         self.method == crate::cash::CASH_METHOD
     }
 
+    /// An order whose answer has not come yet: its entry was made before `POST /v1/checkout` was
+    /// sent and has no checkout id of the token server's ([`POSTING_PREFIX`]).
+    #[must_use]
+    pub fn is_posting(&self) -> bool {
+        self.checkout_id.starts_with(POSTING_PREFIX)
+    }
+
     /// The claim key the checkout named.
     ///
     /// # Errors
@@ -419,53 +436,6 @@ fn take_off(shared: &SharedKeyring, checkout_id: &str) -> CloudResult<bool> {
     Ok(true)
 }
 
-/// What the token server said that ends a checkout: the only thing that takes one off the list
-/// ([`settle`]). Made from its answers here and by [`Settled::abandoned`], never from a guess.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Settled(SettledBy);
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum SettledBy {
-    /// Its drive is in the drives file and nothing more is owed for it.
-    Claimed,
-    /// Its period grant is kept with its drive, or the token server will never issue it.
-    Finished,
-    /// The payment did not go through, or went back.
-    Declined,
-    /// The token server no longer has it, or its drive's hand-over is gone.
-    Gone,
-    /// Its abandon ended it at the token server.
-    Abandoned(AbandonAnswer),
-    /// Its sealed sign-up did not open with its claim key, [`UNOPENABLE_AFTER`] times.
-    Unopenable,
-}
-
-impl Settled {
-    /// What it ends the checkout for, for an error's context.
-    fn what(&self) -> String {
-        let why = match &self.0 {
-            SettledBy::Claimed => "its drive is saved",
-            SettledBy::Finished => "its period grant is kept with its drive",
-            SettledBy::Declined => "its payment did not go through",
-            SettledBy::Gone => "the token server no longer has it",
-            SettledBy::Abandoned(answer) => {
-                return format!("ending the checkout: its abandon answered {answer:?}")
-            }
-            SettledBy::Unopenable => "its sign-up does not open",
-        };
-        format!("ending the checkout: {why}")
-    }
-
-    /// The abandon's answer, when it ended the checkout ([`AbandonAnswer::is_over`]); `None`
-    /// when the checkout may still be paid.
-    #[must_use]
-    pub fn abandoned(answer: AbandonAnswer) -> Option<Settled> {
-        answer
-            .is_over()
-            .then_some(Settled(SettledBy::Abandoned(answer)))
-    }
-}
-
 /// Takes the checkout `checkout_id` off the list for `proof`: its claim secret goes, and with it
 /// every way to the drive it paid for. Whether this call did (`false`: another window did).
 ///
@@ -546,11 +516,13 @@ pub fn abandon(server: &TokenServer<'_>, shared: &SharedKeyring, checkout_id: &s
             Some(proof) => settled(proof),
             None => kept(false, format!("the token server keeps it open ({answer:?})")),
         },
-        Err(TokenError::Refused { code, message, .. }) if code == "checkout_paid" => {
-            kept(true, if message.is_empty() { code } else { message })
-        }
-        Err(TokenError::Refused { status: 404, .. }) => settled(Settled(SettledBy::Gone)),
-        Err(e) => kept(false, e.to_string()),
+        Err(e) if e.is_checkout_paid() => kept(true, e.said()),
+        // The token server's own word: it has no such checkout. A bare 404 is not it - the
+        // checkout may be paid, and its claim key is the only key to the drive (AZ-P1).
+        Err(e) => match NoSuchCheckout::said_by(&e) {
+            Some(none) => settled(Settled::gone(&none)),
+            None => kept(false, e.to_string()),
+        },
     }
 }
 
@@ -602,9 +574,10 @@ pub enum Final {
     /// Off the list: the token server no longer has it (expired, unknown), the drive can no
     /// longer be picked up here, or its drive's hand-over is gone. Why.
     Gone(String),
-    /// Off the list: its sealed sign-up did not open with its claim key, [`UNOPENABLE_AFTER`]
-    /// times (sealed to another key, or holding no drive). `error_id` is what support traces:
-    /// the checkout's id.
+    /// Off the list: its sealed sign-up did not OPEN with its claim key, [`UNOPENABLE_AFTER`]
+    /// times (sealed to another key or for another checkout; a sign-up that opens and does not
+    /// read is kept, [`Transient::Unread`]). `error_id` is what support traces: the checkout's
+    /// id.
     Unopenable { error_id: String, why: String },
 }
 
@@ -667,55 +640,54 @@ pub fn poll(
     shared: &SharedKeyring,
     checkout: &PendingCheckout,
 ) -> Polled {
+    // A checkout whose order is on its way has no id to ask about yet.
+    if checkout.is_posting() {
+        return Polled::Pending;
+    }
     let claim = match checkout.claim_key() {
         Ok(claim) => claim,
-        // Its sealed sign-up can never be opened.
+        // A kept secret that does not read is never erased on that: the entry stays, the app
+        // says so, and an update or support can read what it holds (AZ-P6).
         Err(e) => {
-            return end(
-                shared,
-                checkout,
-                SettledBy::Unopenable,
-                Final::Unopenable {
-                    error_id: checkout.checkout_id.clone(),
-                    why: format!("its claim key cannot be read: {e}"),
-                },
-            )
+            return Polled::Transient(Transient::Unread(format!(
+                "its claim key cannot be read: {e}"
+            )))
         }
     };
-    match server.checkout_status(&checkout.checkout_id, &claim) {
-        Ok(CheckoutStatus::Pending) => Polled::Pending,
-        Ok(CheckoutStatus::Approved(bundle)) => claim_drive(server, shared, checkout, *bundle),
-        Ok(CheckoutStatus::Declined(why)) => end(
-            shared,
-            checkout,
-            SettledBy::Declined,
-            Final::Declined(format!("the payment did not go through: {why}")),
-        ),
-        Ok(CheckoutStatus::Gone(why)) => end(
-            shared,
-            checkout,
-            SettledBy::Gone,
-            Final::Gone(format!("the token server no longer has it: {why}")),
-        ),
-        Ok(CheckoutStatus::HandoverGone) => end(
-            shared,
-            checkout,
-            SettledBy::Gone,
-            Final::Gone(format!(
-                "it was paid, but the token server keeps its drive's hand-over only 30 days \
-                 after the payment and has it no more: support can help with the checkout \
-                 {}",
-                checkout.checkout_id
-            )),
-        ),
-        Ok(CheckoutStatus::Unopenable(why)) => unopenable(shared, checkout, why),
-        Ok(CheckoutStatus::Renewal(signup)) => claim_months(shared, checkout, &signup),
-        Ok(CheckoutStatus::Unknown(why)) => Polled::Transient(Transient::Unread(why)),
-        Err(TokenError::Connect(why)) => Polled::Transient(Transient::NoAnswer(format!(
-            "no answer from the token server: {why}"
+    let status = match server.checkout_status(&checkout.checkout_id, &claim) {
+        Ok(status) => status,
+        Err(TokenError::Connect(why)) => {
+            return Polled::Transient(Transient::NoAnswer(format!(
+                "no answer from the token server: {why}"
+            )))
+        }
+        Err(e @ TokenError::Busy { .. }) => {
+            return Polled::Transient(Transient::Busy(e.to_string()))
+        }
+        Err(e) => return Polled::Transient(Transient::Unread(e.to_string())),
+    };
+    // Declined, taken back, gone, the hand-over purged: the token server's own words end it.
+    if let Some((proof, said)) = Settled::ended_by(&status, &checkout.checkout_id) {
+        return end(shared, checkout, proof, said);
+    }
+    match status {
+        CheckoutStatus::Pending => Polled::Pending,
+        CheckoutStatus::Approved(bundle) => claim_drive(server, shared, checkout, *bundle),
+        CheckoutStatus::Unopenable(why) => unopenable(shared, checkout, why),
+        // Opens, or is no sealed text, and does not read: kept, never counted. The sealed text is
+        // intact for 30 days; an update of the app may read it.
+        CheckoutStatus::Unreadable(why) => Polled::Transient(Transient::Unread(format!(
+            "its sign-up does not read ({why}): update the app"
         ))),
-        Err(e @ TokenError::Busy { .. }) => Polled::Transient(Transient::Busy(e.to_string())),
-        Err(e) => Polled::Transient(Transient::Unread(e.to_string())),
+        CheckoutStatus::Renewal(signup) => claim_months(shared, checkout, &signup),
+        CheckoutStatus::Unknown(why) => Polled::Transient(Transient::Unread(why)),
+        // Ended above.
+        CheckoutStatus::Declined(why) | CheckoutStatus::Gone(why) => {
+            Polled::Transient(Transient::Unread(why))
+        }
+        CheckoutStatus::HandoverGone => Polled::Transient(Transient::Unread(String::from(
+            "its drive's hand-over is gone",
+        ))),
     }
 }
 
@@ -786,8 +758,6 @@ fn keep_drive_key(
     Ok(())
 }
 
-/// A sealed sign-up of `checkout` that did not open, `why`: counted on the list, given up the
-/// [`UNOPENABLE_AFTER`]th time.
 /// A sign-up without a drive (a renewal, a tier change): its months for the drive the checkout
 /// was made for, kept on the list until [`finish`] has the grant with that drive. A checkout
 /// that names no drive stays unclaimed: no drive is guessed for months someone paid.
@@ -810,11 +780,11 @@ fn claim_months(
         recurring: wire.recurring,
     };
     if grant.checkout_id != checkout.checkout_id || grant.months == 0 || grant.issue_key.is_empty() {
-        return unopenable(
-            shared,
-            checkout,
-            String::from("its sign-up grants months of another checkout, or none"),
-        );
+        // It opened, so it is the token server's own text: nothing for a strike to count, and no
+        // reason to erase the claim secret on it (AZ-P6).
+        return Polled::Transient(Transient::Unread(String::from(
+            "its sign-up grants months of another checkout, or none",
+        )));
     }
     match claimed(shared, &checkout.checkout_id, drive_id, Some(&grant)) {
         Ok(()) => Polled::Final(Final::Renewed {
@@ -827,21 +797,25 @@ fn claim_months(
     }
 }
 
+/// A sign-up that does not OPEN with the claim key (an AEAD failure, nothing else), `why`:
+/// counted on the list, given up the [`UNOPENABLE_AFTER`]th time.
 fn unopenable(shared: &SharedKeyring, checkout: &PendingCheckout, why: String) -> Polled {
     let counted = change(shared, &checkout.checkout_id, |c| {
         c.open_failures = c.open_failures.saturating_add(1);
     });
     match counted {
-        Ok(Some(now)) if now.open_failures >= UNOPENABLE_AFTER => end(
-            shared,
-            checkout,
-            SettledBy::Unopenable,
-            Final::Unopenable {
-                error_id: checkout.checkout_id.clone(),
-                why,
-            },
-        ),
-        Ok(Some(_)) => Polled::Transient(Transient::Unopened(why)),
+        Ok(Some(now)) => match Strikes::of(&now) {
+            Some(strikes) => end(
+                shared,
+                checkout,
+                Settled::unopenable(&strikes),
+                Final::Unopenable {
+                    error_id: checkout.checkout_id.clone(),
+                    why,
+                },
+            ),
+            None => Polled::Transient(Transient::Unopened(why)),
+        },
         Ok(None) => Polled::Settled,
         Err(e) => Polled::Transient(Transient::NotKept(format!(
             "{why}; the list could not count it: {e}"
@@ -911,29 +885,30 @@ fn keep_picked_up(
         match claimed {
             Ok(family) => bundle.drive_token = family.drive_token,
             // A drive from before the tickets: the sealed drive token is its only one.
-            Err(TokenError::Refused { status: 401, .. }) => {}
-            Err(TokenError::Refused { code, message, .. })
-                if code == "claims_used" || code == "claim_expired" =>
-            {
-                let why = if message.is_empty() { code } else { message };
-                return Err(end(
-                    shared,
-                    checkout,
-                    SettledBy::Gone,
-                    Final::Gone(format!("the drive cannot be picked up here any more: {why}")),
-                ));
-            }
+            Err(e) if e.is_unauthorized() => {}
             Err(TokenError::Connect(why)) => {
                 return Err(Polled::Transient(Transient::NoAnswer(format!(
                     "no answer from the token server: {why}"
                 ))))
             }
-            // A final refusal closed the call (409 already_answered: the next claim is a pick-up
-            // of its own); a busy server left it open for the next poll.
             Err(e) => {
+                // Picked up as often as it may be, or too late: the contract's words end it.
+                if let Some(ended) = ClaimsEnded::said_by(&e) {
+                    return Err(end(
+                        shared,
+                        checkout,
+                        Settled::claims_ended(&ended),
+                        Final::Gone(format!(
+                            "the drive cannot be picked up here any more: {}",
+                            e.said()
+                        )),
+                    ));
+                }
+                // A final refusal closed the call (409 already_answered: the next claim is a
+                // pick-up of its own); a busy server left it open for the next poll.
                 return Err(Polled::Transient(Transient::Unread(format!(
                     "the drive was not picked up: {e}"
-                ))))
+                ))));
             }
         }
     }
@@ -945,9 +920,9 @@ fn keep_picked_up(
     Ok((bundle, text, false))
 }
 
-/// Takes `checkout` off the list for `by`; `said` once by the poll that did.
-fn end(shared: &SharedKeyring, checkout: &PendingCheckout, by: SettledBy, said: Final) -> Polled {
-    match settle(shared, &checkout.checkout_id, Settled(by)) {
+/// Takes `checkout` off the list for `proof`; `said` once by the poll that did.
+fn end(shared: &SharedKeyring, checkout: &PendingCheckout, proof: Settled, said: Final) -> Polled {
+    match settle(shared, &checkout.checkout_id, proof) {
         Ok(true) => Polled::Final(said),
         Ok(false) => Polled::Settled,
         Err(e) => Polled::Transient(Transient::NotKept(format!(
@@ -974,7 +949,7 @@ pub fn claimed(
     grant: Option<&PeriodTokens>,
 ) -> CloudResult<()> {
     let Some(grant) = grant else {
-        settle(shared, checkout_id, Settled(SettledBy::Claimed))?;
+        settle(shared, checkout_id, Settled::claimed())?;
         return Ok(());
     };
     let _lock = shared.lock(PENDING_KEY)?;
@@ -1022,6 +997,33 @@ pub enum Finished {
     Kept(String),
     /// Off the list already: another window finished it.
     Settled,
+    /// The grant is kept on this computer and its first month asked for (`count` months issued
+    /// now), but the drive's own vault does not hold it yet - `why` -, so the checkout stays on
+    /// the list, claim secret and issue key with it, until it does or until [`GRANT_WAIT_SECS`]
+    /// are gone (AZ-P5): a paid month is never left to one file.
+    Waits {
+        drive_id: String,
+        count: usize,
+        why: String,
+    },
+    /// Off the list after [`GRANT_WAIT_SECS`] without a vault of the drive: the grant is in two
+    /// copies on this computer (`why` the drive has none). The app tells its user to keep a copy
+    /// of its data: the months are on this computer only.
+    LocalOnly {
+        drive_id: String,
+        count: usize,
+        why: String,
+    },
+}
+
+/// How long a paid checkout waits in the keyring for the drive's vault to take its grant: 30
+/// days, as long as the token server keeps the sealed sign-up. After that it is kept in a
+/// second copy on this computer and the keyring's goes.
+pub const GRANT_WAIT_SECS: i64 = 30 * 86_400;
+
+/// Whether `started_at` (seconds since 1970) is [`GRANT_WAIT_SECS`] or more before `now`.
+fn grant_wait_over(started_at: i64, now: u64) -> bool {
+    i64::try_from(now).is_ok_and(|now| now.saturating_sub(started_at) >= GRANT_WAIT_SECS)
 }
 
 /// The lock under which one checkout's period tokens are issued (a second window waits, then
@@ -1032,10 +1034,12 @@ fn finish_lock(checkout_id: &str) -> String {
 
 /// Hands the claimed `checkout`'s period grant (`owed`: its drive, its months, its issue key)
 /// to its drive's vaults `tokens` - from then on any device of the drive issues its months, one
-/// a month - then takes the checkout off the list, its claim secret with it, and asks
-/// `server` (its own token server) for its first month. An issue request an older version kept
-/// in `store` moves into the vaults with the grant (it is sent again as it is). See
-/// [`Finished`].
+/// a month -, asks `server` (its own token server) for its first month, and takes the checkout
+/// off the list, its claim secret and issue key with it - but only when the grant is in two
+/// places ([`crate::vault::Kept::is_redundant`]): the drive's own vault has it, or, after
+/// [`GRANT_WAIT_SECS`], a second copy on this computer. Until then the keyring's entry is the
+/// second copy and stays ([`Finished::Waits`]). An issue request an older version kept in `store`
+/// moves into the vaults with the grant (it is sent again as it is). See [`Finished`].
 #[must_use]
 pub fn finish(
     server: &TokenServer<'_>,
@@ -1056,18 +1060,20 @@ pub fn finish(
         Ok(_) => {}
         Err(e) => return Finished::Kept(e.to_string()),
     }
-    let done = |finished: Finished| match settle(shared, id, Settled(SettledBy::Finished)) {
+    let taken_off = |settled: Settled, finished: Finished| match settle(shared, id, settled) {
         Ok(_) => finished,
         Err(e) => Finished::Kept(format!("it could not be taken off the list: {e}")),
     };
     // A grant no token server issues: nothing to wait for.
-    let months_ok = usize::try_from(owed.months).is_ok_and(|m| (1..=MAX_BLINDED).contains(&m));
-    if !months_ok || owed.issue_key.trim().is_empty() {
-        return done(Finished::Dropped(format!(
-            "its sealed sign-up grants {} months without an issue key, or more than one issue \
-             takes: support can help",
-            owed.months
-        )));
+    if let Some(never) = NeverIssued::unusable_grant(owed.months, &owed.issue_key, MAX_BLINDED) {
+        return taken_off(
+            Settled::never_issued(&never),
+            Finished::Dropped(format!(
+                "its sealed sign-up grants {} months without an issue key, or more than one issue \
+                 takes: support can help",
+                owed.months
+            )),
+        );
     }
     if tokens.drive_id() != owed.drive_id {
         return Finished::Kept(format!(
@@ -1102,29 +1108,62 @@ pub fn finish(
     if let Ok(Some(older)) = store.issue_request(id) {
         grant.issues.push(older);
     }
-    if let Err(e) = tokens.join(&grant) {
-        return Finished::Kept(format!("its period grant could not be kept with the drive: {e}"));
-    }
+    let in_vaults = match tokens.join(&grant) {
+        Ok(in_vaults) => in_vaults,
+        Err(e) => {
+            return Finished::Kept(format!(
+                "its period grant could not be kept with the drive: {e}"
+            ))
+        }
+    };
     // In the vaults now; a file left behind is joined in again, harmlessly.
     let _ = store.forget_issue_request(id);
     let drive_id = owed.drive_id.clone();
-    match issue_next(server, tokens, id, now) {
-        Ok(Issued::Tokens(issued)) => done(Finished::Issued {
-            drive_id,
-            count: issued.len(),
-        }),
-        Ok(Issued::Ended(why)) => done(Finished::Dropped(why)),
-        Ok(Issued::NotDue { .. }) => done(Finished::Granted {
-            drive_id,
-            why: String::from("its first month is not due yet"),
-        }),
-        Err(TokenError::Connect(why)) => done(Finished::Granted {
-            drive_id,
-            why: format!("no answer from the token server: {why}"),
-        }),
-        Err(e) => done(Finished::Granted {
-            drive_id,
-            why: e.to_string(),
-        }),
+    // The first month, whether or not the drive's vault has the grant yet: the tokens land in
+    // every vault there is.
+    let issued = issue_next(server, tokens, id, now);
+    if let Ok(over) = &issued {
+        if let Some((never, why)) = NeverIssued::ended(over) {
+            return taken_off(Settled::never_issued(&never), Finished::Dropped(why));
+        }
     }
+    let (count, why) = match issued {
+        Ok(Issued::Tokens(issued)) => (issued.len(), String::new()),
+        Ok(Issued::NotDue { .. }) => (0, String::from("its first month is not due yet")),
+        Ok(Issued::Ended(why)) => (0, why),
+        Err(TokenError::Connect(why)) => (0, format!("no answer from the token server: {why}")),
+        Err(e) => (0, e.to_string()),
+    };
+    // The keyring's entry is the grant's second copy until the grant is in two places elsewhere.
+    let (proof, second_copy) = match GrantKept::of(&in_vaults) {
+        Some(proof) => (proof, None),
+        None if grant_wait_over(checkout.started_at, now) => match tokens.keep_second_copy() {
+            Ok(second) => match GrantKept::of(&second) {
+                Some(proof) => (proof, Some(in_vaults.why_not_redundant())),
+                None => {
+                    return Finished::Kept(String::from("its second copy is not in two places"))
+                }
+            },
+            Err(e) => {
+                return Finished::Kept(format!("its period grant's second copy was not kept: {e}"))
+            }
+        },
+        None => {
+            return Finished::Waits {
+                drive_id,
+                count,
+                why: in_vaults.why_not_redundant(),
+            }
+        }
+    };
+    let finished = match second_copy {
+        Some(no_vault) => Finished::LocalOnly {
+            drive_id,
+            count,
+            why: no_vault,
+        },
+        None if count > 0 => Finished::Issued { drive_id, count },
+        None => Finished::Granted { drive_id, why },
+    };
+    taken_off(Settled::finished(&proof), finished)
 }

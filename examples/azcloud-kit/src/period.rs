@@ -53,7 +53,7 @@ use crate::{
     shared::SharedKeyring,
     state::{create_private_dir, read_json, write_json},
     token::{check_id, DriveStatus, IssueAnswer, TokenError, TokenServer, MAX_BLINDED},
-    vault::{DriveTokens, LocalVault, TokenVault, VaultGrant, VaultState},
+    vault::{DriveTokens, LocalVault, NoVault, TokenVault, VaultGrant, VaultState},
 };
 
 /// What every token message starts with.
@@ -1502,6 +1502,21 @@ impl PeriodTokenStore {
     /// An id that is no drive id.
     pub fn on_this_device(&self, drive_id: &str) -> CloudResult<DriveTokens> {
         Ok(DriveTokens::new(drive_id, self.local(drive_id)?, None))
+    }
+
+    /// [`Self::on_this_device`] for a drive whose vault could not be had because `why`: what a
+    /// change that is joined says of it ([`crate::vault::Kept`]) - a paid grant waits for the
+    /// drive's vault in the keyring instead of being erased on the strength of this computer's.
+    ///
+    /// # Errors
+    ///
+    /// An id that is no drive id.
+    pub fn on_this_device_because(&self, drive_id: &str, why: NoVault) -> CloudResult<DriveTokens> {
+        Ok(DriveTokens::without_drive_vault(
+            drive_id,
+            self.local(drive_id)?,
+            why,
+        ))
     }
 
     /// `drive_id`'s tokens on this computer not spent, oldest first.

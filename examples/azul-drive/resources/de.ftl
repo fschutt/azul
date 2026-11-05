@@ -1696,6 +1696,7 @@ azdrive-add-picked-up = Abgeholt. AzDrive fragt jetzt nach dem Laufwerk, dann ei
 azdrive-add-claim-not-kept = Der Abholcode wurde nicht gespeichert: { $why }
 azdrive-add-months-not-fetched = Die bezahlten Monate der Bestellung { $checkout } konnten nicht abgerufen werden: { $why }.
 azdrive-add-checkout-unfinished = Die Bestellung { $checkout } konnte in der Liste des Schlüsselbunds nicht abgeschlossen werden ({ $why }); AzDrive fragt beim nächsten Start erneut danach.
+azdrive-grant-local-only = Die bezahlten Monate von { $drive } liegen nur auf diesem Computer: { $why }. Sichern Sie den Datenordner von AzDrive, damit sie nicht mit ihm verloren gehen.
 azdrive-add-no-sign-in-waits = Keine Anmeldung wartet auf eine Antwort.
 azdrive-add-buy-tier-price = { $quota } kaufen – { $price }
 azdrive-add-buy-tier = { $quota } kaufen

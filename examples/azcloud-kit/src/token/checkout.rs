@@ -7,6 +7,7 @@ use azlin_contract::{
 };
 
 use super::*;
+use crate::claim::ClaimError;
 
 /// One storage tier: its size, its prices, the periods and the methods it is sold with.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -299,9 +300,14 @@ pub enum CheckoutStatus {
     /// Paid, but the sealed sign-up is gone (purged 30 days after the payment, or a checkout
     /// from before the claim keys): no poll can bring this drive any more.
     HandoverGone,
-    /// Paid, and the sealed sign-up does not open with the claim key (sealed to another key,
-    /// or for another checkout) or holds no drive: why.
+    /// Paid, and the sealed sign-up does not OPEN with the claim key (sealed to another key, or
+    /// for another checkout): why. The only answer the list counts a strike for
+    /// ([`crate::pending::UNOPENABLE_AFTER`]).
     Unopenable(String),
+    /// Paid, and the sealed sign-up opens - or is no sealed text at all - but does not read as a
+    /// drive or a renewal this app knows (a newer token server's contract, a damaged answer): why.
+    /// Never an end: the sealed text is kept 30 days, and an update may read it (AZ-P6).
+    Unreadable(String),
     /// Paid, and the sign-up holds months for a drive that exists, no new drive (a renewal, a
     /// tier change): claimed for the drive its checkout was made for.
     Renewal(Box<azlin_contract::RenewalSignup>),
@@ -724,7 +730,11 @@ impl<'a> TokenServer<'a> {
 fn opened(claim: &ClaimKey, checkout_id: &str, sealed: &str) -> CheckoutStatus {
     let signup = match claim.open(checkout_id, sealed) {
         Ok(signup) => signup,
-        Err(e) => return CheckoutStatus::Unopenable(e.to_string()),
+        // It does not open with this checkout's key: another key, another checkout, a changed
+        // byte. Asked once more (the first answer may have been damaged), then given up.
+        Err(ClaimError::Open) => return CheckoutStatus::Unopenable(ClaimError::Open.to_string()),
+        // Not a sealed text (not base64, too short, not UTF-8): a damaged answer, asked again.
+        Err(e) => return CheckoutStatus::Unreadable(e.to_string()),
     };
     // A renewal's or a tier change's sign-up adds months to a drive that exists: it holds no
     // drive to open.
@@ -733,6 +743,6 @@ fn opened(claim: &ClaimKey, checkout_id: &str, sealed: &str) -> CheckoutStatus {
     }
     match DriveBundle::parse(&signup) {
         Ok(bundle) => CheckoutStatus::Approved(Box::new(bundle)),
-        Err(e) => CheckoutStatus::Unopenable(e.to_string()),
+        Err(e) => CheckoutStatus::Unreadable(e.to_string()),
     }
 }

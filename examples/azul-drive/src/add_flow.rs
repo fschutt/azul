@@ -2026,6 +2026,40 @@ pub(crate) fn checkout_finished(
                  try: {why}"
             );
         }
+        // The grant is on this computer, not in the drive's vault yet: the checkout stays in the
+        // keyring (claim secret, issue key) and the claims retry it every few seconds.
+        Ok(Some(Finished::Waits {
+            drive_id,
+            count,
+            why,
+        })) => {
+            eprintln!(
+                "[azdrive] the paid grant of the checkout {checkout_id} waits for the vault of \
+                 the drive {drive_id}: {why}"
+            );
+            if count > 0 {
+                println!("AZDRIVE_PERIOD_TOKENS {checkout_id} {drive_id} {count}");
+                crate::periods::start_redemptions(info, app, s, Some(&drive_id));
+            }
+            // A run of the claims that is going keeps asking; one that is not, starts.
+            start_claims(info, app, s);
+        }
+        // Thirty days without a vault of the drive: the grant is in two copies here, and the
+        // user is told that the months are on this computer only.
+        Ok(Some(Finished::LocalOnly {
+            drive_id,
+            count,
+            why,
+        })) => {
+            println!("AZDRIVE_PERIOD_TOKENS {checkout_id} {drive_id} {count}");
+            let name = s.drive_name(&Place::folder(&drive_id, ""));
+            s.warn(
+                Phrase::new("azdrive-grant-local-only")
+                    .arg("drive", name)
+                    .arg("why", why.as_str()),
+            );
+            crate::periods::start_redemptions(info, app, s, Some(&drive_id));
+        }
         Err(why) => s.error(
             Phrase::new("azdrive-add-checkout-unfinished")
                 .arg("checkout", checkout_id)

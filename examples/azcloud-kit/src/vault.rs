@@ -380,6 +380,18 @@ impl LocalVault {
         &self.path
     }
 
+    /// The vault's second copy on this computer (`<dir>/<drive id>.copy.json`, readable by this
+    /// user only): what a grant is kept in beside the first when no vault of the drive can take
+    /// it ([`DriveTokens::keep_second_copy`]).
+    #[must_use]
+    pub fn second_copy(&self) -> LocalVault {
+        LocalVault {
+            path: self.dir.join(format!("{}.copy.json", self.drive_id)),
+            dir: self.dir.clone(),
+            drive_id: self.drive_id.clone(),
+        }
+    }
+
     fn read_file(&self) -> CloudResult<VaultState> {
         Ok(read_json::<VaultState>(&self.path)?.unwrap_or_default())
     }
@@ -585,11 +597,94 @@ mod in_drive {
     }
 }
 
+/// Why a drive has no vault of its own to keep period tokens in (and so keeps them on this
+/// computer only).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NoVault {
+    /// This device holds no key of the drive: a plain drive, or one waiting for its join code or
+    /// the recovery code.
+    NoKey,
+    /// The drive could not be opened to look: why (it is not open in the app, the bucket did not
+    /// answer, a refused unlock).
+    NotOpened(String),
+}
+
+impl fmt::Display for NoVault {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            NoVault::NoKey => f.write_str("this computer holds no key of the drive yet"),
+            NoVault::NotOpened(why) => write!(f, "the drive could not be opened: {why}"),
+        }
+    }
+}
+
+/// What became of the drive's own vault when a change was joined ([`DriveTokens::join`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DriveKeep {
+    /// The drive's vault has it: every device of the drive that holds its key reads it.
+    Written,
+    /// The drive has no vault to write to: why. It is on this computer only.
+    NotAvailable(NoVault),
+    /// The drive's vault was asked and did not take it (no answer, a damaged object): why.
+    Failed(String),
+}
+
+/// Where a change landed. This computer's vault is always among them (else
+/// [`DriveTokens::join`] failed); the question is whether it is anywhere else: a paid grant is
+/// erased from the keyring only when it is.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Kept {
+    drive: DriveKeep,
+    second_copy: bool,
+}
+
+impl Kept {
+    /// What became of the drive's own vault.
+    #[must_use]
+    pub fn drive(&self) -> &DriveKeep {
+        &self.drive
+    }
+
+    /// A second copy was written on this computer beside the first
+    /// ([`DriveTokens::keep_second_copy`]).
+    #[must_use]
+    pub fn has_second_copy(&self) -> bool {
+        self.second_copy
+    }
+
+    /// The change is in two places: the drive's vault has it, or - the drive having none - a
+    /// second copy was written here. Only then may the other copy (the keyring's) go.
+    #[must_use]
+    pub fn is_redundant(&self) -> bool {
+        match &self.drive {
+            DriveKeep::Written => true,
+            DriveKeep::NotAvailable(_) | DriveKeep::Failed(_) => self.second_copy,
+        }
+    }
+
+    /// Why it is not in two places yet, for a sentence; empty when it is.
+    #[must_use]
+    pub fn why_not_redundant(&self) -> String {
+        if self.is_redundant() {
+            return String::new();
+        }
+        match &self.drive {
+            DriveKeep::Written => String::new(),
+            DriveKeep::NotAvailable(why) => format!("the drive keeps no vault for it yet: {why}"),
+            DriveKeep::Failed(why) => format!("the drive's vault did not take it: {why}"),
+        }
+    }
+}
+
 /// A drive's period tokens over its vaults: the reads are joined, every change goes to each.
 pub struct DriveTokens {
     drive_id: String,
     /// This computer's first: a change it keeps is never lost, whatever the drive's answer.
     vaults: Vec<Arc<dyn TokenVault>>,
+    /// This computer's vault again, for its second copy.
+    local: LocalVault,
+    /// Why there is no vault of the drive among `vaults`, when there is none.
+    no_vault: Option<NoVault>,
 }
 
 impl fmt::Debug for DriveTokens {
@@ -603,15 +698,28 @@ impl fmt::Debug for DriveTokens {
 }
 
 impl DriveTokens {
-    /// `drive_id`'s tokens in `local` and, when there is one, in `drive`.
+    /// `drive_id`'s tokens in `local` and, when there is one, in `drive`. Without one the reason
+    /// is [`NoVault::NoKey`] ([`DriveTokens::without_drive_vault`] names another).
     #[must_use]
     pub fn new(drive_id: &str, local: LocalVault, drive: Option<Arc<dyn TokenVault>>) -> DriveTokens {
-        let mut vaults: Vec<Arc<dyn TokenVault>> = vec![Arc::new(local)];
+        let no_vault = drive.is_none().then_some(NoVault::NoKey);
+        let mut vaults: Vec<Arc<dyn TokenVault>> = vec![Arc::new(local.clone())];
         vaults.extend(drive);
         DriveTokens {
             drive_id: drive_id.to_string(),
             vaults,
+            local,
+            no_vault,
         }
+    }
+
+    /// `drive_id`'s tokens on this computer only, because `why` (the drive has no vault to keep
+    /// them in): what a change that is joined says of it ([`Kept`]).
+    #[must_use]
+    pub fn without_drive_vault(drive_id: &str, local: LocalVault, why: NoVault) -> DriveTokens {
+        let mut tokens = DriveTokens::new(drive_id, local, None);
+        tokens.no_vault = Some(why);
+        tokens
     }
 
     #[must_use]
@@ -661,21 +769,54 @@ impl DriveTokens {
         Ok(joined)
     }
 
-    /// Joins `change` into every vault.
+    /// Joins `change` into every vault; where it landed ([`Kept`]).
     ///
     /// # Errors
     ///
     /// This computer's vault did not keep it (a vault in the drive that did not answer gets it
-    /// at the next look, from this computer's).
-    pub fn join(&self, change: &VaultState) -> CloudResult<()> {
+    /// at the next look, from this computer's: the answer is [`DriveKeep::Failed`], not an
+    /// error - whoever erases another copy of a paid grant asks [`Kept::is_redundant`]).
+    pub fn join(&self, change: &VaultState) -> CloudResult<Kept> {
         let mut kept_here = Err(CloudError::failed("no vault"));
+        let mut drive = None;
         for (i, vault) in self.vaults.iter().enumerate() {
             let outcome = vault.join(change).map(|_| ());
             if i == 0 {
                 kept_here = outcome.map_err(|e| e.context(format!("the period tokens of {}", self.drive_id)));
+            } else {
+                drive = Some(match outcome {
+                    Ok(()) => DriveKeep::Written,
+                    Err(e) => DriveKeep::Failed(e.to_string()),
+                });
             }
         }
-        kept_here
+        kept_here?;
+        Ok(Kept {
+            drive: drive.unwrap_or_else(|| {
+                DriveKeep::NotAvailable(self.no_vault.clone().unwrap_or(NoVault::NoKey))
+            }),
+            second_copy: false,
+        })
+    }
+
+    /// Everything the vaults hold written to this computer's second copy
+    /// ([`LocalVault::second_copy`]) too, and joined into the drive's vault once more; where the
+    /// grants are now. For a drive that has no vault of its own: the second place.
+    ///
+    /// # Errors
+    ///
+    /// The vaults cannot be read, or the second copy cannot be written.
+    pub fn keep_second_copy(&self) -> CloudResult<Kept> {
+        let state = self.state()?;
+        self.local.second_copy().join(&state).map_err(|e| {
+            e.context(format!(
+                "the second copy of the period tokens of {}",
+                self.drive_id
+            ))
+        })?;
+        let mut kept = self.join(&state)?;
+        kept.second_copy = true;
+        Ok(kept)
     }
 
     /// The tokens of `tier` not spent, oldest first.
@@ -693,7 +834,7 @@ impl DriveTokens {
     ///
     /// This computer's vault did not keep them.
     pub fn add_tokens(&self, tokens: &[PeriodToken]) -> CloudResult<()> {
-        self.join(&VaultState::with_tokens(tokens))
+        self.join(&VaultState::with_tokens(tokens)).map(|_| ())
     }
 
     /// Spends the token `nonce` (redeemed, or refused as useless): it is taken out everywhere.
@@ -702,7 +843,7 @@ impl DriveTokens {
     ///
     /// This computer's vault did not keep it.
     pub fn spend(&self, nonce: &str) -> CloudResult<()> {
-        self.join(&VaultState::with_spent(nonce))
+        self.join(&VaultState::with_spent(nonce)).map(|_| ())
     }
 
     /// Keeps `grant` (or what it says new of one kept).
@@ -711,6 +852,6 @@ impl DriveTokens {
     ///
     /// This computer's vault did not keep it.
     pub fn keep_grant(&self, grant: VaultGrant) -> CloudResult<()> {
-        self.join(&VaultState::with_grant(grant))
+        self.join(&VaultState::with_grant(grant)).map(|_| ())
     }
 }
