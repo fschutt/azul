@@ -476,32 +476,6 @@ pub const ALLOWED_REFUSALS: &[Allow] = &[
         "the errors table's own names (Code::as_str) for the contract's words: keyed by them, \
          deciding nothing",
     ),
-    // ---- debts of other lanes, counted ----
-    Allow::exactly(
-        "examples/azul-drive/src/encryption.rs",
-        STATUS_LITERAL,
-        5,
-        "Z30-A1B: the recovery-key calls still match `Refused { status: 401, .. }`; the token \
-         server's recovery refusals have no typed value yet",
-    ),
-    Allow::exactly(
-        "examples/azul-drive/src/encryption.rs",
-        CODE_COMPARED,
-        3,
-        "Z30-A1B: recovery_key_exists, no_pending_lockdown and no_recovery_key compared as words",
-    ),
-    Allow::exactly(
-        "examples/azul-drive/src/recovery_keys.rs",
-        CODE_COMPARED,
-        1,
-        "Z30-A1B: last_recovery_key compared as a word (user_errors has Code::LastRecoveryKey)",
-    ),
-    Allow::exactly(
-        "examples/azul-drive/src/archive.rs",
-        CODE_COMPARED,
-        1,
-        "bad_signature compared as a word (the contract's ArchiveRefusal::BadSignature)",
-    ),
 ];
 
 /// Where an amount or a currency stands alone. All of them are the wire, a record of the wire,

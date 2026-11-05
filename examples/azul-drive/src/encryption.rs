@@ -54,7 +54,11 @@ use azul::{
     sensor::{BatteryState, NetworkState, PowerState},
     widgets::{ButtonType, OnTextInputReturn, TextInputState, TextInputValid},
 };
-use azcloud_kit::{azlin_contract::IdempotentScope, token::Presigned, TokenError, TokenServer};
+use azcloud_kit::{
+    azlin_contract::IdempotentScope,
+    token::{Presigned, RecoveryRefusal},
+    TokenServer,
+};
 use azul_appkit::{
     client_health::{client_health, Device},
     l10n::{t, t_args, t_label, Arg, Phrase, Text},
@@ -179,15 +183,31 @@ pub(crate) fn wrap(
     slot: &str,
     records: &crate::KeyRecords,
 ) -> Arc<AutoEncrypted> {
+    wrap_with(
+        Arc::new(AzulKeyring::new(KeyringNamespace::azlin_shared())),
+        index_provider(),
+        drive_id,
+        bucket,
+        record,
+        slot,
+        records,
+    )
+}
+
+/// [`wrap`] over `keyring` and `provider`: what the glue is tested with.
+pub(crate) fn wrap_with(
+    keyring: Arc<dyn KeyringStore>,
+    provider: Option<Arc<dyn IndexProvider>>,
+    drive_id: &str,
+    bucket: Arc<dyn Drive>,
+    record: EncryptionRecord,
+    slot: &str,
+    records: &crate::KeyRecords,
+) -> Arc<AutoEncrypted> {
     let queue = records.clone();
     let slot = slot.to_string();
     Arc::new(
-        AutoEncrypted::new(
-            bucket,
-            drive_id,
-            Arc::new(AzulKeyring::new(KeyringNamespace::azlin_shared())),
-            index_provider(),
-        )
+        AutoEncrypted::new(bucket, drive_id, keyring, provider)
         .with_record(recorded(&record))
         .on_encrypted(Arc::new(move |key: &KeyId| {
             if let Ok(mut queue) = queue.lock() {
@@ -2583,11 +2603,13 @@ fn register(
                     && listed(&server, keyring, drive_id, public) => {}
             Ok(Err(e)) => {
                 let last = azcloud_kit::outbox::is_final_error(&e);
-                let why = match &e {
-                    TokenError::Refused { status: 401, .. } => {
-                        String::from("azdrive-enc-err-keeps-previous-code")
-                    }
-                    _ => e.to_string(),
+                // The code that replaces another is signed by the one it replaces: a signature no
+                // key of the drive made is a mistyped or an older code, and the drive token is
+                // good (the server answers it as its own refusal, not as a 401).
+                let why = if e.recovery_refusal() == Some(RecoveryRefusal::BadSignature) {
+                    String::from("azdrive-enc-err-keeps-previous-code")
+                } else {
+                    e.to_string()
                 };
                 return (RegistrationAnswer::NotSet { last }, Some(why));
             }
@@ -2617,7 +2639,7 @@ fn register(
     match sent {
         Ok(Ok(_)) => (done, None),
         // there from an earlier try whose answer was lost
-        Ok(Err(TokenError::Refused { code, .. })) if code == "recovery_key_exists" => (done, None),
+        Ok(Err(e)) if e.recovery_refusal() == Some(RecoveryRefusal::KeyExists) => (done, None),
         Ok(Err(e)) => (
             RegistrationAnswer::KeySetOnly {
                 last: azcloud_kit::outbox::is_final_error(&e),
@@ -2715,7 +2737,10 @@ pub(crate) fn retry_registrations(
 }
 
 /// A pending recovery-key lockdown called off with the recovery code (F12: its key signs a
-/// fresh nonce; no drive token). None pending any more (409) is done too.
+/// fresh nonce; no drive token). "None is pending" (409) is NOT "called off": the token server
+/// answers it both when the lockdown was called off and when its notice ended and the drive was
+/// handed over, so a cancel that lost that race must not be shown as done (T1-N2) - it says what
+/// is known and sends the user to the drive's devices.
 fn cancel_lockdown(drive_id: &str, code: &RecoveryCode, token_url: &str) -> Result<(), String> {
     let transport = AzulTransport::new(crate::USER_AGENT);
     let server = TokenServer::new(token_url, &transport).map_err(|e| e.to_string())?;
@@ -2725,7 +2750,7 @@ fn cancel_lockdown(drive_id: &str, code: &RecoveryCode, token_url: &str) -> Resu
         .lockdown_cancel_signed(drive_id, |message| Ok(key.sign_base64(message)))
         .or_else(|e| {
             // Not the drive key: the code's findable key (a second kit registers only that).
-            if matches!(e, TokenError::Refused { status: 401, .. }) {
+            if e.is_unauthorized() {
                 server.lockdown_cancel_signed(drive_id, |message| {
                     Ok(findable.sign_base64(message))
                 })
@@ -2735,10 +2760,10 @@ fn cancel_lockdown(drive_id: &str, code: &RecoveryCode, token_url: &str) -> Resu
         });
     match cancelled {
         Ok(_) => Ok(()),
-        Err(TokenError::Refused { code, .. }) if code == "no_pending_lockdown" => Ok(()),
-        Err(TokenError::Refused { status: 401, .. }) => {
-            Err(String::from("azdrive-enc-err-code-mismatch"))
+        Err(e) if e.recovery_refusal() == Some(RecoveryRefusal::NoPendingLockdown) => {
+            Err(String::from("azdrive-enc-err-no-lockdown-pending"))
         }
+        Err(e) if e.is_unauthorized() => Err(String::from("azdrive-enc-err-code-mismatch")),
         Err(e) => Err(e.to_string()),
     }
 }
@@ -2766,7 +2791,7 @@ pub(crate) fn recovery_lockdown(
                 .or_else(|e| {
                     // Not the drive key: the code's findable key (a second kit registers only
                     // that).
-                    if matches!(e, TokenError::Refused { status: 401, .. }) {
+                    if e.is_unauthorized() {
                         server.recovery_lockdown(drive_id, call, |message| {
                             Ok(findable.sign_base64(message))
                         })
@@ -2775,14 +2800,14 @@ pub(crate) fn recovery_lockdown(
                     }
                 })
         })
-        .map_err(|e| match &e {
-            TokenError::Refused { status: 401, .. } => {
+        .map_err(|e| {
+            if e.is_unauthorized() {
                 String::from("azdrive-enc-err-code-mismatch")
-            }
-            TokenError::Refused { code, .. } if code == "no_recovery_key" => {
+            } else if e.recovery_refusal() == Some(RecoveryRefusal::NoRecoveryKey) {
                 String::from("azdrive-enc-err-no-recovery-key")
+            } else {
+                e.to_string()
             }
-            _ => e.to_string(),
         })?;
     let entry = azul_storage::config::keyring_key(drive_id);
     let _lock = keyring.lock(&entry).map_err(|e| e.to_string())?;
@@ -3841,5 +3866,104 @@ mod tests {
         );
         assert!(versioned_bucket(&plain).is_err(), "a plain drive keeps no versions");
         assert!(dir.path().join("a.txt").exists(), "and nothing was touched");
+    }
+
+    /// An index provider with an index in memory, the stand-in for the drive's repository.
+    struct MemoryProvider;
+
+    impl IndexProvider for MemoryProvider {
+        fn open_index(
+            &self,
+            _drive: &str,
+            _bucket: Arc<dyn Drive>,
+            _drive_key: &azul_storage::crypto::DriveKey,
+        ) -> Result<Arc<dyn azul_storage::encrypted::NameIndex>, azul_storage::DriveError> {
+            Ok(Arc::new(azul_storage::encrypted::MemoryIndex::new()))
+        }
+    }
+
+    /// X-AR6-26802cb54-1: the glue around AutoEncrypted. A drive that opens encrypted puts its slot's
+    /// id and its key's id in the queue the UI thread writes into the drives file (once per
+    /// opening), a drive that does not queues nothing, and the drives file's record is what the
+    /// drive is told - recorded as encrypted, it is locked without its key, never plain.
+    #[test]
+    fn x_ar6_26802cb54_1_the_key_id_of_an_encrypted_drive_is_queued_for_the_drives_file() {
+        use azul_storage::{
+            crypto::device,
+            keyring::{KeyringStore, MemoryKeyring},
+            meta::MemoryBucket,
+        };
+        let keyring: Arc<dyn KeyringStore> = Arc::new(MemoryKeyring::new());
+        let bucket = Arc::new(MemoryBucket::new());
+        let kdf = RecoveryKdf::with_cost(64, 1, 1).unwrap();
+        let (key, _code) =
+            device::setup_new_drive(bucket.as_ref(), keyring.as_ref(), "d_az", kdf).unwrap();
+        let provider: Option<Arc<dyn IndexProvider>> = Some(Arc::new(MemoryProvider));
+
+        let records = crate::KeyRecords::default();
+        let auto = wrap_with(
+            Arc::clone(&keyring),
+            provider.clone(),
+            "d_az",
+            bucket.clone(),
+            EncryptionRecord::default(),
+            "slot-1",
+            &records,
+        );
+        assert!(
+            records.lock().unwrap().is_empty(),
+            "nothing is queued before the first call"
+        );
+        assert!(matches!(auto.decide(), Ok(EncState::Encrypted { .. })));
+        {
+            let queued = records.lock().unwrap();
+            assert_eq!(queued.len(), 1, "once per opening");
+            assert_eq!(
+                queued[0].drive_id, "slot-1",
+                "the slot's id, not the Azlin drive's"
+            );
+            assert_eq!(queued[0].key_id, key.id().to_hex());
+        }
+        auto.reopen();
+        auto.decide().unwrap();
+        assert_eq!(
+            records.lock().unwrap().len(),
+            2,
+            "told again when it opens again"
+        );
+
+        // A drive recorded as encrypted, on a device with no key: locked, nothing queued.
+        let locked_records = crate::KeyRecords::default();
+        let locked = wrap_with(
+            Arc::new(MemoryKeyring::new()),
+            provider.clone(),
+            "d_az",
+            bucket.clone(),
+            EncryptionRecord {
+                encrypted: true,
+                key_id: Some(key.id().to_hex()),
+            },
+            "slot-1",
+            &locked_records,
+        );
+        assert!(matches!(
+            locked.decide(),
+            Err(azul_storage::DriveError::Locked { .. })
+        ));
+        assert!(locked_records.lock().unwrap().is_empty());
+
+        // A drive that is not encrypted queues nothing either.
+        let plain_records = crate::KeyRecords::default();
+        let plain = wrap_with(
+            Arc::new(MemoryKeyring::new()),
+            provider,
+            "d_new",
+            Arc::new(MemoryBucket::new()),
+            EncryptionRecord::default(),
+            "slot-2",
+            &plain_records,
+        );
+        assert!(matches!(plain.decide(), Ok(EncState::Unencrypted(_))));
+        assert!(plain_records.lock().unwrap().is_empty());
     }
 }

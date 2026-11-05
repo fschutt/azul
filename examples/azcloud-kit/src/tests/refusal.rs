@@ -6,7 +6,7 @@ use azlin_contract::{ArchiveRefusal, AzlinError, CheckoutRefusal, ClaimRefusal, 
 
 use super::{json, Fake, Shared, TOKEN};
 use crate::{
-    token::{CheckoutStatus, Refusal, TokenError, TokenServer},
+    token::{CheckoutStatus, RecoveryRefusal, Refusal, TokenError, TokenServer},
     ClaimKey,
 };
 
@@ -196,5 +196,78 @@ fn az_p1_a_poll_answered_404_without_the_contracts_word_is_not_a_gone_checkout()
         server.checkout_status("ck_1", &claim).unwrap(),
         CheckoutStatus::Gone(String::from("unknown checkout")),
         "the server's own word is the end"
+    );
+}
+
+/// Z30-A1B's share of the money gate (AzDrive's recovery calls decided by `status: 401` and by the
+/// words `recovery_key_exists`, `no_recovery_key`, `no_pending_lockdown`, `last_recovery_key` and
+/// `bad_signature`): the recovery routes' refusals read as typed values, once, here.
+#[test]
+fn x_ar5b_6_the_recovery_routes_refusals_read_as_typed_values() {
+    for (status, word, expected) in [
+        (403, "bad_recovery_signature", RecoveryRefusal::BadSignature),
+        (409, "recovery_key_exists", RecoveryRefusal::KeyExists),
+        (400, "no_recovery_key", RecoveryRefusal::NoRecoveryKey),
+        (
+            409,
+            "no_pending_lockdown",
+            RecoveryRefusal::NoPendingLockdown,
+        ),
+    ] {
+        assert_eq!(
+            refused(status, word).recovery_refusal(),
+            Some(expected),
+            "{word}"
+        );
+        assert_eq!(Refusal::decode(status, word), Refusal::Recovery(expected));
+        assert_eq!(RecoveryRefusal::parse(expected.as_str()), Some(expected));
+        assert_eq!(Refusal::decode(status, word).word(), word);
+    }
+    // A word nobody names is none of them, and a 401 with no word of the contract stays what the
+    // claim pick-up and a lockdown signed by a key no recovery key made read as.
+    assert_eq!(refused(400, "bad_request").recovery_refusal(), None);
+    assert_eq!(refused(401, "unauthorized").recovery_refusal(), None);
+    assert!(refused(401, "unauthorized").is_unauthorized());
+    // The drive's last recovery key stays: the contract's word.
+    assert!(refused(409, "last_recovery_key").is_last_recovery_key());
+    assert!(!refused(409, "recovery_key_exists").is_last_recovery_key());
+    // An error that carries no answer asks none of it.
+    let down = TokenError::Connect(String::from("down"));
+    assert_eq!(down.recovery_refusal(), None);
+    assert!(!down.is_last_recovery_key());
+}
+
+/// Z30-A1B's share of the money gate: a locked drive's proof is read in the proof's OWN family.
+/// `bad_challenge` is a word two families share and `decode` reads it as the shared service code
+/// (listed first); the proof's decision (try again) needs the proof's.
+#[test]
+fn x_ar5b_6_a_locked_drives_proof_is_read_in_its_own_family() {
+    assert_eq!(
+        refused(401, "bad_signature").archive_refusal(),
+        Some(ArchiveRefusal::BadSignature)
+    );
+    assert_eq!(
+        refused(401, "bad_challenge").archive_refusal(),
+        Some(ArchiveRefusal::BadChallenge)
+    );
+    assert_eq!(
+        Refusal::decode(401, "bad_challenge"),
+        Refusal::Service(AzlinError::BadChallenge),
+        "the decoder reads the shared word as the service's"
+    );
+    assert_eq!(
+        refused(409, "challenge_used").archive_refusal(),
+        Some(ArchiveRefusal::ChallengeUsed)
+    );
+    assert_eq!(
+        refused(409, "checkout_not_paid").archive_refusal(),
+        Some(ArchiveRefusal::CheckoutNotPaid)
+    );
+    // The catch-all and a word of another family are no refusal of the proof.
+    assert_eq!(refused(500, "unknown").archive_refusal(), None);
+    assert_eq!(refused(409, "claims_used").archive_refusal(), None);
+    assert_eq!(
+        TokenError::SignIn(String::from("gone")).archive_refusal(),
+        None
     );
 }

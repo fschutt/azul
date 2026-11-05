@@ -28,7 +28,8 @@ use std::{
 
 use azcloud_kit::{
     azlin_contract::{
-        months_owed, ArchiveState, ArchiveWire, LOCK_AFTER_SECS, UNPAID_DAYS, WRITABLE_GRACE_SECS,
+        months_owed, ArchiveRefusal, ArchiveState, ArchiveWire, LOCK_AFTER_SECS, UNPAID_DAYS,
+        WRITABLE_GRACE_SECS,
     },
     sync::names::{self, Volume},
     DriveStatus, ProofAnswer, SharedKeyring, TokenError, TokenServer,
@@ -659,12 +660,13 @@ pub(crate) fn prove(
                 .archive_prove(drive_id, token, checkout, None, |message| {
                     Ok(key.sign_base64(message))
                 })
-                .or_else(|e| match &e {
+                .or_else(|e| match e.archive_refusal() {
                     // not the drive key: the code's findable key (a second kit registers only it)
-                    TokenError::Refused { code, .. } if code == "bad_signature" => server
-                        .archive_prove(drive_id, token, checkout, None, |message| {
+                    Some(ArchiveRefusal::BadSignature) => {
+                        server.archive_prove(drive_id, token, checkout, None, |message| {
                             Ok(findable.sign_base64(message))
-                        }),
+                        })
+                    }
                     _ => Err(e),
                 })
                 .map_err(proof_error)
@@ -673,19 +675,21 @@ pub(crate) fn prove(
     answered.map_err(|e| e.to_string())?
 }
 
-/// A refused proof's words: the contract's refusals as message keys.
+/// A refused proof's words: the contract's refusals of the proof as message keys.
 fn proof_error(e: TokenError) -> String {
-    match &e {
-        TokenError::Refused { code, .. } => match code.as_str() {
-            "no_key" => String::from("azdrive-archive-no-key-at-all"),
-            "bad_signature" => String::from("azdrive-archive-wrong-key"),
-            "bad_challenge" | "challenge_used" => String::from("azdrive-archive-try-again"),
-            "not_archived" => String::from("azdrive-archive-not-locked"),
-            "checkout_not_paid" => String::from("azdrive-archive-not-paid"),
-            "checkout_other_tier" => String::from("azdrive-archive-other-tier"),
-            _ => e.to_string(),
-        },
-        _ => e.to_string(),
+    match e.archive_refusal() {
+        Some(ArchiveRefusal::NoKey) => String::from("azdrive-archive-no-key-at-all"),
+        Some(ArchiveRefusal::BadSignature) => String::from("azdrive-archive-wrong-key"),
+        Some(ArchiveRefusal::BadChallenge | ArchiveRefusal::ChallengeUsed) => {
+            String::from("azdrive-archive-try-again")
+        }
+        Some(ArchiveRefusal::NotArchived) => String::from("azdrive-archive-not-locked"),
+        Some(ArchiveRefusal::CheckoutNotPaid) => String::from("azdrive-archive-not-paid"),
+        Some(ArchiveRefusal::CheckoutOtherTier) => String::from("azdrive-archive-other-tier"),
+        Some(
+            ArchiveRefusal::BadRequest | ArchiveRefusal::NotVerified | ArchiveRefusal::Unknown,
+        )
+        | None => e.to_string(),
     }
 }
 

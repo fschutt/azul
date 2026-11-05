@@ -93,7 +93,7 @@ pub use refresh::{
     ban_fluent_source, ban_reason_arg, banner_phrase, banner_text, closed_phrase, closed_text,
     Ban, DriveStatus, DRIVE_BANNED,
 };
-pub use refusal::Refusal;
+pub use refusal::{RecoveryRefusal, Refusal};
 
 /// The tier a sign-up without one gets (the token server's default too).
 pub const DEFAULT_TIER: &str = "100GB";

@@ -21,6 +21,51 @@ use serde::de::DeserializeOwned;
 
 use super::TokenError;
 
+/// The refusals of the recovery routes (a recovery key set, replaced or added, a lockdown by the
+/// recovery code and its cancel) that the contract crate does not name yet: the token server's
+/// `recovery.rs` and `drives.rs` send these words. They are read here and nowhere else; moving
+/// them into `azlin-contract` (and a pair test against the server's constants) is the contract's
+/// lane's, and changes this enum into a re-export.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RecoveryRefusal {
+    /// 403 `bad_recovery_signature`: a call the drive token vouched for carried a signature that
+    /// no recovery key of the drive made (a mistyped or an old code). The token is good.
+    BadSignature,
+    /// 409 `recovery_key_exists`: this recovery key is on the drive already (an earlier try
+    /// whose answer was lost).
+    KeyExists,
+    /// 400 `no_recovery_key`: the drive has no recovery key registered, so nothing can sign.
+    NoRecoveryKey,
+    /// 409 `no_pending_lockdown`: no recovery-key lockdown is pending - it was called off, or its
+    /// notice ended and the drive was handed over; the two are not told apart (T1-N2).
+    NoPendingLockdown,
+}
+
+impl RecoveryRefusal {
+    /// The refusal a word names.
+    #[must_use]
+    pub fn parse(word: &str) -> Option<RecoveryRefusal> {
+        match word {
+            "bad_recovery_signature" => Some(RecoveryRefusal::BadSignature),
+            "recovery_key_exists" => Some(RecoveryRefusal::KeyExists),
+            "no_recovery_key" => Some(RecoveryRefusal::NoRecoveryKey),
+            "no_pending_lockdown" => Some(RecoveryRefusal::NoPendingLockdown),
+            _ => None,
+        }
+    }
+
+    /// The `error` word.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            RecoveryRefusal::BadSignature => "bad_recovery_signature",
+            RecoveryRefusal::KeyExists => "recovery_key_exists",
+            RecoveryRefusal::NoRecoveryKey => "no_recovery_key",
+            RecoveryRefusal::NoPendingLockdown => "no_pending_lockdown",
+        }
+    }
+}
+
 /// A refusal of the token server, as the contract types it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Refusal {
@@ -35,6 +80,8 @@ pub enum Refusal {
     Service(AzlinError),
     /// The pick-up of a paid drive by its claim ticket.
     Claim(ClaimRefusal),
+    /// A recovery route's own refusal (the contract does not name these yet).
+    Recovery(RecoveryRefusal),
     /// A word the contract does not name, or none: `status` and the word as the server wrote
     /// it (empty when its answer carried none).
     Unclassified { status: u16, code: String },
@@ -72,6 +119,9 @@ impl Refusal {
         if let Some(archive) = family(word, &ArchiveRefusal::Unknown) {
             return Refusal::Archive(archive);
         }
+        if let Some(recovery) = RecoveryRefusal::parse(word) {
+            return Refusal::Recovery(recovery);
+        }
         Refusal::Unclassified {
             status,
             code: word.to_string(),
@@ -87,6 +137,7 @@ impl Refusal {
             Refusal::Archive(r) => r.as_str(),
             Refusal::Service(r) => r.as_str(),
             Refusal::Claim(r) => r.as_str(),
+            Refusal::Recovery(r) => r.as_str(),
             Refusal::Unclassified { code, .. } => code,
         }
     }
@@ -157,6 +208,21 @@ impl Refusal {
     #[must_use]
     pub fn is_lockdown_pending(&self) -> bool {
         matches!(self, Refusal::Service(AzlinError::LockdownPending))
+    }
+
+    /// The drive's last recovery key stays, in the contract's word `last_recovery_key` (409).
+    #[must_use]
+    pub fn is_last_recovery_key(&self) -> bool {
+        matches!(self, Refusal::Service(AzlinError::LastRecoveryKey))
+    }
+
+    /// A recovery route's refusal, when it is one.
+    #[must_use]
+    pub fn recovery(&self) -> Option<RecoveryRefusal> {
+        match self {
+            Refusal::Recovery(recovery) => Some(*recovery),
+            _ => None,
+        }
     }
 
     /// The pick-up's refusal, when it is one.
@@ -251,6 +317,34 @@ impl TokenError {
     #[must_use]
     pub fn claim_refusal(&self) -> Option<ClaimRefusal> {
         self.refusal().and_then(|r| r.claim())
+    }
+
+    /// The drive's last recovery key stays ([`Refusal::is_last_recovery_key`]).
+    #[must_use]
+    pub fn is_last_recovery_key(&self) -> bool {
+        self.refusal().is_some_and(|r| r.is_last_recovery_key())
+    }
+
+    /// A recovery route's refusal, when this is one ([`RecoveryRefusal`]).
+    #[must_use]
+    pub fn recovery_refusal(&self) -> Option<RecoveryRefusal> {
+        self.refusal().and_then(|r| r.recovery())
+    }
+
+    /// The refusal of a locked drive's proof, read in the proof's OWN family: a word two families
+    /// of the contract share (`bad_challenge`) reads as the family listed first in
+    /// [`Refusal::decode`], and a decision about the proof's answer needs the proof's.
+    #[must_use]
+    pub fn archive_refusal(&self) -> Option<ArchiveRefusal> {
+        match self {
+            TokenError::Refused { code, .. } | TokenError::Busy { code, .. } => {
+                family(code.trim(), &ArchiveRefusal::Unknown)
+            }
+            TokenError::Connect(_)
+            | TokenError::SignIn(_)
+            | TokenError::Protocol(_)
+            | TokenError::Config(_) => None,
+        }
     }
 
     /// A credential the call sent is not known to the server ([`Refusal::is_unauthorized`]).

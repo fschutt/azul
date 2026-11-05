@@ -1336,6 +1336,7 @@ azdrive-enc-err-no-index = dieser Build von AzDrive hat keinen Laufwerksindex, u
 azdrive-enc-err-device-no-key = Dieses Gerät hat keinen Schlüssel für das Laufwerk.
 azdrive-enc-err-made-later = Das Laufwerk gab es zu diesem Zeitpunkt noch nicht (es wurde später erstellt): Wähle einen späteren Zeitpunkt.
 azdrive-enc-err-code-mismatch = Dieser Wiederherstellungscode passt nicht zum Wiederherstellungsschlüssel des Laufwerks.
+azdrive-enc-err-no-lockdown-pending = Es wartet keine Sperrung mehr. Entweder wurde sie zurückgenommen, oder ihre Frist ist abgelaufen und das Laufwerk wurde übergeben – der Tokenserver sagt nicht, was von beidem. Sieh dir die Geräte des Laufwerks an, bevor du dich auf eines von beiden verlässt.
 azdrive-enc-err-no-recovery-key = Das Laufwerk hat keinen Wiederherstellungsschlüssel bei seinem Tokenserver (sein Wiederherstellungsblatt wurde erstellt, bevor AzDrive einen registriert hat).
 azdrive-enc-groups-and = { $rest } und { $last }
 azdrive-enc-confirm-title = „{ $name }“ verschlüsseln?

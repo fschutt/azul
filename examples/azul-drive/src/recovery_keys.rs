@@ -1288,7 +1288,7 @@ pub(crate) fn on_done(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState,
                 );
             }
             Err(RemoveFailed::Server(e)) => {
-                if matches!(&e, TokenError::Refused { code, .. } if code == "last_recovery_key") {
+                if e.is_last_recovery_key() {
                     println!("AZDRIVE_RECOVERY_KEY_KEPT {drive_id} {key_id}");
                 } else {
                     // The dialog says why; scripts read it here, on one line.
