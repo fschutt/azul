@@ -22,6 +22,9 @@ publish = false
 [dependencies]
 # The token server's offer and checkout answers are JSON (already in the tree).
 serde_json = "1"
+# The money of the pay path is the contract's `Cents` (an amount with its currency), not a bare
+# pair (serde only; the client's other crates carry it already).
+azlin-contract = { path = "../azlin-contract" }
 
 [features]
 # The fake providers of the local stacks (scripts/azlin_mock_stack.py, azul-apps local/): their

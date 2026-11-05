@@ -1631,7 +1631,7 @@ azdrive-add-tiers-failed = The storage tiers could not be loaded: { $why }
 azdrive-add-try-again = Try again
 azdrive-add-price-on-request = price on request
 azdrive-add-pay-yearly = Pay yearly
-azdrive-add-pay-yearly-free = Pay yearly (two months for free)
+azdrive-add-pay-yearly-saves = Pay yearly (saves { $percent } %)
 azdrive-add-sold-by-the-year = Sold by the year only.
 azdrive-add-open-again = Open the page again
 azdrive-add-stop-waiting = Stop waiting
@@ -1698,6 +1698,11 @@ azdrive-add-picked-up = Picked up. AzDrive asks for the drive now, then once a d
 azdrive-add-claim-not-kept = The claim code was not kept: { $why }
 azdrive-add-months-not-fetched = The paid months of the checkout { $checkout } could not be fetched: { $why }.
 azdrive-add-checkout-unfinished = The checkout { $checkout } could not be finished in the keyring's list ({ $why }); AzDrive asks about it again at its next start.
+azdrive-add-options-failed = The payment options could not be loaded: { $why }
+azdrive-add-options-failed-short = The payment options are not here yet. Try again.
+azdrive-add-options-missing = The token server answered no payment options. Try again in a moment.
+azdrive-order-page-not-ours = The payment page the token server named is not one of its own, so the order was cancelled and nothing was charged. Check the token server in the settings.
+azdrive-order-price-changed = The price changed from { $shown } to { $charged } while the order was made, so nothing was ordered. The prices are loaded again: check them and order once more.
 azdrive-order-earlier-paid = Your earlier order for this ({ $checkout }) is paid: its drive arrives as soon as the payment is confirmed. Nothing new was ordered.
 azdrive-order-earlier-open = Your earlier order for this ({ $checkout }) may still be paid, so AzDrive does not start another one yet. Try again in a moment.
 azdrive-order-no-room = { $waiting } unfinished orders wait already. Let them be paid or end them first.
@@ -1710,6 +1715,8 @@ azdrive-add-buy-tier-price = Buy { $quota } - { $price }
 azdrive-add-buy-tier = Buy { $quota }
 azdrive-add-buy = Buy
 azdrive-add-renew-tier-price = Renew { $quota } - { $price }
+azdrive-add-renew-tier = Renew { $quota }
+azdrive-add-move-tier = Move to { $quota }
 azdrive-add-move-tier-price = Move to { $quota } - { $price }
 azdrive-tier-wait = Tell me when it is back
 azdrive-add-tier-closed = { $tier } is sold out for now.
@@ -1718,9 +1725,9 @@ azdrive-renew-period-end = "{ $drive }" is paid until { $at }. Renew it to keep 
 azdrive-renew-read-only = "{ $drive }" turns read-only on { $at } unless it is renewed. Its files stay readable.
 azdrive-renew-closing = "{ $drive }" is locked on { $at } unless it is renewed: its files are then moved to one offline copy and come back only after payment, which can take some days. Copy what you need, or renew it now.
 azdrive-months-renewed = { $months ->
-        [one] 1 month was
-       *[other] { $months } months were
-    } added to "{ $drive }".
+        [one] 1 month is bought for "{ $drive }" and is being added now.
+       *[other] { $months } months are bought for "{ $drive }": the first is being added now, the others follow one by one.
+    }
 azdrive-tier-change-waits = "{ $drive }" moves to its smaller tier at the end of its paid period, from { $at }.
 azdrive-tier-change-too-full = "{ $drive }" does not fit its smaller tier yet: free { $free } first. The new tier waits.
 azdrive-tier-changed = "{ $drive }" is on { $tier } now{ $days ->

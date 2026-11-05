@@ -73,11 +73,22 @@ fn the_activation_code_names_its_checkout_its_amount_and_its_currency() {
     assert_eq!(code.currency, "EUR");
     assert_eq!(code.mac.len(), 10);
     assert_eq!(code.to_text(), ACTIVATION, "written as the token server wrote it");
-    assert!(code.check(CODE_CHECKOUT, 1188, "EUR").is_ok());
-    assert!(code.check(CODE_CHECKOUT, 11880, "EUR").is_err(), "a slip for another amount");
-    assert!(code.check(CODE_CHECKOUT, 1188, "CHF").is_err(), "a slip in another currency");
+    let cents = |amount: u64, currency: &str| azlin_contract::Cents {
+        amount,
+        currency: azlin_contract::Currency::parse(currency).unwrap(),
+    };
+    assert!(code.check(CODE_CHECKOUT, &cents(1188, "EUR")).is_ok());
     assert!(
-        code.check("ck_bbbbbbbbbbbbbbbbbbbbbbbbbb", 1188, "EUR").is_err(),
+        code.check(CODE_CHECKOUT, &cents(11880, "EUR")).is_err(),
+        "a slip for another amount"
+    );
+    assert!(
+        code.check(CODE_CHECKOUT, &cents(1188, "CHF")).is_err(),
+        "a slip in another currency"
+    );
+    assert!(
+        code.check("ck_bbbbbbbbbbbbbbbbbbbbbbbbbb", &cents(1188, "EUR"))
+            .is_err(),
         "a slip of another checkout"
     );
     let typed = ACTIVATION.to_lowercase().replace('-', " ");
@@ -383,7 +394,8 @@ fn a_cash_checkout_names_its_method_and_claim_key_and_no_provider() {
     let claim = ClaimKey::generate().unwrap();
     let (checkout, answer) = server.checkout_cash("100GB", 12, "de", true, &claim, crate::token::CheckoutFor::NewDrive).unwrap();
     assert_eq!(checkout.checkout_id, CODE_CHECKOUT);
-    assert_eq!(checkout.amount_cents, 1188);
+    assert_eq!(checkout.charge.cents().amount, 1188);
+    assert_eq!(checkout.charge.cents().currency.as_str(), "EUR");
     assert_eq!(answer["status"], "awaiting_cash");
     let sent: serde_json::Value = serde_json::from_slice(&fake.calls()[0].body).unwrap();
     assert_eq!(sent["method"], "cash");

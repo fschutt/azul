@@ -247,9 +247,23 @@ fn the_price_and_the_legal_texts_are_read() {
                   "order_button": "Buy now", "terms_url": "https://azlin.io/terms"}
     }));
     let price = offer.price.as_ref().unwrap();
-    assert_eq!(price.amount_cents, 4990);
-    assert_eq!(price.text(), "EUR 49.90, incl. 19 % VAT (EUR 7.97)");
-    assert_eq!(offer.legal.withdrawal_consent.as_deref(), Some("I ask Azlin to start now."));
+    assert_eq!(
+        (price.amount.amount, price.amount.currency.as_str()),
+        (4990, "EUR")
+    );
+    let vat = price.vat.as_ref().expect("the VAT it says");
+    assert_eq!(
+        (vat.rate_permille, vat.amount.amount, vat.included),
+        (190, 797, true)
+    );
+    assert_eq!(
+        vat.amount.currency, price.amount.currency,
+        "the VAT is in the price's currency"
+    );
+    assert_eq!(
+        offer.legal.withdrawal_consent.as_deref(),
+        Some("I ask Azlin to start now.")
+    );
     assert_eq!(offer.legal.order_button.as_deref(), Some("Buy now"));
     let plain = parse(json!({
         "offers": [{"provider": "stripe", "methods": [stripe_card(json!({}))]}],
@@ -316,7 +330,7 @@ fn a_countrys_offer_reads_each_methods_rank_price_and_payer_details() {
     assert_eq!(blik.expires_minutes, 2);
     assert!(blik.preferred);
     let charge = blik.charge.as_ref().expect("a price in zloty");
-    assert_eq!((charge.amount_cents, charge.currency.as_str()), (449, "PLN"));
+    assert_eq!((charge.amount, charge.currency.as_str()), (449, "PLN"));
     assert!(blik.identity.is_none(), "BLIK asks nothing of the payer here");
     assert_eq!(blik.presented_in, None);
     let card = stripe.method(Method::Card).unwrap();
@@ -327,7 +341,10 @@ fn a_countrys_offer_reads_each_methods_rank_price_and_payer_details() {
     assert_eq!(p24.surfaces, vec![SurfaceKind::SystemBrowser]);
     assert_eq!(p24.settles, Settles::Days);
     let price = offer.price.as_ref().unwrap();
-    assert_eq!((price.amount_cents, price.currency.as_str()), (449, "PLN"));
+    assert_eq!(
+        (price.amount.amount, price.amount.currency.as_str()),
+        (449, "PLN")
+    );
 }
 
 #[test]
@@ -438,5 +455,90 @@ fn the_dlocal_stand_in_wants_the_payers_details_from_the_app_in_the_browser() {
             crate::identity::PayerField::Email,
             crate::identity::PayerField::NationalId
         ]
+    );
+}
+
+/// X-AR5b-6: money the offer names is whole or it is none. A price or a charge without its
+/// currency is not a price in euros, one without its amount is not a free one; a VAT rate
+/// without its amount is no VAT line (never "0 %", never "included" by default).
+#[test]
+fn x_ar5b_6_a_price_or_a_charge_without_its_amount_or_currency_is_none() {
+    let offer = parse(json!({
+        "offers": [{"provider": "stripe", "methods": [
+            stripe_card(json!({"amount_cents": 449})),
+            {"method": "blik", "amount_cents": 449, "currency": "pl"},
+            {"method": "p24", "surfaces": ["browser"], "currency": "PLN"}]}],
+        "price": {"amount_cents": 449, "vat_rate_permille": 230, "vat_cents": 84,
+                  "vat_included": true},
+    }));
+    assert!(
+        offer.price.is_none(),
+        "a price without a currency is no price in euros"
+    );
+    let stripe = offer.provider("stripe").unwrap();
+    assert_eq!(
+        stripe.method(Method::Card).unwrap().charge,
+        None,
+        "no currency"
+    );
+    assert_eq!(
+        stripe.method(Method::Blik).unwrap().charge,
+        None,
+        "two letters are no currency"
+    );
+    assert_eq!(
+        stripe.method(Method::P24).unwrap().charge,
+        None,
+        "no amount"
+    );
+
+    for lacking in ["vat_rate_permille", "vat_cents", "vat_included"] {
+        let mut price = json!({"amount_cents": 449, "currency": "PLN", "vat_rate_permille": 230,
+                               "vat_cents": 84, "vat_included": true});
+        price.as_object_mut().unwrap().remove(lacking);
+        let offer = parse(json!({
+            "offers": [{"provider": "stripe", "methods": [stripe_card(json!({}))]}],
+            "price": price,
+        }));
+        let price = offer.price.expect("the amount alone is a price");
+        assert_eq!(price.amount.amount, 449);
+        assert!(price.vat.is_none(), "without {lacking}: no VAT line");
+    }
+}
+
+/// AZ-P2 (azul-pay half): a payer in Poland whose SEPA direct debit takes euros only is offered
+/// the ladder's zloty price AND a euro charge for that method; the offer keeps each method's own
+/// charge, so the pill and the popover can say what the method charges and not the offer's one
+/// price.
+#[test]
+fn az_p2_each_method_keeps_the_charge_it_makes_whatever_the_offers_price() {
+    let offer = parse(json!({
+        "country": "PL", "currency": "PLN",
+        "offers": [{"provider": "gocardless", "default": true, "methods": [
+            {"method": "sepa_debit", "surfaces": ["page", "browser"], "settles": "days",
+             "amount_cents": 99, "currency": "EUR"}]},
+          {"provider": "stripe", "methods": [
+            stripe_card(json!({"amount_cents": 449, "currency": "PLN"}))]}],
+        "price": {"amount_cents": 449, "currency": "PLN", "vat_rate_permille": 230,
+                  "vat_cents": 84, "vat_included": true},
+    }));
+    let price = &offer.price.as_ref().unwrap().amount;
+    assert_eq!(price.currency.as_str(), "PLN");
+    let sepa = offer
+        .provider("gocardless")
+        .unwrap()
+        .method(Method::SepaDebit)
+        .unwrap();
+    let charge = sepa.charge.as_ref().expect("its own charge");
+    assert_eq!((charge.amount, charge.currency.as_str()), (99, "EUR"));
+    assert_ne!(charge.currency, price.currency, "not the offer's currency");
+    let card = offer
+        .provider("stripe")
+        .unwrap()
+        .method(Method::Card)
+        .unwrap();
+    assert_eq!(
+        card.charge.as_ref().map(|c| c.currency.as_str()),
+        Some("PLN")
     );
 }

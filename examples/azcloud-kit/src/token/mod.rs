@@ -70,6 +70,7 @@ use crate::{
 mod archive;
 mod checkout;
 mod members;
+mod money;
 mod period;
 mod recovery;
 mod refresh;
@@ -77,10 +78,11 @@ mod refusal;
 
 pub use archive::ProofAnswer;
 pub use checkout::{
-    Checkout, CheckoutFor, CheckoutStatus, CheckoutVia, OptionsQuery, Tier, TierNews, Tiers,
+    Checkout, CheckoutFor, CheckoutStatus, CheckoutVia, OptionsQuery, Paid, Tier, TierNews, Tiers,
     VoucherRedeemed,
 };
 pub use members::ClaimedFamily;
+pub use money::{page_is, pay_page, Charge, PriceChanged, Quote};
 pub use period::{BlindSignatures, IssueAnswer, MAX_BLINDED};
 pub use recovery::{
     lockdown_cancel_message, recovery_add_message, recovery_key_message,

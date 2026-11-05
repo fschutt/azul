@@ -20,9 +20,9 @@ fn tiers() -> Tiers {
     let tier = |id: &str, gb: u64, month: u64, year: u64| Tier {
         id: id.to_string(),
         quota_bytes: gb * 1_000_000_000,
-        price_cents_month: Some(month),
-        price_cents_year: Some(year),
-        currency: "EUR".to_string(),
+        price_month: Some(crate::pay_words_tests::cents(month, "EUR")),
+        price_year: Some(crate::pay_words_tests::cents(year, "EUR")),
+        currency: crate::pay_words_tests::currency("EUR"),
         first_month_free: true,
         yearly_only: false,
         prepay: azcloud_kit::azlin_contract::Prepay::new(
@@ -765,9 +765,9 @@ fn yearly_only_tiers() -> Tiers {
     let yearly = Tier {
         id: String::from("12TB"),
         quota_bytes: 12_000_000_000_000,
-        price_cents_month: None,
-        price_cents_year: Some(34_990),
-        currency: String::from("EUR"),
+        price_month: None,
+        price_year: Some(crate::pay_words_tests::cents(34_990, "EUR")),
+        currency: crate::pay_words_tests::currency("EUR"),
         first_month_free: true,
         yearly_only: true,
         prepay: azcloud_kit::azlin_contract::Prepay::new(vec![
@@ -884,4 +884,293 @@ fn a_build_that_cannot_encrypt_makes_no_azlin_drive_and_says_why() {
     for event in [AddEvent::ChooseConnect, AddEvent::Back, AddEvent::Cancel, AddEvent::Save] {
         assert_eq!(refuses_making(&event, false), None, "{event:?}");
     }
+}
+
+// ==== RF52: the price the buyer is shown is the price the checkout charges ====
+
+use crate::pay_words_tests::{cents, currency};
+
+/// A buyer in Poland: the ladder prices the tiers in zloty; Stripe's card charges zloty, the SEPA
+/// direct debit of GoCardless takes euros only (the server's default pill).
+fn polish_dialog() -> AddDialog {
+    let mut dialog = AddDialog::new(1);
+    dialog.country = String::from("PL");
+    dialog.choose_buy();
+    let mut zloty = tiers();
+    for tier in &mut zloty.tiers {
+        tier.price_month = Some(cents(449, "PLN"));
+        tier.price_year = Some(cents(4490, "PLN"));
+        tier.currency = currency("PLN");
+    }
+    dialog.tiers = TiersState::Loaded(zloty);
+    let text = serde_json::json!({
+        "country": "PL", "currency": "PLN",
+        "offers": [
+            {"provider": "gocardless", "default": true, "methods": [
+                {"method": "sepa_debit", "surfaces": ["page", "browser"], "settles": "days",
+                 "rank": 0, "amount_cents": 99, "currency": "EUR"}]},
+            {"provider": "stripe", "methods": [
+                {"method": "card", "rank": 1, "amount_cents": 449, "currency": "PLN"}]}],
+        "price": {"amount_cents": 449, "currency": "PLN", "vat_rate_permille": 230,
+                  "vat_cents": 84, "vat_included": true},
+    })
+    .to_string();
+    dialog.offer_loaded(
+        Offer::parse(
+            &text,
+            &OfferContext::for_token_url("https://token.azlin.io"),
+        )
+        .unwrap(),
+    );
+    dialog
+}
+
+/// AZ-P2: a payer in Poland whose SEPA direct debit takes euros only. The button, the price line
+/// and the quote the checkout is held to say what THE METHOD charges - EUR 0.99 - and not the
+/// ladder's zloty; the card says zloty.
+#[test]
+fn az_p2_the_buy_button_and_the_quote_say_the_chosen_methods_own_charge() {
+    crate::l10n::in_english();
+    let mut dialog = polish_dialog();
+    assert_eq!(
+        dialog.chosen_pill().map(|p| p.method),
+        Some(Method::SepaDebit)
+    );
+    assert_eq!(dialog.buy_label(), "Buy 100 GB - EUR 0.99 for 1 month");
+    let shown = dialog.price_shown().expect("the method's charge");
+    assert_eq!((shown.amount, shown.currency.as_str()), (99, "EUR"));
+    let quote = dialog.quote_for(dialog.choice().as_ref()).expect("a quote");
+    assert_eq!(
+        (
+            quote.price.amount,
+            quote.price.currency.as_str(),
+            quote.months,
+            quote.at_most
+        ),
+        (99, "EUR", 1, false)
+    );
+    assert_eq!(quote.tier, "100GB");
+    dialog.choose_pill(Method::Card);
+    assert_eq!(dialog.buy_label(), "Buy 100 GB - PLN 4.49 for 1 month");
+    let shown = dialog.price_shown().expect("the card's charge");
+    assert_eq!((shown.amount, shown.currency.as_str()), (449, "PLN"));
+    // A method that names no charge reads the offer's price - in the tier's currency, here
+    // zloty -, else the tier list's.
+    let mut no_charge = polish_dialog();
+    no_charge.offer = OfferState::Loaded(
+        Offer::parse(
+            &serde_json::json!({"offers": [{"provider": "stripe", "methods": [{"method": "card"}]}],
+                "price": {"amount_cents": 449, "currency": "PLN"}})
+            .to_string(),
+            &OfferContext::for_token_url("https://token.azlin.io"),
+        )
+        .unwrap(),
+    );
+    assert_eq!(no_charge.price_shown(), Some(cents(449, "PLN")));
+    no_charge.offer = OfferState::Loaded(
+        Offer::parse(
+            &serde_json::json!({"offers": [{"provider": "stripe", "methods": [{"method": "card"}]}],
+                "price": {"amount_cents": 99, "currency": "EUR"}})
+            .to_string(),
+            &OfferContext::for_token_url("https://token.azlin.io"),
+        )
+        .unwrap(),
+    );
+    assert_eq!(
+        no_charge.price_shown(),
+        Some(cents(449, "PLN")),
+        "an offer price in another currency than the tier's is not the tier's price"
+    );
+}
+
+/// X-AR5b-20: a renewal under a price lock pays the lock's price in the lock's currency - not
+/// today's list price in the declared country's currency. The dialog says the lock's price only
+/// when this computer paid for the lock for as many months; it says none otherwise, and the
+/// order is held to it as a ceiling.
+#[test]
+fn x_ar5b_20_a_renewal_under_a_price_lock_never_quotes_todays_list_price() {
+    use crate::renewals::{LockPaid, LockSeen, RenewFor};
+    crate::l10n::in_english();
+    let renewing = |lock: Option<LockSeen>| {
+        let mut dialog = AddDialog::renewing(
+            1,
+            RenewFor {
+                drive_id: String::from("d_1"),
+                name: String::from("Photos"),
+                tier: String::from("100GB"),
+                quota_bytes: 100_000_000_000,
+                lock,
+            },
+        );
+        dialog.country = String::from("DE");
+        dialog.tiers_loaded(tiers());
+        dialog
+    };
+    // No lock: today's price is what is charged.
+    let plain = renewing(None);
+    assert_eq!(plain.buy_label(), "Renew 100 GB - EUR 0.99 for 1 month");
+    assert!(!plain.quote_for(None).expect("a quote").at_most);
+    // A lock this computer did not pay for: no number is said, and none is checked.
+    let unknown = renewing(Some(LockSeen { paid: None }));
+    assert_eq!(unknown.price_shown(), None);
+    assert_eq!(unknown.quote_for(None), None);
+    assert_eq!(unknown.buy_label(), "Renew 100 GB");
+    // A lock paid for one month at EUR 0.89: that is the price, as a ceiling.
+    let mut locked = renewing(Some(LockSeen {
+        paid: Some(LockPaid {
+            months: 1,
+            price: cents(89, "EUR"),
+        }),
+    }));
+    assert_eq!(locked.buy_label(), "Renew 100 GB - EUR 0.89 for 1 month");
+    let quote = locked.quote_for(None).expect("a quote");
+    assert_eq!((quote.price.amount, quote.at_most), (89, true));
+    // Another number of months than the lock was paid for: the dialog does not guess.
+    locked.yearly = true;
+    assert_eq!(locked.price_shown(), None);
+    assert_eq!(locked.buy_label(), "Renew 100 GB");
+}
+
+/// X-AR5b-19: the v1 payment page stands in only for a token server on this computer. A
+/// production token server whose payment options fail, or have no such route, is "Try again".
+#[test]
+fn x_ar5b_19_the_v1_page_is_for_a_token_server_on_this_computer_only() {
+    use crate::add_drive::v1_page_allowed;
+    assert!(v1_page_allowed("http://127.0.0.1:8081"));
+    assert!(v1_page_allowed("http://localhost:8081/"));
+    assert!(!v1_page_allowed("https://token.azlin.io"));
+    assert!(!v1_page_allowed("https://127.0.0.1.evil.example"));
+    assert!(!v1_page_allowed(""));
+    // A failed call is a reason to ask again, never a page.
+    let mut dialog = AddDialog::new(1);
+    dialog.choose_buy();
+    dialog.tiers = TiersState::Loaded(tiers());
+    dialog.offer = OfferState::Failed(String::from("no answer"));
+    assert_eq!(dialog.options_failed(), Some("no answer"));
+    assert_eq!(
+        dialog.order_waits_for(),
+        Some("azdrive-add-options-failed-short")
+    );
+    dialog.offer = OfferState::Legacy;
+    assert_eq!(dialog.options_failed(), None);
+    assert_eq!(
+        dialog.order_waits_for(),
+        None,
+        "a development server's v1 page"
+    );
+}
+
+/// X-AR5b-10: what the order button waits for is named for every state of the tiers and of the
+/// options; none is "ready" by default.
+#[test]
+fn x_ar5b_10_the_order_button_waits_for_each_state_by_name() {
+    let mut dialog = AddDialog::new(1);
+    for tiers in [
+        TiersState::NotLoaded,
+        TiersState::Loading,
+        TiersState::Failed(String::from("x")),
+        TiersState::Refused(String::from("x")),
+    ] {
+        dialog.tiers = tiers;
+        assert_eq!(
+            dialog.order_waits_for(),
+            Some("azdrive-add-tiers-not-loaded")
+        );
+    }
+    dialog.tiers = TiersState::Loaded(tiers());
+    for (offer, waits) in [
+        (OfferState::NotLoaded, Some("azdrive-add-tiers-not-loaded")),
+        (OfferState::Loading, Some("azdrive-add-tiers-not-loaded")),
+        (
+            OfferState::Failed(String::from("x")),
+            Some("azdrive-add-options-failed-short"),
+        ),
+        (OfferState::Legacy, None),
+        (OfferState::Refused(String::from("not here")), None),
+        (OfferState::Loaded(offer()), None),
+    ] {
+        dialog.offer = offer;
+        assert_eq!(dialog.order_waits_for(), waits);
+    }
+}
+
+/// AZ-P11: the yearly switch says what a year saves, worked out from the ladder's own prices -
+/// not "two months for free" whatever the ladder is. A year that is not cheaper says nothing of
+/// savings.
+#[test]
+fn az_p11_the_yearly_label_follows_the_ladder() {
+    crate::l10n::in_english();
+    let tier = |month: u64, year: u64| {
+        let mut tier = tiers().tiers.remove(0);
+        tier.price_month = Some(cents(month, "EUR"));
+        tier.price_year = Some(cents(year, "EUR"));
+        tier
+    };
+    assert_eq!(
+        crate::pay_words::yearly_label(Some(&tier(99, 990))),
+        "Pay yearly (saves 16 %)"
+    );
+    assert_eq!(
+        crate::pay_words::yearly_label(Some(&tier(100, 1000))),
+        "Pay yearly (saves 16 %)"
+    );
+    assert_eq!(
+        crate::pay_words::yearly_label(Some(&tier(100, 600))),
+        "Pay yearly (saves 50 %)"
+    );
+    // Not cheaper: no claim. A saving that rounds to nothing: no claim.
+    assert_eq!(
+        crate::pay_words::yearly_label(Some(&tier(100, 1200))),
+        "Pay yearly"
+    );
+    assert_eq!(
+        crate::pay_words::yearly_label(Some(&tier(100, 1500))),
+        "Pay yearly"
+    );
+    assert_eq!(
+        crate::pay_words::yearly_label(Some(&tier(10_000, 119_999))),
+        "Pay yearly"
+    );
+    // A year in another currency than the month: nothing to compare.
+    let mut mixed = tier(100, 1000);
+    mixed.price_year = Some(cents(1000, "PLN"));
+    assert_eq!(crate::pay_words::yearly_label(Some(&mixed)), "Pay yearly");
+    assert_eq!(crate::pay_words::yearly_label(None), "Pay yearly");
+    crate::l10n::in_english();
+    azul_appkit::l10n::set_locale("de-DE");
+    assert_eq!(
+        crate::pay_words::yearly_label(Some(&tier(100, 1000))),
+        "Jährlich bezahlen (spart 16 %)"
+    );
+    azul_appkit::l10n::set_locale("en-US");
+}
+
+/// AZ-P12: a renewal's toast says what was BOUGHT and that the first month is being added now -
+/// the period grows one month at a time, as each token is redeemed.
+#[test]
+fn az_p12_the_toast_of_a_renewal_says_bought_not_added() {
+    use azul_appkit::l10n::{t_phrase, Phrase};
+    crate::l10n::in_english();
+    let said = |months: u32| {
+        t_phrase(
+            &Phrase::new("azdrive-months-renewed")
+                .arg("months", months)
+                .arg("drive", "Photos"),
+        )
+    };
+    assert_eq!(
+        said(1),
+        "1 month is bought for \"Photos\" and is being added now."
+    );
+    assert!(
+        said(12).starts_with("12 months are bought for \"Photos\": the first is being added now"),
+        "{}",
+        said(12)
+    );
+    for text in [said(1), said(12)] {
+        assert!(!text.contains("were added"), "{text}");
+    }
+    azul_appkit::l10n::set_locale("de-DE");
+    assert!(said(12).contains("gekauft"), "{}", said(12));
+    azul_appkit::l10n::set_locale("en-US");
 }

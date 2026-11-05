@@ -50,12 +50,14 @@ use crate::{
     error::{fail, CloudError, CloudResult},
     period::{issue_next, Issued, PeriodTokenStore},
     shared::SharedKeyring,
-    token::{CheckoutStatus, TokenError, TokenServer, MAX_BLINDED},
+    token::{CheckoutStatus, Paid, TokenError, TokenServer, MAX_BLINDED},
     vault::{DriveTokens, RenewalLock, VaultGrant, VaultState},
 };
 
+mod paid;
 mod proof;
 
+pub use paid::{PaidList, PaidRecord};
 pub use proof::Settled;
 use proof::{ClaimsEnded, GrantKept, NeverIssued, NoSuchCheckout, NotMade, Strikes};
 
@@ -169,6 +171,18 @@ pub struct CashKept {
     /// RFC 3339, as the token server wrote it (empty: none said).
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub expires_at: String,
+}
+
+impl CashKept {
+    /// What the order posts: the amount and its currency as one value, or `None` for a damaged
+    /// currency (the entry keeps the pair as the wire wrote it, so its JSON keeps its shape).
+    #[must_use]
+    pub fn charge(&self) -> Option<azlin_contract::Cents> {
+        Some(azlin_contract::Cents {
+            amount: self.amount_cents,
+            currency: azlin_contract::Currency::parse(&self.currency).ok()?,
+        })
+    }
 }
 
 impl fmt::Debug for PendingCheckout {
@@ -644,6 +658,26 @@ pub fn order_refused(
     }
 }
 
+/// The checkout `checkout_id`, which the order whose entry is `posting_id` made, is not shown (a
+/// price that is not the one the buyer was shown, a page that is not the token server's): it is
+/// abandoned at `server` ([`abandon`]), and when that ended it the order's record goes too - the
+/// same order asked again must not get a checkout that is over. One that could not be ended stays
+/// on the list in flight, as [`abandon`] leaves it.
+#[must_use]
+pub fn abandon_unshown(
+    server: &TokenServer<'_>,
+    shared: &SharedKeyring,
+    posting_id: &str,
+    checkout_id: &str,
+) -> Abandoned {
+    let result = abandon(server, shared, checkout_id);
+    if let Some(none) = NotMade::unshown(&result) {
+        // collapse-ok: a record that stays ages out; the result of the abandon is what the caller needs
+        let _ = settle(shared, posting_id, Settled::not_made(&none));
+    }
+    result
+}
+
 /// Takes off the list the entries of orders whose answer never came, [`POSTING_LIFE_SECS`] or
 /// more before `now` (seconds since 1970): how many went. Their payment page was never shown.
 ///
@@ -991,14 +1025,16 @@ pub fn poll(
     }
     match status {
         CheckoutStatus::Pending => Polled::Pending,
-        CheckoutStatus::Approved(bundle) => claim_drive(server, shared, checkout, *bundle),
+        CheckoutStatus::Approved(bundle, paid) => {
+            claim_drive(server, shared, checkout, *bundle, &paid)
+        }
         CheckoutStatus::Unopenable(why) => unopenable(shared, checkout, why),
         // Opens, or is no sealed text, and does not read: kept, never counted. The sealed text is
         // intact for 30 days; an update of the app may read it.
         CheckoutStatus::Unreadable(why) => Polled::Transient(Transient::Unread(format!(
             "its sign-up does not read ({why}): update the app"
         ))),
-        CheckoutStatus::Renewal(signup) => claim_months(shared, checkout, &signup),
+        CheckoutStatus::Renewal(signup, paid) => claim_months(shared, checkout, &signup, &paid),
         CheckoutStatus::Unknown(why) => Polled::Transient(Transient::Unread(why)),
         // Ended above.
         CheckoutStatus::Declined(why) | CheckoutStatus::Gone(why) => {
@@ -1017,7 +1053,21 @@ fn claim_drive(
     shared: &SharedKeyring,
     checkout: &PendingCheckout,
     bundle: DriveBundle,
+    paid: &Paid,
 ) -> Polled {
+    // What was paid, on a durable medium, before the checkout can leave the list: a record that
+    // cannot be kept holds the claim back for the next poll (the claim is idempotent).
+    if let Err(e) = keep_paid(
+        shared,
+        checkout,
+        bundle.drive_id(),
+        bundle.tier.as_deref(),
+        paid,
+    ) {
+        return Polled::Transient(Transient::NotKept(format!(
+            "the record of the payment could not be kept: {e}"
+        )));
+    }
     let kept = if checkout.picked_up {
         keep_picked_up(server, shared, checkout, bundle)
     } else {
@@ -1077,6 +1127,31 @@ fn keep_drive_key(
     Ok(())
 }
 
+/// Keeps the [`PaidRecord`] of `checkout`, paid for `drive_id`: its tier (the answer's, else
+/// the sign-up's, else the order's), its months (the answer's), the sale the token server booked.
+fn keep_paid(
+    shared: &SharedKeyring,
+    checkout: &PendingCheckout,
+    drive_id: &str,
+    signup_tier: Option<&str>,
+    paid: &Paid,
+) -> CloudResult<()> {
+    let tier = [signup_tier.unwrap_or_default(), checkout.tier.as_str()]
+        .into_iter()
+        .map(str::trim)
+        .find(|t| !t.is_empty())
+        .unwrap_or_default()
+        .to_string();
+    shared.paid().keep(&PaidRecord {
+        checkout: checkout.checkout_id.clone(),
+        drive: drive_id.to_string(),
+        tier,
+        months: paid.months_paid.filter(|m| *m > 0).unwrap_or(paid.months),
+        at: crate::now(),
+        receipt: paid.receipt.clone(),
+    })
+}
+
 /// A sign-up without a drive (a renewal, a tier change): its months for the drive the checkout
 /// was made for, kept on the list until [`finish`] has the grant with that drive. A checkout
 /// that names no drive stays unclaimed: no drive is guessed for months someone paid.
@@ -1084,6 +1159,7 @@ fn claim_months(
     shared: &SharedKeyring,
     checkout: &PendingCheckout,
     signup: &azlin_contract::RenewalSignup,
+    paid: &Paid,
 ) -> Polled {
     let drive_id = checkout.for_drive.trim();
     if drive_id.is_empty() {
@@ -1103,6 +1179,12 @@ fn claim_months(
         // reason to erase the claim secret on it (AZ-P6).
         return Polled::Transient(Transient::Unread(String::from(
             "its sign-up grants months of another checkout, or none",
+        )));
+    }
+    // What was paid, before the months are claimed (see [`claim_drive`]).
+    if let Err(e) = keep_paid(shared, checkout, drive_id, Some(signup.tier.as_str()), paid) {
+        return Polled::Transient(Transient::NotKept(format!(
+            "the record of the payment could not be kept: {e}"
         )));
     }
     match claimed(shared, &checkout.checkout_id, drive_id, Some(&grant)) {

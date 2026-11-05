@@ -13,23 +13,61 @@
 use std::path::{Path, PathBuf};
 
 use azcloud_kit::{
-    azlin_contract::{DeadlineKind, ScheduledChange, TierId},
+    azlin_contract::{Cents, DeadlineKind, ScheduledChange, TierId},
     Reminder, Tiers,
 };
 use azul::{callbacks::ButtonOnClickCallbackType, prelude::*, str::String as AzString};
-use azul_appkit::l10n::{self, label, t_args, Arg, Phrase};
+use azul_appkit::l10n::{label, t_args, Arg, Phrase};
 use azul_storage::time::iso8601;
 use serde::{Deserialize, Serialize};
 
-use crate::{ids, jobs::Job, spawn, DriveState};
+use crate::{ids, jobs::Job, pay_words, spawn, DriveState};
 
-/// The drive a Renew dialog is for: its id, its name, its tier now and that tier's quota.
+/// `amount` in the smallest unit of `currency`, as the window writes money.
+fn show(amount: u64, currency: &azcloud_kit::azlin_contract::Currency) -> String {
+    pay_words::show(&Cents {
+        amount,
+        currency: currency.clone(),
+    })
+}
+
+/// What this computer paid for a drive's price lock: the months and what they cost, from the
+/// paid list ([`azcloud_kit::pending::PaidList`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct LockPaid {
+    pub months: u32,
+    pub price: Cents,
+}
+
+/// A drive's price lock, as the dialog knows it. A renewal under a lock pays that ladder
+/// version's price in the earlier checkout's currency, or today's when lower (PRICES.md): the
+/// price is the token server's, and the app can say it only for the months this computer paid
+/// for the lock. Any other number it could show - today's list price - is not what is charged.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct LockSeen {
+    pub paid: Option<LockPaid>,
+}
+
+impl LockSeen {
+    /// The lock's price for `months`, when this computer paid for the lock for as many months.
+    #[must_use]
+    pub(crate) fn price_for(&self, months: u32) -> Option<Cents> {
+        self.paid
+            .as_ref()
+            .filter(|paid| paid.months == months)
+            .map(|paid| paid.price.clone())
+    }
+}
+
+/// The drive a Renew dialog is for: its id, its name, its tier now and that tier's quota, and
+/// the price lock of that tier (`None`: the drive has none and pays today's price).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct RenewFor {
     pub drive_id: String,
     pub name: String,
     pub tier: String,
     pub quota_bytes: u64,
+    pub lock: Option<LockSeen>,
 }
 
 /// What a Renew checkout buys: months for `drive_id`, whose tier is `tier` now - its next
@@ -67,6 +105,8 @@ pub(crate) struct RenewalSeen {
     pub plan: Option<String>,
     /// The tier and the signed ladder version of the drive's price lock.
     pub lock: Option<(String, Option<u64>)>,
+    /// What this computer paid for that lock, when it paid for it (the paid list).
+    pub lock_paid: Option<LockPaid>,
 }
 
 /// A reminder's words: what ends at its time for the drive `drive`, and Renew.
@@ -152,12 +192,12 @@ pub(crate) fn price_notices(
                     let monthly = if wire.month_cents > 0 {
                         t_args(
                             "azdrive-pay-a-month",
-                            &[("price", Arg::from(l10n::money(wire.month_cents, currency.as_str())))],
+                            &[("price", Arg::from(show(wire.month_cents, currency)))],
                         )
                     } else {
                         t_args(
                             "azdrive-pay-a-year",
-                            &[("price", Arg::from(l10n::money(wire.year_cents, currency.as_str())))],
+                            &[("price", Arg::from(show(wire.year_cents, currency)))],
                         )
                     };
                     t_args(
@@ -375,6 +415,9 @@ pub(crate) fn open_renew(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
         name: s.drive_name(&crate::browse::Place::folder(drive_id, "")),
         tier: seen.tier.unwrap_or_else(|| azcloud_kit::token::DEFAULT_TIER.to_string()),
         quota_bytes: seen.quota_bytes.or(usage_quota).unwrap_or(0),
+        lock: seen.lock.as_ref().map(|_| LockSeen {
+            paid: seen.lock_paid.clone(),
+        }),
     };
     println!("AZDRIVE_RENEW_OPEN {drive_id}");
     crate::add_flow::open_renewing(info, app, s, renew);

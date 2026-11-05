@@ -2,8 +2,8 @@
 //! status and its abandon, and a voucher.
 
 use azlin_contract::{
-    AbandonAnswer, AbandonWire, CheckoutAnswer, CheckoutStatusWire, Months, Prepay, TierOffer,
-    TiersAnswer,
+    AbandonAnswer, AbandonWire, Cents, CheckoutAnswer, CheckoutStatusWire, Currency, Months,
+    Prepay, ReceiptWire, TierOffer, TiersAnswer,
 };
 
 use super::*;
@@ -15,13 +15,13 @@ pub struct Tier {
     /// `100GB`, `1TB`: what a sign-up or a checkout names.
     pub id: String,
     pub quota_bytes: u64,
-    /// The price of a month, in cents of `currency`; `None` when the server names none (a
-    /// tier sold only by the year has none).
-    pub price_cents_month: Option<u64>,
+    /// The price of a month, in the smallest unit of its currency; `None` when the server names
+    /// none (a tier sold only by the year has none).
+    pub price_month: Option<Cents>,
     /// The price of a year (paid yearly).
-    pub price_cents_year: Option<u64>,
-    /// `EUR`.
-    pub currency: String,
+    pub price_year: Option<Cents>,
+    /// The currency the tier is priced in (`EUR`); the currency of both prices.
+    pub currency: Currency,
     /// The first month costs nothing.
     pub first_month_free: bool,
     /// Sold for 12 or 24 months only: an order of one month is refused (`bad_months`).
@@ -31,11 +31,6 @@ pub struct Tier {
     pub prepay: Prepay,
     /// The payment methods it is sold with; empty: every one the token server takes.
     pub methods: Vec<String>,
-}
-
-/// `99` cents as `0.99`.
-fn amount(cents: u64) -> String {
-    format!("{}.{:02}", cents / 100, cents % 100)
 }
 
 impl Tier {
@@ -57,16 +52,14 @@ impl Tier {
         }
     }
 
-    /// The price as people read it: `EUR 0.99 a month`, or with `yearly` `EUR 9.90 a year`;
-    /// `None` when the server names no price.
+    /// The price of a month (or with `yearly` of a year); `None` when the server names none.
     #[must_use]
-    pub fn price_text(&self, yearly: bool) -> Option<String> {
-        let (cents, per) = if yearly {
-            (self.price_cents_year?, "a year")
+    pub fn price(&self, yearly: bool) -> Option<&Cents> {
+        if yearly {
+            self.price_year.as_ref()
         } else {
-            (self.price_cents_month?, "a month")
-        };
-        Some(format!("{} {} {per}", self.currency, amount(cents)))
+            self.price_month.as_ref()
+        }
     }
 
     /// Whether a checkout of it may pay `months` months at once.
@@ -78,7 +71,7 @@ impl Tier {
     /// Whether it is sold a month at a time, with a monthly price.
     #[must_use]
     pub fn sells_monthly(&self) -> bool {
-        !self.yearly_only && self.price_cents_month.is_some() && self.sells_months(1)
+        !self.yearly_only && self.price_month.is_some() && self.sells_months(1)
     }
 
     /// Whether it is sold a year at a time.
@@ -111,12 +104,20 @@ impl Tier {
         if offer.quota.0 == 0 {
             return Err(TokenError::Protocol(format!("the tier {} has no size", offer.id)));
         }
+        let currency = offer.currency;
+        let priced = |amount: u64| Cents {
+            amount,
+            currency: currency.clone(),
+        };
         Ok(Tier {
             id: offer.id.as_str().to_string(),
             quota_bytes: offer.quota.0,
-            price_cents_month: offer.price_cents_month.filter(|_| !offer.yearly_only),
-            price_cents_year: offer.price_cents_year,
-            currency: offer.currency.as_str().to_string(),
+            price_month: offer
+                .price_cents_month
+                .filter(|_| !offer.yearly_only)
+                .map(priced),
+            price_year: offer.price_cents_year.map(priced),
+            currency,
             first_month_free: offer.first_month_free,
             yearly_only: offer.yearly_only,
             prepay: offer.prepay,
@@ -204,8 +205,9 @@ pub struct Checkout {
     pub pay_url: String,
     pub tier: String,
     pub months: u32,
-    pub amount_cents: u64,
-    pub currency: String,
+    /// What the token server charges for it: the answer's amount and currency, both or no
+    /// checkout at all.
+    pub charge: Charge,
     /// The token server's own test provider takes the payment (a development server).
     pub mock: bool,
     /// The signed price ladder version it locks (the answer's `lock.version`), when said.
@@ -283,14 +285,28 @@ impl fmt::Debug for CheckoutVia<'_> {
     }
 }
 
+/// What the answer of a paid checkout says of the payment: the sale the token server booked
+/// (its receipt, when it books one) and the months paid. Kept with the drive it paid for
+/// ([`crate::pending::PaidRecord`]): the customer's receipt is made from it, never from today's
+/// tier list.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Paid {
+    pub receipt: Option<ReceiptWire>,
+    /// The months it pays for, as the answer says (0: not said).
+    pub months: u32,
+    /// The months paid so far (a monthly plan's grow as they are paid).
+    pub months_paid: Option<u32>,
+}
+
 /// Where a checkout stands (`GET /v1/checkout/{id}`), as this app can act on it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CheckoutStatus {
     /// Not paid yet (a cash checkout: its letter is on its way).
     Pending,
     /// Paid: the new drive, opened from the sign-up the token server sealed to the checkout's
-    /// claim key (it answers it to every poll for 30 days).
-    Approved(Box<DriveBundle>),
+    /// claim key (it answers it to every poll for 30 days), and what the answer says of the
+    /// payment.
+    Approved(Box<DriveBundle>, Paid),
     /// The payment was declined, reversed, or the cash refused: why.
     Declined(String),
     /// The token server no longer has the checkout (it expired, or it answered the contract's
@@ -310,7 +326,7 @@ pub enum CheckoutStatus {
     Unreadable(String),
     /// Paid, and the sign-up holds months for a drive that exists, no new drive (a renewal, a
     /// tier change): claimed for the drive its checkout was made for.
-    Renewal(Box<azlin_contract::RenewalSignup>),
+    Renewal(Box<azlin_contract::RenewalSignup>, Paid),
     /// A status this app does not know (a newer token server): the status word.
     Unknown(String),
 }
@@ -331,10 +347,11 @@ pub enum VoucherRedeemed {
 }
 
 /// The checkout an answer of `POST /v1/checkout` describes (`months`: asked for, when it names
-/// none). Its id and payment page may be empty: the caller says which it needs.
-fn checkout_of(value: &Value, months: u32) -> Checkout {
+/// none). Its id and payment page may be empty: the caller says which it needs. The amount and
+/// the currency it charges must be there ([`Charge`]).
+fn checkout_of(value: &Value, months: u32) -> Result<Checkout, TokenError> {
     let text = |key: &str| value[key].as_str().unwrap_or_default().trim().to_string();
-    Checkout {
+    Ok(Checkout {
         checkout_id: text("checkout_id"),
         pay_url: text("pay_url"),
         tier: text("tier"),
@@ -342,11 +359,10 @@ fn checkout_of(value: &Value, months: u32) -> Checkout {
             .as_u64()
             .and_then(|m| u32::try_from(m).ok())
             .unwrap_or(months),
-        amount_cents: value["amount_cents"].as_u64().unwrap_or(0),
-        currency: value["currency"].as_str().unwrap_or("EUR").to_string(),
+        charge: Charge::of_answer(value)?,
         mock: value["mock"].as_bool().unwrap_or(false),
         ladder_version: value["ladder_version"].as_u64(),
-    }
+    })
 }
 
 impl<'a> TokenServer<'a> {
@@ -421,7 +437,7 @@ impl<'a> TokenServer<'a> {
         });
         grant.add_to(&mut body);
         let value = self.order(claim, &body)?;
-        let checkout = checkout_of(&value, months);
+        let checkout = checkout_of(&value, months)?;
         if checkout.checkout_id.is_empty() || checkout.pay_url.is_empty() {
             return Err(TokenError::Protocol(String::from(
                 "the checkout has no id or no payment page",
@@ -490,7 +506,7 @@ impl<'a> TokenServer<'a> {
         }
         grant.add_to(&mut body);
         let value = self.order(claim, &body)?;
-        let checkout = checkout_of(&value, months);
+        let checkout = checkout_of(&value, months)?;
         if checkout.checkout_id.is_empty() {
             return Err(TokenError::Protocol(String::from("the checkout has no id")));
         }
@@ -525,7 +541,7 @@ impl<'a> TokenServer<'a> {
         });
         grant.add_to(&mut body);
         let value = self.order(claim, &body)?;
-        let checkout = checkout_of(&value, months);
+        let checkout = checkout_of(&value, months)?;
         if checkout.checkout_id.is_empty() {
             return Err(TokenError::Protocol(String::from("the checkout has no id")));
         }
@@ -628,6 +644,11 @@ impl<'a> TokenServer<'a> {
                 "the answer is about another checkout",
             )));
         }
+        let paid = Paid {
+            receipt: answer.receipt.clone(),
+            months: answer.months,
+            months_paid: answer.months_paid,
+        };
         let said = |reason: Option<String>, default: &str| {
             reason
                 .map(|r| r.trim().to_string())
@@ -649,7 +670,7 @@ impl<'a> TokenServer<'a> {
             } if sealed.trim().is_empty() => CheckoutStatus::HandoverGone,
             CheckoutStatusWire::Approved {
                 sealed_signup: Some(sealed),
-            } => opened(claim, id, &sealed),
+            } => opened(claim, id, &sealed, paid),
             CheckoutStatusWire::Declined { decline, reason } => {
                 let text = decline.and_then(|d| d.text.or(d.reason));
                 CheckoutStatus::Declined(said(reason.or(text), "the payment was declined"))
@@ -727,7 +748,7 @@ impl<'a> TokenServer<'a> {
 
 /// The sealed sign-up of the approved checkout `checkout_id` opened with `claim`: the new
 /// drive, a renewal's months, or why it does not open.
-fn opened(claim: &ClaimKey, checkout_id: &str, sealed: &str) -> CheckoutStatus {
+fn opened(claim: &ClaimKey, checkout_id: &str, sealed: &str, paid: Paid) -> CheckoutStatus {
     let signup = match claim.open(checkout_id, sealed) {
         Ok(signup) => signup,
         // It does not open with this checkout's key: another key, another checkout, a changed
@@ -739,10 +760,10 @@ fn opened(claim: &ClaimKey, checkout_id: &str, sealed: &str) -> CheckoutStatus {
     // A renewal's or a tier change's sign-up adds months to a drive that exists: it holds no
     // drive to open.
     if let Ok(renewal) = serde_json::from_str::<azlin_contract::RenewalSignup>(&signup) {
-        return CheckoutStatus::Renewal(Box::new(renewal));
+        return CheckoutStatus::Renewal(Box::new(renewal), paid);
     }
     match DriveBundle::parse(&signup) {
-        Ok(bundle) => CheckoutStatus::Approved(Box::new(bundle)),
+        Ok(bundle) => CheckoutStatus::Approved(Box::new(bundle), paid),
         Err(e) => CheckoutStatus::Unreadable(e.to_string()),
     }
 }

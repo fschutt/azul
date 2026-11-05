@@ -24,8 +24,7 @@ const TOKEN: &str = "http://127.0.0.1:18081";
 fn slip() -> CashSlip {
     CashSlip {
         checkout_id: CHECKOUT.to_string(),
-        amount_cents: 1188,
-        currency: String::from("EUR"),
+        amount: crate::pay_words_tests::cents(1188, "EUR"),
         activation_code: CODE.to_string(),
         mail_to: MailTo {
             name: String::from("Azlin Test Operator"),
@@ -75,9 +74,9 @@ fn cash_by_post_is_a_pill_of_buy_storage_when_the_token_server_offers_it() {
         tiers: vec![azcloud_kit::Tier {
             id: String::from("100GB"),
             quota_bytes: 100_000_000_000,
-            price_cents_month: Some(99),
-            price_cents_year: Some(990),
-            currency: String::from("EUR"),
+            price_month: Some(crate::pay_words_tests::cents(99, "EUR")),
+            price_year: Some(crate::pay_words_tests::cents(990, "EUR")),
+            currency: crate::pay_words_tests::currency("EUR"),
             first_month_free: true,
             yearly_only: false,
             prepay: azcloud_kit::azlin_contract::Prepay::new(
@@ -294,9 +293,9 @@ fn a_token_server_whose_tiers_list_cash_offers_cash_by_post_without_payment_opti
         tiers: vec![azcloud_kit::Tier {
             id: String::from("100GB"),
             quota_bytes: 100_000_000_000,
-            price_cents_month: Some(99),
-            price_cents_year: Some(990),
-            currency: String::from("EUR"),
+            price_month: Some(crate::pay_words_tests::cents(99, "EUR")),
+            price_year: Some(crate::pay_words_tests::cents(990, "EUR")),
+            currency: crate::pay_words_tests::currency("EUR"),
             first_month_free: true,
             yearly_only: false,
             prepay: azcloud_kit::azlin_contract::Prepay::new(

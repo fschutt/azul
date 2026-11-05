@@ -68,7 +68,7 @@ use crate::{
     countries,
     browse::Place,
     go, ids,
-    jobs::{BoughtDrive, Job, OptionsFailed, PayVia, Started, TiersFailed},
+    jobs::{BoughtDrive, Job, OptionsFailed, PayVia, StartFailed, Started, TiersFailed},
     keyring, refresh_disks,
     sign_in::{self, PendingSignIn},
     spawn, with_state, DriveState, KeyringCall, KeyringOp, Popup, Slot,
@@ -88,6 +88,8 @@ pub(crate) enum AddEvent {
     Yearly,
     /// "Try again" after the tier list failed.
     RetryTiers,
+    /// "Try again" after the payment options failed.
+    RetryOptions,
     /// "Tell me when it is back" for the closed tier of the list at this index.
     WaitForTier(usize),
     Test,
@@ -155,15 +157,24 @@ fn print_page(d: &AddDialog) {
     println!("AZDRIVE_ADD_PAGE {}", d.page_line());
 }
 
-/// Opens the dialog on its two choices, with the buyer's declared country (`AZLIN_COUNTRY`, else
-/// the one remembered on this computer) or - for Buy storage's first question - the guess from
-/// the window's locale, then the system's.
+/// Opens the dialog on its two choices, with the buyer's declared country (the one remembered on
+/// this computer; `AZLIN_COUNTRY` only in a test build) or - for Buy storage's first question -
+/// the guess from the window's locale, then the system's.
 pub(crate) fn open(s: &mut DriveState) {
     s.popups_opened += 1;
     let mut d = AddDialog::new(s.popups_opened);
     let env = |name: &str| std::env::var(name).ok();
-    d.country = countries::declared(s.settings.residence_country.as_deref(), env)
-        .unwrap_or_default();
+    // The buyer's VAT country comes from the buyer: what they declared and this computer
+    // remembers. A variable of the environment names it only in a test build (X-AR5b-24).
+    let declared = |name: &str| {
+        if cfg!(feature = "test-hooks") {
+            env(name)
+        } else {
+            None
+        }
+    };
+    d.country =
+        countries::declared(s.settings.residence_country.as_deref(), declared).unwrap_or_default();
     let first = if d.country.is_empty() {
         countries::guess(&l10n::locale(), env)
     } else {
@@ -309,6 +320,11 @@ pub(crate) fn event(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, e
             }
         }
         AddEvent::RetryTiers => load_tiers(info, app, s, true),
+        AddEvent::RetryOptions => {
+            if !d.busy() && d.options_failed().is_some() {
+                load_options(info, app, s);
+            }
+        }
         AddEvent::WaitForTier(index) => {
             if let Some(tier) = d.closed.get(index).cloned() {
                 crate::renewals::wait_for_tier(s, &tier);
@@ -838,10 +854,15 @@ fn load_options(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
         tiers_ready(d);
         return;
     };
-    let (tier, currency) = d
+    // No tier chosen: there is nothing to ask the options of (and no currency to guess).
+    let Some((tier, currency)) = d
         .chosen_tier()
-        .map(|t| (t.id.clone(), t.currency.clone()))
-        .unwrap_or_else(|| (String::new(), String::from("EUR")));
+        .map(|t| (t.id.clone(), t.currency.as_str().to_string()))
+    else {
+        d.offer = OfferState::NotLoaded;
+        tiers_ready(d);
+        return;
+    };
     d.offer = OfferState::Loading;
     let job = Job::Options {
         serial: d.serial,
@@ -880,7 +901,10 @@ pub(crate) fn options_answered(
             }
             Err(why) => d.offer = OfferState::Failed(why.to_string()),
         },
-        Ok(None) => d.offer = OfferState::Legacy,
+        // No such route: an older token server on this computer speaks the v1 page; anywhere
+        // else it is a failure to ask again, not a page to fall back to (X-AR5b-19).
+        Ok(None) if crate::add_drive::v1_page_allowed(&token_url) => d.offer = OfferState::Legacy,
+        Ok(None) => d.offer = OfferState::Failed(t("azdrive-add-options-missing")),
         Err(OptionsFailed::Refused(said)) => {
             println!("AZDRIVE_PAY_REFUSED");
             d.offer = OfferState::Refused(l10n::t_text(&said));
@@ -1005,6 +1029,16 @@ fn buy(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
         let _ = buy_parts(s);
         return;
     }
+    // The payment options failed: the buyer asks again; a weaker page is not taken instead.
+    if let Some(d) = dialog(s) {
+        if let Some(why) = d.options_failed().map(String::from) {
+            d.notice = t_args(
+                "azdrive-add-options-failed",
+                &[("why", Arg::from(l10n::t_label(&why)))],
+            );
+            return;
+        }
+    }
     if !dialog(s).is_some_and(|d| d.pays_with_pills()) {
         buy_on_the_payment_page(info, app, s);
         return;
@@ -1093,6 +1127,12 @@ fn look_name(info: &CallbackInfo) -> String {
 /// The v1 checkout: on the keyring's list of unfinished checkouts with its claim key; its
 /// payment page opens in the browser when it is made.
 fn buy_on_the_payment_page(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
+    // A checkout in flight may be paid already or any moment: the machine ends it first, as for
+    // an order of its own, and this order goes on from the button when it is ended (AZ-P4).
+    if dialog_ref(s).is_some_and(|d| !d.pay.may_order() && !d.pay.busy()) {
+        let _ = pay(info, app, s, Event::Release);
+        return;
+    }
     let Some((tier, name, token_url, serial)) = buy_parts(s) else {
         return;
     };
@@ -1109,6 +1149,10 @@ fn buy_on_the_payment_page(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveS
     };
     let keyring = s.keyring.clone();
     let renew = dialog_ref(s).and_then(|d| renew_job(s, d));
+    let quote = dialog_ref(s).and_then(|d| d.quote_for(None));
+    if let Some(d) = dialog(s) {
+        d.charge = None;
+    }
     spawn(
         info,
         app,
@@ -1123,6 +1167,7 @@ fn buy_on_the_payment_page(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveS
             keyring,
             via: None,
             renew,
+            quote,
         },
     );
 }
@@ -1299,6 +1344,12 @@ fn start_pay_checkout(
     let PayState::Preparing { choice, .. } = &d.pay else {
         return;
     };
+    // What the buyer was shown for the chosen method: the checkout is held to it.
+    let quote = d.quote_for(Some(choice));
+    d.charge = None;
+    let PayState::Preparing { choice, .. } = &d.pay else {
+        return;
+    };
     let via = PayVia {
         choice: choice.clone(),
         surface,
@@ -1330,6 +1381,7 @@ fn start_pay_checkout(
         keyring,
         via: Some(Box::new(via)),
         renew,
+        quote,
     };
     spawn(info, app, s, job);
 }
@@ -1478,6 +1530,29 @@ pub(crate) fn checkout_started(
     app: &RefAny,
     s: &mut DriveState,
     serial: u64,
+    result: Result<Started, StartFailed>,
+) {
+    let (result, prices_moved) = match result {
+        Ok(started) => (Ok(started), false),
+        Err(failed) => (Err(failed.why), failed.prices_moved),
+    };
+    checkout_made(info, app, s, serial, result);
+    // The token server charges something else than the page said: the prices on it are stale.
+    if prices_moved {
+        if let Some(d) = dialog_of(s, serial) {
+            d.tiers = TiersState::NotLoaded;
+            d.offer = OfferState::NotLoaded;
+            load_tiers(info, app, s, false);
+        }
+    }
+}
+
+/// [`checkout_started`] for the answer in words.
+fn checkout_made(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    serial: u64,
     result: Result<Started, Text>,
 ) {
     let keyring = s.keyring.clone();
@@ -1511,6 +1586,7 @@ pub(crate) fn checkout_started(
         let event = match result {
             Ok(started) => {
                 println!("AZDRIVE_CHECKOUT {}", started.checkout.checkout_id);
+                d.charge = Some(started.checkout.charge.cents().clone());
                 d.kept = Some(started.kept);
                 match (started.created, started.cash) {
                     (Some(created), _) => Event::Created(Box::new(created)),
@@ -1536,7 +1612,11 @@ pub(crate) fn checkout_started(
     };
     let token_url = kept.token_url.clone();
     println!("AZDRIVE_CHECKOUT {}", checkout.checkout_id);
-    let opened = Url::parse(checkout.pay_url.as_str())
+    d.charge = Some(checkout.charge.cents().clone());
+    // The page this token server builds for the checkout (the answer's was checked to be it,
+    // and nothing it names is opened): an address of the app's own making.
+    let page = azcloud_kit::pay_page(&token_url, &checkout.checkout_id).unwrap_or_default();
+    let opened = Url::parse(page.as_str())
         .into_result()
         .map(|url| url.open())
         .unwrap_or(false);
@@ -1550,7 +1630,7 @@ pub(crate) fn checkout_started(
     } else {
         t_args(
             "azdrive-add-pay-page-open-yourself",
-            &[("page", Arg::from(checkout.pay_url.to_string()))],
+            &[("page", Arg::from(page.clone()))],
         )
     };
     spawn(

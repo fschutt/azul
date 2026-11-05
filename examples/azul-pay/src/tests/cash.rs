@@ -1,6 +1,7 @@
 //! Cash by post (cash contract v1): the provider that takes cash on paper - no web view, no
 //! browser -, its pill, the checkout's slip and the machine's way through it.
 
+use azlin_contract::{Cents, Currency};
 use serde_json::{json, Value};
 
 use super::fixtures::run;
@@ -25,6 +26,14 @@ const APP: &[SurfaceKind] = &[
 /// (the app checks its shape only).
 const CODE: &str = "AZC1-AAAQ-EAYE-AUDA-OCAJ-BIFQ-YDIO-B4AA-ABFE-IVKV-F3QG-5NDF-5KZK-SMTY-I";
 const CHECKOUT: &str = "ck_aaaqeayeaudaocajbifqydiob4";
+
+/// `amount` in the smallest unit of `currency`.
+fn cents(amount: u64, currency: &str) -> Cents {
+    Cents {
+        amount,
+        currency: Currency::parse(currency).unwrap(),
+    }
+}
 
 fn offer(value: Value) -> Offer {
     Offer::parse(
@@ -135,14 +144,13 @@ fn the_server_cannot_widen_cash_to_a_web_view_or_the_browser() {
 fn a_cash_checkout_answer_reads_into_its_slip() {
     let slip = slip();
     assert_eq!(slip.checkout_id, CHECKOUT);
-    assert_eq!(slip.amount_cents, 1188);
-    assert_eq!(slip.currency, "EUR");
+    assert_eq!(slip.amount.amount, 1188);
+    assert_eq!(slip.amount.currency.as_str(), "EUR");
     assert_eq!(slip.activation_code, CODE);
     assert!(slip.activation_code.starts_with(ACTIVATION_PREFIX));
     assert_eq!(slip.mail_to.name, "Azlin Test Operator");
     assert_eq!(slip.mail_to.lines.len(), 3);
     assert_eq!(slip.expires_at.as_deref(), Some("2026-12-09T10:00:00Z"));
-    assert_eq!(slip.amount_text(), "EUR 11.88");
     assert_eq!(slip.amount_words(), "eleven euros and eighty-eight cents");
 }
 
@@ -188,18 +196,49 @@ fn an_activation_code_of_another_shape_is_refused() {
 
 #[test]
 fn the_amount_is_written_in_words_for_the_slip() {
-    assert_eq!(amount_in_words(990, "EUR"), "nine euros and ninety cents");
-    assert_eq!(amount_in_words(4990, "EUR"), "forty-nine euros and ninety cents");
-    assert_eq!(amount_in_words(100, "EUR"), "one euro");
-    assert_eq!(amount_in_words(101, "EUR"), "one euro and one cent");
-    assert_eq!(amount_in_words(2, "EUR"), "two cents");
     assert_eq!(
-        amount_in_words(123_456, "EUR"),
+        amount_in_words(&cents(990, "EUR")),
+        "nine euros and ninety cents"
+    );
+    assert_eq!(
+        amount_in_words(&cents(4990, "EUR")),
+        "forty-nine euros and ninety cents"
+    );
+    assert_eq!(amount_in_words(&cents(100, "EUR")), "one euro");
+    assert_eq!(amount_in_words(&cents(101, "EUR")), "one euro and one cent");
+    assert_eq!(amount_in_words(&cents(2, "EUR")), "two cents");
+    assert_eq!(
+        amount_in_words(&cents(123_456, "EUR")),
         "one thousand two hundred thirty-four euros and fifty-six cents"
     );
-    assert_eq!(amount_in_words(1_999_000, "EUR"), "nineteen thousand nine hundred ninety euros");
-    assert_eq!(amount_in_words(2_500, "CHF"), "twenty-five Swiss francs");
-    assert_eq!(amount_in_words(1_050, "SEK"), "ten SEK and fifty hundredths");
+    assert_eq!(
+        amount_in_words(&cents(1_999_000, "EUR")),
+        "nineteen thousand nine hundred ninety euros"
+    );
+    assert_eq!(
+        amount_in_words(&cents(2_500, "CHF")),
+        "twenty-five Swiss francs"
+    );
+    assert_eq!(
+        amount_in_words(&cents(1_050, "SEK")),
+        "ten SEK and fifty hundredths"
+    );
+}
+
+/// X-AR5b-18: the slip's words follow the currency's own smallest unit - no hundredths of a yen,
+/// thousandths of a Kuwaiti dinar.
+#[test]
+fn x_ar5b_18_the_amount_in_words_has_the_currencys_own_decimals() {
+    assert_eq!(amount_in_words(&cents(160, "JPY")), "one hundred sixty JPY");
+    assert_eq!(amount_in_words(&cents(1, "JPY")), "one JPY");
+    assert_eq!(
+        amount_in_words(&cents(1_234, "KWD")),
+        "one KWD and two hundred thirty-four thousandths"
+    );
+    assert_eq!(
+        amount_in_words(&cents(990, "EUR")),
+        "nine euros and ninety cents"
+    );
 }
 
 // ==== The machine ====
@@ -229,6 +268,10 @@ fn buying_with_cash_makes_a_paper_checkout_and_opens_no_page() {
     assert_eq!(state.name(), "posted");
     assert_eq!(state.checkout_id(), Some(CHECKOUT));
     assert!(!state.busy(), "the dialog waits for no letter");
+    assert!(
+        state.may_order(),
+        "a cash order waiting for its letter leaves the way free"
+    );
     assert!(effects.contains(&Effect::ShowPaper(Box::new(slip()))));
     assert!(effects.contains(&Effect::Notice(Notice::WaitingForLetter)));
     assert!(

@@ -965,6 +965,22 @@ macro_rules! gocardless_methods {
     };
 }
 
+// The sandbox pages of two real providers move no money and never approve a payment: under the
+// verified-origin chip a token server (or anything between) could send a buyer to one and have
+// them "pay" there. They are the pages of a test build only (AZ-P13): a build without
+// `fake-providers` has no way to be pointed at them.
+#[cfg(feature = "fake-providers")]
+const GOCARDLESS_ORIGINS: &[Origin] = &[
+    exact("pay.gocardless.com"),
+    exact("pay-sandbox.gocardless.com"),
+];
+#[cfg(not(feature = "fake-providers"))]
+const GOCARDLESS_ORIGINS: &[Origin] = &[exact("pay.gocardless.com")];
+#[cfg(feature = "fake-providers")]
+const DLOCAL_ORIGINS: &[Origin] = &[exact("pay.dlocal.com"), exact("sandbox.dlocal.com")];
+#[cfg(not(feature = "fake-providers"))]
+const DLOCAL_ORIGINS: &[Origin] = &[exact("pay.dlocal.com")];
+
 static PROVIDERS: &[ProviderSpec] = &[
     ProviderSpec {
         id: "stripe",
@@ -990,7 +1006,7 @@ static PROVIDERS: &[ProviderSpec] = &[
         kind: ProviderKind::Processor,
         name: "GoCardless",
         legal_name: "GoCardless Ltd",
-        origins: &[exact("pay.gocardless.com"), exact("pay-sandbox.gocardless.com")],
+        origins: GOCARDLESS_ORIGINS,
         pages: PAY_PAGES,
         fields: Some("/fields/gocardless/v1"),
         methods: gocardless_methods!(spec(
@@ -1011,7 +1027,7 @@ static PROVIDERS: &[ProviderSpec] = &[
         kind: ProviderKind::Processor,
         name: "dLocal",
         legal_name: "dLocal",
-        origins: &[exact("pay.dlocal.com"), exact("sandbox.dlocal.com")],
+        origins: DLOCAL_ORIGINS,
         pages: PAY_PAGES,
         fields: None,
         methods: &[

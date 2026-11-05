@@ -25,9 +25,8 @@ use std::{
 use azcloud_kit::{
     pending::{self, Abandoned, Claimed, Final, Finished, PendingTokens, Polled},
     change_due, look_at_drive, reminder_due, ActivationCode, Checkout, CheckoutFor, CheckoutVia,
-    ClaimKey, CloudError, DriveBundle, TierChanged,
-    DriveTokens, GrantChanged, OptionsQuery,
-    PendingCheckout, PeriodTokenStore, PeriodTokens, SharedKeyring, Tiers, TokenError,
+    ClaimKey, CloudError, DriveBundle, DriveTokens, GrantChanged, OptionsQuery, PendingCheckout,
+    PeriodTokenStore, PeriodTokens, Quote, SharedKeyring, TierChanged, Tiers, TokenError,
     TokenServer, UserError, VoucherRedeemed,
 };
 use azul_appkit::l10n::{Phrase, Text};
@@ -128,6 +127,22 @@ pub(crate) enum TiersFailed {
 /// error - a 403 of an edge or a firewall is one of those: it gets "Try again" (AZ-P14).
 pub(crate) fn buyer_refused(e: &TokenError) -> Option<Text> {
     e.is_blocked_country().then(|| token_error_text(e))
+}
+
+/// Why a checkout was not started: the words, and whether the prices on the page are stale (the
+/// token server charges something else than they said), so they are asked for again.
+pub(crate) struct StartFailed {
+    pub why: Text,
+    pub prices_moved: bool,
+}
+
+impl From<Text> for StartFailed {
+    fn from(why: Text) -> StartFailed {
+        StartFailed {
+            why,
+            prices_moved: false,
+        }
+    }
 }
 
 /// A checkout made: the token server's answer, the keyring's entry of it, and - through a
@@ -322,6 +337,9 @@ pub(crate) enum Job {
         via: Option<Box<PayVia>>,
         /// Renew: the drive the months are for (its price lock read from its vaults).
         renew: Option<Box<RenewJob>>,
+        /// What the buyer was shown for it: the checkout's charge is held to it before anything
+        /// of the checkout is shown (`None`: no price was said).
+        quote: Option<Quote>,
     },
     /// Buy storage's payment options (`GET /v1/checkout/options`) for `tier`, `months`, the
     /// payer's `country` and `currency`; `asked` the dialog's key of that order (its answer is
@@ -681,7 +699,7 @@ pub(crate) enum Outcome {
     /// A checkout, on the keyring's list of unfinished checkouts (or why there is none).
     CheckoutStarted {
         serial: u64,
-        result: Result<Started, Text>,
+        result: Result<Started, StartFailed>,
     },
     /// Buy storage's payment options for the order `asked`: the offer's text (`None`: the
     /// token server has none).
@@ -2363,12 +2381,13 @@ fn start_checkout(
     keyring: &SharedKeyring,
     via: Option<&PayVia>,
     renew: Option<&RenewJob>,
-) -> Result<Started, Text> {
+    quote: Option<&Quote>,
+) -> Result<Started, StartFailed> {
     let transport = AzulTransport::new(USER_AGENT);
     // The checkout's key is kept with the keyring's open calls: an order whose answer was lost
     // is asked again under it and gets its first answer.
     let server = TokenServer::new(token_url, &transport)
-        .map_err(|e| token_error_text(&e))?
+        .map_err(|e| StartFailed::from(token_error_text(&e)))?
         .with_outbox(keyring.outbox());
     // A renewal names the drive's price lock; without one (or with one the token server no
     // longer takes) it buys period tokens only, at today's price - the price the dialog shows.
@@ -2378,7 +2397,8 @@ fn start_checkout(
             let tokens = drive_tokens(&r.store, &r.order.drive_id, r.azlin.as_ref()).ok()?;
             tokens.state().ok()?.renewal_lock(&r.order.tier).cloned()
         });
-    let fresh = ClaimKey::generate().map_err(|e| token_error_text(&TokenError::Config(e.to_string())))?;
+    let fresh = ClaimKey::generate()
+        .map_err(|e| StartFailed::from(token_error_text(&TokenError::Config(e.to_string()))))?;
     let mut draft = PendingCheckout::posting(&fresh, tier, server.base(), name);
     if let Some(r) = renew {
         draft.for_drive = r.order.drive_id.clone();
@@ -2396,7 +2416,7 @@ fn start_checkout(
         }
         other => other.map(|placed| (placed, lock.as_ref().map(|l| l.checkout_id.clone()))),
     };
-    let (placed, renews) = placed.map_err(|e| order_error_text(&e))?;
+    let (placed, renews) = placed.map_err(|e| StartFailed::from(order_error_text(&e)))?;
     let (checkout, answer) = placed.answer;
     let mut kept = PendingCheckout::new(
         &checkout.checkout_id,
@@ -2418,6 +2438,7 @@ fn start_checkout(
         tier,
         months,
         via,
+        quote,
         checkout,
         answer,
         kept,
@@ -2522,8 +2543,11 @@ fn checkout_for(
 }
 
 /// A checkout made: its entry takes the order's place on the keyring's list as `kept` before
-/// anything shows it (cash by post with its slip), and its surface read. `posting_id` is the
-/// order's entry ([`pending::posted`]).
+/// anything shows it (cash by post with its slip), and then what is shown of it is checked:
+/// the price against the buyer's `quote` ([`Quote::check`]), the v1 payment page against the one
+/// the token server's address builds, the surface through azul-pay. Anything that is not as the
+/// buyer was told ends the checkout at the token server ([`not_shown`]) and is said. `posting_id`
+/// is the order's entry ([`pending::posted`]).
 #[allow(clippy::too_many_arguments)]
 fn finish_start(
     server: &TokenServer<'_>,
@@ -2532,40 +2556,59 @@ fn finish_start(
     tier: &str,
     months: u32,
     via: Option<&PayVia>,
+    quote: Option<&Quote>,
     checkout: Checkout,
     answer: Option<serde_json::Value>,
     mut kept: PendingCheckout,
-) -> Result<Started, Text> {
+) -> Result<Started, StartFailed> {
+    let unshown = |why: StartFailed| not_shown(server, keyring, posting_id, &checkout, why);
     // Cash by post: the slip, checked, waits in the list with its checkout (it is printed
     // again from there); one that is not this order's is never printed. A new drive's order
     // keeps the drive's key there too, whose id the buyer's copy prints.
     let cash = match (via, &answer) {
         (Some(via), Some(answer)) if via.surface == SurfaceKind::Paper => {
-            let slip = cash_slip(answer, via)
-                .map_err(|why| not_shown(server, keyring, &checkout, Text::plain(why)))?;
+            let slip = cash_slip(answer, via).map_err(|why| unshown(Text::plain(why).into()))?;
             crate::cash::keep_order(&mut kept, &slip, tier, months)
-                .map_err(|why| not_shown(server, keyring, &checkout, crate::l10n::said(&why)))?;
+                .map_err(|why| unshown(crate::l10n::said(&why).into()))?;
             Some(slip)
         }
         _ => None,
     };
     if let Err(e) = pending::posted(keyring, posting_id, &kept) {
-        return Err(not_shown(server, keyring, &checkout, add_error_text(&e)));
+        return Err(unshown(add_error_text(&e).into()));
+    }
+    // The price the buyer was shown is the price charged, before anything is shown or opened.
+    if let Some(changed) = quote.and_then(|quote| quote.check(&checkout.charge).err()) {
+        eprintln!(
+            "[azdrive] the checkout {} is not the order shown: {changed}",
+            checkout.checkout_id
+        );
+        return Err(unshown(StartFailed {
+            why: Phrase::new("azdrive-order-price-changed")
+                .arg("shown", crate::pay_words::show(&changed.shown))
+                .arg("charged", crate::pay_words::show(&changed.charged))
+                .into(),
+            prices_moved: true,
+        }));
+    }
+    // The v1 payment page is the one this token server builds for the checkout; an address of
+    // any other host, scheme or path is never opened (AZ-P3).
+    if via.is_none()
+        && !azcloud_kit::page_is(server.base(), &checkout.checkout_id, &checkout.pay_url)
+    {
+        eprintln!(
+            "[azdrive] the payment page of the checkout {} is not this token server's",
+            checkout.checkout_id
+        );
+        return Err(unshown(Text::key("azdrive-order-page-not-ours").into()));
     }
     let created = match (via, answer) {
         (Some(_), Some(_)) if cash.is_some() => None,
         (Some(via), Some(answer)) => match Created::parse(&answer, &via.choice, &via.look) {
             Ok(created) => Some(created),
-            Err(refused) => {
-                // Nothing of it is shown: nobody may pay it. It leaves the list only when the
-                // token server ended it - and the words say when it did not.
-                return Err(not_shown(
-                    server,
-                    keyring,
-                    &checkout,
-                    Text::plain(refused.to_string()),
-                ));
-            }
+            // Nothing of it is shown: nobody may pay it. It leaves the list only when the
+            // token server ended it - and the words say when it did not.
+            Err(refused) => return Err(unshown(Text::plain(refused.to_string()).into())),
         },
         _ => None,
     };
@@ -2583,24 +2626,26 @@ fn finish_start(
 fn not_shown(
     server: &TokenServer<'_>,
     keyring: &SharedKeyring,
+    posting_id: &str,
     checkout: &Checkout,
-    why: Text,
-) -> Text {
-    match pending::abandon(server, keyring, &checkout.checkout_id) {
+    mut why: StartFailed,
+) -> StartFailed {
+    match pending::abandon_unshown(server, keyring, posting_id, &checkout.checkout_id) {
         Abandoned::Ended | Abandoned::Settled => why,
         Abandoned::Kept { paid, why: kept } => {
             eprintln!(
                 "[azdrive] the checkout {} was not shown and stays on the list: {kept}",
                 checkout.checkout_id
             );
-            why.then(" ").then(
+            why.why = why.why.then(" ").then(
                 Phrase::new(if paid {
                     "azdrive-order-not-shown-paid"
                 } else {
                     "azdrive-order-not-shown-open"
                 })
                 .arg("checkout", checkout.checkout_id.as_str()),
-            )
+            );
+            why
         }
     }
 }
@@ -2610,7 +2655,7 @@ fn not_shown(
 fn cash_slip(answer: &serde_json::Value, via: &PayVia) -> Result<CashSlip, String> {
     let slip = CashSlip::parse(answer, &via.choice).map_err(|e| e.to_string())?;
     ActivationCode::parse(&slip.activation_code)
-        .and_then(|code| code.check(&slip.checkout_id, slip.amount_cents, &slip.currency))
+        .and_then(|code| code.check(&slip.checkout_id, &slip.amount))
         .map_err(|e| {
             format!("the slip's activation code is not this order's ({e}), so it was not printed")
         })?;
@@ -3044,10 +3089,9 @@ fn renewal_seen(
         .iter()
         .find(|g| g.recurring && g.is_open())
         .map(|g| g.checkout_id.clone());
-    let lock = tier
-        .as_deref()
-        .and_then(|t| kept.renewal_lock(t))
-        .map(|l| (l.tier.clone(), l.ladder_version));
+    let locked = tier.as_deref().and_then(|t| kept.renewal_lock(t));
+    let lock = locked.map(|l| (l.tier.clone(), l.ladder_version));
+    let lock_paid = locked.and_then(|l| lock_paid(keyring, &l.checkout_id));
     RenewalSeen {
         quota_bytes: status.and_then(|s| s.quota_bytes),
         tier,
@@ -3056,7 +3100,21 @@ fn renewal_seen(
         change,
         plan,
         lock,
+        lock_paid,
     }
+}
+
+/// What this computer paid for the price lock (the paid checkout) `checkout_id`: its months and
+/// what the token server booked for them; `None` when the paid list has no record of it (another
+/// computer bought it, a token server that books no sale) - the renewal dialog then says no price
+/// rather than today's list price (X-AR5b-20).
+fn lock_paid(keyring: &SharedKeyring, checkout_id: &str) -> Option<crate::renewals::LockPaid> {
+    // collapse-ok: a paid list that cannot be read shows no price; the order is still held to what the token server charges
+    let record = keyring.paid().of_checkout(checkout_id).ok().flatten()?;
+    Some(crate::renewals::LockPaid {
+        months: record.months,
+        price: record.charge()?,
+    })
 }
 
 /// Ends the monthly plan `checkout_id` of `drive_id` with the issue key its vaults keep.
@@ -3426,6 +3484,7 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
             keyring,
             via,
             renew,
+            quote,
         } => Outcome::CheckoutStarted {
             serial,
             result: start_checkout(
@@ -3437,6 +3496,7 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
                 &keyring,
                 via.as_deref(),
                 renew.as_deref(),
+                quote.as_ref(),
             ),
         },
         Job::CancelPlan {
@@ -4734,5 +4794,212 @@ mod tests {
             tree_folders(&drive, Some(&dir.path().join("beta")), &deeper).expect("empty");
         assert!(none.is_empty() && zero == 0);
     }
-}
 
+    // ==== A made checkout is shown only when it is what the buyer was told (RF51/RF52) ====
+
+    use azcloud_kit::{CheckoutFor, Quote};
+    use azul_storage::{
+        keyring::{KeyringNamespace, MemoryKeyring},
+        HttpCall, HttpReply, Transport,
+    };
+
+    /// A token server that makes the checkout `ck_1` (PLN 4.49, the payment page it names) and
+    /// ends any checkout it is asked to abandon; it records what it was asked.
+    struct Orders {
+        pay_url: &'static str,
+        calls: std::sync::Mutex<Vec<String>>,
+    }
+
+    impl Transport for Orders {
+        fn send(&self, call: &HttpCall) -> Result<HttpReply, String> {
+            self.calls.lock().unwrap().push(call.url.clone());
+            let body = if call.url.ends_with("/abandon") {
+                String::from(r#"{"checkout_id": "ck_1", "status": "expired"}"#)
+            } else {
+                format!(
+                    r#"{{"checkout_id": "ck_1", "pay_url": "{}", "tier": "100GB", "months": 1,
+                        "amount_cents": 449, "currency": "PLN"}}"#,
+                    self.pay_url
+                )
+            };
+            Ok(HttpReply {
+                status: 200,
+                headers: vec![(
+                    String::from("content-type"),
+                    String::from("application/json"),
+                )],
+                body: body.into_bytes(),
+            })
+        }
+    }
+
+    fn eur(amount: u64) -> azcloud_kit::azlin_contract::Cents {
+        crate::pay_words_tests::cents(amount, "EUR")
+    }
+
+    /// The order placed and its checkout made, as `start_checkout` has them when it calls
+    /// `finish_start`: the list holds the order's record.
+    fn placed(
+        dir: &TempDir,
+        pay_url: &'static str,
+    ) -> (Orders, SharedKeyring, Checkout, PendingCheckout, String) {
+        let keyring = SharedKeyring::with_lock_root(
+            Arc::new(MemoryKeyring::new()),
+            KeyringNamespace::azlin_shared(),
+            &dir.path().join("locks"),
+        );
+        let orders = Orders {
+            pay_url,
+            calls: std::sync::Mutex::new(Vec::new()),
+        };
+        let (checkout, kept, posting_id) = {
+            let server = TokenServer::new("http://127.0.0.1:18081", &orders).expect("a server");
+            let claim = ClaimKey::generate().expect("a claim key");
+            let draft = PendingCheckout::posting(&claim, "100GB", server.base(), "Photos");
+            let placed = pending::place_order(&keyring, &draft, |claim| {
+                server.checkout("100GB", 1, "sepa", claim, CheckoutFor::NewDrive)
+            })
+            .expect("placed");
+            let kept = PendingCheckout::new(
+                &placed.answer.checkout_id,
+                &placed.claim,
+                "100GB",
+                server.base(),
+                "Photos",
+            );
+            (placed.answer, kept, placed.posting_id)
+        };
+        orders.calls.lock().unwrap().clear();
+        (orders, keyring, checkout, kept, posting_id)
+    }
+
+    /// AZ-P2: a buyer shown EUR 0.99 is not sent to a checkout that charges PLN 4.49. The
+    /// checkout is ended at the token server and leaves the list - nothing of it is shown - and
+    /// the page is told its prices are stale.
+    #[test]
+    fn az_p2_a_checkout_that_charges_other_than_the_quote_is_ended_before_anything_is_shown() {
+        let dir = TempDir::new("azdrive-start");
+        let (orders, keyring, checkout, kept, posting_id) =
+            placed(&dir, "http://127.0.0.1:18081/v1/pay/ck_1");
+        let server = TokenServer::new("http://127.0.0.1:18081", &orders).expect("a server");
+        let quote = Quote {
+            price: eur(99),
+            tier: String::from("100GB"),
+            months: 1,
+            at_most: false,
+        };
+        let failed = match finish_start(
+            &server,
+            &keyring,
+            &posting_id,
+            "100GB",
+            1,
+            None,
+            Some(&quote),
+            checkout,
+            None,
+            kept,
+        ) {
+            Err(failed) => failed,
+            Ok(_) => panic!("shown at another price"),
+        };
+        assert_eq!(failed.why.keys(), vec!["azdrive-order-price-changed"]);
+        assert!(failed.prices_moved, "the prices on the page are stale");
+        assert!(
+            orders
+                .calls
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|u| u.ends_with("/v1/checkout/ck_1/abandon")),
+            "ended at the token server"
+        );
+        assert!(
+            pending::list(&keyring).unwrap().is_empty(),
+            "it left the list: nobody may pay it"
+        );
+    }
+
+    /// AZ-P2: the price shown is the price charged: the order goes on, and its checkout is the
+    /// list's entry (not the record of the order).
+    #[test]
+    fn az_p2_a_checkout_that_charges_what_was_shown_goes_on() {
+        let dir = TempDir::new("azdrive-start");
+        let (orders, keyring, checkout, kept, posting_id) =
+            placed(&dir, "http://127.0.0.1:18081/v1/pay/ck_1");
+        let server = TokenServer::new("http://127.0.0.1:18081", &orders).expect("a server");
+        let quote = Quote {
+            price: crate::pay_words_tests::cents(449, "PLN"),
+            tier: String::from("100GB"),
+            months: 1,
+            at_most: false,
+        };
+        let started = finish_start(
+            &server,
+            &keyring,
+            &posting_id,
+            "100GB",
+            1,
+            None,
+            Some(&quote),
+            checkout,
+            None,
+            kept,
+        )
+        .ok()
+        .expect("what was shown");
+        assert_eq!(started.checkout.checkout_id, "ck_1");
+        let listed = pending::list(&keyring).unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(
+            listed[0].checkout_id, "ck_1",
+            "the checkout, not the record of the order"
+        );
+        assert!(!listed[0].is_posting());
+        assert!(
+            orders.calls.lock().unwrap().is_empty(),
+            "nothing was abandoned"
+        );
+    }
+
+    /// AZ-P3: the v1 payment page is the one this token server builds for the checkout. A
+    /// `pay_url` of any other host, scheme or path ends the order and is never opened.
+    #[test]
+    fn az_p3_a_payment_page_the_token_server_does_not_own_is_never_opened() {
+        for pay_url in [
+            "file:///etc/passwd",
+            "smb://host/x.exe",
+            "https://evil.example/v1/pay/ck_1",
+            "http://127.0.0.1:18081/v1/pay/ck_2",
+        ] {
+            let dir = TempDir::new("azdrive-start");
+            let (orders, keyring, checkout, kept, posting_id) = placed(&dir, pay_url);
+            let server = TokenServer::new("http://127.0.0.1:18081", &orders).expect("a server");
+            let failed = match finish_start(
+                &server,
+                &keyring,
+                &posting_id,
+                "100GB",
+                1,
+                None,
+                None,
+                checkout,
+                None,
+                kept,
+            ) {
+                Err(failed) => failed,
+                Ok(_) => panic!("{pay_url}: opened"),
+            };
+            assert_eq!(
+                failed.why.keys(),
+                vec!["azdrive-order-page-not-ours"],
+                "{pay_url}"
+            );
+            assert!(!failed.prices_moved);
+            assert!(
+                pending::list(&keyring).unwrap().is_empty(),
+                "{pay_url}: ended"
+            );
+        }
+    }
+}

@@ -1603,6 +1603,7 @@ dependencies = [
 name = "azul-pay"
 version = "0.1.0"
 dependencies = [
+ "azlin-contract",
  "serde_json",
 ]
 

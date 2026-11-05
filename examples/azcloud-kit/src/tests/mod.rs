@@ -36,6 +36,8 @@ mod outbox;
 /// Small files packed by an encrypted drive, through the sync (feature `encryption`).
 #[cfg(feature = "encryption")]
 mod packing;
+/// What this computer paid for: the booked sale kept before the checkout leaves the list.
+mod paid;
 mod pending;
 mod period;
 mod recovery;

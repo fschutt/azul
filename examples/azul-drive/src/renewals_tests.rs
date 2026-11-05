@@ -19,9 +19,9 @@ fn tier(id: &str, gb: u64, month: u64, year: u64) -> Tier {
     Tier {
         id: id.to_string(),
         quota_bytes: gb * 1_000_000_000,
-        price_cents_month: Some(month),
-        price_cents_year: Some(year),
-        currency: "EUR".to_string(),
+        price_month: Some(crate::pay_words_tests::cents(month, "EUR")),
+        price_year: Some(crate::pay_words_tests::cents(year, "EUR")),
+        currency: crate::pay_words_tests::currency("EUR"),
         first_month_free: true,
         yearly_only: false,
         prepay: Prepay::new(Months::ALL.to_vec()).expect("every period"),
@@ -64,6 +64,7 @@ fn renew_orders_the_drives_next_months_and_another_tier_is_a_change() {
             name: String::from("Photos"),
             tier: String::from("1TB"),
             quota_bytes: 1_000_000_000_000,
+            lock: None,
         },
     );
     dialog.country = String::from("DE");

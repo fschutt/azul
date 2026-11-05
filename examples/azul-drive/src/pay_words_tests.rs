@@ -2,23 +2,39 @@
 //! price, a method's name, the popover's chip, the checkout machine's notices - azul-pay's
 //! English words in English, German ones in German.
 
-use azcloud_kit::Tier;
+use azcloud_kit::{
+    azlin_contract::{Cents, Currency},
+    Tier,
+};
 use azul_appkit::l10n::set_locale;
 use azul_pay::{
     machine::{ChipPage, Notice},
-    offer::Price,
+    offer::{Price, Vat},
     Method,
 };
 
 use crate::pay_words;
 
+/// `amount` in the smallest unit of `currency`.
+pub(crate) fn cents(amount: u64, code: &str) -> Cents {
+    Cents {
+        amount,
+        currency: currency(code),
+    }
+}
+
+/// The currency `code`.
+pub(crate) fn currency(code: &str) -> Currency {
+    Currency::parse(code).expect("a currency")
+}
+
 fn tier() -> Tier {
     Tier {
         id: String::from("1.5TB"),
         quota_bytes: 1_500_000_000_000,
-        price_cents_month: Some(99),
-        price_cents_year: Some(4990),
-        currency: String::from("EUR"),
+        price_month: Some(cents(99, "EUR")),
+        price_year: Some(cents(4990, "EUR")),
+        currency: currency("EUR"),
         first_month_free: false,
         yearly_only: false,
         prepay: azcloud_kit::azlin_contract::Prepay::new(
@@ -31,11 +47,12 @@ fn tier() -> Tier {
 
 fn price() -> Price {
     Price {
-        amount_cents: 4990,
-        currency: String::from("EUR"),
-        vat_rate_permille: 190,
-        vat_cents: 797,
-        vat_included: true,
+        amount: cents(4990, "EUR"),
+        vat: Some(Vat {
+            rate_permille: 190,
+            amount: cents(797, "EUR"),
+            included: true,
+        }),
     }
 }
 
@@ -85,8 +102,7 @@ fn buy_storage_says_its_prices_and_payments_in_the_windows_language() {
     );
     assert_eq!(
         pay_words::price(&price()),
-        price().text(),
-        "azul-pay's own words"
+        "EUR 49.90, incl. 19 % VAT (EUR 7.97)"
     );
     assert_eq!(
         pay_words::method(Method::SepaDebit),
@@ -258,20 +274,41 @@ fn a_pills_note_says_what_the_method_tells_about_the_payer() {
 fn prices_in_the_buyers_currency_keep_its_decimals() {
     crate::l10n::in_english();
     let yen = Tier {
-        currency: String::from("JPY"),
-        price_cents_month: Some(160),
+        currency: currency("JPY"),
+        price_month: Some(cents(160, "JPY")),
+        price_year: Some(cents(1_600, "JPY")),
         ..tier()
     };
     assert_eq!(pay_words::tier_price(&yen, false).as_deref(), Some("JPY 160 a month"));
     let zloty = Price {
-        amount_cents: 449,
-        currency: String::from("PLN"),
-        vat_rate_permille: 230,
-        vat_cents: 84,
-        vat_included: true,
+        amount: cents(449, "PLN"),
+        vat: Some(Vat {
+            rate_permille: 230,
+            amount: cents(84, "PLN"),
+            included: true,
+        }),
     };
     assert_eq!(pay_words::price(&zloty), "PLN 4.49, incl. 23 % VAT (PLN 0.84)");
     set_locale("de-DE");
     assert_eq!(pay_words::price(&zloty), "4,49 PLN, inkl. 23 % MwSt. (0,84 PLN)");
+    set_locale("en-US");
+}
+
+/// X-AR5b-18: one formatter writes money, and it writes the currency's own decimals - none for
+/// the yen, three for the Kuwaiti dinar - in the language's marks, not two decimals for all.
+#[test]
+fn x_ar5b_18_money_is_written_with_the_currencys_own_decimals() {
+    crate::l10n::in_english();
+    assert_eq!(pay_words::show(&cents(99, "EUR")), "EUR 0.99");
+    assert_eq!(pay_words::show(&cents(160, "JPY")), "JPY 160");
+    assert_eq!(pay_words::show(&cents(1_234, "KWD")), "KWD 1.234");
+    assert_eq!(pay_words::show(&cents(123_456, "EUR")), "EUR 1,234.56");
+    // A price without a VAT line says the amount alone (never "0 %").
+    let mut plain = price();
+    plain.vat = None;
+    assert_eq!(pay_words::price(&plain), "EUR 49.90");
+    set_locale("de-DE");
+    assert_eq!(pay_words::show(&cents(123_456, "EUR")), "1.234,56 EUR");
+    assert_eq!(pay_words::show(&cents(160, "JPY")), "160 JPY");
     set_locale("en-US");
 }

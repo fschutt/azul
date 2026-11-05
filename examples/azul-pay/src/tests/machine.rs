@@ -1044,3 +1044,109 @@ fn a_local_method_of_the_sandbox_opens_in_the_popover_or_the_browser_as_its_surf
         }
     }
 }
+
+// ==== RF51 step 5: who may order, and the way freed for an order outside the machine ====
+
+/// AZ-P4: the v1 payment page runs outside the machine, yet it must not order while a checkout is
+/// in flight - the earlier payment may be under way and the buyer would pay twice. `may_order`
+/// says no, and `Release` ends the checkout in flight first, as a `Pay` does; the order goes on
+/// only when the token server says it ended.
+#[test]
+fn az_p4_an_order_outside_the_machine_releases_the_checkout_in_flight_first() {
+    let flying = in_flight();
+    assert!(!flying.may_order(), "the earlier payment may be under way");
+    assert!(
+        !flying.busy(),
+        "yet it is not a checkout the dialog waits for"
+    );
+    let (releasing, effects) = step(flying, Event::Release);
+    assert_eq!(
+        releasing,
+        State::Releasing {
+            checkout_id: "ck_card".to_string()
+        }
+    );
+    assert!(effects.contains(&Effect::Abandon {
+        checkout_id: "ck_card".to_string()
+    }));
+    assert!(
+        !effects
+            .iter()
+            .any(|e| matches!(e, Effect::CreateCheckout { .. })),
+        "{effects:?}"
+    );
+    assert!(!releasing.may_order());
+    // Not ended (the provider did not answer): still no order.
+    let (kept, _) = step(
+        releasing.clone(),
+        abandoned("ck_card", AbandonOutcome::Open),
+    );
+    assert!(!kept.may_order());
+    // Ended: the way is free and the order goes on.
+    let (choosing, effects) = step(releasing, abandoned("ck_card", AbandonOutcome::Ended));
+    assert_eq!(effects, vec![Effect::OrderAgain]);
+    assert!(choosing.may_order());
+}
+
+/// A release with nothing in flight changes nothing.
+#[test]
+fn az_p4_a_release_with_nothing_in_flight_does_nothing() {
+    let (state, effects) = step(State::Choosing, Event::Release);
+    assert_eq!(state, State::Choosing);
+    assert!(effects.is_empty(), "{effects:?}");
+    for before in [presenting_card(), complete_card()] {
+        let name = before.name();
+        let (state, effects) = step(before, Event::Release);
+        assert_eq!(state.name(), name);
+        assert!(effects.is_empty(), "{name}: {effects:?}");
+    }
+}
+
+/// X-AR5b-10: `may_order` and `busy` say what every state is, by name - none is "false" by
+/// default. A new order starts from Choosing and Declined; nothing else but a cash order
+/// waiting for its letter (checked with the slip, in the cash tests).
+#[test]
+fn x_ar5b_10_every_state_says_whether_an_order_may_start() {
+    let waiting = State::Waiting {
+        checkout_id: "ck_card".to_string(),
+        reason: WaitReason::Browser,
+        browser: None,
+        settles: crate::registry::Settles::Instant,
+    };
+    let declined = State::Declined {
+        checkout_id: "ck_card".to_string(),
+        reason: "no".to_string(),
+    };
+    let done = State::Done {
+        checkout_id: "ck_card".to_string(),
+    };
+    let preparing = step(
+        State::Choosing,
+        Event::Pay {
+            choice: choice(Method::Card),
+            consent: true,
+            payer: Payer::default(),
+        },
+    )
+    .0;
+    let table = [
+        (State::Choosing, true, false),
+        (declined, true, false),
+        (preparing, false, true),
+        (presenting_card(), false, true),
+        (complete_card(), false, true),
+        (waiting, false, true),
+        (in_flight(), false, false),
+        (done, false, false),
+    ];
+    for (state, may_order, busy) in table {
+        let name = state.name();
+        assert_eq!(
+            (state.may_order(), state.busy()),
+            (may_order, busy),
+            "{name}"
+        );
+    }
+    let (releasing, _) = step(in_flight(), pay_again());
+    assert_eq!((releasing.may_order(), releasing.busy()), (false, true));
+}

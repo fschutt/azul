@@ -304,6 +304,7 @@ fn dlocal_ebanx_and_komoju_carry_every_method_of_their_routes_in_the_system_brow
         assert!(spec.owns(&page), "{id}: {host}");
     }
     let page = |u: &str| WebUrl::parse(u).unwrap();
+    #[cfg(feature = "fake-providers")]
     assert!(registry::provider("dlocal").unwrap().owns(&page("https://sandbox.dlocal.com/collect/x")));
     assert!(registry::provider("ebanx").unwrap().owns(&page("https://checkout.ebanxpay.com/x")));
     assert!(!registry::provider("ebanx").unwrap().owns(&page("https://ebanxpay.com.example.org/x")));
@@ -448,5 +449,29 @@ fn the_stripe_and_gocardless_stand_ins_carry_the_real_ones_methods_on_this_compu
             assert_eq!(stand_in.settles, method.settles, "{} {:?}", fake.id, method.method);
         }
         assert!(fake.origins.iter().all(Origin::is_loopback), "{}", fake.id);
+    }
+}
+
+/// AZ-P13: the sandbox pages of the real providers move no money and never approve a payment. A
+/// build without the test feature does not own them; a verified-origin chip never vouches for one.
+#[test]
+fn az_p13_the_sandbox_hosts_of_the_real_providers_are_pages_of_a_test_build_only() {
+    let page = |u: &str| WebUrl::parse(u).unwrap();
+    let gocardless = registry::provider("gocardless").unwrap();
+    let dlocal = registry::provider("dlocal").unwrap();
+    // The live pages are always theirs.
+    assert!(gocardless.owns(&page("https://pay.gocardless.com/flow/x")));
+    assert!(dlocal.owns(&page("https://pay.dlocal.com/collect/x")));
+    let sandbox = [
+        (gocardless, "https://pay-sandbox.gocardless.com/flow/x"),
+        (dlocal, "https://sandbox.dlocal.com/collect/x"),
+    ];
+    for (provider, url) in sandbox {
+        assert_eq!(
+            provider.owns(&page(url)),
+            cfg!(feature = "fake-providers"),
+            "{}: {url}",
+            provider.id
+        );
     }
 }

@@ -1629,7 +1629,7 @@ azdrive-add-tiers-failed = Die Speicherstufen konnten nicht geladen werden: { $w
 azdrive-add-try-again = Erneut versuchen
 azdrive-add-price-on-request = Preis auf Anfrage
 azdrive-add-pay-yearly = Jährlich bezahlen
-azdrive-add-pay-yearly-free = Jährlich bezahlen (zwei Monate gratis)
+azdrive-add-pay-yearly-saves = Jährlich bezahlen (spart { $percent } %)
 azdrive-add-sold-by-the-year = Nur jährlich erhältlich.
 azdrive-add-open-again = Die Seite erneut öffnen
 azdrive-add-stop-waiting = Nicht mehr warten
@@ -1696,6 +1696,11 @@ azdrive-add-picked-up = Abgeholt. AzDrive fragt jetzt nach dem Laufwerk, dann ei
 azdrive-add-claim-not-kept = Der Abholcode wurde nicht gespeichert: { $why }
 azdrive-add-months-not-fetched = Die bezahlten Monate der Bestellung { $checkout } konnten nicht abgerufen werden: { $why }.
 azdrive-add-checkout-unfinished = Die Bestellung { $checkout } konnte in der Liste des Schlüsselbunds nicht abgeschlossen werden ({ $why }); AzDrive fragt beim nächsten Start erneut danach.
+azdrive-add-options-failed = Die Zahlungsoptionen konnten nicht geladen werden: { $why }
+azdrive-add-options-failed-short = Die Zahlungsoptionen sind noch nicht da. Versuche es erneut.
+azdrive-add-options-missing = Der Token-Server hat keine Zahlungsoptionen geantwortet. Versuche es gleich noch einmal.
+azdrive-order-page-not-ours = Die Zahlungsseite, die der Token-Server nannte, ist keine seiner eigenen, deshalb wurde die Bestellung abgebrochen und nichts berechnet. Prüfe den Token-Server in den Einstellungen.
+azdrive-order-price-changed = Der Preis hat sich beim Bestellen von { $shown } auf { $charged } geändert, deshalb wurde nichts bestellt. Die Preise werden neu geladen: Prüfe sie und bestelle noch einmal.
 azdrive-order-earlier-paid = Ihre frühere Bestellung dafür ({ $checkout }) ist bezahlt: Das Laufwerk kommt, sobald die Zahlung bestätigt ist. Es wurde nichts Neues bestellt.
 azdrive-order-earlier-open = Ihre frühere Bestellung dafür ({ $checkout }) kann noch bezahlt werden, deshalb startet AzDrive noch keine weitere. Versuchen Sie es gleich noch einmal.
 azdrive-order-no-room = { $waiting } unfertige Bestellungen warten schon. Lassen Sie sie bezahlen oder beenden Sie sie zuerst.
@@ -1708,6 +1713,8 @@ azdrive-add-buy-tier-price = { $quota } kaufen – { $price }
 azdrive-add-buy-tier = { $quota } kaufen
 azdrive-add-buy = Kaufen
 azdrive-add-renew-tier-price = { $quota } verlängern – { $price }
+azdrive-add-renew-tier = { $quota } verlängern
+azdrive-add-move-tier = Auf { $quota } umstellen
 azdrive-add-move-tier-price = Auf { $quota } umstellen – { $price }
 azdrive-tier-wait = Sag mir, wenn es wieder da ist
 azdrive-add-tier-closed = { $tier } ist zurzeit ausverkauft.
@@ -1716,9 +1723,9 @@ azdrive-renew-period-end = „{ $drive }“ ist bis { $at } bezahlt. Verlängere
 azdrive-renew-read-only = „{ $drive }“ wird am { $at } schreibgeschützt, wenn es nicht verlängert wird. Seine Dateien bleiben lesbar.
 azdrive-renew-closing = „{ $drive }“ wird am { $at } gesperrt, wenn es nicht verlängert wird: Seine Dateien kommen dann in eine Offline-Kopie und erst nach Bezahlung zurück, was einige Tage dauern kann. Kopiere, was du brauchst, oder verlängere es jetzt.
 azdrive-months-renewed = { $months ->
-        [one] 1 Monat wurde
-       *[other] { $months } Monate wurden
-    } zu „{ $drive }“ hinzugefügt.
+        [one] 1 Monat wurde für „{ $drive }“ gekauft und wird jetzt hinzugefügt.
+       *[other] { $months } Monate wurden für „{ $drive }“ gekauft: Der erste wird jetzt hinzugefügt, die weiteren folgen einzeln.
+    }
 azdrive-tier-change-waits = „{ $drive }“ wechselt am Ende seines bezahlten Zeitraums auf die kleinere Stufe, ab { $at }.
 azdrive-tier-change-too-full = „{ $drive }“ passt noch nicht in die kleinere Stufe: gib zuerst { $free } frei. Die neue Stufe wartet.
 azdrive-tier-changed = „{ $drive }“ ist jetzt auf { $tier }{ $days ->

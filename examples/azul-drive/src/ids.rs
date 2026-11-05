@@ -172,6 +172,7 @@ pub const ADD_CREATE_TEST: AzString = AzString::from_const_str("__azdrive_add_cr
 pub const ADD_BUY_BUTTON: AzString = AzString::from_const_str("__azdrive_add_buy_button");
 pub const ADD_STOP: AzString = AzString::from_const_str("__azdrive_add_stop");
 pub const ADD_RETRY: AzString = AzString::from_const_str("__azdrive_add_retry");
+pub const ADD_RETRY_OPTIONS: AzString = AzString::from_const_str("__azdrive_add_retry_options");
 pub const ADD_STATUS: AzString = AzString::from_const_str("__azdrive_add_status");
 pub const ADD_ERROR: AzString = AzString::from_const_str("__azdrive_add_error");
 

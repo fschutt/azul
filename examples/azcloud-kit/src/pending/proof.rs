@@ -28,7 +28,7 @@
 
 use azlin_contract::AbandonAnswer;
 
-use super::{Final, PendingCheckout, POSTING_LIFE_SECS, UNOPENABLE_AFTER};
+use super::{Abandoned, Final, PendingCheckout, POSTING_LIFE_SECS, UNOPENABLE_AFTER};
 use crate::{
     period::Issued,
     token::{CheckoutStatus, TokenError},
@@ -143,6 +143,15 @@ impl NotMade {
         matches!(e, TokenError::Refused { .. }).then_some(NotMade(()))
     }
 
+    /// The checkout the order made was ended before anything of it was shown (its abandon
+    /// answered over, or another window had ended it): the order's record goes with it.
+    pub(super) fn unshown(abandoned: &Abandoned) -> Option<NotMade> {
+        match abandoned {
+            Abandoned::Ended | Abandoned::Settled => Some(NotMade(())),
+            Abandoned::Kept { .. } => None,
+        }
+    }
+
     /// An entry of an order whose answer never came ([`super::PendingCheckout::is_posting`]),
     /// made [`POSTING_LIFE_SECS`] or more before `now` (seconds since 1970): its payment page
     /// was never shown, so nobody can pay for what it may have made.
@@ -242,10 +251,10 @@ impl Settled {
                 )),
             )),
             CheckoutStatus::Pending
-            | CheckoutStatus::Approved(_)
+            | CheckoutStatus::Approved(..)
             | CheckoutStatus::Unopenable(_)
             | CheckoutStatus::Unreadable(_)
-            | CheckoutStatus::Renewal(_)
+            | CheckoutStatus::Renewal(..)
             | CheckoutStatus::Unknown(_) => None,
         }
     }

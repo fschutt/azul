@@ -30,6 +30,7 @@
 
 use std::fmt;
 
+use azlin_contract::Cents;
 use azul_storage::base32;
 use sha2::{Digest, Sha256};
 use zeroize::Zeroizing;
@@ -165,34 +166,27 @@ impl ActivationCode {
         code_text(ACTIVATION_PREFIX, &bytes)
     }
 
-    /// Whether this is the code of the checkout `checkout_id` for `amount_cents` of
-    /// `currency`.
+    /// Whether this is the code of the checkout `checkout_id` for `amount` (its currency too).
     ///
     /// # Errors
     ///
     /// [`CashError::Mismatch`]: what differs.
-    pub fn check(
-        &self,
-        checkout_id: &str,
-        amount_cents: u64,
-        currency: &str,
-    ) -> Result<(), CashError> {
+    pub fn check(&self, checkout_id: &str, amount: &Cents) -> Result<(), CashError> {
         if self.checkout_id != checkout_id.trim() {
             return Err(CashError::Mismatch(String::from(
                 "the activation code is another checkout's",
             )));
         }
-        if u64::from(self.amount_cents) != amount_cents {
+        if u64::from(self.amount_cents) != amount.amount {
             return Err(CashError::Mismatch(format!(
-                "the activation code is for {} cents, the checkout for {amount_cents}",
-                self.amount_cents
+                "the activation code is for {} cents, the checkout for {}",
+                self.amount_cents, amount.amount
             )));
         }
-        if self.currency != currency.trim() {
+        if self.currency != amount.currency.as_str() {
             return Err(CashError::Mismatch(format!(
                 "the activation code is in {}, the checkout in {}",
-                self.currency,
-                currency.trim()
+                self.currency, amount.currency
             )));
         }
         Ok(())

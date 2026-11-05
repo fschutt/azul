@@ -25,7 +25,7 @@ use std::{
     sync::{atomic::AtomicBool, Arc},
 };
 
-use azcloud_kit::{PendingCheckout, Tier, Tiers};
+use azcloud_kit::{azlin_contract::Cents, PendingCheckout, Quote, Tier, Tiers};
 use azul_appkit::l10n::{t, t_args, Arg};
 use azul_pay::{
     identity::{Payer, PayerField},
@@ -169,6 +169,9 @@ pub(crate) struct AddDialog {
     pub card_name: String,
     /// The checkout the machine runs, as the keyring's list keeps it (what the poll asks with).
     pub kept: Option<PendingCheckout>,
+    /// What the checkout in hand charges, from its own answer: the popover says THIS, never a
+    /// price from the offer or the tier list.
+    pub charge: Option<Cents>,
     /// The order button the machine's last order came from was "Pay with cash by post" (else
     /// Buy): an order that waited for the checkout in flight goes on as it was asked.
     pub cash_order: bool,
@@ -194,6 +197,15 @@ pub(crate) struct AddDialog {
     pub closed: Vec<String>,
 }
 
+/// Whether the v1 payment page may stand in for the payment options: a token server on this
+/// computer (the development server speaks it for its mock provider) and no other. A production
+/// token server whose options call fails, or has no such route, is "Try again" - never a weaker
+/// page (X-AR5b-19).
+#[must_use]
+pub(crate) fn v1_page_allowed(token_url: &str) -> bool {
+    azul_pay::OfferContext::for_token_url(token_url).fakes
+}
+
 /// The surfaces AzDrive can show: the popover's hosted fields, a hosted page in the web view,
 /// the system browser, paper (cash by post's pages: no native sheet, no native IBAN field yet).
 pub(crate) const PAY_SURFACES: &[SurfaceKind] = &[
@@ -208,11 +220,13 @@ pub(crate) const PAY_SURFACES: &[SurfaceKind] = &[
 pub(crate) enum OfferState {
     NotLoaded,
     Loading,
-    /// The token server has none (an older one): the v1 checkout, a payment page in the
-    /// browser.
+    /// The token server on this computer has none: the v1 checkout, a payment page in the
+    /// browser. A production token server without the route is [`OfferState::Failed`], not this
+    /// (X-AR5b-19): the v1 page is a development server's.
     Legacy,
     Loaded(Offer),
-    /// Why there are none (Buy storage falls back to the v1 checkout).
+    /// Why there are none: the call failed, or a production token server answered no such route.
+    /// Buy storage asks again ("Try again"); it does not fall back to a weaker page.
     Failed(String),
     /// The token server refused this buyer, in its own sentence (a country it does not serve):
     /// nothing can be bought.
@@ -301,6 +315,7 @@ impl AddDialog {
             pay: PayState::Choosing,
             card_name: String::new(),
             kept: None,
+            charge: None,
             cash_order: false,
             look_name: String::from("flat-light"),
             voucher_code: String::new(),
@@ -643,7 +658,8 @@ impl AddDialog {
     }
 
     /// The Buy button's words: `Buy 100 GB - EUR 0.99 for 1 month`, `Renew ...`, `Move to ...`
-    /// (in the window's language).
+    /// (in the window's language). The price is the one the order will be held to
+    /// ([`Self::price_shown`]); without one the button names the tier only.
     #[must_use]
     pub(crate) fn buy_label(&self) -> String {
         // What is paid at once, never a rate: a prepay is no subscription.
@@ -652,21 +668,28 @@ impl AddDialog {
             Some(_) => "azdrive-add-renew-tier-price",
             None => "azdrive-add-buy-tier-price",
         };
-        match self.chosen_tier() {
-            Some(tier) => match crate::pay_words::prepay_price(tier, self.yearly_for(tier)) {
-                Some(price) => t_args(
-                    key,
-                    &[
-                        ("quota", Arg::from(crate::pay_words::quota(tier))),
-                        ("price", Arg::from(price)),
-                    ],
-                ),
-                None => t_args(
-                    "azdrive-add-buy-tier",
-                    &[("quota", Arg::from(crate::pay_words::quota(tier)))],
-                ),
-            },
-            None => t("azdrive-add-buy"),
+        let Some(tier) = self.chosen_tier() else {
+            return t("azdrive-add-buy");
+        };
+        match self
+            .price_shown()
+            .map(|price| crate::pay_words::prepay_text(&price, self.months()))
+        {
+            Some(price) => t_args(
+                key,
+                &[
+                    ("quota", Arg::from(crate::pay_words::quota(tier))),
+                    ("price", Arg::from(price)),
+                ],
+            ),
+            None => t_args(
+                match self.renew_order() {
+                    Some(order) if order.change_tier => "azdrive-add-move-tier",
+                    Some(_) => "azdrive-add-renew-tier",
+                    None => "azdrive-add-buy-tier",
+                },
+                &[("quota", Arg::from(crate::pay_words::quota(tier)))],
+            ),
         }
     }
 
@@ -707,7 +730,8 @@ impl AddDialog {
     pub(crate) fn pill_context(&self) -> PillContext<'_> {
         PillContext {
             country: &self.country,
-            currency: self.chosen_tier().map_or("EUR", |t| t.currency.as_str()),
+            // No tier chosen: no offer to show either, and no currency to guess.
+            currency: self.chosen_tier().map_or("", |t| t.currency.as_str()),
             months: self.months(),
             recurring: false,
             surfaces: PAY_SURFACES,
@@ -726,6 +750,101 @@ impl AddDialog {
     #[must_use]
     pub(crate) fn pays_with_pills(&self) -> bool {
         !self.pills().is_empty()
+    }
+
+    /// The options call failed (or a production token server has no such route): the reason.
+    /// Nothing is bought through a weaker page then; the buyer asks again.
+    #[must_use]
+    pub(crate) fn options_failed(&self) -> Option<&str> {
+        match &self.offer {
+            OfferState::Failed(why) => Some(why),
+            OfferState::NotLoaded
+            | OfferState::Loading
+            | OfferState::Legacy
+            | OfferState::Loaded(_)
+            | OfferState::Refused(_) => None,
+        }
+    }
+
+    /// Why the order button waits (a key of the resources), `None` when the order may start: the
+    /// tier list and the payment options are in. Every state is named, none is "ready" by
+    /// default (X-AR5b-10).
+    #[must_use]
+    pub(crate) fn order_waits_for(&self) -> Option<&'static str> {
+        match &self.tiers {
+            TiersState::Loaded(_) => {}
+            TiersState::NotLoaded
+            | TiersState::Loading
+            | TiersState::Failed(_)
+            | TiersState::Refused(_) => return Some("azdrive-add-tiers-not-loaded"),
+        }
+        match &self.offer {
+            OfferState::Legacy | OfferState::Loaded(_) => None,
+            OfferState::NotLoaded | OfferState::Loading => Some("azdrive-add-tiers-not-loaded"),
+            OfferState::Failed(_) => Some("azdrive-add-options-failed-short"),
+            // Its own sentence is the reason ([`Self::refused`]).
+            OfferState::Refused(_) => None,
+        }
+    }
+
+    /// What the order costs, as the dialog says it (the Buy button, the popover's first line) and
+    /// as the token server is held to ([`Self::quote_for`]): the METHOD's own charge when the
+    /// pills are shown - a payer in Poland whose direct debit takes euros only reads euros, not
+    /// the ladder's zloty -, the offer's one price only when the method names none and it is in
+    /// the tier's currency, else the tier's price (also on the v1 page). A renewal under a price
+    /// lock reads the lock's price when this computer paid for the lock, else nothing: today's
+    /// list price is not what a lock charges (X-AR5b-20), so it is not said.
+    #[must_use]
+    pub(crate) fn price_for(&self, choice: Option<&azul_pay::Choice>) -> Option<Cents> {
+        let tier = self.chosen_tier()?;
+        if let Some(lock) = self.price_lock() {
+            return lock.price_for(self.months());
+        }
+        if self.pays_with_pills() {
+            if let Some(charge) = choice.and_then(|c| c.method.charge.clone()) {
+                return Some(charge);
+            }
+            // The method names none: the offer's price, when it is in the tier's currency.
+            if let Some(price) = self
+                .offer()
+                .and_then(|offer| offer.price.as_ref())
+                .filter(|price| price.amount.currency == tier.currency)
+            {
+                return Some(price.amount.clone());
+            }
+        }
+        // Nothing better is said: the tier list's own price (the order is held to it all the same).
+        tier.price(self.pays_yearly()).cloned()
+    }
+
+    /// [`Self::price_for`] the chosen pill.
+    #[must_use]
+    pub(crate) fn price_shown(&self) -> Option<Cents> {
+        self.price_for(self.choice().as_ref())
+    }
+
+    /// The price lock a Renew order of the drive's own tier is under; `None` for a new drive, a
+    /// change of tier and a drive without a lock (it pays today's price).
+    fn price_lock(&self) -> Option<&crate::renewals::LockSeen> {
+        let renew = self.renew.as_ref()?;
+        if self.renew_order()?.change_tier {
+            return None;
+        }
+        renew.lock.as_ref()
+    }
+
+    /// What the buyer is shown for the order, to hold the token server to it: the price
+    /// ([`Self::price_for`]) for the chosen tier and months. `None` when nothing is said (no
+    /// price to compare). An order under a price lock is a ceiling, not the price.
+    #[must_use]
+    pub(crate) fn quote_for(&self, choice: Option<&azul_pay::Choice>) -> Option<Quote> {
+        let tier = self.chosen_tier()?;
+        Some(Quote {
+            price: self.price_for(choice)?,
+            tier: tier.id.clone(),
+            months: self.months(),
+            at_most: self.price_lock().is_some(),
+        })
     }
 
     /// The token server's refusal of this buyer, its own sentence: nothing can be bought.

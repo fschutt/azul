@@ -157,9 +157,10 @@ pub use shared::{
 pub use state::StateDir;
 pub use store::RemoteStore;
 pub use token::{
-    Ban, BlindSignatures, Checkout, CheckoutFor, CheckoutStatus, CheckoutVia, ClaimedFamily,
-    DriveStatus, FoundDrive, IssueAnswer, OptionsQuery, ProofAnswer, RecoveryKeyInfo,
-    RecoveryLockdown, Refusal, Tier, TierNews, Tiers, TokenError, TokenServer, VoucherRedeemed,
+    page_is, pay_page, Ban, BlindSignatures, Charge, Checkout, CheckoutFor, CheckoutStatus,
+    CheckoutVia, ClaimedFamily, DriveStatus, FoundDrive, IssueAnswer, OptionsQuery, PriceChanged,
+    ProofAnswer, Quote, RecoveryKeyInfo, RecoveryLockdown, Refusal, Tier, TierNews, Tiers,
+    TokenError, TokenServer, VoucherRedeemed,
 };
 pub use device_key::DeviceKey;
 pub use transport::{CloudDrive, IrohDialer, IrohLane, IrohTarget, Lane, TransportPref};

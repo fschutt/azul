@@ -4,13 +4,21 @@
 //! English (their tests, the command line); the words here are AzDrive's resources, the money
 //! and the decimals appkit's (`l10n::money`, `l10n::decimal`).
 
-use azcloud_kit::Tier;
+use azcloud_kit::{azlin_contract::Cents, Tier};
 use azul_appkit::l10n::{self, t, t_args, Arg};
 use azul_pay::{
     machine::{ChipPage, Notice},
     offer::Price,
     Choice, Handoff, Method, OfferedProvider, PayerField, SurfaceKind,
 };
+
+/// `cents` as the window's language writes money: the currency's own decimals, the language's
+/// marks and the currency where it puts it (`EUR 0.99`, `0,99 EUR`). The ONE place AzDrive turns
+/// an amount into words: no other file formats cents (`money_gate` reads the sources).
+#[must_use]
+pub(crate) fn show(cents: &Cents) -> String {
+    l10n::money(cents.amount, cents.currency.as_str())
+}
 
 /// A payment method's name (a pill, the popover's title): `Direct debit`, `Lastschrift`.
 #[must_use]
@@ -85,34 +93,32 @@ pub(crate) fn notice(notice: &Notice) -> String {
     }
 }
 
-/// An offer's price with its VAT: `EUR 49.90, incl. 19 % VAT (EUR 7.97)`.
+/// An offer's price with its VAT: `EUR 49.90, incl. 19 % VAT (EUR 7.97)`; without the VAT line
+/// when the offer says none of it.
 #[must_use]
 pub(crate) fn price(price: &Price) -> String {
-    let rate = if price.vat_rate_permille % 10 == 0 {
-        (price.vat_rate_permille / 10).to_string()
+    let Some(vat) = &price.vat else {
+        return show(&price.amount);
+    };
+    let rate = if vat.rate_permille % 10 == 0 {
+        (vat.rate_permille / 10).to_string()
     } else {
         l10n::decimal(&format!(
             "{}.{}",
-            price.vat_rate_permille / 10,
-            price.vat_rate_permille % 10
+            vat.rate_permille / 10,
+            vat.rate_permille % 10
         ))
     };
     t_args(
-        if price.vat_included {
+        if vat.included {
             "azdrive-pay-price-incl-vat"
         } else {
             "azdrive-pay-price-plus-vat"
         },
         &[
-            (
-                "amount",
-                Arg::from(l10n::money(price.amount_cents, &price.currency)),
-            ),
+            ("amount", Arg::from(show(&price.amount))),
             ("rate", Arg::from(rate)),
-            (
-                "vat",
-                Arg::from(l10n::money(price.vat_cents, &price.currency)),
-            ),
+            ("vat", Arg::from(show(&vat.amount))),
         ],
     )
 }
@@ -127,33 +133,54 @@ pub(crate) fn quota(tier: &Tier) -> String {
 /// names none.
 #[must_use]
 pub(crate) fn tier_price(tier: &Tier, yearly: bool) -> Option<String> {
-    let (cents, key) = if yearly {
-        (tier.price_cents_year?, "azdrive-pay-a-year")
+    let price = tier.price(yearly)?;
+    let key = if yearly {
+        "azdrive-pay-a-year"
     } else {
-        (tier.price_cents_month?, "azdrive-pay-a-month")
+        "azdrive-pay-a-month"
     };
-    Some(t_args(
-        key,
-        &[("price", Arg::from(l10n::money(cents, &tier.currency)))],
-    ))
+    Some(t_args(key, &[("price", Arg::from(show(price)))]))
 }
 
-/// What a prepay of `tier` costs at once: `EUR 0.99 for 1 month`, with `yearly` `EUR 9.90 for
-/// 12 months` - the months paid, never a rate; `None` when the server names no price.
+/// `price` for `months` months paid at once: `EUR 9.90 for 12 months` - the months paid, never a
+/// rate.
 #[must_use]
-pub(crate) fn prepay_price(tier: &Tier, yearly: bool) -> Option<String> {
-    let (cents, months) = if yearly {
-        (tier.price_cents_year?, 12_u32)
-    } else {
-        (tier.price_cents_month?, 1_u32)
-    };
-    Some(t_args(
+pub(crate) fn prepay_text(price: &Cents, months: u32) -> String {
+    t_args(
         "azdrive-pay-for-months",
         &[
-            ("price", Arg::from(l10n::money(cents, &tier.currency))),
+            ("price", Arg::from(show(price))),
             ("months", Arg::from(months)),
         ],
-    ))
+    )
+}
+
+/// The yearly switch's words: what a year saves against twelve months, worked out from the tier's
+/// own prices (the signed ladder's), never a fixed promise (AZ-P11) - `Pay yearly (saves 16 %)`;
+/// a tier whose year is not cheaper, or that names no price for one of them, says `Pay yearly`.
+#[must_use]
+pub(crate) fn yearly_label(tier: Option<&Tier>) -> String {
+    let saved = tier.and_then(|tier| {
+        let (month, year) = (tier.price_month.as_ref()?, tier.price_year.as_ref()?);
+        if month.currency != year.currency {
+            return None;
+        }
+        let twelve = u128::from(month.amount) * 12;
+        let cheaper = twelve
+            .checked_sub(u128::from(year.amount))
+            .filter(|c| *c > 0)?;
+        // Rounded down: a saving is never claimed bigger than it is.
+        u32::try_from(cheaper * 100 / twelve)
+            .ok()
+            .filter(|percent| *percent > 0)
+    });
+    match saved {
+        Some(percent) => t_args(
+            "azdrive-add-pay-yearly-saves",
+            &[("percent", Arg::from(percent))],
+        ),
+        None => t("azdrive-add-pay-yearly"),
+    }
 }
 
 /// The payer details a method asks for, joined as the window's language joins a list: `name

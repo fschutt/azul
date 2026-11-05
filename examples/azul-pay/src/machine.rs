@@ -361,17 +361,41 @@ impl State {
         }
     }
 
-    /// A checkout runs that the dialog waits for (no second order).
+    /// A checkout runs that the dialog waits for (no second order). Every state is named, none
+    /// by a `_`: a state added later must say here what it is.
     #[must_use]
     pub fn busy(&self) -> bool {
-        matches!(
-            self,
+        match self {
             State::Preparing { .. }
-                | State::Presenting { .. }
-                | State::Confirming { .. }
-                | State::Waiting { .. }
-                | State::Releasing { .. }
-        )
+            | State::Presenting { .. }
+            | State::Confirming { .. }
+            | State::Waiting { .. }
+            | State::Releasing { .. } => true,
+            State::Choosing
+            | State::InFlight { .. }
+            | State::Done { .. }
+            | State::Declined { .. }
+            | State::Posted { .. } => false,
+        }
+    }
+
+    /// Whether an order may start NOW, as the state stands: a new checkout is made at once. In
+    /// flight it may not - the earlier checkout's payment may be under way, so [`Event::Release`]
+    /// (or [`Event::Pay`]) ends it first and the order follows ([`Effect::OrderAgain`]) - and
+    /// while a checkout runs, or is done, there is nothing to order. A declined checkout and a
+    /// cash order waiting for its letter leave the way free. Exhaustive, no `_`.
+    #[must_use]
+    pub fn may_order(&self) -> bool {
+        match self {
+            State::Choosing | State::Declined { .. } | State::Posted { .. } => true,
+            State::Preparing { .. }
+            | State::Presenting { .. }
+            | State::Confirming { .. }
+            | State::Waiting { .. }
+            | State::InFlight { .. }
+            | State::Releasing { .. }
+            | State::Done { .. } => false,
+        }
     }
 
     /// The popover's chrome, while it shows a page.
@@ -430,6 +454,11 @@ pub enum Event {
     SwitchFailed(String),
     /// The popover (or the dialog) closed.
     Close,
+    /// An order that does not run through this machine (the v1 payment page) wants the way free:
+    /// the checkout in flight is abandoned first, as a [`Event::Pay`] does, and the order goes
+    /// on only once the token server says it ended ([`Effect::OrderAgain`]). Nothing in flight:
+    /// nothing happens.
+    Release,
     StopWaiting,
     CheckAgain,
     /// The poll says the payment settles in days.
@@ -480,6 +509,7 @@ impl fmt::Debug for Event {
             Event::Switched(surface) => f.debug_tuple("Switched").field(surface).finish(),
             Event::SwitchFailed(why) => f.debug_tuple("SwitchFailed").field(why).finish(),
             Event::Close => f.write_str("Close"),
+            Event::Release => f.write_str("Release"),
             Event::StopWaiting => f.write_str("StopWaiting"),
             Event::CheckAgain => f.write_str("CheckAgain"),
             Event::PendingForDays => f.write_str("PendingForDays"),
@@ -989,6 +1019,7 @@ fn presenting(
             }],
         ),
         Event::Pay { .. }
+        | Event::Release
         | Event::CreateFailed(_)
         | Event::StopWaiting
         | Event::CheckAgain
@@ -1147,7 +1178,7 @@ fn in_flight(checkout_id: String, event: Event) -> (State, Vec<Effect>) {
             },
             vec![Effect::Notice(Notice::Declined(why))],
         ),
-        Event::Pay { .. } => (
+        Event::Pay { .. } | Event::Release => (
             State::Releasing {
                 checkout_id: checkout_id.clone(),
             },

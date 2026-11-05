@@ -60,8 +60,8 @@ pub(crate) struct Letter {
     /// `100GB`.
     pub tier: String,
     pub months: u32,
-    pub amount_cents: u64,
-    pub currency: String,
+    /// What the order posts, in the smallest unit of its currency.
+    pub amount: azcloud_kit::azlin_contract::Cents,
     pub activation_code: String,
     pub mail_to_name: String,
     pub mail_to_lines: Vec<String>,
@@ -77,8 +77,7 @@ impl Letter {
             checkout_id: slip.checkout_id.clone(),
             tier: tier.trim().to_string(),
             months,
-            amount_cents: slip.amount_cents,
-            currency: slip.currency.clone(),
+            amount: slip.amount.clone(),
             activation_code: slip.activation_code.clone(),
             mail_to_name: slip.mail_to.name.clone(),
             mail_to_lines: slip.mail_to.lines.clone(),
@@ -95,8 +94,7 @@ impl Letter {
             checkout_id: kept.checkout_id.clone(),
             tier: kept.tier.clone(),
             months: cash.months,
-            amount_cents: cash.amount_cents,
-            currency: cash.currency.clone(),
+            amount: cash.charge()?,
             activation_code: cash.activation_code.clone(),
             mail_to_name: cash.mail_to_name.clone(),
             mail_to_lines: cash.mail_to_lines.clone(),
@@ -109,8 +107,8 @@ impl Letter {
     pub(crate) fn kept(&self) -> CashKept {
         CashKept {
             months: self.months,
-            amount_cents: self.amount_cents,
-            currency: self.currency.clone(),
+            amount_cents: self.amount.amount,
+            currency: self.amount.currency.as_str().to_string(),
             activation_code: self.activation_code.clone(),
             mail_to_name: self.mail_to_name.clone(),
             mail_to_lines: self.mail_to_lines.clone(),
@@ -121,13 +119,13 @@ impl Letter {
     /// `EUR 9.90` (`9,90 EUR` in German).
     #[must_use]
     pub(crate) fn amount_text(&self) -> String {
-        azul_appkit::l10n::money(self.amount_cents, &self.currency)
+        crate::pay_words::show(&self.amount)
     }
 
     /// `nine euros and ninety cents`.
     #[must_use]
     pub(crate) fn amount_words(&self) -> String {
-        amount_in_words(self.amount_cents, &self.currency)
+        amount_in_words(&self.amount)
     }
 
     /// What was bought: `Azlin storage, 100 GB for 12 months` (in the window's language).

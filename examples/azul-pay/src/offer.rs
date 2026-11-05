@@ -50,6 +50,7 @@
 
 use std::fmt;
 
+use azlin_contract::{Cents, Currency};
 use serde_json::Value;
 
 pub use crate::registry::Settles;
@@ -123,40 +124,21 @@ impl Default for Returns {
     }
 }
 
+/// The VAT in an offer's price: its rate, its amount, whether the price includes it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Vat {
+    /// 190 = 19 %.
+    pub rate_permille: u32,
+    pub amount: Cents,
+    pub included: bool,
+}
+
 /// The price the offer quotes (the gross price with its VAT).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Price {
-    pub amount_cents: u64,
-    pub currency: String,
-    /// 190 = 19 %.
-    pub vat_rate_permille: u32,
-    pub vat_cents: u64,
-    pub vat_included: bool,
-}
-
-/// `4990` cents as `49.90`.
-#[must_use]
-pub fn amount_text(cents: u64) -> String {
-    format!("{}.{:02}", cents / 100, cents % 100)
-}
-
-impl Price {
-    /// `EUR 49.90, incl. 19 % VAT (EUR 7.97)`.
-    #[must_use]
-    pub fn text(&self) -> String {
-        let rate = if self.vat_rate_permille % 10 == 0 {
-            format!("{}", self.vat_rate_permille / 10)
-        } else {
-            format!("{}.{}", self.vat_rate_permille / 10, self.vat_rate_permille % 10)
-        };
-        let how = if self.vat_included { "incl." } else { "plus" };
-        format!(
-            "{cur} {}, {how} {rate} % VAT ({cur} {})",
-            amount_text(self.amount_cents),
-            amount_text(self.vat_cents),
-            cur = self.currency
-        )
-    }
+    pub amount: Cents,
+    /// The VAT it says; `None` when the offer names none of it (never a made-up 0 %).
+    pub vat: Option<Vat>,
 }
 
 /// The legal texts the offer carries.
@@ -167,15 +149,6 @@ pub struct Legal {
     /// The order button's words.
     pub order_button: Option<String>,
     pub terms_url: Option<String>,
-}
-
-/// What a checkout charges for a method: an amount in minor units of a currency (cents, groszy,
-/// yen) - the price of the tier in the payer's currency, as the signed price ladder froze it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Charge {
-    pub amount_cents: u64,
-    /// The ISO 4217 code (`PLN`).
-    pub currency: String,
 }
 
 /// One method a provider offers, as the app may show it.
@@ -192,8 +165,11 @@ pub struct OfferedMethod {
     /// Its place in the payer country's order of use (0 = the most used): the pills' order.
     /// `None` from a server that sends no order (its list order stands).
     pub rank: Option<u32>,
-    /// What the checkout charges with it; `None` when the server names no tier.
-    pub charge: Option<Charge>,
+    /// What the checkout charges with it - the price of the tier in the payer's currency, as the
+    /// signed price ladder froze it, in the currency's smallest unit; `None` when the server
+    /// names no tier. The pill shows THIS, not the offer's one price (the routes of one offer
+    /// may charge in different currencies).
+    pub charge: Option<Cents>,
     /// The currency the payer sees when the provider converts the charge (a euro price paid in
     /// zloty); `None` when the charge is paid as it is.
     pub presented_in: Option<String>,
@@ -548,26 +524,35 @@ fn code(value: &Value, len: usize) -> Option<String> {
         .then(|| text.to_ascii_uppercase())
 }
 
-/// A method's own `amount_cents` and `currency`: what its checkout charges.
-fn charge(m: &Value) -> Option<Charge> {
-    Some(Charge {
-        amount_cents: m["amount_cents"].as_u64()?,
-        currency: code(&m["currency"], 3)?,
+/// An amount and its currency as the wire writes them (`amount_cents`, `currency`): both, or
+/// none - a missing amount or currency is no price, never a 0 or a euro.
+fn cents(value: &Value) -> Option<Cents> {
+    Some(Cents {
+        amount: value["amount_cents"].as_u64()?,
+        currency: Currency::parse(value["currency"].as_str()?).ok()?,
     })
 }
 
+/// A method's own `amount_cents` and `currency`: what its checkout charges.
+fn charge(m: &Value) -> Option<Cents> {
+    cents(m)
+}
+
 fn price(value: &Value) -> Option<Price> {
-    let amount_cents = value["amount_cents"].as_u64()?;
-    Some(Price {
-        amount_cents,
-        currency: said(value["currency"].as_str().unwrap_or("EUR")),
-        vat_rate_permille: value["vat_rate_permille"]
-            .as_u64()
-            .and_then(|v| u32::try_from(v).ok())
-            .unwrap_or(0),
-        vat_cents: value["vat_cents"].as_u64().unwrap_or(0),
-        vat_included: value["vat_included"].as_bool().unwrap_or(true),
-    })
+    let amount = cents(value)?;
+    // The VAT is said whole or not at all: a rate without its amount or the other way round is no
+    // VAT line - never "0 %" or "EUR 0.00", never "included" by default.
+    let vat = (|| {
+        Some(Vat {
+            rate_permille: u32::try_from(value["vat_rate_permille"].as_u64()?).ok()?,
+            amount: Cents {
+                amount: value["vat_cents"].as_u64()?,
+                currency: amount.currency.clone(),
+            },
+            included: value["vat_included"].as_bool()?,
+        })
+    })();
+    Some(Price { amount, vat })
 }
 
 fn legal(value: &Value) -> Legal {

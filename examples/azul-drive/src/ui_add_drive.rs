@@ -518,13 +518,15 @@ fn buy(d: &AddDialog, development: bool, app: &RefAny) -> Dom {
                                     .with_id(ids::ADD_YEARLY),
                             )
                             .with_child(
-                                Dom::create_span_with_text(l10n::label("azdrive-add-pay-yearly-free"))
-                                    .with_css("margin-left: 8px;")
-                                    .with_callback(
-                                        EventFilter::Hover(HoverEventFilter::Click),
-                                        event_ref(app, AddEvent::Yearly),
-                                        on_event,
-                                    ),
+                                Dom::create_span_with_text(AzString::from(
+                                    pay_words::yearly_label(d.chosen_tier()),
+                                ))
+                                .with_css("margin-left: 8px;")
+                                .with_callback(
+                                    EventFilter::Hover(HoverEventFilter::Click),
+                                    event_ref(app, AddEvent::Yearly),
+                                    on_event,
+                                ),
                             ),
                     );
                 }
@@ -540,6 +542,20 @@ fn buy(d: &AddDialog, development: bool, app: &RefAny) -> Dom {
             } else if let Some(sentence) = d.refused() {
                 // The token server's own sentence (a country it does not serve), as it is.
                 children.push(error_line(sentence));
+            } else if let Some(why) = d.options_failed() {
+                // A failed call is no reason to take a weaker page: the buyer asks again.
+                children.push(error_line(&t_args(
+                    "azdrive-add-options-failed",
+                    &[("why", Arg::from(l10n::t_label(why)))],
+                )));
+                children.push(buttons(vec![button(
+                    app,
+                    "azdrive-add-try-again",
+                    ButtonType::Default,
+                    AddEvent::RetryOptions,
+                    ids::ADD_RETRY_OPTIONS,
+                    d.busy().then_some("azdrive-add-wait-step"),
+                )]));
             }
             if !d.pays_with_pills() {
                 if let Some(consent) = &tiers.withdrawal_consent {
@@ -561,8 +577,6 @@ fn buy(d: &AddDialog, development: bool, app: &RefAny) -> Dom {
     if matches!(d.pay, PayState::Posted { .. }) {
         children.extend(crate::cash::posted_pieces(d.kept.as_ref(), app));
     }
-    let loaded = matches!(d.tiers, TiersState::Loaded(_))
-        && !matches!(d.offer, OfferState::Loading);
     let mut row = Vec::new();
     if d.paying() {
         if let PayState::Waiting {
@@ -598,7 +612,7 @@ fn buy(d: &AddDialog, development: bool, app: &RefAny) -> Dom {
             ));
         }
         let busy = d.busy().then_some("azdrive-add-wait-step");
-        let not_loaded = (!loaded).then_some("azdrive-add-tiers-not-loaded");
+        let not_loaded = d.order_waits_for();
         // Nothing can be bought where the token server refused this buyer.
         let not_loaded = not_loaded.or(d.refused());
         if development {
@@ -883,8 +897,16 @@ fn payment(d: &AddDialog, app: &RefAny) -> Vec<Dom> {
             }
         }
     }
-    if let Some(price) = &offer.price {
-        parts.push(note(&pay_words::price(price)).with_id(ids::ADD_PRICE));
+    // The price of the chosen method: its own charge. The offer's VAT line belongs to the offer's
+    // price, so it stands only where the method charges that currency.
+    match (d.price_shown(), &offer.price) {
+        (Some(shown), Some(price)) if shown.currency == price.amount.currency => {
+            let mut priced = price.clone();
+            priced.amount = shown;
+            parts.push(note(&pay_words::price(&priced)).with_id(ids::ADD_PRICE));
+        }
+        (Some(shown), _) => parts.push(note(&pay_words::show(&shown)).with_id(ids::ADD_PRICE)),
+        (None, _) => {}
     }
     let consent = offer
         .legal
@@ -917,15 +939,15 @@ fn payment(d: &AddDialog, app: &RefAny) -> Vec<Dom> {
     parts
 }
 
-/// The amount the order costs: the offer's price, else the tier's.
+/// The amount the order costs: the checkout's own charge once there is one (what its page asks),
+/// else what the order was shown at ([`AddDialog::price_shown`]: the chosen method's own charge,
+/// not the offer's one price).
 fn amount(d: &AddDialog) -> String {
-    match d.offer().and_then(|o| o.price.as_ref()) {
-        Some(price) => l10n::money(price.amount_cents, &price.currency),
-        None => d
-            .chosen_tier()
-            .and_then(|t| pay_words::tier_price(t, d.pays_yearly()))
-            .unwrap_or_default(),
-    }
+    d.charge
+        .clone()
+        .or_else(|| d.price_shown())
+        .map(|price| pay_words::show(&price))
+        .unwrap_or_default()
 }
 
 /// The popover of the machine's checkout while it shows a page: a `<transient-window>` of the
@@ -1692,9 +1714,9 @@ mod tests {
         let tier = |id: &str, gb: u64| Tier {
             id: id.to_string(),
             quota_bytes: gb * 1_000_000_000,
-            price_cents_month: Some(99),
-            price_cents_year: Some(990),
-            currency: "EUR".to_string(),
+            price_month: Some(crate::pay_words_tests::cents(99, "EUR")),
+            price_year: Some(crate::pay_words_tests::cents(990, "EUR")),
+            currency: crate::pay_words_tests::currency("EUR"),
             first_month_free: true,
             yearly_only: false,
             prepay: azcloud_kit::azlin_contract::Prepay::new(
@@ -1756,9 +1778,9 @@ mod tests {
         let tier = |id: &str, gb: u64| Tier {
             id: id.to_string(),
             quota_bytes: gb * 1_000_000_000,
-            price_cents_month: Some(449),
-            price_cents_year: Some(4490),
-            currency: "PLN".to_string(),
+            price_month: Some(crate::pay_words_tests::cents(449, "PLN")),
+            price_year: Some(crate::pay_words_tests::cents(4490, "PLN")),
+            currency: crate::pay_words_tests::currency("PLN"),
             first_month_free: true,
             yearly_only: false,
             prepay: azcloud_kit::azlin_contract::Prepay::new(
@@ -1821,9 +1843,9 @@ mod tests {
             tiers: vec![Tier {
                 id: String::from("12TB"),
                 quota_bytes: 12_000_000_000_000,
-                price_cents_month: None,
-                price_cents_year: Some(34_990),
-                currency: String::from("EUR"),
+                price_month: None,
+                price_year: Some(crate::pay_words_tests::cents(34_990, "EUR")),
+                currency: crate::pay_words_tests::currency("EUR"),
                 first_month_free: true,
                 yearly_only: true,
                 prepay: azcloud_kit::azlin_contract::Prepay::new(vec![
@@ -1868,7 +1890,7 @@ mod tests {
     fn the_buy_pages_yearly_label_and_name_field_are_set_in_the_dialog_kits_text_size() {
         let page = buy_page();
         assert_eq!(
-            size_of_text(&page, "Pay yearly (two months for free)", None),
+            size_of_text(&page, "Pay yearly (saves 16 %)", None),
             Some(Some(13.0)),
             "the yearly label: the dialog's text size"
         );

@@ -47,6 +47,7 @@ pub mod bridge;
 pub mod cash;
 pub mod identity;
 pub mod machine;
+pub mod money;
 pub mod offer;
 pub mod pills;
 pub mod registry;

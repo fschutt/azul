@@ -195,6 +195,13 @@ impl SharedKeyring {
         Outbox::new(self.locks.path().join(crate::outbox::OUTBOX_DIR))
     }
 
+    /// What this user's computer paid for ([`crate::pending::PaidList`]): beside the open calls,
+    /// in the folder every process of this user that spends the same credentials finds.
+    #[must_use]
+    pub fn paid(&self) -> crate::pending::PaidList {
+        crate::pending::PaidList::in_dir(&self.locks.path().join("paid"))
+    }
+
     /// Takes the lock of the entry `key`: one holder in every process of this user at a time.
     ///
     /// # Errors

@@ -65,9 +65,13 @@ pub(crate) struct Schedule {
 
 impl Default for Schedule {
     fn default() -> Schedule {
-        Schedule::new(check_every(
-            std::env::var("AZDRIVE_PERIOD_CHECK_SECS").ok().as_deref(),
-        ))
+        // The look's interval is a day; a test run shortens it (a shipped build does not read it).
+        let var = if cfg!(feature = "test-hooks") {
+            std::env::var("AZDRIVE_PERIOD_CHECK_SECS").ok()
+        } else {
+            None
+        };
+        Schedule::new(check_every(var.as_deref()))
     }
 }
 

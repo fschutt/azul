@@ -13,6 +13,11 @@ use crate::{
     ClaimKey, CloudError, DriveBundle,
 };
 
+/// An amount as a pair to compare: the cents and the currency's code.
+fn money(price: Option<&azlin_contract::Cents>) -> Option<(u64, &str)> {
+    price.map(|p| (p.amount, p.currency.as_str()))
+}
+
 /// azlin-token's price ladder (tiers.rs), as GET /v1/tiers answers.
 const LADDER: &str = r#"{"tiers": [
     {"id": "100GB", "quota_bytes": 100000000000, "price_cents_month": 99,
@@ -37,12 +42,12 @@ fn the_tier_ladder_reads_with_its_prices() {
     let first = &tiers.tiers[0];
     assert_eq!(first.id, "100GB");
     assert_eq!(first.quota_text(), "100 GB");
-    assert_eq!(first.price_text(false).as_deref(), Some("EUR 0.99 a month"));
-    assert_eq!(first.price_text(true).as_deref(), Some("EUR 9.90 a year"));
+    assert_eq!(money(first.price(false)), Some((99, "EUR")));
+    assert_eq!(money(first.price(true)), Some((990, "EUR")));
     assert!(first.first_month_free);
     assert_eq!(tiers.tiers[1].quota_text(), "1 TB");
     assert_eq!(tiers.tiers[2].quota_text(), "12 TB");
-    assert_eq!(tiers.tiers[2].price_text(false).as_deref(), Some("EUR 34.99 a month"));
+    assert_eq!(money(tiers.tiers[2].price(false)), Some((3499, "EUR")));
     assert!(tiers.methods.contains(&"sepa".to_string()));
     assert!(tiers.withdrawal_consent.unwrap().contains("immediately"));
     let call = &fake.calls()[0];
@@ -64,8 +69,8 @@ fn the_tier_list_is_asked_for_in_the_buyers_country_and_priced_in_its_currency()
     let transport = Shared(fake.clone());
     let server = TokenServer::new(TOKEN, &transport).unwrap();
     let tiers = server.tiers_in(" pl ").unwrap();
-    assert_eq!(tiers.tiers[0].currency, "PLN");
-    assert_eq!(tiers.tiers[0].price_cents_month, Some(449));
+    assert_eq!(tiers.tiers[0].currency.as_str(), "PLN");
+    assert_eq!(money(tiers.tiers[0].price(false)), Some((449, "PLN")));
     let call = &fake.calls()[0];
     assert_eq!(call.method, Method::Get);
     assert_eq!(call.url, format!("{TOKEN}/v1/tiers?country=PL"));
@@ -88,7 +93,7 @@ fn a_ladder_without_prices_still_reads() {
     });
     let transport = Shared(fake);
     let tiers = TokenServer::new(TOKEN, &transport).unwrap().tiers().unwrap();
-    assert_eq!(tiers.tiers[0].price_text(false), None);
+    assert_eq!(money(tiers.tiers[0].price(false)), None);
     assert_eq!(tiers.tiers[0].quota_text(), "100 GB");
 }
 
@@ -196,7 +201,7 @@ fn a_checkout_names_its_claim_key_and_its_status_opens_the_sealed_signup_every_t
     let started = server.checkout("100GB", 12, "sepa", &claim, crate::token::CheckoutFor::NewDrive).unwrap();
     assert_eq!(started.checkout_id, "ck_1");
     assert_eq!(started.pay_url, "http://127.0.0.1:18081/v1/pay/ck_1");
-    assert_eq!(started.amount_cents, 990);
+    assert_eq!(money(Some(started.charge.cents())), Some((990, "EUR")));
     assert_eq!(started.months, 12);
     assert!(started.mock);
     let call = &fake.calls()[0];
@@ -217,7 +222,7 @@ fn a_checkout_names_its_claim_key_and_its_status_opens_the_sealed_signup_every_t
     );
     for _ in 0..2 {
         match server.checkout_status("ck_1", &claim).unwrap() {
-            CheckoutStatus::Approved(drive) => {
+            CheckoutStatus::Approved(drive, _) => {
                 assert_eq!(drive.drive_id(), "d_1");
                 assert_eq!(drive.drive_token, "dt_f.0.aaa");
                 assert_eq!(drive.credentials.access_key_id, "AKID1");
@@ -338,7 +343,7 @@ fn a_yearly_only_tier_is_read_with_its_periods_and_methods_and_without_a_monthly
     assert_eq!(months, [12, 24]);
     assert!(!tier.sells_monthly() && tier.sells_yearly());
     assert!(!tier.sells_months(1) && tier.sells_months(24));
-    assert_eq!(tier.price_text(false), None, "no monthly price to show");
+    assert_eq!(money(tier.price(false)), None, "no monthly price to show");
     assert!(tier.takes("card") && !tier.takes("cash"), "cash is the server's, not this tier's");
 }
 
@@ -666,7 +671,7 @@ fn a_checkout_through_a_provider_names_it_and_answers_its_surface() {
     };
     let (started, answer) = server.checkout_via("1TB", 12, &via, &claim, crate::token::CheckoutFor::NewDrive).unwrap();
     assert_eq!(started.checkout_id, "ck_9");
-    assert_eq!(started.amount_cents, 4990);
+    assert_eq!(money(Some(started.charge.cents())), Some((4990, "EUR")));
     assert_eq!(started.months, 12);
     assert_eq!(answer["surface"]["kind"], "fields");
     assert_eq!(answer["surface"]["client_secret"], "pi_1_secret_2");
@@ -1021,4 +1026,141 @@ fn a_bundle_reads_the_cluster_maps_epoch_and_why_the_drive_is_read_only() {
     let null_map = bundle("AKID1", "2026-10-08T21:15:00Z", "dt_f.0.aaa")
         .replace(r#""nodes": []"#, r#""nodes": [], "map": null"#);
     assert_eq!(DriveBundle::parse(&null_map).unwrap().map_epoch, None);
+}
+
+// ==== RF52: the money of an order is typed ====
+
+/// X-AR5b-6: a checkout whose answer names no amount, or no currency, is no checkout - it is not
+/// a free order and not one in euros.
+#[test]
+fn x_ar5b_6_a_checkout_answer_without_its_amount_or_currency_is_a_protocol_error() {
+    let claim = ClaimKey::generate().unwrap();
+    for body in [
+        r#"{"checkout_id": "ck_1", "pay_url": "http://127.0.0.1:18081/v1/pay/ck_1", "currency": "EUR"}"#,
+        r#"{"checkout_id": "ck_1", "pay_url": "http://127.0.0.1:18081/v1/pay/ck_1", "amount_cents": 990}"#,
+        r#"{"checkout_id": "ck_1", "pay_url": "http://127.0.0.1:18081/v1/pay/ck_1", "amount_cents": 990, "currency": "euro"}"#,
+        r#"{"checkout_id": "ck_1", "pay_url": "http://127.0.0.1:18081/v1/pay/ck_1", "amount_cents": "990", "currency": "EUR"}"#,
+    ] {
+        let fake = Fake::new(move |_, _| Ok(json(201, body)));
+        let transport = Shared(fake);
+        let server = TokenServer::new(TOKEN, &transport).unwrap();
+        let error = server
+            .checkout(
+                "100GB",
+                12,
+                "sepa",
+                &claim,
+                crate::token::CheckoutFor::NewDrive,
+            )
+            .expect_err(body);
+        assert!(
+            matches!(error, TokenError::Protocol(_)),
+            "{body}: {error:?}"
+        );
+        let via = CheckoutVia {
+            provider: "stripe",
+            method: "card",
+            surface: "fields",
+            vat_country: "DE",
+            withdrawal_consent: true,
+            payer: &[],
+        };
+        assert!(
+            matches!(
+                server.checkout_via(
+                    "100GB",
+                    12,
+                    &via,
+                    &claim,
+                    crate::token::CheckoutFor::NewDrive
+                ),
+                Err(TokenError::Protocol(_))
+            ),
+            "{body}"
+        );
+    }
+}
+
+/// AZ-P2: what the buyer was shown is compared with what the token server charges, before
+/// anything of the checkout is shown. A PL buyer shown EUR 0.99 (the SEPA route's own charge) is
+/// not sent to a page that asks PLN 4.49; a lock renewal pays at most what was shown.
+#[test]
+fn az_p2_a_quote_is_checked_against_the_charge_before_anything_is_shown() {
+    use crate::token::{Charge, Quote};
+    let charge = |amount: u64, currency: &str| {
+        Charge::of_answer(&serde_json::json!({"amount_cents": amount, "currency": currency}))
+            .unwrap()
+    };
+    let cents = |amount: u64, currency: &str| azlin_contract::Cents {
+        amount,
+        currency: azlin_contract::Currency::parse(currency).unwrap(),
+    };
+    let quote = |amount: u64, currency: &str, at_most: bool| Quote {
+        price: cents(amount, currency),
+        tier: String::from("100GB"),
+        months: 1,
+        at_most,
+    };
+    // Exactly what was shown.
+    assert!(quote(99, "EUR", false).check(&charge(99, "EUR")).is_ok());
+    // Another amount, in either direction, and another currency: refused, with both said.
+    let changed = quote(99, "EUR", false)
+        .check(&charge(449, "PLN"))
+        .expect_err("another currency");
+    assert_eq!((changed.shown.amount, changed.charged.amount), (99, 449));
+    assert_eq!(changed.charged.currency.as_str(), "PLN");
+    assert!(
+        quote(99, "EUR", false).check(&charge(100, "EUR")).is_err(),
+        "dearer"
+    );
+    assert!(
+        quote(99, "EUR", false).check(&charge(98, "EUR")).is_err(),
+        "cheaper is a changed price too"
+    );
+    // A renewal under a price lock pays that price or today's when lower: never more, never
+    // another currency.
+    assert!(quote(99, "EUR", true).check(&charge(99, "EUR")).is_ok());
+    assert!(
+        quote(99, "EUR", true).check(&charge(79, "EUR")).is_ok(),
+        "the lock is a ceiling"
+    );
+    assert!(quote(99, "EUR", true).check(&charge(100, "EUR")).is_err());
+    assert!(
+        quote(99, "EUR", true).check(&charge(79, "PLN")).is_err(),
+        "not another currency"
+    );
+}
+
+/// AZ-P3: the payment page of a v1 checkout is built (`{token}/v1/pay/{id}`) and an answer's
+/// `pay_url` must be exactly that - the same host, the same path. A page on another scheme or
+/// host, with another path or a query, is not it, and nothing opens it.
+#[test]
+fn az_p3_the_payment_page_is_built_and_an_answer_must_name_the_same_one() {
+    use crate::token::{page_is, pay_page};
+    assert_eq!(
+        pay_page("https://token.azlin.io/", "ck_1").unwrap(),
+        "https://token.azlin.io/v1/pay/ck_1"
+    );
+    assert!(pay_page("https://token.azlin.io", "not a checkout").is_err());
+    let ours = "https://token.azlin.io";
+    assert!(page_is(ours, "ck_1", "https://token.azlin.io/v1/pay/ck_1"));
+    assert!(
+        page_is(ours, "ck_1", " HTTPS://Token.Azlin.IO/v1/pay/ck_1 "),
+        "scheme and host in any case"
+    );
+    for other in [
+        "file:///etc/passwd",
+        "smb://host/x.exe",
+        "javascript:alert(1)",
+        "http://token.azlin.io/v1/pay/ck_1",
+        "https://token.azlin.io.evil.example/v1/pay/ck_1",
+        "https://evil.example/v1/pay/ck_1",
+        "https://token.azlin.io/v1/pay/ck_2",
+        "https://token.azlin.io/v1/pay/ck_1?next=https://evil.example",
+        "https://token.azlin.io/v1/pay/ck_1/",
+        "https://user@token.azlin.io/v1/pay/ck_1",
+        "",
+    ] {
+        assert!(!page_is(ours, "ck_1", other), "{other:?}");
+    }
 }

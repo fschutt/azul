@@ -19,8 +19,11 @@ use std::fmt::Write as _;
 
 use serde_json::Value;
 
+use azlin_contract::{Cents, Currency};
+
 use crate::{
-    offer::{amount_text, Offer, OfferContext},
+    money::minor_digits,
+    offer::{Offer, OfferContext},
     pills::{self, Choice, PillContext},
     registry::{Method, SurfaceKind},
     surface::SurfaceError,
@@ -64,9 +67,8 @@ pub struct MailTo {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CashSlip {
     pub checkout_id: String,
-    pub amount_cents: u64,
-    /// `EUR`.
-    pub currency: String,
+    /// What to post, in the smallest unit of its currency (`EUR`).
+    pub amount: Cents,
     /// `AZC1-...`, as the answer wrote it.
     pub activation_code: String,
     pub mail_to: MailTo,
@@ -170,6 +172,7 @@ impl CashSlip {
         if currency.len() != 3 || !currency.bytes().all(|b| b.is_ascii_uppercase()) {
             return Err(SurfaceError::Field("currency"));
         }
+        let currency = Currency::parse(currency).map_err(|_| SurfaceError::Field("currency"))?;
         let code = answer["activation_code"]
             .as_str()
             .ok_or(SurfaceError::Missing("activation_code"))?
@@ -200,24 +203,20 @@ impl CashSlip {
         });
         Ok(CashSlip {
             checkout_id: id.to_string(),
-            amount_cents,
-            currency: currency.to_string(),
+            amount: Cents {
+                amount: amount_cents,
+                currency,
+            },
             activation_code: code.to_string(),
             mail_to: MailTo { name, lines },
             expires_at,
         })
     }
 
-    /// `EUR 9.90`.
-    #[must_use]
-    pub fn amount_text(&self) -> String {
-        format!("{} {}", self.currency, amount_text(self.amount_cents))
-    }
-
     /// `nine euros and ninety cents`.
     #[must_use]
     pub fn amount_words(&self) -> String {
-        amount_in_words(self.amount_cents, &self.currency)
+        amount_in_words(&self.amount)
     }
 }
 
@@ -261,24 +260,29 @@ pub fn number_in_words(n: u64) -> String {
     out
 }
 
-/// The names of a currency's unit and its hundredth, one and many: `euro`, `euros`, `cent`,
-/// `cents`; a currency without names of its own is its code and "hundredth".
+/// The names of a currency's unit and its smallest part, one and many: `euro`, `euros`, `cent`,
+/// `cents`; a currency without names of its own is its code and "hundredth" ("thousandth" for the
+/// three-decimal currencies).
 fn unit_names(currency: &str) -> [&str; 4] {
     match currency {
         "EUR" => ["euro", "euros", "cent", "cents"],
         "USD" => ["dollar", "dollars", "cent", "cents"],
         "GBP" => ["pound", "pounds", "penny", "pence"],
         "CHF" => ["Swiss franc", "Swiss francs", "centime", "centimes"],
+        other if minor_digits(other) == 3 => [other, other, "thousandth", "thousandths"],
         other => [other, other, "hundredth", "hundredths"],
     }
 }
 
-/// `cents` of `currency` in words, as a slip writes the amount out: `nine euros and ninety
-/// cents`, `one euro`, `two cents`.
+/// `amount` in words, as a slip writes the amount out: `nine euros and ninety cents`, `one
+/// euro`, `two cents`, `one hundred sixty JPY`. The smallest unit is the currency's own: the
+/// yen has none below it, a dinar of Kuwait a thousandth.
 #[must_use]
-pub fn amount_in_words(cents: u64, currency: &str) -> String {
-    let [one, many, minor_one, minor_many] = unit_names(currency.trim());
-    let (major, minor) = (cents / 100, cents % 100);
+pub fn amount_in_words(amount: &Cents) -> String {
+    let code = amount.currency.as_str();
+    let [one, many, minor_one, minor_many] = unit_names(code);
+    let scale = 10_u64.pow(minor_digits(code));
+    let (major, minor) = (amount.amount / scale, amount.amount % scale);
     let units = |n: u64, one: &str, many: &str| {
         format!("{} {}", number_in_words(n), if n == 1 { one } else { many })
     };
