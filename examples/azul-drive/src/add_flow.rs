@@ -166,15 +166,12 @@ pub(crate) fn open(s: &mut DriveState) {
     let env = |name: &str| std::env::var(name).ok();
     // The buyer's VAT country comes from the buyer: what they declared and this computer
     // remembers. A variable of the environment names it only in a test build (X-AR5b-24).
-    let declared = |name: &str| {
-        if cfg!(feature = "test-hooks") {
-            env(name)
-        } else {
-            None
-        }
-    };
-    d.country =
-        countries::declared(s.settings.residence_country.as_deref(), declared).unwrap_or_default();
+    d.country = countries::declared_for(
+        cfg!(feature = "test-hooks"),
+        s.settings.residence_country.as_deref(),
+        env,
+    )
+    .unwrap_or_default();
     let first = if d.country.is_empty() {
         countries::guess(&l10n::locale(), env)
     } else {

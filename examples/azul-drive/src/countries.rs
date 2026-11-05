@@ -93,6 +93,19 @@ pub(crate) fn declared(
         .map(|code| code.trim().to_ascii_uppercase())
 }
 
+/// [`declared`] for a build: the environment names the country only in a test build
+/// (`test_build`), where the scripts and the tests declare one. A shipped build takes the buyer's
+/// own declaration (what this computer remembers of it) and nothing a variable says - the VAT
+/// country of an order is the buyer's, not the environment's (X-AR5b-24).
+#[must_use]
+pub(crate) fn declared_for(
+    test_build: bool,
+    remembered: Option<&str>,
+    var: impl Fn(&str) -> Option<String>,
+) -> Option<String> {
+    declared(remembered, |name| if test_build { var(name) } else { None })
+}
+
 /// The country `code`'s name in the window's language (its code where the resources lack it).
 #[must_use]
 pub(crate) fn name(code: &str) -> String {

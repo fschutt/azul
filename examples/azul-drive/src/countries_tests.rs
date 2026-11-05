@@ -114,3 +114,22 @@ fn azlin_country_declares_the_country_before_the_remembered_one() {
         "nothing declared: the dialog asks"
     );
 }
+
+/// X-AR5b-24: the environment names the buyer's country in a test build only. A shipped build
+/// takes what the buyer declared and this computer remembers.
+#[test]
+fn x_ar5b_24_the_environment_declares_a_country_in_a_test_build_only() {
+    use crate::countries::declared_for;
+    let var = env(&[("AZLIN_COUNTRY", "fr")]);
+    assert_eq!(declared_for(true, Some("PL"), &var).as_deref(), Some("FR"));
+    assert_eq!(
+        declared_for(false, Some("PL"), &var).as_deref(),
+        Some("PL"),
+        "the remembered one, not the variable's"
+    );
+    assert_eq!(
+        declared_for(false, None, &var),
+        None,
+        "nothing declared: the dialog asks"
+    );
+}

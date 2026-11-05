@@ -724,14 +724,25 @@ pub(crate) fn run(job: SyncJob, emit: &mut dyn FnMut(Outcome)) -> Outcome {
 // ==== The UI thread's side ====
 
 /// How long a pass waits for its folder to be quiet first: `$AZDRIVE_SYNC_SETTLE_MS`
-/// (scripts), else two seconds - long enough for a checkout or an unzip to finish its burst,
-/// short enough that a saved file still goes up at once.
+/// (scripts, a test build), else two seconds - long enough for a checkout or an unzip to finish
+/// its burst, short enough that a saved file still goes up at once.
 fn settle() -> StdDuration {
-    let millis = std::env::var("AZDRIVE_SYNC_SETTLE_MS")
-        .ok()
+    let millis = test_switch("AZDRIVE_SYNC_SETTLE_MS")
         .and_then(|v| v.trim().parse::<u64>().ok())
         .unwrap_or(2_000);
     StdDuration::from_millis(millis)
+}
+
+/// A timing switch of the scripts: read in a test build (`test-hooks`) only - a shipped AzDrive
+/// polls and settles at its own pace whatever its environment says (X-AR5b-24).
+fn test_switch(name: &str) -> Option<String> {
+    switch_in(cfg!(feature = "test-hooks"), std::env::var(name).ok())
+}
+
+/// `value` of a script's switch where `test_build` reads switches, else nothing.
+#[must_use]
+pub(crate) fn switch_in(test_build: bool, value: Option<String>) -> Option<String> {
+    value.filter(|_| test_build)
 }
 
 /// Whether the poll asks a drive again: not when its last pass needs the user to sign in to it
@@ -745,11 +756,10 @@ pub(crate) fn polled(states: &SyncStates) -> bool {
         .is_none_or(|p| p.user_error().class() != azcloud_kit::user_errors::Class::ReAuth)
 }
 
-/// How often the timer polls every synced drive: `$AZDRIVE_SYNC_POLL` seconds (scripts), else
-/// 30.
+/// How often the timer polls every synced drive: `$AZDRIVE_SYNC_POLL` seconds (scripts, a test
+/// build), else 30.
 fn poll_secs() -> u64 {
-    std::env::var("AZDRIVE_SYNC_POLL")
-        .ok()
+    test_switch("AZDRIVE_SYNC_POLL")
         .and_then(|v| v.trim().parse::<u64>().ok())
         .filter(|secs| *secs > 0)
         .unwrap_or(30)

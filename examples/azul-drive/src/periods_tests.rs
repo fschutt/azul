@@ -108,3 +108,35 @@ fn a_recovery_lockdown_says_how_long_the_owner_has_to_cancel_it() {
     let now = recovery_text("Work", NOW + 600, NOW);
     assert_eq!(now.get("hours"), Some(&Arg::Int(0)), "less than an hour");
 }
+
+/// X-AR5b-24: the interval of the period look is a day; a script shortens it with
+/// `$AZDRIVE_PERIOD_CHECK_SECS` in a test build only.
+#[test]
+fn x_ar5b_24_the_period_look_interval_is_read_from_the_environment_in_a_test_build_only() {
+    use crate::periods::look_every;
+    assert_eq!(look_every(true, Some("3")), 3);
+    assert_eq!(
+        look_every(false, Some("3")),
+        DAY_SECS,
+        "a shipped build does not read it"
+    );
+    assert_eq!(look_every(true, None), DAY_SECS);
+    assert_eq!(
+        look_every(true, Some("0")),
+        DAY_SECS,
+        "never a look at no interval"
+    );
+    assert_eq!(look_every(true, Some("soon")), DAY_SECS);
+}
+
+/// X-AR5b-24: the sync's two timing switches of the scripts are read in a test build only.
+#[test]
+fn x_ar5b_24_the_sync_timing_switches_are_read_in_a_test_build_only() {
+    use crate::sync_jobs::switch_in;
+    assert_eq!(
+        switch_in(true, Some(String::from("2"))).as_deref(),
+        Some("2")
+    );
+    assert_eq!(switch_in(false, Some(String::from("2"))), None);
+    assert_eq!(switch_in(true, None), None);
+}

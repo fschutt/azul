@@ -65,14 +65,19 @@ pub(crate) struct Schedule {
 
 impl Default for Schedule {
     fn default() -> Schedule {
-        // The look's interval is a day; a test run shortens it (a shipped build does not read it).
-        let var = if cfg!(feature = "test-hooks") {
-            std::env::var("AZDRIVE_PERIOD_CHECK_SECS").ok()
-        } else {
-            None
-        };
-        Schedule::new(check_every(var.as_deref()))
+        Schedule::new(look_every(
+            cfg!(feature = "test-hooks"),
+            std::env::var("AZDRIVE_PERIOD_CHECK_SECS").ok().as_deref(),
+        ))
     }
+}
+
+/// How often each drive's period is looked at: a day, or - in a test build (`test_build`) only -
+/// the seconds a script sets in `$AZDRIVE_PERIOD_CHECK_SECS`; a shipped build does not read it
+/// (X-AR5b-24).
+#[must_use]
+pub(crate) fn look_every(test_build: bool, var: Option<&str>) -> u64 {
+    check_every(var.filter(|_| test_build))
 }
 
 impl Schedule {
