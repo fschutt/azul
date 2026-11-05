@@ -126,10 +126,9 @@ Draft and pre-release entries are skipped. An unauthenticated client makes
 one or two API calls per check, well inside GitHub's rate limit for a
 per-user application.
 
-A GitHub release with no signature assets is *unsigned*: fine if your app
-does not pin a `root_public_key`, and a hard refusal if it does. That is the
-intended behaviour — an app that has been told to require signatures should
-not quietly accept a release that has none.
+A GitHub release with no signature assets is *unsigned*, and an unsigned
+release is refused: an app installs only what its root key vouches for, and
+should not quietly accept a release that has none.
 
 ### OCI registries
 
@@ -197,9 +196,14 @@ can. That is the whole point: an attacker who controls your download server
 and your manifest still cannot make a client install anything, because they
 cannot produce a statement the root key signed.
 
-Leaving `root_public_key` empty disables the chain and leaves only the
-`digest` pin, which protects against corruption and a swapped file but not
-against someone who can rewrite the manifest.
+An empty `root_public_key` does **not** disable the chain. An app that
+carries no root key has no way to prove an update: it may check and notify,
+but it stages and installs nothing and says "updates are not available in this
+build". The `digest` pin alone protects against corruption and a swapped file
+but not against someone who can rewrite the manifest, so it is never what an
+update falls back to when a key is missing or unreadable (a key that does not
+parse is an error too). The key text may list the current and the next root
+key, separated by commas, so a root can be replaced without a flag day.
 
 ## Signing a release
 

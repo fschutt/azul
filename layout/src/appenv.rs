@@ -29,9 +29,15 @@ pub struct AppEnv {
     pub changelog_md: Option<String>,
     /// Support mailbox for problem reports; `None` = reports save to disk.
     pub report_problem: Option<String>,
-    /// `AppConfig.updates.root_public_key` — the compiled-in minisign root
-    /// key that arms the update signature chain (None = digest-only).
-    pub update_root_public_key: Option<String>,
+    /// `AppConfig.updates.root_public_key` as the app wrote it - the compiled-in minisign ROOT
+    /// key(s) the update signature chain ends in (empty: the app carries none). This is the
+    /// text of the C struct; the updater parses it at its edge ([`AppEnv::update_policy`]) and an
+    /// empty or unreadable key is an error there, never "no check".
+    pub update_root_public_key: String,
+    /// `AppConfig.updates.allow_unsigned` - the app SPELLS OUT that it accepts an update that is
+    /// pinned by its digest only (no signature chain). Without a root key and without this,
+    /// the app has no way to prove an update and none is installed.
+    pub update_allow_unsigned: bool,
     /// `AppConfig.updates.channel` — the release channel this binary
     /// follows ("" = stable).
     pub update_channel: String,
@@ -46,7 +52,8 @@ impl Default for AppEnv {
             update_manifest: None,
             changelog_md: None,
             report_problem: None,
-            update_root_public_key: None,
+            update_root_public_key: String::new(),
+            update_allow_unsigned: false,
             update_channel: String::new(),
         }
     }
@@ -66,14 +73,8 @@ impl AppEnv {
             current_version: config.updates.current_version.as_str().to_owned(),
             update_mode: config.updates.mode,
             update_manifest: opt(&config.updates.manifest_url),
-            update_root_public_key: {
-                let k = config.updates.root_public_key.as_str();
-                if k.is_empty() {
-                    None
-                } else {
-                    Some(k.to_owned())
-                }
-            },
+            update_root_public_key: config.updates.root_public_key.as_str().to_owned(),
+            update_allow_unsigned: false,
             update_channel: config.updates.channel.as_str().to_owned(),
             changelog_md: opt(&config.changelog_md),
             report_problem: match &config.report_problem {
@@ -88,6 +89,23 @@ impl AppEnv {
                 azul_core::resources::OptionEmailAddress::None => None,
             },
         }
+    }
+}
+
+#[cfg(feature = "updater")]
+impl AppEnv {
+    /// What this app's updates have to prove: its root key(s), or the digest pin alone when the
+    /// app spelled that out ([`crate::updater::UpdatePolicy::from_text`]).
+    ///
+    /// # Errors
+    ///
+    /// [`crate::updater::NO_ROOT_KEY`] for an app that carries neither, or why its key is no
+    /// key.
+    pub fn update_policy(&self) -> Result<crate::updater::UpdatePolicy, String> {
+        crate::updater::UpdatePolicy::from_text(
+            &self.update_root_public_key,
+            self.update_allow_unsigned,
+        )
     }
 }
 
@@ -142,6 +160,45 @@ mod tests {
             Some("http://localhost:1/CHANGELOG.md")
         );
         assert_eq!(env.report_problem.as_deref(), Some("support@example.test"));
+    }
+
+    /// REVIEW Y1: an app's configuration is the SOURCE of its update policy; a default config has
+    /// none, and "no key" is not a digest-only policy unless the app spells that out.
+    #[cfg(feature = "updater")]
+    #[test]
+    fn y1_the_update_policy_comes_from_the_apps_config_and_a_default_config_has_none() {
+        use crate::updater::{UpdatePolicy, NO_ROOT_KEY};
+
+        let config = azul_core::resources::AppConfig::create();
+        let env = AppEnv::from_config(&config);
+        assert_eq!(env.update_policy(), Err(NO_ROOT_KEY.to_owned()));
+        assert_eq!(
+            AppEnv::default().update_policy(),
+            Err(NO_ROOT_KEY.to_owned())
+        );
+
+        let mut config = config;
+        config.updates.root_public_key =
+            "RWQf6LRCGA9i53mlYecO4IzT51TGPpvWucNSCh1CBM0QTaLn73Y7GFO3".into();
+        let policy = AppEnv::from_config(&config)
+            .update_policy()
+            .expect("a key parses");
+        assert!(policy.is_signed());
+
+        // The app spelling out digest-only is the one way to a policy without a key.
+        let spelled = AppEnv {
+            update_allow_unsigned: true,
+            ..AppEnv::default()
+        };
+        assert_eq!(spelled.update_policy(), Ok(UpdatePolicy::DigestOnly));
+
+        // A key that is no key stays an error beside the flag.
+        let typo = AppEnv {
+            update_root_public_key: "RWQ-not-a-key".to_owned(),
+            update_allow_unsigned: true,
+            ..AppEnv::default()
+        };
+        assert!(typo.update_policy().is_err());
     }
 
     #[test]

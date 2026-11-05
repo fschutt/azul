@@ -1755,49 +1755,294 @@ fn record_check(result: &str) {
     let _ = result;
 }
 
+/// Reads `path` once, block by block, through `each`: the bytes a check looks at are the
+/// bytes it counts, and no artifact is held in memory whole. The number of bytes read.
+fn read_blocks(path: &Path, mut each: impl FnMut(&[u8])) -> Result<u64, String> {
+    use std::io::Read as _;
+    let mut file = std::fs::File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let mut block = vec![0u8; 64 * 1024];
+    let mut total = 0u64;
+    loop {
+        let n = file
+            .read(&mut block)
+            .map_err(|e| format!("{}: {e}", path.display()))?;
+        if n == 0 {
+            return Ok(total);
+        }
+        each(&block[..n]);
+        total += n as u64;
+    }
+}
+
+/// The SHA-256 of the file at `path`.
+fn sha256_of_file(path: &Path) -> Result<[u8; 32], String> {
+    use sha2::Digest as _;
+    let mut hasher = sha2::Sha256::new();
+    read_blocks(path, |block| hasher.update(block))?;
+    let mut out = [0u8; 32];
+    out.copy_from_slice(&hasher.finalize());
+    Ok(out)
+}
+
+/// `hash` as 64 lowercase hex digits.
+fn sha256_hex(hash: &[u8; 32]) -> String {
+    use core::fmt::Write as _;
+    hash.iter().fold(String::with_capacity(64), |mut out, b| {
+        let _ = write!(out, "{b:02x}");
+        out
+    })
+}
+
+/// 64 hex digits (any case) as the 32 bytes they spell.
+fn parse_sha256_hex(hex: &str) -> Option<[u8; 32]> {
+    if hex.len() != 64 || !hex.is_ascii() {
+        return None;
+    }
+    let mut out = [0u8; 32];
+    for (slot, pair) in out.iter_mut().zip(hex.as_bytes().chunks(2)) {
+        let high = char::from(pair[0]).to_digit(16)?;
+        let low = char::from(pair[1]).to_digit(16)?;
+        *slot = u8::try_from(high * 16 + low).ok()?;
+    }
+    Some(out)
+}
+
+/// A manifest's `digest` as 32 bytes: `sha256:<hex>` or bare hex. An EMPTY one is an error here,
+/// never a pass (see [`verify_digest`]).
+fn parse_digest(digest: &str) -> Result<[u8; 32], String> {
+    let digest = digest.trim();
+    if digest.is_empty() {
+        return Err("no digest is pinned (the manifest's `digest` is empty)".to_owned());
+    }
+    parse_sha256_hex(digest.strip_prefix("sha256:").unwrap_or(digest))
+        .ok_or_else(|| format!("unsupported digest format: {digest:?} (expected sha256 hex)"))
+}
+
+/// The digest a release pins: `None` when its `digest` is empty (it pins nothing), an error
+/// when what it holds is no sha256.
+fn pinned_digest(release: &ReleaseInfo) -> Result<Option<[u8; 32]>, String> {
+    let digest = release.digest.as_str().trim();
+    if digest.is_empty() {
+        return Ok(None);
+    }
+    parse_digest(digest).map(Some)
+}
+
+/// The "digest mismatch" error, naming both hashes.
+fn digest_mismatch(expected: &[u8; 32], actual: &[u8; 32]) -> String {
+    format!(
+        "digest mismatch: manifest pinned sha256:{}, downloaded file is sha256:{}",
+        sha256_hex(expected),
+        sha256_hex(actual)
+    )
+}
+
 /// Verifies a staged artifact against the manifest's `digest` field.
 ///
-/// Accepted forms: `sha256:<hex>` or bare hex (interpreted as SHA-256).
-/// An EMPTY digest verifies trivially — the manifest simply did not pin
-/// one (the minisign signature chain is the next rung and rides the same
-/// field). A non-empty digest that does not match is a hard error and the
-/// caller must DISCARD the file: a mismatch is corruption or tampering,
-/// never something to install.
+/// Accepted forms: `sha256:<hex>` or bare hex (interpreted as SHA-256). An EMPTY digest is an
+/// ERROR: it pins nothing, and a check that passes when there is nothing to check is how an
+/// unsigned update got installed (REVIEW Y1, X-AR5b-25). A caller whose chain is signed asks
+/// only when the manifest pins a digest; a digest-only policy refuses a release that pins none.
+/// A digest that does not match is a hard error and the caller must DISCARD the file: a
+/// mismatch is corruption or tampering, never something to install.
 ///
 /// # Errors
 ///
-/// Returns a description on IO failure, an unsupported digest scheme, or
-/// a mismatch (the message names both hashes).
+/// Returns a description on IO failure, an empty or unsupported digest, or a mismatch (the
+/// message names both hashes).
 pub fn verify_digest(path: &Path, digest: &str) -> Result<(), String> {
-    let digest = digest.trim();
-    if digest.is_empty() {
-        return Ok(());
-    }
-    let expected = digest
-        .strip_prefix("sha256:")
-        .unwrap_or(digest)
-        .to_ascii_lowercase();
-    if expected.len() != 64 || !expected.bytes().all(|b| b.is_ascii_hexdigit()) {
-        return Err(format!(
-            "unsupported digest format: {digest:?} (expected sha256 hex)"
-        ));
-    }
-    use sha2::Digest as _;
-    let bytes = std::fs::read(path).map_err(|e| format!("digest read: {e}"))?;
-    let actual = sha2::Sha256::digest(&bytes);
-    use core::fmt::Write as _;
-    let actual_hex = actual.iter().fold(String::with_capacity(64), |mut out, b| {
-        let _ = write!(out, "{b:02x}");
-        out
-    });
-    if actual_hex == expected {
+    let expected = parse_digest(digest)?;
+    let actual = sha256_of_file(path).map_err(|e| format!("digest read: {e}"))?;
+    if actual == expected {
         Ok(())
     } else {
-        Err(format!(
-            "digest mismatch: manifest pinned sha256:{expected}, downloaded file is \
-             sha256:{actual_hex}"
-        ))
+        Err(digest_mismatch(&expected, &actual))
     }
+}
+
+// ===========================================================================
+// THE UPDATE POLICY - what an update has to prove before it is staged or installed
+// ===========================================================================
+
+/// What a build says when it carries no update root key and no `allow_unsigned`: updates are
+/// not available. The text the UIs show.
+pub const NO_ROOT_KEY: &str = "updates are not available in this build: it carries no update \
+                               root key (AppConfig.updates.root_public_key)";
+
+/// A minisign ROOT public key: the one an update's signature chain has to end in.
+///
+/// There is no `Default` and no empty value: an empty or unreadable text is an error, never "no
+/// check". The state "unarmed" used to be an empty string that every layer between the config
+/// and the verifier could produce by accident (REVIEW Y1, X-AR5b-25); it cannot be written
+/// as a `RootKey`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RootKey(minisign_verify::PublicKey);
+
+impl RootKey {
+    /// Parses a base64 minisign public key (the second line of a `.pub` file).
+    ///
+    /// # Errors
+    ///
+    /// An empty text, or one that is no minisign public key.
+    pub fn from_base64(text: &str) -> Result<Self, String> {
+        let text = text.trim();
+        if text.is_empty() {
+            return Err("the update root key is empty".to_owned());
+        }
+        minisign_verify::PublicKey::from_base64(text)
+            .map(Self)
+            .map_err(|e| format!("update root key: {e}"))
+    }
+}
+
+/// The entries of a root-key text: base64 keys separated by commas, semicolons or white space.
+fn key_entries(text: &str) -> impl Iterator<Item = &str> {
+    text.split([',', ';', ' ', '\t', '\r', '\n'])
+        .filter(|entry| !entry.trim().is_empty())
+}
+
+/// The root keys an app trusts: the current one and, while a rotation is under way, the next
+/// (a new root can ship in a release before the old one is retired - no flag day). At least
+/// one; the statement of a signing key has to be signed by any of them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RootKeys(Vec<RootKey>);
+
+impl RootKeys {
+    /// Parses one or more base64 keys, separated by commas, semicolons or white space.
+    ///
+    /// # Errors
+    ///
+    /// An empty list, or any entry that is no minisign public key: a typo in the second key
+    /// does not leave the first one standing alone.
+    pub fn from_text(text: &str) -> Result<Self, String> {
+        let keys = key_entries(text)
+            .map(RootKey::from_base64)
+            .collect::<Result<Vec<_>, _>>()?;
+        if keys.is_empty() {
+            return Err("the update root key is empty".to_owned());
+        }
+        Ok(Self(keys))
+    }
+
+    /// How many keys.
+    #[must_use]
+    pub const fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    /// Never empty; present for the usual pair with [`RootKeys::len`].
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// Whether any of the keys signed `message` as `signature`; the last key's reason if none.
+    fn verify(&self, message: &[u8], signature: &minisign_verify::Signature) -> Result<(), String> {
+        let mut last = String::new();
+        for key in &self.0 {
+            match key.0.verify(message, signature, false) {
+                Ok(()) => return Ok(()),
+                Err(e) => last = e.to_string(),
+            }
+        }
+        Err(last)
+    }
+}
+
+/// What an update has to prove.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum UpdatePolicy {
+    /// The whole chain: a root-signed signing-key statement and a signature of the artifact by
+    /// the key it names. What a shipped app uses.
+    Signed(RootKeys),
+    /// The manifest's sha256 pin only: it protects against corruption and a swapped file, not
+    /// against whoever can write the manifest. An app that wants it says so
+    /// (`AppConfig.updates.allow_unsigned`); a UI then says "unsigned".
+    DigestOnly,
+}
+
+impl UpdatePolicy {
+    /// The policy a configuration spells: the root key(s) as text and the app's explicit
+    /// `allow_unsigned`. A key wins (`allow_unsigned` never lowers a chain that is configured);
+    /// a key that does not parse is an error even when `allow_unsigned` is set - a typo in the
+    /// key must not turn into "no check"; no key and no `allow_unsigned` is [`NO_ROOT_KEY`].
+    ///
+    /// # Errors
+    ///
+    /// [`NO_ROOT_KEY`], or why the key text is no key.
+    pub fn from_text(root_public_key: &str, allow_unsigned: bool) -> Result<Self, String> {
+        if key_entries(root_public_key).next().is_none() {
+            return if allow_unsigned {
+                Ok(Self::DigestOnly)
+            } else {
+                Err(NO_ROOT_KEY.to_owned())
+            };
+        }
+        RootKeys::from_text(root_public_key).map(Self::Signed)
+    }
+
+    /// Whether this policy checks a signature chain.
+    #[must_use]
+    pub const fn is_signed(&self) -> bool {
+        matches!(self, Self::Signed(_))
+    }
+}
+
+/// A staged update that PASSED its checks, and the hash of the exact bytes that passed.
+///
+/// [`download_and_verify`] and [`verify_staged_program_update_with`] are the only makers, so
+/// [`apply_update`] cannot be handed a file nobody looked at. The hash is taken in the same
+/// pass that verified the signature, and [`apply_update`] hashes the COPY it installs: a file
+/// swapped between the check and the install is caught in the bytes about to become the
+/// program (REVIEW Y6).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VerifiedArtifact {
+    path: PathBuf,
+    sha256: [u8; 32],
+    version: String,
+    signed: bool,
+    download: Option<DownloadOutcome>,
+}
+
+impl VerifiedArtifact {
+    /// The staged file.
+    #[must_use]
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// The version the release said.
+    #[must_use]
+    pub fn version(&self) -> &str {
+        &self.version
+    }
+
+    /// The SHA-256 of the bytes that passed, as 64 hex digits.
+    #[must_use]
+    pub fn sha256_hex(&self) -> String {
+        sha256_hex(&self.sha256)
+    }
+
+    /// Whether a signature chain was checked (`false`: the digest pin only).
+    #[must_use]
+    pub const fn is_signed(&self) -> bool {
+        self.signed
+    }
+
+    /// What the download did, when this artifact was downloaded by the call that verified it.
+    #[must_use]
+    pub const fn download(&self) -> Option<&DownloadOutcome> {
+        self.download.as_ref()
+    }
+}
+
+/// The seconds since 1970 - or why the clock cannot say: a clock before the epoch is no
+/// reason to call a signing-key statement unexpired.
+fn unix_seconds() -> Result<u64, String> {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .map_err(|_| "the system clock is before 1970: no signature can be checked".to_owned())
 }
 
 /// A parsed signing-key statement (see [`ReleaseInfo::signing_key_statement`]).
@@ -1855,53 +2100,53 @@ pub fn parse_signing_key_statement(statement: &str) -> Result<SigningKeyStatemen
     })
 }
 
-/// Verifies a staged artifact's SIGNATURE CHAIN against the app's compiled-in
-/// minisign root public key:
+/// The manifest names every link of the signature chain (it may still be wrong, but nothing is
+/// missing): the artifact's signature, the signing-key statement and the root's signature of it.
+fn chain_is_complete(release: &ReleaseInfo) -> bool {
+    !release.signature.as_str().trim().is_empty()
+        && !release.signing_key_statement.as_str().trim().is_empty()
+        && !release.signing_key_statement_sig.as_str().trim().is_empty()
+}
+
+/// The error of a release that does not carry the chain a signed policy needs.
+const UNSIGNED_RELEASE: &str = "this app pins an update root key but the manifest offers an \
+                                UNSIGNED release (missing signature / signing_key_statement / \
+                                signing_key_statement_sig)";
+
+/// Verifies a staged artifact's SIGNATURE CHAIN against the app's compiled-in minisign root
+/// public key(s):
 ///
-/// 1. the ROOT key must verify `signing_key_statement_sig` over the statement string — only the
+/// 1. a ROOT key must verify `signing_key_statement_sig` over the statement string - only the
 ///    root can appoint a signing key;
 /// 2. the statement must not be expired and its `generation` must be at least
 ///    `state.key_generation` (rollback refusal; the high-water mark advances on success);
 /// 3. the SIGNING key from the statement must verify `signature` over the artifact bytes.
 ///
-/// An EMPTY `root_public_key` means the app does not pin one — the chain is
-/// unarmed and verifies trivially (the digest pin still applies). With a
-/// root key pinned, a manifest that omits any part of the chain is a HARD
-/// error: "this release is unsigned" must never be a downgrade path.
+/// A manifest that omits any part of the chain is a HARD error: "this release is unsigned" is
+/// never a downgrade path, and there is no root key that is empty ([`RootKeys`]). The file is
+/// read ONCE, block by block, through the signature check and the hash together, so the
+/// returned SHA-256 is the hash of the very bytes that were verified.
 ///
 /// # Errors
 ///
-/// Returns a description naming the failing link; the caller must DISCARD
-/// the artifact.
+/// Returns a description naming the failing link; the caller must DISCARD the artifact.
 pub fn verify_release_signature(
     path: &Path,
     release: &ReleaseInfo,
-    root_public_key: &str,
+    roots: &RootKeys,
     state: &mut UpdateState,
     now_unix: u64,
-) -> Result<(), String> {
-    let root_public_key = root_public_key.trim();
-    if root_public_key.is_empty() {
-        return Ok(());
-    }
-    if release.signature.as_str().trim().is_empty()
-        || release.signing_key_statement.as_str().trim().is_empty()
-        || release.signing_key_statement_sig.as_str().trim().is_empty()
-    {
-        return Err(
-            "this app pins an update root key but the manifest offers an UNSIGNED release \
-             (missing signature / signing_key_statement / signing_key_statement_sig)"
-                .to_owned(),
-        );
+) -> Result<[u8; 32], String> {
+    if !chain_is_complete(release) {
+        return Err(UNSIGNED_RELEASE.to_owned());
     }
 
-    let root = minisign_verify::PublicKey::from_base64(root_public_key)
-        .map_err(|e| format!("root public key: {e}"))?;
     let statement_str = release.signing_key_statement.as_str();
     let statement_sig =
         minisign_verify::Signature::decode(release.signing_key_statement_sig.as_str())
             .map_err(|e| format!("signing-key statement signature: {e}"))?;
-    root.verify(statement_str.as_bytes(), &statement_sig, false)
+    roots
+        .verify(statement_str.as_bytes(), &statement_sig)
         .map_err(|e| format!("signing-key statement not signed by the root key: {e}"))?;
 
     let statement = parse_signing_key_statement(statement_str)?;
@@ -1923,14 +2168,71 @@ pub fn verify_release_signature(
         .map_err(|e| format!("signing public key (from statement): {e}"))?;
     let artifact_sig = minisign_verify::Signature::decode(release.signature.as_str())
         .map_err(|e| format!("artifact signature: {e}"))?;
-    let bytes = std::fs::read(path).map_err(|e| format!("signature read: {e}"))?;
-    signing
-        .verify(&bytes, &artifact_sig, false)
+    let mut verifier = signing
+        .verify_stream(&artifact_sig)
         .map_err(|e| format!("artifact signature invalid: {e}"))?;
+    let mut hasher = <sha2::Sha256 as sha2::Digest>::new();
+    read_blocks(path, |block| {
+        verifier.update(block);
+        sha2::Digest::update(&mut hasher, block);
+    })
+    .map_err(|e| format!("signature read: {e}"))?;
+    verifier
+        .finalize()
+        .map_err(|e| format!("artifact signature invalid: {e}"))?;
+    let mut sha256 = [0u8; 32];
+    sha256.copy_from_slice(&sha2::Digest::finalize(hasher));
 
     // Only a fully verified chain advances the rotation high-water mark.
     state.key_generation = state.key_generation.max(statement.generation);
-    Ok(())
+    Ok(sha256)
+}
+
+/// What `policy` makes of the file at `path` as `release`'s artifact: the hash of the bytes that
+/// passed, and whether a signature chain was checked. The file is not touched.
+fn verify_artifact(
+    path: &Path,
+    release: &ReleaseInfo,
+    policy: &UpdatePolicy,
+    state: &mut UpdateState,
+    now_unix: u64,
+) -> Result<([u8; 32], bool), String> {
+    match policy {
+        UpdatePolicy::Signed(roots) => {
+            let sha256 = verify_release_signature(path, release, roots, state, now_unix)?;
+            // The chain vouches for the bytes; a digest the manifest pins besides must agree.
+            if let Some(pin) = pinned_digest(release)? {
+                if pin != sha256 {
+                    return Err(digest_mismatch(&pin, &sha256));
+                }
+            }
+            Ok((sha256, true))
+        }
+        UpdatePolicy::DigestOnly => {
+            let pin = pinned_digest(release)?.ok_or_else(|| UNPINNED_RELEASE.to_owned())?;
+            let sha256 = sha256_of_file(path)?;
+            if sha256 == pin {
+                Ok((sha256, false))
+            } else {
+                Err(digest_mismatch(&pin, &sha256))
+            }
+        }
+    }
+}
+
+/// The error of a release that pins no digest under a policy that has nothing else to check.
+const UNPINNED_RELEASE: &str = "this release pins no digest, and this app accepts no update \
+                                that is not signed";
+
+/// Whether `release` can meet `policy` at all - answered before a byte is downloaded.
+fn can_meet(release: &ReleaseInfo, policy: &UpdatePolicy) -> Result<(), String> {
+    match policy {
+        UpdatePolicy::Signed(_) if !chain_is_complete(release) => Err(UNSIGNED_RELEASE.to_owned()),
+        UpdatePolicy::Signed(_) => Ok(()),
+        UpdatePolicy::DigestOnly => pinned_digest(release)?
+            .map(|_| ())
+            .ok_or_else(|| UNPINNED_RELEASE.to_owned()),
+    }
 }
 
 /// What [`download_update`] did — enough to log an honest story
@@ -1949,6 +2251,21 @@ pub struct DownloadOutcome {
     /// The server honored the `Range` request with `206 Partial Content`;
     /// false on a resume means it ignored ranges and the file restarted.
     pub server_supports_resume: bool,
+}
+
+/// The digest check of a download: when the release pins a digest the file must match it. A
+/// release that pins none is not an error HERE - what that means is the policy's to say
+/// ([`verify_artifact`]: a signed chain vouches for the bytes, a digest-only policy refuses).
+fn check_pin(path: &Path, release: &ReleaseInfo) -> Result<(), String> {
+    let Some(pin) = pinned_digest(release)? else {
+        return Ok(());
+    };
+    let actual = sha256_of_file(path).map_err(|e| format!("digest read: {e}"))?;
+    if actual == pin {
+        Ok(())
+    } else {
+        Err(digest_mismatch(&pin, &actual))
+    }
 }
 
 /// Downloads a release artifact into `staging_dir`, CACHED and RESUMABLE:
@@ -2008,7 +2325,7 @@ pub fn download_update(
     if final_path.exists() {
         // A cached artifact is only reusable if it still matches the pin —
         // a stale or corrupted staging file must re-download, not install.
-        if let Err(e) = verify_digest(&final_path, release.digest.as_str()) {
+        if let Err(e) = check_pin(&final_path, release) {
             drop(std::fs::remove_file(&final_path));
             return Err(format!(
                 "cached artifact failed verification ({e}); removed — retry the download"
@@ -2082,7 +2399,7 @@ pub fn download_update(
     }
     // Verify BEFORE the artifact gains its final (trusted-looking) name; a
     // mismatch discards the partial so the next attempt starts clean.
-    if let Err(e) = verify_digest(&partial_path, release.digest.as_str()) {
+    if let Err(e) = check_pin(&partial_path, release) {
         drop(std::fs::remove_file(&partial_path));
         return Err(e);
     }
@@ -2096,14 +2413,14 @@ pub fn download_update(
     })
 }
 
-/// [`download_update`] plus the FULL verification story — the one entry
-/// point both the update worker and the install dialog use, so no staged
-/// artifact can reach `apply_update` without passing the digest pin AND the
-/// signature chain ([`verify_release_signature`]) on THIS call. A cached
-/// staging file is re-verified every time (disk contents are not trusted
-/// across runs); any failure deletes the artifact so the next attempt
-/// starts clean. `state`'s `key_generation` high-water mark advances (and
-/// is saved by the caller) on success.
+/// [`download_update`] plus the FULL verification story - the one entry point the update worker
+/// and the install dialog use, so no staged artifact reaches [`apply_update`] without passing
+/// what `policy` demands on THIS call: under [`UpdatePolicy::Signed`] the signature chain
+/// ([`verify_release_signature`]), under [`UpdatePolicy::DigestOnly`] the digest pin (a release
+/// that pins none is refused). A release that cannot meet the policy at all is refused before a
+/// byte is downloaded. A cached staging file is re-verified every time (disk contents are not
+/// trusted across runs); any failure deletes the artifact so the next attempt starts clean.
+/// `state`'s `key_generation` high-water mark advances (and is saved by the caller) on success.
 ///
 /// # Errors
 ///
@@ -2112,37 +2429,112 @@ pub fn download_update(
 pub fn download_and_verify(
     release: &ReleaseInfo,
     staging_dir: &Path,
-    root_public_key: &str,
+    policy: &UpdatePolicy,
     state: &mut UpdateState,
-) -> Result<DownloadOutcome, String> {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs());
+) -> Result<VerifiedArtifact, String> {
+    let now = unix_seconds()?;
+    can_meet(release, policy)?;
     let outcome = download_update(release, staging_dir)?;
-    if let Err(e) = verify_release_signature(&outcome.path, release, root_public_key, state, now) {
-        drop(std::fs::remove_file(&outcome.path));
-        return Err(format!(
-            "staged artifact failed signature verification ({e}); removed"
-        ));
+    match verify_artifact(&outcome.path, release, policy, state, now) {
+        Ok((sha256, signed)) => Ok(VerifiedArtifact {
+            path: outcome.path.clone(),
+            sha256,
+            version: release.version.as_str().to_owned(),
+            signed,
+            download: Some(outcome),
+        }),
+        Err(e) => {
+            drop(std::fs::remove_file(&outcome.path));
+            Err(format!(
+                "staged artifact failed {} ({e}); removed",
+                if policy.is_signed() {
+                    "signature verification"
+                } else {
+                    "verification"
+                }
+            ))
+        }
     }
-    Ok(outcome)
 }
 
-/// Applies a staged update over `target`: same-directory temp copy +
-/// ATOMIC rename (the classic swap; on Windows a running image cannot be
-/// replaced in place — the rename dance moves the OLD file aside first).
-/// Callers verify [`InstallKind::allows_self_update`] first — this
-/// function only does the mechanics.
+/// A name part no other call of this process used and no file planted before it ran can have.
+fn unique_suffix() -> String {
+    static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    // collapse-ok: only makes a name unique; the counter and the process id do the rest.
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.subsec_nanos());
+    format!(
+        "{}-{nanos}-{}",
+        std::process::id(),
+        COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    )
+}
+
+/// Copies `from` to the NEW file `to` and hashes what it writes: the copy has to be the bytes
+/// that were verified (`expected`). `to` is created exclusively - never through a link that is
+/// already there.
+fn copy_verified(from: &Path, to: &Path, expected: &[u8; 32]) -> Result<(), String> {
+    use std::io::{Read as _, Write as _};
+
+    use sha2::Digest as _;
+    let mut source =
+        std::fs::File::open(from).map_err(|e| format!("stage copy: {}: {e}", from.display()))?;
+    let mut sink = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(to)
+        .map_err(|e| format!("stage copy: {}: {e}", to.display()))?;
+    let mut hasher = sha2::Sha256::new();
+    let mut block = vec![0u8; 64 * 1024];
+    loop {
+        let n = source
+            .read(&mut block)
+            .map_err(|e| format!("stage copy: {}: {e}", from.display()))?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&block[..n]);
+        sink.write_all(&block[..n])
+            .map_err(|e| format!("stage copy: {}: {e}", to.display()))?;
+    }
+    sink.sync_all()
+        .map_err(|e| format!("stage copy: {}: {e}", to.display()))?;
+    let mut actual = [0u8; 32];
+    actual.copy_from_slice(&hasher.finalize());
+    if actual == *expected {
+        Ok(())
+    } else {
+        Err(format!(
+            "the staged file changed after it was verified (it was sha256:{}, it is sha256:{}): \
+             not installed",
+            sha256_hex(expected),
+            sha256_hex(&actual)
+        ))
+    }
+}
+
+/// Applies a VERIFIED update over `target`: a same-directory temp copy and an ATOMIC rename (the
+/// classic swap; on Windows a running image cannot be replaced in place - the rename dance moves
+/// the OLD file aside first). The COPY is hashed as it is written and has to be the bytes that
+/// passed the checks ([`VerifiedArtifact`]), so a file swapped between the check and the install
+/// is caught in the bytes about to become the program (REVIEW Y6); the copy's name is new and
+/// created exclusively, so a link planted at a fixed name leads nowhere. Callers verify
+/// [`InstallKind::allows_self_update`] first - this function only does the mechanics.
 ///
 /// # Errors
 ///
-/// Returns a description on filesystem failure.
-pub fn apply_update(staged: &Path, target: &Path) -> Result<(), String> {
+/// Returns a description on filesystem failure, or when the staged file is no longer the file
+/// that was verified.
+pub fn apply_update(artifact: &VerifiedArtifact, target: &Path) -> Result<(), String> {
     let dir = target
         .parent()
         .ok_or_else(|| "target has no parent directory".to_owned())?;
-    let incoming = dir.join(".update-incoming");
-    std::fs::copy(staged, &incoming).map_err(|e| format!("stage copy: {e}"))?;
+    let incoming = dir.join(format!(".update-incoming-{}", unique_suffix()));
+    if let Err(e) = copy_verified(artifact.path(), &incoming, &artifact.sha256) {
+        drop(std::fs::remove_file(&incoming));
+        return Err(e);
+    }
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -2155,9 +2547,15 @@ pub fn apply_update(staged: &Path, target: &Path) -> Result<(), String> {
         // move it aside, then move the new file in.
         let old = dir.join(".update-previous");
         drop(std::fs::remove_file(&old));
-        std::fs::rename(target, &old).map_err(|e| format!("move-aside: {e}"))?;
+        if let Err(e) = std::fs::rename(target, &old) {
+            drop(std::fs::remove_file(&incoming));
+            return Err(format!("move-aside: {e}"));
+        }
     }
-    std::fs::rename(&incoming, target).map_err(|e| format!("swap: {e}"))?;
+    if let Err(e) = std::fs::rename(&incoming, target) {
+        drop(std::fs::remove_file(&incoming));
+        return Err(format!("swap: {e}"));
+    }
     Ok(())
 }
 
@@ -2193,14 +2591,16 @@ pub fn check_program_for_updates(
     result
 }
 
-/// [`download_and_verify`] for another program: the artifact lands in
-/// `staging_dir`, the accepted key generation in `state_dir`. Returns the
-/// staged file. Blocking: run it on a `Thread`.
+/// [`download_and_verify`] for another program, as the C API calls it: the root key is TEXT
+/// because that is what crosses the C boundary, and it is parsed HERE - an empty or unreadable
+/// one is an error, never "no check" ([`UpdatePolicy::from_text`]). The artifact lands in
+/// `staging_dir`, the accepted key generation in `state_dir`. Returns the staged file. Blocking:
+/// run it on a `Thread`.
 ///
 /// # Errors
 ///
-/// Returns a description on transport, digest or signature-chain failure;
-/// nothing refused stays staged.
+/// Returns a description on a missing or unreadable root key, transport, digest or
+/// signature-chain failure; nothing refused stays staged.
 #[cfg(feature = "http")]
 pub fn stage_program_update(
     release: &ReleaseInfo,
@@ -2208,34 +2608,71 @@ pub fn stage_program_update(
     root_public_key: &str,
     state_dir: &Path,
 ) -> Result<PathBuf, String> {
-    let mut state = UpdateState::load(state_dir);
-    let staged = download_and_verify(release, staging_dir, root_public_key, &mut state);
-    state.save(state_dir);
-    staged.map(|outcome| outcome.path)
+    let policy = UpdatePolicy::from_text(root_public_key, false)?;
+    stage_program_update_with(release, staging_dir, &policy, state_dir)
+        .map(|artifact| artifact.path)
 }
 
-/// Checks a staged file once more right before it is installed: the digest
-/// pin and the signature chain. A file on disk is not trusted across runs -
-/// it may have changed since it was staged.
+/// [`stage_program_update`] under a policy that is already a policy: the proof of what passed.
 ///
 /// # Errors
 ///
-/// Returns a description of the failing check; the caller must not install
-/// the file.
+/// As [`download_and_verify`].
+#[cfg(feature = "http")]
+pub fn stage_program_update_with(
+    release: &ReleaseInfo,
+    staging_dir: &Path,
+    policy: &UpdatePolicy,
+    state_dir: &Path,
+) -> Result<VerifiedArtifact, String> {
+    let mut state = UpdateState::load(state_dir);
+    let staged = download_and_verify(release, staging_dir, policy, &mut state);
+    state.save(state_dir);
+    staged
+}
+
+/// Checks a staged file once more right before it is installed: what the policy demands (the
+/// signature chain, or the digest pin). A file on disk is not trusted across runs - it may have
+/// changed since it was staged. The root key is TEXT as for [`stage_program_update`].
+///
+/// # Errors
+///
+/// Returns a description of the failing check; the caller must not install the file.
 pub fn verify_staged_program_update(
     path: &Path,
     release: &ReleaseInfo,
     root_public_key: &str,
     state_dir: &Path,
 ) -> Result<(), String> {
-    verify_digest(path, release.digest.as_str())?;
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs());
+    let policy = UpdatePolicy::from_text(root_public_key, false)?;
+    verify_staged_program_update_with(path, release, &policy, state_dir).map(|_| ())
+}
+
+/// [`verify_staged_program_update`] under a policy that is already a policy: the proof of what
+/// passed. The file is read once; the hash in the proof is the hash of the bytes that were
+/// checked.
+///
+/// # Errors
+///
+/// Returns a description of the failing check; the caller must not install the file.
+pub fn verify_staged_program_update_with(
+    path: &Path,
+    release: &ReleaseInfo,
+    policy: &UpdatePolicy,
+    state_dir: &Path,
+) -> Result<VerifiedArtifact, String> {
+    can_meet(release, policy)?;
+    let now = unix_seconds()?;
     let mut state = UpdateState::load(state_dir);
-    verify_release_signature(path, release, root_public_key, &mut state, now)?;
+    let (sha256, signed) = verify_artifact(path, release, policy, &mut state, now)?;
     state.save(state_dir);
-    Ok(())
+    Ok(VerifiedArtifact {
+        path: path.to_path_buf(),
+        sha256,
+        version: release.version.as_str().to_owned(),
+        signed,
+        download: None,
+    })
 }
 
 /// What staging or checking a program's update concluded: the C API's
@@ -2471,6 +2908,41 @@ pub fn spawn_update_check(
     (ThreadId::unique(), thread)
 }
 
+/// `download_automatically`: STAGES the release a check found so a later "install now" is
+/// instant. It installs nothing; a notify-only install never stages; an app with no way to prove
+/// an update ([`crate::appenv::AppEnv::update_policy`]) stages nothing; and the staging is
+/// UNATTENDED work, so it defers to the machine's maintenance window (a gated stage just happens
+/// on a later check). The staged file's path when there is one.
+fn stage_automatically(
+    env: &crate::appenv::AppEnv,
+    result: &UpdateCheckResult,
+    options: UpdateOptions,
+    effective: UpdateMode,
+    now_unix: u64,
+    state_dir: &Path,
+) -> azul_css::OptionString {
+    let (UpdateCheckResult::Available(release), true, UpdateMode::SelfUpdate) =
+        (result, options.download_automatically, effective)
+    else {
+        return azul_css::OptionString::None;
+    };
+    if !within_shared_maintenance_window(now_unix) {
+        return azul_css::OptionString::None;
+    }
+    let Ok(policy) = env.update_policy() else {
+        return azul_css::OptionString::None;
+    };
+    let mut state = UpdateState::load(state_dir);
+    let staged = download_and_verify(release, &state_dir.join("staging"), &policy, &mut state);
+    state.save(state_dir);
+    match staged {
+        Ok(artifact) => {
+            azul_css::OptionString::Some(artifact.path().to_string_lossy().as_ref().into())
+        }
+        Err(_) => azul_css::OptionString::None,
+    }
+}
+
 /// Background half: check → (optional) stage → one `WriteBack`.
 extern "C" fn update_check_worker(
     mut init: RefAny,
@@ -2484,15 +2956,19 @@ extern "C" fn update_check_worker(
     let install = InstallKind::detect();
     let effective = apply_shared_update_policy(effective_mode(task.env.update_mode, &install));
     let state_dir = default_state_dir(&task.env.app_name);
+    let policy = task.env.update_policy();
 
-    let result = match (task.env.update_manifest.as_deref(), effective) {
-        (_, UpdateMode::Disabled) => {
+    let result = match (task.env.update_manifest.as_deref(), effective, &policy) {
+        (_, UpdateMode::Disabled, _) => {
             UpdateCheckResult::Error("updates are disabled (UpdateMode::Disabled)".into())
         }
-        (None, _) => UpdateCheckResult::Error(
+        (None, _, _) => UpdateCheckResult::Error(
             "no update manifest configured (AppConfig.updates.manifest_url)".into(),
         ),
-        (Some(url), _) => {
+        // An app that replaces itself and has no way to prove an update says so before it asks
+        // anyone for one; a notify-only app needs no proof for a notification.
+        (Some(_), UpdateMode::SelfUpdate, Err(why)) => UpdateCheckResult::Error(why.clone().into()),
+        (Some(url), _, _) => {
             let audience = if effective == UpdateMode::SelfUpdate {
                 UpdateAudience::AutoUpdate
             } else {
@@ -2511,34 +2987,17 @@ extern "C" fn update_check_worker(
         }
     };
 
-    // `download_automatically` STAGES so a later "install now" is instant;
-    // it installs nothing, and a notify-only install never even stages.
     let now_unix = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_secs());
-    let staged_path = match (&result, task.options.download_automatically, effective) {
-        // Automatic staging is UNATTENDED work: it defers to the machine's
-        // maintenance window (a gated stage just happens on a later check).
-        (UpdateCheckResult::Available(release), true, UpdateMode::SelfUpdate)
-            if within_shared_maintenance_window(now_unix) =>
-        {
-            let mut state = UpdateState::load(&state_dir);
-            let staged = download_and_verify(
-                release,
-                &state_dir.join("staging"),
-                task.env.update_root_public_key.as_deref().unwrap_or(""),
-                &mut state,
-            );
-            state.save(&state_dir);
-            match staged {
-                Ok(outcome) => {
-                    azul_css::OptionString::Some(outcome.path.to_string_lossy().as_ref().into())
-                }
-                Err(_) => azul_css::OptionString::None,
-            }
-        }
-        _ => azul_css::OptionString::None,
-    };
+    let staged_path = stage_automatically(
+        &task.env,
+        &result,
+        task.options,
+        effective,
+        now_unix,
+        &state_dir,
+    );
 
     let outcome = CheckOutcome {
         callback: task.callback.clone(),
@@ -3221,14 +3680,25 @@ mod tests {
 
     const CHAIN_NOW: u64 = 1_800_000_000;
 
+    fn roots_of(f: &ChainFixture) -> RootKeys {
+        RootKeys::from_text(&f.root_pub_b64).expect("the fixture's root key parses")
+    }
+
+    fn sha256_of(bytes: &[u8]) -> [u8; 32] {
+        use sha2::Digest as _;
+        let mut out = [0u8; 32];
+        out.copy_from_slice(&sha2::Sha256::digest(bytes));
+        out
+    }
+
     #[test]
     fn signature_chain_verifies_and_advances_the_generation_high_water() {
         let f = chain_fixture(CHAIN_NOW + DAY, 3, "ok");
         let mut state = UpdateState::default();
-        verify_release_signature(
+        let sha256 = verify_release_signature(
             &f.artifact,
             &f.release,
-            &f.root_pub_b64,
+            &roots_of(&f),
             &mut state,
             CHAIN_NOW,
         )
@@ -3237,14 +3707,10 @@ mod tests {
             state.key_generation, 3,
             "success must advance the high-water mark"
         );
-
-        // An UNARMED root key verifies trivially even for garbage fields.
-        let mut fresh = UpdateState::default();
-        verify_release_signature(&f.artifact, &f.release, "", &mut fresh, CHAIN_NOW)
-            .expect("empty root key = chain not in use");
         assert_eq!(
-            fresh.key_generation, 0,
-            "unarmed chain must not touch state"
+            sha256,
+            sha256_of(b"the update artifact bytes"),
+            "the proof is the hash of the very bytes that passed"
         );
         drop(std::fs::remove_dir_all(&f._dir));
     }
@@ -3259,7 +3725,7 @@ mod tests {
         let err = verify_release_signature(
             &f.artifact,
             &f.release,
-            &f.root_pub_b64,
+            &roots_of(&f),
             &mut state,
             CHAIN_NOW,
         )
@@ -3278,7 +3744,7 @@ mod tests {
         let err = verify_release_signature(
             &f.artifact,
             &f.release,
-            &f.root_pub_b64,
+            &roots_of(&f),
             &mut state,
             CHAIN_NOW + 2 * DAY,
         )
@@ -3293,7 +3759,7 @@ mod tests {
         let err = verify_release_signature(
             &f.artifact,
             &f.release,
-            &f.root_pub_b64,
+            &roots_of(&f),
             &mut rolled,
             CHAIN_NOW,
         )
@@ -3306,7 +3772,7 @@ mod tests {
         let err = verify_release_signature(
             &f.artifact,
             &f.release,
-            &foreign.pk.to_base64(),
+            &RootKeys::from_text(&foreign.pk.to_base64()).expect("a foreign key parses"),
             &mut state,
             CHAIN_NOW,
         )
@@ -3320,14 +3786,9 @@ mod tests {
             signing_key_statement_sig: "".into(),
             ..f.release.clone()
         };
-        let err = verify_release_signature(
-            &f.artifact,
-            &unsigned,
-            &f.root_pub_b64,
-            &mut state,
-            CHAIN_NOW,
-        )
-        .expect_err("unsigned release with an armed root MUST fail");
+        let err =
+            verify_release_signature(&f.artifact, &unsigned, &roots_of(&f), &mut state, CHAIN_NOW)
+                .expect_err("unsigned release with an armed root MUST fail");
         assert!(err.contains("UNSIGNED"), "wrong link blamed: {err}");
         drop(std::fs::remove_dir_all(&f._dir));
     }
@@ -3360,6 +3821,278 @@ mod tests {
             "azul-signing-key-v1|pubkey=a|expires=1|generation=1|extra=x"
         )
         .is_err());
+    }
+
+    // ---- REVIEW Y1: a default install authenticates no update ---------------------------
+
+    /// An UNSIGNED release whose digest is exactly what the server sends: what answers at an
+    /// update address nobody checked (a mis-issued certificate, an http MITM, a bucket).
+    fn unsigned_release_on_a_server(f: &ChainFixture) -> ReleaseInfo {
+        let bytes = b"the update artifact bytes".to_vec();
+        ReleaseInfo {
+            signature: "".into(),
+            signing_key_statement: "".into(),
+            signing_key_statement_sig: "".into(),
+            digest: format!("sha256:{}", sha256_hex(&sha256_of(&bytes))).into(),
+            download_url: serve_bytes(bytes, "app-2.0.0.bin").into(),
+            ..f.release.clone()
+        }
+    }
+
+    fn files_in(dir: &Path) -> usize {
+        std::fs::read_dir(dir).map_or(0, Iterator::count)
+    }
+
+    #[test]
+    fn y1_a_default_install_authenticates_no_update_through_the_managers_staging() {
+        let f = chain_fixture(CHAIN_NOW * 2, 1, "y1-manager");
+        let release = unsigned_release_on_a_server(&f);
+        let staging = f._dir.join("staging");
+        let staged = stage_program_update(&release, &staging, "", &f._dir.join("state"));
+        assert!(
+            staged.is_err(),
+            "an unsigned release and no root key must be refused, it was staged: {staged:?}"
+        );
+        assert_eq!(files_in(&staging), 0, "nothing refused stays staged");
+        drop(std::fs::remove_dir_all(&f._dir));
+    }
+
+    /// The worker's and the dialog's call: the policy comes from the app's own environment, and an
+    /// app that carries no key has none.
+    #[test]
+    fn y1_a_default_install_authenticates_no_update_through_the_apps_worker() {
+        let f = chain_fixture(CHAIN_NOW * 2, 1, "y1-worker");
+        let release = unsigned_release_on_a_server(&f);
+        let staging = f._dir.join("staging");
+        let env = crate::appenv::AppEnv::default();
+        let policy = env.update_policy();
+        assert_eq!(
+            policy,
+            Err(NO_ROOT_KEY.to_owned()),
+            "an app with no root key and no allow_unsigned has no way to prove an update"
+        );
+        // And the unsigned release is refused even under a policy that does have a key.
+        let signed = UpdatePolicy::Signed(roots_of(&f));
+        let mut state = UpdateState::default();
+        let staged = download_and_verify(&release, &staging, &signed, &mut state);
+        assert!(
+            staged.is_err(),
+            "an unsigned release under a signed policy must be refused, it was staged: {staged:?}"
+        );
+        assert_eq!(files_in(&staging), 0, "nothing refused stays staged");
+        drop(std::fs::remove_dir_all(&f._dir));
+    }
+
+    #[test]
+    fn y1_an_app_that_carries_no_key_stages_nothing_on_its_own() {
+        let f = chain_fixture(CHAIN_NOW * 2, 1, "y1-auto");
+        let release = unsigned_release_on_a_server(&f);
+        let state_dir = f._dir.join("state");
+        let options = UpdateOptions {
+            download_automatically: true,
+        };
+        let found = UpdateCheckResult::Available(release);
+        let staged = stage_automatically(
+            &crate::appenv::AppEnv::default(),
+            &found,
+            options,
+            UpdateMode::SelfUpdate,
+            CHAIN_NOW,
+            &state_dir,
+        );
+        assert_eq!(staged, azul_css::OptionString::None);
+        assert!(
+            !state_dir.join("staging").exists(),
+            "not a byte was fetched"
+        );
+        drop(std::fs::remove_dir_all(&f._dir));
+    }
+
+    #[test]
+    fn x_ar5b_25_an_empty_root_key_is_not_a_key() {
+        for empty in ["", "  ", "\n", " , ; "] {
+            assert!(RootKey::from_base64(empty).is_err(), "{empty:?}");
+            assert!(RootKeys::from_text(empty).is_err(), "{empty:?}");
+            assert_eq!(
+                UpdatePolicy::from_text(empty, false),
+                Err(NO_ROOT_KEY.to_owned()),
+                "{empty:?}: an app with no key and no allow_unsigned cannot update"
+            );
+        }
+        // The app SPELLS OUT that it wants the digest pin alone.
+        assert_eq!(
+            UpdatePolicy::from_text("", true),
+            Ok(UpdatePolicy::DigestOnly)
+        );
+        // A key that is no key never falls back to "no check", allow_unsigned or not.
+        for allow in [false, true] {
+            assert!(UpdatePolicy::from_text("not a key", allow).is_err());
+            assert!(UpdatePolicy::from_text("RWQ", allow).is_err());
+        }
+        // A key beside allow_unsigned stays a signed policy: the flag never lowers a chain.
+        let f = chain_fixture(CHAIN_NOW + DAY, 1, "x25");
+        let policy = UpdatePolicy::from_text(&f.root_pub_b64, true).expect("a key parses");
+        assert!(policy.is_signed());
+        drop(std::fs::remove_dir_all(&f._dir));
+    }
+
+    #[test]
+    fn x_ar5b_25_the_current_and_the_next_root_key_both_sign() {
+        let f = chain_fixture(CHAIN_NOW + DAY, 2, "x25-next");
+        let other = minisign::KeyPair::generate_unencrypted_keypair().unwrap();
+        let both = RootKeys::from_text(&format!("{}, {}", other.pk.to_base64(), f.root_pub_b64))
+            .expect("two keys");
+        assert_eq!(both.len(), 2);
+        let mut state = UpdateState::default();
+        verify_release_signature(&f.artifact, &f.release, &both, &mut state, CHAIN_NOW)
+            .expect("the second key signed the statement");
+        // A typo in one of them is an error, not a list of one.
+        assert!(RootKeys::from_text(&format!("{} oops", f.root_pub_b64)).is_err());
+        // Neither of two unrelated keys signed it.
+        let strangers = RootKeys::from_text(&format!(
+            "{} {}",
+            other.pk.to_base64(),
+            minisign::KeyPair::generate_unencrypted_keypair()
+                .unwrap()
+                .pk
+                .to_base64()
+        ))
+        .unwrap();
+        assert!(verify_release_signature(
+            &f.artifact,
+            &f.release,
+            &strangers,
+            &mut UpdateState::default(),
+            CHAIN_NOW
+        )
+        .is_err());
+        drop(std::fs::remove_dir_all(&f._dir));
+    }
+
+    #[test]
+    fn x_ar5b_25_a_digest_only_policy_wants_a_pin_and_a_signed_one_wants_the_chain() {
+        let f = chain_fixture(CHAIN_NOW * 2, 1, "x25-digest");
+        let mut state = UpdateState::default();
+
+        // Digest only: the pin is what is checked.
+        let release = unsigned_release_on_a_server(&f);
+        let verified = download_and_verify(
+            &release,
+            &f._dir.join("digest-ok"),
+            &UpdatePolicy::DigestOnly,
+            &mut state,
+        )
+        .expect("a pinned digest that matches is enough for a digest-only policy");
+        assert!(!verified.is_signed());
+        assert_eq!(
+            verified.sha256_hex(),
+            sha256_hex(&sha256_of(b"the update artifact bytes"))
+        );
+
+        // No pin: nothing to check, so nothing is installed - and nothing was downloaded.
+        let no_pin = ReleaseInfo {
+            digest: "".into(),
+            ..release.clone()
+        };
+        let staging = f._dir.join("digest-none");
+        let refused = download_and_verify(&no_pin, &staging, &UpdatePolicy::DigestOnly, &mut state);
+        assert!(
+            refused
+                .as_ref()
+                .is_err_and(|e| e.contains("pins no digest")),
+            "{refused:?}"
+        );
+        assert_eq!(files_in(&staging), 0);
+
+        // A wrong pin: refused and removed.
+        let wrong = ReleaseInfo {
+            digest: format!("sha256:{}", "0".repeat(64)).into(),
+            ..release
+        };
+        let staging = f._dir.join("digest-wrong");
+        let refused = download_and_verify(&wrong, &staging, &UpdatePolicy::DigestOnly, &mut state);
+        assert!(
+            refused.as_ref().is_err_and(|e| e.contains("mismatch")),
+            "{refused:?}"
+        );
+        assert_eq!(files_in(&staging), 0, "nothing refused stays staged");
+        drop(std::fs::remove_dir_all(&f._dir));
+    }
+
+    #[test]
+    fn x_ar5b_25_a_signed_policy_stages_a_signed_release_and_remembers_the_proof() {
+        let f = chain_fixture(CHAIN_NOW * 2, 5, "x25-signed");
+        let mut release = f.release.clone();
+        release.download_url =
+            serve_bytes(b"the update artifact bytes".to_vec(), "a-2.0.0.bin").into();
+        let mut state = UpdateState::default();
+        let verified = download_and_verify(
+            &release,
+            &f._dir.join("staging"),
+            &UpdatePolicy::Signed(roots_of(&f)),
+            &mut state,
+        )
+        .expect("a well-formed chain stages");
+        assert!(verified.is_signed());
+        assert_eq!(verified.version(), "2.0.0");
+        assert_eq!(state.key_generation, 5);
+        assert_eq!(
+            std::fs::read(verified.path()).unwrap(),
+            b"the update artifact bytes"
+        );
+        assert!(verified.download().is_some_and(|d| !d.used_cached));
+        drop(std::fs::remove_dir_all(&f._dir));
+    }
+
+    // ---- REVIEW Y6: verify and use are one read ---------------------------------------
+
+    #[test]
+    fn y6_a_file_swapped_after_it_was_verified_is_not_installed() {
+        let f = chain_fixture(CHAIN_NOW * 2, 1, "y6");
+        let mut release = f.release.clone();
+        release.download_url =
+            serve_bytes(b"the update artifact bytes".to_vec(), "a-2.0.0.bin").into();
+        let mut state = UpdateState::default();
+        let verified = download_and_verify(
+            &release,
+            &f._dir.join("staging"),
+            &UpdatePolicy::Signed(roots_of(&f)),
+            &mut state,
+        )
+        .expect("verified");
+        let target = f._dir.join("installed-app");
+        std::fs::write(&target, b"the old program").unwrap();
+
+        // A same-user process swaps the file between the check and the install.
+        std::fs::write(verified.path(), b"EVIL bytes").unwrap();
+        let refused = apply_update(&verified, &target);
+        assert!(
+            refused
+                .as_ref()
+                .is_err_and(|e| e.contains("changed after it was verified")),
+            "{refused:?}"
+        );
+        assert_eq!(
+            std::fs::read(&target).unwrap(),
+            b"the old program",
+            "the installed program is untouched"
+        );
+        let leftovers: Vec<String> = std::fs::read_dir(&f._dir)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|n| n.starts_with(".update-incoming"))
+            .collect();
+        assert!(leftovers.is_empty(), "no half-copy is left: {leftovers:?}");
+
+        // The file the check saw installs, and installs as the very bytes that passed.
+        std::fs::write(verified.path(), b"the update artifact bytes").unwrap();
+        apply_update(&verified, &target).expect("the verified bytes install");
+        assert_eq!(
+            std::fs::read(&target).unwrap(),
+            b"the update artifact bytes"
+        );
+        drop(std::fs::remove_dir_all(&f._dir));
     }
 
     // ---- slow rollout -----------------------------------------------------
@@ -3485,7 +4218,15 @@ mod tests {
         // sha256 of the exact bytes above (python hashlib oracle).
         let good = "f58c1a1c453ed138b0ffa8050949df98ab92da901f592bc92afa50f8391d8f75";
 
-        assert!(verify_digest(&file, "").is_ok(), "empty digest = no pin");
+        // An empty digest pins NOTHING: it is an error, never a pass (REVIEW Y1, X-AR5b-25).
+        assert!(
+            verify_digest(&file, "").is_err(),
+            "empty digest = no pin = not verified"
+        );
+        assert!(
+            verify_digest(&file, "  \n").is_err(),
+            "a blank digest pins nothing either"
+        );
         assert!(verify_digest(&file, good).is_ok(), "bare hex form");
         assert!(
             verify_digest(&file, &format!("sha256:{good}")).is_ok(),
@@ -3681,8 +4422,9 @@ mod tests {
 
         let mut wrong_pin = f.release.clone();
         wrong_pin.digest = format!("sha256:{}", "0".repeat(64)).into();
-        let err = verify_staged_program_update(&f.artifact, &wrong_pin, "", &state_dir)
-            .expect_err("a wrong pin is refused even without a root key");
+        let err =
+            verify_staged_program_update(&f.artifact, &wrong_pin, &f.root_pub_b64, &state_dir)
+                .expect_err("a wrong pin is refused besides a good chain");
         assert!(err.contains("mismatch"), "{err}");
 
         std::fs::write(&f.artifact, b"tampered bytes").unwrap();

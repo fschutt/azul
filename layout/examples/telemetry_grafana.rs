@@ -997,66 +997,87 @@ fn run_update_drill(
     }
 
     let staging = state_dir.join("staging");
-    // With a root key the drill takes the SIGNED path a real client takes:
-    // digest pin + root-delegated signature, checked on THIS call.
-    if let Some(root) = root_key {
-        match up::download_and_verify(&release, &staging, root, &mut state) {
-            Ok(o) => println!(
-                "update: staged AND VERIFIED {} ({} bytes, cached={}) — signature chain OK, key \
-                 generation now {}",
-                o.path.display(),
-                o.bytes_written,
-                o.used_cached,
-                state.key_generation
-            ),
+    // The drill takes the policy a real client has. With a root key that is the SIGNED chain:
+    // digest pin + root-delegated signature, checked on THIS call. Without one it SPELLS OUT
+    // the digest-only policy (the manifest has to pin a digest) and says it is unsigned - a
+    // real client with neither refuses to install anything.
+    let policy = match root_key {
+        Some(root) => match up::UpdatePolicy::from_text(root, false) {
+            Ok(policy) => policy,
+            Err(e) => {
+                println!("update: REFUSED: {e}");
+                return;
+            }
+        },
+        None => {
+            println!(
+                "update: no --update-root-key: this drill accepts a digest pin only (UNSIGNED)"
+            );
+            up::UpdatePolicy::DigestOnly
+        }
+    };
+    if auto {
+        // AUTO: stage in the background; consent still gates the swap.
+        match up::download_and_verify(&release, &staging, &policy, &mut state) {
+            Ok(a) => {
+                let outcome = a.download();
+                println!(
+                    "update: auto-staged AND VERIFIED {} ({} bytes this call, resumed_from={}, \
+                     cached={}, range-resume-honored={}, {}) - key generation now {}",
+                    a.path().display(),
+                    outcome.map_or(0, |o| o.bytes_written),
+                    outcome.map_or(0, |o| o.resumed_from_bytes),
+                    outcome.is_some_and(|o| o.used_cached),
+                    outcome.is_some_and(|o| o.server_supports_resume),
+                    if a.is_signed() {
+                        "signature chain OK"
+                    } else {
+                        "UNSIGNED, digest only"
+                    },
+                    state.key_generation
+                );
+            }
             Err(e) => println!("update: REFUSED by verification: {e}"),
         }
         state.save(&state_dir);
-        return;
-    }
-    if auto {
-        // AUTO: stage in the background; consent still gates the swap.
-        match up::download_update(&release, &staging) {
-            Ok(o) => println!(
-                "update: auto-staged {} ({} bytes this call, resumed_from={}, cached={}, \
-                 range-resume-honored={})",
-                o.path.display(),
-                o.bytes_written,
-                o.resumed_from_bytes,
-                o.used_cached,
-                o.server_supports_resume
-            ),
-            Err(e) => println!("update: staging failed: {e}"),
-        }
         println!("update: waiting for user consent to install (auto mode ends here)");
         return;
     }
 
     // MANUAL: simulate the dialog's "Install now" consent, then download +
-    // apply onto a scratch installed-app copy (never the running binary in
-    // a demo).
+    // verify + apply onto a scratch installed-app copy (never the running
+    // binary in a demo).
     println!("update: [dialog] user consents to install");
-    let outcome = match up::download_update(&release, &staging) {
-        Ok(o) => o,
+    let verified = match up::download_and_verify(&release, &staging, &policy, &mut state) {
+        Ok(a) => a,
         Err(e) => {
-            println!("update: download failed: {e}");
+            println!("update: REFUSED by verification: {e}");
+            state.save(&state_dir);
             return;
         }
     };
+    state.save(&state_dir);
+    let outcome = verified.download();
     println!(
-        "update: downloaded {} ({} bytes this call, resumed_from={}, range-resume-honored={})",
-        outcome.path.display(),
-        outcome.bytes_written,
-        outcome.resumed_from_bytes,
-        outcome.server_supports_resume
+        "update: downloaded and verified {} ({} bytes this call, resumed_from={}, \
+         range-resume-honored={}, {})",
+        verified.path().display(),
+        outcome.map_or(0, |o| o.bytes_written),
+        outcome.map_or(0, |o| o.resumed_from_bytes),
+        outcome.is_some_and(|o| o.server_supports_resume),
+        if verified.is_signed() {
+            "signature chain OK"
+        } else {
+            "UNSIGNED, digest only"
+        }
     );
     let fake_install = state_dir.join("installed-app.bin");
     drop(std::fs::write(&fake_install, b"OLD-VERSION-BINARY"));
-    match up::apply_update(&outcome.path, &fake_install) {
+    match up::apply_update(&verified, &fake_install) {
         Ok(()) => {
             let new_len = std::fs::metadata(&fake_install).map_or(0, |m| m.len());
             println!(
-                "update: APPLIED — {} is now {} bytes (was 18: the old binary)",
+                "update: APPLIED - {} is now {} bytes (was 18: the old binary)",
                 fake_install.display(),
                 new_len
             );

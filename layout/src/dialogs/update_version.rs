@@ -35,7 +35,8 @@ use crate::{
     },
     updater::{
         apply_update, check_for_updates_blocking, default_state_dir, download_and_verify,
-        effective_mode, InstallKind, ReleaseInfo, UpdateCheckResult, UpdateMode, UpdateState,
+        effective_mode, InstallKind, ReleaseInfo, UpdateCheckResult, UpdateMode, UpdatePolicy,
+        UpdateState,
     },
     widgets::button::{Button, ButtonOnClickCallbackType},
 };
@@ -117,14 +118,18 @@ extern "C" fn check_worker(mut init: RefAny, mut sender: ThreadSender, _recv: Th
     let install = InstallKind::detect();
     let effective =
         crate::updater::apply_shared_update_policy(effective_mode(env.update_mode, &install));
-    let phase = match (env.update_manifest.as_deref(), effective) {
-        (_, UpdateMode::Disabled) => UpdatePhase::Failed {
+    let policy = env.update_policy();
+    let phase = match (env.update_manifest.as_deref(), effective, &policy) {
+        (_, UpdateMode::Disabled, _) => UpdatePhase::Failed {
             error: "updates are disabled in this build".to_owned(),
         },
-        (None, _) => UpdatePhase::Failed {
+        (None, _, _) => UpdatePhase::Failed {
             error: "no update manifest configured (AppConfig.updates.manifest_url)".to_owned(),
         },
-        (Some(url), _) => {
+        // An app that can install an update but has no way to prove one does not offer it:
+        // the dialog says why instead of showing an Install button that cannot work.
+        (Some(_), UpdateMode::SelfUpdate, Err(why)) => UpdatePhase::Failed { error: why.clone() },
+        (Some(url), _, _) => {
             let dir = default_state_dir(&env.app_name);
             let audience = if effective == UpdateMode::SelfUpdate {
                 crate::updater::UpdateAudience::AutoUpdate
@@ -211,7 +216,7 @@ extern "C" fn apply_phase(mut state: RefAny, mut msg: RefAny, _info: CallbackInf
 struct InstallTask {
     release: ReleaseInfo,
     app_name: String,
-    root_public_key: String,
+    policy: UpdatePolicy,
 }
 
 extern "C" fn on_install_now(mut state: RefAny, mut info: CallbackInfo) -> Update {
@@ -222,13 +227,21 @@ extern "C" fn on_install_now(mut state: RefAny, mut info: CallbackInfo) -> Updat
         let UpdatePhase::Available { release, .. } = s.phase.clone() else {
             return Update::DoNothing;
         };
+        let env = crate::appenv::app_env();
+        // No way to prove the update, no install: the dialog says why (fail closed).
+        let policy = match env.update_policy() {
+            Ok(policy) => policy,
+            Err(error) => {
+                s.phase = UpdatePhase::Failed { error };
+                return Update::RefreshDomAllWindows;
+            }
+        };
         let version = release.version.as_str().to_owned();
         s.phase = UpdatePhase::Installing { version };
-        let env = crate::appenv::app_env();
         InstallTask {
             release,
             app_name: env.app_name,
-            root_public_key: env.update_root_public_key.unwrap_or_default(),
+            policy,
         }
     };
     info.add_thread(
@@ -251,7 +264,7 @@ extern "C" fn install_worker(mut init: RefAny, mut sender: ThreadSender, _recv: 
     };
     let release = task.release.clone();
     let app_name = task.app_name.clone();
-    let root_public_key = task.root_public_key.clone();
+    let policy = task.policy.clone();
     drop(task);
 
     let version = release.version.as_str().to_owned();
@@ -260,16 +273,15 @@ extern "C" fn install_worker(mut init: RefAny, mut sender: ThreadSender, _recv: 
     // Even a previously staged artifact goes through download_and_verify:
     // its cached exit re-checks the digest AND the signature chain on THIS
     // call, so a file tampered on disk between staging and consent can
-    // never reach apply_update. (The path shortcut it replaces trusted the
-    // filename verbatim.)
-    let staged_path = {
+    // never reach apply_update - which takes the proof, not a path, and
+    // hashes the copy it installs.
+    let verified = {
         let mut state = UpdateState::load(&state_dir);
-        let r = download_and_verify(&release, &staging_dir, &root_public_key, &mut state)
-            .map(|o| o.path);
+        let r = download_and_verify(&release, &staging_dir, &policy, &mut state);
         state.save(&state_dir);
         r
     };
-    let outcome = staged_path.and_then(|artifact| {
+    let outcome = verified.and_then(|artifact| {
         let target = std::env::current_exe().map_err(|e| e.to_string())?;
         apply_update(&artifact, &target)
     });

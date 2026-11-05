@@ -28,7 +28,7 @@ use std::{path::Path, process::ExitCode};
 
 use azul_layout::updater::{
     parse_manifest_v1, parse_signing_key_statement, verify_digest, verify_release_signature,
-    ReleaseInfo, UpdateState,
+    ReleaseInfo, RootKeys, UpdateState,
 };
 
 fn main() -> ExitCode {
@@ -99,31 +99,27 @@ fn check(release: &ReleaseInfo, artifact: &Path, root_key: &str) -> Result<Strin
     let _ = writeln!(out, "version         {}", release.version.as_str());
     let _ = writeln!(out, "artifact        {}", artifact.display());
 
-    verify_digest(artifact, release.digest.as_str())?;
+    // A client that has a root key checks a digest the manifest pins besides the chain; a
+    // manifest that pins none is fine for it (the signature vouches for the bytes).
+    let pinned = !release.digest.as_str().trim().is_empty();
+    if pinned {
+        verify_digest(artifact, release.digest.as_str())?;
+    }
     let _ = writeln!(
         out,
         "digest          {}",
-        if release.digest.as_str().trim().is_empty() {
-            "(none pinned)"
-        } else {
-            "OK"
-        }
+        if pinned { "OK" } else { "(none pinned)" }
     );
 
-    if root_key.trim().is_empty() {
-        let _ = writeln!(
-            out,
-            "signature       (no root key given - chain not checked)"
-        );
-        return Ok(out);
-    }
-
+    // There is no "no root key" for a client: an empty key is an error, so a release is never
+    // reported as acceptable because nothing was checked.
+    let roots = RootKeys::from_text(root_key)?;
     let statement = parse_signing_key_statement(release.signing_key_statement.as_str())?;
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_secs());
     let mut state = UpdateState::default();
-    verify_release_signature(artifact, release, root_key, &mut state, now)?;
+    verify_release_signature(artifact, release, &roots, &mut state, now)?;
 
     let _ = writeln!(out, "signing key     {}", statement.pubkey_b64);
     let _ = writeln!(out, "generation      {}", statement.generation);
