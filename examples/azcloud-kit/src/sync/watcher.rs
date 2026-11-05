@@ -398,7 +398,7 @@ mod imp {
         },
     };
 
-    use super::Wake;
+    use super::{Protected, Wake};
 
     const MASK: u32 = libc::IN_CREATE
         | libc::IN_DELETE
@@ -521,7 +521,7 @@ mod imp {
                 if event.mask & (libc::IN_DELETE_SELF | libc::IN_MOVE_SELF) != 0 && folder.is_empty() {
                     rescan = Some("the folder itself moved or was removed");
                 }
-                if folder.is_empty() && Protected::is_bookkeeping(&name) {
+                if folder.is_empty() && Protected::is_bookkeeping(&name.to_string_lossy()) {
                     continue;
                 }
                 if event.mask & libc::IN_ISDIR != 0
@@ -571,7 +571,7 @@ mod imp {
         time::{Duration, SystemTime},
     };
 
-    use super::Wake;
+    use super::{Protected, Wake};
 
     type Look = BTreeMap<String, (u64, Option<SystemTime>)>;
 
