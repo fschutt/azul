@@ -517,6 +517,10 @@ pub fn download_guarded(
 /// Where a download of `key` goes in `folder`: the key's file name made safe
 /// ([`crate::key::safe_file_name`]), with ` (1)`, ` (2)`, ... before the
 /// extension when that name is taken. `None` when the key has no usable name.
+///
+/// The answer is a look, not a claim: the name can be taken between this call and the file's
+/// landing (X-AR5a-9). Put the file there with [`download_guarded`] and [`Expect::Absent`], which
+/// refuses to replace what appeared meanwhile.
 #[must_use]
 pub fn download_path(folder: &Path, key: &str) -> Option<PathBuf> {
     let name = safe_file_name(key)?;

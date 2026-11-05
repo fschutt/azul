@@ -47,6 +47,7 @@ use azul_storage::{
     ops as storage_ops,
     scratch::{self, Scratch},
     transfer, ByteRange, Drive, DriveError, ListPage, ListRequest, LocalDrive, ObjectInfo,
+    Precondition,
 };
 
 use crate::{
@@ -1113,6 +1114,26 @@ fn opened_copy(drive: &dyn Drive, copies: &Scratch, key: &str) -> Result<PathBuf
     // loses is only the loud failure of a save in place.
     let _ = scratch::make_read_only(&dest);
     Ok(dest)
+}
+
+/// A new empty file `key`, only if the name is free, in the one step the drive offers
+/// ([`Drive::put_if`] with [`Precondition::Absent`]: a file made between the look and the write
+/// is not replaced - X-AR5a-9); a drive that cannot ask looks first, as before.
+fn create_empty_file(drive: &dyn Drive, key: &str) -> Result<(), DriveError> {
+    let taken = || DriveError::InvalidKey {
+        key: key.to_string(),
+        reason: "something has this name already",
+    };
+    match drive.put_if(key, &[], &Precondition::Absent) {
+        Ok(_) => Ok(()),
+        Err(DriveError::Conflict { .. }) => Err(taken()),
+        Err(DriveError::Unsupported(_)) => match storage_ops::exists(drive, key) {
+            Ok(true) => Err(taken()),
+            Ok(false) => drive.put(key, &[]),
+            Err(e) => Err(e),
+        },
+        Err(e) => Err(e),
+    }
 }
 
 /// The preview of `key`, made on the worker thread.
@@ -3521,14 +3542,7 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
             result: if key.ends_with('/') {
                 drive.create_folder(&key)
             } else {
-                match storage_ops::exists(&*drive, &key) {
-                    Ok(true) => Err(DriveError::InvalidKey {
-                        key: key.clone(),
-                        reason: "something has this name already",
-                    }),
-                    Ok(false) => drive.put(&key, &[]),
-                    Err(e) => Err(e),
-                }
+                create_empty_file(&*drive, &key)
             },
             drive_id,
             key,
@@ -5465,5 +5479,91 @@ mod tests {
             crate::period_tokens_dir(Some(Path::new("/home/ann/.config/azul/drives.json"))),
             Path::new("/home/ann/.config/azul/period-tokens")
         );
+    }
+
+    /// A drive whose look is stale: it says nothing is there (`head`), while `put_if` knows the
+    /// name was made since. Every `put` is counted.
+    struct Racy {
+        puts: AtomicUsize,
+    }
+
+    impl Drive for Racy {
+        fn list(&self, _request: &ListRequest) -> Result<ListPage, DriveError> {
+            Ok(ListPage::default())
+        }
+        fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
+            Err(DriveError::NotFound {
+                key: key.to_string(),
+            })
+        }
+        fn get_range(&self, key: &str, _range: ByteRange) -> Result<Vec<u8>, DriveError> {
+            self.get(key)
+        }
+        fn put(&self, _key: &str, _bytes: &[u8]) -> Result<(), DriveError> {
+            self.puts.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+        fn delete(&self, _key: &str) -> Result<(), DriveError> {
+            Ok(())
+        }
+        fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
+            Err(DriveError::NotFound {
+                key: key.to_string(),
+            })
+        }
+        fn put_if(
+            &self,
+            key: &str,
+            _bytes: &[u8],
+            _condition: &Precondition,
+        ) -> Result<Option<String>, DriveError> {
+            Err(DriveError::Conflict {
+                key: key.to_string(),
+            })
+        }
+    }
+
+    /// X-AR5a-9: New text document / New file looked (`exists`) and then wrote (`put`): a file
+    /// made in between was replaced by an empty one. The one step the drive offers refuses it.
+    #[test]
+    fn x_ar5a_9_a_new_file_is_made_only_if_the_name_is_free_in_one_step() {
+        let racy = Racy {
+            puts: AtomicUsize::new(0),
+        };
+        let refused = create_empty_file(&racy, "notes.txt").unwrap_err();
+        assert!(
+            matches!(&refused, DriveError::InvalidKey { reason, .. } if reason.contains("already")),
+            "{refused:?}"
+        );
+        assert_eq!(
+            racy.puts.load(Ordering::SeqCst),
+            0,
+            "nothing was written over it"
+        );
+
+        // On a folder on disk: the first is made, the second is refused and the file is untouched.
+        let dir = TempDir::new("azdrive-create");
+        let home = LocalDrive::without_manifest(dir.path().to_path_buf());
+        create_empty_file(&home, "a.txt").expect("made");
+        home.put("a.txt", b"mine").unwrap();
+        let again = create_empty_file(&home, "a.txt").unwrap_err();
+        assert!(matches!(again, DriveError::InvalidKey { .. }), "{again:?}");
+        assert_eq!(home.get("a.txt").unwrap(), b"mine");
+    }
+
+    /// A drive that cannot ask (no conditional put) is looked at first, as before.
+    #[test]
+    fn x_ar5a_9_a_drive_that_cannot_ask_is_checked_first() {
+        let dir = TempDir::new("azdrive-create-plain");
+        let (_release, open) = std::sync::mpsc::channel();
+        let plain = Gated {
+            drive: LocalDrive::without_manifest(dir.path().to_path_buf()),
+            pages: AtomicUsize::new(0),
+            open: std::sync::Mutex::new(open),
+        };
+        create_empty_file(&plain, "b.txt").expect("made");
+        assert!(dir.path().join("b.txt").is_file());
+        let again = create_empty_file(&plain, "b.txt").unwrap_err();
+        assert!(matches!(again, DriveError::InvalidKey { .. }), "{again:?}");
     }
 }
