@@ -69,6 +69,11 @@ iroh = ["dep:iroh", "azlin-client/iroh"]
 # seals the drive key into the join code and `join` takes it. The keys live in the state
 # folder's secrets file.
 encryption = ["azcloud-kit/encryption", "azul-storage/encryption"]
+# A TEST build (the E2E scripts against a local stack): `--token-url`, `--profile`, `--s3-url` and
+# their variables (`AZLIN_TOKEN_URL`, ...) and the shared config's `endpoints` choose where the
+# drive token goes. A shipped `azcloud` talks to the live token server and ignores all of them
+# (azul_appkit::anchors).
+test-hooks = ["azcloud-kit/test-hooks"]
 
 [lib]
 name = "azcloud_api"

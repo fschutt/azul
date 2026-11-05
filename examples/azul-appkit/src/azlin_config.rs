@@ -322,10 +322,11 @@ pub const PROFILE_FLAG: &str = "--profile";
 /// to a server of their choice, and a developer's local cluster must not
 /// follow the user to the laptop.
 pub const MACHINE_LOCAL_KEYS: &[&str] = &[ENDPOINTS_KEY, UPDATES_KEY, TRUST_KEY];
-/// The profile when nothing names one: the local mocked services. A real
-/// service is chosen on purpose (`"profile": "production"`), so a test that
-/// forgot its config never signs up against it.
-pub const DEFAULT_PROFILE: Profile = Profile::Local;
+/// The profile when nothing names one: the LIVE service in a shipped build, the local mocked
+/// services in a test build (feature `test-hooks`) - so a test that forgot its config never signs
+/// up against the live service, and a release never talks to `http://127.0.0.1:8081` (REVIEW P7).
+/// See [`crate::anchors`].
+pub use crate::anchors::DEFAULT_PROFILE;
 /// The longest address taken (AzMeet's limit for its meeting server).
 const MAX_URL_CHARS: usize = 2048;
 
@@ -380,6 +381,15 @@ impl Endpoint {
             Endpoint::Meet => &["AZMEET_WORKER"],
             Endpoint::Relay => &["AZMEET_RELAY"],
         }
+    }
+
+    /// Whether a credential travels to it: the token server gets the drive token, the S3 endpoint
+    /// gets requests signed with the drive's credentials. A shipped build does not take these two
+    /// from the config, the environment or a switch ([`crate::anchors`]); the meeting server and
+    /// the relay carry no secret of the user's and stay settings.
+    #[must_use]
+    pub fn is_credential_destination(self) -> bool {
+        matches!(self, Endpoint::Token | Endpoint::S3)
     }
 
     /// The command-line flag that sets it for a run (`azcloud`).
@@ -470,7 +480,7 @@ impl Profile {
             (Profile::Local, Endpoint::Token) => Some("http://127.0.0.1:8081"),
             (Profile::Local, Endpoint::Meet) => Some("http://127.0.0.1:8790"),
             (Profile::Trial, Endpoint::Token) => Some("https://token-trial.azlin.io"),
-            (Profile::Production, Endpoint::Token) => Some("https://token.azlin.io"),
+            (Profile::Production, Endpoint::Token) => Some(crate::anchors::TOKEN_SERVER),
             (_, Endpoint::Relay) => Some("default"),
             _ => None,
         }
@@ -618,6 +628,24 @@ impl EndpointsSection {
         self.profile.is_none()
             && Endpoint::ALL.iter().all(|e| self.get(*e).is_none())
             && self.rest.is_empty()
+    }
+
+    /// The section without what a shipped build must not believe: the profile and the addresses
+    /// a credential travels to. The meeting server, the relay and the keys this module does not
+    /// know stay.
+    #[must_use]
+    pub fn without_credential_destinations(&self) -> EndpointsSection {
+        let mut kept = self.clone();
+        kept.profile = None;
+        kept.token = None;
+        kept.s3 = None;
+        kept.rest.remove(PROFILE_KEY);
+        for endpoint in Endpoint::ALL {
+            if endpoint.is_credential_destination() {
+                kept.rest.remove(endpoint.key());
+            }
+        }
+        kept
     }
 
     fn slot(&mut self, endpoint: Endpoint) -> &mut Option<String> {
@@ -1133,6 +1161,17 @@ pub struct EndpointFlags {
 }
 
 impl EndpointFlags {
+    /// The switches without the profile and the addresses a credential travels to.
+    #[must_use]
+    pub fn without_credential_destinations(&self) -> EndpointFlags {
+        EndpointFlags {
+            profile: None,
+            token: None,
+            s3: None,
+            ..self.clone()
+        }
+    }
+
     /// The flag's value for `endpoint`.
     #[must_use]
     pub fn get(&self, endpoint: Endpoint) -> Option<&str> {
@@ -1170,16 +1209,54 @@ impl EffectiveEndpoints {
     }
 }
 
-/// Resolves every endpoint, the lowest layer first: the profile's built-in
-/// address, the config file's section (`file`: its path and section), the
-/// environment (`env` reads a variable; of an endpoint's [`Endpoint::vars`]
-/// the first wins over the later ones), the command line (`flags`). The
-/// profile goes through the same layers before (built-in
-/// [`DEFAULT_PROFILE`], the file, [`PROFILE_VAR`], [`PROFILE_FLAG`]): it
-/// decides the bottom layer of the rest. Pure, so the tests bring their own
-/// environment.
+/// Resolves every endpoint as THIS build does: a test build (feature `test-hooks`) through all the
+/// layers ([`resolve_layers`], from the local profile); a shipped build takes the profile and the
+/// addresses a credential travels to (the token server, S3) from its constants alone - the live
+/// profile ([`DEFAULT_PROFILE`]) - and ignores the file's, the environment's and the switches'
+/// word about them, because a same-user process can write all three and the next sign-in or
+/// refresh would send the drive token wherever they say (REVIEW K20, P7). The meeting server
+/// and the relay stay settings.
 #[must_use]
 pub fn resolve_endpoints(
+    file: Option<(&Path, &EndpointsSection)>,
+    env: &dyn Fn(&str) -> Option<String>,
+    flags: &EndpointFlags,
+) -> EffectiveEndpoints {
+    if crate::anchors::layers_honoured() {
+        return resolve_layers(DEFAULT_PROFILE, file, env, flags);
+    }
+    let section = file.map(|(path, section)| (path, section.without_credential_destinations()));
+    let shipped_env = |name: &str| {
+        let credential = name == PROFILE_VAR
+            || Endpoint::ALL
+                .iter()
+                .filter(|e| e.is_credential_destination())
+                .any(|e| e.vars().contains(&name));
+        if credential {
+            None
+        } else {
+            env(name)
+        }
+    };
+    resolve_layers(
+        DEFAULT_PROFILE,
+        section.as_ref().map(|(path, section)| (*path, section)),
+        &shipped_env,
+        &flags.without_credential_destinations(),
+    )
+}
+
+/// Resolves every endpoint, the lowest layer first: the profile's built-in
+/// address (`default_profile`'s), the config file's section (`file`: its
+/// path and section), the environment (`env` reads a variable; of an
+/// endpoint's [`Endpoint::vars`] the first wins over the later ones), the
+/// command line (`flags`). The profile goes through the same layers before
+/// (`default_profile`, the file, [`PROFILE_VAR`], [`PROFILE_FLAG`]): it
+/// decides the bottom layer of the rest. Pure, so the tests bring their own
+/// environment; a build uses [`resolve_endpoints`].
+#[must_use]
+pub fn resolve_layers(
+    default_profile: Profile,
     file: Option<(&Path, &EndpointsSection)>,
     env: &dyn Fn(&str) -> Option<String>,
     flags: &EndpointFlags,
@@ -1190,7 +1267,7 @@ pub fn resolve_endpoints(
             .ok_or_else(|| format!("unknown profile (known: {})", Profile::names()))
     };
     let mut profile_setting = Resolved::unset();
-    profile_setting.offer(Source::BuiltIn, DEFAULT_PROFILE.name(), check_profile);
+    profile_setting.offer(Source::BuiltIn, default_profile.name(), check_profile);
     if let Some((path, section)) = file {
         if let Some(profile) = section.profile {
             profile_setting.offer(
@@ -1210,7 +1287,7 @@ pub fn resolve_endpoints(
         .value
         .as_deref()
         .and_then(Profile::parse)
-        .unwrap_or(DEFAULT_PROFILE);
+        .unwrap_or(default_profile);
     let endpoints = Endpoint::ALL.map(|endpoint| {
         let check = move |raw: &str| normalize_endpoint(endpoint, raw);
         let mut resolved = Resolved::unset();
@@ -1518,7 +1595,7 @@ mod tests {
 
     #[test]
     fn without_any_config_every_endpoint_comes_from_the_local_profile() {
-        let e = resolve_endpoints(None, &no_env, &EndpointFlags::default());
+        let e = resolve_layers(Profile::Local, None, &no_env, &EndpointFlags::default());
         assert_eq!(e.profile, Profile::Local);
         assert_eq!(e.profile_setting.source, Source::BuiltIn);
         assert_eq!(e.url(Endpoint::Token), Some("http://127.0.0.1:8081"));
@@ -1551,7 +1628,12 @@ mod tests {
             (name == "AZLIN_TOKEN_URL").then(|| String::from("http://env.test:2"))
         };
 
-        let e = resolve_endpoints(Some((path, &section)), &no_env, &EndpointFlags::default());
+        let e = resolve_layers(
+            Profile::Local,
+            Some((path, &section)),
+            &no_env,
+            &EndpointFlags::default(),
+        );
         let token = e.get(Endpoint::Token);
         assert_eq!(token.value.as_deref(), Some("http://file.test:1"));
         assert_eq!(token.source, Source::File(path.to_path_buf()));
@@ -1563,7 +1645,12 @@ mod tests {
             )]
         );
 
-        let e = resolve_endpoints(Some((path, &section)), &env, &EndpointFlags::default());
+        let e = resolve_layers(
+            Profile::Local,
+            Some((path, &section)),
+            &env,
+            &EndpointFlags::default(),
+        );
         assert_eq!(e.url(Endpoint::Token), Some("http://env.test:2"));
         assert_eq!(
             e.get(Endpoint::Token).source,
@@ -1574,7 +1661,7 @@ mod tests {
             token: Some(String::from("https://flag.test:3")),
             ..EndpointFlags::default()
         };
-        let e = resolve_endpoints(Some((path, &section)), &env, &flags);
+        let e = resolve_layers(Profile::Local, Some((path, &section)), &env, &flags);
         let token = e.get(Endpoint::Token);
         assert_eq!(token.value.as_deref(), Some("https://flag.test:3"));
         assert_eq!(token.source, Source::Flag("--token-url"));
@@ -1587,7 +1674,7 @@ mod tests {
         let alias = |name: &str| -> Option<String> {
             (name == "AZLIN_TOKEN_SERVER").then(|| String::from("http://alias.test:1"))
         };
-        let e = resolve_endpoints(None, &alias, &EndpointFlags::default());
+        let e = resolve_layers(Profile::Local, None, &alias, &EndpointFlags::default());
         assert_eq!(e.url(Endpoint::Token), Some("http://alias.test:1"));
         assert_eq!(
             e.get(Endpoint::Token).source,
@@ -1601,7 +1688,7 @@ mod tests {
                 _ => None,
             }
         };
-        let e = resolve_endpoints(None, &both, &EndpointFlags::default());
+        let e = resolve_layers(Profile::Local, None, &both, &EndpointFlags::default());
         let token = e.get(Endpoint::Token);
         assert_eq!(token.value.as_deref(), Some("http://canonical.test:2"));
         assert_eq!(
@@ -1618,7 +1705,7 @@ mod tests {
         let production = |name: &str| -> Option<String> {
             (name == PROFILE_VAR).then(|| String::from("production"))
         };
-        let e = resolve_endpoints(None, &production, &EndpointFlags::default());
+        let e = resolve_layers(Profile::Local, None, &production, &EndpointFlags::default());
         assert_eq!(e.profile, Profile::Production);
         assert_eq!(e.profile_setting.source, Source::Env(PROFILE_VAR));
         assert_eq!(e.url(Endpoint::Token), Some("https://token.azlin.io"));
@@ -1636,7 +1723,7 @@ mod tests {
             profile: Some(String::from("prod")),
             ..EndpointFlags::default()
         };
-        let e = resolve_endpoints(Some((path, &section)), &no_env, &flags);
+        let e = resolve_layers(Profile::Local, Some((path, &section)), &no_env, &flags);
         assert_eq!(e.profile, Profile::Production);
         assert_eq!(e.profile_setting.source, Source::Flag(PROFILE_FLAG));
         assert_eq!(e.url(Endpoint::Token), Some("http://127.0.0.1:18081"));
@@ -1645,7 +1732,12 @@ mod tests {
         let typo = |name: &str| -> Option<String> {
             (name == PROFILE_VAR).then(|| String::from("prodution"))
         };
-        let e = resolve_endpoints(Some((path, &section)), &typo, &EndpointFlags::default());
+        let e = resolve_layers(
+            Profile::Local,
+            Some((path, &section)),
+            &typo,
+            &EndpointFlags::default(),
+        );
         assert_eq!(e.profile, Profile::Trial);
         assert_eq!(e.profile_setting.rejected.len(), 1);
         assert_eq!(e.profile_setting.rejected[0].0, Source::Env(PROFILE_VAR));
@@ -1660,7 +1752,7 @@ mod tests {
                 _ => None,
             }
         };
-        let e = resolve_endpoints(None, &env, &EndpointFlags::default());
+        let e = resolve_layers(Profile::Local, None, &env, &EndpointFlags::default());
         let token = e.get(Endpoint::Token);
         assert_eq!(token.source, Source::Profile(Profile::Local));
         assert!(
@@ -1950,5 +2042,122 @@ mod tests {
         assert_eq!(current_app_key("azmail"), "azmail");
         assert_eq!(former_app_key("azpasswordmanager"), Some("azkeys"));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // ---- what a BUILD makes of the layers (REVIEW K20, P7) ------------------------------------
+
+    /// The credentials' destinations a same-user process would love to choose: a profile, a token
+    /// server and an S3 endpoint in the file, in the environment and on the command line.
+    fn hostile_layers() -> (
+        EndpointsSection,
+        impl Fn(&str) -> Option<String>,
+        EndpointFlags,
+    ) {
+        let mut section = EndpointsSection::default();
+        section.profile = Some(Profile::Local);
+        section
+            .set(Endpoint::Token, Some("https://evil.example/file"))
+            .unwrap();
+        section
+            .set(Endpoint::S3, Some("https://s3.evil.example"))
+            .unwrap();
+        section
+            .set(Endpoint::Meet, Some("https://meet.example/file"))
+            .unwrap();
+        let env = |name: &str| -> Option<String> {
+            match name {
+                "AZLIN_TOKEN_URL" | "AZLIN_TOKEN_SERVER" => {
+                    Some(String::from("https://evil.example/env"))
+                }
+                "AZLIN_S3_URL" => Some(String::from("https://s3.evil.example/env")),
+                PROFILE_VAR => Some(String::from("local")),
+                "AZMEET_WORKER" => Some(String::from("https://meet.example/env")),
+                _ => None,
+            }
+        };
+        let flags = EndpointFlags {
+            profile: Some(String::from("trial")),
+            token: Some(String::from("https://evil.example/flag")),
+            s3: Some(String::from("https://s3.evil.example/flag")),
+            ..EndpointFlags::default()
+        };
+        (section, env, flags)
+    }
+
+    #[cfg(not(feature = "test-hooks"))]
+    #[test]
+    fn k20_a_shipped_build_sends_the_drive_token_to_the_live_server_whatever_a_file_a_variable_or_a_switch_says(
+    ) {
+        let path = Path::new("/home/ann/.azlin/config.json");
+        let (section, env, flags) = hostile_layers();
+        let e = resolve_endpoints(Some((path, &section)), &env, &flags);
+        assert_eq!(
+            e.profile,
+            Profile::Production,
+            "P7: the live profile, not the local stack"
+        );
+        assert_eq!(e.url(Endpoint::Token), Some("https://token.azlin.io"));
+        assert_eq!(
+            e.get(Endpoint::Token).source,
+            Source::Profile(Profile::Production)
+        );
+        assert!(
+            e.get(Endpoint::Token).overridden.is_empty(),
+            "nothing was offered above the profile"
+        );
+        assert_eq!(
+            e.url(Endpoint::S3),
+            None,
+            "the drive bundle names it; no layer does"
+        );
+        // Not a credential's destination: the meeting server stays a setting (env over file).
+        assert_eq!(e.url(Endpoint::Meet), Some("https://meet.example/env"));
+        assert_eq!(e.get(Endpoint::Meet).source, Source::Env("AZMEET_WORKER"));
+        // Nothing at all: the live service.
+        let none = resolve_endpoints(None, &|_| None, &EndpointFlags::default());
+        assert_eq!(none.profile, Profile::Production);
+        assert_eq!(none.url(Endpoint::Token), Some("https://token.azlin.io"));
+        assert_eq!(none.profile_setting.source, Source::BuiltIn);
+    }
+
+    #[cfg(feature = "test-hooks")]
+    #[test]
+    fn a_test_build_resolves_every_layer_and_starts_from_the_local_stack() {
+        let path = Path::new("/home/ann/.azlin/config.json");
+        let (section, env, flags) = hostile_layers();
+        let e = resolve_endpoints(Some((path, &section)), &env, &flags);
+        assert_eq!(e.profile, Profile::Trial, "the switch");
+        assert_eq!(e.url(Endpoint::Token), Some("https://evil.example/flag"));
+        assert_eq!(e.url(Endpoint::S3), Some("https://s3.evil.example/flag"));
+        let none = resolve_endpoints(None, &|_| None, &EndpointFlags::default());
+        assert_eq!(none.profile, Profile::Local);
+        assert_eq!(none.url(Endpoint::Token), Some("http://127.0.0.1:8081"));
+    }
+
+    /// The pure halves behind the two tests above hold in either build.
+    #[test]
+    fn the_credential_destinations_are_the_token_server_and_s3_and_nothing_else() {
+        let kept: Vec<&str> = Endpoint::ALL
+            .iter()
+            .filter(|e| e.is_credential_destination())
+            .map(|e| e.key())
+            .collect();
+        assert_eq!(kept, vec!["token", "s3"]);
+        let (section, _, flags) = hostile_layers();
+        let shipped = section.without_credential_destinations();
+        assert_eq!(shipped.profile, None);
+        assert_eq!(shipped.get(Endpoint::Token), None);
+        assert_eq!(shipped.get(Endpoint::S3), None);
+        assert_eq!(
+            shipped.get(Endpoint::Meet),
+            Some("https://meet.example/file")
+        );
+        let flags = flags.without_credential_destinations();
+        assert_eq!((flags.profile, flags.token, flags.s3), (None, None, None));
+        // What the file keeps under those keys as text it could not use goes too.
+        let (odd, _) =
+            AzlinConfig::parse(r#"{"endpoints": {"token": "not an address", "profile": "mars"}}"#);
+        let cleaned = odd.endpoints.without_credential_destinations();
+        assert!(cleaned.is_empty(), "{:?}", cleaned.to_value());
     }
 }

@@ -2,7 +2,9 @@
 """End-to-end run of the `azcloud` CLI (examples/azcloud-api) against a running local Azlin
 cluster: `azctl dev up --processes` (or `--vms`) of azul-apps/iso.
 
-    cd examples/azcloud-api && cargo build --release        # the azcloud binary
+    cd examples/azcloud-api && cargo build --release --features test-hooks   # the azcloud binary
+    # (test-hooks: a shipped azcloud talks to the live token server and ignores --token-url,
+    #  AZLIN_TOKEN_URL and the shared config's endpoints; this run points it at the local stack)
     AZLIN_TOKEN_URL=http://127.0.0.1:8081 python3 scripts/azcloud_e2e.py
 
 What it checks, on two simulated machines A and B (each its own HOME, state folder, data root,

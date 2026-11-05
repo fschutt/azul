@@ -75,6 +75,10 @@ encryption = ["azul-mail-core/encryption", "azcloud-kit/encryption", "azul-stora
 os-keyring = ["azul-storage/azul"]
 # azul-bridge-tray (src/tray_main.rs): `serve` with a menu-bar / tray item, with the OS keyring.
 tray = ["dep:azul", "os-keyring"]
+# A TEST build (the E2E scripts against a local stack): `--token-url`, `--s3-url` and
+# `AZLIN_TOKEN_URL` and the shared config's `endpoints` choose where the drive token goes. A shipped
+# bridge talks to the live token server and ignores all of them (azul_appkit::anchors).
+test-hooks = ["azcloud-kit/test-hooks"]
 
 [dev-dependencies]
 # A temporary folder for the tests (azul_storage::testing::TempDir).

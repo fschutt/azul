@@ -11,6 +11,12 @@
 //! app, the `dirs` crate in the `azcloud` command line). [`Settings::report`] is
 //! what `azcloud config` prints: a value that came from a built-in default says
 //! so, which is how an address nobody configured is found.
+//!
+//! The precedence is that of a TEST build (the cargo feature `test-hooks`). In a SHIPPED build the
+//! profile, the token server and the S3 endpoint are the build's constants - the live service -
+//! and the file, the environment and the switches are not asked about them: the next refresh sends
+//! the drive token wherever those say, and a same-user process can set all three (REVIEW K20, P7;
+//! [`azul_appkit::anchors`]). The transport, the iroh node and the folders stay settings.
 
 use std::path::{Path, PathBuf};
 

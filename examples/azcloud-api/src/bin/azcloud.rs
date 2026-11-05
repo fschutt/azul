@@ -95,6 +95,8 @@ commands:
                                  deletes blobs no sync index names (older than H, default 24)
 
 flags (every one also has an environment variable; flag > environment > config file > default):
+  (azcloud as shipped talks to the live token server: --profile, --token-url and --s3-url, their
+   variables and the config file's endpoints are read by a test build only, --features test-hooks)
   --config F        the shared config file (AZLIN_CONFIG; default ~/.azlin/config.json)
   --profile P       local | trial | production (AZLIN_PROFILE; config endpoints.profile)
   --token-url U     the token server (AZLIN_TOKEN_URL, also AZLIN_TOKEN_SERVER)

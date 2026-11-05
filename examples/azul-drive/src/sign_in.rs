@@ -3,10 +3,13 @@
 //!
 //! 1. The provider's OAuth client comes from the settings ([`SignInSettings`]): the environment
 //!    (`AZDRIVE_GOOGLE_CLIENT_ID`, `AZDRIVE_DROPBOX_CLIENT_ID`, `AZDRIVE_ONEDRIVE_CLIENT_ID`, and
-//!    `_CLIENT_SECRET`, `_REDIRECT_URI`, `_AUTHORIZE_URL`, `_TOKEN_URL`, `_SCOPE`) over the
-//!    shared Azlin config's `oauth.<provider>` section (azul-appkit's `oauth_clients`). No client
-//!    id is built into AzDrive; without one the button says which setting is missing
-//!    ([`missing_client`]).
+//!    `_CLIENT_SECRET`, `_REDIRECT_URI`) over the shared Azlin config's `oauth.<provider>` section
+//!    (azul-appkit's `oauth_clients`). No client id is built into AzDrive; without one the button
+//!    says which setting is missing ([`missing_client`]). The provider's ENDPOINTS are not
+//!    settings: the authorization code, the PKCE verifier and the client secret go to the token
+//!    endpoint, so a shipped AzDrive uses azul-storage's provider table and ignores
+//!    `_AUTHORIZE_URL`, `_TOKEN_URL` and `_SCOPE` (and a redirect that leaves this computer); a
+//!    test build (`--features test-hooks`) takes them from the same places (REVIEW X-AR5b-23).
 //! 2. A [`SignInPlan`]: the authorize endpoint, the client, the scope, the redirect URI (a
 //!    loopback one with a free port unless the settings name another: the provider's app
 //!    registration has to allow it), the token endpoint.

@@ -5,6 +5,11 @@
 //! `AZLIN_CONFIG=off` reads none), the environment (`AZLIN_TOKEN_URL`, `AZLIN_PROFILE`), the
 //! app's `--token-url` / `--profile` switches. Pure but for reading the config file: the caller
 //! hands in its environment and its home folder.
+//!
+//! That is the order of a TEST build (the cargo feature `test-hooks`). A SHIPPED build asks none
+//! of the layers about the token server: it is the live one, [`azul_appkit::anchors::TOKEN_SERVER`],
+//! because the next refresh sends the drive token wherever the answer says, and a file, a
+//! variable and a switch are all things a same-user process can set (REVIEW K20, P7).
 
 use std::path::Path;
 

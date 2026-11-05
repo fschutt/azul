@@ -522,3 +522,29 @@ fn the_providers_are_google_drive_dropbox_and_onedrive_at_https_endpoints() {
         .authorize_extras
         .contains(&("token_access_type", "offline")));
 }
+
+/// REVIEW X-AR5b-23: `drives.json` is a file any process of the user can write, and a drive's
+/// `token_url` option decides where its refresh token and client secret are sent. A shipped build
+/// refreshes at the provider's own endpoint; a test build lets the drive say (a fake provider on
+/// this computer).
+#[test]
+fn x_ar5b_23_a_drive_refreshes_at_its_providers_endpoint_unless_this_is_a_test_build() {
+    let evil = "https://evil.example/token";
+    assert_eq!(
+        oauth::refresh_endpoint(false, &oauth::GOOGLE, Some(evil)),
+        oauth::GOOGLE.token_url,
+        "a shipped build ignores the option"
+    );
+    assert_eq!(
+        oauth::refresh_endpoint(false, &oauth::GOOGLE, None),
+        oauth::GOOGLE.token_url
+    );
+    assert_eq!(
+        oauth::refresh_endpoint(true, &oauth::GOOGLE, Some(evil)),
+        evil
+    );
+    assert_eq!(
+        oauth::refresh_endpoint(true, &oauth::GOOGLE, None),
+        oauth::GOOGLE.token_url
+    );
+}

@@ -143,6 +143,10 @@ default = []
 azul = ["dep:azul"]
 # `testing::TempDir` for the apps' tests (a dev-dependency turns it on).
 testing = []
+# A TEST build (the E2E builds): a drive's own options may name the token endpoint its refresh token
+# is sent to (`oauth::TOKEN_URL`), as a fake provider on this computer needs. A shipped build
+# refreshes at the provider's own endpoint, whatever `drives.json` says.
+test-hooks = []
 # Data sources through Apache OpenDAL (OpendalDrive; the catalog's OpenDAL entries).
 opendal = ["dep:opendal", "dep:http", "dep:futures", "dep:tokio"]
 # Databases browsed as files (DatabaseDrive; the catalog's database entries).

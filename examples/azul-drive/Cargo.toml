@@ -55,6 +55,9 @@ serde_json = "1"
 [dev-dependencies]
 # The one temporary folder for tests (azul_storage::testing::TempDir).
 azul-storage = { path = "../azul-storage", features = ["testing"] }
+# The tests of the sign-in resolve the provider's endpoints from an environment of their own; a
+# shipped AzDrive takes them from the provider table alone (azul_appkit::anchors).
+azul-appkit = { path = "../azul-appkit", features = ["azul", "test-hooks"] }
 
 [features]
 # Add drive > Connect data source offers OpenDAL's services and the databases (tables as

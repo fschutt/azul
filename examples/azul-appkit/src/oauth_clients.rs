@@ -20,7 +20,15 @@
 //! build without one says which setting is missing. Per provider: `client_id`, `client_secret`
 //! (only Google's desktop clients have one; in an app anybody can download it is no secret, but
 //! Google's token endpoint wants it), `redirect_uri` (the default is a loopback one), and for
-//! tests `authorize_url`, `token_url` and `scope`.
+//! TEST builds `authorize_url`, `token_url` and `scope`.
+//!
+//! The endpoints are not settings (REVIEW X-AR5b-23). The authorization code, its PKCE verifier,
+//! the client secret and the refresh token go to the provider's token endpoint; if a file or a
+//! variable chooses it, whoever can write either collects them. A SHIPPED build takes only the
+//! client (`client_id`, `client_secret`) and a redirect that stays on this computer (a loopback
+//! address or an app's own scheme) from the file and the environment; the provider's endpoints
+//! and scope are constants of the build (azul-storage's provider table). A build with the cargo
+//! feature `test-hooks` takes every key ([`crate::anchors`]).
 //!
 //! The environment outranks the file ([`resolve`]): `<PREFIX>_<PROVIDER>_<KEY>`, AzDrive's
 //! `AZDRIVE_GOOGLE_CLIENT_ID`, `AZDRIVE_DROPBOX_CLIENT_ID`, `AZDRIVE_ONEDRIVE_CLIENT_ID`, ...
@@ -107,6 +115,19 @@ impl OAuthSettings {
         *slot = value;
     }
 
+    /// What a SHIPPED build takes of these settings: the client, and a redirect that stays on this
+    /// computer. The endpoints (`authorize_url`, `token_url`) and the `scope` are the provider's,
+    /// compiled in; a redirect to an https address or to another host would send the
+    /// authorization code there.
+    #[must_use]
+    pub fn shipped(mut self) -> OAuthSettings {
+        self.authorize_url = None;
+        self.token_url = None;
+        self.scope = None;
+        self.redirect_uri = self.redirect_uri.filter(|uri| stays_on_this_computer(uri));
+        self
+    }
+
     /// `self` with every setting `over` has an opinion on replaced.
     #[must_use]
     pub fn overlaid(mut self, over: OAuthSettings) -> OAuthSettings {
@@ -163,8 +184,41 @@ pub fn from_env(
     settings
 }
 
+/// Whether a redirect URI comes back to this computer: an `http://` loopback address (`127.0.0.1`,
+/// `localhost`, `[::1]`, no user info) or an app's own scheme (`com.example.app:/oauth2redirect`).
+/// An `https://` address, or `http://` to another host, is where an authorization code would go
+/// to somebody else.
+fn stays_on_this_computer(uri: &str) -> bool {
+    let lower = uri.trim().to_ascii_lowercase();
+    if let Some(rest) = lower.strip_prefix("http://") {
+        let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
+        if authority.contains('@') {
+            return false;
+        }
+        let host = if authority.starts_with('[') {
+            authority.find(']').map_or("", |end| &authority[..=end])
+        } else {
+            authority.split(':').next().unwrap_or_default()
+        };
+        return matches!(host, "127.0.0.1" | "localhost" | "[::1]");
+    }
+    if lower.starts_with("https://") || lower.starts_with("//") {
+        return false;
+    }
+    lower.split_once(':').is_some_and(|(scheme, _)| {
+        !scheme.is_empty()
+            && scheme.starts_with(|c: char| c.is_ascii_alphabetic())
+            && scheme
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'+' | b'-'))
+            && scheme != "http"
+            && scheme != "https"
+    })
+}
+
 /// `provider`'s settings as an app weighs them: the environment (`prefix`'s variables) over
-/// the shared config file at `config_path` (none: no file).
+/// the shared config file at `config_path` (none: no file). In a shipped build only what
+/// [`OAuthSettings::shipped`] keeps; with `test-hooks` all of it.
 #[must_use]
 pub fn resolve(
     prefix: &str,
@@ -173,7 +227,12 @@ pub fn resolve(
     config_path: Option<&Path>,
 ) -> OAuthSettings {
     let file = config_path.map_or_else(OAuthSettings::default, |path| in_file(path, provider));
-    file.overlaid(from_env(prefix, provider, var))
+    let settings = file.overlaid(from_env(prefix, provider, var));
+    if crate::anchors::layers_honoured() {
+        settings
+    } else {
+        settings.shipped()
+    }
 }
 
 #[cfg(test)]
@@ -244,6 +303,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "test-hooks")]
     #[test]
     fn the_environment_outranks_the_file_setting_by_setting() {
         let dir = TempDir::new("oauth-clients");
@@ -267,6 +327,88 @@ mod tests {
         assert_eq!(google.scope, None, "a blank variable is no opinion");
         let none = resolve("AZDRIVE", "onedrive", &env(&[]), None);
         assert_eq!(none, OAuthSettings::default());
+    }
+
+    /// REVIEW X-AR5b-23: a shipped build sends the code, the verifier and the client secret to the
+    /// provider's own endpoint, whatever the file or the environment say.
+    #[cfg(not(feature = "test-hooks"))]
+    #[test]
+    fn x_ar5b_23_a_shipped_build_takes_no_endpoint_from_the_environment_or_the_config() {
+        let dir = TempDir::new("oauth-clients-shipped");
+        let path = dir.0.join("config.json");
+        std::fs::write(
+            &path,
+            r#"{"oauth": {"google": {"client_id": "file-id", "client_secret": "GOCSPX-file",
+                "authorize_url": "https://evil.example/authorize",
+                "token_url": "https://evil.example/token", "scope": "everything",
+                "redirect_uri": "https://evil.example/cb"}}}"#,
+        )
+        .unwrap();
+        let var = env(&[
+            (
+                "AZDRIVE_GOOGLE_TOKEN_URL",
+                "http://127.0.0.1:8081/oauth/google/token",
+            ),
+            (
+                "AZDRIVE_GOOGLE_AUTHORIZE_URL",
+                "http://127.0.0.1:8081/oauth/google/authorize",
+            ),
+            ("AZDRIVE_GOOGLE_CLIENT_ID", "env-id"),
+        ]);
+        let google = resolve("AZDRIVE", "google", &var, Some(&path));
+        assert_eq!(
+            google.client_id.as_deref(),
+            Some("env-id"),
+            "the user's own registration stays"
+        );
+        assert_eq!(google.client_secret.as_deref(), Some("GOCSPX-file"));
+        assert_eq!(google.token_url, None);
+        assert_eq!(google.authorize_url, None);
+        assert_eq!(google.scope, None);
+        assert_eq!(
+            google.redirect_uri, None,
+            "an https redirect would receive the code"
+        );
+    }
+
+    #[test]
+    fn x_ar5b_23_a_redirect_stays_on_this_computer() {
+        for good in [
+            "http://127.0.0.1/",
+            "http://127.0.0.1:53682/oauth2redirect",
+            "http://localhost:8080/cb",
+            "HTTP://LOCALHOST/cb",
+            "http://[::1]:9000/cb",
+            "com.example.app:/oauth2redirect",
+            "msauth.com.example://auth",
+        ] {
+            assert!(stays_on_this_computer(good), "{good}");
+        }
+        for bad in [
+            "",
+            "https://evil.example/cb",
+            "https://127.0.0.1/cb",
+            "http://evil.example/cb",
+            "http://127.0.0.1.evil.example/cb",
+            "http://user@127.0.0.1/cb",
+            "//evil.example/cb",
+            "evil.example/cb",
+            ":/cb",
+            "1scheme:/cb",
+        ] {
+            assert!(!stays_on_this_computer(bad), "{bad}");
+        }
+        let mut settings = OAuthSettings::default();
+        settings.set("redirect_uri", Some("http://127.0.0.1:4/cb"));
+        settings.set("token_url", Some("https://evil.example/token"));
+        settings.set("client_id", Some("id"));
+        let shipped = settings.shipped();
+        assert_eq!(
+            shipped.redirect_uri.as_deref(),
+            Some("http://127.0.0.1:4/cb")
+        );
+        assert_eq!(shipped.token_url, None);
+        assert_eq!(shipped.client_id.as_deref(), Some("id"));
     }
 
     #[test]

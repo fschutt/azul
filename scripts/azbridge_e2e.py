@@ -2,8 +2,11 @@
 """The Azlin Bridge end to end: `azul-bridge` against the mock Azlin stack, driven by the mail
 programs' and file managers' protocols through Python's own clients.
 
-    cargo build --release -p azul-bridge
+    cargo build --release -p azul-bridge --features test-hooks
     python3 scripts/azbridge_e2e.py [--bin PATH] [--keep]
+
+(`test-hooks`: a shipped bridge talks to the live token server and ignores --token-url,
+AZLIN_TOKEN_URL and the shared config's endpoints; this run points it at the mock stack.)
 
 What it does, all on this computer and in one temporary folder (the user's ~/.azlin, keyring and
 data are never read or written: HOME points into the folder, AZLIN_CONFIG is off):
@@ -103,7 +106,8 @@ def find_binary(explicit):
                       os.path.join(REPO, 'target', 'release', name)):
         if candidate and os.path.isfile(candidate):
             return candidate
-    raise Failure('no azul-bridge binary: cargo build --release -p azul-bridge (or --bin PATH)')
+    raise Failure('no azul-bridge binary: cargo build --release -p azul-bridge --features test-hooks '
+                  '(or --bin PATH)')
 
 
 def find_azcloud(explicit):

@@ -164,8 +164,9 @@ def find_azcloud(explicit):
               os.path.join(REPO, 'examples', 'azcloud-api', 'target', 'release', exe)):
         if c and os.path.isfile(c):
             return os.path.abspath(c)
-    raise SystemExit('no azcloud binary: cargo build --release -p azcloud-api (or --azcloud '
-                     'PATH, or --azlin-plaintext)')
+    raise SystemExit('no azcloud binary: cargo build --release --features test-hooks in '
+                     'examples/azcloud-api (a shipped azcloud ignores AZLIN_TOKEN_URL) '
+                     '(or --azcloud PATH, or --azlin-plaintext)')
 
 
 def find_binary(explicit):

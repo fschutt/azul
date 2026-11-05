@@ -9,7 +9,11 @@
 //! - The refresh token goes into the drive's keyring entry (its [`SecretOptions`]:
 //!   [`REFRESH_TOKEN`], beside a [`CLIENT_SECRET`] where the provider has one); the client id
 //!   into the drive's plain options ([`CLIENT_ID`]), with [`TOKEN_URL`] only when the drive was
-//!   signed in at another token endpoint than the provider's (a test's).
+//!   signed in at another token endpoint than the provider's (a test's). Only a TEST build (the
+//!   cargo feature `test-hooks`) reads [`TOKEN_URL`] back: a shipped build refreshes at the
+//!   provider's own endpoint, because the options live in `drives.json`, which any process of the
+//!   user can write, and the refresh token and the client secret go wherever that says
+//!   (REVIEW X-AR5b-23).
 //! - [`signed_in`] opens such a drive: OpenDAL gets a placeholder access token, so it refreshes
 //!   nothing itself (and a public client without a secret works, which OpenDAL's own refresh
 //!   does not allow), and [`RefreshingTransport`] puts the current access token on every
@@ -95,8 +99,26 @@ pub fn provider(scheme: &str) -> Option<&'static OAuthProvider> {
 
 /// The plain option of a signed-in drive: the app's OAuth client id.
 pub const CLIENT_ID: &str = "client_id";
-/// The plain option of a drive signed in at another token endpoint than its provider's.
+/// The plain option of a drive signed in at another token endpoint than its provider's. Honoured
+/// by a test build only ([`signed_in`]).
 pub const TOKEN_URL: &str = "token_url";
+
+/// Whether this build lets a drive's options name the token endpoint its refresh token is sent
+/// to: a test build only (this crate's own tests, or the cargo feature `test-hooks`).
+const OPTIONS_MAY_NAME_THE_TOKEN_ENDPOINT: bool = cfg!(any(test, feature = "test-hooks"));
+
+/// The token endpoint a drive refreshes at: the provider's, unless this build lets the drive's
+/// options (`named`) say otherwise.
+pub(crate) fn refresh_endpoint<'a>(
+    honour_options: bool,
+    provider: &'a OAuthProvider,
+    named: Option<&'a str>,
+) -> &'a str {
+    match named {
+        Some(url) if honour_options => url,
+        _ => provider.token_url,
+    }
+}
 /// The secret setting: the refresh token.
 pub const REFRESH_TOKEN: &str = "refresh_token";
 /// The secret setting: the client secret, where the provider gives the app one (Google's
@@ -552,8 +574,11 @@ pub fn signed_in(
     ) else {
         return (options.clone(), secrets.clone(), transport);
     };
-    let token_url =
-        non_blank(options.get(TOKEN_URL).map(String::as_str)).unwrap_or(provider.token_url);
+    let token_url = refresh_endpoint(
+        OPTIONS_MAY_NAME_THE_TOKEN_ENDPOINT,
+        provider,
+        non_blank(options.get(TOKEN_URL).map(String::as_str)),
+    );
     let client = OAuthClient::public(client_id).with_secret(secrets.get(CLIENT_SECRET));
     let mut refreshing =
         RefreshingTransport::new(transport, provider.name, token_url, client, refresh_token);

@@ -74,6 +74,10 @@ miniz_oxide = "0.8"
 [dev-dependencies]
 # The one temporary folder for tests (azul_storage::testing::TempDir).
 azul-storage = { path = "../azul-storage", features = ["testing"] }
+# The tests resolve the token server through the layers (file, environment, switches) with an
+# environment of their own; a shipped build takes the token server from its constants alone
+# (azul_appkit::anchors).
+azul-appkit = { path = "../azul-appkit", features = ["test-hooks"] }
 # The errors' Fluent resources parse (user_errors tests). No new crate: azul-layout's Fluent
 # parser, 0.12.0 in Cargo.lock.
 fluent-syntax = { version = "0.12", default-features = false }
@@ -93,8 +97,11 @@ state-db = ["dep:turso"]
 testing = []
 # The test switch AZ_KEYRING_FILE (a test stack's keyring file, whose locks are beside it) is
 # read ONLY with this feature: a release or distribution build never looks at it, as libazul's
-# keyring does not (azul-dll's `test-hooks`). The E2E builds turn both on.
-test-hooks = []
+# keyring does not (azul-dll's `test-hooks`). The same holds for where a credential goes: the
+# token server, the S3 endpoint and a drive's token endpoint come from the build's constants, and
+# only with this feature from the shared config, the environment, the switches and `drives.json`
+# (azul-appkit's and azul-storage's `test-hooks`). The E2E builds turn all of them on.
+test-hooks = ["azul-appkit/test-hooks", "azul-storage/test-hooks"]
 
 [lib]
 name = "azcloud_kit"

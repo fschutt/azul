@@ -15,11 +15,65 @@
 //!   `updates.root_public_key` and `updates.allow_unsigned` (an E2E stack signs its fixtures with
 //!   a throwaway key, or says it wants none); a shipped build never does.
 //!
+//! The same holds for the places a CREDENTIAL travels to (REVIEW K20, P7, X-AR5b-23): the token
+//! server, the S3 endpoint and the OAuth endpoints of the providers. A drive token, a refresh
+//! token or an authorization code goes to the address a run resolves; if that address came from a
+//! file, a variable or a switch, whoever can write one of them chooses where the secret goes.
+//! A shipped build therefore resolves them from constants ([`TOKEN_SERVER`], the providers'
+//! table in azul-storage) and starts from the LIVE profile ([`DEFAULT_PROFILE`]), not from the
+//! local stack; a `test-hooks` build keeps the layers (the profile's local stack, the file, the
+//! environment, the switches) as before.
+//!
 //! No azul types here: tested without a window.
 
 use std::fmt;
 
-use crate::azlin_config::UpdatesSection;
+use crate::azlin_config::{Profile, UpdatesSection};
+
+/// The live token server: the one address a shipped build sends a drive token to. The profile
+/// table ([`Profile::Production`]) reads it from here.
+pub const TOKEN_SERVER: &str = "https://token.azlin.io";
+
+/// The profile whose addresses are the bottom layer when nothing names one: the LIVE service in a
+/// shipped build, the local stack in a test build (`test-hooks`). A release that started from the
+/// local profile talked to `http://127.0.0.1:8081` (REVIEW P7); a test that forgets its config
+/// must be built with `test-hooks` anyway, and then it gets the local stack, never the live one.
+pub const DEFAULT_PROFILE: Profile = if layers_honoured() {
+    Profile::Local
+} else {
+    Profile::Production
+};
+
+/// Whether a run may take an address a credential goes to from its layers - the shared config's
+/// `endpoints`, the environment, the switches - instead of from the build's constants. Only a
+/// build with the cargo feature `test-hooks` may.
+#[must_use]
+pub const fn layers_honoured() -> bool {
+    cfg!(feature = "test-hooks")
+}
+
+/// The token server an Azlin drive's refreshes go to. A shipped build: [`TOKEN_SERVER`] (what the
+/// run resolved), whatever the drive's entry in `drives.json` names - a file a same-user process
+/// can write must not redirect where a rotated drive token is sent. A test build: the one the
+/// entry names, else the run's.
+#[must_use]
+pub fn token_server_for<'a>(named_by_entry: &'a str, resolved: &'a str) -> &'a str {
+    token_server_choice(layers_honoured(), named_by_entry, resolved)
+}
+
+/// [`token_server_for`] with the build's choice as an argument (the tests set both).
+fn token_server_choice<'a>(
+    honour_entry: bool,
+    named_by_entry: &'a str,
+    resolved: &'a str,
+) -> &'a str {
+    let named = named_by_entry.trim();
+    if honour_entry && !named.is_empty() {
+        named
+    } else {
+        resolved.trim()
+    }
+}
 
 /// The minisign ROOT public key(s) of every Azlin app, base64 as in a `.pub` file's second line:
 /// the current one and, while a rotation is under way, the next.
@@ -181,6 +235,51 @@ mod tests {
 
     fn updates(json: &str) -> UpdatesSection {
         AzlinConfig::parse(json).0.updates
+    }
+
+    /// REVIEW K20: where a rotated drive token goes is not a thing a file can say in a shipped build.
+    #[test]
+    fn k20_a_drive_entry_names_the_token_server_in_a_test_build_and_never_in_a_shipped_one() {
+        let live = "https://token.azlin.io";
+        assert_eq!(
+            token_server_choice(false, "https://evil.example", live),
+            live
+        );
+        assert_eq!(token_server_choice(false, "", live), live);
+        assert_eq!(
+            token_server_choice(true, "http://127.0.0.1:18081", live),
+            "http://127.0.0.1:18081"
+        );
+        assert_eq!(
+            token_server_choice(true, "  ", live),
+            live,
+            "an entry that names none"
+        );
+        assert_eq!(
+            token_server_choice(true, "", " http://127.0.0.1:8081 "),
+            "http://127.0.0.1:8081"
+        );
+        // And what this build does.
+        let named = "http://127.0.0.1:18081";
+        if layers_honoured() {
+            assert_eq!(token_server_for(named, live), named);
+        } else {
+            assert_eq!(token_server_for(named, live), live);
+        }
+    }
+
+    #[test]
+    fn p7_the_default_profile_is_the_live_service_except_in_a_test_build() {
+        if layers_honoured() {
+            assert_eq!(DEFAULT_PROFILE, Profile::Local);
+        } else {
+            assert_eq!(DEFAULT_PROFILE, Profile::Production);
+        }
+        assert_eq!(
+            Profile::Production.default_for(crate::azlin_config::Endpoint::Token),
+            Some(TOKEN_SERVER)
+        );
+        assert!(TOKEN_SERVER.starts_with("https://"));
     }
 
     #[test]

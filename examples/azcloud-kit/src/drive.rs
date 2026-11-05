@@ -210,8 +210,10 @@ fn refused_credentials(e: &DriveError) -> bool {
 
 impl AzlinDrive {
     /// The Azlin drive `entry` (its location: the bucket), with the keyring's `session`. Its
-    /// refreshes go to the token server the entry names, else `token_url`, and read and write
-    /// the drive's entry of `keyring` under its lock. Sends nothing.
+    /// refreshes go to `token_url` - in a TEST build to the token server the entry names, if it
+    /// names one (`drives.json` is a file any process of the user can write, and the rotated drive
+    /// token goes where the refresh goes: a shipped build never takes the address from it, REVIEW
+    /// K20) - and read and write the drive's entry of `keyring` under its lock. Sends nothing.
     pub fn new(
         entry: &DriveEntry,
         session: AzlinSession,
@@ -226,12 +228,8 @@ impl AzlinDrive {
                 entry.name
             )));
         };
-        let named = entry.azlin().map(|(_, url)| url.trim()).unwrap_or_default();
-        let token_url = if named.is_empty() {
-            token_url.trim()
-        } else {
-            named
-        };
+        let named = entry.azlin().map(|(_, url)| url).unwrap_or_default();
+        let token_url = azul_appkit::anchors::token_server_for(named, token_url);
         if token_url.is_empty() {
             return Err(DriveError::InvalidConfig(format!(
                 "\"{}\" names no token server to refresh its credentials at",
