@@ -30,8 +30,6 @@ mod meta;
 mod names;
 mod oauth;
 mod ops;
-/// Whether two drives name one file or one folder on this computer.
-mod overlap;
 mod s3;
 mod scoped;
 mod sigv4;
@@ -40,6 +38,8 @@ mod time;
 mod transfer;
 /// Names a Windows disk cannot hold, refused before a key becomes a path there.
 mod windows_names;
+/// Where drives are and whether two places overlap: two drives over one tree, a bucket twice.
+mod xfer_site;
 mod xml;
 
 /// An S3 service in memory with multipart uploads (the multipart and transfer tests).

@@ -385,20 +385,13 @@ pub fn register(drives_file: &Path) {
 /// deepest one holding `path` (`roots`: drive id and root), matching whole folder names.
 #[must_use]
 pub fn place_of_path(path: &Path, roots: &[(String, PathBuf)]) -> Option<(String, String)> {
-    roots
-        .iter()
-        .filter_map(|(id, root)| {
-            let rest = path.strip_prefix(root).ok()?;
-            Some((root.components().count(), id, rest))
-        })
-        .max_by_key(|(depth, _, _)| *depth)
-        .map(|(_, id, rest)| {
-            let prefix: String = rest
-                .components()
-                .map(|c| format!("{}/", c.as_os_str().to_string_lossy()))
-                .collect();
-            (id.clone(), prefix)
-        })
+    // The same answer as the window's ([`crate::browse::place_of_path`]): the disk decides which
+    // folder is below which (X-AR5a-19).
+    let place = crate::browse::place_of_path(path, roots)?;
+    match place {
+        crate::browse::Place::Folder { drive, prefix } => Some((drive, prefix)),
+        _ => None,
+    }
 }
 
 // ==== The picker in the running window ====

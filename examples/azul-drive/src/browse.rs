@@ -557,16 +557,15 @@ pub fn parse_path(text: &str, drives: &[(String, String)]) -> Option<Place> {
 /// wins), and the folders below the root as the folder's prefix. `None` for a path on no drive.
 #[must_use]
 pub fn place_of_path(path: &Path, drives: &[(String, std::path::PathBuf)]) -> Option<Place> {
-    let (id, rest) = drives
+    // The disk says which folder is below which, not the text of the path: `/var` and
+    // `/private/var`, a link, a name in another case on a disk that ignores it (X-AR5a-19).
+    let (id, names) = drives
         .iter()
-        .filter_map(|(id, root)| Some((id, path.strip_prefix(root).ok()?)))
-        .min_by_key(|(_, rest)| rest.components().count())?;
+        .filter_map(|(id, root)| Some((id, azul_storage::xfer::names_below(root, path)?)))
+        .min_by_key(|(_, names)| names.len())?;
     let mut prefix = String::new();
-    for part in rest.components() {
-        let std::path::Component::Normal(name) = part else {
-            return None;
-        };
-        prefix.push_str(name.to_str()?);
+    for name in &names {
+        prefix.push_str(name);
         prefix.push('/');
     }
     Some(Place::folder(id, &prefix))
@@ -831,6 +830,39 @@ mod tests {
             Some(Place::folder("home", ""))
         );
         assert_eq!(place_of_path(Path::new("/tmp/x"), &drives), None);
+    }
+
+    /// X-AR5a-19: a typed path reaches a drive's folder in any spelling the disk reads as that
+    /// folder - through a link here, as `/var` is `/private/var` on a Mac. By the text of the path
+    /// it was no drive's, and the move to it was refused (or went to another drive).
+    #[cfg(unix)]
+    #[test]
+    fn x_ar5a_19_a_path_through_a_link_is_the_folder_of_the_drive_it_leads_to() {
+        let tmp = azul_storage::testing::TempDir::new("place-of-path");
+        let root = tmp.path().join("real").join("home");
+        std::fs::create_dir_all(root.join("Documents").join("Taxes")).unwrap();
+        let alias = tmp.path().join("alias");
+        std::os::unix::fs::symlink(tmp.path().join("real"), &alias).unwrap();
+        let drives = vec![(String::from("home"), root.clone())];
+        let through_link = alias.join("home").join("Documents").join("Taxes");
+        assert_eq!(
+            place_of_path(&through_link, &drives),
+            Some(Place::folder("home", "Documents/Taxes/")),
+            "the link's spelling is the same folder"
+        );
+        // The drive's root named through the link is the same drive too.
+        let linked_drives = vec![(String::from("home"), alias.join("home"))];
+        assert_eq!(
+            place_of_path(&root.join("Documents"), &linked_drives),
+            Some(Place::folder("home", "Documents/"))
+        );
+        // A folder beside the root is no part of it, however it is spelt.
+        std::fs::create_dir_all(tmp.path().join("real").join("home-2")).unwrap();
+        assert_eq!(
+            place_of_path(&alias.join("home-2"), &drives),
+            None,
+            "a longer name is not below it"
+        );
     }
 
     /// The Type column's label for the kinds Explorer names is borrowed, an unknown extension's

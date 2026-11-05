@@ -13,8 +13,9 @@ use std::{
 
 use azul_appkit::l10n::{Phrase, Text};
 use azul_storage::{
-    key, ops as storage_ops, overlap as storage_overlap, transfer, BatchDelete, BatchMove,
-    BatchPut, Drive, DriveError,
+    key, ops as storage_ops, transfer,
+    xfer::{overlap, Overlap},
+    BatchDelete, BatchMove, BatchPut, Drive, DriveError,
 };
 
 use crate::browse;
@@ -381,8 +382,10 @@ pub fn plan_transfer(
             // over a tree (Home and a folder added inside it, a synced listing, an upload's
             // `os:` folder): the ids differ and the folder would be copied below itself, and a
             // Move would then delete the source folder with the new copies in it (AZ-U1). The
-            // disk says where the folder lands.
-            if storage_overlap::local_folder_holds(source, &item.key, target, &target_key) {
+            // drives' sites say where the folder lands, the disk which file is which.
+            if overlap(&source.site(), &item.key, &target.site(), &target_key)
+                .target_inside_source()
+            {
                 return Err(DriveError::InvalidKey {
                     key: target_prefix.to_string(),
                     reason: "the destination folder is inside the folder it would receive",
@@ -602,12 +605,13 @@ pub fn run_transfer(
             // It used to be deleted first - a copy that failed after it left neither, and a
             // file replaced by itself (a second drive over the same folder) left none (AZ-U4,
             // AZ-S1). The same file is refused: a Move would delete it as the source.
-            let result = if storage_overlap::same_local_file(
-                source,
+            let result = if overlap(
+                &source.site(),
                 &file.source_key,
-                target,
+                &target.site(),
                 &file.target_key,
-            ) {
+            ) == Overlap::Same
+            {
                 Err(DriveError::InvalidKey {
                     key: file.target_key.clone(),
                     reason: "the destination is the very file being copied",

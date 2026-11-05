@@ -1424,6 +1424,11 @@ impl Drive for S3Drive {
         self.resume_dir()
     }
 
+    /// The bucket at its endpoint: two drives built over one bucket are one place.
+    fn site(&self) -> crate::xfer::Site {
+        crate::xfer::Site::bucket(&self.config.endpoint, &self.config.bucket)
+    }
+
     fn list(&self, request: &ListRequest) -> Result<ListPage, DriveError> {
         let mut query = vec![
             (String::from("list-type"), String::from("2")),

@@ -77,7 +77,6 @@ pub mod names;
 /// the transport that keeps a signed-in drive's access token fresh.
 pub mod oauth;
 pub mod ops;
-pub mod overlap;
 pub mod s3;
 pub mod scoped;
 /// Where an object's bytes lie in an Azlin server's 4 + 2 code: chunks and data shards.
@@ -91,6 +90,9 @@ pub mod transport;
 pub mod trust;
 /// The app's UI thread never waits for a network answer (debug builds assert it).
 pub mod ui_thread;
+/// The transfer engine: where drives are and whether two places overlap, the plan of a copy or
+/// a move, the run that lands every file before it retires a source.
+pub mod xfer;
 /// A request and its answer as HTTP/1.1 bytes: S3 over iroh.
 pub mod http1;
 pub(crate) mod xml;
@@ -740,6 +742,14 @@ pub trait Drive: Send + Sync {
         None
     }
 
+    /// Where this drive's files are ([`xfer::Site`]): a folder on this computer, a bucket (or a
+    /// part of one) or - by default - a place only this very drive object is provably the same
+    /// as. What "the same drive", "this file is its own destination" and "this folder is moved
+    /// into itself" are decided from ([`xfer::overlap`]) - never from drive ids or key text.
+    fn site(&self) -> xfer::Site {
+        xfer::Site::other_of(self)
+    }
+
     /// The folder on this computer where the drive keeps what its cut uploads resume from (a
     /// bucket's multipart state); an encrypted drive keeps a file's encrypted copy there too,
     /// until its upload completes. `None` (the default): its uploads do not resume.
@@ -934,6 +944,9 @@ macro_rules! forward_drive {
             }
             fn local_path(&self, key: &str) -> Option<PathBuf> {
                 (**self).local_path(key)
+            }
+            fn site(&self) -> xfer::Site {
+                (**self).site()
             }
             fn resume_folder(&self) -> Option<PathBuf> {
                 (**self).resume_folder()

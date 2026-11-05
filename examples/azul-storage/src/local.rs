@@ -19,6 +19,7 @@ use crate::{
     names::{self, LocalKey},
     ops::check_folder,
     sigv4::{sha256_hex, sha256_hex_of},
+    xfer::Site,
     ByteRange, Drive, DriveError, Limit, ListPage, ListRequest, ObjectInfo,
 };
 
@@ -995,6 +996,10 @@ impl Drive for LocalDrive {
 
     fn local_path(&self, key: &str) -> Option<PathBuf> {
         self.any_path(key).ok()
+    }
+
+    fn site(&self) -> Site {
+        Site::disk(self.root.clone())
     }
 
     fn metadata(&self, key: &str) -> Result<Vec<(String, String)>, DriveError> {

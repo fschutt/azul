@@ -175,6 +175,10 @@ impl<D: Drive> Drive for ScopedDrive<D> {
         self.inner.local_path(&self.full_name(key).ok()?)
     }
 
+    fn site(&self) -> crate::xfer::Site {
+        self.inner.site().under(&self.prefix)
+    }
+
     fn resume_folder(&self) -> Option<PathBuf> {
         self.inner.resume_folder()
     }
