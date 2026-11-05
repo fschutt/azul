@@ -212,3 +212,133 @@ fn az_m3_a_failed_index_commit_keeps_the_copy_and_the_retry_only_names_the_objec
         files_under(&resume)
     );
 }
+
+/// AZ-C12. A kept copy is reused only for the file that is, for certain, still the file it was
+/// made of. An edit that keeps the size and puts the modification time back (`touch -r`) is not
+/// the file it was: the status-change time moved. The old copy served the old bytes as the new
+/// version of the file.
+#[test]
+fn az_c12_an_edit_that_keeps_size_and_time_is_not_served_from_the_old_copy() {
+    let tmp = TempDir::new("encrypted-resume-c12");
+    let resume = tmp.path().join("resume");
+    let path = tmp.path().join("film.bin");
+    let old = noise(10 * PART + 7);
+    std::fs::write(&path, &old).unwrap();
+    let before = std::fs::metadata(&path).unwrap().modified().unwrap();
+    let s3 = FakeBucket::new();
+    let key = DriveKey::generate().unwrap();
+    let index: Arc<dyn NameIndex> = Arc::new(MemoryIndex::new());
+
+    s3.take_parts(Some(4));
+    let first = EncryptedDrive::new(drive_on(&s3, &resume, NOW), key.clone(), Arc::clone(&index));
+    assert!(
+        first.put_file("film.bin", &path, &|_| {}).is_err(),
+        "cut off"
+    );
+    assert!(
+        files_under(&resume)
+            .iter()
+            .any(|f| f.extension().is_some_and(|e| e == "azl1")),
+        "the copy waits for the next try"
+    );
+
+    // Edited: other bytes of the same length, the same modification time. The status-change time
+    // is the clock's and no tool sets it back.
+    std::thread::sleep(std::time::Duration::from_millis(30));
+    let edited = noise(old.len());
+    std::fs::write(&path, &edited).unwrap();
+    std::fs::File::options()
+        .write(true)
+        .open(&path)
+        .unwrap()
+        .set_modified(before)
+        .unwrap();
+
+    s3.take_parts(None);
+    s3.clear_log();
+    let again = EncryptedDrive::new(drive_on(&s3, &resume, NOW + 60), key, index);
+    again.put_file("film.bin", &path, &|_| {}).unwrap();
+    assert_eq!(
+        again.get("film.bin").unwrap(),
+        edited,
+        "the new bytes, not the old copy's"
+    );
+    assert!(
+        files_under(&resume).is_empty(),
+        "{:?}",
+        files_under(&resume)
+    );
+}
+
+/// AZ-C12. A record names the copy it describes (the object's id is in the copy's name), so two
+/// processes that encrypt one file never leave a record beside the other one's copy; a new
+/// encryption replaces the copy and the record together.
+#[test]
+fn az_c12_a_record_names_its_copy_and_a_new_encryption_replaces_both() {
+    let tmp = TempDir::new("encrypted-resume-c12-names");
+    let resume = tmp.path().join("resume");
+    let path = tmp.path().join("film.bin");
+    let plain = noise(10 * PART + 7);
+    std::fs::write(&path, &plain).unwrap();
+    let s3 = FakeBucket::new();
+    let key = DriveKey::generate().unwrap();
+    let index: Arc<dyn NameIndex> = Arc::new(MemoryIndex::new());
+
+    s3.take_parts(Some(4));
+    let first = EncryptedDrive::new(drive_on(&s3, &resume, NOW), key.clone(), Arc::clone(&index));
+    assert!(first.put_file("film.bin", &path, &|_| {}).is_err());
+    let record_and_copy = |resume: &Path| {
+        let files = files_under(resume);
+        let in_encrypted = |f: &&PathBuf| {
+            f.parent()
+                .and_then(Path::file_name)
+                .is_some_and(|name| name == "encrypted")
+        };
+        let record = files
+            .iter()
+            .filter(in_encrypted)
+            .find(|f| f.extension().is_some_and(|e| e == "json"))
+            .cloned()
+            .expect("the record");
+        let copy = files
+            .iter()
+            .find(|f| f.extension().is_some_and(|e| e == "azl1"))
+            .cloned()
+            .expect("the copy");
+        (record, copy)
+    };
+    let (record, copy) = record_and_copy(&resume);
+    let text = std::fs::read(&record).unwrap();
+    let object_id = serde_json::from_slice::<serde_json::Value>(&text).unwrap()["object_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let copy_name = copy.file_name().unwrap().to_string_lossy().into_owned();
+    assert!(
+        copy_name.contains(&object_id),
+        "the copy {copy_name} carries the object id {object_id} of its record"
+    );
+    assert_eq!(
+        std::fs::metadata(&copy).unwrap().len(),
+        serde_json::from_slice::<serde_json::Value>(&text).unwrap()["object_len"]
+            .as_u64()
+            .unwrap()
+    );
+
+    // The file changes: the next try encrypts it anew, and the old copy goes with its record.
+    std::thread::sleep(std::time::Duration::from_millis(30));
+    let edited = noise(plain.len() + 100);
+    std::fs::write(&path, &edited).unwrap();
+    s3.take_parts(Some(2));
+    let second = EncryptedDrive::new(drive_on(&s3, &resume, NOW + 60), key, index);
+    assert!(second.put_file("film.bin", &path, &|_| {}).is_err());
+    let (record2, copy2) = record_and_copy(&resume);
+    assert_eq!(record2, record, "one record per file");
+    assert_ne!(copy2, copy, "the new encryption has a copy of its own");
+    assert!(!copy.exists(), "the old copy is gone");
+    let azl1: Vec<_> = files_under(&resume)
+        .into_iter()
+        .filter(|f| f.extension().is_some_and(|e| e == "azl1"))
+        .collect();
+    assert_eq!(azl1.len(), 1, "{azl1:?}");
+}

@@ -28,14 +28,16 @@ use std::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    beneath::{self, Dir, Fingerprint, Kind, Stat},
     checked::{self, FileCheck, HashCheck},
     crypto::{
         azl1::{self, FileHint, ObjectSummary, TransformId},
         random_bytes, to_hex, ObjectId, WrappedKey,
     },
+    ctl::Quiet,
+    durable::{self, Blob, Mode, Publish},
     encrypted::{EncryptedDrive, Expect},
     key::check_key,
-    local::write_atomically,
     multipart::STALE_AFTER_SECS,
     Drive, DriveError,
 };
@@ -54,10 +56,18 @@ struct Record {
     drive_key: String,
     /// The drive path.
     key: String,
-    /// The file on this computer, and its size and date when it was encrypted.
+    /// The file on this computer, and its size, date and identity when it was encrypted: the
+    /// copy is reused only for the file that is, for certain, still that file untouched. A
+    /// record without the identity (an older one) is never reused.
     source: String,
     size: u64,
     modified_ns: u64,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    ctime_ns: u64,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    dev: u64,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    ino: u64,
     object_id: String,
     plaintext_size: u64,
     object_len: u64,
@@ -71,12 +81,16 @@ struct Record {
     wrapped_key: String,
 }
 
+fn is_zero(n: &u64) -> bool {
+    *n == 0
+}
+
 impl Record {
     fn of(
         drive_key: &str,
         key: &str,
         source: &Path,
-        stat: Stat,
+        stat: &Stat,
         summary: &ObjectSummary,
     ) -> Record {
         Record {
@@ -85,7 +99,10 @@ impl Record {
             key: key.to_string(),
             source: source.display().to_string(),
             size: stat.size,
-            modified_ns: stat.modified_ns,
+            modified_ns: stat.mtime_ns,
+            ctime_ns: stat.ctime_ns,
+            dev: stat.dev,
+            ino: stat.ino,
             object_id: summary.object_id.to_hex(),
             plaintext_size: summary.plaintext_size,
             object_len: summary.object_len,
@@ -95,6 +112,18 @@ impl Record {
             transform: summary.transform.map(TransformId::bytes),
             wrapped_key: summary.wrapped_key.to_hex(),
         }
+    }
+
+    /// The file as it was when it was encrypted.
+    fn print(&self) -> Fingerprint {
+        Fingerprint::from_parts(
+            Kind::File,
+            self.size,
+            self.modified_ns,
+            self.ctime_ns,
+            self.dev,
+            self.ino,
+        )
     }
 
     /// The summary the index names the object by; `None` for a record that does not read.
@@ -116,38 +145,35 @@ impl Record {
     }
 }
 
-/// A file's size and date.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Stat {
-    size: u64,
-    modified_ns: u64,
+/// The file at `path` as it is now (a link followed: the path is the caller's own).
+fn stat_at(path: &Path) -> io::Result<Stat> {
+    beneath::stat_path(path)
 }
 
-impl Stat {
-    fn of(file: &File) -> io::Result<Stat> {
-        let meta = file.metadata()?;
-        Ok(Stat {
-            size: meta.len(),
-            modified_ns: checked::modified_ns(&meta),
-        })
-    }
-
-    fn at(path: &Path) -> io::Result<Stat> {
-        let meta = fs::metadata(path)?;
-        Ok(Stat {
-            size: meta.len(),
-            modified_ns: checked::modified_ns(&meta),
-        })
-    }
+/// Whether `now` is, as far as can be told, the file `before` described and nothing wrote to
+/// it since: a size, a date or a status-change time that differs, or a known other file, says no.
+/// An identity the system does not give is not asked here (this is a check that the file held
+/// still while it was read); a copy is REUSED only for [`Record::print`] matching for certain.
+fn held_still(before: &Stat, now: &Stat) -> bool {
+    !before.fingerprint().matches(now).is_different()
 }
 
-/// The encrypted copy of `source` for `key`, its record, in `dir`: one name per drive key,
-/// path and file.
-fn copy_paths(dir: &Path, drive_key: &str, key: &str, source: &Path) -> (PathBuf, PathBuf) {
+/// The record of the encrypted copy of `source` for `key`, in `dir`: one name per drive key, path
+/// and file. It names the copy it describes ([`copy_of`]): two processes that encrypt one file
+/// each make a copy of their own, and a record is never beside the other process's copy.
+fn record_path(dir: &Path, drive_key: &str, key: &str, source: &Path) -> PathBuf {
     let named = format!("{drive_key}\n{key}\n{}", source.display());
     let hash = blake3::hash(named.as_bytes()).to_hex();
-    let stem = &hash.as_str()[..32];
-    (dir.join(format!("{stem}.azl1")), dir.join(format!("{stem}.json")))
+    dir.join(format!("{}.json", &hash.as_str()[..32]))
+}
+
+/// The copy a record describes: its name holds the object's id, which only this encryption has.
+fn copy_name(record_path: &Path, object_id: &str) -> String {
+    let stem = record_path
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    format!("{stem}-{object_id}.azl1")
 }
 
 /// The bytes an encrypted copy of `size` bytes takes at most: the file, a header, a tag per
@@ -177,6 +203,13 @@ fn sweep(dir: &Path) {
     }
 }
 
+/// The record at `path`, when there is one that reads.
+fn read_record(path: &Path) -> Option<Record> {
+    fs::read(path)
+        .ok()
+        .and_then(|text| serde_json::from_slice::<Record>(&text).ok())
+}
+
 /// How the upload of a file ended, when it went the resumable way.
 pub(crate) enum Spooled {
     /// The object holds the file's bytes: how many.
@@ -201,42 +234,53 @@ impl<D: Drive> EncryptedDrive<D> {
         let Some(folder) = self.inner.resume_folder() else {
             return Ok(None);
         };
-        let before = Stat::at(path)?;
+        let before = stat_at(path)?;
         if self
             .pack_threshold()
             .is_some_and(|threshold| before.size < threshold)
         {
             return Ok(None);
         }
-        if check.is_some_and(|c| c.size != before.size || c.modified_ns != before.modified_ns) {
+        if check.is_some_and(|c| c.size != before.size || c.modified_ns != before.mtime_ns) {
             return Ok(Some(Spooled::Changed));
         }
         let dir = folder.join(SPOOL_DIR);
         fs::create_dir_all(&dir)?;
         sweep(&dir);
         let drive_key = self.drive_key.id().to_hex();
-        let (copy, record_path) = copy_paths(&dir, &drive_key, key, path);
-        let kept = fs::read(&record_path)
-            .ok()
-            .and_then(|text| serde_json::from_slice::<Record>(&text).ok())
+        let record_path = record_path(&dir, &drive_key, key, path);
+        let written = read_record(&record_path);
+        // The copy of an earlier try is reused only when its record is of this drive, key and
+        // file, the file is, for certain, still that file untouched (size, dates AND identity:
+        // an edit that keeps the size and the time still changes the status-change time, and a
+        // file put in its place is another inode), the bytes are the checked ones, and the copy
+        // is whole.
+        let kept = written
+            .as_ref()
             .filter(|record| {
                 record.version == RECORD_VERSION
                     && record.drive_key == drive_key
                     && record.key == key
                     && record.source == path.display().to_string()
-                    && record.size == before.size
-                    && record.modified_ns == before.modified_ns
+                    && record.print().matches(&before).is_same()
                     && check.is_none_or(|c| record.blake3.eq_ignore_ascii_case(c.blake3.trim()))
-                    && fs::metadata(&copy).is_ok_and(|m| m.len() == record.object_len)
+                    && fs::metadata(dir.join(copy_name(&record_path, &record.object_id)))
+                        .is_ok_and(|m| m.len() == record.object_len)
             })
-            .and_then(|record| record.summary());
-        let (summary, kept_copy) = match kept {
-            Some(summary) => (summary, true),
+            .and_then(|record| {
+                let copy = dir.join(copy_name(&record_path, &record.object_id));
+                record.summary().map(|summary| (summary, copy))
+            });
+        let (summary, copy, kept_copy) = match kept {
+            Some((summary, copy)) => (summary, copy, true),
             None => {
-                let _ = fs::remove_file(&copy);
+                // The copy of the record that is not reused goes with it.
+                if let Some(old) = &written {
+                    let _ = fs::remove_file(dir.join(copy_name(&record_path, &old.object_id)));
+                }
                 let _ = fs::remove_file(&record_path);
-                match self.encrypt_copy(key, path, check, before, &copy, &record_path)? {
-                    Some(summary) => (summary, false),
+                match self.encrypt_copy(key, path, check, &before, &dir, &record_path)? {
+                    Some((summary, copy)) => (summary, copy, false),
                     None => return Ok(Some(Spooled::Changed)),
                 }
             }
@@ -266,26 +310,32 @@ impl<D: Drive> EncryptedDrive<D> {
         // The copy and its record go only once the index names the object. A commit that fails
         // leaves them, and the next try names the same object again; they used to go first, so
         // it encrypted the file anew under another id, sent it all again, and left the first
-        // object named by nothing.
+        // object named by nothing. The record goes only if it is still this copy's: another
+        // process that encrypted the same file meanwhile has a record of its own there.
+        let object_id = summary.object_id.to_hex();
         self.bind(key, summary, Expect::Any)?;
         let _ = fs::remove_file(&copy);
-        let _ = fs::remove_file(&record_path);
+        if read_record(&record_path).is_some_and(|record| record.object_id == object_id) {
+            let _ = fs::remove_file(&record_path);
+        }
         Ok(Some(Spooled::Sent(plain)))
     }
 
     /// Encrypts `path` (the file `before` describes, the one `check` names when there is one)
-    /// into the copy `copy`, its record into `record_path`; `None` when the file changed while
-    /// it was read (nothing is kept).
+    /// into a copy in `dir` under a name of its own ([`copy_name`]: the object's id is in it),
+    /// then its record into `record_path`; `None` when the file changed while it was read
+    /// (nothing is kept). The record is written after the copy is in place and names it, so a
+    /// record is never beside a copy it is not of, and a cut between the two leaves a copy
+    /// nothing names (swept) - not a record without its copy.
     fn encrypt_copy(
         &self,
         key: &str,
         path: &Path,
         check: Option<&FileCheck>,
-        before: Stat,
-        copy: &Path,
+        before: &Stat,
+        dir: &Path,
         record_path: &Path,
-    ) -> Result<Option<ObjectSummary>, DriveError> {
-        let dir = copy.parent().unwrap_or_else(|| Path::new("."));
+    ) -> Result<Option<(ObjectSummary, PathBuf)>, DriveError> {
         if let Some(free) = crate::beneath::free_space(dir) {
             let needed = room_for(before.size);
             if free < needed {
@@ -303,41 +353,60 @@ impl<D: Drive> EncryptedDrive<D> {
             },
             None => File::open(path)?,
         };
-        if Stat::of(&file)? != before {
+        if !held_still(before, &beneath::stat_of(&file)?) {
             return Ok(None);
         }
         // A piece of its own until it is whole: a cut copy is never taken for one.
         let mut name = [0u8; 8];
         random_bytes(&mut name).map_err(|e| e.for_key(key))?;
-        let piece = copy.with_extension(format!("{}.part", to_hex(&name)));
+        let stem = record_path
+            .file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let piece_name = format!("{stem}.{}.part", to_hex(&name));
+        let piece = dir.join(&piece_name);
         let written = self.encrypt_into(key, file, check, &piece);
         let summary = match written {
             Ok(Some(summary)) => summary,
             other => {
                 let _ = fs::remove_file(&piece);
-                return other;
+                return other.map(|_| None);
             }
         };
-        if Stat::at(path)? != before {
+        if !stat_at(path).is_ok_and(|now| held_still(before, &now)) {
             let _ = fs::remove_file(&piece);
             return Ok(None);
         }
-        let record = Record::of(
-            &self.drive_key.id().to_hex(),
-            key,
-            path,
-            before,
-            &summary,
-        );
+        // The copy in place, whole and synced, under its own name; nothing has that name.
+        let copy_name = copy_name(record_path, &summary.object_id.to_hex());
+        let placed = Dir::open_following(dir)
+            .map_err(DriveError::from)
+            .and_then(|folder| {
+                durable::publish_staged(
+                    &folder,
+                    &copy_name,
+                    Blob {
+                        dir: &folder,
+                        name: &piece_name,
+                    },
+                    Publish::new(durable::Expect::Absent, Mode::Shared, &Quiet),
+                )
+                .map_err(|e| e.into_drive(key))
+            });
+        if let Err(e) = placed {
+            let _ = fs::remove_file(&piece);
+            return Err(e);
+        }
+        let copy = dir.join(&copy_name);
+        let record = Record::of(&self.drive_key.id().to_hex(), key, path, before, &summary);
         let text = serde_json::to_vec_pretty(&record)
             .map_err(|e| DriveError::Io(format!("the record of {key}'s upload: {e}")))?;
-        let kept = write_atomically(record_path, &text).and_then(|()| fs::rename(&piece, copy));
-        if let Err(e) = kept {
-            let _ = fs::remove_file(&piece);
+        if let Err(e) = durable::replace(record_path, &text, Mode::Private) {
+            let _ = fs::remove_file(&copy);
             let _ = fs::remove_file(record_path);
             return Err(e.into());
         }
-        Ok(Some(summary))
+        Ok(Some((summary, copy)))
     }
 
     /// The object of `file` (read through its check when there is one) written to `piece`;

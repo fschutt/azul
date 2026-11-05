@@ -904,6 +904,23 @@ pub fn stat_of(file: &File) -> io::Result<Stat> {
     }
 }
 
+/// The `stat` of the file at `path`, a link followed: for a path the user or an app named (a file
+/// to upload), not for a name that came from a drive.
+///
+/// # Errors
+///
+/// When the system refuses it (gone: not found).
+pub fn stat_path(path: &Path) -> io::Result<Stat> {
+    #[cfg(unix)]
+    {
+        sys::stat_path(path)
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::metadata(path).map(|m| stat_of_meta(&m))
+    }
+}
+
 /// The largest file the disk of `path` holds, when the file system limits it below what a sync
 /// meets (FAT32: 4 GiB - 1 byte); `None` otherwise, or where it cannot be told.
 #[must_use]
@@ -1204,6 +1221,14 @@ mod sys {
         // SAFETY: zeroed is a valid `stat`; fstat fills it from an open descriptor.
         let mut st: libc::stat = unsafe { std::mem::zeroed() };
         cvt(unsafe { libc::fstat(fd.as_raw_fd(), &mut st) })?;
+        Ok(stat_of(&st))
+    }
+
+    pub fn stat_path(path: &Path) -> io::Result<Stat> {
+        let c = cstr(path.as_os_str())?;
+        // SAFETY: as fstat; the path is a valid C string, a link is followed.
+        let mut st: libc::stat = unsafe { std::mem::zeroed() };
+        cvt(unsafe { libc::stat(c.as_ptr(), &mut st) })?;
         Ok(stat_of(&st))
     }
 
