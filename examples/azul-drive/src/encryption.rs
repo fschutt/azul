@@ -69,7 +69,7 @@ use azul_storage::{
     keyring::KeyringNamespace,
     crypto::{
         device,
-        keys::{load_recovery_wrap, store_recovery_wrap, RecoveryCode, RecoveryKdf, RecoveryWrap},
+        keys::{load_recovery_wrap, RecoveryCode, RecoveryKdf, RecoveryWrap},
         random_bytes, CryptoError, KeyId, Zeroizing,
     },
     config::EncryptionRecord,
@@ -2157,14 +2157,26 @@ pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
         EncryptionJob::NewCode { drive_id, auto } => {
             let result = (|| -> Result<Zeroizing<String>, String> {
                 let bucket = Arc::clone(auto.bucket());
-                let key = device::unlock(bucket.as_ref(), &keyring, auto.drive())
+                // The key is in the keyring after `unlock` (it was, or the device's wrap opened it
+                // and it was kept): read from there, it is the evidence the wrap may be published.
+                device::unlock(bucket.as_ref(), &keyring, auto.drive())
                     .map_err(|e| e.to_string())?
                     .ok_or_else(|| String::from("azdrive-enc-err-no-key"))?;
+                let (key, stashed) =
+                    device::held(&keyring, &device::drive_key_entry(auto.drive()))
+                        .map_err(|e| e.to_string())?
+                        .ok_or_else(|| String::from("azdrive-enc-err-no-key"))?;
                 let code = RecoveryCode::generate().map_err(|e| e.to_string())?;
                 let kdf = RecoveryKdf::fresh().map_err(|e| e.to_string())?;
                 let wrap = RecoveryWrap::seal(&key, auto.drive(), &code, kdf)
                     .map_err(|e| e.to_string())?;
-                store_recovery_wrap(bucket.as_ref(), &wrap).map_err(|e| e.to_string())?;
+                device::publish_recovery_wrap(
+                    bucket.as_ref(),
+                    &stashed,
+                    &wrap,
+                    device::Publish::FirstReplace,
+                )
+                .map_err(|e| e.to_string())?;
                 Ok(code.to_text())
             })();
             // The sheet a new drive's making shows (the four groups, the kit, no migration).

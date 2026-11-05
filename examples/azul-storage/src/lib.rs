@@ -63,6 +63,9 @@ pub mod dir_read;
 pub mod docs;
 /// The one way a file is put in place: staged beside the name, synced, checked, renamed.
 pub mod durable;
+/// What one drive leaves on a device: the keyring entries' names, the evidence a secret needs
+/// before it is erased, and the removal that takes it all off.
+pub mod footprint;
 pub mod ids;
 pub mod key;
 pub mod keyring;

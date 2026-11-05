@@ -11,6 +11,8 @@
 
 use std::fmt;
 
+pub use crate::footprint::{Allow, Protection};
+
 /// Why the keyring could not help.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum KeyringError {
@@ -94,6 +96,14 @@ pub trait KeyringStore: Send + Sync {
     ///
     /// When the keyring cannot remove it.
     fn delete(&self, key: &str) -> Result<(), KeyringError>;
+
+    /// What keeps the entries safe from the other programs of this device
+    /// ([`Protection`]). A store that keeps nothing on disk (a test's) is
+    /// [`Protection::Memory`], which is the default; every store that does keep entries says
+    /// what it is (`footprint_gate` reads for that).
+    fn protection(&self) -> Protection {
+        Protection::Memory
+    }
 }
 
 /// Whether a keyring read may ask the user (the system's unlock or "allow" dialog, Touch ID).
@@ -178,5 +188,9 @@ impl KeyringStore for MemoryKeyring {
     fn delete(&self, key: &str) -> Result<(), KeyringError> {
         self.entries().remove(key);
         Ok(())
+    }
+
+    fn protection(&self) -> Protection {
+        Protection::Memory
     }
 }

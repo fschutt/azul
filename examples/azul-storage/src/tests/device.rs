@@ -481,7 +481,14 @@ fn forgetting_a_drives_keys_leaves_no_entry_of_it_and_none_of_another_drives() {
         .unwrap();
     keyring.set(&next, "another").unwrap();
     request_key(&keyring, DRIVE).unwrap();
-    assert_eq!(key_entries(DRIVE).len(), 6);
+    // The session and the drive token (RF53: a drive has eight kinds of entry, not six).
+    keyring
+        .set(&crate::footprint::KeyEntry::Session.name(DRIVE), "a session")
+        .unwrap();
+    keyring
+        .set(&crate::footprint::KeyEntry::AzlinToken.name(DRIVE), "a drive token")
+        .unwrap();
+    assert_eq!(key_entries(DRIVE).len(), 8);
     for entry in key_entries(DRIVE) {
         assert!(
             keyring.get(&entry).unwrap().is_some(),

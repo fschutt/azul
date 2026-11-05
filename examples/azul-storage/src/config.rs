@@ -639,7 +639,7 @@ pub fn drives_file(var: Option<&str>, config_dir: Option<PathBuf>) -> Option<Pat
 /// The OS keyring entry holding a drive's credentials.
 #[must_use]
 pub fn keyring_key(drive_id: &str) -> String {
-    format!("azul-storage/s3/{drive_id}")
+    crate::footprint::KeyEntry::Session.name(drive_id)
 }
 
 /// A new drive id: unique, `[0-9a-z-]`, starting with a readable slug of `name`.

@@ -16,7 +16,7 @@ use azul::{
     misc::{Keyring, KeyringNamespace as AzulNamespace},
 };
 
-use crate::keyring::{KeyringError, KeyringNamespace, KeyringStore};
+use crate::keyring::{KeyringError, KeyringNamespace, KeyringStore, Protection};
 
 /// The system keyring through azul, in one namespace. Call only from an azul `Thread`.
 #[derive(Debug, Clone)]
@@ -119,5 +119,9 @@ impl KeyringStore for AzulKeyring {
             KeyringResult::Deleted | KeyringResult::NotFound => Ok(()),
             other => Err(error_of(&other)),
         }
+    }
+
+    fn protection(&self) -> Protection {
+        Protection::Os
     }
 }

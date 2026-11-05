@@ -55,8 +55,7 @@ use crate::{
         device,
         drops::{self, DropPublic},
         keys::{
-            load_key_chain, store_key_chain, store_recovery_wrap, RecoveryCode, RecoveryKdf,
-            RecoveryWrap, KEYS_PREFIX,
+            load_key_chain, store_key_chain, RecoveryCode, RecoveryKdf, RecoveryWrap, KEYS_PREFIX,
         },
         DriveKey, KeyId,
     },
@@ -431,32 +430,27 @@ pub fn rotate(
     let (previous_entry, next_entry) = device::rotation_key_entries(drive);
     // Only a journal this device wrote is resumed: any other (planted by whoever can write to
     // the bucket, or a damaged one) is replaced by the journal of a rotation that starts.
-    let (old, new, mut journal) = match resumable(bucket.as_ref(), keyring, drive)? {
+    let (old, new, stashed, mut journal) = match resumable(bucket.as_ref(), keyring, drive)? {
         None => {
             let Some(old) = device::load_drive_key(keyring, drive)? else {
                 return Err(missing("old"));
             };
             let new = DriveKey::generate().map_err(|e| e.for_key(drive))?;
             device::store_key_at(keyring, &previous_entry, &old)?;
-            device::store_key_at(keyring, &next_entry, &new)?;
             // The keyring must give K2 back before anything is wrapped with it.
-            if device::load_key_at(keyring, &next_entry)?.as_ref() != Some(&new) {
-                return Err(DriveError::Io(String::from(
-                    "the keyring did not keep the new drive key",
-                )));
-            }
+            let stashed = device::stash(keyring, &next_entry, &new)?;
             let mut journal = Journal::new(drive, &old, &new);
             save(bucket.as_ref(), drive, &new, &mut journal)?;
-            (old, new, journal)
+            (old, new, stashed, journal)
         }
         Some(journal) => {
-            let new = device::load_key_at(keyring, &next_entry)?
-                .filter(|k| k.id().to_hex() == journal.new)
+            let (new, stashed) = device::held(keyring, &next_entry)?
+                .filter(|(k, _)| k.id().to_hex() == journal.new)
                 .ok_or_else(|| missing("new"))?;
             let old = device::load_key_at(keyring, &previous_entry)?
                 .filter(|k| k.id().to_hex() == journal.old)
                 .ok_or_else(|| missing("old"))?;
-            (old, new, journal)
+            (old, new, stashed, journal)
         }
     };
     // The keys from before K1, from the key chain of earlier rotations: the history can hold
@@ -503,7 +497,12 @@ pub fn rotate(
     // Again on every resume: the code returned last is the one the wrap holds.
     let recovery_code = RecoveryCode::generate().map_err(|e| e.for_key(drive))?;
     let wrap = RecoveryWrap::seal(&new, drive, &recovery_code, kdf).map_err(|e| e.for_key(drive))?;
-    store_recovery_wrap(bucket.as_ref(), &wrap)?;
+    device::publish_recovery_wrap(
+        bucket.as_ref(),
+        &stashed,
+        &wrap,
+        device::Publish::FirstReplace,
+    )?;
     let drop_key = drops::rotate_drop_key(bucket.as_ref(), &old, &new, drive)?;
     let shares_revoked = revoke_all_shares(bucket.as_ref())?;
     // Done: the journal goes and K1 leaves the keyring (the key chain keeps it, sealed under

@@ -56,12 +56,13 @@ use super::{
     hex_array,
     keys::{
         load_member_wrap, load_member_wraps, load_recovery_wrap, member_key_file,
-        store_member_wrap, MemberSecret, MemberWrap, RecoveryCode, RecoveryKdf, RecoveryWrap,
-        INVITE_PREFIX, KEYS_PREFIX, RECOVERY_KEY_FILE,
+        store_member_wrap, store_recovery_wrap, MemberSecret, MemberWrap, RecoveryCode,
+        RecoveryKdf, RecoveryWrap, INVITE_PREFIX, KEYS_PREFIX, RECOVERY_KEY_FILE,
     },
     to_hex, CryptoError, DriveKey, KeyId, KEY_LEN,
 };
 use crate::{
+    footprint::KeyEntry,
     keyring::{KeyringError, KeyringStore},
     meta::policy::{KeyCheck, MemberChange, MemberRecord},
     Drive, DriveError, ListRequest, Precondition,
@@ -70,13 +71,13 @@ use crate::{
 /// The keyring entry of a drive's key.
 #[must_use]
 pub fn drive_key_entry(drive: &str) -> String {
-    format!("azul-storage/drive-key/{drive}")
+    KeyEntry::DriveKey.name(drive)
 }
 
 /// The keyring entry of this device's member secret for a drive.
 #[must_use]
 pub fn member_key_entry(drive: &str) -> String {
-    format!("azul-storage/member-key/{drive}")
+    KeyEntry::MemberKey.name(drive)
 }
 
 /// The keyring entry of a drive key made before its drive existed: a checkout keeps one for
@@ -84,7 +85,7 @@ pub fn member_key_entry(drive: &str) -> String {
 /// ([`plan_drive_key`]); [`setup_new_drive`] takes it.
 #[must_use]
 pub fn planned_key_entry(drive: &str) -> String {
-    format!("azul-storage/drive-key-planned/{drive}")
+    KeyEntry::PlannedKey.name(drive)
 }
 
 /// The keyring entries a key rotation keeps both keys in until it is done
@@ -92,8 +93,8 @@ pub fn planned_key_entry(drive: &str) -> String {
 #[must_use]
 pub fn rotation_key_entries(drive: &str) -> (String, String) {
     (
-        format!("azul-storage/drive-key-previous/{drive}"),
-        format!("azul-storage/drive-key-next/{drive}"),
+        KeyEntry::RotationPrevious.name(drive),
+        KeyEntry::RotationNext.name(drive),
     )
 }
 
@@ -117,6 +118,125 @@ pub(crate) fn load_key_at(
 /// Removes the keyring entry `entry`.
 pub(crate) fn delete_key_at(keyring: &dyn KeyringStore, entry: &str) -> Result<(), DriveError> {
     keyring.delete(entry).map_err(|e| keyring_error(entry, e))
+}
+
+/// Evidence that a drive key is in the keyring: stored under an entry and read back equal
+/// ([`stash`]), or read from one ([`held`]). A recovery wrap seals a drive key; one published
+/// before the keyring holds that key is a wrap whose key can be lost with the next failed call -
+/// a paid drive with data no recovery code opens - so [`publish_recovery_wrap`] takes one of
+/// these and nothing else makes one: stash, then publish, then drop.
+#[derive(Debug)]
+#[must_use]
+pub struct Stashed {
+    entry: String,
+    key_id: KeyId,
+}
+
+impl Stashed {
+    /// The id of the key that is stashed.
+    #[must_use]
+    pub fn key_id(&self) -> KeyId {
+        self.key_id
+    }
+
+    /// The keyring entry it is in.
+    #[must_use]
+    pub fn entry(&self) -> &str {
+        &self.entry
+    }
+}
+
+/// Keeps `key` under the keyring entry `entry` and reads it back: the evidence that it is kept.
+///
+/// # Errors
+///
+/// The keyring does not take the key, or does not give it back as it was.
+pub fn stash(
+    keyring: &dyn KeyringStore,
+    entry: &str,
+    key: &DriveKey,
+) -> Result<Stashed, DriveError> {
+    store_key_at(keyring, entry, key)?;
+    match load_key_at(keyring, entry)? {
+        Some(read) if &read == key => Ok(Stashed {
+            entry: entry.to_string(),
+            key_id: key.id(),
+        }),
+        _ => Err(DriveError::Io(String::from(
+            "the keyring did not keep the new drive key",
+        ))),
+    }
+}
+
+/// The drive key the keyring holds under `entry`, with the evidence that it does; `None` when
+/// there is none.
+///
+/// # Errors
+///
+/// The keyring cannot be read, or holds something that is no key.
+pub fn held(
+    keyring: &dyn KeyringStore,
+    entry: &str,
+) -> Result<Option<(DriveKey, Stashed)>, DriveError> {
+    Ok(load_key_at(keyring, entry)?.map(|key| {
+        let stashed = Stashed {
+            entry: entry.to_string(),
+            key_id: key.id(),
+        };
+        (key, stashed)
+    }))
+}
+
+/// Where a recovery wrap goes in the bucket.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Publish<'f> {
+    /// The drive's first recovery wrap, which must be new: a second device that set the same
+    /// drive up first wins ([`DriveError::Conflict`]).
+    FirstNew,
+    /// The first recovery wrap again: the earlier try of this device's setup (its code was
+    /// never shown), a rotation's new one, a new code's.
+    FirstReplace,
+    /// A further recovery code's file ([`add_recovery_code`]), which must be new.
+    Extra(&'f str),
+}
+
+/// Puts a recovery wrap into the bucket, for a drive key the keyring holds (`stashed`): the wrap
+/// must seal exactly that key. The only way a wrap leaves this device.
+///
+/// A wrap published without a stash cannot be written:
+///
+/// ```compile_fail,E0061
+/// use azul_storage::crypto::device::{publish_recovery_wrap, Publish};
+/// use azul_storage::crypto::keys::RecoveryWrap;
+/// use azul_storage::Drive;
+///
+/// fn publish(bucket: &dyn Drive, wrap: &RecoveryWrap) {
+///     // no `Stashed`: the key this wrap seals was not seen in the keyring
+///     let _ = publish_recovery_wrap(bucket, wrap, Publish::FirstNew);
+/// }
+/// ```
+///
+/// # Errors
+///
+/// A wrap of another key than the stashed one (`Io`: nothing was written), the bucket's refusal,
+/// [`DriveError::Conflict`] for a wrap that had to be new and is not.
+pub fn publish_recovery_wrap(
+    bucket: &dyn Drive,
+    stashed: &Stashed,
+    wrap: &RecoveryWrap,
+    how: Publish<'_>,
+) -> Result<(), DriveError> {
+    if wrap.drive_key_id != stashed.key_id {
+        return Err(DriveError::Io(format!(
+            "the recovery wrap seals the drive key {}, and the key the keyring holds is {}",
+            wrap.drive_key_id, stashed.key_id
+        )));
+    }
+    match how {
+        Publish::FirstNew => put_new(bucket, RECOVERY_KEY_FILE, &wrap.to_bytes()),
+        Publish::FirstReplace => store_recovery_wrap(bucket, wrap),
+        Publish::Extra(file) => put_new(bucket, file, &wrap.to_bytes()),
+    }
 }
 
 /// A key as the keyring keeps it (JSON): what it is and its bytes in hex.
@@ -193,6 +313,15 @@ fn store_entry(
     drive_key_id: Option<&KeyId>,
     committed: Option<&KeyId>,
 ) -> Result<(), DriveError> {
+    // Key material goes into a keyring that keeps it from the other programs of this user, or
+    // into a plain file the user said may hold it (AZ-K7): the one place a key is written.
+    let protection = keyring.protection();
+    if !protection.keeps_key_material() {
+        return Err(DriveError::InvalidConfig(format!(
+            "the key {entry} is not kept: {}",
+            protection.refusal()
+        )));
+    }
     let text = Zeroizing::new(
         serde_json::to_string(&StoredKey {
             kind: kind.to_string(),
@@ -385,25 +514,22 @@ pub fn member_secret(keyring: &dyn KeyringStore, drive: &str) -> Result<MemberSe
     Ok(secret)
 }
 
-/// Every keyring entry a drive's keys are kept in on this device: the drive key, this device's
-/// member key (with its pin), a key made before the drive's setup finished, the two keys of a
-/// rotation under way, and the recovery request's key. A removed drive leaves none of them
-/// behind ([`forget_keys`]).
+/// Every keyring entry a drive has on this device ([`KeyEntry::ALL`]): its session and drive
+/// token, the drive key, this device's member key (with its pin), a key made before the drive's
+/// setup finished, the two keys of a rotation under way, and the recovery request's key. A removed
+/// drive leaves none of them behind ([`forget_keys`], and `footprint::forget_drive` for the rest
+/// of its footprint).
 #[must_use]
 pub fn key_entries(drive: &str) -> Vec<String> {
-    let (previous, next) = rotation_key_entries(drive);
-    vec![
-        drive_key_entry(drive),
-        member_key_entry(drive),
-        planned_key_entry(drive),
-        previous,
-        next,
-        request_key_entry(drive),
-    ]
+    KeyEntry::ALL
+        .iter()
+        .map(|entry| entry.name(drive))
+        .collect()
 }
 
-/// Removes the drive's keys from this device ([`key_entries`]; the drive was removed, or the
-/// device signs out). Every entry is tried; the first refusal is the answer.
+/// Removes the drive's keys from this device ([`key_entries`]; the device signs out). Every entry
+/// is tried; the first refusal is the answer. A drive taken off a device goes through
+/// `footprint::forget_drive`, which asks for a `RemovalProof` before it deletes a key.
 pub fn forget_keys(keyring: &dyn KeyringStore, drive: &str) -> Result<(), DriveError> {
     let mut first = None;
     for entry in key_entries(drive) {
@@ -502,18 +628,20 @@ pub fn setup_new_drive(
         return Err(encrypted_already());
     }
     let generated = planned.is_none();
-    let drive_key = match planned {
-        Some(key) => key,
+    let (drive_key, stashed) = match planned {
+        // Read from the keyring just now: held.
+        Some(key) => {
+            let stashed = Stashed {
+                entry: planned_entry.clone(),
+                key_id: key.id(),
+            };
+            (key, stashed)
+        }
         None => {
             let key = DriveKey::generate().map_err(|e| e.for_key(drive))?;
             // Kept, and read back, before the bucket sees anything of it.
-            store_key_at(keyring, &planned_entry, &key)?;
-            if load_key_at(keyring, &planned_entry)?.as_ref() != Some(&key) {
-                return Err(DriveError::Io(String::from(
-                    "the keyring did not keep the new drive key",
-                )));
-            }
-            key
+            let stashed = stash(keyring, &planned_entry, &key)?;
+            (key, stashed)
         }
     };
     // The key files in the bucket must be the ones of this very key: an earlier try of this
@@ -545,8 +673,8 @@ pub fn setup_new_drive(
     // no recovery code opens.
     if own_recovery {
         // The earlier try's code was never shown: this one replaces it.
-        bucket.put(RECOVERY_KEY_FILE, &recovery.to_bytes())?;
-    } else if let Err(e) = put_new(bucket, RECOVERY_KEY_FILE, &recovery.to_bytes()) {
+        publish_recovery_wrap(bucket, &stashed, &recovery, Publish::FirstReplace)?;
+    } else if let Err(e) = publish_recovery_wrap(bucket, &stashed, &recovery, Publish::FirstNew) {
         // A key made now for nothing (another device was first) goes again.
         if generated {
             let _ = delete_key_at(keyring, &planned_entry);
@@ -924,13 +1052,13 @@ pub fn recover_within(
 /// recovery code - by its public key's id.
 #[must_use]
 pub fn contact_key_entry(id: &str) -> String {
-    format!("azul-storage/contact-key/{id}")
+    crate::footprint::contact_key_entry(id)
 }
 
 /// The keyring entry of a drive's recovery request key, kept while trusted contacts answer.
 #[must_use]
 pub fn request_key_entry(drive: &str) -> String {
-    format!("azul-storage/recovery-request/{drive}")
+    KeyEntry::RequestKey.name(drive)
 }
 
 const KIND_CONTACT_KEY: &str = "contact-key";
@@ -1041,15 +1169,16 @@ pub fn add_recovery_code(
             "a drive holds at most {MAX_EXTRA_RECOVERY_CODES} further recovery codes: remove one first"
         )));
     }
-    let drive_key = load_drive_key(keyring, drive)?.ok_or_else(|| DriveError::Locked {
-        drive: drive.to_string(),
-    })?;
+    let (drive_key, stashed) =
+        held(keyring, &drive_key_entry(drive))?.ok_or_else(|| DriveError::Locked {
+            drive: drive.to_string(),
+        })?;
     let code = RecoveryCode::generate().map_err(|e| e.for_key(drive))?;
     let wrap = RecoveryWrap::seal(&drive_key, drive, &code, kdf).map_err(|e| e.for_key(drive))?;
     let mut id = [0u8; 8];
     super::random_bytes(&mut id).map_err(|e| e.for_key(drive))?;
     let file = format!("{EXTRA_RECOVERY_PREFIX}{}.key", to_hex(&id));
-    put_new(bucket, &file, &wrap.to_bytes())?;
+    publish_recovery_wrap(bucket, &stashed, &wrap, Publish::Extra(&file))?;
     Ok((file, code))
 }
 

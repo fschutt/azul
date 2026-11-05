@@ -16,7 +16,12 @@ mod ctl;
 mod declared;
 /// A folder read in batches, a listing page that stats only its own entries.
 mod dir_read;
-/// The entry points of the fuzz targets, on bytes no fuzzer is needed for.
+/// What a drive leaves on a device: its keyring entries' names, the removal that takes the drives file
+/// entry last, the evidence a key needs, the plain file that takes no key.
+mod footprint;
+/// The entry points of the fuzz targets, on bytes no fuzzer is needed for (feature
+/// `encryption`: the formats are the encrypted drive's).
+#[cfg(feature = "encryption")]
 mod fuzz_entry;
 /// Documents with an owner: the drives file changed by several writers, a newer build's fields.
 mod docs;

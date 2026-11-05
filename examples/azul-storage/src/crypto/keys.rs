@@ -1005,8 +1005,10 @@ pub fn load_member_wraps(bucket: &dyn Drive) -> Result<BTreeMap<String, Vec<u8>>
     Ok(wraps)
 }
 
-/// Puts `wrap` at `.azlin/keys/recovery.key` in `bucket`.
-pub fn store_recovery_wrap(bucket: &dyn Drive, wrap: &RecoveryWrap) -> Result<(), DriveError> {
+/// Puts `wrap` at `.azlin/keys/recovery.key` in `bucket`. A wrap leaves the device through
+/// [`super::device::publish_recovery_wrap`] only, which asks for the evidence that the key it seals
+/// is in the keyring.
+pub(crate) fn store_recovery_wrap(bucket: &dyn Drive, wrap: &RecoveryWrap) -> Result<(), DriveError> {
     bucket.put(RECOVERY_KEY_FILE, &wrap.to_bytes())
 }
 

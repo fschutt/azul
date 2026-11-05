@@ -2,16 +2,7 @@
 //! reader holds and sizes nothing, `ByteReader` takes bytes by those counts and cannot run past its
 //! end, and the named limits are what the formats read their sizes against.
 
-use super::mem_bucket::MemBucket;
-use crate::{
-    crypto::keys::{
-        load_key_chain, load_member_wrap, load_recovery_wrap, MemberSecret, CHAIN_KEY_FILE,
-        RECOVERY_KEY_FILE,
-    },
-    limits::{named, ByteReader, Declared, Limit, ShortRead, PREALLOC},
-    rotation::{pending, JOURNAL_FILE},
-    DriveError,
-};
+use crate::limits::{named, ByteReader, Declared, Limit, ShortRead, PREALLOC};
 
 #[test]
 fn x_ar5b_5_a_declared_number_is_compared_and_placed_and_sizes_nothing() {
@@ -81,54 +72,69 @@ fn x_ar5b_5_the_named_limits_are_what_this_software_writes_with_room() {
     );
 }
 
-/// X-AR5b-5: the key files, the key chain and the rotation journal are read through
-/// `get_limited`: a bucket that answers a bigger file than any of them is (it can stream until the
-/// transport's timeout) is refused with the limit named, before the bytes are parsed.
-#[test]
-fn x_ar5b_5_a_key_file_over_its_limit_is_refused_naming_the_limit() {
-    let bucket = MemBucket::new();
-    let is_refused_by = |result: Result<(), DriveError>, name: &str| match result {
-        Err(DriveError::Protocol(why)) => {
-            assert!(why.contains(name), "{why}");
-        }
-        other => panic!("{name}: {other:?}"),
+/// The key files of an encrypted drive (feature `encryption`).
+#[cfg(feature = "encryption")]
+mod key_files {
+    use crate::tests::mem_bucket::MemBucket;
+    use crate::{
+        crypto::keys::{
+            load_key_chain, load_member_wrap, load_recovery_wrap, MemberSecret, CHAIN_KEY_FILE,
+            RECOVERY_KEY_FILE,
+        },
+        limits::named,
+        rotation::{pending, JOURNAL_FILE},
+        DriveError,
     };
 
-    bucket.set(
-        RECOVERY_KEY_FILE,
-        vec![b'x'; (named::KEY_FILE.max + 1) as usize],
-    );
-    is_refused_by(
-        load_recovery_wrap(&bucket).map(drop),
-        "a key file may be at most",
-    );
+    /// X-AR5b-5: the key files, the key chain and the rotation journal are read through
+    /// `get_limited`: a bucket that answers a bigger file than any of them is (it can stream until the
+    /// transport's timeout) is refused with the limit named, before the bytes are parsed.
+    #[test]
+    fn x_ar5b_5_a_key_file_over_its_limit_is_refused_naming_the_limit() {
+        let bucket = MemBucket::new();
+        let is_refused_by = |result: Result<(), DriveError>, name: &str| match result {
+            Err(DriveError::Protocol(why)) => {
+                assert!(why.contains(name), "{why}");
+            }
+            other => panic!("{name}: {other:?}"),
+        };
 
-    let member = MemberSecret::generate().unwrap().public().id();
-    bucket.set(
-        &crate::crypto::keys::member_key_file(&member).unwrap(),
-        vec![b'x'; (named::KEY_FILE.max + 1) as usize],
-    );
-    is_refused_by(
-        load_member_wrap(&bucket, &member).map(drop),
-        "a key file may be at most",
-    );
+        bucket.set(
+            RECOVERY_KEY_FILE,
+            vec![b'x'; (named::KEY_FILE.max + 1) as usize],
+        );
+        is_refused_by(
+            load_recovery_wrap(&bucket).map(drop),
+            "a key file may be at most",
+        );
 
-    bucket.set(
-        CHAIN_KEY_FILE,
-        vec![b'x'; (named::KEY_CHAIN.max + 1) as usize],
-    );
-    is_refused_by(
-        load_key_chain(&bucket).map(drop),
-        "a key chain file may be at most",
-    );
+        let member = MemberSecret::generate().unwrap().public().id();
+        bucket.set(
+            &crate::crypto::keys::member_key_file(&member).unwrap(),
+            vec![b'x'; (named::KEY_FILE.max + 1) as usize],
+        );
+        is_refused_by(
+            load_member_wrap(&bucket, &member).map(drop),
+            "a key file may be at most",
+        );
 
-    bucket.set(JOURNAL_FILE, vec![b'x'; (named::JOURNAL.max + 1) as usize]);
-    is_refused_by(
-        pending(&bucket).map(drop),
-        "a rotation journal may be at most",
-    );
+        bucket.set(
+            CHAIN_KEY_FILE,
+            vec![b'x'; (named::KEY_CHAIN.max + 1) as usize],
+        );
+        is_refused_by(
+            load_key_chain(&bucket).map(drop),
+            "a key chain file may be at most",
+        );
 
-    // A file within the limit that is none of them is the format's complaint, not the limit's.
-    bucket.set(JOURNAL_FILE, b"{}".to_vec());
-    assert!(matches!(pending(&bucket), Err(DriveError::Corrupt { .. })));
+        bucket.set(JOURNAL_FILE, vec![b'x'; (named::JOURNAL.max + 1) as usize]);
+        is_refused_by(
+            pending(&bucket).map(drop),
+            "a rotation journal may be at most",
+        );
+
+        // A file within the limit that is none of them is the format's complaint, not the limit's.
+        bucket.set(JOURNAL_FILE, b"{}".to_vec());
+        assert!(matches!(pending(&bucket), Err(DriveError::Corrupt { .. })));
+    }
 }
