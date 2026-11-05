@@ -698,7 +698,8 @@ getrandom = { version = "0.2", features = ["js"] }
 __memtest_no_export = []
 
 # Default: Build with static linking (for Rust applications)
-# Use --features "build-dll" when building the shared library itself
+# Use --features "dist" when building the shared library that ships, "build-dll" for the one
+# developers and the E2E builds use (dist + the debug server + the E2E scripting engine)
 default = [
     "std",
     "link-static",
@@ -742,21 +743,25 @@ rust_api = []
 # Build Modes
 # -----------------------------------------------------------------------------
 
-# Build the full desktop DLL with windowing, OpenGL, fonts, etc.
-# This compiles all the platform-specific code in src/desktop/
-# Exports C-ABI symbols with #[no_mangle] for use from C/C++/Python
-build-dll = [
+# THE SHIPPED libazul (`--features dist`): the full desktop DLL with windowing, OpenGL, fonts,
+# every subsystem below - and none of the doors that must be shut in a release (REVIEW K15,
+# X-AR5b-22, ARCH28 RF38):
+#   * no `debug-server`: an HTTP port and a debugger inside a customer's process;
+#   * no `e2e-scripting`: `AZ_E2E=script.json` would drive the UI from an environment variable;
+#   * no `test-hooks`: the keyring, sign-in and `Url::open` stand-ins of a test run.
+# `dll/tests/run_mode_gate.rs` pins that the closure of this list holds none of the three.
+# This compiles all the platform-specific code in src/desktop/ and exports C-ABI symbols with
+# #[no_mangle] for use from C/C++/Python.
+dist = [
     "cabi_export",
     "rust_api",
     "_internal_deps",
     "font_loading_multithreaded",
     "font_async_registry",
-    "debug-server",
-    # Full functional surface for a complete libazul dylib — P4-P8 demos
+    # Full functional surface for a complete libazul dylib - P4-P8 demos
     # consume these through api.json. New feature-gated subsystems
-    # (db-sqlite, biometric, …) MUST be added here as they land.
+    # (db-sqlite, biometric, ...) MUST be added HERE as they land: `build-dll` includes this list.
     "a11y",
-    "debug-server",
     "icons",
     "svg",
     "xml",
@@ -782,26 +787,28 @@ build-dll = [
     # reporter dialog's Send when a deployment has no OTLP endpoint; armed by
     # `AppConfig.report_problem`. Pulls rustls for STARTTLS.
     "crash-mail",
-    "debug-server",
     # Probe spans feed the app_phase_seconds{phase} + RSS-checkpoint panels.
     # Lazily gated at RUNTIME by AZ_PROFILE (probe.rs) - compiled in but not
     # recording, the spans are a branch and nothing else.
     "azul-layout/probe",
     # Peer-to-peer QUIC behind the azul.iroh module (IrohEndpoint).
     "iroh",
-    # AZ_E2E SCRIPTING, in every shipped dylib. The execution engine only:
-    # `debug-server` (the HTTP port + the bundled debugger JS) stays OUT, so
-    # there is no listening socket and no 2-4 MB of JS in the binary. A script
-    # handed over via `AZ_E2E=script.json` needs no server at all, and without
-    # this an app built the normal way silently ignored AZ_E2E - which is
-    # exactly what "the app did nothing" looked like (2026-09-01).
-    "e2e-scripting",
     # The X11 backend in the macOS dylib, so `AZ_BACKEND=x11` works out of
     # the box against XQuartz. No dependency, a no-op off macOS - see below.
     "x11-macos",
     # builtin(leather) / builtin(aluminium): the flora tab strips' surfaces.
     "materials",
 ]
+
+# The libazul of developers, tests and the E2E builds: `dist` plus the debug server and the E2E
+# scripting engine. NEVER ship it - `dist` is what ships. `test-hooks` is not in it either: the
+# E2E builds ask for it by name (`--features build-dll,test-hooks`).
+#
+# `e2e-scripting` is here so a script handed over via `AZ_E2E=script.json` runs against an app
+# built the normal way (without it an app silently ignored AZ_E2E - exactly what "the app did
+# nothing" looked like, 2026-09-01); `debug-server` is the HTTP port and the debugger. Both used
+# to be named in the list above (three times) in a build the comments call lean.
+build-dll = ["dist", "debug-server", "e2e-scripting"]
 
 # SQLite-backed `Db` API (P4.3). Pulls the bundled-SQLite `rusqlite`
 # engine; the public surface (SQL strings + DbValue/DbRows) hides it. Kept
@@ -972,12 +979,13 @@ telemetry = ["azul-layout?/telemetry"]
 # arms the contact at startup.
 crash-mail = ["telemetry", "azul-layout?/crash-mail"]
 
-# Debug server / inspector / E2E runner. OFF by default so the shipped
+# Debug server / inspector / E2E runner. NOT in `dist`, so the shipped
 # `azul.{so,dll,dylib}` is LEAN: no embedded HTTP server (AZ_DEBUG=<port> is a
 # no-op), no E2E runner, no DOM-inspector/scaffold-generator machinery, and the
 # ~8k lines of `common/debug_server` request handling are NOT compiled in (a few
-# MB + an attacker-reachable port off the customer build). Build the swap-in
-# `azuldbg.*` with `--features build-dll,debug-server` to re-enable AZ_DEBUG.
+# MB + an attacker-reachable port off the customer build). `build-dll` (the
+# developers' libazul) and the static-link `default` have it; the swap-in
+# `azuldbg.*` is `--features build-dll`.
 # Pulls `json`: the debug server's app-state ops (get/set/assert_app_state and
 # the undo/redo mini-git) deserialize/serialize the app RefAny through
 # `azul_layout::json`, so the server cannot compile without it.
@@ -1206,7 +1214,9 @@ pyo3_logger = ["pyo3-log", "logging"]
 # to resolve at import (standard pyo3/manylinux). Do NOT bake Py* stubs into this
 # cdylib: pyo3 is statically linked in, so a locally-defined Py* is dso_local and
 # self-mis-binds, SIGSEGV-ing pyclass teardown (see src/lib.rs, removed 2026-07-07).
-python-extension = ["build-dll", "pyo3", "pyo3_logger", "link-static"]
+# `dist`, not `build-dll`: a wheel ships, so it carries no debug server and no E2E scripting (the
+# E2E builds add `,debug-server` by name).
+python-extension = ["dist", "pyo3", "pyo3_logger", "link-static"]
 
 # PHP extension module (Zend engine native extension via ext-php-rs).
 # Unlike the standard php-ffi path, this loads through the Zend engine
@@ -1216,7 +1226,8 @@ python-extension = ["build-dll", "pyo3", "pyo3_logger", "link-static"]
 #   cargo build --release --features php-extension
 # Then load:
 #   php -d extension=/path/to/libazul.so hello-world.php
-php-extension = ["build-dll", "ext-php-rs", "link-static", "once_cell"]
+# `dist`, not `build-dll`, for the same reason (the E2E build adds `,debug-server` by name).
+php-extension = ["dist", "ext-php-rs", "link-static", "once_cell"]
 
 # -----------------------------------------------------------------------------
 # E2E Test Harness (AZ_E2E_TEST env-var-driven scenario runner)
@@ -1235,7 +1246,7 @@ e2e-test = ["serde_json", "azul-layout?/probe"]
 # (a headless or E2E run never reaches the system keyring) - work ONLY in a build with this
 # feature, which the unit tests of the keyring and the E2E builds turn on explicitly:
 #   cargo build --release -p azul-dll --features build-dll,test-hooks
-# A release or distribution build (`build-dll` alone, `prod-release`) never reads them: a
+# A release or distribution build (`dist`, `prod-release`) never reads them: a
 # variable in a shell profile, a launcher or a wrapper cannot send a user's drive keys to process
 # memory (lost at exit) or to a plaintext file. Not part of `build-dll`; never ship it.
 test-hooks = []
