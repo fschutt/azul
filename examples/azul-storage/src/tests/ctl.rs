@@ -312,3 +312,32 @@ fn rf48_a_cancel_is_a_drive_error_that_reads_as_a_sentence_and_never_as_a_failur
     let other: DriveError = std::io::Error::other("the disk failed").into();
     assert!(matches!(other, DriveError::Io(_)), "{other:?}");
 }
+
+/// A stop reaches an encrypted write through the AZL1 stream: the read that was stopped is
+/// `CryptoError::Stopped` inside the crypto layer and `Cancelled` out of the drive - not "file
+/// error: ...: stopped" - and no object and no name is made.
+#[cfg(feature = "encryption")]
+#[test]
+fn rf48_a_stopped_encrypted_upload_is_cancelled_not_an_io_failure_and_makes_no_name() {
+    use super::mem_bucket::MemBucket;
+    use crate::{
+        crypto::DriveKey,
+        encrypted::{EncryptedDrive, MemoryIndex},
+    };
+    let drive = EncryptedDrive::new(
+        Arc::new(MemBucket::new()),
+        DriveKey::generate().unwrap(),
+        Arc::new(MemoryIndex::new()),
+    );
+    let body = vec![7u8; 3 << 20];
+    let ctl = StopAfter::new(1);
+    let mut source = &body[..];
+    let mut reader = ProgressReader::new(&mut source, &ctl);
+    let got = drive.put_from("film.bin", &mut reader);
+    assert_eq!(got, Err(DriveError::Cancelled));
+    let named = drive.head("film.bin");
+    assert!(
+        matches!(named, Err(DriveError::NotFound { .. })),
+        "{named:?}"
+    );
+}

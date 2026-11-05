@@ -101,6 +101,9 @@ pub enum CryptoError {
     Random,
     /// Reading or writing the bytes failed.
     Io(String),
+    /// The caller stopped the read or write ([`crate::ctl::Ctl::cancelled`]): not a failure of the
+    /// bytes, and a drive's call answers [`DriveError::Cancelled`] for it.
+    Stopped,
 }
 
 impl fmt::Display for CryptoError {
@@ -116,6 +119,7 @@ impl fmt::Display for CryptoError {
             }
             CryptoError::Random => f.write_str("the system's random source failed"),
             CryptoError::Io(why) => f.write_str(why),
+            CryptoError::Stopped => f.write_str("stopped"),
         }
     }
 }
@@ -144,6 +148,7 @@ impl CryptoError {
                 DriveError::Io(String::from("the system's random source failed"))
             }
             CryptoError::Io(why) => DriveError::Io(format!("{key}: {why}")),
+            CryptoError::Stopped => DriveError::Cancelled,
         }
     }
 }
@@ -151,6 +156,9 @@ impl CryptoError {
 impl From<std::io::Error> for CryptoError {
     /// A `CryptoError` that travelled through `io::Read` / `io::Write` comes back as itself.
     fn from(e: std::io::Error) -> Self {
+        if crate::ctl::Stopped::is(&e) {
+            return CryptoError::Stopped;
+        }
         if let Some(inner) = e
             .get_ref()
             .and_then(|inner| inner.downcast_ref::<CryptoError>())
@@ -163,6 +171,10 @@ impl From<std::io::Error> for CryptoError {
 
 impl From<CryptoError> for std::io::Error {
     fn from(e: CryptoError) -> Self {
+        if matches!(e, CryptoError::Stopped) {
+            // The marker a reader of a `Ctl` gives, so `DriveError` and `PublishError` read it too.
+            return crate::ctl::Stopped::io();
+        }
         let kind = match e {
             CryptoError::Io(_) => std::io::ErrorKind::Other,
             _ => std::io::ErrorKind::InvalidData,
