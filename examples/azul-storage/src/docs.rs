@@ -263,7 +263,7 @@ impl<T: Document> Doc<T> {
             // Nothing there to keep: what the window has is the document.
             let text = serde_json::to_string_pretty(mine).map_err(encode)?;
             durable::replace(&self.path, format!("{text}\n").as_bytes(), Mode::Shared)?;
-            return Ok(serde_json::from_value(mine_value).map_err(encode)?);
+            return serde_json::from_value(mine_value).map_err(encode);
         };
         let round = serde_json::to_value(&disk_document).map_err(encode)?;
         let merged = merge_values(&start_value, &mine_value, &round, key_of);

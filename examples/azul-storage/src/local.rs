@@ -910,7 +910,8 @@ impl LocalDrive {
         }
         let mut items = dir_read::read_dir_all(&dir)?;
         items.retain(|item| {
-            !beneath::is_temp_name(&item.name) && !(folder.is_empty() && crate::names::Protected::is_bookkeeping(&item.name))
+            !(beneath::is_temp_name(&item.name)
+                || folder.is_empty() && crate::names::Protected::is_bookkeeping(&item.name))
         });
         Ok(items)
     }
@@ -1234,7 +1235,7 @@ impl Drive for LocalDrive {
         Ok(ObjectInfo {
             key: key.to_string(),
             size: stat.size,
-            modified: (stat.mtime_ns > 0).then(|| stat.mtime_ns / 1_000_000_000),
+            modified: (stat.mtime_ns > 0).then_some(stat.mtime_ns / 1_000_000_000),
             etag: Some(etag_of(&stat.fingerprint())),
         })
     }
