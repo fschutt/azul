@@ -25,10 +25,19 @@ fake manifests on a local server, in a sandbox home folder.
        0.1.1; the settings move AzClock to beta, where 0.3.0 is offered at once; Uninstall
        removes AzClock after its question; AzWriter 0.1.2 with a wrong checksum is refused;
     3. a root key in the config: the unsigned AzWriter 0.1.3 is refused;
-    4. without it, 0.1.3 is staged; the installed AzWriter starts with the banner ("A new version
+    4. without it (the config still spells `allow_unsigned`), 0.1.3 is staged; the installed AzWriter starts with the banner ("A new version
        of AzWriter is available (0.1.3)"); Update now writes the request, starts the manager
        with --apply azwriter (through a wrapper that logs it) and closes; the manager installs
        0.1.3 once AzWriter is gone and starts it again.
+
+The fake releases are unsigned, so this needs TEST builds: a build for users believes only what is
+compiled into it (azul-appkit's `anchors`: a root key that is a constant, no unsigned choice) and
+ignores the root key and `allow_unsigned` of the shared config that this script writes. Build the
+manager and the AzWriter that it installs with the test hooks, on a libazul that has the debug
+server (`build-dll`, not the shipped `dist`):
+
+    cargo build --release -p AzInstallManager --features test-hooks
+    cargo build --release -p AzWriter --features azul-appkit/test-hooks
 
 Screenshots go to --out. Run ONE app at a time, through the capped runner:
 
@@ -488,9 +497,11 @@ def body(args, logs, out):
         writer_bytes = f.read()
     box = Sandbox(logs)
     rel = Releases(os.path.join(box.root, "releases"))
-    # No update source: the wizard asks for it (set_source), as on a fresh computer.
+    # No update source: the wizard asks for it (set_source), as on a fresh computer. The fake
+    # releases are unsigned, which only a TEST build accepts and only when the config says so.
     edit_config(box.config, lambda u: u.update({
         "cohort": 60,
+        "allow_unsigned": True,
     }))
     rel.publish("runtime", "stable", "0.1.0", b"the azul runtime 0.1.0")
     rel.publish("azwriter", "stable", "0.1.0", writer_bytes)
@@ -518,7 +529,8 @@ def body(args, logs, out):
         finally:
             app.stop()
 
-        # A root key in the config: the unsigned release is refused.
+        # A root key in the config (a test build reads it there; a shipped build has its keys
+        # compiled in): the key wins over `allow_unsigned`, and the unsigned release is refused.
         rel.publish("azwriter", "stable", "0.1.3", writer_bytes)
         edit_config(box.config, lambda u: u.update({
             "root_public_key": "RWQf6LRCGA9i53mlYecO4IzT51TGPpvWucNSCh1CBM0QTaLn73Y7GFO3",
