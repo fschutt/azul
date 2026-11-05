@@ -216,3 +216,57 @@ fn new_or_rewritten_photos_do_not_pause() {
     assert!(report.paused.is_none(), "{}", report.summary());
     assert_eq!(report.files_up, 40);
 }
+
+/// AZ-S8. An answer is for the question it was given to: the same keys in any order, no others;
+/// and "delete them too" is not "these changes are mine".
+#[test]
+fn az_s8_a_consent_covers_the_keys_it_was_given_for_and_no_others() {
+    use crate::sync::consent::{keys_hash, Consent, ConsentKind};
+    let asked = Consent::new(ConsentKind::MassDelete, &["b.txt", "a.txt", "c.txt"], 1);
+    assert!(
+        asked.covers(ConsentKind::MassDelete, &["c.txt", "a.txt", "b.txt"]),
+        "any order"
+    );
+    assert!(asked.covers(
+        ConsentKind::MassDelete,
+        &["a.txt", "a.txt", "b.txt", "c.txt"]
+    ));
+    assert!(
+        !asked.covers(ConsentKind::MassDelete, &["a.txt", "b.txt"]),
+        "fewer files"
+    );
+    assert!(
+        !asked.covers(
+            ConsentKind::MassDelete,
+            &["a.txt", "b.txt", "c.txt", "d.txt"]
+        ),
+        "more files"
+    );
+    assert!(
+        !asked.covers(ConsentKind::MassDelete, &["a.txt", "b.txt", "d.txt"]),
+        "other files"
+    );
+    assert!(
+        !asked.covers(ConsentKind::Burst, &["a.txt", "b.txt", "c.txt"]),
+        "another question"
+    );
+    // A name cannot be split to make another set: the hash takes each name whole.
+    assert_ne!(
+        keys_hash(ConsentKind::MassDelete, &["ab", "c"]),
+        keys_hash(ConsentKind::MassDelete, &["a", "bc"])
+    );
+    // A pause that began again is another question.
+    let pause = crate::sync::guard::Pause {
+        reason: PauseReason::Burst,
+        since: 100,
+        changes: 300,
+        files: Vec::new(),
+    };
+    let later = crate::sync::guard::Pause {
+        since: 400,
+        ..pause.clone()
+    };
+    let answer = Consent::new(ConsentKind::Burst, &[pause.identity().as_str()], 5);
+    assert!(answer.covers(ConsentKind::Burst, &[pause.identity().as_str()]));
+    assert!(!answer.covers(ConsentKind::Burst, &[later.identity().as_str()]));
+}

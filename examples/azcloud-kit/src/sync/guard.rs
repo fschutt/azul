@@ -74,6 +74,17 @@ pub struct Pause {
 }
 
 impl Pause {
+    /// What the user answers when they answer this pause: its reason and when it began. A pause
+    /// that begins again later is another question ([`super::consent`]).
+    #[must_use]
+    pub fn identity(&self) -> String {
+        let reason = match self.reason {
+            PauseReason::Burst => "burst",
+            PauseReason::Encryption => "encryption",
+        };
+        format!("{reason}@{}", self.since)
+    }
+
     /// One line for people (the command line; AzDrive words its own question).
     #[must_use]
     pub fn describe(&self) -> String {

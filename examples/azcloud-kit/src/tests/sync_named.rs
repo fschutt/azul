@@ -471,7 +471,14 @@ fn a_mass_delete_confirmed_on_one_device_is_not_asked_again_on_another() {
         hold_mass_delete: true,
         ..RunHooks::default()
     };
-    let got = b.run(&*drive, &hooks);
+    // A tombstone's word that the user confirmed is believed when a device of the user's wrote it
+    // (AZ-S7): to a device that does not know a's name as the user's own it is asked about.
+    let asked = b.run(&*drive, &hooks);
+    assert!(asked.mass_delete.is_some(), "{}", asked.summary());
+    assert_eq!(asked.deleted_here, 0, "{}", asked.summary());
+    let mut own = b.opts();
+    own.own_devices = vec![String::from("dev-a-mass")];
+    let got = sync_to(Target::Named(&*drive), &b.root(), &b.index(), &own, &hooks).unwrap();
     assert!(got.mass_delete.is_none(), "{}", got.summary());
     assert_eq!(got.deleted_here, 12, "{}", got.summary());
     assert!(b.tree().is_empty(), "{:?}", b.tree().keys().collect::<Vec<_>>());

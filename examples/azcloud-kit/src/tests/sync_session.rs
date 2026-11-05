@@ -553,13 +553,16 @@ fn a_mass_delete_waits_for_the_user_and_each_answer_does_what_it_says() {
 }
 
 /// The drive deleted most of this folder's files elsewhere, and the user confirmed it on the
-/// device that deleted them: the confirmation travels in the tombstones, so this device moves
-/// its copies into its trash without asking again (D1, D2).
+/// device that deleted them - one of the user's own devices: the confirmation travels in the
+/// tombstones, so this device moves its copies into its trash without asking again (D1, D2). A
+/// tombstone of any other writer is only a word anyone with access to the drive can write: it
+/// asks (AZ-S7, below).
 #[test]
 fn a_mass_delete_confirmed_on_one_device_goes_into_the_others_trash_without_asking_again() {
     let store = Arc::new(S3Bucket::new());
     let a = paired("dev-a", &store, |_| {});
-    let b = paired("dev-b", &store, |_| {});
+    let mut b = paired("dev-b", &store, |_| {});
+    b.session = b.session.with_own_devices(&[String::from("dev-a")]);
     for i in 0..14 {
         a.write(&format!("{i}.txt"), format!("file {i}").as_bytes());
     }
@@ -1245,4 +1248,187 @@ fn az_s4_a_rotted_file_stays_where_it_is_when_the_replacement_cannot_be_fetched(
         index_of(&store)
     );
     assert!(a.read("b.bin").is_some());
+}
+
+// ==== The guards' answers are for the question they were given to (AZ-S7, AZ-S8, AZ-S9) ====
+
+/// AZ-S7. The breaker took a tombstone's `confirmed` as the user's word whoever wrote it: a share
+/// participant (or a buggy device) that deletes most of a folder and writes `confirmed: true`
+/// had every other device move its copies into the trash without a question. A tombstone counts
+/// as confirmed only when this device or one of the user's own devices wrote it.
+#[test]
+fn az_s7_a_confirmed_tombstone_of_a_stranger_is_counted_by_the_breaker() {
+    let store = Arc::new(S3Bucket::new());
+    let stranger = paired("someone-else", &store, |_| {});
+    let b = paired("dev-b", &store, |_| {});
+    for i in 0..14 {
+        stranger.write(&format!("{i}.txt"), format!("file {i}").as_bytes());
+    }
+    stranger.pass();
+    b.pass();
+    for i in 0..14 {
+        fs::remove_file(path_of(stranger.folder.path(), &format!("{i}.txt"))).unwrap();
+    }
+    stranger.pass();
+    stranger.session.answer_mass_delete(true).unwrap();
+    stranger.pass();
+    let index = index_of(&store);
+    assert!(
+        index["deleted"]
+            .as_object()
+            .unwrap()
+            .values()
+            .all(|t| t["confirmed"] == true),
+        "the stranger's tombstones say the user confirmed: {index:#}"
+    );
+    let (states, _) = b.pass();
+    assert!(
+        states.mass_delete.is_some(),
+        "b asks: the word of a stranger is not enough"
+    );
+    assert_eq!(
+        b.read("0.txt").as_deref(),
+        Some(&b"file 0"[..]),
+        "nothing was moved to the trash"
+    );
+}
+
+/// AZ-S8. "Delete them too" was a flag in the states that the next pass read whatever it
+/// planned: after the answer, anything else the folder lost (an unmounted disk, a second
+/// accident) was deleted on the drive without a question. The answer is for the keys that were
+/// asked about; a plan that deletes another set asks again, and a pass that reached its end has
+/// used the answer up.
+#[test]
+fn az_s8_delete_them_too_is_for_the_files_it_was_asked_about() {
+    let store = Arc::new(S3Bucket::new());
+    let a = paired("dev-a", &store, |_| {});
+    for i in 0..14 {
+        a.write(&format!("old/{i}.txt"), format!("old {i}").as_bytes());
+        a.write(&format!("more/{i}.txt"), format!("more {i}").as_bytes());
+    }
+    a.pass();
+    for i in 0..14 {
+        fs::remove_file(path_of(a.folder.path(), &format!("old/{i}.txt"))).unwrap();
+    }
+    // 19 of the 28 files: a mass delete. The rest of the second batch goes only after the answer.
+    for i in 0..5 {
+        fs::remove_file(path_of(a.folder.path(), &format!("more/{i}.txt"))).unwrap();
+    }
+    let (states, _) = a.pass();
+    let asked = states.mass_delete.clone().expect("asked");
+    assert_eq!(asked.keys.len(), 19, "{asked:?}");
+    a.session.answer_mass_delete(true).unwrap();
+    // Before the pass that would use it, the folder loses more: the answer was for 19 files.
+    for i in 5..14 {
+        fs::remove_file(path_of(a.folder.path(), &format!("more/{i}.txt"))).unwrap();
+    }
+    let (states, _) = a.pass();
+    let again = states.mass_delete.clone().expect("a bigger set asks again");
+    assert_eq!(again.keys.len(), 28, "{again:?}");
+    let index = index_of(&store);
+    assert!(
+        lists(&index, "old/0.txt") && lists(&index, "more/13.txt"),
+        "nothing went: {index:#}"
+    );
+    assert!(
+        states.consents.is_empty(),
+        "a pass that reached its end used the answer up: {:?}",
+        states.consents
+    );
+    // The answer to the question asked now covers exactly it, and is used up by the pass that
+    // sends the deletes.
+    a.session.answer_mass_delete(true).unwrap();
+    let (states, _) = a.pass();
+    assert!(states.mass_delete.is_none());
+    assert!(states.consents.is_empty(), "{:?}", states.consents);
+    let index = index_of(&store);
+    assert!(
+        !lists(&index, "old/0.txt") && !lists(&index, "more/13.txt"),
+        "{index:#}"
+    );
+}
+
+/// AZ-S8. A pass that failed before it used the answer leaves it where it was - and it still
+/// covers only the files it was given for.
+#[test]
+fn az_s8_a_pass_that_fails_keeps_the_answer_for_the_next_one() {
+    let store = Arc::new(S3Bucket::new());
+    let a = paired("dev-a", &store, |_| {});
+    for i in 0..14 {
+        a.write(&format!("{i}.txt"), format!("file {i}").as_bytes());
+    }
+    a.pass();
+    for i in 0..14 {
+        fs::remove_file(path_of(a.folder.path(), &format!("{i}.txt"))).unwrap();
+    }
+    let (states, _) = a.pass();
+    assert!(states.mass_delete.is_some());
+    a.session.answer_mass_delete(true).unwrap();
+    // The folder is gone (an unplugged disk): the pass is refused and changes nothing.
+    let held = a.folder.path().with_extension("away");
+    fs::rename(a.folder.path(), &held).unwrap();
+    assert!(a
+        .session
+        .pass(&AtomicBool::new(false), &mut |_| {})
+        .is_err());
+    assert_eq!(a.session.states().consents.len(), 1, "the answer waits");
+    fs::rename(&held, a.folder.path()).unwrap();
+    let (states, _) = a.pass();
+    assert!(
+        states.mass_delete.is_none() && states.consents.is_empty(),
+        "{states:?}"
+    );
+}
+
+/// AZ-S9. One question can hold both directions: files gone from this folder (the drive would
+/// lose them) and files the drive deleted elsewhere that this folder still holds. "Keep" marked
+/// them all by the majority's direction, and the minority stayed planned for the delete: the
+/// next pass moved them into the trash although the user had said keep.
+#[test]
+fn az_s9_keep_on_a_mixed_direction_mass_delete_keeps_the_minority_files_too() {
+    let store = Arc::new(S3Bucket::new());
+    let a = paired("dev-a", &store, |_| {});
+    let b = paired("dev-b", &store, |_| {});
+    for i in 0..20 {
+        a.write(&format!("f/{i}.txt"), format!("file {i}").as_bytes());
+    }
+    a.pass();
+    b.pass();
+    // b deletes ten files (the drive would lose them), a deletes four others elsewhere.
+    for i in 0..10 {
+        fs::remove_file(path_of(b.folder.path(), &format!("f/{i}.txt"))).unwrap();
+    }
+    for i in 10..14 {
+        fs::remove_file(path_of(a.folder.path(), &format!("f/{i}.txt"))).unwrap();
+    }
+    a.pass();
+    let (states, _) = b.pass();
+    let asked = states
+        .mass_delete
+        .clone()
+        .expect("14 of 20 in both directions");
+    assert_eq!(asked.keys.len(), 14, "{asked:?}");
+    assert!(!asked.here, "the majority is the files gone from here");
+    b.session.answer_mass_delete(false).unwrap();
+    let (states, _) = b.pass();
+    assert!(states.mass_delete.is_none(), "{states:?}");
+    for i in 10..14 {
+        assert_eq!(
+            b.read(&format!("f/{i}.txt")).as_deref(),
+            Some(format!("file {i}").as_bytes()),
+            "kept, not moved into the trash"
+        );
+    }
+    for i in 0..10 {
+        assert_eq!(
+            states.state_of(&format!("f/{i}.txt")),
+            Some(FileState::CloudOnly),
+            "kept on the drive"
+        );
+    }
+    let trash = b.folder.path().join(".azlin/sync/trash");
+    let trashed = fs::read_dir(&trash)
+        .map(|d| d.flatten().count())
+        .unwrap_or(0);
+    assert_eq!(trashed, 0, "nothing was trashed");
 }

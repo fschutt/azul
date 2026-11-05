@@ -54,6 +54,8 @@
 pub mod attrs;
 #[cfg(feature = "state-db")]
 pub mod base;
+// The user's answers to the guards' questions, bound to what was shown.
+pub mod consent;
 pub mod drive_store;
 pub mod engine;
 // "Free up space" only once the drive holds the version whole.
@@ -171,10 +173,20 @@ pub struct SyncOptions {
     /// Small blobs in flight at once.
     pub parallel: usize,
     pub max_attempts: u32,
+    /// The command line's `--allow-mass-delete`: this run confirms every delete it plans. An
+    /// app's pairing leaves it off and passes the user's answer in [`SyncOptions::consents`].
     pub allow_mass_delete: bool,
     /// The user's "these changes are mine": the run sends what the burst
     /// guard held back, and its window starts afresh ([`guard`]).
     pub allow_burst: bool,
+    /// The user's answers to the questions this pairing asked, each for the keys (or the pause) it
+    /// was given for ([`consent::Consent`]): a plan that deletes another set, or a pause that is
+    /// another, asks again.
+    pub consents: Vec<consent::Consent>,
+    /// The account's other devices (this one always counts): a mass delete a tombstone of theirs
+    /// says the user confirmed there is not asked again; a tombstone any other writer made - a
+    /// share participant - is counted by the breaker whatever it says (S7).
+    pub own_devices: Vec<String>,
     /// Plan only: nothing is uploaded, written or deleted.
     pub dry_run: bool,
     pub max_file_bytes: u64,
@@ -200,6 +212,13 @@ pub struct SyncOptions {
 }
 
 impl SyncOptions {
+    /// Whether a tombstone written by `writer` may say the user confirmed a delete: this device
+    /// and the account's other devices, no other writer.
+    #[must_use]
+    pub fn trusts(&self, writer: &str) -> bool {
+        writer == self.device || self.own_devices.iter().any(|d| d == writer)
+    }
+
     /// The defaults for `prefix` of `bucket` on the device `device`.
     ///
     /// # Errors
@@ -214,6 +233,8 @@ impl SyncOptions {
             max_attempts: MAX_ATTEMPTS,
             allow_mass_delete: false,
             allow_burst: false,
+            consents: Vec::new(),
+            own_devices: Vec::new(),
             dry_run: false,
             max_file_bytes: MAX_FILE_BYTES,
             tombstone_days: TOMBSTONE_DAYS,
@@ -795,7 +816,9 @@ pub struct MassDelete {
     /// How many, of how many files (the folder's now / at its last sync).
     pub count: usize,
     pub of: usize,
-    /// Every file it would delete.
+    /// Every file it would delete: those gone from this folder that the drive would lose, and
+    /// those the drive deleted elsewhere that this folder still holds - both can be in one
+    /// question ([`session::SyncSession::answer_mass_delete`] tells them apart by the disk).
     pub keys: Vec<String>,
 }
 
@@ -804,18 +827,25 @@ pub struct MassDelete {
 /// two) - a folder of four tax files emptied is as suspect as one of four thousand. Deletes here
 /// and on the drive count together. A delete whose content goes up under another name in the
 /// same plan is a move, not counted; nor is a delete here whose tombstone says the user
-/// confirmed it on the device that made it.
+/// confirmed it on a device of theirs ([`SyncOptions::trusts`]): the flag is a word anyone who
+/// can write to the drive can put in a tombstone, so one a stranger wrote counts (S7).
 fn mass_delete(
     actions: &[Action],
     scan: &Scan,
     base: &BTreeMap<String, BaseEntry>,
     remote: &RemoteIndex,
+    opts: &SyncOptions,
 ) -> Option<MassDelete> {
     let moved_here: BTreeSet<&str> = local_moves(actions, scan, remote).into_values().collect();
     let here: Vec<String> = actions
         .iter()
         .filter(|a| matches!(a, Action::DeleteLocal { .. }))
-        .filter(|a| !remote.deleted.get(a.key()).is_some_and(|t| t.confirmed))
+        .filter(|a| {
+            !remote
+                .deleted
+                .get(a.key())
+                .is_some_and(|t| t.confirmed && opts.trusts(&t.device))
+        })
         .filter(|a| !moved_here.contains(a.key()))
         .map(|a| a.key().to_string())
         .collect();
@@ -1680,7 +1710,7 @@ fn next_index(
     device: &str,
     now: i64,
     tombstone_days: i64,
-    confirmed: bool,
+    confirmed: &dyn Fn(&str) -> bool,
 ) -> RemoteIndex {
     let mut next = remote.clone();
     let generation = remote.generation + 1;
@@ -1741,7 +1771,7 @@ fn next_index(
                             gen: generation,
                             at: now,
                             device: device.to_string(),
-                            confirmed,
+                            confirmed: confirmed(key),
                         },
                     );
                     changed = true;
@@ -4006,27 +4036,42 @@ fn run<R: SyncRemote + ?Sized>(
         }
         report.held = on_demand(&mut actions, &scan, base, &readable, hooks);
         hooks.observe_plan(&mut actions, &readable, base, &mut report.problems);
+        // The deletes the user confirmed in this pass: the keys the question named, when the
+        // answer given is for exactly them (S8 - an answer is for the question it was given to,
+        // not for whatever a later pass finds).
+        let mut confirmed_keys: BTreeSet<String> = BTreeSet::new();
         if !opts.allow_mass_delete {
-            if let Some(asked) = mass_delete(&actions, &scan, base, &readable) {
-                report.tell(
-                    Code::MassDeleteHeld,
-                    "",
-                    format!(
-                        "{} of {} files would be deleted {}; nothing changed until you confirm",
-                        asked.count,
-                        asked.of,
-                        if asked.here { "here" } else { "on the drive" }
-                    ),
-                );
-                // An app asks the user (nothing changed); the command line stops.
-                if hooks.hold_mass_delete {
-                    report.mass_delete = Some(asked);
-                    report.generation = remote.generation;
-                    return Ok(report);
+            if let Some(asked) = mass_delete(&actions, &scan, base, &readable, opts) {
+                let shown: Vec<&str> = asked.keys.iter().map(String::as_str).collect();
+                let answered = opts
+                    .consents
+                    .iter()
+                    .any(|c| c.covers(consent::ConsentKind::MassDelete, &shown));
+                if answered {
+                    confirmed_keys.extend(asked.keys.iter().cloned());
+                } else {
+                    report.tell(
+                        Code::MassDeleteHeld,
+                        "",
+                        format!(
+                            "{} of {} files would be deleted {}; nothing changed until you \
+                             confirm",
+                            asked.count,
+                            asked.of,
+                            if asked.here { "here" } else { "on the drive" }
+                        ),
+                    );
+                    // An app asks the user (nothing changed); the command line stops.
+                    if hooks.hold_mass_delete {
+                        report.mass_delete = Some(asked);
+                        report.generation = remote.generation;
+                        return Ok(report);
+                    }
+                    return Err(mass_delete_error(&asked));
                 }
-                return Err(mass_delete_error(&asked));
             }
         }
+        let deletes_confirmed = |key: &str| opts.allow_mass_delete || confirmed_keys.contains(key);
         if opts.dry_run {
             report.planned = actions
                 .iter()
@@ -4045,19 +4090,27 @@ fn run<R: SyncRemote + ?Sized>(
             // confirmed in the mass-delete question were asked about: the guard sees neither.
             let moved = moves(&actions, &scan, base);
             let confirmed =
-                |a: &Action| opts.allow_mass_delete && matches!(a, Action::DeleteRemote { .. });
+                |a: &Action| matches!(a, Action::DeleteRemote { .. }) && deletes_confirmed(a.key());
             let judged: Vec<Action> = actions
                 .iter()
                 .filter(|a| !moved.contains(a.key()) && !confirmed(*a))
                 .cloned()
                 .collect();
+            // "These changes are mine" is the answer to the pause the user was shown, and to no
+            // later one (S8): a burst that paused again is another question.
+            let shown_pause = index.guard.paused.as_ref().map(guard::Pause::identity);
+            let burst_answered = shown_pause.as_deref().is_some_and(|shown| {
+                opts.consents
+                    .iter()
+                    .any(|c| c.covers(consent::ConsentKind::Burst, &[shown]))
+            });
             pause = guard::check_burst(
                 &mut index.guard,
                 &judged,
                 base,
                 &root.path,
                 crate::now(),
-                opts.allow_burst,
+                opts.allow_burst || burst_answered,
             );
         }
         if pause.is_some() {
@@ -4134,7 +4187,7 @@ fn run<R: SyncRemote + ?Sized>(
             &opts.device,
             crate::now(),
             opts.tombstone_days,
-            opts.allow_mass_delete,
+            &deletes_confirmed,
         );
         if next == *read.as_ref().unwrap_or(&remote) {
             let base_after = base.clone();

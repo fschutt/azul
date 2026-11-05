@@ -43,6 +43,7 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "encryption")]
 use super::objects::ObjectCache;
 use super::{
+    consent::{Consent, ConsentKind},
     fetch_file, guard,
     local::{self, BaseEntry, LocalIndex},
     lock, remote, sync_to, HeldConflict, LocalRoot, MassDelete, RunHooks, SyncEvent,
@@ -386,12 +387,11 @@ pub struct SyncStates {
     /// either side until the app is updated.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub newer_format: Vec<String>,
-    /// The user's answers, for the next pass only: "these changes are mine" (the burst guard)
-    /// and "delete them on the drive too" (the mass delete).
-    #[serde(default)]
-    pub allow_burst: bool,
-    #[serde(default)]
-    pub allow_mass_delete: bool,
+    /// The user's answers to the guards' questions - "these changes are mine" (the burst guard),
+    /// "delete them too" (the mass delete) - each for the keys or the pause it was given for
+    /// ([`Consent`]). A pass that reaches its end uses them up, whether it needed them or not.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub consents: Vec<Consent>,
 }
 
 impl SyncStates {
@@ -965,9 +965,9 @@ impl SyncSession {
         // (an unplugged disk) is never made again here, so it is never synced as empty.
         let root = self.root();
         let mut opts = self.options()?;
-        // The user's answers, for this pass.
-        opts.allow_burst = states.allow_burst;
-        opts.allow_mass_delete = states.allow_mass_delete;
+        // The user's answers, for this pass: each is for the question it was given to.
+        opts.consents.clone_from(&states.consents);
+        opts.own_devices.clone_from(&self.own_devices);
         let index_path = self.index_path();
         let policy = self.setup.auto_download;
         let pins = states.clone();
@@ -1039,18 +1039,38 @@ impl SyncSession {
         }
         // An answer given while this pass ran (it waits for a quiet folder first) came after
         // the states it read: it is the next pass's, and the question it answered is not asked
-        // again.
+        // again. The answers this pass was given are used up with it - needed or not (S8) - unless
+        // it was stopped.
         let answered_now = self.states();
-        let burst_answered = answered_now.allow_burst && !opts.allow_burst;
-        let mass_answered = answered_now.allow_mass_delete && !opts.allow_mass_delete;
-        // The guards' questions, and the answers this pass used up.
-        states.burst = if burst_answered { None } else { report.paused.clone() };
-        states.mass_delete = if mass_answered { None } else { report.mass_delete.clone() };
+        let given_since: Vec<Consent> = answered_now
+            .consents
+            .iter()
+            .filter(|c| !opts.consents.contains(c))
+            .cloned()
+            .collect();
+        let answered =
+            |kind: ConsentKind, shown: &[&str]| given_since.iter().any(|c| c.covers(kind, shown));
+        // The guards' questions, unless an answer given meanwhile settles them.
+        states.burst = report
+            .paused
+            .clone()
+            .filter(|pause| !answered(ConsentKind::Burst, &[pause.identity().as_str()]));
+        states.mass_delete = report.mass_delete.clone().filter(|asked| {
+            let keys: Vec<&str> = asked.keys.iter().map(String::as_str).collect();
+            !answered(ConsentKind::MassDelete, &keys)
+        });
         states.newer_format.clone_from(&report.newer_format);
-        if !report.cancelled {
-            states.allow_burst = burst_answered;
-            states.allow_mass_delete = mass_answered;
+        let mut kept = if report.cancelled {
+            std::mem::take(&mut states.consents)
+        } else {
+            Vec::new()
+        };
+        for consent in given_since {
+            if !kept.contains(&consent) {
+                kept.push(consent);
+            }
         }
+        states.consents = kept;
         // Pinned files kept in the cloud come down now (within the limit; the rest wait) - and,
         // when the pairing downloads everything (on-demand switched off), every cloud-only
         // file the user did not free up.
@@ -1420,8 +1440,17 @@ impl SyncSession {
     /// When the states cannot be kept.
     pub fn answer_burst(&self) -> CloudResult<()> {
         let mut states = self.states();
-        states.allow_burst = true;
-        states.burst = None;
+        // The answer is to the pause the user was shown; with none waiting there is nothing to
+        // answer (a later pause is another question).
+        let Some(pause) = states.burst.take() else {
+            return Ok(());
+        };
+        states.consents.retain(|c| c.kind != ConsentKind::Burst);
+        states.consents.push(Consent::new(
+            ConsentKind::Burst,
+            &[pause.identity().as_str()],
+            crate::now(),
+        ));
         states.save(&self.dir)
     }
 
@@ -1438,7 +1467,14 @@ impl SyncSession {
             return Ok(());
         };
         if delete_too {
-            states.allow_mass_delete = true;
+            // For these files and no others: a later plan that deletes another set asks again.
+            let keys: Vec<&str> = asked.keys.iter().map(String::as_str).collect();
+            states
+                .consents
+                .retain(|c| c.kind != ConsentKind::MassDelete);
+            states
+                .consents
+                .push(Consent::new(ConsentKind::MassDelete, &keys, crate::now()));
         } else {
             let path = self.index_path();
             if let Some(mut index) = LocalIndex::load(&path)? {
@@ -1448,8 +1484,11 @@ impl SyncSession {
                     };
                     // A time no file has: the next scan reads the file again.
                     entry.mtime_ns = 0;
-                    if asked.here {
-                        // Not what the drive deleted: the copy here is a change, and goes up.
+                    // One question can hold both directions (S9): each file is kept the way it
+                    // is. A copy still here is what the drive deleted elsewhere - not what the
+                    // drive deleted: it is a change, and goes up; a file gone from here is kept
+                    // on the drive, in the cloud only here.
+                    if matches!(local::stat_now(&self.setup.folder, key), Ok(Some(_))) {
                         entry.hash = String::from("kept");
                         entry.cloud_only = false;
                     } else {
