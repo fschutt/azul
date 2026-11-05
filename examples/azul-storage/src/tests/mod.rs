@@ -42,6 +42,9 @@ mod meta;
 mod names;
 mod oauth;
 mod ops;
+/// The restore protocol: the truth table of `judge`, the baseline of a new pairing, the pure
+/// rebase of a base after a restore.
+mod restore;
 mod s3;
 mod scoped;
 /// The one private place for what a program keeps for a while: a spool above its memory limit, the
