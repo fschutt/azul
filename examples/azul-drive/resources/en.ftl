@@ -1119,6 +1119,7 @@ azdrive-name-empty = A name cannot be empty.
 azdrive-name-reserved = "{ $name }" is reserved.
 azdrive-name-forbidden-chars = A name cannot contain any of these characters: \ / : * ? " < > |
 azdrive-name-control-chars = A name cannot contain control characters.
+azdrive-name-unusable = This computer cannot use this name: { $why }
 azdrive-copy-word = Copy
 
 ## Periods and lockdowns
