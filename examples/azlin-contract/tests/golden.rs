@@ -12,7 +12,8 @@ use azlin_contract::{
     Months, ReadOnlyWhy, RefreshRefusal, Rfc3339, SemVer, StoredBytes, TierId, FIXTURES,
 };
 use azlin_contract::{
-    AbandonAnswer, AbandonWire, CheckoutAnswer, CheckoutRefusal, CheckoutStatusWire, DeclineWire,
+    AbandonAnswer, AbandonWire, CheckoutAnswer, CheckoutRefusal, CheckoutStatusWire, ClaimRefusal,
+    DeclineWire,
     LadderRef, Legal, MailTo, Prepay, ReceiptWire, RetentionAddon, ScheduledChange, Settles,
     TierClosed, TierOffer, TierPriceWire, TiersAnswer,
 };
@@ -184,6 +185,13 @@ fn the_ids_and_units_read_and_write_their_fixture() {
         at: Rfc3339::parse("2026-10-21T08:00:00Z").expect("time"),
     };
     golden("ids.json", &ids);
+}
+
+/// The two refusals of a drive's pick-up (`POST /v1/drives/{id}/claim`): the apps used to compare
+/// their words as text before the contract had the type (ARCH28 RF51).
+#[test]
+fn every_claim_refusal_reads_and_writes_its_fixture() {
+    golden("claim_refusals.json", &ClaimRefusal::ALL.to_vec());
 }
 
 #[test]

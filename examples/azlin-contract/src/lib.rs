@@ -92,6 +92,7 @@ pub const FIXTURES: &[(&str, &str)] = &[
     ("abandon_answers.json", include_str!("../fixtures/abandon_answers.json")),
     ("checkout_answers.json", include_str!("../fixtures/checkout_answers.json")),
     ("checkout_refusals.json", include_str!("../fixtures/checkout_refusals.json")),
+    ("claim_refusals.json", include_str!("../fixtures/claim_refusals.json")),
     ("tiers_answer.json", include_str!("../fixtures/tiers_answer.json")),
     ("azlin_errors.json", include_str!("../fixtures/azlin_errors.json")),
     ("client_hello.json", include_str!("../fixtures/client_hello.json")),
