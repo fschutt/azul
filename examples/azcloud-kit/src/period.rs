@@ -914,11 +914,48 @@ pub fn redeem_voucher_on_drive(
     })
 }
 
+/// A voucher's answer for a new drive, and the outbox call that asked for it, still OPEN: the
+/// call is closed by [`VoucherAnswer::stored`] once the caller has the answer's drive - its first
+/// drive token - in the keyring. Until then a repeat carries the same key and gets the same drive
+/// again (its token rotated once more): a keyring that refused the write, or a process that died
+/// between the answer and the write, loses neither the voucher nor the drive (AZ-P15; a
+/// pick-up's claim keeps its call open the same way).
+#[derive(Debug)]
+#[must_use = "the call stays open until the drive is stored: close it with `stored`"]
+pub struct VoucherAnswer {
+    redeemed: crate::token::VoucherRedeemed,
+    call: Option<crate::outbox::OpenCall>,
+}
+
+impl VoucherAnswer {
+    /// What the token server answered.
+    #[must_use]
+    pub fn redeemed(&self) -> &crate::token::VoucherRedeemed {
+        &self.redeemed
+    }
+
+    /// The drive is in the keyring: the call is closed, and the answer is the caller's.
+    pub fn stored(self) -> crate::token::VoucherRedeemed {
+        if let Some(call) = self.call {
+            call.close();
+        }
+        self.redeemed
+    }
+
+    /// The answer, the call left open: the drive is not stored (yet), and a repeat of the same
+    /// voucher asks for it again.
+    pub fn unstored(self) -> crate::token::VoucherRedeemed {
+        self.redeemed
+    }
+}
+
 /// A voucher `code` that makes a new drive of `tier` (`POST /v1/vouchers/redeem` without a
-/// drive), named by an idempotency key the keyring's outbox keeps until a final answer came: a
-/// lost answer is asked again with the same key and answers the same drive (its token rotated
-/// once more), not "not valid" - the voucher is spent by then. The outbox names the code only by
-/// its hash.
+/// drive), named by an idempotency key the keyring's outbox keeps until the drive is STORED
+/// ([`VoucherAnswer::stored`]), not merely answered: a lost answer - or one the keyring did not
+/// take - is asked again with the same key and answers the same drive (its token rotated once
+/// more), not "not valid" - the voucher is spent by then. A refusal that will not change closes
+/// the call; an answer that holds days and no drive needs no storing and closes it too. The
+/// outbox names the code only by its hash.
 ///
 /// # Errors
 ///
@@ -928,18 +965,35 @@ pub fn redeem_voucher_for_new_drive(
     shared: &SharedKeyring,
     code: &str,
     tier: &str,
-) -> Result<crate::token::VoucherRedeemed, TokenError> {
+) -> Result<VoucherAnswer, TokenError> {
     let named = format!(
         "{} {}",
         hex(&blake3::hash(code.trim().as_bytes()).as_bytes()[..8]),
         tier.trim()
     );
-    shared.outbox().send(
-        azlin_contract::IdempotentScope::Voucher,
-        NEW_DRIVE,
-        &named,
-        |key| server.redeem_voucher(code, None, tier, key),
-    )
+    let call = shared
+        .outbox()
+        .open(azlin_contract::IdempotentScope::Voucher, NEW_DRIVE, &named)?;
+    match server.redeem_voucher(code, None, tier, call.key()) {
+        Ok(redeemed @ crate::token::VoucherRedeemed::NewDrive(_)) => Ok(VoucherAnswer {
+            redeemed,
+            call: Some(call),
+        }),
+        // Days, no drive: nothing to store.
+        Ok(redeemed) => {
+            call.close();
+            Ok(VoucherAnswer {
+                redeemed,
+                call: None,
+            })
+        }
+        Err(e) => {
+            if crate::outbox::is_final_error(&e) {
+                call.close();
+            }
+            Err(e)
+        }
+    }
 }
 
 /// The outbox's name for the drive a call makes (a voucher's new drive): no drive id exists yet.

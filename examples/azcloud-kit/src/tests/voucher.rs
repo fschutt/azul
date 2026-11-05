@@ -128,14 +128,86 @@ fn a_new_drive_s_voucher_whose_answer_was_lost_is_asked_again_with_the_same_key(
     let lost = crate::period::redeem_voucher_for_new_drive(&server, &shared, "AZ-TEST-1234", "1TB");
     assert!(lost.is_err(), "no answer: {lost:?}");
     match crate::period::redeem_voucher_for_new_drive(&server, &shared, "AZ-TEST-1234", "1TB") {
-        Ok(VoucherRedeemed::NewDrive(bundle)) => assert_eq!(bundle.drive_token, "dt_f.1.bbb"),
-        other => panic!("not the drive: {other:?}"),
+        Ok(answer) => match answer.stored() {
+            VoucherRedeemed::NewDrive(bundle) => assert_eq!(bundle.drive_token, "dt_f.1.bbb"),
+            other => panic!("not the drive: {other:?}"),
+        },
+        Err(e) => panic!("not the drive: {e:?}"),
     }
-    // answered: the same words again are another request, with a key of its own
+    // answered and stored: the same words again are another request, with a key of its own
     let fresh = crate::period::redeem_voucher_for_new_drive(&server, &shared, "AZ-TEST-1234", "1TB");
     assert!(fresh.is_ok(), "{fresh:?}");
     let keys = keys.lock().unwrap().clone();
     assert_eq!(keys.len(), 3, "{keys:?}");
     assert!(!keys[0].is_empty() && keys[0] == keys[1], "the same key: {keys:?}");
     assert_ne!(keys[2], keys[0], "a closed call's key is not used again: {keys:?}");
+}
+
+/// AZ-P15: the call of a new drive's voucher is closed when the drive is STORED, not when it is
+/// answered. A keyring that refuses the write, or a process that dies between the answer and the
+/// write, leaves the call open: the repeat carries the same key and gets the same drive again
+/// (before, the call was closed on the answer, the repeat was "not valid" and the first drive
+/// token was lost with the voucher spent).
+#[test]
+fn az_p15_a_new_drives_voucher_stays_open_until_the_drive_is_stored() {
+    let keys = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let seen = keys.clone();
+    let fake = Fake::new(move |call, _| {
+        let key = header(call, azlin_contract::IDEMPOTENCY_HEADER).unwrap_or_default();
+        seen.lock().unwrap().push(key.to_string());
+        if header(call, "authorization").is_none() && call.body.windows(4).any(|w| w == b"BAD!") {
+            return Ok(json(400, r#"{"error": "voucher_invalid", "message": "not a voucher"}"#));
+        }
+        Ok(json(201, &bundle("AKID1", "2026-10-08T21:15:00Z", "dt_f.1.bbb")))
+    });
+    let transport = Shared(fake);
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    let dir = azul_storage::testing::TempDir::new("azcloud-voucher");
+    let shared = super::keyring_holding(&dir, "dt_a.1.x");
+    let ask =
+        |code: &str| crate::period::redeem_voucher_for_new_drive(&server, &shared, code, "1TB");
+
+    // Answered, and the drive was not stored (the keyring refused, the process died).
+    let first = ask("AZ-TEST-1234").expect("the drive");
+    assert!(matches!(first.redeemed(), VoucherRedeemed::NewDrive(_)));
+    let _ = first.unstored();
+    let outbox = shared.outbox();
+    assert!(
+        outbox
+            .pending(azlin_contract::IdempotentScope::Voucher, "new-drive")
+            .is_some(),
+        "the call is still open"
+    );
+    // The repeat: the same key, so the same drive.
+    let second = ask("AZ-TEST-1234").expect("the same drive again");
+    // Stored: the call is closed, the next request has a key of its own.
+    let _ = second.stored();
+    assert!(
+        outbox
+            .pending(azlin_contract::IdempotentScope::Voucher, "new-drive")
+            .is_none(),
+        "closed once stored"
+    );
+    let third = ask("AZ-TEST-1234").expect("another request");
+    let _ = third.stored();
+    let keys = keys.lock().unwrap().clone();
+    assert_eq!(keys.len(), 3, "{keys:?}");
+    assert!(
+        !keys[0].is_empty() && keys[0] == keys[1],
+        "the same key until stored: {keys:?}"
+    );
+    assert_ne!(
+        keys[2], keys[0],
+        "a stored drive's call is not used again: {keys:?}"
+    );
+
+    // A refusal that will not change closes the call: the next code is not held back by it.
+    let refused = ask("BAD!");
+    assert!(refused.is_err(), "{refused:?}");
+    assert!(
+        outbox
+            .pending(azlin_contract::IdempotentScope::Voucher, "new-drive")
+            .is_none(),
+        "a final refusal closes the call"
+    );
 }

@@ -3923,27 +3923,48 @@ fn redeem_voucher(
             grant,
         };
     }
-    let result = match azcloud_kit::period::redeem_voucher_for_new_drive(&server, keyring, code, tier) {
-        Ok(VoucherRedeemed::NewDrive(bundle)) => {
-            let bundle = *bundle;
-            println!("AZDRIVE_VOUCHER new {}", bundle.drive_id());
-            Ok(match keyring.keep_new_drive(&bundle) {
-                Ok((session, _)) => BoughtDrive {
-                    bundle,
-                    session,
-                    unsaved: None,
-                },
-                Err(e) => BoughtDrive {
-                    session: bundle.session().to_keyring_secret(),
-                    bundle,
-                    unsaved: Some(e.to_string()),
-                },
-            })
-        }
-        Ok(VoucherRedeemed::Extended { .. }) => Err(Text::key("azdrive-add-days-not-drive")),
-        Err(e) => Err(token_error_text(&e)),
-    };
+    let result = azcloud_kit::period::redeem_voucher_for_new_drive(&server, keyring, code, tier)
+        .map_err(|e| token_error_text(&e))
+        .and_then(|answer| keep_voucher_drive(keyring, answer));
     Outcome::Bought { serial, result }
+}
+
+/// A voucher's new drive into the keyring. The voucher's outbox call is closed once the drive IS
+/// in the keyring; a keyring that refuses leaves it open - the drive is handed on unsaved (the
+/// dialog retries from its session) and a repeat of the voucher gets the same drive again, never
+/// "not valid" for a spent voucher (AZ-P15).
+fn keep_voucher_drive(
+    keyring: &SharedKeyring,
+    answer: azcloud_kit::period::VoucherAnswer,
+) -> Result<BoughtDrive, Text> {
+    let new_drive = match answer.redeemed() {
+        VoucherRedeemed::NewDrive(bundle) => Some((**bundle).clone()),
+        VoucherRedeemed::Extended { .. } => None,
+    };
+    // Days and no drive: nothing was made to store.
+    let Some(bundle) = new_drive else {
+        let _ = answer.stored();
+        return Err(Text::key("azdrive-add-days-not-drive"));
+    };
+    println!("AZDRIVE_VOUCHER new {}", bundle.drive_id());
+    Ok(match keyring.keep_new_drive(&bundle) {
+        Ok((session, _)) => {
+            let _ = answer.stored();
+            BoughtDrive {
+                bundle,
+                session,
+                unsaved: None,
+            }
+        }
+        Err(e) => {
+            let _ = answer.unstored();
+            BoughtDrive {
+                session: bundle.session().to_keyring_secret(),
+                bundle,
+                unsaved: Some(e.to_string()),
+            }
+        }
+    })
 }
 
 /// Runs on a worker thread: the blocking storage call, then its answer to
