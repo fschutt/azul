@@ -9,6 +9,12 @@
 //! the tier. The second pass also diffed against the display list the first had
 //! cached, so a change the first pass had already taken in looked like no change
 //! to the second: the stale frame of batch 2, line 27 (`justify-content`).
+//!
+//! R2 - re-setting the value a node already resolves to relaid the window out
+//! all the same (`apply_node_css_change` had no old-versus-new guard, unlike
+//! `apply_node_style_change`'s `*old == new_style`). The write is still
+//! recorded - it pins the value against a later `:hover` or cascade change - but
+//! there is nothing to lay out or paint.
 
 use super::{run_e2e_test, E2eTest, E2eTestResult};
 
@@ -52,8 +58,9 @@ fn assert_passes(result: &E2eTestResult) {
     );
 }
 
-/// The page the cost tests mount: a flex row with a box and a sibling, every
-/// property the tests touch declared by the stylesheet.
+/// The page the cost tests mount: a flex row with a box and a sibling. Each
+/// property a no-op test re-sets is declared by the stylesheet, so "the value it
+/// already has" is the cascade's.
 fn page() -> Vec<serde_json::Value> {
     vec![
         serde_json::json!({
@@ -162,4 +169,106 @@ fn r3_a_justify_content_override_repaints_what_it_moved() {
     steps
         .push(serde_json::json!({ "op": "assert_changed", "vs": "before", "min_damage_rects": 1 }));
     assert_passes(&run("r3_justify_content", steps));
+}
+
+/// R2. Re-setting the value the node already has costs no layout pass, and
+/// repaints nothing.
+#[test]
+fn r2_re_setting_the_value_a_node_already_has_lays_nothing_out() {
+    let mut steps = page();
+    steps.push(serde_json::json!({ "op": "reset_frame_counters" }));
+    steps.push(serde_json::json!({ "op": "snapshot_frame", "as": "before" }));
+    steps.push(serde_json::json!({
+        "op": "set_node_css_override", "selector": "#box", "property": "width", "value": "100px",
+    }));
+    steps.push(serde_json::json!({ "op": "wait_frame" }));
+    steps.push(serde_json::json!({ "op": "assert_work_bounded", "exact_layout_passes": 0 }));
+    steps.push(serde_json::json!({ "op": "assert_damage", "kind": "none" }));
+    steps.push(serde_json::json!({ "op": "assert_idle_stable", "vs": "before" }));
+    assert_passes(&run("r2_same_width", steps));
+}
+
+/// R2, for every property a one-liner of the corpus re-sets: the value the
+/// stylesheet declares is the value the node has, shorthands included.
+#[test]
+fn r2_re_setting_each_declared_value_costs_no_layout_pass() {
+    let declared: [(&str, &str, &str); 14] = [
+        ("#root", "display", "flex"),
+        ("#root", "flex-direction", "row"),
+        ("#root", "justify-content", "flex-start"),
+        ("#root", "align-items", "stretch"),
+        ("#box", "display", "block"),
+        ("#box", "width", "100px"),
+        ("#box", "height", "80px"),
+        ("#box", "padding", "0px"),
+        ("#box", "margin", "0px"),
+        ("#box", "border-width", "2px"),
+        ("#box", "flex-grow", "0"),
+        ("#box", "overflow", "visible"),
+        ("#box", "position", "static"),
+        ("#box", "visibility", "visible"),
+    ];
+    let mut red = Vec::new();
+    for (selector, property, value) in declared {
+        let result = cost_of(
+            "r2_declared_value",
+            &[(selector, property, value)],
+            serde_json::json!({ "exact_layout_passes": 0 }),
+        );
+        if result.status != "pass" {
+            red.push(format!(
+                "{selector} {property}: {value}\n{}",
+                failures(&result)
+            ));
+        }
+    }
+    assert!(
+        red.is_empty(),
+        "re-setting a declared value must lay nothing out:\n{}",
+        red.join("\n")
+    );
+}
+
+/// R2: a real change after a no-op still costs its pass, and a no-op does not
+/// leave the window thinking the value moved.
+#[test]
+fn r2_a_real_change_after_a_no_op_still_lays_out() {
+    assert_passes(&cost_of(
+        "r2_then_real",
+        &[("#box", "width", "100px"), ("#box", "width", "300px")],
+        serde_json::json!({ "exact_layout_passes": 1 }),
+    ));
+}
+
+/// R2: the no-op write is still RECORDED. The override pins the width against a
+/// later `:hover` rule (a user override outranks every declaration), so the
+/// pointer entering the box does not widen it. A fix that dropped the write
+/// would let `#hov:hover { width: 200px }`-style rules win again.
+#[test]
+fn r2_the_no_op_write_still_pins_the_value() {
+    let mut steps = vec![
+        serde_json::json!({
+            "op": "mount",
+            "html": ["<body><div id=\"hov\"></div></body>"],
+            "css": [
+                "html, body { margin: 0; padding: 0; }",
+                "#hov { width: 100px; height: 80px; background: #0000ff; }",
+                "#hov:hover { width: 200px; }",
+            ],
+        }),
+        serde_json::json!({ "op": "wait_frame" }),
+        serde_json::json!({ "op": "wait", "ms": 100 }),
+        serde_json::json!({
+            "op": "set_node_css_override", "selector": "#hov", "property": "width",
+            "value": "100px",
+        }),
+        serde_json::json!({ "op": "wait_frame" }),
+    ];
+    steps.push(serde_json::json!({ "op": "mouse_move", "selector": "#hov" }));
+    steps.push(serde_json::json!({ "op": "wait_frame" }));
+    steps.push(serde_json::json!({ "op": "wait", "ms": 100 }));
+    steps.push(serde_json::json!({
+        "op": "assert_layout", "selector": "#hov", "property": "width", "expected": 100,
+    }));
+    assert_passes(&run("r2_pin", steps));
 }

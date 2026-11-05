@@ -822,6 +822,7 @@ pub struct FrameReport {
     /// | idle tick               | 0                     | 0                   | 0               |
     /// | inert pointer event     | 1                     | 0                   | 0               |
     /// | `set_node_css_override` | 0                     | 0                   | 1               |
+    /// | same, value unchanged   | 0                     | 0                   | 0               |
     /// | resize / mount          | 1 / 0                 | 1                   | 1               |
     ///
     /// The second and third rows are the two directions the over-invalidation
@@ -10234,6 +10235,15 @@ impl LayoutWindow {
     }
 
     /// The node-CSS arm of [`Self::apply_content_change`].
+    ///
+    /// A write of the value every incoming property is ALREADY resolved to (the
+    /// stylesheet's own `width: 200px`, written again as `200px`) is recorded and
+    /// nothing more: the override pins the value against a later `:hover` or
+    /// cascade change and the inline style stays in sync for the reconcile, but
+    /// there is nothing to lay out or paint, and the tier is
+    /// `ContentDirtyTier::Unchanged`. `apply_node_style_change` has the same
+    /// guard (`*old == new_style`); this arm had none and relaid the window out
+    /// for every such write (`gen-e2e` batch 2: 20 of 26 no-op scenarios red).
     fn apply_node_css_change(
         &mut self,
         dom_id: DomId,
@@ -10266,7 +10276,7 @@ impl LayoutWindow {
         // it back to `from` on its first tick and walks it to `to`, so the
         // worst case (no tick — see `needs_animation_frame`) is exactly the
         // snap this path did before, never a property that fails to change.
-        let seeded: Vec<CssTransition> = {
+        let (seeded, resolves_already): (Vec<CssTransition>, bool) = {
             use azul_css::dynamic_selector::ResolveSystemColors;
             let cache = &layout_result.styled_dom.css_property_cache.ptr;
             // The endpoints are what the frames SHOW, so a `system:` colour
@@ -10280,6 +10290,16 @@ impl LayoutWindow {
                     tier: ContentDirtyTier::Unchanged,
                 };
             };
+            // Does the node ALREADY resolve every incoming property to the value it
+            // carries? Read here, like `from` below, while the inline write has not yet
+            // made the resolver answer the new value. A property the node declares
+            // nowhere does not count: nothing says that it equals the incoming one.
+            let resolves_already = !props.is_empty()
+                && props.iter().all(|prop| {
+                    cache
+                        .get_property(nd, &node_id, &state.styled_node_state, &prop.get_type())
+                        .is_some_and(|resolved| resolved == prop)
+                });
             // The box's laid-out size in the box `box-sizing` measures
             // lengths in: where a size tween from `auto` starts
             // (`size_transition_start`).
@@ -10334,7 +10354,7 @@ impl LayoutWindow {
                     }
                     _ => None,
                 });
-            match anims {
+            let seeded = match anims {
                 None => Vec::new(),
                 Some(anims) => props
                     .iter()
@@ -10370,7 +10390,8 @@ impl LayoutWindow {
                         ))
                     })
                     .collect(),
-            }
+            };
+            (seeded, resolves_already)
         };
 
         // AFTER the transitions are seeded: `from` must be read while the
@@ -10406,6 +10427,15 @@ impl LayoutWindow {
             .chain(seeded.iter().map(|tr| (tr.node, tr.from.clone())))
             .collect();
         let _restyle_result = layout_result.styled_dom.restyle_user_properties(&writes);
+        // The value the node already resolves to, written again: the pin above is the whole
+        // effect. Nothing is laid out, no display list is rebuilt, and the tier says so, so
+        // the host runs no frame for it. (A seeded transition is a change of its own: it
+        // holds the node at `from` and walks it on.)
+        if resolves_already && seeded.is_empty() {
+            return ContentChangeResult {
+                tier: ContentDirtyTier::Unchanged,
+            };
+        }
         // Paint-only properties must not charge a layout pass
         // (a per-frame animated colour would re-layout the world).
         let props_vec: azul_css::props::property::CssPropertyVec = props.into();
