@@ -162,6 +162,8 @@
 mod actions;
 /// One notice per user action that moves files: what it does, then how it went.
 mod transfer_actions;
+#[cfg(test)]
+mod delete_tests;
 /// The window's close while transfers, sync passes or an encryption run.
 mod closing;
 /// When a drive's keys are read from the keychain (lazily, quietly, in rounds) and wiped.
@@ -3071,7 +3073,14 @@ pub(crate) extern "C" fn on_job_done(
                     .filter(|(_, to)| !to.is_empty())
                     .cloned()
                     .collect();
-                if trashed.is_empty() {
+                if trashed.is_empty() && actions::keeps_history(s, &drive_id) {
+                    // The drive keeps its last days: "for good" would not be true (AZ-U12).
+                    s.success(
+                        Phrase::new("azdrive-deleted-with-history")
+                            .arg("count", gone.len())
+                            .arg("days", restore::RESTORE_DAYS),
+                    );
+                } else if trashed.is_empty() {
                     s.success(Phrase::new("azdrive-deleted-for-good").arg("count", gone.len()));
                 } else {
                     s.success(Phrase::new("azdrive-trashed").arg("count", trashed.len()));

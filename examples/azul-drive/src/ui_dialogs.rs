@@ -205,21 +205,45 @@ pub(crate) fn popup_parts(popup: &Popup, s: &DriveState, app: &RefAny) -> (Strin
                 &[
                     ("count", Arg::from(items.len())),
                     ("name", Arg::from(name)),
+                    ("drive", Arg::from(drive.clone())),
+                ],
+            );
+            // What is true of this delete (AZ-U12): a folder is one item with everything in it;
+            // "cannot be undone" only for a drive that keeps no history.
+            let mut detail = Vec::new();
+            if items.iter().any(|item| item.is_folder) {
+                detail.push(t("azdrive-delete-folders"));
+            }
+            detail.push(if actions::keeps_history(s, drive_id) {
+                t_args(
+                    "azdrive-delete-can-restore",
+                    &[("days", Arg::from(crate::restore::RESTORE_DAYS))],
+                )
+            } else {
+                t("azdrive-delete-cannot-undo")
+            });
+            let warning = t_args(
+                "azdrive-delete-warning",
+                &[
+                    ("count", Arg::from(items.len())),
                     ("drive", Arg::from(drive)),
                 ],
             );
-            // azul's standard message box (DEDUP_OFFICE D12): Cancel (0) / Delete (1).
+            // azul's standard message box (DEDUP_OFFICE D12): Cancel (0) / Delete (1). Enter
+            // answers Cancel: the destructive button is never the default (AZ-U12), and wears
+            // the danger face with its own words for assistive technology.
             (
                 title.clone(),
                 MessageBox::create(MessageBoxKind::Warning, title, question)
-                    .with_detail(t("azdrive-delete-cannot-undo"))
+                    .with_detail(detail.join(" "))
                     .with_buttons(
                         vec![
                             l10n::label("kit-button-cancel"),
                             l10n::label("azdrive-delete-button"),
                         ],
-                        1,
+                        DELETE_DEFAULT,
                     )
+                    .with_destructive_button(DELETE_BUTTON, warning)
                     .with_on_event(
                         app.clone(),
                         on_confirm_delete_event as StandardDialogOnEventCallbackType,
@@ -240,7 +264,7 @@ pub(crate) fn popup_parts(popup: &Popup, s: &DriveState, app: &RefAny) -> (Strin
                             l10n::label("kit-button-cancel"),
                             l10n::label("azdrive-forget-button"),
                         ],
-                        1,
+                        DELETE_DEFAULT,
                     )
                     .with_on_event(
                         app.clone(),
@@ -834,10 +858,16 @@ pub(crate) extern "C" fn on_cancel_popup(mut data: RefAny, mut info: CallbackInf
     })
 }
 
+/// The destructive button of a delete or forget question (Cancel is the first).
+const DELETE_BUTTON: usize = 1;
+
+/// The button Enter answers: Cancel. The destructive one is never the default (AZ-U12).
+const DELETE_DEFAULT: usize = 0;
+
 /// Whether a message box's event is its second button (Delete, Remove): every other answer
 /// (Cancel, Escape, the close box) keeps things as they are.
 fn confirmed(event: &StandardDialogEvent) -> bool {
-    event.kind == StandardDialogEventKind::Button && event.index == 1
+    event.kind == StandardDialogEventKind::Button && event.index == DELETE_BUTTON
 }
 
 extern "C" fn on_confirm_delete_event(

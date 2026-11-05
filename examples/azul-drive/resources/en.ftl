@@ -386,6 +386,12 @@ azdrive-delete-question = Are you sure you want to delete { $count ->
        *[other] these { $count } items
     } from "{ $drive }" for good?
 azdrive-delete-cannot-undo = This cannot be undone.
+azdrive-delete-can-restore = The drive keeps its last { $days } days: "Restore as of…" in its menu brings deleted files back.
+azdrive-delete-folders = A folder goes with everything in it.
+azdrive-delete-warning = { $count ->
+        [one] Deletes one item
+       *[other] Deletes { $count } items
+    } from "{ $drive }".
 azdrive-delete-button = Delete
 azdrive-forget-title = Remove the drive "{ $name }"?
 azdrive-forget-what = AzDrive forgets the drive and removes its keys from the keyring.
@@ -1103,6 +1109,13 @@ azdrive-deleted-for-good = { $count ->
         [one] Deleted one item for good.
        *[other] Deleted { $count } items for good.
     }
+azdrive-deleted-with-history = Deleted { $count ->
+        [one] one item
+       *[other] { $count } items
+    }. "Restore as of…" in the drive's menu brings { $count ->
+        [one] it
+       *[other] them
+    } back for { $days } days.
 azdrive-trashed = { $count ->
         [one] Moved one item
        *[other] Moved { $count } items

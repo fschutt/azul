@@ -2804,6 +2804,34 @@ pub(crate) fn confirm_delete(info: &mut CallbackInfo, app: &RefAny, s: &mut Driv
     delete_for_good(info, app, s, drive_id, items);
 }
 
+/// Whether a delete from a drive in `state` can be taken back by "Restore as of…": by the policy
+/// the restore itself asks ([`RestoreKind::Files`], an encrypted Azlin drive, whose repository has
+/// the history). `None`: a drive without an encryption seam, and any state the restore would not
+/// restore from - there the delete is for good as far as AzDrive can tell.
+#[cfg(feature = "encryption")]
+pub(crate) fn history_kept(state: Option<azul_storage::trust::EncState>) -> bool {
+    state.is_some_and(|state| state.restore_kind() == azul_storage::trust::RestoreKind::Files)
+}
+
+/// Whether what is deleted from drive `drive_id` is kept for [`crate::restore::RESTORE_DAYS`]
+/// days (AZ-U12: the question said "This cannot be undone" for those drives too, and the message
+/// after it "for good").
+pub(crate) fn keeps_history(s: &DriveState, drive_id: &str) -> bool {
+    #[cfg(feature = "encryption")]
+    {
+        let state = s
+            .slot_index(drive_id)
+            .and_then(|index| s.slots[index].auto.as_ref())
+            .map(|auto| auto.state());
+        history_kept(state)
+    }
+    #[cfg(not(feature = "encryption"))]
+    {
+        let _ = (s, drive_id);
+        false
+    }
+}
+
 fn delete_for_good(
     info: &mut CallbackInfo,
     app: &RefAny,

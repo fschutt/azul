@@ -384,6 +384,12 @@ azdrive-delete-question = Möchtest du { $count ->
        *[other] diese { $count } Elemente
     } endgültig aus „{ $drive }“ löschen?
 azdrive-delete-cannot-undo = Das kann nicht rückgängig gemacht werden.
+azdrive-delete-can-restore = Das Laufwerk behält die letzten { $days } Tage: „Wiederherstellen auf den Stand von…“ in seinem Menü holt gelöschte Dateien zurück.
+azdrive-delete-folders = Ein Ordner geht mit allem darin.
+azdrive-delete-warning = { $count ->
+        [one] Löscht ein Element
+       *[other] Löscht { $count } Elemente
+    } aus „{ $drive }“.
 azdrive-delete-button = Löschen
 azdrive-forget-title = Laufwerk „{ $name }“ entfernen?
 azdrive-forget-what = AzDrive vergisst das Laufwerk und entfernt seine Schlüssel aus dem Schlüsselbund.
@@ -1101,6 +1107,13 @@ azdrive-deleted-for-good = { $count ->
         [one] Ein Element wurde endgültig gelöscht.
        *[other] { $count } Elemente wurden endgültig gelöscht.
     }
+azdrive-deleted-with-history = { $count ->
+        [one] Ein Element wurde gelöscht.
+       *[other] { $count } Elemente wurden gelöscht.
+    } „Wiederherstellen auf den Stand von…“ im Menü des Laufwerks holt { $count ->
+        [one] es
+       *[other] sie
+    } { $days } Tage lang zurück.
 azdrive-trashed = { $count ->
         [one] Ein Element wurde
        *[other] { $count } Elemente wurden
