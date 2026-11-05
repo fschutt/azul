@@ -66,26 +66,49 @@ fn a_scan_finds_the_files_the_rules_let_through_and_never_follows_a_link() {
     assert!(missing.is_err(), "a missing folder is an error, not an empty scan");
 }
 
+/// What the base keeps of `a.txt` under `root` as a scan left it: size, time, status-change time
+/// and the file's identity.
+fn base_entry_of(root: &Path, name: &str, hash: &str) -> BaseEntry {
+    let st = azul_storage::beneath::Root::open(root)
+        .unwrap()
+        .top()
+        .unwrap()
+        .lstat(name)
+        .unwrap();
+    BaseEntry {
+        hash: hash.to_string(),
+        size: st.size,
+        mtime_ns: st.mtime_ns,
+        ctime_ns: st.ctime_ns,
+        ino: st.ino,
+        dev: st.dev,
+        ..BaseEntry::default()
+    }
+}
+
 #[test]
 fn an_unchanged_file_keeps_its_base_hash_unless_its_time_is_racy() {
     let dir = TempDir::new("azcloud-racy");
     let root = dir.path();
     write(root, "a.txt", b"one");
     let meta = fs::metadata(root.join("a.txt")).unwrap();
+    // The base as a scan wrote it, with the file's identity; where the system gives none (an
+    // inode of 0) the hash is not taken on a guess - see the X8 tests below.
     let entry = BaseEntry {
-        hash: String::from("cached"),
-        size: 3,
         mtime_ns: mtime_ns(&meta),
-        ..BaseEntry::default()
+        ..base_entry_of(root, "a.txt", "cached")
     };
+    let known = entry.id().is_known();
     let base: BTreeMap<String, BaseEntry> = [(String::from("a.txt"), entry.clone())].into();
     let long_after = entry.mtime_ns + 10 * RACY_NS;
     let s = scan(root, &Rules::none(), &base, long_after, &[], u64::MAX).unwrap();
-    assert_eq!(
-        s.files["a.txt"].hash, "cached",
-        "size and time say unchanged"
-    );
-    assert_eq!(s.hashed, 0);
+    if known {
+        assert_eq!(
+            s.files["a.txt"].hash, "cached",
+            "size, time and identity say unchanged"
+        );
+        assert_eq!(s.hashed, 0);
+    }
     let s = scan(
         root,
         &Rules::none(),
@@ -103,6 +126,90 @@ fn an_unchanged_file_keeps_its_base_hash_unless_its_time_is_racy() {
     let s = scan(root, &Rules::none(), &base, long_after, &[], 2).unwrap();
     assert!(s.files.is_empty());
     assert!(s.skipped[0].1.contains("--max-file-mb"));
+}
+
+#[test]
+fn x_ar5a_8_a_base_entry_without_an_inode_is_read_again_not_taken_for_unchanged() {
+    // An inode of 0 (a base an older version wrote, a system without inodes) used to match any
+    // file: size and time alone kept the cached hash, and `0 == 0` made every file the same one.
+    let dir = TempDir::new("azcloud-x8-scan");
+    let root = dir.path();
+    write(root, "a.txt", b"one");
+    let long_after = u64::MAX / 2;
+    let known = base_entry_of(root, "a.txt", "stale");
+    let unknown = BaseEntry {
+        ino: 0,
+        dev: 0,
+        ..known.clone()
+    };
+    let mut base: BTreeMap<String, BaseEntry> = BTreeMap::new();
+    base.insert(String::from("a.txt"), unknown);
+    let s = scan(root, &Rules::none(), &base, long_after, &[], u64::MAX).unwrap();
+    assert_eq!(
+        s.files["a.txt"].hash,
+        hash_bytes(b"one"),
+        "no identity: the file is read, the base's hash is not trusted"
+    );
+    assert_eq!(s.hashed, 1);
+    // The same entry with its identity is trusted, and another inode is not the same file.
+    #[cfg(unix)]
+    {
+        base.insert(String::from("a.txt"), known.clone());
+        let s = scan(root, &Rules::none(), &base, long_after, &[], u64::MAX).unwrap();
+        assert_eq!(s.files["a.txt"].hash, "stale");
+        assert_eq!(s.hashed, 0);
+        base.insert(
+            String::from("a.txt"),
+            BaseEntry {
+                ino: known.ino + 1,
+                ..known
+            },
+        );
+        let s = scan(root, &Rules::none(), &base, long_after, &[], u64::MAX).unwrap();
+        assert_eq!(s.files["a.txt"].hash, hash_bytes(b"one"));
+        assert_eq!(s.hashed, 1);
+    }
+}
+
+#[test]
+fn x_ar5a_8_a_scanned_file_without_an_inode_is_never_still_there() {
+    use crate::sync::local::{Content, LocalFile};
+    let dir = TempDir::new("azcloud-x8-matches");
+    let root = dir.path();
+    write(root, "a.txt", b"one");
+    let st = azul_storage::beneath::Root::open(root)
+        .unwrap()
+        .top()
+        .unwrap()
+        .lstat("a.txt")
+        .unwrap();
+    let file = |ino: u64, dev: u64| LocalFile {
+        hash: hash_bytes(b"one"),
+        size: st.size,
+        mtime_ns: st.mtime_ns,
+        blob_size: st.size,
+        content: Content::Raw,
+        exec: false,
+        ctime_ns: st.ctime_ns,
+        ino,
+        dev,
+        link: None,
+    };
+    assert!(
+        !file(0, 0).matches(&st),
+        "what cannot be told is not the file that was scanned: nothing is replaced on a guess"
+    );
+    #[cfg(unix)]
+    {
+        assert!(file(st.ino, st.dev).matches(&st));
+        assert!(!file(st.ino + 1, st.dev).matches(&st), "another inode");
+        assert!(!file(st.ino, st.dev + 1).matches(&st), "another device");
+        let grown = LocalFile {
+            size: st.size + 1,
+            ..file(st.ino, st.dev)
+        };
+        assert!(!grown.matches(&st));
+    }
 }
 
 #[test]

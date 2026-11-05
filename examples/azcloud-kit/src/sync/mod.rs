@@ -2056,10 +2056,15 @@ fn move_here(
         return Ok(None);
     }
     let (target, target_name) = tree.parent_of(to, true)?;
-    // Another name for the same file: a case-only rename on a disk that ignores case.
+    // Another name for the same file: a case-only rename on a disk that ignores case. Only a
+    // known identity says it is the same file; another file, or one whose identity cannot be
+    // told, is a name that is taken (the next run takes it from there).
     let same_file = match target.lstat(target_name) {
         Ok(st) => {
-            if !(st.ino == expect.ino && st.dev == expect.dev && expect.ino != 0) {
+            if !beneath::FileId::new(expect.dev, expect.ino)
+                .same(&st.id())
+                .is_same()
+            {
                 return Ok(None);
             }
             true

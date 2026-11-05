@@ -10,7 +10,7 @@ use std::{
     time::UNIX_EPOCH,
 };
 
-use crate::beneath::{BeneathError, Root};
+use crate::beneath::{BeneathError, FileId, Root};
 
 /// What a local file must still be when its upload completes: what a scan found of it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -21,16 +21,23 @@ pub struct FileCheck {
     pub modified_ns: u64,
     /// The BLAKE3 of its bytes, lowercase hex: what the upload is named by.
     pub blake3: String,
-    /// The device the scan found it on (0 when not known): with `ino`, which file it is. A file
-    /// at the same path with the same size and time is still another file when they differ -
-    /// a copy put in its place, or a folder on its way swapped for a link ([`open_checked`]).
+    /// The device the scan found it on (0 when not known): with `ino`, which file it is
+    /// ([`FileCheck::id`]). A file at the same path with the same size and time is still another
+    /// file when they differ - a copy put in its place, or a folder on its way swapped for a link
+    /// ([`open_checked`]).
     pub dev: u64,
-    /// Its inode on that device (0 when not known; then only the size and the time are
-    /// compared).
+    /// Its inode on that device (0 when not known: then it is no identity, and the size and the
+    /// time are compared and the upload's hash of the bytes decides).
     pub ino: u64,
 }
 
 impl FileCheck {
+    /// Which file the scan found it was; unknown when the scan gave no inode (`ino` 0).
+    #[must_use]
+    pub fn id(&self) -> FileId {
+        FileId::new(self.dev, self.ino)
+    }
+
     /// Whether `meta` is still the file the scan found: its size and its time. (The bytes are
     /// hashed again where an upload completes.)
     #[must_use]
@@ -71,9 +78,14 @@ pub fn open_checked(path: &Path, check: &FileCheck) -> io::Result<Option<File>> 
         // A link, a FIFO, a device or a folder: nothing this upload reads.
         Err(_) => return Ok(None),
     };
+    // Another file for certain is not the file. A scan that gave no identity (a system that
+    // has none) leaves the size and the time to tell by, and the upload makes up for it: it
+    // hashes the file as it reads it and refuses to complete when the bytes are not the named
+    // ones. That is the only place where an unknown identity goes on (it never counts as the
+    // same file where something is replaced or deleted).
     let same = st.size == check.size
         && st.mtime_ns == check.modified_ns
-        && (check.ino == 0 || (st.ino == check.ino && st.dev == check.dev));
+        && !check.id().same(&st.id()).is_different();
     Ok(same.then_some(file))
 }
 

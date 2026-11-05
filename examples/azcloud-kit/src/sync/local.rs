@@ -24,7 +24,7 @@ use std::{
 };
 
 use azul_appkit::azlin_config::MACHINE_LOCAL_KEYS;
-use azul_storage::beneath::{self, BeneathError, Kind, Stat};
+use azul_storage::beneath::{self, BeneathError, FileId, Fingerprint, Kind, Stat};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
@@ -86,6 +86,26 @@ pub struct BaseEntry {
     /// A link, not a file: `hash` is its target's.
     #[serde(default, skip_serializing_if = "is_false")]
     pub link: bool,
+}
+
+impl BaseEntry {
+    /// Which file it was; unknown for a base an older version wrote or a system that has no
+    /// inodes (`ino` 0): then it never says "the same file".
+    #[must_use]
+    pub fn id(&self) -> FileId {
+        FileId::new(self.dev, self.ino)
+    }
+
+    /// Whether `st` (an `lstat` now) is, for certain, this file untouched since it was hashed:
+    /// the size, the time, the status-change time and the identity all as they were. A file
+    /// whose identity cannot be told is read again (its hash is not trusted on a guess).
+    #[must_use]
+    pub fn untouched(&self, st: &Stat) -> bool {
+        let kind = if self.link { Kind::Link } else { Kind::File };
+        Fingerprint::from_parts(kind, self.size, self.mtime_ns, self.ctime_ns, self.dev, self.ino)
+            .matches(st)
+            .is_same()
+    }
 }
 
 /// A folder both sides had at the last sync.
@@ -317,19 +337,30 @@ impl LocalFile {
         }
     }
 
-    /// Whether `st` (an `lstat` now) is still this file - or this link - untouched.
+    /// What the scan saw of it, to be matched against what is there later.
     #[must_use]
-    pub fn matches(&self, st: &Stat) -> bool {
+    pub fn fingerprint(&self) -> Fingerprint {
         let kind = if self.link.is_some() {
             Kind::Link
         } else {
             Kind::File
         };
-        st.kind == kind
-            && st.size == self.size
-            && st.mtime_ns == self.mtime_ns
-            && (self.ctime_ns == 0 || st.ctime_ns == self.ctime_ns)
-            && (self.ino == 0 || (st.ino == self.ino && st.dev == self.dev))
+        Fingerprint::from_parts(
+            kind,
+            self.size,
+            self.mtime_ns,
+            self.ctime_ns,
+            self.dev,
+            self.ino,
+        )
+    }
+
+    /// Whether `st` (an `lstat` now) is, for certain, this file - or this link - untouched: a
+    /// file whose identity cannot be told (a system without inodes, a scan that kept none) is
+    /// not "still there", so nothing is replaced or deleted on a guess.
+    #[must_use]
+    pub fn matches(&self, st: &Stat) -> bool {
+        self.fingerprint().matches(st).is_same()
     }
 }
 
@@ -1079,11 +1110,10 @@ fn scan_file(
         );
         return Ok(Some((file, true)));
     }
+    // The base's hash is kept for a file that is, for certain, the file it was hashed from: an
+    // unknown identity reads the file again (its hash is not taken on a guess).
     let unchanged = base.get(key).filter(|b| {
-        b.size == st.size
-            && b.mtime_ns == st.mtime_ns
-            && (b.ctime_ns == 0 || b.ctime_ns == st.ctime_ns)
-            && (b.ino == 0 || (b.ino == st.ino && b.dev == st.dev))
+        b.untouched(st)
             && b.exec == st.executable()
             && st.mtime_ns.saturating_add(RACY_NS) < base_scanned_ns
     });
@@ -1108,7 +1138,10 @@ fn open_checked(
     st: &Stat,
 ) -> Result<Option<(fs::File, Stat)>, Skip> {
     match dir.open_read(name) {
-        Ok((file, at)) if at.same_file(st) => {
+        // Another file than the one listed is a change; a system that gives no identity leaves
+        // nothing to tell by, and what is read is the file that was opened (its own fstat is
+        // what the scan records, and the hash is of its bytes), so that goes on.
+        Ok((file, at)) if !at.id().same(&st.id()).is_different() => {
             // An exclusive lock of another app's (flock, LockFileEx) means it is being written:
             // a shared lock of ours, held while it is read, says so without waiting. A disk
             // that keeps no locks answers an error, which says nothing about the file.

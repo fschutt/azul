@@ -29,6 +29,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use azul_storage::beneath::FileId;
+
 use super::{
     local::BaseFolder,
     remote::{self, RemoteFolder, RemoteIndex},
@@ -420,12 +422,14 @@ pub fn renames(
             .map(|(key, folder)| (folder.id.as_str(), key.as_str())),
         |b| remote::is_folder_id(&b.id).then_some(b.id.as_str()),
     );
+    // A folder is found again by its inode: one whose identity is unknown (no inode) is never
+    // taken for another folder, so it is never matched - not read as one more "no inode".
+    let known = |ino: u64, dev: u64| FileId::new(dev, ino).known().map(|(dev, ino)| (ino, dev));
     let here_side = Side::locate(
         base,
         here.iter()
-            .filter(|(_, ino)| ino.0 != 0)
-            .map(|(key, ino)| (*ino, key.as_str())),
-        |b| (b.ino != 0).then_some((b.ino, b.dev)),
+            .filter_map(|(key, (ino, dev))| known(*ino, *dev).map(|id| (id, key.as_str()))),
+        |b| known(b.ino, b.dev),
     );
     let mut solve = Solve {
         base,

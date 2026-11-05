@@ -163,3 +163,49 @@ fn a_drive_without_parts_uploads_no_link_swapped_in_even_with_the_named_bytes() 
     );
     assert!(drive.get("a.txt").is_err(), "nothing written");
 }
+
+#[test]
+fn x_ar5a_8_a_scan_that_gave_no_identity_is_not_the_same_file_as_a_known_other_one() {
+    // The inode 0 of a system without ids used to read as "any file": the check passed for a
+    // file of another inode on the strength of size and time alone, and `0 == 0` made two
+    // entries without ids one file. A known other file stops at once; no identity leaves the
+    // size and the time, and the upload's hash of the bytes decides.
+    let tmp = TempDir::new("checked-open-no-id");
+    let (path, bytes) = file_with(&tmp, "video.bin", 3, 1);
+    let known = identified(&path, &bytes);
+    assert!(known.id().is_known());
+    assert!(open_checked(&path, &known).unwrap().is_some());
+    // Another inode, the same size and time: another file for certain.
+    let other = FileCheck {
+        ino: known.ino + 1,
+        ..known.clone()
+    };
+    assert!(
+        open_checked(&path, &other).unwrap().is_none(),
+        "a known other inode is another file"
+    );
+    let elsewhere = FileCheck {
+        dev: known.dev + 1,
+        ..known.clone()
+    };
+    assert!(
+        open_checked(&path, &elsewhere).unwrap().is_none(),
+        "a known other device is another file"
+    );
+    // The scan gave no identity: the size and the time are compared, the hash does the rest.
+    let unknown = FileCheck {
+        dev: 0,
+        ino: 0,
+        ..known.clone()
+    };
+    assert!(!unknown.id().is_known());
+    assert!(open_checked(&path, &unknown).unwrap().is_some());
+    let grown = FileCheck {
+        size: known.size + 1,
+        ..unknown
+    };
+    assert!(
+        open_checked(&path, &grown).unwrap().is_none(),
+        "what differs still differs without an identity"
+    );
+}
