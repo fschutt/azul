@@ -514,11 +514,13 @@ pub fn ended_words(refusal: &IssueRefusal) -> String {
 /// The next month of the grant of `checkout_id` kept in `tokens` (its drive's vaults), issued
 /// at `server` and kept there: an issue request of the grant kept in a vault - by this device or
 /// another one whose answer was lost, however long ago - is sent again as it is first (the
-/// token server answers it with the same signatures, counted once); else, when the grant's next
-/// month is due at `now`, one token message is blinded for the tier's issuer key, the request
-/// kept in the vaults BEFORE it is sent, and sent. A key that changed since the keys were read
-/// (`key_changed`, the year turned) gets the message blinded anew; `not_due` moves the grant's
-/// schedule; a final refusal ends the grant ([`Issued::Ended`]).
+/// token server answers it with the same signatures, counted once) - also when the grant has
+/// ended meanwhile, so a month the token server counted is never lost to another device's end;
+/// else, when the grant's next month is due at `now`, one token message is blinded for the
+/// tier's issuer key, the request kept in the vaults BEFORE it is sent, and sent. A key that
+/// changed since the keys were read (`key_changed`, the year turned) gets the message blinded
+/// anew; `not_due` moves the grant's schedule; a final refusal ends the grant
+/// ([`Issued::Ended`]).
 ///
 /// # Errors
 ///
@@ -538,19 +540,23 @@ pub fn issue_next(
             tokens.drive_id()
         )));
     };
-    if let Some(why) = &grant.ended {
-        return Ok(Issued::Ended(why.clone()));
-    }
-    // A request kept before its answer came: sent again as it is, whatever the schedule says.
+    // A request kept before its answer came: sent again as it is, whatever the schedule says -
+    // and whether or not the grant ended. Another device's "every month was issued already" may
+    // be the token server's answer to THIS device's counted request, whose own answer was lost:
+    // the end is in every vault by then, and only the replay (answered with the same signatures,
+    // counted once) brings that last month back (AZ-P17). The first end stands.
     for kept in state.open_issues(checkout_id) {
         match send_kept(server, tokens, &grant, kept)? {
             Sent::Tokens(tokens) => return Ok(Issued::Tokens(tokens)),
-            Sent::Ended(why) => return Ok(Issued::Ended(why)),
+            Sent::Ended(why) => return Ok(Issued::Ended(grant.ended.clone().unwrap_or(why))),
             // never signed (not due, a key that changed): given up, a fresh one below
             Sent::NotDue | Sent::KeyChanged { .. } => {}
         }
     }
     let grant = tokens.state().map_err(not_kept)?.grant(checkout_id).cloned().unwrap_or(grant);
+    if let Some(why) = &grant.ended {
+        return Ok(Issued::Ended(why.clone()));
+    }
     if !grant.may_ask(now) {
         return Ok(Issued::NotDue {
             next_issue_at: grant.is_open().then_some(grant.next_issue_at).flatten(),
@@ -858,9 +864,16 @@ pub fn redeem_due(
         .unwrap_or_else(|e| Redeemed::Kept(e.to_string()))
 }
 
-/// Whether a vault holds anything a month can come from: a token, or an open grant.
+/// Whether a vault holds anything a month can come from: a token, or a grant a month can still
+/// come from ([`brings_months`]).
 fn holds_months(state: &VaultState) -> bool {
-    !state.tokens.is_empty() || state.grants.iter().any(VaultGrant::is_open)
+    !state.tokens.is_empty() || state.grants.iter().any(|g| brings_months(state, g))
+}
+
+/// Whether a month can still come from `grant`: it is open, or a request of it waits for its
+/// answer - also when another device ended the grant meanwhile (AZ-P17, see [`issue_next`]).
+fn brings_months(state: &VaultState, grant: &VaultGrant) -> bool {
+    grant.is_open() || !state.open_issues(&grant.checkout_id).is_empty()
 }
 
 /// The grant a month buys was changed by the token server (a redemption, a voucher): the
@@ -1413,9 +1426,8 @@ fn issue_for(
     tier: &str,
     now: u64,
 ) -> Result<bool, TokenError> {
-    let asks = |g: &&VaultGrant| {
-        g.may_ask(now) || (g.ended.is_none() && !state.open_issues(&g.checkout_id).is_empty())
-    };
+    // A request waiting for its answer is replayed whatever the schedule or an end says.
+    let asks = |g: &&VaultGrant| g.may_ask(now) || !state.open_issues(&g.checkout_id).is_empty();
     let ours = state
         .grants
         .iter()

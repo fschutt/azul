@@ -10,6 +10,7 @@ use std::{
     time::Duration,
 };
 
+use azlin_contract::IssueRefusal;
 use azul_storage::{
     keyring::KeyringNamespace,
     config::keyring_key,
@@ -31,12 +32,12 @@ use super::{header, json, Fake, Shared, TOKEN};
 use crate::{
     lock::LockDir,
     period::{
-        issue_next, look_at_drive, redeem_due, token_message, Issued, Issuer, PeriodToken,
-        PeriodTokenStore, Redeemed,
+        ended_words, issue_next, look_at_drive, redeem_due, token_message, Issued, Issuer,
+        PeriodToken, PeriodTokenStore, Redeemed,
     },
     shared::SharedKeyring,
     token::{TokenError, TokenServer, RECOVERY_MEMBER},
-    vault::{DriveTokens, VaultGrant},
+    vault::{DriveTokens, VaultGrant, VaultState},
     AzlinSession,
 };
 
@@ -928,4 +929,185 @@ fn a_drive_that_needs_a_month_and_holds_none_gets_its_grants_next_month() {
     let state = tokens.state().unwrap();
     assert!(state.tokens.is_empty(), "issued and redeemed");
     assert_eq!(state.grant("ck_1").unwrap().issued, 2);
+}
+
+// ==== AZ-P17: an end another device wrote does not lose this device's counted month ====
+
+/// Drive `d_1`'s grant `ck_1` (3 months, 2 issued, the last one due): THIS device asked for the
+/// last month and the token server counted it, but the answer was lost - the request stays kept.
+/// Then ANOTHER device, whose own request for that month was refused as "already issued", ended
+/// the grant: the end is in every vault. The grant's end text and the first (lost) request's
+/// body.
+fn last_month_lost_then_ended(dir: &TempDir) -> (DriveTokens, String, Vec<u8>) {
+    let tokens = store_in(dir).on_this_device("d_1").unwrap();
+    let mut grant = VaultGrant::new("ck_1", "100GB", 3, ISSUE_KEY);
+    grant.issued = 2;
+    grant.next_issue_at = Some(NOW - 60);
+    tokens.keep_grant(grant.clone()).unwrap();
+    let listed = keys();
+    let fake = Fake::new(move |call, _| {
+        if call.url.ends_with("/v1/tokens/keys") {
+            return Ok(json(200, &listed));
+        }
+        Err(String::from("connection reset"))
+    });
+    let transport = Shared(fake.clone());
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    assert!(matches!(
+        issue_next(&server, &tokens, "ck_1", NOW),
+        Err(TokenError::Connect(_))
+    ));
+    assert_eq!(
+        tokens.state().unwrap().open_issues("ck_1").len(),
+        1,
+        "the request, kept"
+    );
+    let first = fake.calls()[1].body.clone();
+    let why = ended_words(&IssueRefusal::AlreadyIssued);
+    let mut ended = grant;
+    ended.ended = Some(why.clone());
+    tokens.join(&VaultState::with_grant(ended)).unwrap();
+    let state = tokens.state().unwrap();
+    assert!(
+        !state.grant("ck_1").unwrap().is_open(),
+        "ended in the vault"
+    );
+    assert_eq!(
+        state.open_issues("ck_1").len(),
+        1,
+        "the request is still kept"
+    );
+    (tokens, why, first)
+}
+
+/// AZ-P17: a grant ended by another device is not the end of THIS device's counted request:
+/// the request is sent again as it is (the token server answers it with the same signatures,
+/// counted once), the month is kept, and the first end stands. Before, the end was checked
+/// first, the request never replayed, and that month was lost.
+#[test]
+fn az_p17_a_grant_ended_by_another_device_still_replays_this_devices_counted_request() {
+    let dir = TempDir::new("azcloud-period");
+    let (tokens, why, first) = last_month_lost_then_ended(&dir);
+    // The token server counted the request: the replay is answered with the month's signatures.
+    let issued = AtomicU64::new(2);
+    let listed = keys();
+    let fake = Fake::new(move |call, _| {
+        if call.url.ends_with("/v1/tokens/keys") {
+            return Ok(json(200, &listed));
+        }
+        Ok(signed(call, N1, D1, "100GB/2026", &issued))
+    });
+    let transport = Shared(fake.clone());
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    match issue_next(&server, &tokens, "ck_1", NOW + 31 * DAY).unwrap() {
+        Issued::Tokens(issued) => assert_eq!(issued.len(), 1),
+        other => panic!("the counted month was lost to the other device's end: {other:?}"),
+    }
+    let calls = fake.calls();
+    assert_eq!(calls.len(), 1, "the replay only: no keys, no new blinding");
+    assert_eq!(calls[0].body, first, "the identical request");
+    let state = tokens.state().unwrap();
+    assert_eq!(state.tokens.len(), 1, "the month is kept");
+    assert!(state.issues.is_empty(), "the request is answered");
+    let grant = state.grant("ck_1").unwrap();
+    assert_eq!(grant.issued, 3);
+    assert_eq!(grant.ended.as_deref(), Some(why.as_str()), "the end stands");
+    // Nothing waits any more: the ended grant is not asked again.
+    match issue_next(&server, &tokens, "ck_1", NOW + 62 * DAY).unwrap() {
+        Issued::Ended(said) => assert_eq!(said, why),
+        other => panic!("not ended: {other:?}"),
+    }
+    assert_eq!(fake.calls().len(), 1, "never asked again");
+}
+
+/// AZ-P17: a replay the token server refuses for good closes the request - one replay, never a
+/// loop - and the end that was there first is the one said and kept.
+#[test]
+fn az_p17_a_replay_refused_for_good_closes_the_request_and_the_first_end_stands() {
+    let dir = TempDir::new("azcloud-period");
+    let (tokens, why, _) = last_month_lost_then_ended(&dir);
+    let fake = Fake::new(|_, _| {
+        Ok(json(
+            409,
+            r#"{"error": "not_paid", "message": "the checkout is not approved"}"#,
+        ))
+    });
+    let transport = Shared(fake.clone());
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    match issue_next(&server, &tokens, "ck_1", NOW + 31 * DAY).unwrap() {
+        Issued::Ended(said) => assert_eq!(said, why, "the first end is the one said"),
+        other => panic!("not ended: {other:?}"),
+    }
+    let state = tokens.state().unwrap();
+    assert!(state.issues.is_empty(), "the request is closed");
+    assert!(state.tokens.is_empty());
+    assert_eq!(
+        state.grant("ck_1").unwrap().ended.as_deref(),
+        Some(why.as_str())
+    );
+    assert_eq!(fake.calls().len(), 1);
+    assert!(matches!(
+        issue_next(&server, &tokens, "ck_1", NOW + 62 * DAY),
+        Ok(Issued::Ended(_))
+    ));
+    assert_eq!(fake.calls().len(), 1, "never asked again");
+}
+
+/// AZ-P17: the look at the drive reaches the replay too - a drive whose only grant is ended but
+/// holds a request waiting for its answer still "holds a month" (before, `holds_months` read the
+/// ended grant as nothing and the look asked nothing) - and redeems the month it brings.
+#[test]
+fn az_p17_a_look_replays_the_request_of_an_ended_grant_and_redeems_its_month() {
+    let dir = TempDir::new("azcloud-period");
+    let (tokens, _why, first) = last_month_lost_then_ended(&dir);
+    let shared = keyring_with_session(&dir, "dt_f.3.newest");
+    let store = store_in(&dir);
+    let listed = keys();
+    let issued = AtomicU64::new(2);
+    let until = AtomicU64::new(NOW + 2 * DAY);
+    let fake = Fake::new(move |call, _| {
+        if call.url.ends_with("/v1/tokens/keys") {
+            return Ok(json(200, &listed));
+        }
+        if call.url.ends_with("/v1/tokens/issue") {
+            return Ok(signed(call, N1, D1, "100GB/2026", &issued));
+        }
+        if call.method == Method::Get {
+            let answer = serde_json::json!({
+                "id": "d_1", "tier": "100GB", "period_until": rfc3339(until.load(Ordering::SeqCst)),
+            });
+            return Ok(json(200, &answer.to_string()));
+        }
+        assert_eq!(call.url, format!("{TOKEN}/v1/drives/d_1/redeem"));
+        let later = until.fetch_add(30 * DAY, Ordering::SeqCst) + 30 * DAY;
+        Ok(json(200, &serde_json::json!({"period_until": rfc3339(later)}).to_string()))
+    });
+    let transport = Shared(fake.clone());
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    let look = look_at_drive(&server, &shared, &store, &tokens, NOW);
+    assert!(
+        matches!(look.redeemed, Redeemed::Extended { count: 1, .. }),
+        "{:?}",
+        look.redeemed
+    );
+    let replays: Vec<_> = fake
+        .calls()
+        .into_iter()
+        .filter(|c| c.url.ends_with("/v1/tokens/issue"))
+        .collect();
+    assert_eq!(replays.len(), 1);
+    assert_eq!(replays[0].body, first, "the identical request");
+    let state = tokens.state().unwrap();
+    assert!(state.tokens.is_empty(), "issued and redeemed");
+    assert!(state.issues.is_empty());
+    assert_eq!(state.grant("ck_1").unwrap().issued, 3);
+    // The next look: the ended grant holds nothing; the issue endpoint is not asked again.
+    let look = look_at_drive(&server, &shared, &store, &tokens, NOW);
+    assert_eq!(look.redeemed, Redeemed::Nothing);
+    let asked = fake
+        .calls()
+        .iter()
+        .filter(|c| c.url.ends_with("/v1/tokens/issue"))
+        .count();
+    assert_eq!(asked, 1, "never asked again");
 }
