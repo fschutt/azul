@@ -18,7 +18,7 @@ use crate::{
     manifest::{self, is_reserved_key, Changes, Manifest, ManifestEntry, Record, MANIFEST_DIR},
     ops::check_folder,
     sigv4::{sha256_hex, sha256_hex_of},
-    ByteRange, Drive, DriveError, ListPage, ListRequest, ObjectInfo,
+    ByteRange, Drive, DriveError, Limit, ListPage, ListRequest, ObjectInfo,
 };
 
 /// A folder on disk: the key `a/b.txt` is the file `<root>/a/b.txt`. Keys that
@@ -141,7 +141,9 @@ fn reserved(key: &str) -> DriveError {
 }
 
 fn not_found_or_io(key: &str, e: std::io::Error) -> DriveError {
-    if e.kind() == ErrorKind::NotFound {
+    if crate::ctl::Stopped::is(&e) {
+        DriveError::Cancelled
+    } else if e.kind() == ErrorKind::NotFound {
         DriveError::NotFound {
             key: key.to_string(),
         }
@@ -667,6 +669,30 @@ impl Drive for LocalDrive {
             });
         }
         fs::read(&path).map_err(|e| not_found_or_io(key, e))
+    }
+
+    /// The size is looked at before a byte is read, and the read is cut one byte past the limit:
+    /// a file that grows meanwhile is refused too.
+    fn get_limited(&self, key: &str, limit: Limit) -> Result<Vec<u8>, DriveError> {
+        let mut file = if self.contained {
+            self.contained_open(key)?
+        } else {
+            File::open(self.path_of(key)?).map_err(|e| not_found_or_io(key, e))?
+        };
+        let meta = file.metadata().map_err(|e| not_found_or_io(key, e))?;
+        if meta.is_dir() {
+            return Err(DriveError::NotFound {
+                key: key.to_string(),
+            });
+        }
+        limit.check_object(key, meta.len())?;
+        let mut bytes = Vec::new();
+        (&mut file)
+            .take(limit.max.saturating_add(1))
+            .read_to_end(&mut bytes)
+            .map_err(|e| not_found_or_io(key, e))?;
+        limit.check_object(key, bytes.len() as u64)?;
+        Ok(bytes)
     }
 
     fn get_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, DriveError> {

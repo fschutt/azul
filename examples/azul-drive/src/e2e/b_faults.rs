@@ -553,10 +553,10 @@ impl Drive for FileFaults {
         &self,
         key: &str,
         path: &Path,
-        progress: &(dyn Fn(u64) + Sync),
+        ctl: &dyn azul_storage::Ctl,
     ) -> Result<u64, DriveError> {
         self.check(&[key])?;
-        self.inner.put_file(key, path, progress)
+        self.inner.put_file(key, path, ctl)
     }
 
     fn put_file_checked(
@@ -564,10 +564,10 @@ impl Drive for FileFaults {
         key: &str,
         path: &Path,
         check: &FileCheck,
-        progress: &(dyn Fn(u64) + Sync),
+        ctl: &dyn azul_storage::Ctl,
     ) -> Result<CheckedUpload, DriveError> {
         self.check(&[key])?;
-        self.inner.put_file_checked(key, path, check, progress)
+        self.inner.put_file_checked(key, path, check, ctl)
     }
 
     fn put_from_if(

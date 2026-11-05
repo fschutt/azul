@@ -57,11 +57,11 @@ use crate::{
     key::{check_key, check_prefix},
     keyring::KeyringStore,
     ops::check_folder,
-    time::now_unix,
     packing::{PackOptions, PackState, PackedAt},
+    time::now_unix,
     ui_thread::NetworkLock,
-    BatchDelete, BatchMove, BatchPut, BatchStream, ByteRange, Drive, DriveError, ListPage,
-    ListRequest, ObjectInfo, Precondition, DEFAULT_PAGE_SIZE, PARALLEL_FILES,
+    BatchDelete, BatchMove, BatchPut, BatchStream, ByteRange, Ctl, Drive, DriveError, Limit,
+    ListPage, ListRequest, ObjectInfo, Precondition, DEFAULT_PAGE_SIZE, PARALLEL_FILES,
 };
 
 /// The object a file version's bytes are in.
@@ -572,6 +572,9 @@ impl Drive for AutoEncrypted {
     fn get_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, DriveError> {
         self.resolved()?.get_range(key, range)
     }
+    fn get_limited(&self, key: &str, limit: Limit) -> Result<Vec<u8>, DriveError> {
+        self.resolved()?.get_limited(key, limit)
+    }
     fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
         self.writable()?.put(key, bytes)
     }
@@ -589,19 +592,18 @@ impl Drive for AutoEncrypted {
         &self,
         key: &str,
         path: &std::path::Path,
-        progress: &(dyn Fn(u64) + Sync),
+        ctl: &dyn Ctl,
     ) -> Result<u64, DriveError> {
-        self.writable()?.put_file(key, path, progress)
+        self.writable()?.put_file(key, path, ctl)
     }
     fn put_file_checked(
         &self,
         key: &str,
         path: &std::path::Path,
         check: &crate::checked::FileCheck,
-        progress: &(dyn Fn(u64) + Sync),
+        ctl: &dyn Ctl,
     ) -> Result<crate::checked::CheckedUpload, DriveError> {
-        self.writable()?
-            .put_file_checked(key, path, check, progress)
+        self.writable()?.put_file_checked(key, path, check, ctl)
     }
     fn put_if(
         &self,
@@ -2047,6 +2049,14 @@ impl<D: Drive> Drive for EncryptedDrive<D> {
         Ok(plain)
     }
 
+    /// [`Drive::get`] of a file whose plaintext size the index names within `limit`: a bigger
+    /// one is refused before any object is fetched or any plaintext made.
+    fn get_limited(&self, key: &str, limit: Limit) -> Result<Vec<u8>, DriveError> {
+        let entry = self.entry(key)?;
+        limit.check_object(key, entry.size)?;
+        self.get(key)
+    }
+
     /// The header and the tail of the object (cached), then one ranged GET of the segments
     /// covering the range.
     fn get_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, DriveError> {
@@ -2098,9 +2108,9 @@ impl<D: Drive> Drive for EncryptedDrive<D> {
         &self,
         key: &str,
         path: &std::path::Path,
-        progress: &(dyn Fn(u64) + Sync),
+        ctl: &dyn Ctl,
     ) -> Result<u64, DriveError> {
-        match self.put_file_resumable(key, path, None, progress)? {
+        match self.put_file_resumable(key, path, None, ctl)? {
             Some(crate::encrypted_upload::Spooled::Sent(written)) => Ok(written),
             Some(crate::encrypted_upload::Spooled::Changed) => Err(DriveError::Io(format!(
                 "{} changed while it was uploaded",
@@ -2108,7 +2118,7 @@ impl<D: Drive> Drive for EncryptedDrive<D> {
             ))),
             None => {
                 let mut file = File::open(path)?;
-                let mut reader = crate::transfer::ProgressReader::new(&mut file, progress);
+                let mut reader = crate::transfer::ProgressReader::new(&mut file, ctl);
                 self.put_from(key, &mut reader)
             }
         }
@@ -2121,10 +2131,10 @@ impl<D: Drive> Drive for EncryptedDrive<D> {
         key: &str,
         path: &std::path::Path,
         check: &crate::checked::FileCheck,
-        progress: &(dyn Fn(u64) + Sync),
+        ctl: &dyn Ctl,
     ) -> Result<crate::checked::CheckedUpload, DriveError> {
         use crate::checked::{open_checked, CheckedUpload, HashCheck};
-        match self.put_file_resumable(key, path, Some(check), progress)? {
+        match self.put_file_resumable(key, path, Some(check), ctl)? {
             Some(crate::encrypted_upload::Spooled::Sent(written)) => {
                 return Ok(CheckedUpload::Sent(written));
             }
@@ -2136,7 +2146,7 @@ impl<D: Drive> Drive for EncryptedDrive<D> {
         };
         let mut hashed = HashCheck::new(file, &check.blake3);
         let sent = {
-            let mut reader = crate::transfer::ProgressReader::new(&mut hashed, progress);
+            let mut reader = crate::transfer::ProgressReader::new(&mut hashed, ctl);
             self.put_from(key, &mut reader)
         };
         match sent {

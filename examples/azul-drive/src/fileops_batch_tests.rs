@@ -172,10 +172,10 @@ impl Drive for Bucket {
         &self,
         key: &str,
         path: &std::path::Path,
-        progress: &(dyn Fn(u64) + Sync),
+        ctl: &dyn azul_storage::Ctl,
     ) -> Result<u64, DriveError> {
         self.singles.fetch_add(1, Ordering::SeqCst);
-        self.inner.put_file(key, path, progress)
+        self.inner.put_file(key, path, ctl)
     }
     fn put_from(&self, key: &str, body: &mut dyn std::io::Read) -> Result<u64, DriveError> {
         self.singles.fetch_add(1, Ordering::SeqCst);

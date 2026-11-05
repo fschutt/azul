@@ -16,8 +16,8 @@ use std::{
 };
 
 use azul_storage::{
-    BatchDelete, BatchMove, BatchStream, ByteRange, Drive, DriveError, ListPage, ListRequest,
-    ObjectInfo, Precondition,
+    BatchDelete, BatchMove, BatchStream, ByteRange, Ctl, Drive, DriveError, Limit, ListPage,
+    ListRequest, ObjectInfo, Precondition,
 };
 
 use crate::state::write_atomic;
@@ -136,6 +136,16 @@ impl Drive for ObjectCache {
         }
     }
 
+    fn get_limited(&self, key: &str, limit: Limit) -> Result<Vec<u8>, DriveError> {
+        match self.kept(key) {
+            Some(bytes) => {
+                limit.check_object(key, bytes.len() as u64)?;
+                Ok(bytes)
+            }
+            None => self.inner.get_limited(key, limit),
+        }
+    }
+
     fn get_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, DriveError> {
         let Some(bytes) = self.kept(key) else {
             return self.inner.get_range(key, range);
@@ -248,10 +258,10 @@ impl Drive for ObjectCache {
         &self,
         key: &str,
         path: &std::path::Path,
-        progress: &(dyn Fn(u64) + Sync),
+        ctl: &dyn Ctl,
     ) -> Result<u64, DriveError> {
         self.evict(key)?;
-        self.inner.put_file(key, path, progress)
+        self.inner.put_file(key, path, ctl)
     }
 
     /// The drive below's own: a bucket resumes a file upload a dropped connection or a killed
@@ -261,10 +271,10 @@ impl Drive for ObjectCache {
         key: &str,
         path: &std::path::Path,
         check: &azul_storage::checked::FileCheck,
-        progress: &(dyn Fn(u64) + Sync),
+        ctl: &dyn Ctl,
     ) -> Result<azul_storage::checked::CheckedUpload, DriveError> {
         self.evict(key)?;
-        self.inner.put_file_checked(key, path, check, progress)
+        self.inner.put_file_checked(key, path, check, ctl)
     }
 
     fn put_from_if(

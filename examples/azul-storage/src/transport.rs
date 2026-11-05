@@ -174,6 +174,16 @@ impl CallLimits {
         }
     }
 
+    /// An object read whole that may weigh `max` bytes at most: a minute, an answer past `max`
+    /// refused by the transport before it is held in memory ([`crate::Drive::get_limited`]).
+    #[must_use]
+    pub const fn object(max: u64) -> Self {
+        CallLimits {
+            timeout: RequestTimeout::Overall(DEFAULT_TIMEOUT),
+            answer: ExpectedBody::Stream { max },
+        }
+    }
+
     /// The limits of a call the caller knows nothing more about than its verb and body: an
     /// upload's with a body, an object's read whole for a GET, a document's otherwise.
     #[must_use]

@@ -23,8 +23,8 @@ use serde::{Deserialize, Serialize};
 
 use azul_storage::{
     checked::{CheckedUpload, FileCheck},
-    BatchDelete, BatchMove, BatchPut, BatchStream, ByteRange, Drive, DriveError, ListPage,
-    ListRequest, ObjectInfo, Precondition,
+    BatchDelete, BatchMove, BatchPut, BatchStream, ByteRange, Ctl, Drive, DriveError, Limit,
+    ListPage, ListRequest, ObjectInfo, Precondition,
 };
 
 use crate::{
@@ -378,6 +378,10 @@ impl Drive for RetryingDrive {
         self.call(|| self.inner.get_range(key, range))
     }
 
+    fn get_limited(&self, key: &str, limit: Limit) -> Result<Vec<u8>, DriveError> {
+        self.call(|| self.inner.get_limited(key, limit))
+    }
+
     fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
         self.call(|| self.inner.put(key, bytes))
     }
@@ -433,14 +437,9 @@ impl Drive for RetryingDrive {
         self.call(|| self.inner.metadata(key))
     }
 
-    fn put_file(
-        &self,
-        key: &str,
-        path: &Path,
-        progress: &(dyn Fn(u64) + Sync),
-    ) -> Result<u64, DriveError> {
+    fn put_file(&self, key: &str, path: &Path, ctl: &dyn Ctl) -> Result<u64, DriveError> {
         // The file is opened again for every try.
-        self.call(|| self.inner.put_file(key, path, progress))
+        self.call(|| self.inner.put_file(key, path, ctl))
     }
 
     fn put_file_checked(
@@ -448,10 +447,10 @@ impl Drive for RetryingDrive {
         key: &str,
         path: &Path,
         check: &FileCheck,
-        progress: &(dyn Fn(u64) + Sync),
+        ctl: &dyn Ctl,
     ) -> Result<CheckedUpload, DriveError> {
         // Opened and checked again for every try: a file that changed meanwhile says so.
-        self.call(|| self.inner.put_file_checked(key, path, check, progress))
+        self.call(|| self.inner.put_file_checked(key, path, check, ctl))
     }
 
     fn put_from_if(

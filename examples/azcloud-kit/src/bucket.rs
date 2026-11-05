@@ -28,9 +28,10 @@ use std::{
 
 use azul_storage::{
     checked::{CheckedUpload, FileCheck},
+    ctl::Quiet,
     multipart::in_parallel,
     s3::{parse_listing, Idempotency},
-    transfer, ByteRange, Credentials, DriveError, HttpReply, ListPage, Method, ObjectInfo,
+    transfer, ByteRange, Credentials, Ctl, DriveError, HttpReply, ListPage, Method, ObjectInfo,
     S3Config, S3Drive,
 };
 
@@ -317,20 +318,11 @@ impl Bucket {
     }
 
     /// PUT of the local file `path`: its parts several at once, resumable after the app was
-    /// killed (azul-storage's resume folder); the bytes sent. `progress` hears the bytes sent so
-    /// far, from the parts' threads.
-    pub fn put_file(
-        &self,
-        key: &str,
-        path: &Path,
-        progress: &(dyn Fn(u64) + Sync),
-    ) -> CloudResult<u64> {
-        Ok(azul_storage::Drive::put_file(
-            &self.drive,
-            key,
-            path,
-            progress,
-        )?)
+    /// killed (azul-storage's resume folder); the bytes sent. `ctl` hears the bytes sent so far,
+    /// from the parts' threads, and stops the upload (aborted, its state forgotten) when it says
+    /// so.
+    pub fn put_file(&self, key: &str, path: &Path, ctl: &dyn Ctl) -> CloudResult<u64> {
+        Ok(azul_storage::Drive::put_file(&self.drive, key, path, ctl)?)
     }
 
     /// [`Bucket::put_file`] of a file that must be the one `check` describes until the upload
@@ -340,9 +332,9 @@ impl Bucket {
         key: &str,
         path: &Path,
         check: &FileCheck,
-        progress: &(dyn Fn(u64) + Sync),
+        ctl: &dyn Ctl,
     ) -> CloudResult<Option<u64>> {
-        match azul_storage::Drive::put_file_checked(&self.drive, key, path, check, progress)? {
+        match azul_storage::Drive::put_file_checked(&self.drive, key, path, check, ctl)? {
             CheckedUpload::Sent(written) => Ok(Some(written)),
             CheckedUpload::Changed => Ok(None),
         }
@@ -581,7 +573,7 @@ impl RemoteStore for Bucket {
     }
 
     fn put_file(&self, key: &str, path: &Path, check: &FileCheck) -> CloudResult<Option<u64>> {
-        self.put_file_checked(key, path, check, &|_| {})
+        self.put_file_checked(key, path, check, &Quiet)
     }
 
     fn fetch_to(&self, key: &str, _size: u64, dest: &Path) -> CloudResult<bool> {

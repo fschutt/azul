@@ -301,3 +301,21 @@ fn a_streamed_body_gets_one_try_and_its_429_still_holds_every_request_back() {
     assert_eq!(flaky.sent.lock().unwrap().len(), 1, "a read body is not sent twice");
     assert!(drive.gate.remaining().is_some());
 }
+
+#[test]
+fn rf48_a_cancel_is_given_up_at_once_never_retried_and_never_shown_as_a_service_error() {
+    use azul_storage::Drive;
+    assert_eq!(
+        classify(&CloudError::Drive(DriveError::Cancelled)),
+        Verdict::GiveUp
+    );
+    assert_eq!(
+        crate::answer::of_drive_error(&DriveError::Cancelled),
+        crate::answer::Outcome::Done
+    );
+    assert!(crate::user_errors::UserError::from_drive_error(&DriveError::Cancelled).is_none());
+    let dir = azul_storage::testing::TempDir::new("retry-drive-cancel");
+    let (flaky, drive) = retrying(Flaky::new(&dir, vec![Some(DriveError::Cancelled)]));
+    assert_eq!(drive.get("a.txt"), Err(DriveError::Cancelled));
+    assert_eq!(flaky.sent.lock().unwrap().len(), 1, "one try, no second");
+}

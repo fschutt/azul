@@ -6,6 +6,12 @@
 //! aborted and its state forgotten) and answers [`crate::DriveError::Cancelled`] or
 //! [`crate::durable::PublishError::Cancelled`]. A closure `Fn(u64) + Sync` that only hears the
 //! progress is a `Ctl` that is never cancelled, so the callers that pass one need no change.
+//!
+//! A reader that was told to stop gives [`Stopped::io`]; `?` turns that into `Cancelled` again
+//! wherever it comes out (a drive's `put_from`, a `publish`), so a cancel is never mistaken for a
+//! failure of the disk or the network, and a failure is never mistaken for a cancel.
+
+use std::{fmt, io};
 
 /// A transfer's two-way line to whoever started it.
 pub trait Ctl: Sync {
@@ -22,6 +28,35 @@ pub trait Ctl: Sync {
 impl<F: Fn(u64) + Sync> Ctl for F {
     fn bytes(&self, done: u64) {
         self(done);
+    }
+}
+
+/// What a reader or writer answers when its [`Ctl`] said stop: the marker inside an
+/// [`io::Error`] that `From<io::Error>` of [`crate::DriveError`] and of
+/// [`crate::durable::PublishError`] read as "cancelled". It is no kind of its own: the kinds are
+/// retried by `read_to_end` and `io::copy` (`Interrupted`) or mean a failed disk.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Stopped;
+
+impl fmt::Display for Stopped {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("stopped")
+    }
+}
+
+impl std::error::Error for Stopped {}
+
+impl Stopped {
+    /// The error of a read or write that was stopped.
+    #[must_use]
+    pub fn io() -> io::Error {
+        io::Error::other(Stopped)
+    }
+
+    /// Whether `e` is [`Stopped::io`], however many wrappers it went through.
+    #[must_use]
+    pub fn is(e: &io::Error) -> bool {
+        e.get_ref().is_some_and(|inner| inner.is::<Stopped>())
     }
 }
 

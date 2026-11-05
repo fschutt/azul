@@ -24,7 +24,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     beneath::Dir,
-    ctl::Quiet,
+    ctl::{Ctl, Quiet, Stopped},
     durable::{self, Blob, Expect, Mode, Publish},
     key::safe_file_name,
     local::{beneath_error, source_bits},
@@ -37,40 +37,54 @@ pub const CHUNK: u64 = crate::s3::PART_SIZE as u64;
 /// Ranged GETs of one download in flight at once.
 pub const PARALLEL_RANGES: usize = crate::s3::PARALLEL_PARTS;
 
-/// A reader that tells `progress` the bytes read so far after every read: a stream's upload
-/// progress ([`Drive::put_file`]'s default).
+/// A reader that tells `ctl` the bytes read so far after every read and stops, with
+/// [`Stopped::io`] (which `?` turns into [`DriveError::Cancelled`]), once `ctl` says so: a
+/// stream's upload progress and its cancel ([`Drive::put_file`]'s default).
 pub struct ProgressReader<'a> {
     inner: &'a mut dyn Read,
     read: u64,
-    progress: &'a (dyn Fn(u64) + Sync),
+    ctl: &'a dyn Ctl,
 }
 
 impl<'a> ProgressReader<'a> {
-    pub fn new(inner: &'a mut dyn Read, progress: &'a (dyn Fn(u64) + Sync)) -> Self {
+    pub fn new(inner: &'a mut dyn Read, ctl: &'a dyn Ctl) -> Self {
         ProgressReader {
             inner,
             read: 0,
-            progress,
+            ctl,
         }
     }
 }
 
 impl Read for ProgressReader<'_> {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        if self.ctl.cancelled() {
+            return Err(Stopped::io());
+        }
         let n = self.inner.read(buf)?;
         if n > 0 {
             self.read += n as u64;
-            (self.progress)(self.read);
+            self.ctl.bytes(self.read);
         }
         Ok(n)
     }
 }
 
-/// Runs `work` on a thread of its own with a progress callback any thread may call; what it
-/// hears reaches `progress` on this thread, as it comes (never a smaller number than before).
+/// [`DriveError::Cancelled`] when `ctl` says stop.
+fn stop_if_asked(ctl: &dyn Ctl) -> Result<(), DriveError> {
+    if ctl.cancelled() {
+        Err(DriveError::Cancelled)
+    } else {
+        Ok(())
+    }
+}
+
+/// Runs `work` on a thread of its own with a [`Ctl`] any thread may call; what it hears reaches
+/// `progress` on this thread, as it comes (never a smaller number than before). The `Ctl` never
+/// cancels: a caller that wants a stop passes its own `Ctl` to the `_with_ctl` function.
 fn relay_progress<T: Send>(
     progress: &mut dyn FnMut(u64),
-    work: impl FnOnce(&(dyn Fn(u64) + Sync)) -> T + Send,
+    work: impl FnOnce(&dyn Ctl) -> T + Send,
 ) -> T {
     let (sender, heard) = mpsc::channel::<u64>();
     std::thread::scope(|scope| {
@@ -250,7 +264,7 @@ fn download_ranges(
     info: &ObjectInfo,
     dest: &Path,
     chunk: u64,
-    progress: &(dyn Fn(u64) + Sync),
+    ctl: &dyn Ctl,
 ) -> Result<u64, DriveError> {
     let key = info.key.as_str();
     let size = info.size;
@@ -290,10 +304,12 @@ fn download_ranges(
     let missing: Vec<u64> = (0..count).filter(|i| !state.done.contains(i)).collect();
     let length = |i: u64| chunk.min(size - i * chunk);
     let have: u64 = state.done.iter().map(|i| length(*i)).sum();
-    progress(have);
+    ctl.bytes(have);
     let fetched = std::sync::atomic::AtomicU64::new(have);
     let state = Mutex::new(state);
     let result = in_parallel(missing.len(), PARALLEL_RANGES, |n| {
+        // A stop is looked for before every range: the ranges in flight finish, none starts.
+        stop_if_asked(ctl)?;
         let i = missing[n];
         let start = i * chunk;
         let len = length(i);
@@ -318,11 +334,13 @@ fn download_ranges(
                 let _ = durable::replace_cache(&state_path, &text);
             }
         }
-        progress(fetched.fetch_add(len, std::sync::atomic::Ordering::SeqCst) + len);
+        ctl.bytes(fetched.fetch_add(len, std::sync::atomic::Ordering::SeqCst) + len);
         Ok::<(), DriveError>(())
     });
-    // A failure keeps the hidden file and its state: the next download resumes.
+    // A failure, or a stop, keeps the hidden file and its state: the next download resumes (what
+    // no download resumes is swept with the folder's other leftovers, `sweep_once`).
     result?;
+    stop_if_asked(ctl)?;
     // The ranges must all be of one version.
     let now = info_of(drive, key)?;
     if now.etag != info.etag || now.size != info.size || now.modified != info.modified {
@@ -360,7 +378,7 @@ pub fn download_to_file(
     dest: &Path,
     chunk: u64,
 ) -> Result<u64, DriveError> {
-    download_with_progress(drive, key, size, dest, chunk, &mut |_| {})
+    download_with_ctl(drive, key, size, dest, chunk, &Quiet)
 }
 
 /// [`download_to_file`] that tells `progress` the bytes written so far after
@@ -373,6 +391,24 @@ pub fn download_with_progress(
     chunk: u64,
     progress: &mut dyn FnMut(u64),
 ) -> Result<u64, DriveError> {
+    relay_progress(progress, |ctl| {
+        download_with_ctl(drive, key, size, dest, chunk, ctl)
+    })
+}
+
+/// [`download_to_file`] that tells `ctl` the bytes written so far (from the threads the ranges
+/// travel on) and stops, with [`DriveError::Cancelled`], once `ctl` says so: before the next
+/// range of a big object, which keeps what is in its hidden file for the next download, or
+/// before the one GET of a small one, which leaves nothing.
+pub fn download_with_ctl(
+    drive: &dyn Drive,
+    key: &str,
+    size: Option<u64>,
+    dest: &Path,
+    chunk: u64,
+    ctl: &dyn Ctl,
+) -> Result<u64, DriveError> {
+    stop_if_asked(ctl)?;
     let chunk = chunk.max(1);
     let mut info = None;
     let size = match size {
@@ -386,6 +422,7 @@ pub fn download_with_progress(
     };
     if size <= chunk {
         let bytes = drive.get(key)?;
+        stop_if_asked(ctl)?;
         let (folder, name) = folder_of(dest, key)?;
         durable::publish(
             &folder,
@@ -394,7 +431,7 @@ pub fn download_with_progress(
             Publish::new(Expect::Any, Mode::Shared, &Quiet),
         )
         .map_err(|e| e.into_drive(key))?;
-        progress(bytes.len() as u64);
+        ctl.bytes(bytes.len() as u64);
         return Ok(bytes.len() as u64);
     }
     // The version (ETag, date) a resumed download must still find.
@@ -402,9 +439,7 @@ pub fn download_with_progress(
         Some(info) => info,
         None => info_of(drive, key)?,
     };
-    relay_progress(progress, |tell| {
-        download_ranges(drive, &info, dest, chunk, tell)
-    })
+    download_ranges(drive, &info, dest, chunk, ctl)
 }
 
 /// Where a download of `key` goes in `folder`: the key's file name made safe
@@ -430,7 +465,7 @@ pub fn download_path(folder: &Path, key: &str) -> Option<PathBuf> {
 /// parts several at once and resumes an upload a killed app left behind). Returns the bytes
 /// sent.
 pub fn upload_file(drive: &dyn Drive, path: &Path, key: &str) -> Result<u64, DriveError> {
-    drive.put_file(key, path, &|_| {})
+    drive.put_file(key, path, &Quiet)
 }
 
 /// [`upload_file`] that tells `progress` the bytes sent so far.
@@ -440,48 +475,37 @@ pub fn upload_with_progress(
     key: &str,
     progress: &mut dyn FnMut(u64),
 ) -> Result<u64, DriveError> {
-    relay_progress(progress, |tell| drive.put_file(key, path, tell))
+    relay_progress(progress, |ctl| drive.put_file(key, path, ctl))
+}
+
+/// [`upload_file`] that tells `ctl` the bytes sent so far and stops, with
+/// [`DriveError::Cancelled`] and nothing left behind, once `ctl` says so ([`Drive::put_file`]).
+pub fn upload_with_ctl(
+    drive: &dyn Drive,
+    path: &Path,
+    key: &str,
+    ctl: &dyn Ctl,
+) -> Result<u64, DriveError> {
+    drive.put_file(key, path, ctl)
 }
 
 /// Copies the file `source` to `dest` through a temporary file next to it, synced and renamed
-/// in ([`durable::publish`]), telling `progress` the bytes copied so far after every chunk. The
-/// copy has the file's permission bits (never setuid, setgid or sticky) and its modification
-/// time: a 0600 key stays private and a photo keeps its date.
-fn copy_file(source: &Path, dest: &Path, progress: &mut dyn FnMut(u64)) -> Result<u64, DriveError> {
+/// in ([`durable::publish`]), telling `ctl` the bytes copied so far after every chunk and
+/// stopping, with the target as it was and no temporary file, once `ctl` says so. The copy has
+/// the file's permission bits (never setuid, setgid or sticky) and its modification time: a
+/// 0600 key stays private and a photo keeps its date.
+fn copy_file(source: &Path, dest: &Path, ctl: &dyn Ctl) -> Result<u64, DriveError> {
     let mut from = File::open(source)?;
     let (mode, mtime) = source_bits(&from);
     let shown = dest.to_string_lossy();
     let (folder, name) = folder_of(dest, &shown)?;
-    let mut publish = Publish::new(Expect::Any, mode, &Quiet);
+    let mut publish = Publish::new(Expect::Any, mode, ctl);
     if let Some(mtime) = mtime {
         publish = publish.with_mtime(mtime);
     }
-    let mut reader = TellingReader {
-        inner: &mut from,
-        read: 0,
-        progress,
-    };
-    durable::publish(&folder, &name, &mut reader, publish)
+    durable::publish(&folder, &name, &mut from, publish)
         .map(|landed| landed.len)
         .map_err(|e| e.into_drive(&shown))
-}
-
-/// A reader that tells `progress` (on the reading thread) the bytes read so far.
-struct TellingReader<'a> {
-    inner: &'a mut dyn Read,
-    read: u64,
-    progress: &'a mut dyn FnMut(u64),
-}
-
-impl Read for TellingReader<'_> {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        let n = self.inner.read(buf)?;
-        if n > 0 {
-            self.read += n as u64;
-            (self.progress)(self.read);
-        }
-        Ok(n)
-    }
 }
 
 /// Copies ONE object from `source` to `target` (the same drive or another):
@@ -501,6 +525,24 @@ pub fn copy_object(
     target_key: &str,
     progress: &mut dyn FnMut(u64),
 ) -> Result<u64, DriveError> {
+    relay_progress(progress, |ctl| {
+        copy_object_with_ctl(source, key, size, target, target_key, ctl)
+    })
+}
+
+/// [`copy_object`] that tells `ctl` the bytes copied so far (from whichever thread moved them)
+/// and stops, with [`DriveError::Cancelled`], once `ctl` says so: a file copy on disk removes its
+/// temporary file and leaves the target as it was, a bucket upload is aborted, ranged GETs stop
+/// before the next range. Nothing is made visible by a stopped copy.
+pub fn copy_object_with_ctl(
+    source: &dyn Drive,
+    key: &str,
+    size: Option<u64>,
+    target: &dyn Drive,
+    target_key: &str,
+    ctl: &dyn Ctl,
+) -> Result<u64, DriveError> {
+    stop_if_asked(ctl)?;
     match (source.local_path(key), target.local_path(target_key)) {
         (Some(from), Some(to)) => {
             if !from.is_file() {
@@ -508,16 +550,16 @@ pub fn copy_object(
                     key: key.to_string(),
                 });
             }
-            copy_file(&from, &to, progress)
+            copy_file(&from, &to, ctl)
         }
-        (None, Some(to)) => download_with_progress(source, key, size, &to, CHUNK, progress),
+        (None, Some(to)) => download_with_ctl(source, key, size, &to, CHUNK, ctl),
         (Some(from), None) => {
             if !from.is_file() {
                 return Err(DriveError::NotFound {
                     key: key.to_string(),
                 });
             }
-            relay_progress(progress, |tell| target.put_file(target_key, &from, tell))
+            target.put_file(target_key, &from, ctl)
         }
         (None, None) => {
             let size = match size {
@@ -526,8 +568,9 @@ pub fn copy_object(
             };
             if size <= CHUNK {
                 let bytes = source.get(key)?;
+                stop_if_asked(ctl)?;
                 target.put(target_key, &bytes)?;
-                progress(bytes.len() as u64);
+                ctl.bytes(bytes.len() as u64);
                 return Ok(bytes.len() as u64);
             }
             let mut ranges = RangeReader {
@@ -539,11 +582,7 @@ pub fn copy_object(
                 buffer: Vec::new(),
                 at: 0,
             };
-            let mut reader = TellingReader {
-                inner: &mut ranges,
-                read: 0,
-                progress,
-            };
+            let mut reader = ProgressReader::new(&mut ranges, ctl);
             target.put_from(target_key, &mut reader)
         }
     }

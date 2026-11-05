@@ -770,7 +770,8 @@ impl UserError {
             DriveError::Conflict { .. } => UserError::new(Code::NameConflict, e.to_string()),
             DriveError::Corrupt { .. } => UserError::new(Code::Integrity, e.to_string()),
             DriveError::Protocol(why) => UserError::new(Code::Other, why.clone()),
-            DriveError::NotFound { .. }
+            DriveError::Cancelled
+            | DriveError::NotFound { .. }
             | DriveError::InvalidKey { .. }
             | DriveError::InvalidRange { .. }
             | DriveError::Io(_)

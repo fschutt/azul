@@ -740,7 +740,7 @@ fn cmd_up(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
     refuse_plaintext(&account)?;
     let drive = open_drive(settings, net, &account, args)?;
     let blake3 = hash_file(&path).with_context(|| format!("{}", path.display()))?;
-    drive.put_file(&key, &path, &|_| {})?;
+    drive.put_file(&key, &path, &azul_storage::ctl::Quiet)?;
     let etag = drive.head(&key)?.map(|(_, etag)| etag).unwrap_or_default();
     let lane = lane_name(&drive);
     drive.close();

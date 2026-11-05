@@ -144,7 +144,7 @@ fn run(args: &Args) -> Result<serde_json::Value, DriveError> {
     match args.command.as_str() {
         "put" => {
             let (file, key) = (PathBuf::from(rest(0)?), rest(1)?);
-            let sent = drive.put_file(&key, &file, &|_| {})?;
+            let sent = drive.put_file(&key, &file, &azul_storage::ctl::Quiet)?;
             Ok(json!({"ok": true, "key": key, "bytes": sent}))
         }
         "get" => {

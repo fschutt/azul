@@ -19,6 +19,7 @@ use std::{
 
 use azul_storage::{
     checked::{CheckedUpload, FileCheck},
+    ctl::Quiet,
     ops, transfer, ByteRange, Drive, DriveError, ListPage, ListRequest, ObjectInfo, Precondition,
 };
 
@@ -132,7 +133,7 @@ impl RemoteStore for DriveStore {
     }
 
     fn put_file(&self, key: &str, path: &Path, check: &FileCheck) -> CloudResult<Option<u64>> {
-        match self.drive.put_file_checked(key, path, check, &|_| {})? {
+        match self.drive.put_file_checked(key, path, check, &Quiet)? {
             CheckedUpload::Sent(written) => Ok(Some(written)),
             CheckedUpload::Changed => Ok(None),
         }

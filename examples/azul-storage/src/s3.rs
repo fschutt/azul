@@ -24,12 +24,12 @@ use std::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    ops, same_etag,
     sigv4::{self, SigningParams, EMPTY_SHA256},
     time::{amz_date, now_unix, parse_http_date},
-    ops, same_etag, xml, AzlinError, BatchDelete, BatchStream, ByteRange, CallLimits, Drive,
-    DriveError, HttpCall,
-    HttpReply, ListPage, ListRequest, Method, ObjectInfo, Precondition, ServiceError, Transport,
-    DELETE_BATCH,
+    xml, AzlinError, BatchDelete, BatchStream, ByteRange, CallLimits, Ctl, Drive, DriveError,
+    HttpCall, HttpReply, Limit, ListPage, ListRequest, Method, ObjectInfo, Precondition,
+    ServiceError, Transport, DELETE_BATCH,
 };
 
 /// S3's longest key, in bytes.
@@ -1470,6 +1470,24 @@ impl Drive for S3Drive {
         }
     }
 
+    /// The limit goes to the transport, which refuses an answer past it before it is held in
+    /// memory ([`CallLimits::object`]); an answer that came whole anyway is checked again.
+    fn get_limited(&self, key: &str, limit: Limit) -> Result<Vec<u8>, DriveError> {
+        let reply = self.object_call(
+            Method::Get,
+            key,
+            Vec::new(),
+            Vec::new(),
+            CallLimits::object(limit.max),
+            Idempotency::Safe,
+        )?;
+        if !reply.is_success() {
+            return Err(failure(&reply, Some(key)));
+        }
+        limit.check_object(key, reply.body.len() as u64)?;
+        Ok(reply.body)
+    }
+
     fn get_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, DriveError> {
         let reply = self.object_call(
             Method::Get,
@@ -1525,14 +1543,9 @@ impl Drive for S3Drive {
     /// upload, [`PARALLEL_PARTS`] parts at once, read where each part lies - resumable with a
     /// resume folder: an upload a killed app left behind goes on with the parts that are
     /// missing ([`crate::multipart`]).
-    fn put_file(
-        &self,
-        key: &str,
-        path: &Path,
-        progress: &(dyn Fn(u64) + Sync),
-    ) -> Result<u64, DriveError> {
+    fn put_file(&self, key: &str, path: &Path, ctl: &dyn Ctl) -> Result<u64, DriveError> {
         check_s3_key(key)?;
-        crate::multipart::upload_file(self, key, path, None, progress).map(|(written, _)| written)
+        crate::multipart::upload_file(self, key, path, None, ctl).map(|(written, _)| written)
     }
 
     /// [`Drive::put_file`] that never completes with bytes other than `check` names: the file
@@ -1543,10 +1556,10 @@ impl Drive for S3Drive {
         key: &str,
         path: &Path,
         check: &crate::checked::FileCheck,
-        progress: &(dyn Fn(u64) + Sync),
+        ctl: &dyn Ctl,
     ) -> Result<crate::checked::CheckedUpload, DriveError> {
         check_s3_key(key)?;
-        crate::multipart::upload_file_checked(self, key, path, check, progress)
+        crate::multipart::upload_file_checked(self, key, path, check, ctl)
     }
 
     /// One PutObject with `If-None-Match: *` or `If-Match: "<etag>"` (AWS S3, R2 and

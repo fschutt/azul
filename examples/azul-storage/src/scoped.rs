@@ -10,7 +10,7 @@ use std::{io::Read, path::PathBuf};
 use crate::{
     key::{check_key, check_prefix},
     ops::check_folder,
-    ByteRange, Drive, DriveError, ListPage, ListRequest, ObjectInfo, Precondition,
+    ByteRange, Ctl, Drive, DriveError, Limit, ListPage, ListRequest, ObjectInfo, Precondition,
 };
 
 /// `inner` limited to the keys under `prefix`, which it shows without the
@@ -115,6 +115,10 @@ impl<D: Drive> Drive for ScopedDrive<D> {
         self.inner.get_range(&self.full_key(key)?, range)
     }
 
+    fn get_limited(&self, key: &str, limit: Limit) -> Result<Vec<u8>, DriveError> {
+        self.inner.get_limited(&self.full_key(key)?, limit)
+    }
+
     fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
         self.check_writable()?;
         self.inner.put(&self.full_key(key)?, bytes)
@@ -183,10 +187,10 @@ impl<D: Drive> Drive for ScopedDrive<D> {
         &self,
         key: &str,
         path: &std::path::Path,
-        progress: &(dyn Fn(u64) + Sync),
+        ctl: &dyn Ctl,
     ) -> Result<u64, DriveError> {
         self.check_writable()?;
-        self.inner.put_file(&self.full_key(key)?, path, progress)
+        self.inner.put_file(&self.full_key(key)?, path, ctl)
     }
 
     fn put_file_checked(
@@ -194,11 +198,11 @@ impl<D: Drive> Drive for ScopedDrive<D> {
         key: &str,
         path: &std::path::Path,
         check: &crate::checked::FileCheck,
-        progress: &(dyn Fn(u64) + Sync),
+        ctl: &dyn Ctl,
     ) -> Result<crate::checked::CheckedUpload, DriveError> {
         self.check_writable()?;
         self.inner
-            .put_file_checked(&self.full_key(key)?, path, check, progress)
+            .put_file_checked(&self.full_key(key)?, path, check, ctl)
     }
 
     fn put_from_if(

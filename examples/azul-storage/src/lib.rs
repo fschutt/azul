@@ -61,6 +61,8 @@ pub mod durable;
 pub mod ids;
 pub mod key;
 pub mod keyring;
+/// Named maximums for numbers somebody else wrote: what an object may weigh before it is read.
+pub mod limits;
 pub mod local;
 pub mod manifest;
 pub mod meta;
@@ -159,6 +161,7 @@ pub use config::SecretOptions;
 pub use ctl::Ctl;
 #[cfg(feature = "sql")]
 pub use database::DatabaseDrive;
+pub use limits::Limit;
 pub use local::LocalDrive;
 #[cfg(feature = "opendal")]
 pub use opendal_drive::OpendalDrive;
@@ -575,6 +578,10 @@ pub enum DriveError {
     /// The object is damaged, or was changed by someone without its key: an encrypted
     /// drive's object or key file that does not authenticate.
     Corrupt { key: String, reason: String },
+    /// The caller stopped the call ([`Ctl::cancelled`]). Nothing was made visible: a bucket
+    /// upload was aborted and its state forgotten, a file copy removed its temporary file. Not
+    /// a failure of the drive: it is never retried and never counted against the drive.
+    Cancelled,
 }
 
 impl fmt::Display for DriveError {
@@ -613,6 +620,7 @@ impl fmt::Display for DriveError {
             DriveError::Corrupt { key, reason } => {
                 write!(f, "\"{key}\" is damaged or was changed ({reason})")
             }
+            DriveError::Cancelled => write!(f, "stopped before it was done; nothing was changed"),
         }
     }
 }
@@ -621,7 +629,11 @@ impl std::error::Error for DriveError {}
 
 impl From<std::io::Error> for DriveError {
     fn from(e: std::io::Error) -> Self {
-        DriveError::Io(e.to_string())
+        if ctl::Stopped::is(&e) {
+            DriveError::Cancelled
+        } else {
+            DriveError::Io(e.to_string())
+        }
     }
 }
 
@@ -634,6 +646,20 @@ pub trait Drive: Send + Sync {
     fn get(&self, key: &str) -> Result<Vec<u8>, DriveError>;
     /// Part of the object.
     fn get_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, DriveError>;
+
+    /// The whole object when it is at most `limit.max` bytes; a bigger one is refused with an
+    /// error that names the limit, and a drive that can says so before it reads it: a bucket
+    /// gives the limit to the transport, which refuses an answer past it; a folder on disk looks
+    /// at the size first. By default [`Drive::get`] and a check of the length after it (the
+    /// memory is spent by then): a drive that wraps another forwards this call so the inner
+    /// drive's guard stands. Use this, not [`Drive::get`], for an object whose size somebody
+    /// else decides (a key file, an index, a manifest); [`Drive::get`] stays for the callers
+    /// that bound the object some other way.
+    fn get_limited(&self, key: &str, limit: Limit) -> Result<Vec<u8>, DriveError> {
+        let bytes = self.get(key)?;
+        limit.check_object(key, bytes.len() as u64)?;
+        Ok(bytes)
+    }
     /// Creates or replaces the object.
     fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError>;
     /// Removes the object; removing a missing object is not an error (S3 semantics).
@@ -727,18 +753,17 @@ pub trait Drive: Send + Sync {
     }
 
     /// Creates or replaces the object with the local file `path`; returns the bytes written.
-    /// `progress` hears the bytes written so far (from the threads the parts travel on). By
-    /// default the file is streamed in ([`Drive::put_from`]); a bucket sends a big file's parts
-    /// several at once and resumes an upload a killed app left unfinished
+    /// `ctl` hears the bytes written so far (from the threads the parts travel on) and is asked,
+    /// once per chunk or part, whether to stop: a stopped upload answers
+    /// [`DriveError::Cancelled`] and leaves nothing behind (a bucket aborts it and forgets its
+    /// state; a transport error, unlike a stop, keeps the state for the next try). A closure
+    /// `Fn(u64) + Sync` is a `Ctl` that only hears the progress; [`ctl::Quiet`] hears nothing.
+    /// By default the file is streamed in ([`Drive::put_from`]); a bucket sends a big file's
+    /// parts several at once and resumes an upload a killed app left unfinished
     /// ([`multipart`]).
-    fn put_file(
-        &self,
-        key: &str,
-        path: &Path,
-        progress: &(dyn Fn(u64) + Sync),
-    ) -> Result<u64, DriveError> {
+    fn put_file(&self, key: &str, path: &Path, ctl: &dyn Ctl) -> Result<u64, DriveError> {
         let mut file = std::fs::File::open(path)?;
-        let mut reader = transfer::ProgressReader::new(&mut file, progress);
+        let mut reader = transfer::ProgressReader::new(&mut file, ctl);
         self.put_from(key, &mut reader)
     }
 
@@ -754,7 +779,7 @@ pub trait Drive: Send + Sync {
         key: &str,
         path: &Path,
         check: &checked::FileCheck,
-        progress: &(dyn Fn(u64) + Sync),
+        ctl: &dyn Ctl,
     ) -> Result<checked::CheckedUpload, DriveError> {
         // Opened once, without a link or a FIFO, and only the file the scan saw.
         let Some(file) = checked::open_checked(path, check)? else {
@@ -762,7 +787,7 @@ pub trait Drive: Send + Sync {
         };
         let mut hashed = checked::HashCheck::new(file, &check.blake3);
         let sent = {
-            let mut reader = transfer::ProgressReader::new(&mut hashed, progress);
+            let mut reader = transfer::ProgressReader::new(&mut hashed, ctl);
             self.put_from(key, &mut reader)
         };
         match sent {
@@ -870,6 +895,9 @@ macro_rules! forward_drive {
             fn get_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, DriveError> {
                 (**self).get_range(key, range)
             }
+            fn get_limited(&self, key: &str, limit: Limit) -> Result<Vec<u8>, DriveError> {
+                (**self).get_limited(key, limit)
+            }
             fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
                 (**self).put(key, bytes)
             }
@@ -911,22 +939,17 @@ macro_rules! forward_drive {
             fn metadata(&self, key: &str) -> Result<Vec<(String, String)>, DriveError> {
                 (**self).metadata(key)
             }
-            fn put_file(
-                &self,
-                key: &str,
-                path: &Path,
-                progress: &(dyn Fn(u64) + Sync),
-            ) -> Result<u64, DriveError> {
-                (**self).put_file(key, path, progress)
+            fn put_file(&self, key: &str, path: &Path, ctl: &dyn Ctl) -> Result<u64, DriveError> {
+                (**self).put_file(key, path, ctl)
             }
             fn put_file_checked(
                 &self,
                 key: &str,
                 path: &Path,
                 check: &checked::FileCheck,
-                progress: &(dyn Fn(u64) + Sync),
+                ctl: &dyn Ctl,
             ) -> Result<checked::CheckedUpload, DriveError> {
-                (**self).put_file_checked(key, path, check, progress)
+                (**self).put_file_checked(key, path, check, ctl)
             }
             fn put_from_if(
                 &self,

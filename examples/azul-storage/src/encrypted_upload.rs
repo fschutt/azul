@@ -34,7 +34,7 @@ use crate::{
         azl1::{self, FileHint, ObjectSummary, TransformId},
         random_bytes, to_hex, ObjectId, WrappedKey,
     },
-    ctl::Quiet,
+    ctl::{Ctl, Quiet},
     durable::{self, Blob, Mode, Publish},
     encrypted::{EncryptedDrive, Expect},
     key::check_key,
@@ -210,6 +210,28 @@ fn read_record(path: &Path) -> Option<Record> {
         .and_then(|text| serde_json::from_slice::<Record>(&text).ok())
 }
 
+/// The caller's [`Ctl`] as the bucket's upload of the encrypted copy hears it: the bucket counts
+/// the object's bytes, the caller is told the file's; a stop passes through as it is.
+struct Scaled<'a> {
+    ctl: &'a dyn Ctl,
+    /// The file's bytes.
+    plain: u64,
+    /// The object's bytes (at least 1).
+    stored: u64,
+}
+
+impl Ctl for Scaled<'_> {
+    fn bytes(&self, sent: u64) {
+        let share = u128::from(sent) * u128::from(self.plain) / u128::from(self.stored);
+        self.ctl
+            .bytes(u64::try_from(share).unwrap_or(self.plain).min(self.plain));
+    }
+
+    fn cancelled(&self) -> bool {
+        self.ctl.cancelled()
+    }
+}
+
 /// How the upload of a file ended, when it went the resumable way.
 pub(crate) enum Spooled {
     /// The object holds the file's bytes: how many.
@@ -228,7 +250,7 @@ impl<D: Drive> EncryptedDrive<D> {
         key: &str,
         path: &Path,
         check: Option<&FileCheck>,
-        progress: &(dyn Fn(u64) + Sync),
+        ctl: &dyn Ctl,
     ) -> Result<Option<Spooled>, DriveError> {
         check_key(key)?;
         let Some(folder) = self.inner.resume_folder() else {
@@ -288,10 +310,7 @@ impl<D: Drive> EncryptedDrive<D> {
         // The bucket hears the object's bytes; the caller is told the file's.
         let plain = summary.plaintext_size;
         let stored = summary.object_len.max(1);
-        let told = |sent: u64| {
-            let share = u128::from(sent) * u128::from(plain) / u128::from(stored);
-            progress(u64::try_from(share).unwrap_or(plain).min(plain));
-        };
+        let told = Scaled { ctl, plain, stored };
         // A cut upload keeps the copy and its record: the next one resumes with them. So does a
         // copy whose object is up whole already - the index's commit failed after it (AZ-M3): it
         // is named, not sent again. Its id is 128 random bits only this copy knows, and an object
@@ -303,8 +322,10 @@ impl<D: Drive> EncryptedDrive<D> {
                 .head(&object_key)
                 .is_ok_and(|info| info.size == summary.object_len);
         if up_already {
-            progress(plain);
+            ctl.bytes(plain);
         } else {
+            // A stop reaches the bucket's upload (it aborts and forgets its state); the copy and
+            // its record stay for the next try.
             self.inner.put_file(&object_key, &copy, &told)?;
         }
         // The copy and its record go only once the index names the object. A commit that fails

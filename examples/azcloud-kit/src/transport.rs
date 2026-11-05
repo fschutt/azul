@@ -35,7 +35,7 @@ use std::{
 };
 
 use azul_appkit::azlin_config::Endpoint;
-use azul_storage::{s3::Routed, HttpCall, HttpReply, Method, ObjectInfo, S3Config, Transport};
+use azul_storage::{s3::Routed, Ctl, HttpCall, HttpReply, Method, ObjectInfo, S3Config, Transport};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -966,13 +966,8 @@ impl CloudDrive {
     /// # Errors
     ///
     /// The file, the service's refusal, or no endpoint answers.
-    pub fn put_file(
-        &self,
-        key: &str,
-        path: &std::path::Path,
-        progress: &(dyn Fn(u64) + Sync),
-    ) -> CloudResult<u64> {
-        self.bucket.put_file(key, path, progress)
+    pub fn put_file(&self, key: &str, path: &std::path::Path, ctl: &dyn Ctl) -> CloudResult<u64> {
+        self.bucket.put_file(key, path, ctl)
     }
 
     /// GET of `key` into the file `dest`: ranges several at once into a hidden file next to it,

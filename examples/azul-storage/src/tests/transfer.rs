@@ -14,7 +14,7 @@ use super::{
 };
 use crate::{
     transfer::{copy_object, download_path, download_to_file, upload_file},
-    ByteRange, Credentials, Drive, DriveError, ListPage, ListRequest, LocalDrive, ObjectInfo,
+    ByteRange, Credentials, Ctl, Drive, DriveError, ListPage, ListRequest, LocalDrive, ObjectInfo,
     S3Config, S3Drive,
 };
 
@@ -68,17 +68,12 @@ impl Drive for Counting {
         self.put_froms.fetch_add(1, Ordering::SeqCst);
         self.inner.put_from(key, body)
     }
-    fn put_file(
-        &self,
-        key: &str,
-        path: &Path,
-        progress: &(dyn Fn(u64) + Sync),
-    ) -> Result<u64, DriveError> {
+    fn put_file(&self, key: &str, path: &Path, ctl: &dyn Ctl) -> Result<u64, DriveError> {
         self.put_files
             .lock()
             .unwrap()
             .push((key.to_string(), path.to_path_buf()));
-        self.inner.put_file(key, path, progress)
+        self.inner.put_file(key, path, ctl)
     }
 }
 

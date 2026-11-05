@@ -38,7 +38,7 @@ use std::{
 
 use crate::{
     beneath::{self, BeneathError, Dir, Fingerprint, Kind, Stat},
-    ctl::{Ctl, Quiet},
+    ctl::{Ctl, Quiet, Stopped},
     DriveError,
 };
 
@@ -176,7 +176,10 @@ impl std::error::Error for PublishError {}
 
 impl From<io::Error> for PublishError {
     fn from(e: io::Error) -> Self {
-        if beneath::is_disk_full(&e) {
+        if Stopped::is(&e) {
+            // A body that was told to stop (a reader of a `Ctl`): a cancel, not a failure.
+            PublishError::Cancelled
+        } else if beneath::is_disk_full(&e) {
             PublishError::DiskFull
         } else {
             PublishError::Io(e)
@@ -200,6 +203,7 @@ impl From<PublishError> for io::Error {
             PublishError::DiskFull => {
                 io::Error::new(io::ErrorKind::StorageFull, "the disk is full")
             }
+            PublishError::Cancelled => Stopped::io(),
             other => io::Error::other(other.to_string()),
         }
     }
@@ -222,6 +226,7 @@ impl PublishError {
             PublishError::Changed => DriveError::Conflict {
                 key: key.to_string(),
             },
+            PublishError::Cancelled => DriveError::Cancelled,
             PublishError::Walk(BeneathError::BadName(_)) => DriveError::InvalidKey {
                 key: key.to_string(),
                 reason: "it has a name that cannot be a file name",

@@ -432,7 +432,9 @@ pub fn of_drive_error(error: &DriveError) -> Outcome {
         DriveError::Conflict { .. } => Outcome::Refused(Code::NameConflict),
         DriveError::Corrupt { .. } => Outcome::Refused(Code::Integrity),
         DriveError::Protocol(_) => Outcome::Refused(Code::Other),
-        DriveError::NotFound { .. }
+        // The caller stopped it: no answer of a service, never retried, never an alert.
+        DriveError::Cancelled
+        | DriveError::NotFound { .. }
         | DriveError::InvalidKey { .. }
         | DriveError::InvalidRange { .. }
         | DriveError::Io(_)

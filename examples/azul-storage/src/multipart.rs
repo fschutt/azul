@@ -41,6 +41,7 @@ use serde::{Deserialize, Serialize};
 pub use crate::s3::{PARALLEL_PARTS, PART_SIZE};
 use crate::{
     checked::{CheckedUpload, FileCheck},
+    ctl::Ctl,
     local::write_atomically,
     s3::S3Drive,
     BytesPerSec, DriveError, Precondition,
@@ -548,15 +549,17 @@ fn stream_parts(
 
 /// Uploads the file `path` to `key` (see the module): one PUT for a file of one part or less;
 /// otherwise a multipart upload that resumes from its state file in the drive's resume folder.
-/// `progress` hears the bytes the service holds so far, from the parts' threads.
+/// `ctl` hears the bytes the service holds so far, from the parts' threads, and is asked before
+/// every part whether to stop: a stop aborts the upload and forgets its state file
+/// ([`DriveError::Cancelled`]), where a failure keeps both for the next try.
 pub(crate) fn upload_file(
     drive: &S3Drive,
     key: &str,
     path: &Path,
     condition: Option<&Precondition>,
-    progress: &(dyn Fn(u64) + Sync),
+    ctl: &dyn Ctl,
 ) -> Result<(u64, Option<String>), DriveError> {
-    match upload_file_with(drive, key, path, condition, progress, None)? {
+    match upload_file_with(drive, key, path, condition, ctl, None)? {
         FileUpload::Done(written, etag) => Ok((written, etag)),
         FileUpload::Changed => Err(DriveError::Io(format!(
             "{} changed while it was uploaded; it is sent again next time",
@@ -572,9 +575,9 @@ pub(crate) fn upload_file_checked(
     key: &str,
     path: &Path,
     check: &FileCheck,
-    progress: &(dyn Fn(u64) + Sync),
+    ctl: &dyn Ctl,
 ) -> Result<CheckedUpload, DriveError> {
-    match upload_file_with(drive, key, path, None, progress, Some(check))? {
+    match upload_file_with(drive, key, path, None, ctl, Some(check))? {
         FileUpload::Done(written, _) => Ok(CheckedUpload::Sent(written)),
         FileUpload::Changed => Ok(CheckedUpload::Changed),
     }
@@ -594,9 +597,12 @@ fn upload_file_with(
     key: &str,
     path: &Path,
     condition: Option<&Precondition>,
-    progress: &(dyn Fn(u64) + Sync),
+    ctl: &dyn Ctl,
     check: Option<&FileCheck>,
 ) -> Result<FileUpload, DriveError> {
+    if ctl.cancelled() {
+        return Err(DriveError::Cancelled);
+    }
     // A checked upload (a sync's file) opens its file once and reads only that handle: a link
     // or a FIFO swapped in under its name is never opened, another file never read.
     let held = match check {
@@ -641,11 +647,14 @@ fn upload_file_with(
         if check.is_some_and(|c| !c.names(&bytes)) {
             return Ok(FileUpload::Changed);
         }
+        if ctl.cancelled() {
+            return Err(DriveError::Cancelled);
+        }
         let etag = match condition {
             Some(condition) => crate::Drive::put_if(drive, key, &bytes, condition)?,
             None => drive.put_object(key, bytes)?,
         };
-        progress(size);
+        ctl.bytes(size);
         return Ok(FileUpload::Done(size, etag));
     }
     let count = usize::try_from(size.div_ceil(part_size)).unwrap_or(usize::MAX);
@@ -722,19 +731,36 @@ fn upload_file_with(
             let _ = fs::remove_file(file);
         }
     };
+    // A stop aborts the upload and forgets its state, so that nothing of it stays on the service
+    // or on this computer; an abort the service did not take stays in the state file, which the
+    // next upload of the file resumes and the next sweep aborts when nobody does.
+    let stopped = |state_file: &Option<PathBuf>| {
+        let aborted = match drive.abort_multipart(key, &upload_id) {
+            Ok(()) => true,
+            Err(gone) => upload_gone(&gone),
+        };
+        if aborted {
+            forget(state_file);
+        }
+        DriveError::Cancelled
+    };
     // The bytes the parts of an earlier run already sent (`held` is the checked file's handle).
     let resumed: u64 = state
         .parts
         .keys()
         .map(|n| part_size.min(size - (*n as u64 - 1) * part_size))
         .sum();
-    progress(resumed);
+    ctl.bytes(resumed);
     let missing: Vec<usize> = (1..=count)
         .filter(|n| !state.parts.contains_key(n))
         .collect();
     let sent = AtomicU64::new(resumed);
     let shared = Mutex::new(state);
     let result = in_parallel(missing.len(), parallel, |i| {
+        // Asked before every part: the parts in flight finish, no part starts after a stop.
+        if ctl.cancelled() {
+            return Err(DriveError::Cancelled);
+        }
         let number = missing[i];
         let start = (number as u64 - 1) * part_size;
         let len = part_size.min(size - start);
@@ -752,16 +778,23 @@ fn upload_file_with(
                 write_state(file, &state);
             }
         }
-        progress(sent.fetch_add(len, Ordering::SeqCst) + len);
+        ctl.bytes(sent.fetch_add(len, Ordering::SeqCst) + len);
         Ok::<(), DriveError>(())
     });
     let state = shared.into_inner().unwrap_or_else(PoisonError::into_inner);
     if let Err(e) = result {
+        if matches!(e, DriveError::Cancelled) || ctl.cancelled() {
+            return Err(stopped(&state_file));
+        }
         // With a state file the next upload resumes; without one nothing could.
         if state_file.is_none() {
             let _ = drive.abort_multipart(key, &upload_id);
         }
         return Err(e);
+    }
+    // A stop after the last part still completes nothing.
+    if ctl.cancelled() {
+        return Err(stopped(&state_file));
     }
     // The file must still be the one whose parts were sent - checked, its bytes hashed whole
     // once more, as the parts of an earlier run were read before this one started.

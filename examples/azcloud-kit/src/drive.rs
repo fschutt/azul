@@ -31,11 +31,9 @@ use std::{
 
 use azlin_contract::IdempotentScope;
 use azul_storage::{
-    config::DriveEntry,
-    time::now_unix,
-    ui_thread::NetworkLock,
-    ops, AzlinError, BatchDelete, BatchMove, BatchStream, BucketSpace, ByteRange, Drive, DriveError,
-    ListPage, ListRequest, ObjectInfo, Precondition, S3Drive, ServiceError, Transport,
+    config::DriveEntry, ops, time::now_unix, ui_thread::NetworkLock, AzlinError, BatchDelete,
+    BatchMove, BatchStream, BucketSpace, ByteRange, Ctl, Drive, DriveError, Limit, ListPage,
+    ListRequest, ObjectInfo, Precondition, S3Drive, ServiceError, Transport,
 };
 
 use crate::{
@@ -656,6 +654,9 @@ impl Drive for AzlinDrive {
     fn get_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, DriveError> {
         self.with_bucket(|b| b.get_range(key, range))
     }
+    fn get_limited(&self, key: &str, limit: Limit) -> Result<Vec<u8>, DriveError> {
+        self.with_bucket(|b| b.get_limited(key, limit))
+    }
     fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
         self.with_bucket(|b| b.put(key, bytes))
     }
@@ -724,13 +725,8 @@ impl Drive for AzlinDrive {
     }
     /// The bucket's resumable upload of a file: after a refusal of the credentials it is sent
     /// again with fresh ones (and resumes with the parts already up).
-    fn put_file(
-        &self,
-        key: &str,
-        path: &Path,
-        progress: &(dyn Fn(u64) + Sync),
-    ) -> Result<u64, DriveError> {
-        self.with_bucket(|b| b.put_file(key, path, progress))
+    fn put_file(&self, key: &str, path: &Path, ctl: &dyn Ctl) -> Result<u64, DriveError> {
+        self.with_bucket(|b| b.put_file(key, path, ctl))
     }
     /// The bucket's resumable upload: a refusal of the credentials half way refreshes them and
     /// the upload goes on from its state file with the parts it lacks.
@@ -739,9 +735,9 @@ impl Drive for AzlinDrive {
         key: &str,
         path: &Path,
         check: &azul_storage::checked::FileCheck,
-        progress: &(dyn Fn(u64) + Sync),
+        ctl: &dyn Ctl,
     ) -> Result<azul_storage::checked::CheckedUpload, DriveError> {
-        self.with_bucket(|b| b.put_file_checked(key, path, check, progress))
+        self.with_bucket(|b| b.put_file_checked(key, path, check, ctl))
     }
     /// The bucket's streamed conditional upload; like [`AzlinDrive::put_from`], a refusal of the
     /// credentials half way refreshes them for the next call and is the caller's to retry.
