@@ -24,7 +24,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::cap::Cap;
+use crate::{cap::Cap, names::LocalKey};
 
 /// Why a path under the root cannot be walked.
 #[derive(Debug)]
@@ -475,16 +475,19 @@ impl Root {
     }
 
     /// The folder of `key` and the key's last name: `a/b/c.txt` -> (the folder `a/b`, `c.txt`).
+    /// The key is a [`LocalKey`]: a name from a drive, a device, a user or a listing reaches a path
+    /// only after [`crate::names::Policy::admit`] let it through (ARCH28 RF42), so no new entry
+    /// point can skip the name policy.
     ///
     /// # Errors
     ///
     /// As [`Root::dir`], and [`BeneathError::BadName`] for a key without a name.
     pub fn parent_of<'k>(
         &self,
-        key: &'k str,
+        key: &'k LocalKey,
         create: bool,
     ) -> Result<(Dir, &'k str), BeneathError> {
-        let (folder, name) = split_key(key);
+        let (folder, name) = split_key(key.as_str());
         check_name(name)?;
         Ok((self.dir(folder, create)?, name))
     }

@@ -155,8 +155,6 @@ fn a_local_drive_on_windows_refuses_such_a_key_and_writes_nothing() {
         tree.dir("C:x", true),
         Err(BeneathError::BadName(_))
     ));
-    assert!(matches!(
-        tree.parent_of("a.txt:s", false),
-        Err(BeneathError::BadName(_))
-    ));
+    // A path argument is a `LocalKey`, and the policy never lets this name become one here.
+    assert!(crate::names::local_key("a.txt:s").is_err());
 }

@@ -20,7 +20,10 @@ use serde::{Deserialize, Serialize};
 use unicode_normalization::UnicodeNormalization;
 
 pub use crate::key::System;
-use crate::key::{self as storage_key, NameProblem};
+use crate::{
+    beneath::{BeneathError, Dir, Root},
+    key::{self as storage_key, NameProblem},
+};
 
 /// The longest name of one file or folder, in bytes (every common file system).
 pub const COMPONENT_MAX_BYTES: usize = storage_key::NAME_MAX_BYTES;
@@ -624,6 +627,25 @@ impl Policy {
         }
     }
 
+    /// The folder of `key` under `root` and the key's last name, reached without a link: the key
+    /// is admitted for `purpose` ([`Policy::admit`]) and walked ([`Root::parent_of`]) in one step.
+    /// The name is owned, since the admitted key is not kept.
+    ///
+    /// # Errors
+    ///
+    /// [`BeneathError::BadName`] for a key the policy refuses, else as [`Root::parent_of`].
+    pub fn walk(
+        &self,
+        root: &Root,
+        key: &str,
+        purpose: Purpose,
+        create: bool,
+    ) -> Result<(Dir, String), BeneathError> {
+        let admitted = self.admit(key, purpose)?;
+        let (dir, name) = root.parent_of(&admitted, create)?;
+        Ok((dir, name.to_string()))
+    }
+
     /// The shape of the key and this system's rows: what makes a string unsafe as a path.
     fn path_problem(&self, key: &str) -> Option<String> {
         storage_key::check_path_key_on(key, self.system)
@@ -663,6 +685,18 @@ impl Policy {
 /// [`Refusal`] for a key that is no path of plain names.
 pub fn local_key(key: &str) -> Result<LocalKey, Refusal> {
     Policy::here(Volume::default()).admit(key, Purpose::Local)
+}
+
+/// [`Policy::walk`] for a key of the engine's own records or of what the disk shows
+/// ([`Purpose::Local`]): its shape and this system's rows, never a protected name's spelling (the
+/// disk has the file already). A name that came from the DRIVE is walked with
+/// [`Purpose::Sync`], by a [`Policy`] that knows the folder's [`Volume`].
+///
+/// # Errors
+///
+/// As [`Policy::walk`].
+pub fn walk_local(root: &Root, key: &str, create: bool) -> Result<(Dir, String), BeneathError> {
+    Policy::here(Volume::default()).walk(root, key, Purpose::Local, create)
 }
 
 /// A folder or file name made from `text` a person wrote: the characters a name cannot hold

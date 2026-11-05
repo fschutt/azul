@@ -324,3 +324,51 @@ fn leaf_for_text_makes_a_name_of_what_a_person_wrote() {
     );
     assert_eq!(Policy::here(Volume::default()).leaf_for_text("CON"), "_CON");
 }
+
+/// RF42 step 3: the path argument of a walk is a `LocalKey`, so there is no way to the disk that
+/// skips the policy. A key walked for the sync is admitted first (a protected name in any
+/// spelling is refused before a folder of it is made), a key of the engine's own records keeps
+/// the shape rows, and a key that climbs out of its folder is a bad name on every path.
+#[test]
+fn rf42_a_walk_takes_only_a_key_the_policy_let_through_and_makes_nothing_for_one_it_refused() {
+    use crate::{
+        beneath::{BeneathError, Root},
+        names::walk_local,
+    };
+    let tmp = TempDir::new("rf42-walk");
+    let tree = Root::open(tmp.path()).unwrap();
+    // A plain key: the folders are made and the name is the last one.
+    let (dir, name) = walk_local(&tree, "docs/2026/a.txt", true).unwrap();
+    assert_eq!(name, "a.txt");
+    assert!(dir.path().ends_with("docs/2026"), "{:?}", dir.path());
+    // Shapes that leave the folder are bad names, however the key is spelled.
+    for key in ["../x", "a/../../x", "/abs", "a//b", "a\\b", ""] {
+        assert!(
+            matches!(walk_local(&tree, key, true), Err(BeneathError::BadName(_))),
+            "{key:?}"
+        );
+    }
+    // For the sync a protected name in any spelling is refused BEFORE a folder of it is made.
+    let policy = Policy::here(Volume::default());
+    for key in [
+        ".GIT/hooks/pre-commit",
+        ".azlin/sync/x",
+        "a/.g\u{200c}it/config",
+        "GIT~1/config",
+    ] {
+        let refused = policy.walk(&tree, key, Purpose::Sync, true);
+        assert!(matches!(refused, Err(BeneathError::BadName(_))), "{key:?}");
+    }
+    for made in [".GIT", ".azlin", "a", "GIT~1"] {
+        assert!(!tmp.path().join(made).exists(), "{made} was made");
+    }
+    // The same policy lets a plain synced key through.
+    let (_, name) = policy
+        .walk(&tree, "docs/b.txt", Purpose::Sync, false)
+        .unwrap();
+    assert_eq!(name, "b.txt");
+    // The engine's own records are walked as they are on the disk (the trash is under .azlin).
+    let (_, kept) = walk_local(&tree, ".azlin/sync/trash/2026/c.txt", true).unwrap();
+    assert_eq!(kept, "c.txt");
+    assert!(tmp.path().join(".azlin/sync/trash/2026").is_dir());
+}

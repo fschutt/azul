@@ -16,6 +16,7 @@ use crate::{
     durable::{self, Expect, Mode, Publish},
     key::{check_path_key, check_path_prefix, folder_of},
     manifest::{self, is_reserved_key, Changes, Manifest, ManifestEntry, Record, MANIFEST_DIR},
+    names::{self, LocalKey},
     ops::check_folder,
     sigv4::{sha256_hex, sha256_hex_of},
     ByteRange, Drive, DriveError, Limit, ListPage, ListRequest, ObjectInfo,
@@ -140,6 +141,12 @@ fn reserved(key: &str) -> DriveError {
     }
 }
 
+/// The key of a contained walk as a path argument: its shape was checked by `path_of` (or
+/// `any_path`) of the call already, so this is the typed form of that check, not a second one.
+fn walk_key(key: &str) -> Result<LocalKey, DriveError> {
+    names::local_key(key).map_err(DriveError::from)
+}
+
 fn not_found_or_io(key: &str, e: std::io::Error) -> DriveError {
     if crate::ctl::Stopped::is(&e) {
         DriveError::Cancelled
@@ -231,9 +238,10 @@ impl LocalDrive {
         create: bool,
     ) -> Result<(beneath::Dir, String), DriveError> {
         self.path_of(key)?;
+        let walked = walk_key(key)?;
         let root = beneath::Root::open(&self.root).map_err(|e| not_found_or_io(key, e))?;
         let (dir, name) = root
-            .parent_of(key, create)
+            .parent_of(&walked, create)
             .map_err(|e| beneath_error(key, e))?;
         Ok((dir, name.to_string()))
     }
@@ -308,10 +316,13 @@ impl LocalDrive {
 
     /// A contained drive's rename: both folders walked without a link, nothing replaced.
     fn contained_rename(&self, from: &str, to: &str) -> Result<(), DriveError> {
-        let (from_key, to_key) = (from.trim_end_matches('/'), to.trim_end_matches('/'));
+        let (from_key, to_key) = (
+            walk_key(from.trim_end_matches('/'))?,
+            walk_key(to.trim_end_matches('/'))?,
+        );
         let root = beneath::Root::open(&self.root).map_err(|e| not_found_or_io(from, e))?;
         let (source, from_name) = root
-            .parent_of(from_key, false)
+            .parent_of(&from_key, false)
             .map_err(|e| beneath_error(from, e))?;
         if source.lstat(from_name).is_err() {
             return Err(DriveError::NotFound {
@@ -319,7 +330,7 @@ impl LocalDrive {
             });
         }
         let (target, to_name) = root
-            .parent_of(to_key, true)
+            .parent_of(&to_key, true)
             .map_err(|e| beneath_error(to, e))?;
         if target.lstat(to_name).is_ok() {
             return Err(DriveError::InvalidKey {
@@ -342,9 +353,10 @@ impl LocalDrive {
     /// A contained drive's folder `prefix` (`a/b/`), walked from the root without a link and
     /// made where it is missing.
     fn contained_make_folder(&self, prefix: &str) -> Result<(), DriveError> {
+        let walked = walk_key(prefix.trim_end_matches('/'))?;
         let root = beneath::Root::open(&self.root).map_err(|e| not_found_or_io(prefix, e))?;
         let (parent, name) = root
-            .parent_of(prefix.trim_end_matches('/'), true)
+            .parent_of(&walked, true)
             .map_err(|e| beneath_error(prefix, e))?;
         if parent.lstat(name).is_ok_and(|st| st.kind == Kind::File) {
             return Err(DriveError::InvalidKey {
@@ -362,8 +374,9 @@ impl LocalDrive {
     /// the root without a link. A link inside it goes as a link; what it points at stays.
     /// `false` when there is no such folder.
     fn contained_remove_folder(&self, prefix: &str) -> Result<bool, DriveError> {
+        let walked = walk_key(prefix.trim_end_matches('/'))?;
         let root = beneath::Root::open(&self.root).map_err(|e| not_found_or_io(prefix, e))?;
-        let (parent, name) = match root.parent_of(prefix.trim_end_matches('/'), false) {
+        let (parent, name) = match root.parent_of(&walked, false) {
             Ok(found) => found,
             Err(e) if e.is_not_found() => return Ok(false),
             Err(e) => return Err(beneath_error(prefix, e)),

@@ -1195,12 +1195,12 @@ struct BlobJob {
 fn open_found(found: &Found) -> Result<(fs::File, Stat), String> {
     let changed = || String::from("changed while it was synced");
     let tree = beneath::Root::open(&found.root).map_err(|e| format!("cannot be read ({e})"))?;
-    let (dir, name) = match tree.parent_of(&found.key, false) {
+    let (dir, name) = match names::walk_local(&tree, &found.key, false) {
         Ok(found) => found,
         Err(e) if e.is_not_found() => return Err(String::from("vanished while it was synced")),
         Err(_) => return Err(changed()),
     };
-    match dir.open_read(name) {
+    match dir.open_read(&name) {
         Ok((file, st)) if found.file.matches(&st) => Ok((file, st)),
         Ok(_) | Err(BeneathError::ThroughLink(_)) => Err(changed()),
         Err(e) if e.is_not_found() => Err(String::from("vanished while it was synced")),
@@ -1867,8 +1867,8 @@ fn failed_here(report: &mut SyncReport, verb: &str, key: &str, e: &BeneathError)
 /// The bytes of the file of `key` under `root`, read without following a link.
 fn read_here(root: &Path, key: &str) -> Option<Vec<u8>> {
     let tree = beneath::Root::open(root).ok()?;
-    let (dir, name) = tree.parent_of(key, false).ok()?;
-    let (mut file, _) = dir.open_read(name).ok()?;
+    let (dir, name) = names::walk_local(&tree, key, false).ok()?;
+    let (mut file, _) = dir.open_read(&name).ok()?;
     let mut bytes = Vec::new();
     std::io::Read::read_to_end(&mut file, &mut bytes).ok()?;
     Some(bytes)
@@ -2026,11 +2026,13 @@ fn move_here(
     let Some(expect) = scan.files.get(from) else {
         return Ok(None);
     };
-    let (source, source_name) = tree.parent_of(from_here, false)?;
+    let (source, source_name) = names::walk_local(tree, from_here, false)?;
+    let source_name = source_name.as_str();
     if !still_there(&source, source_name, Some(expect)) {
         return Ok(None);
     }
-    let (target, target_name) = tree.parent_of(to, true)?;
+    let (target, target_name) = names::walk_local(tree, to, true)?;
+    let target_name = target_name.as_str();
     // Another name for the same file: a case-only rename on a disk that ignores case. Only a
     // known identity says it is the same file; another file, or one whose identity cannot be
     // told, is a name that is taken (the next run takes it from there).
@@ -2238,13 +2240,14 @@ fn apply_local<R: SyncRemote + ?Sized>(
             Action::DeleteLocal { .. } => {
                 // D2: a delete here is a move into the folder's trash, never an unlink.
                 let expect = scan.files.get(key);
-                let (dir, name) = match tree.parent_of(here, false) {
+                let (dir, name) = match names::walk_local(&tree, here, false) {
                     Ok(found) => found,
                     Err(e) => {
                         failed_here(report, "delete", key, &e);
                         continue;
                     }
                 };
+                let name = name.as_str();
                 if !(expect.is_some() && still_there(&dir, name, expect)) {
                     report.changed_during_sync.push(moved_on());
                     continue;
@@ -2331,13 +2334,14 @@ fn apply_local<R: SyncRemote + ?Sized>(
             Action::Conflict { copy, .. } => {
                 hooks.point("conflict-start");
                 let expect = scan.files.get(key);
-                let (dir, name) = match tree.parent_of(here, false) {
+                let (dir, name) = match names::walk_local(&tree, here, false) {
                     Ok(found) => found,
                     Err(e) => {
                         failed_here(report, "keep", key, &e);
                         continue;
                     }
                 };
+                let name = name.as_str();
                 let copy_name = beneath::split_key(copy).1;
                 // The copy's name must still be free; this side's version still as scanned.
                 if !(expect.is_some() && still_there(&dir, name, expect))
@@ -2407,10 +2411,10 @@ fn apply_local<R: SyncRemote + ?Sized>(
                 let expect = scan.files.get(key);
                 let written = faults::check_write(&root.path)
                     .map_err(|e| Replace::Failed(e.into()))
-                    .and_then(|()| tree.parent_of(here, false).map_err(Replace::Failed))
+                    .and_then(|()| names::walk_local(&tree, here, false).map_err(Replace::Failed))
                     .and_then(|(dir, name)| {
                         let exec = expect.is_some_and(|f| f.exec);
-                        replace_checked(&dir, name, expect, &mut &m.file[..], exec, 0)
+                        replace_checked(&dir, &name, expect, &mut &m.file[..], exec, 0)
                     });
                 match written {
                     Ok(_) => {
@@ -2547,7 +2551,7 @@ fn write_download(
         other => other,
     };
     // The folder of the file, made where missing, never through a link or into another disk.
-    let (dir, name) = match tree.parent_of(&here, true) {
+    let (dir, name) = match names::walk_local(&tree, &here, true) {
         Ok(found) => found,
         Err(e) => {
             failed_here(report, "write", &d.key, &e);
@@ -2555,6 +2559,7 @@ fn write_download(
             return;
         }
     };
+    let name = name.as_str();
     let step = engine::Step::Download {
         key: &d.key,
         hash: &hash,
@@ -2668,13 +2673,14 @@ fn write_link(
         );
         return;
     }
-    let (dir, name) = match made.tree.parent_of(here, true) {
+    let (dir, name) = match names::walk_local(made.tree, here, true) {
         Ok(found) => found,
         Err(e) => {
             failed_here(report, "link", key, &e);
             return;
         }
     };
+    let name = name.as_str();
     if !still_there(&dir, name, expect) {
         report
             .changed_during_sync
@@ -2956,9 +2962,9 @@ fn move_folders_here(
         return 0;
     };
     for (made, (from, to)) in moves.iter().enumerate() {
-        let moved = tree.parent_of(from, false).and_then(|(source, name)| {
-            let (target, target_name) = tree.parent_of(to, true)?;
-            source.rename(name, &target, target_name)?;
+        let moved = names::walk_local(&tree, from, false).and_then(|(source, name)| {
+            let (target, target_name) = names::walk_local(&tree, to, true)?;
+            source.rename(&name, &target, &target_name)?;
             target.sync();
             source.sync();
             Ok(())
@@ -3198,7 +3204,7 @@ fn apply_folders(
         .collect();
     removals.sort_by_key(|key| std::cmp::Reverse(key.matches('/').count()));
     for key in removals {
-        match tree.parent_of(key, false).and_then(|(dir, name)| dir.rmdir(name)) {
+        match names::walk_local(&tree, key, false).and_then(|(dir, name)| dir.rmdir(&name)) {
             Ok(()) => {
                 base.remove(key);
                 report.folders_removed += 1;
@@ -3303,8 +3309,8 @@ pub fn sync_to(
 /// The BLAKE3 of the file of `key` under `root`, read in pieces without following a link.
 fn hash_here(root: &Path, key: &str) -> Option<String> {
     let tree = beneath::Root::open(root).ok()?;
-    let (dir, name) = tree.parent_of(key, false).ok()?;
-    let (mut file, _) = dir.open_read(name).ok()?;
+    let (dir, name) = names::walk_local(&tree, key, false).ok()?;
+    let (mut file, _) = dir.open_read(&name).ok()?;
     let mut hasher = blake3::Hasher::new();
     let mut buf = vec![0u8; 256 * 1024];
     loop {
@@ -4320,7 +4326,8 @@ fn fetch_one<R: SyncRemote + ?Sized>(
         .ok_or_else(|| CloudError::failed(format!("{key} is not on the drive (any more)")))?;
     // The file's folder, made where missing, never through a link or into another disk.
     let tree = beneath::Root::open(&root.path)?;
-    let (dir, name) = tree.parent_of(key, true)?;
+    let (dir, name) = names::walk_local(&tree, key, true)?;
+    let name = name.as_str();
     let turned_up = || {
         CloudError::failed(format!(
             "{key} turned up on this device meanwhile; it is left as it is"
@@ -4386,7 +4393,8 @@ pub fn evict_file(root: &LocalRoot, index_path: &Path, key: &str) -> CloudResult
     }
     // Reached without a link: a folder swapped for one never makes this free a file elsewhere.
     let tree = beneath::Root::open(&root.path)?;
-    let (dir, name) = tree.parent_of(key, false)?;
+    let (dir, name) = names::walk_local(&tree, key, false)?;
+    let name = name.as_str();
     let st = dir.lstat(name).with_context(|| format!("{key}"))?;
     if st.kind != Kind::File {
         fail!("{key} is no file here: nothing is freed");

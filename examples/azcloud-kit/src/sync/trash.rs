@@ -9,6 +9,7 @@ use std::{collections::BTreeSet, path::Path};
 use azul_storage::beneath::Root;
 
 use super::{
+    names,
     oplog::{OpKind, OpLog},
     root::{TRASH_DAYS, TRASH_DIR},
 };
@@ -54,15 +55,14 @@ pub fn trashed(root: &Path, state_dir: &Path) -> Vec<Trashed> {
         };
         // Only the newest version counts, as for a restore.
         seen.insert(op.key.clone());
-        let Ok((dir, name)) = tree.parent_of(trashed, false) else {
+        let Ok((dir, name)) = names::walk_local(&tree, trashed, false) else {
             continue;
         };
-        let Ok(stat) = dir.lstat(name) else {
+        let Ok(stat) = dir.lstat(&name) else {
             continue;
         };
-        let taken = tree
-            .parent_of(&op.key, false)
-            .is_ok_and(|(dir, name)| dir.lstat(name).is_ok());
+        let taken = names::walk_local(&tree, &op.key, false)
+            .is_ok_and(|(dir, name)| dir.lstat(&name).is_ok());
         if taken {
             continue;
         }
@@ -128,22 +128,21 @@ pub fn untrash(root: &Path, state_dir: &Path, key: &str) -> CloudResult<Vec<Stri
             continue;
         };
         // Gone from the trash already (purged, put back by hand), or a file is there now.
-        let (source, from) = match tree.parent_of(trashed, false) {
-            Ok((dir, name)) if dir.lstat(name).is_ok() => (dir, name),
+        let (source, from) = match names::walk_local(&tree, trashed, false) {
+            Ok((dir, name)) if dir.lstat(&name).is_ok() => (dir, name),
             _ => {
                 done.insert(op.key.clone());
                 continue;
             }
         };
-        let (target, to) = tree
-            .parent_of(&op.key, true)
-            .with_context(|| op.key.clone())?;
-        if target.lstat(to).is_ok() {
+        let (target, to) =
+            names::walk_local(&tree, &op.key, true).with_context(|| op.key.clone())?;
+        if target.lstat(&to).is_ok() {
             done.insert(op.key.clone());
             continue;
         }
         source
-            .rename(from, &target, to)
+            .rename(&from, &target, &to)
             .with_context(|| trashed.to_string())?;
         target.sync();
         source.sync();

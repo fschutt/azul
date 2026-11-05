@@ -25,7 +25,7 @@ use serde::{Deserialize, Serialize};
 use super::{
     hash_here, load_cache,
     local::{entry_now, path_of, stat_now},
-    named,
+    named, names,
     oplog::{Op, OpKind, OpLog},
     problems::{Code, Problem},
     remote::{self, RemoteFile},
@@ -261,7 +261,8 @@ fn restore<R: SyncRemote + ?Sized>(
     seen: Fingerprint,
     file: &RemoteFile,
 ) -> CloudResult<()> {
-    let (dir, name) = tree.parent_of(key, false)?;
+    let (dir, name) = names::walk_local(tree, key, false)?;
+    let name = name.as_str();
     let replacement = if file.size > BIG_BLOB {
         let blob = TempBlob::for_download(folder, key, &file.hash)?;
         remote_side.fetch_to(key, &file.hash, file.size, blob.path())?;

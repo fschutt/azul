@@ -13,6 +13,7 @@ use azul_storage::{
     beneath::{BeneathError, Root},
     ctl::Quiet,
     durable::{self, Expect, Mode, Publish},
+    names::{Policy, Purpose, Volume},
 };
 use serde::{Deserialize, Serialize};
 
@@ -73,8 +74,8 @@ pub fn move_in(root: &Path, state_dir: &Path, from: &Path, key: &str) -> CloudRe
     // Every name is reached from the folder's root without a link: nothing lands in a folder
     // that a link below the synced folder points at.
     let tree = Root::open(root).with_context(|| root.display())?;
-    match tree.parent_of(key, false) {
-        Ok((dir, name)) if dir.lstat(name).is_ok() => fail!("{key} is there already"),
+    match Policy::here(Volume::default()).walk(&tree, key, Purpose::UserTyped, false) {
+        Ok((dir, name)) if dir.lstat(&name).is_ok() => fail!("{key} is there already"),
         Err(e) if !e.is_not_found() => return Err(CloudError::from(e).context(key)),
         _ => {}
     }
@@ -119,10 +120,12 @@ fn copy_one(
     };
     #[cfg(not(unix))]
     let mode = 0o644;
-    let (dir, name) = tree.parent_of(key, true).context(key)?;
+    let (dir, name) = Policy::here(Volume::default())
+        .walk(tree, key, Purpose::UserTyped, true)
+        .context(key)?;
     durable::publish(
         &dir,
-        name,
+        &name,
         &mut source,
         Publish::new(Expect::Any, Mode::FromSource(mode), &Quiet),
     )

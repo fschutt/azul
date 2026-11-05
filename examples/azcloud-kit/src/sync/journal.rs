@@ -227,8 +227,8 @@ fn read_lines(path: &Path) -> Vec<Line> {
 
 /// The folder of `key` and its name in it, reached from the root one folder at a time without
 /// a link; `None` when a folder on the way is a link, another disk, or gone.
-fn inside<'k>(tree: &Root, key: &'k str) -> Option<(Dir, &'k str)> {
-    tree.parent_of(key, false).ok()
+fn inside(tree: &Root, key: &str) -> Option<(Dir, String)> {
+    azul_storage::names::walk_local(tree, key, false).ok()
 }
 
 /// Whether `name` is a temp file azul-storage's local writes leave beside `target_name`.
@@ -251,7 +251,7 @@ fn remove_temps(tree: &Root, key: &str, out: &mut Recovery) {
             continue;
         };
         let is_file = dir.lstat(other).is_ok_and(|st| st.kind == Kind::File);
-        if is_file && is_download_temp(other, name) && dir.unlink(other).is_ok() {
+        if is_file && is_download_temp(other, &name) && dir.unlink(other).is_ok() {
             out.rolled_back.push(format!("{key}: removed the half download {other}"));
         }
     }
@@ -268,17 +268,17 @@ fn recover_one(tree: &Root, intent: &Intent, out: &mut Recovery) {
                 out.left.push(format!("{key}: its folder is a link or gone"));
                 return;
             };
-            if to_dir.lstat(to).is_ok() {
+            if to_dir.lstat(&to).is_ok() {
                 return;
             }
             // Opened without following a link or blocking on a FIFO, hashed from that handle.
             let holds = from_dir
-                .open_read(from)
+                .open_read(&from)
                 .ok()
                 .and_then(|(file, _)| hash_file(file).ok())
                 .is_some_and(|h| h == *hash);
             if holds {
-                match from_dir.rename(from, &to_dir, to) {
+                match from_dir.rename(&from, &to_dir, &to) {
                     Ok(()) => {
                         to_dir.sync();
                         out.finished.push(format!("{key}: kept as {copy}"));
@@ -299,8 +299,8 @@ fn recover_one(tree: &Root, intent: &Intent, out: &mut Recovery) {
                 out.left.push(format!("{from}: its folder is a link or gone"));
                 return;
             };
-            if via_dir.lstat(via_name).is_ok() && to_dir.lstat(to_name).is_err() {
-                match via_dir.rename(via_name, &to_dir, to_name) {
+            if via_dir.lstat(&via_name).is_ok() && to_dir.lstat(&to_name).is_err() {
+                match via_dir.rename(&via_name, &to_dir, &to_name) {
                     Ok(()) => {
                         to_dir.sync();
                         out.finished.push(format!("{from}: renamed to {to}"));
