@@ -10109,7 +10109,7 @@ struct CounterFailure {
 #[cfg(feature = "std")]
 impl CounterFailure {
     /// A counter that is red without a measurement: unknown, or asked wrongly.
-    fn said(message: String) -> Self {
+    const fn said(message: String) -> Self {
         Self {
             message,
             measured: None,
@@ -10117,7 +10117,7 @@ impl CounterFailure {
     }
 
     /// A counter whose value broke its bound.
-    fn measured(message: String, expected: String, got: String) -> Self {
+    const fn measured(message: String, expected: String, got: String) -> Self {
         Self {
             message,
             measured: Some((expected, got)),
