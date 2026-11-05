@@ -53,6 +53,9 @@ mod time;
 mod transfer;
 /// Names a Windows disk cannot hold, refused before a key becomes a path there.
 mod windows_names;
+/// The conservation matrix of a move: whichever call fails, whenever it is stopped, every file is at
+/// the source or at the target.
+mod xfer_conserve;
 /// The conditional vocabulary on a folder on disk, moves that are renames, a folder removed only
 /// when empty, the default moves of a drive with tags.
 mod xfer_local;
