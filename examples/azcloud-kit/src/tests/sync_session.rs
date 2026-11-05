@@ -7,7 +7,10 @@ use std::{
     collections::BTreeMap,
     fs,
     path::PathBuf,
-    sync::{atomic::AtomicBool, Arc},
+    sync::{
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+        Arc,
+    },
 };
 
 use azul_storage::{testing::TempDir, ByteRange, Drive, DriveError};
@@ -1082,4 +1085,107 @@ fn the_read_back_heals_a_damaged_drive_copy_and_puts_back_a_rotted_one_here() {
     // The next pass sends nothing: the folder is as the drive has it.
     a.pass();
     assert_eq!(index_of(&store)["files"]["b.bin"]["hash"], crate::sync::local::hash_bytes(b"archive b"));
+}
+
+/// A store whose reads stop answering after a number of fetches: a connection that drops, or a
+/// disk that fills, in the middle of a repair.
+struct DropsAfter {
+    inner: Arc<S3Bucket>,
+    fetches_left: AtomicUsize,
+}
+
+impl DropsAfter {
+    fn spend(&self) -> CloudResult<()> {
+        self.fetches_left
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+            .map(|_| ())
+            .map_err(|_| CloudError::failed("connection reset by peer"))
+    }
+}
+
+impl RemoteStore for DropsAfter {
+    fn get_unless(&self, key: &str, etag: Option<&str>) -> CloudResult<Conditional> {
+        self.inner.get_unless(key, etag)
+    }
+    fn fetch(&self, key: &str, size: u64) -> CloudResult<Option<Vec<u8>>> {
+        self.spend()?;
+        self.inner.fetch(key, size)
+    }
+    fn put(&self, key: &str, data: &[u8]) -> CloudResult<String> {
+        self.inner.put(key, data)
+    }
+    fn put_if(
+        &self,
+        key: &str,
+        data: &[u8],
+        if_match: Option<&str>,
+    ) -> CloudResult<Option<String>> {
+        self.inner.put_if(key, data, if_match)
+    }
+    fn head(&self, key: &str) -> CloudResult<Option<u64>> {
+        self.inner.head(key)
+    }
+    fn delete(&self, key: &str) -> CloudResult<()> {
+        self.inner.delete(key)
+    }
+    fn list(&self, prefix: &str) -> CloudResult<Vec<RemoteObject>> {
+        self.inner.list(prefix)
+    }
+}
+
+/// AZ-S4. The read-back put the drive's version over a rotted file by moving the rotted file to
+/// the trash FIRST and fetching after. A fetch that failed then left the folder without the
+/// file; the next pass read "gone here, unchanged on the drive" as a delete, wrote a tombstone
+/// and trashed the good copy on every device. The replacement is fetched and checked first.
+#[test]
+fn az_s4_a_rotted_file_stays_where_it_is_when_the_replacement_cannot_be_fetched() {
+    let store = Arc::new(S3Bucket::new());
+    let drops = Arc::new(DropsAfter {
+        inner: store.clone(),
+        fetches_left: AtomicUsize::new(usize::MAX),
+    });
+    let folder = TempDir::new("azcloud-session-verify-s4");
+    let state = TempDir::new("azcloud-session-state-verify-s4");
+    let remote: Arc<dyn RemoteStore> = drops.clone();
+    let a = Paired {
+        session: SyncSession::plain(
+            setup_of(&folder),
+            state.path().to_path_buf(),
+            "verify-s4",
+            remote,
+        ),
+        folder,
+        state,
+    };
+    a.write("b.bin", b"archive b");
+    a.pass();
+    // This device's copy rots: same size, same time, other bytes.
+    let path = path_of(a.folder.path(), "b.bin");
+    let mtime = fs::metadata(&path).unwrap().modified().unwrap();
+    fs::write(&path, b"archive X").unwrap();
+    fs::File::options()
+        .write(true)
+        .open(&path)
+        .unwrap()
+        .set_modified(mtime)
+        .unwrap();
+    // The read-back reads the drive's copy once (whole), then the repair's fetch gets no answer.
+    drops.fetches_left.store(1, Ordering::SeqCst);
+    let report = a.session.verify().unwrap();
+    assert_eq!(report.rotted, vec![String::from("b.bin")], "{report:?}");
+    assert!(report.restored.is_empty(), "the fetch dropped: {report:?}");
+    assert_eq!(
+        a.read("b.bin").as_deref(),
+        Some(&b"archive X"[..]),
+        "the file is where it was: not moved to the trash before its replacement was here"
+    );
+    // The next pass finds nothing gone: no tombstone on the drive, no delete for the others.
+    drops.fetches_left.store(usize::MAX, Ordering::SeqCst);
+    a.pass();
+    assert!(
+        lists(&index_of(&store), "b.bin"),
+        "the drive still lists the file: {}",
+        index_of(&store)
+    );
+    assert!(a.read("b.bin").is_some());
 }

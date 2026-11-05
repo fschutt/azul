@@ -218,8 +218,21 @@ fn read_back<R: SyncRemote + ?Sized>(
     Ok(())
 }
 
+/// The drive's version of a file, fetched and checked against its BLAKE3: in memory when small,
+/// in the folder's spool when big.
+enum Replacement {
+    Bytes(Vec<u8>),
+    Spool(TempBlob),
+}
+
 /// Puts the drive's version `file` of `key` back over this device's damaged copy (whose bytes
-/// hash to `damaged`), which goes into the trash of `stamp` first, logged.
+/// hash to `damaged`), which goes into the trash of `stamp`, logged.
+///
+/// The replacement is fetched and checked FIRST (AZ-S4): the damaged file leaves its place only
+/// when the version that takes it is here. It used to go to the trash before the fetch, and a
+/// fetch that failed (a dropped connection, a full disk) left the name empty - the next pass read
+/// "gone here, unchanged on the drive" as a delete, wrote a tombstone and trashed the good copy
+/// on every device. A failure after the move puts the damaged file back where it was.
 #[allow(clippy::too_many_arguments)]
 fn restore<R: SyncRemote + ?Sized>(
     remote_side: &R,
@@ -232,26 +245,47 @@ fn restore<R: SyncRemote + ?Sized>(
     file: &RemoteFile,
 ) -> CloudResult<()> {
     let (dir, name) = tree.parent_of(key, false)?;
-    let (trash, target, rel) = root::trash_target(tree, key, stamp)?;
-    dir.rename(name, &trash, &target)?;
-    let _ = log.record(&Op {
-        t: crate::now() as f64,
-        op: OpKind::Trash,
-        key: key.to_string(),
-        to: Some(rel),
-        hash: Some(damaged.to_string()),
-    });
-    let written = if file.size > BIG_BLOB {
+    let replacement = if file.size > BIG_BLOB {
         let blob = TempBlob::for_download(folder, key, &file.hash)?;
         remote_side.fetch_to(key, &file.hash, file.size, blob.path())?;
-        replace_from_spool(tree, &blob, &dir, name, None, file.exec, file.modified_ns())
+        Replacement::Spool(blob)
     } else {
-        let bytes = remote_side.fetch(key, &file.hash, file.size)?;
-        replace_checked(&dir, name, None, &mut &bytes[..], file.exec, file.modified_ns())
+        Replacement::Bytes(remote_side.fetch(key, &file.hash, file.size)?)
+    };
+    let (trash, target, rel) = root::trash_target(tree, key, stamp)?;
+    dir.rename(name, &trash, &target)?;
+    let written = match &replacement {
+        Replacement::Spool(blob) => {
+            replace_from_spool(tree, blob, &dir, name, None, file.exec, file.modified_ns())
+        }
+        Replacement::Bytes(bytes) => replace_checked(
+            &dir,
+            name,
+            None,
+            &mut &bytes[..],
+            file.exec,
+            file.modified_ns(),
+        ),
     };
     match written {
-        Ok(_) => Ok(()),
+        Ok(_) => {
+            let _ = log.record(&Op {
+                t: crate::now() as f64,
+                op: OpKind::Trash,
+                key: key.to_string(),
+                to: Some(rel),
+                hash: Some(damaged.to_string()),
+            });
+            Ok(())
+        }
         Err(Replace::Changed) => fail!("{key} turned up again meanwhile; it is left as it is"),
-        Err(Replace::Failed(e)) => Err(CloudError::from(e)),
+        Err(Replace::Failed(e)) => {
+            // The name is empty: the damaged copy goes back, so no pass takes the gap for a
+            // delete (a file that turned up there meanwhile is not overwritten).
+            if dir.lstat(name).is_err() {
+                let _ = trash.rename(&target, &dir, name);
+            }
+            Err(CloudError::from(e))
+        }
     }
 }
