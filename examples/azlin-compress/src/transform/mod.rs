@@ -26,6 +26,7 @@ use crate::{
 pub(crate) mod deflate;
 pub(crate) mod jpeg;
 mod lepton;
+pub(crate) mod marker;
 pub(crate) mod records;
 pub(crate) mod scan;
 mod work;
@@ -165,8 +166,27 @@ pub fn codec_kind(kind: Kind, id: TransformId) -> Kind {
 }
 
 /// The transform of `input` (a file of `kind`), already decoded and compared with `input`.
+///
+/// With [`Options::poison_dir`] the analysis is bracketed by a marker ([`marker`]): a file whose
+/// analysis never came back (it ended the program) is not analysed again.
 #[must_use]
 pub fn forward(input: &[u8], kind: Kind, options: &Options) -> Forward {
+    // Held until the analysis is over, then removed; a process that ends inside it leaves it.
+    let _marker = match wanted(kind, input.len() as u64, options) {
+        None | Some(TransformId::None) => None,
+        Some(_) => match options.poison_dir.as_deref() {
+            Some(dir) => match marker::Marker::enter(dir, input) {
+                marker::Entered::Clear(marker) => Some(marker),
+                marker::Entered::Left => {
+                    return Forward::NotApplied(String::from(
+                        "an earlier analysis of this file did not come back: it is stored as it is",
+                    ))
+                }
+                marker::Entered::Unavailable => None,
+            },
+            None => None,
+        },
+    };
     let applied = match wanted(kind, input.len() as u64, options) {
         None | Some(TransformId::None) => {
             return Forward::NotApplied(String::from("no transform for this kind or size"))

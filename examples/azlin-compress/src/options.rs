@@ -106,6 +106,10 @@ pub struct Options {
     /// tie-break: the content decides first.
     pub extension: Option<String>,
     pub limits: Limits,
+    /// A folder the application keeps for the poison pill: the analysis of a file that can end
+    /// the program ([`crate::transform::marker`]) leaves a marker there while it runs, and a
+    /// file whose marker is found is stored as it is. `None`: no containment.
+    pub poison_dir: Option<std::path::PathBuf>,
 }
 
 impl Options {
@@ -121,6 +125,7 @@ impl Options {
             threads: 4,
             extension: None,
             limits: Limits::default(),
+            poison_dir: None,
         }
     }
 
@@ -142,6 +147,13 @@ impl Options {
             },
             ..Options::upload()
         }
+    }
+
+    /// `self` with the folder of the poison pill.
+    #[must_use]
+    pub fn with_poison_dir(mut self, dir: Option<std::path::PathBuf>) -> Options {
+        self.poison_dir = dir;
+        self
     }
 
     /// `self` with the file's extension as the detection tie-break.

@@ -16,6 +16,8 @@ mod ctl;
 mod declared;
 /// A folder read in batches, a listing page that stats only its own entries.
 mod dir_read;
+/// The entry points of the fuzz targets, on bytes no fuzzer is needed for.
+mod fuzz_entry;
 /// Documents with an owner: the drives file changed by several writers, a newer build's fields.
 mod docs;
 /// Which `Drive` methods the folder on disk overrides and which it leaves to the defaults.

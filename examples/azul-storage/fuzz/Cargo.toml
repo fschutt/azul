@@ -1,0 +1,65 @@
+# The fuzz targets of the formats azul-storage reads from a bucket, a header, an index or an
+# answer (ARCH28 RF50 / AR5b-5): bytes that other devices, other people and the storage wrote.
+# `panic = "abort"` is the shipped profile, so every panic these find is an abort of the app.
+#
+# cargo-fuzz project of its own (its own workspace, like doc/aztest): `cargo install cargo-fuzz`,
+# then from this folder
+#
+#     cargo +nightly fuzz build                   # what CI does; it never runs them
+#     cargo +nightly fuzz run azl1_object         # an hour on a quiet machine
+#
+# The entry points are the same the unit tests run on a few thousand fixed inputs
+# (`src/tests/fuzz_entry.rs`), so a target here is a few lines: take the bytes, call the parser.
+# The AZL1 target takes `file key (32) || object id (16) || object`, so the fuzzer reaches the
+# segments and not only the commitment check.
+[package]
+name = "azul-storage-fuzz"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+azul-storage = { path = "..", features = ["encryption"] }
+
+# Not a member of azul's workspace: it needs nightly and libfuzzer, and keeps both out of the
+# lockfile of the apps.
+[workspace]
+
+[[bin]]
+name = "azl1_object"
+path = "fuzz_targets/azl1_object.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "key_files"
+path = "fuzz_targets/key_files.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "http1_answer"
+path = "fuzz_targets/http1_answer.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "pointer_blob"
+path = "fuzz_targets/pointer_blob.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "pack_index"
+path = "fuzz_targets/pack_index.rs"
+test = false
+doc = false
+bench = false

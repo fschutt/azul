@@ -225,13 +225,10 @@ fn az_k10_the_wraps_of_a_bucket_are_tried_within_one_work_budget() {
 
     // The budget of recover() holds the first wrap and eight further ones at the cost this
     // software writes, and no more than three of the worst a file may ask for.
-    assert!(
+    const _: () = assert!(
         RECOVER_WORK_BUDGET >= (1 + MAX_EXTRA_RECOVERY_CODES as u64) * RecoveryKdf::DEFAULT_WORK
     );
-    assert!(
-        RECOVER_WORK_BUDGET < 4 * RecoveryKdf::MAX_WORK,
-        "{RECOVER_WORK_BUDGET}"
-    );
+    const _: () = assert!(RECOVER_WORK_BUDGET < 4 * RecoveryKdf::MAX_WORK);
 }
 
 /// A key file bigger than any key file is (a bucket that streams on) is left out of a recovery like a

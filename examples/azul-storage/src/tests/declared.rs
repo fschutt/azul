@@ -70,8 +70,8 @@ fn x_ar5b_5_the_named_limits_are_what_this_software_writes_with_room() {
     assert_eq!(named::KEY_FILE.max, 64 << 10);
     // The chain holds up to CHAIN_MAX_LINKS links of well under 1 KiB each, in 256 KiB.
     assert_eq!(named::KEY_CHAIN.max, 256 << 10);
-    assert!(named::JOURNAL.max >= named::KEY_FILE.max);
-    assert!(named::INDEX_OBJECT.max >= 256 << 20);
+    const _: () = assert!(named::JOURNAL.max >= named::KEY_FILE.max);
+    const _: () = assert!(named::INDEX_OBJECT.max >= 256 << 20);
     // The names are what an error says.
     let err = named::KEY_FILE.within(named::KEY_FILE.max + 1).unwrap_err();
     assert!(

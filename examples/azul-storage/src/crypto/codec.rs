@@ -48,6 +48,18 @@ impl From<azlin_compress::Error> for CryptoError {
     }
 }
 
+/// The folder of the poison pill of the analysis (azlin-compress's `Options::poison_dir`): set
+/// once by the application, which keeps it between runs. `None`: no containment.
+static ANALYSIS_MARKERS: std::sync::Mutex<Option<std::path::PathBuf>> = std::sync::Mutex::new(None);
+
+/// Sets the folder the analysis of a file leaves its marker in while it runs (the poison pill: a
+/// file whose analysis ended the program is stored as it is from then on).
+pub fn set_analysis_marker_dir(dir: Option<std::path::PathBuf>) {
+    *ANALYSIS_MARKERS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = dir;
+}
+
 /// How a file is compressed when it is written.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Compression {
@@ -71,6 +83,10 @@ impl Compression {
             Compression::Idle => Options::idle(),
         };
         options.segment_size = segment_size;
+        options.poison_dir = ANALYSIS_MARKERS
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
         Some(match extension {
             Some(extension) => options.with_extension(extension),
             None => options,
