@@ -2358,8 +2358,31 @@ const PAYMENT_POLL_SECS: u64 = 3;
 /// How long the dialog waits for a payment before it gives up (the payment page stays valid).
 const PAYMENT_WAIT_SECS: u64 = 3600;
 
+/// The most seconds between two questions about a payment while the token server does not
+/// answer (or asks to wait): the wait doubles from [`PAYMENT_POLL_SECS`] up to this.
+const PAYMENT_BACKOFF_MAX_SECS: u64 = 60;
+
+/// The most seconds the token server's own `Retry-After` is obeyed for in one wait: it is heard
+/// (a rate limit that says a minute is not asked again in three seconds), but ten minutes is the
+/// most a dialog or a round waits for it.
+const RETRY_AFTER_MAX_SECS: u64 = 600;
+
 /// Seconds between two rounds of the background claims.
 const CLAIM_POLL_SECS: u64 = 10;
+/// The most seconds between two rounds of the claims while the token server does not answer.
+const CLAIM_BACKOFF_MAX_SECS: u64 = 300;
+
+/// The seconds to wait before asking again: `base` doubled for each of the `failures` questions
+/// in a row that got no answer or a busy one, up to `cap`; never less than the token server asked
+/// for (`retry_after`, heard up to [`RETRY_AFTER_MAX_SECS`]) - AZ-P10.
+#[must_use]
+pub(crate) fn backoff_secs(base: u64, failures: u32, cap: u64, retry_after: Option<u64>) -> u64 {
+    let doubled = base
+        .saturating_mul(1_u64 << failures.min(16))
+        .min(cap.max(base));
+    let asked = retry_after.map_or(0, |secs| secs.min(RETRY_AFTER_MAX_SECS));
+    doubled.max(asked)
+}
 /// How long the background claims go on in one run (the next start asks again).
 const CLAIM_WAIT_SECS: u64 = 3600;
 
@@ -2735,9 +2758,13 @@ fn await_payment(
     };
     let started = Instant::now();
     let mut last_problem = String::new();
+    // Seconds before the next question: three while all is well, longer while the token server
+    // does not answer or asks to wait (AZ-P10).
+    let mut wait = PAYMENT_POLL_SECS;
+    let mut failures = 0_u32;
     loop {
         // A few seconds in short steps: Stop waiting is heard at once.
-        for _ in 0..(PAYMENT_POLL_SECS * 4) {
+        for _ in 0..(wait * 4) {
             if cancel.load(Ordering::SeqCst) {
                 // "Stop waiting" said why, and the background claims take over.
                 return Outcome::PaymentEnded {
@@ -2764,8 +2791,20 @@ fn await_payment(
             };
         }
         match pending::poll(&server, keyring, checkout) {
-            Polled::Pending => {}
-            Polled::Transient(why) => last_problem = why.to_string(),
+            Polled::Pending => {
+                failures = 0;
+                wait = PAYMENT_POLL_SECS;
+            }
+            Polled::Transient(why) => {
+                last_problem = why.to_string();
+                failures = failures.saturating_add(1);
+                wait = backoff_secs(
+                    PAYMENT_POLL_SECS,
+                    failures,
+                    PAYMENT_BACKOFF_MAX_SECS,
+                    why.retry_after(),
+                );
+            }
             Polled::Final(Final::Claimed(claimed)) => {
                 return Outcome::Claimed {
                     serial: Some(serial),
@@ -2831,7 +2870,12 @@ fn claim_pending(
     // never every round.
     let mut asked_cash: HashMap<String, Instant> = HashMap::new();
     let mut said_in_flight: Vec<String> = Vec::new();
+    // Rounds in a row in which the token server did not answer or asked to wait, and the longest
+    // wait it asked for in the round (AZ-P10).
+    let mut failures = 0_u32;
     loop {
+        let mut unanswered = false;
+        let mut asked_for: Option<u64> = None;
         // The entry of an order whose answer never came is a record, not a checkout to ask
         // about; after a day nobody can pay what it may have made, and it goes.
         if let Err(e) = pending::forget_stale_postings(keyring, azcloud_kit::now()) {
@@ -2911,7 +2955,15 @@ fn claim_pending(
             }
             // Bought here and not paid yet: a new order in this window asks about it first.
             let may_be_in_flight = !checkout.is_cash() && !checkout.picked_up;
-            match pending::poll(&server, keyring, &checkout) {
+            let polled = pending::poll(&server, keyring, &checkout);
+            if let Polled::Transient(why) = &polled {
+                unanswered |= matches!(
+                    why,
+                    pending::Transient::Busy { .. } | pending::Transient::NoAnswer(_)
+                );
+                asked_for = asked_for.max(why.retry_after());
+            }
+            match polled {
                 Polled::Pending if checkout.is_cash() => {
                     send(sender, Outcome::CashWaiting { checkout });
                 }
@@ -2960,7 +3012,13 @@ fn claim_pending(
         if started.elapsed() > Duration::from_secs(CLAIM_WAIT_SECS) {
             return Outcome::ClaimsDone { problem: None };
         }
-        std::thread::sleep(Duration::from_secs(CLAIM_POLL_SECS));
+        failures = if unanswered {
+            failures.saturating_add(1)
+        } else {
+            0
+        };
+        let wait = backoff_secs(CLAIM_POLL_SECS, failures, CLAIM_BACKOFF_MAX_SECS, asked_for);
+        std::thread::sleep(Duration::from_secs(wait));
     }
 }
 
@@ -5001,5 +5059,29 @@ mod tests {
                 "{pay_url}: ended"
             );
         }
+    }
+
+    /// AZ-P10: the wait before the next question grows while the token server does not answer
+    /// and is never shorter than it asked.
+    #[test]
+    fn az_p10_the_wait_between_questions_backs_off_and_obeys_retry_after() {
+        // All is well: the base.
+        assert_eq!(backoff_secs(3, 0, 60, None), 3);
+        // No answer, again and again: doubled, to the cap.
+        assert_eq!(backoff_secs(3, 1, 60, None), 6);
+        assert_eq!(backoff_secs(3, 2, 60, None), 12);
+        assert_eq!(backoff_secs(3, 5, 60, None), 60);
+        assert_eq!(backoff_secs(3, 40, 60, None), 60, "never overflows");
+        // A rate limit that says a minute is not asked again after three seconds.
+        assert_eq!(backoff_secs(3, 1, 60, Some(60)), 60);
+        // Heard up to ten minutes, no further.
+        assert_eq!(backoff_secs(3, 1, 60, Some(300)), 300);
+        assert_eq!(backoff_secs(3, 1, 60, Some(86_400)), 600);
+        // A claims round: ten seconds, doubled, to five minutes.
+        assert_eq!(backoff_secs(10, 0, 300, None), 10);
+        assert_eq!(backoff_secs(10, 3, 300, None), 80);
+        assert_eq!(backoff_secs(10, 9, 300, None), 300);
+        // A cap below the base never shortens the base.
+        assert_eq!(backoff_secs(10, 4, 5, None), 10);
     }
 }

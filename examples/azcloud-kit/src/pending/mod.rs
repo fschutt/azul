@@ -954,8 +954,10 @@ impl Final {
 pub enum Transient {
     /// No answer from the token server (DNS, connection, TLS, a timeout).
     NoAnswer(String),
-    /// The token server was busy ([`TokenError::Busy`]: a 5xx, its rate limit).
-    Busy(String),
+    /// The token server was busy ([`TokenError::Busy`]: a 5xx, its rate limit), and how many
+    /// seconds it asked to wait (`Retry-After`) - the next question waits at least that long
+    /// ([`Transient::retry_after`], AZ-P10).
+    Busy { why: String, retry_after: Option<u64> },
     /// Its sealed sign-up did not open (fewer than [`UNOPENABLE_AFTER`] times): asked again.
     Unopened(String),
     /// This device could not keep what the answer brought, or change the list (its keyring).
@@ -970,11 +972,23 @@ impl Transient {
     #[must_use]
     pub fn why(&self) -> &str {
         match self {
-            Transient::NoAnswer(why)
-            | Transient::Busy(why)
+            Transient::Busy { why, .. }
+            | Transient::NoAnswer(why)
             | Transient::Unopened(why)
             | Transient::NotKept(why)
             | Transient::Unread(why) => why,
+        }
+    }
+
+    /// The seconds the token server asked to wait before it is asked again, when it said.
+    #[must_use]
+    pub fn retry_after(&self) -> Option<u64> {
+        match self {
+            Transient::Busy { retry_after, .. } => *retry_after,
+            Transient::NoAnswer(_)
+            | Transient::Unopened(_)
+            | Transient::NotKept(_)
+            | Transient::Unread(_) => None,
         }
     }
 }
@@ -1015,7 +1029,10 @@ pub fn poll(
             )))
         }
         Err(e @ TokenError::Busy { .. }) => {
-            return Polled::Transient(Transient::Busy(e.to_string()))
+            return Polled::Transient(Transient::Busy {
+                retry_after: e.retry_after(),
+                why: e.to_string(),
+            })
         }
         Err(e) => return Polled::Transient(Transient::Unread(e.to_string())),
     };

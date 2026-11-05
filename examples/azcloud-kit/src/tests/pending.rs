@@ -374,7 +374,7 @@ fn a_checkout_the_token_server_cannot_answer_about_is_kept_for_the_next_try() {
     ));
     assert!(matches!(
         pending::poll(&server, &shared, &ck),
-        Polled::Transient(Transient::Busy(_))
+        Polled::Transient(Transient::Busy { .. })
     ));
     assert!(matches!(
         pending::poll(&server, &shared, &ck),
@@ -1011,4 +1011,50 @@ fn az_p5_after_thirty_days_without_a_vault_of_the_drive_a_second_copy_is_kept_an
             .mode();
         assert_eq!(mode & 0o077, 0, "readable by this user only: {mode:o}");
     }
+}
+
+/// AZ-P10: a token server that asks to wait (429 with `Retry-After`) is heard: the poll says how
+/// long, so the loops that poll do not ask again after their fixed three or ten seconds.
+#[test]
+fn az_p10_a_rate_limited_poll_carries_the_wait_the_token_server_asked_for() {
+    let dir = TempDir::new("azcloud-pending");
+    let (shared, _) = shared(&dir);
+    let claim = ClaimKey::generate().unwrap();
+    let ck = checkout("ck_1", &claim);
+    pending::add(&shared, &ck).unwrap();
+    let fake = Fake::new(|_, _| {
+        let mut reply = json(
+            429,
+            r#"{"error": "rate_limited", "message": "too many requests", "spent": false}"#,
+        );
+        reply
+            .headers
+            .push((String::from("retry-after"), String::from("60")));
+        Ok(reply)
+    });
+    let transport = Shared(fake);
+    let server = TokenServer::new(TOKEN, &transport)
+        .unwrap()
+        .with_retry_pause(std::time::Duration::ZERO);
+    match pending::poll(&server, &shared, &ck) {
+        Polled::Transient(busy @ Transient::Busy { .. }) => {
+            assert_eq!(busy.retry_after(), Some(60), "{busy:?}");
+        }
+        other => panic!("not busy: {other:?}"),
+    }
+    // Any other reason to stay says no wait of the server's.
+    assert_eq!(Transient::NoAnswer(String::from("x")).retry_after(), None);
+    assert_eq!(
+        Transient::Busy {
+            why: String::from("x"),
+            retry_after: None
+        }
+        .retry_after(),
+        None
+    );
+    assert_eq!(
+        pending::list(&shared).unwrap().len(),
+        1,
+        "the checkout stays"
+    );
 }
