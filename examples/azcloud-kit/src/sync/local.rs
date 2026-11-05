@@ -969,6 +969,9 @@ pub fn scan_settled(
                     );
                 }
                 Err(Skip::Refused(code, why)) => {
+                    // Not synced, and not gone: a file the base and the drive agree on that the
+                    // scan refuses (grown past the size cap) is unknown, never a delete (AZ-S6).
+                    out.unknown.insert(key.clone());
                     out.skipped.push((key.clone(), why.clone()));
                     out.tell(code, &key, why);
                 }

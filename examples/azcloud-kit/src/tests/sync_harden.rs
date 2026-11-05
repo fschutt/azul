@@ -840,3 +840,34 @@ fn a_file_made_again_on_a_paired_folder_goes_up_and_a_kept_one_waits_for_the_use
         "not sent on the second pass"
     );
 }
+
+/// AZ-S6. A synced file the scan REFUSES (here: over the size this device takes, `--max-file-mb`)
+/// was neither among the files nor "unknown": base and drive agreed on it, so the plan read
+/// "gone here, unchanged there" and deleted it on the drive - a tombstone, and the trash of
+/// every other device. Unreadable, changed and locked files were unknown already.
+#[test]
+fn az_s6_a_file_the_scan_refuses_is_unknown_and_never_a_delete() {
+    let store = S3Bucket::new();
+    let a = Device::new("s6-a");
+    a.write("big.bin", &vec![1u8; 3000]);
+    a.write("small.txt", b"small");
+    a.sync(&store);
+    // It grows past what this device takes.
+    a.write("big.bin", &vec![2u8; 6000]);
+    let mut opts = a.opts();
+    opts.max_file_bytes = 4000;
+    for pass in 0..2 {
+        let report = a.sync_with(&store, &opts).unwrap();
+        assert!(
+            lists(&report, Code::TooLarge, Some("big.bin")),
+            "pass {pass}: {:?}",
+            report.problems
+        );
+        assert_eq!(report.deleted_there, 0, "pass {pass}: {}", report.summary());
+        assert!(
+            index_of(&store).files.contains_key("big.bin"),
+            "pass {pass}: the drive keeps it"
+        );
+        assert!(a.read("big.bin").is_some(), "pass {pass}");
+    }
+}
