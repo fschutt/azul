@@ -1677,6 +1677,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "beea02de84f7d4c090ccf9a2bddcd0595105b35c2ed0c9a0ed66aca4b79559bd"
 
 [[package]]
+name = "azul-srcgate"
+version = "0.1.0"
+
+[[package]]
 name = "azul-storage"
 version = "0.1.0"
 dependencies = [
