@@ -438,7 +438,7 @@ pub(crate) fn setup_of<'a>(s: &'a DriveState, drive_id: &str) -> Option<&'a Sync
 pub(crate) fn names_its_files(s: &DriveState, drive_id: &str) -> bool {
     s.slot_index(drive_id)
         .and_then(|i| s.slots[i].auto.as_ref())
-        .is_some_and(|auto| auto.is_encrypted() == Some(true))
+        .is_some_and(|auto| auto.state().has_drive_index())
 }
 
 #[cfg(not(feature = "encryption"))]

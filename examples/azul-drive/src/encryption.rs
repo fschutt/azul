@@ -77,6 +77,7 @@ use azul_storage::{
     recompress::{run_pass, RecompressPolicy, RecompressState},
     rotation::{self, reencrypt_pass, ReencryptState},
     time::now_unix,
+    trust::RestoreKind,
     Drive,
 };
 
@@ -323,7 +324,7 @@ extern "C" fn on_recompress_timer(mut data: RefAny, info: TimerCallbackInfo) -> 
         .iter()
         .filter_map(|slot| {
             let auto = slot.auto.clone()?;
-            (auto.is_encrypted() == Some(true)).then(|| (slot.entry.id.clone(), auto))
+            auto.state().has_drive_index().then(|| (slot.entry.id.clone(), auto))
         })
         .collect();
     // The drive index's upkeep first: a short round, once every six hours per drive.
@@ -1299,14 +1300,19 @@ pub(crate) fn restore_of(
 /// An encrypted drive back as its metadata repository had it at `as_of` (seconds since 1970),
 /// as one new commit ([`azcloud_kit::restore_drive_as_of`]) through a copy of the repository of
 /// its own (in memory; the open drive's index sees the commit at its next poll): the files put
-/// back or taken away. `None` for a plain drive.
-fn restore_encrypted(auto: &AutoEncrypted, as_of: i64) -> Option<Result<usize, String>> {
-    if auto.is_encrypted().is_none() {
-        // The drive's first call decides whether it is encrypted.
-        let _ = auto.head("");
-    }
-    if auto.is_encrypted() != Some(true) {
-        return None;
+/// back or taken away.
+///
+/// The drive is decided first, on the job's thread, and what "could not tell" (a keyring that
+/// would not open, no answer, a locked drive) and "not encrypted" do is the state's policy
+/// ([`EncState::restore_kind`]): an error for the user. NEVER the bucket's restore at the token
+/// server, which rolls every object of the bucket back, an encrypted drive's included
+/// (X-AR5b-2).
+fn restore_encrypted(auto: &AutoEncrypted, as_of: i64) -> Result<usize, String> {
+    let state = auto.decide().map_err(|e| e.to_string())?;
+    match state.restore_kind() {
+        RestoreKind::Files => {}
+        RestoreKind::OpenFirst => return Err(String::from("azdrive-restore-open-first")),
+        RestoreKind::EncryptFirst => return Err(String::from("azdrive-restore-encrypt-first")),
     }
     let bucket = Arc::clone(auto.bucket());
     let restored = (|| -> Result<usize, String> {
@@ -1322,16 +1328,13 @@ fn restore_encrypted(auto: &AutoEncrypted, as_of: i64) -> Option<Result<usize, S
         Ok(restore.restored + restore.removed)
     })();
     auto.reopen();
-    Some(restored)
+    restored
 }
 
-/// The bucket below an encrypted drive (its first call decides whether it is encrypted); an
-/// error for a plain one, whose index names only each file's current version.
+/// The bucket below an encrypted drive (decided first: why it could not be is the error); an
+/// error for one that is not, whose index names only each file's current version.
 fn versioned_bucket(auto: &AutoEncrypted) -> Result<Arc<dyn Drive>, String> {
-    if auto.is_encrypted().is_none() {
-        let _ = auto.head("");
-    }
-    if auto.is_encrypted() != Some(true) {
+    if !auto.decide().map_err(|e| e.to_string())?.has_drive_index() {
         return Err(String::from(
             "a plain drive keeps no versions of its files: its index names each file's current \
              version only",
@@ -1399,7 +1402,7 @@ pub(crate) fn request_totals(info: &mut CallbackInfo, app: &RefAny, s: &mut Driv
         .filter_map(|slot| {
             let (azlin_id, _) = slot.entry.azlin()?;
             let auto = slot.auto.clone()?;
-            (auto.is_encrypted() == Some(true)
+            (auto.state().has_drive_index()
                 && crate::usage_view::totals_due(s.usage.get(azlin_id), now))
             .then(|| (azlin_id.to_string(), auto))
         })
@@ -3310,6 +3313,7 @@ extern "C" fn on_recovery_lockdown(mut data: RefAny, mut info: CallbackInfo) -> 
 #[cfg(test)]
 mod tests {
     use azul::sensor::NetworkKind;
+    use azul_storage::trust::EncState;
 
     use super::*;
 
@@ -3788,5 +3792,54 @@ mod tests {
         let with_cache = meta_provider(Some(dir.clone())).packing("d_any").unwrap();
         let journal = with_cache.journal.expect("beside the drive's index copy");
         assert!(journal.starts_with(&dir) && journal.ends_with("packs"), "{journal:?}");
+    }
+
+    /// A keyring whose prompt the user declined.
+    struct Declined;
+
+    impl KeyringStore for Declined {
+        fn get(&self, _key: &str) -> Result<Option<String>, azul_storage::keyring::KeyringError> {
+            Err(azul_storage::keyring::KeyringError::Denied)
+        }
+        fn set(&self, _key: &str, _secret: &str) -> Result<(), azul_storage::keyring::KeyringError> {
+            Err(azul_storage::keyring::KeyringError::Denied)
+        }
+        fn delete(&self, _key: &str) -> Result<(), azul_storage::keyring::KeyringError> {
+            Err(azul_storage::keyring::KeyringError::Denied)
+        }
+    }
+
+    /// X-AR5b-2: "Restore as of" of a drive the keyring would not open used to read "could not
+    /// tell" as "plain" and ask the token server to roll EVERY object of the bucket back. The
+    /// drive is decided first and its state names what happens: open it first (the keyring
+    /// refused, the bucket is reachable), or encrypt it first - an error either way, never the
+    /// bucket's restore.
+    #[test]
+    fn x_ar5b_2_a_drive_the_keyring_will_not_open_is_not_restored_by_its_bucket() {
+        use azul_storage::{local::LocalDrive, testing::TempDir};
+        let dir = TempDir::new("restore-declined");
+        std::fs::write(dir.path().join("a.txt"), b"plain").unwrap();
+        let bucket: Arc<dyn Drive> = Arc::new(LocalDrive::new(dir.path().to_path_buf()));
+
+        let declined = AutoEncrypted::new(Arc::clone(&bucket), "d_1", Arc::new(Declined), None);
+        let said = restore_encrypted(&declined, 0).unwrap_err();
+        assert!(said.contains("keyring"), "the keyring's refusal is said: {said}");
+        assert_eq!(declined.state(), EncState::Undecided);
+        let versions = versioned_bucket(&declined).err().expect("refused");
+        assert!(versions.contains("keyring"), "{versions}");
+
+        // A bucket with a file and no key anywhere: not encrypted, so nothing to restore from.
+        let plain = AutoEncrypted::new(
+            Arc::clone(&bucket),
+            "d_2",
+            Arc::new(azul_storage::keyring::MemoryKeyring::new()),
+            None,
+        );
+        assert_eq!(
+            restore_encrypted(&plain, 0),
+            Err(String::from("azdrive-restore-encrypt-first"))
+        );
+        assert!(versioned_bucket(&plain).is_err(), "a plain drive keeps no versions");
+        assert!(dir.path().join("a.txt").exists(), "and nothing was touched");
     }
 }

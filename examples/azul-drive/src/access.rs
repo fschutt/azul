@@ -127,7 +127,7 @@ fn encrypted(s: &DriveState, drive_id: &str) -> bool {
     {
         slot.auto
             .as_ref()
-            .is_none_or(|auto| auto.is_encrypted() != Some(false))
+            .is_none_or(|auto| auto.state().sends_index_commits())
     }
     #[cfg(not(feature = "encryption"))]
     {

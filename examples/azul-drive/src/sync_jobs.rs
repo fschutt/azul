@@ -190,53 +190,58 @@ impl SyncWork {
         #[cfg(feature = "encryption")]
         {
             if let Some(auto) = &self.auto {
-                if auto.is_encrypted().is_none() {
+                let unopened = |why: azul_storage::DriveError| {
+                    SyncSession::plain(
+                        self.setup.clone(),
+                        self.dir.clone(),
+                        &device,
+                        Arc::new(Unopened(why)),
+                    )
+                };
+                let mut problem = None;
+                if !auto.state().is_decided() {
                     let probe = azul_storage::ListRequest::folder("").with_max_keys(1);
                     // A drive that cannot be opened (its key is not on this device, no
                     // connection) is of no known kind: no session may guess one (a plain one
                     // reads an encrypted drive as one without an index), so the pass fails
                     // with the drive's own answer and changes nothing.
-                    if let Err(e) = self.drive.list(&probe) {
-                        if auto.is_encrypted().is_none() {
-                            return SyncSession::plain(
+                    problem = self.drive.list(&probe).err();
+                }
+                let encrypted_copies = self.setup.local_copies
+                    == azcloud_kit::sync::session::LocalCopies::Encrypted;
+                match session_plan(auto.state(), encrypted_copies && self.objects.is_some()) {
+                    SessionPlan::Unopened => {
+                        // An Azlin drive is encrypted, always: one that is not (new, made before
+                        // the encryption, a bucket that hides its key files) takes no file, so
+                        // no plain session may start on it - its pass fails with the drive's
+                        // own answer.
+                        let why = auto
+                            .unencrypted_refusal()
+                            .or(problem)
+                            .unwrap_or_else(|| azul_storage::DriveError::Denied {
+                                message: String::from("the drive could not be opened"),
+                            });
+                        return unopened(why);
+                    }
+                    SessionPlan::EncryptedCopies => {
+                        if let Some(objects) = &self.objects {
+                            return SyncSession::encrypted_copies(
                                 self.setup.clone(),
                                 self.dir.clone(),
                                 &device,
-                                Arc::new(Unopened(e)),
+                                self.drive.clone(),
+                                objects.clone(),
                             );
                         }
                     }
+                    SessionPlan::Named => {}
                 }
-                // An Azlin drive is encrypted, always: one that is not (new, made before the
-                // encryption, a bucket that hides its key files) takes no file, so no plain
-                // session may start on it - its pass fails with the drive's own answer.
-                if let Some(refusal) = auto.unencrypted_refusal() {
-                    return SyncSession::plain(
-                        self.setup.clone(),
-                        self.dir.clone(),
-                        &device,
-                        Arc::new(Unopened(refusal)),
-                    );
-                }
-                if auto.is_encrypted() == Some(true) {
-                    let encrypted = self.setup.local_copies
-                        == azcloud_kit::sync::session::LocalCopies::Encrypted;
-                    if let (true, Some(objects)) = (encrypted, &self.objects) {
-                        return SyncSession::encrypted_copies(
-                            self.setup.clone(),
-                            self.dir.clone(),
-                            &device,
-                            self.drive.clone(),
-                            objects.clone(),
-                        );
-                    }
-                    return SyncSession::named(
-                        self.setup.clone(),
-                        self.dir.clone(),
-                        &device,
-                        self.drive.clone(),
-                    );
-                }
+                return SyncSession::named(
+                    self.setup.clone(),
+                    self.dir.clone(),
+                    &device,
+                    self.drive.clone(),
+                );
             }
         }
         SyncSession::plain(
@@ -408,6 +413,35 @@ fn freed_text(freed: &Freed) -> Text {
                 .arg("why", why.as_str()),
         ),
         None => text,
+    }
+}
+
+/// The session an Azlin drive in a state gets. There is no plain one among them: a pass on a
+/// drive that is not (yet) known to be encrypted fails with the drive's own answer and changes
+/// nothing (X-AR5b-3).
+#[cfg(feature = "encryption")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum SessionPlan {
+    /// The drive is not open or takes no file: every call of the pass answers why.
+    Unopened,
+    /// Through the drive's names, its files' encrypted copies kept on this computer.
+    EncryptedCopies,
+    /// Through the drive's names.
+    Named,
+}
+
+/// The session of an Azlin drive in `state`; `encrypted_copies`: whether the pairing keeps its
+/// files' encrypted copies and this computer has the place for them.
+#[cfg(feature = "encryption")]
+pub(crate) fn session_plan(
+    state: azul_storage::trust::EncState,
+    encrypted_copies: bool,
+) -> SessionPlan {
+    use azul_storage::trust::SyncKind;
+    match state.sync_kind() {
+        SyncKind::Refused | SyncKind::NotYet => SessionPlan::Unopened,
+        SyncKind::Named if encrypted_copies => SessionPlan::EncryptedCopies,
+        SyncKind::Named => SessionPlan::Named,
     }
 }
 

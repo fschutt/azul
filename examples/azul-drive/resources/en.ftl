@@ -539,6 +539,7 @@ azdrive-restored-objects = "{ $drive }" is as it was at { $at }: { $count ->
     } back or went.
 azdrive-restore-queued = The restore of "{ $drive }" as of { $at } is queued at the token server ({ $request }): the drive's node does it later.
 azdrive-restore-open-first = Open the drive first: its session is read from the keyring.
+azdrive-restore-encrypt-first = This drive is not encrypted yet, so it has no history to restore from: encrypt it first (Encrypt this drive).
 azdrive-restore-out-of-range = The time is out of range.
 azdrive-restore-node-failed = The drive's node did not restore it:
 azdrive-restore-failed = The drive could not be restored:

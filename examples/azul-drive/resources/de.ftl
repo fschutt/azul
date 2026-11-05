@@ -537,6 +537,7 @@ azdrive-restored-objects = „{ $drive }“ ist so, wie es um { $at } war: { $co
     } zurückgekommen oder verschwunden.
 azdrive-restore-queued = Die Wiederherstellung von „{ $drive }“ auf den Stand von { $at } wartet beim Tokenserver ({ $request }): Der Knoten des Laufwerks erledigt sie später.
 azdrive-restore-open-first = Öffne zuerst das Laufwerk: Seine Sitzung wird aus dem Schlüsselbund gelesen.
+azdrive-restore-encrypt-first = Dieses Laufwerk ist noch nicht verschlüsselt und hat darum keinen Verlauf zum Wiederherstellen: Verschlüssele es zuerst („Dieses Laufwerk verschlüsseln“).
 azdrive-restore-out-of-range = Der Zeitpunkt liegt außerhalb des gültigen Bereichs.
 azdrive-restore-node-failed = Der Knoten des Laufwerks hat es nicht wiederhergestellt:
 azdrive-restore-failed = Das Laufwerk konnte nicht wiederhergestellt werden:

@@ -5,6 +5,8 @@ use azul_appkit::l10n::Arg;
 use azul_storage::time::iso8601;
 
 use crate::restore::{not_restored_line, parse_as_of, restored_text, Restored, RESTORE_DAYS};
+#[cfg(feature = "encryption")]
+use crate::restore::{run, EncryptedRestore};
 
 const NOW: u64 = 1_791_450_000;
 
@@ -99,5 +101,42 @@ fn a_restore_not_done_names_the_drive_and_why_on_one_line() {
     assert_eq!(
         not_restored_line("AZDRIVE_RESTORE_FAILED", "d1", &failed),
         "AZDRIVE_RESTORE_FAILED d1 azdrive-restore-node-failed disk full"
+    );
+}
+
+/// X-AR5b-2: an encrypted drive's restore is the answer of the job: its files, or why not. The
+/// job has no way back to the bucket's restore at the token server - which rolls every object of
+/// the bucket back - whatever the encrypted restore says (the closure used to answer `None`,
+/// "it is plain", for a drive it could not decide). No connection is made for either answer.
+#[cfg(feature = "encryption")]
+#[test]
+fn x_ar5b_2_an_encrypted_restore_that_failed_is_the_end_of_the_job_not_a_bucket_restore() {
+    use std::sync::Arc;
+
+    use azcloud_kit::SharedKeyring;
+    use azul_storage::{
+        keyring::{KeyringNamespace, MemoryKeyring},
+        testing::TempDir,
+    };
+
+    let dir = TempDir::new("restore-job");
+    let keyring = SharedKeyring::with_lock_root(
+        Arc::new(MemoryKeyring::new()),
+        KeyringNamespace::azlin_shared(),
+        &dir.path().join("locks"),
+    );
+    // A token server nobody listens at: reaching it would be an error of a different kind.
+    let token_url = "http://127.0.0.1:9";
+    let open_first: EncryptedRestore = Box::new(|_| Err(String::from("azdrive-restore-open-first")));
+    let refused = run("d_1", NOW, token_url, &keyring, Some(open_first)).unwrap_err();
+    assert_eq!(refused.keys(), ["azdrive-restore-open-first"], "{refused}");
+
+    let two_files: EncryptedRestore = Box::new(|as_of| {
+        assert_eq!(as_of, i64::try_from(NOW).unwrap());
+        Ok(2)
+    });
+    assert_eq!(
+        run("d_1", NOW, token_url, &keyring, Some(two_files)).unwrap(),
+        Restored::Files(2)
     );
 }

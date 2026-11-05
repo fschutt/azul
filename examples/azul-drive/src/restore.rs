@@ -4,9 +4,11 @@
 //!
 //! - an encrypted drive (feature `encryption`) from its metadata repository's history, as one
 //!   new commit: nothing in between is lost ([`azcloud_kit::restore_drive_as_of`]);
-//! - a plain one's bucket by the token server and the drive's node, from the node's retention
-//!   ([`azcloud_kit::restore_bucket_as_of`]: a grant, under the drive's keyring lock with its
-//!   newest drive token).
+//! - a drive of a build without encrypted drives: its bucket by the token server and the drive's
+//!   node, from the node's retention ([`azcloud_kit::restore_bucket_as_of`]: a grant, under the
+//!   drive's keyring lock with its newest drive token). A build with them restores no bucket: a
+//!   drive that is not (yet) known to be encrypted is asked to be opened first, or encrypted
+//!   first, since the bucket's restore would roll an encrypted drive's every object back.
 //!
 //! AzDrive restores the last [`RESTORE_DAYS`] days (what a node keeps, D38).
 //!
@@ -41,9 +43,9 @@ const WAIT: Duration = Duration::from_secs(120);
 const POLL: Duration = Duration::from_secs(2);
 
 /// An encrypted drive's own restore, run on the job's thread with the time (seconds since
-/// 1970): the files it put back or took away, or why not; `None` from it when the drive turns
-/// out plain (its bucket is restored by the token server).
-pub(crate) type EncryptedRestore = Box<dyn FnOnce(i64) -> Option<Result<usize, String>> + Send>;
+/// 1970): the files it put back or took away, or why not - a drive that could not be decided or
+/// is not encrypted is an error, never a reason to restore its bucket (X-AR5b-2).
+pub(crate) type EncryptedRestore = Box<dyn FnOnce(i64) -> Result<usize, String> + Send>;
 
 /// What a restore came to.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -215,8 +217,9 @@ fn start(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
     spawn(info, app, s, job);
 }
 
-/// An encrypted drive's restore from its repository (the drive opened first); an error when
-/// it cannot be opened - never the bucket's restore for a drive that may be encrypted.
+/// An encrypted drive's restore from its repository (the drive opened first, and decided on the
+/// job's thread - [`crate::encryption::restore_of`]); an error when it cannot be opened - never
+/// the bucket's restore for a drive that may be encrypted.
 #[cfg(feature = "encryption")]
 fn encrypted_restore(s: &mut DriveState, drive_id: &str) -> Result<Option<EncryptedRestore>, Text> {
     crate::encryption::restore_of(s, drive_id)
@@ -245,10 +248,13 @@ pub(crate) fn run(
     encrypted: Option<EncryptedRestore>,
 ) -> Result<Restored, Text> {
     let as_of = i64::try_from(as_of).map_err(|_| Text::key("azdrive-restore-out-of-range"))?;
+    // A drive that opens as an encrypted one is restored from its files and from nothing else:
+    // the bucket's restore rolls every object back, and a drive whose state is not known is
+    // never taken for one without that.
     if let Some(restore) = encrypted {
-        if let Some(result) = restore(as_of) {
-            return result.map(Restored::Files).map_err(|why| crate::l10n::said(&why));
-        }
+        return restore(as_of)
+            .map(Restored::Files)
+            .map_err(|why| crate::l10n::said(&why));
     }
     let transport = AzulTransport::new(USER_AGENT);
     let server = TokenServer::new(token_url, &transport).map_err(|e| token_error_text(&e))?;

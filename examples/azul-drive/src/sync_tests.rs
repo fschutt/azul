@@ -1169,3 +1169,37 @@ fn a_trashed_file_says_when_it_was_deleted_and_until_when_it_can_be_restored() {
         assert_ne!(azul_appkit::l10n::t(key), key, "{key} has its words");
     }
 }
+
+// ==== A drive's session follows its state ====
+
+/// X-AR5b-3: the session of an Azlin drive for every state it can be in. Through the drive's names
+/// only when it is encrypted (with its files' encrypted copies when the pairing keeps them); in
+/// every other state - not decided, a setup that stopped, a new drive, a bucket that hides its key
+/// files - no session reads or writes: the pass answers why. There is no plain one.
+#[cfg(feature = "encryption")]
+#[test]
+fn x_ar5b_3_an_azlin_drive_is_synced_through_its_names_only_when_it_is_encrypted() {
+    use azul_storage::trust::{EncState, Via, Why};
+
+    use crate::sync_jobs::{session_plan, SessionPlan};
+
+    for copies in [false, true] {
+        for state in [
+            EncState::Undecided,
+            EncState::SetupPending,
+            EncState::Unencrypted(Why::New),
+            EncState::Unencrypted(Why::HiddenOrAbsent),
+        ] {
+            assert_eq!(session_plan(state, copies), SessionPlan::Unopened, "{state:?}");
+        }
+        for via in [Via::KeyInKeyring, Via::Record, Via::KeyFilesListed] {
+            let state = EncState::Encrypted { key_id: None, via };
+            let expected = if copies {
+                SessionPlan::EncryptedCopies
+            } else {
+                SessionPlan::Named
+            };
+            assert_eq!(session_plan(state, copies), expected, "{state:?}");
+        }
+    }
+}
