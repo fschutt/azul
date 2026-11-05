@@ -1,18 +1,15 @@
-//! X-AR5a-7: `LocalDrive` overrides 13 of the 22 `Drive` methods; the other nine fall to the
+//! X-AR5a-7: `LocalDrive` overrides most of the `Drive` methods; the others fall to the
 //! trait's defaults. Which ones is a decision, written down here with its reason: a new `Drive`
 //! method fails this test until it is either overridden by `LocalDrive` or listed with the reason
 //! the default is right for a folder on disk, and `forward_drive!` must forward it.
 
 /// The methods `LocalDrive` leaves to the trait's default, each with why that is right.
 const LOCAL_DEFAULTS: &[(&str, &str)] = &[
-    ("put_if", "a folder keeps no versions: Unsupported is the answer"),
-    ("put_from_if", "reads the body, then put_if: Unsupported, the same answer"),
     ("resume_folder", "a folder on disk has no multipart state: None"),
     ("put_file", "streams the file through LocalDrive::put_from"),
     ("put_file_checked", "opens the checked file once, streams it through LocalDrive::put_from"),
     ("put_many", "one LocalDrive::put after the other: a folder packs nothing"),
-    ("delete_many", "one LocalDrive::delete after the other, a version checked by head"),
-    ("move_many", "copy then delete_many, both LocalDrive's own"),
+    ("delete_many", "one LocalDrive::delete after the other, a version checked by LocalDrive::head's tag"),
     ("put_from_many", "one LocalDrive::put_from after the other"),
 ];
 

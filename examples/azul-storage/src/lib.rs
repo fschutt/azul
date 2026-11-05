@@ -735,6 +735,16 @@ pub trait Drive: Send + Sync {
         ops::delete_by_listing(self, prefix)
     }
 
+    /// Removes the folder `prefix` (not the root) only when nothing is in it but empty folders:
+    /// `true` when it is gone (removed now, or never there), `false` when something is in it and
+    /// it stays. What a move does with the folder it emptied - never [`Drive::delete_folder`],
+    /// which removes what is in the folder NOW, the files nobody copied included. By default the
+    /// folder's markers are deleted when a listing shows nothing else; a folder on disk is
+    /// removed with `rmdir`.
+    fn remove_empty_folder(&self, prefix: &str) -> Result<bool, DriveError> {
+        ops::remove_empty_folder(self, prefix)
+    }
+
     /// The file (or, for a folder prefix, the directory) on this computer that
     /// holds `key`, when the drive is a folder on disk; `None` otherwise.
     fn local_path(&self, key: &str) -> Option<PathBuf> {
@@ -941,6 +951,9 @@ macro_rules! forward_drive {
             }
             fn delete_folder(&self, prefix: &str) -> Result<(), DriveError> {
                 (**self).delete_folder(prefix)
+            }
+            fn remove_empty_folder(&self, prefix: &str) -> Result<bool, DriveError> {
+                (**self).remove_empty_folder(prefix)
             }
             fn local_path(&self, key: &str) -> Option<PathBuf> {
                 (**self).local_path(key)

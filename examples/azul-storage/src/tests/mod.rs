@@ -38,6 +38,9 @@ mod time;
 mod transfer;
 /// Names a Windows disk cannot hold, refused before a key becomes a path there.
 mod windows_names;
+/// The conditional vocabulary on a folder on disk, moves that are renames, a folder removed only
+/// when empty, the default moves of a drive with tags.
+mod xfer_local;
 /// The plan of a transfer: the names a target holds and the names the plan reserves.
 mod xfer_plan;
 /// Where drives are and whether two places overlap: two drives over one tree, a bucket twice.

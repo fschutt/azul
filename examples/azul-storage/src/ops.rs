@@ -166,8 +166,12 @@ pub fn rename_by_copy<D: Drive + ?Sized>(
         if let Some(e) = copy_each(drive, &moves, false).into_iter().find_map(Result::err) {
             return Err(e);
         }
-        let deletes: Vec<BatchDelete<'_>> =
-            objects.iter().map(|object| BatchDelete::new(&object.key)).collect();
+        // Only the versions that were listed go: a file written to since stays where it is, and
+        // the move reports it (a duplicate, never a loss).
+        let deletes: Vec<BatchDelete<'_>> = objects
+            .iter()
+            .map(|object| delete_of(&object.key, object.etag.as_deref()))
+            .collect();
         return drive
             .delete_many(&deletes)
             .into_iter()
@@ -177,8 +181,46 @@ pub fn rename_by_copy<D: Drive + ?Sized>(
     if exists(drive, to)? {
         return Err(taken(to));
     }
+    // The version that is copied is the version that goes (AZ-M12).
+    let version = drive.head(from)?.etag;
     drive.copy(from, to)?;
-    drive.delete(from)
+    drive
+        .delete_many(&[delete_of(from, version.as_deref())])
+        .into_iter()
+        .next()
+        .unwrap_or(Ok(()))
+}
+
+/// The delete of `key`, of the version `etag` when the drive tells one.
+fn delete_of<'a>(key: &'a str, etag: Option<&'a str>) -> BatchDelete<'a> {
+    match etag {
+        Some(etag) => BatchDelete::new(key).of_version(etag),
+        None => BatchDelete::new(key),
+    }
+}
+
+/// [`Drive::remove_empty_folder`] for a drive without one of its own: the folder is removed when
+/// nothing is in it but folder markers (a bucket has no folders; a marker is an empty object that
+/// stands for one) - they go, deepest first, and nothing else is deleted: a file written since the
+/// listing stays, and the folder with it. `true` when the folder is gone (it was not there, or
+/// only its markers were), `false` when a file is in it.
+pub fn remove_empty_folder<D: Drive + ?Sized>(drive: &D, prefix: &str) -> Result<bool, DriveError> {
+    check_folder(prefix)?;
+    let objects = list_all(drive, prefix)?;
+    if objects.iter().any(|object| !object.key.ends_with('/')) {
+        return Ok(false);
+    }
+    let mut keys: Vec<&str> = objects.iter().map(|object| object.key.as_str()).collect();
+    // A marker a listing did not show (some services list it, some do not).
+    if !keys.contains(&prefix) {
+        keys.push(prefix);
+    }
+    keys.sort_by_key(|key| std::cmp::Reverse(key.len()));
+    let items: Vec<BatchDelete<'_>> = keys.iter().map(|key| BatchDelete::new(key)).collect();
+    match drive.delete_many(&items).into_iter().find_map(Result::err) {
+        Some(e) => Err(e),
+        None => Ok(true),
+    }
 }
 
 /// [`Drive::delete_folder`] for a drive without one of its own: every object
@@ -210,11 +252,27 @@ pub fn move_by_copy<D: Drive + ?Sized>(
     items: &[BatchMove<'_>],
     check_targets: bool,
 ) -> Vec<Result<(), DriveError>> {
-    let mut results = copy_each(drive, items, check_targets);
-    let landed: Vec<usize> = (0..items.len()).filter(|&i| results[i].is_ok()).collect();
+    let copied = copy_each(drive, items, check_targets);
+    let landed: Vec<usize> = (0..items.len()).filter(|&i| copied[i].is_ok()).collect();
+    // The version that was copied is the version that goes (AZ-M12): the one the item names, else
+    // the one the copy looked at.
+    let versions: Vec<Option<String>> = landed
+        .iter()
+        .map(|&i| {
+            items[i]
+                .version
+                .map(str::to_string)
+                .or_else(|| copied[i].as_ref().ok().cloned().flatten())
+        })
+        .collect();
     let deletes: Vec<BatchDelete<'_>> = landed
         .iter()
-        .map(|&i| BatchDelete::new(items[i].from))
+        .zip(&versions)
+        .map(|(&i, version)| delete_of(items[i].from, version.as_deref()))
+        .collect();
+    let mut results: Vec<Result<(), DriveError>> = copied
+        .into_iter()
+        .map(|copied| copied.map(|_| ()))
         .collect();
     for (&i, deleted) in landed.iter().zip(drive.delete_many(&deletes)) {
         if let Err(e) = deleted {
@@ -264,8 +322,9 @@ fn copy_each<D: Drive + ?Sized>(
     drive: &D,
     items: &[BatchMove<'_>],
     check_targets: bool,
-) -> Vec<Result<(), DriveError>> {
-    let copied: Mutex<Vec<Option<Result<(), DriveError>>>> = Mutex::new(vec![None; items.len()]);
+) -> Vec<Result<Option<String>, DriveError>> {
+    let copied: Mutex<Vec<Option<Result<Option<String>, DriveError>>>> =
+        Mutex::new(vec![None; items.len()]);
     let next = AtomicUsize::new(0);
     std::thread::scope(|scope| {
         for _ in 0..PARALLEL_FILES.min(items.len()) {
@@ -290,15 +349,17 @@ fn copy_each<D: Drive + ?Sized>(
 }
 
 /// One move's copy: its target free (when asked), its source there and (when the move names
-/// one) still that version, then copied - a folder marker is an empty object of its own.
+/// one) still that version, then copied - a folder marker is an empty object of its own. The
+/// version of the source it looked at, when the drive tells one.
 fn copy_for_move<D: Drive + ?Sized>(
     drive: &D,
     item: &BatchMove<'_>,
     check_target: bool,
-) -> Result<(), DriveError> {
+) -> Result<Option<String>, DriveError> {
     if check_target && exists(drive, item.to)? {
         return Err(taken(item.to));
     }
+    let mut seen = None;
     if check_target || item.version.is_some() {
         let info = drive.head(item.from)?;
         if let Some(version) = item.version {
@@ -308,10 +369,12 @@ fn copy_for_move<D: Drive + ?Sized>(
                 });
             }
         }
+        seen = info.etag;
     }
     if item.from.ends_with('/') {
-        drive.put(item.to, &[])
+        drive.put(item.to, &[])?;
     } else {
-        drive.copy(item.from, item.to)
+        drive.copy(item.from, item.to)?;
     }
+    Ok(seen)
 }

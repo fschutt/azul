@@ -10,17 +10,19 @@ use std::{
 };
 
 use crate::{
-    beneath::{self, BeneathError, Dir, Kind},
+    beneath::{self, BeneathError, Dir, Fingerprint, Kind},
     ctl::Quiet,
     dir_read::{self, DirItem, ItemKind},
-    durable::{self, Expect, Mode, Publish},
+    durable::{self, Expect, Landed, Mode, Publish},
     key::{check_path_key, check_path_prefix, folder_of},
     manifest::{self, is_reserved_key, Changes, Manifest, ManifestEntry, Record, MANIFEST_DIR},
     names::{self, LocalKey},
     ops::check_folder,
+    same_etag,
     sigv4::{sha256_hex, sha256_hex_of},
     xfer::Site,
-    ByteRange, Drive, DriveError, Limit, ListPage, ListRequest, ObjectInfo,
+    BatchMove, ByteRange, Drive, DriveError, Limit, ListPage, ListRequest, ObjectInfo,
+    Precondition,
 };
 
 /// A folder on disk: the key `a/b.txt` is the file `<root>/a/b.txt`. Keys that
@@ -132,6 +134,189 @@ fn object_info(key: String, meta: &fs::Metadata) -> ObjectInfo {
             .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
             .map(|d| d.as_secs()),
         etag: None,
+    }
+}
+
+/// The entity tag of a file on disk: what its [`Fingerprint`] says of it - size, times, device
+/// and inode - as text. A tag differs from the one before as soon as the file was written to,
+/// replaced or touched, and a file that was replaced by another has another inode: a step that
+/// must act on THIS version (a replace, a retire after a move) asks for the tag it saw
+/// ([`Precondition::Matches`], [`crate::BatchDelete::of_version`]).
+fn etag_of(print: &Fingerprint) -> String {
+    let (dev, ino) = print.id.parts();
+    format!(
+        "L1-{:x}-{:x}-{:x}-{:x}-{:x}",
+        print.size, print.mtime_ns, print.ctime_ns, dev, ino
+    )
+}
+
+/// The fingerprint a tag of [`etag_of`] describes; `None` for any other tag.
+fn print_of_etag(tag: &str) -> Option<Fingerprint> {
+    let rest = tag.trim().trim_matches('"').strip_prefix("L1-")?;
+    let mut parts = rest.split('-').map(|p| u64::from_str_radix(p, 16).ok());
+    let size = parts.next()??;
+    let mtime_ns = parts.next()??;
+    let ctime_ns = parts.next()??;
+    let dev = parts.next()??;
+    let ino = parts.next()??;
+    parts
+        .next()
+        .is_none()
+        .then(|| Fingerprint::from_parts(Kind::File, size, mtime_ns, ctime_ns, dev, ino))
+}
+
+/// What the name `name` of `dir` must hold for a write that asked `condition`. A tag whose file
+/// the system gave no identity (Windows, until its file index is read) can only be compared by
+/// kind, size and times: that is checked here, now, and the write then goes on without one - a
+/// short window the identity would close.
+fn expectation(
+    dir: &Dir,
+    name: &str,
+    condition: &Precondition,
+    key: &str,
+) -> Result<Expect, DriveError> {
+    let changed = || DriveError::Conflict {
+        key: key.to_string(),
+    };
+    match condition {
+        Precondition::Absent => Ok(Expect::Absent),
+        Precondition::Matches(tag) => {
+            let print = print_of_etag(tag).ok_or_else(changed)?;
+            if print.id.is_known() {
+                return Ok(Expect::Is(print));
+            }
+            match dir.lstat(name) {
+                Ok(st)
+                    if st.kind == print.kind
+                        && st.size == print.size
+                        && st.mtime_ns == print.mtime_ns
+                        && (st.ctime_ns == 0
+                            || print.ctime_ns == 0
+                            || st.ctime_ns == print.ctime_ns) =>
+                {
+                    Ok(Expect::Any)
+                }
+                _ => Err(changed()),
+            }
+        }
+    }
+}
+
+/// Whether the rename failed because the two names are on different disks.
+fn crosses_disks(e: &BeneathError) -> bool {
+    match e {
+        BeneathError::Io(io) => {
+            io.kind() == ErrorKind::CrossesDevices
+                || cfg!(unix) && io.raw_os_error() == exdev_code()
+        }
+        _ => false,
+    }
+}
+
+#[cfg(unix)]
+fn exdev_code() -> Option<i32> {
+    Some(libc::EXDEV)
+}
+
+#[cfg(not(unix))]
+fn exdev_code() -> Option<i32> {
+    None
+}
+
+/// Whether removing a folder failed because something is in it.
+fn is_not_empty(e: &BeneathError) -> bool {
+    matches!(
+        e,
+        BeneathError::Io(io)
+            if matches!(io.kind(), ErrorKind::DirectoryNotEmpty | ErrorKind::AlreadyExists)
+    )
+}
+
+/// The files a file manager leaves in a folder it showed, which nobody counts as content when a
+/// folder is emptied: removed with the folder that holds nothing else.
+const JUNK: [&str; 4] = [".DS_Store", "Thumbs.db", "desktop.ini", ".localized"];
+
+/// Whether `folder` holds nothing but empty folders (and the junk a file manager leaves): a read
+/// that changes nothing. A name that is not text, a link, a socket, a file: something.
+fn holds_only_empty_folders(folder: &Dir) -> Result<bool, BeneathError> {
+    for entry in folder.names()? {
+        let Some(entry) = entry.to_str() else {
+            return Ok(false);
+        };
+        match folder.lstat(entry) {
+            Ok(st) if st.kind == Kind::Dir => {
+                let inner = match folder.child(entry, false) {
+                    Ok(inner) => inner,
+                    // Gone since the listing.
+                    Err(e) if e.is_not_found() => continue,
+                    Err(e) => return Err(e),
+                };
+                if !holds_only_empty_folders(&inner)? {
+                    return Ok(false);
+                }
+            }
+            Ok(st) if st.kind == Kind::File && JUNK.contains(&entry) => {}
+            Ok(_) => return Ok(false),
+            Err(e) if e.kind() == ErrorKind::NotFound => {}
+            Err(e) => return Err(e.into()),
+        }
+    }
+    Ok(true)
+}
+
+/// Removes the folder `name` of `parent` when nothing is in it but empty folders (and the junk a
+/// file manager leaves): `true` when it is gone, `false` when something is in it - a file, a
+/// link, anything a listing might not show - and then nothing of it is removed, not even an empty
+/// folder inside. Never recursive on content: a file that appears while it is removed stops it.
+fn remove_empty_tree(parent: &Dir, name: &str) -> Result<bool, BeneathError> {
+    let folder = match parent.child(name, false) {
+        Ok(folder) => folder,
+        Err(e) if e.is_not_found() => return Ok(true),
+        Err(e) => return Err(e),
+    };
+    if !holds_only_empty_folders(&folder)? {
+        return Ok(false);
+    }
+    remove_folder_of_empties(parent, name, &folder)
+}
+
+/// The removal pass of [`remove_empty_tree`]: the look just made said it may go.
+fn remove_folder_of_empties(parent: &Dir, name: &str, folder: &Dir) -> Result<bool, BeneathError> {
+    for entry in folder.names()? {
+        let Some(entry) = entry.to_str() else {
+            return Ok(false);
+        };
+        match folder.lstat(entry) {
+            Ok(st) if st.kind == Kind::Dir => {
+                let inner = match folder.child(entry, false) {
+                    Ok(inner) => inner,
+                    Err(e) if e.is_not_found() => continue,
+                    Err(e) => return Err(e),
+                };
+                if !remove_folder_of_empties(folder, entry, &inner)? {
+                    return Ok(false);
+                }
+            }
+            Ok(st) if st.kind == Kind::File && JUNK.contains(&entry) => {
+                match folder.unlink(entry) {
+                    Err(e) if !e.is_not_found() => return Err(e),
+                    _ => {}
+                }
+            }
+            // Made since the look: it stays, and so does its folder.
+            Ok(_) => return Ok(false),
+            Err(e) if e.kind() == ErrorKind::NotFound => {}
+            Err(e) => return Err(e.into()),
+        }
+    }
+    match parent.rmdir(name) {
+        Ok(()) => {
+            parent.sync();
+            Ok(true)
+        }
+        Err(e) if e.is_not_found() => Ok(true),
+        Err(e) if is_not_empty(&e) => Ok(false),
+        Err(e) => Err(e),
     }
 }
 
@@ -268,13 +453,15 @@ impl LocalDrive {
         body: &mut dyn Read,
         mode: Mode,
         mtime: Option<SystemTime>,
-    ) -> Result<u64, DriveError> {
+        condition: Option<&Precondition>,
+    ) -> Result<Landed, DriveError> {
         let (dir, name) = self.contained_parent(key, true)?;
-        self.write_into(key, &dir, &name, body, mode, mtime)
+        self.write_into(key, &dir, &name, body, mode, mtime, condition)
     }
 
     /// `body` as the file `name` of `dir` (the folder of `key`): refused where a folder has the
-    /// name, else put in place whole or not at all.
+    /// name, else put in place whole or not at all - and, when `condition` is asked, only if the
+    /// name still holds what it says, in the one step that puts the file in place.
     fn write_into(
         &self,
         key: &str,
@@ -283,20 +470,23 @@ impl LocalDrive {
         body: &mut dyn Read,
         mode: Mode,
         mtime: Option<SystemTime>,
-    ) -> Result<u64, DriveError> {
+        condition: Option<&Precondition>,
+    ) -> Result<Landed, DriveError> {
         if dir.lstat(name).is_ok_and(|st| st.kind == Kind::Dir) {
             return Err(DriveError::InvalidKey {
                 key: key.to_string(),
                 reason: "a folder has this name",
             });
         }
-        let mut publish = Publish::new(Expect::Any, mode, &Quiet);
+        let expect = match condition {
+            Some(condition) => expectation(dir, name, condition, key)?,
+            None => Expect::Any,
+        };
+        let mut publish = Publish::new(expect, mode, &Quiet);
         if let Some(mtime) = mtime {
             publish = publish.with_mtime(mtime);
         }
-        durable::publish(dir, name, body, publish)
-            .map(|landed| landed.len)
-            .map_err(|e| e.into_drive(key))
+        durable::publish(dir, name, body, publish).map_err(|e| e.into_drive(key))
     }
 
     /// The folder of the path `path` (made when missing, links followed: it is the user's own
@@ -313,42 +503,6 @@ impl LocalDrive {
                 })?;
         let dir = Dir::open_following(parent).map_err(|e| not_found_or_io(key, e))?;
         Ok((dir, name.to_string()))
-    }
-
-    /// A contained drive's rename: both folders walked without a link, nothing replaced.
-    fn contained_rename(&self, from: &str, to: &str) -> Result<(), DriveError> {
-        let (from_key, to_key) = (
-            walk_key(from.trim_end_matches('/'))?,
-            walk_key(to.trim_end_matches('/'))?,
-        );
-        let root = beneath::Root::open(&self.root).map_err(|e| not_found_or_io(from, e))?;
-        let (source, from_name) = root
-            .parent_of(&from_key, false)
-            .map_err(|e| beneath_error(from, e))?;
-        if source.lstat(from_name).is_err() {
-            return Err(DriveError::NotFound {
-                key: from.to_string(),
-            });
-        }
-        let (target, to_name) = root
-            .parent_of(&to_key, true)
-            .map_err(|e| beneath_error(to, e))?;
-        if target.lstat(to_name).is_ok() {
-            return Err(DriveError::InvalidKey {
-                key: to.to_string(),
-                reason: "something has this name already",
-            });
-        }
-        source
-            .rename(from_name, &target, to_name)
-            .map_err(|e| beneath_error(from, e))?;
-        target.sync();
-        source.sync();
-        self.record(&Record::Rename {
-            from: from.to_string(),
-            to: to.to_string(),
-        });
-        Ok(())
     }
 
     /// A contained drive's folder `prefix` (`a/b/`), walked from the root without a link and
@@ -407,6 +561,195 @@ impl LocalDrive {
         parent.rmdir(name).map_err(|e| beneath_error(prefix, e))?;
         parent.sync();
         Ok(true)
+    }
+
+    /// [`Drive::put_from`], or - with a `condition` - [`Drive::put_from_if`]: the receipt of the
+    /// file put in place.
+    fn put_from_guarded(
+        &self,
+        key: &str,
+        body: &mut dyn Read,
+        condition: Option<&Precondition>,
+    ) -> Result<Landed, DriveError> {
+        let path = self.path_of(key)?;
+        if self.contained {
+            let landed = self.contained_write(key, body, Mode::Shared, None, condition)?;
+            self.record_file(key);
+            return Ok(landed);
+        }
+        if path.is_dir() {
+            return Err(DriveError::InvalidKey {
+                key: key.to_string(),
+                reason: "a folder has this name",
+            });
+        }
+        let (dir, name) = self.open_parent(key, &path)?;
+        let landed = self.write_into(key, &dir, &name, body, Mode::Shared, None, condition)?;
+        self.record_file(key);
+        Ok(landed)
+    }
+
+    /// The folder that holds the file or folder `key` (a folder key ends with `/`) and its name
+    /// there, for a rename or a move: with `create`, made where missing; a drive that is not
+    /// contained follows the links of the user's own folders, a contained one walks without any.
+    fn parent_dir(&self, key: &str, create: bool) -> Result<(Dir, String), DriveError> {
+        if self.contained {
+            let walked = walk_key(key.trim_end_matches('/'))?;
+            let root = beneath::Root::open(&self.root).map_err(|e| not_found_or_io(key, e))?;
+            let (dir, name) = root
+                .parent_of(&walked, create)
+                .map_err(|e| beneath_error(key, e))?;
+            return Ok((dir, name.to_string()));
+        }
+        let path = self.any_path(key)?;
+        let parent = path.parent().unwrap_or(&self.root);
+        if create {
+            fs::create_dir_all(parent)?;
+        }
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .ok_or_else(|| DriveError::InvalidKey {
+                key: key.to_string(),
+                reason: "it has a name that cannot be a file name",
+            })?
+            .to_string();
+        let dir = Dir::open_following(parent).map_err(|e| not_found_or_io(key, e))?;
+        Ok((dir, name))
+    }
+
+    /// Moves the file or folder `from` to `to`: one rename on the disk that puts it in place only
+    /// if nothing has the name - in one step, so a name made meanwhile is never replaced. The one
+    /// exception is a name spelt in another case on a disk that reads both as one file: that is
+    /// the same file, and its rename is the user's way of changing the case. Another disk
+    /// (a mount inside the root) cannot rename: the file is copied in, checked, and removed only
+    /// while it is still the file that was copied; a folder is moved file by file.
+    /// `version`: the move happens only while `from` is the file with that tag.
+    fn move_entry(&self, from: &str, to: &str, version: Option<&str>) -> Result<(), DriveError> {
+        let (source, from_name) = match self.parent_dir(from, false) {
+            Ok(found) => found,
+            Err(DriveError::NotFound { .. }) => {
+                return Err(DriveError::NotFound {
+                    key: from.to_string(),
+                })
+            }
+            Err(e) => return Err(e),
+        };
+        let seen = match source.lstat(&from_name) {
+            Ok(st) => st,
+            Err(e) if e.kind() == ErrorKind::NotFound => {
+                return Err(DriveError::NotFound {
+                    key: from.to_string(),
+                })
+            }
+            Err(e) => return Err(DriveError::Io(format!("{from}: {e}"))),
+        };
+        if let Some(version) = version {
+            let tag = etag_of(&seen.fingerprint());
+            if !same_etag(Some(&tag), version) {
+                return Err(DriveError::Conflict {
+                    key: from.to_string(),
+                });
+            }
+        }
+        let (target, to_name) = self.parent_dir(to, true)?;
+        let taken = || DriveError::InvalidKey {
+            key: to.to_string(),
+            reason: "something has this name already",
+        };
+        let same_entry = match target.lstat(&to_name) {
+            Ok(there) => {
+                let fold = |name: &str| {
+                    names::fold(
+                        name,
+                        &names::Volume {
+                            case_insensitive: true,
+                            norm_insensitive: true,
+                            ..names::Volume::default()
+                        },
+                    )
+                };
+                // Two names of one file that differ only as a disk reads them: a case change.
+                if seen.id().same(&there.id()).is_same()
+                    && fold(&from_name) == fold(&to_name)
+                    && from_name != to_name
+                {
+                    true
+                } else {
+                    return Err(taken());
+                }
+            }
+            Err(e) if e.kind() == ErrorKind::NotFound => false,
+            Err(e) => return Err(DriveError::Io(format!("{to}: {e}"))),
+        };
+        let moved = if same_entry {
+            source.rename(&from_name, &target, &to_name)
+        } else {
+            source.rename_noreplace(&from_name, &target, &to_name)
+        };
+        match moved {
+            Ok(()) => {}
+            Err(e) if e.is_already_exists() => return Err(taken()),
+            Err(e) if crosses_disks(&e) => return self.move_across(from, to, version),
+            Err(e) => return Err(beneath_error(from, e)),
+        }
+        target.sync();
+        source.sync();
+        // A rename keeps the modification time: the entries move as they are.
+        self.record(&Record::Rename {
+            from: from.to_string(),
+            to: to.to_string(),
+        });
+        Ok(())
+    }
+
+    /// [`LocalDrive::move_entry`] between two disks.
+    fn move_across(&self, from: &str, to: &str, version: Option<&str>) -> Result<(), DriveError> {
+        if from.ends_with('/') {
+            // Every file copied and then removed on its own, the folders that are empty after.
+            crate::ops::rename_by_copy(self, from, to)?;
+            self.remove_empty_folder(from)?;
+            return Ok(());
+        }
+        let (source, from_name) = self.parent_dir(from, false)?;
+        let (mut file, opened) = source
+            .open_read(&from_name)
+            .map_err(|e| beneath_error(from, e))?;
+        if let Some(version) = version {
+            if !same_etag(Some(&etag_of(&opened.fingerprint())), version) {
+                return Err(DriveError::Conflict {
+                    key: from.to_string(),
+                });
+            }
+        }
+        let (target, to_name) = self.parent_dir(to, true)?;
+        let (mode, mtime) = source_bits(&file);
+        let mut publish = Publish::new(Expect::Absent, mode, &Quiet);
+        if let Some(mtime) = mtime {
+            publish = publish.with_mtime(mtime);
+        }
+        durable::publish(&target, &to_name, &mut file, publish).map_err(|e| e.into_drive(to))?;
+        // The copy is in place: the source goes only while it is the file that was copied.
+        match source.lstat(&from_name) {
+            Ok(now) if opened.fingerprint().matches(&now).is_same() => {
+                source
+                    .unlink(&from_name)
+                    .map_err(|e| beneath_error(from, e))?;
+                source.sync();
+            }
+            Ok(_) => {
+                return Err(DriveError::Conflict {
+                    key: from.to_string(),
+                })
+            }
+            Err(e) if e.kind() == ErrorKind::NotFound => {}
+            Err(e) => return Err(DriveError::Io(format!("{from}: {e}"))),
+        }
+        self.record(&Record::Rename {
+            from: from.to_string(),
+            to: to.to_string(),
+        });
+        Ok(())
     }
 
     #[must_use]
@@ -742,7 +1085,7 @@ impl Drive for LocalDrive {
     fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
         let path = self.path_of(key)?;
         if self.contained {
-            self.contained_write(key, &mut &bytes[..], Mode::Shared, None)?;
+            self.contained_write(key, &mut &bytes[..], Mode::Shared, None, None)?;
             if self.manifest {
                 if let Ok(meta) = fs::symlink_metadata(&path) {
                     let info = object_info(key.to_string(), &meta);
@@ -788,22 +1131,30 @@ impl Drive for LocalDrive {
     /// file is synced and renamed over it ([`durable::publish`]): a reader never sees half a
     /// file, a failed read leaves the old one.
     fn put_from(&self, key: &str, body: &mut dyn Read) -> Result<u64, DriveError> {
-        let path = self.path_of(key)?;
-        if self.contained {
-            let written = self.contained_write(key, body, Mode::Shared, None)?;
-            self.record_file(key);
-            return Ok(written);
-        }
-        if path.is_dir() {
-            return Err(DriveError::InvalidKey {
-                key: key.to_string(),
-                reason: "a folder has this name",
-            });
-        }
-        let (dir, name) = self.open_parent(key, &path)?;
-        let written = self.write_into(key, &dir, &name, body, Mode::Shared, None)?;
-        self.record_file(key);
-        Ok(written)
+        self.put_from_guarded(key, body, None)
+            .map(|landed| landed.len)
+    }
+
+    /// Writes the object only when `condition` holds, in the one step that puts it in place: a
+    /// file made meanwhile is not replaced, one written to since the tag was read is not either
+    /// ([`Precondition`]; the tag is [`Drive::head`]'s).
+    fn put_if(
+        &self,
+        key: &str,
+        bytes: &[u8],
+        condition: &Precondition,
+    ) -> Result<Option<String>, DriveError> {
+        self.put_from_if(key, &mut &bytes[..], condition)
+    }
+
+    fn put_from_if(
+        &self,
+        key: &str,
+        body: &mut dyn Read,
+        condition: &Precondition,
+    ) -> Result<Option<String>, DriveError> {
+        self.put_from_guarded(key, body, Some(condition))
+            .map(|landed| Some(etag_of(&landed.print)))
     }
 
     fn delete(&self, key: &str) -> Result<(), DriveError> {
@@ -856,22 +1207,27 @@ impl Drive for LocalDrive {
         Ok(())
     }
 
+    /// The file's size and date and its tag ([`etag_of`]): what a step that acts on THIS version
+    /// - a replace, a delete after a move - asks for later.
     fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
         let path = self.path_of(key)?;
-        if self.contained {
-            let meta = self
-                .contained_open(key)?
-                .metadata()
-                .map_err(|e| not_found_or_io(key, e))?;
-            return Ok(object_info(key.to_string(), &meta));
-        }
-        let meta = fs::metadata(&path).map_err(|e| not_found_or_io(key, e))?;
-        if !meta.is_file() {
+        let stat = if self.contained {
+            let file = self.contained_open(key)?;
+            beneath::stat_of(&file).map_err(|e| not_found_or_io(key, e))?
+        } else {
+            beneath::stat_path(&path).map_err(|e| not_found_or_io(key, e))?
+        };
+        if stat.kind != Kind::File {
             return Err(DriveError::NotFound {
                 key: key.to_string(),
             });
         }
-        Ok(object_info(key.to_string(), &meta))
+        Ok(ObjectInfo {
+            key: key.to_string(),
+            size: stat.size,
+            modified: (stat.mtime_ns > 0).then(|| stat.mtime_ns / 1_000_000_000),
+            etag: Some(etag_of(&stat.fingerprint())),
+        })
     }
 
     /// A file copy on disk, through a temporary file next to the target; the copy has the
@@ -883,7 +1239,7 @@ impl Drive for LocalDrive {
         if self.contained {
             let mut file = self.contained_open(from)?;
             let (mode, mtime) = source_bits(&file);
-            self.contained_write(to, &mut file, mode, mtime)?;
+            self.contained_write(to, &mut file, mode, mtime, None)?;
             self.record_file(to);
             return Ok(());
         }
@@ -906,7 +1262,7 @@ impl Drive for LocalDrive {
         let mut file = File::open(&source).map_err(|e| not_found_or_io(from, e))?;
         let (mode, mtime) = source_bits(&file);
         let (dir, name) = self.open_parent(to, &target)?;
-        self.write_into(to, &dir, &name, &mut file, mode, mtime)?;
+        self.write_into(to, &dir, &name, &mut file, mode, mtime, None)?;
         self.record_file(to);
         Ok(())
     }
@@ -925,7 +1281,8 @@ impl Drive for LocalDrive {
         fs::create_dir_all(&dir).map_err(|e| DriveError::Io(format!("{prefix}: {e}")))
     }
 
-    /// One `rename` on disk: a file, or a directory with everything in it.
+    /// One `rename` on disk: a file, or a directory with everything in it - never over something
+    /// that is there ([`LocalDrive::move_entry`]).
     fn rename(&self, from: &str, to: &str) -> Result<(), DriveError> {
         if from.ends_with('/') != to.ends_with('/') {
             return Err(DriveError::InvalidKey {
@@ -939,32 +1296,32 @@ impl Drive for LocalDrive {
                 reason: "a folder cannot move into itself",
             });
         }
-        let source = self.any_path(from)?;
-        let target = self.any_path(to)?;
-        if self.contained {
-            return self.contained_rename(from, to);
-        }
-        if fs::symlink_metadata(&source).is_err() {
-            return Err(DriveError::NotFound {
-                key: from.to_string(),
-            });
-        }
-        if fs::symlink_metadata(&target).is_ok() {
-            return Err(DriveError::InvalidKey {
-                key: to.to_string(),
-                reason: "something has this name already",
-            });
-        }
-        if let Some(parent) = target.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        fs::rename(&source, &target).map_err(|e| DriveError::Io(format!("{from}: {e}")))?;
-        // A rename keeps the modification time: the entries move as they are.
-        self.record(&Record::Rename {
-            from: from.to_string(),
-            to: to.to_string(),
-        });
-        Ok(())
+        self.any_path(from)?;
+        self.any_path(to)?;
+        self.move_entry(from, to, None)
+    }
+
+    /// Each file renamed on its own disk, never over something that is there; a file that is not
+    /// the version an item names stays ([`DriveError::Conflict`]). A name on another disk is copied
+    /// and removed only while it is still the file that was copied.
+    fn move_many(&self, items: &[BatchMove<'_>]) -> Vec<Result<(), DriveError>> {
+        items
+            .iter()
+            .map(|item| {
+                if item.from.ends_with('/') || item.to.ends_with('/') {
+                    if item.from.ends_with('/') != item.to.ends_with('/') {
+                        return Err(DriveError::InvalidKey {
+                            key: item.to.to_string(),
+                            reason: "a file and a folder cannot trade places",
+                        });
+                    }
+                    return self.rename(item.from, item.to);
+                }
+                self.path_of(item.from)?;
+                self.path_of(item.to)?;
+                self.move_entry(item.from, item.to, item.version)
+            })
+            .collect()
     }
 
     fn delete_folder(&self, prefix: &str) -> Result<(), DriveError> {
@@ -992,6 +1349,38 @@ impl Drive for LocalDrive {
                 Ok(())
             }
         }
+    }
+
+    /// The folder removed if nothing is in it but empty folders (and the junk a file manager
+    /// leaves): never a file, never recursive on content ([`remove_empty_tree`]).
+    fn remove_empty_folder(&self, prefix: &str) -> Result<bool, DriveError> {
+        self.folder_path(prefix)?;
+        let (parent, name) = match self.parent_dir(prefix, false) {
+            Ok(found) => found,
+            // No folder of it: nothing in it either.
+            Err(DriveError::NotFound { .. }) => return Ok(true),
+            Err(e) => return Err(e),
+        };
+        match parent.lstat(&name) {
+            Err(e) if e.kind() == ErrorKind::NotFound => return Ok(true),
+            Err(e) => return Err(DriveError::Io(format!("{prefix}: {e}"))),
+            Ok(st) if st.kind == Kind::File => {
+                return Err(DriveError::InvalidKey {
+                    key: prefix.to_string(),
+                    reason: "it is a file",
+                })
+            }
+            // A link where the folder was: nothing behind it is touched.
+            Ok(st) if st.kind != Kind::Dir => return Ok(false),
+            Ok(_) => {}
+        }
+        let removed = remove_empty_tree(&parent, &name).map_err(|e| beneath_error(prefix, e))?;
+        if removed {
+            self.record(&Record::Delete {
+                key: prefix.to_string(),
+            });
+        }
+        Ok(removed)
     }
 
     fn local_path(&self, key: &str) -> Option<PathBuf> {
