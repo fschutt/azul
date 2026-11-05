@@ -40,10 +40,8 @@ use std::{
     fs::{self, File, OpenOptions},
     io::{self, Cursor, Read, Seek, SeekFrom, Write},
     path::PathBuf,
-    sync::{
-        atomic::{AtomicU8, Ordering},
-        Arc, Mutex, MutexGuard, PoisonError,
-    },
+    sync::{Arc, Mutex, MutexGuard, PoisonError},
+    time::{Duration, Instant},
 };
 
 use crate::{
@@ -59,6 +57,7 @@ use crate::{
     ops::check_folder,
     packing::{PackOptions, PackState, PackedAt},
     time::now_unix,
+    trust::{EncState, Op, Via, Why},
     ui_thread::NetworkLock,
     BatchDelete, BatchMove, BatchPut, BatchStream, ByteRange, Ctl, Drive, DriveError, Limit,
     ListPage, ListRequest, ObjectInfo, Precondition, DEFAULT_PAGE_SIZE, PARALLEL_FILES,
@@ -338,14 +337,23 @@ pub struct AutoEncrypted {
     provider: Option<Arc<dyn IndexProvider>>,
     /// Held across the first call's requests, so the UI thread never takes it.
     opened: NetworkLock<Option<Arc<dyn Drive>>>,
-    /// What `opened` decided, for the question that must not wait for it ([`Self::is_encrypted`]):
-    /// the first call decides while it holds `opened`, and deciding reads the bucket.
-    decided: AtomicU8,
+    /// What `opened` decided, for the question that must not wait for it ([`Self::state`]): the
+    /// first call decides while it holds `opened`, and deciding reads the bucket. A plain mutex
+    /// held for a copy, never across a request.
+    state: Mutex<EncState>,
     /// What this device wrote down of the drive (the drives file): whether it found it
     /// encrypted, and the id of its key then.
     record: Mutex<Recorded>,
     /// Told the id of the drive key whenever the drive opens encrypted, to write down.
     on_encrypted: Option<TellKeyId>,
+    /// A declined keychain prompt, remembered for [`AutoEncrypted::with_denied_backoff`]: a
+    /// listing refresh, a sync attempt and a thumbnail do not each ask the user again.
+    denied: Mutex<Option<Denial>>,
+    denied_for: Duration,
+    /// Whether a drive that is not encrypted reads as its bucket lists (AzDrive: to offer
+    /// "Encrypt this drive"). The bridge and AzMail open an encrypted drive only
+    /// ([`AutoEncrypted::encrypted_only`]).
+    plain_reads: bool,
 }
 
 /// What [`AutoEncrypted::on_encrypted`] is told the drive key's id with.
@@ -360,13 +368,14 @@ pub struct Recorded {
     pub key_id: Option<KeyId>,
 }
 
-/// [`AutoEncrypted::decided`]: no call decided yet, a bucket with files and no key (made before
-/// encryption, or a hostile one: it takes no file), an encrypted drive, a bucket without files
-/// and without a key (a new drive waiting for its encryption).
-const UNDECIDED: u8 = 0;
-const PLAIN: u8 = 1;
-const ENCRYPTED: u8 = 2;
-const NEW_PLAIN: u8 = 3;
+/// How long a declined keychain prompt is remembered ([`AutoEncrypted::with_denied_backoff`]).
+pub const DENIED_BACKOFF: Duration = Duration::from_secs(30);
+
+/// A keyring read the user declined: when, and the answer to give again meanwhile.
+struct Denial {
+    at: Instant,
+    error: DriveError,
+}
 
 impl fmt::Debug for AutoEncrypted {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -393,15 +402,21 @@ impl AutoEncrypted {
             keyring,
             provider,
             opened: NetworkLock::new(None),
-            decided: AtomicU8::new(UNDECIDED),
+            state: Mutex::new(EncState::Undecided),
             record: Mutex::new(Recorded::default()),
             on_encrypted: None,
+            denied: Mutex::new(None),
+            denied_for: DENIED_BACKOFF,
+            plain_reads: true,
         }
     }
 
     /// The drive as this device wrote it down (the drives file): `encrypted` when it found the
     /// drive encrypted before, `key_id` the id of the drive key it held then. A drive recorded
-    /// as encrypted is locked without its key, never plain, whatever its bucket lists.
+    /// as encrypted is locked without its key, never plain, whatever its bucket lists; one that
+    /// opens with a key that is no successor of the recorded one (a keychain put back from an
+    /// older backup, say) is refused as [`DriveError::KeyRefused`] until the user opens it again
+    /// on purpose ([`Self::reopen`]: an unlock, a join, a setup or a rotation).
     #[must_use]
     pub fn with_record(self, record: Recorded) -> AutoEncrypted {
         *lock(&self.record) = record;
@@ -414,6 +429,25 @@ impl AutoEncrypted {
     #[must_use]
     pub fn on_encrypted(mut self, tell: TellKeyId) -> AutoEncrypted {
         self.on_encrypted = Some(tell);
+        self
+    }
+
+    /// An app that has no use for a drive that is not encrypted (the bridge, AzMail): it reads
+    /// and writes an encrypted drive only. A drive that is not (a new one, an older one, a
+    /// bucket that hides its key files) answers every call with the refusal that tells the user
+    /// to encrypt it in AzDrive, reads included - what a bucket lists without a key is its
+    /// word alone.
+    #[must_use]
+    pub fn encrypted_only(mut self) -> AutoEncrypted {
+        self.plain_reads = false;
+        self
+    }
+
+    /// How long a keyring read the user declined is not asked again (default
+    /// [`DENIED_BACKOFF`]); [`Self::reopen`], the user's own act, asks again at once.
+    #[must_use]
+    pub fn with_denied_backoff(mut self, wait: Duration) -> AutoEncrypted {
+        self.denied_for = wait;
         self
     }
 
@@ -438,31 +472,56 @@ impl AutoEncrypted {
     }
 
     /// Forgets the decision: the next call decides again (after the drive was encrypted, or
-    /// this device got its key).
+    /// this device got its key). The user's own act, so a declined prompt is asked again, and
+    /// the key id the drives file recorded is the new key's to write.
     pub fn reopen(&self) {
         let mut opened = self.opened.lock();
         *opened = None;
-        self.decided.store(UNDECIDED, Ordering::SeqCst);
+        *lock(&self.state) = EncState::Undecided;
+        *lock(&self.denied) = None;
+        lock(&self.record).key_id = None;
     }
 
-    /// Whether the decision so far is "encrypted" (`None`: not decided yet). It never waits for
-    /// a first call that is still deciding: that call reads the bucket, and in the apps the
-    /// answers of its requests come through the UI thread - the thread that asks this.
+    /// The decision so far ([`EncState::Undecided`]: none yet, or the last ask failed). It never
+    /// waits for a first call that is still deciding: that call reads the bucket, and in the
+    /// apps the answers of its requests come through the UI thread - the thread that asks this.
+    #[must_use]
+    pub fn state(&self) -> EncState {
+        *lock(&self.state)
+    }
+
+    /// The old two-valued answer: `Some(true)` encrypted, `Some(false)` not, `None` not decided.
+    /// Three readers in azul-drive's `lib.rs` (Z30-R2's file) still ask it; they move to the
+    /// policies of [`EncState`] and this goes. New code asks [`Self::state`].
+    #[doc(hidden)]
     #[must_use]
     pub fn is_encrypted(&self) -> Option<bool> {
-        match self.decided.load(Ordering::SeqCst) {
-            PLAIN | NEW_PLAIN => Some(false),
-            ENCRYPTED => Some(true),
-            _ => None,
+        match self.state() {
+            EncState::Undecided => None,
+            EncState::Encrypted { .. } => Some(true),
+            EncState::SetupPending | EncState::Unencrypted(_) => Some(false),
         }
     }
 
-    /// Whether the decision so far is "a new drive that is not encrypted yet": it takes no
-    /// file until it is (the app offers "Encrypt this drive"). Never waits, as
-    /// [`Self::is_encrypted`].
+    /// Decides now when no call did: the state, or why it could not be decided (a keyring that
+    /// could not be read, no answer from the bucket, a drive locked for want of its key). For
+    /// the worker thread of a job that must know before it acts - never a dummy call whose
+    /// error is thrown away.
+    ///
+    /// # Errors
+    ///
+    /// What the first call would have answered.
+    pub fn decide(&self) -> Result<EncState, DriveError> {
+        self.resolved()?;
+        Ok(self.state())
+    }
+
+    /// Whether the decision so far is "a drive that is not encrypted yet and waits for the app
+    /// to set it up" (a new one, or a setup that stopped): it takes no file until it is (the
+    /// app offers "Encrypt this drive"). Never waits, as [`Self::state`].
     #[must_use]
     pub fn needs_encryption(&self) -> bool {
-        self.decided.load(Ordering::SeqCst) == NEW_PLAIN
+        self.state().needs_encryption()
     }
 
     /// Why the drive takes no file, once a call found it not encrypted (new, made before
@@ -471,32 +530,81 @@ impl AutoEncrypted {
     /// call decided yet.
     #[must_use]
     pub fn unencrypted_refusal(&self) -> Option<DriveError> {
-        match self.decided.load(Ordering::SeqCst) {
-            NEW_PLAIN => Some(DriveError::Denied {
+        match self.state() {
+            EncState::SetupPending | EncState::Unencrypted(Why::New) => Some(DriveError::Denied {
                 message: format!(
                     "\"{}\" is a new drive that is not encrypted yet; it takes files once it is \
                      (Encrypt this drive)",
                     self.drive
                 ),
             }),
-            PLAIN => Some(DriveError::Denied {
+            EncState::Unencrypted(Why::HiddenOrAbsent) => Some(DriveError::Denied {
                 message: format!(
                     "\"{}\" is not encrypted, and an Azlin drive takes files only once it is \
                      (Encrypt this drive)",
                     self.drive
                 ),
             }),
-            _ => None,
+            EncState::Undecided | EncState::Encrypted { .. } => None,
         }
     }
 
-    /// The drive a write goes to: refused while the drive is not encrypted
-    /// ([`Self::unencrypted_refusal`]), so no plaintext file ever reaches an Azlin drive.
-    fn writable(&self) -> Result<Arc<dyn Drive>, DriveError> {
+    /// The drive `op` goes to: the one place a call is let through. It decides the drive on its
+    /// first call, then asks the state ([`EncState::admits`]) - an encrypted drive takes
+    /// everything, a drive that is not takes no write and no delete ever, and reads only where
+    /// the app reads a drive that is not encrypted ([`Self::encrypted_only`]). Every method of
+    /// the [`Drive`] impl below begins here, so a method added later has to pick its `Op`.
+    fn gate(&self, op: Op) -> Result<Arc<dyn Drive>, DriveError> {
         let drive = self.resolved()?;
-        match self.unencrypted_refusal() {
-            Some(refusal) => Err(refusal),
-            None => Ok(drive),
+        let state = self.state();
+        if state.admits(op, self.plain_reads) {
+            return Ok(drive);
+        }
+        match (state, op) {
+            // The drive was opened again meanwhile (an unlock, a setup): nothing says what this
+            // call would have met.
+            (EncState::Undecided, _) => Err(DriveError::Denied {
+                message: format!(
+                    "\"{}\" was opened again during this call; ask again",
+                    self.drive
+                ),
+            }),
+            (_, Op::Read) => Err(DriveError::Denied {
+                message: format!(
+                    "\"{}\" is not encrypted, and this app opens an encrypted drive only: \
+                     encrypt it in AzDrive (Encrypt this drive) first",
+                    self.drive
+                ),
+            }),
+            _ => Err(self
+                .unencrypted_refusal()
+                .unwrap_or_else(|| DriveError::Denied {
+                    message: format!("\"{}\" is not encrypted", self.drive),
+                })),
+        }
+    }
+
+    /// A keyring read of this drive's keys, remembered when the user declined it: for
+    /// `denied_for` the same answer comes back without asking again. Any other answer - good,
+    /// absent, unreadable - is the keyring's own, every time.
+    fn asked<T>(&self, read: impl FnOnce() -> Result<T, DriveError>) -> Result<T, DriveError> {
+        if let Some(denial) = lock(&self.denied).as_ref() {
+            if denial.at.elapsed() < self.denied_for {
+                return Err(denial.error.clone());
+            }
+        }
+        match read() {
+            Err(error @ DriveError::Denied { .. }) => {
+                *lock(&self.denied) = Some(Denial {
+                    at: Instant::now(),
+                    error: error.clone(),
+                });
+                Err(error)
+            }
+            other => {
+                *lock(&self.denied) = None;
+                other
+            }
         }
     }
 
@@ -508,18 +616,23 @@ impl AutoEncrypted {
         }
         // The device's own words first. A keyring that cannot be read (a declined prompt, no
         // keyring on this system, a failure) answers nothing: the error stands, nothing is
-        // decided, the next call asks again - "no key" is only what an intact keyring says.
-        let kept = device::load_drive_key(self.keyring.as_ref(), &self.drive)?.is_some();
+        // decided, the next call asks again - "no key" is only what an intact keyring says. A
+        // declined prompt is asked again after a while, not with every call.
+        let kept = self
+            .asked(|| device::load_drive_key(self.keyring.as_ref(), &self.drive))?
+            .is_some();
         let recorded = self.recorded().encrypted;
         // A setup of this device that stopped (it kept the drive's key before it put anything
         // into the bucket, and the bucket may list the key files of that try) is a drive waiting
         // for its encryption, not a locked one: the same setup call finishes it.
-        let unfinished =
-            !kept && !recorded && device::setup_pending(self.keyring.as_ref(), &self.drive)?;
+        let unfinished = !kept
+            && !recorded
+            && self.asked(|| device::setup_pending(self.keyring.as_ref(), &self.drive))?;
         // The bucket's listing is the least trusted word: it can add to the device's (key files
         // it lists make the drive encrypted and locked) and never take from it.
-        let encrypted =
-            !unfinished && (kept || recorded || device::is_encrypted(self.bucket.as_ref())?);
+        let listed =
+            !unfinished && !kept && !recorded && device::is_encrypted(self.bucket.as_ref())?;
+        let encrypted = !unfinished && (kept || recorded || listed);
         let fresh = !encrypted && !holds_plaintext_files(self.bucket.as_ref())?;
         let mut key_id = None;
         let drive: Arc<dyn Drive> = if encrypted {
@@ -535,18 +648,41 @@ impl AutoEncrypted {
                 &self.drive,
                 provider.as_ref(),
             )?;
-            key_id = Some(encrypted.drive_key_id());
+            let opened_with = encrypted.drive_key_id();
+            // The key this device recorded is the drive's own, or a key the opened one
+            // replaced (a rotation: its chain holds the older keys). Another lineage is not the
+            // key of the drive this device found encrypted.
+            if let Some(recorded) = self.recorded().key_id {
+                if !encrypted.holds_key(&recorded) {
+                    return Err(DriveError::KeyRefused {
+                        drive: self.drive.clone(),
+                        reason: format!(
+                            "this computer recorded the drive key {recorded}, and the key it \
+                             holds opens the drive as {opened_with}, which replaced no key of \
+                             it"
+                        ),
+                    });
+                }
+            }
+            key_id = Some(opened_with);
             Arc::new(encrypted)
         } else {
             Arc::clone(&self.bucket)
         };
         *opened = Some(Arc::clone(&drive));
-        let decided = match (encrypted, fresh) {
-            (true, _) => ENCRYPTED,
-            (false, true) => NEW_PLAIN,
-            (false, false) => PLAIN,
+        let via = if kept {
+            Via::KeyInKeyring
+        } else if recorded {
+            Via::Record
+        } else {
+            Via::KeyFilesListed
         };
-        self.decided.store(decided, Ordering::SeqCst);
+        *lock(&self.state) = match (encrypted, fresh, unfinished) {
+            (true, _, _) => EncState::Encrypted { key_id, via },
+            (false, true, true) => EncState::SetupPending,
+            (false, true, false) => EncState::Unencrypted(Why::New),
+            (false, false, _) => EncState::Unencrypted(Why::HiddenOrAbsent),
+        };
         // Without the lock: the app's note of it must not hold the next call up.
         drop(opened);
         if let Some(id) = key_id {
@@ -564,28 +700,28 @@ impl AutoEncrypted {
 
 impl Drive for AutoEncrypted {
     fn list(&self, request: &ListRequest) -> Result<ListPage, DriveError> {
-        self.resolved()?.list(request)
+        self.gate(Op::Read)?.list(request)
     }
     fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
-        self.resolved()?.get(key)
+        self.gate(Op::Read)?.get(key)
     }
     fn get_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, DriveError> {
-        self.resolved()?.get_range(key, range)
+        self.gate(Op::Read)?.get_range(key, range)
     }
     fn get_limited(&self, key: &str, limit: Limit) -> Result<Vec<u8>, DriveError> {
-        self.resolved()?.get_limited(key, limit)
+        self.gate(Op::Read)?.get_limited(key, limit)
     }
     fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
-        self.writable()?.put(key, bytes)
+        self.gate(Op::Write)?.put(key, bytes)
     }
     fn delete(&self, key: &str) -> Result<(), DriveError> {
-        self.resolved()?.delete(key)
+        self.gate(Op::Delete)?.delete(key)
     }
     fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
-        self.resolved()?.head(key)
+        self.gate(Op::Read)?.head(key)
     }
     fn put_from(&self, key: &str, body: &mut dyn Read) -> Result<u64, DriveError> {
-        self.writable()?.put_from(key, body)
+        self.gate(Op::Write)?.put_from(key, body)
     }
     // A file's upload resumes, plain (the bucket's parts) or encrypted (its copy's parts).
     fn put_file(
@@ -594,7 +730,7 @@ impl Drive for AutoEncrypted {
         path: &std::path::Path,
         ctl: &dyn Ctl,
     ) -> Result<u64, DriveError> {
-        self.writable()?.put_file(key, path, ctl)
+        self.gate(Op::Write)?.put_file(key, path, ctl)
     }
     fn put_file_checked(
         &self,
@@ -603,7 +739,8 @@ impl Drive for AutoEncrypted {
         check: &crate::checked::FileCheck,
         ctl: &dyn Ctl,
     ) -> Result<crate::checked::CheckedUpload, DriveError> {
-        self.writable()?.put_file_checked(key, path, check, ctl)
+        self.gate(Op::Write)?
+            .put_file_checked(key, path, check, ctl)
     }
     fn put_if(
         &self,
@@ -611,22 +748,22 @@ impl Drive for AutoEncrypted {
         bytes: &[u8],
         condition: &Precondition,
     ) -> Result<Option<String>, DriveError> {
-        self.writable()?.put_if(key, bytes, condition)
+        self.gate(Op::Write)?.put_if(key, bytes, condition)
     }
     fn copy(&self, from: &str, to: &str) -> Result<(), DriveError> {
-        self.writable()?.copy(from, to)
+        self.gate(Op::Write)?.copy(from, to)
     }
     fn create_folder(&self, prefix: &str) -> Result<(), DriveError> {
-        self.writable()?.create_folder(prefix)
+        self.gate(Op::Write)?.create_folder(prefix)
     }
     fn rename(&self, from: &str, to: &str) -> Result<(), DriveError> {
-        self.writable()?.rename(from, to)
+        self.gate(Op::Write)?.rename(from, to)
     }
     fn delete_folder(&self, prefix: &str) -> Result<(), DriveError> {
-        self.resolved()?.delete_folder(prefix)
+        self.gate(Op::Delete)?.delete_folder(prefix)
     }
     fn metadata(&self, key: &str) -> Result<Vec<(String, String)>, DriveError> {
-        self.resolved()?.metadata(key)
+        self.gate(Op::Read)?.metadata(key)
     }
     fn put_from_if(
         &self,
@@ -634,22 +771,22 @@ impl Drive for AutoEncrypted {
         body: &mut dyn Read,
         condition: &Precondition,
     ) -> Result<Option<String>, DriveError> {
-        self.writable()?.put_from_if(key, body, condition)
+        self.gate(Op::Write)?.put_from_if(key, body, condition)
     }
     fn put_many(&self, items: &[BatchPut<'_>]) -> Vec<Result<Option<String>, DriveError>> {
-        match self.writable() {
+        match self.gate(Op::Write) {
             Ok(drive) => drive.put_many(items),
             Err(e) => items.iter().map(|_| Err(e.clone())).collect(),
         }
     }
     fn delete_many(&self, items: &[BatchDelete<'_>]) -> Vec<Result<(), DriveError>> {
-        match self.resolved() {
+        match self.gate(Op::Delete) {
             Ok(drive) => drive.delete_many(items),
             Err(e) => items.iter().map(|_| Err(e.clone())).collect(),
         }
     }
     fn move_many(&self, items: &[BatchMove<'_>]) -> Vec<Result<(), DriveError>> {
-        match self.writable() {
+        match self.gate(Op::Write) {
             Ok(drive) => drive.move_many(items),
             Err(e) => items.iter().map(|_| Err(e.clone())).collect(),
         }
@@ -658,7 +795,7 @@ impl Drive for AutoEncrypted {
         &self,
         items: &mut [BatchStream<'_>],
     ) -> Vec<Result<Option<String>, DriveError>> {
-        match self.writable() {
+        match self.gate(Op::Write) {
             Ok(drive) => drive.put_from_many(items),
             Err(e) => items.iter().map(|_| Err(e.clone())).collect(),
         }
@@ -1156,6 +1293,13 @@ impl<D: Drive> EncryptedDrive<D> {
     #[must_use]
     pub fn drive_key_id(&self) -> KeyId {
         self.drive_key.id()
+    }
+
+    /// Whether `id` is the id of the drive key this drive reads and writes with, or of an older
+    /// key of its chain (a key a rotation replaced).
+    #[must_use]
+    pub fn holds_key(&self, id: &KeyId) -> bool {
+        self.drive_key.id() == *id || self.older_keys.iter().any(|older| older.id() == *id)
     }
 
     /// Forgets the opened objects (their derived keys are wiped): when the drive locks.

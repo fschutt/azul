@@ -4,7 +4,10 @@
 
 use std::{
     io::Read,
-    sync::{mpsc, Arc, Mutex},
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        mpsc, Arc, Mutex,
+    },
     time::Duration,
 };
 
@@ -23,6 +26,7 @@ use crate::{
     },
     keyring::{KeyringError, KeyringStore, MemoryKeyring},
     ops::list_all,
+    trust::{EncState, Via, Why},
     ByteRange, Drive, DriveError, ListRequest, LocalDrive, Precondition,
 };
 
@@ -687,6 +691,16 @@ fn provider() -> Option<Arc<dyn IndexProvider>> {
     Some(Arc::new(SharedIndex(Arc::new(MemoryIndex::new()))))
 }
 
+/// A drive's state read as the two-valued answer the older assertions ask: `Some(true)` for an
+/// encrypted drive, `Some(false)` for one that is not, `None` while nothing is decided.
+fn kind(drive: &AutoEncrypted) -> Option<bool> {
+    match drive.state() {
+        EncState::Undecided => None,
+        EncState::Encrypted { .. } => Some(true),
+        EncState::SetupPending | EncState::Unencrypted(_) => Some(false),
+    }
+}
+
 /// A bucket without key files that this device knows nothing about is read as it lists (it may be
 /// a drive made before encryption), and takes no plaintext file: an Azlin drive is encrypted.
 #[test]
@@ -694,9 +708,9 @@ fn an_auto_encrypted_drive_reads_a_plain_bucket_and_takes_no_file_into_it() {
     let mem = Arc::new(MemBucket::new());
     mem.set("a.txt", b"plain".to_vec());
     let drive = AutoEncrypted::new(mem.clone(), "d_1", Arc::new(MemoryKeyring::new()), provider());
-    assert_eq!(drive.is_encrypted(), None, "nothing decided before the first call");
+    assert_eq!(kind(&drive), None, "nothing decided before the first call");
     assert_eq!(drive.get("a.txt").unwrap(), b"plain");
-    assert_eq!(drive.is_encrypted(), Some(false));
+    assert_eq!(kind(&drive), Some(false));
     assert!(matches!(
         drive.put("b.txt", b"not plain"),
         Err(DriveError::Denied { .. })
@@ -718,7 +732,7 @@ fn a_new_plain_drive_takes_no_file_until_it_is_encrypted() {
     let keyring = Arc::new(MemoryKeyring::new());
     let drive = AutoEncrypted::new(mem.clone(), "d_new", keyring.clone(), provider());
     assert!(drive.list(&ListRequest::folder("")).is_ok(), "it reads as a drive");
-    assert_eq!(drive.is_encrypted(), Some(false));
+    assert_eq!(kind(&drive), Some(false));
     assert!(drive.needs_encryption());
     let refused = |result: Result<(), DriveError>, what: &str| {
         assert!(matches!(result, Err(DriveError::Denied { .. })), "{what}: {result:?}");
@@ -738,7 +752,7 @@ fn a_new_plain_drive_takes_no_file_until_it_is_encrypted() {
     setup_new_drive(drive.bucket().as_ref(), keyring.as_ref(), "d_new", kdf).unwrap();
     drive.reopen();
     drive.put("a.txt", b"sealed now").unwrap();
-    assert_eq!(drive.is_encrypted(), Some(true));
+    assert_eq!(kind(&drive), Some(true));
     assert!(!drive.needs_encryption());
     assert!(mem.object("a.txt").is_none(), "no plaintext name in the bucket");
     assert_eq!(drive.get("a.txt").unwrap(), b"sealed now");
@@ -754,7 +768,7 @@ fn an_older_plain_drive_with_files_reads_and_takes_no_file_until_it_is_encrypted
     let keyring = Arc::new(MemoryKeyring::new());
     let drive = AutoEncrypted::new(mem.clone(), "d_old", keyring.clone(), provider());
     assert_eq!(drive.get("photos/2019/a.jpg").unwrap(), b"jpeg bytes");
-    assert_eq!(drive.is_encrypted(), Some(false));
+    assert_eq!(kind(&drive), Some(false));
     assert!(
         !drive.needs_encryption(),
         "the user's word starts its encryption, not the app's"
@@ -770,7 +784,7 @@ fn an_older_plain_drive_with_files_reads_and_takes_no_file_until_it_is_encrypted
     setup_new_drive(drive.bucket().as_ref(), keyring.as_ref(), "d_old", kdf).unwrap();
     drive.reopen();
     drive.put("notes.txt", b"sealed").unwrap();
-    assert_eq!(drive.is_encrypted(), Some(true));
+    assert_eq!(kind(&drive), Some(true));
     assert!(mem.object("notes.txt").is_none());
 }
 
@@ -782,7 +796,7 @@ fn an_auto_encrypted_drive_opens_an_encrypted_bucket_through_the_index() {
     setup_new_drive(mem.as_ref(), keyring.as_ref(), "d_1", kdf).unwrap();
     let drive = AutoEncrypted::new(mem.clone(), "d_1", keyring.clone(), provider());
     drive.put("letters/a.txt", b"sealed").unwrap();
-    assert_eq!(drive.is_encrypted(), Some(true));
+    assert_eq!(kind(&drive), Some(true));
     assert_eq!(drive.get("letters/a.txt").unwrap(), b"sealed");
     assert!(mem.object("letters/a.txt").is_none(), "no plaintext name in the bucket");
 
@@ -792,7 +806,7 @@ fn an_auto_encrypted_drive_opens_an_encrypted_bucket_through_the_index() {
         no_index.list(&ListRequest::folder("")),
         Err(DriveError::Unsupported(_))
     ));
-    assert_eq!(no_index.is_encrypted(), None, "tried again on the next call");
+    assert_eq!(kind(&no_index), None, "tried again on the next call");
 }
 
 /// A bucket that hides its key files from listings (a server trying to turn devices back to
@@ -836,7 +850,7 @@ fn a_bucket_hiding_its_key_files_cannot_turn_a_device_with_the_key_back_to_plain
         provider(),
     );
     drive.put("diary.txt", b"dear diary").unwrap();
-    assert_eq!(drive.is_encrypted(), Some(true), "this device keeps the key");
+    assert_eq!(kind(&drive), Some(true), "this device keeps the key");
     assert!(mem.object("diary.txt").is_none());
 }
 
@@ -873,7 +887,7 @@ fn a_drive_recorded_as_encrypted_is_locked_without_its_key_whatever_the_bucket_l
     locked("head", drive.head("decoy.txt").unwrap_err());
     locked("put", drive.put("diary.txt", b"dear diary").unwrap_err());
     locked("delete", drive.delete("decoy.txt").unwrap_err());
-    assert_eq!(drive.is_encrypted(), None, "locked: nothing is decided");
+    assert_eq!(kind(&drive), None, "locked: nothing is decided");
     assert!(!drive.needs_encryption());
     assert!(mem.object("diary.txt").is_none());
     assert!(
@@ -900,7 +914,7 @@ fn a_drive_recorded_as_encrypted_is_locked_without_its_key_whatever_the_bucket_l
     crate::crypto::device::enroll(mem.as_ref(), keyring.as_ref(), "d_1", &key).unwrap();
     device.reopen();
     device.put("a.txt", b"sealed").unwrap();
-    assert_eq!(device.is_encrypted(), Some(true));
+    assert_eq!(kind(&device), Some(true));
     assert!(mem.object("a.txt").is_none());
 }
 
@@ -919,7 +933,7 @@ fn the_app_is_told_the_drive_keys_id_when_the_drive_opens_encrypted() {
     let drive = AutoEncrypted::new(mem.clone(), "d_1", keyring.clone(), provider())
         .on_encrypted(tell.clone());
     drive.list(&ListRequest::folder("")).unwrap();
-    assert_eq!(drive.is_encrypted(), Some(false));
+    assert_eq!(kind(&drive), Some(false));
     assert!(
         told.lock().unwrap().is_empty(),
         "a drive without a key is told of nothing"
@@ -976,7 +990,7 @@ fn a_setup_that_stopped_halfway_is_a_drive_waiting_for_its_setup_not_a_locked_on
     setup_new_drive(drive.bucket().as_ref(), keyring.as_ref(), "d_1", kdf).unwrap();
     drive.reopen();
     drive.put("a.txt", b"sealed").unwrap();
-    assert_eq!(drive.is_encrypted(), Some(true));
+    assert_eq!(kind(&drive), Some(true));
     assert!(!drive.needs_encryption());
     assert_eq!(drive.get("a.txt").unwrap(), b"sealed");
 }
@@ -1025,11 +1039,7 @@ fn a_keyring_that_cannot_be_read_never_turns_a_drive_plain() {
             "{failure:?}: list"
         );
         assert!(drive.get("decoy.txt").is_err(), "{failure:?}: get");
-        assert_eq!(
-            drive.is_encrypted(),
-            None,
-            "{failure:?}: nothing was decided"
-        );
+        assert_eq!(kind(&drive), None, "{failure:?}: nothing was decided");
         assert!(
             mem.object("diary.txt").is_none(),
             "{failure:?}: nothing reached the bucket"
@@ -1079,12 +1089,12 @@ fn a_keyring_that_answers_later_decides_then() {
         drive.put("a.txt", b"x"),
         Err(DriveError::Denied { .. })
     ));
-    assert_eq!(drive.is_encrypted(), None);
+    assert_eq!(kind(&drive), None);
     keyring
         .down
         .store(false, std::sync::atomic::Ordering::SeqCst);
     drive.put("a.txt", b"sealed").unwrap();
-    assert_eq!(drive.is_encrypted(), Some(true));
+    assert_eq!(kind(&drive), Some(true));
     assert!(
         mem.object("a.txt").is_none(),
         "no plaintext name in the bucket"
@@ -1127,7 +1137,7 @@ fn a_device_without_the_key_writes_no_plaintext_into_a_bucket_that_hides_its_key
     for name in ["diary.txt", "b.txt", "c.txt", "d.txt", "photos/"] {
         assert!(mem.object(name).is_none(), "{name} reached the bucket");
     }
-    assert_ne!(drive.is_encrypted(), Some(true));
+    assert_ne!(kind(&drive), Some(true));
 }
 
 /// A bucket whose first read waits until the test lets it go: a drive's first call held up by
@@ -1205,14 +1215,14 @@ fn whether_a_drive_is_encrypted_is_answered_while_its_first_call_decides_it() {
     {
         let drive = Arc::clone(&drive);
         std::thread::spawn(move || {
-            let _ = answer_tx.send(drive.is_encrypted());
+            let _ = answer_tx.send(kind(&drive));
         });
     }
     let asked = answer.recv_timeout(Duration::from_secs(5));
     release.send(()).unwrap();
     first.join().unwrap().unwrap();
     assert_eq!(asked, Ok(None), "not decided yet - and said at once");
-    assert_eq!(drive.is_encrypted(), Some(false), "decided by the first call");
+    assert_eq!(kind(&drive), Some(false), "decided by the first call");
 }
 
 /// The same question asked on the app's UI thread, before any call opened the drive, while the
@@ -1243,10 +1253,8 @@ fn the_ui_thread_asks_whether_a_drive_is_encrypted_without_taking_its_lock() {
         std::thread::spawn(move || {
             crate::ui_thread::mark_ui_thread();
             while ask.recv().is_ok() {
-                let asked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    drive.is_encrypted()
-                }))
-                .map_err(|_| "the UI thread took the drive's lock");
+                let asked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| kind(&drive)))
+                    .map_err(|_| "the UI thread took the drive's lock");
                 let _ = answer_tx.send(asked);
             }
         })
@@ -1278,14 +1286,356 @@ fn reopening_takes_a_drive_encrypted_since() {
     let keyring = Arc::new(MemoryKeyring::new());
     let drive = AutoEncrypted::new(mem.clone(), "d_1", keyring.clone(), provider());
     drive.list(&ListRequest::folder("")).unwrap();
-    assert_eq!(drive.is_encrypted(), Some(false));
+    assert_eq!(kind(&drive), Some(false));
     let kdf = RecoveryKdf::with_cost(64, 1, 1).unwrap();
     setup_new_drive(drive.bucket().as_ref(), keyring.as_ref(), "d_1", kdf).unwrap();
-    assert_eq!(drive.is_encrypted(), Some(false), "until it is reopened");
+    assert_eq!(kind(&drive), Some(false), "until it is reopened");
     drive.reopen();
     drive.put("new.txt", b"sealed").unwrap();
-    assert_eq!(drive.is_encrypted(), Some(true));
+    assert_eq!(kind(&drive), Some(true));
     assert!(mem.object("new.txt").is_none());
+}
+
+// ==== RF40: the state is one value, the gate lets a call through, the record is compared ====
+
+/// A keyring that counts its reads and answers every one with `answer`.
+struct Counting {
+    gets: AtomicUsize,
+    answer: KeyringError,
+}
+
+impl Counting {
+    fn new(answer: KeyringError) -> Arc<Counting> {
+        Arc::new(Counting {
+            gets: AtomicUsize::new(0),
+            answer,
+        })
+    }
+
+    fn gets(&self) -> usize {
+        self.gets.load(Ordering::SeqCst)
+    }
+}
+
+impl KeyringStore for Counting {
+    fn get(&self, _key: &str) -> Result<Option<String>, KeyringError> {
+        self.gets.fetch_add(1, Ordering::SeqCst);
+        Err(self.answer.clone())
+    }
+    fn set(&self, _key: &str, _secret: &str) -> Result<(), KeyringError> {
+        Err(self.answer.clone())
+    }
+    fn delete(&self, _key: &str) -> Result<(), KeyringError> {
+        Err(self.answer.clone())
+    }
+}
+
+/// X-AR6-26802cb54-3: a keychain prompt the user declined is not shown again with every listing
+/// refresh, sync attempt and thumbnail - it is remembered for the back-off, and the user's own act
+/// (an unlock, a reopen) asks at once.
+#[test]
+fn x_ar6_26802cb54_3_a_declined_prompt_is_asked_once_in_the_back_off_and_again_after_a_reopen() {
+    let mem = Arc::new(MemBucket::new());
+    mem.set("decoy.txt", b"plain".to_vec());
+    let keyring = Counting::new(KeyringError::Denied);
+    let drive = AutoEncrypted::new(mem.clone(), "d_1", keyring.clone(), provider())
+        .with_denied_backoff(Duration::from_secs(30));
+    for call in 0..5 {
+        let answer = drive.list(&ListRequest::folder(""));
+        assert!(
+            matches!(answer, Err(DriveError::Denied { .. })),
+            "call {call}: {answer:?}"
+        );
+    }
+    assert_eq!(
+        keyring.gets(),
+        1,
+        "the user was asked once, not once per call"
+    );
+    assert_eq!(
+        drive.state(),
+        EncState::Undecided,
+        "and nothing was decided"
+    );
+    assert!(mem.object("decoy.txt").is_some());
+
+    drive.reopen();
+    assert!(drive.list(&ListRequest::folder("")).is_err());
+    assert_eq!(keyring.gets(), 2, "the user's own act asks again at once");
+}
+
+/// X-AR6-26802cb54-3: only a DECLINE is remembered. A keyring that is not there or failed answers
+/// afresh with every call (it may be back), and a back-off of nothing asks every time.
+#[test]
+fn x_ar6_26802cb54_3_only_a_declined_prompt_is_remembered() {
+    for (answer, backoff) in [
+        (KeyringError::Unavailable, Duration::from_secs(30)),
+        (
+            KeyringError::Failed(String::from("locked")),
+            Duration::from_secs(30),
+        ),
+        (KeyringError::Denied, Duration::ZERO),
+    ] {
+        let keyring = Counting::new(answer.clone());
+        let drive = AutoEncrypted::new(
+            Arc::new(MemBucket::new()),
+            "d_1",
+            keyring.clone(),
+            provider(),
+        )
+        .with_denied_backoff(backoff);
+        for _ in 0..3 {
+            assert!(drive.list(&ListRequest::folder("")).is_err());
+        }
+        assert_eq!(
+            keyring.gets(),
+            3,
+            "{answer:?} after {backoff:?}: asked with every call"
+        );
+    }
+}
+
+/// X-AR6-26802cb54-2 (a): a drive that is not encrypted takes no delete either - a record-less
+/// device cannot tell an older plain drive from a bucket that hides its key files, and a delete
+/// is a write. It still reads as its bucket lists.
+#[test]
+fn x_ar6_26802cb54_2_a_drive_that_is_not_encrypted_takes_no_delete() {
+    let mem = Arc::new(MemBucket::new());
+    mem.set("photos/a.jpg", b"jpeg".to_vec());
+    mem.set("notes.txt", b"plain".to_vec());
+    let drive = AutoEncrypted::new(
+        mem.clone(),
+        "d_old",
+        Arc::new(MemoryKeyring::new()),
+        provider(),
+    );
+    assert_eq!(drive.get("notes.txt").unwrap(), b"plain", "it reads");
+    let denied = |result: Result<(), DriveError>, what: &str| {
+        assert!(
+            matches!(result, Err(DriveError::Denied { .. })),
+            "{what}: {result:?}"
+        );
+    };
+    denied(drive.delete("notes.txt"), "delete");
+    denied(drive.delete_folder("photos/"), "delete_folder");
+    let batch = drive.delete_many(&[crate::BatchDelete::new("notes.txt")]);
+    denied(batch.into_iter().next().unwrap(), "delete_many");
+    assert!(
+        mem.object("notes.txt").is_some() && mem.object("photos/a.jpg").is_some(),
+        "nothing was deleted"
+    );
+}
+
+/// X-AR6-26802cb54-2 (b): the key id the drives file recorded is compared with the key the drive
+/// opens with. Another line of keys is refused and said; a key that replaced the recorded one (a
+/// rotation: the key chain holds it) is the drive's own; the user's own reopening takes the
+/// key it brings and records it.
+#[test]
+fn x_ar6_26802cb54_2_a_recorded_key_is_the_drives_own_or_one_that_replaced_it() {
+    let mem = Arc::new(MemBucket::new());
+    let first = DriveKey::generate().unwrap();
+    let second = DriveKey::generate().unwrap();
+    let stranger = DriveKey::generate().unwrap();
+    let mut chain = crate::crypto::keys::KeyChain::new();
+    chain.add("d_1", &first, &second).unwrap();
+    crate::crypto::keys::store_key_chain(mem.as_ref(), &chain).unwrap();
+    let keyring = Arc::new(MemoryKeyring::new());
+    crate::crypto::device::store_drive_key(keyring.as_ref(), "d_1", &second).unwrap();
+
+    // The recorded key was replaced by the one in the keyring (this device or another rotated).
+    let rotated =
+        AutoEncrypted::new(mem.clone(), "d_1", keyring.clone(), provider()).with_record(Recorded {
+            encrypted: true,
+            key_id: Some(first.id()),
+        });
+    rotated.list(&ListRequest::folder("")).unwrap();
+    assert_eq!(
+        rotated.recorded().key_id,
+        Some(second.id()),
+        "the new key is recorded"
+    );
+
+    // The recorded key is of another line: refused, nothing decided, nothing read.
+    let swapped =
+        AutoEncrypted::new(mem.clone(), "d_1", keyring.clone(), provider()).with_record(Recorded {
+            encrypted: true,
+            key_id: Some(stranger.id()),
+        });
+    let refused = swapped.list(&ListRequest::folder(""));
+    assert!(
+        matches!(&refused, Err(DriveError::KeyRefused { drive, .. }) if drive == "d_1"),
+        "{refused:?}"
+    );
+    assert_eq!(swapped.state(), EncState::Undecided);
+    assert!(swapped.put("a.txt", b"x").is_err());
+
+    // The user opens it again on purpose (an unlock, a join): the key it brings is recorded.
+    swapped.reopen();
+    swapped.list(&ListRequest::folder("")).unwrap();
+    assert_eq!(swapped.recorded().key_id, Some(second.id()));
+}
+
+/// X-AR5b-1 (the bridge and AzMail): an app that opens an encrypted drive only meets a bucket that
+/// hides its key files and shows an object, with no key on the device: it reads nothing and
+/// writes nothing - what the bucket lists is the bucket's word alone.
+#[test]
+fn x_ar5b_1_an_encrypted_only_app_reads_and_writes_nothing_of_a_bucket_that_hides_its_keys() {
+    let mem = Arc::new(MemBucket::new());
+    let first = MemoryKeyring::new();
+    let kdf = RecoveryKdf::with_cost(64, 1, 1).unwrap();
+    setup_new_drive(mem.as_ref(), &first, "d_1", kdf).unwrap();
+    mem.set("decoy.txt", b"plain".to_vec());
+
+    let drive = AutoEncrypted::new(
+        Arc::new(HidesKeyFiles(mem.clone())),
+        "d_1",
+        Arc::new(MemoryKeyring::new()),
+        provider(),
+    )
+    .encrypted_only();
+    let answers = [
+        ("list", drive.list(&ListRequest::folder("")).map(|_| ())),
+        ("get", drive.get("decoy.txt").map(|_| ())),
+        ("head", drive.head("decoy.txt").map(|_| ())),
+        ("put", drive.put("diary.txt", b"dear diary")),
+        ("delete", drive.delete("decoy.txt")),
+    ];
+    for (what, answer) in &answers {
+        assert!(answer.is_err(), "{what} went through: {answer:?}");
+    }
+    assert!(mem.object("diary.txt").is_none(), "nothing was written");
+    assert!(mem.object("decoy.txt").is_some(), "nothing was deleted");
+
+    // The same app with the key opens the drive as usual.
+    let keyring = Arc::new(MemoryKeyring::new());
+    let kdf = RecoveryKdf::with_cost(64, 1, 1).unwrap();
+    let other = Arc::new(MemBucket::new());
+    setup_new_drive(other.as_ref(), keyring.as_ref(), "d_2", kdf).unwrap();
+    let keyed = AutoEncrypted::new(other, "d_2", keyring, provider()).encrypted_only();
+    keyed.put("a.txt", b"sealed").unwrap();
+    assert_eq!(keyed.get("a.txt").unwrap(), b"sealed");
+}
+
+/// X-AR5b-3: `decide` answers what a dummy call used to swallow - the state, or why there is none
+/// - and every state has its own reading.
+#[test]
+fn x_ar5b_3_decide_says_what_it_decided_or_why_it_could_not() {
+    let kdf = || RecoveryKdf::with_cost(64, 1, 1).unwrap();
+    let list = ListRequest::folder("");
+
+    // A keyring that cannot be read: the error, and nothing decided.
+    let mem = Arc::new(MemBucket::new());
+    let unreadable = AutoEncrypted::new(
+        mem.clone(),
+        "d_1",
+        Arc::new(UnreadableKeyring(KeyringError::Denied)),
+        provider(),
+    );
+    assert!(matches!(
+        unreadable.decide(),
+        Err(DriveError::Denied { .. })
+    ));
+    assert_eq!(unreadable.state(), EncState::Undecided);
+
+    // Key files listed, no key and no record here: locked, not plain.
+    let mem = Arc::new(MemBucket::new());
+    let owner = MemoryKeyring::new();
+    let (key, _code) = setup_new_drive(mem.as_ref(), &owner, "d_1", kdf()).unwrap();
+    let locked = AutoEncrypted::new(
+        mem.clone(),
+        "d_1",
+        Arc::new(MemoryKeyring::new()),
+        provider(),
+    );
+    assert!(matches!(locked.decide(), Err(DriveError::Locked { .. })));
+    assert_eq!(locked.state(), EncState::Undecided);
+
+    // The key in the keyring.
+    let kept = AutoEncrypted::new(mem.clone(), "d_1", Arc::new(owner), provider());
+    assert_eq!(
+        kept.decide().unwrap(),
+        EncState::Encrypted {
+            key_id: Some(key.id()),
+            via: Via::KeyInKeyring
+        }
+    );
+
+    // Only this device's member key and its wrap in the bucket: the bucket's key files made the
+    // drive encrypted, the device's own wrap opens it.
+    let owner = MemoryKeyring::new();
+    let mem = Arc::new(MemBucket::new());
+    let (key, _code) = setup_new_drive(mem.as_ref(), &owner, "d_1", kdf()).unwrap();
+    let member_only = |keyring: &MemoryKeyring| {
+        let entry = crate::crypto::device::member_key_entry("d_1");
+        keyring
+            .set(&entry, &owner.get(&entry).unwrap().unwrap())
+            .unwrap();
+    };
+    let listed = Arc::new(MemoryKeyring::new());
+    member_only(&listed);
+    let by_wrap = AutoEncrypted::new(mem.clone(), "d_1", listed, provider());
+    assert_eq!(
+        by_wrap.decide().unwrap(),
+        EncState::Encrypted {
+            key_id: Some(key.id()),
+            via: Via::KeyFilesListed
+        }
+    );
+    let recorded = Arc::new(MemoryKeyring::new());
+    member_only(&recorded);
+    let by_record =
+        AutoEncrypted::new(mem.clone(), "d_1", recorded, provider()).with_record(Recorded {
+            encrypted: true,
+            key_id: Some(key.id()),
+        });
+    assert_eq!(
+        by_record.decide().unwrap(),
+        EncState::Encrypted {
+            key_id: Some(key.id()),
+            via: Via::Record
+        }
+    );
+
+    // An empty bucket, and a bucket with files, and no key anywhere.
+    let empty = AutoEncrypted::new(
+        Arc::new(MemBucket::new()),
+        "d_2",
+        Arc::new(MemoryKeyring::new()),
+        provider(),
+    );
+    assert_eq!(empty.decide().unwrap(), EncState::Unencrypted(Why::New));
+    assert!(empty.needs_encryption());
+    let files = Arc::new(MemBucket::new());
+    files.set("a.txt", b"plain".to_vec());
+    let hidden = AutoEncrypted::new(files, "d_3", Arc::new(MemoryKeyring::new()), provider());
+    assert_eq!(
+        hidden.decide().unwrap(),
+        EncState::Unencrypted(Why::HiddenOrAbsent)
+    );
+    assert!(!hidden.needs_encryption());
+    assert!(
+        hidden.list(&list).is_ok(),
+        "it still reads, as its bucket lists"
+    );
+}
+
+/// X-AR5b-2: a drive that could not be decided restores nothing - the policy for "could not
+/// tell" is to open the drive first, never the bucket's restore.
+#[test]
+fn x_ar5b_2_a_drive_the_keyring_would_not_open_is_no_drive_to_restore_by_its_bucket() {
+    let mem = Arc::new(MemBucket::new());
+    mem.set("decoy.txt", b"plain".to_vec());
+    let drive = AutoEncrypted::new(
+        mem,
+        "d_1",
+        Arc::new(UnreadableKeyring(KeyringError::Denied)),
+        provider(),
+    );
+    assert!(drive.decide().is_err());
+    assert_eq!(
+        drive.state().restore_kind(),
+        crate::trust::RestoreKind::OpenFirst
+    );
 }
 
 /// The quota counts stored bytes: the totals say what the files take of it (compressed, a copy
