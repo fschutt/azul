@@ -165,6 +165,15 @@ fn print_of_etag(tag: &str) -> Option<Fingerprint> {
         .then(|| Fingerprint::from_parts(Kind::File, size, mtime_ns, ctime_ns, dev, ino))
 }
 
+/// What a file on disk with this tag must still be for a write to replace it, when the system
+/// gives files an identity ([`Expect::Is`]); `None` for a tag of another kind and for a system
+/// that gives none (the caller then compares what it can, as [`expectation`] does).
+pub(crate) fn expect_of_tag(tag: &str) -> Option<Expect> {
+    print_of_etag(tag)
+        .filter(|print| print.id.is_known())
+        .map(Expect::Is)
+}
+
 /// What the name `name` of `dir` must hold for a write that asked `condition`. A tag whose file
 /// the system gave no identity (Windows, until its file index is read) can only be compared by
 /// kind, size and times: that is checked here, now, and the write then goes on without one - a

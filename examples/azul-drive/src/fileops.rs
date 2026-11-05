@@ -9,11 +9,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use azul_appkit::l10n::{Phrase, Text};
-use azul_storage::{
-    key, ops as storage_ops, transfer,
-    xfer::{self, overlap, Overlap},
-    BatchDelete, BatchMove, BatchPut, Drive, DriveError,
-};
+use azul_storage::{xfer, BatchDelete, BatchMove, Drive, DriveError};
 
 use crate::browse;
 
@@ -71,7 +67,9 @@ pub fn check_name(name: &str) -> Result<(), Text> {
         return Err(Text::key("azdrive-name-empty"));
     }
     if trimmed == "." || trimmed == ".." {
-        return Err(Phrase::new("azdrive-name-reserved").arg("name", trimmed).into());
+        return Err(Phrase::new("azdrive-name-reserved")
+            .arg("name", trimmed)
+            .into());
     }
     if name.chars().any(|c| FORBIDDEN_CHARS.contains(&c)) {
         return Err(Text::key("azdrive-name-forbidden-chars"));
@@ -184,31 +182,8 @@ pub fn plan_transfer(
 
 // ==== Running ====
 
-/// Where a running transfer is.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Progress {
-    /// Files done (copied, skipped or failed) and items renamed.
-    pub files_done: usize,
-    pub files_total: usize,
-    pub bytes_done: u64,
-    pub bytes_total: u64,
-    /// The name being copied.
-    pub current: String,
-}
-
-impl Progress {
-    /// Done so far, 0..=100: by bytes when they are known, else by files.
-    #[must_use]
-    pub fn percent(&self) -> f32 {
-        if self.bytes_total > 0 {
-            (self.bytes_done as f64 / self.bytes_total as f64 * 100.0).min(100.0) as f32
-        } else if self.files_total > 0 {
-            (self.files_done as f64 / self.files_total as f64 * 100.0).min(100.0) as f32
-        } else {
-            0.0
-        }
-    }
-}
+// How far a running transfer is: the storage crate's, queued and shown here.
+pub use azul_storage::xfer::Progress;
 
 /// How a transfer ended.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -219,16 +194,31 @@ pub struct TransferReport {
     /// What failed, and why.
     pub failed: Vec<(String, azul_appkit::l10n::Text)>,
     pub cancelled: bool,
+    /// The items renamed in place, `(from, to)`: what an Undo puts back, and nothing it did not
+    /// do (AZ-U17).
+    pub moved: Vec<(String, String)>,
+    /// The folders of a move that stay because something is still in them.
+    pub left: Vec<String>,
 }
 
-/// Runs `plan`: renames the whole items, creates the folders, copies every
-/// file (`transfer::copy_object`: a file copy on disk, ranged GETs into a
-/// file, one PUT into a bucket; small files from this computer into a bucket
-/// in `put_many` batches) by its choice - an undecided conflict is skipped,
-/// never overwritten - and for a move deletes what it copied and the folders
-/// it emptied. `cancel` is read before every file; `report` hears the progress
-/// after every chunk, every file and every batch. A failure is noted and the
-/// rest goes on.
+/// The stop of a transfer: a flag the window sets. It hears no bytes (the queue's progress comes
+/// from the run's own reports).
+struct Stop<'a>(&'a AtomicBool);
+
+impl azul_storage::Ctl for Stop<'_> {
+    fn bytes(&self, _done: u64) {}
+
+    fn cancelled(&self) -> bool {
+        self.0.load(Ordering::SeqCst)
+    }
+}
+
+/// Runs `plan` ([`xfer::run`]): renames the whole items, creates the folders, copies every file by
+/// its choice - an undecided conflict is skipped, never overwritten, and a name made at the target
+/// since the plan is a new conflict, not replaced - and for a move retires what landed and removes
+/// the folders it emptied, if nothing else is in them. `cancel` is looked at per chunk of the
+/// file being copied, not between files; `report` hears the progress after every chunk, every
+/// file and every batch. A failure is noted and the rest goes on.
 pub fn run_transfer(
     plan: &Plan,
     source: &dyn Drive,
@@ -237,233 +227,25 @@ pub fn run_transfer(
     cancel: &AtomicBool,
     report: &mut dyn FnMut(&Progress),
 ) -> TransferReport {
-    let mut out = TransferReport::default();
-    let mut progress = Progress {
-        files_total: plan.files.len() + plan.moves.len(),
-        bytes_total: plan.total_bytes(),
-        ..Progress::default()
-    };
-    if cancel.load(Ordering::SeqCst) {
-        out.cancelled = true;
-        return out;
-    }
-    // A folder is renamed as a whole; the files go in one batch (an encrypted drive changes
-    // its index once for all of them, a bucket copies them side by side).
-    let (folder_moves, file_moves): (Vec<&(String, String)>, Vec<&(String, String)>) =
-        plan.moves.iter().partition(|(from, _)| from.ends_with('/'));
-    for (from, to) in folder_moves {
-        if cancel.load(Ordering::SeqCst) {
-            out.cancelled = true;
-            return out;
-        }
-        progress.current = key::last_segment(from).to_string();
-        match source.rename(from, to) {
-            Ok(()) => out.done += 1,
-            Err(e) => out.failed.push((from.clone(), crate::l10n::drive_error_text(&e))),
-        }
-        progress.files_done += 1;
-        report(&progress);
-    }
-    if !file_moves.is_empty() {
-        if cancel.load(Ordering::SeqCst) {
-            out.cancelled = true;
-            return out;
-        }
-        let batch: Vec<BatchMove<'_>> =
-            file_moves.iter().map(|(from, to)| BatchMove::new(from, to)).collect();
-        for ((from, _), result) in file_moves.iter().zip(source.move_many(&batch)) {
-            match result {
-                Ok(()) => out.done += 1,
-                Err(e) => out.failed.push((from.clone(), crate::l10n::drive_error_text(&e))),
-            }
-            progress.files_done += 1;
-        }
-        report(&progress);
-    }
-    for folder in &plan.folders {
-        if let Err(e) = target.create_folder(folder) {
-            out.failed.push((folder.clone(), crate::l10n::drive_error_text(&e)));
-        }
-    }
-    let mut copied = Vec::new();
-    // Small files from this computer into a bucket go in batches (`put_many`): an encrypted
-    // drive packs a batch's files together and names them in one index change, where one
-    // file at a time would make each its own pack; a bucket gets fewer requests too.
-    let mut batch = SmallBatch::default();
-    for file in &plan.files {
-        if cancel.load(Ordering::SeqCst) {
-            // A batch not sent yet is not written: its files count as not done.
-            out.cancelled = true;
-            break;
-        }
-        progress.current = key::last_segment(&file.source_key).to_string();
-        let base = progress.bytes_done;
-        let go = !file.conflict
-            || matches!(
-                file.choice,
-                Some(ConflictChoice::Replace) | Some(ConflictChoice::KeepBoth)
-            );
-        if go {
-            let server_side = plan.same_drive && source.local_path(&file.source_key).is_none();
-            if !server_side {
-                // a bucket's PUT replaces what is there: no delete first, so a batch that is
-                // never sent leaves the old file as it was
-                if let Some(bytes) = small_local_file(source, target, file) {
-                    match bytes {
-                        Ok(bytes) => batch.push(file, bytes),
-                        Err(e) => {
-                            out.failed.push((file.source_key.clone(), crate::l10n::drive_error_text(&e)));
-                            progress.files_done += 1;
-                            report(&progress);
-                        }
-                    }
-                    if batch.bytes >= azul_storage::SMALL_BATCH_BYTES {
-                        batch.send(target, &mut out, &mut copied, &mut progress, report);
-                    }
-                    continue;
-                }
-            }
-            // A Replace writes the new bytes beside the old file and renames them over it (a
-            // copy, a download, a PUT all do): the old file goes only when the new one is whole.
-            // It used to be deleted first - a copy that failed after it left neither, and a
-            // file replaced by itself (a second drive over the same folder) left none (AZ-U4,
-            // AZ-S1). The same file is refused: a Move would delete it as the source.
-            let result = if overlap(
-                &source.site(),
-                &file.source_key,
-                &target.site(),
-                &file.target_key,
-            ) == Overlap::Same
-            {
-                Err(DriveError::InvalidKey {
-                    key: file.target_key.clone(),
-                    reason: "the destination is the very file being copied",
-                })
-            } else if server_side {
-                // The bucket copies (CopyObject): no byte passes through here.
-                source
-                    .copy(&file.source_key, &file.target_key)
-                    .map(|()| file.size.unwrap_or(0))
-            } else {
-                let mut on_bytes = |bytes: u64| {
-                    progress.bytes_done = base + bytes;
-                    report(&progress);
-                };
-                transfer::copy_object(
-                    source,
-                    &file.source_key,
-                    file.size,
-                    target,
-                    &file.target_key,
-                    &mut on_bytes,
-                )
-            };
-            match result {
-                Ok(_) => {
-                    out.done += 1;
-                    copied.push(file.source_key.clone());
-                }
-                Err(e) => out.failed.push((file.source_key.clone(), crate::l10n::drive_error_text(&e))),
-            }
-        } else {
-            out.skipped += 1;
-        }
-        progress.bytes_done = base + file.size.unwrap_or(0);
-        progress.files_done += 1;
-        report(&progress);
-    }
-    if !out.cancelled {
-        batch.send(target, &mut out, &mut copied, &mut progress, report);
-    }
-    if kind.removes_source() && !out.cancelled && !copied.is_empty() {
-        let batch: Vec<BatchDelete<'_>> = copied.iter().map(|key| BatchDelete::new(key)).collect();
-        for (key, result) in copied.iter().zip(source.delete_many(&batch)) {
-            if let Err(e) = result {
-                out.failed.push((key.clone(), crate::l10n::drive_error_text(&e)));
-            }
-        }
-    }
-    if kind.removes_source() && !out.cancelled {
-        // A folder goes only when everything in it went.
-        if out.failed.is_empty() && out.skipped == 0 {
-            for folder in &plan.source_folders {
-                if let Err(e) = source.delete_folder(folder) {
-                    out.failed.push((folder.clone(), crate::l10n::drive_error_text(&e)));
-                }
-            }
-        }
-    }
-    out
-}
-
-/// The bytes of `file` when it is a small file on this computer going into a bucket: what a
-/// paste sends in batches. `None` when it goes its own way (a folder on both sides, a large
-/// or unknown size), `Some(Err)` when it can't be read.
-fn small_local_file(
-    source: &dyn Drive,
-    target: &dyn Drive,
-    file: &PlannedFile,
-) -> Option<Result<Vec<u8>, DriveError>> {
-    if target.local_path(&file.target_key).is_some() {
-        return None;
-    }
-    let path = source.local_path(&file.source_key)?;
-    let size = match file.size {
-        Some(size) => size,
-        None => std::fs::metadata(&path).ok()?.len(),
-    };
-    if size >= azul_storage::SMALL_FILE_BYTES || !path.is_file() {
-        return None;
-    }
-    Some(std::fs::read(&path).map_err(DriveError::from))
-}
-
-/// Small files read and waiting for one `put_many`.
-#[derive(Default)]
-struct SmallBatch {
-    /// Each file's source key, target key and bytes, in the plan's order.
-    files: Vec<(String, String, Vec<u8>)>,
-    /// Their bytes together: the batch is sent once it holds [`azul_storage::SMALL_BATCH_BYTES`].
-    bytes: u64,
-}
-
-impl SmallBatch {
-    fn push(&mut self, file: &PlannedFile, bytes: Vec<u8>) {
-        self.bytes += bytes.len() as u64;
-        self.files.push((file.source_key.clone(), file.target_key.clone(), bytes));
-    }
-
-    /// Writes the batch in one `put_many` and tells each file's outcome as a single copy does.
-    fn send(
-        &mut self,
-        target: &dyn Drive,
-        out: &mut TransferReport,
-        copied: &mut Vec<String>,
-        progress: &mut Progress,
-        report: &mut dyn FnMut(&Progress),
-    ) {
-        if self.files.is_empty() {
-            return;
-        }
-        let files = std::mem::take(&mut self.files);
-        self.bytes = 0;
-        let items: Vec<BatchPut<'_>> = files
-            .iter()
-            .map(|(_, to, bytes)| BatchPut::new(to, bytes))
-            .collect();
-        let results = target.put_many(&items);
-        for ((from, _, bytes), result) in files.iter().zip(results) {
-            match result {
-                Ok(_) => {
-                    out.done += 1;
-                    copied.push(from.clone());
-                }
-                Err(e) => out.failed.push((from.clone(), crate::l10n::drive_error_text(&e))),
-            }
-            progress.bytes_done += bytes.len() as u64;
-            progress.files_done += 1;
-        }
-        report(progress);
+    let ran = xfer::run(
+        plan,
+        source,
+        target,
+        kind.removes_source(),
+        &Stop(cancel),
+        report,
+    );
+    TransferReport {
+        done: ran.done,
+        skipped: ran.skipped,
+        failed: ran
+            .failed
+            .into_iter()
+            .map(|(what, why)| (what, crate::l10n::drive_error_text(&why)))
+            .collect(),
+        cancelled: ran.cancelled,
+        moved: ran.moved,
+        left: ran.left,
     }
 }
 
@@ -500,17 +282,26 @@ pub fn trash_folder_of(trash_key: &str) -> Option<String> {
     Some(format!("{TRASH_FOLDER}{stamp}/"))
 }
 
+/// What a delete did: the items that went, and the ones that did not. A batch that fails for
+/// one item still did the others - and says which (AZ-U17: the first failure used to end the
+/// loop, dropping the Undo of the 39 that went).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Deleted {
+    /// `(key, where it went)` for every item that went (an empty place for good): what
+    /// [`restore_items`] undoes.
+    pub gone: Vec<(String, String)>,
+    /// The items that stayed, and why.
+    pub failed: Vec<(String, DriveError)>,
+}
+
 /// Deletes `items`: into the trash of the delete `stamp` (each moved to
 /// [`trash_key`]), or for good with `None`. A folder goes as a whole; the files go in one
 /// batch each way (an encrypted drive changes its index once, a bucket deletes a thousand
-/// keys a request). Returns `(key, where it went)` for every item (an empty place for good),
-/// what [`restore_items`] undoes.
-pub fn delete_items(
-    drive: &dyn Drive,
-    items: &[SourceItem],
-    stamp: Option<&str>,
-) -> Result<Vec<(String, String)>, DriveError> {
-    let mut gone = Vec::new();
+/// keys a request). Every item is tried: what went is in [`Deleted::gone`], what did not in
+/// [`Deleted::failed`].
+#[must_use]
+pub fn delete_items(drive: &dyn Drive, items: &[SourceItem], stamp: Option<&str>) -> Deleted {
+    let mut out = Deleted::default();
     let mut into_trash: Vec<(String, String)> = Vec::new();
     let mut for_good: Vec<String> = Vec::new();
     for item in items {
@@ -518,16 +309,22 @@ pub fn delete_items(
             Some(stamp) if !is_in_trash(&item.key) => {
                 let to = trash_key(&item.key, stamp);
                 if item.is_folder {
-                    drive.rename(&item.key, &to)?;
-                    gone.push((item.key.clone(), to));
+                    match drive.rename(&item.key, &to) {
+                        Ok(()) => out.gone.push((item.key.clone(), to)),
+                        Err(e) => out.failed.push((item.key.clone(), e)),
+                    }
                 } else {
                     into_trash.push((item.key.clone(), to));
                 }
             }
             _ => {
                 if item.is_folder {
-                    drive.delete_folder(&item.key)?;
-                    gone.push((item.key.clone(), String::new()));
+                    // The user's own "delete for good": the one place a folder is removed with
+                    // what is in it.
+                    match drive.delete_folder(&item.key) {
+                        Ok(()) => out.gone.push((item.key.clone(), String::new())),
+                        Err(e) => out.failed.push((item.key.clone(), e)),
+                    }
                 } else {
                     for_good.push(item.key.clone());
                 }
@@ -535,26 +332,39 @@ pub fn delete_items(
         }
     }
     if !into_trash.is_empty() {
-        let batch: Vec<BatchMove<'_>> =
-            into_trash.iter().map(|(from, to)| BatchMove::new(from, to)).collect();
+        let batch: Vec<BatchMove<'_>> = into_trash
+            .iter()
+            .map(|(from, to)| BatchMove::new(from, to))
+            .collect();
         for ((from, to), result) in into_trash.iter().zip(drive.move_many(&batch)) {
-            result?;
-            gone.push((from.clone(), to.clone()));
+            match result {
+                Ok(()) => out.gone.push((from.clone(), to.clone())),
+                Err(e) => out.failed.push((from.clone(), e)),
+            }
         }
     }
     if !for_good.is_empty() {
-        let batch: Vec<BatchDelete<'_>> = for_good.iter().map(|key| BatchDelete::new(key)).collect();
+        let batch: Vec<BatchDelete<'_>> =
+            for_good.iter().map(|key| BatchDelete::new(key)).collect();
         for (key, result) in for_good.iter().zip(drive.delete_many(&batch)) {
-            result?;
-            gone.push((key.clone(), String::new()));
+            match result {
+                Ok(()) => out.gone.push((key.clone(), String::new())),
+                Err(e) => out.failed.push((key.clone(), e)),
+            }
         }
     }
-    Ok(gone)
+    out
 }
 
-/// Undoes a delete into the trash: every item renamed back, the delete's
-/// folder in the trash removed when it is empty.
+/// Undoes a delete into the trash: every item renamed back - one that cannot be does not stop
+/// the others - and the delete's folder in the trash removed when nothing is left in it (never
+/// with what is in it: [`Drive::remove_empty_folder`]). The first failure, if there was one.
+///
+/// # Errors
+///
+/// The first item that could not be put back.
 pub fn restore_items(drive: &dyn Drive, gone: &[(String, String)]) -> Result<(), DriveError> {
+    let mut first_error: Option<DriveError> = None;
     let mut folders = Vec::new();
     let mut files: Vec<(&str, &str)> = Vec::new();
     for (key, trashed) in gone {
@@ -562,7 +372,9 @@ pub fn restore_items(drive: &dyn Drive, gone: &[(String, String)]) -> Result<(),
             continue;
         }
         if key.ends_with('/') {
-            drive.rename(trashed, key)?;
+            if let Err(e) = drive.rename(trashed, key) {
+                first_error.get_or_insert(e);
+            }
         } else {
             files.push((trashed.as_str(), key.as_str()));
         }
@@ -573,20 +385,21 @@ pub fn restore_items(drive: &dyn Drive, gone: &[(String, String)]) -> Result<(),
         }
     }
     if !files.is_empty() {
-        let batch: Vec<BatchMove<'_>> = files.iter().map(|(from, to)| BatchMove::new(from, to)).collect();
+        let batch: Vec<BatchMove<'_>> = files
+            .iter()
+            .map(|(from, to)| BatchMove::new(from, to))
+            .collect();
         for result in drive.move_many(&batch) {
-            result?;
+            if let Err(e) = result {
+                first_error.get_or_insert(e);
+            }
         }
     }
     for folder in folders {
-        if storage_ops::list_all(drive, &folder)
-            .map(|objects| objects.iter().all(|o| o.key.ends_with('/')))
-            .unwrap_or(false)
-        {
-            let _ = drive.delete_folder(&folder);
-        }
+        // Gone when empty; a file that could not be put back keeps its folder.
+        let _kept_or_gone = drive.remove_empty_folder(&folder);
     }
-    Ok(())
+    first_error.map_or(Ok(()), Err)
 }
 
 // ==== The transfer queue ====
@@ -613,6 +426,9 @@ pub struct QueuedJob {
     pub started_ms: u64,
     /// The progress dialog was shown for it (once closed it stays closed).
     pub dialog_shown: bool,
+    /// It was told to stop and has not said it did: it still runs, and the next transfer does
+    /// not start beside it (AZ-U10).
+    pub cancelling: bool,
 }
 
 /// The transfers, one running at a time (the source list's activity area shows it).
@@ -633,6 +449,7 @@ impl TransferQueue {
             progress: Progress::default(),
             started_ms: 0,
             dialog_shown: false,
+            cancelling: false,
         });
         self.next_id
     }
@@ -677,14 +494,34 @@ impl TransferQueue {
         }
     }
 
-    /// A waiting transfer will not start; a running one is marked (its
-    /// thread stops at the next file).
+    /// A waiting transfer will not start. A running one is told to stop (the caller sets its
+    /// flag) and stays running until its thread says it stopped ([`TransferQueue::stopped`]):
+    /// marked cancelled at once, it let the next transfer start beside the thread that was still
+    /// sending parts (AZ-U10).
     pub fn cancel(&mut self, id: u64) {
         if let Some(job) = self.job_mut(id) {
-            if matches!(job.state, JobState::Waiting | JobState::Running) {
-                job.state = JobState::Cancelled;
+            match job.state {
+                JobState::Waiting => job.state = JobState::Cancelled,
+                JobState::Running => job.cancelling = true,
+                _ => {}
             }
         }
+    }
+
+    /// The thread of transfer `id` stopped because it was told to: it is cancelled now.
+    pub fn stopped(&mut self, id: u64) {
+        if let Some(job) = self.job_mut(id) {
+            job.state = JobState::Cancelled;
+            job.cancelling = false;
+        }
+    }
+
+    /// Whether transfer `id` was cancelled, or was told to stop and has not yet.
+    #[must_use]
+    pub fn is_cancelled(&self, id: u64) -> bool {
+        self.jobs
+            .iter()
+            .any(|j| j.id == id && (j.state == JobState::Cancelled || j.cancelling))
     }
 
     /// The running transfer.
@@ -1044,8 +881,9 @@ mod tests {
         let tmp = TempDir::new("trash");
         let home = seeded(&tmp);
         let stamp = trash_stamp(1_759_300_000, 1);
-        let moved =
-            delete_items(&home, &[item("docs/"), item("readme.txt")], Some(&stamp)).unwrap();
+        let deleted = delete_items(&home, &[item("docs/"), item("readme.txt")], Some(&stamp));
+        assert!(deleted.failed.is_empty(), "{:?}", deleted.failed);
+        let moved = deleted.gone;
         assert_eq!(moved.len(), 2);
         assert!(home.get("readme.txt").is_err());
         assert_eq!(moved[1].1, trash_key("readme.txt", &stamp));
@@ -1060,7 +898,8 @@ mod tests {
         assert_eq!(home.get("readme.txt").unwrap(), b"hello");
         assert_eq!(home.get("docs/sub/b.txt").unwrap(), b"beta");
         // For good: nothing left anywhere.
-        delete_items(&home, &[item("docs/")], None).unwrap();
+        let for_good = delete_items(&home, &[item("docs/")], None);
+        assert!(for_good.failed.is_empty(), "{:?}", for_good.failed);
         assert!(home.local_path("docs/").is_none_or(|p| !p.exists()));
     }
 
@@ -1068,7 +907,11 @@ mod tests {
     fn a_transfer_running_two_seconds_asks_for_the_progress_dialog_once() {
         let mut queue = TransferQueue::default();
         let a = queue.push(Text::plain("Copying 1 item to docs"));
-        assert_eq!(queue.wants_progress_dialog(5_000, 2_000), None, "nothing runs");
+        assert_eq!(
+            queue.wants_progress_dialog(5_000, 2_000),
+            None,
+            "nothing runs"
+        );
         queue.start(a, 1_000);
         assert_eq!(
             queue.wants_progress_dialog(2_500, 2_000),
@@ -1085,7 +928,11 @@ mod tests {
         queue.finish(a, None);
         let b = queue.push(Text::plain("Copying 2 items to docs"));
         queue.start(b, 10_000);
-        assert_eq!(queue.wants_progress_dialog(12_000, 2_000), Some(b), "the next one asks again");
+        assert_eq!(
+            queue.wants_progress_dialog(12_000, 2_000),
+            Some(b),
+            "the next one asks again"
+        );
     }
 
     #[test]
@@ -1108,8 +955,13 @@ mod tests {
         );
         assert_eq!(queue.percent(), Some(25.0));
         let status = queue.status_text();
-        assert!(status.to_string().starts_with("Copying 3 items - "), "{status}");
-        let progress = status.phrase("azdrive-queue-progress").expect("the progress");
+        assert!(
+            status.to_string().starts_with("Copying 3 items - "),
+            "{status}"
+        );
+        let progress = status
+            .phrase("azdrive-queue-progress")
+            .expect("the progress");
         assert_eq!(progress.get("done"), Some(&Arg::Int(1)));
         assert_eq!(progress.get("total"), Some(&Arg::Int(3)));
         assert_eq!(progress.get("percent"), Some(&Arg::from("25")));
@@ -1350,8 +1202,7 @@ mod tests {
             // The second drive over the same tree the app builds itself (`os:<folder>`,
             // `sync:<drive>`).
             let os = LocalDrive::new(tmp.path().join("home"));
-            let plan =
-                plan_transfer(&os, &[item("readme.txt")], &home, "", kind, "Copy").unwrap();
+            let plan = plan_transfer(&os, &[item("readme.txt")], &home, "", kind, "Copy").unwrap();
             assert_eq!(
                 plan.conflicts().len(),
                 0,
@@ -1393,9 +1244,84 @@ mod tests {
             });
             let report = run_transfer(&plan, &os, &home, kind, &never_cancel(), &mut |_| {});
             assert_eq!(home.get("readme.txt").unwrap(), b"hello", "{kind:?}");
-            assert_eq!(report.failed.len(), 1, "{kind:?}: refused, not done: {report:?}");
+            assert_eq!(
+                report.failed.len(),
+                1,
+                "{kind:?}: refused, not done: {report:?}"
+            );
             assert_eq!(report.done, 0, "{kind:?}");
         }
+    }
+
+    /// AZ-U17: the first failed item ended the delete's loops, dropping the Undo of the 39 that
+    /// went. Every item is tried, and the result says which went and which did not.
+    #[test]
+    fn az_u17_a_partly_failed_delete_reports_what_went_and_what_did_not() {
+        let tmp = TempDir::new("u17-delete");
+        let home = seeded(&tmp);
+        home.put("c.txt", b"c").unwrap();
+        let stamp = trash_stamp(1_759_300_000, 1);
+        // The middle one is not there (somebody removed it meanwhile).
+        let deleted = delete_items(
+            &home,
+            &[item("readme.txt"), item("gone.txt"), item("c.txt")],
+            Some(&stamp),
+        );
+        let went: Vec<&str> = deleted.gone.iter().map(|(key, _)| key.as_str()).collect();
+        assert_eq!(went, vec!["readme.txt", "c.txt"], "{deleted:?}");
+        assert_eq!(deleted.failed.len(), 1, "{deleted:?}");
+        assert_eq!(deleted.failed[0].0, "gone.txt");
+        assert!(matches!(deleted.failed[0].1, DriveError::NotFound { .. }));
+        assert!(home.get("readme.txt").is_err() && home.get("c.txt").is_err());
+        // For good: the same.
+        let for_good = delete_items(&home, &[item("missing.txt"), item("docs/")], None);
+        assert_eq!(for_good.gone, vec![(String::from("docs/"), String::new())]);
+        assert_eq!(
+            for_good.failed.len(),
+            0,
+            "a missing file is deleted already: {for_good:?}"
+        );
+    }
+
+    /// An Undo that meets an item it cannot put back goes on with the others.
+    #[test]
+    fn az_u17_an_undo_puts_back_what_it_can_and_names_what_it_could_not() {
+        let tmp = TempDir::new("u17-undo");
+        let home = seeded(&tmp);
+        let stamp = trash_stamp(1_759_300_000, 1);
+        let deleted = delete_items(&home, &[item("readme.txt"), item("docs/")], Some(&stamp));
+        assert!(deleted.failed.is_empty());
+        // The trashed copy of the folder went in the meantime.
+        home.delete_folder(&trash_key("docs/", &stamp)).unwrap();
+        let undone = restore_items(&home, &deleted.gone);
+        assert!(undone.is_err(), "the folder could not come back");
+        assert_eq!(
+            home.get("readme.txt").unwrap(),
+            b"hello",
+            "the file came back all the same"
+        );
+    }
+
+    /// AZ X-AR5a-10: Undo removed the delete's folder in the trash with `delete_folder` after a
+    /// listing that cannot see a socket: it was removed with the folder.
+    #[cfg(unix)]
+    #[test]
+    fn x_ar5a_10_an_undo_keeps_the_trash_folder_that_holds_something_it_did_not_put_back() {
+        use std::os::unix::net::UnixListener;
+        let tmp = TempDir::new("x10-undo");
+        let home = seeded(&tmp);
+        let stamp = trash_stamp(1_759_300_000, 1);
+        let deleted = delete_items(&home, &[item("readme.txt")], Some(&stamp));
+        assert!(deleted.failed.is_empty());
+        let folder = tmp.path().join("home").join(TRASH_FOLDER).join(&stamp);
+        let socket = folder.join("s");
+        let _listener = UnixListener::bind(&socket).unwrap();
+        restore_items(&home, &deleted.gone).unwrap();
+        assert_eq!(home.get("readme.txt").unwrap(), b"hello");
+        assert!(
+            socket.exists(),
+            "the trash folder was not removed with what was in it"
+        );
     }
 
     /// AZ-U1: the guard against a folder going into itself compared drive ids. A second drive

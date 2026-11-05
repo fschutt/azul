@@ -283,7 +283,7 @@ fn x_ar5a_10_a_name_that_is_not_text_keeps_its_folder() {
 /// A bucket in memory with S3 semantics and tags that change with every write; only the basic
 /// calls and `copy` - the rest is the trait's default.
 #[derive(Default)]
-struct Versioned {
+pub(super) struct Versioned {
     files: Mutex<BTreeMap<String, (Vec<u8>, u64)>>,
     /// The key to write to right after a copy of it: an editor saving while a move copies.
     edit_after_copy: Mutex<Option<String>>,
@@ -291,7 +291,7 @@ struct Versioned {
 }
 
 impl Versioned {
-    fn with(files: &[(&str, &[u8])]) -> Versioned {
+    pub(super) fn with(files: &[(&str, &[u8])]) -> Versioned {
         let drive = Versioned::default();
         for (key, bytes) in files {
             drive.write(key, bytes);
@@ -299,7 +299,7 @@ impl Versioned {
         drive
     }
 
-    fn write(&self, key: &str, bytes: &[u8]) {
+    pub(super) fn write(&self, key: &str, bytes: &[u8]) {
         let version = self.clock.fetch_add(1, Ordering::SeqCst) + 1;
         self.files
             .lock()
@@ -307,7 +307,7 @@ impl Versioned {
             .insert(key.to_string(), (bytes.to_vec(), version));
     }
 
-    fn keys(&self) -> Vec<String> {
+    pub(super) fn keys(&self) -> Vec<String> {
         self.files.lock().unwrap().keys().cloned().collect()
     }
 

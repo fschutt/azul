@@ -87,6 +87,28 @@ fn stop_if_asked(ctl: &dyn Ctl) -> Result<(), DriveError> {
     }
 }
 
+/// What `work` hears on its thread of its own: the progress goes to the thread that waits for it,
+/// and the stop is the caller's.
+struct Relay<'a> {
+    sender: Mutex<mpsc::Sender<u64>>,
+    stop: &'a dyn Ctl,
+}
+
+impl Ctl for Relay<'_> {
+    fn bytes(&self, done: u64) {
+        let _ = self
+            .sender
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .send(done);
+        self.stop.bytes(done);
+    }
+
+    fn cancelled(&self) -> bool {
+        self.stop.cancelled()
+    }
+}
+
 /// Runs `work` on a thread of its own with a [`Ctl`] any thread may call; what it hears reaches
 /// `progress` on this thread, as it comes (never a smaller number than before). The `Ctl` never
 /// cancels: a caller that wants a stop passes its own `Ctl` to the `_with_ctl` function.
@@ -94,17 +116,24 @@ fn relay_progress<T: Send>(
     progress: &mut dyn FnMut(u64),
     work: impl FnOnce(&dyn Ctl) -> T + Send,
 ) -> T {
+    relay_progress_with(progress, &Quiet, work)
+}
+
+/// [`relay_progress`] whose `Ctl` also stops when `stop` says so, and tells `stop` the bytes it
+/// hears (the bytes of the one object being copied).
+fn relay_progress_with<T: Send>(
+    progress: &mut dyn FnMut(u64),
+    stop: &dyn Ctl,
+    work: impl FnOnce(&dyn Ctl) -> T + Send,
+) -> T {
     let (sender, heard) = mpsc::channel::<u64>();
     std::thread::scope(|scope| {
         let worker = scope.spawn(move || {
-            let sender = Mutex::new(sender);
-            let tell = |n: u64| {
-                let _ = sender
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .send(n);
+            let relay = Relay {
+                sender: Mutex::new(sender),
+                stop,
             };
-            work(&tell)
+            work(&relay)
         });
         let mut told = None;
         for n in heard {
@@ -272,6 +301,7 @@ fn download_ranges(
     info: &ObjectInfo,
     dest: &Path,
     chunk: u64,
+    expect: Expect,
     ctl: &dyn Ctl,
 ) -> Result<u64, DriveError> {
     let key = info.key.as_str();
@@ -385,7 +415,7 @@ fn download_ranges(
         &folder,
         &dest_name,
         blob,
-        Publish::new(Expect::Any, Mode::Shared, &Quiet),
+        Publish::new(expect, Mode::Shared, &Quiet),
     )
     .map_err(|e| e.into_drive(key))?;
     let _ = fs::remove_file(&state_path);
@@ -435,6 +465,21 @@ pub fn download_with_ctl(
     chunk: u64,
     ctl: &dyn Ctl,
 ) -> Result<u64, DriveError> {
+    download_guarded(drive, key, size, dest, chunk, Expect::Any, ctl)
+}
+
+/// [`download_with_ctl`] that puts the file in place only if the name still holds what `expect`
+/// says ([`copy_object_guarded`]): a download that was resumed, or that took minutes, does not
+/// replace a file made meanwhile.
+pub fn download_guarded(
+    drive: &dyn Drive,
+    key: &str,
+    size: Option<u64>,
+    dest: &Path,
+    chunk: u64,
+    expect: Expect,
+    ctl: &dyn Ctl,
+) -> Result<u64, DriveError> {
     stop_if_asked(ctl)?;
     let chunk = chunk.max(1);
     let mut info = None;
@@ -455,7 +500,7 @@ pub fn download_with_ctl(
             &folder,
             &name,
             &mut &bytes[..],
-            Publish::new(Expect::Any, Mode::Shared, &Quiet),
+            Publish::new(expect, Mode::Shared, &Quiet),
         )
         .map_err(|e| e.into_drive(key))?;
         ctl.bytes(bytes.len() as u64);
@@ -466,7 +511,7 @@ pub fn download_with_ctl(
         Some(info) => info,
         None => info_of(drive, key)?,
     };
-    download_ranges(drive, &info, dest, chunk, ctl)
+    download_ranges(drive, &info, dest, chunk, expect, ctl)
 }
 
 /// Where a download of `key` goes in `folder`: the key's file name made safe
@@ -521,12 +566,12 @@ pub fn upload_with_ctl(
 /// stopping, with the target as it was and no temporary file, once `ctl` says so. The copy has
 /// the file's permission bits (never setuid, setgid or sticky) and its modification time: a
 /// 0600 key stays private and a photo keeps its date.
-fn copy_file(source: &Path, dest: &Path, ctl: &dyn Ctl) -> Result<u64, DriveError> {
+fn copy_file(source: &Path, dest: &Path, expect: Expect, ctl: &dyn Ctl) -> Result<u64, DriveError> {
     let mut from = File::open(source)?;
     let (mode, mtime) = source_bits(&from);
     let shown = dest.to_string_lossy();
     let (folder, name) = folder_of(dest, &shown)?;
-    let mut publish = Publish::new(Expect::Any, mode, ctl);
+    let mut publish = Publish::new(expect, mode, ctl);
     if let Some(mtime) = mtime {
         publish = publish.with_mtime(mtime);
     }
@@ -557,6 +602,24 @@ pub fn copy_object(
     })
 }
 
+/// [`copy_object_guarded`] that tells `progress` the bytes of this object copied so far, on this
+/// thread, as they come - and stops, with [`DriveError::Cancelled`], once `stop` says so (and
+/// hears the same bytes, from the thread that moves them).
+pub fn copy_object_relayed(
+    source: &dyn Drive,
+    key: &str,
+    size: Option<u64>,
+    target: &dyn Drive,
+    target_key: &str,
+    expect: Expect,
+    stop: &dyn Ctl,
+    progress: &mut dyn FnMut(u64),
+) -> Result<u64, DriveError> {
+    relay_progress_with(progress, stop, |ctl| {
+        copy_object_guarded(source, key, size, target, target_key, expect, ctl)
+    })
+}
+
 /// [`copy_object`] that tells `ctl` the bytes copied so far (from whichever thread moved them)
 /// and stops, with [`DriveError::Cancelled`], once `ctl` says so: a file copy on disk removes its
 /// temporary file and leaves the target as it was, a bucket upload is aborted, ranged GETs stop
@@ -569,6 +632,23 @@ pub fn copy_object_with_ctl(
     target_key: &str,
     ctl: &dyn Ctl,
 ) -> Result<u64, DriveError> {
+    copy_object_guarded(source, key, size, target, target_key, Expect::Any, ctl)
+}
+
+/// [`copy_object_with_ctl`] that puts the file in place on a disk only if the name still holds
+/// what `expect` says ([`Expect::Absent`]: a name made meanwhile is not replaced;
+/// [`Expect::Is`]: only the version the plan saw is), in the one step that renames it in -
+/// [`DriveError::Conflict`] and nothing written when it does not. A bucket target has no such step
+/// here: its caller looks first (and asks [`Drive::put_if`] where the bucket can).
+pub fn copy_object_guarded(
+    source: &dyn Drive,
+    key: &str,
+    size: Option<u64>,
+    target: &dyn Drive,
+    target_key: &str,
+    expect: Expect,
+    ctl: &dyn Ctl,
+) -> Result<u64, DriveError> {
     stop_if_asked(ctl)?;
     match (source.local_path(key), target.local_path(target_key)) {
         (Some(from), Some(to)) => {
@@ -577,9 +657,9 @@ pub fn copy_object_with_ctl(
                     key: key.to_string(),
                 });
             }
-            copy_file(&from, &to, ctl)
+            copy_file(&from, &to, expect, ctl)
         }
-        (None, Some(to)) => download_with_ctl(source, key, size, &to, CHUNK, ctl),
+        (None, Some(to)) => download_guarded(source, key, size, &to, CHUNK, expect, ctl),
         (Some(from), None) => {
             if !from.is_file() {
                 return Err(DriveError::NotFound {

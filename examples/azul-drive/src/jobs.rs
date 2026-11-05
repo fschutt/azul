@@ -637,7 +637,7 @@ pub(crate) enum Outcome {
     },
     Deleted {
         drive_id: String,
-        result: Result<Vec<(String, String)>, DriveError>,
+        deleted: fileops::Deleted,
     },
     Renamed {
         drive_id: String,
@@ -3336,7 +3336,7 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
             stamp,
         } => Outcome::Deleted {
             drive_id,
-            result: fileops::delete_items(&*drive, &items, stamp.as_deref()),
+            deleted: fileops::delete_items(&*drive, &items, stamp.as_deref()),
         },
         Job::Rename {
             drive,
@@ -3379,13 +3379,18 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
                 // (key, trash key) pairs: back where they were.
                 fileops::restore_items(&*drive, &pairs)
             } else {
-                pairs
-                    .iter()
-                    .try_for_each(|(now, before)| drive.rename(now, before))
-                    .and_then(|()| match &remove {
-                        Some(key) => undo_create(&*drive, key),
-                        None => Ok(()),
-                    })
+                // Each put back on its own: one that cannot be does not stop the others.
+                let mut first_error = None;
+                for (now, before) in &pairs {
+                    if let Err(e) = drive.rename(now, before) {
+                        first_error.get_or_insert(e);
+                    }
+                }
+                match (first_error, &remove) {
+                    (Some(e), _) => Err(e),
+                    (None, Some(key)) => undo_create(&*drive, key),
+                    (None, None) => Ok(()),
+                }
             };
             Outcome::Undone { result }
         }

@@ -43,6 +43,9 @@ mod windows_names;
 mod xfer_local;
 /// The plan of a transfer: the names a target holds and the names the plan reserves.
 mod xfer_plan;
+/// The run of a plan: a file lands before its source is touched, a stop inside a file, a name
+/// made since the plan not replaced, a move deleting what it copied.
+mod xfer_run;
 /// Where drives are and whether two places overlap: two drives over one tree, a bucket twice.
 mod xfer_site;
 mod xml;

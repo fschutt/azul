@@ -2195,12 +2195,9 @@ pub(crate) fn pump_queue(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
     spawn(info, app, s, plan_job);
 }
 
-/// Whether transfer `id` was cancelled.
+/// Whether transfer `id` was cancelled (or told to stop and not stopped yet).
 fn is_cancelled(s: &DriveState, id: u64) -> bool {
-    s.queue
-        .jobs()
-        .iter()
-        .any(|j| j.id == id && j.state == fileops::JobState::Cancelled)
+    s.queue.is_cancelled(id)
 }
 
 /// A transfer's plan is back: ask about the conflicts, or run it.
@@ -2212,7 +2209,9 @@ pub(crate) fn transfer_planned(
     result: Result<Plan, DriveError>,
 ) {
     if is_cancelled(s, id) {
+        // Told to stop while it was planned: no thread runs for it any more.
         s.transfers.remove(&id);
+        s.queue.stopped(id);
         pump_queue(info, app, s);
         return;
     }
@@ -2332,6 +2331,9 @@ pub(crate) fn cancel_transfer(
         .any(|j| j.id == id && j.state == fileops::JobState::Waiting);
     s.queue.cancel(id);
     if asking || waiting {
+        // No thread runs for it (it waits, or waits for the answer of a conflict): it is
+        // cancelled now.
+        s.queue.stopped(id);
         if asking {
             s.popup.close();
         }
@@ -2368,7 +2370,11 @@ pub(crate) fn transfer_ran(
         .then(" ")
         .then(why.clone())
     });
-    if !report.cancelled {
+    if report.cancelled {
+        // Its thread stopped because it was told to: only now is it cancelled, and the next
+        // transfer may start.
+        s.queue.stopped(id);
+    } else {
         s.queue.finish(id, failed.clone());
     }
     let state = if report.cancelled {
@@ -2424,15 +2430,17 @@ pub(crate) fn transfer_ran(
             if crate::showing(s, &job.target_id, &job.target_prefix) {
                 s.selection.set(plan.tops.clone());
             }
+            // Ctrl+Z puts back the renames that happened - not the ones that failed (it stopped
+            // at the first of those and restored nothing: AZ-U17).
             if job.kind == TransferKind::Move
                 && plan.same_drive
-                && !plan.moves.is_empty()
+                && !report.moved.is_empty()
                 && plan.files.is_empty()
             {
                 s.undo.push(UndoOp::Move {
                     drive: job.source_id.clone(),
-                    pairs: plan
-                        .moves
+                    pairs: report
+                        .moved
                         .iter()
                         .map(|(from, to)| (to.clone(), from.clone()))
                         .collect(),

@@ -2977,27 +2977,32 @@ pub(crate) extern "C" fn on_job_done(
             actions::show_progress_when_long(s);
         }
         Outcome::Ran { id, report } => actions::transfer_ran(&mut info, &handle, s, id, report),
-        Outcome::Deleted { drive_id, result } => {
-            match result {
-                Ok(gone) => {
-                    println!("AZDRIVE_DELETED {}", gone.len());
-                    let trashed: Vec<(String, String)> = gone
-                        .iter()
-                        .filter(|(_, to)| !to.is_empty())
-                        .cloned()
-                        .collect();
-                    if trashed.is_empty() {
-                        s.success(Phrase::new("azdrive-deleted-for-good").arg("count", gone.len()));
-                    } else {
-                        s.success(Phrase::new("azdrive-trashed").arg("count", trashed.len()));
-                        s.undo.push(UndoOp::Trash {
-                            drive: drive_id.clone(),
-                            gone: trashed,
-                        });
-                    }
-                    s.selection.clear();
+        Outcome::Deleted { drive_id, deleted } => {
+            // What went is said and can be undone, also when another item of the batch did not.
+            let fileops::Deleted {
+                gone,
+                failed: not_deleted,
+            } = deleted;
+            if !gone.is_empty() || not_deleted.is_empty() {
+                println!("AZDRIVE_DELETED {}", gone.len());
+                let trashed: Vec<(String, String)> = gone
+                    .iter()
+                    .filter(|(_, to)| !to.is_empty())
+                    .cloned()
+                    .collect();
+                if trashed.is_empty() {
+                    s.success(Phrase::new("azdrive-deleted-for-good").arg("count", gone.len()));
+                } else {
+                    s.success(Phrase::new("azdrive-trashed").arg("count", trashed.len()));
+                    s.undo.push(UndoOp::Trash {
+                        drive: drive_id.clone(),
+                        gone: trashed,
+                    });
                 }
-                Err(e) => s.error(failed("azdrive-delete-failed", &e)),
+                s.selection.clear();
+            }
+            if let Some((_, why)) = not_deleted.first() {
+                s.error(failed("azdrive-delete-failed", why));
             }
             let prefix = s.prefix().to_string();
             changed(&mut info, &handle, s, &drive_id, &prefix);

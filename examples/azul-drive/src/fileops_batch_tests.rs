@@ -99,7 +99,9 @@ fn a_multi_select_delete_is_one_batch_into_the_trash_and_one_for_good() {
     let tmp = TempDir::new("batch-delete");
     let drive = Batching::new(&tmp);
     let items = [file("a.txt"), file("b.txt"), file("c.txt")];
-    let gone = delete_items(&drive, &items, Some("20261015-120000-1")).expect("into the trash");
+    let deleted = delete_items(&drive, &items, Some("20261015-120000-1"));
+    assert!(deleted.failed.is_empty(), "{:?}", deleted.failed);
+    let gone = deleted.gone;
     assert_eq!(gone.len(), 3);
     assert_eq!(Batching::count(&drive.renames), 0, "no file renamed on its own");
     assert_eq!(Batching::count(&drive.move_batches), 1);
@@ -108,7 +110,8 @@ fn a_multi_select_delete_is_one_batch_into_the_trash_and_one_for_good() {
         assert!(drive.inner.head(key).is_err(), "{key} left its folder");
     }
     let trashed: Vec<SourceItem> = gone.iter().map(|(_, t)| file(t)).collect();
-    delete_items(&drive, &trashed, None).expect("for good");
+    let for_good = delete_items(&drive, &trashed, None);
+    assert!(for_good.failed.is_empty(), "{:?}", for_good.failed);
     assert_eq!(Batching::count(&drive.deletes), 0, "no file deleted on its own");
     assert_eq!(Batching::count(&drive.delete_batches), 1);
 }
