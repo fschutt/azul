@@ -12,7 +12,13 @@
 //!
 //! The transfer queue itself is not kept: a stopped copy or move is started again by the user.
 
-use std::{sync::atomic::Ordering, time::Duration};
+use std::{
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
+    time::Duration,
+};
 
 use azul::prelude::*;
 use azul_appkit::l10n::Phrase;
@@ -42,8 +48,32 @@ pub(crate) fn drive_close(work: usize, closing: bool) -> DriveClose {
     }
 }
 
+/// A job a close must wait for, from its start to its end: counted while it lives, whatever
+/// ends it (its answer, a panic of its thread). `Job::cuts_data` says which jobs hold one.
+#[derive(Debug)]
+pub(crate) struct Inflight {
+    counter: Arc<AtomicUsize>,
+}
+
+impl Inflight {
+    /// One more job counted in `counter`, until the returned claim is dropped.
+    pub(crate) fn start(counter: &Arc<AtomicUsize>) -> Inflight {
+        counter.fetch_add(1, Ordering::SeqCst);
+        Inflight {
+            counter: Arc::clone(counter),
+        }
+    }
+}
+
+impl Drop for Inflight {
+    fn drop(&mut self) {
+        self.counter.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
 /// The pieces of work a close would cut off now: transfers running or waiting, sync passes,
-/// a drive being encrypted.
+/// a drive being encrypted, and every job that holds a claim ([`Inflight`]): a delete, a rename,
+/// an undo, a zip, the copy of an unpaid drive, a restore, a save.
 pub(crate) fn work_running(s: &DriveState) -> usize {
     let transfers = s
         .queue
@@ -51,15 +81,22 @@ pub(crate) fn work_running(s: &DriveState) -> usize {
         .iter()
         .filter(|job| matches!(job.state, JobState::Waiting | JobState::Running))
         .count();
-    let syncs = s.sync_view.drives.values().filter(|d| d.running.is_some()).count();
+    let syncs = s
+        .sync_view
+        .drives
+        .values()
+        .filter(|d| d.running.is_some())
+        .count();
     #[cfg(feature = "encryption")]
     let encrypting = usize::from(matches!(
         s.popup.as_ref(),
-        Some(crate::Popup::Encryption(crate::encryption::Dialog::Busy { .. }))
+        Some(crate::Popup::Encryption(
+            crate::encryption::Dialog::Busy { .. }
+        ))
     ));
     #[cfg(not(feature = "encryption"))]
     let encrypting = 0;
-    transfers + syncs + encrypting
+    transfers + syncs + encrypting + s.inflight.load(Ordering::SeqCst)
 }
 
 /// The window is asked to close (its close button, Cmd+Q): see the module.
@@ -110,7 +147,10 @@ pub(crate) fn last_passes(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSt
         .synced
         .iter()
         .filter(|p| !p.paused)
-        .filter(|p| s.slot_index(&p.drive_id).is_some_and(|i| !s.slots[i].locked()))
+        .filter(|p| {
+            s.slot_index(&p.drive_id)
+                .is_some_and(|i| !s.slots[i].locked())
+        })
         .filter(|p| crate::sync_jobs::polled(&s.sync_view.store.states(&p.drive_id)))
         .map(|p| p.drive_id.clone())
         .collect();
@@ -163,13 +203,112 @@ fn stop_work(s: &mut DriveState) {
 
 #[cfg(test)]
 mod tests {
+    use azul_storage::{Drive, LocalDrive};
+
     use super::*;
+    use crate::{fileops::SourceItem, jobs::Job};
 
     #[test]
     fn a_close_waits_for_running_work_and_a_second_close_stops_it() {
         assert_eq!(drive_close(0, false), DriveClose::Close, "nothing runs");
-        assert_eq!(drive_close(2, false), DriveClose::Wait, "a transfer and a sync pass run");
-        assert_eq!(drive_close(2, true), DriveClose::Stop, "closed again while waiting");
-        assert_eq!(drive_close(0, true), DriveClose::Close, "the work ended meanwhile");
+        assert_eq!(
+            drive_close(2, false),
+            DriveClose::Wait,
+            "a transfer and a sync pass run"
+        );
+        assert_eq!(
+            drive_close(2, true),
+            DriveClose::Stop,
+            "closed again while waiting"
+        );
+        assert_eq!(
+            drive_close(0, true),
+            DriveClose::Close,
+            "the work ended meanwhile"
+        );
+    }
+
+    /// AZ-U23: the first close waited for transfers, sync passes and an encryption only: a bulk
+    /// delete, a bucket folder's rename or the rescue copy was cut mid-way. A claim is counted from
+    /// the start of the job to its end, however the job ends.
+    #[test]
+    fn az_u23_a_job_that_cuts_data_is_counted_until_it_ends() {
+        let counter = Arc::new(AtomicUsize::new(0));
+        let first = Inflight::start(&counter);
+        let second = Inflight::start(&counter);
+        assert_eq!(counter.load(Ordering::SeqCst), 2);
+        drop(first);
+        assert_eq!(counter.load(Ordering::SeqCst), 1);
+        // A thread that panics drops its claim while it unwinds.
+        let held = Arc::clone(&counter);
+        let ended = std::thread::spawn(move || {
+            let _claim = Inflight::start(&held);
+            panic!("a job's thread dies");
+        })
+        .join();
+        assert!(ended.is_err());
+        assert_eq!(
+            counter.load(Ordering::SeqCst),
+            1,
+            "only the second job is left"
+        );
+        drop(second);
+        assert_eq!(
+            drive_close(counter.load(Ordering::SeqCst), false),
+            DriveClose::Close
+        );
+    }
+
+    /// X-AR5a-20: which jobs a close waits for is decided in one exhaustive match
+    /// (`Job::cuts_data`): a delete, a rename, an undo and a zip are among them, a listing is not.
+    #[test]
+    fn x_ar5a_20_the_jobs_that_delete_or_rename_cut_data_and_a_listing_does_not() {
+        let tmp = azul_storage::testing::TempDir::new("closing-jobs");
+        let drive: Arc<dyn Drive> = Arc::new(LocalDrive::without_manifest(tmp.path()));
+        let item = || SourceItem {
+            key: String::from("a.txt"),
+            is_folder: false,
+            size: None,
+        };
+        let delete = Job::Delete {
+            drive: drive.clone(),
+            drive_id: String::from("home"),
+            items: vec![item()],
+            stamp: None,
+        };
+        let rename = Job::Rename {
+            drive: drive.clone(),
+            drive_id: String::from("home"),
+            from: String::from("a.txt"),
+            to: String::from("b.txt"),
+        };
+        let undo = Job::Undo {
+            drive: drive.clone(),
+            pairs: Vec::new(),
+            remove: None,
+            trashed: false,
+        };
+        let zip = Job::Zip {
+            drive: drive.clone(),
+            items: vec![item()],
+            zip_key: String::from("a.zip"),
+        };
+        for job in [&delete, &rename, &undo, &zip] {
+            assert!(job.cuts_data());
+        }
+        let scan = Job::Scan {
+            drive: drive.clone(),
+            dir: None,
+            prefix: String::new(),
+            refresh: false,
+            serial: 1,
+            cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        };
+        let measure = Job::Measure {
+            drive,
+            prefix: String::new(),
+            serial: 1,
+        };
+        assert!(!scan.cuts_data() && !measure.cuts_data());
     }
 }

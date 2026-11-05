@@ -1172,6 +1172,8 @@ pub(crate) struct DriveState {
     /// The settings as this window last read them from the file or saved them to it: the next
     /// save writes what `settings` changed since, and leaves what another window changed.
     pub settings_base: Settings,
+    /// The jobs running that a close would cut off half done ([`closing::Inflight`]).
+    pub inflight: Arc<std::sync::atomic::AtomicUsize>,
     /// A save of the settings is running (the next one waits for it).
     pub settings_saving: bool,
     /// The settings changed while a save ran: one more save follows.
@@ -1697,10 +1699,17 @@ impl DriveState {
 
 pub(crate) fn spawn(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, job: Job) {
     s.running += 1;
+    // A job a close would cut off half done is counted from here until it ends.
+    let inflight = job
+        .cuts_data()
+        .then(|| closing::Inflight::start(&s.inflight));
     info.add_thread(
         ThreadId::unique(),
         Thread::create(
-            RefAny::new(JobInit { job: Some(job) }),
+            RefAny::new(JobInit {
+                job: Some(job),
+                inflight,
+            }),
             app.clone(),
             jobs::job_thread,
         ),
@@ -4044,6 +4053,7 @@ pub fn start() {
         type_ahead: TypeAhead::default(),
         settings,
         settings_base,
+        inflight: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         settings_saving: false,
         settings_dirty: false,
         search: String::new(),

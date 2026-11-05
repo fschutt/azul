@@ -563,6 +563,72 @@ pub(crate) enum Job {
     },
 }
 
+impl Job {
+    /// Whether a close that cut this job off would leave data or a change half done - a delete
+    /// half way, a rename that copied and did not delete, a copy of a drive that stopped, a
+    /// restore the server was asked for: the first close waits for such a job and says so
+    /// (`closing::work_running`). The match is exhaustive on purpose: a new kind of job does
+    /// not compile until someone decides whether a close waits for it (AZ-U23, X-AR5a-20: a bulk
+    /// delete, a bucket folder's rename and the rescue copy were cut mid-way because nobody
+    /// had listed them).
+    ///
+    /// Not those the queue counts already (a transfer's plan and run), a sync pass (the sync
+    /// view counts it), the dialog of an encryption, and the reads and waits that cut off cost
+    /// nothing: a listing, a preview, a search, a payment's wait.
+    pub(crate) fn cuts_data(&self) -> bool {
+        match self {
+            Job::Delete { .. }
+            | Job::Rename { .. }
+            | Job::Create { .. }
+            | Job::Undo { .. }
+            | Job::Zip { .. }
+            | Job::Rescue { .. }
+            | Job::RestoreDrive { .. }
+            | Job::SaveSettings { .. }
+            | Job::SaveNotice { .. }
+            | Job::CreateTestDrive { .. }
+            | Job::Checkout { .. }
+            | Job::Abandon { .. }
+            | Job::FinishCheckout { .. }
+            | Job::CancelPlan { .. }
+            | Job::ArchiveProve { .. }
+            | Job::RegisterDeviceKey { .. }
+            | Job::RedeemPeriods { .. }
+            | Job::RedeemVoucher { .. }
+            | Job::RemoveDevice { .. }
+            | Job::PickUp { .. }
+            | Job::Join { .. } => true,
+            Job::Scan { .. }
+            | Job::Stat { .. }
+            | Job::Count { .. }
+            | Job::Folders { .. }
+            | Job::Plan { .. }
+            | Job::Run { .. }
+            | Job::Preview { .. }
+            | Job::Measure { .. }
+            | Job::Metadata { .. }
+            | Job::Open { .. }
+            | Job::Test { .. }
+            | Job::OAuthExchange { .. }
+            | Job::Tiers { .. }
+            | Job::Options { .. }
+            | Job::Surface { .. }
+            | Job::AwaitPayment { .. }
+            | Job::Claims { .. }
+            | Job::Thumbnails { .. }
+            | Job::Find { .. }
+            | Job::FindRemote { .. }
+            | Job::IndexDrive { .. }
+            | Job::RemoveIndex { .. }
+            | Job::BucketSpace { .. }
+            | Job::Sync(_)
+            | Job::ReadKeys(_) => false,
+            #[cfg(feature = "encryption")]
+            Job::Encryption(_) => false,
+        }
+    }
+}
+
 /// A search of a cloud drive's folder, as the window asks for it.
 #[derive(Debug, Clone)]
 pub(crate) struct RemoteFind {
@@ -875,9 +941,11 @@ pub(crate) enum Outcome {
     },
 }
 
-/// A thread's start data: the job, taken out once.
+/// A thread's start data: the job, taken out once, and the claim a job that a close must wait
+/// for holds until it ends ([`crate::closing::Inflight`]).
 pub(crate) struct JobInit {
     pub job: Option<Job>,
+    pub inflight: Option<crate::closing::Inflight>,
 }
 
 /// A thread's answer, taken out once by the write-back.
@@ -3984,13 +4052,15 @@ pub(crate) extern "C" fn job_thread(
     mut sender: ThreadSender,
     _receiver: ThreadReceiver,
 ) {
-    let Some(job) = init
+    let Some((job, inflight)) = init
         .downcast_mut::<JobInit>()
-        .and_then(|mut init| init.job.take())
+        .and_then(|mut init| Some((init.job.take()?, init.inflight.take())))
     else {
         return;
     };
     let outcome = run_job(job, &mut sender);
+    // The job is over: a held close may go once its answer is read (`closing::after_job`).
+    drop(inflight);
     send(&mut sender, outcome);
 }
 
