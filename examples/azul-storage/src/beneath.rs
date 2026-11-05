@@ -24,6 +24,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use crate::cap::Cap;
+
 /// Why a path under the root cannot be walked.
 #[derive(Debug)]
 pub enum BeneathError {
@@ -951,17 +953,21 @@ pub fn file_size_limit(path: &Path) -> Option<u64> {
     }
 }
 
-/// The bytes free for this user on the disk of `path`; `None` where it cannot be told.
+/// The bytes free for this user on the disk of `path`, or why they cannot be told. The caller
+/// matches it and applies a [`crate::cap::Posture`]: an unknown is never "unlimited".
 #[must_use]
-pub fn free_space(path: &Path) -> Option<u64> {
+pub fn free_space(path: &Path) -> Cap<u64> {
     #[cfg(unix)]
     {
-        sys::free_space(path).ok()
+        match sys::free_space(path) {
+            Ok(bytes) => Cap::Known(bytes),
+            Err(_) => Cap::Unknown("the system did not tell the free space of this disk"),
+        }
     }
     #[cfg(not(unix))]
     {
         let _ = path;
-        None
+        Cap::Unknown("this system does not tell the free space of a disk yet")
     }
 }
 

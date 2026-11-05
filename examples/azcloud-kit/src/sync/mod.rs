@@ -106,6 +106,7 @@ use std::{
 
 use azul_storage::{
     beneath::{self, BeneathError, Kind, Stat},
+    cap::{Cap, Posture},
     checked::FileCheck,
     ctl::Quiet,
     durable::{self, Expect, Mode, Publish, PublishError},
@@ -2077,6 +2078,44 @@ fn move_here(
     Ok(local::entry_now(&root.path, to, &expect.hash))
 }
 
+/// What the disk reserve does when the disk cannot say its free space: the downloads go on and the
+/// report says that the reserve was not enforced. (Failing closed would lock a system out of its
+/// own drive until its probe exists - Windows', work order RF49; the files a full disk cannot take
+/// still fail one by one, and the report lists them.)
+const FREE_SPACE_POSTURE: Posture = Posture::Degrade(
+    "the free space of this disk cannot be read, so the reserve it keeps free is not enforced for \
+     these downloads",
+);
+
+/// The free bytes the disk reserve is checked against for a pass over `root` (E3), and the
+/// sentence for the report when the disk could not say: the disk of `disk_of` as a test harness
+/// may play it (armed under `fault_root`, [`faults`]); else its own answer under
+/// [`FREE_SPACE_POSTURE`].
+pub fn free_for_reserve(fault_root: &Path, disk_of: &Path) -> (u64, Option<String>) {
+    match faults::free_override(fault_root) {
+        Some(bytes) => (bytes, None),
+        None => free_under(beneath::free_space(disk_of), FREE_SPACE_POSTURE),
+    }
+}
+
+/// `probe` as the bytes a reserve check uses, with what to tell the report when it was unknown:
+/// as many as can ever be needed under [`Posture::Degrade`], none under [`Posture::FailClosed`]
+/// (then no download fits).
+pub(crate) fn free_under(probe: Cap<u64>, posture: Posture) -> (u64, Option<String>) {
+    match probe {
+        Cap::Known(bytes) => (bytes, None),
+        Cap::Unknown(why) => match posture {
+            Posture::Degrade(note) => (u64::MAX, Some(format!("{note} ({why})"))),
+            Posture::FailClosed => (
+                0,
+                Some(format!(
+                    "{why}: nothing is downloaded here, because the room it needs cannot be told"
+                )),
+            ),
+        },
+    }
+}
+
 /// Applies the committed index here and updates `base`.
 #[allow(clippy::too_many_arguments)]
 fn apply_local<R: SyncRemote + ?Sized>(
@@ -2107,11 +2146,8 @@ fn apply_local<R: SyncRemote + ?Sized>(
     let scanned_entry = |key: &str| scan.files.get(key).map(LocalFile::base_entry);
     let stamp = root::trash_stamp(crate::now());
     // E3: what the downloads planned so far take of the disk's free space.
-    // The disk's own answer, as a test harness may play it (sync::faults); none known: no limit.
-    let free = faults::free_bytes(
-        &root.path,
-        beneath::free_space(&root.path).unwrap_or(u64::MAX),
-    );
+    let (free, unread) = free_for_reserve(&root.path, &root.path);
+    report.notes.extend(unread);
     let mut pending: u64 = 0;
     let mut fits = |key: &str, size: u64, report: &mut SyncReport| -> bool {
         if free.saturating_sub(pending) < size.saturating_add(opts.disk_reserve) {

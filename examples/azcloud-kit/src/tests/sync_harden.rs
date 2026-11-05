@@ -394,7 +394,7 @@ fn a_download_that_would_eat_the_disks_reserve_is_not_started() {
     let mut opts = b.opts();
     opts.disk_reserve = u64::MAX / 4;
     let report = b.sync_with(&store, &opts).unwrap();
-    if azul_storage::beneath::free_space(b.path()).is_some() {
+    if azul_storage::beneath::free_space(b.path()).is_known() {
         assert!(
             lists(&report, Code::DiskReserve, Some("big.bin")),
             "{:?}",
@@ -1114,4 +1114,29 @@ fn az_y5_a_pass_over_the_azlin_folder_neither_installs_nor_sends_the_install_tre
         Some(&b"the real program"[..]),
         "the local install tree is untouched"
     );
+}
+
+/// X-AR5a-12 (the sync's site): a disk that cannot say its free space was read as an endless one
+/// (`free_space(..).unwrap_or(u64::MAX)`) and nothing said so. Now the posture decides and the
+/// report carries the sentence: degraded, the reserve is not enforced and the note says it; failed
+/// closed, no download fits.
+#[test]
+fn x_ar5a_12_a_disk_that_cannot_say_its_free_space_is_a_posture_and_a_note_not_an_endless_disk() {
+    use azul_storage::cap::{Cap, Posture};
+    let (known, note) = crate::sync::free_under(Cap::Known(5_000), Posture::Degrade("said"));
+    assert_eq!((known, note), (5_000, None));
+    let (degraded, note) = crate::sync::free_under(
+        Cap::Unknown("no statvfs here"),
+        Posture::Degrade("the reserve is not enforced"),
+    );
+    assert_eq!(degraded, u64::MAX);
+    let note = note.expect("the report is told");
+    assert!(
+        note.contains("the reserve is not enforced") && note.contains("no statvfs here"),
+        "{note}"
+    );
+    let (closed, note) =
+        crate::sync::free_under(Cap::Unknown("no statvfs here"), Posture::FailClosed);
+    assert_eq!(closed, 0, "no download fits a disk that cannot be asked");
+    assert!(note.expect("said").contains("no statvfs here"));
 }

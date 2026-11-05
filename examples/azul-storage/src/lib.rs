@@ -48,6 +48,8 @@
 pub mod base32;
 /// Files under a root reached without a link: descriptor-relative opens, renames and deletes.
 pub mod beneath;
+/// What a probe of this computer could not answer, and the posture of the check that asked.
+pub mod cap;
 pub mod catalog;
 pub mod checked;
 pub mod config;

@@ -3,6 +3,8 @@
 
 /// Reads and writes that never go through a link out of the root.
 mod beneath;
+/// What a probe could not answer: the free space of a disk is a `Cap`, never a number for unknown.
+mod cap;
 mod catalog;
 mod config;
 /// A contained drive's folders made and removed without a link; a link as the file itself.

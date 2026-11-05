@@ -37,7 +37,12 @@ use azul::{
     callbacks::ButtonOnClickCallbackType, file::FilePath, prelude::*, str::String as AzString,
 };
 use azul_appkit::l10n::{label, t_phrase, Phrase};
-use azul_storage::{azul_transport::AzulTransport, key::System, ByteRange, Drive, ObjectInfo};
+use azul_storage::{
+    azul_transport::AzulTransport,
+    cap::{Cap, Posture},
+    key::System,
+    ByteRange, Drive, ObjectInfo,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::{actions::now_secs, browse::Place, ids, jobs::Job, spawn, DriveState, HOME_ID};
@@ -910,23 +915,31 @@ fn copy_one(source: &dyn Drive, target: Option<&Path>, o: &ObjectInfo) -> Result
     std::fs::rename(&part, target).map_err(|e| e.to_string())
 }
 
-/// The free bytes of the disk `path` is on.
-pub(crate) fn free_bytes(path: &Path) -> Option<u64> {
+/// The free bytes of the disk `path` is on, or why the system did not say.
+pub(crate) fn free_bytes(path: &Path) -> Cap<u64> {
     let text = path.to_string_lossy().into_owned();
-    FilePath::create(text.as_str())
-        .disk_space()
-        .into_option()
-        .map(|space| space.free)
+    match FilePath::create(text.as_str()).disk_space().into_option() {
+        Some(space) => Cap::Known(space.free),
+        None => Cap::Unknown("the system did not tell the free space of this disk"),
+    }
 }
+
+/// What the rescue copy's look at the disk's room does when the disk cannot say how much is free:
+/// the copy begins anyway. The look only saves a long copy that cannot end - a file the disk
+/// cannot take fails by itself and is listed in `missing`, which the bar shows - and failing
+/// closed would refuse a rescue on exactly the computer that cannot answer.
+const ROOM_POSTURE: Posture = Posture::Degrade(
+    "the free space of the disk cannot be read: the copy begins without the look at its room",
+);
 
 /// Copies every file of `source` into `folder` (a job): the files already there skipped, the
 /// rest piece by piece; `progress` hears how far it got. Too little room (`free`: the bytes free
-/// on the disk, when known) stops it before it begins. What it came to, kept in `state` for the
-/// next start.
+/// on the disk, when known; an unknown is [`ROOM_POSTURE`]'s) stops it before it begins. What it
+/// came to, kept in `state` for the next start.
 pub(crate) fn run_rescue(
     source: &dyn Drive,
     folder: &Path,
-    free: Option<u64>,
+    free: Cap<u64>,
     state: &Path,
     progress: &mut dyn FnMut(usize, usize),
 ) -> Rescue {
@@ -956,9 +969,16 @@ pub(crate) fn run_rescue(
         .collect();
     report.copied = report.total - todo.len();
     let needed: u64 = todo.iter().map(|(o, _)| o.size).sum();
-    if let Some(free) = free {
-        if needed + SPARE_BYTES > free {
-            report.no_space = Some((needed, free));
+    match (free, ROOM_POSTURE) {
+        (Cap::Known(free), _) => {
+            if needed + SPARE_BYTES > free {
+                report.no_space = Some((needed, free));
+                report.missing = todo.iter().map(|(o, _)| o.key.clone()).collect();
+                return keep_report(report, state);
+            }
+        }
+        (Cap::Unknown(_), Posture::Degrade(_)) => {}
+        (Cap::Unknown(_), Posture::FailClosed) => {
             report.missing = todo.iter().map(|(o, _)| o.key.clone()).collect();
             return keep_report(report, state);
         }

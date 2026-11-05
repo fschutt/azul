@@ -8,7 +8,6 @@ use std::{collections::BTreeSet, fs, io::Read, path::Path};
 
 use azcloud_kit::sync::{
     evict::note_problem,
-    faults,
     local::LocalIndex,
     problems::{Code, Problem},
     session::{SyncStates, INDEX_FILE},
@@ -211,10 +210,7 @@ pub(super) fn write_through(info: &mut CallbackInfo, app: &RefAny, s: &mut Drive
     let bytes = content_of(args)?;
     // The disk as the sync sees it (a scenario's disk fault is armed under the pairing's folder).
     let pair_folder = with_harness(|h| Ok(h.device(args)?.pair_folder.clone()))?;
-    let free = faults::free_bytes(
-        &pair_folder,
-        azul_storage::beneath::free_space(&root).unwrap_or(u64::MAX),
-    );
+    let (free, _unread) = azcloud_kit::sync::free_for_reserve(&pair_folder, &root);
     if free < (bytes.len() as u64).saturating_add(DISK_RESERVE) {
         let state_dir = with_harness(|h| Ok(h.device(args)?.state_dir.clone()))?;
         let detail = format!(

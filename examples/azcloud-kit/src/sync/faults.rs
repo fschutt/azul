@@ -230,10 +230,14 @@ pub fn set_free_bytes(root: &Path, bytes: Option<u64>) {
 /// The free space a pass of `root` sees, given the disk's own answer `real`.
 #[must_use]
 pub fn free_bytes(root: &Path, real: u64) -> u64 {
-    faults()
-        .get(root)
-        .and_then(|f| f.free_bytes)
-        .unwrap_or(real)
+    free_override(root).unwrap_or(real)
+}
+
+/// The free space the harness set for `root` ([`set_free_bytes`]), when it did: the disk's own
+/// answer is not asked then.
+#[must_use]
+pub fn free_override(root: &Path) -> Option<u64> {
+    faults().get(root).and_then(|f| f.free_bytes)
 }
 
 /// Plays `root`'s disk full (`true`) or not.

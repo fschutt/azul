@@ -23,7 +23,8 @@ use std::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    beneath::Dir,
+    beneath::{self, Dir},
+    cap::{Cap, Posture},
     ctl::{Ctl, Quiet, Stopped},
     durable::{self, Blob, Expect, Mode, Publish},
     key::safe_file_name,
@@ -31,6 +32,13 @@ use crate::{
     multipart::{in_parallel, STALE_AFTER_SECS},
     ByteRange, Drive, DriveError, ObjectInfo,
 };
+
+/// What the look at the disk's room before a big download begins does when the disk cannot say
+/// its free space: the download begins, and a full disk says so at a write. A system that has no
+/// such probe yet (Windows) is not locked out of downloads.
+const DOWNLOAD_ROOM_POSTURE: Posture = Posture::Degrade(
+    "the free space of the disk cannot be read: the download begins without the look at its room",
+);
 
 /// Bytes per ranged GET when an object is bigger than this (the part size of an upload).
 pub const CHUNK: u64 = crate::s3::PART_SIZE as u64;
@@ -283,6 +291,25 @@ fn download_ranges(
     let state = match kept {
         Some(state) => state,
         None => {
+            // The room first: a hidden file as long as the object is made next, and an object
+            // that says it is bigger than the disk (a lying listing, a huge file) must not make
+            // a sparse file of that length nor a list of its ranges.
+            let room = match (beneath::free_space(folder.path()), DOWNLOAD_ROOM_POSTURE) {
+                (Cap::Known(free), _) => Some(free),
+                (Cap::Unknown(_), Posture::Degrade(_)) => None,
+                (Cap::Unknown(why), Posture::FailClosed) => {
+                    return Err(DriveError::Io(format!(
+                        "{why}: \"{key}\" is not downloaded without knowing it fits"
+                    )))
+                }
+            };
+            if let Some(free) = room.filter(|free| *free < size) {
+                return Err(DriveError::Io(format!(
+                    "no space left on the disk of {} for \"{key}\": it needs {size} bytes, {free} \
+                     are free",
+                    dest.display()
+                )));
+            }
             // A new file of its own, as long as the object (sparse until its ranges are in).
             let _ = folder.unlink(&partial_name);
             let file = folder

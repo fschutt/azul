@@ -29,6 +29,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     beneath::{self, Dir, Fingerprint, Kind, Stat},
+    cap::{Cap, Posture},
     checked::{self, FileCheck, HashCheck},
     crypto::{
         azl1::{self, FileHint, ObjectSummary, TransformId},
@@ -44,6 +45,13 @@ use crate::{
 
 /// The folder of the encrypted copies under a resume folder.
 const SPOOL_DIR: &str = "encrypted";
+/// What the look at the disk's room before the copy is written does when the disk cannot say its
+/// free space: the copy is written anyway. The look is an early warning, not the guard - a disk
+/// that is full says so at the write ([`crate::durable::PublishError::DiskFull`]) - and a system
+/// that has no such probe yet (Windows) is not locked out of resumable uploads.
+const ROOM_POSTURE: Posture = Posture::Degrade(
+    "the free space of the disk cannot be read: the copy is written without the early look",
+);
 /// The version of a record this code writes.
 const RECORD_VERSION: u32 = 1;
 
@@ -357,12 +365,22 @@ impl<D: Drive> EncryptedDrive<D> {
         dir: &Path,
         record_path: &Path,
     ) -> Result<Option<(ObjectSummary, PathBuf)>, DriveError> {
-        if let Some(free) = crate::beneath::free_space(dir) {
-            let needed = room_for(before.size);
-            if free < needed {
+        match (crate::beneath::free_space(dir), ROOM_POSTURE) {
+            (Cap::Known(free), _) => {
+                let needed = room_for(before.size);
+                if free < needed {
+                    return Err(DriveError::Io(format!(
+                        "no space left on the disk of {} for the encrypted copy of {key}: it \
+                         needs {needed} bytes, {free} are free",
+                        dir.display()
+                    )));
+                }
+            }
+            (Cap::Unknown(_), Posture::Degrade(_)) => {}
+            (Cap::Unknown(why), Posture::FailClosed) => {
                 return Err(DriveError::Io(format!(
-                    "no space left on the disk of {} for the encrypted copy of {key}: it needs \
-                     {needed} bytes, {free} are free",
+                    "{why}: the encrypted copy of {key} is not written without knowing it fits \
+                     the disk of {}",
                     dir.display()
                 )));
             }

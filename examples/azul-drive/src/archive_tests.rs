@@ -9,8 +9,8 @@ use azcloud_kit::{
     DriveStatus,
 };
 use azul_storage::{
-    key::System, testing::TempDir, ByteRange, Drive, DriveError, ListPage, ListRequest, LocalDrive,
-    ObjectInfo,
+    cap::Cap, key::System, testing::TempDir, ByteRange, Drive, DriveError, ListPage, ListRequest,
+    LocalDrive, ObjectInfo,
 };
 
 use azul_appkit::phrase::{Arg, Phrase};
@@ -18,6 +18,9 @@ use azul_appkit::phrase::{Arg, Phrase};
 use crate::archive::{
     months_needed, run_rescue, stage_of, stage_phrase, target_of, target_of_on, Rescue, Stage,
 };
+
+/// A disk whose free space the test's system cannot tell.
+const NO_PROBE: Cap<u64> = Cap::Unknown("no probe");
 
 /// The argument `name` of `phrase` as text.
 fn arg_text(phrase: &Phrase, name: &str) -> Option<String> {
@@ -354,7 +357,7 @@ fn az_w2_keys_that_differ_only_by_case_or_form_are_both_kept_in_the_copy() {
     ]);
     let folder = tmp.path().join("copy");
     let state = tmp.path().join("d_x.rescue.json");
-    let report = run_rescue(&drive, &folder, None, &state, &mut |_, _| {});
+    let report = run_rescue(&drive, &folder, NO_PROBE, &state, &mut |_, _| {});
     assert_eq!((report.copied, report.total), (4, 4), "{report:?}");
     assert!(report.missing.is_empty(), "{report:?}");
     let found = files_below(&folder);
@@ -379,7 +382,7 @@ fn az_w2_keys_that_differ_only_by_case_or_form_are_both_kept_in_the_copy() {
         "every file is in the copy"
     );
     // The next run finds all four there.
-    let again = run_rescue(&drive, &folder, None, &state, &mut |_, _| {});
+    let again = run_rescue(&drive, &folder, NO_PROBE, &state, &mut |_, _| {});
     assert_eq!((again.copied, again.total), (4, 4), "{again:?}");
     assert_eq!(files_below(&folder), found, "a second run changes nothing");
 }
@@ -399,7 +402,7 @@ fn a_read_only_drive_is_copied_whole_and_a_second_run_skips_what_is_there() {
     let folder = tmp.path().join("Azlin rescue").join("Photos");
     let state = tmp.path().join("state").join("d_x.rescue.json");
     let mut heard = Vec::new();
-    let report = run_rescue(&drive, &folder, None, &state, &mut |copied, total| {
+    let report = run_rescue(&drive, &folder, NO_PROBE, &state, &mut |copied, total| {
         heard.push((copied, total));
     });
     assert_eq!((report.copied, report.total), (3, 3), "{report:?}");
@@ -411,7 +414,7 @@ fn a_read_only_drive_is_copied_whole_and_a_second_run_skips_what_is_there() {
     assert_eq!(kept.copied, 3);
     // a file changed on this computer (another size) is copied again, the others are skipped
     std::fs::write(folder.join("a.txt"), b"x").unwrap();
-    let again = run_rescue(&drive, &folder, None, &state, &mut |_, _| {});
+    let again = run_rescue(&drive, &folder, NO_PROBE, &state, &mut |_, _| {});
     assert_eq!((again.copied, again.total), (3, 3));
     assert_eq!(std::fs::read(folder.join("a.txt")).unwrap(), b"one");
 }
@@ -422,9 +425,38 @@ fn too_little_room_is_said_before_anything_is_copied_and_names_what_is_missing()
     let drive = source_with(&tmp, &[("a.txt", b"one"), ("b.txt", b"two")]);
     let folder = tmp.path().join("copy");
     let state = tmp.path().join("d_x.rescue.json");
-    let report = run_rescue(&drive, &folder, Some(10), &state, &mut |_, _| {});
+    let report = run_rescue(&drive, &folder, Cap::Known(10), &state, &mut |_, _| {});
     assert_eq!(report.no_space.map(|(needed, _)| needed), Some(6));
     assert_eq!(report.copied, 0);
     assert_eq!(report.missing, vec![String::from("a.txt"), String::from("b.txt")]);
     assert!(!folder.join("a.txt").exists(), "nothing half copied");
+}
+
+/// X-AR5a-12 (the rescue copy's site): a disk that cannot say its free space is not read as an
+/// empty one nor as an endless one by accident - the posture is written down
+/// ([`crate::archive`]'s `ROOM_POSTURE`: the copy begins), and a disk that says it has too little
+/// still stops the copy before it starts.
+#[test]
+fn x_ar5a_12_an_unreadable_free_space_lets_the_rescue_begin_and_a_small_one_stops_it() {
+    let tmp = TempDir::new("azdrive-rescue-unknown-room");
+    let drive = source_with(&tmp, &[("a.txt", b"one"), ("b.txt", b"two")]);
+    let state = tmp.path().join("d_x.rescue.json");
+    let unknown = run_rescue(
+        &drive,
+        &tmp.path().join("unknown"),
+        Cap::Unknown("the system did not say"),
+        &state,
+        &mut |_, _| {},
+    );
+    assert_eq!((unknown.copied, unknown.total), (2, 2), "{unknown:?}");
+    assert!(unknown.no_space.is_none() && unknown.missing.is_empty());
+    let small = run_rescue(
+        &drive,
+        &tmp.path().join("small"),
+        Cap::Known(0),
+        &state,
+        &mut |_, _| {},
+    );
+    assert_eq!(small.copied, 0, "{small:?}");
+    assert!(small.no_space.is_some());
 }
