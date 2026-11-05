@@ -570,6 +570,108 @@ fn an_announced_restore_heals_from_this_device_and_deletes_nothing() {
     );
 }
 
+/// AZ-S3. The restore was looked at only when the generation went BACK. Another device that
+/// synced first and committed on top of the restored index made the generations equal again:
+/// the announcement was never read, `lag.md` (committed after the off-site copy, absent from the
+/// restored index, no tombstone) read as "deleted elsewhere, unchanged here" and went to the
+/// trash - on the only device that still had it.
+#[test]
+fn az_s3_an_announced_restore_heals_although_another_device_committed_first() {
+    let store = S3Bucket::new();
+    let a = Device::new("dev-s3-a");
+    let b = Device::new("dev-s3-b");
+    a.write("a.md", b"a");
+    a.sync(&store);
+    let backup = store.read(&index_key(PREFIX)).unwrap();
+    a.write("lag.md", b"committed after the backup");
+    a.sync(&store);
+    // The drive is restored from the copy (generation 1). B never saw lag.md; it syncs first and
+    // commits: generation 2 again, the one A has.
+    store.write(&index_key(PREFIX), backup);
+    b.write("b.md", b"b's own file");
+    b.sync(&store);
+    assert_eq!(index_of(&store).generation, 2);
+    let mut opts = a.opts();
+    opts.restore = Some(RestoreNotice {
+        epoch: 1,
+        prefix: String::new(),
+    });
+    let report = a.sync_with(&store, &opts).unwrap();
+    assert!(report.refused.is_none(), "{}", report.summary());
+    assert_eq!(report.deleted_here, 0, "{}", report.summary());
+    assert_eq!(
+        a.read("lag.md").as_deref(),
+        Some(&b"committed after the backup"[..]),
+        "kept here, not in the trash"
+    );
+    assert!(index_of(&store).files.contains_key("lag.md"), "sent again");
+    assert!(
+        report
+            .problems
+            .iter()
+            .any(|p| p.code == Code::ServerRestored),
+        "{:?}",
+        report.problems
+    );
+    // The epoch is spent: the same announcement never excuses a later rollback.
+    let again = store.read(&index_key(PREFIX)).unwrap();
+    a.write("more.md", b"more");
+    a.sync_with(&store, &opts).unwrap();
+    store.write(&index_key(PREFIX), again);
+    let report = a.sync_with(&store, &opts).unwrap();
+    assert!(
+        report
+            .problems
+            .iter()
+            .any(|p| p.code == Code::RemoteRollback),
+        "{:?}",
+        report.problems
+    );
+}
+
+/// AZ-S2. The heal dropped from the base only the files the restored index LACKS. A file edited
+/// after the off-site copy has base = local = the edit and the drive = the old version, so the
+/// plan read "the drive changed, this side did not" and put the old version over the edit - on
+/// every device that had pulled it: the only copy of the edit.
+#[test]
+fn az_s2_an_announced_restore_keeps_a_file_edited_after_the_off_site_copy() {
+    use crate::store::RemoteStore;
+    let store = S3Bucket::new();
+    let a = Device::new("dev-s2-a");
+    a.write("f.md", b"before the copy");
+    a.sync(&store);
+    let backup = store.read(&index_key(PREFIX)).unwrap();
+    a.write("f.md", b"edited after the copy");
+    a.sync(&store);
+    // Restored: the drive has the old version again, and the blob of the edit is gone with the
+    // objects the copy did not have.
+    store.write(&index_key(PREFIX), backup);
+    store
+        .delete(&blob_key(PREFIX, &hash_bytes(b"edited after the copy")))
+        .unwrap();
+    let mut opts = a.opts();
+    opts.restore = Some(RestoreNotice {
+        epoch: 1,
+        prefix: String::new(),
+    });
+    let report = a.sync_with(&store, &opts).unwrap();
+    assert!(report.refused.is_none(), "{}", report.summary());
+    let tree = a.tree();
+    assert!(
+        tree.values().any(|bytes| bytes == b"edited after the copy"),
+        "the edit is still here, as the file or as a conflict copy: {:?}",
+        tree.keys().collect::<Vec<_>>()
+    );
+    // And on the drive again: the other devices can get it.
+    let index = index_of(&store);
+    let edited = hash_bytes(b"edited after the copy");
+    assert!(
+        index.files.values().any(|f| f.hash == edited),
+        "sent again: {:?}",
+        index.files.keys().collect::<Vec<_>>()
+    );
+}
+
 #[test]
 fn garbage_collection_deletes_only_old_blobs_no_index_names() {
     let store = S3Bucket::new();

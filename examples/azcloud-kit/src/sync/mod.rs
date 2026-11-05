@@ -3824,16 +3824,22 @@ fn run<R: SyncRemote + ?Sized>(
         // S15, V3: an index older than the last one seen is a rollback (a replayed or
         // rolled-back index would resurrect deletes and turn every edit since into a conflict)
         // unless the drive announced a restore since. A restore heals from here: the files
-        // the restored index lacks are sent again, never deleted.
+        // the restored index lacks are sent again, never deleted; and the files it has in
+        // another version than the base are not taken for "the drive changed" - this side's
+        // edit may exist nowhere else.
         let mut restore_epoch = index.restore_epoch;
         let healed;
         let renamed;
-        let base: &BTreeMap<String, BaseEntry> = if remote.generation < index.generation {
-            let notice = opts
-                .restore
-                .as_ref()
-                .filter(|r| r.epoch > index.restore_epoch && r.covers(&opts.prefix));
-            let Some(notice) = notice else {
+        // The announcement is looked at whatever the generation says (S3): another device that
+        // synced first and committed on top of the restored index makes the generations equal,
+        // and the files committed after the copy would read as deleted elsewhere.
+        let announced = opts
+            .restore
+            .as_ref()
+            .filter(|r| r.epoch > index.restore_epoch && r.covers(&opts.prefix));
+        let rolled_back = remote.generation < index.generation;
+        let base: &BTreeMap<String, BaseEntry> = if rolled_back || announced.is_some() {
+            let Some(notice) = announced else {
                 report.refuse(
                     Code::RemoteRollback,
                     format!(
@@ -3851,21 +3857,40 @@ fn run<R: SyncRemote + ?Sized>(
                 .keys()
                 .filter(|k| !remote.files.contains_key(*k) && !remote.deleted.contains_key(*k))
                 .collect();
-            report.tell(
-                Code::ServerRestored,
-                "",
-                format!(
-                    "the drive was restored from its backup; {} file(s) newer than the backup \
-                     are sent again from here",
-                    lost.len()
-                ),
-            );
-            let mut kept = index.files.clone();
-            for key in lost {
-                kept.remove(key);
+            // The files this device holds in another version than the restored drive's: the
+            // edit may exist nowhere else. (A cloud-only entry holds no bytes here: a new
+            // version of it on the drive is an ordinary download.)
+            let edited: Vec<&String> = index
+                .files
+                .iter()
+                .filter(|(k, e)| {
+                    !e.cloud_only
+                        && remote
+                            .files
+                            .get(*k)
+                            .is_some_and(|r| !merge::same_version(e, r))
+                })
+                .map(|(k, _)| k)
+                .collect();
+            if rolled_back || !lost.is_empty() || !edited.is_empty() {
+                report.tell(
+                    Code::ServerRestored,
+                    "",
+                    format!(
+                        "the drive was restored from its backup; {} file(s) newer than the \
+                         backup are sent again from here, {} file(s) in another version than \
+                         the backup's are kept (a conflict copy where both differ)",
+                        lost.len(),
+                        edited.len()
+                    ),
+                );
+            }
+            let mut trusted = index.files.clone();
+            for key in lost.into_iter().chain(edited) {
+                trusted.remove(key);
             }
             restore_epoch = notice.epoch;
-            healed = kept;
+            healed = trusted;
             &healed
         } else if !finals.is_empty() {
             renamed = rebase_keys(&index.files, &finals);

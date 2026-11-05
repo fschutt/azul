@@ -28,7 +28,7 @@ use serde_json::{Map, Value};
 
 use super::{
     local::{BaseEntry, Content, LocalFile},
-    remote::RemoteIndex,
+    remote::{RemoteFile, RemoteIndex},
 };
 
 /// What happens to one file.
@@ -217,6 +217,14 @@ pub const TRACKS_EXEC: bool = cfg!(unix);
 /// has one, and whether it is a link (a link to `a.txt` is never the file holding `a.txt`).
 fn ident(hash: &str, exec: bool, link: bool) -> (&str, bool, bool) {
     (hash, exec && TRACKS_EXEC, link)
+}
+
+/// Whether the base's entry and the drive's are one version of a file, as the merge compares
+/// them: its bytes, its executable bit where the system has one, a link or not.
+#[must_use]
+pub fn same_version(base: &BaseEntry, remote: &RemoteFile) -> bool {
+    ident(&base.hash, base.exec, base.link)
+        == ident(&remote.hash, remote.exec, remote.link.is_some())
 }
 
 /// The files of the folder whose bytes match a tombstone and that the base never knew: a copy
