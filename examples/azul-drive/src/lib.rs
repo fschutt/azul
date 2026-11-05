@@ -3100,6 +3100,16 @@ pub(crate) extern "C" fn on_job_done(
             let prefix = s.prefix().to_string();
             changed(&mut info, &handle, s, &drive_id, &prefix);
         }
+        Outcome::Restored { drive_id, result } => {
+            match result {
+                Ok(count) => {
+                    s.success(Phrase::new("azdrive-restored-from-trash").arg("count", count));
+                }
+                Err(e) => s.error(failed("azdrive-restore-trash-failed", &e)),
+            }
+            let prefix = s.prefix().to_string();
+            changed(&mut info, &handle, s, &drive_id, &prefix);
+        }
         Outcome::TrashPurged { drive_id, result } => match result {
             Ok(done) => {
                 if done.removed > 0 || !done.failed.is_empty() || done.behind {

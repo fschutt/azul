@@ -154,6 +154,7 @@ azdrive-why-edit-folder = Bearbeiten öffnet eine Datei; dies ist ein Ordner.
 azdrive-why-edit-one = Wähle eine Datei zum Bearbeiten aus.
 azdrive-why-built-in-drive = Der Startordner und der Azlin-Datenordner bleiben.
 azdrive-why-nothing-to-undo = Nichts rückgängig zu machen.
+azdrive-why-restore-trash = Wähle Elemente im Papierkorb aus, um sie zurückzulegen.
 azdrive-why-no-azterm = AzTerm ist nicht neben AzDrive installiert.
 azdrive-why-terminal-cloud = Ein Terminal öffnet sich in einem Ordner dieses Computers; dieser Ordner liegt in einem S3-Bucket.
 azdrive-why-terminal-local = Öffne zuerst einen Ordner eines Laufwerks auf diesem Computer.
@@ -193,6 +194,8 @@ azdrive-menu-cut = Ausschneiden
 azdrive-menu-copy = Kopieren
 azdrive-menu-zip = In ZIP-Datei komprimieren
 azdrive-menu-copy-path = Pfad kopieren
+azdrive-menu-restore = Wiederherstellen
+azdrive-menu-open-trash = Papierkorb öffnen
 azdrive-menu-delete = Löschen
 azdrive-menu-rename = Umbenennen
 azdrive-menu-view = Ansicht
@@ -1122,6 +1125,15 @@ azdrive-delete-failed = Konnte nicht gelöscht werden:
 azdrive-rename-failed = „{ $name }“ konnte nicht umbenannt werden:
 azdrive-create-failed = „{ $name }“ konnte nicht erstellt werden:
 azdrive-undone = Rückgängig gemacht.
+azdrive-restoring-from-trash = { $count ->
+        [one] Ein Element wird zurückgelegt
+       *[other] { $count } Elemente werden zurückgelegt
+    }…
+azdrive-restored-from-trash = { $count ->
+        [one] Ein Element wurde dorthin zurückgelegt, wo es war.
+       *[other] { $count } Elemente wurden dorthin zurückgelegt, wo sie waren.
+    }
+azdrive-restore-trash-failed = Konnte nicht zurückgelegt werden:
 azdrive-undo-failed = Konnte nicht rückgängig gemacht werden:
 azdrive-zipped = In „{ $name }“ komprimiert ({ $size }).
 azdrive-zip-failed = Konnte nicht komprimiert werden:

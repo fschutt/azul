@@ -125,6 +125,8 @@ pub(crate) enum Action {
     Refresh,
     // Misc
     Undo,
+    /// The selected items of the local trash (`.azdrive-trash/`) back where they were deleted from.
+    RestoreFromTrash,
     Go(Place),
     RecentMenu,
     CloseBackstage,
@@ -410,6 +412,8 @@ pub(crate) fn why_not(s: &DriveState, action: &Action) -> Option<String> {
             .undo
             .is_empty()
             .then(|| String::from("azdrive-why-nothing-to-undo")),
+        Action::RestoreFromTrash => (!selection_in_trash(s))
+            .then(|| String::from("azdrive-why-restore-trash")),
         Action::SortMenu | Action::GroupMenu | Action::ColumnsMenu | Action::FitColumns => {
             need_folder()
         }
@@ -621,6 +625,7 @@ pub(crate) fn run_action(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
         }
         Action::Refresh => refresh(info, app, s),
         Action::Undo => undo(info, app, s),
+        Action::RestoreFromTrash => restore_from_trash(info, app, s),
         Action::Go(place) => go(info, app, s, place, true),
         Action::RecentMenu => {
             let items: Vec<MenuItem> = s
@@ -2976,6 +2981,56 @@ fn undo(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
     );
 }
 
+/// Whether the selection is items of the trash of a drive on this computer (`.azdrive-trash/`):
+/// what "Restore" can put back.
+pub(crate) fn selection_in_trash(s: &DriveState) -> bool {
+    let local = s
+        .current_drive()
+        .is_some_and(|index| s.slots[index].is_local());
+    let keys = s.selection.keys();
+    local && !keys.is_empty() && keys.iter().all(|key| fileops::is_in_trash(key))
+}
+
+/// The trash of the open drive as a place, when the drive is on this computer, has one, and it
+/// is not what is open already.
+fn trash_place(s: &DriveState) -> Option<Place> {
+    let index = s.current_drive()?;
+    let root = s.local_root(index)?;
+    if !root
+        .join(fileops::TRASH_FOLDER.trim_end_matches('/'))
+        .is_dir()
+    {
+        return None;
+    }
+    let drive_id = s.slots[index].entry.id.clone();
+    (!fileops::is_in_trash(s.prefix())).then(|| Place::folder(&drive_id, fileops::TRASH_FOLDER))
+}
+
+/// "Restore" on items in the trash: each goes back where it was deleted from (a delete's own
+/// folder: everything it holds), none over a name taken since - that one stays in the trash and
+/// the notice says so (AZ-U12: after a restart the Ctrl+Z history is gone, and the trash had no
+/// way back but moving files out of a hidden folder by hand).
+fn restore_from_trash(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
+    let Some(drive_id) = s.current_drive_id() else {
+        return;
+    };
+    let keys = s.selection.keys();
+    let Some(drive) = open_current(s) else {
+        return;
+    };
+    s.info(Phrase::new("azdrive-restoring-from-trash").arg("count", keys.len()));
+    spawn(
+        info,
+        app,
+        s,
+        Job::RestoreTrash {
+            drive,
+            drive_id,
+            keys,
+        },
+    );
+}
+
 // ==== Properties, preview, metadata ====
 
 /// Alt+Enter / Properties: the selected items, the open folder or the
@@ -3709,6 +3764,9 @@ pub(crate) fn context_menu(app: &RefAny, s: &DriveState) -> Menu {
     } else if s.current_drive().is_some() && !s.selection.is_empty() {
         let one_folder = s.single_selected().is_some_and(|e| e.is_folder);
         let mut items = vec![item("azdrive-menu-open", Action::Open)];
+        if selection_in_trash(s) {
+            items.push(item("azdrive-menu-restore", Action::RestoreFromTrash));
+        }
         if one_folder {
             items.push(item("azdrive-menu-open-in-new-tab", Action::OpenInNewTab));
         }
@@ -3786,6 +3844,9 @@ pub(crate) fn context_menu(app: &RefAny, s: &DriveState) -> Menu {
                 "azdrive-menu-sync-now",
                 Action::Sync(crate::sync_view::SyncAction::Now),
             ));
+        }
+        if let Some(place) = trash_place(s) {
+            items.push(item("azdrive-menu-open-trash", Action::Go(place)));
         }
         items.extend([
             MenuItem::Separator,

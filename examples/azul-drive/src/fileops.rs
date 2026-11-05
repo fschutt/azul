@@ -311,6 +311,57 @@ pub fn trash_folder_of(trash_key: &str) -> Option<String> {
     Some(format!("{TRASH_FOLDER}{stamp}/"))
 }
 
+/// The key an item in the trash had before its delete: `.azdrive-trash/<stamp>/docs/a.txt` ->
+/// `docs/a.txt`. `None` for a key outside the trash, for the trash folder itself and for a
+/// delete's own folder (`.azdrive-trash/<stamp>/`), which has no origin of its own: what it holds
+/// has ([`restore_pairs`]).
+#[must_use]
+pub fn trash_origin(trashed: &str) -> Option<String> {
+    let rest = trashed.strip_prefix(TRASH_FOLDER)?;
+    let (stamp, origin) = rest.split_once('/')?;
+    (!stamp.is_empty() && !origin.is_empty()).then(|| origin.to_string())
+}
+
+/// What putting `keys` back out of the trash moves: `(where it was, where it is)` for each item
+/// inside a delete's folder, and, for a delete's own folder (`.azdrive-trash/<stamp>/`), for each
+/// of the items it holds. A key outside the trash is none of its business.
+///
+/// # Errors
+///
+/// When a delete's folder cannot be listed.
+pub fn restore_pairs(
+    drive: &dyn Drive,
+    keys: &[String],
+) -> Result<Vec<(String, String)>, DriveError> {
+    let mut pairs: Vec<(String, String)> = Vec::new();
+    let mut add = |trashed: &str| {
+        if let Some(origin) = trash_origin(trashed) {
+            if !pairs.iter().any(|(_, held)| held == trashed) {
+                pairs.push((origin, trashed.to_string()));
+            }
+        }
+    };
+    for key in keys {
+        if !is_in_trash(key) {
+            continue;
+        }
+        if trash_origin(key).is_some() {
+            add(key);
+        } else if trash_folder_of(key).as_deref() == Some(key.as_str()) {
+            let held = azul_storage::ops::list_folder_all(drive, key)?;
+            for trashed in held
+                .folders
+                .iter()
+                .map(String::as_str)
+                .chain(held.objects.iter().map(|object| object.key.as_str()))
+            {
+                add(trashed);
+            }
+        }
+    }
+    Ok(pairs)
+}
+
 /// What a delete did: the items that went, and the ones that did not. A batch that fails for
 /// one item still did the others - and says which (AZ-U17: the first failure used to end the
 /// loop, dropping the Undo of the 39 that went).
@@ -951,6 +1002,80 @@ mod tests {
         let for_good = delete_items(&home, &[item("docs/")], None);
         assert!(for_good.failed.is_empty(), "{:?}", for_good.failed);
         assert!(home.local_path("docs/").is_none_or(|p| !p.exists()));
+    }
+
+    /// AZ-U12: the key an item in the trash had before its delete; none for what has no origin.
+    #[test]
+    fn az_u12_the_origin_of_an_item_in_the_trash_is_its_key_below_the_stamp() {
+        let stamp = trash_stamp(1_759_300_000, 1);
+        assert_eq!(
+            trash_origin(&trash_key("docs/a.txt", &stamp)).as_deref(),
+            Some("docs/a.txt")
+        );
+        assert_eq!(
+            trash_origin(&trash_key("docs/", &stamp)).as_deref(),
+            Some("docs/")
+        );
+        // The trash itself, a delete's own folder and what is not in the trash have none.
+        for key in [
+            ".azdrive-trash/",
+            &format!("{TRASH_FOLDER}{stamp}/"),
+            &format!("{TRASH_FOLDER}{stamp}"),
+            "docs/a.txt",
+        ] {
+            assert_eq!(trash_origin(key), None, "{key:?}");
+        }
+    }
+
+    /// AZ-U12: after a restart Ctrl+Z is gone and the trash had no way back but moving files out
+    /// of a hidden folder by hand. "Restore" puts items (or a delete's whole folder) back where
+    /// they were deleted from - through the production pair of `restore_pairs` and
+    /// `restore_items` - and never over a name taken since.
+    #[test]
+    fn az_u12_restore_puts_items_of_the_trash_back_and_never_over_a_name_taken_since() {
+        let tmp = TempDir::new("trash-restore");
+        let home = seeded(&tmp);
+        let stamp = trash_stamp(1_759_300_000, 1);
+        let deleted = delete_items(&home, &[item("docs/"), item("readme.txt")], Some(&stamp));
+        assert!(deleted.failed.is_empty(), "{:?}", deleted.failed);
+
+        // One item by its own key: back where it was; the delete's folder stays (docs/ is in it).
+        let pairs = restore_pairs(&home, &[trash_key("readme.txt", &stamp)]).unwrap();
+        assert_eq!(
+            pairs,
+            vec![(String::from("readme.txt"), trash_key("readme.txt", &stamp))]
+        );
+        restore_items(&home, &pairs).unwrap();
+        assert_eq!(home.get("readme.txt").unwrap(), b"hello");
+
+        // The delete's own folder: everything it still holds. A name taken since stays in the
+        // trash, the others come back, and the error says which did not.
+        home.put("docs/a.txt", b"newer").unwrap();
+        let whole = restore_pairs(&home, &[format!("{TRASH_FOLDER}{stamp}/")]).unwrap();
+        assert_eq!(
+            whole,
+            vec![(String::from("docs/"), trash_key("docs/", &stamp))],
+            "the folder came back as one item"
+        );
+        assert!(
+            restore_items(&home, &whole).is_err(),
+            "docs/ is taken: a folder is not merged"
+        );
+        assert_eq!(
+            home.get("docs/a.txt").unwrap(),
+            b"newer",
+            "what is there is untouched"
+        );
+        assert_eq!(
+            home.get(&trash_key("docs/sub/b.txt", &stamp)).unwrap(),
+            b"beta",
+            "what could not come back is still in the trash"
+        );
+
+        // Not in the trash: none of its business.
+        assert!(restore_pairs(&home, &[String::from("docs/a.txt")])
+            .unwrap()
+            .is_empty());
     }
 
     #[test]

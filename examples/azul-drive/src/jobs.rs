@@ -242,6 +242,13 @@ pub(crate) enum Job {
         items: Vec<SourceItem>,
         stamp: Option<String>,
     },
+    /// "Restore" on items of the local trash: each back where it was deleted from
+    /// ([`fileops::restore_pairs`], [`fileops::restore_items`]).
+    RestoreTrash {
+        drive: Arc<dyn Drive>,
+        drive_id: String,
+        keys: Vec<String>,
+    },
     /// The start's look at the trash of a drive on this computer ([`crate::trash::purge`]): marks
     /// what is old, removes what an earlier look marked a week ago (AZ-U16).
     PurgeTrash {
@@ -593,6 +600,7 @@ impl Job {
         match self {
             Job::Delete { .. }
             | Job::PurgeTrash { .. }
+            | Job::RestoreTrash { .. }
             | Job::Rename { .. }
             | Job::Create { .. }
             | Job::Undo { .. }
@@ -722,6 +730,11 @@ pub(crate) enum Outcome {
     Deleted {
         drive_id: String,
         deleted: fileops::Deleted,
+    },
+    /// Items of the trash put back: how many, or why not.
+    Restored {
+        drive_id: String,
+        result: Result<usize, DriveError>,
     },
     /// A look at a drive's trash ended.
     TrashPurged {
@@ -3510,6 +3523,17 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
         } => Outcome::Deleted {
             drive_id,
             deleted: fileops::delete_items(&*drive, &items, stamp.as_deref()),
+        },
+        Job::RestoreTrash {
+            drive,
+            drive_id,
+            keys,
+        } => Outcome::Restored {
+            drive_id,
+            result: fileops::restore_pairs(&*drive, &keys).and_then(|pairs| {
+                fileops::restore_items(&*drive, &pairs)?;
+                Ok(pairs.len())
+            }),
         },
         Job::PurgeTrash {
             drive_id,

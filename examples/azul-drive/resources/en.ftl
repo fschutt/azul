@@ -156,6 +156,7 @@ azdrive-why-edit-folder = Edit opens a file; this is a folder.
 azdrive-why-edit-one = Select one file to edit.
 azdrive-why-built-in-drive = Home and the Azlin data folder stay.
 azdrive-why-nothing-to-undo = Nothing to undo.
+azdrive-why-restore-trash = Select items in the trash to put them back.
 azdrive-why-no-azterm = AzTerm is not installed next to AzDrive.
 azdrive-why-terminal-cloud = A terminal opens in a folder of this computer; this folder is in an S3 bucket.
 azdrive-why-terminal-local = Open a folder of a drive on this computer first.
@@ -195,6 +196,8 @@ azdrive-menu-cut = Cut
 azdrive-menu-copy = Copy
 azdrive-menu-zip = Compress to zip
 azdrive-menu-copy-path = Copy path
+azdrive-menu-restore = Restore
+azdrive-menu-open-trash = Open the trash
 azdrive-menu-delete = Delete
 azdrive-menu-rename = Rename
 azdrive-menu-view = View
@@ -1124,6 +1127,15 @@ azdrive-delete-failed = Could not delete:
 azdrive-rename-failed = "{ $name }" could not be renamed:
 azdrive-create-failed = "{ $name }" could not be created:
 azdrive-undone = Undone.
+azdrive-restoring-from-trash = Putting back { $count ->
+        [one] one item
+       *[other] { $count } items
+    }…
+azdrive-restored-from-trash = { $count ->
+        [one] Put one item back where it was.
+       *[other] Put { $count } items back where they were.
+    }
+azdrive-restore-trash-failed = Could not put back:
 azdrive-undo-failed = Could not undo:
 azdrive-zipped = Compressed into "{ $name }" ({ $size }).
 azdrive-zip-failed = Could not compress:
