@@ -1194,6 +1194,7 @@ version = "0.1.0"
 dependencies = [
  "azlin-contract",
  "azul-appkit",
+ "azul-srcgate",
  "azul-storage",
  "base64 0.22.1",
  "blake3",

@@ -78,6 +78,8 @@ azul-storage = { path = "../azul-storage", features = ["testing"] }
 # environment of their own; a shipped build takes the token server from its constants alone
 # (azul_appkit::anchors).
 azul-appkit = { path = "../azul-appkit", features = ["test-hooks"] }
+# The money gate (tests/money_gate): the source-gate kit that reads the shipped code of the tree.
+azul-srcgate = { path = "../azul-srcgate" }
 # The errors' Fluent resources parse (user_errors tests). No new crate: azul-layout's Fluent
 # parser, 0.12.0 in Cargo.lock.
 fluent-syntax = { version = "0.12", default-features = false }
