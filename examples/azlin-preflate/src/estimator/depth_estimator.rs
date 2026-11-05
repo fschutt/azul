@@ -310,10 +310,13 @@ impl HashTableDepthEstimator for HashTableDepthEstimatorLibdeflate {
     }
 }
 
-/// Factory function to create a new HashTableDepthEstimator based on the hash algorithm
-pub fn new_depth_estimator(hash_algorithm: HashAlgorithm) -> Box<dyn HashTableDepthEstimator> {
-    match hash_algorithm {
-        HashAlgorithm::None => panic!("No hash algorithm specified"),
+/// Factory function to create a new HashTableDepthEstimator based on the hash algorithm; none for
+/// "no hash algorithm" (there is nothing to estimate the depth of).
+pub fn new_depth_estimator(
+    hash_algorithm: HashAlgorithm,
+) -> Option<Box<dyn HashTableDepthEstimator>> {
+    Some(match hash_algorithm {
+        HashAlgorithm::None => return None,
         HashAlgorithm::Zlib {
             hash_mask: 0x7fff,
             hash_shift: 5,
@@ -338,7 +341,7 @@ pub fn new_depth_estimator(hash_algorithm: HashAlgorithm) -> Box<dyn HashTableDe
         HashAlgorithm::ZlibNG => HashTableDepthEstimatorImpl::box_new(ZlibNGHash {}),
         HashAlgorithm::RandomVector => HashTableDepthEstimatorImpl::box_new(RandomVectorHash {}),
         HashAlgorithm::Crc32cHash => HashTableDepthEstimatorImpl::box_new(Crc32cHash {}),
-    }
+    })
 }
 
 fn update_candidate_hashes(

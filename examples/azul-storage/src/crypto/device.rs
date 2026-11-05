@@ -805,6 +805,14 @@ pub fn withdraw_invite(bucket: &dyn Drive, invite: &MemberSecret) -> Result<(), 
     bucket.delete(&file)
 }
 
+/// All the work the Argon2id derivations of ONE recovery together may ask for (KiB of memory times
+/// passes): the first wrap and every further code's, each at the cost this software writes, with
+/// room to spare. The cost of a wrap is the bucket's word and is paid before the code is known to
+/// be right, so a bucket that lists the most further files (8) with the most each may ask for
+/// cannot keep a device busy for minutes: the wraps after the budget are not tried.
+pub const RECOVER_WORK_BUDGET: u64 =
+    (1 + MAX_EXTRA_RECOVERY_CODES as u64) * RecoveryKdf::DEFAULT_WORK * 2;
+
 /// The drive key the recovery code opens; this device is enrolled with it (a member wrap of
 /// its own, the key in the keyring). `Denied` for a wrong code. Only its holder can seal a
 /// wrap the code opens, so the key is the drive's, whichever key this device held before (a
@@ -815,21 +823,37 @@ pub fn recover(
     drive: &str,
     code: &RecoveryCode,
 ) -> Result<DriveKey, DriveError> {
+    recover_within(bucket, keyring, drive, code, RECOVER_WORK_BUDGET)
+}
+
+/// [`recover`] with `budget` as the most work its derivations may ask for together
+/// ([`RECOVER_WORK_BUDGET`]).
+pub fn recover_within(
+    bucket: &dyn Drive,
+    keyring: &dyn KeyringStore,
+    drive: &str,
+    code: &RecoveryCode,
+    budget: u64,
+) -> Result<DriveKey, DriveError> {
     // The first code's wrap, then a further code's (a second kit), until one opens. A wrap that
     // is missing, damaged or asks for more than any wrap does is no wrap: the others are still
     // tried (a hostile bucket cannot keep a second kit from opening the drive by spoiling the
     // first), and what was wrong with the first is said when none opens.
     let mut first_problem = None;
+    let mut spent = 0u64;
     let mut opened = match load_recovery_wrap(bucket) {
-        Ok(wrap) => match wrap.open(drive, code) {
-            Ok(drive_key) => Some(drive_key),
-            Err(CryptoError::WrongKey) => None,
-            Err(CryptoError::Unsupported(why)) => {
-                first_problem = Some(CryptoError::Unsupported(why).for_key(RECOVERY_KEY_FILE));
-                None
+        Ok(wrap) => {
+            spent = spent.saturating_add(wrap.kdf.work());
+            match wrap.open(drive, code) {
+                Ok(drive_key) => Some(drive_key),
+                Err(CryptoError::WrongKey) => None,
+                Err(CryptoError::Unsupported(why)) => {
+                    first_problem = Some(CryptoError::Unsupported(why).for_key(RECOVERY_KEY_FILE));
+                    None
+                }
+                Err(other) => return Err(other.for_key(RECOVERY_KEY_FILE)),
             }
-            Err(other) => return Err(other.for_key(RECOVERY_KEY_FILE)),
-        },
+        }
         Err(
             e @ (DriveError::NotFound { .. }
             | DriveError::Corrupt { .. }
@@ -842,15 +866,24 @@ pub fn recover(
     };
     if opened.is_none() {
         for file in extra_recovery_files(bucket)? {
-            let bytes = match bucket.get(&file) {
+            let bytes = match bucket.get_limited(&file, crate::limits::named::KEY_FILE) {
                 Ok(bytes) => bytes,
-                Err(DriveError::NotFound { .. }) => continue,
+                // Gone meanwhile, or bigger than any key file is: no wrap, the others are tried.
+                Err(DriveError::NotFound { .. } | DriveError::Protocol(_)) => continue,
                 Err(e) => return Err(e),
             };
             // A file that holds no usable wrap (damaged, of a cost no wrap has) is left out.
             let Ok(wrap) = RecoveryWrap::parse(&bytes) else {
                 continue;
             };
+            spent = spent.saturating_add(wrap.kdf.work());
+            if spent > budget {
+                first_problem.get_or_insert(DriveError::Unsupported(String::from(
+                    "the drive's recovery key files ask for more work than one recovery spends: \
+                     the rest were not tried",
+                )));
+                break;
+            }
             match wrap.open(drive, code) {
                 Ok(drive_key) => {
                     opened = Some(drive_key);

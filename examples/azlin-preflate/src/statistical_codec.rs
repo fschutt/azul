@@ -91,6 +91,7 @@ pub trait PredictionDecoder {
     }
 }
 
+#[cfg(test)]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum CodecAction {
     Correction(CodecCorrection, u32),
@@ -149,18 +150,21 @@ impl CountNonDefaultActions {
     }
 }
 
+#[cfg(test)]
 pub struct VerifyPredictionDecoder {
     actions: Vec<CodecAction>,
     index: usize,
 }
 
+#[cfg(test)]
 #[derive(Default)]
 pub struct VerifyPredictionEncoder {
     actions: Vec<CodecAction>,
     count: CountNonDefaultActions,
 }
 
-// used for testing mostly
+// used for testing only (a panic-free production build has no verify codec)
+#[cfg(test)]
 #[allow(dead_code)]
 impl VerifyPredictionEncoder {
     pub fn new() -> Self {
@@ -183,6 +187,7 @@ impl VerifyPredictionEncoder {
     }
 }
 
+#[cfg(test)]
 impl PredictionEncoder for VerifyPredictionEncoder {
     fn encode_verify_state(&mut self, message: &'static str, checksum: u64) {
         self.actions
@@ -196,7 +201,7 @@ impl PredictionEncoder for VerifyPredictionEncoder {
     fn finish(&mut self) {}
 }
 
-// used for testing mostly
+#[cfg(test)]
 #[allow(dead_code)]
 impl VerifyPredictionDecoder {
     pub fn new(actions: Vec<CodecAction>) -> Self {
@@ -213,6 +218,7 @@ impl VerifyPredictionDecoder {
     }
 }
 
+#[cfg(test)]
 impl PredictionDecoder for VerifyPredictionDecoder {
     fn decode_verify_state(&mut self, message: &'static str, checksum: u64) {
         let x = self.pop().unwrap();

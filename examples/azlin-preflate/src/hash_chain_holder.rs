@@ -312,15 +312,23 @@ impl<H: HashChain + 'static> HashChainHolder for HashChainHolderImpl<H> {
 // Read the two bytes starting at pos and interpret them as an u16.
 #[inline(always)]
 fn read_u16_le(slice: &[u8], pos: usize) -> u16 {
-    // The compiler is smart enough to optimize this into an unaligned load.
-    u16::from_le_bytes((&slice[pos..pos + 2]).try_into().unwrap())
+    // The compiler is smart enough to optimize this into an unaligned load. Bytes that are not
+    // there read as zeros (the caller checks the window; the transform's verification catches a
+    // misprediction), never an abort.
+    match slice.get(pos..).and_then(|rest| rest.first_chunk::<2>()) {
+        Some(bytes) => u16::from_le_bytes(*bytes),
+        None => 0,
+    }
 }
 
 // Read the two bytes starting at pos and interpret them as an u32.
 #[inline(always)]
 fn read_u32_le(slice: &[u8], pos: usize) -> u32 {
-    // The compiler is smart enough to optimize this into an unaligned load.
-    u32::from_le_bytes((&slice[pos..pos + 4]).try_into().unwrap())
+    // The compiler is smart enough to optimize this into an unaligned load. See `read_u16_le`.
+    match slice.get(pos..).and_then(|rest| rest.first_chunk::<4>()) {
+        Some(bytes) => u32::from_le_bytes(*bytes),
+        None => 0,
+    }
 }
 
 impl<H: HashChain> HashChainHolderImpl<H> {
@@ -570,9 +578,11 @@ fn prefix_cmp_odd_size(max_len: u32, s1: &[u8], s2: &[u8]) -> u32 {
 }
 
 fn comp_8_bytes(s1: &[u8], s2: &[u8]) -> u64 {
-    let a = u64::from_le_bytes(s1[0..8].try_into().unwrap());
-    let b = u64::from_le_bytes(s2[0..8].try_into().unwrap());
-    a ^ b
+    // Eight bytes of each, or "all different" for a slice that has fewer (see `read_u16_le`).
+    match (s1.first_chunk::<8>(), s2.first_chunk::<8>()) {
+        (Some(a), Some(b)) => u64::from_le_bytes(*a) ^ u64::from_le_bytes(*b),
+        _ => u64::MAX,
+    }
 }
 
 fn calc_diff(diff: u64) -> u32 {

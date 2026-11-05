@@ -46,29 +46,29 @@ pub fn estimate_preflate_comp_level(
     let mut candidates: Vec<Box<dyn HashTableDepthEstimator>> = Vec::new();
 
     if min_len == 3 {
-        candidates.push(new_depth_estimator(HashAlgorithm::MiniZFast));
+        candidates.extend(new_depth_estimator(HashAlgorithm::MiniZFast));
 
         for (hash_shift, hash_mask) in [(5, 32767), (4, 2047), (mem_hash_shift, mem_hash_mask)] {
-            candidates.push(new_depth_estimator(HashAlgorithm::Zlib {
+            candidates.extend(new_depth_estimator(HashAlgorithm::Zlib {
                 hash_mask,
                 hash_shift,
             }));
         }
 
         // LibFlate4 candidate
-        candidates.push(new_depth_estimator(HashAlgorithm::Libdeflate4));
+        candidates.extend(new_depth_estimator(HashAlgorithm::Libdeflate4));
 
         // RandomVector candidate
-        candidates.push(new_depth_estimator(HashAlgorithm::RandomVector));
+        candidates.extend(new_depth_estimator(HashAlgorithm::RandomVector));
     } else {
         // Libflate4 fast (only 4 bytes or more)
-        candidates.push(new_depth_estimator(HashAlgorithm::Libdeflate4Fast));
+        candidates.extend(new_depth_estimator(HashAlgorithm::Libdeflate4Fast));
 
         // ZlibNG candidate
-        candidates.push(new_depth_estimator(HashAlgorithm::ZlibNG));
+        candidates.extend(new_depth_estimator(HashAlgorithm::ZlibNG));
 
         // Crc32c candidate
-        candidates.push(new_depth_estimator(HashAlgorithm::Crc32cHash));
+        candidates.extend(new_depth_estimator(HashAlgorithm::Crc32cHash));
     }
 
     run_depth_candidates(add_policy, deflate_contents, plain_text, &mut candidates);
@@ -77,10 +77,12 @@ pub fn estimate_preflate_comp_level(
         return err_exit_code(ExitCode::NoCompressionCandidates, "no candidates found");
     }
 
-    let candidate = candidates
+    let Some(candidate) = candidates
         .iter()
         .min_by(|&a, &b| a.max_chain_found().cmp(&b.max_chain_found()))
-        .unwrap();
+    else {
+        return err_exit_code(ExitCode::NoCompressionCandidates, "no candidates found");
+    };
 
     if candidate.max_chain_found() > 4096 {
         return err_exit_code(

@@ -162,7 +162,9 @@ impl TokenPredictor {
         {
             codec.encode_correction(
                 CodecCorrection::TokenCount,
-                u32::try_from(tokens.len()).unwrap() + 1,
+                // A block of more than u32::MAX tokens cannot exist in memory; if it did, the count
+                // would be a number the decoder refuses, not an abort here.
+                u32::try_from(tokens.len()).map_or(u32::MAX, |n| n.saturating_add(1)),
             );
         } else {
             codec.encode_correction(CodecCorrection::TokenCount, 0);

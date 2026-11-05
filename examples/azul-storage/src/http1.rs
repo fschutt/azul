@@ -7,8 +7,18 @@
 //!
 //! Plain Rust without azul: the apps' transport over azul's iroh endpoint
 //! (`crate::azul_iroh`, feature `azul`) sends these bytes.
+//!
+//! The answer is a node's word, so it is read as untrusted bytes: nothing here indexes a slice by
+//! a number it computed or read (`clippy::indexing_slicing` is denied for the file), a chunk is
+//! taken by a [`Declared`] count that cannot run past the answer, and no size in it reserves
+//! memory ahead of the bytes (ARCH28 RF50).
 
-use crate::{HttpCall, HttpReply, Method};
+#![deny(clippy::indexing_slicing)]
+
+use crate::{
+    limits::{named, ByteReader, Declared},
+    HttpCall, HttpReply, Method,
+};
 
 /// The ALPN of S3 over iroh: the protocol name an Azlin node's iroh endpoint accepts.
 pub const S3_OVER_IROH_ALPN: &str = "azlin/s3/1";
@@ -91,34 +101,52 @@ fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
 }
 
 /// A chunked body put together (its trailers are dropped).
-fn dechunk(mut body: &[u8]) -> Result<Vec<u8>, String> {
+///
+/// A chunk is taken by the count its line declares ([`ByteReader::take`]): a size near the top of
+/// the range cannot wrap or run past the answer, it is a [`ShortRead`](crate::limits::ShortRead)
+/// (H1: `size + 2` wrapped once, and the slice after it panicked). A size over
+/// [`named::HTTP_CHUNK`] is refused before a byte of it is looked for.
+fn dechunk(body: &[u8]) -> Result<Vec<u8>, String> {
+    let mut reader = ByteReader::new(body);
     let mut out = Vec::new();
     loop {
-        let end = find(body, b"\r\n").ok_or("a chunk without its size line")?;
-        let line = std::str::from_utf8(&body[..end]).map_err(|_| "a chunk size that is no text")?;
+        let line = reader
+            .line()
+            .map_err(|_| String::from("a chunk without its size line"))?;
+        let line = std::str::from_utf8(line).map_err(|_| "a chunk size that is no text")?;
         let size_text = line.split(';').next().unwrap_or_default().trim();
         // Hex digits only (`from_str_radix` also takes a leading `+`).
         let size = if size_text.bytes().all(|b| b.is_ascii_hexdigit()) {
-            usize::from_str_radix(size_text, 16).ok()
+            u64::from_str_radix(size_text, 16).ok()
         } else {
             None
         }
         .ok_or_else(|| format!("{size_text:?} is no chunk size"))?;
-        body = &body[end + 2..];
-        if size == 0 {
+        let size = Declared::new(size);
+        if size == Declared::new(0) {
             return Ok(out);
         }
-        // The chunk and its closing CRLF. A size near `usize::MAX` wrapped here, and the slice
-        // below then panicked: no body has such a chunk.
-        let needed = size
-            .checked_add(2)
-            .ok_or_else(|| format!("a chunk of {size} bytes is more than any answer holds"))?;
-        if body.len() < needed {
-            return Err(String::from("the answer broke off inside a chunk"));
-        }
-        out.extend_from_slice(&body[..size]);
-        body = &body[size + 2..];
+        size.within(named::HTTP_CHUNK)
+            .map_err(|e| format!("a chunk of the answer: {e}"))?;
+        // The chunk and its closing CRLF.
+        let chunk = reader
+            .take(size)
+            .map_err(|_| String::from("the answer broke off inside a chunk"))?;
+        reader
+            .take(Declared::new(2))
+            .map_err(|_| String::from("the answer broke off inside a chunk"))?;
+        out.try_reserve(chunk.len())
+            .map_err(|_| String::from("the answer is more than this device can hold"))?;
+        out.extend_from_slice(chunk);
     }
+}
+
+/// The head of an answer and what follows it: the bytes up to the first blank line, and the bytes
+/// after it.
+fn split_head(bytes: &[u8]) -> Option<(&[u8], &[u8])> {
+    let end = find(bytes, b"\r\n\r\n")?;
+    let after = end.checked_add(4)?;
+    Some((bytes.get(..end)?, bytes.get(after..)?))
 }
 
 /// The answer in `bytes` (everything the node wrote until it finished its side); `head_request`:
@@ -131,9 +159,8 @@ fn dechunk(mut body: &[u8]) -> Result<Vec<u8>, String> {
 pub fn decode_reply(bytes: &[u8], head_request: bool) -> Result<HttpReply, String> {
     let mut rest = bytes;
     loop {
-        let end = find(rest, b"\r\n\r\n").ok_or("the answer has no complete head")?;
-        let head = std::str::from_utf8(&rest[..end]).map_err(|_| "the answer's head is no text")?;
-        let body = &rest[end + 4..];
+        let (head, body) = split_head(rest).ok_or("the answer has no complete head")?;
+        let head = std::str::from_utf8(head).map_err(|_| "the answer's head is no text")?;
         let mut lines = head.split("\r\n");
         let status_line = lines.next().unwrap_or_default();
         let mut parts = status_line.splitn(3, ' ');
@@ -171,13 +198,14 @@ pub fn decode_reply(bytes: &[u8], head_request: bool) -> Result<HttpReply, Strin
             let length: usize = length
                 .parse()
                 .map_err(|_| format!("{length:?} is no length"))?;
-            if body.len() < length {
-                return Err(format!(
-                    "the answer broke off after {} of {length} bytes",
-                    body.len()
-                ));
-            }
-            body[..length].to_vec()
+            body.get(..length)
+                .ok_or_else(|| {
+                    format!(
+                        "the answer broke off after {} of {length} bytes",
+                        body.len()
+                    )
+                })?
+                .to_vec()
         } else {
             body.to_vec()
         };

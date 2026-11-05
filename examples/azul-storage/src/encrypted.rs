@@ -1343,7 +1343,8 @@ pub fn read_shared(
     let file_key = share
         .unwrap_file_key(&file.wrapped_key, &file.object)
         .map_err(|e| e.for_key(&key))?;
-    let bytes = bucket.get(&key)?;
+    let limit = crate::Limit::new("a shared file's object", file.stored_size);
+    let bytes = bucket.get_limited(&key, limit)?;
     if bytes.len() as u64 != file.stored_size {
         return Err(DriveError::Corrupt {
             key,

@@ -5,8 +5,9 @@ use super::mem_bucket::MemBucket;
 use crate::{
     crypto::{
         device::{
-            add_recovery_code, enroll, other_devices, recover, remove_recovery_code,
+            add_recovery_code, enroll, other_devices, recover, recover_within, remove_recovery_code,
             setup_new_drive, EXTRA_RECOVERY_PREFIX, MAX_EXTRA_RECOVERY_CODES,
+            RECOVER_WORK_BUDGET,
         },
         keys::{RecoveryCode, RecoveryKdf, RecoveryWrap, RECOVERY_KEY_FILE},
     },
@@ -183,4 +184,68 @@ fn a_bucket_listing_more_further_wraps_than_a_drive_holds_is_read_as_far_as_that
         recover(&bucket, &MemoryKeyring::new(), "d_1", &code),
         Err(DriveError::Denied { .. })
     ));
+}
+
+/// K10 (the KDF part): the cost of a recovery wrap is the bucket's word, paid before the code is
+/// known to be right, once per file. One recovery spends one budget of work on all its wraps
+/// together; the wraps after it are not tried, and what stopped the search is said.
+#[test]
+fn az_k10_the_wraps_of_a_bucket_are_tried_within_one_work_budget() {
+    let bucket = MemBucket::new();
+    let owner = MemoryKeyring::new();
+    let (drive_key, _first) = setup_new_drive(&bucket, &owner, "d_1", cheap()).unwrap();
+    let code = RecoveryCode::generate().unwrap();
+    let target = RecoveryWrap::seal(&drive_key, "d_1", &code, cheap()).unwrap();
+    // Three wraps of other codes sort before the target: it is the fifth wrap tried.
+    for n in 0..3u64 {
+        let other = RecoveryWrap::seal(
+            &drive_key,
+            "d_1",
+            &RecoveryCode::generate().unwrap(),
+            cheap(),
+        )
+        .unwrap();
+        bucket.set(
+            &format!("{EXTRA_RECOVERY_PREFIX}{n:016x}.key"),
+            other.to_bytes(),
+        );
+    }
+    bucket.set(
+        &format!("{EXTRA_RECOVERY_PREFIX}ffffffffffffffff.key"),
+        target.to_bytes(),
+    );
+    let work = cheap().work();
+    let short = recover_within(&bucket, &MemoryKeyring::new(), "d_1", &code, 4 * work);
+    assert!(
+        matches!(&short, Err(DriveError::Unsupported(why)) if why.contains("more work")),
+        "the fifth wrap is past a budget of four: {short:?}"
+    );
+    let enough = recover_within(&bucket, &MemoryKeyring::new(), "d_1", &code, 5 * work).unwrap();
+    assert_eq!(enough.id(), drive_key.id());
+
+    // The budget of recover() holds the first wrap and eight further ones at the cost this
+    // software writes, and no more than three of the worst a file may ask for.
+    assert!(
+        RECOVER_WORK_BUDGET >= (1 + MAX_EXTRA_RECOVERY_CODES as u64) * RecoveryKdf::DEFAULT_WORK
+    );
+    assert!(
+        RECOVER_WORK_BUDGET < 4 * RecoveryKdf::MAX_WORK,
+        "{RECOVER_WORK_BUDGET}"
+    );
+}
+
+/// A key file bigger than any key file is (a bucket that streams on) is left out of a recovery like a
+/// damaged one: the other codes' wraps are still tried.
+#[test]
+fn az_k10_a_key_file_over_the_limit_is_left_out_not_the_end_of_the_recovery() {
+    let bucket = MemBucket::new();
+    let owner = MemoryKeyring::new();
+    let (drive_key, _first) = setup_new_drive(&bucket, &owner, "d_1", cheap()).unwrap();
+    let (_, second) = add_recovery_code(&bucket, &owner, "d_1", cheap()).unwrap();
+    bucket.set(
+        &format!("{EXTRA_RECOVERY_PREFIX}0000000000000000.key"),
+        vec![b'x'; (crate::limits::named::KEY_FILE.max + 1) as usize],
+    );
+    let opened = recover(&bucket, &MemoryKeyring::new(), "d_1", &second).unwrap();
+    assert_eq!(opened.id(), drive_key.id());
 }

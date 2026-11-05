@@ -11,6 +11,9 @@ mod config;
 mod contained_links;
 /// A transfer told to stop (cancelled, nothing made visible) and a read that names its limit.
 mod ctl;
+/// Numbers somebody else wrote: `Declared` places itself and sizes nothing, `ByteReader` cannot
+/// run past its end, the named limits.
+mod declared;
 /// A folder read in batches, a listing page that stats only its own entries.
 mod dir_read;
 /// Documents with an owner: the drives file changed by several writers, a newer build's fields.

@@ -424,7 +424,9 @@ impl HuffmanOriginalEncoding {
                     }
                 };
 
-                let (sub, bits) = Self::get_tree_code_adjustment(tree_code);
+                let Some((sub, bits)) = Self::get_tree_code_adjustment(tree_code) else {
+                    return err_exit_code(ExitCode::InvalidDeflate, "Invalid code length");
+                };
 
                 let v = bit_reader.get(bits, reader)? as u8 + sub;
                 combined_lengths.push((tree_code, v));
@@ -481,8 +483,13 @@ impl HuffmanOriginalEncoding {
                         output_buffer,
                     );
 
-                    let (sub, bits) = Self::get_tree_code_adjustment(tree_code);
-                    bitwriter.write((length - sub).into(), bits, output_buffer);
+                    let Some((sub, bits)) = Self::get_tree_code_adjustment(tree_code) else {
+                        return err_exit_code(ExitCode::InvalidDeflate, "Invalid code length");
+                    };
+                    let Some(coded) = length.checked_sub(sub) else {
+                        return err_exit_code(ExitCode::InvalidDeflate, "Invalid repeat length");
+                    };
+                    bitwriter.write(coded.into(), bits, output_buffer);
                 }
             }
         }
@@ -547,12 +554,13 @@ impl HuffmanOriginalEncoding {
 
     /// returns the constants used to adjust the coding of tree code types
     /// (amount to subtract, #bits to encode)
-    const fn get_tree_code_adjustment(tree_code: TreeCodeType) -> (u8, u32) {
+    /// (none for a plain code length, which has no adjustment)
+    const fn get_tree_code_adjustment(tree_code: TreeCodeType) -> Option<(u8, u32)> {
         match tree_code {
-            TreeCodeType::Repeat => (3, 2),
-            TreeCodeType::ZeroShort => (3, 3),
-            TreeCodeType::ZeroLong => (11, 7),
-            TreeCodeType::Code => unreachable!(),
+            TreeCodeType::Repeat => Some((3, 2)),
+            TreeCodeType::ZeroShort => Some((3, 3)),
+            TreeCodeType::ZeroLong => Some((11, 7)),
+            TreeCodeType::Code => None,
         }
     }
 }
@@ -671,18 +679,20 @@ impl HuffmanWriter {
         })
     }
 
-    pub fn start_fixed_huffman_table() -> Self {
+    /// The writer of the fixed huffman table; its lengths are the standard's, so an error here
+    /// would be a bug of this code - it is one, not an abort.
+    pub fn start_fixed_huffman_table() -> Result<Self> {
         let (lit_lengths, dist_lengths) = HuffmanOriginalEncoding::get_fixed_distance_lengths();
 
-        let lit_codes = calc_huffman_codes(&lit_lengths).unwrap();
-        let dist_codes = calc_huffman_codes(&dist_lengths).unwrap();
+        let lit_codes = calc_huffman_codes(&lit_lengths)?;
+        let dist_codes = calc_huffman_codes(&dist_lengths)?;
 
-        HuffmanWriter {
+        Ok(HuffmanWriter {
             lit_code_lengths: copy_to_array(&lit_lengths),
             lit_huffman_codes: copy_to_array(&lit_codes),
             dist_code_lengths: copy_to_array(&dist_lengths),
             dist_huffman_codes: copy_to_array(&dist_codes),
-        }
+        })
     }
 
     #[inline(always)]

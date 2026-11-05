@@ -30,6 +30,21 @@
 #![warn(unused_extern_crates)]
 #![warn(unused_lifetimes)]
 #![warn(unused_macro_rules)]
+// panic = "abort" in every shipped profile: a panic reachable from a hostile deflate stream ends
+// AzDrive. The analysis path has none that the compiler can see: an unwrap, an expect, a panic,
+// a todo or an unreachable is a build error outside the tests (ARCH28 RF50 / AR5b-5). Plain
+// asserts and indexing stay - they are the fuzz targets' to find (`fuzz/`).
+#![cfg_attr(
+    not(test),
+    deny(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::unreachable,
+        clippy::todo,
+        clippy::unimplemented
+    )
+)]
 
 mod bit_helper;
 mod correction_codec;

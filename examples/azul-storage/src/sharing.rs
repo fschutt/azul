@@ -261,13 +261,21 @@ pub fn read_shared_entry(
     entry: &ShareEntry,
     key: &ShareKey,
 ) -> Result<Vec<u8>, DriveError> {
-    open_shared_entry(&bucket.get(&entry.object.bucket_key())?, entry, key)
+    // The object is the size the manifest says (the share key authenticates the manifest): no
+    // more is read than that.
+    let limit = crate::Limit::new("a shared file's object", entry.stored_size);
+    open_shared_entry(
+        &bucket.get_limited(&entry.object.bucket_key(), limit)?,
+        entry,
+        key,
+    )
 }
 
 /// The manifest of the share `key` opens, from `bucket`.
 pub fn open_share(bucket: &dyn Drive, key: &ShareKey) -> Result<ShareManifest, DriveError> {
     let at = manifest_key(&key.id());
-    ShareManifest::open(&bucket.get(&at)?, key).map_err(|e| e.for_key(&at))
+    let bytes = bucket.get_limited(&at, crate::limits::named::SHARE_MANIFEST)?;
+    ShareManifest::open(&bytes, key).map_err(|e| e.for_key(&at))
 }
 
 /// The ids of the drive's shares (their manifests in `bucket`).

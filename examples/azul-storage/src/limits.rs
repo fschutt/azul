@@ -2,13 +2,21 @@
 //! spends memory or time on it (ARCH28 RF50 / AR5b-5; the read side of RF48's `get_limited`).
 //!
 //! A [`Limit`] is a named maximum. The name is what the error says ("a key file may be at most
-//! 65536 bytes"), so a refusal tells which rule held, not only that a number was too big. The
-//! types that carry a declared length through a parser (`Declared`, `ByteReader`) build on it
-//! in the work order that owns the parsers; [`crate::Drive::get_limited`] needs only this much.
+//! 65536 bytes"), so a refusal tells which rule held, not only that a number was too big.
+//! [`Declared`] is a number somebody else wrote (a header, an index entry, a chunk size): it can
+//! be compared with a [`Limit`], turned into a position or a span of a slice the reader HAS, or
+//! into a first reservation of at most [`PREALLOC`] - and into nothing else, so a size read from
+//! bytes cannot size an allocation or an index by accident. [`ByteReader`] takes bytes by
+//! [`Declared`] counts and cannot run past its end. [`named`] holds the limits the formats of
+//! this crate use.
 
-use std::fmt;
+use std::{fmt, ops::Range};
 
 use crate::DriveError;
+
+/// What a number read from a header, an index entry or a chunk size may make this device reserve up
+/// front. What is really read grows the buffer after that.
+pub const PREALLOC: usize = 1 << 20;
 
 /// A named maximum.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -81,4 +89,174 @@ impl From<LimitError> for DriveError {
     fn from(e: LimitError) -> Self {
         DriveError::Protocol(e.to_string())
     }
+}
+
+/// A number somebody else wrote - a size, a count or an offset read from a header, an index entry
+/// or a chunk line. It has no `Add`, no conversion to `usize` and no `Index`: the only things
+/// to do with it are to compare it with a [`Limit`] ([`Declared::within`]), to place it in a slice
+/// the reader holds ([`Declared::index_in`], [`Declared::span_in`]) and to reserve at most
+/// [`PREALLOC`] bytes for it ([`Declared::prealloc`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Declared(u64);
+
+impl Declared {
+    /// `n`, as somebody else's word.
+    #[must_use]
+    pub const fn new(n: u64) -> Declared {
+        Declared(n)
+    }
+
+    /// The number when it is within `limit`.
+    ///
+    /// # Errors
+    ///
+    /// [`LimitError`] naming the limit.
+    pub fn within(self, limit: Limit) -> Result<u64, LimitError> {
+        limit.within(self.0)
+    }
+
+    /// How much to reserve up front for this many bytes still to come: at most [`PREALLOC`].
+    #[must_use]
+    pub fn prealloc(self) -> usize {
+        usize::try_from(self.0).map_or(PREALLOC, |n| n.min(PREALLOC))
+    }
+
+    /// The number as a position in a slice of `len` elements (`0..len`).
+    ///
+    /// # Errors
+    ///
+    /// [`LimitError`] when it points past the slice.
+    pub fn index_in(self, len: usize) -> Result<usize, LimitError> {
+        match usize::try_from(self.0) {
+            Ok(at) if at < len => Ok(at),
+            _ => Err(LimitError {
+                limit: Limit::new("a position inside the data it points into", len as u64),
+                got: self.0,
+            }),
+        }
+    }
+
+    /// The span that starts here and is `length` long, inside a slice of `total` elements - the
+    /// addition checked, so an offset and a length that wrap are an error, not a span.
+    ///
+    /// # Errors
+    ///
+    /// [`LimitError`] when the span does not lie in the slice.
+    pub fn span_in(self, length: Declared, total: usize) -> Result<Range<usize>, LimitError> {
+        let end = self.0.checked_add(length.0);
+        let (Ok(start), Some(Ok(end))) = (usize::try_from(self.0), end.map(usize::try_from)) else {
+            return Err(LimitError {
+                limit: Limit::new("a span inside the data it points into", total as u64),
+                got: u64::MAX,
+            });
+        };
+        if end > total {
+            return Err(LimitError {
+                limit: Limit::new("a span inside the data it points into", total as u64),
+                got: self.0.saturating_add(length.0),
+            });
+        }
+        Ok(start..end)
+    }
+}
+
+/// The reader ran out of bytes: it wanted `wanted` and had `had`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ShortRead {
+    pub wanted: u64,
+    pub had: usize,
+}
+
+impl fmt::Display for ShortRead {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "it broke off: {} bytes were wanted and {} were there",
+            self.wanted, self.had
+        )
+    }
+}
+
+impl std::error::Error for ShortRead {}
+
+/// Bytes taken by [`Declared`] counts. It never indexes past its end and never adds: a size read
+/// from the bytes that is more than there is gives a [`ShortRead`], whatever the number.
+#[derive(Clone, Copy, Debug)]
+pub struct ByteReader<'a> {
+    rest: &'a [u8],
+}
+
+impl<'a> ByteReader<'a> {
+    #[must_use]
+    pub fn new(bytes: &'a [u8]) -> ByteReader<'a> {
+        ByteReader { rest: bytes }
+    }
+
+    /// The bytes not taken yet.
+    #[must_use]
+    pub fn rest(&self) -> &'a [u8] {
+        self.rest
+    }
+
+    /// Whether every byte was taken.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.rest.is_empty()
+    }
+
+    /// The next `n` bytes.
+    ///
+    /// # Errors
+    ///
+    /// [`ShortRead`] when fewer are left (nothing is taken then).
+    pub fn take(&mut self, n: Declared) -> Result<&'a [u8], ShortRead> {
+        let short = ShortRead {
+            wanted: n.0,
+            had: self.rest.len(),
+        };
+        let count = usize::try_from(n.0).map_err(|_| short)?;
+        let (taken, rest) = self.rest.split_at_checked(count).ok_or(short)?;
+        self.rest = rest;
+        Ok(taken)
+    }
+
+    /// The bytes up to the next CRLF (not included), the CRLF taken.
+    ///
+    /// # Errors
+    ///
+    /// [`ShortRead`] when there is no CRLF left.
+    pub fn line(&mut self) -> Result<&'a [u8], ShortRead> {
+        let end = self
+            .rest
+            .windows(2)
+            .position(|pair| pair == b"\r\n")
+            .ok_or(ShortRead {
+                wanted: self.rest.len() as u64 + 1,
+                had: self.rest.len(),
+            })?;
+        let line = self.take(Declared::new(end as u64))?;
+        self.take(Declared::new(2))?;
+        Ok(line)
+    }
+}
+
+/// The limits the formats of this crate read their sizes against. Each is the largest value this
+/// software WRITES with some room (the work order's interim caps, revisited when real drives are
+/// measured): a file or an object over it is somebody else's doing.
+pub mod named {
+    use super::Limit;
+
+    /// A key file of `.azlin/keys/`: a member's wrap, the recovery wrap, a further recovery code's.
+    pub const KEY_FILE: Limit = Limit::new("a key file", 64 << 10);
+    /// The key chain file (`_chain.key`): up to 256 links.
+    pub const KEY_CHAIN: Limit = Limit::new("a key chain file", 256 << 10);
+    /// The rotation journal (`_rotation.key`): ids and a phase.
+    pub const JOURNAL: Limit = Limit::new("a rotation journal", 64 << 10);
+    /// An object of the drive index (a pack, a pointer blob, a checkpoint): interim, until real
+    /// drives are measured.
+    pub const INDEX_OBJECT: Limit = Limit::new("an object of the drive index", 256 << 20);
+    /// A share's manifest.
+    pub const SHARE_MANIFEST: Limit = Limit::new("a share manifest", 16 << 20);
+    /// One chunk of an HTTP/1.1 answer: the largest body any answer of the nodes holds.
+    pub const HTTP_CHUNK: Limit = Limit::new("a chunk of an answer", 256 << 20);
 }

@@ -540,7 +540,7 @@ fn load_drop_key_at(
     drive_key: &DriveKey,
     drive: &str,
 ) -> Result<Option<DropSecret>, DriveError> {
-    let bytes = match bucket.get(at) {
+    let bytes = match bucket.get_limited(at, crate::limits::named::KEY_FILE) {
         Ok(bytes) => bytes,
         Err(DriveError::NotFound { .. }) => return Ok(None),
         Err(e) => return Err(e),
@@ -646,7 +646,10 @@ pub fn ingest(
                 .push((object.key, String::from("bigger than a message can be")));
             continue;
         }
-        let bytes = match bucket.get(&object.key) {
+        let bytes = match bucket.get_limited(
+            &object.key,
+            crate::Limit::new("a drop of incoming mail", MAX_DROP_LEN),
+        ) {
             Ok(bytes) => bytes,
             Err(DriveError::NotFound { .. }) => continue, // another device took it
             Err(e) => return Err(e),

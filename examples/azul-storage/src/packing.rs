@@ -812,7 +812,7 @@ pub struct PackReads {
 
 /// The counters behind [`PackReads`], shared by every drive opened under one id.
 #[derive(Default)]
-struct ReadCounter {
+pub(crate) struct ReadCounter {
     ranged: AtomicU64,
     whole: AtomicU64,
     bytes: AtomicU64,
@@ -1774,14 +1774,16 @@ fn take_batch(waiting: &mut VecDeque<(u64, Member)>) -> Vec<(u64, Member)> {
 /// Bytes `offset..offset + len` of `key`, in one ranged GET; a body cut short, or a request
 /// without an answer, asks for the rest, at most [`RESUME_ATTEMPTS`] times more. Each GET counts
 /// in `counted`.
-fn read_resumed<D: Drive + ?Sized>(
+pub(crate) fn read_resumed<D: Drive + ?Sized>(
     drive: &D,
     key: &str,
     offset: u64,
     len: u64,
     counted: &ReadCounter,
 ) -> Result<Vec<u8>, DriveError> {
-    let mut out = Vec::with_capacity(usize::try_from(len).unwrap_or(0));
+    // `len` is an index entry's word (a member wrote it): the first reservation is capped, the rest
+    // grows with what the ranged reads bring (X-AR4-37).
+    let mut out = Vec::with_capacity(crate::limits::Declared::new(len).prealloc());
     let mut retries = 0;
     while (out.len() as u64) < len {
         let from = offset + out.len() as u64;

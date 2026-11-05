@@ -79,7 +79,7 @@ impl DeflateWriter {
                     DeflateHuffmanType::Static => {
                         self.bitwriter.write(block.last as u32, 1, &mut self.output);
                         self.bitwriter.write(1, 2, &mut self.output);
-                        let huffman_writer = HuffmanWriter::start_fixed_huffman_table();
+                        let huffman_writer = HuffmanWriter::start_fixed_huffman_table()?;
                         self.encode_huffman(tokens, &huffman_writer);
                     }
                     DeflateHuffmanType::Dynamic {

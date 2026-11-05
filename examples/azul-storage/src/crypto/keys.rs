@@ -542,6 +542,15 @@ impl RecoveryKdf {
     pub const MAX_PARALLELISM: u32 = 8;
     /// The most work a key file may ask for: KiB of memory times passes (4 GiB-passes).
     pub const MAX_WORK: u64 = 4 * 1024 * 1024;
+    /// The work of the default cost: what every wrap this software writes asks for.
+    pub const DEFAULT_WORK: u64 =
+        RecoveryKdf::DEFAULT_MEMORY_KIB as u64 * RecoveryKdf::DEFAULT_ITERATIONS as u64;
+
+    /// What this cost asks of a device that derives with it: KiB of memory times passes.
+    #[must_use]
+    pub fn work(&self) -> u64 {
+        u64::from(self.memory_kib) * u64::from(self.iterations)
+    }
 
     /// The default cost with a fresh random salt.
     pub fn fresh() -> Result<RecoveryKdf, CryptoError> {
@@ -943,7 +952,7 @@ pub fn store_key_chain(bucket: &dyn Drive, chain: &KeyChain) -> Result<(), Drive
 
 /// The drive's key chain from `bucket`; `None` for a drive that was never rotated.
 pub fn load_key_chain(bucket: &dyn Drive) -> Result<Option<KeyChain>, DriveError> {
-    let bytes = match bucket.get(CHAIN_KEY_FILE) {
+    let bytes = match bucket.get_limited(CHAIN_KEY_FILE, crate::limits::named::KEY_CHAIN) {
         Ok(bytes) => bytes,
         Err(DriveError::NotFound { .. }) => return Ok(None),
         Err(e) => return Err(e),
@@ -963,7 +972,7 @@ pub fn store_member_wrap(bucket: &dyn Drive, wrap: &MemberWrap) -> Result<(), Dr
 /// The wrap of `member` from `bucket`.
 pub fn load_member_wrap(bucket: &dyn Drive, member: &str) -> Result<MemberWrap, DriveError> {
     let key = member_key_file(member).map_err(|e| e.for_key(member))?;
-    let bytes = bucket.get(&key)?;
+    let bytes = bucket.get_limited(&key, crate::limits::named::KEY_FILE)?;
     MemberWrap::parse(&bytes).map_err(|e| e.for_key(&key))
 }
 
@@ -984,7 +993,7 @@ pub fn load_member_wraps(bucket: &dyn Drive) -> Result<BTreeMap<String, Vec<u8>>
         if check_member(member).is_err() || member.starts_with(INVITE_PREFIX) {
             continue;
         }
-        let bytes = match bucket.get(&object.key) {
+        let bytes = match bucket.get_limited(&object.key, crate::limits::named::KEY_FILE) {
             Ok(bytes) => bytes,
             Err(DriveError::NotFound { .. }) => continue,
             Err(e) => return Err(e),
@@ -1003,6 +1012,6 @@ pub fn store_recovery_wrap(bucket: &dyn Drive, wrap: &RecoveryWrap) -> Result<()
 
 /// The recovery wrap from `bucket`.
 pub fn load_recovery_wrap(bucket: &dyn Drive) -> Result<RecoveryWrap, DriveError> {
-    let bytes = bucket.get(RECOVERY_KEY_FILE)?;
+    let bytes = bucket.get_limited(RECOVERY_KEY_FILE, crate::limits::named::KEY_FILE)?;
     RecoveryWrap::parse(&bytes).map_err(|e| e.for_key(RECOVERY_KEY_FILE))
 }

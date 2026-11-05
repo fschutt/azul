@@ -48,6 +48,7 @@ const DIST_CODE_TABLE: [DistCode; 512] = into_array([
 /// Convert a slice of u8 into an array of ConstRangedX. Useful for const initialization, eg
 ///  const CONTARRAY : [ConstRangedX<1,10>;5] = ConstRangedX::<1,10>::into_array([1,2,3,4,5]);
 /// will panic if any value is out of range
+#[allow(clippy::unwrap_used)] // const evaluation: a table out of range is a compile error
 pub const fn into_array<const N: usize, const MAX: u8>(a: [u8; N]) -> [RangedU8<0, MAX>; N] {
     let mut r = [RangedU8::<0, MAX>::MIN; N];
     let mut i = 0;

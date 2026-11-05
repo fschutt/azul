@@ -47,7 +47,8 @@ impl InternalPosition {
 impl InternalPosition {
     fn from_absolute(pos: u32, total_shift: i32) -> Self {
         Self {
-            pos: u16::try_from(pos as i32 - total_shift).unwrap(),
+            // A position outside the 16-bit window is none (0 is "not valid"), not an abort.
+            pos: u16::try_from(pos as i32 - total_shift).unwrap_or(0),
         }
     }
 }

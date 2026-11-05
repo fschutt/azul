@@ -531,7 +531,10 @@ impl<D: Drive> Bucket for DriveBucket<D> {
         let Some(version) = self.version_of(key)? else {
             return Ok(None);
         };
-        match self.drive.get(key) {
+        match self
+            .drive
+            .get_limited(key, crate::limits::named::INDEX_OBJECT)
+        {
             Ok(bytes) => Ok(Some((bytes, version))),
             Err(DriveError::NotFound { .. }) => Ok(None),
             Err(e) => Err(MetaError::Drive(e)),
@@ -545,7 +548,10 @@ impl<D: Drive> Bucket for DriveBucket<D> {
         if version == known {
             return Ok(Fetched::NotModified);
         }
-        match self.drive.get(key) {
+        match self
+            .drive
+            .get_limited(key, crate::limits::named::INDEX_OBJECT)
+        {
             Ok(bytes) => Ok(Fetched::Changed { bytes, version }),
             Err(DriveError::NotFound { .. }) => Ok(Fetched::Missing),
             Err(e) => Err(MetaError::Drive(e)),

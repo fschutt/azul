@@ -970,3 +970,23 @@ fn a_full_drive_refuses_only_the_packed_files_that_do_not_fit_and_the_others_go_
     assert!(drive.get(&files[2].0).is_err());
     assert!(bucket.data_bytes() <= 250_000);
 }
+
+/// X-AR4-37 (the AZ-C3/C6 family): a range an index entry names is an index entry's word, and a
+/// hostile member writes the index. `read_resumed` used to reserve all of it up front - a
+/// petabyte for an entry that says so, and the process aborted. The first reservation is capped
+/// and the reads decide: a range past the pack's end is an error.
+#[test]
+fn x_ar4_37_a_range_an_index_entry_names_does_not_reserve_its_whole_length() {
+    use crate::packing::{read_resumed, ReadCounter};
+
+    let bucket = MemBucket::new();
+    bucket.set("pack", vec![7u8; 100]);
+    let counted = ReadCounter::default();
+    let answer = read_resumed(&bucket, "pack", 0, 1 << 50, &counted);
+    assert!(answer.is_err(), "{answer:?}");
+    // A range the pack has is read whole, however the reservation was capped.
+    assert_eq!(
+        read_resumed(&bucket, "pack", 10, 50, &counted).unwrap(),
+        vec![7u8; 50]
+    );
+}

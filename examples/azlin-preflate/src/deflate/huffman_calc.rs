@@ -354,7 +354,10 @@ mod calc_zlib {
         loop {
             // get the two smallest frequencies and combine them into one new node
             let least1 = heap[SMALLEST];
-            heap[SMALLEST] = heap.pop().unwrap();
+            // (the heap holds two nodes at least here: one symbol returned above and the loop
+            // leaves when the last node is made; an empty heap ends the build, not the process)
+            let Some(last) = heap.pop() else { break };
+            heap[SMALLEST] = last;
             pqdownheap(&mut heap, SMALLEST);
 
             let least2 = heap[SMALLEST];

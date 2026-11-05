@@ -92,6 +92,18 @@ fn roundtrip_hash_algorithm_to_int() {
     }
 }
 
+/// The first four bytes of `b` as a little-endian number. The hash chain hashes a position only
+/// where the bytes of the hash are there; a shorter slice (which would be a bug of the caller, not
+/// a property of any stream) hashes as zeros and mispredicts instead of aborting the process -
+/// the transform's own verification then refuses the stream.
+#[inline(always)]
+fn le_u32_at_start(b: &[u8]) -> u32 {
+    match b {
+        [a0, a1, a2, a3, ..] => u32::from_le_bytes([*a0, *a1, *a2, *a3]),
+        _ => 0,
+    }
+}
+
 pub trait HashImplementation: Default + Copy + Clone {
     const NUM_HASH_BYTES: usize;
 
@@ -181,7 +193,7 @@ impl HashImplementation for LibdeflateHash4Fast {
     const NUM_HASH_BYTES: usize = 4;
 
     fn get_hash(&self, b: &[u8]) -> u16 {
-        let hash = u32::from_le_bytes(b[..4].try_into().unwrap());
+        let hash = le_u32_at_start(b);
 
         (hash.wrapping_mul(0x1E35A7BD) >> 16) as u16
     }
@@ -198,7 +210,7 @@ impl HashImplementation for LibdeflateHash4 {
     const NUM_HASH_BYTES: usize = 4;
 
     fn get_hash(&self, b: &[u8]) -> u16 {
-        let hash = u32::from_le_bytes(b[..4].try_into().unwrap());
+        let hash = le_u32_at_start(b);
 
         (hash.wrapping_mul(0x1E35A7BD) >> 16) as u16
     }
@@ -238,7 +250,7 @@ impl HashImplementation for ZlibNGHash {
     const NUM_HASH_BYTES: usize = 4;
 
     fn get_hash(&self, b: &[u8]) -> u16 {
-        let hash = u32::from_le_bytes(b[..4].try_into().unwrap());
+        let hash = le_u32_at_start(b);
 
         (hash.wrapping_mul(2654435761) >> 16) as u16
     }

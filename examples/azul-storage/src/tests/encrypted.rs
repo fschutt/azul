@@ -1830,3 +1830,33 @@ fn a_streamed_jpeg_is_stored_as_a_transformed_object() {
     std::io::Read::read_to_end(&mut reader, &mut back).unwrap();
     assert_eq!(back, BASELINE_JPEG);
 }
+
+/// X-AR5b-16: the length an object's sealed header names is checked against the length the bucket
+/// really has (the index's `stored_size`) before the segments are looked for - the header is the
+/// writer's word, and a size it declares reserves nothing ahead of the bytes (`open_expecting`).
+/// An object that is longer or shorter than the index names is refused whole and by range.
+#[test]
+fn x_ar5b_16_an_object_of_another_length_than_the_index_names_is_refused_before_it_is_read() {
+    let drive = new_drive();
+    drive.put("notes/a.txt", &text(5000)).unwrap();
+    let (key, bytes) = drive.inner().objects().into_iter().next().unwrap();
+    assert_eq!(
+        drive.get("notes/a.txt").unwrap(),
+        text(5000),
+        "the object as written reads"
+    );
+
+    let mut longer = bytes.clone();
+    longer.push(0);
+    drive.inner().set(&key, longer);
+    let whole = drive.get("notes/a.txt");
+    assert!(
+        matches!(whole, Err(DriveError::Corrupt { .. })),
+        "{whole:?}"
+    );
+
+    drive.inner().set(&key, bytes[..bytes.len() - 1].to_vec());
+    assert!(drive.get("notes/a.txt").is_err(), "a shorter object");
+    let ranged = drive.get_range("notes/a.txt", ByteRange::new(0, Some(10)));
+    assert!(ranged.is_err(), "and a range of it: {ranged:?}");
+}

@@ -177,7 +177,7 @@ impl Journal {
 /// plant one, so it says that a rotation may be under way, nothing more: [`resumable`] is the
 /// question whether it is this device's.
 pub fn pending(bucket: &dyn Drive) -> Result<Option<Journal>, DriveError> {
-    let bytes = match bucket.get(JOURNAL_FILE) {
+    let bytes = match bucket.get_limited(JOURNAL_FILE, crate::limits::named::JOURNAL) {
         Ok(bytes) => bytes,
         Err(DriveError::NotFound { .. }) => return Ok(None),
         Err(e) => return Err(e),

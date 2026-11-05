@@ -21,7 +21,7 @@ use azcloud_kit::{
     Account, IrohDialer, IrohLane, StateDir,
 };
 use azul_storage::{
-    ByteRange, Drive, DriveError, ListPage, ListRequest, ObjectInfo, Precondition, S3Config,
+    ByteRange, Drive, DriveError, Limit, ListPage, ListRequest, ObjectInfo, Precondition, S3Config,
     S3Drive,
 };
 
@@ -199,6 +199,11 @@ impl Drive for AccountDrive {
     }
     fn get_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, DriveError> {
         self.with_bucket(|b| b.get_range(key, range))
+    }
+    // The bucket's own guard stands: a drive that wraps another forwards the limit, so the
+    // transport refuses an answer past it before it is held in memory.
+    fn get_limited(&self, key: &str, limit: Limit) -> Result<Vec<u8>, DriveError> {
+        self.with_bucket(|b| b.get_limited(key, limit))
     }
     fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
         self.with_bucket(|b| b.put(key, bytes))
