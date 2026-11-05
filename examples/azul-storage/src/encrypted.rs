@@ -490,19 +490,6 @@ impl AutoEncrypted {
         *lock(&self.state)
     }
 
-    /// The old two-valued answer: `Some(true)` encrypted, `Some(false)` not, `None` not decided.
-    /// Three readers in azul-drive's `lib.rs` (Z30-R2's file) still ask it; they move to the
-    /// policies of [`EncState`] and this goes. New code asks [`Self::state`].
-    #[doc(hidden)]
-    #[must_use]
-    pub fn is_encrypted(&self) -> Option<bool> {
-        match self.state() {
-            EncState::Undecided => None,
-            EncState::Encrypted { .. } => Some(true),
-            EncState::SetupPending | EncState::Unencrypted(_) => Some(false),
-        }
-    }
-
     /// Decides now when no call did: the state, or why it could not be decided (a keyring that
     /// could not be read, no answer from the bucket, a drive locked for want of its key). For
     /// the worker thread of a job that must know before it acts - never a dummy call whose
@@ -560,27 +547,36 @@ impl AutoEncrypted {
         if state.admits(op, self.plain_reads) {
             return Ok(drive);
         }
-        match (state, op) {
+        // No wildcard arm: a fifth state is a compile error here (the gate in azul-srcgate's
+        // `enc_state_gate` reads for it).
+        match state {
             // The drive was opened again meanwhile (an unlock, a setup): nothing says what this
             // call would have met.
-            (EncState::Undecided, _) => Err(DriveError::Denied {
+            EncState::Undecided => Err(DriveError::Denied {
                 message: format!(
                     "\"{}\" was opened again during this call; ask again",
                     self.drive
                 ),
             }),
-            (_, Op::Read) => Err(DriveError::Denied {
-                message: format!(
-                    "\"{}\" is not encrypted, and this app opens an encrypted drive only: \
-                     encrypt it in AzDrive (Encrypt this drive) first",
-                    self.drive
-                ),
-            }),
-            _ => Err(self
+            EncState::SetupPending | EncState::Unencrypted(_) if op == Op::Read => {
+                Err(DriveError::Denied {
+                    message: format!(
+                        "\"{}\" is not encrypted, and this app opens an encrypted drive only: \
+                         encrypt it in AzDrive (Encrypt this drive) first",
+                        self.drive
+                    ),
+                })
+            }
+            EncState::SetupPending | EncState::Unencrypted(_) => Err(self
                 .unencrypted_refusal()
                 .unwrap_or_else(|| DriveError::Denied {
                     message: format!("\"{}\" is not encrypted", self.drive),
                 })),
+            // `admits` lets an encrypted drive through for every Op, so this is not reached; if
+            // that policy ever changes without this arm, the call is refused, not let through.
+            EncState::Encrypted { .. } => Err(DriveError::Denied {
+                message: format!("\"{}\" refused this call", self.drive),
+            }),
         }
     }
 
