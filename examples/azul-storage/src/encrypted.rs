@@ -35,6 +35,7 @@
 //!   objects instead, each file read back with one ranged GET ([`crate::packing`]).
 
 use std::{
+    cell::Cell,
     collections::{BTreeMap, HashMap, HashSet},
     fmt,
     fs::{self, File, OpenOptions},
@@ -618,24 +619,17 @@ impl AutoEncrypted {
         // keyring on this system, a failure) answers nothing: the error stands, nothing is
         // decided, the next call asks again - "no key" is only what an intact keyring says. A
         // declined prompt is asked again after a while, not with every call.
-        let kept = self
-            .asked(|| device::load_drive_key(self.keyring.as_ref(), &self.drive))?
-            .is_some();
-        let recorded = self.recorded().encrypted;
-        // A setup of this device that stopped (it kept the drive's key before it put anything
-        // into the bucket, and the bucket may list the key files of that try) is a drive waiting
-        // for its encryption, not a locked one: the same setup call finishes it.
-        let unfinished = !kept
-            && !recorded
-            && self.asked(|| device::setup_pending(self.keyring.as_ref(), &self.drive))?;
-        // The bucket's listing is the least trusted word: it can add to the device's (key files
-        // it lists make the drive encrypted and locked) and never take from it.
-        let listed =
-            !unfinished && !kept && !recorded && device::is_encrypted(self.bucket.as_ref())?;
-        let encrypted = !unfinished && (kept || recorded || listed);
-        let fresh = !encrypted && !holds_plaintext_files(self.bucket.as_ref())?;
+        let facts = Facts::gather(
+            self.bucket.as_ref(),
+            self.recorded().encrypted,
+            || {
+                self.asked(|| device::load_drive_key(self.keyring.as_ref(), &self.drive))
+                    .map(|key| key.is_some())
+            },
+            || self.asked(|| device::setup_pending(self.keyring.as_ref(), &self.drive)),
+        )?;
         let mut key_id = None;
-        let drive: Arc<dyn Drive> = if encrypted {
+        let drive: Arc<dyn Drive> = if facts.encrypted() {
             let Some(provider) = &self.provider else {
                 return Err(DriveError::Unsupported(String::from(
                     "this drive is encrypted, and this build of the app has no drive index to \
@@ -648,41 +642,14 @@ impl AutoEncrypted {
                 &self.drive,
                 provider.as_ref(),
             )?;
-            let opened_with = encrypted.drive_key_id();
-            // The key this device recorded is the drive's own, or a key the opened one
-            // replaced (a rotation: its chain holds the older keys). Another lineage is not the
-            // key of the drive this device found encrypted.
-            if let Some(recorded) = self.recorded().key_id {
-                if !encrypted.holds_key(&recorded) {
-                    return Err(DriveError::KeyRefused {
-                        drive: self.drive.clone(),
-                        reason: format!(
-                            "this computer recorded the drive key {recorded}, and the key it \
-                             holds opens the drive as {opened_with}, which replaced no key of \
-                             it"
-                        ),
-                    });
-                }
-            }
-            key_id = Some(opened_with);
+            self.recorded().check_key(&self.drive, &encrypted)?;
+            key_id = Some(encrypted.drive_key_id());
             Arc::new(encrypted)
         } else {
             Arc::clone(&self.bucket)
         };
         *opened = Some(Arc::clone(&drive));
-        let via = if kept {
-            Via::KeyInKeyring
-        } else if recorded {
-            Via::Record
-        } else {
-            Via::KeyFilesListed
-        };
-        *lock(&self.state) = match (encrypted, fresh, unfinished) {
-            (true, _, _) => EncState::Encrypted { key_id, via },
-            (false, true, true) => EncState::SetupPending,
-            (false, true, false) => EncState::Unencrypted(Why::New),
-            (false, false, _) => EncState::Unencrypted(Why::HiddenOrAbsent),
-        };
+        *lock(&self.state) = facts.state(key_id);
         // Without the lock: the app's note of it must not hold the next call up.
         drop(opened);
         if let Some(id) = key_id {
@@ -818,6 +785,230 @@ fn holds_plaintext_files(bucket: &dyn Drive) -> Result<bool, DriveError> {
             None => return Ok(false),
         }
     }
+}
+
+/// What a decision about a drive rests on: the device's own words first (its keyring, its
+/// record), the bucket's listing last - the least trusted word there is. It can add to what the
+/// device knows (key files it lists make the drive encrypted, and locked without a key) and never
+/// take from it.
+#[derive(Clone, Copy, Debug)]
+struct Facts {
+    /// The drive key is in the keyring.
+    kept: bool,
+    /// The device wrote down that it found the drive encrypted.
+    recorded: bool,
+    /// A setup of this device stopped halfway.
+    unfinished: bool,
+    /// The bucket lists key files (asked only when nothing above says so).
+    listed: bool,
+    /// The bucket holds no file of the drive (nothing but its `.azlin/` bookkeeping).
+    fresh: bool,
+}
+
+impl Facts {
+    /// Reads the facts: `kept` is the keyring's answer about the drive key (an error stands:
+    /// nothing is decided), `pending` its answer about a setup that stopped. A setup of this
+    /// device that stopped (it kept the drive's key before it put anything into the bucket, and
+    /// the bucket may list the key files of that try) is a drive waiting for its encryption, not
+    /// a locked one: the same setup call finishes it.
+    fn gather(
+        bucket: &dyn Drive,
+        recorded: bool,
+        kept: impl FnOnce() -> Result<bool, DriveError>,
+        pending: impl FnOnce() -> Result<bool, DriveError>,
+    ) -> Result<Facts, DriveError> {
+        let kept = kept()?;
+        let unfinished = !kept && !recorded && pending()?;
+        let listed = !unfinished && !kept && !recorded && device::is_encrypted(bucket)?;
+        let encrypted = !unfinished && (kept || recorded || listed);
+        let fresh = !encrypted && !holds_plaintext_files(bucket)?;
+        Ok(Facts {
+            kept,
+            recorded,
+            unfinished,
+            listed,
+            fresh,
+        })
+    }
+
+    /// Whether the drive is encrypted: only the device's words, or key files the bucket lists.
+    fn encrypted(self) -> bool {
+        !self.unfinished && (self.kept || self.recorded || self.listed)
+    }
+
+    /// How the device came to take the drive for an encrypted one.
+    fn via(self) -> Via {
+        if self.kept {
+            Via::KeyInKeyring
+        } else if self.recorded {
+            Via::Record
+        } else {
+            Via::KeyFilesListed
+        }
+    }
+
+    /// The state these facts make; `key_id` is the id of the key the drive opened with, once it
+    /// did.
+    fn state(self, key_id: Option<KeyId>) -> EncState {
+        if self.encrypted() {
+            EncState::Encrypted {
+                key_id,
+                via: self.via(),
+            }
+        } else if self.fresh && self.unfinished {
+            EncState::SetupPending
+        } else if self.fresh {
+            EncState::Unencrypted(Why::New)
+        } else {
+            EncState::Unencrypted(Why::HiddenOrAbsent)
+        }
+    }
+}
+
+impl Recorded {
+    /// The key this device recorded is the key `drive` opened with, or a key it replaced (a
+    /// rotation: the drive's key chain holds the older keys). Another line of keys is not the key
+    /// of the drive this device found encrypted: [`DriveError::KeyRefused`]. A record without a
+    /// key id asks nothing.
+    ///
+    /// # Errors
+    ///
+    /// [`DriveError::KeyRefused`] naming both ids.
+    pub fn check_key<D: Drive>(
+        &self,
+        drive: &str,
+        opened: &EncryptedDrive<D>,
+    ) -> Result<(), DriveError> {
+        match self.key_id {
+            Some(recorded) if !opened.holds_key(&recorded) => Err(DriveError::KeyRefused {
+                drive: drive.to_string(),
+                reason: format!(
+                    "this computer recorded the drive key {recorded}, and the key it holds opens \
+                     the drive as {}, which replaced no key of it",
+                    opened.drive_key_id()
+                ),
+            }),
+            Some(_) | None => Ok(()),
+        }
+    }
+}
+
+/// What a device can say of a drive without opening it: the facts of [`AutoEncrypted`]'s
+/// decision, read once. `keyring` is read for the drive key; an error (a declined prompt, none on
+/// the system) stands - "no key" is only what an intact keyring says.
+///
+/// # Errors
+///
+/// The keyring's or the bucket's.
+pub fn judge(
+    bucket: &dyn Drive,
+    keyring: &dyn KeyringStore,
+    drive: &str,
+    record: Recorded,
+) -> Result<EncState, DriveError> {
+    let facts = Facts::gather(
+        bucket,
+        record.encrypted,
+        || device::load_drive_key(keyring, drive).map(|key| key.is_some()),
+        || device::setup_pending(keyring, drive),
+    )?;
+    Ok(facts.state(None))
+}
+
+/// Why an app that opens an encrypted drive only cannot open one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OpenRefusal {
+    /// The drive is encrypted and this device holds no key for it: a join code from a device that
+    /// has it, or the recovery code. `recorded`: this device found it encrypted before.
+    Locked { drive: String, recorded: bool },
+    /// The drive is not encrypted - a new one, an older one, or a bucket that hides its key files
+    /// (the bucket's listing cannot tell them apart): it is opened in AzDrive and encrypted there
+    /// first. Nothing is read from it and nothing written.
+    NotEncrypted(Why),
+    /// The keyring could not be read (a declined prompt, none on the system, a failure): nothing
+    /// is decided. The error is the keyring's, never the secret.
+    Keyring(DriveError),
+    /// Anything else the opening said: a key this device does not take, a bucket that did not
+    /// answer, a damaged key file.
+    Refused(DriveError),
+}
+
+impl fmt::Display for OpenRefusal {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            OpenRefusal::Locked { drive, .. } => write!(
+                f,
+                "drive {drive} is encrypted and this device has no key for it: a join code from a \
+                 device that has it, or the recovery code"
+            ),
+            OpenRefusal::NotEncrypted(Why::New) => f.write_str(
+                "the drive is new and not encrypted yet: it takes no file until it is (open it in \
+                 AzDrive and press Encrypt this drive, or run the encrypt command)",
+            ),
+            OpenRefusal::NotEncrypted(Why::HiddenOrAbsent) => f.write_str(
+                "the drive is not encrypted - or its storage hides its key files, which cannot be \
+                 told apart from here: it is read and written by nothing until it is (open it in \
+                 AzDrive and press Encrypt this drive, or run the encrypt command)",
+            ),
+            OpenRefusal::Keyring(e) | OpenRefusal::Refused(e) => write!(f, "{e}"),
+        }
+    }
+}
+
+impl std::error::Error for OpenRefusal {}
+
+/// The drive `drive` over its `bucket` for an app that opens an encrypted drive only (the
+/// command line): the drive key from the keyring (else this device's member wrap), the index from
+/// `provider`. The decision is [`AutoEncrypted`]'s - this device's keyring and `record` first, the
+/// bucket's listing as an addition to them and never a replacement - but where AutoEncrypted
+/// would let a drive that is not encrypted read as its bucket lists, this refuses it:
+/// [`OpenRefusal::NotEncrypted`]. There is no plaintext path.
+///
+/// # Errors
+///
+/// An [`OpenRefusal`].
+pub fn open_encrypted_only(
+    bucket: Arc<dyn Drive>,
+    keyring: &dyn KeyringStore,
+    drive: &str,
+    provider: &dyn IndexProvider,
+    record: Recorded,
+) -> Result<EncryptedDrive<Arc<dyn Drive>>, OpenRefusal> {
+    let keyring_failed = Cell::new(false);
+    let facts = Facts::gather(
+        bucket.as_ref(),
+        record.encrypted,
+        || {
+            device::load_drive_key(keyring, drive)
+                .map(|key| key.is_some())
+                .inspect_err(|_| keyring_failed.set(true))
+        },
+        || device::setup_pending(keyring, drive).inspect_err(|_| keyring_failed.set(true)),
+    )
+    .map_err(|e| {
+        if keyring_failed.get() {
+            OpenRefusal::Keyring(e)
+        } else {
+            OpenRefusal::Refused(e)
+        }
+    })?;
+    match facts.state(None) {
+        EncState::Unencrypted(why) => return Err(OpenRefusal::NotEncrypted(why)),
+        // A setup that stopped is a new drive's: it takes no file until it is finished.
+        EncState::SetupPending => return Err(OpenRefusal::NotEncrypted(Why::New)),
+        EncState::Undecided | EncState::Encrypted { .. } => {}
+    }
+    let opened = open_encrypted(bucket, keyring, drive, provider).map_err(|e| match e {
+        DriveError::Locked { drive } => OpenRefusal::Locked {
+            drive,
+            recorded: facts.recorded,
+        },
+        other => OpenRefusal::Refused(other),
+    })?;
+    record
+        .check_key(drive, &opened)
+        .map_err(OpenRefusal::Refused)?;
+    Ok(opened)
 }
 
 /// The mutex's value, also after a thread panicked while holding it.

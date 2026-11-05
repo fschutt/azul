@@ -546,6 +546,9 @@ pub mod iroh_lane {
     #[test]
     fn a_server_outside_the_trusted_roots_is_refused_and_one_inside_answers() {
         use azul_core::tls_testing::{serve_tls, TestCa};
+        use azul_storage::Method;
+
+        use crate::https::HttpsTransport;
         let a = TestCa::new("azul test root A");
         let b = TestCa::new("azul test root B");
         let (port, seen) = serve_tls(b.server_for_loopback());

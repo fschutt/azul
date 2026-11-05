@@ -30,7 +30,7 @@ use std::{
     sync::Arc,
 };
 
-pub use azul_storage::encrypted::{open_encrypted, IndexProvider};
+pub use azul_storage::encrypted::{open_encrypted, IndexProvider, OpenRefusal};
 use azul_storage::{
     crypto::{
         device,
@@ -38,10 +38,11 @@ use azul_storage::{
         keys::{RecoveryCode, RecoveryKdf},
         DriveKey, KeyId,
     },
-    encrypted::EncryptedDrive,
+    encrypted::{EncryptedDrive, Recorded},
     keyring::KeyringStore,
     meta::{git, DriveBucket},
     rotation::{self, ReencryptState, Rotated},
+    trust::EncState,
     Drive, DriveError, S3Config, S3Drive,
 };
 
@@ -131,7 +132,10 @@ impl Account {
         kdf: RecoveryKdf,
     ) -> CloudResult<RecoveryCode> {
         let bucket = self.bucket_drive()?;
-        let (_, code) = device::setup_new_drive(&bucket, keyring, &self.record().id, kdf)?;
+        let (drive_key, code) = device::setup_new_drive(&bucket, keyring, &self.record().id, kdf)?;
+        // The code below is shown once and stored nowhere: a note that could not be written must
+        // not take it away. (collapse-ok: the next open of the drive writes the note again.)
+        let _ = self.note_encrypted(&drive_key.id().to_hex());
         Ok(code)
     }
 
@@ -186,13 +190,16 @@ impl Account {
             None => None,
         };
         let bucket = self.bucket_drive()?;
-        Ok(Some(device::adopt_invite(
+        let drive_key = device::adopt_invite(
             &bucket,
             keyring,
             &self.record().id,
             &invite,
             key_id.as_ref(),
-        )?))
+        )?;
+        // collapse-ok: the next open of the drive writes the note again.
+        let _ = self.note_encrypted(&drive_key.id().to_hex());
+        Ok(Some(drive_key))
     }
 
     /// The drive key on this device: `keyring`'s, else the one this device's member wrap in the
@@ -237,26 +244,42 @@ impl Account {
         Ok(())
     }
 
-    /// `(whether the bucket holds an encrypted drive, whether this device keeps its key)`; the
-    /// second needs no network.
+    /// What this device knows of the drive's encryption, the way AzDrive decides it: the keyring
+    /// and the account file's record first, the bucket's listing of the key files as an addition
+    /// to them and never a replacement ([`azul_storage::encrypted::judge`]). A drive this device
+    /// holds no key for and recorded nothing of, in a bucket that lists no key files, is not
+    /// encrypted as far as it can tell - which is also what a bucket that hides them looks like:
+    /// no command writes into it ([`Account::open_encrypted_only`]). Needs the network only when
+    /// the device keeps no key.
     ///
     /// # Errors
     ///
-    /// The bucket's or the keyring's refusal.
-    pub fn encryption_status(&self, keyring: &dyn KeyringStore) -> CloudResult<(bool, bool)> {
-        let kept = self.holds_drive_key(keyring)?;
+    /// The keyring's (a declined prompt, none on the system) or the bucket's refusal.
+    pub fn encryption_state(&self, keyring: &dyn KeyringStore) -> CloudResult<EncState> {
         let bucket = self.bucket_drive()?;
-        Ok((device::is_encrypted(&bucket)? || kept, kept))
+        Ok(azul_storage::encrypted::judge(
+            &bucket,
+            keyring,
+            &self.record().id,
+            self.recorded()?,
+        )?)
     }
 
-    /// Whether this device keeps the drive's key (a look into `keyring`, no network): its
-    /// plaintext commands must not write into the drive then.
+    /// What the account file records of the drive's encryption NOW (another run may have written
+    /// it since this account was opened), as AzDrive's `AutoEncrypted` takes a record.
     ///
     /// # Errors
     ///
-    /// The keyring's refusal, a damaged entry.
-    pub fn holds_drive_key(&self, keyring: &dyn KeyringStore) -> CloudResult<bool> {
-        Ok(device::load_drive_key(keyring, &self.record().id)?.is_some())
+    /// The account file cannot be read: an unreadable record is no record of "not encrypted".
+    pub fn recorded(&self) -> CloudResult<Recorded> {
+        let file = crate::account::AccountFile::load(&self.state().account_file())?;
+        let record = file
+            .get(Some(&self.record().id))
+            .unwrap_or_else(|| self.record());
+        Ok(Recorded {
+            encrypted: record.encrypted,
+            key_id: record.key_id.as_deref().and_then(KeyId::from_hex),
+        })
     }
 
     /// The drive key the recovery code opens, kept in `keyring` with this device enrolled.
@@ -270,7 +293,10 @@ impl Account {
         keyring: &dyn KeyringStore,
     ) -> CloudResult<DriveKey> {
         let bucket = self.bucket_drive()?;
-        Ok(device::recover(&bucket, keyring, &self.record().id, code)?)
+        let drive_key = device::recover(&bucket, keyring, &self.record().id, code)?;
+        // collapse-ok: the next open of the drive writes the note again.
+        let _ = self.note_encrypted(&drive_key.id().to_hex());
+        Ok(drive_key)
     }
 
     /// "I was hacked": the drive's lockdown ([`Account::lockdown`]: every other device, key and
@@ -381,5 +407,39 @@ impl Account {
             &self.record().id,
             provider,
         )?)
+    }
+
+    /// The drive's files through the encryption for a program that has NO plaintext path (the
+    /// command line): the drive key from `keyring` (or this device's member wrap), the index from
+    /// `provider`. The decision is AzDrive's - this device's keyring and the account file's
+    /// record first, the bucket's listing as an addition and never a replacement - and a drive
+    /// that is not encrypted (new, older, or a bucket that hides its key files, which cannot be
+    /// told apart) is refused ([`OpenRefusal::NotEncrypted`]) instead of being read or written as
+    /// its bucket lists. Opened, the drive is written down as encrypted in the account file with
+    /// the id of its key.
+    ///
+    /// # Errors
+    ///
+    /// An [`OpenRefusal`].
+    pub fn open_encrypted_only(
+        &self,
+        keyring: &dyn KeyringStore,
+        provider: &dyn IndexProvider,
+    ) -> Result<EncryptedDrive<Arc<dyn Drive>>, OpenRefusal> {
+        let refused = |e: crate::error::CloudError| {
+            OpenRefusal::Refused(DriveError::InvalidConfig(e.to_string()))
+        };
+        let bucket: Arc<dyn Drive> = Arc::new(self.bucket_drive().map_err(refused)?);
+        let opened = azul_storage::encrypted::open_encrypted_only(
+            bucket,
+            keyring,
+            &self.record().id,
+            provider,
+            self.recorded().map_err(refused)?,
+        )?;
+        // collapse-ok: a note that cannot be written is written at the next open; the drive
+        // opened.
+        let _ = self.note_encrypted(&opened.drive_key_id().to_hex());
+        Ok(opened)
     }
 }

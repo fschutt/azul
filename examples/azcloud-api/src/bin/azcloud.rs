@@ -12,20 +12,25 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     io::Read,
-    path::{Path, PathBuf},
+    path::PathBuf,
     process::ExitCode,
     sync::Arc,
 };
 
+#[cfg(feature = "encryption")]
+use std::path::Path;
+
 use anyhow::{anyhow, bail, Context, Result};
 use azcloud_api::{https::HttpsTransport, os_dirs, HTTPS_TIMEOUT};
+#[cfg(feature = "encryption")]
+use azcloud_kit::sync::local::hash_file;
 use azcloud_kit::{
     account::{Account, AccountFile, JoinCode},
     drive::TransportFactory,
     settings::{Flags, Settings},
     share,
     state::{write_atomic, StateDir, ACCOUNT_FILE},
-    sync::{self, local::hash_file, LocalRoot, SyncOptions},
+    sync,
     transport::{CloudDrive, IrohDialer},
     CloudError,
 };
@@ -47,13 +52,15 @@ commands:
                                  into F, readable by you only)
   invite [--member M] [--out F]  a join code for another device (a member token family of its own;
                                  it holds a secret: --out writes it to a file only you can read)
-  join <code> | --code-file F | -   this device joins the drive of a code (- reads stdin)
+  join --code-file F | -         this device joins the drive of a code (- reads stdin; a code on the
+                                 command line would show in ps and in the shell's history)
   status                         this device's drive, credentials and node list (no network)
   encryption                     whether the drive is encrypted and this device keeps its key
   encrypt --yes [--out F]        encrypts the drive from this device: its keys, and its RECOVERY
                                  CODE, shown once (--out writes it to a file only you can read)
   unlock                         the drive key from this device's own wrap in the bucket
-  recover <code> | --code-file F | -   this device gets the drive key with the recovery code
+  recover --code-file F | -      this device gets the drive key with the recovery code (F or
+                                 stdin, never the command line)
   rotate --yes [--out F]         \"I was hacked\": locks the drive down (every other device, key and
                                  link), then a new drive key; the new RECOVERY CODE shows once
   reencrypt                      after rotate: every file into a new object (recommended)
@@ -70,24 +77,18 @@ commands:
   info                           the token server's view of the drive
   refresh                        new credentials and node list now
   transport                      which transport requests take (iroh or https) and why
-  up <file> [--key K]            uploads a file (default key uploads/<file name>); an encrypted
-                                 drive's files go through the encryption and the drive index
-                                 (up, down, ls, rm; sync and share refuse an encrypted drive)
-  down <key> <file>              downloads an object (parallel ranges when it is big)
-  ls [prefix]                    lists the objects under a prefix
-  rm <key>                       deletes an object
-  sync <dir> [--prefix P]        syncs a folder with a drive prefix (default sync/<folder name>/)
-  sync --azlin                   the Azlin tree: the data root -> azlin/data/,
-                                 the .azlin folder -> azlin/config/ (config.json without endpoints)
-       [--dry-run] [--allow-mass-delete] [--allow-burst] [--exclude GLOB]... [--max-file-mb N]
-       [--parallel N]            (--allow-burst: the paused burst of changes is yours, send it)
-       [--file-settle-ms N]      files written within N ms wait for a later run
-       [--disk-reserve BYTES]    downloads keep this much free on the folder's disk (1 GiB)
-                                 exit 3: a mass delete waits (--allow-mass-delete), exit 2: the
-                                 folder or the drive's index was refused, nothing changed
-  share <key> [--expires S]      a presigned link (with --prefix P: the synced file <key> of P)
+  up <file> [--key K]            uploads a file (default key uploads/<file name>) through the
+                                 encryption and the drive index; an Azlin drive is encrypted, so a
+                                 drive this device cannot show to be (a new one, an older one, a
+                                 bucket that hides its key files) is refused: nothing is written
+                                 (up, down, ls, rm)
+  down <key> <file>              downloads an object (decrypted, a segment at a time)
+  ls [prefix]                    lists the files under a prefix
+  rm <key>                       deletes a file
+  sync, share                    refused: the command line does not take an Azlin drive through
+                                 the encryption for these yet (AzDrive's sync and Share do)
   lockdown --yes                 revokes every other device, key and link of the drive
-  lockdown-cancel <code> | --code-file F | -
+  lockdown-cancel --code-file F | -
                                  cancels a pending recovery-key lockdown (the recovery code signs)
   restore <prefix> --as-of T     restores objects as they were at T (RFC 3339)
   restore-status <id>            a restore's progress
@@ -136,15 +137,9 @@ const VALUE_FLAGS: &[&str] = &[
     "--member",
     "--out",
     "--key",
-    "--prefix",
-    "--exclude",
-    "--expires",
     "--as-of",
     "--grace-hours",
-    "--max-file-mb",
     "--parallel",
-    "--file-settle-ms",
-    "--disk-reserve",
     "--cloudflare-account",
     "--cloudflare-token-file",
     "--recovery-out",
@@ -156,8 +151,6 @@ const VALUE_FLAGS: &[&str] = &[
 const SWITCHES: &[&str] = &[
     "--json",
     "--dry-run",
-    "--allow-mass-delete",
-    "--allow-burst",
     "--azlin",
     "--yes",
     "--help",
@@ -236,13 +229,6 @@ impl Args {
             .map(String::as_str)
     }
 
-    fn all(&self, name: &str) -> Vec<&str> {
-        self.values
-            .get(name)
-            .map(|v| v.iter().map(String::as_str).collect())
-            .unwrap_or_default()
-    }
-
     fn on(&self, name: &str) -> bool {
         self.switches.contains(name)
     }
@@ -311,6 +297,7 @@ fn rfc3339(unix: i64) -> String {
 }
 
 /// A listing's time as S3 writes it (`2026-10-08T09:15:00.000Z`).
+#[cfg(feature = "encryption")]
 fn listing_time(unix: Option<u64>) -> String {
     match unix {
         Some(secs) => {
@@ -496,16 +483,18 @@ fn cmd_invite(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
             let value = json!({"ok": true, "member": code.member, "drive": code.drive_id,
                                "code": encoded, "carries_key": carries_key});
             let text = format!(
-                "{encoded}\n(a secret: whoever has it joins the drive once; azcloud join <it>)\
-                 {key_note}\n"
+                "{encoded}\n(a secret: whoever has it joins the drive once; azcloud join --code-file \
+                 <file>, or azcloud join - and paste it){key_note}\n"
             );
             Ok((value, text))
         }
     }
 }
 
-/// A code from the command line: `<code>`, `--code-file F` or `-` (stdin). `what` names it in
-/// errors ("join", "recovery"), `command` in the usage.
+/// A code from `--code-file F` or `-` (stdin), never from the command line itself: a join code
+/// (it carries a drive token) and a recovery code (it opens the drive) in the arguments are
+/// visible to every program that lists processes and stay in the shell's history (AZ-K16).
+/// `what` names it in errors ("join", "recovery"), `command` in the usage.
 fn code_argument(args: &Args, what: &str, command: &str) -> Result<String> {
     Ok(
         match (
@@ -519,8 +508,12 @@ fn code_argument(args: &Args, what: &str, command: &str) -> Result<String> {
                 std::io::stdin().read_to_string(&mut text)?;
                 text
             }
-            (None, Some(code)) => code.to_string(),
-            (None, None) => bail!("azcloud {command} <code> | --code-file <file> | - (stdin)"),
+            (None, Some(_)) => bail!(
+                "the {what} code is a secret: a code on the command line shows in ps and in the \
+                 shell's history. azcloud {command} --code-file <file>, or azcloud {command} - \
+                 (stdin)"
+            ),
+            (None, None) => bail!("azcloud {command} --code-file <file> | - (stdin)"),
         },
     )
 }
@@ -699,10 +692,6 @@ fn cmd_transport(settings: &Settings, net: &Net, args: &Args) -> Result<Output> 
     Ok((value, text))
 }
 
-fn lane_name(drive: &CloudDrive) -> String {
-    drive.lane().name().to_string()
-}
-
 fn cmd_up(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
     let file = args
         .rest()
@@ -724,7 +713,10 @@ fn cmd_up(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
     };
     sync::remote::check_key(&key)?;
     #[cfg(feature = "encryption")]
-    if let Some(encrypted) = encrypted_files(settings, net, args)? {
+    {
+        // The drive is opened before the file is read: a drive that cannot be shown to be
+        // encrypted is refused here, and nothing is written.
+        let encrypted = encrypted_drive(settings, net, args)?;
         // Streamed through the encryption: one segment of plaintext in memory at a time.
         let blake3 = hash_file(&path).with_context(|| format!("{}", path.display()))?;
         let mut file =
@@ -734,20 +726,13 @@ fn cmd_up(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
         let value = json!({"ok": true, "key": key, "bytes": bytes, "blake3": blake3, "etag": etag,
                            "transport": "https", "encrypted": true});
         let text = format!("up {key}: {bytes} bytes, encrypted, over https (BLAKE3 {blake3})\n");
-        return Ok((value, text));
+        Ok((value, text))
     }
-    let account = open_account(settings, net, args)?;
-    refuse_plaintext(&account)?;
-    let drive = open_drive(settings, net, &account, args)?;
-    let blake3 = hash_file(&path).with_context(|| format!("{}", path.display()))?;
-    drive.put_file(&key, &path, &azul_storage::ctl::Quiet)?;
-    let etag = drive.head(&key)?.map(|(_, etag)| etag).unwrap_or_default();
-    let lane = lane_name(&drive);
-    drive.close();
-    let value = json!({"ok": true, "key": key, "bytes": bytes, "blake3": blake3, "etag": etag,
-                       "transport": lane});
-    let text = format!("up {key}: {bytes} bytes over {lane} (BLAKE3 {blake3})\n");
-    Ok((value, text))
+    #[cfg(not(feature = "encryption"))]
+    {
+        let _ = (settings, net, bytes);
+        Err(without_encryption("up"))
+    }
 }
 
 fn cmd_down(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
@@ -756,7 +741,8 @@ fn cmd_down(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
         _ => bail!("azcloud down <key> <file>"),
     };
     #[cfg(feature = "encryption")]
-    if let Some(encrypted) = encrypted_files(settings, net, args)? {
+    {
+        let encrypted = encrypted_drive(settings, net, args)?;
         let bytes = save_encrypted(&encrypted, &key, &file)?;
         let blake3 = hash_file(&file).with_context(|| format!("{}", file.display()))?;
         let value = json!({"ok": true, "key": key, "bytes": bytes, "blake3": blake3,
@@ -766,58 +752,43 @@ fn cmd_down(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
             "down {key}: {bytes} bytes, decrypted, over https into {} (BLAKE3 {blake3})\n",
             file.display()
         );
-        return Ok((value, text));
+        Ok((value, text))
     }
-    let account = open_account(settings, net, args)?;
-    let drive = open_drive(settings, net, &account, args)?;
-    if drive.head(&key)?.is_none() {
-        return Err(anyhow!("the drive has no {key}"));
+    #[cfg(not(feature = "encryption"))]
+    {
+        let _ = (settings, net, key, file);
+        Err(without_encryption("down"))
     }
-    // Into the file in ranges, several at once (never whole in memory), resumably.
-    let bytes = drive.download_to(&key, &file, &mut |_| {})?;
-    let lane = lane_name(&drive);
-    drive.close();
-    let blake3 = hash_file(&file).with_context(|| format!("{}", file.display()))?;
-    let value = json!({"ok": true, "key": key, "bytes": bytes, "blake3": blake3,
-                       "file": file.display().to_string(), "transport": lane});
-    let text = format!(
-        "down {key}: {bytes} bytes over {lane} into {} (BLAKE3 {blake3})\n",
-        file.display()
-    );
-    Ok((value, text))
 }
 
 fn cmd_ls(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
-    let prefix = args.rest().first().map(String::as_str).unwrap_or("");
-    let objects = match encrypted_files(settings, net, args)? {
+    #[cfg(feature = "encryption")]
+    {
+        let prefix = args.rest().first().map(String::as_str).unwrap_or("");
         // The drive index's names: the bucket holds random object ids only.
-        #[cfg(feature = "encryption")]
-        Some(encrypted) => azul_storage::ops::list_all(&encrypted, prefix)?,
-        #[cfg(not(feature = "encryption"))]
-        Some(never) => match never {},
-        None => {
-            let account = open_account(settings, net, args)?;
-            let drive = open_drive(settings, net, &account, args)?;
-            let objects = drive.list_all(prefix)?;
-            drive.close();
-            objects
+        let encrypted = encrypted_drive(settings, net, args)?;
+        let objects = azul_storage::ops::list_all(&encrypted, prefix)?;
+        let mut text = String::new();
+        for o in &objects {
+            text.push_str(&format!(
+                "{:>12} {} {}\n",
+                o.size,
+                listing_time(o.modified),
+                o.key
+            ));
         }
-    };
-    let mut text = String::new();
-    for o in &objects {
-        text.push_str(&format!(
-            "{:>12} {} {}\n",
-            o.size,
-            listing_time(o.modified),
-            o.key
-        ));
+        text.push_str(&format!("{} objects under {prefix:?}\n", objects.len()));
+        let value = json!({"ok": true, "prefix": prefix, "objects": objects.iter().map(|o| json!({
+            "key": o.key, "size": o.size, "etag": o.etag.clone().unwrap_or_default(),
+            "last_modified": listing_time(o.modified),
+        })).collect::<Vec<_>>()});
+        Ok((value, text))
     }
-    text.push_str(&format!("{} objects under {prefix:?}\n", objects.len()));
-    let value = json!({"ok": true, "prefix": prefix, "objects": objects.iter().map(|o| json!({
-        "key": o.key, "size": o.size, "etag": o.etag.clone().unwrap_or_default(),
-        "last_modified": listing_time(o.modified),
-    })).collect::<Vec<_>>()});
-    Ok((value, text))
+    #[cfg(not(feature = "encryption"))]
+    {
+        let _ = (settings, net, args);
+        Err(without_encryption("ls"))
+    }
 }
 
 fn cmd_rm(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
@@ -826,205 +797,42 @@ fn cmd_rm(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
         .first()
         .ok_or_else(|| anyhow!("azcloud rm <key>"))?;
     #[cfg(feature = "encryption")]
-    if let Some(encrypted) = encrypted_files(settings, net, args)? {
+    {
         use azul_storage::Drive as _;
+        let encrypted = encrypted_drive(settings, net, args)?;
         match encrypted.delete(key) {
             Ok(()) | Err(azul_storage::DriveError::NotFound { .. }) => {}
             Err(e) => return Err(e.into()),
         }
-        return Ok((json!({"ok": true, "key": key, "encrypted": true}), format!("deleted {key}\n")));
+        Ok((
+            json!({"ok": true, "key": key, "encrypted": true}),
+            format!("deleted {key}\n"),
+        ))
     }
-    let account = open_account(settings, net, args)?;
-    let drive = open_drive(settings, net, &account, args)?;
-    drive.delete(key)?;
-    drive.close();
-    Ok((json!({"ok": true, "key": key}), format!("deleted {key}\n")))
-}
-
-/// The prefix of `sync <dir>` without `--prefix`: `sync/<folder name>/`.
-fn default_prefix(dir: &Path) -> String {
-    let abs = std::path::absolute(dir).unwrap_or_else(|_| dir.to_path_buf());
-    let name = abs
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .filter(|n| !n.is_empty())
-        .unwrap_or_else(|| String::from("root"));
-    format!("sync/{}/", name.replace(['/', '\\'], "-"))
-}
-
-fn cmd_sync(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
-    let roots: Vec<(LocalRoot, String)> = if args.on("--azlin") {
-        if !args.rest().is_empty() || args.value("--prefix").is_some() {
-            bail!("sync --azlin takes no folder and no prefix: it syncs the data root and the .azlin folder");
-        }
-        let data = settings
-            .data_root
-            .path
-            .clone()
-            .ok_or_else(|| anyhow!("no data root (AZLIN_DATA, --data-dir)"))?;
-        let home = settings
-            .azlin_home
-            .path
-            .clone()
-            .ok_or_else(|| anyhow!("no .azlin folder (AZLIN_HOME, --azlin-home)"))?;
-        sync::azlin_roots(&data, &home)
-            .into_iter()
-            .map(|(root, prefix)| (root, prefix.to_string()))
-            .collect()
-    } else {
-        let dir = args
-            .rest()
-            .first()
-            .ok_or_else(|| anyhow!("azcloud sync <dir> [--prefix P] | azcloud sync --azlin"))?;
-        let dir = PathBuf::from(dir);
-        let prefix = args
-            .string("--prefix")
-            .unwrap_or_else(|| default_prefix(&dir));
-        vec![(LocalRoot::folder(&dir), prefix)]
-    };
-    let account = open_account(settings, net, args)?;
-    refuse_plaintext(&account)?;
-    refuse_encrypted(&account, "sync")?;
-    let state = account.state().clone();
-    let device = state.device(args.value("--device-name"))?;
-    for (root, _) in &roots {
-        if state.overlaps(&root.path) {
-            bail!(
-                "{} and this device's state folder {} overlap: a sync would upload its secrets. \
-                 Move the state folder (AZCLOUD_HOME, --state-dir) or sync another folder",
-                root.path.display(),
-                state.path().display()
-            );
-        }
-    }
-    let drive = open_drive(settings, net, &account, args)?;
-    let mut reports = Vec::new();
-    let mut text = String::new();
-    for (mut root, prefix) in roots {
-        for pattern in args.all("--exclude") {
-            root.rules.add(pattern, "--exclude");
-        }
-        let mut opts = SyncOptions::new(&prefix, &account.record().bucket, &device.name)?;
-        opts.dry_run = args.on("--dry-run");
-        opts.allow_mass_delete = args.on("--allow-mass-delete");
-        opts.allow_burst = args.on("--allow-burst");
-        if let Some(mb) = args.number::<u64>("--max-file-mb")? {
-            opts.max_file_bytes = mb.saturating_mul(1024 * 1024);
-        }
-        if let Some(parallel) = args.number::<usize>("--parallel")? {
-            opts.parallel = parallel.max(1);
-        }
-        if let Some(ms) = args.number::<u64>("--file-settle-ms")? {
-            opts.file_settle = std::time::Duration::from_millis(ms);
-        }
-        if let Some(bytes) = args.number::<u64>("--disk-reserve")? {
-            opts.disk_reserve = bytes;
-        }
-        // The drive's restore announcement of the last refresh: an older index after an
-        // announced restore heals from here instead of being refused as a rollback.
-        opts.restore = account.record().restore.clone();
-        let index_path =
-            sync::local::index_path(&state.sync_dir(), &opts.bucket, &opts.prefix, &root.path);
-        // A mass delete waits for the user (exit 3) instead of failing the run: its report says
-        // what would go, and --allow-mass-delete confirms it.
-        let hooks = sync::RunHooks {
-            hold_mass_delete: true,
-            ..sync::RunHooks::default()
-        };
-        let target = sync::Target::Index(&drive);
-        let report = match sync::sync_to(target, &root, &index_path, &opts, &hooks) {
-            Ok(report) => report,
-            Err(e) => {
-                let what = format!("sync {} <-> {prefix}", root.path.display());
-                drive.close();
-                return Err(e.context(what).into());
-            }
-        };
-        text.push_str(&report.summary());
-        text.push('\n');
-        for line in report
-            .conflicts
-            .iter()
-            .map(|c| format!("  conflict: {c}"))
-            .chain(report.errors.iter().map(|e| format!("  error: {e}")))
-            .chain(report.notes.iter().map(|n| format!("  note: {n}")))
-            .chain(report.planned.iter().map(|p| format!("  would: {p}")))
-            .chain(
-                report
-                    .changed_during_sync
-                    .iter()
-                    .map(|c| format!("  later: {c}")),
-            )
-            .chain(report.problems.iter().map(|p| {
-                format!("  {}: {} {}", p.code.as_str(), p.shown_key(), p.detail)
-            }))
-            .chain(report.mass_delete.iter().map(|m| {
-                format!(
-                    "  waits: {} of {} files would be deleted {} - run again with \
-                     --allow-mass-delete if that is right",
-                    m.count,
-                    m.of,
-                    if m.here { "here" } else { "on the drive" }
-                )
-            }))
-        {
-            text.push_str(&line);
-            text.push('\n');
-        }
-        reports.push(report);
-    }
-    let lane = lane_name(&drive);
-    let transport = drive.transport();
-    drive.close();
-    let ok = reports.iter().all(|r| r.errors.is_empty());
-    // 3: a mass delete waits for the user; 2: the folder or the drive's index was refused.
-    let exit = if reports.iter().any(|r| r.mass_delete.is_some()) {
-        3
-    } else if reports
-        .iter()
-        .any(|r| r.refused.is_some() || !r.newer_format.is_empty())
+    #[cfg(not(feature = "encryption"))]
     {
-        2
-    } else if ok {
-        0
-    } else {
-        1
-    };
-    let value = json!({"ok": ok, "exit": exit, "transport": lane,
-                       "transport_reason": transport.reason, "device": device.name,
-                       "reports": reports});
-    Ok((value, text))
+        let _ = (settings, net, key);
+        Err(without_encryption("rm"))
+    }
 }
 
-fn cmd_share(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
-    let key = args
-        .rest()
-        .first()
-        .ok_or_else(|| anyhow!("azcloud share <key> [--expires S] [--prefix P]"))?;
-    let expires = args.number::<i64>("--expires")?.unwrap_or(3600);
-    let account = open_account(settings, net, args)?;
-    refuse_encrypted(&account, "share")?;
-    let drive = open_drive(settings, net, &account, args)?;
-    let endpoint = drive.https_bucket().config().endpoint.clone();
-    let now = azcloud_kit::now();
-    let link = match args.value("--prefix") {
-        Some(prefix) => share::synced_link(&drive, &account, &endpoint, prefix, key, expires, now),
-        None => share::public_link(&account, &endpoint, key, expires, now),
-    };
-    drive.close();
-    let link = link?;
-    let mut value = serde_json::to_value(&link)?;
-    value["ok"] = json!(true);
-    let text = format!(
-        "{}\nvalid until {}{}\n",
-        link.url,
-        rfc3339(link.expires_at),
-        link.note
-            .as_deref()
-            .map(|n| format!("\nnote: {n}"))
-            .unwrap_or_default()
-    );
-    Ok((value, text))
+/// `sync` and `share` of the command line: refused. Both stored plaintext in the bucket
+/// (the folder's files, a presigned link to a file in the clear), and an Azlin drive is
+/// encrypted, always: AzDrive's sync and Share go through the encryption, these do not yet.
+fn cmd_not_through_the_encryption(command: &str) -> Result<Output> {
+    bail!(
+        "{command} of the command line does not go through the encryption yet (AzDrive's sync and \
+         Share do): an Azlin drive is encrypted, so nothing here stores its files in the clear"
+    )
+}
+
+/// What a command that needs the encryption says in a build without it.
+#[cfg(not(feature = "encryption"))]
+fn without_encryption(command: &str) -> anyhow::Error {
+    anyhow!(
+        "{command}: this azcloud was built without the feature `encryption`, and an Azlin drive \
+         is encrypted: nothing is stored in the clear"
+    )
 }
 
 fn cmd_lockdown(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
@@ -1139,26 +947,6 @@ fn cmd_gc(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
     Ok((json!({"ok": true, "reports": reports}), text))
 }
 
-/// Refuses a command that writes plaintext into the drive when this device keeps the drive's
-/// key (the drive is encrypted): a look into the secrets file, no network.
-#[cfg(feature = "encryption")]
-fn refuse_plaintext(account: &Account) -> Result<()> {
-    if account.holds_drive_key(&account.state().secrets())? {
-        bail!(
-            "drive {} is encrypted: this command would store plaintext in it. Files go through \
-             the encryption once the drive index (the encrypted metadata repository) is in",
-            account.record().id
-        );
-    }
-    Ok(())
-}
-
-/// Without the feature nothing here knows the drive's key: the commands run as before.
-#[cfg(not(feature = "encryption"))]
-fn refuse_plaintext(_account: &Account) -> Result<()> {
-    Ok(())
-}
-
 /// The drive index of encrypted drives: the bucket's encrypted metadata repository, this
 /// device's copy of it in the state folder (`<state>/drive-index`), named in its commits by the
 /// device's name.
@@ -1210,62 +998,31 @@ fn save_encrypted<D: azul_storage::Drive>(
     Ok(bytes)
 }
 
-/// An encrypted drive's files through the encryption and the drive index (HTTPS); `None` for a
-/// plaintext drive (its bucket as it is). Refused when the drive is encrypted and this device
-/// has no key for it.
+/// The drive's files through the encryption and the drive index (HTTPS). There is no other way to
+/// the files of an Azlin drive: a drive this device cannot show to be encrypted - a new one, an
+/// older one, a bucket that hides its key files, which cannot be told apart - is refused, and so is
+/// one this device holds no key for.
 #[cfg(feature = "encryption")]
-fn encrypted_files(
+fn encrypted_drive(
     settings: &Settings,
     net: &Net,
     args: &Args,
-) -> Result<Option<azul_storage::encrypted::EncryptedDrive<Arc<dyn azul_storage::Drive>>>> {
+) -> Result<azul_storage::encrypted::EncryptedDrive<Arc<dyn azul_storage::Drive>>> {
+    use azcloud_kit::encryption::OpenRefusal;
     let account = encrypted_account(settings, net, args)?;
     let keyring = account.state().secrets();
-    let (encrypted, _) = account.encryption_status(&keyring)?;
-    if !encrypted {
-        return Ok(None);
-    }
-    let id = account.record().id.clone();
-    if account.unlock_key(&keyring)?.is_none() {
-        bail!(
-            "drive {id} is encrypted and this device has no key for it: a join code from a device \
-             that has it (azcloud invite there), or azcloud recover <code>"
-        );
-    }
     let device = account.state().device(args.value("--device-name"))?;
     let provider = index_provider(account.state(), &device.name);
-    Ok(Some(account.open_encrypted(&keyring, provider.as_ref())?))
-}
-
-/// Without the feature every drive is its bucket as it is.
-#[cfg(not(feature = "encryption"))]
-fn encrypted_files(
-    _settings: &Settings,
-    _net: &Net,
-    _args: &Args,
-) -> Result<Option<std::convert::Infallible>> {
-    Ok(None)
-}
-
-/// Refuses a command that cannot go through the encryption yet (sync, share) for an encrypted
-/// drive - whether or not this device keeps its key: it would store plaintext in it, or hand
-/// out ciphertext.
-#[cfg(feature = "encryption")]
-fn refuse_encrypted(account: &Account, what: &str) -> Result<()> {
-    let (encrypted, _) = account.encryption_status(&account.state().secrets())?;
-    if encrypted {
-        bail!(
-            "drive {} is encrypted: {what} of the command line does not go through the \
-             encryption yet (AzDrive's sync and Share do)",
-            account.record().id
-        );
-    }
-    Ok(())
-}
-
-#[cfg(not(feature = "encryption"))]
-fn refuse_encrypted(_account: &Account, _what: &str) -> Result<()> {
-    Ok(())
+    account
+        .open_encrypted_only(&keyring, provider.as_ref())
+        .map_err(|refusal| match refusal {
+            OpenRefusal::Locked { drive, .. } => anyhow!(
+                "drive {drive} is encrypted and this device has no key for it: a join code from a \
+                 device that has it (azcloud invite there), or azcloud recover --code-file <file>"
+            ),
+            OpenRefusal::NotEncrypted(_) => anyhow!("{refusal} (azcloud encrypt --yes)"),
+            other => anyhow::Error::new(other),
+        })
 }
 
 /// The account, reaching its bucket where this run's S3 endpoint says (the keys live there).
@@ -1276,16 +1033,42 @@ fn encrypted_account(settings: &Settings, net: &Net, args: &Args) -> Result<Acco
 
 #[cfg(feature = "encryption")]
 fn cmd_encryption(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
+    use azul_storage::trust::{EncState, Via, Why};
     let account = encrypted_account(settings, net, args)?;
-    let (encrypted, here) = account.encryption_status(&account.state().secrets())?;
+    let state = account.encryption_state(&account.state().secrets())?;
     let id = account.record().id.clone();
-    let value = json!({"ok": true, "drive": id, "encrypted": encrypted, "key_here": here});
-    let text = match (encrypted, here) {
-        (false, _) => format!("drive {id} is not encrypted (azcloud encrypt --yes)\n"),
-        (true, true) => format!("drive {id} is encrypted; this device keeps its key\n"),
-        (true, false) => format!(
+    let (name, encrypted, here) = match state {
+        EncState::Encrypted {
+            via: Via::KeyInKeyring,
+            ..
+        } => ("encrypted", true, true),
+        EncState::Encrypted { .. } => ("locked", true, false),
+        EncState::SetupPending => ("setup_pending", false, false),
+        EncState::Unencrypted(Why::New) => ("new", false, false),
+        EncState::Unencrypted(Why::HiddenOrAbsent) => ("not_encrypted", false, false),
+        EncState::Undecided => ("undecided", false, false),
+    };
+    let value = json!({"ok": true, "drive": id, "state": name, "encrypted": encrypted,
+                       "key_here": here});
+    let text = match state {
+        EncState::Encrypted {
+            via: Via::KeyInKeyring,
+            ..
+        } => format!("drive {id} is encrypted; this device keeps its key\n"),
+        EncState::Encrypted { .. } => format!(
             "drive {id} is encrypted; this device has no key: azcloud unlock, a join code from a \
-             device that has it, or azcloud recover <code>\n"
+             device that has it, or azcloud recover --code-file <file>\n"
+        ),
+        EncState::SetupPending => format!(
+            "drive {id}: a setup of this device stopped halfway; azcloud encrypt --yes finishes it\n"
+        ),
+        EncState::Unencrypted(Why::New) => {
+            format!("drive {id} is new and not encrypted yet (azcloud encrypt --yes)\n")
+        }
+        EncState::Unencrypted(Why::HiddenOrAbsent) | EncState::Undecided => format!(
+            "drive {id} is not encrypted - or its storage hides its key files, which cannot be \
+             told apart from here: no command reads or writes it until it is (azcloud encrypt \
+             --yes)\n"
         ),
     };
     Ok((value, text))
@@ -1297,9 +1080,8 @@ fn cmd_encrypt(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
         bail!(
             "azcloud encrypt --yes [--out F]: the drive's keys are made here and its recovery \
              code is shown ONCE (Azlin cannot reset it). The files commands (up, down, ls, rm) \
-             go through the encryption afterwards; sync and share refuse an encrypted drive. \
-             Files already in the drive stay as they are (AzDrive's \"Encrypt this drive\" \
-             moves them)"
+             go through the encryption afterwards. Files already in the drive stay as they are \
+             (AzDrive's \"Encrypt this drive\" moves them)"
         );
     }
     let account = encrypted_account(settings, net, args)?;
@@ -1319,7 +1101,7 @@ fn cmd_unlock(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
     if account.unlock_key(&account.state().secrets())?.is_none() {
         bail!(
             "this device has no key for drive {id}: a join code from a device that has it \
-             (azcloud invite there), or azcloud recover <code>"
+             (azcloud invite there), or azcloud recover --code-file <file>"
         );
     }
     let value = json!({"ok": true, "drive": id, "key_here": true});
@@ -1429,9 +1211,7 @@ fn cmd_reencrypt(settings: &Settings, net: &Net, args: &Args) -> Result<Output> 
 /// hours, now.
 #[cfg(feature = "encryption")]
 fn cmd_packs(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
-    let Some(drive) = encrypted_files(settings, net, args)? else {
-        bail!("the drive is not encrypted: its files are objects of their own, never packed");
-    };
+    let drive = encrypted_drive(settings, net, args)?;
     let mut options = drive.packing().cloned().unwrap_or_default();
     if let Some(days) = args.number::<u64>("--grace-days")? {
         options.retired_grace_secs = days * 86_400;
@@ -1579,8 +1359,7 @@ fn run(args: &Args, net: &Net) -> Result<Output> {
         "down" => cmd_down(&settings, net, args),
         "ls" => cmd_ls(&settings, net, args),
         "rm" => cmd_rm(&settings, net, args),
-        "sync" => cmd_sync(&settings, net, args),
-        "share" => cmd_share(&settings, net, args),
+        "sync" | "share" => cmd_not_through_the_encryption(command),
         "lockdown" => cmd_lockdown(&settings, net, args),
         "lockdown-cancel" => cmd_lockdown_cancel(&settings, net, args),
         "restore" => cmd_restore(&settings, net, args),
@@ -1598,7 +1377,7 @@ fn error_text(e: &anyhow::Error) -> String {
         .chain()
         .any(|cause| cause.downcast_ref::<CloudError>().is_some_and(CloudError::is_sign_in));
     if signed_out {
-        format!("{e:#}; this device must join the drive again (azcloud join <code>)")
+        format!("{e:#}; this device must join the drive again (azcloud join --code-file <file>)")
     } else {
         format!("{e:#}")
     }
@@ -1719,12 +1498,11 @@ mod tests {
     #[test]
     fn flags_go_anywhere_in_both_forms_and_an_unknown_one_is_refused() {
         let a = Args::parse(&argv(
-            "--json sync ./notes --prefix=azlin/notes --exclude *.bak --exclude tmp/ --dry-run",
+            "--json up ./notes.txt --key=azlin/notes --key other --dry-run",
         ))
         .unwrap();
-        assert_eq!(a.positional, vec!["sync", "./notes"]);
-        assert_eq!(a.value("--prefix"), Some("azlin/notes"));
-        assert_eq!(a.all("--exclude"), vec!["*.bak", "tmp/"]);
+        assert_eq!(a.positional, vec!["up", "./notes.txt"]);
+        assert_eq!(a.value("--key"), Some("other"), "the last one counts");
         assert!(a.on("--json") && a.on("--dry-run"));
         assert!(Args::parse(&argv("ls --bogus")).is_err());
         assert!(
@@ -1749,13 +1527,70 @@ mod tests {
         assert_eq!(f.transport.as_deref(), Some("https"));
     }
 
+    /// X-AR5b-1: `sync` and `share` of the command line store nothing in the clear any more: they
+    /// are refused whatever the drive is, and the flags only they took are gone.
     #[test]
-    fn a_folder_without_a_prefix_syncs_to_sync_and_its_name() {
-        assert_eq!(
-            default_prefix(Path::new("/home/a/My Notes")),
-            "sync/My Notes/"
+    fn x_ar5b_1_sync_and_share_are_refused_and_their_flags_are_gone() {
+        for command in ["sync", "share"] {
+            let refused = cmd_not_through_the_encryption(command)
+                .unwrap_err()
+                .to_string();
+            assert!(refused.starts_with(command), "{refused}");
+            assert!(
+                refused.contains("does not go through the encryption"),
+                "{refused}"
+            );
+        }
+        for flag in [
+            "--exclude",
+            "--allow-mass-delete",
+            "--allow-burst",
+            "--prefix",
+            "--expires",
+        ] {
+            assert!(
+                Args::parse(&argv(&format!("sync ./notes {flag}"))).is_err(),
+                "{flag}"
+            );
+        }
+        assert!(
+            !USAGE.contains("--allow-mass-delete"),
+            "the usage still offers a plaintext sync"
         );
-        assert_eq!(default_prefix(Path::new("/")), "sync/root/");
+    }
+
+    /// AZ-K16: a join or recovery code in the arguments shows in ps and in the shell's history, so
+    /// it is refused (and not quoted back); a file or stdin is read.
+    #[test]
+    fn az_k16_a_code_in_the_arguments_is_refused_and_a_file_is_read() {
+        let on_argv = Args::parse(&argv("join dt_f.0.the-secret")).unwrap();
+        let refused = code_argument(&on_argv, "join", "join")
+            .unwrap_err()
+            .to_string();
+        assert!(refused.contains("--code-file"), "{refused}");
+        assert!(
+            !refused.contains("the-secret"),
+            "the code is not said back: {refused}"
+        );
+        let none = Args::parse(&argv("recover")).unwrap();
+        assert!(code_argument(&none, "recovery", "recover").is_err());
+
+        let dir = std::env::temp_dir().join(format!("azcloud-code-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("code.txt");
+        std::fs::write(&file, "the code\n").unwrap();
+        let from_file = Args::parse(&[
+            String::from("join"),
+            String::from("--code-file"),
+            file.display().to_string(),
+        ])
+        .unwrap();
+        assert_eq!(
+            code_argument(&from_file, "join", "join").unwrap().trim(),
+            "the code"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// The packs' upkeep takes a grace period in days, and the command line's encrypted drives

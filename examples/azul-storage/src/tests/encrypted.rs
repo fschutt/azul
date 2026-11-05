@@ -1638,6 +1638,121 @@ fn x_ar5b_2_a_drive_the_keyring_would_not_open_is_no_drive_to_restore_by_its_buc
     );
 }
 
+/// X-AR5b-1 (the command line): a program that opens an encrypted drive only. A bucket that hides
+/// its key files and shows an object, on a device with no key and no record, is refused as a drive
+/// that is not encrypted - nothing is read from it, nothing can be written - where the command
+/// line used to take it for a plaintext drive and put the file in the clear.
+#[test]
+fn x_ar5b_1_open_encrypted_only_refuses_what_is_not_encrypted_and_has_no_plain_path() {
+    use crate::encrypted::{judge, open_encrypted_only, OpenRefusal};
+
+    let kdf = || RecoveryKdf::with_cost(64, 1, 1).unwrap();
+    let provider = SharedIndex(Arc::new(MemoryIndex::new()));
+    let mem = Arc::new(MemBucket::new());
+    let owner = MemoryKeyring::new();
+    let (key, _code) = setup_new_drive(mem.as_ref(), &owner, "d_1", kdf()).unwrap();
+    mem.set("decoy.txt", b"plain".to_vec());
+    let hidden: Arc<dyn Drive> = Arc::new(HidesKeyFiles(mem.clone()));
+    let keyless = MemoryKeyring::new();
+
+    // The hostile bucket: not encrypted as far as this device can tell, and refused.
+    let refused = open_encrypted_only(
+        Arc::clone(&hidden),
+        &keyless,
+        "d_1",
+        &provider,
+        Recorded::default(),
+    );
+    assert!(
+        matches!(refused, Err(OpenRefusal::NotEncrypted(Why::HiddenOrAbsent))),
+        "{refused:?}"
+    );
+    assert_eq!(
+        judge(hidden.as_ref(), &keyless, "d_1", Recorded::default()).unwrap(),
+        EncState::Unencrypted(Why::HiddenOrAbsent)
+    );
+    assert!(
+        mem.object("decoy.txt").is_some() && mem.keys().len() > 1,
+        "and nothing was touched"
+    );
+
+    // The device recorded the drive as encrypted: locked, not plain, whatever the bucket lists.
+    let locked = open_encrypted_only(
+        Arc::clone(&hidden),
+        &keyless,
+        "d_1",
+        &provider,
+        Recorded {
+            encrypted: true,
+            key_id: Some(key.id()),
+        },
+    );
+    assert!(
+        matches!(&locked, Err(OpenRefusal::Locked { drive, recorded: true }) if drive == "d_1"),
+        "{locked:?}"
+    );
+
+    // Key files in the listing and no key here: locked for want of a key.
+    let listed: Arc<dyn Drive> = mem.clone();
+    let locked = open_encrypted_only(listed, &keyless, "d_1", &provider, Recorded::default());
+    assert!(
+        matches!(
+            &locked,
+            Err(OpenRefusal::Locked {
+                recorded: false,
+                ..
+            })
+        ),
+        "{locked:?}"
+    );
+
+    // A keyring that cannot be read decides nothing.
+    let unreadable = open_encrypted_only(
+        Arc::clone(&hidden),
+        &UnreadableKeyring(KeyringError::Denied),
+        "d_1",
+        &provider,
+        Recorded::default(),
+    );
+    assert!(matches!(
+        unreadable,
+        Err(OpenRefusal::Keyring(DriveError::Denied { .. }))
+    ));
+
+    // The key in the keyring opens it, whatever the bucket hides; a record of another key does not.
+    let opened = open_encrypted_only(
+        Arc::clone(&hidden),
+        &owner,
+        "d_1",
+        &provider,
+        Recorded::default(),
+    )
+    .unwrap();
+    assert_eq!(opened.drive_key_id(), key.id());
+    let swapped = open_encrypted_only(
+        hidden,
+        &owner,
+        "d_1",
+        &provider,
+        Recorded {
+            encrypted: true,
+            key_id: Some(DriveKey::generate().unwrap().id()),
+        },
+    );
+    assert!(matches!(
+        swapped,
+        Err(OpenRefusal::Refused(DriveError::KeyRefused { .. }))
+    ));
+
+    // A new drive and a stopped setup are not encrypted either.
+    let empty: Arc<dyn Drive> = Arc::new(MemBucket::new());
+    let new = open_encrypted_only(empty, &keyless, "d_2", &provider, Recorded::default());
+    assert!(
+        matches!(new, Err(OpenRefusal::NotEncrypted(Why::New))),
+        "{new:?}"
+    );
+}
+
 /// The quota counts stored bytes: the totals say what the files take of it (compressed, a copy
 /// once) and how big they are before compression.
 #[test]

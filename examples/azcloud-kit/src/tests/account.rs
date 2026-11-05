@@ -265,6 +265,8 @@ fn the_current_drive_is_the_one_named_else_the_last_added_else_the_only_one() {
         read_only: false,
         tier: None,
         restore: None,
+        encrypted: false,
+        key_id: None,
     };
     let mut file = AccountFile::default();
     assert!(file.get(None).is_none());
@@ -274,6 +276,66 @@ fn the_current_drive_is_the_one_named_else_the_last_added_else_the_only_one() {
     assert_eq!(file.get(None).map(|d| d.id.as_str()), Some("d_b"));
     assert_eq!(file.get(Some("d_a")).map(|d| d.id.as_str()), Some("d_a"));
     assert!(file.get(Some("d_c")).is_none());
+}
+
+/// X-AR5b-1: what the device wrote down of a drive's encryption survives a refresh. A grant
+/// answer knows nothing of it, and `put` replaces the record by the answer's: the drive found
+/// encrypted must not be taken for a plain one because its record was written anew.
+#[test]
+fn x_ar5b_1_a_record_written_anew_keeps_the_encryption_the_device_wrote_down() {
+    let fresh = |id: &str| DriveRecord {
+        id: id.to_string(),
+        name: String::new(),
+        bucket: String::new(),
+        endpoint: String::new(),
+        region: String::new(),
+        path_style: true,
+        token_url: String::new(),
+        member: String::new(),
+        expires_at: 0,
+        refreshed_at: 0,
+        nodes: vec![],
+        failover: vec![],
+        quota_bytes: None,
+        read_only: false,
+        tier: None,
+        restore: None,
+        encrypted: false,
+        key_id: None,
+    };
+    let mut file = AccountFile::default();
+    file.put(DriveRecord {
+        encrypted: true,
+        key_id: Some(String::from("0123456789abcdef0123456789abcdef")),
+        ..fresh("d_a")
+    });
+    // A refresh: the grant's record, without the note.
+    file.put(fresh("d_a"));
+    let kept = file.get(Some("d_a")).unwrap();
+    assert!(kept.encrypted, "never cleared");
+    assert_eq!(
+        kept.key_id.as_deref(),
+        Some("0123456789abcdef0123456789abcdef")
+    );
+    // A newer key id replaces the older one.
+    file.put(DriveRecord {
+        key_id: Some(String::from("fedcba9876543210fedcba9876543210")),
+        ..fresh("d_a")
+    });
+    let newer = file.get(Some("d_a")).unwrap();
+    assert!(newer.encrypted);
+    assert_eq!(
+        newer.key_id.as_deref(),
+        Some("fedcba9876543210fedcba9876543210")
+    );
+    // A record never written down as encrypted stays unmarked, and writes nothing extra.
+    file.put(fresh("d_b"));
+    assert!(!file.get(Some("d_b")).unwrap().encrypted);
+    let json = serde_json::to_value(file.get(Some("d_b")).unwrap()).unwrap();
+    assert!(
+        json.get("encrypted").is_none() && json.get("key_id").is_none(),
+        "{json}"
+    );
 }
 
 #[test]

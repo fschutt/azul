@@ -81,7 +81,10 @@ pub fn set_index_cache_root(root: Option<PathBuf>) {
         .unwrap_or_else(std::sync::PoisonError::into_inner) = root;
 }
 
-/// `bucket`, the Azlin drive `drive_id`'s, as the mail's drive.
+/// `bucket`, the Azlin drive `drive_id`'s, as the mail's drive. An Azlin drive is encrypted: the
+/// mail opens one that is ([`AutoEncrypted::encrypted_only`]) and reads or writes nothing of one
+/// that is not (a new drive, an older one, a bucket that hides its key files, which cannot be
+/// told apart) - it is encrypted in AzDrive first.
 pub fn wrap(
     bucket: Arc<dyn Drive>,
     drive_id: &str,
@@ -89,7 +92,7 @@ pub fn wrap(
 ) -> Arc<dyn Drive> {
     #[cfg(feature = "encryption")]
     {
-        Arc::new(AutoEncrypted::new(bucket, drive_id, keyring, index_provider()))
+        wrap_auto(bucket, drive_id, keyring)
     }
     #[cfg(not(feature = "encryption"))]
     {
@@ -107,7 +110,7 @@ pub fn wrap_auto(
     drive_id: &str,
     keyring: Arc<dyn KeyringStore>,
 ) -> Arc<AutoEncrypted> {
-    Arc::new(AutoEncrypted::new(bucket, drive_id, keyring, index_provider()))
+    Arc::new(AutoEncrypted::new(bucket, drive_id, keyring, index_provider()).encrypted_only())
 }
 
 /// Files the drops of the drive `drive_id` (in its plain `bucket`) into its encrypted mail
@@ -261,22 +264,22 @@ mod tests {
         );
     }
 
-    /// With it, an Azlin drive is encrypted-only (C1/K8): a bucket that lists plaintext files and
-    /// no key - a drive made before encryption, or a hostile bucket that hides its key files, the
-    /// two look the same to a device that holds no key - is read as it lists, and takes no mail
-    /// until it is encrypted.
+    /// With it, an Azlin drive is encrypted-only (C1/K8, X-AR5b-1): a bucket that lists plaintext
+    /// files and no key - a drive made before encryption, or a hostile bucket that hides its key
+    /// files, the two look the same to a device that holds no key - is neither read nor written by
+    /// the mail until it is encrypted: what it lists is its storage's word alone.
     #[cfg(feature = "encryption")]
     #[test]
-    fn a_drive_that_is_not_encrypted_is_read_as_it_is_and_takes_no_mail() {
+    fn x_ar5b_1_a_drive_that_is_not_encrypted_is_neither_read_nor_written_by_the_mail() {
         use azul_storage::DriveError;
         let tmp = TempDir::new("azmail-mail-drive");
         let bucket = LocalDrive::without_manifest(tmp.path());
         bucket.put("mail/Inbox/1.eml", b"Subject: hi\r\n\r\nhello").unwrap();
         let drive = wrap(Arc::new(bucket), "d_1", Arc::new(MemoryKeyring::new()));
-        assert_eq!(
-            drive.get("mail/Inbox/1.eml").unwrap(),
-            b"Subject: hi\r\n\r\nhello"
-        );
+        assert!(matches!(
+            drive.get("mail/Inbox/1.eml"),
+            Err(DriveError::Denied { .. })
+        ));
         assert!(matches!(
             drive.put("mail/Sent/2.eml", b"sent"),
             Err(DriveError::Denied { .. })

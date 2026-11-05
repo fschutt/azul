@@ -11,15 +11,16 @@ use serde_json::Value;
 
 use azul_storage::{
     crypto::{device, keys::RecoveryKdf, DriveKey},
-    encrypted::{IndexProvider, MemoryIndex, NameIndex},
+    encrypted::{IndexProvider, MemoryIndex, NameIndex, OpenRefusal},
     keyring::{KeyringStore, MemoryKeyring},
     testing::TempDir,
+    trust::{EncState, Via, Why},
     Drive, DriveError, HttpCall, HttpReply, Method, Transport,
 };
 
 use super::{bundle, fake_s3::FakeS3, header, json, Fake, Shared, TOKEN};
 use crate::{
-    account::{Account, JoinCode},
+    account::{Account, AccountFile, JoinCode},
     cloudflare::{Cloudflare, DEFAULT_WORKER, DROP_KEY_VARIABLE},
     drive::TransportFactory,
     error::CloudError,
@@ -123,8 +124,20 @@ fn a_signup_makes_the_drive_encrypted_before_anything_uses_it() {
     let (account, code) =
         Account::signup(&state, TOKEN, transports, "100GB", "Ann's drive", made).unwrap();
     assert!(s3.keys().iter().any(|k| k == ".azlin/keys/recovery.key"));
-    assert_eq!(account.encryption_status(&keys).unwrap(), (true, true));
+    assert!(matches!(
+        account.encryption_state(&keys).unwrap(),
+        EncState::Encrypted {
+            via: Via::KeyInKeyring,
+            ..
+        }
+    ));
     assert!(!code.to_text().is_empty());
+    // The account file wrote down that the drive was found encrypted, with its key's id.
+    let file = AccountFile::load(&state.account_file()).unwrap();
+    let record = file.get(None).unwrap();
+    assert!(record.encrypted, "the drive is recorded as encrypted");
+    let key = device::load_drive_key(&keys, "d_1").unwrap().unwrap();
+    assert_eq!(record.key_id, Some(key.id().to_hex()));
 }
 
 #[test]
@@ -259,17 +272,116 @@ fn a_device_tells_its_encryption_and_unlocks_from_its_own_wrap() {
     let dir = TempDir::new("azcloud-enc-status");
     let a = signed_up(&transports, &dir);
     let keys = MemoryKeyring::new();
-    assert_eq!(a.encryption_status(&keys).unwrap(), (false, false));
+    assert_eq!(
+        a.encryption_state(&keys).unwrap(),
+        EncState::Unencrypted(Why::New)
+    );
     a.setup_encryption(&keys, cheap()).unwrap();
-    assert_eq!(a.encryption_status(&keys).unwrap(), (true, true));
-    assert!(a.holds_drive_key(&keys).unwrap());
+    assert!(matches!(
+        a.encryption_state(&keys).unwrap(),
+        EncState::Encrypted {
+            via: Via::KeyInKeyring,
+            ..
+        }
+    ));
 
-    // The keyring lost the drive key (not the member key): this device's wrap brings it back.
+    // The keyring lost the drive key (not the member key): the account file recorded the drive
+    // as encrypted, so it is locked here and not plain, and this device's wrap brings the key back.
     keys.delete(&device::drive_key_entry("d_1")).unwrap();
-    assert_eq!(a.encryption_status(&keys).unwrap(), (true, false));
+    assert!(matches!(
+        a.encryption_state(&keys).unwrap(),
+        EncState::Encrypted {
+            via: Via::Record,
+            ..
+        }
+    ));
     assert!(a.unlock_key(&keys).unwrap().is_some());
-    assert!(a.holds_drive_key(&keys).unwrap());
+    assert!(device::load_drive_key(&keys, "d_1").unwrap().is_some());
     assert!(a.unlock_key(&MemoryKeyring::new()).unwrap().is_none());
+}
+
+/// X-AR5b-1: the command line meets a drive whose bucket lists no key file and holds a file - a
+/// drive made before encryption, or one whose storage hides its key files, which cannot be told
+/// apart - on a device that holds no key and recorded nothing: `azcloud up`, `down`, `ls`, `rm`
+/// and the rest open nothing and write nothing. It used to take it for a plaintext drive "as its
+/// bucket is" and put the file in the clear.
+#[test]
+fn x_ar5b_1_a_keyless_device_opens_no_drive_whose_bucket_lists_no_key_files_and_writes_nothing() {
+    let s3 = FakeS3::new();
+    let transports = cloud(&s3);
+    let dir = TempDir::new("azcloud-enc-hostile");
+    let a = signed_up(&transports, &dir);
+    s3.write("decoy.txt", b"plain".to_vec());
+    let before = s3.keys();
+    let provider = SharedIndex(Arc::new(MemoryIndex::new()));
+
+    let keyless = MemoryKeyring::new();
+    let refused = a.open_encrypted_only(&keyless, &provider);
+    assert!(
+        matches!(refused, Err(OpenRefusal::NotEncrypted(Why::HiddenOrAbsent))),
+        "{refused:?}"
+    );
+    assert_eq!(
+        a.encryption_state(&keyless).unwrap(),
+        EncState::Unencrypted(Why::HiddenOrAbsent)
+    );
+    assert_eq!(s3.keys(), before, "nothing was written");
+    assert!(
+        !AccountFile::load(&a.state().account_file())
+            .unwrap()
+            .get(None)
+            .unwrap()
+            .encrypted
+    );
+
+    // A keyring that cannot be read decides nothing either.
+    struct Declined;
+    impl KeyringStore for Declined {
+        fn get(&self, _: &str) -> Result<Option<String>, azul_storage::keyring::KeyringError> {
+            Err(azul_storage::keyring::KeyringError::Denied)
+        }
+        fn set(&self, _: &str, _: &str) -> Result<(), azul_storage::keyring::KeyringError> {
+            Err(azul_storage::keyring::KeyringError::Denied)
+        }
+        fn delete(&self, _: &str) -> Result<(), azul_storage::keyring::KeyringError> {
+            Err(azul_storage::keyring::KeyringError::Denied)
+        }
+    }
+    assert!(matches!(
+        a.open_encrypted_only(&Declined, &provider),
+        Err(OpenRefusal::Keyring(DriveError::Denied { .. }))
+    ));
+    assert_eq!(s3.keys(), before);
+}
+
+/// X-AR5b-1: a drive that was set up, then opened, is written down as encrypted; the device that
+/// lost its key (a reinstall: the same state folder, a new keyring) meets a bucket that now hides
+/// its key files and holds a decoy, and is told the drive is LOCKED - never plain.
+#[test]
+fn x_ar5b_1_a_drive_found_encrypted_stays_locked_without_its_key_whatever_the_bucket_lists() {
+    let s3 = FakeS3::new();
+    let transports = cloud(&s3);
+    let dir = TempDir::new("azcloud-enc-recorded");
+    let a = signed_up(&transports, &dir);
+    let keys = MemoryKeyring::new();
+    a.setup_encryption(&keys, cheap()).unwrap();
+    let provider = SharedIndex(Arc::new(MemoryIndex::new()));
+    let opened = a.open_encrypted_only(&keys, &provider).unwrap();
+    opened.put("notes/plan.txt", b"the plan").unwrap();
+
+    // Every key file leaves the bucket's listing (here: they are gone), a decoy stands in.
+    for key in s3.keys().into_iter().filter(|k| k.starts_with(".azlin/")) {
+        s3.remove(&key);
+    }
+    s3.write("decoy.txt", b"plain".to_vec());
+    let before = s3.keys();
+    let reinstalled = MemoryKeyring::new();
+    let locked = a.open_encrypted_only(&reinstalled, &provider);
+    assert!(
+        matches!(&locked, Err(OpenRefusal::Locked { recorded: true, .. })),
+        "{locked:?}"
+    );
+    assert_eq!(s3.keys(), before, "nothing was written");
 }
 
 /// The token server and the bucket with the network's DNS down: the sign-up lists node `n1` at
@@ -333,8 +445,8 @@ fn with_dns_down_the_key_listing_reaches_the_bucket_at_the_nodes_addresses() {
         .with_s3_endpoint(Some("http://blk.dns-test.invalid:19000"));
     let keys = MemoryKeyring::new();
     assert_eq!(
-        a.encryption_status(&keys).unwrap(),
-        (false, false),
+        a.encryption_state(&keys).unwrap(),
+        EncState::Unencrypted(Why::New),
         "the listing of the key files goes to the block host at the nodes' addresses"
     );
     assert!(

@@ -152,6 +152,11 @@ impl FakeS3 {
         etag
     }
 
+    /// Takes the object at `key` away (a test's other device, or a storage that lost it).
+    pub fn remove(&self, key: &str) {
+        lock(&self.objects).remove(key);
+    }
+
     /// The object at `key`.
     pub fn read(&self, key: &str) -> Option<Vec<u8>> {
         lock(&self.objects).get(key).map(|o| o.data.clone())

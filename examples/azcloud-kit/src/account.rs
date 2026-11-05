@@ -89,6 +89,17 @@ pub struct DriveRecord {
     /// The drive's newest restore announcement of the last refresh, for the sync.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub restore: Option<crate::sync::RestoreNotice>,
+    /// This device found the drive encrypted - it kept the drive's key, or set it up - and wrote
+    /// that down: from then on the drive is never opened as a plain one, whatever its bucket
+    /// lists, and a drive without its key is locked (the same record AzDrive's drives file keeps,
+    /// `azul_storage::config::EncryptionRecord`). Written when the drive opens encrypted, and
+    /// never cleared: a refresh keeps it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub encrypted: bool,
+    /// The id (32 hex digits) of the drive key this device held when it last opened the drive: a
+    /// fingerprint of the key, never the key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key_id: Option<String>,
 }
 
 impl DriveRecord {
@@ -154,10 +165,21 @@ impl AccountFile {
 
     /// Adds `record` (or replaces the drive with its id) and makes it the
     /// current one.
+    ///
+    /// What the device wrote down of the drive's encryption is kept across the replacement: a
+    /// grant answer (a refresh, a lockdown) knows nothing of it, and a drive found encrypted is
+    /// never taken for a plain one because a record was written anew.
     pub fn put(&mut self, record: DriveRecord) {
         self.current = Some(record.id.clone());
         match self.drives.iter_mut().find(|d| d.id == record.id) {
-            Some(existing) => *existing = record,
+            Some(existing) => {
+                let (encrypted, key_id) = (existing.encrypted, existing.key_id.take());
+                *existing = record;
+                existing.encrypted |= encrypted;
+                if existing.key_id.is_none() {
+                    existing.key_id = key_id;
+                }
+            }
             None => self.drives.push(record),
         }
     }
@@ -234,6 +256,8 @@ pub fn grant_of(
         read_only: bundle.read_only,
         tier: bundle.tier.clone(),
         restore: bundle.restore.clone(),
+        encrypted: false,
+        key_id: None,
         id,
     };
     let mut credentials = Credentials::new(&creds.access_key_id, &creds.secret_access_key);
@@ -262,22 +286,21 @@ pub fn store_grant(state: &StateDir, grant: &Grant) -> CloudResult<()> {
         &grant.credentials.to_keyring_secret(),
     )?;
     let drives_path = state.drives_file();
-    let mut drives = DrivesFile::load(&drives_path)
-        .map_err(|e| CloudError::Drive(e).context(drives_path.display()))?;
-    drives.add(DriveEntry {
-        id: id.clone(),
-        name: grant.record.name.clone(),
-        location: DriveLocation::S3 {
-            endpoint: grant.record.endpoint.clone(),
-            region: grant.record.region.clone(),
-            bucket: grant.record.bucket.clone(),
-            path_style: grant.record.path_style,
-            auth: DriveAuth::Keyring,
-        },
-    });
-    drives
-        .save(&drives_path)
-        .map_err(|e| CloudError::Drive(e).context(drives_path.display()))?;
+    // Under the file's lock, on the list as it is now: AzDrive may add a drive meanwhile.
+    DrivesFile::update(&drives_path, |drives| {
+        drives.add(DriveEntry {
+            id: id.clone(),
+            name: grant.record.name.clone(),
+            location: DriveLocation::S3 {
+                endpoint: grant.record.endpoint.clone(),
+                region: grant.record.region.clone(),
+                bucket: grant.record.bucket.clone(),
+                path_style: grant.record.path_style,
+                auth: DriveAuth::Keyring,
+            },
+        });
+    })
+    .map_err(|e| CloudError::Drive(e).context(drives_path.display()))?;
     let account_path = state.account_file();
     let mut file = AccountFile::load(&account_path)?;
     file.put(grant.record.clone());
@@ -709,6 +732,29 @@ impl Account {
             self.record = record.clone();
         }
         Ok(())
+    }
+
+    /// Writes down that this device found the drive encrypted, with the id of the drive key it
+    /// opened it with (`key_id`, 32 hex digits): the record of the account file, which a later
+    /// run decides from before it asks the bucket. Never cleared. Under the lock every refresh of
+    /// this state folder holds, so a refresh does not write an older record over it.
+    ///
+    /// # Errors
+    ///
+    /// The lock held too long by another azcloud, a file that cannot be read or written.
+    pub fn note_encrypted(&self, key_id: &str) -> CloudResult<()> {
+        let _lock = self.state.lock("refresh", REFRESH_LOCK_WAIT)?;
+        let path = self.state.account_file();
+        let mut file = AccountFile::load(&path)?;
+        let Some(record) = file.drives.iter_mut().find(|d| d.id == self.record.id) else {
+            return Ok(());
+        };
+        if record.encrypted && record.key_id.as_deref() == Some(key_id) {
+            return Ok(());
+        }
+        record.encrypted = true;
+        record.key_id = Some(key_id.to_string());
+        file.save(&path)
     }
 
     /// A join code for another device: a new member family of this drive. Like every call
