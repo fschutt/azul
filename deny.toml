@@ -16,13 +16,6 @@ ignore = [
     # aws-lc-rs need platform asm. rsa 0.9 comes in through example apps and
     # their crates (micromail's DKIM, sqlx, reqsign). Revisit when rsa ships a fix. ──
     { id = "RUSTSEC-2023-0071", reason = "rsa Marvin timing attack recovers a TLS *server's* RSA private key via decryption/signing timing. azul is a TLS client doing certificate signature *verification* (public-key) only and never performs RSA private-key ops, so the vulnerable path is unreachable. No fixed rsa release exists." },
-    # rustls 0.23.45: the four advisories of 2026-10-14 are fixed in 0.23.46, published that same
-    # day and so inside the 14-day cooldown for new crate versions; bump on or after 2026-10-28
-    # and drop these four. None reaches azul's configuration (ring provider, default features).
-    { id = "RUSTSEC-2026-0346", reason = "rustls 0.23.45 derived Debug on client session values. azul has no custom ClientSessionStore and never formats session values; the built-in cache's Debug is redacted. Fixed in 0.23.46 (cooldown until 2026-10-28)." },
-    { id = "RUSTSEC-2026-0347", reason = "rustls 0.23.45 sends buffered data to the outer server after an ECH rejection. azul never enables EchMode::Enable. Fixed in 0.23.46 (cooldown until 2026-10-28)." },
-    { id = "RUSTSEC-2026-0348", reason = "rustls 0.23.45 Brotli certificate decompression window. Only with the non-default brotli feature, which azul does not enable (Cargo.lock: rustls has no brotli dependency). Fixed in 0.23.46 (cooldown until 2026-10-28)." },
-    { id = "RUSTSEC-2026-0349", reason = "rustls 0.23.45 remembers an unauthenticated key-exchange group, downgrading a hybrid post-quantum handshake. azul's rustls runs on ring, which offers no X25519MLKEM768, so there is no hybrid group to lose. Fixed in 0.23.46 (cooldown until 2026-10-28)." },
     # ── zip extraction to the filesystem. Every zip reader in the tree reads
     # entries into memory by index or name (azul-layout's zip.rs, AzMaps' KMZ
     # import, ironcalc's xlsx import in AzSheets, azul-doc's bundler); nothing
