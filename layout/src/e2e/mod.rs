@@ -115,6 +115,10 @@ mod css_override_cost_tests;
 #[cfg(test)]
 mod moved_frame_tests;
 
+// `set_node_classes` must re-run the cascade (R-classes, ignored until fixed).
+#[cfg(test)]
+mod class_swap_tests;
+
 pub mod hooks {
     //! Dependency-injection seam for the three host-coupled call sites in
     //! [`super::full`]. See the module docs above.
