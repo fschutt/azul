@@ -89,6 +89,50 @@ fn an_unpaid_drive_is_in_grace_then_read_only_then_locked_with_its_days() {
     assert_eq!(stage_of(&banned, PAID + 20 * DAY), None);
 }
 
+/// AZ-P19: the bar of an unpaid drive followed this computer's clock: one a month behind hid the
+/// bar of a drive that refuses every write, one far ahead showed a drive that still takes
+/// writes as read-only. The token server's flag (read-only because a payment is due) says
+/// read-only; the clock only decides whether the grace countdown shows yet.
+#[test]
+fn az_p19_the_server_not_the_clock_says_an_unpaid_drive_is_read_only() {
+    let read_only = Stage::ReadOnly {
+        period_until: PAID,
+        locks_at: PAID + 104 * DAY,
+    };
+    // A clock a month behind the last paid day: the drive the server says is read-only is shown so.
+    assert_eq!(
+        stage_of(&unpaid(true), PAID - 30 * DAY),
+        Some(read_only.clone())
+    );
+    assert_eq!(stage_of(&unpaid(true), PAID + 20 * DAY), Some(read_only));
+
+    // A drive the server still lets write is in its grace, on any clock after the paid day: a
+    // clock far ahead does not make it read-only (or, by the next look, locked).
+    for days in [1, 20, 100, 400] {
+        assert!(
+            matches!(
+                stage_of(&unpaid(false), PAID + days * DAY),
+                Some(Stage::Grace { .. })
+            ),
+            "{days} days after the paid day"
+        );
+    }
+    // Before the paid day it shows nothing: the drive is paid.
+    assert_eq!(stage_of(&unpaid(false), PAID - DAY), None);
+
+    // A drive that takes no writes for ANOTHER reason is no payment due: the stage is the grace
+    // the clock gives it.
+    let frozen = DriveStatus {
+        read_only_why: Some(azcloud_kit::azlin_contract::ReadOnlyWhy::LockdownPending),
+        ..unpaid(true)
+    };
+    assert_eq!(stage_of(&frozen, PAID - DAY), None);
+    assert!(matches!(
+        stage_of(&frozen, PAID + DAY),
+        Some(Stage::Grace { .. })
+    ));
+}
+
 #[test]
 fn a_locked_drive_owes_three_months_of_thirty_days() {
     let wire = locked(ArchiveState::Locked, true);

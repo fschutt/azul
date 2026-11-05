@@ -105,25 +105,30 @@ pub(crate) fn stage_of(status: &DriveStatus, now: u64) -> Option<Stage> {
         });
     }
     let period_until = status.period_until?;
-    if now < period_until {
-        return None;
-    }
     let grace = u64::try_from(WRITABLE_GRACE_SECS).unwrap_or(0);
     let debt = u64::try_from(LOCK_AFTER_SECS).unwrap_or(0);
     let read_only_at = period_until + grace;
     let locks_at = period_until + debt;
-    if now < read_only_at && !status.payment_due() {
-        Some(Stage::Grace {
-            period_until,
-            read_only_at,
-            locks_at,
-        })
-    } else {
-        Some(Stage::ReadOnly {
+    // The token server says the drive takes no writes because a payment is due: it IS read-only,
+    // whatever this computer's clock says - a clock a month behind would hide the bar of a drive
+    // that refuses every write (AZ-P19).
+    if status.payment_due() {
+        return Some(Stage::ReadOnly {
             period_until,
             locks_at,
-        })
+        });
     }
+    // Otherwise the drive takes writes. The clock only tells whether the countdown of its grace
+    // shows yet; it never makes a writable drive look read-only (a clock ahead past the grace
+    // did) or locked - the server flips the drive, and the next look says so.
+    if now < period_until {
+        return None;
+    }
+    Some(Stage::Grace {
+        period_until,
+        read_only_at,
+        locks_at,
+    })
 }
 
 /// `YYYY-MM-DD` of `at` (seconds since 1970).

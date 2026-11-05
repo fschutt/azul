@@ -2,12 +2,13 @@
 //! the actions that write refused with the reason, the sync's uploads paused, "Copy everything
 //! to this computer" and, past the end, the closed drive's one message. No window.
 
-use azcloud_kit::Ban;
+use azcloud_kit::{azlin_contract::DriveAccess, Ban};
 use azul_storage::{testing::TempDir, Drive, LocalDrive};
 
 use crate::{
+    access::refusal,
     actions::Action,
-    ban::{banner_text, closed_text, copy_prefix, refusal, sync_text},
+    ban::{banner_text, closed, closed_text, copy_prefix, refused_words, sync_text},
     fileops::{plan_transfer, run_transfer, ConflictChoice, SourceItem, TransferKind},
 };
 
@@ -19,6 +20,14 @@ fn ban() -> Ban {
         reason: String::from("spam distribution"),
         until: Some(UNTIL),
         closed: false,
+    }
+}
+
+/// The same ban once the token server refused the drive (403 `drive_banned`).
+fn closed_ban() -> Ban {
+    Ban {
+        closed: true,
+        ..ban()
     }
 }
 
@@ -61,7 +70,6 @@ fn past_its_end_the_drive_says_when_it_was_closed_and_why_and_nothing_else() {
 #[test]
 fn a_banned_drive_takes_no_uploads_new_folders_or_links_and_says_why() {
     crate::l10n::in_english();
-    let now = UNTIL - 10 * 3_600;
     for action in [
         Action::Upload,
         Action::NewFolder,
@@ -71,10 +79,9 @@ fn a_banned_drive_takes_no_uploads_new_folders_or_links_and_says_why() {
         Action::Delete,
         Action::Share,
     ] {
-        let why = refusal(&action, &ban(), now).unwrap_or_else(|| panic!("{action:?} runs"));
         assert!(
-            why.contains("banned") && why.contains("spam distribution"),
-            "{why}"
+            refusal(&action, DriveAccess::Banned, false).is_some(),
+            "{action:?} runs"
         );
     }
     for action in [
@@ -84,27 +91,58 @@ fn a_banned_drive_takes_no_uploads_new_folders_or_links_and_says_why() {
         Action::SelectAll,
     ] {
         assert_eq!(
-            refusal(&action, &ban(), now),
+            refusal(&action, DriveAccess::Banned, false),
             None,
             "{action:?}: reads go on"
         );
     }
-    // Past the end nothing of it is left to open.
-    let closed = refusal(&Action::Download, &ban(), UNTIL).expect("closed");
+    // What it says: why it is banned...
+    let why = refused_words(&ban());
     assert!(
-        closed.starts_with("This drive was closed on 2026-10-12"),
-        "{closed}"
+        why.contains("banned") && why.contains("spam distribution"),
+        "{why}"
+    );
+    // ...and once the token server closed it, nothing of it is left to open.
+    assert!(refusal(&Action::Download, DriveAccess::Closed, false).is_some());
+    let shut = refused_words(&closed_ban());
+    assert!(
+        shut.starts_with("This drive was closed on 2026-10-12"),
+        "{shut}"
     );
 }
 
 #[test]
 fn the_sync_pauses_its_uploads_while_the_drive_is_banned() {
     crate::l10n::in_english();
-    let paused = azul_appkit::l10n::t_phrase(&sync_text(&ban(), UNTIL - 60));
+    let paused = azul_appkit::l10n::t_phrase(&sync_text(&ban()));
     assert!(paused.starts_with("Uploads paused"), "{paused}");
     assert!(paused.contains("banned"), "{paused}");
-    let closed = azul_appkit::l10n::t_phrase(&sync_text(&ban(), UNTIL + 60));
-    assert!(closed.starts_with("This drive was closed"), "{closed}");
+    let shut = azul_appkit::l10n::t_phrase(&sync_text(&closed_ban()));
+    assert!(shut.starts_with("This drive was closed"), "{shut}");
+}
+
+/// AZ-P19: a clock set ahead (a dead battery, a time-zone tool) moved a banned drive past the
+/// ban's end and "closed" it: its folder hidden, Copy everything withdrawn, while the token server
+/// still let its owner read it. AzDrive closes a drive when the SERVER refuses it ([`Ban::closed`]),
+/// on any clock.
+#[test]
+fn az_p19_a_clock_past_the_end_does_not_close_a_banned_drive_only_the_server_does() {
+    crate::l10n::in_english();
+    // Whatever the clock says of the ban's end (400 days past it, here): AzDrive waits for the
+    // server, and `closed` takes no clock.
+    assert!(!closed(&ban()), "AzDrive waits for the server");
+    let said = refused_words(&ban());
+    assert!(
+        said.contains("banned") && !said.contains("closed"),
+        "{said}"
+    );
+    let paused = azul_appkit::l10n::t_phrase(&sync_text(&ban()));
+    assert!(paused.starts_with("Uploads paused"), "{paused}");
+
+    // The server's word closes it, whatever the clock says: one that is a year behind included.
+    assert!(closed(&closed_ban()));
+    let shut = refused_words(&closed_ban());
+    assert!(shut.starts_with("This drive was closed"), "{shut}");
 }
 
 #[test]

@@ -65,13 +65,13 @@ pub(crate) fn seen(s: &mut DriveState, azlin_id: &str, status: &DriveStatus) {
     s.access.insert(azlin_id.to_string(), status.access(now_secs()));
 }
 
-/// The state of drive `drive_id` (AzDrive's id): a ban as AzDrive keeps it (closed once its
-/// grace is over, or once the token server said so), else what the last look said; writable
+/// The state of drive `drive_id` (AzDrive's id): a ban as AzDrive keeps it (closed once the
+/// token server said so - never by this computer's clock, AZ-P19), else what the last look said; writable
 /// for a drive never looked at and for every drive that is not an Azlin drive.
 #[must_use]
 pub(crate) fn of(s: &DriveState, drive_id: &str) -> DriveAccess {
     if let Some(ban) = crate::ban::ban_of(s, drive_id) {
-        return if ban.is_closed(now_secs()) {
+        return if crate::ban::closed(ban) {
             DriveAccess::Closed
         } else {
             DriveAccess::Banned
@@ -146,7 +146,7 @@ pub(crate) fn refuses_op(s: &DriveState, drive_id: &str, op: BucketOp) -> Option
         return None;
     }
     Some(match crate::ban::ban_of(s, drive_id) {
-        Some(ban) => crate::ban::refused_words(ban, now_secs()),
+        Some(ban) => crate::ban::refused_words(ban),
         None => why(access),
     })
 }

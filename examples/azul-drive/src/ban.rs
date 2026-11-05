@@ -14,18 +14,18 @@
 
 use std::{path::PathBuf, sync::Arc};
 
-use azcloud_kit::{azlin_contract::DriveAccess, Ban};
+use azcloud_kit::Ban;
 use azul::{
     callbacks::ButtonOnClickCallbackType,
     dialog::{FileDialog, FileOpenResult},
     prelude::*,
     str::String as AzString,
 };
-use azul_appkit::l10n::{label, t, t_args, Phrase, Text};
+use azul_appkit::l10n::{label, t_args, Phrase, Text};
 use azul_storage::{Drive, LocalDrive};
 
 use crate::{
-    actions::{now_secs, Action},
+    actions::now_secs,
     browse::Place,
     fileops::{ConflictChoice, SourceItem, TransferKind},
     ids, with_state, DriveState,
@@ -42,25 +42,22 @@ pub(crate) use azcloud_kit::token::{banner_text, closed_text};
 // closed drive says (when, and why): the kit's phrases, which AzMail says too.
 pub(crate) use azcloud_kit::token::{ban_reason_arg, banner_phrase, closed_phrase};
 
-/// Why `action` cannot run on a drive under `ban` at `now`: the contract's table for a banned
-/// drive (reads only) or a closed one (nothing), in the ban's words.
+/// Whether AzDrive treats a banned drive as closed: the token server refused it (403
+/// `drive_banned`, [`Ban::closed`]). Never this computer's clock past the ban's end (AZ-P19): a
+/// clock a month ahead - a dead battery, a time-zone tool - would hide the folder of a drive
+/// the server still lets its owner read, and withdraw "Copy everything" from the one window in
+/// which it matters. The server refuses at the end of the grace, and the next look says so;
+/// until then the banner counts zero hours and the files stay readable.
 #[must_use]
-pub(crate) fn refusal(action: &Action, ban: &Ban, now: u64) -> Option<String> {
-    let access = if ban.is_closed(now) {
-        DriveAccess::Closed
-    } else {
-        DriveAccess::Banned
-    };
-    // A banned drive takes no change of its index either: the plain requests decide.
-    let op = crate::access::op_of(action)?;
-    (!access.permits(op)).then(|| refused_words(ban, now))
+pub(crate) fn closed(ban: &Ban) -> bool {
+    ban.closed
 }
 
 /// What a banned drive says of a request it does not take: why it is banned, or, once it is
 /// closed, when and why it was closed.
 #[must_use]
-pub(crate) fn refused_words(ban: &Ban, now: u64) -> String {
-    if ban.is_closed(now) {
+pub(crate) fn refused_words(ban: &Ban) -> String {
+    if closed(ban) {
         return azul_appkit::l10n::t_phrase(&closed_phrase(ban.until, &ban.reason));
     }
     t_args(
@@ -71,8 +68,8 @@ pub(crate) fn refused_words(ban: &Ban, now: u64) -> String {
 
 /// The status line of a banned drive's sync.
 #[must_use]
-pub(crate) fn sync_text(ban: &Ban, now: u64) -> Phrase {
-    if ban.is_closed(now) {
+pub(crate) fn sync_text(ban: &Ban) -> Phrase {
+    if closed(ban) {
         return closed_phrase(ban.until, &ban.reason);
     }
     Phrase::new("azdrive-ban-sync-paused").arg("reason", ban_reason_arg(&ban.reason))
@@ -107,7 +104,7 @@ pub(crate) fn ban_of<'s>(s: &'s DriveState, drive_id: &str) -> Option<&'s Ban> {
 /// The sync's status line of drive `drive_id`, if it is banned (its uploads are paused).
 #[must_use]
 pub(crate) fn sync_status(s: &DriveState, drive_id: &str) -> Option<Phrase> {
-    ban_of(s, drive_id).map(|ban| sync_text(ban, now_secs()))
+    ban_of(s, drive_id).map(sync_text)
 }
 
 /// What a look at the Azlin drive `azlin_id` said of a ban: kept (said once, and again when it
@@ -119,15 +116,15 @@ pub(crate) fn seen(s: &mut DriveState, azlin_id: &str, ban: Option<Ban>) {
     };
     let now = now_secs();
     let before = s.bans.get(azlin_id).cloned();
-    if before.as_ref().is_some_and(|b| b.closed) {
+    if before.as_ref().is_some_and(closed) {
         ban.closed = true;
     }
-    let closed = ban.is_closed(now);
+    let is_closed = closed(&ban);
     let changed = before
         .as_ref()
-        .is_none_or(|b| b.is_closed(now) != closed || b.until != ban.until);
+        .is_none_or(|b| closed(b) != is_closed || b.until != ban.until);
     if changed {
-        if closed {
+        if is_closed {
             println!("AZDRIVE_CLOSED {azlin_id}");
         } else {
             println!("AZDRIVE_BANNED {azlin_id} {}", ban.hours_left(now));
@@ -151,7 +148,7 @@ fn in_view(s: &DriveState) -> Option<(String, &Ban)> {
 pub(crate) fn banner(s: &DriveState, app: &RefAny) -> Option<Dom> {
     let (drive_id, ban) = in_view(s)?;
     let now = now_secs();
-    if ban.is_closed(now) {
+    if closed(ban) {
         return None;
     }
     Some(
@@ -193,7 +190,7 @@ pub(crate) fn closed_view(s: &DriveState) -> Option<Dom> {
         return None;
     }
     let (_, ban) = in_view(s)?;
-    if !ban.is_closed(now_secs()) {
+    if !closed(ban) {
         return None;
     }
     Some(
