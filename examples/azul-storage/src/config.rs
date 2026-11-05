@@ -35,7 +35,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     docs::{Doc, DocError, Document},
-    local::write_atomically,
     sigv4::sha256_hex,
     Credentials, Drive, DriveError, LocalDrive, S3Config, S3Drive, Transport,
 };
@@ -558,14 +557,15 @@ impl DrivesFile {
     }
 
     /// Writes the file as this process has it (its folder is created), through a temporary file.
-    /// Only for a file nobody else writes: a writer that reads the file, changes it and writes it
-    /// back loses what another process changed in between - changes go through
-    /// [`DrivesFile::update`].
+    /// A test's way to put a drives file down: a writer that reads the file, changes it and writes
+    /// it back loses what another process changed in between - changes go through
+    /// [`DrivesFile::update`], the only writer of shipped code.
+    #[cfg(test)]
     pub(crate) fn save(&self, path: &Path) -> Result<(), DriveError> {
         if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
             std::fs::create_dir_all(parent)?;
         }
-        write_atomically(path, self.to_json().as_bytes())
+        crate::local::write_atomically(path, self.to_json().as_bytes())
             .map_err(|e| DriveError::Io(format!("{}: {e}", path.display())))
     }
 

@@ -38,9 +38,8 @@ use std::{
     cell::Cell,
     collections::{BTreeMap, HashMap, HashSet},
     fmt,
-    fs::{self, File, OpenOptions},
+    fs::File,
     io::{self, Cursor, Read, Seek, SeekFrom, Write},
-    path::PathBuf,
     sync::{Arc, Mutex, MutexGuard, PoisonError},
     time::{Duration, Instant},
 };
@@ -50,13 +49,13 @@ use crate::{
         azl1::{self, Azl1Reader, FileHint, ObjectSource, ObjectSummary, OpenObject, WriteOptions},
         device,
         keys::load_key_chain,
-        random_bytes, to_hex, CryptoError, DriveKey, FileKey, KeyId, ObjectId, ShareKey,
-        WrappedKey,
+        CryptoError, DriveKey, FileKey, KeyId, ObjectId, ShareKey, WrappedKey,
     },
     key::{check_key, check_prefix},
     keyring::KeyringStore,
     ops::check_folder,
     packing::{PackOptions, PackState, PackedAt},
+    scratch::{Scratch, ScratchFile},
     time::now_unix,
     trust::{EncState, Op, Via, Why},
     ui_thread::NetworkLock,
@@ -1228,40 +1227,43 @@ const SPOOL_MEMORY: usize = 8 << 20;
 const OPENED_CACHE: usize = 64;
 
 /// Where a streamed object is put together before it goes to the inner drive (its header is
-/// written last): memory up to [`SPOOL_MEMORY`] bytes, then a temporary file that holds
-/// ciphertext only and is removed when the spool is dropped.
-struct Spool {
+/// written last): memory up to [`SPOOL_MEMORY`] bytes, then a scratch file ([`Scratch`], purpose
+/// `spool`: a private folder, `rw-------`, a name that says which process made it) that holds
+/// ciphertext only and is removed when the spool is dropped; what a killed program leaves is
+/// swept by the next one (AZ-C6).
+pub(crate) struct Spool {
     memory: Cursor<Vec<u8>>,
-    file: Option<(File, PathBuf)>,
+    file: Option<ScratchFile>,
+    scratch: Scratch,
 }
 
 impl Spool {
-    fn new() -> Spool {
+    pub(crate) fn new() -> Spool {
+        Spool::in_scratch(Scratch::new("spool"))
+    }
+
+    /// A spool whose file is made in `scratch` (a test's folder).
+    pub(crate) fn in_scratch(scratch: Scratch) -> Spool {
         Spool {
             memory: Cursor::new(Vec::new()),
             file: None,
+            scratch,
         }
     }
 
-    /// Moves what is in memory to a new temporary file, keeping the position.
+    /// Whether the spool went to a file.
+    pub(crate) fn is_in_file(&self) -> bool {
+        self.file.is_some()
+    }
+
+    /// Moves what is in memory to a new scratch file, keeping the position.
     fn move_to_file(&mut self) -> io::Result<()> {
-        let mut name = [0u8; 8];
-        random_bytes(&mut name)?;
-        let path = std::env::temp_dir().join(format!("azul-storage-{}.azl1-spool", to_hex(&name)));
-        let mut file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create_new(true)
-            .open(&path)?;
-        let moved = file
-            .write_all(self.memory.get_ref())
-            .and_then(|()| file.seek(SeekFrom::Start(self.memory.position())));
-        if let Err(e) = moved {
-            let _ = fs::remove_file(&path);
-            return Err(e);
-        }
+        let mut file = self.scratch.file()?;
+        // A failed move drops `file`, which removes it.
+        file.write_all(self.memory.get_ref())?;
+        file.seek(SeekFrom::Start(self.memory.position()))?;
         self.memory = Cursor::new(Vec::new());
-        self.file = Some((file, path));
+        self.file = Some(file);
         Ok(())
     }
 }
@@ -1272,14 +1274,14 @@ impl Write for Spool {
             self.move_to_file()?;
         }
         match &mut self.file {
-            Some((file, _)) => file.write(buf),
+            Some(file) => file.write(buf),
             None => self.memory.write(buf),
         }
     }
 
     fn flush(&mut self) -> io::Result<()> {
         match &mut self.file {
-            Some((file, _)) => file.flush(),
+            Some(file) => file.flush(),
             None => Ok(()),
         }
     }
@@ -1288,7 +1290,7 @@ impl Write for Spool {
 impl Seek for Spool {
     fn seek(&mut self, to: SeekFrom) -> io::Result<u64> {
         match &mut self.file {
-            Some((file, _)) => file.seek(to),
+            Some(file) => file.seek(to),
             None => self.memory.seek(to),
         }
     }
@@ -1297,17 +1299,8 @@ impl Seek for Spool {
 impl Read for Spool {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         match &mut self.file {
-            Some((file, _)) => file.read(buf),
+            Some(file) => file.read(buf),
             None => self.memory.read(buf),
-        }
-    }
-}
-
-impl Drop for Spool {
-    fn drop(&mut self) {
-        if let Some((file, path)) = self.file.take() {
-            drop(file);
-            let _ = fs::remove_file(path);
         }
     }
 }
@@ -1714,13 +1707,13 @@ impl<D: Drive> EncryptedDrive<D> {
     /// Puts a new object from its spool: conditionally when it is in memory, streamed through
     /// the inner drive's `put_from` when it went to a file.
     fn put_spooled(&self, id: &ObjectId, mut spool: Spool) -> Result<(), DriveError> {
-        if spool.file.is_none() {
-            let bytes = std::mem::take(spool.memory.get_mut());
-            self.put_object(id, &bytes)
-        } else {
+        if spool.is_in_file() {
             spool.seek(SeekFrom::Start(0))?;
             self.inner.put_from(&id.bucket_key(), &mut spool)?;
             Ok(())
+        } else {
+            let bytes = std::mem::take(spool.memory.get_mut());
+            self.put_object(id, &bytes)
         }
     }
 

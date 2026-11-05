@@ -826,7 +826,7 @@ fn owner_of(name: &str) -> Option<u32> {
 
 /// Whether the process `pid` runs (or may: a process of another user, or a system that cannot
 /// be asked, counts as running).
-fn process_runs(pid: u32) -> bool {
+pub(crate) fn process_runs(pid: u32) -> bool {
     #[cfg(unix)]
     {
         let Ok(pid) = libc::pid_t::try_from(pid) else {

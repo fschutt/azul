@@ -37,6 +37,9 @@ mod oauth;
 mod ops;
 mod s3;
 mod scoped;
+/// The one private place for what a program keeps for a while: a spool above its memory limit, the
+/// folders, the names that say who made a file, the sweep.
+mod scratch;
 mod sigv4;
 mod tables;
 mod time;

@@ -197,13 +197,6 @@ const ALLOWED: &[Allow] = &[
     ),
     // ---- C. the writers whose lane has not converted them yet (each lowers its count) ----
     Allow::exactly(
-        "examples/azul-storage/src/encrypted.rs",
-        RAW,
-        1,
-        "the Spool of a streamed encrypted write, in the system's temp folder: Z30-R2's Scratch \
-         (RF48; AZ-C6, AZ-M3)",
-    ),
-    Allow::exactly(
         "examples/azul-storage/src/encrypted_upload.rs",
         RAW,
         1,
