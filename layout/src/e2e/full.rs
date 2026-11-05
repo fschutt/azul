@@ -2565,13 +2565,22 @@ pub enum DebugEvent {
         #[serde(default)]
         button: MouseButton,
     },
+    /// Programmatic scroll at (x, y): a POSITIVE `delta_y` scrolls the content DOWN
+    /// (the opposite sign of `wheel`). No gliding timer; prove it with `assert_scroll`.
+    ///
+    /// It is `scroll_to` on a node found by rect containment and never exercises the
+    /// wheel path.
     Scroll {
         x: f32,
         y: f32,
         delta_x: f32,
         delta_y: f32,
     },
-    /// A hardware wheel notch at (x, y): moves the pointer there (refreshing
+    /// A RAW hardware wheel notch at (x, y): a NEGATIVE `delta_y` scrolls the content DOWN
+    /// (`-120` ends 120px down once it has glided), a positive one scrolls UP. It glides on a
+    /// timer: follow it with `tick_ms` + `wait_frame`, then prove it with `assert_scroll`.
+    ///
+    /// Moves the pointer there (refreshing
     /// the hover hit test) and feeds the RAW delta through
     /// `CallbackChange::WheelInput` — the shells' `record_scroll_from_hit_test`
     /// + scroll-physics-timer path, target chosen by the hit test (innermost

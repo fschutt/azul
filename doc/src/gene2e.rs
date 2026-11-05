@@ -292,7 +292,8 @@ struct OpDef {
     name: String,
     /// (param, required)
     params: Vec<(String, bool)>,
-    /// One-line doc, if the enum variant carried one.
+    /// The first paragraph of the enum variant's doc on one line, if it
+    /// carried one (see [`DocParagraph`]).
     doc: Option<String>,
 }
 
@@ -754,6 +755,75 @@ fn snake(camel: &str) -> String {
     out
 }
 
+/// The longest an op's doc is in the prompt's schema section, in characters.
+const OP_DOC_MAX_CHARS: usize = 300;
+
+/// The doc of one `DebugEvent` variant as the prompt shows it: the `///` lines
+/// up to the first blank one, joined into a single line, at most
+/// [`OP_DOC_MAX_CHARS`] characters ([`cap_doc`]).
+///
+/// It used to be the first `///` LINE, which cut the sentences that matter:
+/// `wheel`'s sign convention sat on the sixth line of its doc, `tick_ms` stopped
+/// at "- WITHOUT", `wait_settled` and `mock` mid-sentence, and `scroll` had no
+/// doc at all. A scenario that wheel-scrolled with `delta_y: +120` scrolled
+/// nothing - down is -120 - and was green on a list that never moved (batch 3,
+/// line 11).
+#[derive(Debug, Default)]
+struct DocParagraph {
+    text: String,
+    /// A blank `///` line has ended the paragraph; what follows is not shown.
+    closed: bool,
+}
+
+impl DocParagraph {
+    /// One `///` line, without the slashes.
+    fn push(&mut self, line: &str) {
+        let line = line.trim();
+        if line.is_empty() {
+            // Blank lines before the text are nothing; one after it ends the
+            // paragraph.
+            self.closed |= !self.text.is_empty();
+            return;
+        }
+        if self.closed {
+            return;
+        }
+        if !self.text.is_empty() {
+            self.text.push(' ');
+        }
+        self.text.push_str(line);
+    }
+
+    /// The paragraph so far, capped, and an empty slate for the next variant.
+    fn take(&mut self) -> Option<String> {
+        let text = std::mem::take(&mut self.text);
+        self.closed = false;
+        (!text.is_empty()).then(|| cap_doc(&text, OP_DOC_MAX_CHARS))
+    }
+}
+
+/// `doc` in at most `max` characters: whole when it fits, otherwise cut after
+/// the last full sentence that fits when that keeps at least half the room,
+/// else at the last whole word, with an ellipsis. Never in the middle of a word.
+fn cap_doc(doc: &str, max: usize) -> String {
+    if doc.chars().count() <= max {
+        return doc.to_string();
+    }
+    // Room for the ellipsis.
+    let end = doc
+        .char_indices()
+        .nth(max.saturating_sub(1))
+        .map_or(doc.len(), |(i, _)| i);
+    let head = &doc[..end];
+    if let Some(dot) = head.rfind(". ") {
+        if head[..=dot].chars().count() >= max / 2 {
+            return head[..=dot].to_string();
+        }
+    }
+    let words = head.rfind(' ').map_or(head, |space| &head[..space]);
+    format!("{}…", words.trim_end())
+}
+
 /// Parse `DebugEvent` + the assertion dispatch out of `full.rs`.
 ///
 /// This is deliberately a dumb line scanner rather than a `syn` parse: it only
@@ -774,7 +844,7 @@ pub fn parse_schema(project_root: &Path) -> Result<Schema> {
     let mut ops: Vec<OpDef> = Vec::new();
     let mut depth: i32 = 0;
     let mut cur: Option<OpDef> = None;
-    let mut pending_doc: Option<String> = None;
+    let mut pending_doc = DocParagraph::default();
     let mut pending_default = false;
     let mut pending_rename: Option<String> = None;
 
@@ -784,10 +854,7 @@ pub fn parse_schema(project_root: &Path) -> Result<Schema> {
         if depth == 0 {
             // Between variants: collect the doc comment + serde attrs.
             if let Some(d) = t.strip_prefix("///") {
-                let d = d.trim();
-                if !d.is_empty() && pending_doc.is_none() {
-                    pending_doc = Some(d.to_string());
-                }
+                pending_doc.push(d);
                 continue;
             }
             if t.starts_with("#[") || t.is_empty() || t.starts_with("//") {
@@ -1375,17 +1442,24 @@ Concretely:
       smaller than the window.
     - display:none / visibility:hidden: the node must PAINT something itself (a background);
       an `<img>` paints nothing of its own (step 1 below).
-    - overflow: the box must be SMALLER than the window (wrap it in a window-sized frame)
-      and hold a painted child that sticks out of it. An empty box, or one that fills the
-      window, shows no change.
+    - overflow: build exactly this shape. A window-sized frame (`#frame {{ width: 400px; height:
+      300px; background: white; }}`) holds the node under test at a SMALLER fixed size (`#box {{
+      width: 200px; height: 100px; background: red; }}`), and the node holds a painted child that
+      is LARGER than it in at least one axis (`#kid {{ width: 100px; height: 200px; background:
+      blue; flex-shrink: 0; }}`), so `overflow: visible` shows the child hanging out of the box and
+      `overflow: hidden` cuts it off. A node as large as its frame, or whose child lies wholly
+      inside it, shows no change in either direction.
     - position (static -> absolute): a painted sibling FOLLOWS the node in the flow, so it
       jumps into the gap. An absolute box with an explicit size and no offsets stays where
       it was.
     - justify-content / align-items / flex-direction / flex-grow: at least TWO painted flex
       items that do not fill the container along the axis the property acts on (with one
       item, `space-between` equals `flex-start`).
-  If the line names a control property that no fixture can make visible, add the top-level
-  key "pending": "control cannot be made visible: <why>" and write the closest honest test.
+  If the line names a control property that NO node of ANY fixture you can build shows, add the
+  top-level key "pending": "control cannot be made visible: <why>" and write the closest honest
+  test. Before you give up, move the override to the node that CAN show the property: the flex
+  row or a wrapper you add around the named node. An `<img>` has no children, but the row that
+  holds it does: put `overflow` on the row and let a taller sibling stick out of it.
 - The numbers in the recipes below are ILLUSTRATIVE placeholders. Derive each bound
   from the sentence you were given; do not copy them by default.
 - Never widen a bound, drop an assertion, or downgrade `eq` to `le` to make the test
@@ -1463,13 +1537,24 @@ invalidation path completely broken. Only the ops listed above exist; use nothin
 5. `wait_frame` + `wait` (and `tick_ms` for anything time-driven: momentum,
    fade, blink, animation — `tick_ms` advances the engine clock WITHOUT sleeping).
    A window of "identical frames" must not overlap time-driven state: take the first
-   snapshot only AFTER it has finished. An overlay scrollbar stays visible for 500 ms
-   after the last scroll and then fades over 200 ms. These are window-level constants:
-   the per-node `-azul-scrollbar-fade-delay`/`-duration` properties are parsed but do not
-   change the fade, and `scrollbar-width`/`scrollbar-color` configure no fade at all. So
-   after a wheel scroll, `tick_ms` 250 ms four or more times (each followed by
-   `wait_frame`), THEN `reset_frame_counters` and the first `snapshot_frame`.
+   snapshot only AFTER it has finished.
+   A wheel, a drag or a hover over a scroller makes its overlay scrollbar visible, and that
+   STARTS A FADE: 500 ms visible, then 200 ms fading. These are window-level constants. The
+   per-node `-azul-scrollbar-fade-delay`/`-duration` properties are parsed but inert (never plan a
+   timeline around the values a line quotes), and `scrollbar-width`/`scrollbar-color` configure no
+   fade at all. So between such an input and the first `reset_frame_counters`/`snapshot_frame` of an
+   idle chain ALWAYS put four `tick_ms` 250 ms, each followed by `wait_frame`. That preamble is not
+   one of the steps the line counts: "wheel-scroll, then advance the clock in 6 steps of 150ms"
+   still gets it, and the 6 steps follow it.
    `wait_settled` does not help in this runner: it does not advance the clock.
+   SCROLLING. `wheel` is a RAW hardware notch: a NEGATIVE `delta_y` scrolls the content DOWN
+   (`{{"op":"wheel","x":100,"y":100,"delta_x":0,"delta_y":-120}}` leaves the offset at 120 once it
+   has glided); a positive `delta_y` scrolls UP, which at the top of a list moves nothing.
+   `scroll` and `scroll_node_by` are programmatic and take a POSITIVE delta for "down";
+   `scroll_node_to` takes the absolute offset. A wheel glides on a timer: follow it with
+   `tick_ms` + `wait_frame` before you read the offset. A timeline that needs a list to have
+   scrolled must PROVE it with `assert_scroll {{"selector": ".list", "y": 120}}` after the glide,
+   or it stays green on a list that never moved.
 6. Assert what the line asks for:
    - "the pixels change" / liveness      -> assert_changed  {{"vs": "before", "min_damage_rects": 1}}
    - "damage covers the change" / sound  -> assert_damage_covers_changes {{"vs": "before"}}
@@ -5796,6 +5881,146 @@ fn eval_assert_changed(params: &Value) -> AssertionResult {{
         assert!(p.contains("`wait_settled` does not help in this runner"));
     }
 
+    /// Batch 3, Defect 1. An op's doc is its first PARAGRAPH, on one line - not
+    /// its first line: `wheel`'s sign convention sat on the sixth line of its doc
+    /// and the model never saw it.
+    #[test]
+    fn b3_d1_a_doc_is_its_first_paragraph_on_one_line() {
+        let mut doc = DocParagraph::default();
+        for line in [
+            "", // blank lines before the text are nothing
+            " A hardware wheel notch at (x, y):",
+            "a NEGATIVE `delta_y` scrolls DOWN.",
+            "",
+            "The second paragraph is not shown.",
+        ] {
+            doc.push(line);
+        }
+        assert_eq!(
+            doc.take().as_deref(),
+            Some("A hardware wheel notch at (x, y): a NEGATIVE `delta_y` scrolls DOWN.")
+        );
+        // The slate is clean for the next variant: no text, no closed paragraph.
+        assert_eq!(doc.take(), None);
+        doc.push("Next.");
+        assert_eq!(doc.take().as_deref(), Some("Next."));
+    }
+
+    /// Batch 3, Defect 1: a doc is at most `OP_DOC_MAX_CHARS` characters and is
+    /// cut after a whole sentence or at a whole word, never inside one.
+    #[test]
+    fn b3_d1_a_long_doc_is_cut_at_a_sentence_or_a_word_never_inside_one() {
+        // It fits: untouched.
+        assert_eq!(cap_doc("Short. Sentences.", 300), "Short. Sentences.");
+        // The last full sentence that fits, when it keeps half the room.
+        assert_eq!(
+            cap_doc("aaaa bbbb cccc dddd. eeee ffff gggg hhhh iiii jjjj", 30),
+            "aaaa bbbb cccc dddd."
+        );
+        // A sentence end in the first half is not worth the room: cut at a word.
+        assert_eq!(
+            cap_doc("Hi. aaaa bbbb cccc dddd eeee ffff gggg hhhh", 30),
+            "Hi. aaaa bbbb cccc dddd eeee…"
+        );
+        assert_eq!(
+            cap_doc("aaaa bbbb cccc dddd eeee ffff gggg hhhh", 30),
+            "aaaa bbbb cccc dddd eeee…"
+        );
+        // Characters, not bytes: a long run of 2-byte letters neither panics nor
+        // overruns.
+        let wide = "é".repeat(400);
+        assert_eq!(cap_doc(&wide, OP_DOC_MAX_CHARS).chars().count(), OP_DOC_MAX_CHARS);
+    }
+
+    /// Batch 3, Defect 1, on the real `full.rs`: the schema lines carry the
+    /// sentences that used to be cut. `wheel` says which way down is (a raw
+    /// notch: NEGATIVE), `scroll` says it too (a programmatic delta: POSITIVE)
+    /// and had no doc at all, `tick_ms` keeps its "WITHOUT sleeping", and no line
+    /// is longer than the cap.
+    #[test]
+    fn b3_d1_the_schema_lines_say_which_way_is_down() {
+        let s = parse_schema(&root()).unwrap();
+        let doc = schema_doc(&s);
+        let line = |op: &str| -> String {
+            doc.lines()
+                .find(|l| l.starts_with(&format!("- {op} :")))
+                .unwrap_or_else(|| panic!("the prompt does not offer `{op}`"))
+                .to_string()
+        };
+
+        let wheel = line("wheel");
+        assert!(
+            wheel.contains("NEGATIVE `delta_y` scrolls the content DOWN"),
+            "{wheel}"
+        );
+        let scroll = line("scroll");
+        assert!(
+            scroll.contains("POSITIVE `delta_y` scrolls the content DOWN"),
+            "{scroll}"
+        );
+        let tick = line("tick_ms");
+        assert!(tick.contains("WITHOUT sleeping."), "{tick}");
+        assert!(tick.contains("Everything time-driven"), "{tick}");
+
+        for l in doc.lines().filter(|l| l.starts_with("- ")) {
+            if let Some((_, d)) = l.split_once("   // ") {
+                assert!(d.chars().count() <= OP_DOC_MAX_CHARS, "over the cap: {l}");
+            }
+        }
+    }
+
+    /// Batch 3, Defect 1: the prompt itself teaches the wheel's sign and tells the
+    /// model to PROVE a scroll. `delta_y: +120` scrolled nothing, nothing proved
+    /// the scroll, and the line stayed green on a list that never moved.
+    #[test]
+    fn b3_d1_the_prompt_teaches_the_wheel_sign_and_to_prove_the_scroll() {
+        let p = flat_prompt();
+        for want in [
+            "SCROLLING. `wheel` is a RAW hardware notch: a NEGATIVE `delta_y` scrolls the content \
+             DOWN",
+            "leaves the offset at 120 once it has glided",
+            "a positive `delta_y` scrolls UP, which at the top of a list moves nothing",
+            "`scroll` and `scroll_node_by` are programmatic and take a POSITIVE delta for \"down\"",
+            "`scroll_node_to` takes the absolute offset",
+            "A wheel glides on a timer: follow it with `tick_ms` + `wait_frame` before you read \
+             the offset",
+            "must PROVE it with `assert_scroll {\"selector\": \".list\", \"y\": 120}` after the \
+             glide",
+        ] {
+            assert!(p.contains(want), "the prompt lost `{want}`");
+        }
+    }
+
+    /// Batch 3, Defects 2-4: a wheel/drag/hover STARTS a fade and the idle chain
+    /// gets its four ticks first; the per-node fade properties are inert; the
+    /// overflow recipe is a shape; `pending` is the last resort. The old wording is gone.
+    #[test]
+    fn b3_d2_d3_d4_the_fade_preamble_the_overflow_shape_and_the_pending_hatch() {
+        let p = flat_prompt();
+        for want in [
+            "A wheel, a drag or a hover over a scroller makes its overlay scrollbar visible, and \
+             that STARTS A FADE: 500 ms visible, then 200 ms fading",
+            "are parsed but inert (never plan a timeline around the values a line quotes)",
+            "ALWAYS put four `tick_ms` 250 ms, each followed by `wait_frame`",
+            "That preamble is not one of the steps the line counts",
+            "`#kid { width: 100px; height: 200px; background: blue; flex-shrink: 0; }`",
+            "put `overflow` on the row and let a taller sibling stick out of it",
+        ] {
+            let flat = p.split_whitespace().collect::<Vec<_>>().join(" ");
+            let want = want.split_whitespace().collect::<Vec<_>>().join(" ");
+            assert!(flat.contains(&want), "the prompt lost `{want}`");
+        }
+        for stale in [
+            "are parsed but do not",
+            "four or more times",
+            "that no fixture can make visible",
+            "(wrap it in a window-sized frame)",
+        ] {
+            let flat = p.split_whitespace().collect::<Vec<_>>().join(" ");
+            assert!(!flat.contains(stale), "the prompt still says `{stale}`");
+        }
+    }
+
     /// D5 - D7, D9, D10.
     #[test]
     fn the_prompt_tells_how_to_mount_what_a_control_needs_and_what_a_quantifier_is() {
@@ -5840,11 +6065,17 @@ fn eval_assert_changed(params: &Value) -> AssertionResult {{
             "border-width: `border-style: solid`",
             "padding / margin: a painted child",
             "display:none / visibility:hidden: the node must PAINT something itself",
-            "overflow: the box must be SMALLER than the window",
+            // Batch 3, Defect 3: the exact shape, not "wrap it in a frame".
+            "overflow: build exactly this shape. A window-sized frame",
+            "holds the node under test at a SMALLER fixed size",
+            "so `overflow: visible` shows the child hanging out of the box",
             "position (static -> absolute): a painted sibling FOLLOWS the node",
             "justify-content / align-items / flex-direction / flex-grow: at least TWO painted \
              flex items",
             "\"pending\": \"control cannot be made visible: <why>\"",
+            // Batch 3, Defect 4: move the override before giving up.
+            "NO node of ANY fixture you can build shows",
+            "Before you give up, move the override to the node that CAN show the property",
             // Defect 2: an `<img>` paints nothing.
             "its placeholder raster is transparent: an `<img>` paints NOTHING until it has a \
              `background-color` or you call `set_node_image` on it",
@@ -5905,6 +6136,9 @@ fn eval_assert_changed(params: &Value) -> AssertionResult {{
     fn the_recipes_in_the_prompt_pass_the_gate() {
         let s = parse_schema(&root()).unwrap();
         let steps = [
+            // the SCROLLING paragraph's two examples (batch 3, Defect 1)
+            r#"{"op":"wheel","x":100,"y":100,"delta_x":0,"delta_y":-120}"#,
+            r#"{"op":"assert_scroll","selector":".list","y":120}"#,
             r#"{"op":"assert_damage","kind":"none","frame":"last"}"#,
             r#"{"op":"assert_damage","kind":"rects","max_area_ratio":0.5}"#,
             r#"{"op":"assert_work_bounded","exact_layout_passes":0}"#,
@@ -5916,7 +6150,7 @@ fn eval_assert_changed(params: &Value) -> AssertionResult {{
         ];
         let scenario = format!(
             r##"{{"name":"x","pending":"a note the checker ignores","steps":[
-                {{"op":"mount","html":["<body><div id=\"box\"></div></body>"]}},
+                {{"op":"mount","html":["<body><div id=\"box\" class=\"list\"></div></body>"]}},
                 {{"op":"wait_frame"}},{{"op":"wait","ms":100}},
                 {{"op":"reset_frame_counters"}},
                 {{"op":"snapshot_frame","as":"before"}},{{"op":"snapshot_resources","as":"baseline"}},
