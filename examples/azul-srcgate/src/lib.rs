@@ -21,8 +21,10 @@
 //! azul-apps repository), which reads that tree's code the same way.
 //!
 //! The gates of the apps are `tests/*_gate.rs` of this crate (they read other crates' sources
-//! by path from the workspace's root): `tests/keyring_gate.rs` and `tests/todo_gate.rs` today; a
-//! later work order adds its own next to them.
+//! by path from the workspace's root): `tests/keyring_gate.rs`, `tests/todo_gate.rs`,
+//! `tests/durable_gate.rs` (a file is put in place only through `azul_storage::durable`) and
+//! `tests/names_gate.rs` (the engine's own names are spelled in `names.rs`) today; a later work
+//! order adds its own next to them.
 
 pub mod find;
 pub mod gate;

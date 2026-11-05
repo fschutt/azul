@@ -967,7 +967,7 @@ trait SyncRemote: Sync {
     /// memory where the drive can), checked the same way; the content's hash for the base.
     fn fetch_to(&self, key: &str, hash: &str, size: u64, dest: &Path) -> CloudResult<String> {
         let bytes = self.fetch(key, hash, size)?;
-        fs::write(dest, &bytes)?;
+        durable::replace(dest, &bytes, Mode::Shared)?;
         Ok(content_hash(hash, &bytes))
     }
 

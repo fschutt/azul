@@ -62,7 +62,7 @@ pub enum Seen {
 #[must_use]
 pub fn place_path(data_root: &Path, app_folder: &str) -> PathBuf {
     data_root
-        .join(".azlin")
+        .join(azul_storage::names::BOOKKEEPING)
         .join("windows")
         .join(format!("{app_folder}.json"))
 }

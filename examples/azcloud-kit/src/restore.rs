@@ -33,7 +33,7 @@ use crate::{
 };
 
 /// The root folder no restore touches (the drive's policy and keys).
-const RESERVED: &str = ".azlin";
+const RESERVED: &str = azul_storage::names::BOOKKEEPING;
 
 /// What a drive-wide restore did.
 #[derive(Debug)]

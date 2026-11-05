@@ -46,6 +46,9 @@ pub const SYNC_DIR: &str = ".azlin/sync";
 pub const TRASH_DIR: &str = ".azlin/sync/trash";
 /// Where big downloads are spooled on the folder's own disk, in it.
 pub const SPOOL_DIR: &str = ".azlin/sync/tmp";
+/// The sync's record of a folder synced under a drive's prefix, in the drive: a file of the drive
+/// (sealed, kept in its history) that no listing shows.
+pub const RECORD_FILE: &str = ".azlin/sync/record.json";
 
 /// What the disk under a synced folder does with names, probed once when it is paired: a disk
 /// that ignores case (APFS, NTFS) or Unicode normalization (APFS, HFS+) takes two names of the

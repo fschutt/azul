@@ -573,6 +573,35 @@ fn a_cloud_listing_is_kept_and_read_back() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// X-AR5a-6 (the listing cache's writer): a kept listing goes in through `durable::replace_cache`
+/// - staged beside the file and renamed - so a second one replaces the first whole and nothing
+/// but the file is left in the cache folder (no `.tmp` of a fixed name for two writers to share).
+#[test]
+fn x_ar5a_6_a_kept_listing_replaces_the_old_one_whole_and_leaves_no_temporary_file() {
+    let dir = std::env::temp_dir().join(format!(
+        "azdrive-listing-durable-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_nanos())
+    ));
+    let file = find::listing_file(&dir, "s3:another/bucket");
+    let listing = |at: u64, size: u64| find::CachedListing {
+        prefix: String::from("Docs/"),
+        at,
+        objects: vec![object("Docs/a.txt", size)],
+    };
+    find::write_listing(&file, &listing(1, 5)).expect("the first");
+    find::write_listing(&file, &listing(2, 9)).expect("the second");
+    assert_eq!(find::read_listing(&file), Some(listing(2, 9)));
+    let left: Vec<_> = std::fs::read_dir(file.parent().expect("a folder"))
+        .expect("the cache folder")
+        .map(|e| e.expect("an entry").file_name())
+        .collect();
+    assert_eq!(left.len(), 1, "only the listing is left: {left:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// A row the cached listing showed that the fresh listing has not got goes (deleted since).
 #[test]
 fn stale_results_go_when_the_fresh_listing_has_not_got_them() {

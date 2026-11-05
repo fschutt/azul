@@ -23,7 +23,7 @@ use super::{
 };
 
 /// The record's place under the folder's prefix.
-pub const RECORD_FILE: &str = ".azlin/sync/record.json";
+pub const RECORD_FILE: &str = names::RECORD_FILE;
 
 /// Whether `key` (under a prefix) is a folder's record: the folder's own at its root, or that of
 /// a folder synced deeper down - bookkeeping either way, never a file of the folder.

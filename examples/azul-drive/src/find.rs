@@ -1021,19 +1021,16 @@ pub fn write_listing(path: &Path, listing: &CachedListing) -> io::Result<()> {
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir)?;
     }
-    let mut temp = path.as_os_str().to_owned();
-    temp.push(".tmp");
-    let temp = PathBuf::from(temp);
-    let mut out = io::BufWriter::new(fs::File::create(&temp)?);
+    let mut text = Vec::new();
     writeln!(
-        out,
+        text,
         "{LISTING_FORMAT}\t{}\t{}",
         escape_field(&listing.prefix),
         listing.at
     )?;
     for object in &listing.objects {
         writeln!(
-            out,
+            text,
             "{}\t{}\t{}\t{}",
             object.size,
             object.modified.map_or_else(String::new, |m| m.to_string()),
@@ -1041,8 +1038,9 @@ pub fn write_listing(path: &Path, listing: &CachedListing) -> io::Result<()> {
             escape_field(&object.key)
         )?;
     }
-    out.into_inner().map_err(io::IntoInnerError::into_error)?.sync_all()?;
-    fs::rename(&temp, path)
+    // A cache that reads itself back (a damaged one is none): the rename only, no sync of the
+    // file nor of the folder; a reader never sees half a file.
+    azul_storage::durable::replace_cache(path, &text)
 }
 
 /// A kept listing read back; `None` when there is none, or it is of another format or damaged.

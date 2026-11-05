@@ -91,7 +91,7 @@ pub trait RemoteStore: Send + Sync {
     fn fetch_to(&self, key: &str, size: u64, dest: &Path) -> CloudResult<bool> {
         match self.fetch(key, size)? {
             Some(bytes) => {
-                std::fs::write(dest, bytes)?;
+                azul_storage::durable::replace(dest, &bytes, azul_storage::durable::Mode::Shared)?;
                 Ok(true)
             }
             None => Ok(false),
