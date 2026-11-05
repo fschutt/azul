@@ -167,12 +167,14 @@ fn a_contact_answers_a_recovery_request_that_only_the_request_opens() {
     let back = CodeShare::combine(&[from_reply, from_paper]).unwrap();
     assert_eq!(back.as_bytes(), code().as_bytes());
     assert!(read_share("neither", &request).is_err());
-    // The safety number both sides compare: 12 digits, the same for the same request.
+    // The safety number both sides compare: 20 digits (AZ-C14: 12 were about 40 bits), the same
+    // for the same request.
     let number = safety_number(&asked);
-    assert_eq!(number.len(), 15, "{number}");
+    assert_eq!(number.len(), 24, "{number}");
+    assert_eq!(number.split(' ').count(), 5, "{number}");
     assert!(number
         .split(' ')
-        .all(|group| group.len() == 3 && group.chars().all(|c| c.is_ascii_digit())));
+        .all(|group| group.len() == 4 && group.chars().all(|c| c.is_ascii_digit())));
     assert_eq!(number, safety_number(&request.public()));
     assert_ne!(number, safety_number(&stranger.public()));
 }
@@ -267,4 +269,30 @@ fn another_device_is_a_member_wrap_beside_this_ones_and_invites_do_not_count() {
         2,
         "a computer without a wrap"
     );
+}
+
+/// AZ-C14: the safety number has the bits to stop a substituted request key - 20 digits, about
+/// 66 bits, where 12 digits (about 40) could be matched by grinding keys - and spends them: over a
+/// few hundred keys every digit position takes every value, and no two numbers meet.
+#[test]
+fn az_c14_the_safety_number_has_twenty_digits_that_are_all_in_use() {
+    assert_eq!(crate::crypto::contacts::SAFETY_DIGITS, 20);
+    assert!(
+        crate::crypto::contacts::SAFETY_DIGITS as f64 * std::f64::consts::LOG2_10 > 64.0,
+        "more than 64 bits"
+    );
+    let mut seen = std::collections::BTreeSet::new();
+    let mut positions = vec![std::collections::BTreeSet::new(); 20];
+    for _ in 0..300 {
+        let number = safety_number(&MemberSecret::generate().unwrap().public());
+        let digits: Vec<char> = number.chars().filter(|c| c.is_ascii_digit()).collect();
+        assert_eq!(digits.len(), 20, "{number}");
+        for (position, digit) in digits.iter().enumerate() {
+            positions[position].insert(*digit);
+        }
+        assert!(seen.insert(number), "two requests with one number");
+    }
+    for (position, values) in positions.iter().enumerate() {
+        assert_eq!(values.len(), 10, "digit {position} never takes some value in 300 numbers");
+    }
 }

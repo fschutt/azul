@@ -463,15 +463,28 @@ pub fn request_from_text(text: &str) -> Option<MemberPublic> {
     Some(MemberPublic(bytes))
 }
 
-/// The safety number of a request: 12 digits in four groups (`042 913 557 120`) that the owner
-/// and the contact compare before the contact answers.
+/// How many digits a safety number has: 20 (about 66 bits), in five groups of four.
+///
+/// The number is what stops a substituted request key: whoever sits between the owner and the
+/// contact must find a key whose number matches the genuine one's, and each try costs one X25519
+/// key and one hash. 12 digits (about 40 bits) were a few GPU-hours of tries; 20 are not within
+/// reach, and a person still reads 20 digits to someone on the phone.
+pub const SAFETY_DIGITS: usize = 20;
+
+/// The safety number of a request: [`SAFETY_DIGITS`] digits in five groups of four
+/// (`0429 1355 7120 3344 7765`) that the owner and the contact compare before the contact
+/// answers.
 #[must_use]
 pub fn safety_number(request: &MemberPublic) -> String {
     let derived = blake3::derive_key(SAFETY_CONTEXT, &request.0);
-    let mut first = [0u8; 8];
-    first.copy_from_slice(&derived[..8]);
-    let digits = format!("{:012}", u64::from_le_bytes(first) % 1_000_000_000_000);
-    let groups: Vec<&str> = (0..4).map(|i| &digits[3 * i..3 * i + 3]).collect();
+    let mut first = [0u8; 16];
+    first.copy_from_slice(&derived[..16]);
+    // 2^128 is not a multiple of 10^20, and the bias of the remainder is under one in 10^18.
+    let modulus = 10u128.pow(SAFETY_DIGITS as u32);
+    let digits = format!("{:020}", u128::from_le_bytes(first) % modulus);
+    let groups: Vec<&str> = (0..SAFETY_DIGITS / 4)
+        .map(|i| &digits[4 * i..4 * i + 4])
+        .collect();
     groups.join(" ")
 }
 
