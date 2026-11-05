@@ -413,6 +413,10 @@ pub fn audience_for(kind: InstallKind, channel: Channel) -> Audience {
 }
 
 /// What a manifest says about an app.
+// `Available` holds the whole release, the strings of its signature chain among them. A `Check`
+// is made once per check and moved to its reader, never kept in bulk: boxing the release would
+// only put a pointer in front of every reader.
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Check {
     /// Nothing newer is open to this machine (a release still gated is not shown).

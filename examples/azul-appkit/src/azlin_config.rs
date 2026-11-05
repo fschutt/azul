@@ -2053,8 +2053,10 @@ mod tests {
         impl Fn(&str) -> Option<String>,
         EndpointFlags,
     ) {
-        let mut section = EndpointsSection::default();
-        section.profile = Some(Profile::Local);
+        let mut section = EndpointsSection {
+            profile: Some(Profile::Local),
+            ..EndpointsSection::default()
+        };
         section
             .set(Endpoint::Token, Some("https://evil.example/file"))
             .unwrap();
