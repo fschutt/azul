@@ -129,6 +129,16 @@ impl Schedule {
         self.next.insert(drive_id.to_string(), next);
     }
 
+    /// The drive `drive_id` was just paid for (claimed): its first look waits `delay` seconds
+    /// from `now` ([`azcloud_kit::period::first_look_delay`]), whatever the schedule says - a
+    /// drive never looked at is due at once, and a look in the second of the claim would tie the
+    /// payer to the drive by timing (ENT27 n50). A later look time already set stays.
+    pub(crate) fn look_later(&mut self, drive_id: &str, now: u64, delay: u64) {
+        let at = now.saturating_add(delay);
+        let slot = self.next.entry(drive_id.to_string()).or_insert(at);
+        *slot = (*slot).max(at);
+    }
+
     /// `key` was looked at `now` (a cash order asked by the background claims): the next look
     /// is a day later (or the test run's interval).
     pub(crate) fn looked_at(&mut self, key: &str, now: u64) {
@@ -243,6 +253,19 @@ pub(crate) fn start_redemptions(
         drives,
     };
     spawn(info, app, s, job);
+}
+
+/// The drive `drive_id` was just paid for: its first look waits a random ten minutes to six hours
+/// (ENT27 n50; [`Schedule::look_later`]).
+pub(crate) fn look_after_claim(s: &mut DriveState, drive_id: &str) {
+    // The scripts of the E2E builds (`test-hooks`) buy a drive and expect its months at once;
+    // a shipped build waits.
+    let delay = if cfg!(feature = "test-hooks") {
+        0
+    } else {
+        azcloud_kit::period::first_look_delay()
+    };
+    s.redemptions.look_later(drive_id, now_secs(), delay);
 }
 
 /// What the looks found: the schedule learns when to look again; a month bought is printed

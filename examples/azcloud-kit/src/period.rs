@@ -744,6 +744,35 @@ fn issuer_key_named(
 /// 30 days to the end - to tomorrow's start for a lapsed drive - so nothing is lost by it).
 pub const REDEEM_AHEAD_SECS: u64 = 7 * 86_400;
 
+/// The least a drive's first look waits after its payment was claimed: ten minutes.
+pub const FIRST_LOOK_MIN_SECS: u64 = 600;
+/// The most it waits: six hours (the period is looked at a week ahead, and a drive stays
+/// writable for two weeks past its end, so nothing is lost by it).
+pub const FIRST_LOOK_MAX_SECS: u64 = 6 * 3600;
+
+/// The wait before the first look at a drive whose payment was just claimed: `random` (any 64
+/// bits) spread over [`FIRST_LOOK_MIN_SECS`] to [`FIRST_LOOK_MAX_SECS`].
+///
+/// The checkout's polls and its issue come from the buyer's address in the very second the
+/// payment is claimed; a look at the DRIVE (its status, a redemption) from the same address in
+/// the next second would tie the payer to the drive by timing, although the tokens are blind
+/// (ENT27 n50). A random wait takes the tie away.
+#[must_use]
+pub fn first_look_delay_from(random: u64) -> u64 {
+    FIRST_LOOK_MIN_SECS + random % (FIRST_LOOK_MAX_SECS - FIRST_LOOK_MIN_SECS + 1)
+}
+
+/// [`first_look_delay_from`] the OS random source; the longest wait when it gives none (a wait
+/// that is too short ties the payer to the drive, one that is too long costs nothing).
+#[must_use]
+pub fn first_look_delay() -> u64 {
+    let mut bytes = [0_u8; 8];
+    match getrandom::getrandom(&mut bytes) {
+        Ok(()) => first_look_delay_from(u64::from_le_bytes(bytes)),
+        Err(_) => FIRST_LOOK_MAX_SECS,
+    }
+}
+
 /// The most tokens one look redeems and the most months it issues: more than any period needs
 /// at once (a lapsed drive is bought a month from tomorrow, one token at a time).
 const MAX_ROUNDS: usize = 2 * MAX_BLINDED + 2;
@@ -1020,6 +1049,7 @@ fn redeem_with(
     };
     let mut count = 0;
     let mut doubted = 0;
+    let mut banned = false;
     let mut failed: Option<String> = None;
     for _ in 0..MAX_ROUNDS {
         if !due(period_until) {
@@ -1089,6 +1119,20 @@ fn redeem_with(
                 }
                 let _ = tokens.spend(&candidate.nonce);
             }
+            // The drive is banned (the contract's word, 403): no month can be bought for it, and
+            // the token is not at fault - it stays (ENT27 n51).
+            Err(e) if e.is_drive_banned() => {
+                banned = true;
+                break;
+            }
+            // A recovery-key lockdown is pending: the months wait for its end, said as such.
+            Err(e) if e.is_lockdown_pending() => {
+                failed = Some(String::from(
+                    "a lockdown by recovery key is pending for the drive: its months wait for \
+                     its end or its cancel",
+                ));
+                break;
+            }
             Err(e) => {
                 failed = Some(e.to_string());
                 break;
@@ -1100,6 +1144,8 @@ fn redeem_with(
             count,
             period_until,
         }
+    } else if banned {
+        Redeemed::Banned
     } else if let Some(why) = failed {
         Redeemed::Kept(why)
     } else if due(period_until) {
@@ -1246,6 +1292,14 @@ fn change_with(
                 ))
             }
             Ok(Err(refused)) => return TierChanged::Kept(refused.as_str().to_string()),
+            // The drive is banned: it changes nothing (the contract's word, ENT27 n51).
+            Err(e) if e.is_drive_banned() => return TierChanged::Banned,
+            Err(e) if e.is_lockdown_pending() => {
+                return TierChanged::Kept(String::from(
+                    "a lockdown by recovery key is pending for the drive: the change waits for \
+                     its end or its cancel",
+                ))
+            }
             Err(e) => return TierChanged::Kept(e.to_string()),
         }
     }

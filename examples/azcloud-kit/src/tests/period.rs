@@ -655,6 +655,39 @@ fn a_used_or_useless_period_token_is_dropped_and_the_next_one_redeemed() {
     assert_eq!(store.tokens("d_1").unwrap(), vec![stored("dd")]);
 }
 
+/// ENT27 n51: a redemption refused in the contract's words `drive_banned` and `lockdown_pending`
+/// (both 403) is read as that - a banned drive is closed, a pending lockdown makes the months
+/// wait with its reason - and the token is kept in both. Before, the contract's catch-all took
+/// them: the look kept the token as "waits for the next try" with the server's raw sentence.
+#[test]
+fn ent27_n51_a_redeem_refused_as_banned_or_as_locked_down_is_read_as_that() {
+    let dir = TempDir::new("azcloud-period");
+    let shared = keyring_with_session(&dir, "dt_f.0.first");
+    let store = store_in(&dir);
+    store.add("d_1", &[stored("aa"), stored("bb")]).unwrap();
+    let refused = |word: &'static str| {
+        let fake = redeeming_server(shared.locks().clone(), "dt_f.0.first", NOW + DAY, move |_| {
+            Some(json(
+                403,
+                &format!(r#"{{"error": "{word}", "message": "refused: {word}"}}"#),
+            ))
+        });
+        let transport = Shared(fake);
+        let server = TokenServer::new(TOKEN, &transport).unwrap();
+        redeem_due(&server, &shared, &store.on_this_device("d_1").unwrap(), NOW)
+    };
+    assert_eq!(refused("drive_banned"), Redeemed::Banned);
+    match refused("lockdown_pending") {
+        Redeemed::Kept(why) => assert!(why.contains("lockdown"), "{why}"),
+        other => panic!("not a wait: {other:?}"),
+    }
+    assert_eq!(
+        store.tokens("d_1").unwrap(),
+        vec![stored("aa"), stored("bb")],
+        "neither word spends a token"
+    );
+}
+
 /// AZ-P16: a token server that lost an issuer key (or verifies with another) refuses EVERY token
 /// as `unknown_issuer` / `bad_token`. One look gives up one token on that word and keeps the
 /// rest for the next look, instead of draining the whole vault; a token that is really bad

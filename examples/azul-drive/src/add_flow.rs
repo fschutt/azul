@@ -1806,6 +1806,9 @@ pub(crate) fn claimed(
 ) {
     let drive_id = claimed.bundle.drive_id().to_string();
     println!("AZDRIVE_CLAIMED {} {drive_id}", checkout.checkout_id);
+    // The first look at the drive (its status, a redemption) waits a random while: from the
+    // buyer's address in this very second it would tie the payer to the drive (ENT27 n50).
+    crate::periods::look_after_claim(s, &drive_id);
     s.in_flight.retain(|c| c.checkout_id != checkout.checkout_id);
     crate::cash::claimed(s, &checkout.checkout_id);
     // A checkout picked up by its claim code learns its tier from the sealed sign-up: its
@@ -1883,6 +1886,7 @@ pub(crate) fn renewed(
     months: u32,
 ) {
     println!("AZDRIVE_RENEWED {checkout_id} {drive_id} {months}");
+    crate::periods::look_after_claim(s, drive_id);
     s.in_flight.retain(|c| c.checkout_id != checkout_id);
     // a locked drive: the payment is named in a proof, so it counts at once
     crate::archive::renewed(info, app, s, drive_id, checkout_id);
@@ -2082,7 +2086,7 @@ pub(crate) fn checkout_finished(
         Ok(Some(Finished::Issued { drive_id, count })) => {
             println!("AZDRIVE_PERIOD_TOKENS {checkout_id} {drive_id} {count}");
             // A drive whose free month is nearly gone gets its first paid one at once.
-            crate::periods::start_redemptions(info, app, s, Some(&drive_id));
+            crate::periods::look_after_claim(s, &drive_id);
         }
         Ok(Some(Finished::Granted { drive_id, why })) => {
             println!("AZDRIVE_PERIOD_TOKENS {checkout_id} {drive_id} 0");
@@ -2090,7 +2094,7 @@ pub(crate) fn checkout_finished(
                 "[azdrive] the first month of the checkout {checkout_id} comes with the drive's \
                  next look: {why}"
             );
-            crate::periods::start_redemptions(info, app, s, Some(&drive_id));
+            crate::periods::look_after_claim(s, &drive_id);
         }
         Ok(Some(Finished::Dropped(why))) => s.warn(
             Phrase::new("azdrive-add-months-not-fetched")
@@ -2116,7 +2120,7 @@ pub(crate) fn checkout_finished(
             );
             if count > 0 {
                 println!("AZDRIVE_PERIOD_TOKENS {checkout_id} {drive_id} {count}");
-                crate::periods::start_redemptions(info, app, s, Some(&drive_id));
+                crate::periods::look_after_claim(s, &drive_id);
             }
             // A run of the claims that is going keeps asking; one that is not, starts.
             start_claims(info, app, s);
@@ -2135,7 +2139,7 @@ pub(crate) fn checkout_finished(
                     .arg("drive", name)
                     .arg("why", why.as_str()),
             );
-            crate::periods::start_redemptions(info, app, s, Some(&drive_id));
+            crate::periods::look_after_claim(s, &drive_id);
         }
         Err(why) => s.error(
             Phrase::new("azdrive-add-checkout-unfinished")

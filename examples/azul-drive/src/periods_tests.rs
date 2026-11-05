@@ -140,3 +140,47 @@ fn x_ar5b_24_the_sync_timing_switches_are_read_in_a_test_build_only() {
     assert_eq!(switch_in(false, Some(String::from("2"))), None);
     assert_eq!(switch_in(true, None), None);
 }
+
+/// ENT27 n50: the first look at a drive whose payment was just claimed waits a random ten
+/// minutes to six hours, whatever the schedule says (a drive never looked at is due at once).
+#[test]
+fn ent27_n50_the_first_look_after_a_claim_waits_a_random_while() {
+    use azcloud_kit::period::{
+        first_look_delay, first_look_delay_from, FIRST_LOOK_MAX_SECS, FIRST_LOOK_MIN_SECS,
+    };
+    // The spread: the least and the most, and every draw in between.
+    assert_eq!(first_look_delay_from(0), FIRST_LOOK_MIN_SECS);
+    assert_eq!(
+        first_look_delay_from(FIRST_LOOK_MAX_SECS - FIRST_LOOK_MIN_SECS),
+        FIRST_LOOK_MAX_SECS
+    );
+    assert!(first_look_delay_from(u64::MAX) >= FIRST_LOOK_MIN_SECS);
+    assert!(first_look_delay_from(u64::MAX) <= FIRST_LOOK_MAX_SECS);
+    let draws: Vec<u64> = (0..20).map(|_| first_look_delay()).collect();
+    assert!(
+        draws
+            .iter()
+            .all(|d| (FIRST_LOOK_MIN_SECS..=FIRST_LOOK_MAX_SECS).contains(d)),
+        "{draws:?}"
+    );
+    assert!(
+        draws.iter().any(|d| *d != draws[0]),
+        "not one fixed wait: {draws:?}"
+    );
+
+    // The schedule: a drive never looked at is due at once - until its claim.
+    let mut schedule = Schedule::new(DAY_SECS);
+    let now = 1_000_000;
+    assert_eq!(due(&schedule, now), vec!["d_1", "d_2"]);
+    schedule.look_later("d_1", now, 700);
+    assert_eq!(
+        due(&schedule, now),
+        vec!["d_2"],
+        "not in the second of the claim"
+    );
+    assert_eq!(due(&schedule, now + 699), vec!["d_2"]);
+    assert_eq!(due(&schedule, now + 700), vec!["d_1", "d_2"]);
+    // A later look time already set stays: it is never brought forward.
+    schedule.look_later("d_1", now, 100);
+    assert_eq!(due(&schedule, now + 699), vec!["d_2"]);
+}

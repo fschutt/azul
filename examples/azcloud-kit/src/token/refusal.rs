@@ -145,6 +145,20 @@ impl Refusal {
         )
     }
 
+    /// The drive is banned, in the contract's word `drive_banned` (403): past the ban's end the
+    /// token server refuses the drive's token for everything, a redemption included.
+    #[must_use]
+    pub fn is_drive_banned(&self) -> bool {
+        matches!(self, Refusal::Service(AzlinError::DriveBanned))
+    }
+
+    /// A recovery-key lockdown of the drive is pending, in the contract's word
+    /// `lockdown_pending` (403): the drive's tokens wait for its end or its cancel.
+    #[must_use]
+    pub fn is_lockdown_pending(&self) -> bool {
+        matches!(self, Refusal::Service(AzlinError::LockdownPending))
+    }
+
     /// The pick-up's refusal, when it is one.
     #[must_use]
     pub fn claim(&self) -> Option<ClaimRefusal> {
@@ -219,6 +233,18 @@ impl TokenError {
     #[must_use]
     pub fn is_doubtful_token(&self) -> bool {
         self.refusal().is_some_and(|r| r.is_doubtful_token())
+    }
+
+    /// The drive is banned ([`Refusal::is_drive_banned`]).
+    #[must_use]
+    pub fn is_drive_banned(&self) -> bool {
+        self.refusal().is_some_and(|r| r.is_drive_banned())
+    }
+
+    /// A recovery-key lockdown is pending ([`Refusal::is_lockdown_pending`]).
+    #[must_use]
+    pub fn is_lockdown_pending(&self) -> bool {
+        self.refusal().is_some_and(|r| r.is_lockdown_pending())
     }
 
     /// The pick-up's refusal, when this is one.
