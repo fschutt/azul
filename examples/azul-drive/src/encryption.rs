@@ -66,6 +66,7 @@ use azul_appkit::{
 use azul_storage::{
     azul_keyring::azlin_keyring,
     azul_transport::AzulTransport,
+    durable,
     keyring::Asking,
     crypto::{
         device,
@@ -76,6 +77,7 @@ use azul_storage::{
     encrypted::{open_encrypted, AutoEncrypted, IndexProvider, Recorded},
     packing::{pack_reads, PackUpkeep},
     keyring::KeyringStore,
+    scratch::Scratch,
     meta::{merge::keep_both, DriveBucket, Maintained, Maintenance, MetaIndexProvider, MetaRepo},
     migrate::{migrate, MigrationState},
     recompress::{run_pass, RecompressPolicy, RecompressState},
@@ -263,17 +265,67 @@ pub(crate) fn offered() -> bool {
 }
 
 /// Where a drive's migration keeps its state: beside the drives file.
-fn state_file(s: &DriveState, drive_id: &str) -> PathBuf {
-    state_dir(s).join(format!("{drive_id}.migration.json"))
+fn state_file(s: &DriveState, drive_id: &str) -> Result<PathBuf, String> {
+    Ok(state_dir(s)?.join(format!("{drive_id}.migration.json")))
 }
 
-/// The folder of the encryption's local state files: beside the drives file.
-fn state_dir(s: &DriveState) -> PathBuf {
-    s.drives_file
-        .as_ref()
-        .and_then(|file| file.parent().map(|p| p.to_path_buf()))
-        .unwrap_or_else(std::env::temp_dir)
-        .join("encryption")
+/// The folder of the encryption's local state files: beside the drives file, or - when the
+/// system names no configuration folder, so there is no drives file - in scratch, the private
+/// folder of this user's (never the system's shared temporary folder).
+fn state_dir(s: &DriveState) -> Result<PathBuf, String> {
+    if let Some(parent) = s.drives_file.as_ref().and_then(|file| file.parent()) {
+        return Ok(parent.join("encryption"));
+    }
+    let scratch = Scratch::new("encryption");
+    scratch
+        .ensure()
+        .map_err(|e| format!("the folder for the encryption's state ({}): {e}", scratch.dir().display()))?;
+    Ok(scratch.dir().to_path_buf())
+}
+
+/// The state a pass saved and did not finish, if any. A state that is there and cannot be read
+/// or does not parse is an error and not "no state": a pass that started over would redo - and
+/// send again - what it had done, and nobody would know. A damaged file is set aside whole
+/// (`<name>.damaged`) so the next run starts anew, and the error says where it went.
+fn load_state<T>(file: &Path, parse: impl FnOnce(&str) -> Option<T>) -> Result<Option<T>, String> {
+    let bytes = match std::fs::read(file) {
+        Ok(bytes) => bytes,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => {
+            return Err(format!(
+                "the saved state of this pass ({}) cannot be read: {e}",
+                file.display()
+            ))
+        }
+    };
+    if let Some(state) = std::str::from_utf8(&bytes).ok().and_then(parse) {
+        return Ok(Some(state));
+    }
+    let mut aside = file.as_os_str().to_owned();
+    aside.push(".damaged");
+    let aside = PathBuf::from(aside);
+    let set_aside = durable::replace(&aside, &bytes, durable::Mode::Private)
+        .and_then(|()| std::fs::remove_file(file));
+    Err(match set_aside {
+        Ok(()) => format!(
+            "the saved state of this pass ({}) is damaged, so the pass was not started over it; \
+             it was set aside as {}, and the next run starts anew",
+            file.display(),
+            aside.display()
+        ),
+        Err(e) => format!(
+            "the saved state of this pass ({}) is damaged, so the pass was not started over it, \
+             and it could not be set aside ({e}): delete it to start anew",
+            file.display()
+        ),
+    })
+}
+
+/// Saves a pass's state where it can be found again after a cut: written whole beside the file,
+/// synced, renamed over it (`durable::replace`), readable by this user only. Never half a file.
+fn save_state(file: &Path, json: &str) -> Result<(), azul_storage::DriveError> {
+    durable::replace(file, json.as_bytes(), durable::Mode::Private)
+        .map_err(|e| azul_storage::DriveError::Io(format!("{}: {e}", file.display())))
 }
 
 // ==== The recompression pass ====
@@ -376,7 +428,13 @@ extern "C" fn on_recompress_timer(mut data: RefAny, info: TimerCallbackInfo) -> 
     let Some((drive_id, auto)) = encrypted.into_iter().next() else {
         return TimerCallbackReturn::continue_unchanged();
     };
-    let state_file = state_dir(&*s).join(format!("{drive_id}.recompress.json"));
+    let state_file = match state_dir(&*s) {
+        Ok(dir) => dir.join(format!("{drive_id}.recompress.json")),
+        Err(why) => {
+            eprintln!("AZDRIVE_RECOMPRESS_SKIPPED {drive_id}: {why}");
+            return TimerCallbackReturn::continue_unchanged();
+        }
+    };
     RECOMPRESSING.store(true, Ordering::SeqCst);
     spawn(
         &mut callback_info,
@@ -1555,8 +1613,18 @@ extern "C" fn on_reencrypt(mut data: RefAny, mut info: CallbackInfo) -> Update {
         let Some(auto) = auto_of(s, &drive_id) else {
             return;
         };
-        let state_file = state_dir(s).join(format!("{drive_id}.reencrypt.json"));
         let name = drive_name(s, &drive_id);
+        let state_file = match state_dir(s) {
+            Ok(dir) => dir.join(format!("{drive_id}.reencrypt.json")),
+            Err(why) => {
+                s.error(
+                    Phrase::new("azdrive-enc-reencrypt-stopped")
+                        .arg("name", name.as_str())
+                        .arg("why", t_label(&why)),
+                );
+                return;
+            }
+        };
         s.info(Phrase::new("azdrive-enc-reencrypting").arg("name", name));
         spawn(
             info,
@@ -1725,7 +1793,18 @@ pub(crate) fn start_migration(
     let Some(auto) = auto_of(s, drive_id) else {
         return;
     };
-    let state_file = state_file(s, drive_id);
+    let state_file = match state_file(s, drive_id) {
+        Ok(file) => file,
+        Err(why) => {
+            let name = drive_name(s, drive_id);
+            s.error(
+                Phrase::new("azdrive-enc-migrate-stopped")
+                    .arg("name", name.as_str())
+                    .arg("why", t_label(&why)),
+            );
+            return;
+        }
+    };
     s.popup.open(Popup::Encryption(Dialog::Busy {
         title: t("azdrive-enc-migrating-title"),
         text: t_args(
@@ -2051,6 +2130,11 @@ pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
             state_file,
         } => {
             let result = (|| -> Result<MigrationState, String> {
+                // The saved state first: one that cannot be read stops the pass before it touches
+                // the drive, and is not read as "nothing saved" (X-AR5b-12).
+                let mut state =
+                    load_state(&state_file, |text| MigrationState::from_json(text).ok())?
+                        .unwrap_or_default();
                 let provider =
                     index_provider().ok_or_else(|| String::from("azdrive-enc-err-no-index"))?;
                 let drive = open_encrypted(
@@ -2060,17 +2144,8 @@ pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
                     provider.as_ref(),
                 )
                 .map_err(|e| e.to_string())?;
-                let mut state = std::fs::read_to_string(&state_file)
-                    .ok()
-                    .and_then(|text| MigrationState::from_json(&text).ok())
-                    .unwrap_or_default();
-                if let Some(dir) = state_file.parent() {
-                    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-                }
-                let mut save = |state: &MigrationState| {
-                    std::fs::write(&state_file, state.to_json())
-                        .map_err(|e| azul_storage::DriveError::Io(e.to_string()))
-                };
+                let mut save =
+                    |state: &MigrationState| save_state(&state_file, &state.to_json());
                 migrate(&drive, &mut state, &mut save, &|| false).map_err(|e| e.to_string())?;
                 Ok(state)
             })();
@@ -2082,6 +2157,9 @@ pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
             state_file,
         } => {
             let result = (|| -> Result<bool, String> {
+                let mut state =
+                    load_state(&state_file, |text| RecompressState::from_json(text).ok())?
+                        .unwrap_or_default();
                 let provider = index_provider()
                     .ok_or_else(|| String::from("azdrive-enc-err-no-index"))?;
                 let drive = open_encrypted(
@@ -2091,17 +2169,8 @@ pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
                     provider.as_ref(),
                 )
                 .map_err(|e| e.to_string())?;
-                let mut state = std::fs::read_to_string(&state_file)
-                    .ok()
-                    .and_then(|text| RecompressState::from_json(&text).ok())
-                    .unwrap_or_default();
-                if let Some(dir) = state_file.parent() {
-                    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-                }
-                let mut save = |state: &RecompressState| {
-                    std::fs::write(&state_file, state.to_json())
-                        .map_err(|e| azul_storage::DriveError::Io(e.to_string()))
-                };
+                let mut save =
+                    |state: &RecompressState| save_state(&state_file, &state.to_json());
                 // The pass stops at the first input, when the power cord goes, when the network
                 // starts to cost, and when the computer weakens (Low Power Mode, heat).
                 let stop = || !recompress_may_run();
@@ -2208,6 +2277,9 @@ pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
             state_file,
         } => {
             let result = (|| -> Result<ReencryptState, String> {
+                let mut state =
+                    load_state(&state_file, |text| ReencryptState::from_json(text).ok())?
+                        .unwrap_or_else(|| ReencryptState::new(now_unix()));
                 let provider = index_provider()
                     .ok_or_else(|| String::from("azdrive-enc-err-no-index"))?;
                 let drive = open_encrypted(
@@ -2217,21 +2289,20 @@ pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
                     provider.as_ref(),
                 )
                 .map_err(|e| e.to_string())?;
-                let mut state = std::fs::read_to_string(&state_file)
-                    .ok()
-                    .and_then(|text| ReencryptState::from_json(&text).ok())
-                    .unwrap_or_else(|| ReencryptState::new(now_unix()));
-                if let Some(dir) = state_file.parent() {
-                    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-                }
-                let mut save = |state: &ReencryptState| {
-                    std::fs::write(&state_file, state.to_json())
-                        .map_err(|e| azul_storage::DriveError::Io(e.to_string()))
-                };
+                let mut save =
+                    |state: &ReencryptState| save_state(&state_file, &state.to_json());
                 reencrypt_pass(&drive, &mut state, &mut save, &|| false)
                     .map_err(|e| e.to_string())?;
-                // Done: the next "Re-encrypt" starts a new pass.
-                let _ = std::fs::remove_file(&state_file);
+                // Done: the next "Re-encrypt" starts a new pass. A state that cannot be removed
+                // is said (the next pass would find a finished one).
+                if let Err(e) = std::fs::remove_file(&state_file) {
+                    if e.kind() != std::io::ErrorKind::NotFound {
+                        eprintln!(
+                            "AZDRIVE_REENCRYPT_STATE_KEPT {}: {e}",
+                            state_file.display()
+                        );
+                    }
+                }
                 Ok(state)
             })();
             EncryptionOutcome::Reencrypted { drive_id, result }
@@ -3881,6 +3952,80 @@ mod tests {
         );
         assert!(versioned_bucket(&plain).is_err(), "a plain drive keeps no versions");
         assert!(dir.path().join("a.txt").exists(), "and nothing was touched");
+    }
+
+    /// X-AR5b-12: the saved state of a pass. None saved is a new pass; one saved comes back whole
+    /// (written through `durable::replace`, this user's only); one that cannot be parsed is an
+    /// error and not "nothing saved" - the pass would redo, and send again, what it had done -
+    /// and it is set aside whole so the next run starts anew.
+    #[test]
+    fn x_ar5b_12_a_damaged_state_file_is_an_error_and_is_set_aside_never_a_silent_restart() {
+        use azul_storage::testing::TempDir;
+        let dir = TempDir::new("job-state");
+        let folder = dir.path().join("encryption");
+        let file = folder.join("d_1.migration.json");
+        let parse = |text: &str| MigrationState::from_json(text).ok();
+
+        assert!(load_state(&file, parse).unwrap().is_none(), "no file: a new pass");
+
+        let saved = MigrationState {
+            moved: 3,
+            ..MigrationState::default()
+        };
+        save_state(&file, &saved.to_json()).unwrap();
+        assert_eq!(load_state(&file, parse).unwrap(), Some(saved));
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&file).unwrap().permissions().mode();
+            assert_eq!(mode & 0o077, 0, "this user's only: {mode:o}");
+        }
+        let names: Vec<String> = std::fs::read_dir(&folder)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(names, ["d_1.migration.json"], "no temporary file is left");
+
+        std::fs::write(&file, "{ \"moved\": ").unwrap();
+        let why = load_state(&file, parse).unwrap_err();
+        assert!(why.contains("damaged") && why.contains("not started over it"), "{why}");
+        assert!(!file.exists(), "set aside");
+        let aside = folder.join("d_1.migration.json.damaged");
+        assert_eq!(std::fs::read_to_string(&aside).unwrap(), "{ \"moved\": ");
+        assert!(load_state(&file, parse).unwrap().is_none(), "the next run starts anew");
+
+        // Not text at all is damaged too.
+        std::fs::write(&file, [0xff, 0xfe, 0x00]).unwrap();
+        assert!(load_state(&file, parse).unwrap_err().contains("damaged"));
+    }
+
+    /// X-AR5b-12, through the job: a migration whose saved state is damaged stops with the error
+    /// before it opens the drive - it does not move the files all over again.
+    #[test]
+    fn x_ar5b_12_a_migration_with_a_damaged_state_stops_before_it_touches_the_drive() {
+        use azul_storage::{keyring::MemoryKeyring, meta::MemoryBucket, testing::TempDir};
+        let dir = TempDir::new("job-state-run");
+        let file = dir.path().join("encryption").join("d_1.migration.json");
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(&file, "not json at all").unwrap();
+        let auto = Arc::new(AutoEncrypted::new(
+            Arc::new(MemoryBucket::new()),
+            "d_1",
+            Arc::new(MemoryKeyring::new()),
+            None,
+        ));
+        let outcome = run(EncryptionJob::Migrate {
+            drive_id: String::from("d_1"),
+            auto,
+            state_file: file.clone(),
+        });
+        match outcome {
+            EncryptionOutcome::Migrated { result: Err(why), .. } => {
+                assert!(why.contains("damaged"), "{why}")
+            }
+            _ => panic!("a damaged state is an error"),
+        }
+        assert!(!file.exists(), "set aside");
     }
 
     /// An index provider with an index in memory, the stand-in for the drive's repository.

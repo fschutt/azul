@@ -126,13 +126,6 @@ const ALLOWED: &[Allow] = &[
          LocalKey of its own, made from a key its call checked already",
     ),
     Allow::exactly(
-        "examples/azul-storage/src/encrypted.rs",
-        BOOKKEEPING_NAME,
-        1,
-        "holds_plaintext_files compares a root listing's folder with the drive's `.azlin/`: \
-         Z30-A1B / Z30-R3 (the drive's own namespace, Protected::is_bookkeeping)",
-    ),
-    Allow::exactly(
         "examples/azul-storage/src/migrate.rs",
         BOOKKEEPING_NAME,
         1,

@@ -133,18 +133,11 @@ pub(crate) fn forget_print_copies() {
     let _ = std::fs::remove_dir_all(print_dir());
 }
 
-/// `bytes` into `path`, readable by this user only where the file system knows owners.
+/// `bytes` into `path`, readable by this user only where the file system knows owners: written
+/// whole beside the name, synced and renamed over it (`durable::replace`), so a cut leaves the old
+/// file or the new one and never half a recovery sheet.
 pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    let mut options = std::fs::OpenOptions::new();
-    options.write(true).create(true).truncate(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-    let mut file = options.open(path)?;
-    std::io::Write::write_all(&mut file, bytes)?;
-    file.sync_all()
+    azul_storage::durable::replace(path, bytes, azul_storage::durable::Mode::Private)
 }
 
 /// Print's copy of a page: `kit-print/<random>/<file name>` (a folder of this user's only).

@@ -767,11 +767,13 @@ impl Drive for AutoEncrypted {
 /// Whether a plain bucket holds a file of the drive (anything but its `.azlin/` bookkeeping):
 /// one made before encryption. Reads root listing pages until it finds one.
 fn holds_plaintext_files(bucket: &dyn Drive) -> Result<bool, DriveError> {
+    // The drive's own folder, spelled once (S3 keys are case-sensitive: `.AZLIN/` is a plain folder).
+    let bookkeeping = format!("{}/", crate::names::BOOKKEEPING);
     let mut request = ListRequest::folder("").with_max_keys(8);
     loop {
         let page = bucket.list(&request)?;
         if page.objects.iter().any(|o| crate::migrate::is_plaintext_key(&o.key))
-            || page.folders.iter().any(|f| f != ".azlin/")
+            || page.folders.iter().any(|f| *f != bookkeeping)
         {
             return Ok(true);
         }

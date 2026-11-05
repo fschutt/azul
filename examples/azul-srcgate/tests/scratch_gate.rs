@@ -103,13 +103,6 @@ const ALLOWED: &[Allow] = &[
          at all - every program of the user must agree on one path, so it cannot be a run's \
          scratch; Z30-B (a private per-user folder)",
     ),
-    Allow::exactly(
-        "examples/azul-drive/src/encryption.rs",
-        TEMP,
-        1,
-        "state_dir: the migration state files when there is no drives file: Z30-A1B (AR5b-4 \
-         step 2, beside the drives file or in scratch)",
-    ),
     Allow::file(
         "examples/azul-drive/src/e2e/",
         "the E2E commands (registered only when AZ_E2E or AZ_DEBUG is set) make their working \

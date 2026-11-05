@@ -207,19 +207,6 @@ const ALLOWED: &[Allow] = &[
          staged file would replace it: Z30-A1B",
     ),
     Allow::exactly(
-        "examples/azul-drive/src/encryption.rs",
-        RAW,
-        3,
-        "the three job states of the encryption flows: Z30-A1B (AR5b-4 step 2)",
-    ),
-    Allow::exactly(
-        "examples/azul-drive/src/paper.rs",
-        RAW,
-        1,
-        "write_private: the printed recovery sheet's copy, 0600: Z30-A1B (durable::replace with \
-         Mode::Private)",
-    ),
-    Allow::exactly(
         "examples/azul-drive/src/picker.rs",
         RAW,
         1,
