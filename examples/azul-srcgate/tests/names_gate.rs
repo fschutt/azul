@@ -1,7 +1,7 @@
 //! Gate: a name from a drive, a device, a user or a listing becomes a path only through the name
 //! policy of `azul_storage::names` (AZ-W1, AZ-W7, X-AR5a-1/-2/-13, ARCH28 RF42 / AR5a-3).
 //!
-//! Two rules over the shipped code of the four storage crates:
+//! Three rules over the shipped code of the four storage crates:
 //!
 //! - **`bookkeeping-name`**: the name of the engine's own folder (`.azlin`, and the paths of the
 //!   sync inside it) is spelled out in `names.rs` only. Twelve places compared a name against the
@@ -11,6 +11,10 @@
 //!   its own paths. What the rule does not read: the keys of the drive's own protocol
 //!   (`.azlin/keys/..`, `.azlin/meta/..`, `.azlin/drop/..`): they are constants of their modules,
 //!   written by this software and never compared with a name from a drive.
+//! - **`vcs-name`**: the same for the version-control folders (`.git`, `.hg`, `.svn`): a name from
+//!   a drive is compared with them through `Protected::is_vcs` (every spelling a disk reads as
+//!   theirs), and the literals stand in `names.rs`, in the scan's exclusion rules and where AzDrive
+//!   reads a repository's own folders.
 //! - **`parent-of-call`**: a call of `Root::parent_of` is one of two kinds - `Policy::walk`
 //!   (names.rs), and the contained `LocalDrive`'s walks, which hold a `LocalKey` of their own
 //!   (local.rs). Its argument is a `LocalKey`, so the compiler already refuses a `&str`; this rule
@@ -26,6 +30,7 @@ use std::path::{Path, PathBuf};
 use azul_srcgate::{method_calls, strings, Allow, Budget, Gate, Orphans, Root, Rule};
 
 const BOOKKEEPING_NAME: &str = "bookkeeping-name";
+const VCS_NAME: &str = "vcs-name";
 const PARENT_OF: &str = "parent-of-call";
 
 const ROOTS: &[Root] = &[
@@ -52,6 +57,13 @@ fn is_bookkeeping_name(s: &str) -> bool {
     s == ".azlin" || s == ".azlin/" || s.starts_with(".azlin/sync") || s.contains("/.azlin")
 }
 
+/// Whether a string literal is a version-control folder's name or a path inside it.
+fn is_vcs_name(s: &str) -> bool {
+    [".git", ".hg", ".svn"]
+        .iter()
+        .any(|v| s == *v || s.strip_prefix(*v).is_some_and(|rest| rest.starts_with('/')))
+}
+
 fn rules() -> Vec<Rule> {
     vec![
         Rule::new(
@@ -69,6 +81,21 @@ fn rules() -> Vec<Rule> {
                 "let app = \"io.azlin.bridge\";",
                 "let say = \"the .azlin folder, synced on its own\";",
                 "let other = \".azlinx\";",
+            ],
+        ),
+        Rule::new(
+            VCS_NAME,
+            |t| strings(t, is_vcs_name),
+            &[
+                "let hidden = name == \".git\";",
+                "let skip = \".svn/\";",
+                "let hooks = \".git/hooks/pre-commit\";",
+            ],
+            &[
+                "let file = \".gitignore\";",
+                "let other = \"git\";",
+                "let url = \"https://github.com/x/y.git\";",
+                "let sub = \"a.git/b\";",
             ],
         ),
         Rule::new(
@@ -118,6 +145,27 @@ const ALLOWED: &[Allow] = &[
         1,
         "SYNC_BOOKKEEPING: the sync's `.azlin/sync/` under the drive index's reserved names: \
          Z30-R3 (names::SYNC_DIR)",
+    ),
+    Allow::exactly(
+        "examples/azcloud-kit/src/sync/rules.rs",
+        VCS_NAME,
+        3,
+        "the scan exclusions `.git/`, `.hg/`, `.svn/`: they keep the files out of uploads and \
+         give the report its reason, while Protected (through admit) refuses a name from the \
+         drive in any spelling",
+    ),
+    Allow::exactly(
+        "examples/azul-drive/src/git_repo.rs",
+        VCS_NAME,
+        1,
+        "the branch chip looks for a repository's own `.git` folder: it reads a repository on \
+         this computer, it does not make a path from a drive's name",
+    ),
+    Allow::exactly(
+        "examples/azul-drive/src/ui_git.rs",
+        VCS_NAME,
+        2,
+        "the git view reads a repository's own `.git/objects` and `.git/logs`",
     ),
     Allow::exactly(
         "examples/azcloud-kit/src/sync/rules.rs",
