@@ -220,6 +220,9 @@ mod sign_in;
 pub mod args;
 pub mod browse;
 pub mod fileops;
+/// A local drive's trash and what becomes of it: kept 30 days, removed by a second look a week after
+/// the first, never by the wall clock alone.
+mod trash;
 /// The search box's search of the open folder and below it, as plain data.
 pub mod find;
 #[cfg(test)]
@@ -3097,6 +3100,14 @@ pub(crate) extern "C" fn on_job_done(
             let prefix = s.prefix().to_string();
             changed(&mut info, &handle, s, &drive_id, &prefix);
         }
+        Outcome::TrashPurged { drive_id, result } => match result {
+            Ok(done) => {
+                if done.removed > 0 || !done.failed.is_empty() || done.behind {
+                    eprintln!("[azdrive] the trash of {drive_id}: {done:?}");
+                }
+            }
+            Err(why) => eprintln!("[azdrive] the trash of {drive_id} was not looked at: {why}"),
+        },
         Outcome::Renamed {
             drive_id,
             from,
@@ -3754,6 +3765,9 @@ extern "C" fn startup(mut data: RefAny, mut info: CallbackInfo) -> Update {
         let backstage = s.backstage;
         go(info, app, s, place, false);
         s.backstage = backstage;
+        // The trash of the drives on this computer: what is a month old and was found so a week
+        // ago goes (AZ-U16).
+        trash::start(info, app, s);
         // A drive paid after "Stop waiting", or while AzDrive was closed, arrives now.
         add_flow::start_claims(info, app, s);
         // An Azlin drive whose period nears its end gets its next month from a kept token: now,

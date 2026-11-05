@@ -241,6 +241,14 @@ pub(crate) enum Job {
         items: Vec<SourceItem>,
         stamp: Option<String>,
     },
+    /// The start's look at the trash of a drive on this computer ([`crate::trash::purge`]): marks
+    /// what is old, removes what an earlier look marked a week ago (AZ-U16).
+    PurgeTrash {
+        drive_id: String,
+        root: PathBuf,
+        marks_file: PathBuf,
+        now: u64,
+    },
     Rename {
         drive: Arc<dyn Drive>,
         drive_id: String,
@@ -583,6 +591,7 @@ impl Job {
     pub(crate) fn cuts_data(&self) -> bool {
         match self {
             Job::Delete { .. }
+            | Job::PurgeTrash { .. }
             | Job::Rename { .. }
             | Job::Create { .. }
             | Job::Undo { .. }
@@ -712,6 +721,11 @@ pub(crate) enum Outcome {
     Deleted {
         drive_id: String,
         deleted: fileops::Deleted,
+    },
+    /// A look at a drive's trash ended.
+    TrashPurged {
+        drive_id: String,
+        result: Result<crate::trash::Purged, String>,
     },
     Renamed {
         drive_id: String,
@@ -3476,6 +3490,18 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
             drive_id,
             deleted: fileops::delete_items(&*drive, &items, stamp.as_deref()),
         },
+        Job::PurgeTrash {
+            drive_id,
+            root,
+            marks_file,
+            now,
+        } => {
+            let drive = LocalDrive::without_manifest(root.clone());
+            Outcome::TrashPurged {
+                drive_id,
+                result: crate::trash::purge(&drive, &root, &marks_file, now),
+            }
+        }
         Job::Rename {
             drive,
             drive_id,
