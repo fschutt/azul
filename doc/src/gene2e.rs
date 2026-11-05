@@ -1307,8 +1307,9 @@ Print ONLY the JSON object. No prose, no markdown fences, no explanation.
 
 ## WHAT AN AZUL E2E TEST IS
 A JSON object: {{"name", "description", "setup", "steps"}}.
-- "name": a short snake_case identifier that names THIS line's property and fixture (for
-  example noop_width_image_flex_row). Add no number or hash: a suffix that makes the name
+- "name": a short snake_case identifier of the form <behaviour>_<property>_<fixture> that
+  names what THIS line asserts, of what, on which fixture (for example
+  mouse_move_converges_image_flex_row). Add no number or hash: a suffix that makes the name
   unique is appended for you.
 - "description": one sentence — restate the one-liner.
 - "setup": {{"window_width": 400, "window_height": 300, "dpi": 96}}
@@ -1352,15 +1353,39 @@ Concretely:
   layout pass", "the counter did not move" is also exactly what a dead engine
   reports. Most such one-liners spell the control out ("... then change the node's
   background-color as a POSITIVE CONTROL and assert THAT does produce damage"). Put
-  it in the SAME timeline, after the absence assertion — never in a second file. A control only
-  counts if it can change a pixel, so check your own stylesheet before you write it. The property
-  you override must not be neutralised by another declaration on the same node (a `flex-grow:1`
-  item ignores an overridden `width`). It must be visible on that node (not `overflow` or
-  `visibility` on an empty box, not padding on a box that already fills the window, not any
-  change on a 0px box). The colour you set must differ from what is already behind it (a body
-  background paints the whole window, so white-on-white and red-on-red change nothing). Use
-  `background-color` for a paint control and a `width`/`height` on a FIXED-size box for a
-  geometry control, and aim it at the element the line names.
+  it in the SAME timeline, after the absence assertion — never in a second file — and
+  MEASURE IT ON ITS OWN: right before the control's mutation call `reset_frame_counters`
+  and take a fresh `snapshot_frame` (`ctl_before`), and assert the control against THAT
+  snapshot. Without the reset the control's counters and damage still hold what the
+  absence step left behind, and a control that did nothing could pass on that.
+- A CONTROL THAT CANNOT MOVE A PIXEL PROVES NOTHING: its `assert_changed` fails as a DEAD
+  CONTROL, the test's fault and not the engine's. Nothing will run your file, so prove each
+  control from your own stylesheet BEFORE you write it: name the pixels that change and why.
+  If you cannot, change the FIXTURE, not the property. The fixture the line names is a
+  minimum: add a child, a sibling, a second flex item, a background or a backdrop colour to
+  make the control visible. What each property needs:
+    - background-color: the new colour differs from the old one and from what is behind the
+      node (a body background paints the whole window: white-on-white and red-on-red change
+      nothing).
+    - width / height: a FIXED-size painted box on a backdrop of another colour; never a
+      `flex-grow:1` item (it ignores an overridden `width`), never a box that already fills
+      the window.
+    - border-width: `border-style: solid` and a border colour unlike the box background.
+    - padding / margin: a painted child the change moves or resizes, or a painted box
+      smaller than the window.
+    - display:none / visibility:hidden: the node must PAINT something itself (a background);
+      an `<img>` paints nothing of its own (step 1 below).
+    - overflow: the box must be SMALLER than the window (wrap it in a window-sized frame)
+      and hold a painted child that sticks out of it. An empty box, or one that fills the
+      window, shows no change.
+    - position (static -> absolute): a painted sibling FOLLOWS the node in the flow, so it
+      jumps into the gap. An absolute box with an explicit size and no offsets stays where
+      it was.
+    - justify-content / align-items / flex-direction / flex-grow: at least TWO painted flex
+      items that do not fill the container along the axis the property acts on (with one
+      item, `space-between` equals `flex-start`).
+  If the line names a control property that no fixture can make visible, add the top-level
+  key "pending": "control cannot be made visible: <why>" and write the closest honest test.
 - The numbers in the recipes below are ILLUSTRATIVE placeholders. Derive each bound
   from the sentence you were given; do not copy them by default.
 - Never widen a bound, drop an assertion, or downgrade `eq` to `le` to make the test
@@ -1402,7 +1427,11 @@ invalidation path completely broken. Only the ops listed above exist; use nothin
    the root; a root with height:100% under an html/body that has no height collapses to 0px
    and paints nothing. A `<body>` background is propagated to the whole window, so on an
    empty body the only visible control is recolouring `<html>`/`<body>`; changing the body's
-   width changes nothing. `<img>` mounts as a real image node (with a placeholder raster).
+   width changes nothing. `<img>` mounts as a real image node, but its placeholder raster is
+   transparent: an `<img>` paints NOTHING until it has a `background-color` or you call
+   `set_node_image` on it (after the `wait_frame` that follows the `mount`). A page whose
+   only content is an `<img>` renders blank white, and nothing about such an image can move
+   a pixel.
    `<virtual-view>`, `<virtualview>`, `<iframe>` and `data-virtual-*`/`rows` attributes do NOT
    create a VirtualView: they mount as a plain `<div>` with the attributes dropped. A line
    that needs a VirtualView cannot be expressed: write the nearest plain-scroller test and add
@@ -1486,7 +1515,7 @@ invalidation path completely broken. Only the ops listed above exist; use nothin
    |------------------|-----------------------------------------|------|---------------------|------------------------------|--------|
    | `relayouts`      | EVENT PASSES (`process_window_events`)  | 0    | 1                   | 0                            | 1      |
    | `dom_regens`     | runs of the layout callback             | 0    | 0                   | 0                            | 1      |
-   | `layout_passes`  | times LAYOUT ACTUALLY RAN               | 0    | 0                   | 0 paint-only / 2 geometry    | 1      |
+   | `layout_passes`  | times LAYOUT ACTUALLY RAN               | 0    | 0                   | 0 paint-only / 1 geometry    | 1      |
    | `virtual_view_size_passes` | extra passes content-sized VirtualViews cost | 0 | 0            | 0                            | 0      |
 
    - `relayouts` is NOT a layout counter, despite the name. It is the recursion depth
@@ -1497,21 +1526,20 @@ invalidation path completely broken. Only the ops listed above exist; use nothin
    - `layout_passes` is the one that sees a CALLBACK-API mutation. `set_node_css_override`,
      `set_node_text` and `set_node_classes` never enter the event pass at all, so
      `relayouts` stays `0` for them.
-   - What a CSS override costs in `layout_passes` depends on the PROPERTY, never on whether
-     the value changed. A paint-only property (color, background-color, background-*,
+   - What a CSS override costs in `layout_passes` depends on the PROPERTY and on whether the
+     value changed. A paint-only property (color, background-color, background-*,
      opacity, transform, border-*-color/-style/-radius, box-shadow, text-shadow, filter,
      cursor) rebuilds the display list only and costs 0 layout passes, correctly, so never
      put `min_layout_passes` on a recolour. Any other property (width, height, margin,
      padding, border-width, display, position, overflow, visibility, flex-*,
-     justify-content, align-items, font-*) runs layout; this runner reports 2 passes for a
-     `set_node_css_override` of such a property (1 for `set_node_classes`, `mount` and
-     `resize`).
-   - Re-setting the value a node already has is not recognised as a no-op yet and costs what
-     a real change costs. So "a no-op CSS write must not re-run layout" is
-     `exact_layout_passes: 0`: write it exactly like that, it is a specification the engine
-     does not meet today. The positive control "does spend a layout pass" is
-     `min_layout_passes: 1` and nothing more: never `exact_layout_passes: 1` or
-     `max_layout_passes: 1` unless the line itself says "exactly one" / "at most one".
+     justify-content, align-items, font-*) runs layout: one pass per override, like
+     `set_node_classes`, `mount` and `resize`.
+   - Re-setting the value a node already resolves to (the stylesheet's `width: 200px`
+     written again as 200px) is a no-op: the write is recorded, nothing is laid out and
+     nothing is repainted. So "a no-op CSS write must not re-run layout" is
+     `exact_layout_passes: 0`: write it exactly like that. The positive control "does spend
+     a layout pass" is `min_layout_passes: 1` and nothing more: never `exact_layout_passes: 1`
+     or `max_layout_passes: 1` unless the line itself says "exactly one" / "at most one".
    - `virtual_view_size_passes` counts the ONE extra pass a content-sized VirtualView
      (a status-bar label, an icon view - no stated width/height) costs when its
      callback reports a size the solver has not seen: on its first frame, and on a
@@ -1525,10 +1553,13 @@ invalidation path completely broken. Only the ops listed above exist; use nothin
            "never trips the depth cap"   -> any assert_work_bounded (it fails on `hit_depth_cap` unless `allow_depth_cap`)
 
    - "no leak / counters return"         -> assert_resource_counts {{"vs": "baseline", "parsed_fonts": "eq", "font_chain_cache": "eq", "font_hash_to_families": "eq"}}
-   - "the counter PROVABLY moved" (a control)
-                                         -> a second `mount` (or `set_node_text`) whose text uses a
-                                            font stack the first one did not, then
-                                            assert_resource_counts {{"vs": "baseline", "parsed_fonts": "gt"}}
+   - "the counter PROVABLY moved" (a control): the control must ADD to what the baseline
+     holds. A re-mount that REPLACES the baseline's text with text in another font stack
+     releases the old font, so `parsed_fonts` stays flat (or falls) and a `gt` can never
+     pass. Mount the baseline's nodes PLUS one new node whose text uses a font stack the
+     baseline never used (when the baseline has no text, any text node is new),
+     `wait_frame`, `wait {{"ms": 100}}`, then
+     assert_resource_counts {{"vs": "baseline", "parsed_fonts": "gt"}} in a call of its own.
      `gt` / `lt` are what make a leak test mean something: an `eq` on a counter that never
      moved is `0 == 0`, and holds on an engine that was deleted.
    - COUNTERS THAT NEVER MOVE: in this headless runner only `parsed_fonts`,
@@ -1538,10 +1569,18 @@ invalidation path completely broken. Only the ops listed above exist; use nothin
      `set_node_image`, `add_image_to_cache`, `background-image: url(id)`), so
      `"fonts": "eq"` or `"images": "eq"` is `0 == 0` and an `"images": "gt"` control cannot
      pass. For font growth assert the live counters and always include the font control.
-   - If the line is about the image counters, still write the `eq` assertion AND the `gt`
-     control (the control must reference the image from a node that is on screen) and let
-     the test go red until the runner counts images; a green `0 == 0` is the one outcome that
-     must not happen.
+   - ONE FAMILY OF COUNTERS PER CALL. `assert_resource_counts` judges every counter of the
+     call and reports each red one, but a dead counter keeps its whole call red: put
+     `parsed_fonts`, `font_chain_cache` and `font_hash_to_families` in a call of their own
+     (red there means the engine, not the harness) and the renderer-side counters the line
+     names in another. When a line compares "the font and image counters" at several samples,
+     EVERY sample asserts the live counters (they can fail today) AND the renderer-side ones
+     the line names (`0 == 0` today). A fixture with no text and no image has nothing to
+     leak: add one text node in a mock font so the font counters have something to hold.
+   - If the line is about the image counters, write the `eq` assertion and the `gt` control
+     as separate calls (the control references the image from a node that is on screen) and
+     let the `images` control go red until the runner counts images; a green `0 == 0` is the
+     one outcome that must not happen.
    - "damage kind / no full redraw"      -> assert_damage {{"kind": "rects", "max_area_ratio": 0.5}}  (kind is "none" | "rects" | "full")
    - DAMAGE ASSERTIONS READ AN ACCUMULATOR. `assert_damage`, `assert_changed` and
      `assert_damage_covers_changes` look at the damage accumulated since the last
@@ -1553,8 +1592,10 @@ invalidation path completely broken. Only the ops listed above exist; use nothin
      on screen) and `frame` is exactly "accumulated" (default) or "last"; any other value is
      refused, and "last" is a value of `frame`, never of `which`. A box displaced by a
      neighbour's size change is moved by a blit: it appears in PRESENT damage and not in PAINT
-     damage, so for that case use "which":"present" on `assert_damage_covers_changes`, and do
-     not use `assert_damage_sound`, which has no `which` and judges paint only.
+     damage, so for that case use "which":"present" on `assert_damage_covers_changes` and on
+     `assert_changed` (a control that only MOVES boxes is `assert_changed {{"vs":
+     "ctl_before", "which": "present"}}`), and do not use `assert_damage_sound`, which has no
+     `which` and judges paint only.
    - `assert_changed` means "damage is not none AND pixels differ": never write it straight
      after an assertion that damage is none, and `min_damage_rects: 0` is meaningless.
    - "nothing panics"                    -> the steps running at all IS the assertion; still end with a liveness or idle assertion.
@@ -5696,9 +5737,25 @@ fn eval_assert_changed(params: &Value) -> AssertionResult {{
     fn the_prompt_states_what_the_runner_does_today() {
         let p = flat_prompt();
 
-        // D2: a CSS override costs 0 passes for a paint-only property and 2 for a
-        // geometry one; a no-op is exactly 0; the control is `min` and nothing else.
-        assert!(p.contains("0 paint-only / 2 geometry"), "the counter table");
+        // D2: a CSS override costs 0 passes for a paint-only property and 1 for a
+        // geometry one (R3: the runner used to lay out twice, 2); a no-op is exactly 0
+        // (R2: it used to cost what a real change costs); the control is `min` and
+        // nothing else.
+        assert!(p.contains("0 paint-only / 1 geometry"), "the counter table");
+        assert!(p.contains("runs layout: one pass per override"));
+        assert!(p.contains("is a no-op: the write is recorded, nothing is laid out"));
+        for stale in [
+            "0 paint-only / 2 geometry",
+            "this runner reports 2 passes",
+            "is not recognised as a no-op yet",
+            "does not meet today",
+            "never on whether the value changed",
+        ] {
+            assert!(
+                !p.contains(stale),
+                "the prompt still states what the runner no longer does: `{stale}`"
+            );
+        }
         assert!(
             p.contains("never put `min_layout_passes` on a recolour"),
             "a paint-only change spends no layout pass"
@@ -5749,9 +5806,9 @@ fn eval_assert_changed(params: &Value) -> AssertionResult {{
             "`html, body { margin:0; width:100%; height:100% }`",
             "do NOT create a VirtualView",
             "\"pending\": \"needs a mountable VirtualView\"",
-            // D6
-            "A control only counts if it can change a pixel",
-            "a `flex-grow:1` item ignores an overridden `width`",
+            // D6 (batch 2 replaced the paragraph: the per-property recipe)
+            "A CONTROL THAT CANNOT MOVE A PIXEL PROVES NOTHING",
+            "never a `flex-grow:1` item (it ignores an overridden `width`)",
             // D7
             "copy the line's own quantifier",
             "\"at least one\" is `min_*: 1` and nothing else",
@@ -5761,6 +5818,67 @@ fn eval_assert_changed(params: &Value) -> AssertionResult {{
             "a suffix that makes the name unique is appended for you",
         ] {
             assert!(p.contains(want), "the prompt lost `{want}`");
+        }
+    }
+
+    /// Batch 2 of the review (defects 1, 2, 3, 5, 6). The paragraph that said "a
+    /// control must be able to change a pixel" and left the model to work out how
+    /// produced five dead controls in 26 no-op scenarios; the `<img>` placeholder,
+    /// the growth template and the name example each cost scenarios of their own.
+    #[test]
+    fn the_prompt_measures_a_control_on_its_own_and_makes_it_visible() {
+        let p = flat_prompt();
+        for want in [
+            // Defect 1: measured on its own, and visible per property.
+            "MEASURE IT ON ITS OWN: right before the control's mutation call \
+             `reset_frame_counters` and take a fresh `snapshot_frame` (`ctl_before`), and \
+             assert the control against THAT snapshot",
+            "its `assert_changed` fails as a DEAD CONTROL",
+            "If you cannot, change the FIXTURE, not the property",
+            "background-color: the new colour differs from the old one",
+            "width / height: a FIXED-size painted box",
+            "border-width: `border-style: solid`",
+            "padding / margin: a painted child",
+            "display:none / visibility:hidden: the node must PAINT something itself",
+            "overflow: the box must be SMALLER than the window",
+            "position (static -> absolute): a painted sibling FOLLOWS the node",
+            "justify-content / align-items / flex-direction / flex-grow: at least TWO painted \
+             flex items",
+            "\"pending\": \"control cannot be made visible: <why>\"",
+            // Defect 2: an `<img>` paints nothing.
+            "its placeholder raster is transparent: an `<img>` paints NOTHING until it has a \
+             `background-color` or you call `set_node_image` on it",
+            "A page whose only content is an `<img>` renders blank white",
+            // Defect 3: a control ADDS, and the families are called apart.
+            "the control must ADD to what the baseline holds",
+            "Mount the baseline's nodes PLUS one new node whose text uses a font stack the \
+             baseline never used",
+            "ONE FAMILY OF COUNTERS PER CALL",
+            "(red there means the engine, not the harness)",
+            "A fixture with no text and no image has nothing to leak",
+            "write the `eq` assertion and the `gt` control as separate calls",
+            // Defect 5: a control that only MOVES boxes reads present damage.
+            "and on `assert_changed` (a control that only MOVES boxes is `assert_changed \
+             {\"vs\": \"ctl_before\", \"which\": \"present\"}`)",
+            // Defect 6: the name has a form, and one example that does not lean on a family.
+            "of the form <behaviour>_<property>_<fixture>",
+            "mouse_move_converges_image_flex_row",
+        ] {
+            assert!(p.contains(want), "the prompt lost `{want}`");
+        }
+        for gone in [
+            // the paragraph and the claims the batch proved wrong
+            "A control only counts if it can change a pixel",
+            "(with a placeholder raster)",
+            "a second `mount` (or `set_node_text`) whose text uses a font stack the first one did \
+             not",
+            "still write the `eq` assertion AND the `gt` control",
+            "noop_width_image_flex_row",
+            // assert_resource_counts judges every counter now (note B)
+            "alphabetically",
+            "stops at the first failure",
+        ] {
+            assert!(!p.contains(gone), "the prompt still says `{gone}`");
         }
     }
 
