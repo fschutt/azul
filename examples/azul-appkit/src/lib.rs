@@ -15,6 +15,10 @@
 //!   section says where the Azlin services are (a profile's built-in
 //!   addresses, overridden by the file, the environment, a flag; with where
 //!   each value came from).
+//! - [`anchors`]: where an app's trust comes from - the update root key compiled into the build
+//!   (empty until the owner's key ceremony: "updates are not available in this build"), and the
+//!   one function that turns an app's configuration into an update policy. A shipped build
+//!   believes constants; the feature `test-hooks` also lets a test config spell a key.
 //! - [`shared_endpoint`]: a service's address from the shared config's
 //!   `endpoints` section (the meeting server, the tile server, S3), for an
 //!   app to weigh under its own switch and variable.
@@ -69,6 +73,7 @@
 //! `cargo test -p azul-appkit`.
 
 pub mod about;
+pub mod anchors;
 pub mod args;
 pub mod azlin_config;
 pub mod client_health;

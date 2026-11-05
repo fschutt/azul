@@ -38,6 +38,7 @@ use super::{
     Registration, Release, Round, RoundOutcome, Staged, Starting, UpdateEngine, MANAGER_KEY,
 };
 use crate::{
+    anchors::{self, UpdatePolicy},
     azlin_config::AzlinConfig,
     l10n::{t, t_args, Arg},
     pieces,
@@ -88,10 +89,12 @@ pub struct AppUpdates {
 
 impl AppUpdates {
     /// The background round of now, under the policy the config says now (`None`: no update
-    /// source is configured).
+    /// source is configured, or this build cannot prove an update and checks for none).
     fn round(&self) -> Option<Round> {
         let (shared, _) = AzlinConfig::load(&self.config);
         let updates = shared.updates;
+        // collapse-ok: start() said once why a build has no way to prove an update.
+        let proof = anchors::update_policy(&updates).ok()?;
         let policy = updates.policy_for(self.key);
         let manifest_url = manifest_url_for(&updates, self.key, policy.channel)?;
         let (cohort, problem) = machine_cohort(&AzulEngine, &self.config, &updates);
@@ -110,7 +113,7 @@ impl AppUpdates {
             channel: policy.channel,
             cohort,
             audience: audience_for(kind, policy.channel),
-            root_public_key: updates.root_public_key.clone().unwrap_or_default(),
+            policy: proof,
             autoupdate: policy.autoupdate && self.managed,
             skip_version: policy.skip_version,
             maintenance_window: updates.maintenance_window.clone().unwrap_or_default(),
@@ -180,8 +183,15 @@ pub fn start(kit_ref: &RefAny, config: &mut AppConfig, key: &'static str) {
     if let Some(url) = manifest_url_for(&updates, key, policy.channel) {
         config.updates.manifest_url = OptionString::Some(AzString::from(url));
     }
-    config.updates.root_public_key =
-        AzString::from(updates.root_public_key.clone().unwrap_or_default());
+    // The engine's own dialog proves an update with the key compiled into this build; a build
+    // that carries none checks for none and says so once.
+    match anchors::update_policy(&updates) {
+        Ok(UpdatePolicy::Signed(keys)) => {
+            config.updates.root_public_key = AzString::from(keys.as_text());
+        }
+        Ok(UpdatePolicy::DigestOnly) => {}
+        Err(why) => eprintln!("[{key}] {why}"),
+    }
 
     k.updates = Some(AppUpdates {
         key,

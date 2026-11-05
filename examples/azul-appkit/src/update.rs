@@ -31,7 +31,10 @@ use std::path::{Path, PathBuf};
 
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
-use crate::azlin_config::{AzlinConfig, Channel, UpdatesSection};
+use crate::{
+    anchors::UpdatePolicy,
+    azlin_config::{AzlinConfig, Channel, UpdatesSection},
+};
 
 /// The update kit inside an app: registration, the periodic check, the banner, "Update now".
 #[cfg(feature = "azul")]
@@ -407,12 +410,88 @@ pub struct CheckRequest<'a> {
     pub audience: Audience,
 }
 
+/// A file an engine has verified, with the hash of the bytes it looked at: the only thing
+/// [`UpdateEngine::stage`] and [`UpdateEngine::verify`] hand back, and the only thing installing
+/// takes. A path is not a proof; this is, as far as the engine is trusted - and the installer
+/// hashes the COPY it puts in place ([`copy_verified`]), so a file swapped after the check is not
+/// installed (REVIEW Y6, X-AR5b-26).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Verified {
+    file: PathBuf,
+    sha256: String,
+}
+
+impl Verified {
+    /// The verified file `file`, hashed now. Only an [`UpdateEngine`] makes one, right after the
+    /// check that passed; nothing else calls this.
+    ///
+    /// # Errors
+    ///
+    /// Why the file could not be read.
+    pub fn of(file: PathBuf) -> Result<Verified, String> {
+        let sha256 = std::fs::File::open(&file)
+            .and_then(azul_storage::sigv4::sha256_hex_of)
+            .map_err(|e| format!("{}: {e}", file.display()))?;
+        Ok(Verified { file, sha256 })
+    }
+
+    /// The verified file.
+    #[must_use]
+    pub fn path(&self) -> &Path {
+        &self.file
+    }
+
+    /// The SHA-256 of the bytes that passed, 64 lowercase hex digits.
+    #[must_use]
+    pub fn sha256(&self) -> &str {
+        &self.sha256
+    }
+
+    /// The same proof for the file now called `file` (it was renamed; its bytes are the
+    /// bytes that passed).
+    #[must_use]
+    pub fn renamed(self, file: PathBuf) -> Verified {
+        Verified { file, ..self }
+    }
+}
+
+/// Copies the verified file to `to` and checks the COPY: the bytes about to become the program
+/// are the bytes that passed (REVIEW Y6). A copy that is not removed and an error that says why.
+///
+/// # Errors
+///
+/// That the file could not be copied, or that it is no longer the file that was verified.
+pub fn copy_verified(verified: &Verified, to: &Path) -> Result<(), String> {
+    std::fs::copy(verified.path(), to)
+        .map_err(|e| format!("{}: {e}", verified.path().display()))?;
+    let actual = std::fs::File::open(to)
+        .and_then(azul_storage::sigv4::sha256_hex_of)
+        .map_err(|e| format!("{}: {e}", to.display()));
+    match actual {
+        Ok(actual) if actual == verified.sha256 => Ok(()),
+        Ok(actual) => {
+            let _ = std::fs::remove_file(to);
+            Err(format!(
+                "{} changed after it was verified (it was sha256:{}, it is sha256:{actual}): \
+                 not installed",
+                verified.path().display(),
+                verified.sha256
+            ))
+        }
+        Err(why) => {
+            let _ = std::fs::remove_file(to);
+            Err(why)
+        }
+    }
+}
+
 /// The update engine's calls. Blocking: the app and the manager make them on a `Thread`.
 pub trait UpdateEngine: Send + Sync {
     /// Reads the manifest and answers under the cohort and the gate.
     fn check(&self, request: &CheckRequest<'_>) -> Check;
-    /// Downloads `release` into `staging_dir` and verifies its digest and signature chain;
-    /// the staged file. Nothing refused stays.
+    /// Downloads `release` into `staging_dir` and verifies what `policy` demands (the signature
+    /// chain, or a digest pin the policy accepts alone); the verified file. Nothing refused
+    /// stays.
     ///
     /// # Errors
     ///
@@ -421,10 +500,11 @@ pub trait UpdateEngine: Send + Sync {
         &self,
         release: &Release,
         staging_dir: &Path,
-        root_public_key: &str,
+        policy: &UpdatePolicy,
         state_dir: &Path,
-    ) -> Result<PathBuf, String>;
-    /// Checks a staged file once more before it is installed.
+    ) -> Result<Verified, String>;
+    /// Checks a staged file once more before it is installed: what `policy` demands, on the
+    /// bytes that are there now.
     ///
     /// # Errors
     ///
@@ -433,9 +513,9 @@ pub trait UpdateEngine: Send + Sync {
         &self,
         file: &Path,
         release: &Release,
-        root_public_key: &str,
+        policy: &UpdatePolicy,
         state_dir: &Path,
-    ) -> Result<(), String>;
+    ) -> Result<Verified, String>;
     /// What kind of installation `program` is.
     fn install_kind(&self, program: &Path) -> InstallKind;
     /// A new rollout cohort, 0 to 99 (drawn once per machine; the caller keeps it).
@@ -484,8 +564,8 @@ pub struct Round {
     pub channel: Channel,
     pub cohort: u8,
     pub audience: Audience,
-    /// The root key staging verifies the chain against (empty: the digest pin only).
-    pub root_public_key: String,
+    /// What staging has to prove (the build's root key; [`crate::anchors::update_policy`]).
+    pub policy: UpdatePolicy,
     /// The policy's auto-update: stage what is found.
     pub autoupdate: bool,
     /// The version the user skips.
@@ -539,16 +619,11 @@ pub fn background_round(engine: &dyn UpdateEngine, round: &Round, now_unix: u64)
     if !unattended {
         return RoundOutcome::Available(release);
     }
-    match engine.stage(
-        &release,
-        &round.paths.staging(),
-        &round.root_public_key,
-        &state_dir,
-    ) {
-        Ok(file) => {
+    match engine.stage(&release, &round.paths.staging(), &round.policy, &state_dir) {
+        Ok(verified) => {
             let staged = Staged {
                 release,
-                file: file.to_string_lossy().into_owned(),
+                file: verified.path().to_string_lossy().into_owned(),
                 channel: round.channel.name().to_string(),
                 staged_unix: now_unix,
             };
@@ -582,10 +657,26 @@ mod azul_engine {
         vec::StringPairVec,
     };
 
-    use super::{Audience, AzulEngine, Check, CheckRequest, InstallKind, Release, UpdateEngine};
+    use super::{
+        Audience, AzulEngine, Check, CheckRequest, InstallKind, Release, UpdateEngine,
+        UpdatePolicy, Verified,
+    };
 
     fn az(text: &str) -> AzString {
         AzString::from(text)
+    }
+
+    /// The root key text libazul's C API takes: the keys of a signed policy. That API has no way
+    /// to say "unsigned" yet, so a digest-only policy cannot be carried out here: refused, never
+    /// run as a signed one.
+    fn root_text(policy: &UpdatePolicy) -> Result<String, String> {
+        match policy {
+            UpdatePolicy::Signed(keys) => Ok(keys.as_text()),
+            UpdatePolicy::DigestOnly => Err(
+                "an unsigned update needs libazul's allow_unsigned flag; this libazul has none"
+                    .to_string(),
+            ),
+        }
     }
 
     fn path_text(path: &Path) -> AzString {
@@ -647,15 +738,16 @@ mod azul_engine {
             &self,
             release: &Release,
             staging_dir: &Path,
-            root_public_key: &str,
+            policy: &UpdatePolicy,
             state_dir: &Path,
-        ) -> Result<PathBuf, String> {
+        ) -> Result<Verified, String> {
+            let root = root_text(policy)?;
             match release_info(release).stage(
                 path_text(staging_dir),
-                az(root_public_key),
+                az(&root),
                 path_text(state_dir),
             ) {
-                UpdateStageResult::Staged(file) => Ok(PathBuf::from(file.as_str())),
+                UpdateStageResult::Staged(file) => Verified::of(PathBuf::from(file.as_str())),
                 UpdateStageResult::Error(why) => Err(why.as_str().to_string()),
             }
         }
@@ -664,15 +756,16 @@ mod azul_engine {
             &self,
             file: &Path,
             release: &Release,
-            root_public_key: &str,
+            policy: &UpdatePolicy,
             state_dir: &Path,
-        ) -> Result<(), String> {
+        ) -> Result<Verified, String> {
+            let root = root_text(policy)?;
             match release_info(release).verify_staged(
                 path_text(file),
-                az(root_public_key),
+                az(&root),
                 path_text(state_dir),
             ) {
-                UpdateStageResult::Staged(_) => Ok(()),
+                UpdateStageResult::Staged(_) => Verified::of(file.to_path_buf()),
                 UpdateStageResult::Error(why) => Err(why.as_str().to_string()),
             }
         }
@@ -733,9 +826,9 @@ mod tests {
             &self,
             release: &Release,
             staging_dir: &Path,
-            _: &str,
+            _: &UpdatePolicy,
             _: &Path,
-        ) -> Result<PathBuf, String> {
+        ) -> Result<Verified, String> {
             if let Some(why) = &self.stage_error {
                 return Err(why.clone());
             }
@@ -743,10 +836,16 @@ mod tests {
             std::fs::create_dir_all(staging_dir).map_err(|e| e.to_string())?;
             let file = staging_dir.join(format!("app-{}.bin", release.version));
             std::fs::write(&file, b"bytes").map_err(|e| e.to_string())?;
-            Ok(file)
+            Verified::of(file)
         }
-        fn verify(&self, _: &Path, _: &Release, _: &str, _: &Path) -> Result<(), String> {
-            Ok(())
+        fn verify(
+            &self,
+            file: &Path,
+            _: &Release,
+            _: &UpdatePolicy,
+            _: &Path,
+        ) -> Result<Verified, String> {
+            Verified::of(file.to_path_buf())
         }
         fn install_kind(&self, _: &Path) -> InstallKind {
             InstallKind::UserWritable
@@ -775,7 +874,7 @@ mod tests {
             channel: Channel::Stable,
             cohort: 42,
             audience: Audience::Gated,
-            root_public_key: String::new(),
+            policy: UpdatePolicy::DigestOnly,
             autoupdate: true,
             skip_version: None,
             maintenance_window: String::new(),
@@ -949,6 +1048,29 @@ mod tests {
         let mut kept = c.updates.clone();
         kept.cohort = Some(7);
         assert_eq!(machine_cohort(&engine, &config, &kept).0, 7, "a kept cohort is never drawn again");
+    }
+
+    #[test]
+    fn y6_the_copy_that_is_installed_is_the_file_that_was_verified() {
+        let dir = TempDir::new("update-verified");
+        let file = dir.path().join("AzWriter.download");
+        std::fs::write(&file, b"program 2.0.0").unwrap();
+        let verified = Verified::of(file.clone()).unwrap();
+        assert_eq!(verified.sha256().len(), 64);
+        let copy = dir.path().join("next-AzWriter");
+        copy_verified(&verified, &copy).expect("the verified bytes copy");
+        assert_eq!(std::fs::read(&copy).unwrap(), b"program 2.0.0");
+
+        // A same-user process swaps the file after the check: nothing is installed, no copy stays.
+        std::fs::write(&file, b"EVIL program").unwrap();
+        let other = dir.path().join("next-2");
+        let refused = copy_verified(&verified, &other).unwrap_err();
+        assert!(refused.contains("changed after it was verified"), "{refused}");
+        assert!(!other.exists(), "a refused copy is removed");
+        // A file that is gone is an error too, not a pass.
+        std::fs::remove_file(&file).unwrap();
+        assert!(copy_verified(&verified, &dir.path().join("next-3")).is_err());
+        assert!(Verified::of(file).is_err());
     }
 
     #[test]

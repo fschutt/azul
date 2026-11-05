@@ -109,6 +109,9 @@ pub(crate) fn source_section(m: &Manager, app: &RefAny) -> Dom {
         .with_css("flex-grow: 1; min-width: 240px;");
     let help = if !m.source_problem.is_empty() {
         m.source_problem.clone()
+    } else if model::Proof::of(&m.updates) == model::Proof::Unavailable {
+        // A source is no use to a build that cannot prove what it fetches there.
+        t("azinstallmgr-settings-unavailable")
     } else if model::has_source(&m.updates) {
         t("azinstallmgr-source-help")
     } else {
@@ -211,17 +214,7 @@ pub(crate) fn screen(m: &Manager, app: &RefAny) -> Dom {
             ],
         ));
     }
-    let signatures = t(
-        if m.updates
-            .root_public_key
-            .as_deref()
-            .is_some_and(|k| !k.trim().is_empty())
-        {
-            "azinstallmgr-settings-signed"
-        } else {
-            "azinstallmgr-settings-digest-only"
-        },
-    );
+    let signatures = t(model::Proof::of(&m.updates).settings_key());
     let window = m
         .updates
         .maintenance_window
@@ -344,10 +337,19 @@ pub(crate) fn configured(m: &mut Manager, result: Result<azul_appkit::azlin_conf
 mod tests {
     use super::*;
 
+    /// A manager of a TEST build of the anchors (dev-dependency feature `test-hooks`).
     fn manager(source: Option<&str>) -> Manager {
-        let mut updates = azul_appkit::azlin_config::UpdatesSection::default();
-        updates.manifest_url = source.map(str::to_string);
-        Manager::for_test(std::path::PathBuf::from("/tmp/azlin-test/config.json"), updates)
+        let json = match source {
+            Some(url) => {
+                format!(r#"{{"updates": {{"allow_unsigned": true, "manifest_url": "{url}"}}}}"#)
+            }
+            None => r#"{"updates": {"allow_unsigned": true}}"#.to_string(),
+        };
+        let (config, _) = azul_appkit::azlin_config::AzlinConfig::parse(&json);
+        Manager::for_test(
+            std::path::PathBuf::from("/tmp/azlin-test/config.json"),
+            config.updates,
+        )
     }
 
     /// The update source is a setting the user can type in, with a line that says what it is

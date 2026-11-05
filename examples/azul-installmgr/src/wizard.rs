@@ -300,15 +300,23 @@ fn manager_summary(w: &Wizard, pm: PackageManager) -> Dom {
         .dom()
 }
 
+/// The welcome page's words: what Setup does, how the apps are checked (said only as far as it is
+/// true of this build), and what to click.
+fn welcome_text(m: &Manager) -> String {
+    format!(
+        "{}\n\n{}\n\n{}",
+        t("azinstallmgr-welcome-text"),
+        t(model::Proof::of(&m.updates).welcome_key()),
+        t("azinstallmgr-welcome-next")
+    )
+}
+
 /// The current page and the reason Next is held on it (empty: it may go).
 fn page(m: &Manager, app: &RefAny) -> (Dom, String) {
     let w = &m.wizard;
     match w.step {
         Step::Welcome => (
-            WizardWelcomePage::create(
-                s(&t("azinstallmgr-welcome-title")),
-                s(&t("azinstallmgr-welcome-text")),
-            )
+            WizardWelcomePage::create(s(&t("azinstallmgr-welcome-title")), s(&welcome_text(m)))
             .with_logo(s("install_desktop"))
             .dom(),
             String::new(),
@@ -396,12 +404,9 @@ fn page(m: &Manager, app: &RefAny) -> (Dom, String) {
                 .with_row(s(&t("azinstallmgr-ready-channel")), s(&channel))
                 .with_row(s(&t("azinstallmgr-autoupdate")), s(&autoupdate))
                 .with_row(s(&t("azinstallmgr-settings-source")), s(&source));
-            // Nothing can be fetched without a source: Install waits and says where to set it.
-            let reason = if model::has_source(&m.updates) {
-                String::new()
-            } else {
-                t("azinstallmgr-ready-no-source")
-            };
+            // Nothing can be fetched by a build that cannot prove an update, nor without a
+            // source: Install waits and says why.
+            let reason = model::fetch_blocker(&m.updates).map(t).unwrap_or_default();
             (p.dom(), reason)
         }
         Step::Installing => {
@@ -702,10 +707,53 @@ pub(crate) fn finished(w: &mut Wizard) {
 mod tests {
     use super::*;
 
+    /// A manager of a TEST build of the anchors (dev-dependency feature `test-hooks`): its config
+    /// spells `allow_unsigned`, so what is under test is the source, not the missing key.
     fn manager(source: Option<&str>) -> Manager {
+        let json = match source {
+            Some(url) => {
+                format!(r#"{{"updates": {{"allow_unsigned": true, "manifest_url": "{url}"}}}}"#)
+            }
+            None => r#"{"updates": {"allow_unsigned": true}}"#.to_string(),
+        };
+        let (config, _) = azul_appkit::azlin_config::AzlinConfig::parse(&json);
+        Manager::for_test(
+            std::path::PathBuf::from("/tmp/azlin-test/config.json"),
+            config.updates,
+        )
+    }
+
+    /// REVIEW Y1: a build with no root key does not claim a signature check, and holds Install
+    /// with the real reason - the missing key - whether or not a source is typed.
+    #[test]
+    fn y1_a_build_without_a_key_says_so_and_holds_install_instead_of_claiming_a_signature_check() {
+        crate::l10n::in_english();
         let mut updates = azul_appkit::azlin_config::UpdatesSection::default();
-        updates.manifest_url = source.map(str::to_string);
-        Manager::for_test(std::path::PathBuf::from("/tmp/azlin-test/config.json"), updates)
+        updates.manifest_url = Some("https://example.org/{app}/{channel}.json".to_string());
+        let mut m = Manager::for_test(
+            std::path::PathBuf::from("/tmp/azlin-test/config.json"),
+            updates,
+        );
+        let welcome = welcome_text(&m);
+        assert!(
+            !welcome.contains("checked against its signature"),
+            "{welcome}"
+        );
+        assert!(
+            welcome.contains("updates are not available in this build"),
+            "{welcome}"
+        );
+        m.wizard.step = Step::Ready;
+        let (_, reason) = page(&m, &RefAny::new(0u8));
+        assert_eq!(reason, t("azinstallmgr-ready-no-key"));
+        // The test build that spells its choice says what it checks, which is not a signature.
+        let test = manager(Some("https://example.org/{app}/{channel}.json"));
+        let welcome = welcome_text(&test);
+        assert!(
+            !welcome.contains("checked against its signature"),
+            "{welcome}"
+        );
+        assert!(welcome.contains("checksum"), "{welcome}");
     }
 
     /// The Updates page asks for the update source beside the channel: a first run has none

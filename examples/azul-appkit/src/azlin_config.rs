@@ -34,9 +34,13 @@
 //!   shape of azul's machine-wide `updates` section (`autoupdate`,
 //!   `maintenance_window`, `overrides.<app>`) plus what only the Azlin apps
 //!   share: the `channel` (stable or beta), the machine's rollout `cohort`,
-//!   the `install_dir` AzInstallManager puts the apps in, the `manifest_url`
-//!   and the `root_public_key` of the manifests. Machine-local like the
-//!   endpoints: the cohort and the install folder belong to this computer.
+//!   the `install_dir` AzInstallManager puts the apps in and the `manifest_url`
+//!   (a LOCATION: what is fetched there is believed only if the root key
+//!   compiled into the build vouches for it, [`crate::anchors`]). Machine-local
+//!   like the endpoints: the cohort and the install folder belong to this
+//!   computer. A `root_public_key` or `allow_unsigned` in the section is kept
+//!   as it was read and is looked at only by a test build
+//!   (feature `test-hooks`); a shipped build ignores them.
 //! - `trust`: which certificate authorities every TLS connection of the apps
 //!   trusts ([`TrustSection`]): `pinned_roots` (only these) and
 //!   `distrusted_roots` (taken out of the set), PEM files or PEM text.
@@ -733,9 +737,10 @@ impl Channel {
 }
 
 /// What one app does about updates: the shared choice with the app's own
-/// laid over it ([`UpdatesSection::policy_for`]).
+/// laid over it ([`UpdatesSection::policy_for`]). What an update has to PROVE is another
+/// matter, and not a choice: [`crate::anchors::UpdatePolicy`].
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct UpdatePolicy {
+pub struct UpdateChoices {
     /// Updates are fetched and verified in the background and the app shows
     /// its banner; `false`: only when the user asks in the manager.
     pub autoupdate: bool,
@@ -800,9 +805,6 @@ pub struct UpdatesSection {
     /// app's key, `azwriter`) and `{channel}` filled in. `None`: no source
     /// is configured and nothing can be checked.
     pub manifest_url: Option<String>,
-    /// `root_public_key`: the minisign root key the manifests' signature
-    /// chain must end in; `None` or empty: the digest pin only.
-    pub root_public_key: Option<String>,
     /// `maintenance_window`: when unattended update work may run, azul's
     /// RRULE subset (`None`: any time).
     pub maintenance_window: Option<String>,
@@ -862,7 +864,6 @@ impl UpdatesSection {
         for (key, slot) in [
             ("install_dir", &mut section.install_dir),
             ("manifest_url", &mut section.manifest_url),
-            ("root_public_key", &mut section.root_public_key),
             ("maintenance_window", &mut section.maintenance_window),
         ] {
             match map.remove(key) {
@@ -907,7 +908,6 @@ impl UpdatesSection {
         for (key, value) in [
             ("install_dir", &self.install_dir),
             ("manifest_url", &self.manifest_url),
-            ("root_public_key", &self.root_public_key),
             ("maintenance_window", &self.maintenance_window),
         ] {
             if let Some(text) = value {
@@ -926,14 +926,23 @@ impl UpdatesSection {
         *self == UpdatesSection::default()
     }
 
+    /// The text of a key this module has no typed field for (`root_public_key`,
+    /// `allow_unsigned` when a test config spells them), as it was read. Only a test build asks
+    /// ([`crate::anchors`]): the update root key is an anchor and a shipped build does not take
+    /// it from a file a same-user process can write.
+    #[cfg(feature = "test-hooks")]
+    pub(crate) fn raw(&self, key: &str) -> Option<&Value> {
+        self.rest.get(key)
+    }
+
     /// What the app `app` (its key, `azwriter`) does: its own choices where
     /// it has them, else the shared ones, else auto-update on the stable
     /// channel.
     #[must_use]
-    pub fn policy_for(&self, app: &str) -> UpdatePolicy {
+    pub fn policy_for(&self, app: &str) -> UpdateChoices {
         let own = self.overrides.get(app).and_then(Value::as_object);
         let own_value = |key: &str| own.and_then(|o| o.get(key));
-        UpdatePolicy {
+        UpdateChoices {
             autoupdate: own_value(AUTOUPDATE_KEY)
                 .and_then(Value::as_bool)
                 .or(self.autoupdate)
@@ -1835,7 +1844,14 @@ mod tests {
             u.manifest_url.as_deref(),
             Some("https://example.org/{app}/{channel}.json")
         );
-        assert_eq!(u.root_public_key.as_deref(), Some("RWQroot"));
+        // The root key is an anchor, not a setting: no typed field, but the text stays in the file.
+        assert!(c.to_json().contains("RWQroot"), "kept as it was read");
+        #[cfg(feature = "test-hooks")]
+        assert_eq!(
+            u.raw("root_public_key").and_then(Value::as_str),
+            Some("RWQroot"),
+            "a test build reads it"
+        );
         assert_eq!(u.maintenance_window.as_deref(), Some("FREQ=DAILY;BYHOUR=2"));
         let writer = u.policy_for("azwriter");
         assert!(writer.autoupdate, "the app's own choice wins");

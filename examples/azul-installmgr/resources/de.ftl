@@ -41,10 +41,10 @@ azinstallmgr-button-cancel = Abbrechen
 ## Die Seiten des Assistenten
 azinstallmgr-welcome-title = Willkommen bei den Azlin-Apps
 azinstallmgr-welcome-text = Hiermit installieren Sie die Azlin-Apps: die, die Sie auswählen, in einen eigenen Ordner, ohne Administratorrechte.
-
-    Jede App wird von ihrer Update-Quelle geladen und vor der Installation anhand ihrer Signatur geprüft.
-
-    Klicken Sie auf „Weiter“, um fortzufahren, oder auf „Abbrechen“, um das Setup zu beenden.
+azinstallmgr-welcome-signed = Jede App wird von ihrer Update-Quelle geladen und vor der Installation anhand ihrer Signatur geprüft.
+azinstallmgr-welcome-unsigned = Dies ist ein Testbuild des Setups: Apps werden nur anhand ihrer Prüfsumme geprüft, nicht anhand einer Signatur.
+azinstallmgr-welcome-unavailable = Dieses Setup enthält keinen Update-Signaturschlüssel und kann daher keine Apps laden oder installieren: Updates sind in diesem Build nicht verfügbar.
+azinstallmgr-welcome-next = Klicken Sie auf „Weiter“, um fortzufahren, oder auf „Abbrechen“, um das Setup zu beenden.
 azinstallmgr-pm-found = { $manager } ist auf diesem Computer installiert. Es kann die Azlin-Apps stattdessen installieren und hält sie dann zusammen mit allem anderen aktuell.
 azinstallmgr-pm-how = Um die Apps, die Sie auf den nächsten Seiten auswählen, über { $manager } zu installieren, führen Sie dies in einem Terminal aus:
 azinstallmgr-copy = Kopieren
@@ -182,9 +182,11 @@ azinstallmgr-source-not-web = Eine Update-Quelle ist eine Webadresse, die mit ht
 azinstallmgr-source-unset = keine
 azinstallmgr-source-unset-reason = Richten Sie zuerst in den Einstellungen eine Update-Quelle ein.
 azinstallmgr-ready-no-source = Richten Sie zuerst auf der Seite „Updates“ eine Update-Quelle ein: Die Apps werden von dort geladen.
+azinstallmgr-ready-no-key = Updates sind in diesem Build nicht verfügbar: Er enthält keinen Update-Signaturschlüssel, daher kann keine App geladen werden.
 azinstallmgr-settings-signatures = Signaturprüfung
-azinstallmgr-settings-signed = Jede Version muss mit dem eingerichteten Hauptschlüssel signiert sein.
-azinstallmgr-settings-digest-only = Es ist kein Hauptschlüssel eingerichtet: Nur die Prüfsumme eines Downloads wird geprüft.
+azinstallmgr-settings-signed = Jede Version muss mit dem Update-Schlüssel von Azlin signiert sein.
+azinstallmgr-settings-digest-only = Testbuild: Versionen sind nicht signiert, nur die Prüfsumme eines Downloads wird geprüft.
+azinstallmgr-settings-unavailable = Updates sind in diesem Build nicht verfügbar: Er enthält keinen Update-Signaturschlüssel, daher kann keine App installiert oder aktualisiert werden.
 azinstallmgr-settings-group = Verteilungsgruppe
 azinstallmgr-settings-window = Updates im Hintergrund
 azinstallmgr-settings-any-time = Jederzeit

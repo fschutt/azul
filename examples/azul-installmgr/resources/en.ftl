@@ -41,10 +41,10 @@ azinstallmgr-button-cancel = Cancel
 ## The wizard's pages
 azinstallmgr-welcome-title = Welcome to the Azlin apps
 azinstallmgr-welcome-text = This installs the Azlin apps for you: the ones you pick, into a folder of your own, without administrator rights.
-
-    Every app is fetched from its update source and checked against its signature before it is installed.
-
-    Click Next to continue, or Cancel to exit Setup.
+azinstallmgr-welcome-signed = Every app is fetched from its update source and checked against its signature before it is installed.
+azinstallmgr-welcome-unsigned = This is a test build of Setup: apps are checked against their checksum only, not against a signature.
+azinstallmgr-welcome-unavailable = This build of Setup carries no update signing key, so it cannot fetch or install apps: updates are not available in this build.
+azinstallmgr-welcome-next = Click Next to continue, or Cancel to exit Setup.
 azinstallmgr-pm-found = { $manager } is installed on this computer. It can install the Azlin apps instead, and then keeps them up to date with everything else it installs.
 azinstallmgr-pm-how = To install the apps you pick on the next pages through { $manager }, run this in a terminal:
 azinstallmgr-copy = Copy
@@ -182,9 +182,11 @@ azinstallmgr-source-not-web = An update source is a web address that starts with
 azinstallmgr-source-unset = none
 azinstallmgr-source-unset-reason = Set an update source in the settings first.
 azinstallmgr-ready-no-source = Set an update source on the Updates page first: the apps are fetched from it.
+azinstallmgr-ready-no-key = Updates are not available in this build: it carries no update signing key, so no app can be fetched.
 azinstallmgr-settings-signatures = Signature check
-azinstallmgr-settings-signed = Every release must be signed by the configured root key.
-azinstallmgr-settings-digest-only = No root key is configured: only the checksum of a download is checked.
+azinstallmgr-settings-signed = Every release must be signed by Azlin's update key.
+azinstallmgr-settings-digest-only = Test build: releases are not signed, only the checksum of a download is checked.
+azinstallmgr-settings-unavailable = Updates are not available in this build: it carries no update signing key, so no app can be installed or updated.
 azinstallmgr-settings-group = Rollout group
 azinstallmgr-settings-window = Background updates
 azinstallmgr-settings-any-time = At any time

@@ -11,11 +11,12 @@
 use std::path::{Path, PathBuf};
 
 use azul_appkit::{
+    anchors::{self, NoRootKey, UpdatePolicy},
     azlin_config::{AzlinConfig, Channel, UpdatesSection},
     update::{
-        audience_for, background_round, manifest_url_for, read_json, write_json, AppPaths,
-        ApplyRequest, Audience, Check, CheckRequest, InstallKind, Registration, Release, Round,
-        RoundOutcome, Staged, UpdateEngine, APPS_DIR, RELEASE_FILE, REQUEST_FILE,
+        audience_for, background_round, copy_verified, manifest_url_for, read_json, write_json,
+        AppPaths, ApplyRequest, Audience, Check, CheckRequest, InstallKind, Registration, Release,
+        Round, RoundOutcome, Staged, UpdateEngine, Verified, APPS_DIR, RELEASE_FILE, REQUEST_FILE,
     },
 };
 
@@ -691,10 +692,12 @@ fn not_writable(dir: &Path, e: &std::io::Error) -> String {
     )
 }
 
-/// Puts the verified file `file` in place as the app's current version: the new version is laid
-/// out in `next/` first (a failure there leaves the installed one untouched), the current one
-/// becomes the previous one (the one before that is removed: one is kept), and the registration
-/// says so. A staged update of this version is used up.
+/// Puts the VERIFIED file `verified` in place as the app's current version: the new version is
+/// laid out in `next/` first (a failure there leaves the installed one untouched; the copy is
+/// hashed and has to be the bytes that passed the engine's checks, so a file swapped between the
+/// check and now is not installed), the current one becomes the previous one (the one before that
+/// is removed: one is kept), and the registration says so. A staged update of this version is
+/// used up.
 ///
 /// # Errors
 ///
@@ -702,7 +705,7 @@ fn not_writable(dir: &Path, e: &std::io::Error) -> String {
 pub fn place(
     places: &Places,
     entry: &AppEntry,
-    file: &Path,
+    verified: &Verified,
     release: &Release,
     channel: Channel,
     now_unix: u64,
@@ -712,19 +715,20 @@ pub fn place(
     let next = paths.install.join("next");
     let _ = std::fs::remove_dir_all(&next);
     let program = entry.file_name(places.os);
-    let laid_out = (|| -> std::io::Result<()> {
-        std::fs::create_dir_all(&next)?;
-        std::fs::copy(file, next.join(&program))?;
+    let laid_out = (|| -> Result<(), String> {
+        std::fs::create_dir_all(&next).map_err(|e| not_writable(&paths.install, &e))?;
+        copy_verified(verified, &next.join(&program))?;
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(next.join(&program), std::fs::Permissions::from_mode(0o755))?;
+            std::fs::set_permissions(next.join(&program), std::fs::Permissions::from_mode(0o755))
+                .map_err(|e| not_writable(&paths.install, &e))?;
         }
-        write_json(&next.join(RELEASE_FILE), release)
+        write_json(&next.join(RELEASE_FILE), release).map_err(|e| not_writable(&paths.install, &e))
     })();
-    if let Err(e) = laid_out {
+    if let Err(why) = laid_out {
         let _ = std::fs::remove_dir_all(&next);
-        return Err(not_writable(&paths.install, &e));
+        return Err(why);
     }
     let (current, prev) = (paths.current(), paths.prev());
     if current.exists() {
@@ -1043,8 +1047,13 @@ impl Fetching {
         })
     }
 
-    fn root_key(&self) -> String {
-        self.updates.root_public_key.clone().unwrap_or_default()
+    /// What an update has to prove here: this build's root key ([`anchors::update_policy`]).
+    ///
+    /// # Errors
+    ///
+    /// [`NoRootKey`]: this build cannot prove an update, so it installs and stages none.
+    pub fn policy(&self) -> Result<UpdatePolicy, NoRootKey> {
+        anchors::update_policy(&self.updates)
     }
 }
 
@@ -1063,6 +1072,8 @@ pub fn install_new(
     channel: Channel,
     now_unix: u64,
 ) -> Result<(Registration, Vec<String>), String> {
+    // A build that cannot prove an update installs none: asked before any network (REVIEW Y1).
+    let policy = fetching.policy().map_err(|e| e.to_string())?;
     let url = fetching.manifest(entry, channel)?;
     let paths = fetching.places.app(entry.key);
     let state = paths.state(channel);
@@ -1085,9 +1096,16 @@ pub fn install_new(
         },
         Check::Failed(why) => return Err(why),
     };
-    let file = engine.stage(&release, &paths.staging(), &fetching.root_key(), &state)?;
-    let placed = place(&fetching.places, entry, &file, &release, channel, now_unix);
-    let _ = std::fs::remove_file(&file);
+    let verified = engine.stage(&release, &paths.staging(), &policy, &state)?;
+    let placed = place(
+        &fetching.places,
+        entry,
+        &verified,
+        &release,
+        channel,
+        now_unix,
+    );
+    let _ = std::fs::remove_file(verified.path());
     let registration = placed?;
     let problems = shortcuts(&fetching.places, entry, Path::new(&registration.binary))
         .iter()
@@ -1111,24 +1129,34 @@ pub fn update_to(
     channel: Channel,
     now_unix: u64,
 ) -> Result<Registration, String> {
+    let policy = fetching.policy().map_err(|e| e.to_string())?;
     let paths = fetching.places.app(entry.key);
     let state = paths.state(channel);
     let staged = read_json::<Staged>(&paths.staged())
         .filter(|s| s.release.version == release.version && Path::new(&s.file).exists());
-    let file = match staged {
+    let verified = match staged {
         Some(staged) => {
             let file = PathBuf::from(&staged.file);
-            if let Err(why) = engine.verify(&file, &staged.release, &fetching.root_key(), &state) {
-                let _ = std::fs::remove_file(&file);
-                let _ = std::fs::remove_file(paths.staged());
-                return Err(why);
+            match engine.verify(&file, &staged.release, &policy, &state) {
+                Ok(verified) => verified,
+                Err(why) => {
+                    let _ = std::fs::remove_file(&file);
+                    let _ = std::fs::remove_file(paths.staged());
+                    return Err(why);
+                }
             }
-            file
         }
-        None => engine.stage(release, &paths.staging(), &fetching.root_key(), &state)?,
+        None => engine.stage(release, &paths.staging(), &policy, &state)?,
     };
-    let placed = place(&fetching.places, entry, &file, release, channel, now_unix);
-    let _ = std::fs::remove_file(&file);
+    let placed = place(
+        &fetching.places,
+        entry,
+        &verified,
+        release,
+        channel,
+        now_unix,
+    );
+    let _ = std::fs::remove_file(verified.path());
     let registration = placed?;
     // Choosing an update by hand ends a skip.
     if fetching.updates.policy_for(entry.key).skip_version.is_some() {
@@ -1231,26 +1259,30 @@ pub fn installed(engine: &dyn UpdateEngine, places: &Places, updates: &UpdatesSe
 }
 
 /// The background round of an installed app (azul-appkit's [`background_round`]), under the
-/// app's policy and the machine's cohort. `None` when no update source is configured.
-#[must_use]
-pub fn round_for(fetching: &Fetching, app: &Installed) -> Option<Round> {
-    let policy = fetching.updates.policy_for(app.entry.key);
-    let manifest_url = manifest_url_for(&fetching.updates, app.entry.key, policy.channel)?;
+/// app's choices and the machine's cohort.
+///
+/// # Errors
+///
+/// In words: this build cannot prove an update, or no update source is configured.
+pub fn round_for(fetching: &Fetching, app: &Installed) -> Result<Round, String> {
+    let proof = fetching.policy().map_err(|e| e.to_string())?;
+    let choices = fetching.updates.policy_for(app.entry.key);
+    let manifest_url = fetching.manifest(app.entry, choices.channel)?;
     let kind = if app.is_managed() {
         InstallKind::UserWritable
     } else {
         InstallKind::ReadOnly
     };
-    Some(Round {
+    Ok(Round {
         paths: fetching.places.app(app.entry.key),
         current_version: app.registration.version.clone(),
         manifest_url,
-        channel: policy.channel,
+        channel: choices.channel,
         cohort: fetching.cohort,
-        audience: audience_for(kind, policy.channel),
-        root_public_key: fetching.root_key(),
-        autoupdate: policy.autoupdate && app.is_managed(),
-        skip_version: policy.skip_version,
+        audience: audience_for(kind, choices.channel),
+        policy: proof,
+        autoupdate: choices.autoupdate && app.is_managed(),
+        skip_version: choices.skip_version,
         maintenance_window: fetching.updates.maintenance_window.clone().unwrap_or_default(),
     })
 }
@@ -1276,13 +1308,8 @@ pub fn check_installed(
     now_unix: u64,
 ) -> Status {
     match round_for(fetching, app) {
-        Some(round) => status_of(background_round(engine, &round, now_unix)),
-        None => Status::Failed(
-            fetching
-                .manifest(app.entry, app.channel)
-                .err()
-                .unwrap_or_default(),
-        ),
+        Ok(round) => status_of(background_round(engine, &round, now_unix)),
+        Err(why) => Status::Failed(why),
     }
 }
 
@@ -1298,8 +1325,7 @@ pub fn release_now(
     app: &Installed,
     now_unix: u64,
 ) -> Result<Release, String> {
-    let mut round = round_for(fetching, app)
-        .ok_or_else(|| fetching.manifest(app.entry, app.channel).err().unwrap_or_default())?;
+    let mut round = round_for(fetching, app)?;
     round.skip_version = None;
     round.autoupdate = false;
     match background_round(engine, &round, now_unix) {
@@ -1456,6 +1482,64 @@ pub fn has_source(updates: &UpdatesSection) -> bool {
     manifest_url_for(updates, RUNTIME_KEY, Channel::Stable).is_some()
 }
 
+/// What this build proves an update with, for the words the screens show: nothing claims a
+/// check that does not happen (REVIEW Y1).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Proof {
+    /// Azlin's update key: every release is checked against its signature.
+    Signed,
+    /// A test build that says it wants no signature: the checksum of a download is all.
+    Unsigned,
+    /// The build carries no key: updates are not available, nothing is fetched or installed.
+    Unavailable,
+}
+
+impl Proof {
+    /// The proof of the build for the config `updates` ([`anchors::update_policy`]).
+    #[must_use]
+    pub fn of(updates: &UpdatesSection) -> Proof {
+        match anchors::update_policy(updates) {
+            Ok(UpdatePolicy::Signed(_)) => Proof::Signed,
+            Ok(UpdatePolicy::DigestOnly) => Proof::Unsigned,
+            Err(_) => Proof::Unavailable,
+        }
+    }
+
+    /// The settings screen's sentence about the signature check (a message key).
+    #[must_use]
+    pub const fn settings_key(self) -> &'static str {
+        match self {
+            Proof::Signed => "azinstallmgr-settings-signed",
+            Proof::Unsigned => "azinstallmgr-settings-digest-only",
+            Proof::Unavailable => "azinstallmgr-settings-unavailable",
+        }
+    }
+
+    /// The welcome page's sentence about how apps are checked (a message key): "checked against
+    /// its signature" only where that is true.
+    #[must_use]
+    pub const fn welcome_key(self) -> &'static str {
+        match self {
+            Proof::Signed => "azinstallmgr-welcome-signed",
+            Proof::Unsigned => "azinstallmgr-welcome-unsigned",
+            Proof::Unavailable => "azinstallmgr-welcome-unavailable",
+        }
+    }
+}
+
+/// Why nothing can be fetched with `updates` (a message key), if so: the build cannot prove an
+/// update, or no update source is set. The build comes first - typing a source is no use then.
+#[must_use]
+pub fn fetch_blocker(updates: &UpdatesSection) -> Option<&'static str> {
+    if Proof::of(updates) == Proof::Unavailable {
+        Some("azinstallmgr-ready-no-key")
+    } else if !has_source(updates) {
+        Some("azinstallmgr-ready-no-source")
+    } else {
+        None
+    }
+}
+
 /// `AZINSTALLMGR_STEP <index> <name>`, for scripts.
 #[must_use]
 pub fn step_line(steps: &[Step], step: Step) -> String {
@@ -1510,6 +1594,39 @@ mod model_tests {
         assert!(has_source(&updates));
     }
 
+    /// The words a screen shows follow what the build proves: "checked against its signature"
+    /// only with Azlin's key, never for a build that has none.
+    #[test]
+    fn y1_what_the_screens_claim_follows_what_the_build_proves() {
+        let none = UpdatesSection::default();
+        assert_eq!(Proof::of(&none), Proof::Unavailable);
+        assert_eq!(
+            Proof::Unavailable.welcome_key(),
+            "azinstallmgr-welcome-unavailable"
+        );
+        assert_eq!(
+            Proof::Unavailable.settings_key(),
+            "azinstallmgr-settings-unavailable"
+        );
+        assert_eq!(
+            fetch_blocker(&none),
+            Some("azinstallmgr-ready-no-key"),
+            "the build first"
+        );
+        let (test, _) = AzlinConfig::parse(r#"{"updates": {"allow_unsigned": true}}"#);
+        assert_eq!(Proof::of(&test.updates), Proof::Unsigned);
+        assert_eq!(
+            fetch_blocker(&test.updates),
+            Some("azinstallmgr-ready-no-source")
+        );
+        let (typed, _) = AzlinConfig::parse(
+            r#"{"updates": {"allow_unsigned": true, "manifest_url": "https://example.org/{app}.json"}}"#,
+        );
+        assert_eq!(fetch_blocker(&typed.updates), None);
+        assert_ne!(Proof::Signed.welcome_key(), Proof::Unsigned.welcome_key());
+        assert_eq!(Proof::Signed.settings_key(), "azinstallmgr-settings-signed");
+    }
+
     /// An engine with one release per app key and a record of what it was asked.
     #[derive(Default)]
     struct FakeEngine {
@@ -1550,17 +1667,29 @@ mod model_tests {
                 None => Check::Failed(format!("{}: HTTP 404", q.manifest_url)),
             }
         }
-        fn stage(&self, r: &Release, dir: &Path, _: &str, _: &Path) -> Result<PathBuf, String> {
+        fn stage(
+            &self,
+            r: &Release,
+            dir: &Path,
+            _: &UpdatePolicy,
+            _: &Path,
+        ) -> Result<Verified, String> {
             std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
             let file = dir.join(format!("{}.bin", r.version));
             std::fs::write(&file, format!("program {}", r.version)).map_err(|e| e.to_string())?;
-            Ok(file)
+            Verified::of(file)
         }
-        fn verify(&self, _: &Path, _: &Release, _: &str, _: &Path) -> Result<(), String> {
+        fn verify(
+            &self,
+            file: &Path,
+            _: &Release,
+            _: &UpdatePolicy,
+            _: &Path,
+        ) -> Result<Verified, String> {
             if self.refuse_verify {
                 Err("artifact signature invalid".to_string())
             } else {
-                Ok(())
+                Verified::of(file.to_path_buf())
             }
         }
         fn install_kind(&self, program: &Path) -> InstallKind {
@@ -1591,14 +1720,26 @@ mod model_tests {
         }
     }
 
+    /// A manager with an update source and - a TEST build of the anchors (dev-dependency feature
+    /// `test-hooks`) - a config that spells out `allow_unsigned`: the fake engine proves nothing.
     fn fetching(dir: &Path) -> Fetching {
-        let mut updates = UpdatesSection::default();
-        updates.manifest_url = Some("http://example.org/{app}/{channel}.json".to_string());
+        let (config, _) = AzlinConfig::parse(
+            r#"{"updates": {"manifest_url": "http://example.org/{app}/{channel}.json",
+                "allow_unsigned": true}}"#,
+        );
         Fetching {
             places: places(dir, Os::Linux),
-            updates,
+            updates: config.updates,
             cohort: 50,
         }
+    }
+
+    /// The same manager as a shipped build is: a source, and no root key anywhere.
+    fn fetching_without_a_key(dir: &Path) -> Fetching {
+        let mut f = fetching(dir);
+        f.updates = UpdatesSection::default();
+        f.updates.manifest_url = Some("http://example.org/{app}/{channel}.json".to_string());
+        f
     }
 
     fn writer() -> &'static AppEntry {
@@ -1612,10 +1753,11 @@ mod model_tests {
         }
     }
 
-    fn file_with(dir: &Path, text: &str) -> PathBuf {
+    /// A file with `text` in it that an engine has verified.
+    fn file_with(dir: &Path, text: &str) -> Verified {
         let path = dir.join(format!("{text}.download"));
         std::fs::write(&path, text).unwrap();
-        path
+        Verified::of(path).unwrap()
     }
 
     #[test]
@@ -1842,6 +1984,14 @@ mod model_tests {
     fn an_update_uses_the_staged_file_after_checking_it_again_and_ends_a_skip() {
         let dir = TempDir::new("installmgr-update");
         let f = fetching(dir.path());
+        // The config on disk spells what `fetching` holds, so reading it again keeps the policy.
+        std::fs::create_dir_all(&f.places.azlin_dir).unwrap();
+        std::fs::write(
+            &f.places.config,
+            r#"{"updates": {"manifest_url": "http://example.org/{app}/{channel}.json",
+                "allow_unsigned": true}}"#,
+        )
+        .unwrap();
         let paths = f.places.app("azwriter");
         place(&f.places, writer(), &file_with(dir.path(), "v1"), &release("1.0.0"), Channel::Stable, 1).unwrap();
         AzlinConfig::edit(&f.places.config, |c| c.updates.set_skip_version("azwriter", Some("1.5.0"))).unwrap();
@@ -1886,6 +2036,99 @@ mod model_tests {
         assert!(!paths.staged().exists(), "the staged update is used up");
         let (config, _) = AzlinConfig::load(&f.places.config);
         assert_eq!(config.updates.policy_for("azwriter").skip_version, None);
+    }
+
+    /// REVIEW Y1: a manager built without a root key authenticates no update. It installs and
+    /// stages nothing, asks nobody for a release, and every row says why.
+    #[test]
+    fn y1_a_build_without_a_root_key_installs_and_updates_nothing() {
+        let dir = TempDir::new("installmgr-no-key");
+        let engine = FakeEngine {
+            releases: vec![("azwriter", "2.0.0", false)],
+            ..FakeEngine::default()
+        };
+        let f = fetching_without_a_key(dir.path());
+        assert!(f.policy().is_err());
+        let why = install_new(&engine, &f, writer(), Channel::Stable, 1).unwrap_err();
+        assert!(why.starts_with(anchors::NOT_AVAILABLE), "{why}");
+        assert!(
+            !f.places.app("azwriter").current().exists(),
+            "nothing is installed"
+        );
+        assert!(
+            engine.asked.lock().unwrap().is_empty(),
+            "no release was asked for"
+        );
+
+        let uses_none = update_to(&engine, &f, writer(), &release("2.0.0"), Channel::Stable, 2);
+        assert!(uses_none.unwrap_err().starts_with(anchors::NOT_AVAILABLE));
+
+        let ok = fetching(dir.path());
+        place(
+            &ok.places,
+            writer(),
+            &file_with(dir.path(), "v1"),
+            &release("1.0.0"),
+            Channel::Stable,
+            3,
+        )
+        .unwrap();
+        let apps = installed(&engine, &f.places, &f.updates);
+        let round = round_for(&f, &apps[0]).unwrap_err();
+        assert!(round.starts_with(anchors::NOT_AVAILABLE), "{round}");
+        let Status::Failed(why) = check_installed(&engine, &f, &apps[0], 4) else {
+            panic!("a row of a build with no key is not checked");
+        };
+        assert!(why.starts_with(anchors::NOT_AVAILABLE), "{why}");
+        assert!(
+            engine.asked.lock().unwrap().is_empty(),
+            "still no release asked for"
+        );
+    }
+
+    /// REVIEW Y6 / X-AR5b-26: placing takes the engine's proof, not a path, and installs the bytes
+    /// that passed - a file swapped after the check is not installed and leaves the installed
+    /// version as it was.
+    #[test]
+    fn y6_a_file_swapped_after_the_engine_checked_it_is_not_placed() {
+        let dir = TempDir::new("installmgr-swap");
+        let p = places(dir.path(), Os::Linux);
+        let paths = p.app("azwriter");
+        place(
+            &p,
+            writer(),
+            &file_with(dir.path(), "v1"),
+            &release("1.0.0"),
+            Channel::Stable,
+            1,
+        )
+        .unwrap();
+
+        let checked = file_with(dir.path(), "v2");
+        std::fs::write(checked.path(), "EVIL").unwrap();
+        let refused = place(
+            &p,
+            writer(),
+            &checked,
+            &release("2.0.0"),
+            Channel::Stable,
+            2,
+        )
+        .unwrap_err();
+        assert!(
+            refused.contains("changed after it was verified"),
+            "{refused}"
+        );
+        let reg: Registration = read_json(&paths.registration()).unwrap();
+        assert_eq!(
+            reg.version, "1.0.0",
+            "the installed version is still registered"
+        );
+        assert_eq!(std::fs::read_to_string(&reg.binary).unwrap(), "v1");
+        assert!(
+            !paths.install.join("next").exists(),
+            "no half-laid version stays"
+        );
     }
 
     #[test]

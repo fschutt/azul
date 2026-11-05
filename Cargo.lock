@@ -1261,6 +1261,7 @@ dependencies = [
  "chrono",
  "csv",
  "fluent-syntax",
+ "minisign-verify",
  "serde",
  "serde_json",
 ]

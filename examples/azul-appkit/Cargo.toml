@@ -44,6 +44,10 @@ fluent-syntax = { version = "0.12", default-features = false }
 azul-core = { path = "../../core", default-features = false, features = ["std", "tls-roots"], optional = true }
 # The PEM lists TrustRoots takes (azul-css's StringVec, under azul-core already).
 azul-css = { path = "../../css", default-features = false, optional = true }
+# The update root key (`anchors`): a key is checked as the updater will read it, so a constant or a
+# test config that is no minisign key is an error here and not at the first update. In the tree
+# through azul-layout's `updater`; no dependencies of its own.
+minisign-verify = "0.2"
 
 [features]
 default = []
@@ -57,6 +61,12 @@ azul = ["look", "azul/link-dynamic", "azul-icons-haiku/azul"]
 # `TrustPems::certificates_pem`: the trust section's roots for a TLS client of a process that
 # links no libazul (an app with libazul asks azul's `TrustRoots` itself).
 trust = ["dep:azul-core", "dep:azul-css"]
+# The anchors of a TEST build (`anchors`): a shipped build believes the keys and addresses compiled
+# into it and nothing else; with this feature the update root key, the allow-unsigned choice and
+# the endpoints may also come from the shared config, the environment and the switches, as before.
+# The E2E builds and the unit tests of the apps that need a local stack turn it on
+# (`--features azul-appkit/test-hooks`); a build for users never does.
+test-hooks = []
 
 [dev-dependencies]
 # The one temporary folder for tests (azul_storage::testing::TempDir).
