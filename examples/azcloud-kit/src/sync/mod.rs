@@ -2551,7 +2551,7 @@ fn write_download(
         other => other,
     };
     // The folder of the file, made where missing, never through a link or into another disk.
-    let (dir, name) = match names::walk_local(&tree, &here, true) {
+    let (dir, name) = match names::walk_local(tree, &here, true) {
         Ok(found) => found,
         Err(e) => {
             failed_here(report, "write", &d.key, &e);

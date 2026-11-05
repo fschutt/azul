@@ -958,7 +958,6 @@ pub fn file_size_limit(path: &Path) -> Option<u64> {
 
 /// The bytes free for this user on the disk of `path`, or why they cannot be told. The caller
 /// matches it and applies a [`crate::cap::Posture`]: an unknown is never "unlimited".
-#[must_use]
 pub fn free_space(path: &Path) -> Cap<u64> {
     #[cfg(unix)]
     {
