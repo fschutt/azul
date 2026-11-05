@@ -9,7 +9,11 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use azul_appkit::l10n::{Phrase, Text};
-use azul_storage::{xfer, BatchDelete, BatchMove, Drive, DriveError};
+use azul_storage::{
+    key::System,
+    names::{Policy, Purpose, Volume},
+    xfer, BatchDelete, BatchMove, Drive, DriveError,
+};
 
 use crate::browse;
 
@@ -60,8 +64,22 @@ pub fn new_name(name: &str, taken: &dyn Fn(&str) -> bool) -> String {
 /// The characters Explorer refuses in a name.
 pub const FORBIDDEN_CHARS: &[char] = &['\\', '/', ':', '*', '?', '"', '<', '>', '|'];
 
-/// Whether `name` can name a file or folder, or why not (a sentence).
+/// Whether `name` can name a file or folder, or why not (a sentence): the characters Explorer
+/// refuses, then the one name table's rows for this computer ([`azul_storage::names::Policy`]).
+///
+/// # Errors
+///
+/// The sentence, as a message.
 pub fn check_name(name: &str) -> Result<(), Text> {
+    check_name_on(name, System::here())
+}
+
+/// [`check_name`] for a computer of `system` (a test asks for Windows' rows on any computer).
+///
+/// # Errors
+///
+/// The sentence, as a message.
+pub fn check_name_on(name: &str, system: System) -> Result<(), Text> {
     let trimmed = name.trim();
     if trimmed.is_empty() {
         return Err(Text::key("azdrive-name-empty"));
@@ -77,7 +95,18 @@ pub fn check_name(name: &str) -> Result<(), Text> {
     if name.chars().any(char::is_control) {
         return Err(Text::key("azdrive-name-control-chars"));
     }
-    Ok(())
+    // What this system reads as something else - a device name, a trailing dot or space -
+    // comes from the same table every other path check of the app asks (X-AR5a-17).
+    let policy = Policy {
+        system,
+        volume: Volume::default(),
+    };
+    match policy.admit(name, Purpose::UserTyped) {
+        Ok(_) => Ok(()),
+        Err(refusal) => Err(Phrase::new("azdrive-name-unusable")
+            .arg("why", refusal.why.as_str())
+            .into()),
+    }
 }
 
 // ==== Plans ====
@@ -663,6 +692,27 @@ mod tests {
         assert_eq!(split_extension("noext"), ("noext", ""));
     }
 
+    /// X-AR5a-17: the name check had a character list of its own and knew no device names and no
+    /// trailing dots; the one name table's rows of the computer decide the rest.
+    #[test]
+    fn x_ar5a_17_a_name_windows_reads_as_something_else_is_refused_there() {
+        for name in ["CON", "nul.txt", "COM1", "report.", "report ", "LPT9.dat"] {
+            assert!(
+                check_name_on(name, System::Windows).is_err(),
+                "{name:?} on Windows"
+            );
+            assert!(
+                check_name_on(name, System::Linux).is_ok(),
+                "{name:?} on Linux is a name"
+            );
+        }
+        let why = check_name_on("CON", System::Windows).unwrap_err();
+        assert!(why.keys().contains(&"azdrive-name-unusable"), "{why}");
+        assert!(check_name_on("notes.txt", System::Windows).is_ok());
+        // The characters of Explorer stay refused on every system (a name is portable).
+        assert!(check_name_on("a:b", System::Linux).is_err());
+    }
+
     #[test]
     fn a_name_explorer_refuses_is_refused_with_the_reason() {
         assert!(check_name("notes.txt").is_ok());
@@ -1240,6 +1290,7 @@ mod tests {
                 choice: Some(ConflictChoice::Replace),
                 source_etag: None,
                 target_etag: None,
+                target_size: None,
                 keep_as: None,
             });
             let report = run_transfer(&plan, &os, &home, kind, &never_cancel(), &mut |_| {});

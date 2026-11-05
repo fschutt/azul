@@ -444,7 +444,7 @@ pub(crate) enum Job {
         source: Arc<dyn Drive>,
         folder: PathBuf,
         home: PathBuf,
-        state: PathBuf,
+        state: Option<PathBuf>,
     },
     /// A look at the Azlin drives `drives` (each one's id and token server): their status (a
     /// pending recovery-key lockdown) and, when their periods near their ends, their next month
@@ -3698,7 +3698,8 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
                 );
             };
             let free = crate::archive::free_bytes(&home);
-            let report = crate::archive::run_rescue(&*source, &folder, free, &state, &mut progress);
+            let report =
+                crate::archive::run_rescue(&*source, &folder, free, state.as_deref(), &mut progress);
             Outcome::RescueDone { drive_id, report }
         }
         Job::SaveSettings { drive, text } => Outcome::SettingsSaved {

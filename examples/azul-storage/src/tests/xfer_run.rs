@@ -447,6 +447,7 @@ fn a_file_that_is_its_own_destination_is_refused_and_kept() {
         choice: Some(Choice::Replace),
         source_etag: None,
         target_etag: None,
+        target_size: None,
         keep_as: None,
     });
     let report = go(&plan, &home, &again, true);

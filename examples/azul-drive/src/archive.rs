@@ -21,14 +21,14 @@
 //! `AZDRIVE_ARCHIVE_PROVEN <drive> <locked|restore_pending|restored>`.
 
 use std::{
-    io::Write,
+    collections::BTreeMap,
     path::{Path, PathBuf},
+    time::UNIX_EPOCH,
 };
 
 use azcloud_kit::{
     azlin_contract::{
-        months_owed, ArchiveState, ArchiveWire, LOCK_AFTER_SECS, UNPAID_DAYS,
-        WRITABLE_GRACE_SECS,
+        months_owed, ArchiveState, ArchiveWire, LOCK_AFTER_SECS, UNPAID_DAYS, WRITABLE_GRACE_SECS,
     },
     sync::names::{self, Volume},
     DriveStatus, ProofAnswer, SharedKeyring, TokenError, TokenServer,
@@ -39,9 +39,13 @@ use azul::{
 use azul_appkit::l10n::{label, t_phrase, Phrase};
 use azul_storage::{
     azul_transport::AzulTransport,
+    beneath,
     cap::{Cap, Posture},
+    ctl::Quiet,
+    durable::{self, Expect},
     key::System,
-    ByteRange, Drive, ObjectInfo,
+    names::{Policy, Purpose},
+    transfer, Drive, DriveError, LocalDrive, ObjectInfo,
 };
 use serde::{Deserialize, Serialize};
 
@@ -49,8 +53,6 @@ use crate::{actions::now_secs, browse::Place, ids, jobs::Job, spawn, DriveState,
 
 /// The folder in the home folder the read-only drives are copied into.
 pub(crate) const RESCUE_DIR: &str = "Azlin rescue";
-/// A copy reads a file in pieces of this size.
-const PIECE: u64 = 8 * 1024 * 1024;
 /// What a copy leaves free on the disk besides the files.
 const SPARE_BYTES: u64 = 1024 * 1024 * 1024;
 /// A day: how often a finished copy runs again.
@@ -132,7 +134,9 @@ fn day_of(at: u64) -> String {
 /// read-only time, less what was paid since.
 #[must_use]
 pub(crate) fn months_needed(wire: &ArchiveWire, period_until: Option<u64>) -> u32 {
-    let until = period_until.and_then(|p| i64::try_from(p).ok()).unwrap_or(0);
+    let until = period_until
+        .and_then(|p| i64::try_from(p).ok())
+        .unwrap_or(0);
     months_owed(until, wire.pay_through.unix())
 }
 
@@ -166,7 +170,10 @@ pub(crate) fn stage_phrase(drive: &str, stage: &Stage) -> Phrase {
             locks_at,
         } => Phrase::new("azdrive-archive-read-only")
             .arg("drive", drive)
-            .arg("read_only", day_of(*period_until + u64::try_from(WRITABLE_GRACE_SECS).unwrap_or(0)))
+            .arg(
+                "read_only",
+                day_of(*period_until + u64::try_from(WRITABLE_GRACE_SECS).unwrap_or(0)),
+            )
             .arg("locked", day_of(*locks_at)),
         Stage::Locked { wire, .. } if wire.state == ArchiveState::RestorePending => {
             Phrase::new("azdrive-archive-restore-pending").arg("drive", drive)
@@ -180,7 +187,10 @@ pub(crate) fn stage_phrase(drive: &str, stage: &Stage) -> Phrase {
             };
             Phrase::new(key)
                 .arg("drive", drive)
-                .arg("locked", day_of(u64::try_from(wire.locked_at.unix()).unwrap_or(0)))
+                .arg(
+                    "locked",
+                    day_of(u64::try_from(wire.locked_at.unix()).unwrap_or(0)),
+                )
                 .arg("paid", day_of(u64::try_from(paid).unwrap_or(0)))
                 .arg("months", i64::from(months_needed(wire, *period_until)))
         }
@@ -197,7 +207,12 @@ pub(crate) struct Seen {
 
 /// What a look at the Azlin drive `azlin_id` saw: its stage kept for the bar and the locked
 /// page; a new stage said on stdout; a drive that was locked and is open again said once.
-pub(crate) fn seen(info: &mut CallbackInfo, s: &mut DriveState, azlin_id: &str, status: &DriveStatus) {
+pub(crate) fn seen(
+    info: &mut CallbackInfo,
+    s: &mut DriveState,
+    azlin_id: &str,
+    status: &DriveStatus,
+) {
     let now = now_secs();
     let stage = stage_of(status, now);
     let before = s.archives.get(azlin_id).map(|seen| seen.stage.clone());
@@ -223,12 +238,18 @@ pub(crate) fn seen(info: &mut CallbackInfo, s: &mut DriveState, azlin_id: &str, 
 /// A locked drive opened again: said once, and its folder read again.
 fn back(info: &mut CallbackInfo, s: &mut DriveState, azlin_id: &str) {
     println!("AZDRIVE_ARCHIVE_BACK {azlin_id}");
-    let name = s.drive_name(&Place::folder(&slot_of(s, azlin_id).unwrap_or_default(), ""));
+    let name = s.drive_name(&Place::folder(
+        &slot_of(s, azlin_id).unwrap_or_default(),
+        "",
+    ));
     let said = Phrase::new("azdrive-archive-back").arg("drive", name.as_str());
     let body = azul_appkit::l10n::translate_text(info, &said.clone().into());
     info.post_notification(
-        azul::notification::Notification::create(format!("azdrive-archive-back-{azlin_id}"), "AzDrive")
-            .with_body(body),
+        azul::notification::Notification::create(
+            format!("azdrive-archive-back-{azlin_id}"),
+            "AzDrive",
+        )
+        .with_body(body),
     );
     s.success(said);
 }
@@ -306,7 +327,13 @@ pub(crate) fn banner(s: &DriveState, app: &RefAny) -> Option<Dom> {
              background: #FFF4CE; color: #3B2E00;",
         )
         .with_child(text);
-    bar.add_child(button("azdrive-renew", app, &drive_id, on_renew, ids::ARCHIVE_RENEW));
+    bar.add_child(button(
+        "azdrive-renew",
+        app,
+        &drive_id,
+        on_renew,
+        ids::ARCHIVE_RENEW,
+    ));
     // read-only: a copy where the user wants it too (the automatic one may lack the room)
     if matches!(stage, Stage::ReadOnly { .. }) {
         bar.add_child(
@@ -467,7 +494,7 @@ extern "C" fn on_open_copy(mut data: RefAny, mut info: CallbackInfo) -> Update {
         return Update::DoNothing;
     };
     crate::with_state(&mut app, &mut info, |info, app, s| {
-        let name = copy_name(&s.drive_name(&Place::folder(&drive_id, "")));
+        let name = folder_name(s, &drive_id);
         let prefix = format!("{RESCUE_DIR}/{name}/");
         crate::go(info, app, s, Place::folder(HOME_ID, &prefix), true);
     })
@@ -512,7 +539,14 @@ pub(crate) fn renewed(
     let Some(slot) = slot_of(s, &azlin_id) else {
         return;
     };
-    prove_start(info, app, s, &slot, ProveWith::DeviceKey, Some(checkout_id.to_string()));
+    prove_start(
+        info,
+        app,
+        s,
+        &slot,
+        ProveWith::DeviceKey,
+        Some(checkout_id.to_string()),
+    );
 }
 
 /// This computer's own key of AzDrive's drive `drive_id` registered for restores, now that this
@@ -548,7 +582,8 @@ pub(crate) fn register_device_key_now(
 ) -> Result<String, String> {
     let transport = AzulTransport::new(crate::USER_AGENT);
     let server = TokenServer::new(token_url, &transport).map_err(|e| e.to_string())?;
-    azcloud_kit::device_key::ensure_registered(&server, keyring, drive_id).map_err(|e| e.to_string())
+    azcloud_kit::device_key::ensure_registered(&server, keyring, drive_id)
+        .map_err(|e| e.to_string())
 }
 
 /// How the owner proves a locked drive is theirs.
@@ -732,32 +767,103 @@ pub(crate) struct Rescue {
     /// When the last copy ended (seconds since 1970).
     #[serde(default)]
     pub at: u64,
+    /// What the copy wrote, key by key: the length and the time of the file as it was written. A
+    /// file of the copy that has another length or time was changed by its user: the copy never
+    /// touches it again (AZ-U6).
+    #[serde(default)]
+    pub written: BTreeMap<String, Written>,
+    /// The files that are on this computer already and are not what the copy wrote (a file of
+    /// the user's own, an edit of a file the copy wrote): left exactly as they are.
+    #[serde(default)]
+    pub kept: Vec<String>,
     #[serde(skip)]
     pub running: bool,
 }
 
+/// A file as the copy wrote it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct Written {
+    pub len: u64,
+    /// Its modification time, nanoseconds since 1970.
+    pub mtime_ns: u64,
+}
+
 /// A drive's name as a folder name (no separators, never empty).
 fn copy_name(name: &str) -> String {
-    crate::ban::copy_prefix(name).trim_end_matches('/').to_string()
+    crate::ban::copy_prefix(name)
+        .trim_end_matches('/')
+        .to_string()
 }
+
+/// The folder of the copy of AzDrive's drive `drive_id` in `<home>/Azlin rescue/`: the drive's name,
+/// and - when another Azlin drive has the same name or one a disk reads as the same - the start of
+/// its id after it. Two drives called "Photos" shared one folder and wrote into each other's
+/// files (AZ-U6).
+pub(crate) fn folder_name(s: &DriveState, drive_id: &str) -> String {
+    let name = copy_name(&s.drive_name(&Place::folder(drive_id, "")));
+    let others: Vec<String> = s
+        .slots
+        .iter()
+        .filter(|slot| slot.entry.id != drive_id && slot.entry.azlin().is_some())
+        .map(|slot| copy_name(&s.drive_name(&Place::folder(&slot.entry.id, ""))))
+        .collect();
+    let azlin_id = azlin_of(s, drive_id).unwrap_or_default();
+    folder_name_among(&name, &azlin_id, &others)
+}
+
+/// [`folder_name`] of a drive named `name` (as a folder name) with the Azlin id `azlin_id`, among
+/// the folder names `others` of the other Azlin drives.
+pub(crate) fn folder_name_among(name: &str, azlin_id: &str, others: &[String]) -> String {
+    let folded = names::fold(name, &STRONGEST);
+    if !others
+        .iter()
+        .any(|other| names::fold(other, &STRONGEST) == folded)
+    {
+        return name.to_string();
+    }
+    let id: String = azlin_id
+        .chars()
+        .filter(char::is_ascii_alphanumeric)
+        .take(8)
+        .collect();
+    if id.is_empty() {
+        name.to_string()
+    } else {
+        format!("{name} ({id})")
+    }
+}
+
+/// The names as the strongest disk compares them: case and Unicode form folded.
+const STRONGEST: Volume = Volume {
+    case_insensitive: true,
+    norm_insensitive: true,
+    windows_names: false,
+    max_file: None,
+    no_exec_bits: false,
+};
 
 /// The home folder (the This PC entry of the user's home).
 fn home(s: &DriveState) -> Option<PathBuf> {
-    s.slots.iter().find(|slot| slot.entry.id == HOME_ID).and_then(|slot| {
-        match &slot.entry.location {
+    s.slots
+        .iter()
+        .find(|slot| slot.entry.id == HOME_ID)
+        .and_then(|slot| match &slot.entry.location {
             azul_storage::config::DriveLocation::Local { root } => Some(PathBuf::from(root)),
             _ => None,
-        }
-    })
+        })
 }
 
-/// Where the copy of the Azlin drive `azlin_id` is kept between runs.
-fn rescue_file(s: &DriveState, azlin_id: &str) -> PathBuf {
+/// Where the copy of the Azlin drive `azlin_id` is kept between runs: `rescue/` beside the drives
+/// file, with the other state of the computer - never the system's temporary folder. `None` without
+/// a drives file: the copy then runs without a memory of the last one (it never overwrites a file
+/// it did not just write).
+fn rescue_file(s: &DriveState, azlin_id: &str) -> Option<PathBuf> {
     let file: String = azlin_id
         .chars()
         .filter(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-')
         .collect();
-    s.period_tokens.dir().join(format!("{file}.rescue.json"))
+    let beside = s.drives_file.as_deref()?.parent()?;
+    Some(beside.join("rescue").join(format!("{file}.rescue.json")))
 }
 
 /// The copy's state the last run left (none before a first copy).
@@ -781,7 +887,7 @@ pub(crate) fn after_look(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
     for azlin_id in read_only {
         let state = rescue_file(s, &azlin_id);
         if !s.rescues.contains_key(&azlin_id) {
-            if let Some(kept) = rescue_read(&state) {
+            if let Some(kept) = state.as_deref().and_then(rescue_read) {
                 s.rescues.insert(azlin_id.clone(), kept);
             }
         }
@@ -797,9 +903,7 @@ pub(crate) fn after_look(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
         let Some(source) = crate::open_drive(s, &drive_id) else {
             continue;
         };
-        let folder = home
-            .join(RESCUE_DIR)
-            .join(copy_name(&s.drive_name(&Place::folder(&drive_id, ""))));
+        let folder = home.join(RESCUE_DIR).join(folder_name(s, &drive_id));
         let entry = s.rescues.entry(azlin_id.clone()).or_default();
         entry.folder = folder.clone();
         entry.running = true;
@@ -852,15 +956,16 @@ pub(crate) fn target_of(folder: &Path, key: &str) -> Option<PathBuf> {
 /// (AZ-W2).
 #[must_use]
 pub(crate) fn target_of_on(folder: &Path, key: &str, system: System) -> Option<PathBuf> {
-    azul_storage::key::check_path_key_on(key, system).ok()?;
-    let mut path = folder.to_path_buf();
-    for part in key.split('/') {
-        if part.is_empty() || part == "." || part == ".." || part.contains('\\') {
-            return None;
-        }
-        path.push(part);
-    }
-    Some(path)
+    // The name policy admits it (also the protected names in the spellings a disk reads as the
+    // real ones); only a key it let through becomes a path (X-AR5a-17).
+    let policy = Policy {
+        system,
+        volume: Volume::default(),
+    };
+    policy
+        .admit(key, Purpose::Rescue)
+        .ok()
+        .map(|admitted| admitted.under(folder))
 }
 
 /// Where each of `keys` goes under `folder`, parallel to `keys`: [`target_of`], except that two
@@ -869,50 +974,10 @@ pub(crate) fn target_of_on(folder: &Path, key: &str, system: System) -> Option<P
 /// may be moved to such a disk, and a copy that loses a file when it is must not be made
 /// (AZ-W2). Keys are taken in the order given; the caller sorts them.
 fn targets_of(folder: &Path, keys: &[&str]) -> Vec<Option<PathBuf>> {
-    let strongest = Volume {
-        case_insensitive: true,
-        norm_insensitive: true,
-        ..Volume::default()
-    };
-    azul_storage::key::without_twins(keys, &|name| names::fold(name, &strongest))
+    azul_storage::key::without_twins(keys, &|name| names::fold(name, &STRONGEST))
         .iter()
         .map(|key| target_of(folder, key))
         .collect()
-}
-
-/// Whether `o` is copied already: a file of its size at `target`.
-fn copied_already(target: Option<&Path>, o: &ObjectInfo) -> bool {
-    target
-        .and_then(|path| std::fs::metadata(path).ok())
-        .is_some_and(|meta| meta.is_file() && meta.len() == o.size)
-}
-
-/// Copies `o` from `source` to `target`, in pieces, through a `.part` file renamed at the end
-/// (a copy cut halfway never looks whole).
-fn copy_one(source: &dyn Drive, target: Option<&Path>, o: &ObjectInfo) -> Result<(), String> {
-    let target = target.ok_or_else(|| String::from("not a path"))?;
-    if let Some(parent) = target.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
-    let mut part = target.to_path_buf().into_os_string();
-    part.push(".part");
-    let part = PathBuf::from(part);
-    let mut file = std::fs::File::create(&part).map_err(|e| e.to_string())?;
-    let mut off = 0u64;
-    while off < o.size {
-        let end = (off + PIECE).min(o.size) - 1;
-        let bytes = source
-            .get_range(&o.key, ByteRange::new(off, Some(end)))
-            .map_err(|e| e.to_string())?;
-        if bytes.is_empty() {
-            return Err(String::from("the drive answered no bytes"));
-        }
-        file.write_all(&bytes).map_err(|e| e.to_string())?;
-        off += bytes.len() as u64;
-    }
-    file.sync_all().map_err(|e| e.to_string())?;
-    drop(file);
-    std::fs::rename(&part, target).map_err(|e| e.to_string())
 }
 
 /// The free bytes of the disk `path` is on, or why the system did not say.
@@ -932,20 +997,83 @@ const ROOM_POSTURE: Posture = Posture::Degrade(
     "the free space of the disk cannot be read: the copy begins without the look at its room",
 );
 
+/// What the copy does with one file of the drive.
+enum Step {
+    /// It is on this computer already, as the copy wrote it or with the size of the drive's.
+    Have,
+    /// It is copied: the name must hold what this says when the file is put in place.
+    Copy(Expect),
+    /// Something is there that is not what the copy wrote - the user's own file, an edit of a
+    /// file the copy wrote, a folder: left as it is.
+    Kept,
+    /// The key is no path of the copy, or the name could not be looked at.
+    Missing,
+}
+
+/// The nanoseconds since 1970 of a file's modification.
+fn mtime_ns(meta: &std::fs::Metadata) -> u64 {
+    meta.modified()
+        .ok()
+        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+        .map_or(0, |d| u64::try_from(d.as_nanos()).unwrap_or(u64::MAX))
+}
+
+/// What to do with the object `o` of the drive, to be at `target`, given what an earlier run
+/// wrote (`written`). A file is replaced only if it is, for certain, the file the copy wrote and
+/// nobody touched; the user's edit is the only copy of the edit (AZ-U6).
+fn step(written: Option<&Written>, target: Option<&Path>, o: &ObjectInfo) -> Step {
+    let Some(path) = target else {
+        return Step::Missing;
+    };
+    let meta = match std::fs::symlink_metadata(path) {
+        Ok(meta) => meta,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Step::Copy(Expect::Absent),
+        Err(_) => return Step::Missing,
+    };
+    if !meta.is_file() {
+        return Step::Kept;
+    }
+    match written {
+        // Ours, and unchanged since: the drive's version decides.
+        Some(w) if w.len == meta.len() && w.mtime_ns == mtime_ns(&meta) => {
+            if o.size == w.len {
+                return Step::Have;
+            }
+            match beneath::stat_path(path) {
+                Ok(stat) => Step::Copy(Expect::Is(stat.fingerprint())),
+                Err(_) => Step::Kept,
+            }
+        }
+        // Ours once, changed by its user since.
+        Some(_) => Step::Kept,
+        // Not written by this copy (an earlier version of AzDrive, or the user): the size of the
+        // drive's file makes it that file; anything else is the user's.
+        None if meta.len() == o.size => Step::Have,
+        None => Step::Kept,
+    }
+}
+
 /// Copies every file of `source` into `folder` (a job): the files already there skipped, the
 /// rest piece by piece; `progress` hears how far it got. Too little room (`free`: the bytes free
 /// on the disk, when known; an unknown is [`ROOM_POSTURE`]'s) stops it before it begins. What it
 /// came to, kept in `state` for the next start.
+///
+/// A file is written only to a name nobody has, or over the copy this run wrote earlier when
+/// nobody touched it since - the length and time of every file written are kept, and a file that
+/// differs is its user's edit and is never overwritten, however the drive's file changed
+/// (AZ-U6). Every file goes in through the one write path: beside its name, synced, renamed in.
 pub(crate) fn run_rescue(
     source: &dyn Drive,
     folder: &Path,
     free: Cap<u64>,
-    state: &Path,
+    state: Option<&Path>,
     progress: &mut dyn FnMut(usize, usize),
 ) -> Rescue {
+    let earlier = state.and_then(rescue_read).unwrap_or_default();
     let mut report = Rescue {
         folder: folder.to_path_buf(),
         at: now_secs(),
+        written: earlier.written,
         ..Rescue::default()
     };
     let objects = match azul_storage::ops::list_all(source, "") {
@@ -961,46 +1089,115 @@ pub(crate) fn run_rescue(
     report.total = files.len();
     let keys: Vec<&str> = files.iter().map(|o| o.key.as_str()).collect();
     let targets = targets_of(folder, &keys);
-    let todo: Vec<(&ObjectInfo, Option<&Path>)> = files
+    let steps: Vec<Step> = files
         .iter()
-        .copied()
-        .zip(targets.iter().map(Option::as_deref))
-        .filter(|(o, target)| !copied_already(*target, o))
+        .zip(&targets)
+        .map(|(o, target)| step(report.written.get(&o.key), target.as_deref(), o))
         .collect();
-    report.copied = report.total - todo.len();
-    let needed: u64 = todo.iter().map(|(o, _)| o.size).sum();
+    let needed: u64 = files
+        .iter()
+        .zip(&steps)
+        .filter(|(_, step)| matches!(step, Step::Copy(_)))
+        .map(|(o, _)| o.size)
+        .sum();
     match (free, ROOM_POSTURE) {
         (Cap::Known(free), _) => {
             if needed + SPARE_BYTES > free {
                 report.no_space = Some((needed, free));
-                report.missing = todo.iter().map(|(o, _)| o.key.clone()).collect();
+                report.missing = files
+                    .iter()
+                    .zip(&steps)
+                    .filter(|(_, step)| matches!(step, Step::Copy(_) | Step::Missing))
+                    .map(|(o, _)| o.key.clone())
+                    .collect();
+                report.copied = files.len() - report.missing.len();
                 return keep_report(report, state);
             }
         }
         (Cap::Unknown(_), Posture::Degrade(_)) => {}
         (Cap::Unknown(_), Posture::FailClosed) => {
-            report.missing = todo.iter().map(|(o, _)| o.key.clone()).collect();
+            report.missing = files
+                .iter()
+                .zip(&steps)
+                .filter(|(_, step)| matches!(step, Step::Copy(_) | Step::Missing))
+                .map(|(o, _)| o.key.clone())
+                .collect();
             return keep_report(report, state);
         }
     }
-    for (n, (o, target)) in todo.iter().enumerate() {
-        match copy_one(source, *target, o) {
-            Ok(()) => report.copied += 1,
-            Err(_) => report.missing.push(o.key.clone()),
+    let target_drive = LocalDrive::without_manifest(folder);
+    for (n, ((o, target), step)) in files.iter().zip(&targets).zip(steps).enumerate() {
+        match step {
+            Step::Have => report.copied += 1,
+            Step::Kept => {
+                report.copied += 1;
+                report.kept.push(o.key.clone());
+            }
+            Step::Missing => report.missing.push(o.key.clone()),
+            Step::Copy(expect) => {
+                let landed = target.as_deref().and_then(|path| {
+                    let key = path.strip_prefix(folder).ok()?;
+                    let key: Vec<String> = key
+                        .components()
+                        .map(|c| c.as_os_str().to_str().map(str::to_string))
+                        .collect::<Option<_>>()?;
+                    Some((path, key.join("/")))
+                });
+                let result = landed.as_ref().map(|(_, key)| {
+                    transfer::copy_object_guarded(
+                        source,
+                        &o.key,
+                        Some(o.size),
+                        &target_drive,
+                        key,
+                        expect,
+                        &Quiet,
+                    )
+                });
+                match (result, landed) {
+                    (Some(Ok(len)), Some((path, _))) => {
+                        report.copied += 1;
+                        let mtime = std::fs::metadata(path).map_or(0, |meta| mtime_ns(&meta));
+                        report.written.insert(
+                            o.key.clone(),
+                            Written {
+                                len,
+                                mtime_ns: mtime,
+                            },
+                        );
+                    }
+                    // Something appeared at the name since the look, or the file there changed:
+                    // it is the user's and stays.
+                    (Some(Err(DriveError::Conflict { .. })), _) => {
+                        report.copied += 1;
+                        report.kept.push(o.key.clone());
+                    }
+                    _ => report.missing.push(o.key.clone()),
+                }
+            }
         }
         if n % 25 == 0 {
             progress(report.copied, report.total);
+            // What is written so far is remembered: a copy cut off here does not forget it.
+            keep_report_partly(&report, state);
         }
     }
     keep_report(report, state)
 }
 
-fn keep_report(report: Rescue, state: &Path) -> Rescue {
-    if let Some(dir) = state.parent() {
-        let _ = std::fs::create_dir_all(dir);
-    }
-    if let Ok(text) = serde_json::to_string(&report) {
-        let _ = std::fs::write(state, text);
-    }
+/// The state written whole to `state` (nowhere without one): the old file or the new one
+/// survives a crash or a power cut, and a torn file does not lose the list of what is missing
+/// (AZ X-AR5a-5).
+fn keep_report(report: Rescue, state: Option<&Path>) -> Rescue {
+    keep_report_partly(&report, state);
     report
+}
+
+fn keep_report_partly(report: &Rescue, state: Option<&Path>) {
+    let Some(state) = state else {
+        return;
+    };
+    if let Ok(text) = serde_json::to_string(report) {
+        let _kept = durable::replace(state, text.as_bytes(), durable::Mode::Private);
+    }
 }

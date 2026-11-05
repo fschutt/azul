@@ -24,6 +24,10 @@ pub enum Choice {
     Skip,
     /// "Keep both files": the newcomer gets ` (2)`.
     KeepBoth,
+    /// For a copy that runs again (Copy everything after a failure): what is there already, with
+    /// the size of the file, is that file - skip it; anything else is kept beside the new one.
+    /// Decides per file ([`Plan::choose`]); never stored on a file.
+    Resume,
 }
 
 /// One item the user picked: a file, or a folder (`key` ending in `/`).
@@ -51,6 +55,8 @@ pub struct PlannedFile {
     /// The version of what is at `target_key` the plan saw (conflicts): a replace replaces that
     /// file and no other - one made there since is a new conflict, not replaced without asking.
     pub target_etag: Option<String>,
+    /// Its size, as far as the target said (conflicts).
+    pub target_size: Option<u64>,
     /// The name "Keep both" gives the newcomer: free at the target when the plan was made
     /// (conflicts only).
     pub keep_as: Option<String>,
@@ -111,6 +117,12 @@ impl Plan {
     pub fn choose(&mut self, index: usize, choice: Choice) {
         let Some(file) = self.files.get_mut(index) else {
             return;
+        };
+        let choice = match choice {
+            // Already there with this size: it is the file. Else the newcomer keeps its own name.
+            Choice::Resume if file.size.is_some() && file.size == file.target_size => Choice::Skip,
+            Choice::Resume => Choice::KeepBoth,
+            other => other,
         };
         if choice == Choice::KeepBoth {
             let Some(name) = file.keep_as.clone() else {
@@ -235,12 +247,16 @@ fn add_file(
     let mut target_key = wanted.to_string();
     let mut conflict = false;
     let mut target_etag = None;
+    let mut target_size = None;
     if targets.set.state(wanted) == Claim::Planned {
         // An earlier file of this plan lands there: this one is another file, with another name.
         target_key = targets.free_key(wanted)?;
     } else if targets.is_there(wanted)? {
         conflict = true;
-        target_etag = targets.drive.head(wanted).ok().and_then(|info| info.etag);
+        if let Ok(info) = targets.drive.head(wanted) {
+            target_etag = info.etag;
+            target_size = Some(info.size);
+        }
     }
     targets.set.reserve(&target_key);
     plan.files.push(PlannedFile {
@@ -251,6 +267,7 @@ fn add_file(
         choice: None,
         source_etag,
         target_etag,
+        target_size,
         keep_as: None,
     });
     Ok(target_key)

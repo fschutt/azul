@@ -63,7 +63,10 @@ pub(crate) fn refused_words(ban: &Ban, now: u64) -> String {
     if ban.is_closed(now) {
         return azul_appkit::l10n::t_phrase(&closed_phrase(ban.until, &ban.reason));
     }
-    t_args("azdrive-ban-refused", &[("reason", ban_reason_arg(&ban.reason))])
+    t_args(
+        "azdrive-ban-refused",
+        &[("reason", ban_reason_arg(&ban.reason))],
+    )
 }
 
 /// The status line of a banned drive's sync.
@@ -162,12 +165,9 @@ pub(crate) fn banner(s: &DriveState, app: &RefAny) -> Option<Dom> {
                 Dom::create_div()
                     .with_css("flex-grow: 1; margin-right: 12px;")
                     .with_child(
-                        Dom::create_span_with_text(AzString::from(
-                            azul_appkit::l10n::t_phrase(&banner_phrase(
-                                &ban.reason,
-                                ban.until.map(|_| ban.hours_left(now)),
-                            )),
-                        ))
+                        Dom::create_span_with_text(AzString::from(azul_appkit::l10n::t_phrase(
+                            &banner_phrase(&ban.reason, ban.until.map(|_| ban.hours_left(now))),
+                        )))
                         .with_id(ids::BAN_TEXT),
                     ),
             )
@@ -268,7 +268,8 @@ extern "C" fn on_copy_folder(mut data: RefAny, mut info: CallbackInfo, result: R
 }
 
 /// Every file of drive `drive_id` downloaded into `<folder>/<the drive's name>/` (the transfer
-/// queue's download: its progress, a name taken keeps both).
+/// queue's download: its progress; run again, it skips what is there and keeps both of what
+/// differs).
 pub(crate) fn copy_everything(
     info: &mut CallbackInfo,
     app: &RefAny,
@@ -300,7 +301,9 @@ pub(crate) fn copy_everything(
             target: (format!("os:{}", folder.display()), target),
             target_prefix: prefix,
             target_name: folder.display().to_string(),
-            auto: Some(ConflictChoice::KeepBoth),
+            // Run again after a failure it goes on from where it was: a file that is there with
+            // the drive's size is that file (skipped); anything else is kept beside the new one.
+            auto: Some(ConflictChoice::Resume),
             action,
         },
     );

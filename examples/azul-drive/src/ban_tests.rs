@@ -8,7 +8,7 @@ use azul_storage::{testing::TempDir, Drive, LocalDrive};
 use crate::{
     actions::Action,
     ban::{banner_text, closed_text, copy_prefix, refusal, sync_text},
-    fileops::{plan_transfer, SourceItem, TransferKind},
+    fileops::{plan_transfer, run_transfer, ConflictChoice, SourceItem, TransferKind},
 };
 
 /// 2026-10-12T10:00:00Z.
@@ -35,8 +35,15 @@ fn the_banner_says_why_and_the_hours_left_to_migrate_the_files() {
          migrate your files."
     );
     let none = banner_text("spam distribution", None);
-    assert!(none.starts_with("Due to spam distribution, your account has been banned"), "{none}");
-    assert_eq!(ban().hours_left(UNTIL - 36 * 3_600), 36, "the hours count down");
+    assert!(
+        none.starts_with("Due to spam distribution, your account has been banned"),
+        "{none}"
+    );
+    assert_eq!(
+        ban().hours_left(UNTIL - 36 * 3_600),
+        36,
+        "the hours count down"
+    );
 }
 
 #[test]
@@ -65,14 +72,29 @@ fn a_banned_drive_takes_no_uploads_new_folders_or_links_and_says_why() {
         Action::Share,
     ] {
         let why = refusal(&action, &ban(), now).unwrap_or_else(|| panic!("{action:?} runs"));
-        assert!(why.contains("banned") && why.contains("spam distribution"), "{why}");
+        assert!(
+            why.contains("banned") && why.contains("spam distribution"),
+            "{why}"
+        );
     }
-    for action in [Action::Download, Action::Copy, Action::CopyPath, Action::SelectAll] {
-        assert_eq!(refusal(&action, &ban(), now), None, "{action:?}: reads go on");
+    for action in [
+        Action::Download,
+        Action::Copy,
+        Action::CopyPath,
+        Action::SelectAll,
+    ] {
+        assert_eq!(
+            refusal(&action, &ban(), now),
+            None,
+            "{action:?}: reads go on"
+        );
     }
     // Past the end nothing of it is left to open.
     let closed = refusal(&Action::Download, &ban(), UNTIL).expect("closed");
-    assert!(closed.starts_with("This drive was closed on 2026-10-12"), "{closed}");
+    assert!(
+        closed.starts_with("This drive was closed on 2026-10-12"),
+        "{closed}"
+    );
 }
 
 #[test]
@@ -125,6 +147,89 @@ fn copy_everything_plans_the_whole_drive_into_a_folder_named_after_it() {
         "{:?}",
         plan.folders
     );
-    assert_eq!(copy_prefix("a/b: c"), "a-b- c/", "no folder of the name breaks the path");
+    assert_eq!(
+        copy_prefix("a/b: c"),
+        "a-b- c/",
+        "no folder of the name breaks the path"
+    );
     assert_eq!(copy_prefix("  "), "Azlin drive/");
+}
+
+/// AZ-U20: Copy everything ran again after a failure (or a day later) with every conflict "keep
+/// both": every file was copied a second time as `name (2)` - the disk doubled, nothing resumed.
+/// Run again, it skips the files that are there with the size of the drive's file and keeps both
+/// of the ones that differ.
+#[test]
+fn az_u20_copy_everything_run_again_resumes_instead_of_copying_everything_twice() {
+    use std::sync::atomic::AtomicBool;
+    let tmp = TempDir::new("ban-copy-again");
+    let drive = LocalDrive::new(tmp.path().join("drive"));
+    drive.put("docs/a.txt", b"alpha").unwrap();
+    drive.put("docs/b.txt", b"beta").unwrap();
+    drive.put("readme.txt", b"hello").unwrap();
+    let here = LocalDrive::without_manifest(tmp.path().join("here"));
+    let everything = SourceItem {
+        key: String::new(),
+        is_folder: true,
+        size: None,
+    };
+    let go = |expect_conflicts: usize| {
+        let mut plan = plan_transfer(
+            &drive,
+            &[everything.clone()],
+            &here,
+            "Photos/",
+            TransferKind::Download,
+            "Copy",
+        )
+        .unwrap();
+        assert_eq!(plan.conflicts().len(), expect_conflicts);
+        for i in plan.conflicts() {
+            plan.choose(i, ConflictChoice::Resume);
+        }
+        assert!(plan.unresolved().is_none());
+        run_transfer(
+            &plan,
+            &drive,
+            &here,
+            TransferKind::Download,
+            &AtomicBool::new(false),
+            &mut |_| {},
+        )
+    };
+    let first = go(0);
+    assert!(first.failed.is_empty(), "{:?}", first.failed);
+    assert_eq!(first.done, 3);
+    // A failure left half of it: here b.txt is cut short (a different size).
+    std::fs::write(
+        tmp.path()
+            .join("here")
+            .join("Photos")
+            .join("docs")
+            .join("b.txt"),
+        b"be",
+    )
+    .unwrap();
+    let second = go(3);
+    assert!(second.failed.is_empty(), "{:?}", second.failed);
+    assert_eq!(
+        second.skipped, 2,
+        "a.txt and readme.txt are there: {second:?}"
+    );
+    assert_eq!(second.done, 1, "only the file that differs is copied");
+    assert_eq!(here.get("Photos/docs/a.txt").unwrap(), b"alpha");
+    assert!(
+        here.get("Photos/docs/a (2).txt").is_err(),
+        "no second copy of a file that is there"
+    );
+    assert_eq!(
+        here.get("Photos/docs/b.txt").unwrap(),
+        b"be",
+        "the file that differs is not replaced"
+    );
+    assert_eq!(
+        here.get("Photos/docs/b (2).txt").unwrap(),
+        b"beta",
+        "both are kept"
+    );
 }

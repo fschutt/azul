@@ -16,7 +16,8 @@ use azul_storage::{
 use azul_appkit::phrase::{Arg, Phrase};
 
 use crate::archive::{
-    months_needed, run_rescue, stage_of, stage_phrase, target_of, target_of_on, Rescue, Stage,
+    folder_name_among, months_needed, run_rescue, stage_of, stage_phrase, target_of, target_of_on,
+    Rescue, Stage,
 };
 
 /// A disk whose free space the test's system cannot tell.
@@ -92,8 +93,16 @@ fn an_unpaid_drive_is_in_grace_then_read_only_then_locked_with_its_days() {
 fn a_locked_drive_owes_three_months_of_thirty_days() {
     let wire = locked(ArchiveState::Locked, true);
     assert_eq!(months_needed(&wire, Some(PAID)), 3);
-    assert_eq!(months_needed(&wire, Some(PAID + 60 * DAY)), 1, "one month left");
-    assert_eq!(months_needed(&wire, Some(PAID + 90 * DAY)), 0, "paid through");
+    assert_eq!(
+        months_needed(&wire, Some(PAID + 60 * DAY)),
+        1,
+        "one month left"
+    );
+    assert_eq!(
+        months_needed(&wire, Some(PAID + 90 * DAY)),
+        0,
+        "paid through"
+    );
 }
 
 #[test]
@@ -102,10 +111,16 @@ fn the_bar_and_the_locked_page_say_what_happens_when_and_how_to_get_it_back() {
     let phrase = stage_phrase("Photos", &grace);
     assert_eq!(phrase.key, "azdrive-archive-grace");
     assert_eq!(arg_text(&phrase, "paid").as_deref(), Some("2026-07-01"));
-    assert_eq!(arg_text(&phrase, "read_only").as_deref(), Some("2026-07-15"));
+    assert_eq!(
+        arg_text(&phrase, "read_only").as_deref(),
+        Some("2026-07-15")
+    );
     assert_eq!(arg_text(&phrase, "locked").as_deref(), Some("2026-10-13"));
     let read_only = stage_of(&unpaid(true), PAID + 20 * DAY).unwrap();
-    assert_eq!(stage_phrase("Photos", &read_only).key, "azdrive-archive-read-only");
+    assert_eq!(
+        stage_phrase("Photos", &read_only).key,
+        "azdrive-archive-read-only"
+    );
     let lock = |state, proven| Stage::Locked {
         wire: locked(state, proven),
         period_until: Some(PAID),
@@ -130,7 +145,11 @@ fn the_words_tell_the_truth_in_english_and_german() {
     let de = include_str!("../resources/de.ftl");
     let line = |text: &str, key: &str| -> String {
         let start = text.find(&format!("\n{key} = ")).expect(key) + 1;
-        text[start..].split("\nazdrive-").next().unwrap_or("").to_string()
+        text[start..]
+            .split("\nazdrive-")
+            .next()
+            .unwrap_or("")
+            .to_string()
     };
     // Each text of the lock says where the files go - one offline copy - and promises no time
     // of keeping it: no "nothing is deleted", no years.
@@ -141,9 +160,15 @@ fn the_words_tell_the_truth_in_english_and_german() {
         "azdrive-archive-locked",
     ] {
         let english = line(en, key);
-        assert!(english.contains("locked") && english.contains("offline copy"), "{english}");
+        assert!(
+            english.contains("locked") && english.contains("offline copy"),
+            "{english}"
+        );
         let german = line(de, key);
-        assert!(german.contains("gesperrt") && german.contains("Offline-Kopie"), "{german}");
+        assert!(
+            german.contains("gesperrt") && german.contains("Offline-Kopie"),
+            "{german}"
+        );
     }
     for (file, ftl) in [("en.ftl", en), ("de.ftl", de)] {
         for text in ftl.split("\nazdrive-").filter(|m| {
@@ -155,9 +180,15 @@ fn the_words_tell_the_truth_in_english_and_german() {
         }
     }
     let locked_en = line(en, "azdrive-archive-locked");
-    assert!(locked_en.contains("some days") && !locked_en.contains("104"), "{locked_en}");
+    assert!(
+        locked_en.contains("some days") && !locked_en.contains("104"),
+        "{locked_en}"
+    );
     let locked_de = line(de, "azdrive-archive-locked");
-    assert!(locked_de.contains("einige Tage") && !locked_de.contains("104"), "{locked_de}");
+    assert!(
+        locked_de.contains("einige Tage") && !locked_de.contains("104"),
+        "{locked_de}"
+    );
 }
 
 /// The promise to an unpaid drive's owner is the contract's own sentence, with the contract's
@@ -172,11 +203,20 @@ fn the_unpaid_promise_is_the_contracts_sentence_with_its_days() {
     set_locale("de-DE");
     let versprechen = t_phrase(&promise);
     for days in [UNPAID_DAYS.grace, UNPAID_DAYS.read_only, UNPAID_DAYS.lock] {
-        assert!(versprechen.contains(&days.to_string()), "{days}: {versprechen}");
+        assert!(
+            versprechen.contains(&days.to_string()),
+            "{days}: {versprechen}"
+        );
     }
     set_locale("en-US");
-    for ftl in [include_str!("../resources/en.ftl"), include_str!("../resources/de.ftl")] {
-        let start = ftl.find("\nazdrive-unpaid-promise = ").expect("the promise") + 1;
+    for ftl in [
+        include_str!("../resources/en.ftl"),
+        include_str!("../resources/de.ftl"),
+    ] {
+        let start = ftl
+            .find("\nazdrive-unpaid-promise = ")
+            .expect("the promise")
+            + 1;
         let message = ftl[start..].lines().next().unwrap_or("");
         assert!(!message.chars().any(|c| c.is_ascii_digit()), "{message}");
     }
@@ -357,7 +397,7 @@ fn az_w2_keys_that_differ_only_by_case_or_form_are_both_kept_in_the_copy() {
     ]);
     let folder = tmp.path().join("copy");
     let state = tmp.path().join("d_x.rescue.json");
-    let report = run_rescue(&drive, &folder, NO_PROBE, &state, &mut |_, _| {});
+    let report = run_rescue(&drive, &folder, NO_PROBE, Some(&state), &mut |_, _| {});
     assert_eq!((report.copied, report.total), (4, 4), "{report:?}");
     assert!(report.missing.is_empty(), "{report:?}");
     let found = files_below(&folder);
@@ -382,7 +422,7 @@ fn az_w2_keys_that_differ_only_by_case_or_form_are_both_kept_in_the_copy() {
         "every file is in the copy"
     );
     // The next run finds all four there.
-    let again = run_rescue(&drive, &folder, NO_PROBE, &state, &mut |_, _| {});
+    let again = run_rescue(&drive, &folder, NO_PROBE, Some(&state), &mut |_, _| {});
     assert_eq!((again.copied, again.total), (4, 4), "{again:?}");
     assert_eq!(files_below(&folder), found, "a second run changes nothing");
 }
@@ -398,25 +438,155 @@ fn source_with(tmp: &TempDir, files: &[(&str, &[u8])]) -> LocalDrive {
 #[test]
 fn a_read_only_drive_is_copied_whole_and_a_second_run_skips_what_is_there() {
     let tmp = TempDir::new("azdrive-rescue");
-    let drive = source_with(&tmp, &[("a.txt", b"one"), ("deep/b.txt", b"two two"), ("e", b"")]);
+    let drive = source_with(
+        &tmp,
+        &[("a.txt", b"one"), ("deep/b.txt", b"two two"), ("e", b"")],
+    );
     let folder = tmp.path().join("Azlin rescue").join("Photos");
     let state = tmp.path().join("state").join("d_x.rescue.json");
     let mut heard = Vec::new();
-    let report = run_rescue(&drive, &folder, NO_PROBE, &state, &mut |copied, total| {
-        heard.push((copied, total));
-    });
+    let report = run_rescue(
+        &drive,
+        &folder,
+        NO_PROBE,
+        Some(&state),
+        &mut |copied, total| {
+            heard.push((copied, total));
+        },
+    );
     assert_eq!((report.copied, report.total), (3, 3), "{report:?}");
     assert!(report.missing.is_empty() && report.no_space.is_none());
-    assert_eq!(std::fs::read(folder.join("deep").join("b.txt")).unwrap(), b"two two");
+    assert_eq!(
+        std::fs::read(folder.join("deep").join("b.txt")).unwrap(),
+        b"two two"
+    );
     assert!(!heard.is_empty(), "the progress is told");
     // kept for the next start
     let kept: Rescue = serde_json::from_str(&std::fs::read_to_string(&state).unwrap()).unwrap();
     assert_eq!(kept.copied, 3);
-    // a file changed on this computer (another size) is copied again, the others are skipped
+    // a file changed on this computer is its user's edit: never copied over (AZ-U6)
     std::fs::write(folder.join("a.txt"), b"x").unwrap();
-    let again = run_rescue(&drive, &folder, NO_PROBE, &state, &mut |_, _| {});
+    let again = run_rescue(&drive, &folder, NO_PROBE, Some(&state), &mut |_, _| {});
     assert_eq!((again.copied, again.total), (3, 3));
-    assert_eq!(std::fs::read(folder.join("a.txt")).unwrap(), b"one");
+    assert_eq!(std::fs::read(folder.join("a.txt")).unwrap(), b"x");
+    assert_eq!(again.kept, vec![String::from("a.txt")]);
+}
+
+/// AZ-U6: the user edits a rescued file ("Open the copy" is offered for exactly that); the daily
+/// rerun used to find another size and copy the drive's file over the edit - the only copy of
+/// the edit gone. A file the copy wrote and that has another length or time now is the user's:
+/// never touched, whatever the drive's file is, however often the copy runs.
+#[test]
+fn az_u6_a_file_the_user_changed_is_never_copied_over() {
+    let tmp = TempDir::new("azdrive-rescue-edit");
+    let drive = source_with(&tmp, &[("a.txt", b"one"), ("b.txt", b"two")]);
+    let folder = tmp.path().join("Azlin rescue").join("Photos");
+    let state = tmp.path().join("state").join("d_x.rescue.json");
+    run_rescue(&drive, &folder, NO_PROBE, Some(&state), &mut |_, _| {});
+    // Edited to the very size the drive's file has: only the time tells.
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    std::fs::write(folder.join("a.txt"), b"me!").unwrap();
+    // The drive's file changed too.
+    drive.put("a.txt", b"the drive's newer a").unwrap();
+    for _ in 0..3 {
+        let again = run_rescue(&drive, &folder, NO_PROBE, Some(&state), &mut |_, _| {});
+        assert!(again.missing.is_empty(), "{again:?}");
+        assert_eq!(again.kept, vec![String::from("a.txt")], "{again:?}");
+    }
+    assert_eq!(std::fs::read(folder.join("a.txt")).unwrap(), b"me!");
+    // And no copy beside it: the folder holds the two files.
+    assert_eq!(files_below(&folder).len(), 2);
+}
+
+/// The drive's file changed and nobody touched the copy: the copy is updated (it is what the
+/// copy wrote), under the version it saw.
+#[test]
+fn az_u6_the_drives_newer_version_replaces_a_copy_nobody_touched() {
+    let tmp = TempDir::new("azdrive-rescue-newer");
+    let drive = source_with(&tmp, &[("a.txt", b"one")]);
+    let folder = tmp.path().join("Azlin rescue").join("Photos");
+    let state = tmp.path().join("state").join("d_x.rescue.json");
+    run_rescue(&drive, &folder, NO_PROBE, Some(&state), &mut |_, _| {});
+    drive.put("a.txt", b"the drive's newer a").unwrap();
+    let again = run_rescue(&drive, &folder, NO_PROBE, Some(&state), &mut |_, _| {});
+    assert!(
+        again.missing.is_empty() && again.kept.is_empty(),
+        "{again:?}"
+    );
+    assert_eq!(
+        std::fs::read(folder.join("a.txt")).unwrap(),
+        b"the drive's newer a"
+    );
+    // The next run finds it current.
+    let third = run_rescue(&drive, &folder, NO_PROBE, Some(&state), &mut |_, _| {});
+    assert_eq!((third.copied, third.total), (1, 1), "{third:?}");
+    assert!(third.kept.is_empty());
+}
+
+/// A file that was in the folder before the copy ever wrote there is the user's: a different size
+/// does not make it the copy's to overwrite.
+#[test]
+fn az_u6_a_file_that_was_there_before_the_copy_is_not_overwritten() {
+    let tmp = TempDir::new("azdrive-rescue-theirs");
+    let drive = source_with(&tmp, &[("a.txt", b"one")]);
+    let folder = tmp.path().join("Azlin rescue").join("Photos");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(folder.join("a.txt"), b"the user's own, longer").unwrap();
+    let report = run_rescue(&drive, &folder, NO_PROBE, None, &mut |_, _| {});
+    assert_eq!(report.kept, vec![String::from("a.txt")], "{report:?}");
+    assert_eq!(
+        std::fs::read(folder.join("a.txt")).unwrap(),
+        b"the user's own, longer"
+    );
+}
+
+/// Two drives called "Photos" shared `Azlin rescue/Photos/` and wrote into each other's files.
+#[test]
+fn az_u6_two_drives_of_one_name_get_two_folders() {
+    assert_eq!(folder_name_among("Photos", "d_abc123", &[]), "Photos");
+    let others = [String::from("PHOTOS"), String::from("Music")];
+    assert_eq!(
+        folder_name_among("Photos", "d_abc123", &others),
+        "Photos (dabc123)",
+        "the id's letters and digits tell them apart"
+    );
+    assert_eq!(
+        folder_name_among("Music", "d_zzz", &["Photos".to_string()]),
+        "Music"
+    );
+}
+
+/// AZ X-AR5a-5: the state was written with `std::fs::write` - a torn file lost the list of what
+/// is missing. It is written beside its name and put in place whole; no temporary file stays.
+#[test]
+fn x_ar5a_5_the_state_is_written_whole_and_leaves_no_temporary_file() {
+    let tmp = TempDir::new("azdrive-rescue-state");
+    let drive = source_with(&tmp, &[("a.txt", b"one")]);
+    let folder = tmp.path().join("copy");
+    let state = tmp
+        .path()
+        .join("state")
+        .join("rescue")
+        .join("d_x.rescue.json");
+    run_rescue(&drive, &folder, NO_PROBE, Some(&state), &mut |_, _| {});
+    let kept: Rescue = serde_json::from_str(&std::fs::read_to_string(&state).unwrap()).unwrap();
+    assert_eq!(kept.copied, 1);
+    assert!(kept.written.contains_key("a.txt"), "{kept:?}");
+    let beside: Vec<String> = std::fs::read_dir(state.parent().unwrap())
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(beside, vec![String::from("d_x.rescue.json")], "{beside:?}");
+    // No state to keep: the copy still runs.
+    let again = run_rescue(
+        &drive,
+        &tmp.path().join("copy2"),
+        NO_PROBE,
+        None,
+        &mut |_, _| {},
+    );
+    assert_eq!(again.copied, 1);
 }
 
 #[test]
@@ -425,10 +595,19 @@ fn too_little_room_is_said_before_anything_is_copied_and_names_what_is_missing()
     let drive = source_with(&tmp, &[("a.txt", b"one"), ("b.txt", b"two")]);
     let folder = tmp.path().join("copy");
     let state = tmp.path().join("d_x.rescue.json");
-    let report = run_rescue(&drive, &folder, Cap::Known(10), &state, &mut |_, _| {});
+    let report = run_rescue(
+        &drive,
+        &folder,
+        Cap::Known(10),
+        Some(&state),
+        &mut |_, _| {},
+    );
     assert_eq!(report.no_space.map(|(needed, _)| needed), Some(6));
     assert_eq!(report.copied, 0);
-    assert_eq!(report.missing, vec![String::from("a.txt"), String::from("b.txt")]);
+    assert_eq!(
+        report.missing,
+        vec![String::from("a.txt"), String::from("b.txt")]
+    );
     assert!(!folder.join("a.txt").exists(), "nothing half copied");
 }
 
@@ -445,7 +624,7 @@ fn x_ar5a_12_an_unreadable_free_space_lets_the_rescue_begin_and_a_small_one_stop
         &drive,
         &tmp.path().join("unknown"),
         Cap::Unknown("the system did not say"),
-        &state,
+        Some(&state),
         &mut |_, _| {},
     );
     assert_eq!((unknown.copied, unknown.total), (2, 2), "{unknown:?}");
@@ -454,7 +633,7 @@ fn x_ar5a_12_an_unreadable_free_space_lets_the_rescue_begin_and_a_small_one_stop
         &drive,
         &tmp.path().join("small"),
         Cap::Known(0),
-        &state,
+        Some(&state),
         &mut |_, _| {},
     );
     assert_eq!(small.copied, 0, "{small:?}");
