@@ -936,6 +936,67 @@ fn a_limited_pass_leaves_a_big_pinned_file_in_the_cloud_for_a_free_pass() {
     assert_eq!(b.read("video.mp4"), Some(big(7)));
 }
 
+/// AZ-S11. A rename is the new name's upload and the old name's delete. The limit held the
+/// upload and let the delete through: the drive had neither name until a free network, and the
+/// other devices trashed their copy. RED not run: the old code deletes `video.mp4` on the drive
+/// in the limited pass, so `lists(&index, "video.mp4")` fails.
+#[test]
+fn az_s11_a_limited_pass_holds_a_renamed_big_file_whole_the_old_name_stays_on_the_drive() {
+    let store = Arc::new(S3Bucket::new());
+    let a = paired("dev-a", &store, |_| {});
+    a.write("video.mp4", &big(7));
+    a.pass();
+    fs::rename(
+        path_of(a.folder.path(), "video.mp4"),
+        path_of(a.folder.path(), "holiday.mp4"),
+    )
+    .unwrap();
+    let pass = pass_of(&limited(&a, "dev-a", &store, MB));
+    assert_eq!(pass.held, vec![String::from("holiday.mp4")]);
+    let index = index_of(&store);
+    assert!(
+        lists(&index, "video.mp4"),
+        "the old name stays on the drive"
+    );
+    assert!(!lists(&index, "holiday.mp4"), "the new name waits");
+    assert!(
+        index["deleted"].get("video.mp4").is_none(),
+        "nothing is deleted on the drive: {index}"
+    );
+    // A free network: the rename goes through whole.
+    a.pass();
+    let index = index_of(&store);
+    assert!(lists(&index, "holiday.mp4"));
+    assert!(!lists(&index, "video.mp4"));
+}
+
+/// AZ-S11, the other side: the drive renamed a big file. That moves no bytes here - the old name
+/// is renamed - so the limit has nothing to hold; the old code held the "download" of the new
+/// name and trashed the old one: this folder had neither. RED not run: the old code trashes
+/// `video.mp4` and `holiday.mp4` is not there.
+#[test]
+fn az_s11_a_limited_pass_renames_here_what_the_drive_renamed_it_is_no_transfer() {
+    let store = Arc::new(S3Bucket::new());
+    let a = paired("dev-a", &store, |_| {});
+    let b = paired("dev-b", &store, |s| {
+        s.auto_download = AutoDownload::Everything
+    });
+    a.write("video.mp4", &big(7));
+    a.pass();
+    b.pass();
+    assert_eq!(b.read("video.mp4"), Some(big(7)));
+    fs::rename(
+        path_of(a.folder.path(), "video.mp4"),
+        path_of(a.folder.path(), "holiday.mp4"),
+    )
+    .unwrap();
+    a.pass();
+    let pass = pass_of(&limited(&b, "dev-b", &store, MB));
+    assert!(pass.held.is_empty(), "no bytes move: {:?}", pass.held);
+    assert!(b.read("video.mp4").is_none(), "the old name is gone here");
+    assert_eq!(b.read("holiday.mp4"), Some(big(7)), "renamed, not fetched");
+}
+
 #[test]
 fn a_pairing_kept_before_the_metered_setting_reads_it_as_off() {
     let folder = TempDir::new("azcloud-session-metered-setting");

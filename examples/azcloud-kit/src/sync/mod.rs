@@ -564,7 +564,8 @@ pub struct RunHooks<'a> {
     /// the user (the report's `mass_delete`) instead of failing.
     pub hold_mass_delete: bool,
     /// Files over this many bytes wait for a run without the limit, either way (an app on a
-    /// metered network): the report's `held_back`. `None`: no limit.
+    /// metered network): the report's `held_back`. A rename of such a file waits whole: its new
+    /// name's transfer and the old name's delete. `None`: no limit.
     pub transfer_limit: Option<u64>,
     /// The engine around the run ([`engine::Engine`]): the journal, the operations log, the
     /// loop detector and quarantine marks hear every local step. `None`: none of them.
@@ -2814,24 +2815,61 @@ fn on_demand(
 /// upload of a file bigger than that here, the download of one bigger than that on the drive.
 /// Both sides keep their versions and the base its last synced one, so the next run without the
 /// limit plans them again - as the burst guard's pause holds uploads back. Their keys.
+///
+/// A rename is one change in two halves (the new name's bytes, the old name's delete) and is held
+/// as one (AZ-S11). The upload of a big file under its new name waits, and so does the delete of
+/// its old name on the drive - else the drive has neither name until the free network, and the
+/// other devices trash their copy. A rename the drive made moves no bytes (the old name here is
+/// renamed, [`local_moves`]): it is no transfer, and the limit does not hold it.
 fn hold_big(
     actions: &mut Vec<Action>,
     scan: &Scan,
+    base: &BTreeMap<String, BaseEntry>,
     remote: &RemoteIndex,
     limit: u64,
 ) -> Vec<String> {
+    // The deletes that are the old name of a file arriving under another one, as the plan reads
+    // them for the guards; the downloads that are no transfer at all.
+    let renamed_there = moves(actions, scan, base);
+    let renamed_here: BTreeSet<String> = local_moves(actions, scan, remote)
+        .into_keys()
+        .map(str::to_string)
+        .collect();
     let mut held = Vec::new();
+    // The content of each held upload.
+    let mut held_up: BTreeMap<String, usize> = BTreeMap::new();
     actions.retain(|action| {
         let bytes = match action {
             Action::Upload { key } => scan.files.get(key).map(|f| f.blob_size),
-            Action::Download { key } => remote.files.get(key).map(|f| f.size),
+            Action::Download { key } if !renamed_here.contains(key) => {
+                remote.files.get(key).map(|f| f.size)
+            }
             _ => None,
         };
         let waits = bytes.is_some_and(|bytes| bytes > limit);
         if waits {
             held.push(action.key().to_string());
+            if let Action::Upload { key } = action {
+                if let Some(file) = scan.files.get(key) {
+                    *held_up.entry(file.hash.clone()).or_default() += 1;
+                }
+            }
         }
         !waits
+    });
+    // One old name per held upload of its content, as `moves` pairs them.
+    actions.retain(|action| match action {
+        Action::DeleteRemote { key } if renamed_there.contains(key) => {
+            let hash = base.get(key).map(|e| e.hash.as_str()).unwrap_or_default();
+            match held_up.get_mut(hash).filter(|left| **left > 0) {
+                Some(left) => {
+                    *left -= 1;
+                    false
+                }
+                None => true,
+            }
+        }
+        _ => true,
     });
     held
 }
@@ -4132,7 +4170,7 @@ fn run<R: SyncRemote + ?Sized>(
             actions.retain(|a| !guard::sends(a));
         }
         if let Some(limit) = hooks.transfer_limit {
-            report.held_back = hold_big(&mut actions, &scan, &readable, limit);
+            report.held_back = hold_big(&mut actions, &scan, base, &readable, limit);
         }
         // The folders after the files: a folder stays wherever something stays in it.
         let mut folder_actions = if remote_side.keeps_folders() {
