@@ -401,6 +401,10 @@ pub struct AutoEncrypted {
     /// "Encrypt this drive"). The bridge and AzMail open an encrypted drive only
     /// ([`AutoEncrypted::encrypted_only`]).
     plain_reads: bool,
+    /// Run by a test between the moment a call has its drive and the moment it is judged: where
+    /// another thread's reopening used to be able to come in (X-DELTA-AZDRIVE-KEYS-18).
+    #[cfg(test)]
+    after_resolved: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
 }
 
 /// What [`AutoEncrypted::on_encrypted`] is told the drive key's id with.
@@ -455,6 +459,8 @@ impl AutoEncrypted {
             denied: Mutex::new(None),
             denied_for: DENIED_BACKOFF,
             plain_reads: true,
+            #[cfg(test)]
+            after_resolved: Mutex::new(None),
         }
     }
 
@@ -498,6 +504,14 @@ impl AutoEncrypted {
         self
     }
 
+    /// A test's hand in the window between a call's drive and its judgement (the hook runs on
+    /// the calling thread, with no lock held).
+    #[cfg(test)]
+    pub(crate) fn with_after_resolved(self, hook: Arc<dyn Fn() + Send + Sync>) -> AutoEncrypted {
+        *lock(&self.after_resolved) = Some(hook);
+        self
+    }
+
     /// What this device has written down of the drive so far ([`Self::with_record`]); a drive
     /// that opened encrypted is recorded as encrypted from then on.
     #[must_use]
@@ -520,13 +534,31 @@ impl AutoEncrypted {
 
     /// Forgets the decision: the next call decides again (after the drive was encrypted, or
     /// this device got its key). The user's own act, so a declined prompt is asked again, and
-    /// the key id the drives file recorded is the new key's to write.
+    /// the key id the drives file recorded is the new key's to write - which is why only an act
+    /// that brings a key calls this one (a setup, an unlock, a join, a rotation); a change of the
+    /// drive's files is [`Self::reload`].
     pub fn reopen(&self) {
+        self.forget(true);
+    }
+
+    /// Forgets the open drive so that the next call opens it again and reads its index anew, and
+    /// keeps the key id the drives file recorded: the keys did not change (a restore put files
+    /// back). A key that is no successor of the recorded one is still refused after it; the user
+    /// who brings a key says so with [`Self::reopen`].
+    pub fn reload(&self) {
+        self.forget(false);
+    }
+
+    /// The one place the decision is cleared: under `opened`, as every change of it
+    /// ([`Self::resolved`] reads the drive and the state together under the same hold).
+    fn forget(&self, new_key: bool) {
         let mut opened = self.opened.lock();
         *opened = None;
         *lock(&self.state) = EncState::Undecided;
         *lock(&self.denied) = None;
-        lock(&self.record).key_id = None;
+        if new_key {
+            lock(&self.record).key_id = None;
+        }
     }
 
     /// The decision so far ([`EncState::Undecided`]: none yet, or the last ask failed). It never
@@ -546,8 +578,8 @@ impl AutoEncrypted {
     ///
     /// What the first call would have answered.
     pub fn decide(&self) -> Result<EncState, DriveError> {
-        self.resolved()?;
-        Ok(self.state())
+        let (_, state) = self.resolved()?;
+        Ok(state)
     }
 
     /// Whether the decision so far is "a drive that is not encrypted yet and waits for the app
@@ -589,8 +621,18 @@ impl AutoEncrypted {
     /// the app reads a drive that is not encrypted ([`Self::encrypted_only`]). Every method of
     /// the [`Drive`] impl below begins here, so a method added later has to pick its `Op`.
     fn gate(&self, op: Op) -> Result<Arc<dyn Drive>, DriveError> {
-        let drive = self.resolved()?;
-        let state = self.state();
+        // The drive and the state of ONE decision: a call is judged by the state the drive it
+        // is handed was decided with, whatever a reopening on another thread does meanwhile
+        // (the state was read in a second step once, and a write could meet the bare bucket of
+        // the old decision with the "encrypted" of the new one: X-DELTA-AZDRIVE-KEYS-18).
+        let (drive, state) = self.resolved()?;
+        #[cfg(test)]
+        {
+            let hook = lock(&self.after_resolved).clone();
+            if let Some(hook) = hook {
+                hook();
+            }
+        }
         if state.admits(op, self.plain_reads) {
             return Ok(drive);
         }
@@ -651,11 +693,14 @@ impl AutoEncrypted {
         }
     }
 
-    /// The drive every call goes to: decided on the first call.
-    fn resolved(&self) -> Result<Arc<dyn Drive>, DriveError> {
+    /// The drive every call goes to, decided on the first call, and the state it was decided
+    /// with. The two change only together and only under `opened` (this sets both, a
+    /// reopening clears both), so they are read under one hold of it: a pair that belong
+    /// together, never the drive of one decision and the state of another.
+    fn resolved(&self) -> Result<(Arc<dyn Drive>, EncState), DriveError> {
         let mut opened = self.opened.lock();
         if let Some(drive) = opened.as_ref() {
-            return Ok(Arc::clone(drive));
+            return Ok((Arc::clone(drive), *lock(&self.state)));
         }
         // The device's own words first. A keyring that cannot be read (a declined prompt, no
         // keyring on this system, a failure) answers nothing: the error stands, nothing is
@@ -690,8 +735,9 @@ impl AutoEncrypted {
         } else {
             Arc::clone(&self.bucket)
         };
+        let state = facts.state(key_id);
         *opened = Some(Arc::clone(&drive));
-        *lock(&self.state) = facts.state(key_id);
+        *lock(&self.state) = state;
         // Without the lock: the app's note of it must not hold the next call up.
         drop(opened);
         if let Some(id) = key_id {
@@ -703,7 +749,7 @@ impl AutoEncrypted {
                 tell(&id);
             }
         }
-        Ok(drive)
+        Ok((drive, state))
     }
 }
 

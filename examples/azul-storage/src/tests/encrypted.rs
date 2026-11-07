@@ -1860,3 +1860,118 @@ fn x_ar5b_16_an_object_of_another_length_than_the_index_names_is_refused_before_
     let ranged = drive.get_range("notes/a.txt", ByteRange::new(0, Some(10)));
     assert!(ranged.is_err(), "and a range of it: {ranged:?}");
 }
+
+/// X-DELTA-AZDRIVE-KEYS-18: a call is judged by the state of the decision whose drive it was
+/// handed. The state used to be read in a second step, after the drive: a reopening on another
+/// thread that decided the drive encrypted in between made a write meet the bare bucket of the OLD
+/// decision ("not encrypted") with the policy of the new one ("takes everything"). The hook is that
+/// other thread, at the place: with the state read after it, "a.txt" lands in the bucket in the
+/// clear (the first assertion that fails on the old code is the refusal).
+#[test]
+fn x_delta_azdrive_keys_18_a_write_is_judged_by_the_state_of_the_drive_it_was_handed() {
+    let mem = Arc::new(MemBucket::new());
+    let keyring = Arc::new(MemoryKeyring::new());
+    let me: Arc<Mutex<Option<std::sync::Weak<AutoEncrypted>>>> = Arc::new(Mutex::new(None));
+    let fired = Arc::new(AtomicUsize::new(0));
+    let hook: Arc<dyn Fn() + Send + Sync> = {
+        let (me, mem, keyring, fired) = (
+            Arc::clone(&me),
+            Arc::clone(&mem),
+            Arc::clone(&keyring),
+            Arc::clone(&fired),
+        );
+        Arc::new(move || {
+            if fired.fetch_add(1, Ordering::SeqCst) > 0 {
+                return;
+            }
+            let drive = me
+                .lock()
+                .unwrap()
+                .as_ref()
+                .and_then(std::sync::Weak::upgrade)
+                .expect("the drive is alive");
+            // Another thread's whole story, between this call's drive and its judgement.
+            let kdf = RecoveryKdf::with_cost(64, 1, 1).unwrap();
+            setup_new_drive(mem.as_ref(), keyring.as_ref(), "d_1", kdf).unwrap();
+            drive.reopen();
+            assert!(
+                matches!(drive.decide(), Ok(EncState::Encrypted { .. })),
+                "the other thread decided the drive encrypted"
+            );
+        })
+    };
+    let drive = Arc::new(
+        AutoEncrypted::new(mem.clone(), "d_1", keyring.clone(), provider())
+            .with_after_resolved(hook),
+    );
+    *me.lock().unwrap() = Some(Arc::downgrade(&drive));
+
+    let first = drive.put("a.txt", b"in the clear");
+    assert!(
+        matches!(first, Err(DriveError::Denied { .. })),
+        "judged by the state the drive was decided with (not encrypted): {first:?}"
+    );
+    assert!(
+        mem.object("a.txt").is_none(),
+        "no plaintext reached the bucket: {:?}",
+        mem.keys()
+    );
+    assert_eq!(
+        fired.load(Ordering::SeqCst),
+        1,
+        "the hook ran in the window"
+    );
+
+    // The next call meets the drive as it is now: encrypted, and sealed.
+    drive.put("b.txt", b"sealed").unwrap();
+    assert!(mem.object("b.txt").is_none(), "the name is in the index");
+    assert_eq!(drive.get("b.txt").unwrap(), b"sealed");
+}
+
+/// X-DELTA-AZDRIVE-KEYS-18 (the other half): a restore changes files and no key, so the drive it
+/// reopens keeps the key id this device recorded - a keychain put back from an older backup is
+/// still refused after it (`reopen` forgot the id, and the next open took whatever the keyring
+/// held and wrote it down as the truth). The user's own act that brings a key is `reopen`.
+#[test]
+fn x_delta_azdrive_keys_18_a_reload_keeps_the_recorded_key_and_a_reopening_takes_the_new_one() {
+    let mem = Arc::new(MemBucket::new());
+    let first = DriveKey::generate().unwrap();
+    let second = DriveKey::generate().unwrap();
+    let stranger = DriveKey::generate().unwrap();
+    let mut chain = crate::crypto::keys::KeyChain::new();
+    chain.add("d_1", &first, &second).unwrap();
+    crate::crypto::keys::store_key_chain(mem.as_ref(), &chain).unwrap();
+    let keyring = Arc::new(MemoryKeyring::new());
+    crate::crypto::device::store_drive_key(keyring.as_ref(), "d_1", &second).unwrap();
+    let drive =
+        AutoEncrypted::new(mem.clone(), "d_1", keyring.clone(), provider()).with_record(Recorded {
+            encrypted: true,
+            key_id: Some(first.id()),
+        });
+    drive.list(&ListRequest::folder("")).unwrap();
+    assert_eq!(drive.recorded().key_id, Some(second.id()));
+
+    // A keychain put back from an older backup: a key of another line.
+    crate::crypto::device::store_drive_key(keyring.as_ref(), "d_1", &stranger).unwrap();
+    drive.reload();
+    assert_eq!(
+        drive.state(),
+        EncState::Undecided,
+        "the next call opens the drive again"
+    );
+    assert_eq!(
+        drive.recorded().key_id,
+        Some(second.id()),
+        "a restore brought no key: the recorded id stays"
+    );
+    let refused = drive.list(&ListRequest::folder(""));
+    assert!(
+        matches!(&refused, Err(DriveError::KeyRefused { drive, .. }) if drive == "d_1"),
+        "{refused:?}"
+    );
+
+    // The user brings a key on purpose (an unlock, a join, a setup, a rotation).
+    drive.reopen();
+    drive.list(&ListRequest::folder("")).unwrap();
+    assert_eq!(drive.recorded().key_id, Some(stranger.id()));
+}

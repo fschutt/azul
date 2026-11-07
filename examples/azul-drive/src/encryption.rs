@@ -1677,7 +1677,9 @@ fn restore_encrypted(auto: &AutoEncrypted, as_of: i64) -> Result<usize, String> 
             .ok_or_else(|| String::from("azdrive-enc-err-made-later"))?;
         Ok(restore.restored + restore.removed)
     })();
-    auto.reopen();
+    // The files changed and no key did: the key id this computer recorded stays
+    // (X-DELTA-AZDRIVE-KEYS-18; `reopen` is for an act that brings a key).
+    auto.reload();
     restored
 }
 
@@ -1728,7 +1730,7 @@ pub(crate) fn restore_file_version(
     let restored = azcloud_kit::restore::restore_file_version(&mut repo, key, id, &mut keep_both)
         .map(drop)
         .map_err(|e| e.to_string());
-    auto.reopen();
+    auto.reload();
     restored
 }
 
