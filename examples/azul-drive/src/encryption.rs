@@ -1687,7 +1687,7 @@ pub(crate) fn resume_new_drive_setup(info: &mut CallbackInfo, app: &RefAny, s: &
         .slot_index(&drive_id)
         .and_then(|index| s.slots[index].auto.as_ref())
         .map(|auto| auto.state());
-    let made_here = made_this_run().iter().any(|d| *d == drive_id);
+    let made_here = made_this_run().contains(&drive_id);
     let started = new_drive_set_up().contains(&drive_id);
     if !resume_wanted(state, made_here, started) {
         return;

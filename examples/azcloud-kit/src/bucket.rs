@@ -422,9 +422,7 @@ impl Bucket {
         let Some((len, _)) = self.head(key)? else {
             return Ok(None);
         };
-        Limit::new("an object the caller knows the size of", size)
-            .check_object(key, len)
-            .map_err(DriveError::from)?;
+        Limit::new("an object the caller knows the size of", size).check_object(key, len)?;
         let part = self.part_size as u64;
         if len <= part {
             return self.get(key);
