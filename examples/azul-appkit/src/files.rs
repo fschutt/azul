@@ -11,7 +11,7 @@
 use std::path::{Path, PathBuf};
 
 use azul_pim::write_queue::{CloseHold, MainClose};
-use azul_storage::{Drive, DriveError};
+use azul_storage::{key::System, Drive, DriveError};
 
 /// One thing to do in the data folder.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -205,24 +205,53 @@ pub fn read_outside(path: &Path) -> Result<Vec<u8>, String> {
 }
 
 /// What [`open_external`] may hand to the system: a web address (`http:` / `https:`) or a file or
-/// folder that exists. Anything else (`javascript:`, `file:` addresses, a made-up path) is
-/// refused with a sentence.
+/// folder that exists. Anything else (`javascript:`, `file:` addresses, a made-up path, on Windows
+/// a network or device path) is refused with a sentence.
 pub fn external_target(target: &str) -> Result<String, String> {
+    external_target_on(target, System::here())
+}
+
+/// [`external_target`] as `system` reads a path: the same text is judged the same on every host, so
+/// the Windows rules are tested on a Mac.
+pub(crate) fn external_target_on(target: &str, system: System) -> Result<String, String> {
     let t = target.trim();
-    let lower = t.to_ascii_lowercase();
     if is_web_address(t) {
         if t.chars().any(char::is_whitespace) {
             return Err(format!("\u{201c}{t}\u{201d} is not a web address."));
         }
         return Ok(t.to_string());
     }
-    if !t.is_empty() && !lower.contains(':') && Path::new(t).exists() {
-        return Ok(t.to_string());
-    }
-    if !t.is_empty() && cfg!(windows) && Path::new(t).exists() {
+    // The text is judged before the disk is asked: `exists()` of a network path makes Windows connect
+    // to it and offer the user's credentials.
+    if path_may_be_opened(t, system) && Path::new(t).exists() {
         return Ok(t.to_string());
     }
     Err(format!("\u{201c}{t}\u{201d} cannot be opened."))
+}
+
+/// Whether the text `t` may be a file or folder the system is asked to open, before the disk is asked
+/// whether it exists. Everywhere: no `:` (it keeps `smb:`, `file:` and `javascript:` out). On
+/// Windows a path is also one of the drive (`C:\...`, `C:/...`) or relative: never a network share or
+/// a device (`\\server\share`, `//server/share`, `\\?\...`, `\\.\...`, `\??\...`), a stream
+/// (`a.txt:s`) or a drive-relative `C:x`. `explorer <path>` runs what it is given, and a share is
+/// where an attacker's `x.exe` lives (AZ-W18).
+#[must_use]
+pub(crate) fn path_may_be_opened(t: &str, system: System) -> bool {
+    if t.is_empty() {
+        return false;
+    }
+    if system != System::Windows {
+        return !t.contains(':');
+    }
+    let rest = match t.as_bytes() {
+        // `C:\x` and `C:/x`: a drive and a root after it.
+        [letter, b':', b'\\' | b'/', ..] if letter.is_ascii_alphabetic() => &t[2..],
+        _ => t,
+    };
+    let network_or_device = ["\\\\", "//", "\\??\\", "/??/"]
+        .iter()
+        .any(|start| t.starts_with(start));
+    !network_or_device && !rest.contains(':')
 }
 
 /// Whether `target` is a web address (`http:` / `https:`, any case).
@@ -268,13 +297,14 @@ fn open_target(target: &str) -> Result<(), String> {
 /// `cmd /C start`, which splits a target at its `&`).
 #[cfg(not(feature = "azul"))]
 fn open_target(target: &str) -> Result<(), String> {
-    let mut command = if cfg!(target_os = "macos") {
+    let system = System::here();
+    let mut command = if system == System::Macos {
         std::process::Command::new("open")
-    } else if cfg!(windows) && is_web_address(target) {
+    } else if system == System::Windows && is_web_address(target) {
         let mut c = std::process::Command::new("rundll32");
         c.arg("url.dll,FileProtocolHandler");
         c
-    } else if cfg!(windows) {
+    } else if system == System::Windows {
         std::process::Command::new("explorer")
     } else {
         std::process::Command::new("xdg-open")
@@ -479,5 +509,68 @@ mod tests {
         let path = dir.path().display().to_string();
         assert_eq!(external_target(&path), Ok(path.clone()));
         assert!(external_target(&format!("{path}/missing")).is_err());
+    }
+
+    /// AZ-W18: Windows accepted ANY existing path, a network share and a device included -
+    /// `Path::exists()` of `\\attacker\share\x.exe` makes Windows connect and offer the user's
+    /// credentials, and `explorer` then opens it. The text is judged first, for Windows, on any host.
+    #[test]
+    fn az_w18_a_network_or_device_path_is_never_opened_on_windows_nor_asked_about() {
+        for evil in [
+            r"\\attacker\share\x.exe",
+            "//attacker/share/x.exe",
+            r"\\?\C:\Windows\notepad.exe",
+            r"\\?\UNC\attacker\share\x.exe",
+            r"\\.\pipe\x",
+            r"\??\C:\x",
+            "/??/C:/x",
+            r"C:\docs\a.txt:stream",
+            "a.txt:stream",
+            "C:x",
+            "C:",
+            "::{20D04FE0-3AEA-1069-A2D8-08002B30309D}",
+            "",
+        ] {
+            assert!(!path_may_be_opened(evil, System::Windows), "{evil:?}");
+            assert_eq!(
+                external_target_on(evil, System::Windows),
+                Err(format!("\u{201c}{evil}\u{201d} cannot be opened.")),
+                "{evil:?}"
+            );
+        }
+        for fine in [
+            r"C:\Users\me\Documents",
+            "C:/Users/me/Documents",
+            "d:\\data",
+            r"docs\report.docx",
+            "report.docx",
+            "/rooted/on/this/drive",
+            r"\rooted\on\this\drive",
+        ] {
+            assert!(path_may_be_opened(fine, System::Windows), "{fine:?}");
+        }
+        // Elsewhere nothing changed: no ':' and it exists.
+        for fine in ["/etc/hosts", "docs/a.txt", r"a\b"] {
+            assert!(path_may_be_opened(fine, System::Linux), "{fine:?}");
+            assert!(path_may_be_opened(fine, System::Macos), "{fine:?}");
+        }
+        for evil in [
+            "smb://x/y",
+            "file:///etc/passwd",
+            "javascript:alert(1)",
+            "a:b",
+            "",
+        ] {
+            assert!(!path_may_be_opened(evil, System::Linux), "{evil:?}");
+            assert!(!path_may_be_opened(evil, System::Macos), "{evil:?}");
+        }
+    }
+
+    /// A folder that exists is opened as before (the control of the test above), on this host.
+    #[test]
+    fn az_w18_an_existing_folder_of_this_system_is_still_opened() {
+        let dir = TempDir::new("external-target-here");
+        let path = dir.path().display().to_string();
+        assert_eq!(external_target_on(&path, System::here()), Ok(path));
     }
 }
