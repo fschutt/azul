@@ -371,7 +371,10 @@ fn az_s15_a_pairing_made_again_starts_with_a_new_base_and_deletes_nothing() {
     forget_base(a.state.path()).unwrap();
     let (states, _) = a.pass();
     assert!(states.last_error.is_none(), "{states:?}");
-    assert!(lists(&index_of(&store), "z.txt"), "the files here went up again");
+    assert!(
+        lists(&index_of(&store), "z.txt"),
+        "the files here went up again"
+    );
 }
 
 /// A drive that takes reads but refuses writes (unpaid past its grace period).
