@@ -6,7 +6,7 @@
 //! threads' results that need more than a refresh.
 
 use std::{
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{atomic::AtomicBool, Arc},
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -1094,6 +1094,27 @@ fn system_terminal(dir: &std::path::Path) -> std::io::Result<()> {
     Err(last)
 }
 
+/// The variable [`windows_print_command`] hands the file's path to PowerShell in.
+pub(crate) const PRINT_FILE_VAR: &str = "AZDRIVE_PRINT_FILE";
+
+/// The command that prints `path` through its app's print verb on Windows: a FIXED script, and the
+/// file's path in the environment. PowerShell's `-Command` joins every argument after it into one
+/// script text, so `-Command Start-Process ... -FilePath <path>` ran a file named `x;calc.exe` or
+/// `$(calc)x.txt` (legal on NTFS; synced from a shared drive) as code (X-DELTA-AZDRIVE-FILES-11).
+/// A path is never put into a command string.
+pub(crate) fn windows_print_command(path: &Path) -> std::process::Command {
+    let mut command = std::process::Command::new("powershell");
+    command
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "Start-Process -Verb Print -FilePath $env:AZDRIVE_PRINT_FILE",
+        ])
+        .env(PRINT_FILE_VAR, path);
+    command
+}
+
 /// Share > Print: the selected files to this computer's default printer (`lp`, the printing
 /// system's own command on macOS and Linux; the file's app's print verb on Windows).
 fn print_selected(s: &mut DriveState) {
@@ -1113,20 +1134,9 @@ fn print_selected(s: &mut DriveState) {
         return;
     }
     let result = if cfg!(windows) {
-        paths.iter().try_for_each(|path| {
-            std::process::Command::new("powershell")
-                .args([
-                    "-NoProfile",
-                    "-Command",
-                    "Start-Process",
-                    "-Verb",
-                    "Print",
-                    "-FilePath",
-                ])
-                .arg(path)
-                .spawn()
-                .map(|_| ())
-        })
+        paths
+            .iter()
+            .try_for_each(|path| windows_print_command(path).spawn().map(|_| ()))
     } else {
         std::process::Command::new("lp")
             .args(&paths)

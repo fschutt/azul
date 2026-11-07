@@ -282,3 +282,44 @@ fn x_delta_azdrive_files_6_a_selection_that_mixes_the_trash_with_other_rows_is_a
         }
     }
 }
+
+/// X-DELTA-AZDRIVE-FILES-11. Share > Print on Windows ran `powershell -Command Start-Process -Verb
+/// Print -FilePath <path>`: `-Command` joins what follows into one script text, so a file named
+/// `x;calc.exe` or `$(calc)x.txt` (legal on NTFS, synced from a shared drive) was code. The script
+/// is fixed now and the path is in the environment; no argument holds any part of a name.
+#[test]
+fn x_delta_azdrive_files_11_a_file_name_is_never_part_of_the_print_command() {
+    use crate::actions::{windows_print_command, PRINT_FILE_VAR};
+    for name in [
+        "x;calc.exe",
+        "$(calc)x.txt",
+        "a b.txt",
+        "it's.txt",
+        "`calc`.txt",
+        "a&b|c.txt",
+        "-Command evil.txt",
+        "x\"; calc; \".txt",
+    ] {
+        let path = std::path::Path::new("C:\\Users\\me\\Documents").join(name);
+        let command = windows_print_command(&path);
+        let args: Vec<String> = command
+            .get_args()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect();
+        assert!(
+            args.iter().all(|arg| !arg.contains(name)),
+            "{name}: the name is in the command line: {args:?}"
+        );
+        // The same fixed script for every name.
+        assert_eq!(
+            args.last().map(String::as_str),
+            Some("Start-Process -Verb Print -FilePath $env:AZDRIVE_PRINT_FILE")
+        );
+        let handed: Vec<_> = command
+            .get_envs()
+            .filter(|(key, _)| *key == std::ffi::OsStr::new(PRINT_FILE_VAR))
+            .collect();
+        assert_eq!(handed.len(), 1, "{name}");
+        assert_eq!(handed[0].1, Some(path.as_os_str()), "{name}");
+    }
+}
