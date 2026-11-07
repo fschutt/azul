@@ -248,6 +248,10 @@ pub(crate) fn start_forget(
     let name = s.slots[index].entry.name.clone();
     let uses_keyring =
         s.slots[index].entry.needs_keyring() || s.slots[index].entry.azlin().is_some();
+    let grant = crate::sign_in::grant_of(
+        &s.slots[index].entry,
+        s.slots.iter().map(|slot| &slot.entry),
+    );
     let proof = crate::recovery_health::removal_proof(
         &s.settings.recovery.drives,
         drive_id,
@@ -292,8 +296,36 @@ pub(crate) fn start_forget(
             places,
             uses_keyring,
             proof,
+            grant,
         }),
     );
+}
+
+/// What the user must know of the sign-in of a removed drive: it stays valid at its provider
+/// (another drive may share it, the provider cannot end it from here, or it could not be ended),
+/// and where it is ended by hand. Nothing is said of a sign-in that was ended or never was.
+fn tell_grant(s: &mut DriveState, end: &crate::sign_in::GrantEnd) {
+    use crate::sign_in::GrantEnd;
+    match end {
+        GrantEnd::Ended | GrantEnd::NothingToEnd => {}
+        GrantEnd::Kept { provider } => {
+            s.warn(Phrase::new("azdrive-forget-grant-kept").arg("provider", *provider));
+        }
+        GrantEnd::InAccount { provider, page } => {
+            s.warn(
+                Phrase::new("azdrive-forget-grant-in-account")
+                    .arg("provider", *provider)
+                    .arg("page", *page),
+            );
+        }
+        GrantEnd::NotEnded { provider, why } => {
+            s.warn(
+                Phrase::new("azdrive-forget-grant-not-ended")
+                    .arg("provider", *provider)
+                    .arg("why", why.as_str()),
+            );
+        }
+    }
 }
 
 /// Whether the encryption flows are offered (an index provider is in this build).
@@ -2224,6 +2256,9 @@ pub(crate) enum EncryptionJob {
         uses_keyring: bool,
         /// The evidence that its recovery code was checked: the keys may go.
         proof: Option<azul_storage::footprint::RemovalProof>,
+        /// The sign-in at a provider (a Google Drive, a Dropbox) to end before its refresh token
+        /// goes with the keyring entry (AZ-CN12).
+        grant: Option<crate::sign_in::Grant>,
     },
     /// A joined drive's key from its join code's seal: this device enrolled with it.
     AdoptJoinKey {
@@ -2343,6 +2378,8 @@ pub(crate) enum EncryptionOutcome {
         drive_id: String,
         name: String,
         report: azul_storage::footprint::ForgetReport,
+        /// What ending the drive's sign-in at its provider came to (`None`: it has none).
+        grant: Option<crate::sign_in::GrantEnd>,
     },
 }
 
@@ -2683,7 +2720,13 @@ pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
             places,
             uses_keyring,
             proof,
+            grant,
         } => {
+            // The sign-in at a provider is ended first: it needs the refresh token the keyring is
+            // about to lose, and a copy of that token must open nothing afterwards (AZ-CN12).
+            let grant = grant.map(|grant| {
+                crate::sign_in::end_grant(&grant, &keyring, &AzulTransport::new(crate::USER_AGENT))
+            });
             // The user asked for this: the keyring may ask (the unlock prompt, Touch ID).
             let report = crate::footprint::forget(
                 &drive_id,
@@ -2695,6 +2738,7 @@ pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
                 drive_id,
                 name,
                 report,
+                grant,
             }
         }
         EncryptionJob::AdoptJoinKey {
@@ -3480,12 +3524,18 @@ pub(crate) fn on_outcome(
             drive_id,
             name,
             report,
+            grant,
         } => {
             if matches!(
                 s.popup.as_ref(),
                 Some(Popup::Encryption(Dialog::Busy { .. }))
             ) {
                 s.popup.close();
+            }
+            // The keyring entry with the refresh token is gone whatever else failed: a sign-in
+            // that stays valid is said now, not at a retry that no longer holds the token.
+            if let Some(grant) = &grant {
+                tell_grant(s, grant);
             }
             if report.complete() {
                 println!("AZDRIVE_FORGOTTEN {drive_id}");

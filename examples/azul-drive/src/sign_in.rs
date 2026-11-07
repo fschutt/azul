@@ -30,11 +30,14 @@ use azul_appkit::{
     oauth_clients::{self, OAuthSettings},
 };
 use azul_storage::{
+    config::{DriveEntry, DriveLocation, SecretOptions},
+    keyring::KeyringStore,
     oauth::{
-        self, OAuthClient, OAuthProvider, Tokens, ACCESS_TOKEN, CLIENT_ID, CLIENT_SECRET,
+        self, OAuthClient, OAuthProvider, Revoked, Tokens, ACCESS_TOKEN, CLIENT_ID, CLIENT_SECRET,
         REFRESH_TOKEN,
     },
     sigv4::uri_encode,
+    Transport,
 };
 
 /// The prefix of AzDrive's variables: `AZDRIVE_GOOGLE_CLIENT_ID`.
@@ -214,4 +217,293 @@ pub(crate) fn form_settings(
         ),
         (ACCESS_TOKEN, String::new()),
     ])
+}
+
+/// The provider the drive `entry` signs in at (Google Drive, Dropbox, OneDrive); `None` for every
+/// other drive.
+pub(crate) fn provider_of(entry: &DriveEntry) -> Option<&'static OAuthProvider> {
+    match &entry.location {
+        DriveLocation::Opendal { scheme, .. } => oauth::provider(scheme),
+        _ => None,
+    }
+}
+
+// ==== Ending a sign-in (Remove drive) ====
+
+/// The sign-in of a drive that is being removed: what ending it needs. Made on the UI thread
+/// ([`grant_of`]), used on a worker ([`end_grant`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Grant {
+    pub provider: &'static OAuthProvider,
+    /// The client id the drive signed in with (its plain options).
+    pub client_id: String,
+    /// The keyring entry that holds its refresh token.
+    pub secret_entry: String,
+    /// Another drive of this computer is signed in at the same provider: the grant may be theirs
+    /// too (a provider can tie every token of an account and client to one grant), so it is kept.
+    pub shared: bool,
+}
+
+/// What ending a drive's sign-in came to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum GrantEnd {
+    /// The provider ended it (or had ended it already).
+    Ended,
+    /// Another drive of this computer is signed in at the provider: the grant stays.
+    Kept { provider: &'static str },
+    /// The provider cannot end it from here: the user does, at this page.
+    InAccount {
+        provider: &'static str,
+        page: &'static str,
+    },
+    /// It could not be ended: why. It stays valid until the user ends it in the provider's
+    /// account.
+    NotEnded { provider: &'static str, why: String },
+    /// The drive holds no refresh token (it never signed in, or the entry is gone): nothing to
+    /// end.
+    NothingToEnd,
+}
+
+/// The sign-in of the drive `entry` to end when it is removed; `others` are the entries of the
+/// other drives. `None` for a drive that signs in nowhere.
+pub(crate) fn grant_of<'a>(
+    entry: &DriveEntry,
+    others: impl IntoIterator<Item = &'a DriveEntry>,
+) -> Option<Grant> {
+    let provider = provider_of(entry)?;
+    let client_id = match &entry.location {
+        DriveLocation::Opendal { options, .. } => {
+            options.get(CLIENT_ID).cloned().unwrap_or_default()
+        }
+        _ => String::new(),
+    };
+    let shared = others
+        .into_iter()
+        .any(|other| other.id != entry.id && provider_of(other) == Some(provider));
+    Some(Grant {
+        provider,
+        client_id,
+        secret_entry: azul_storage::config::keyring_key(&entry.id),
+        shared,
+    })
+}
+
+/// Ends the sign-in `grant` at its provider, with the refresh token the keyring holds, over
+/// `transport`: the keyring is read before anything of the drive is deleted. A grant that is
+/// shared with another drive stays. Never an error: what the provider did, or why not, is the
+/// answer, because the removal goes on either way and tells the user.
+pub(crate) fn end_grant(
+    grant: &Grant,
+    keyring: &dyn KeyringStore,
+    transport: &dyn Transport,
+) -> GrantEnd {
+    let provider = grant.provider.name;
+    if grant.shared {
+        return GrantEnd::Kept { provider };
+    }
+    let text = match keyring.get(&grant.secret_entry) {
+        Ok(Some(text)) => text,
+        Ok(None) => return GrantEnd::NothingToEnd,
+        Err(e) => {
+            return GrantEnd::NotEnded {
+                provider,
+                why: e.to_string(),
+            }
+        }
+    };
+    let secrets = match SecretOptions::from_keyring_secret(&text) {
+        Ok(secrets) => secrets,
+        Err(e) => {
+            return GrantEnd::NotEnded {
+                provider,
+                why: e.to_string(),
+            }
+        }
+    };
+    let Some(refresh_token) = secrets
+        .get(REFRESH_TOKEN)
+        .map(str::trim)
+        .filter(|token| !token.is_empty())
+    else {
+        return GrantEnd::NothingToEnd;
+    };
+    let client = OAuthClient::public(&grant.client_id).with_secret(secrets.get(CLIENT_SECRET));
+    match oauth::revoke(
+        transport,
+        grant.provider,
+        grant.provider.token_url,
+        &client,
+        refresh_token,
+    ) {
+        Ok(Revoked::Done) => GrantEnd::Ended,
+        Ok(Revoked::InAccount(page)) => GrantEnd::InAccount { provider, page },
+        Err(e) => GrantEnd::NotEnded {
+            provider,
+            why: e.to_string(),
+        },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{collections::BTreeMap, sync::Mutex};
+
+    use azul_storage::{
+        keyring::{KeyringStore, MemoryKeyring},
+        HttpCall, HttpReply, Method,
+    };
+
+    use super::*;
+
+    fn drive(id: &str, scheme: &str, client_id: Option<&str>) -> DriveEntry {
+        DriveEntry {
+            id: id.to_string(),
+            name: format!("Drive {id}"),
+            location: DriveLocation::Opendal {
+                scheme: scheme.to_string(),
+                options: client_id
+                    .map(|c| BTreeMap::from([(CLIENT_ID.to_string(), c.to_string())]))
+                    .unwrap_or_default(),
+                keyring: true,
+            },
+        }
+    }
+
+    /// A provider that answers what it is told to and remembers what it was asked.
+    struct Provider {
+        answers: Mutex<Vec<Result<HttpReply, String>>>,
+        calls: Mutex<Vec<HttpCall>>,
+    }
+
+    impl Provider {
+        fn answering(answers: Vec<Result<HttpReply, String>>) -> Provider {
+            Provider {
+                answers: Mutex::new(answers),
+                calls: Mutex::new(Vec::new()),
+            }
+        }
+    }
+
+    impl Transport for Provider {
+        fn send(&self, call: &HttpCall) -> Result<HttpReply, String> {
+            self.calls.lock().unwrap().push(call.clone());
+            let mut answers = self.answers.lock().unwrap();
+            if answers.is_empty() {
+                Err(String::from("no scripted answer"))
+            } else {
+                answers.remove(0)
+            }
+        }
+    }
+
+    fn ok() -> Result<HttpReply, String> {
+        Ok(HttpReply {
+            status: 200,
+            headers: Vec::new(),
+            body: Vec::new(),
+        })
+    }
+
+    fn kept(keyring: &MemoryKeyring, id: &str, refresh_token: &str) {
+        let mut secrets = SecretOptions::default();
+        secrets.insert(REFRESH_TOKEN, refresh_token);
+        keyring
+            .set(
+                &azul_storage::config::keyring_key(id),
+                &secrets.to_keyring_secret(),
+            )
+            .unwrap();
+    }
+
+    /// AZ-CN12: Remove drive left the grant live at the provider. Now it is ended with the
+    /// refresh token the keyring holds - Google gets one form POST of it - and the answer says so.
+    #[test]
+    fn az_cn12_removing_a_google_drive_ends_its_grant_with_the_refresh_token_the_keyring_holds() {
+        let entry = drive("gd_1", "gdrive", Some("app.example"));
+        let grant = grant_of(&entry, [&entry]).expect("a Google Drive signs in");
+        assert!(!grant.shared, "the only drive signed in at Google");
+        assert_eq!(grant.client_id, "app.example");
+        let keyring = MemoryKeyring::new();
+        kept(&keyring, "gd_1", "1//the refresh token");
+        let provider = Provider::answering(vec![ok()]);
+
+        assert_eq!(end_grant(&grant, &keyring, &provider), GrantEnd::Ended);
+        let calls = provider.calls.lock().unwrap();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].method, Method::Post);
+        assert_eq!(calls[0].url, "https://oauth2.googleapis.com/revoke");
+        assert_eq!(
+            String::from_utf8(calls[0].body.clone()).unwrap(),
+            "token=1%2F%2Fthe%20refresh%20token"
+        );
+    }
+
+    /// AZ-CN12: what could not be ended is said and never an error that stops the removal: a
+    /// provider that does not answer, one that has no endpoint for it (OneDrive), a keyring
+    /// without the entry, a drive that never signed in.
+    #[test]
+    fn az_cn12_a_grant_that_cannot_be_ended_is_said_not_thrown() {
+        let keyring = MemoryKeyring::new();
+        let google = drive("gd_1", "gdrive", Some("app.example"));
+        let grant = grant_of(&google, [&google]).unwrap();
+        // no answer at all
+        kept(&keyring, "gd_1", "r");
+        let offline = Provider::answering(vec![Err(String::from("offline"))]);
+        match end_grant(&grant, &keyring, &offline) {
+            GrantEnd::NotEnded { provider, why } => {
+                assert_eq!(provider, "Google Drive");
+                assert!(why.contains("offline"), "{why}");
+            }
+            other => panic!("{other:?}"),
+        }
+        // OneDrive: nothing is sent, the page where the user ends it is named
+        let onedrive = drive("od_1", "onedrive", Some("app.example"));
+        let grant = grant_of(&onedrive, [&onedrive]).unwrap();
+        kept(&keyring, "od_1", "r");
+        let silent = Provider::answering(Vec::new());
+        assert_eq!(
+            end_grant(&grant, &keyring, &silent),
+            GrantEnd::InAccount {
+                provider: "OneDrive",
+                page: "https://account.live.com/consent/Manage"
+            }
+        );
+        assert!(silent.calls.lock().unwrap().is_empty());
+        // the entry is not there: nothing to end, nothing sent
+        let grant = grant_of(&drive("gd_2", "gdrive", None), []).unwrap();
+        assert_eq!(end_grant(&grant, &keyring, &silent), GrantEnd::NothingToEnd);
+        assert!(silent.calls.lock().unwrap().is_empty());
+    }
+
+    /// AZ-CN12: two drives signed in at one provider may hold one grant (a provider can tie every
+    /// token of an account and client together): removing one keeps it and says so, so the other
+    /// is not signed out; a drive that signs in nowhere has none to end.
+    #[test]
+    fn az_cn12_a_grant_another_drive_may_share_is_kept_and_a_local_drive_has_none() {
+        let a = drive("gd_1", "gdrive", Some("app.example"));
+        let b = drive("gd_2", "gdrive", Some("app.example"));
+        let dropbox = drive("db_1", "dropbox", Some("app"));
+        let grant = grant_of(&a, [&a, &b, &dropbox]).unwrap();
+        assert!(grant.shared);
+        let keyring = MemoryKeyring::new();
+        kept(&keyring, "gd_1", "r");
+        let silent = Provider::answering(Vec::new());
+        assert_eq!(
+            end_grant(&grant, &keyring, &silent),
+            GrantEnd::Kept {
+                provider: "Google Drive"
+            }
+        );
+        assert!(silent.calls.lock().unwrap().is_empty());
+        // a Dropbox drive next to two Google drives has a grant of its own
+        assert!(!grant_of(&dropbox, [&a, &b, &dropbox]).unwrap().shared);
+        let local = DriveEntry {
+            id: String::from("l_1"),
+            name: String::from("Folder"),
+            location: DriveLocation::Local {
+                root: String::from("/tmp/x"),
+            },
+        };
+        assert!(provider_of(&local).is_none() && grant_of(&local, [&a]).is_none());
+    }
 }

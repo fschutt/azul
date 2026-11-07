@@ -10,8 +10,9 @@ use super::s3::Fake;
 use crate::{
     config::SecretOptions,
     oauth::{
-        self, exchange_code, is_token_endpoint, refresh, signed_in, OAuthClient, OAuthError,
-        RefreshingTransport, Tokens, CLIENT_ID, PLACEHOLDER_ACCESS_TOKEN, REFRESH_TOKEN, TOKEN_URL,
+        self, exchange_code, is_token_endpoint, refresh, revoke, signed_in, OAuthClient,
+        OAuthError, RefreshingTransport, Revoked, Tokens, CLIENT_ID, PLACEHOLDER_ACCESS_TOKEN,
+        REFRESH_TOKEN, TOKEN_URL,
     },
     HttpCall, Method, Transport,
 };
@@ -547,4 +548,127 @@ fn x_ar5b_23_a_drive_refreshes_at_its_providers_endpoint_unless_this_is_a_test_b
         oauth::refresh_endpoint(true, &oauth::GOOGLE, None),
         oauth::GOOGLE.token_url
     );
+}
+
+// ==== Ending a grant (AZ-CN12) ====
+
+/// AZ-CN12: Remove drive deleted the keyring entry and left the grant live at the provider, so a
+/// copy of the refresh token (a backup, a stolen file) still opened the account's files. Google
+/// ends a grant by RFC 7009: the token as a form POST, nothing else.
+#[test]
+fn az_cn12_google_ends_a_grant_with_one_form_post_of_the_refresh_token() {
+    let fake = Fake::default();
+    fake.answer(200, &[], "");
+    let done = revoke(
+        &fake,
+        &oauth::GOOGLE,
+        oauth::GOOGLE.token_url,
+        &OAuthClient::public("id"),
+        "1//refresh token",
+    );
+    assert_eq!(done, Ok(Revoked::Done));
+    let calls = fake.calls();
+    assert_eq!(calls.len(), 1, "one request, no refresh first");
+    assert_eq!(calls[0].method, Method::Post);
+    assert_eq!(calls[0].url, "https://oauth2.googleapis.com/revoke");
+    assert_eq!(calls[0].content_type, "application/x-www-form-urlencoded");
+    assert_eq!(form(&calls[0])["token"], "1//refresh token");
+    assert!(
+        header(&calls[0], "authorization").is_none(),
+        "the token is the credential"
+    );
+}
+
+/// AZ-CN12: a grant the provider calls gone already (`invalid_token`: revoked, expired, or ended
+/// by the user) is ended - that is what was asked - and any other refusal, and no answer at all,
+/// are errors that say so.
+#[test]
+fn az_cn12_a_grant_that_is_gone_already_is_ended_and_other_refusals_are_errors() {
+    let client = OAuthClient::public("id");
+    let fake = Fake::default();
+    fake.answer(
+        400,
+        JSON,
+        r#"{"error":"invalid_token","error_description":"Token expired or revoked"}"#,
+    );
+    assert_eq!(
+        revoke(&fake, &oauth::GOOGLE, oauth::GOOGLE.token_url, &client, "r"),
+        Ok(Revoked::Done)
+    );
+    fake.answer(503, &[], "Service Unavailable");
+    let refused = revoke(&fake, &oauth::GOOGLE, oauth::GOOGLE.token_url, &client, "r");
+    assert!(
+        matches!(refused, Err(OAuthError::Rejected { status: 503, .. })),
+        "{refused:?}"
+    );
+    fake.fail("connection reset");
+    let cut = revoke(&fake, &oauth::GOOGLE, oauth::GOOGLE.token_url, &client, "r");
+    assert!(matches!(cut, Err(OAuthError::Transport(_))), "{cut:?}");
+}
+
+/// AZ-CN12: Dropbox revokes the access token it is called with: a fresh one is asked for from the
+/// refresh token, then the revoke call carries it as the bearer token and no body.
+#[test]
+fn az_cn12_dropbox_asks_for_an_access_token_first_and_revokes_with_it() {
+    let fake = Fake::default();
+    fake.answer(200, JSON, &token_answer("sl.ACCESS", None));
+    fake.answer(200, JSON, "null");
+    let done = revoke(
+        &fake,
+        &oauth::DROPBOX,
+        TOKEN_URL_HTTPS,
+        &OAuthClient::public("app"),
+        "the-refresh-token",
+    );
+    assert_eq!(done, Ok(Revoked::Done));
+    let calls = fake.calls();
+    assert_eq!(calls.len(), 2);
+    assert_eq!(calls[0].url, TOKEN_URL_HTTPS, "the refresh first");
+    assert_eq!(form(&calls[0])["refresh_token"], "the-refresh-token");
+    assert_eq!(
+        calls[1].url,
+        "https://api.dropboxapi.com/2/auth/token/revoke"
+    );
+    assert_eq!(header(&calls[1], "authorization"), Some("Bearer sl.ACCESS"));
+    assert!(calls[1].body.is_empty());
+
+    // A refresh token that is gone already cannot get an access token: the grant is ended.
+    let gone = Fake::default();
+    gone.answer(400, JSON, r#"{"error":"invalid_grant"}"#);
+    assert_eq!(
+        revoke(
+            &gone,
+            &oauth::DROPBOX,
+            TOKEN_URL_HTTPS,
+            &OAuthClient::public("app"),
+            "old"
+        ),
+        Ok(Revoked::Done)
+    );
+    assert_eq!(
+        gone.calls().len(),
+        1,
+        "no revoke call without an access token"
+    );
+}
+
+/// AZ-CN12: Microsoft's personal accounts have no endpoint for it: nothing is sent, and the page
+/// where the user ends the grant is named.
+#[test]
+fn az_cn12_onedrive_sends_nothing_and_names_the_page_where_the_user_ends_the_grant() {
+    let fake = Fake::default();
+    let done = revoke(
+        &fake,
+        &oauth::ONEDRIVE,
+        oauth::ONEDRIVE.token_url,
+        &OAuthClient::public("id"),
+        "r",
+    );
+    assert_eq!(
+        done,
+        Ok(Revoked::InAccount(
+            "https://account.live.com/consent/Manage"
+        ))
+    );
+    assert!(fake.calls().is_empty());
 }

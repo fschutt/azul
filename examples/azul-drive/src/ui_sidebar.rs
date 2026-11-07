@@ -506,6 +506,9 @@ enum SideAction {
     UnlockKeys(String),
     /// "Lock": the drive's keys leave AzDrive's memory until Unlock.
     LockKeys(String),
+    /// "Sign in again…": the drive's form again with its provider's sign-in, for a drive whose
+    /// sign-in was ended or expired (the drive keeps its place, its pins and its pairing).
+    SignInAgain(String),
     /// "Encrypt this drive...": the question, then keys, the recovery sheet, the move.
     #[cfg(feature = "encryption")]
     Encrypt(String),
@@ -584,6 +587,12 @@ fn menu_entries(s: &DriveState, row: &Row) -> Vec<(String, SideAction)> {
                     SideAction::LockKeys(slot.entry.id.clone()),
                 )
             });
+        }
+        if crate::sign_in::provider_of(&slot.entry).is_some() {
+            entries.push((
+                String::from("azdrive-side-sign-in-again"),
+                SideAction::SignInAgain(slot.entry.id.clone()),
+            ));
         }
         #[cfg(feature = "encryption")]
         if slot.entry.azlin().is_some() && crate::encryption::offered() {
@@ -698,6 +707,11 @@ fn run(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, action: SideAc
             }
         }
         SideAction::LockKeys(drive_id) => crate::unlock::lock(s, &drive_id),
+        SideAction::SignInAgain(drive_id) => {
+            if let Some(index) = s.slot_index(&drive_id) {
+                crate::actions::open_drive_form(s, Some(index));
+            }
+        }
         #[cfg(feature = "encryption")]
         SideAction::Encrypt(drive_id) => crate::encryption::ask_encrypt(s, &drive_id),
         #[cfg(feature = "encryption")]

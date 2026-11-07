@@ -51,6 +51,21 @@ pub struct OAuthProvider {
     /// Parameters the authorization request needs besides the standard ones (a refresh token
     /// at all, a consent page each time so it comes again).
     pub authorize_extras: &'static [(&'static str, &'static str)],
+    /// How the provider ends a grant when asked to ([`revoke`]).
+    pub revocation: Revocation,
+}
+
+/// How a provider ends a sign-in (a grant) on request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Revocation {
+    /// RFC 7009: the token is POSTed to `url` as a form, and the grant ends (Google).
+    Token { url: &'static str },
+    /// The provider revokes the access token it is called with (Dropbox): a fresh one is asked
+    /// for first, then `url` is POSTed with it as the bearer token.
+    Bearer { url: &'static str },
+    /// The provider has no endpoint for it (Microsoft's personal accounts): the user ends the
+    /// grant in their account, at `page`.
+    Account { page: &'static str },
 }
 
 /// Google Drive: a refresh token only with `access_type=offline`, and only on a consent page.
@@ -62,6 +77,9 @@ pub const GOOGLE: OAuthProvider = OAuthProvider {
     token_url: "https://oauth2.googleapis.com/token",
     scope: "https://www.googleapis.com/auth/drive",
     authorize_extras: &[("access_type", "offline"), ("prompt", "consent")],
+    revocation: Revocation::Token {
+        url: "https://oauth2.googleapis.com/revoke",
+    },
 };
 
 /// Dropbox: long-lived refresh tokens with `token_access_type=offline`; the scopes are the
@@ -74,6 +92,9 @@ pub const DROPBOX: OAuthProvider = OAuthProvider {
     token_url: "https://api.dropboxapi.com/oauth2/token",
     scope: "",
     authorize_extras: &[("token_access_type", "offline")],
+    revocation: Revocation::Bearer {
+        url: "https://api.dropboxapi.com/2/auth/token/revoke",
+    },
 };
 
 /// OneDrive (Microsoft identity platform, personal and work accounts): `offline_access` for a
@@ -86,6 +107,9 @@ pub const ONEDRIVE: OAuthProvider = OAuthProvider {
     token_url: "https://login.microsoftonline.com/common/oauth2/v2.0/token",
     scope: "offline_access Files.ReadWrite",
     authorize_extras: &[],
+    revocation: Revocation::Account {
+        page: "https://account.live.com/consent/Manage",
+    },
 };
 
 /// Every provider.
@@ -403,6 +427,103 @@ pub fn refresh(
         form.push(("client_secret", secret));
     }
     post_form(transport, token_url, &form)
+}
+
+/// What [`revoke`] did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Revoked {
+    /// The provider ended the grant (or had ended it already).
+    Done,
+    /// The provider has no endpoint for it: the user ends the grant at this page.
+    InAccount(&'static str),
+}
+
+/// Ends the grant `refresh_token` belongs to, the way `provider` ends one ([`Revocation`]), so a
+/// copy of the token (a backup, a stolen file) opens nothing any more. `token_url` is where a
+/// provider that wants an access token for it ([`Revocation::Bearer`]) gets one. A grant that is
+/// refused as gone already (`invalid_token`, `invalid_grant`) is ended: that is what was asked.
+///
+/// # Errors
+///
+/// The request got no answer, or the provider refused for another reason.
+pub fn revoke(
+    transport: &dyn Transport,
+    provider: &OAuthProvider,
+    token_url: &str,
+    client: &OAuthClient,
+    refresh_token: &str,
+) -> Result<Revoked, OAuthError> {
+    fn already_gone(e: &OAuthError) -> bool {
+        matches!(
+            e,
+            OAuthError::Rejected { error, .. }
+                if matches!(error.as_str(), "invalid_token" | "invalid_grant")
+        )
+    }
+    let call = |url: &str, headers: Vec<(String, String)>, body: String| HttpCall {
+        method: Method::Post,
+        url: url.to_string(),
+        headers,
+        content_type: if body.is_empty() {
+            String::new()
+        } else {
+            String::from("application/x-www-form-urlencoded")
+        },
+        body: body.into_bytes(),
+        limits: crate::CallLimits::json(),
+    };
+    let send = |call: HttpCall| -> Result<(), OAuthError> {
+        if !is_token_endpoint(&call.url) {
+            return Err(OAuthError::Protocol(format!(
+                "{} is no endpoint a token may be sent to: it must be https",
+                call.url
+            )));
+        }
+        let reply = transport.send(&call).map_err(OAuthError::Transport)?;
+        if reply.is_success() {
+            return Ok(());
+        }
+        let json: Option<serde_json::Value> = serde_json::from_slice(&reply.body).ok();
+        let text = |name: &str| {
+            json.as_ref()
+                .and_then(|j| j.get(name))
+                .and_then(serde_json::Value::as_str)
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(String::from)
+                .unwrap_or_default()
+        };
+        Err(OAuthError::Rejected {
+            status: reply.status,
+            error: text("error"),
+            description: text("error_description"),
+        })
+    };
+    let accept = vec![(String::from("Accept"), String::from("application/json"))];
+    let sent = match provider.revocation {
+        Revocation::Account { page } => return Ok(Revoked::InAccount(page)),
+        Revocation::Token { url } => send(call(
+            url,
+            accept,
+            format!("token={}", uri_encode(refresh_token, true)),
+        )),
+        Revocation::Bearer { url } => match refresh(transport, token_url, client, refresh_token) {
+            Ok(tokens) => {
+                let mut headers = accept;
+                headers.push((
+                    String::from("Authorization"),
+                    format!("Bearer {}", tokens.access_token),
+                ));
+                send(call(url, headers, String::new()))
+            }
+            Err(e) => Err(e),
+        },
+    };
+    match sent {
+        Ok(()) => Ok(Revoked::Done),
+        Err(e) if already_gone(&e) => Ok(Revoked::Done),
+        Err(e) => Err(e),
+    }
 }
 
 /// The tokens [`RefreshingTransport`] holds.
