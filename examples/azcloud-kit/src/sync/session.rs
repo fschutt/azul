@@ -1991,14 +1991,13 @@ impl SyncSession {
             names::{Policy, Purpose, Volume},
             scratch::{self, Scratch},
         };
-        let admitted = Policy::here(Volume::default())
-            .admit(key, Purpose::Open)
-            .map_err(|e| {
-                CloudError::failed(format!(
-                    "{key} cannot be opened here ({}); it stays on the drive",
-                    e.why
-                ))
-            })?;
+        let policy = Policy::here(Volume::default());
+        let admitted = policy.admit(key, Purpose::Open).map_err(|e| {
+            CloudError::failed(format!(
+                "{key} cannot be opened here ({}); it stays on the drive",
+                e.why
+            ))
+        })?;
         let full = format!("{}{key}", self.setup.prefix);
         let kept = states.files.get(key).is_some_and(|r| r.encrypted_copy);
         if !kept {
@@ -2039,10 +2038,12 @@ impl SyncSession {
         let tree = Root::open(&folder)
             .map_err(BeneathError::from)
             .map_err(blame)?;
-        let (dir, name) = tree.parent_of(&admitted, true).map_err(blame)?;
+        let (dir, name) = policy
+            .walk(&tree, key, Purpose::Open, true)
+            .map_err(blame)?;
         durable::publish(
             &dir,
-            name,
+            &name,
             &mut &bytes[..],
             Publish::new(Expect::Any, Mode::Private, &Quiet),
         )
