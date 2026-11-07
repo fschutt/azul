@@ -48,13 +48,20 @@ pub mod windows;
 /// observable — `CallbackInfo::get_biometric_result()` reads it next
 /// frame.
 pub fn request(prompt: &BiometricPrompt) {
+    request_with(azul_core::run_mode::test_hooks(), prompt);
+}
+
+/// [`request`] under the hooks `hooks` of the run.
+fn request_with(hooks: &azul_core::run_mode::TestHooks, prompt: &BiometricPrompt) {
     // MWA-C-biometric: never pop a REAL OS auth sheet from a headless /
-    // E2E run (the dispatcher is keyed on target_os, not backend — a
+    // E2E TEST run (the dispatcher is keyed on target_os, not backend — a
     // headless test on a Mac dev box would otherwise raise a live TouchID
     // sheet). Resolve to Unavailable so the round-trip stays observable.
-    if std::env::var("AZ_BACKEND").as_deref() == Ok("headless")
-        || std::env::var("AZ_E2E_TEST").is_ok()
-    {
+    // Only the hooks of a test build say so (RF38): in a shipped build a
+    // variable in the environment (`AZ_BACKEND=headless` is a windowing
+    // choice) never answers "unavailable" for the user's sensor, so an
+    // app's presence check (AzDrive's key change) sees the real answer.
+    if hooks.no_biometric {
         let _ = prompt;
         azul_layout::managers::biometric::push_biometric_result(
             azul_core::biometric::BiometricResult::Unavailable,
@@ -129,4 +136,26 @@ pub fn probe_availability() -> BiometricKind {
 pub fn availability_cached() -> BiometricKind {
     static CACHED: std::sync::OnceLock<BiometricKind> = std::sync::OnceLock::new();
     *CACHED.get_or_init(probe_availability)
+}
+
+#[cfg(test)]
+mod tests {
+    use azul_core::{
+        biometric::{BiometricPrompt, BiometricResult},
+        run_mode::TestHooks,
+    };
+
+    /// A test run's prompt shows no sheet and resolves "unavailable" through the normal
+    /// result channel. (The other half - a run without the hook reaches the platform's sheet -
+    /// cannot be run in a test: it would raise one; `azul-core`'s `tests/run_mode_release.rs`
+    /// proves the hook is off in a build without the feature, whatever the environment holds.)
+    #[test]
+    fn a_test_runs_prompt_resolves_unavailable_without_a_sheet() {
+        let _ = azul_layout::managers::biometric::drain_biometric_results();
+        super::request_with(&TestHooks::HEADLESS, &BiometricPrompt::default());
+        assert_eq!(
+            azul_layout::managers::biometric::drain_biometric_results(),
+            vec![BiometricResult::Unavailable]
+        );
+    }
 }
