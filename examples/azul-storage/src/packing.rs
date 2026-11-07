@@ -76,7 +76,9 @@ use crate::{
     },
     key::check_key,
     local::write_atomically,
-    meta::reclaim::{drop_new_object, Refusal, Released},
+    meta::reclaim::{
+        delete_reclaimable, drop_new_object, Deleted, LiveObjects, ReclaimMode, Refusal, Released,
+    },
     time::now_unix,
     BatchPut, ByteRange, Drive, DriveError, ObjectInfo,
 };
@@ -1498,6 +1500,32 @@ impl<D: Drive> EncryptedDrive<D> {
             .collect())
     }
 
+    /// What names a bucket object now, and what the upkeep may do about one nothing names. An index
+    /// that keeps history answers from the drive itself, read fresh and whole - the head and every
+    /// state inside the retention window, never a copy that answered because the drive could not
+    /// be reached - and the drive's [`ReclaimMode`] decides whether an object nothing names is
+    /// deleted or only reported. An index without history has its head and nothing else: what the
+    /// head does not name is named by nobody, and goes (as it always did).
+    fn live_objects(&self, now: u64) -> Result<(LiveObjects, ReclaimMode, bool), DriveError> {
+        match self.index.live_objects(now)? {
+            Some(live) => Ok((live, self.reclaim, true)),
+            None => Ok((
+                LiveObjects::of(self.named_objects()?, now),
+                ReclaimMode::Delete,
+                false,
+            )),
+        }
+    }
+
+    /// An object that was uploaded and whose index change may or may not have landed goes into
+    /// the journal of what is in flight: [`EncryptedDrive::recover_packs`] clears it up. Best
+    /// effort - an object that could not be written down stays where it is, named by nothing.
+    pub(crate) fn note_in_flight(&self, id: &ObjectId) {
+        // collapse-ok: the journal only helps to find the object again; the object itself is safe
+        // either way (it is not deleted without a proof).
+        let _ = self.packs.journal.begin(id, now_unix());
+    }
+
     /// Copies the live files of the packs that fell below the repack threshold into new packs,
     /// and merges the small packs when there are two or more; the old packs are retired at
     /// `now` ([`EncryptedDrive::collect_retired`] deletes them after the grace period).
@@ -1543,9 +1571,13 @@ impl<D: Drive> EncryptedDrive<D> {
     }
 
     /// After a key rotation: every pack holding a file dated before `before` is written anew
-    /// (a new pack with a new file key, under the drive key this drive holds), and the old packs
-    /// leave the bucket at once instead of after the grace period - the wraps in their headers
-    /// open with the old drive key.
+    /// (a new pack with a new file key, under the drive key this drive holds). The old packs -
+    /// the wraps in their headers open with the old drive key - leave the bucket at once when the
+    /// index keeps no history (nothing could restore them); when it keeps history they stay,
+    /// retired, restorable until the retention is over: erasing them sooner is the user's
+    /// confirmed purge ([`crate::meta::reclaim::PurgeConfirmation`]), never a side effect of a
+    /// re-encryption (a re-encryption deleted them at once, and the history of every small file
+    /// dangled).
     pub(crate) fn reencrypt_packs(&self, before: u64, now: u64) -> Result<RepackReport, DriveError> {
         let selected: Vec<PackUse> = self
             .pack_uses()?
@@ -1555,18 +1587,26 @@ impl<D: Drive> EncryptedDrive<D> {
         let old: Vec<ObjectId> = selected.iter().map(|u| u.pack.id).collect();
         let report = self.repack_selected(selected, now)?;
         if !old.is_empty() {
-            let named = self.named_objects()?;
-            let mut retired = self.packs.journal.retired()?;
-            let mut deleted = Vec::new();
-            for id in &old {
-                if !named.contains(id) && self.inner.delete(&id.bucket_key()).is_ok() {
-                    self.forget_pack(id);
-                    retired.retain(|(pack, _)| pack != id);
-                    deleted.push(*id);
+            let (live, mode, history) = self.live_objects(now)?;
+            if !history {
+                let mut retired = self.packs.journal.retired()?;
+                let mut deleted = Vec::new();
+                for id in &old {
+                    let Ok(proof) = live.prove_unnamed(id) else {
+                        continue;
+                    };
+                    if matches!(
+                        delete_reclaimable(&self.inner, mode, proof),
+                        Ok(Deleted::Gone)
+                    ) {
+                        self.forget_pack(id);
+                        retired.retain(|(pack, _)| pack != id);
+                        deleted.push(*id);
+                    }
                 }
+                self.packs.journal.set_retired(retired)?;
+                self.packs.journal.forget(&deleted)?;
             }
-            self.packs.journal.set_retired(retired)?;
-            self.packs.journal.forget(&deleted)?;
         }
         Ok(report)
     }
@@ -1701,32 +1741,40 @@ impl<D: Drive> EncryptedDrive<D> {
         self.packs.journal.retired().unwrap_or_default()
     }
 
-    /// Deletes the retired packs whose grace period ended by `now`; a retired pack the index
+    /// Deletes the retired packs whose grace period ended by `now`; a retired pack the drive
     /// names again (a restore brought an old version back) is no longer retired. How many left
-    /// the bucket.
+    /// the bucket. What names a pack is the drive read fresh and whole - the head and, for an
+    /// index that keeps history, every state inside the retention window - and not a copy that
+    /// answered because the drive could not be reached (the head alone, from a copy, used to decide
+    /// it, and a version restored after a month found a pointer into a deleted pack). On a drive
+    /// that keeps history the packs go only in [`ReclaimMode::Delete`]; in shadow mode they stay
+    /// retired.
     pub fn collect_retired(&self, now: u64) -> Result<usize, DriveError> {
         let grace = self.upkeep_options().retired_grace_secs;
         let retired = self.packs.journal.retired()?;
         if !retired.iter().any(|(_, at)| at.saturating_add(grace) <= now) {
             return Ok(0);
         }
-        let named = self.named_objects()?;
+        let (live, mode, _) = self.live_objects(now)?;
         let mut keep = Vec::new();
         let mut deleted = Vec::new();
         for (id, at) in retired {
-            if named.contains(&id) {
+            if live.names(&id) {
                 continue;
             }
             if at.saturating_add(grace) > now {
                 keep.push((id, at));
                 continue;
             }
-            match self.inner.delete(&id.bucket_key()) {
-                Ok(()) => {
+            let Ok(proof) = live.prove_unnamed(&id) else {
+                continue;
+            };
+            match delete_reclaimable(&self.inner, mode, proof) {
+                Ok(Deleted::Gone) => {
                     self.forget_pack(&id);
                     deleted.push(id);
                 }
-                Err(_) => keep.push((id, at)),
+                Ok(Deleted::Would) | Err(_) => keep.push((id, at)),
             }
         }
         self.packs.journal.set_retired(keep)?;
@@ -1734,10 +1782,13 @@ impl<D: Drive> EncryptedDrive<D> {
         Ok(deleted.len())
     }
 
-    /// Clears up the packs whose writer stopped between the upload and the journal's end (a
-    /// crash, a commit whose answer was lost): one the index names stays, one it does not name
-    /// leaves the bucket. Packs in flight for less than [`JOURNAL_STALE_SECS`] at `now` are left
-    /// alone, their writer may still commit them. How many were cleared up.
+    /// Clears up the objects whose writer stopped between the upload and the journal's end (a
+    /// crash, a commit whose answer was lost): one the drive names stays, one it does not name
+    /// leaves the bucket. What names it is the drive read fresh and whole, as for
+    /// [`EncryptedDrive::collect_retired`]; on a drive that keeps history the object goes only in
+    /// [`ReclaimMode::Delete`], in shadow mode its entry stays in the journal. Objects in flight
+    /// for less than [`JOURNAL_STALE_SECS`] at `now` are left alone, their writer may still commit
+    /// them. How many were cleared up.
     pub fn recover_packs(&self, now: u64) -> Result<usize, DriveError> {
         let stale: Vec<ObjectId> = self
             .packs
@@ -1750,20 +1801,30 @@ impl<D: Drive> EncryptedDrive<D> {
         if stale.is_empty() {
             return Ok(0);
         }
-        let named = self.named_objects()?;
+        let (live, mode, _) = self.live_objects(now)?;
+        let mut cleared = 0;
         for id in &stale {
-            if !named.contains(id) {
-                self.inner.delete(&id.bucket_key())?;
-                self.forget_pack(id);
+            if live.names(id) {
+                self.packs.journal.end(id);
+                cleared += 1;
+                continue;
             }
-            self.packs.journal.end(id);
+            let Ok(proof) = live.prove_unnamed(id) else {
+                continue;
+            };
+            if matches!(delete_reclaimable(&self.inner, mode, proof)?, Deleted::Gone) {
+                self.forget_pack(id);
+                self.packs.journal.end(id);
+                cleared += 1;
+            }
         }
-        Ok(stale.len())
+        Ok(cleared)
     }
 
     /// One round of upkeep for an idle computer: the stale packs in flight, a repack, the retired
-    /// packs whose grace ended.
+    /// packs whose grace ended, the objects the bucket would not delete before.
     pub fn maintain_packs(&self, now: u64) -> Result<PackUpkeep, DriveError> {
+        self.retry_undeleted();
         Ok(PackUpkeep {
             recovered: self.recover_packs(now)?,
             repack: self.repack(now)?,

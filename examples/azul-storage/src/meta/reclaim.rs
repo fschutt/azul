@@ -253,6 +253,9 @@ pub struct ReclaimOptions {
     pub caps: Caps,
     pub retention: Retention,
     pub server_clock: ServerClock,
+    /// Whether the run goes on from the manifest's mark and moves it. A purge ([`purge_options`])
+    /// reads the whole history and leaves the mark where it is.
+    pub use_mark: bool,
 }
 
 impl Default for ReclaimOptions {
@@ -262,7 +265,49 @@ impl Default for ReclaimOptions {
             caps: Caps::default(),
             retention: super::retention::RETENTION,
             server_clock: ServerClock::Required,
+            use_mark: true,
         }
+    }
+}
+
+/// What the user confirmed when they asked for the old versions of a drive to be erased: after a
+/// key was changed ("I was hacked": re-encrypting every file leaves the old objects, which the old
+/// key still opens, in the history) the history is restorable until the retention is over -
+/// unless they say it is not. Made from the confirmation a person gave and from nothing else.
+#[derive(Debug)]
+pub struct PurgeConfirmation {
+    /// When they confirmed (seconds since 1970).
+    pub at: u64,
+    _sealed: (),
+}
+
+impl PurgeConfirmation {
+    /// The user confirmed at `at` that every old version of every file is erased now, for good:
+    /// the drive's history before this moment cannot be restored afterwards. Call this only after
+    /// a person said so.
+    #[must_use]
+    pub fn confirmed_by_the_user(at: u64) -> PurgeConfirmation {
+        PurgeConfirmation { at, _sealed: () }
+    }
+}
+
+/// The options of a purge: every object the head does not name, whatever its age, deleted; the
+/// whole history read; no mark kept. The bucket's clock must still agree with the device's.
+#[must_use]
+pub fn purge_options(_confirmation: &PurgeConfirmation) -> ReclaimOptions {
+    ReclaimOptions {
+        mode: ReclaimMode::Delete,
+        caps: Caps {
+            commits: usize::MAX,
+            objects: usize::MAX,
+            batch: Caps::default().batch,
+        },
+        retention: Retention {
+            trash: std::time::Duration::ZERO,
+            versions: std::time::Duration::ZERO,
+        },
+        server_clock: ServerClock::Required,
+        use_mark: false,
     }
 }
 
@@ -706,7 +751,12 @@ pub(crate) fn analyse(
     live_only: bool,
 ) -> Result<Analysis, NotYet> {
     let (nodes, order) = load_graph(objects, head, now)?;
-    let window_start = now.saturating_sub(retention.versions.as_secs());
+    // A retention of nothing keeps no state but the head: no commit is inside the window.
+    let window_start = if retention.versions.is_zero() {
+        u64::MAX
+    } else {
+        now.saturating_sub(retention.versions.as_secs())
+    };
     let in_window = |id: &GitId| nodes.get(id).is_some_and(|node| node.eff >= window_start);
 
     // The window's commits, and the old commits it grew out of: the state the window began with.
@@ -819,6 +869,12 @@ pub struct LiveObjects {
 }
 
 impl LiveObjects {
+    /// The objects `named` - a head of an index that keeps no history, which is everything there
+    /// is to be named.
+    pub(crate) fn of(named: HashSet<ObjectId>, now: u64) -> LiveObjects {
+        LiveObjects { live: named, now }
+    }
+
     /// A drive with no commit yet names nothing.
     pub(crate) fn empty(now: u64) -> LiveObjects {
         LiveObjects {
@@ -991,7 +1047,8 @@ pub fn reclaim<B: Bucket, S: Sealer>(
         .store()
         .manifest()
         .and_then(|manifest| manifest.reclaimed.as_ref())
-        .and_then(Mark::from_wal);
+        .and_then(Mark::from_wal)
+        .filter(|_| options.use_mark);
     let mut analysis = match analyse(
         repo.objects(),
         &head,
@@ -1078,7 +1135,7 @@ fn delete_under<B: Bucket, S: Sealer>(
         }
     }
     // Every delete went through: the mark moves, so the next run starts after these commits.
-    if report.failed == 0 {
+    if report.failed == 0 && options.use_mark {
         if let Some(cursor) = analysis.cursor.filter(|cursor| after != Some(cursor)) {
             let mark = cursor.to_wal(repo.store().now());
             match repo.store_mut().stamp(guard, revision, Some(mark)) {

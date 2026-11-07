@@ -559,6 +559,243 @@ fn az_m2_the_providers_maintenance_round_ends_with_a_shadow_round_and_tells_what
     assert!(off.last_reclaim().is_none());
 }
 
+/// The bucket key of the pack that holds a small file.
+fn pack_of(lab: &Lab, path: &str) -> String {
+    lab.object_of(path)
+}
+
+#[test]
+fn x_ar5a_14_re_encrypting_the_packs_of_a_drive_that_keeps_its_history_deletes_none_of_them() {
+    let lab = Lab::with(|drive| drive.with_packing(PackOptions::default()));
+    let small: [(&str, &[u8]); 2] = [
+        ("p1.txt", b"first small file"),
+        ("p2.txt", b"second small file"),
+    ];
+    let items: Vec<BatchPut<'_>> = small.iter().map(|(k, b)| BatchPut::new(k, b)).collect();
+    for result in lab.drive.put_many(&items) {
+        result.unwrap();
+    }
+    let old_pack = pack_of(&lab, "p1.txt");
+    let now = crate::time::now_unix();
+
+    // Every pack is written anew; the old one is the history of both files.
+    let report = lab.drive.reencrypt_packs(now + 10, now).unwrap();
+    assert_eq!(report.files_moved, 2, "{report:?}");
+    assert_ne!(
+        pack_of(&lab, "p1.txt"),
+        old_pack,
+        "the files moved to a new pack"
+    );
+    assert!(
+        lab.data_objects().contains(&old_pack),
+        "the old pack stays: a version restored from the history still finds its bytes"
+    );
+    assert_eq!(lab.drive.get("p2.txt").unwrap(), b"second small file");
+    assert_eq!(
+        lab.drive.retired_packs().len(),
+        1,
+        "it waits retired for its retention"
+    );
+}
+
+/// A drive that packs, deletes by its upkeep, and has retired the pack of two small files that were
+/// deleted: the pack is named by the first commit only (and the grace of a retired pack is
+/// `grace`).
+fn lab_with_a_retired_pack(grace: u64) -> (Lab, String) {
+    let mut options = PackOptions::default();
+    options.retired_grace_secs = grace;
+    let lab = Lab::with(|drive| {
+        drive
+            .with_packing(options)
+            .with_reclaim(ReclaimMode::Delete)
+    });
+    let small: [(&str, &[u8]); 2] = [
+        ("p1.txt", b"first small file"),
+        ("p2.txt", b"second small file"),
+    ];
+    let items: Vec<BatchPut<'_>> = small.iter().map(|(k, b)| BatchPut::new(k, b)).collect();
+    for result in lab.drive.put_many(&items) {
+        result.unwrap();
+    }
+    let pack = pack_of(&lab, "p1.txt");
+    lab.at(T0 + DAY);
+    lab.drive.delete("p1.txt").unwrap();
+    lab.drive.delete("p2.txt").unwrap();
+    // The pack is emptied: the upkeep retires it.
+    lab.drive.repack(T0 + 2 * DAY).unwrap();
+    assert_eq!(lab.drive.retired_packs().len(), 1);
+    (lab, pack)
+}
+
+#[test]
+fn x_ar5a_14_a_retired_pack_waits_as_long_as_a_version_can_be_restored() {
+    let (lab, pack) = lab_with_a_retired_pack(RETENTION.versions.as_secs());
+    // A month on (the grace used to be thirty days): a version of p1 can still be restored from
+    // the history, so the pack is still there.
+    assert_eq!(lab.drive.collect_retired(T0 + 33 * DAY).unwrap(), 0);
+    assert!(lab.data_objects().contains(&pack));
+    // Three months on nothing can ask for it: it goes.
+    assert_eq!(lab.drive.collect_retired(T0 + 93 * DAY).unwrap(), 1);
+    assert!(!lab.data_objects().contains(&pack));
+}
+
+#[test]
+fn az_m10_a_retired_pack_stays_while_the_history_inside_the_window_names_it() {
+    // The grace is over at once; the drive's history still names the pack. The head alone,
+    // from a copy, used to decide: nothing in the head names it, and it went.
+    let (lab, pack) = lab_with_a_retired_pack(0);
+    assert_eq!(lab.drive.collect_retired(T0 + 50 * DAY).unwrap(), 0);
+    assert!(lab.data_objects().contains(&pack));
+    assert_eq!(lab.drive.retired_packs().len(), 1, "and it stays retired");
+    // Past the retention it goes.
+    assert_eq!(lab.drive.collect_retired(T0 + 200 * DAY).unwrap(), 1);
+    assert!(!lab.data_objects().contains(&pack));
+}
+
+#[test]
+fn x_ar5a_14_a_drive_in_shadow_mode_keeps_what_its_upkeep_would_delete() {
+    let lab = Lab::with(|drive| drive.with_packing(PackOptions::default()));
+    let small: [(&str, &[u8]); 1] = [("p1.txt", b"first small file")];
+    let items: Vec<BatchPut<'_>> = small.iter().map(|(k, b)| BatchPut::new(k, b)).collect();
+    lab.drive.put_many(&items).pop().unwrap().unwrap();
+    let pack = pack_of(&lab, "p1.txt");
+    lab.at(T0 + DAY);
+    lab.drive.delete("p1.txt").unwrap();
+    lab.drive.repack(T0 + 2 * DAY).unwrap();
+    lab.at(T0 + 200 * DAY);
+    assert_eq!(
+        lab.drive.collect_retired(T0 + 200 * DAY).unwrap(),
+        0,
+        "shadow: nothing goes"
+    );
+    assert!(lab.data_objects().contains(&pack));
+    assert_eq!(lab.drive.retired_packs().len(), 1, "and it stays retired");
+}
+
+#[test]
+fn az_m10_an_object_whose_change_may_have_landed_is_cleared_up_from_the_drive_not_from_a_copy() {
+    // The change fails with an error that says nothing about whether it landed: the object stays
+    // and is written down.
+    let lab = Lab::with(|drive| drive.with_reclaim(ReclaimMode::Delete));
+    lab.bucket.fail_next_write(
+        keys::MANIFEST,
+        MetaError::Drive(crate::DriveError::Transport(String::from("reset"))),
+    );
+    let put = lab.drive.put("a.txt", b"the file");
+    assert!(
+        matches!(put, Err(crate::DriveError::Transport(_))),
+        "{put:?}"
+    );
+    assert_eq!(
+        lab.data_objects().len(),
+        1,
+        "the object stays: it may be named"
+    );
+
+    // Not stale yet: left alone, its writer may still commit it.
+    let now = crate::time::now_unix();
+    assert_eq!(lab.drive.recover_packs(now).unwrap(), 0);
+    assert_eq!(lab.data_objects().len(), 1);
+    // Later the drive, read fresh and whole, names nothing of it: garbage that costs quota.
+    assert_eq!(lab.drive.recover_packs(now + 3_600).unwrap(), 1);
+    assert_eq!(lab.data_objects().len(), 0);
+}
+
+#[test]
+fn az_m10_an_object_the_drive_names_after_all_is_never_deleted_by_the_upkeep() {
+    // Another device's index change landed with its answer lost: the drive names the object.
+    let lab = Lab::with(|drive| drive.with_reclaim(ReclaimMode::Delete));
+    lab.drive.put("a.txt", b"the file").unwrap();
+    let object = lab.drive.entry("a.txt").unwrap().object.unwrap().id;
+    // The journal has it as in flight (this is what a write that could not tell leaves).
+    lab.drive.note_in_flight(&object);
+    let now = crate::time::now_unix();
+    assert_eq!(
+        lab.drive.recover_packs(now + 3_600).unwrap(),
+        1,
+        "cleared from the journal"
+    );
+    assert_eq!(
+        lab.data_objects().len(),
+        1,
+        "and the file it is of is still there"
+    );
+    assert_eq!(lab.drive.get("a.txt").unwrap(), b"the file");
+}
+
+#[test]
+fn az_m2_a_drive_in_shadow_mode_keeps_an_object_nothing_names_and_its_journal_entry() {
+    let lab = Lab::new();
+    lab.bucket.fail_next_write(
+        keys::MANIFEST,
+        MetaError::Drive(crate::DriveError::Transport(String::from("reset"))),
+    );
+    let _ = lab.drive.put("a.txt", b"the file");
+    let now = crate::time::now_unix();
+    assert_eq!(
+        lab.drive.recover_packs(now + 3_600).unwrap(),
+        0,
+        "shadow: nothing is cleared"
+    );
+    assert_eq!(lab.data_objects().len(), 1);
+    // It is still written down: a drive switched to deleting clears it up.
+    assert_eq!(lab.drive.recover_packs(now + 7_200).unwrap(), 0);
+}
+
+#[test]
+fn az_m2_re_encrypting_a_drive_with_history_keeps_its_old_versions_until_the_user_confirms_a_purge()
+{
+    use crate::rotation::{reencrypt_pass, ReencryptState};
+
+    let bucket = Arc::new(MemoryBucket::new());
+    bucket.set_server_clock(crate::time::now_unix);
+    let key = DriveKey::generate().unwrap();
+    let provider = MetaIndexProvider::new("Laptop");
+    let raw: Arc<dyn Drive> = bucket.clone();
+    let index = provider
+        .open_index("drive-1", Arc::clone(&raw), &key)
+        .unwrap();
+    let drive = EncryptedDrive::new(Arc::clone(&raw), key.clone(), index);
+    drive.put("a.txt", b"version one").unwrap();
+    drive.put("a.txt", b"version two").unwrap();
+    let objects = |bucket: &MemoryBucket| -> usize {
+        bucket
+            .objects()
+            .into_iter()
+            .filter(|(key, _)| key.starts_with("data/"))
+            .count()
+    };
+    assert_eq!(objects(&bucket), 2);
+
+    // Every file is written into a new object; the old ones are the history, and stay.
+    let mut state = ReencryptState::new(crate::time::now_unix() + 10);
+    assert!(reencrypt_pass(&drive, &mut state, &mut |_| Ok(()), &|| false).unwrap());
+    assert_eq!(state.done, 1);
+    assert_eq!(
+        objects(&bucket),
+        3,
+        "version one, version two and the re-encrypted file"
+    );
+    assert!(
+        state.purge_confirmation().is_none(),
+        "nobody asked for an erasure"
+    );
+    assert_eq!(drive.get("a.txt").unwrap(), b"version two");
+
+    // The user confirmed that the old versions are erased too: they go, the file stays.
+    state.confirm_purge(crate::time::now_unix());
+    assert_eq!(
+        ReencryptState::from_json(&state.to_json()).unwrap(),
+        state,
+        "the confirmation survives a restart"
+    );
+    let confirmation = state.purge_confirmation().expect("they confirmed");
+    let report = provider.purge(raw, &key, &confirmation).unwrap();
+    assert_eq!((report.deleted, report.failed), (2, 0), "{}", report.line());
+    assert_eq!(objects(&bucket), 1);
+    assert_eq!(drive.get("a.txt").unwrap(), b"version two");
+}
+
 /// A number from the environment, `default` without it.
 fn env_number(name: &str, default: usize) -> usize {
     std::env::var(name)

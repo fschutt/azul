@@ -561,6 +561,13 @@ pub struct ReencryptState {
     /// Whether the packs of small files were written anew (after the files of their own).
     #[serde(default)]
     pub packs_done: bool,
+    /// When the user confirmed that the old versions of every file are erased too (seconds since
+    /// 1970); `None`: they are not, and the drive's history stays restorable until the retention is
+    /// over. Re-encrypting every file writes new objects with new keys; the old ones - which the
+    /// old drive key still opens - stay in a drive that keeps its history, as the history of the
+    /// files. Only this confirmation erases them ([`ReencryptState::purge_confirmation`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub purge_confirmed_at: Option<u64>,
 }
 
 impl ReencryptState {
@@ -574,7 +581,23 @@ impl ReencryptState {
             done: 0,
             failed: 0,
             packs_done: false,
+            purge_confirmed_at: None,
         }
+    }
+
+    /// The user confirmed, at `at`, that the old versions of every file are erased with the
+    /// re-encryption: for good, the history before it cannot be restored afterwards. Record it
+    /// here, in the state the pass saves, so a restart does not lose the answer.
+    pub fn confirm_purge(&mut self, at: u64) {
+        self.purge_confirmed_at = Some(at);
+    }
+
+    /// The confirmation the user gave, if they gave one: what a purge
+    /// ([`crate::meta::MetaIndexProvider::purge`]) takes once the pass is over.
+    #[must_use]
+    pub fn purge_confirmation(&self) -> Option<crate::meta::reclaim::PurgeConfirmation> {
+        self.purge_confirmed_at
+            .map(crate::meta::reclaim::PurgeConfirmation::confirmed_by_the_user)
     }
 
     #[must_use]
@@ -597,13 +620,17 @@ impl ReencryptState {
 }
 
 /// "Re-encrypt everything": every file of `drive` (opened with the new drive key) modified
-/// before `state.before` is written into a new object with a new file key (its date kept), the
-/// old object deleted - afterwards nothing in the bucket opens with the old drive key. Small
-/// files packed together are written into new packs at the end, every pack holding one of them
-/// at once, and the old packs leave the bucket. `save` gets the state after every file (and
-/// after the packs, when there were any), `stop` is asked before every file; `Ok(true)` when
-/// every file is done. A file the user changed meanwhile keeps the user's version (it is in a
-/// new object anyway).
+/// before `state.before` is written into a new object with a new file key (its date kept). On a
+/// drive whose index keeps no history the old object is deleted - afterwards nothing in the
+/// bucket opens with the old drive key. On a drive that keeps its history (the repository) the
+/// old objects are the history of the files: they stay, restorable until the retention is over,
+/// and go at once only when the user confirmed it ([`ReencryptState::confirm_purge`]; the caller
+/// then runs [`crate::meta::MetaIndexProvider::purge`] when this returns `Ok(true)`) - they used to
+/// stay for ever, or (the small files' packs) to go without asking. Small files packed together
+/// are written into new packs at the end, every pack holding one of them at once. `save` gets the
+/// state after every file (and after the packs, when there were any), `stop` is asked before every
+/// file; `Ok(true)` when every file is done. A file the user changed meanwhile keeps the user's
+/// version (it is in a new object anyway).
 pub fn reencrypt_pass<D: Drive>(
     drive: &EncryptedDrive<D>,
     state: &mut ReencryptState,

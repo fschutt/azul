@@ -13,7 +13,7 @@ use std::{
 use azul_storage::{
     crypto::{DriveKey, ObjectId},
     encrypted::{EncryptedDrive, MemoryIndex},
-    meta::{open_encrypted_drive, MemoryBucket},
+    meta::{open_encrypted_drive, MemoryBucket, ReclaimMode},
     ops::list_all,
     packing::{PackOptions, RETIRED_GRACE_SECS},
     testing::TempDir,
@@ -142,6 +142,9 @@ fn packing_drive(
     open_encrypted_drive(Arc::clone(bucket), key.clone(), device, device, Some(index_dir), false)
         .unwrap()
         .with_packing(options.with_journal(cache.join("packs")))
+        // The drive's upkeep deletes the packs it retired (a drive ships in shadow mode: it only
+        // reports; the test is about the pack lifecycle itself).
+        .with_reclaim(ReclaimMode::Delete)
 }
 
 #[test]

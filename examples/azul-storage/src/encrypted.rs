@@ -67,7 +67,9 @@ use crate::{
     },
     key::{check_key, check_prefix},
     keyring::KeyringStore,
-    meta::reclaim::{delete_released, drop_new_object, LiveObjects, Refusal, Released},
+    meta::reclaim::{
+        delete_released, drop_new_object, LiveObjects, ReclaimMode, Refusal, Released, DEFAULT_MODE,
+    },
     ops::check_folder,
     packing::{PackOptions, PackState, PackedAt},
     scratch::{Scratch, ScratchFile},
@@ -287,6 +289,14 @@ pub trait IndexProvider: Send + Sync {
         let _ = drive;
         None
     }
+
+    /// What the drive `drive`'s upkeep does with data objects only its history can still name
+    /// ([`ReclaimMode`]): by default what a release ships with, [`DEFAULT_MODE`] - it reports what
+    /// it would delete and deletes nothing.
+    fn reclaim_mode(&self, drive: &str) -> ReclaimMode {
+        let _ = drive;
+        DEFAULT_MODE
+    }
 }
 
 /// The encrypted drive `drive` over its bucket: the drive key from this device's keyring (else
@@ -329,6 +339,7 @@ pub fn open_encrypted(
     // The keys from before the drive's rotations, for the file keys they wrapped.
     let opened = opened.with_key_chain(drive)?;
     let opened = opened.counting_pack_reads_as(drive);
+    let opened = opened.with_reclaim(provider.reclaim_mode(drive));
     Ok(match provider.packing(drive) {
         Some(options) => opened.with_packing(options),
         None => opened,
@@ -1452,15 +1463,23 @@ impl<'d, D: Drive> Staged<'d, D> {
         match self.drive.index.get_fresh(&self.path) {
             Ok(Some(entry)) if entry.bucket_object() == Some(self.id) => return Settled::Named,
             Ok(_) => {}
-            Err(_) => return Settled::Kept,
+            Err(_) => return self.kept(),
         }
         let Some(refusal) = Refusal::of(error) else {
-            return Settled::Kept;
+            return self.kept();
         };
         match drop_new_object(&self.drive.inner, &self.id, &refusal) {
             Ok(()) => Settled::Dropped,
-            Err(_) => Settled::Kept,
+            Err(_) => self.kept(),
         }
+    }
+
+    /// The object stays, and is written in the journal of what is in flight: the upkeep clears it
+    /// up after a while - when the drive, read fresh and whole, names it, it was a change that
+    /// landed; when nothing does, it is garbage that costs quota.
+    fn kept(self) -> Settled {
+        self.drive.note_in_flight(&self.id);
+        Settled::Kept
     }
 }
 
@@ -1485,6 +1504,9 @@ pub struct EncryptedDrive<D: Drive> {
     /// nothing and counted in the quota, tried again with the next release and by
     /// [`EncryptedDrive::retry_undeleted`] (AZ-U22).
     undeleted: Mutex<BTreeSet<ObjectId>>,
+    /// What the upkeep does with an object only the drive's history can still name: with an index
+    /// that keeps history, [`ReclaimMode::Shadow`] reports and deletes nothing.
+    pub(crate) reclaim: ReclaimMode,
 }
 
 impl<D: Drive> fmt::Debug for EncryptedDrive<D> {
@@ -1508,7 +1530,16 @@ impl<D: Drive> EncryptedDrive<D> {
             opened: Mutex::new(HashMap::new()),
             packs: PackState::new(None),
             undeleted: Mutex::new(BTreeSet::new()),
+            reclaim: DEFAULT_MODE,
         }
+    }
+
+    /// The upkeep of this drive deletes by `mode` the objects only its history can still name
+    /// ([`IndexProvider::reclaim_mode`]); a drive whose index keeps no history is not affected.
+    #[must_use]
+    pub fn with_reclaim(mut self, mode: ReclaimMode) -> EncryptedDrive<D> {
+        self.reclaim = mode;
+        self
     }
 
     /// Writes with these options (segment size, compression) from now on.

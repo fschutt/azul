@@ -500,13 +500,15 @@ impl Drive for MemoryBucket {
     fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
         let mut state = self.lock();
         state.counts.heads += 1;
+        // The time a server would say, when this bucket was given a clock of its own.
+        let modified = state.server_clock.as_ref().map(|clock| clock());
         state
             .objects
             .get(key)
             .map(|(bytes, version)| ObjectInfo {
                 key: key.to_string(),
                 size: bytes.len() as u64,
-                modified: None,
+                modified,
                 etag: Some(version.clone()),
             })
             .ok_or_else(|| DriveError::NotFound {

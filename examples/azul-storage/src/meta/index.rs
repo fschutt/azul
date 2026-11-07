@@ -49,7 +49,8 @@ use crate::{
     encrypted::{EncryptedDrive, IndexChange, IndexEntry, IndexPage, IndexProvider, NameIndex},
     key::folder_of,
     meta::reclaim::{
-        analyse, reclaim, Caps, LiveObjects, ReclaimMode, ReclaimOptions, ReclaimReport, Released,
+        analyse, purge_options, reclaim, Caps, LiveObjects, PurgeConfirmation, ReclaimMode,
+        ReclaimOptions, ReclaimReport, Released,
     },
     Drive, DriveError, ListRequest, DEFAULT_PAGE_SIZE,
 };
@@ -764,6 +765,34 @@ impl MetaIndexProvider {
         if self.reclaim.mode == ReclaimMode::Off {
             return Ok(ReclaimReport::none(ReclaimMode::Off));
         }
+        self.run_reclaim(bucket, drive_key, &self.reclaim)
+    }
+
+    /// Erases every old version of every file of the drive in `bucket`: each data object the
+    /// head does not name is deleted, whatever its age - the history before this moment cannot be
+    /// restored afterwards. What the user asked for after changing the drive's keys (the old
+    /// objects are the ones the old key still opens); it needs their confirmation
+    /// ([`PurgeConfirmation`]) and is not switched off by the reclaimer's mode: the user said so.
+    /// The bucket's clock must still agree with this device's.
+    ///
+    /// # Errors
+    ///
+    /// The drive's error.
+    pub fn purge(
+        &self,
+        bucket: Arc<dyn Drive>,
+        drive_key: &DriveKey,
+        confirmation: &PurgeConfirmation,
+    ) -> Result<ReclaimReport, DriveError> {
+        self.run_reclaim(bucket, drive_key, &purge_options(confirmation))
+    }
+
+    fn run_reclaim(
+        &self,
+        bucket: Arc<dyn Drive>,
+        drive_key: &DriveKey,
+        options: &ReclaimOptions,
+    ) -> Result<ReclaimReport, DriveError> {
         let mut repo = match MetaRepo::open_with(
             DriveBucket::new(bucket),
             drive_key.clone(),
@@ -772,10 +801,10 @@ impl MetaIndexProvider {
             &RepoOptions::default(),
         ) {
             Ok(repo) => repo,
-            Err(MetaError::NoRepository) => return Ok(ReclaimReport::none(self.reclaim.mode)),
+            Err(MetaError::NoRepository) => return Ok(ReclaimReport::none(options.mode)),
             Err(e) => return Err(to_drive(e)),
         };
-        reclaim(&mut repo, &self.reclaim).map_err(to_drive)
+        reclaim(&mut repo, options).map_err(to_drive)
     }
 
     /// The drives it opens pack small files together ([`crate::packing`]): the sync client's
@@ -861,6 +890,10 @@ impl MetaIndexProvider {
 }
 
 impl IndexProvider for MetaIndexProvider {
+    fn reclaim_mode(&self, _drive: &str) -> ReclaimMode {
+        self.reclaim.mode
+    }
+
     fn packing(&self, drive: &str) -> Option<crate::packing::PackOptions> {
         if !self.packing {
             return None;
