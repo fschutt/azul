@@ -1,12 +1,17 @@
-//! Gate: the test-hook switches - `AZ_BACKEND` (as `headless`), `AZ_E2E_TEST`, `AZ_KEYRING` -
-//! are read only in the files listed here (AZ-K5/P9, ARCH28 AR5b-1 / AR5a-10).
+//! Gate: the test-hook switches - `AZ_BACKEND` (as `headless`), `AZ_E2E_TEST`, `AZ_KEYRING`,
+//! `AZ_KEYRING_FILE`, `AZ_AUTH_SESSION_REDIRECT` - are read only in the files listed here
+//! (AZ-K5/P9, ARCH28 AR5b-1 / AR5a-10, RF38).
 //!
 //! The owner's decision (d): a shipped build never honours a test switch in the environment -
 //! not the keyring stand-in, not the fake sign-in, not "open nothing", not "no biometric". The
 //! predicate `AZ_BACKEND == "headless" || AZ_E2E_TEST is set` was written in seven places, each
-//! deciding for itself what a test run is; `AZ_KEYRING` picks the keyring outright. The cure is
-//! one `RunMode` that reads them behind the cargo feature `test-hooks` (AR5b-1). Until it lands
-//! this gate keeps the copies from growing: a new file that reads a name fails, and a file that
+//! deciding for itself what a test run is. It is now written ONCE: `azul_core::run_mode`
+//! (`core/src/run_mode.rs`) reads the switches, and only in a build with the cargo feature
+//! `test-hooks`; the dll's keyring, sign-in, biometric prompt, sensors and speech, `Url::open` and
+//! the request mocks ask `test_hooks()` (the second test below pins that they do). What is left
+//! on the list is that one place, three apps that cannot ask it (they link libazul as a library
+//! and hold no azul-core) and read a switch of their own behind a `test-hooks` cargo feature of
+//! their own, and the windowing choice: a new file that reads a name fails, and a file that
 //! stops reading one has to leave the list - the counts only go down.
 //!
 //! What it finds is a string literal that IS a switch's name in shipped code: `env::var("..")`,
@@ -16,10 +21,18 @@
 
 use std::path::{Path, PathBuf};
 
-use azul_srcgate::{strings, Allow, Budget, Gate, Orphans, Root, Rule};
+use azul_srcgate::{
+    calls, code, files, locate, strings, workspace, Allow, Budget, Gate, Orphans, Root, Rule,
+};
 
 /// The names of the switches.
-const SWITCHES: [&str; 3] = ["AZ_BACKEND", "AZ_E2E_TEST", "AZ_KEYRING"];
+const SWITCHES: [&str; 5] = [
+    "AZ_BACKEND",
+    "AZ_E2E_TEST",
+    "AZ_KEYRING",
+    "AZ_KEYRING_FILE",
+    "AZ_AUTH_SESSION_REDIRECT",
+];
 
 const ROOTS: &[Root] = &[
     Root {
@@ -51,75 +64,56 @@ const ROOTS: &[Root] = &[
 /// The rule's name.
 const READ: &str = "test-switch-name";
 
-/// Where the switches are read today. TO SHRINK: group A is the predicate itself, copied (the
-/// seven copies of ARCH28 AR5b-1); group B is three apps with a switch of their own; each of
-/// those files moves to the one `RunMode` behind the cargo feature `test-hooks` and leaves this
-/// list. Group C reads `AZ_BACKEND` as the windowing and rendering choice, or is an e2e runner
+/// Where the switches are read today. A is the one place (RF38): `azul_core::run_mode` names all
+/// five variables, once each, as constants of the parse that `test_hooks()` runs behind the cargo
+/// feature `test-hooks`. B is apps with a switch of their own, each behind a `test-hooks` cargo
+/// feature of its own (they hold no azul-core to ask); each leaves this list when libazul can
+/// answer it. C reads `AZ_BACKEND` as the windowing and rendering choice, or is an e2e runner
 /// reading its own switch; those stay until the one `env` seam (AR2-7) reads them. The counts are
 /// exact: a new read is a failure, and so is one that went away.
 const ALLOWED: &[Allow] = &[
-    // ---- A. "is this a test run?" (AZ_BACKEND=headless, AZ_E2E_TEST, AZ_KEYRING) ----
+    // ---- A. the one place that knows which variable means what ----
     Allow::exactly(
-        "core/src/url.rs",
+        "core/src/run_mode.rs",
         READ,
-        2,
-        "Url::open starts no program in a headless or scripted run (opens_nothing)",
+        5,
+        "TestHooks::from_env: the names of AZ_BACKEND (as a stand-in), AZ_E2E_TEST, AZ_KEYRING, \
+         AZ_KEYRING_FILE and AZ_AUTH_SESSION_REDIRECT, read only behind the cargo feature test-hooks",
     ),
-    Allow::exactly(
-        "dll/src/desktop/extra/keyring/mod.rs",
-        READ,
-        3,
-        "RunFacts: AZ_KEYRING and the headless predicate, read only behind the cargo feature \
-         test-hooks (AZ-K5/P9); the seam the others move to",
-    ),
-    Allow::exactly(
-        "dll/src/desktop/extra/biometric/mod.rs",
-        READ,
-        2,
-        "the prompt of a headless or scripted run resolves to Unavailable (copy of the predicate)",
-    ),
-    Allow::exactly(
-        "dll/src/desktop/extra/auth_session/mod.rs",
-        READ,
-        2,
-        "the sign-in of a headless or scripted run is answered by a fake (copy of the predicate)",
-    ),
-    Allow::exactly(
-        "dll/src/desktop/extra/sensors/mod.rs",
-        READ,
-        2,
-        "no sensor is read in a headless or scripted run (copy of the predicate)",
-    ),
-    Allow::exactly(
-        "dll/src/desktop/extra/speech/mod.rs",
-        READ,
-        2,
-        "no speech is made in a headless or scripted run (copy of the predicate)",
-    ),
-    Allow::exactly(
-        "layout/src/request.rs",
-        READ,
-        3,
-        "dialogs, devices and HTTP answered by mocks in a headless or scripted run",
-    ),
-    // ---- B. an app's own switch ----
+    // ---- B. an app's own switch, behind its own cargo feature test-hooks ----
     Allow::exactly(
         "examples/azul-builder/src/lib.rs",
         READ,
         2,
-        "no debug-server page is opened in a headless or scripted run",
+        "no debug-server page is opened in a headless or scripted run of a test build",
     ),
     Allow::exactly(
         "examples/azul-mail/src/lib.rs",
         READ,
         2,
-        "the headless test password and test certificate are honoured under AZ_BACKEND=headless only",
+        "the headless test password and test certificate are honoured under AZ_BACKEND=headless \
+         in a test build only (LANE-AZ-3)",
+    ),
+    Allow::exactly(
+        "examples/azul-drive/src/presence.rs",
+        READ,
+        2,
+        "the stand-in of libazul's biometric prompt (AZ_BACKEND=headless, AZ_E2E_TEST) runs a \
+         gated action at once in a test build only; a shipped build asks the drive's name",
+    ),
+    Allow::exactly(
+        "examples/azcloud-kit/src/shared.rs",
+        READ,
+        1,
+        "the keyring stand-in file's name, whose locks lie beside it: read in a test build only \
+         (K5/P9 decision d)",
     ),
     Allow::exactly(
         "examples/azul-meet/src/call_audio.rs",
         READ,
         1,
-        "no real microphone, speaker or camera is opened under AZ_BACKEND=headless",
+        "no real microphone, speaker or camera is opened under AZ_BACKEND=headless (TO SHRINK: \
+         read in every build; not yet behind a test-hooks feature)",
     ),
     // ---- C. AZ_BACKEND as the windowing / rendering choice; e2e runners' own reads ----
     Allow::exactly(
@@ -175,6 +169,8 @@ fn rules() -> Vec<Rule> {
             "let headless = std::env::var(\"AZ_E2E_TEST\").is_ok();",
             "let b = std::env::var_os(\"AZ_BACKEND\");",
             "let _ = var(\"AZ_KEYRING\");",
+            "let f = std::env::var_os(\"AZ_KEYRING_FILE\");",
+            "let r = std::env::var(\"AZ_AUTH_SESSION_REDIRECT\").ok();",
         ],
         &[
             "let v = std::env::var(\"AZ_BACKEND_URL\");",
@@ -308,4 +304,51 @@ fn a_switch_named_in_a_comment_a_test_or_a_message_is_no_read() {
     );
     assert_eq!(check(&base, &[]), Ok(0));
     let _ = std::fs::remove_dir_all(base);
+}
+
+/// Every consumer of a stand-in ASKS the hooks: a consumer that dropped the question (and kept
+/// the stand-in always on, or always off) is found here, not only a file that reads a variable
+/// itself. These are the places the seven copies of the predicate were (RF38): `Url::open`, the
+/// request mocks, the dll's sign-in, biometric prompt, sensors, speech and keyring facts.
+const CONSUMERS: [&str; 7] = [
+    "core/src/url.rs",
+    "layout/src/request.rs",
+    "dll/src/desktop/extra/auth_session/mod.rs",
+    "dll/src/desktop/extra/biometric/mod.rs",
+    "dll/src/desktop/extra/sensors/mod.rs",
+    "dll/src/desktop/extra/speech/mod.rs",
+    "dll/src/desktop/extra/keyring/mod.rs",
+];
+
+#[test]
+fn every_consumer_of_a_stand_in_asks_the_run_modes_hooks() {
+    // The finder's own cases: a call in a function's body is found, one in a test module or a
+    // comment is not.
+    let found = |src: &str| calls(&locate(&code(src)), "run_mode::test_hooks").len();
+    assert_eq!(found("fn f() { azul_core::run_mode::test_hooks(); }"), 1);
+    assert_eq!(
+        found("fn f() { crate::run_mode::test_hooks().open_nothing; }"),
+        1
+    );
+    assert_eq!(
+        found("#[cfg(test)]\nmod t { fn f() { run_mode::test_hooks(); } }"),
+        0
+    );
+    assert_eq!(
+        found("// run_mode::test_hooks()\nfn f() { test_hooks(); }"),
+        0
+    );
+
+    let read = files(&workspace(), ROOTS, Orphans::Ignore).expect("the roots are readable");
+    for rel in CONSUMERS {
+        let file = read
+            .iter()
+            .find(|f| f.rel == rel)
+            .unwrap_or_else(|| panic!("{rel} is not among the compiled files of the roots"));
+        assert!(
+            !calls(&file.tokens(), "run_mode::test_hooks").is_empty(),
+            "{rel} does not ask azul_core::run_mode::test_hooks(): its stand-in is decided by \
+             something else"
+        );
+    }
 }

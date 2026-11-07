@@ -15,9 +15,18 @@
 //! crate would change the lock file for a test), and the first test pins that the parse found
 //! what it must, so a parser that silently finds nothing cannot pass.
 //!
-//! The behavioural half of the gate (with the test variables set and no `test-hooks`, the
-//! keyring, `Url::open` and the sign-in take their production paths) belongs to the lane that
-//! moves the other consumers behind `test-hooks`.
+//! The other halves of RF38 live where the code is:
+//!
+//! - the SOURCE gate (the switches are read in `azul_core::run_mode` and nowhere else, and every
+//!   consumer asks it) is `azul-srcgate`'s `tests/keyring_gate.rs`;
+//! - the BEHAVIOURAL half (the variables really set in a process, no feature: the hooks are
+//!   none; with the feature: read once) is `azul-core`'s `tests/run_mode_release.rs` and
+//!   `tests/run_mode_hooks.rs`, and each consumer's own tests under the hooks `NONE` and
+//!   `HEADLESS` (`Url::open`, the sign-in, the biometric prompt, the sensors, the speech, the
+//!   keyring facts, the request mocks);
+//! - what this file adds to its closure gate: the features FORWARD - the dll's `test-hooks`
+//!   switches on core's (which reads the variables) and layout's, or a libazul built for the E2E
+//!   runs would carry the keyring marker and no hook at all.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -254,4 +263,39 @@ fn the_gate_sees_a_door_named_in_the_list_or_reached_through_another_feature() {
     );
     let clean = parse_features("[features]\ndist = [\"a\", \"azul-layout/probe\"]\na = []\n");
     assert!(doors_in(&clean, "dist").is_empty());
+}
+
+/// The features forward: the dll's `test-hooks` is what the E2E libazul is built with, so it must
+/// switch on core's (which reads the variables) and layout's (which forwards to core's, for a
+/// layout built on its own). Without it the hooks stay `NONE` in the build that needs them.
+#[test]
+fn the_dlls_test_hooks_switch_on_the_hooks_of_core_and_layout() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("the dll folder has a parent")
+        .to_path_buf();
+    let read = |folder: &str| {
+        let manifest = root.join(folder).join("Cargo.toml");
+        let text = std::fs::read_to_string(&manifest)
+            .unwrap_or_else(|e| panic!("read {}: {e}", manifest.display()));
+        parse_features(&text)
+    };
+    let dll = dll_features();
+    let (_, dll_entries) = closure(&dll, "test-hooks");
+    for must in ["azul-core?/test-hooks", "azul-layout?/test-hooks"] {
+        assert!(
+            dll_entries.contains(must),
+            "the dll's `test-hooks` lost `{must}`: {dll_entries:?}"
+        );
+    }
+    let (_, layout_entries) = closure(&read("layout"), "test-hooks");
+    assert!(
+        layout_entries.contains("azul-core/test-hooks"),
+        "layout's `test-hooks` lost core's: {layout_entries:?}"
+    );
+    let (core_features, _) = closure(&read("core"), "test-hooks");
+    assert!(
+        core_features.contains("std"),
+        "core's `test-hooks` needs `std` (the module is std-only): {core_features:?}"
+    );
 }
