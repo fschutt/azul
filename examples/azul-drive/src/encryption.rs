@@ -139,8 +139,9 @@ static CACHE_DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
 
 /// Sets the run's cache folder (the start, once): the drives' index copies live in it.
 pub(crate) fn set_cache_dir(dir: Option<PathBuf>) {
-    // The poison pill of the analysis of a file's deflate streams and JPEG images: the marker of
-    // an analysis under way is kept here, so a file that ended the program is not analysed again.
+    // The poison pill of the analysis of a file's deflate streams and JPEG images, and of the
+    // decode of a stored transform: the counted marker of one under way is kept here, so a file
+    // that ended the program three times is not analysed (nor a stream decoded) again.
     azul_storage::crypto::codec::set_analysis_marker_dir(dir.as_ref().map(|d| d.join("analysis")));
     let _ = CACHE_DIR.set(dir);
     // Print's copies of an emergency kit a run before left behind.

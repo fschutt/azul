@@ -107,8 +107,10 @@ pub struct Options {
     pub extension: Option<String>,
     pub limits: Limits,
     /// A folder the application keeps for the poison pill: the analysis of a file that can end
-    /// the program ([`crate::transform::marker`]) leaves a marker there while it runs, and a
-    /// file whose marker is found is stored as it is. `None`: no containment.
+    /// the program ([`crate::transform::marker`]) leaves a counted marker there while it runs
+    /// (and so does the decode of a stored transform), and a file whose analysis has not come back
+    /// three times is stored as it is; one that was only quit or killed is tried again. `None`: no
+    /// containment.
     pub poison_dir: Option<std::path::PathBuf>,
 }
 
