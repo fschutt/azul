@@ -82,17 +82,20 @@ impl Read for ProgressReader<'_> {
 /// reports no bytes (the progress of the phase it belongs to was told already). The upload of a
 /// spool that was filled while the progress was told, the encryption of a file into its copy: long
 /// phases a stop used to go unheard in (X-DELTA-AZDRIVE-FILES-13).
+#[cfg(feature = "encryption")]
 pub(crate) struct StopReader<'a> {
     inner: &'a mut dyn Read,
     ctl: &'a dyn Ctl,
 }
 
+#[cfg(feature = "encryption")]
 impl<'a> StopReader<'a> {
     pub(crate) fn new(inner: &'a mut dyn Read, ctl: &'a dyn Ctl) -> Self {
         StopReader { inner, ctl }
     }
 }
 
+#[cfg(feature = "encryption")]
 impl Read for StopReader<'_> {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         if self.ctl.cancelled() {
