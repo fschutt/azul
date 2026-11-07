@@ -63,6 +63,23 @@ pub trait Bucket: Send + Sync {
         let _ = prefix;
         Err(MetaError::Unsupported("listing the bucket".to_string()))
     }
+    /// Whether an object has the key (S3: a HEAD). By default a ranged read of its first byte
+    /// asks (an empty object has no first byte, and is there); a bucket that has a HEAD uses it.
+    fn exists(&self, key: &str) -> Result<bool, MetaError> {
+        match self.read_range(key, ByteRange::new(0, Some(0))) {
+            Ok(_) => Ok(true),
+            Err(MetaError::Drive(DriveError::InvalidRange { .. })) => Ok(true),
+            Err(MetaError::Drive(DriveError::NotFound { .. })) => Ok(false),
+            Err(e) => Err(e),
+        }
+    }
+    /// When the object under `key` was last written, by the BUCKET's clock (seconds since 1970);
+    /// `None` when there is none or the bucket does not say. What a decision that depends on the
+    /// time of day - how old a commit is - checks this device's clock against.
+    fn modified_of(&self, key: &str) -> Result<Option<u64>, MetaError> {
+        let _ = key;
+        Ok(None)
+    }
 }
 
 /// One object of a [`Bucket::list_keys`] listing.
@@ -95,6 +112,12 @@ impl<B: Bucket + ?Sized> Bucket for &B {
     fn list_keys(&self, prefix: &str) -> Result<Vec<Listed>, MetaError> {
         (**self).list_keys(prefix)
     }
+    fn exists(&self, key: &str) -> Result<bool, MetaError> {
+        (**self).exists(key)
+    }
+    fn modified_of(&self, key: &str) -> Result<Option<u64>, MetaError> {
+        (**self).modified_of(key)
+    }
 }
 
 impl<B: Bucket + ?Sized> Bucket for Arc<B> {
@@ -118,6 +141,12 @@ impl<B: Bucket + ?Sized> Bucket for Arc<B> {
     }
     fn list_keys(&self, prefix: &str) -> Result<Vec<Listed>, MetaError> {
         (**self).list_keys(prefix)
+    }
+    fn exists(&self, key: &str) -> Result<bool, MetaError> {
+        (**self).exists(key)
+    }
+    fn modified_of(&self, key: &str) -> Result<Option<u64>, MetaError> {
+        (**self).modified_of(key)
     }
 }
 
@@ -176,6 +205,9 @@ struct MemoryState {
     before_replace: BTreeMap<String, Hook>,
     /// The next create, replace or remove of the key fails with this, changing nothing.
     fail_next: BTreeMap<String, MetaError>,
+    /// The clock this bucket answers [`Bucket::modified_of`] by, as a server does with its own;
+    /// none: it does not say.
+    server_clock: Option<Arc<dyn Fn() -> u64 + Send + Sync>>,
 }
 
 impl MemoryState {
@@ -237,6 +269,12 @@ impl MemoryBucket {
     /// changing nothing (a test's 409 or lost connection).
     pub fn fail_next_write(&self, key: &str, error: MetaError) {
         self.lock().fail_next.insert(key.to_string(), error);
+    }
+
+    /// The bucket tells the time of its writes by `clock` from now on ([`Bucket::modified_of`]): a
+    /// server's own clock, which a test can set apart from the device's.
+    pub fn set_server_clock(&self, clock: impl Fn() -> u64 + Send + Sync + 'static) {
+        self.lock().server_clock = Some(Arc::new(clock));
     }
 
     /// Writes the object whatever is there (a test's tampering).
@@ -347,6 +385,16 @@ impl Bucket for MemoryBucket {
                 modified: None,
             })
             .collect())
+    }
+
+    fn modified_of(&self, key: &str) -> Result<Option<u64>, MetaError> {
+        let state = self.lock();
+        let there = state.objects.contains_key(key);
+        Ok(state
+            .server_clock
+            .as_ref()
+            .filter(|_| there)
+            .map(|clock| clock()))
     }
 }
 
@@ -576,6 +624,22 @@ impl<D: Drive> Bucket for DriveBucket<D> {
 
     fn remove(&self, key: &str) -> Result<(), MetaError> {
         self.drive.delete(key).map_err(MetaError::Drive)
+    }
+
+    fn exists(&self, key: &str) -> Result<bool, MetaError> {
+        match self.drive.head(key) {
+            Ok(_) => Ok(true),
+            Err(DriveError::NotFound { .. }) => Ok(false),
+            Err(e) => Err(MetaError::Drive(e)),
+        }
+    }
+
+    fn modified_of(&self, key: &str) -> Result<Option<u64>, MetaError> {
+        match self.drive.head(key) {
+            Ok(info) => Ok(info.modified),
+            Err(DriveError::NotFound { .. }) => Ok(None),
+            Err(e) => Err(MetaError::Drive(e)),
+        }
     }
 
     fn list_keys(&self, prefix: &str) -> Result<Vec<Listed>, MetaError> {

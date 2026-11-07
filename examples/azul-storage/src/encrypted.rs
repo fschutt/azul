@@ -67,7 +67,7 @@ use crate::{
     },
     key::{check_key, check_prefix},
     keyring::KeyringStore,
-    meta::reclaim::{delete_released, drop_new_object, Refusal, Released},
+    meta::reclaim::{delete_released, drop_new_object, LiveObjects, Refusal, Released},
     ops::check_folder,
     packing::{PackOptions, PackState, PackedAt},
     scratch::{Scratch, ScratchFile},
@@ -207,6 +207,17 @@ pub trait NameIndex: Send + Sync {
     /// other copy).
     fn get_fresh(&self, path: &str) -> Result<Option<IndexEntry>, DriveError> {
         self.get(path)
+    }
+
+    /// The data objects the drive's head and every state inside the retention window name, read
+    /// now and whole from the drive - never from a copy that answered because the drive could not
+    /// be reached: a failed read is an error and never a smaller set. `now` is the time of day the
+    /// window is judged by. `None` for an index that keeps no history: its head is everything
+    /// there is, and what it released it released for good ([`Released::delete_now`]). What a
+    /// delete of an object only the history could still name rests on.
+    fn live_objects(&self, now: u64) -> Result<Option<LiveObjects>, DriveError> {
+        let _ = now;
+        Ok(None)
     }
 
     /// One page of the entries under `request.prefix` (S3 ListObjectsV2 semantics).

@@ -25,6 +25,9 @@ mod index_paging;
 #[cfg(feature = "index-cache")]
 mod query_cache;
 mod race;
+/// The reclaimer of the data objects of a drive that keeps its history (feature `encryption`).
+#[cfg(feature = "encryption")]
+mod reclaim;
 /// The drive index under a new drive key (feature `encryption`).
 #[cfg(feature = "encryption")]
 mod rekey;

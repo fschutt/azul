@@ -98,6 +98,21 @@ pub struct Retired {
     pub at: u64,
 }
 
+/// How far the reclaimer has been ([`super::reclaim`]): every data object that a commit up to this
+/// mark released has been dealt with - deleted, or found to be named again. A cursor, not a
+/// ledger: the reclaimer derives what was released from the commits themselves, so a manifest
+/// that lost the mark (an older client wrote it) only makes the next run start from the
+/// beginning.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReclaimMark {
+    /// The newest commit dealt with: its effective time (seconds since 1970) ...
+    pub time: u64,
+    /// ... and its id (hex); the pair is the mark, in this order.
+    pub commit: String,
+    /// When the mark was set, by the device's clock.
+    pub at: u64,
+}
+
 /// The manifest: the repository's current state, in one small object.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Manifest {
@@ -117,6 +132,10 @@ pub struct Manifest {
     pub packs: Vec<PackRef>,
     #[serde(default)]
     pub retired: Vec<Retired>,
+    /// How far the reclaimer got ([`ReclaimMark`]). Optional and unknown to older clients, which
+    /// drop it when they write the manifest: `format` stays 1, and nothing depends on it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reclaimed: Option<ReclaimMark>,
     /// The device that wrote this revision.
     pub writer: String,
     /// Seconds since 1970.
@@ -500,6 +519,7 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
             log: Vec::new(),
             packs: Vec::new(),
             retired: Vec::new(),
+            reclaimed: None,
             writer: self.device.clone(),
             updated_at: self.now(),
         };
@@ -1309,6 +1329,71 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
         })
     }
 
+    /// Under `guard`: swaps the manifest for the same one a revision higher - with the reclaimer's
+    /// `mark` when there is one - but only while it is still the revision `expected`, the one the
+    /// reclaimer read the drive at. That is the fence of a reclaimer: when this returns, nobody
+    /// published since it read, and whoever publishes from now on meets a manifest that moved.
+    /// [`MetaError::Conflict`] when the manifest is not at `expected` (the reads are old: nothing
+    /// may be deleted from them); [`MetaError::OutcomeUnknown`] when the swap's landing cannot be
+    /// told. Returns the revision the manifest is at now.
+    pub fn stamp(
+        &mut self,
+        guard: &LeaseGuard,
+        expected: u64,
+        mark: Option<ReclaimMark>,
+    ) -> Result<u64, MetaError> {
+        self.check_guard(guard)?;
+        self.sync()?;
+        let synced = self.synced.as_ref().ok_or(MetaError::NoRepository)?;
+        if synced.manifest.revision != expected {
+            return Err(MetaError::Conflict {
+                key: keys::MANIFEST.to_string(),
+            });
+        }
+        let known = synced.version.clone();
+        let mut next = synced.manifest.clone();
+        next.revision += 1;
+        next.writer = self.device.clone();
+        next.updated_at = self.now();
+        if mark.is_some() {
+            next.reclaimed = mark;
+        }
+        match self.swap_manifest(&next, known.as_deref()) {
+            Ok(version) => {
+                self.seen_revision = next.revision;
+                self.state.revision = next.revision;
+                let revision = next.revision;
+                self.synced = Some(Synced {
+                    manifest: next,
+                    version,
+                });
+                Ok(revision)
+            }
+            Err(lost) => {
+                // As in a publish: the swap may have landed with its answer lost.
+                let revision = next.revision;
+                let device = self.device.clone();
+                let mine = |manifest: &Manifest| {
+                    manifest.revision == revision
+                        && manifest.writer == device
+                        && manifest.reclaimed == next.reclaimed
+                };
+                match self.swap_landed(mine)? {
+                    Some(true) => Ok(revision),
+                    Some(false) => Err(match lost {
+                        MetaError::Raced { .. } => MetaError::Conflict {
+                            key: keys::MANIFEST.to_string(),
+                        },
+                        other => other,
+                    }),
+                    None => Err(MetaError::OutcomeUnknown {
+                        key: keys::MANIFEST.to_string(),
+                    }),
+                }
+            }
+        }
+    }
+
     /// The lease is still this device's: not expired by this device's clock,
     /// and the bucket's lease is still the one the guard took (not released,
     /// not taken over). The lease only saves double work: every change of the
@@ -1553,6 +1638,7 @@ pub fn reseal<B: Bucket + ?Sized, O: Sealer, N: Sealer>(
             log: Vec::new(),
             packs,
             retired,
+            reclaimed: manifest.reclaimed.clone(),
             writer: device.to_string(),
             updated_at: now,
         };

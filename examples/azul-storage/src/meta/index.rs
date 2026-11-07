@@ -37,6 +37,7 @@ use super::{
     repo::{
         remote_head, unpublished, unreachable, Local, MetaRepo, RepoOptions, RestoreSource, MAIN,
     },
+    retention::RETENTION,
     seal::{KeyWindow, Sealer},
     shard::{self, SHARD_PREFIX},
     tree::{apply, entry_at, folder_at, Change},
@@ -47,7 +48,9 @@ use crate::{
     crypto::{DriveKey, ObjectId as DataId},
     encrypted::{EncryptedDrive, IndexChange, IndexEntry, IndexPage, IndexProvider, NameIndex},
     key::folder_of,
-    meta::reclaim::Released,
+    meta::reclaim::{
+        analyse, reclaim, Caps, LiveObjects, ReclaimMode, ReclaimOptions, ReclaimReport, Released,
+    },
     Drive, DriveError, ListRequest, DEFAULT_PAGE_SIZE,
 };
 use sha2::{Digest, Sha256};
@@ -431,6 +434,30 @@ impl<B: Bucket, S: Sealer> NameIndex for MetaIndex<B, S> {
         Self::lookup(&mut inner.repo, path)
     }
 
+    /// The head and the window, read from the drive now: the copy is polled (an error when the
+    /// drive cannot be reached) and read whole, then every state inside the retention is walked.
+    /// Holds this device's copy for the walk: a call for the rare round of upkeep, not for a
+    /// listing.
+    fn live_objects(&self, now: u64) -> Result<Option<LiveObjects>, DriveError> {
+        let mut inner = self.lock();
+        inner.repo.pull().map_err(to_drive)?;
+        inner.repo.fetch_all().map_err(to_drive)?;
+        let Some(head) = inner.repo.head() else {
+            return Ok(Some(LiveObjects::empty(now)));
+        };
+        let analysis = analyse(
+            inner.repo.objects(),
+            &head,
+            now,
+            &RETENTION,
+            None,
+            &Caps::default(),
+            true,
+        )
+        .map_err(|why| DriveError::Protocol(why.to_string()))?;
+        Ok(Some(LiveObjects::from_analysis(&analysis)))
+    }
+
     /// The drive is polled now; a drive that cannot be reached is an error, never the copy's
     /// answer.
     fn get_fresh(&self, path: &str) -> Result<Option<IndexEntry>, DriveError> {
@@ -655,6 +682,10 @@ pub struct MetaIndexProvider {
     packing: bool,
     /// Where a restore of the drives it opens is announced (the token server's word).
     restore: RestoreSource,
+    /// How the reclaimer of the drives it maintains runs: shadow by default.
+    reclaim: ReclaimOptions,
+    /// What the reclaimer round at the end of the last [`MetaIndexProvider::maintain`] came to.
+    last_reclaim: Mutex<Option<Result<ReclaimReport, String>>>,
 }
 
 impl MetaIndexProvider {
@@ -668,6 +699,8 @@ impl MetaIndexProvider {
             lazy: false,
             packing: false,
             restore: RestoreSource::default(),
+            reclaim: ReclaimOptions::default(),
+            last_reclaim: Mutex::new(None),
         }
     }
 
@@ -693,6 +726,56 @@ impl MetaIndexProvider {
     pub fn with_restore(mut self, source: RestoreSource) -> Self {
         self.restore = source;
         self
+    }
+
+    /// How the reclaimer of the drives it maintains runs ([`ReclaimOptions`]): the first release
+    /// ships it in shadow mode - it reports what it would delete and deletes nothing -, and
+    /// `ReclaimMode::Off` is the kill switch.
+    #[must_use]
+    pub fn with_reclaim(mut self, options: ReclaimOptions) -> Self {
+        self.reclaim = options;
+        self
+    }
+
+    /// What the reclaimer round at the end of the last [`MetaIndexProvider::maintain`] came to:
+    /// the report (its [`ReclaimReport::line`] is what the log says), or why the round could not
+    /// read the drive. `None` before any round.
+    #[must_use]
+    pub fn last_reclaim(&self) -> Option<Result<ReclaimReport, String>> {
+        self.last_reclaim
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+
+    /// One reclaimer round on the drive in `bucket` ([`reclaim`]), on a copy of the repository
+    /// of its own - read whole, like the maintenance round's, so the device's open copies stay as
+    /// they are. In shadow mode it deletes nothing; `Ok` with the report even when the round
+    /// stopped on a decision (`stopped`), an error only when the drive could not be read.
+    ///
+    /// # Errors
+    ///
+    /// The drive's error.
+    pub fn reclaim(
+        &self,
+        bucket: Arc<dyn Drive>,
+        drive_key: &DriveKey,
+    ) -> Result<ReclaimReport, DriveError> {
+        if self.reclaim.mode == ReclaimMode::Off {
+            return Ok(ReclaimReport::none(ReclaimMode::Off));
+        }
+        let mut repo = match MetaRepo::open_with(
+            DriveBucket::new(bucket),
+            drive_key.clone(),
+            &self.device_id(),
+            "Maintenance",
+            &RepoOptions::default(),
+        ) {
+            Ok(repo) => repo,
+            Err(MetaError::NoRepository) => return Ok(ReclaimReport::none(self.reclaim.mode)),
+            Err(e) => return Err(to_drive(e)),
+        };
+        reclaim(&mut repo, &self.reclaim).map_err(to_drive)
     }
 
     /// The drives it opens pack small files together ([`crate::packing`]): the sync client's
@@ -755,13 +838,25 @@ impl MetaIndexProvider {
         drive_key: &DriveKey,
         rules: &Maintenance,
     ) -> Result<Option<Maintained>, DriveError> {
+        let raw = Arc::clone(&bucket);
         let bucket = DriveBucket::new(bucket);
         let mut store = match MetaStore::open(bucket, drive_key.clone(), &self.device_id()) {
             Ok(store) => store,
             Err(MetaError::NoRepository) => return Ok(None),
             Err(e) => return Err(to_drive(e)),
         };
-        store.maintain(rules).map_err(to_drive)
+        let done = store.maintain(rules).map_err(to_drive)?;
+        // After the round the index is in its smallest shape: the reclaimer looks at the data
+        // objects its history released. A round that cannot read the drive does not fail the
+        // maintenance, and is told in `last_reclaim`.
+        if done.is_some() && self.reclaim.mode != ReclaimMode::Off {
+            let outcome = self.reclaim(raw, drive_key).map_err(|e| e.to_string());
+            *self
+                .last_reclaim
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner) = Some(outcome);
+        }
+        Ok(done)
     }
 }
 

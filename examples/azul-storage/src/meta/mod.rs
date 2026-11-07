@@ -130,7 +130,10 @@ pub use pack::{PackIndex, PackWriter, SealedPack};
 #[cfg(feature = "encryption")]
 pub use index::{open_encrypted_drive, MetaIndex, MetaIndexProvider};
 #[cfg(feature = "encryption")]
-pub use reclaim::{Certainty, Released};
+pub use reclaim::{
+    Caps, Certainty, Deleted, LiveObjects, NotYet, ReclaimMode, ReclaimOptions, ReclaimReport,
+    Reclaimable, Released, ServerClock,
+};
 pub use repo::{CommitOutcome, MetaRepo, RepoOptions, RestoreSource};
 pub use retention::{Retention, RETENTION};
 #[cfg(feature = "encryption")]
