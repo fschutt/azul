@@ -327,6 +327,53 @@ fn az_s23_take_theirs_keeps_this_computers_version_in_the_trash() {
     assert_eq!(b.read("note.md").as_deref(), Some(&b"a's edit"[..]));
 }
 
+/// AZ-S15. "Stop syncing" keeps the pairing's state folder, so the pairing made afterwards loaded
+/// the old base: a file deleted while the pairing was off was deleted on the drive and on every
+/// other device when it came on again, and a drive that had been rolled back (or replaced)
+/// refused every poll, for ever - "pair this folder again" changed nothing. A pairing made now
+/// forgets the old base (the app calls `forget_base` when it pairs). RED not run: the function is
+/// new; without it the first pass deletes `x.txt` on the drive.
+#[test]
+fn az_s15_a_pairing_made_again_starts_with_a_new_base_and_deletes_nothing() {
+    use crate::sync::session::forget_base;
+    let store = Arc::new(S3Bucket::new());
+    let a = paired("dev-a", &store, |_| {});
+    a.write("x.txt", b"x");
+    a.write("y.txt", b"y");
+    a.pass();
+    let old_drive = store.read("Documents/.azlin/index.json").unwrap();
+    // The pairing is off; a file is deleted meanwhile; the pairing is made again.
+    fs::remove_file(path_of(a.folder.path(), "x.txt")).unwrap();
+    forget_base(a.state.path()).unwrap();
+    let (states, _) = a.pass();
+    assert!(
+        lists(&index_of(&store), "x.txt"),
+        "the drive keeps what was deleted while off"
+    );
+    assert_eq!(
+        a.read("x.txt").as_deref(),
+        Some(&b"x"[..]),
+        "and it is back here"
+    );
+    assert_eq!(states.state_of("x.txt"), Some(FileState::OnDevice));
+
+    // A drive that was replaced by an older copy refuses a pairing that remembers better ...
+    a.write("z.txt", b"z");
+    a.pass();
+    store.write("Documents/.azlin/index.json", old_drive);
+    assert!(
+        a.session
+            .pass(&AtomicBool::new(false), &mut |_| {})
+            .is_err(),
+        "an index older than the last one seen is refused"
+    );
+    // ... and a pairing made again takes it as the drive it is.
+    forget_base(a.state.path()).unwrap();
+    let (states, _) = a.pass();
+    assert!(states.last_error.is_none(), "{states:?}");
+    assert!(lists(&index_of(&store), "z.txt"), "the files here went up again");
+}
+
 /// A drive that takes reads but refuses writes (unpaid past its grace period).
 struct Refusing(Arc<S3Bucket>);
 

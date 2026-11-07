@@ -711,6 +711,35 @@ pub fn device_name() -> String {
         .unwrap_or_else(|| String::from("this device"))
 }
 
+/// A pairing made now starts as a new one (AZ-S15): what an earlier pairing of the same folder and
+/// drive left in its state folder - the base (moved aside as `index.json.unreadable`), the cached
+/// index, the named drive's memo and the note of what a pass sent - is forgotten. The base would
+/// turn what was deleted while the pairing was off into deletes on the drive and on every other
+/// device (D5: unpairing never deletes), and it would keep a high generation that refuses every
+/// poll of a drive that was rolled back or replaced, for ever. A new base pairs the two sides by
+/// content: nothing is deleted, nothing is lost. The user's choices ([`SyncStates`]: pins, freed
+/// files) stay, and so do the operations log and the trash.
+///
+/// # Errors
+///
+/// When the old base cannot be moved aside or a file of it cannot be removed.
+pub fn forget_base(state_dir: &Path) -> CloudResult<()> {
+    let index_path = state_dir.join(INDEX_FILE);
+    LocalIndex::set_aside(&index_path).with_context(|| index_path.display().to_string())?;
+    for path in [
+        super::cache_path(&index_path),
+        super::sending_path(&index_path),
+        index_path.with_extension("named.json"),
+    ] {
+        match fs::remove_file(&path) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e).with_context(|| path.display().to_string()),
+        }
+    }
+    Ok(())
+}
+
 /// The drive side of a pairing.
 enum SessionRemote {
     /// A plain drive: the plain index and blobs.

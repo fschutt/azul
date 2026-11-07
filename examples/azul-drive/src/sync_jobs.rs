@@ -1156,6 +1156,13 @@ pub(crate) fn pair_with(
         .map_err(|e| Text::plain(format!("{}: {e}", folder.display())))?;
     let mut setup = SyncSetup::new(drive_id, &prefix, &folder);
     edit(&mut setup);
+    // A pairing made now is a new one: the base an earlier pairing of this folder left (Stop keeps
+    // the state folder) would turn what was deleted while it was off into deletes on the drive, and
+    // the generation it remembers would refuse a drive that was replaced, for ever (AZ-S15).
+    if let Some(root) = state_root(s) {
+        azcloud_kit::sync::session::forget_base(&setup.state_dir(&root))
+            .map_err(|e| Text::plain(e.to_string()))?;
+    }
     s.settings.synced.push(setup);
     publish(s);
     crate::save_settings(info, app, s);
