@@ -97,12 +97,12 @@ mod tests;
 /// The variable naming the file that keeps a run's keyring instead of the
 /// system's (a test stack's runs, windowed or headless). Read by builds with the cargo feature
 /// `test-hooks` only.
-pub const KEYRING_FILE_VAR: &str = "AZ_KEYRING_FILE";
+pub const KEYRING_FILE_VAR: &str = azul_core::run_mode::KEYRING_FILE_VAR;
 
 /// The variable that picks a run's keyring: `system`, `file` (the one
 /// [`KEYRING_FILE_VAR`] names) or `memory`. Read by builds with the cargo feature `test-hooks`
 /// only.
-pub const KEYRING_CHOICE_VAR: &str = "AZ_KEYRING";
+pub const KEYRING_CHOICE_VAR: &str = azul_core::run_mode::KEYRING_CHOICE_VAR;
 
 /// Present only in a libazul built with the cargo feature `test-hooks`: the scripts that need the
 /// keyring's test switches look for it in the library file (`grep -a`) before they run an app
@@ -149,40 +149,39 @@ pub(crate) struct RunFacts {
 }
 
 impl RunFacts {
-    /// The facts of this process: its environment - read only by a build with the cargo feature
-    /// `test-hooks` - and how libazul was built.
+    /// The facts of this process: the hooks of its build (`azul_core::run_mode::test_hooks()`:
+    /// the environment's test switches, read only by a build with the cargo feature
+    /// `test-hooks`) and how libazul was built.
     fn of_this_run() -> Self {
-        Self::from_env(
-            cfg!(feature = "test-hooks"),
-            |name| std::env::var_os(name),
-            cfg!(debug_assertions),
-        )
+        Self::from_hooks(azul_core::run_mode::test_hooks(), cfg!(debug_assertions))
     }
 
-    /// The facts of a run whose environment is `var`. The test switches (`AZ_KEYRING`,
-    /// `AZ_KEYRING_FILE`, `AZ_BACKEND=headless`, `AZ_E2E_TEST`) are looked at only when `hooks`
-    /// - the build has the cargo feature `test-hooks`; a release or distribution build never
-    /// reads them, whatever its environment holds.
+    /// The facts of a run with the hooks `hooks`. The test switches (`AZ_KEYRING`,
+    /// `AZ_KEYRING_FILE`, `AZ_BACKEND=headless`, `AZ_E2E_TEST`) are `azul_core::run_mode`'s: a
+    /// release or distribution build has no hook, so nothing in its environment reaches the
+    /// facts.
+    pub(crate) fn from_hooks(hooks: &azul_core::run_mode::TestHooks, debug_build: bool) -> Self {
+        Self {
+            choice: hooks.keyring_choice.clone(),
+            file: hooks.keyring_file.clone(),
+            headless: hooks.keyring_headless,
+            debug_build,
+        }
+    }
+
+    /// The facts of a run whose environment is `var`, in a build that has the test hooks (`hooks`)
+    /// or not: a build without them reads nothing of `var`.
     pub(crate) fn from_env(
         hooks: bool,
         var: impl Fn(&str) -> Option<std::ffi::OsString>,
         debug_build: bool,
     ) -> Self {
-        if !hooks {
-            return Self {
-                choice: None,
-                file: None,
-                headless: false,
-                debug_build,
-            };
-        }
-        Self {
-            choice: var(KEYRING_CHOICE_VAR),
-            file: var(KEYRING_FILE_VAR),
-            headless: var("AZ_BACKEND").is_some_and(|backend| backend == "headless")
-                || var("AZ_E2E_TEST").is_some(),
-            debug_build,
-        }
+        let asked = if hooks {
+            azul_core::run_mode::TestHooks::from_env(&var)
+        } else {
+            azul_core::run_mode::TestHooks::NONE
+        };
+        Self::from_hooks(&asked, debug_build)
     }
 }
 

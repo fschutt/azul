@@ -276,21 +276,24 @@ fn a_build_with_the_test_hooks_reads_the_keyring_switches() {
     );
 }
 
-/// The process's own environment, as `of_this_run` reads it: only a build with the cargo feature
-/// `test-hooks` sees the variables.
+/// The process's own facts are its build's hooks (`azul_core::run_mode::test_hooks()`, read once
+/// and only by a build with the cargo feature `test-hooks`): a variable set later is not seen, and
+/// a build without the feature has no opinion whatever the environment holds. (That the hooks
+/// read each variable is `azul-core`'s `run_mode` tests.)
 #[test]
-fn this_process_reads_its_environment_only_with_the_test_hooks() {
+fn this_process_asks_the_hooks_of_its_build_and_nothing_else() {
     // A variable no other test of this module reads.
     std::env::set_var(super::KEYRING_FILE_VAR, "/tmp/az-keyring-hooks-test.json");
     let facts = super::RunFacts::of_this_run();
     std::env::remove_var(super::KEYRING_FILE_VAR);
-    if cfg!(feature = "test-hooks") {
-        assert_eq!(
-            facts.file,
-            Some(std::ffi::OsString::from("/tmp/az-keyring-hooks-test.json"))
-        );
-    } else {
+    let hooks = azul_core::run_mode::test_hooks();
+    assert_eq!(facts.file, hooks.keyring_file);
+    assert_eq!(facts.choice, hooks.keyring_choice);
+    assert_eq!(facts.headless, hooks.keyring_headless);
+    if !cfg!(feature = "test-hooks") {
         assert_eq!(facts.file, None, "a build without the hooks does not look");
+        assert_eq!(facts.choice, None);
+        assert!(!facts.headless);
     }
 }
 
