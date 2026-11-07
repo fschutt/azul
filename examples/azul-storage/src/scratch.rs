@@ -42,7 +42,11 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
-use crate::beneath::{BeneathError, Dir, Kind, Stat};
+use crate::{
+    beneath::{BeneathError, Dir, Kind, Stat},
+    durable::Expect,
+    DriveError,
+};
 
 /// Where scratch lives, set once by a program that has a cache folder (`<cache>/scratch`).
 static ROOT: OnceLock<Option<PathBuf>> = OnceLock::new();
@@ -60,6 +64,17 @@ const SWEEP_LOOKS: usize = 4096;
 /// What the sweep a purpose's first [`Scratch::file`] runs removes by age: a file of a process
 /// that may still run is this old before it goes (a file of a process that is gone always goes).
 pub const HORIZON: Duration = Duration::from_secs(3 * 24 * 3600);
+
+/// How long a copy handed to an app ([`Scratch::open_copy`]) is kept before a sweep removes it:
+/// "swept after use" for a copy nobody can tell the end of use of. A folder that holds the user's
+/// own work stays whatever its age says.
+pub const OPEN_COPY_KEPT: Duration = Duration::from_secs(24 * 3600);
+
+/// The purpose of the copies handed to apps ([`Scratch::open_copies_of`]).
+const OPEN_PURPOSE: &str = "open";
+
+/// How many `name (edited N)` files one copy's folder keeps before it refuses to put another aside.
+const ASIDE_MAX: u32 = 999;
 
 /// Keeps scratch under `cache/scratch` from now on. Called once, at the start of a program that
 /// has a cache folder, before the first [`Scratch::new`]; a second call changes nothing. Returns
@@ -303,6 +318,21 @@ impl Scratch {
         ))
     }
 
+    /// The scratch of the copies of the drive `drive` handed to apps ([`Scratch::open_copy`]): a
+    /// purpose folder of its own per drive (`open-<hash of its id>`), so that a removed drive takes
+    /// its own with it and a sweep treats each like any purpose (X-DELTA-AZDRIVE-KEYS-32). The one
+    /// owner of the word: AzDrive's own Open and the sync's encrypted copies both ask here.
+    #[must_use]
+    pub fn open_copies_of(drive: &str) -> Scratch {
+        Scratch::tagged(OPEN_PURPOSE, drive)
+    }
+
+    /// [`Scratch::open_copies_of`] with its own `root` (a test's folder).
+    #[must_use]
+    pub fn open_copies_under(root: &Path, drive: &str) -> Scratch {
+        Scratch::tagged_under(root, OPEN_PURPOSE, drive)
+    }
+
     /// The folder kept under `tag` (a file and its version: what is the same thing twice is one
     /// folder): `k-<hash>`, `rwx------`, made on the first ask. Its contents are the caller's;
     /// a sweep removes it, with everything in it, when it is old.
@@ -365,6 +395,106 @@ impl Scratch {
             Err(e) if e.kind() == io::ErrorKind::NotFound => MadeState::Changed,
             Err(_) => MadeState::Unknown,
         }
+    }
+
+    /// The copy of a drive's file that an app is handed (a viewer, an editor, the system's "open"):
+    /// THE procedure, for every program that hands one out (ARCH29 C6a; AZ-W4, AZ-U13, AZ-U14,
+    /// X-DELTA-AZDRIVE-FILES-7, X-DELTA-AZDRIVE-SYNC-2). It had been written twice, and the second
+    /// time without what the first had learned (an edit saved beside the copy was swept after a
+    /// few days, the next Open wrote the original over an edit saved over it).
+    ///
+    /// - a sweep first (a copy older than [`OPEN_COPY_KEPT`] and not holding the user's work goes);
+    /// - ONE folder per file AND version ([`CopyOf`]): the same version opened again is the same
+    ///   copy, another version another folder, and the first stays as it was;
+    /// - a copy that is there and is what was written (its record, [`Scratch::made_state`], or
+    ///   when none is left its size) is handed out again as it is, without a fetch;
+    /// - whatever else stands at the copy's place - an editor's save renamed over the read-only
+    ///   copy, a "Save As" in its folder, a shortened or same-sized file - is the user's work: put
+    ///   aside as `name (edited).ext`, never deleted, and said in [`OpenedCopy::kept_edit`];
+    /// - `fetch` is asked for the bytes ONLY into a free place ([`Expect::Absent`]): it must fail
+    ///   with [`DriveError::Conflict`] when a file turned up there since the look (what
+    ///   [`crate::durable::publish`] does with that expectation). A file made by another window in
+    ///   the same moment is the same copy; a stranger's is put aside too, once;
+    /// - the file is marked as downloaded from elsewhere ([`crate::quarantine::mark_downloaded`]),
+    ///   read-only ([`make_read_only`]: a save in place fails loudly) and, last, noted as made
+    ///   ([`Scratch::note_made`]: from then on a sweep keeps the folder while it holds anything
+    ///   else). A copy that could not be noted is not handed out - an edit of it would be swept.
+    ///
+    /// # Errors
+    ///
+    /// [`DriveError::InvalidKey`] when `of.name` is not one usable file name; what `fetch` fails
+    /// with (after the one retry above); [`DriveError::Io`] when the folder cannot be made, the
+    /// user's file cannot be put aside, or the copy cannot be noted.
+    pub fn open_copy(
+        &self,
+        of: CopyOf<'_>,
+        fetch: &mut dyn FnMut(&Path, Expect) -> Result<(), DriveError>,
+    ) -> Result<OpenedCopy, DriveError> {
+        if !is_copy_name(of.name) {
+            return Err(DriveError::InvalidKey {
+                key: of.key.to_string(),
+                reason: "it has no usable file name",
+            });
+        }
+        // What a run before left, and old copies of this one, go before a new copy comes.
+        self.sweep(OPEN_COPY_KEPT);
+        let tag = match of.size {
+            Some(size) => format!("{}\0{}\0{size}", of.key, of.version),
+            None => format!("{}\0{}\0", of.key, of.version),
+        };
+        let folder = self
+            .keep(&tag)
+            .map_err(|e| DriveError::Io(format!("{}: {e}", of.key)))?;
+        let dest = folder.join(of.name);
+        if copy_is_usable(&folder, of.name, of.size) {
+            return Ok(OpenedCopy {
+                path: dest,
+                kept_edit: None,
+            });
+        }
+        // Something that is not the bytes written stands under the name (a copy somebody saved
+        // over, shortened or edited): it is put aside, once, and the copy is fetched.
+        let mut kept_edit = None;
+        if fs::symlink_metadata(&dest).is_ok() {
+            kept_edit = put_aside(&folder, of.name)?;
+        }
+        let mut again = false;
+        loop {
+            match fetch(&dest, Expect::Absent) {
+                Ok(()) => break,
+                // Another window made the same copy in the same moment.
+                Err(DriveError::Conflict { .. }) if copy_is_usable(&folder, of.name, of.size) => {
+                    return Ok(OpenedCopy {
+                        path: dest,
+                        kept_edit,
+                    });
+                }
+                // A file turned up under the name since the look: it is somebody's, put aside too.
+                Err(DriveError::Conflict { .. }) if !again => {
+                    again = true;
+                    kept_edit = put_aside(&folder, of.name)?.or(kept_edit);
+                }
+                Err(e) => return Err(e),
+            }
+        }
+        // The system looks at a file from a drive before it runs it (AZ-W20).
+        crate::quarantine::mark_downloaded(&dest);
+        // collapse-ok: a copy that stays writable is still private to this user, and the record
+        // below keeps an edit of it from being swept; what a refusal loses is only the loud
+        // failure of a save in place.
+        let _ = make_read_only(&dest);
+        // Noted last: the mode and the mark are part of the file as it is now.
+        Scratch::note_made(&folder, of.name).map_err(|e| {
+            DriveError::Io(format!(
+                "{}: the copy cannot be noted as made, so an edit of it could not be told from \
+                 scratch: {e}",
+                of.key
+            ))
+        })?;
+        Ok(OpenedCopy {
+            path: dest,
+            kept_edit,
+        })
     }
 
     /// Removes what this purpose's folder holds that nobody uses: a file of a process that is
@@ -526,6 +656,36 @@ pub enum MadeState {
     Unknown,
 }
 
+/// The copy of a drive's file [`Scratch::open_copy`] makes.
+#[derive(Clone, Copy, Debug)]
+pub struct CopyOf<'a> {
+    /// What names the file: its key on the drive, with whatever tells two drives apart when one
+    /// scratch serves several (a copy opened from another drive is another copy).
+    pub key: &'a str,
+    /// The copy's file name: one name, no folders (the folder of the copy is its version's). A
+    /// name that is not one usable file name, or that is the record's own, is refused.
+    pub name: &'a str,
+    /// What tells one version of the file from the next (the drive's etag and date, the content's
+    /// hash): another version is another folder and the first stays as it was. A caller whose drive
+    /// cannot tell versions apart gives a fresh value per call, and its copy is made again.
+    pub version: &'a str,
+    /// The version's size, when the drive says: a copy of another size, whose record is lost, is
+    /// not this version's.
+    pub size: Option<u64>,
+}
+
+/// A copy handed to an app, and the user's work found where the copy goes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OpenedCopy {
+    /// The copy: read-only, in a folder of its own.
+    pub path: PathBuf,
+    /// A file that stood at the copy's place and was not the bytes that were written - an editor
+    /// that saves by renaming a new file over the read-only copy, "Save As" in its folder, an edit
+    /// that kept the size - put aside under this path, never deleted
+    /// (X-DELTA-AZDRIVE-FILES-7). The caller says so.
+    pub kept_edit: Option<PathBuf>,
+}
+
 /// What a program noted of a file it made in a kept folder.
 #[derive(Debug, Serialize, Deserialize)]
 struct MadeFile {
@@ -611,6 +771,57 @@ fn holds_other_work(folder: &Path) -> bool {
         }
     }
     false
+}
+
+/// Whether `name` can be the file name of a copy: one name (no folder, no NUL), not `.` or `..`,
+/// not the record's own (a drive's file called `.made.json` would be written over by the note of
+/// what was made, on a file system that does not tell the case of a name).
+fn is_copy_name(name: &str) -> bool {
+    !name.is_empty()
+        && name != "."
+        && name != ".."
+        && !name.contains(['/', '\\', '\0'])
+        && !name.eq_ignore_ascii_case(MADE_RECORD)
+}
+
+/// Whether the copy `name` of `folder` is the version's and as it was written: a regular file (not
+/// a link) that [`Scratch::made_state`] does not say was changed and, where the record is lost,
+/// that has the version's size. What cannot be told is not usable: the careful side puts it aside.
+fn copy_is_usable(folder: &Path, name: &str, size: Option<u64>) -> bool {
+    let Ok(meta) = fs::symlink_metadata(folder.join(name)) else {
+        return false;
+    };
+    if !meta.file_type().is_file() {
+        return false;
+    }
+    match (Scratch::made_state(folder, name), size) {
+        (MadeState::Untouched, _) => true,
+        (MadeState::Unknown, Some(size)) => meta.len() == size,
+        (MadeState::Changed | MadeState::Unknown, _) => false,
+    }
+}
+
+/// Puts the file `name` of `folder` aside as `<stem> (edited)<ext>` (then `(edited 2)`, ...),
+/// never over a name that is taken: the user's own work, found where a copy goes. Its path, or
+/// `None` when the file was gone by then.
+fn put_aside(folder: &Path, name: &str) -> Result<Option<PathBuf>, DriveError> {
+    let io = |e: &dyn fmt::Display| DriveError::Io(format!("{name}: {e}"));
+    let dir = Dir::open_following(folder).map_err(|e| io(&e))?;
+    let (stem, extension) = crate::xfer::names::split_extension(name);
+    for n in 1..=ASIDE_MAX {
+        let aside = if n == 1 {
+            format!("{stem} (edited){extension}")
+        } else {
+            format!("{stem} (edited {n}){extension}")
+        };
+        match dir.rename_noreplace(name, &dir, &aside) {
+            Ok(()) => return Ok(Some(folder.join(aside))),
+            Err(e) if e.is_already_exists() => {}
+            Err(e) if e.is_not_found() => return Ok(None),
+            Err(e) => return Err(io(&e)),
+        }
+    }
+    Err(io(&"a thousand edited copies are kept beside it already"))
 }
 
 /// [`Scratch::sweep`] of every purpose below [`root`].

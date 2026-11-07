@@ -696,3 +696,366 @@ fn x_delta_azdrive_files_29_the_old_open_folder_in_the_temp_folder_is_removed_on
     assert!(!scratch::remove_legacy_open_copies_in(temp.path()));
     assert!(elsewhere.join("mine.txt").exists());
 }
+
+// ---- X-DELTA-AZDRIVE-SYNC-2: the copy handed to an app is ONE procedure (Scratch::open_copy)
+
+mod open_copy {
+    use std::{cell::Cell, cell::RefCell};
+
+    use super::*;
+    use crate::{
+        beneath::Dir,
+        ctl::Quiet,
+        durable::{self, Expect, Mode, Publish},
+        scratch::{CopyOf, MadeState, OPEN_COPY_KEPT},
+        DriveError,
+    };
+
+    const BYTES: &[u8] = b"cloud bytes";
+
+    fn of<'a>(name: &'a str, version: &'a str) -> CopyOf<'a> {
+        CopyOf {
+            key: "docs/report.docx",
+            name,
+            version,
+            size: Some(BYTES.len() as u64),
+        }
+    }
+
+    /// Writes `bytes` at `dest` under `expect` the way a drive's download does
+    /// (`durable::publish`: `Expect::Absent` against a file there is `Conflict`).
+    fn put(dest: &Path, expect: Expect, bytes: &[u8]) -> Result<(), DriveError> {
+        let dir = Dir::open_following(dest.parent().unwrap()).unwrap();
+        durable::publish(
+            &dir,
+            dest.file_name().unwrap().to_str().unwrap(),
+            &mut &bytes[..],
+            Publish::new(expect, Mode::Private, &Quiet),
+        )
+        .map(|_| ())
+        .map_err(|e| e.into_drive("docs/report.docx"))
+    }
+
+    fn word(expect: &Expect) -> &'static str {
+        match expect {
+            Expect::Absent => "absent",
+            Expect::Any => "any",
+            Expect::Is(_) => "is",
+        }
+    }
+
+    /// Opens `name` (version `v1`) with a fetch that writes [`BYTES`] and records what it was
+    /// asked.
+    fn open(
+        copies: &Scratch,
+        name: &str,
+        seen: &RefCell<Vec<&'static str>>,
+    ) -> crate::scratch::OpenedCopy {
+        let mut fetch = |dest: &Path, expect: Expect| {
+            seen.borrow_mut().push(word(&expect));
+            put(dest, expect, BYTES)
+        };
+        copies.open_copy(of(name, "v1"), &mut fetch).unwrap()
+    }
+
+    /// A copy is fetched into a free place only (`Expect::Absent`), is read-only, carries the
+    /// downloaded mark where the system has one and is noted as made. RED not run: the sync's
+    /// own copy (`SyncSession::decrypt`) used `Expect::Any`, set no mark and noted nothing
+    /// (`made_state` said `Unknown`).
+    #[test]
+    fn x_delta_azdrive_sync_2_a_copy_is_fetched_into_a_free_place_and_made_read_only_marked_and_noted(
+    ) {
+        let tmp = TempDir::new("dxs2-free");
+        let copies = Scratch::under(tmp.path(), "open");
+        let seen = RefCell::new(Vec::new());
+        let opened = open(&copies, "report.docx", &seen);
+        assert_eq!(
+            *seen.borrow(),
+            ["absent"],
+            "fetched once, and only into a free place"
+        );
+        assert!(opened.kept_edit.is_none());
+        assert!(opened.path.starts_with(copies.dir()), "{:?}", opened.path);
+        assert_eq!(opened.path.file_name().unwrap(), "report.docx");
+        assert_eq!(fs::read(&opened.path).unwrap(), BYTES);
+        assert_eq!(
+            crate::quarantine::is_marked(&opened.path),
+            crate::quarantine::supported()
+        );
+        let folder = opened.path.parent().unwrap();
+        assert_eq!(
+            Scratch::made_state(folder, "report.docx"),
+            MadeState::Untouched,
+            "noted as made: a sweep can tell the user's work from the copy"
+        );
+        #[cfg(unix)]
+        {
+            assert_eq!(mode_of(&opened.path), 0o400, "a save in place fails loudly");
+            assert_eq!(mode_of(folder), 0o700);
+        }
+    }
+
+    /// The same version opened again is the same copy, with no second fetch; another version is
+    /// another folder and the first stays as it was.
+    #[test]
+    fn x_delta_azdrive_sync_2_the_same_version_is_one_copy_fetched_once_and_a_new_version_a_new_one(
+    ) {
+        let tmp = TempDir::new("dxs2-version");
+        let copies = Scratch::under(tmp.path(), "open");
+        let seen = RefCell::new(Vec::new());
+        let first = open(&copies, "report.docx", &seen);
+        let again = open(&copies, "report.docx", &seen);
+        assert_eq!(first, again);
+        assert_eq!(seen.borrow().len(), 1, "fetched once");
+        let mut fetch = |dest: &Path, expect: Expect| put(dest, expect, b"edited in the cloud");
+        let newer = copies
+            .open_copy(
+                CopyOf {
+                    size: Some(19),
+                    ..of("report.docx", "v2")
+                },
+                &mut fetch,
+            )
+            .unwrap();
+        assert_ne!(newer.path, first.path);
+        assert_eq!(fs::read(&newer.path).unwrap(), b"edited in the cloud");
+        assert_eq!(
+            fs::read(&first.path).unwrap(),
+            BYTES,
+            "the first stays as it was"
+        );
+    }
+
+    /// An editor that saves by renaming a new file over the read-only copy: the next Open puts the
+    /// edit aside as `name (edited).ext` (then `(edited 2)`) and the original comes again. RED not
+    /// run: the sync's `decrypt` compared the bytes, found them different and wrote the original
+    /// over the edit (`Expect::Any`); nothing was put aside.
+    #[cfg(unix)]
+    #[test]
+    fn x_delta_azdrive_sync_2_an_edit_saved_over_the_copy_is_put_aside_and_the_original_comes_again(
+    ) {
+        let tmp = TempDir::new("dxs2-over");
+        let copies = Scratch::under(tmp.path(), "open");
+        let seen = RefCell::new(Vec::new());
+        let opened = open(&copies, "report.docx", &seen);
+        let folder = opened.path.parent().unwrap().to_path_buf();
+        let temp = folder.join("~wrd0001.tmp");
+        fs::write(&temp, b"my important edit").unwrap();
+        fs::rename(&temp, &opened.path).unwrap();
+        let second = open(&copies, "report.docx", &seen);
+        assert_eq!(second.path, opened.path);
+        assert_eq!(fs::read(&second.path).unwrap(), BYTES, "the original again");
+        let kept = second.kept_edit.expect("the edit is said to be kept");
+        assert_eq!(kept, folder.join("report (edited).docx"));
+        assert_eq!(fs::read(&kept).unwrap(), b"my important edit");
+        // A second edit gets a name of its own; the first stays.
+        let temp = folder.join("~wrd0002.tmp");
+        fs::write(&temp, b"another edit").unwrap();
+        fs::rename(&temp, &opened.path).unwrap();
+        let third = open(&copies, "report.docx", &seen);
+        assert_eq!(
+            third.kept_edit.unwrap(),
+            folder.join("report (edited 2).docx")
+        );
+        assert_eq!(fs::read(&kept).unwrap(), b"my important edit");
+        assert_eq!(*seen.borrow(), ["absent", "absent", "absent"]);
+    }
+
+    /// A file the user saved beside the copy ("Save As" in the folder the editor proposes) is
+    /// work: the sweep leaves the folder however old it is, and takes an untouched copy's folder
+    /// of the same age. RED not run: the sync's copy was never noted as made, so `holds_other_work`
+    /// found no record, answered "no" and `sweep` removed the folder with the user's file in it.
+    #[cfg(unix)]
+    #[test]
+    fn x_delta_azdrive_sync_2_a_file_saved_beside_the_copy_keeps_its_folder_from_the_sweep() {
+        let tmp = TempDir::new("dxs2-beside");
+        let copies = Scratch::under(tmp.path(), "open");
+        let seen = RefCell::new(Vec::new());
+        let mine = open(&copies, "report.docx", &seen);
+        let mine_folder = mine.path.parent().unwrap().to_path_buf();
+        fs::write(mine_folder.join("report - my version.docx"), b"my version").unwrap();
+        let mut fetch = |dest: &Path, expect: Expect| put(dest, expect, BYTES);
+        let other = copies
+            .open_copy(of("other.docx", "v1"), &mut fetch)
+            .unwrap();
+        let other_folder = other.path.parent().unwrap().to_path_buf();
+        // Both folders are four days old. Ageing a file changes the time its record names, so the
+        // copies are noted again: what is left to tell them from the user's work is what they are.
+        for (folder, name) in [(&mine_folder, "report.docx"), (&other_folder, "other.docx")] {
+            age_tree(folder, 4);
+            Scratch::note_made(folder, name).unwrap();
+        }
+        let removed = copies.sweep(OPEN_COPY_KEPT);
+        assert_eq!(removed, 1, "only the untouched copy's folder went");
+        assert!(!other_folder.exists());
+        assert_eq!(
+            fs::read(mine_folder.join("report - my version.docx")).unwrap(),
+            b"my version",
+            "the user's file was swept with the copy's folder"
+        );
+        assert!(mine.path.exists());
+    }
+
+    /// Two windows open the same file in the same moment: the second one's fetch meets the first
+    /// one's copy (`Conflict`), which is the same copy - handed out, no second fetch, nothing put
+    /// aside.
+    #[test]
+    fn x_delta_azdrive_sync_2_a_copy_a_neighbour_made_in_the_same_moment_is_the_same_copy() {
+        let tmp = TempDir::new("dxs2-neighbour");
+        let copies = Scratch::under(tmp.path(), "open");
+        let calls = Cell::new(0);
+        let mut fetch = |dest: &Path, expect: Expect| {
+            calls.set(calls.get() + 1);
+            // The neighbour got there first: its copy, fetched and noted as made.
+            put(dest, Expect::Absent, BYTES).unwrap();
+            Scratch::note_made(dest.parent().unwrap(), "report.docx").unwrap();
+            put(dest, expect, BYTES)
+        };
+        let opened = copies
+            .open_copy(of("report.docx", "v1"), &mut fetch)
+            .unwrap();
+        assert_eq!(calls.get(), 1, "no second fetch");
+        assert!(
+            opened.kept_edit.is_none(),
+            "nothing of the user's was there"
+        );
+        assert_eq!(fs::read(&opened.path).unwrap(), BYTES);
+    }
+
+    /// A file turns up under the name between the look and the write and is NOT the copy: it is
+    /// put aside, once, and the copy is fetched again; a second stranger in the same call is an
+    /// error, not an endless loop.
+    #[test]
+    fn x_delta_azdrive_sync_2_a_stranger_that_turns_up_before_the_write_is_put_aside_once() {
+        let tmp = TempDir::new("dxs2-stranger");
+        let copies = Scratch::under(tmp.path(), "open");
+        let calls = Cell::new(0);
+        let mut fetch = |dest: &Path, expect: Expect| {
+            calls.set(calls.get() + 1);
+            if calls.get() == 1 {
+                fs::write(dest, b"a stranger's file").unwrap();
+            }
+            put(dest, expect, BYTES)
+        };
+        let opened = copies
+            .open_copy(of("report.docx", "v1"), &mut fetch)
+            .unwrap();
+        assert_eq!(calls.get(), 2);
+        assert_eq!(fs::read(&opened.path).unwrap(), BYTES);
+        let kept = opened.kept_edit.expect("the stranger's file is kept");
+        assert_eq!(fs::read(kept).unwrap(), b"a stranger's file");
+
+        let again = Cell::new(0);
+        let mut never_free = |dest: &Path, expect: Expect| {
+            again.set(again.get() + 1);
+            fs::write(dest, b"and another one").unwrap();
+            put(dest, expect, BYTES)
+        };
+        let copies = Scratch::under(tmp.path(), "second");
+        let error = copies
+            .open_copy(of("report.docx", "v1"), &mut never_free)
+            .unwrap_err();
+        assert!(matches!(error, DriveError::Conflict { .. }), "{error:?}");
+        assert_eq!(again.get(), 2, "one retry, no loop");
+    }
+
+    /// A name that is not one usable file name is refused before anything is made or fetched, and
+    /// so is the record's own (a drive's `.made.json` would be written over by the note).
+    #[test]
+    fn x_delta_azdrive_sync_2_a_name_that_is_no_file_name_or_is_the_records_own_is_refused() {
+        let tmp = TempDir::new("dxs2-names");
+        let copies = Scratch::under(tmp.path(), "open");
+        for name in [
+            "",
+            ".",
+            "..",
+            "a/b",
+            "a\\b",
+            "a\0b",
+            ".made.json",
+            ".MADE.JSON",
+            ".Made.Json",
+        ] {
+            let calls = Cell::new(0);
+            let mut fetch = |dest: &Path, expect: Expect| {
+                calls.set(calls.get() + 1);
+                put(dest, expect, BYTES)
+            };
+            let refused = copies.open_copy(of(name, "v1"), &mut fetch).unwrap_err();
+            assert!(
+                matches!(refused, DriveError::InvalidKey { .. }),
+                "{name:?}: {refused:?}"
+            );
+            assert_eq!(calls.get(), 0, "{name:?}: nothing was fetched");
+        }
+        assert!(
+            names(copies.dir()).is_empty(),
+            "no folder was made for a refused name: {:?}",
+            names(copies.dir())
+        );
+    }
+
+    /// A copy that cannot be noted as made is not handed out: an edit of it could not be told
+    /// from scratch and the sweep would take it after a day.
+    #[cfg(unix)]
+    #[test]
+    fn x_delta_azdrive_sync_2_a_copy_that_cannot_be_noted_is_not_handed_out() {
+        let tmp = TempDir::new("dxs2-unnoted");
+        let copies = Scratch::under(tmp.path(), "open");
+        let seen = RefCell::new(Vec::new());
+        let opened = open(&copies, "a.txt", &seen);
+        let folder = opened.path.parent().unwrap().to_path_buf();
+        // The record's place is a folder now (a disk that refuses the write is the real case), and
+        // the copy is gone: the next open fetches and cannot note it.
+        fs::remove_file(folder.join(".made.json")).unwrap();
+        fs::create_dir(folder.join(".made.json")).unwrap();
+        fs::remove_file(&opened.path).unwrap();
+        let mut fetch = |dest: &Path, expect: Expect| put(dest, expect, BYTES);
+        let refused = copies.open_copy(of("a.txt", "v1"), &mut fetch).unwrap_err();
+        assert!(
+            matches!(&refused, DriveError::Io(why) if why.contains("noted as made")),
+            "{refused:?}"
+        );
+    }
+
+    /// A copy whose record is lost (a build before the record) is reused when it has the version's
+    /// size and put aside when it has another: the size is all that can be told.
+    #[cfg(unix)]
+    #[test]
+    fn x_delta_azdrive_sync_2_a_copy_without_a_record_is_reused_by_its_size_and_put_aside_otherwise(
+    ) {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = TempDir::new("dxs2-legacy");
+        let copies = Scratch::under(tmp.path(), "open");
+        let seen = RefCell::new(Vec::new());
+        let opened = open(&copies, "a.txt", &seen);
+        let folder = opened.path.parent().unwrap().to_path_buf();
+        fs::remove_file(folder.join(".made.json")).unwrap();
+        let again = open(&copies, "a.txt", &seen);
+        assert_eq!(again.path, opened.path);
+        assert!(again.kept_edit.is_none());
+        assert_eq!(seen.borrow().len(), 1, "no second fetch: it has the size");
+        // Another size, still no record: somebody's file.
+        fs::set_permissions(&opened.path, fs::Permissions::from_mode(0o600)).unwrap();
+        fs::remove_file(folder.join(".made.json")).ok();
+        fs::write(&opened.path, b"x").unwrap();
+        let third = open(&copies, "a.txt", &seen);
+        assert_eq!(fs::read(third.kept_edit.expect("put aside")).unwrap(), b"x");
+        assert_eq!(fs::read(&third.path).unwrap(), BYTES);
+    }
+
+    /// The copies of one drive have a scratch of their own (`open-<hash of the id>`), the one word
+    /// for AzDrive's Open, the sync's encrypted copies and "Remove drive".
+    #[test]
+    fn x_delta_azdrive_sync_2_the_open_copies_of_a_drive_are_its_own_scratch() {
+        let tmp = TempDir::new("dxs2-purpose");
+        assert_eq!(
+            Scratch::open_copies_under(tmp.path(), "d_1").dir(),
+            Scratch::tagged_under(tmp.path(), "open", "d_1").dir()
+        );
+        assert_ne!(
+            Scratch::open_copies_under(tmp.path(), "d_1").dir(),
+            Scratch::open_copies_under(tmp.path(), "d_2").dir()
+        );
+    }
+}

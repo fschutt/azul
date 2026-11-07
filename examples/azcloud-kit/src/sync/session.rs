@@ -722,6 +722,18 @@ pub struct Pass {
     pub held: Vec<String>,
 }
 
+/// A file opened ([`SyncSession::open_keeping_edits`]): where it is, and the user's own work that
+/// stood where its read-only copy goes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Opened {
+    /// The file to open.
+    pub path: PathBuf,
+    /// The file an editor saved over the copy (or rewrote, or shortened) put aside under this path
+    /// (`name (edited).ext`) and kept; the caller says so. A "Save As" beside the copy stays where
+    /// it is, and the sweep leaves the folder.
+    pub kept_edit: Option<PathBuf>,
+}
+
 /// What "Free up space" did: the files freed, the ones kept and why.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Freed {
@@ -1422,26 +1434,38 @@ impl SyncSession {
     ///
     /// When it cannot be brought down or decrypted.
     pub fn open(&self, key: &str) -> CloudResult<PathBuf> {
+        self.open_keeping_edits(key).map(|opened| opened.path)
+    }
+
+    /// [`SyncSession::open`] that also says where it put the user's own work aside: the read-only
+    /// copy of an encrypted drive's file stands in a folder of its own, and what an editor saved
+    /// over it or beside it is never swept or overwritten ([`Opened::kept_edit`], X-DELTA-AZDRIVE-
+    /// SYNC-2).
+    ///
+    /// # Errors
+    ///
+    /// As [`SyncSession::open`].
+    pub fn open_keeping_edits(&self, key: &str) -> CloudResult<Opened> {
         let mut states = self.states();
-        let path = self.open_path(key, &mut states)?;
+        let opened = self.open_path(key, &mut states)?;
         // What opening did to the file's record (its bytes are here now), on the states as they
         // are now.
-        let opened = states.files.get(key).cloned();
+        let record = states.files.get(key).cloned();
         let now = crate::now();
         self.change(|states| {
             states.freed.remove(key);
-            if let (Some(record), Some(opened)) = (states.files.get_mut(key), opened) {
-                record.cloud_only = opened.cloud_only;
-                record.encrypted_copy = opened.encrypted_copy;
-                record.object = opened.object;
+            if let (Some(record), Some(was)) = (states.files.get_mut(key), record) {
+                record.cloud_only = was.cloud_only;
+                record.encrypted_copy = was.encrypted_copy;
+                record.object = was.object;
                 record.last_used = now;
                 record.error = None;
             }
         })?;
-        Ok(path)
+        Ok(opened)
     }
 
-    fn open_path(&self, key: &str, states: &mut SyncStates) -> CloudResult<PathBuf> {
+    fn open_path(&self, key: &str, states: &mut SyncStates) -> CloudResult<Opened> {
         #[cfg(feature = "encryption")]
         {
             if let SessionRemote::Encrypted { drive, objects } = &self.remote {
@@ -1458,7 +1482,12 @@ impl SyncSession {
         if let Some(record) = states.files.get_mut(key) {
             record.cloud_only = false;
         }
-        Ok(path)
+        // The file is in the pairing's folder, as the user's own: no read-only copy, nothing put
+        // aside.
+        Ok(Opened {
+            path,
+            kept_edit: None,
+        })
     }
 
     /// Pins (`on`) or unpins `keys` (files, and folders ending in `/`): a pinned file is never
@@ -2031,7 +2060,10 @@ impl SyncSession {
     /// into a private READ-ONLY copy in scratch ([`azul_storage::scratch`]: a folder only this user
     /// enters, swept when it is old - the plaintext of an encrypted drive does not stay for good),
     /// under the file's own name. The name is the drive's, so it passes the name policy before it
-    /// is a path (AZ-W1, X-AR5a-1); a name that does not is refused.
+    /// is a path (AZ-W1, X-AR5a-1); a name that does not is refused. The copy itself is
+    /// [`Scratch::open_copy`], the one procedure of every copy handed to an app (X-DELTA-AZDRIVE-
+    /// SYNC-2): an edit saved beside or over it is put aside and never swept, and the version
+    /// opened before is handed out again as it is.
     #[cfg(feature = "encryption")]
     fn decrypt(
         &self,
@@ -2039,13 +2071,13 @@ impl SyncSession {
         objects: &ObjectCache,
         key: &str,
         states: &mut SyncStates,
-    ) -> CloudResult<PathBuf> {
+    ) -> CloudResult<Opened> {
         use azul_storage::{
-            beneath::{BeneathError, Root},
+            beneath::Dir,
             ctl::Quiet,
             durable::{self, Expect, Mode, Publish},
             names::{Policy, Purpose, Volume},
-            scratch::{self, Scratch},
+            scratch::{CopyOf, Scratch},
         };
         let policy = Policy::here(Volume::default());
         let admitted = policy.admit(key, Purpose::Open).map_err(|e| {
@@ -2073,40 +2105,50 @@ impl SyncSession {
         if legacy.is_dir() {
             let _ = fs::remove_dir_all(&legacy);
         }
-        // One folder per version of the file (a version opened twice is one folder), swept when
-        // nobody has used it for the scratch horizon.
-        let copies = Scratch::new("sync-open");
-        let folder = copies
-            .keep(&format!(
-                "{}\n{full}\n{}",
-                self.setup.drive_id,
-                local::hash_bytes(&bytes)
-            ))
-            .with_context(|| format!("{}", copies.dir().display()))?;
-        copies.sweep(scratch::HORIZON);
-        let path = admitted.under(&folder);
-        // The version opened before is here still (read-only), and as it was: it is handed out
-        // again as it is; anything else is written over.
-        if fs::read(&path).is_ok_and(|have| have == bytes) {
-            return Ok(path);
-        }
-        let blame = |e: BeneathError| CloudError::from(e).context(key.to_string());
-        let tree = Root::open(&folder)
-            .map_err(BeneathError::from)
-            .map_err(blame)?;
-        let (dir, name) = policy
-            .walk(&tree, key, Purpose::Open, true)
-            .map_err(blame)?;
-        durable::publish(
-            &dir,
-            &name,
-            &mut &bytes[..],
-            Publish::new(Expect::Any, Mode::Private, &Quiet),
-        )
-        .map_err(|e| blame(BeneathError::from(e)))?;
-        // A copy that stays writable only loses the reminder that it is a copy.
-        let _ = scratch::make_read_only(&path);
-        Ok(path)
+        // The copy's own name is the key's last name (the folders of the key add nothing: the
+        // copy's folder is one per drive, file and version), a name the policy admitted above.
+        let name = admitted
+            .rsplit('/')
+            .next()
+            .filter(|name| !name.is_empty())
+            .ok_or_else(|| CloudError::failed(format!("{key} has no file name to open it by")))?;
+        let version = local::hash_bytes(&bytes);
+        let mut write = |dest: &Path, expect: Expect| -> Result<(), DriveError> {
+            let (Some(folder), Some(file)) = (
+                dest.parent(),
+                dest.file_name().and_then(|name| name.to_str()),
+            ) else {
+                return Err(DriveError::InvalidKey {
+                    key: full.clone(),
+                    reason: "it has no usable file name",
+                });
+            };
+            let dir =
+                Dir::open_following(folder).map_err(|e| DriveError::Io(format!("{full}: {e}")))?;
+            durable::publish(
+                &dir,
+                file,
+                &mut &bytes[..],
+                Publish::new(expect, Mode::Private, &Quiet),
+            )
+            .map(|_| ())
+            .map_err(|e| e.into_drive(&full))
+        };
+        // The drive's own scratch of open copies, the one AzDrive's Open uses: "Remove drive" takes
+        // the plaintext of an encrypted drive's files with it.
+        let copy = Scratch::open_copies_of(&self.setup.drive_id).open_copy(
+            CopyOf {
+                key: &full,
+                name,
+                version: &version,
+                size: u64::try_from(bytes.len()).ok(),
+            },
+            &mut write,
+        )?;
+        Ok(Opened {
+            path: copy.path,
+            kept_edit: copy.kept_edit,
+        })
     }
 }
 

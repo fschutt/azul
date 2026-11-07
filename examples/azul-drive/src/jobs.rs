@@ -41,12 +41,10 @@ use azul_search_index::{
 };
 use azul_storage::{
     azul_transport::AzulTransport,
-    beneath::Dir,
     config::DriveEntry,
     ctl::Quiet,
-    durable::Expect,
     ops as storage_ops,
-    scratch::{self, MadeState, Scratch},
+    scratch::{CopyOf, OpenedCopy, Scratch},
     transfer, BatchDelete, ByteRange, Drive, DriveError, ListPage, ListRequest, LocalDrive,
     ObjectInfo, Precondition,
 };
@@ -1089,33 +1087,26 @@ fn pdf_first_page(bytes: &[u8]) -> PreviewContent {
     }
 }
 
-/// How long a copy handed to an app is kept before a sweep removes it (at the start and before
-/// the next copy): "swept after use" for a copy nobody can tell the end of use of.
-pub(crate) const OPEN_COPY_KEPT: Duration = Duration::from_secs(24 * 3600);
+// How long a copy handed to an app is kept before a sweep removes it (at the start and before the
+// next copy): "swept after use" for a copy nobody can tell the end of use of. The one owner is
+// scratch's.
+pub(crate) use azul_storage::scratch::OPEN_COPY_KEPT;
 
 /// The copy of the cloud file `key` an app (or the video preview) is handed (AZ-W4, AZ-U13,
 /// AZ-U14). It was `<system temp>/AzDrive-open/<drive>/<name>`: a folder every user could read
 /// and make first (a link planted there was followed), never cleaned, and a name that became
-/// `name (1)` the next time. Now:
+/// `name (1)` the next time. Now it is [`Scratch::open_copy`], the one procedure for every copy
+/// handed to an app:
 ///
 /// - in `copies` (scratch): a folder only this user can enter, checked, swept after a day;
 /// - one folder per file AND VERSION (the key with the etag, size and date the drive reports
 ///   NOW): opened again, the same copy opens, and a changed file is a new copy;
 /// - READ-ONLY: the product decision of U13 (Q17) - an edit of a copy nobody uploads was lost
 ///   silently; now the app that opens it cannot save in place and says so;
-/// - put in place only if the name is still free ([`Expect::Absent`]): two windows opening the
+/// - put in place only if the name is still free (`Expect::Absent`): two windows opening the
 ///   same file make one copy.
 fn opened_copy(drive: &dyn Drive, copies: &Scratch, key: &str) -> Result<PathBuf, DriveError> {
     opened_copy_keeping_edits(drive, copies, key).map(|opened| opened.path)
-}
-
-/// A copy handed to an app, and the user's work found where the copy goes.
-struct OpenedCopy {
-    path: PathBuf,
-    /// A file that stood at the copy's place and was not the bytes AzDrive wrote - an editor that
-    /// saves by renaming a new file over the read-only copy, "Save As" in its folder, an edit that
-    /// kept the size - put aside under this path, never deleted (X-DELTA-AZDRIVE-FILES-7).
-    kept_edit: Option<PathBuf>,
 }
 
 /// [`opened_copy`] that also says where it put the user's own work aside. The read-only mode stops
@@ -1124,7 +1115,7 @@ struct OpenedCopy {
 /// length differed, the "changed" copy was removed and fetched again) or by the sweep a day later.
 /// Now the copy's folder remembers what AzDrive wrote ([`Scratch::note_made`]); anything else at
 /// the copy's place is put aside as `name (edited).ext` in that folder, which a sweep never takes
-/// away while it holds it.
+/// away while it holds it ([`Scratch::open_copy`]).
 fn opened_copy_keeping_edits(
     drive: &dyn Drive,
     copies: &Scratch,
@@ -1141,90 +1132,26 @@ fn opened_copy_keeping_edits(
         (None, None) => format!("unversioned-{:x}", azul_storage::ids::random_seed()),
         (etag, modified) => format!("{}-{modified:?}", etag.as_deref().unwrap_or("")),
     };
-    // What a run before left, and old copies of this one, go before a new copy comes.
-    copies.sweep(OPEN_COPY_KEPT);
-    let folder = copies
-        .keep(&format!("{key}\0{version}\0{}", head.size))
-        .map_err(|e| DriveError::Io(format!("{key}: {e}")))?;
-    let dest = folder.join(&name);
-    let whole = |path: &Path| fs::metadata(path).is_ok_and(|m| m.is_file() && m.len() == head.size);
-    let untouched = || Scratch::made_state(&folder, &name) != MadeState::Changed;
-    if whole(&dest) && untouched() {
-        return Ok(OpenedCopy {
-            path: dest,
-            kept_edit: None,
-        });
-    }
-    // Something that is not the bytes AzDrive wrote stands under the name (a copy somebody saved
-    // over, shortened or edited): it is put aside, once, and the copy is fetched.
-    let mut kept_edit = None;
-    if fs::symlink_metadata(&dest).is_ok() {
-        kept_edit = Some(keep_edit(&folder, &name)?);
-    }
-    let mut again = false;
-    loop {
-        match transfer::download_guarded(
-            drive,
+    copies.open_copy(
+        CopyOf {
             key,
-            Some(head.size),
-            &dest,
-            transfer::CHUNK,
-            Expect::Absent,
-            &Quiet,
-        ) {
-            Ok(_) => {
-                // The system looks at a file from a drive before it runs it (AZ-W20); the copy of a
-                // file that is already here was marked when it came.
-                azul_storage::quarantine::mark_downloaded(&dest);
-                break;
-            }
-            // Another window made the same copy in the same moment.
-            Err(DriveError::Conflict { .. }) if whole(&dest) && untouched() => {
-                return Ok(OpenedCopy {
-                    path: dest,
-                    kept_edit,
-                })
-            }
-            // A file turned up under the name since the look: it is somebody's, put aside too.
-            Err(DriveError::Conflict { .. }) if !again => {
-                again = true;
-                kept_edit = Some(keep_edit(&folder, &name)?);
-            }
-            Err(e) => return Err(e),
-        }
-    }
-    // collapse-ok: a copy that stays writable is still private to this user; what a refusal
-    // loses is only the loud failure of a save in place.
-    let _ = scratch::make_read_only(&dest);
-    // Noted last: the mode and the mark are part of the file as it is now. collapse-ok: with no
-    // note a later look says "unknown" and takes the careful side (an unknown copy is reused only
-    // when it is whole).
-    let _ = Scratch::note_made(&folder, &name);
-    Ok(OpenedCopy {
-        path: dest,
-        kept_edit,
-    })
-}
-
-/// Puts the file `name` of `folder` aside as `<stem> (edited)<ext>` (then `(edited 2)`, ...),
-/// never over a name that is taken: the user's own work, found where a copy goes. Its path.
-fn keep_edit(folder: &Path, name: &str) -> Result<PathBuf, DriveError> {
-    let io = |e: &dyn std::fmt::Display| DriveError::Io(format!("{name}: {e}"));
-    let dir = Dir::open_following(folder).map_err(|e| io(&e))?;
-    let (stem, extension) = fileops::split_extension(name);
-    for n in 1..=999u32 {
-        let aside = if n == 1 {
-            format!("{stem} (edited){extension}")
-        } else {
-            format!("{stem} (edited {n}){extension}")
-        };
-        match dir.rename_noreplace(name, &dir, &aside) {
-            Ok(()) => return Ok(folder.join(aside)),
-            Err(e) if e.is_already_exists() => {}
-            Err(e) => return Err(io(&e)),
-        }
-    }
-    Err(io(&"a thousand edited copies are kept beside it already"))
+            name: &name,
+            version: &version,
+            size: Some(head.size),
+        },
+        &mut |dest, expect| {
+            transfer::download_guarded(
+                drive,
+                key,
+                Some(head.size),
+                dest,
+                transfer::CHUNK,
+                expect,
+                &Quiet,
+            )
+            .map(|_| ())
+        },
+    )
 }
 
 /// A new empty file `key`, only if the name is free, in the one step the drive offers

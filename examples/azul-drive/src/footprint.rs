@@ -38,7 +38,7 @@ use azul_storage::{
 /// own with it and a sweep treats each like any purpose (X-DELTA-AZDRIVE-KEYS-32: one folder for
 /// every drive could not be told apart at a removal).
 pub(crate) fn open_copies_of(drive: &str) -> Scratch {
-    Scratch::tagged("open", drive)
+    Scratch::open_copies_of(drive)
 }
 
 /// The folder of drive `drive`'s copy of its index (named by a hash of its id) under `root`, the
@@ -246,7 +246,7 @@ impl Places {
             drives_file: computer.drives_file.clone(),
             spots,
             open_copies: match &computer.scratch_root {
-                Some(root) => Scratch::tagged_under(root, "open", drive),
+                Some(root) => Scratch::open_copies_under(root, drive),
                 None => open_copies_of(drive),
             },
         }

@@ -877,8 +877,9 @@ mod encrypted_copies {
             !path.starts_with(state.path()) && !path.starts_with(folder.path()),
             "not in the pairing's state folder nor in the synced folder: {path:?}"
         );
-        assert!(
-            path.ends_with("notes/diary.txt"),
+        assert_eq!(
+            path.file_name().and_then(|n| n.to_str()),
+            Some("diary.txt"),
             "under the file's own name: {path:?}"
         );
         assert!(
@@ -896,6 +897,158 @@ mod encrypted_copies {
         // A name the policy refuses is no path, whatever the drive says.
         let refused = session.open("../escape.txt").unwrap_err().to_string();
         assert!(refused.contains("cannot be"), "{refused}");
+    }
+
+    /// An encrypted drive holding `Documents/<key>`, paired as the drive `drive_id`: a session over
+    /// it whose copies go to that drive's own scratch of open copies (emptied again when this
+    /// drops, so a run leaves nothing behind and the next finds nothing).
+    struct Opened {
+        session: SyncSession,
+        drive_id: String,
+        _dirs: [TempDir; 3],
+    }
+
+    impl Opened {
+        fn new(tag: &str, key: &str, bytes: &[u8]) -> Opened {
+            let drive_id = format!("d_sync2_{tag}_{}", std::process::id());
+            let bucket = FakeS3::new();
+            let plain: Arc<dyn Drive> = s3_drive(&bucket);
+            let cache_dir = TempDir::new("azcloud-objects-sync2");
+            let objects = Arc::new(ObjectCache::new(plain, cache_dir.path().to_path_buf()));
+            let below: Arc<dyn Drive> = objects.clone();
+            let drive: Arc<dyn Drive> = Arc::new(EncryptedDrive::new(
+                below,
+                DriveKey::generate().unwrap(),
+                Arc::new(MemoryIndex::new()),
+            ));
+            drive.put(&format!("Documents/{key}"), bytes).unwrap();
+            let folder = TempDir::new("azcloud-objects-sync2-folder");
+            let state = TempDir::new("azcloud-objects-sync2-state");
+            let mut setup = SyncSetup::new(&drive_id, "Documents/", folder.path());
+            setup.local_copies = LocalCopies::Encrypted;
+            let session = SyncSession::encrypted_copies(
+                setup,
+                state.path().to_path_buf(),
+                "dev-a",
+                drive,
+                objects,
+            );
+            session.pass(&AtomicBool::new(false), &mut |_| {}).unwrap();
+            let opened = Opened {
+                session,
+                drive_id,
+                _dirs: [cache_dir, folder, state],
+            };
+            let _ = std::fs::remove_dir_all(opened.copies().dir());
+            opened
+        }
+
+        /// The drive's scratch of open copies: the one AzDrive's Open and "Remove drive" use.
+        fn copies(&self) -> azul_storage::scratch::Scratch {
+            azul_storage::scratch::Scratch::open_copies_of(&self.drive_id)
+        }
+    }
+
+    impl Drop for Opened {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(self.copies().dir());
+        }
+    }
+
+    /// `path` and everything below it made `days` old (a kept folder is as old as the newest
+    /// thing in it).
+    #[cfg(unix)]
+    fn age_tree(path: &std::path::Path, days: u64) {
+        if path.is_dir() && !path.is_symlink() {
+            for entry in std::fs::read_dir(path).unwrap() {
+                age_tree(&entry.unwrap().path(), days);
+            }
+        }
+        if !path.is_symlink() {
+            let when = std::time::SystemTime::now() - std::time::Duration::from_secs(days * 86_400);
+            std::fs::File::open(path).unwrap().set_modified(when).unwrap();
+        }
+    }
+
+    /// X-DELTA-AZDRIVE-SYNC-2 (AZ-U13 again). The decrypted copy of an encrypted-copies pairing
+    /// is read-only (0400), which stops a write in place and not an editor that saves a temp file
+    /// and renames it over the copy. The next Open found other bytes, took the copy for stale and
+    /// wrote the original over it (`Expect::Any`): the edit was lost without a word. It is put
+    /// aside as `diary (edited).txt` in the copy's folder now, and the open says so. RED not run:
+    /// the old `decrypt` has no `kept_edit` and the edit is not in the folder afterwards.
+    #[cfg(unix)]
+    #[test]
+    fn x_delta_azdrive_sync_2_an_edit_saved_over_the_opened_copy_is_kept_when_the_file_is_opened_again(
+    ) {
+        let secret = b"the diary of a very private person";
+        let t = Opened::new("over", "notes/diary.txt", secret);
+        let first = t.session.open_keeping_edits("notes/diary.txt").unwrap();
+        assert!(first.kept_edit.is_none(), "nothing of the user's yet");
+        let folder = first.path.parent().unwrap().to_path_buf();
+        // The editor's save: a new file of its own, renamed over the read-only copy.
+        let temp = folder.join("~wrd0001.tmp");
+        std::fs::write(&temp, b"my important edit").unwrap();
+        std::fs::rename(&temp, &first.path).unwrap();
+        let again = t.session.open_keeping_edits("notes/diary.txt").unwrap();
+        assert_eq!(again.path, first.path, "the same version, the same place");
+        assert_eq!(std::fs::read(&again.path).unwrap(), secret, "the original again");
+        let kept = again.kept_edit.expect("the edit is said to be kept");
+        assert_eq!(kept, folder.join("diary (edited).txt"));
+        assert_eq!(
+            std::fs::read(&kept).unwrap(),
+            b"my important edit",
+            "the edit was written over"
+        );
+    }
+
+    /// X-DELTA-AZDRIVE-SYNC-2. A file the user saved BESIDE the copy ("Save As" in the folder the
+    /// editor proposes) is work: the copy was never noted as made, so the sweep three days later
+    /// found no record, answered "nobody's work here" and removed the folder with the file in it.
+    /// RED not run: the old copy has no `.made.json`.
+    #[cfg(unix)]
+    #[test]
+    fn x_delta_azdrive_sync_2_a_file_saved_beside_the_opened_copy_survives_the_sweep_four_days_later(
+    ) {
+        let t = Opened::new("beside", "notes/diary.txt", b"the diary of a very private person");
+        let opened = t.session.open_keeping_edits("notes/diary.txt").unwrap();
+        let folder = opened.path.parent().unwrap().to_path_buf();
+        let mine = folder.join("diary - my version.txt");
+        std::fs::write(&mine, b"my version").unwrap();
+        // Everything in the folder is four days old; the copy is noted again for the time it has
+        // now (ageing a file changes the time its record names).
+        age_tree(&folder, 4);
+        azul_storage::scratch::Scratch::note_made(&folder, "diary.txt").unwrap();
+        let removed = t.copies().sweep(azul_storage::scratch::OPEN_COPY_KEPT);
+        assert_eq!(removed, 0, "a folder that holds the user's file is not swept");
+        assert_eq!(std::fs::read(&mine).unwrap(), b"my version");
+        // The folder of an untouched copy of the same age goes, as before.
+        std::fs::remove_file(&mine).unwrap();
+        age_tree(&folder, 4);
+        azul_storage::scratch::Scratch::note_made(&folder, "diary.txt").unwrap();
+        assert_eq!(t.copies().sweep(azul_storage::scratch::OPEN_COPY_KEPT), 1);
+        assert!(!folder.exists());
+    }
+
+    /// X-DELTA-AZDRIVE-SYNC-2. The copy is in the drive's own scratch of open copies - the one
+    /// AzDrive's Open uses and "Remove drive" empties - and not in a purpose of the sync's own.
+    #[test]
+    fn x_delta_azdrive_sync_2_the_opened_copy_is_in_the_drives_scratch_of_open_copies() {
+        let t = Opened::new("scratch", "diary.txt", b"the diary of a very private person");
+        let opened = t.session.open_keeping_edits("diary.txt").unwrap();
+        assert!(
+            opened.path.starts_with(t.copies().dir()),
+            "{:?} is not under {:?}",
+            opened.path,
+            t.copies().dir()
+        );
+        assert_eq!(
+            azul_storage::scratch::Scratch::made_state(
+                opened.path.parent().unwrap(),
+                "diary.txt"
+            ),
+            azul_storage::scratch::MadeState::Untouched,
+            "noted as made"
+        );
     }
 
     /// Small files an encrypted drive packed together: the copy kept here is their pack, and

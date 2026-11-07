@@ -14,6 +14,14 @@
 //! places that name a temp folder because no configuration folder is known (their lanes convert
 //! them to private per-user folders). The counts are exact and only go down. Comments and test
 //! items are not read.
+//!
+//! Second rule (ARCH29 C6a, X-DELTA-AZDRIVE-SYNC-2): the copy of a drive's file that an app is
+//! handed is ONE procedure, `Scratch::open_copy` - a folder per file and version, fetched only into
+//! a free place, a stranger's file put aside, marked as downloaded, read-only, and noted as made so
+//! that a sweep never takes the user's edit. It was written twice and the second copy forgot the
+//! lessons of the first (an edit saved beside the copy was swept after three days). Its pieces
+//! (`Scratch::keep`, `Scratch::note_made`, `make_read_only`) are public; a call of one outside
+//! `scratch.rs` is a procedure composed by hand and is a finding unless it is listed with its reason.
 
 use std::path::{Path, PathBuf};
 
@@ -21,6 +29,9 @@ use azul_srcgate::{Allow, Budget, Gate, Located, Orphans, Root, Rule};
 
 /// The rule's name.
 const TEMP: &str = "temp-dir";
+
+/// The second rule's name: a piece of the open-copy procedure called outside it.
+const COPY_PIECE: &str = "copy-piece";
 
 const ROOTS: &[Root] = &[
     Root {
@@ -58,8 +69,57 @@ fn temp_dir_reads(t: &[Located]) -> Vec<usize> {
     lines
 }
 
+/// Every call of a piece of the open-copy procedure: `note_made` and `make_read_only` by their
+/// names (a path before them does not matter, a definition `fn note_made(` is none) and `.keep(` in a
+/// file that names `Scratch` (another type's `keep` is none: the file must name the type).
+fn copy_pieces(t: &[Located]) -> Vec<usize> {
+    let names_scratch = t.iter().any(|x| x.tok.is_ident("Scratch"));
+    let mut lines = Vec::new();
+    for (i, x) in t.iter().enumerate() {
+        let called = t.get(i + 1).is_some_and(|next| next.tok.is_punct('('));
+        let defined = i >= 1 && t[i - 1].tok.is_ident("fn");
+        if !called || defined {
+            continue;
+        }
+        let method = i >= 1 && t[i - 1].tok.is_punct('.');
+        let piece = x.tok.is_ident("note_made")
+            || x.tok.is_ident("make_read_only")
+            || (x.tok.is_ident("keep") && method && names_scratch);
+        if piece {
+            lines.push(x.line);
+        }
+    }
+    lines
+}
+
 fn rules() -> Vec<Rule> {
-    vec![Rule::new(
+    vec![
+        temp_dir_rule(),
+        Rule::new(
+            COPY_PIECE,
+            copy_pieces,
+            &[
+                "let made = Scratch::note_made(&folder, &name);",
+                "let _ = scratch::make_read_only(&dest);",
+                "let folder = Scratch::new(\"open\").keep(&tag).unwrap();",
+                "make_read_only(&dest).ok();",
+                "Scratch::under(&root, \"open\")\n    .keep(&tag)\n    .unwrap();",
+            ],
+            &[
+                "let kept = rotation.keep();",
+                "let copy = Scratch::new(\"open\").open_copy(of, &mut fetch);",
+                "let state = Scratch::made_state(&folder, &name);",
+                "let path = scratch.kept(&tag);",
+                "fn note_made(folder: &Path) {}",
+                "fn make_read_only(path: &Path) {}",
+                "let note_made = 1;",
+            ],
+        ),
+    ]
+}
+
+fn temp_dir_rule() -> Rule {
+    Rule::new(
         TEMP,
         temp_dir_reads,
         &[
@@ -76,7 +136,7 @@ fn rules() -> Vec<Rule> {
             "let named = \"temp_dir\";",
             "let job = Job::Preview { temp_dir };",
         ],
-    )]
+    )
 }
 
 /// Where the temp folder is read today. TO SHRINK, never to grow: the text says who removes it.
@@ -104,6 +164,21 @@ const ALLOWED: &[Allow] = &[
          scratch; Z30-B (a private per-user folder)",
     ),
     Allow::exactly(
+        "examples/azul-storage/src/scratch.rs",
+        COPY_PIECE,
+        3,
+        "the one place: `Scratch::open_copy` calls `keep`, `make_read_only` and `note_made` once each, \
+         in that order, so that no copy is handed out without its folder, its mode and its record",
+    ),
+    Allow::exactly(
+        "examples/azul-drive/src/picker.rs",
+        COPY_PIECE,
+        1,
+        "copy_root: the picker's folder of picked copies of one drive (`picked`, one kept folder a \
+         drive), filled by the picker's own transfer queue and handed to the app that asked for a \
+         copy; not an Open copy (no version, no read-only mark: the app may save to it)",
+    ),
+    Allow::exactly(
         "examples/azul-drive/src/e2e/",
         TEMP,
         2,
@@ -115,7 +190,9 @@ const ALLOWED: &[Allow] = &[
 
 fn gate(roots: &'static [Root], allowed: &'static [Allow]) -> Gate<'static> {
     Gate {
-        name: "the temp folder is read in scratch.rs only; the rest is the counted list",
+        name:
+            "the temp folder is read, and a copy for an app is made, in scratch.rs only; the rest \
+               is the counted list",
         roots,
         rules: rules(),
         budget: Budget(allowed),
@@ -280,6 +357,112 @@ fn a_local_named_temp_dir_a_comment_a_message_and_a_test_are_no_read() {
     .join("\n");
     let base = base_with(
         "quiet",
+        &[("examples/azul-drive/src/lib.rs", quiet.as_str())],
+    );
+    assert_eq!(check(&base, &[]), Ok(0));
+    let _ = std::fs::remove_dir_all(base);
+}
+
+const LISTED_PIECES: &[Allow] = &[Allow::exactly(
+    "examples/azul-drive/src/opening.rs",
+    COPY_PIECE,
+    3,
+    "the planted pieces",
+)];
+
+/// X-DELTA-AZDRIVE-SYNC-2. The open-copy procedure composed by hand - a folder kept, made
+/// read-only, noted - outside `scratch.rs` is a finding, with its lines; a listed file is counted,
+/// and a count that no longer holds (the code was converted to `Scratch::open_copy`) fails too.
+#[test]
+fn a_planted_open_copy_composed_by_hand_is_caught_and_a_listed_one_is_counted() {
+    let planted = [
+        "use azul_storage::scratch::{self, Scratch};",
+        "pub fn open_copy(copies: &Scratch, name: &str) {",
+        "    let folder = copies",
+        "        .keep(\"tag\")",
+        "        .unwrap();",
+        "    let _ = scratch::make_read_only(&folder.join(name));",
+        "    let _ = Scratch::note_made(&folder, name);",
+        "}",
+        "",
+    ]
+    .join("\n");
+    let base = base_with(
+        "pieces",
+        &[
+            ("examples/azul-drive/src/lib.rs", "mod opening;\n"),
+            ("examples/azul-drive/src/opening.rs", planted.as_str()),
+        ],
+    );
+    let wrong = check(&base, &[]).expect_err("an unlisted procedure is a finding");
+    assert_eq!(wrong.len(), 3, "{wrong:?}");
+    for line in [4, 6, 7] {
+        assert!(
+            wrong
+                .iter()
+                .any(|w| w.starts_with(&format!("examples/azul-drive/src/opening.rs:{line}"))),
+            "line {line} in {wrong:?}"
+        );
+    }
+    assert_eq!(check(&base, LISTED_PIECES), Ok(3));
+    // a fourth piece in the listed file is a new site: the count says so.
+    std::fs::write(
+        base.join("examples/azul-drive/src/opening.rs"),
+        format!("{planted}pub fn more(c: &Scratch) {{\n    let _ = c.keep(\"other\");\n}}\n"),
+    )
+    .unwrap();
+    let wrong = check(&base, LISTED_PIECES).expect_err("one more piece than the list says");
+    assert!(
+        wrong
+            .iter()
+            .any(|w| w.contains("holds 4 x copy-piece where its allowance says 3")),
+        "{wrong:?}"
+    );
+    // converted to the one procedure: the list shrinks with the code.
+    let converted = [
+        "use azul_storage::scratch::{CopyOf, Scratch};",
+        "pub fn open_copy(copies: &Scratch, of: CopyOf<'_>) {",
+        "    let _ = copies.open_copy(of, &mut |_, _| Ok(()));",
+        "}",
+        "",
+    ]
+    .join("\n");
+    std::fs::write(base.join("examples/azul-drive/src/opening.rs"), converted).unwrap();
+    let wrong = check(&base, LISTED_PIECES).expect_err("fewer pieces than the list says");
+    assert!(
+        wrong
+            .iter()
+            .any(|w| w.contains("holds 0 x copy-piece where its allowance says 3")),
+        "{wrong:?}"
+    );
+    let _ = std::fs::remove_dir_all(base);
+}
+
+/// Another type's `keep`, a file that does not name `Scratch`, a definition, a comment and a test
+/// are no piece of the procedure.
+#[test]
+fn another_types_keep_a_definition_a_comment_and_a_test_are_no_piece_of_the_procedure() {
+    let quiet = [
+        "// Scratch::note_made(&folder, name) and scratch::make_read_only(&path) are scratch's",
+        "pub fn paid(list: &mut PaidList, record: &PaidRecord) {",
+        "    list.keep(record);",
+        "    let kept = rotation.keep();",
+        "}",
+        "pub fn note_made(folder: &std::path::Path) -> bool {",
+        "    folder.exists()",
+        "}",
+        "#[cfg(test)]",
+        "mod tests {",
+        "    fn t(c: &Scratch) {",
+        "        let _ = c.keep(\"tag\");",
+        "        let _ = Scratch::note_made(&folder, \"a\");",
+        "    }",
+        "}",
+        "",
+    ]
+    .join("\n");
+    let base = base_with(
+        "pieces-quiet",
         &[("examples/azul-drive/src/lib.rs", quiet.as_str())],
     );
     assert_eq!(check(&base, &[]), Ok(0));

@@ -415,11 +415,13 @@ pub(crate) enum SyncOutcome {
         result: Result<PassDone, String>,
         states: SyncStates,
     },
-    /// A file opened: where it is on this computer, or why not.
+    /// A file opened: where it is on this computer, or why not; and where the user's own work that
+    /// stood at the read-only copy's place was put aside (X-DELTA-AZDRIVE-SYNC-2).
     Opened {
         drive_id: String,
         key: String,
         result: Result<PathBuf, Text>,
+        kept_edit: Option<PathBuf>,
         states: SyncStates,
     },
     /// A pin, a "Free up space", an answer: what to say (or why not), the states after.
@@ -590,11 +592,15 @@ pub(crate) fn run(job: SyncJob, emit: &mut dyn FnMut(Outcome)) -> Outcome {
         }
         SyncJob::Open { work, key } => {
             let session = work.session();
-            let result = session.open(&key).map_err(|e| cloud_error_text(&e));
+            let (result, kept_edit) = match session.open_keeping_edits(&key) {
+                Ok(opened) => (Ok(opened.path), opened.kept_edit),
+                Err(e) => (Err(cloud_error_text(&e)), None),
+            };
             SyncOutcome::Opened {
                 drive_id: work.drive_id(),
                 key,
                 result,
+                kept_edit,
                 states: session.states(),
             }
         }
@@ -1951,6 +1957,7 @@ fn take_outcome(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, outco
             drive_id,
             key,
             result,
+            kept_edit,
             states,
         } => {
             replace_states(s, &drive_id, states);
@@ -1958,6 +1965,15 @@ fn take_outcome(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, outco
                 Ok(path) => {
                     println!("AZDRIVE_SYNC_OPENED {drive_id} {key}");
                     s.clear_notice();
+                    // The user's own work, found where the read-only copy goes, is said, with
+                    // where it is: it is not deleted (AZ-U13, X-DELTA-AZDRIVE-SYNC-2).
+                    if let Some(edit) = kept_edit {
+                        s.info(
+                            Phrase::new("azdrive-open-edit-kept")
+                                .arg("name", key::last_segment(&key))
+                                .arg("path", edit.display().to_string()),
+                        );
+                    }
                     if let Err(e) = crate::open_with_os(&path) {
                         s.error(e);
                     }
