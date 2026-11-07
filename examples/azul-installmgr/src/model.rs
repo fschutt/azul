@@ -15,8 +15,8 @@ use azul_appkit::{
     azlin_config::{AzlinConfig, Channel, UpdatesSection},
     update::{
         audience_for, background_round, copy_verified, manifest_url_for, read_json,
-        read_small_text, sha256_of_file, write_json, AppPaths, ApplyRequest, Audience, Check,
-        CheckRequest, InstallKind, Registration, Release, Round, RoundOutcome, Staged,
+        read_small_text, sha256_of_file, write_bytes, write_json, AppPaths, ApplyRequest, Audience,
+        Check, CheckRequest, InstallKind, Registration, Release, Round, RoundOutcome, Staged,
         UpdateEngine, Verified, APPS_DIR, RELEASE_FILE, REQUEST_FILE, STATE_FILE_MAX,
     },
 };
@@ -972,10 +972,6 @@ pub fn revert(
     Ok((from, registration))
 }
 
-/// The rollback marks the engine keeps for the app (`state/<channel>/update-state.json`): the
-/// files and their bytes. A folder with no state is no marks; a state folder or a file that cannot
-/// be read is an error and not "no marks": the uninstall that does not know them would take
-/// them with the registry.
 /// The bytes of `path`, at most `max` of them: a file past that is an error (`InvalidData`) and is
 /// not read into memory whole. The marks are no file to drop when they are too big - the uninstall
 /// stops before it removes anything (X-DELTA-AZDRIVE-KEYS-35).
@@ -994,6 +990,10 @@ fn read_bounded(path: &Path, max: u64) -> std::io::Result<Vec<u8>> {
     Ok(bytes)
 }
 
+/// The rollback marks the engine keeps for the app (`state/<channel>/update-state.json`): the
+/// files and their bytes. A folder with no state is no marks; a state folder or a file that cannot
+/// be read is an error and not "no marks": the uninstall that does not know them would take
+/// them with the registry.
 fn rollback_marks(paths: &AppPaths) -> Result<Vec<(PathBuf, Vec<u8>)>, String> {
     let state = paths.registry.join("state");
     let channels = match std::fs::read_dir(&state) {
@@ -1058,7 +1058,7 @@ pub fn uninstall(places: &Places, entry: &AppEntry) -> Result<(), String> {
         if let Some(dir) = file.parent() {
             std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
         }
-        std::fs::write(&file, bytes).map_err(|e| format!("{}: {e}", file.display()))?;
+        write_bytes(&file, &bytes).map_err(|e| format!("{}: {e}", file.display()))?;
     }
     Ok(())
 }

@@ -486,10 +486,6 @@ fn state_dir(s: &DriveState) -> Result<PathBuf, String> {
     Ok(state_dir_path(s))
 }
 
-/// The state a pass saved and did not finish, if any. A state that is there and cannot be read
-/// or does not parse is an error and not "no state": a pass that started over would redo - and
-/// send again - what it had done, and nobody would know. A damaged file is set aside whole
-/// (`<name>.damaged`) so the next run starts anew, and the error says where it went.
 /// The state of a "re-encrypt everything" pass as the NEXT pass takes it up: the one a pass of the
 /// current keys left, not one of the keys before. A pass that began before the keys were made
 /// (`rotated_at`) has a cut-off and a cursor of other files: loaded after a second rotation it
@@ -500,6 +496,10 @@ fn current_pass(state: Option<ReencryptState>, rotated_at: u64) -> Option<Reencr
     state.filter(|state| state.before >= rotated_at)
 }
 
+/// The state a pass saved and did not finish, if any. A state that is there and cannot be read
+/// or does not parse is an error and not "no state": a pass that started over would redo - and
+/// send again - what it had done, and nobody would know. A damaged file is set aside whole
+/// (`<name>.damaged`) so the next run starts anew, and the error says where it went.
 fn load_state<T>(file: &Path, parse: impl FnOnce(&str) -> Option<T>) -> Result<Option<T>, String> {
     let bytes = match std::fs::read(file) {
         Ok(bytes) => bytes,

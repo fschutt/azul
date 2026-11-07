@@ -292,6 +292,17 @@ pub fn read_json<T: DeserializeOwned>(path: &Path) -> Option<T> {
     serde_json::from_str(&text).ok()
 }
 
+/// Writes `bytes` to `path` as they are, in the same way [`write_json`] writes a file: staged
+/// beside the name, synced, renamed over it ([`azul_storage::durable`]). For a file this code
+/// puts back unchanged (the rollback marks an uninstall keeps, X-DELTA-AZDRIVE-KEYS-11).
+///
+/// # Errors
+///
+/// The I/O error that stopped the write.
+pub fn write_bytes(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    durable::replace(path, bytes, Mode::Shared)
+}
+
 /// Writes `value` to `path` as JSON, creating the folder: staged beside the name, synced, renamed
 /// over it ([`azul_storage::durable`]), so a reader never sees half a file and a power cut leaves
 /// the old file or the new one - never the empty file `fs::write` left (the registration, the
