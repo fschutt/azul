@@ -328,7 +328,7 @@ fn welcome_text(m: &Manager) -> String {
     format!(
         "{}\n\n{}\n\n{}",
         t("azinstallmgr-welcome-text"),
-        t(model::Proof::of(&m.updates).welcome_key()),
+        t(model::Proof::of(m.keys, &m.updates).welcome_key()),
         t("azinstallmgr-welcome-next")
     )
 }
@@ -428,7 +428,9 @@ fn page(m: &Manager, app: &RefAny) -> (Dom, String) {
                 .with_row(s(&t("azinstallmgr-settings-source")), s(&source));
             // Nothing can be fetched by a build that cannot prove an update, nor without a
             // source: Install waits and says why.
-            let reason = model::fetch_blocker(&m.updates).map(t).unwrap_or_default();
+            let reason = model::fetch_blocker(m.keys, &m.updates)
+                .map(t)
+                .unwrap_or_default();
             (p.dom(), reason)
         }
         Step::Installing => {
@@ -877,5 +879,30 @@ mod tests {
         m.wizard.step = Step::Ready;
         let (_, reason) = page(&m, &RefAny::new(0u8));
         assert_eq!(reason, "", "with a source Install may go");
+    }
+
+    /// X-DELTA-AZDRIVE-KEYS-37: what the welcome page claims about the check of an app follows the
+    /// keys the manager was built with - "checked against its signature" only with a key, "not
+    /// available" without one - whatever `UPDATE_ROOT_KEYS` says today.
+    #[test]
+    fn x_delta_azdrive_keys_37_the_welcome_claims_the_signature_only_with_a_key() {
+        crate::l10n::in_english();
+        let mut unarmed = manager(None);
+        unarmed.updates = azul_appkit::azlin_config::UpdatesSection::default();
+        unarmed.keys = &[];
+        let mut armed = manager(None);
+        armed.updates = azul_appkit::azlin_config::UpdatesSection::default();
+        armed.keys = &["RWQf6LRCGA9i53mlYecO4IzT51TGPpvWucNSCh1CBM0QTaLn73Y7GFO3"];
+        let without = welcome_text(&unarmed);
+        let with = welcome_text(&armed);
+        assert_ne!(without, with, "the claim follows the keys");
+        assert!(
+            with.contains(&crate::t(model::Proof::Signed.welcome_key())),
+            "{with}"
+        );
+        assert!(
+            without.contains(&crate::t(model::Proof::Unavailable.welcome_key())),
+            "{without}"
+        );
     }
 }

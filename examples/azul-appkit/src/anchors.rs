@@ -30,6 +30,29 @@ use std::fmt;
 
 use crate::azlin_config::{Profile, UpdatesSection};
 
+/// The words a build made with the cargo feature `test-hooks` carries in its binary (a `#[used]`
+/// static that [`update_policy`] and [`token_server_for`] read): a test build takes the update
+/// anchor, the endpoints and the drive's token server from files, variables and switches, so
+/// nothing signed and shipped may be one. cargo unifies features across the packages of one build,
+/// and `cargo build --release --workspace --all-targets` turns a dev-dependency's `test-hooks` on
+/// for every binary: this marker is what `scripts/sign-release.sh release` and the CI step
+/// `scripts/check_no_test_hooks.py` look for in a binary (X-DELTA-AZDRIVE-KEYS-37). A shipped
+/// build never refers to the constant, so its binary does not hold the bytes.
+pub const TEST_HOOKS_MARKER: &str =
+    "AZLIN-BUILD-MARKER:test-hooks:the-anchors-of-this-build-come-from-files";
+
+/// The marker in a test build's binary.
+#[cfg(feature = "test-hooks")]
+#[used]
+static TEST_HOOKS_IN_THIS_BINARY: &str = TEST_HOOKS_MARKER;
+
+/// Keeps the marker in every binary that asks for an anchor (a linker that drops what nothing
+/// reads would drop it otherwise).
+#[cfg(feature = "test-hooks")]
+fn keep_marker() {
+    std::hint::black_box(TEST_HOOKS_IN_THIS_BINARY);
+}
+
 /// The live token server: the one address a shipped build sends a drive token to. The profile
 /// table ([`Profile::Production`]) reads it from here.
 pub const TOKEN_SERVER: &str = "https://token.azlin.io";
@@ -72,6 +95,8 @@ pub fn token_server_choice<'a>(
     named_by_entry: &'a str,
     resolved: &'a str,
 ) -> &'a str {
+    #[cfg(feature = "test-hooks")]
+    keep_marker();
     let named = named_by_entry.trim();
     if honour_entry && !named.is_empty() {
         named
@@ -217,14 +242,32 @@ fn test_policy(updates: &UpdatesSection) -> Result<Option<UpdatePolicy>, NoRootK
 /// [`NoRootKey`]: the build carries no root key, or its key is unreadable. Updates are then not
 /// available: nothing is staged and nothing is installed.
 pub fn update_policy(updates: &UpdatesSection) -> Result<UpdatePolicy, NoRootKey> {
+    update_policy_with(UPDATE_ROOT_KEYS, updates)
+}
+
+/// [`update_policy`] for the compiled keys `keys` instead of this build's [`UPDATE_ROOT_KEYS`]: the
+/// seam the manager carries its keys through, so that an unarmed build (no key) and an armed one
+/// (the owner's key) are both under test whatever the constant says today - the tests of the
+/// manager and its screens used to pass only while the constant was empty.
+///
+/// # Errors
+///
+/// As [`update_policy`].
+pub fn update_policy_with(
+    keys: &[&str],
+    updates: &UpdatesSection,
+) -> Result<UpdatePolicy, NoRootKey> {
     #[cfg(feature = "test-hooks")]
-    if let Some(policy) = test_policy(updates)? {
-        return Ok(policy);
+    {
+        keep_marker();
+        if let Some(policy) = test_policy(updates)? {
+            return Ok(policy);
+        }
     }
     // A shipped build does not look at the config for an anchor.
     #[cfg(not(feature = "test-hooks"))]
     let _ = updates;
-    policy_of(UPDATE_ROOT_KEYS)
+    policy_of(keys)
 }
 
 #[cfg(test)]
@@ -348,11 +391,31 @@ mod tests {
         let planted = updates(&format!(
             r#"{{"updates": {{"root_public_key": "{KEY}", "allow_unsigned": true}}}}"#
         ));
-        assert_eq!(update_policy(&planted), Err(NoRootKey::Missing));
+        // Whatever the constant says today (it is empty until the key ceremony): with no key
+        // compiled in the planted file gives no anchor, with one compiled in the file does not
+        // override it.
+        assert_eq!(update_policy_with(&[], &planted), Err(NoRootKey::Missing));
         assert_eq!(
-            update_policy(&UpdatesSection::default()),
+            update_policy_with(&[], &UpdatesSection::default()),
             Err(NoRootKey::Missing)
         );
+        let compiled = update_policy_with(&[OTHER], &planted).expect("the compiled key");
+        assert!(
+            matches!(&compiled, UpdatePolicy::Signed(k) if k.as_text() == OTHER),
+            "the compiled key, not the file's: {compiled:?}"
+        );
+        assert_eq!(update_policy(&planted), policy_of(UPDATE_ROOT_KEYS));
+    }
+
+    /// X-DELTA-AZDRIVE-KEYS-37: the build that honours files carries its marker, and a shipped
+    /// one does not refer to it. (That the bytes are or are not in the BINARY is checked by
+    /// `scripts/check_no_test_hooks.py` in CI, on the built binaries.)
+    #[test]
+    fn x_delta_azdrive_keys_37_only_a_test_build_holds_the_marker() {
+        assert!(TEST_HOOKS_MARKER.starts_with("AZLIN-BUILD-MARKER:test-hooks:"));
+        #[cfg(feature = "test-hooks")]
+        assert_eq!(TEST_HOOKS_IN_THIS_BINARY, TEST_HOOKS_MARKER);
+        assert_eq!(layers_honoured(), cfg!(feature = "test-hooks"));
     }
 
     #[cfg(feature = "test-hooks")]

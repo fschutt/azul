@@ -315,6 +315,13 @@ keys_dir_is_safe
 [ -n "$APP" ]      || die "--app is required (the app's key, e.g. azwriter: the release statement names it)"
 [ -n "$ARTIFACT" ] || die "--artifact is required"
 [ -f "$ARTIFACT" ] || die "artifact not found: $ARTIFACT"
+# A build made with the cargo feature `test-hooks` takes its update anchor, its endpoints and the token
+# server a drive token goes to from files, variables and switches: nothing signed and shipped may be
+# one (cargo unifies features across a workspace build, so a binary can be one by accident). Such a
+# build holds this marker (azul-appkit's anchors::TEST_HOOKS_MARKER; scripts/check_no_test_hooks.py).
+if grep -a -q -F 'AZLIN-BUILD-MARKER:test-hooks:' "$ARTIFACT"; then
+  die "$ARTIFACT is a test build (it holds the test-hooks marker): build it without the feature test-hooks"
+fi
 [ -n "$VERSION" ]  || die "--version is required"
 [ -n "$URL" ]      || die "--url is required (where clients download the artifact)"
 if [ -z "$PLATFORM" ]; then

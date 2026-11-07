@@ -109,7 +109,7 @@ pub(crate) fn source_section(m: &Manager, app: &RefAny) -> Dom {
         .with_css("flex-grow: 1; min-width: 240px;");
     let help = if !m.source_problem.is_empty() {
         m.source_problem.clone()
-    } else if model::Proof::of(&m.updates) == model::Proof::Unavailable {
+    } else if model::Proof::of(m.keys, &m.updates) == model::Proof::Unavailable {
         // A source is no use to a build that cannot prove what it fetches there.
         t("azinstallmgr-settings-unavailable")
     } else if model::has_source(&m.updates) {
@@ -214,7 +214,7 @@ pub(crate) fn screen(m: &Manager, app: &RefAny) -> Dom {
             ],
         ));
     }
-    let signatures = t(model::Proof::of(&m.updates).settings_key());
+    let signatures = t(model::Proof::of(m.keys, &m.updates).settings_key());
     let window = m
         .updates
         .maintenance_window

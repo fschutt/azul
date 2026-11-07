@@ -27,8 +27,11 @@
 //! ```
 //!
 //! The state folder: `--state-dir`, else `$AZUL_BRIDGE_HOME`, else `<OS config folder>/azul-bridge`
-//! ([`crate::config`]). The token server: `--token-url`, `$AZLIN_TOKEN_URL`, the shared Azlin
-//! config (azcloud-kit's settings, as the `azcloud` command line resolves it). The secrets
+//! ([`crate::config`]). The token server: a shipped bridge talks to the live one
+//! ([`azul_appkit::anchors::TOKEN_SERVER`]) and ignores `--token-url`, `--s3-url`,
+//! `$AZLIN_TOKEN_URL` and the shared config's endpoints; only a TEST build (cargo feature
+//! `test-hooks`, the E2E stacks) takes the address from them, in that order (azcloud-kit's
+//! settings, as the `azcloud` command line resolves it). The secrets
 //! (`--keyring`): `os`, the OS keyring (a build with the `os-keyring` feature, the default
 //! there), or `file`, the state folder's 0600 file; `init` records the choice in `bridge.json`.
 

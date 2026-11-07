@@ -864,6 +864,11 @@ jobs:
           set -o pipefail
           cargo test -p azul-appkit --no-fail-fast 2>&1 | tee azul-appkit-tests.txt
           ./scripts/zero_test_guard.sh --strict azul-appkit-tests.txt
+          # The other branch of the anchors: a build with `test-hooks` takes its update anchor and
+          # its endpoints from files and switches. Alone, never unified with the run above (the
+          # shipped branch's tests are cfg'd out of this one).
+          cargo test -p azul-appkit --features test-hooks --no-fail-fast 2>&1 | tee azul-appkit-test-hooks-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-appkit-test-hooks-tests.txt
 
       - name: Run azul-pim tests
         run: |
@@ -1060,6 +1065,18 @@ jobs:
           cargo test -p azul-bridge --no-fail-fast 2>&1 | tee azul-bridge-tests.txt
           ./scripts/zero_test_guard.sh --strict azul-bridge-tests.txt
           cargo check -p azul-bridge --tests --no-default-features
+
+      # A binary made with the cargo feature `test-hooks` holds a marker (azul-appkit's
+      # anchors::TEST_HOOKS_MARKER): cargo unifies features across one build, so a binary built
+      # beside the tests can be a test build by accident, and nothing signed may be one. The shipped
+      # bridge holds none, the test build holds it (the second check is the negative control: a
+      # check that cannot fail checks nothing). X-DELTA-AZDRIVE-KEYS-37.
+      - name: The shipped binary holds no test-hooks marker
+        run: |
+          cargo build --release -p azul-bridge --bin azul-bridge
+          python3 scripts/check_no_test_hooks.py target/release/azul-bridge
+          cargo build -p azul-bridge --features test-hooks --bin azul-bridge
+          python3 scripts/check_no_test_hooks.py --expect-marker target/debug/azul-bridge
 
       - name: Run AzMail tests (and the local IMAP test server's)
         env:

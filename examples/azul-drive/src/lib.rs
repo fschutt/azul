@@ -118,7 +118,9 @@
 //! a folder on this computer, OpenDAL's services with the feature `opendal`, PostgreSQL / MySQL /
 //! SQLite browsed as tables with `sql`; a form per source, "Test connection", "Add drive").
 //! `--token-url <url>` / `--profile <name>` name the token server (else `$AZLIN_TOKEN_URL`, the
-//! shared Azlin config, the profile's).
+//! shared Azlin config, the profile's) in a TEST build only (cargo feature `test-hooks`, the E2E
+//! stacks): a shipped AzDrive sends a drive token to the live token server and to nothing a file, a
+//! variable or a switch names (`azul_appkit::anchors`).
 //!
 //! A checkout names a claim key of its own (azcloud-kit's `claim`): the token server seals the
 //! paid drive's sign-up to it. The checkout and its key go on the keyring's list of unfinished

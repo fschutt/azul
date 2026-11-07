@@ -24,7 +24,9 @@ import tempfile
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+REPO = os.path.dirname(HERE)
 SCRIPT = os.path.join(HERE, "sign-release.sh")
+CHECK = os.path.join(HERE, "check_no_test_hooks.py")
 
 # A signer that makes recognisable files and logs what it was asked: a key is a KEYID line, a
 # signature names the key that made it and the SHA-256 of what it covers.
@@ -415,6 +417,56 @@ class SignReleaseScript(unittest.TestCase):
         r = self.sb.run(*self.release_args(app="az|writer"))
         self.assertNotEqual(r.returncode, 0)
         self.assertFalse(os.path.exists(self.out))
+
+    # -- X-DELTA-AZDRIVE-KEYS-37: a test build is not signed ------------------------------------
+
+    def marker(self):
+        """The marker azul-appkit's `anchors::TEST_HOOKS_MARKER` puts in a test build, read from its source."""
+        source = read(os.path.join(REPO, "examples", "azul-appkit", "src", "anchors.rs"))
+        m = re.search(r'pub const TEST_HOOKS_MARKER: &str = "([^"]+)";', source)
+        self.assertIsNotNone(m, "anchors.rs names the marker")
+        return m.group(1)
+
+    def test_x_delta_azdrive_keys_37_an_artifact_that_holds_the_test_hooks_marker_is_not_signed(self):
+        self.keyed()
+        with open(self.artifact, "wb") as f:
+            f.write(b"\x7fELF....." + self.marker().encode() + b".....more bytes")
+        signed_before = len(self.sb.calls())
+        r = self.sb.run(*self.release_args())
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        self.assertIn("test build", r.stderr)
+        self.assertFalse(os.path.exists(self.out), "no manifest")
+        self.assertEqual(len(self.sb.calls()), signed_before, "nothing was signed")
+        # The same release of an artifact without it goes through.
+        with open(self.artifact, "wb") as f:
+            f.write(self.artifact_bytes)
+        r = self.sb.run(*self.release_args())
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_x_delta_azdrive_keys_37_the_check_script_finds_the_marker_both_ways(self):
+        marker = self.marker().encode()
+        shipped = os.path.join(self.sb.work, "shipped.bin")
+        test_build = os.path.join(self.sb.work, "test.bin")
+        cut = os.path.join(self.sb.work, "cut.bin")
+        with open(shipped, "wb") as f:
+            f.write(b"a shipped binary" * 1000)
+        with open(test_build, "wb") as f:
+            f.write(b"x" * 100 + marker + b"y" * 100)
+        # A marker that straddles the end of a read is found as well (1 MiB chunks).
+        with open(cut, "wb") as f:
+            f.write(b"z" * ((1 << 20) - 7) + marker + b"z" * 50)
+
+        def check(*args):
+            return subprocess.run([sys.executable, CHECK, *args], capture_output=True, text=True)
+
+        self.assertEqual(check(shipped).returncode, 0)
+        self.assertEqual(check(test_build).returncode, 1)
+        self.assertEqual(check(cut).returncode, 1)
+        self.assertEqual(check("--expect-marker", test_build).returncode, 0)
+        self.assertEqual(check("--expect-marker", shipped).returncode, 1, "the negative control can fail")
+        self.assertEqual(check(shipped, test_build).returncode, 1, "one bad file is enough")
+        self.assertEqual(check("/no/such/file").returncode, 1)
+        self.assertEqual(check().returncode, 2)
 
     def test_help_prints_the_usage_and_exits_cleanly(self):
         r = self.sb.run("--help")

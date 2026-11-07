@@ -1305,6 +1305,10 @@ pub struct Fetching {
     pub places: Places,
     /// The config's `updates` section as it was read when the work started.
     pub updates: UpdatesSection,
+    /// The update root key(s) this build was made with ([`anchors::UPDATE_ROOT_KEYS`]): what an
+    /// update has to prove against. A test builds an unarmed manager (`&[]`) and an armed one
+    /// (a key) whatever the constant says.
+    pub keys: &'static [&'static str],
     /// The machine's rollout cohort.
     pub cohort: u8,
 }
@@ -1324,13 +1328,13 @@ impl Fetching {
         })
     }
 
-    /// What an update has to prove here: this build's root key ([`anchors::update_policy`]).
+    /// What an update has to prove here: this build's root key ([`anchors::update_policy_with`]).
     ///
     /// # Errors
     ///
     /// [`NoRootKey`]: this build cannot prove an update, so it installs and stages none.
     pub fn policy(&self) -> Result<UpdatePolicy, NoRootKey> {
-        anchors::update_policy(&self.updates)
+        anchors::update_policy_with(self.keys, &self.updates)
     }
 }
 
@@ -1849,10 +1853,11 @@ pub enum Proof {
 }
 
 impl Proof {
-    /// The proof of the build for the config `updates` ([`anchors::update_policy`]).
+    /// The proof of a build with the root key(s) `keys` for the config `updates`
+    /// ([`anchors::update_policy_with`]).
     #[must_use]
-    pub fn of(updates: &UpdatesSection) -> Proof {
-        match anchors::update_policy(updates) {
+    pub fn of(keys: &[&str], updates: &UpdatesSection) -> Proof {
+        match anchors::update_policy_with(keys, updates) {
             Ok(UpdatePolicy::Signed(_)) => Proof::Signed,
             Ok(UpdatePolicy::DigestOnly) => Proof::Unsigned,
             Err(_) => Proof::Unavailable,
@@ -1884,8 +1889,8 @@ impl Proof {
 /// Why nothing can be fetched with `updates` (a message key), if so: the build cannot prove an
 /// update, or no update source is set. The build comes first - typing a source is no use then.
 #[must_use]
-pub fn fetch_blocker(updates: &UpdatesSection) -> Option<&'static str> {
-    if Proof::of(updates) == Proof::Unavailable {
+pub fn fetch_blocker(keys: &[&str], updates: &UpdatesSection) -> Option<&'static str> {
+    if Proof::of(keys, updates) == Proof::Unavailable {
         Some("azinstallmgr-ready-no-key")
     } else if !has_source(updates) {
         Some("azinstallmgr-ready-no-source")
@@ -1953,7 +1958,14 @@ mod model_tests {
     #[test]
     fn y1_what_the_screens_claim_follows_what_the_build_proves() {
         let none = UpdatesSection::default();
-        assert_eq!(Proof::of(&none), Proof::Unavailable);
+        assert_eq!(Proof::of(&[], &none), Proof::Unavailable);
+        // An ARMED build (the owner's key compiled in) claims the signature check; the key is
+        // there, the source is what is missing. Whatever `UPDATE_ROOT_KEYS` says today.
+        assert_eq!(Proof::of(ARMED, &none), Proof::Signed);
+        assert_eq!(
+            fetch_blocker(ARMED, &none),
+            Some("azinstallmgr-ready-no-source")
+        );
         assert_eq!(
             Proof::Unavailable.welcome_key(),
             "azinstallmgr-welcome-unavailable"
@@ -1963,20 +1975,20 @@ mod model_tests {
             "azinstallmgr-settings-unavailable"
         );
         assert_eq!(
-            fetch_blocker(&none),
+            fetch_blocker(&[], &none),
             Some("azinstallmgr-ready-no-key"),
             "the build first"
         );
         let (test, _) = AzlinConfig::parse(r#"{"updates": {"allow_unsigned": true}}"#);
-        assert_eq!(Proof::of(&test.updates), Proof::Unsigned);
+        assert_eq!(Proof::of(&[], &test.updates), Proof::Unsigned);
         assert_eq!(
-            fetch_blocker(&test.updates),
+            fetch_blocker(&[], &test.updates),
             Some("azinstallmgr-ready-no-source")
         );
         let (typed, _) = AzlinConfig::parse(
             r#"{"updates": {"allow_unsigned": true, "manifest_url": "https://example.org/{app}.json"}}"#,
         );
-        assert_eq!(fetch_blocker(&typed.updates), None);
+        assert_eq!(fetch_blocker(&[], &typed.updates), None);
         assert_ne!(Proof::Signed.welcome_key(), Proof::Unsigned.welcome_key());
         assert_eq!(Proof::Signed.settings_key(), "azinstallmgr-settings-signed");
     }
@@ -1987,6 +1999,8 @@ mod model_tests {
         /// key -> (version, gated: only a tester gets it)
         releases: Vec<(&'static str, &'static str, bool)>,
         asked: Mutex<Vec<(String, Audience)>>,
+        /// Whether the policy each `stage` and `verify` was handed checks a signature chain.
+        proofs: Mutex<Vec<bool>>,
         refuse_verify: bool,
         /// A file whose existence is written down at every check.
         watching: Option<PathBuf>,
@@ -2012,7 +2026,10 @@ mod model_tests {
                 .unwrap()
                 .push((q.manifest_url.to_string(), q.audience));
             match self.release_of(q.manifest_url) {
-                Some((version, gated)) if version != q.current_version => {
+                // The engine's check offers a release NEWER than the installed one and nothing
+                // else (azul's `select_update_candidate`): a source that holds an older one, or
+                // the same, leaves the app up to date.
+                Some((version, gated)) if newer_than(version, q.current_version) => {
                     if gated && q.audience != Audience::Tester {
                         Check::UpToDate
                     } else {
@@ -2032,9 +2049,10 @@ mod model_tests {
             _: &str,
             r: &Release,
             dir: &Path,
-            _: &UpdatePolicy,
+            policy: &UpdatePolicy,
             _: &Path,
         ) -> Result<Verified, String> {
+            self.proofs.lock().unwrap().push(policy.is_signed());
             std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
             let file = dir.join(format!("{}.bin", r.version));
             std::fs::write(&file, format!("program {}", r.version)).map_err(|e| e.to_string())?;
@@ -2045,9 +2063,10 @@ mod model_tests {
             _: &str,
             file: &Path,
             _: &Release,
-            _: &UpdatePolicy,
+            policy: &UpdatePolicy,
             _: &Path,
         ) -> Result<Verified, String> {
+            self.proofs.lock().unwrap().push(policy.is_signed());
             if self.refuse_verify {
                 Err("artifact signature invalid".to_string())
             } else {
@@ -2068,6 +2087,25 @@ mod model_tests {
             true
         }
     }
+
+    /// Whether the dotted number `a` is newer than `b` (numbers part by part; a missing part is 0).
+    fn newer_than(a: &str, b: &str) -> bool {
+        let parts =
+            |v: &str| -> Vec<u64> { v.split('.').map(|p| p.parse().unwrap_or(0)).collect() };
+        let (a, b) = (parts(a), parts(b));
+        (0..a.len().max(b.len())).find_map(|i| {
+            let (x, y) = (
+                a.get(i).copied().unwrap_or(0),
+                b.get(i).copied().unwrap_or(0),
+            );
+            (x != y).then_some(x > y)
+        }) == Some(true)
+    }
+
+    /// A well-formed update root key: minisign's documentation key (a key of nobody).
+    const KEY: &str = "RWQf6LRCGA9i53mlYecO4IzT51TGPpvWucNSCh1CBM0QTaLn73Y7GFO3";
+    /// A build with a root key compiled in.
+    const ARMED: &[&str] = &[KEY];
 
     fn places(dir: &Path, os: Os) -> Places {
         let azlin_dir = dir.join(".azlin");
@@ -2092,15 +2130,25 @@ mod model_tests {
         Fetching {
             places: places(dir, Os::Linux),
             updates: config.updates,
+            keys: &[],
             cohort: 50,
         }
     }
 
-    /// The same manager as a shipped build is: a source, and no root key anywhere.
+    /// The same manager as a shipped build is that has no key compiled in: a source, and no root
+    /// key anywhere (whatever `UPDATE_ROOT_KEYS` says today).
     fn fetching_without_a_key(dir: &Path) -> Fetching {
         let mut f = fetching(dir);
         f.updates = UpdatesSection::default();
         f.updates.manifest_url = Some("http://example.org/{app}/{channel}.json".to_string());
+        f.keys = &[];
+        f
+    }
+
+    /// The same manager of a build with the owner's root key compiled in (a key of nobody here).
+    fn fetching_with_a_key(dir: &Path) -> Fetching {
+        let mut f = fetching_without_a_key(dir);
+        f.keys = ARMED;
         f
     }
 
@@ -3592,5 +3640,82 @@ mod model_tests {
         }
         assert!(outcome.is_err(), "{outcome:?}");
         assert_eq!(std::fs::read_to_string(&rc).unwrap(), "export KEEP=1\n");
+    }
+
+    /// X-DELTA-AZDRIVE-KEYS-37: a manager with the owner's root key compiled in hands the engine the
+    /// SIGNED chain to prove an update with, and one built for a test that spells `allow_unsigned`
+    /// hands it the digest pin; a manager with no key proves nothing. The keys are the manager's
+    /// own: these tests held only while `UPDATE_ROOT_KEYS` was empty - the day the owner fills it
+    /// four of them went red and nothing tested the armed manager.
+    #[test]
+    fn x_delta_azdrive_keys_37_an_armed_manager_hands_the_engine_the_signed_chain() {
+        let dir = TempDir::new("installmgr-armed");
+        let engine = FakeEngine {
+            releases: vec![("azwriter", "2.0.0", false)],
+            ..FakeEngine::default()
+        };
+        let armed = fetching_with_a_key(dir.path());
+        assert!(armed.policy().expect("a key is compiled in").is_signed());
+        install_new(&engine, &armed, writer(), Channel::Stable, 1).unwrap();
+        assert_eq!(*engine.proofs.lock().unwrap(), [true], "the signed chain");
+
+        let dir = TempDir::new("installmgr-digest");
+        let engine = FakeEngine {
+            releases: vec![("azwriter", "2.0.0", false)],
+            ..FakeEngine::default()
+        };
+        let pinned = fetching(dir.path());
+        install_new(&engine, &pinned, writer(), Channel::Stable, 1).unwrap();
+        assert_eq!(
+            *engine.proofs.lock().unwrap(),
+            [false],
+            "a test build that says it wants no signature: the digest pin"
+        );
+
+        let dir = TempDir::new("installmgr-unarmed");
+        let engine = FakeEngine {
+            releases: vec![("azwriter", "2.0.0", false)],
+            ..FakeEngine::default()
+        };
+        let unarmed = fetching_without_a_key(dir.path());
+        assert!(install_new(&engine, &unarmed, writer(), Channel::Stable, 1).is_err());
+        assert!(
+            engine.proofs.lock().unwrap().is_empty(),
+            "nothing was proven or staged"
+        );
+    }
+
+    /// X-DELTA-AZDRIVE-KEYS-37: a source that holds a release OLDER than the installed one (a
+    /// genuine, signed, old build) leaves the app up to date: the engine offers newer releases
+    /// only, and the fake of this module now does as the real one does (it offered any version
+    /// that was not the installed one, so no test could see an old release offered).
+    #[test]
+    fn x_delta_azdrive_keys_37_a_release_older_than_the_installed_one_is_not_an_update() {
+        let dir = TempDir::new("installmgr-older");
+        let engine = FakeEngine {
+            releases: vec![("azwriter", "1.0.0", false)],
+            ..FakeEngine::default()
+        };
+        let f = fetching(dir.path());
+        place(
+            &f.places,
+            writer(),
+            &file_with(dir.path(), "v2"),
+            &release("2.0.0"),
+            Channel::Stable,
+            3,
+        )
+        .unwrap();
+        let apps = installed(&engine, &f.places, &f.updates);
+        assert_eq!(check_installed(&engine, &f, &apps[0], 4), Status::UpToDate);
+        assert_eq!(
+            engine.asked.lock().unwrap().len(),
+            1,
+            "the source was asked"
+        );
+        assert!(
+            newer_than("2.0.1", "2.0.0") && newer_than("2.1", "2.0.9") && newer_than("10.0", "9.9")
+        );
+        assert!(!newer_than("2.0", "2.0.0") && !newer_than("1.9.9", "2.0.0"));
     }
 }

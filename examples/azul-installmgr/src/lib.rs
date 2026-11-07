@@ -121,6 +121,10 @@ pub(crate) struct Manager {
     pub(crate) places: Places,
     /// The config's `updates` section as last read: the policy every job works with.
     pub(crate) updates: UpdatesSection,
+    /// The update root key(s) this build was made with (`anchors::UPDATE_ROOT_KEYS`; a test
+    /// puts its own): what the screens claim and every job proves with. Empty: updates are not
+    /// available in this build.
+    pub(crate) keys: &'static [&'static str],
     /// The machine's rollout cohort (kept in the config).
     pub(crate) cohort: u8,
     pub(crate) screen: Screen,
@@ -153,6 +157,7 @@ impl Manager {
         Fetching {
             places: self.places.clone(),
             updates: self.updates.clone(),
+            keys: self.keys,
             cohort: self.cohort,
         }
     }
@@ -172,6 +177,7 @@ impl Manager {
             wizard: wizard::Wizard::new(places.install_dir.to_string_lossy().into_owned(), None),
             places,
             updates,
+            keys: &[],
             cohort: 1,
             screen: Screen::Wizard,
             apps: Vec::new(),
@@ -601,6 +607,7 @@ pub fn start() {
         wizard: wizard::Wizard::new(places.install_dir.to_string_lossy().into_owned(), package_manager),
         places,
         updates,
+        keys: azul_appkit::anchors::UPDATE_ROOT_KEYS,
         cohort,
         screen,
         apps,
