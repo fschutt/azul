@@ -23,7 +23,7 @@
 use std::{fs, io::Write, path::Path};
 
 use azul_storage::{
-    beneath::{Dir, Fingerprint},
+    beneath::{Dir, Fingerprint, Stat, Tri},
     ctl::Quiet,
     durable::{self, Expect, Publish, PublishError},
     local::source_bits,
@@ -224,7 +224,7 @@ fn copy_then_remove(source: &Path, target: &Path) -> std::io::Result<()> {
     let (from_dir, from_name) = folder_and_name(source)?;
     let still_the_file = from_dir
         .lstat(&from_name)
-        .is_ok_and(|now| !before.matches(&now).is_different());
+        .is_ok_and(|now| unchanged_since(&before, &now, source, target));
     if !still_the_file {
         let _ = to_dir.unlink(&to);
         return Err(std::io::Error::other(
@@ -234,6 +234,41 @@ fn copy_then_remove(source: &Path, target: &Path) -> std::io::Result<()> {
     fs::remove_file(source)?;
     from_dir.sync();
     Ok(())
+}
+
+/// Whether the source is, for certain, the file that was copied: `now` (an `lstat` of it) matches
+/// the fingerprint taken before the copy ([`Fingerprint::matches`]: the same size, times and
+/// identity). A system that gives files no identity (FAT, a share without file ids) answers
+/// [`Tri::Unknown`]; a delete on a guess is no delete: the bytes of the source and of the copy are
+/// compared, and the source goes only when they are one (X-DELTA-AZDRIVE-FILES-23).
+fn unchanged_since(before: &Fingerprint, now: &Stat, source: &Path, copy: &Path) -> bool {
+    match before.matches(now) {
+        Tri::Same => true,
+        Tri::Different => false,
+        // collapse-ok: bytes that cannot be read to the end are not bytes known to be equal - the
+        // source stays where it is.
+        Tri::Unknown => same_bytes(source, copy).unwrap_or(false),
+    }
+}
+
+/// Whether the files at `a` and `b` hold the same bytes.
+fn same_bytes(a: &Path, b: &Path) -> std::io::Result<bool> {
+    use std::io::Read;
+    let (mut a, mut b) = (fs::File::open(a)?, fs::File::open(b)?);
+    if a.metadata()?.len() != b.metadata()?.len() {
+        return Ok(false);
+    }
+    let (mut left, mut right) = (vec![0u8; 64 * 1024], vec![0u8; 64 * 1024]);
+    loop {
+        let n = a.read(&mut left)?;
+        if n == 0 {
+            return Ok(b.read(&mut right)? == 0);
+        }
+        b.read_exact(&mut right[..n])?;
+        if left[..n] != right[..n] {
+            return Ok(false);
+        }
+    }
 }
 
 /// Removes the folders under `dir` (and `dir`) that the move left empty.
@@ -490,6 +525,62 @@ mod tests {
         assert_eq!(refused.kind(), std::io::ErrorKind::AlreadyExists);
         assert_eq!(read(&target), b"{\"deck\":1}");
         assert_eq!(read(&source), b"newer");
+    }
+
+    /// X-DELTA-AZDRIVE-FILES-23 (X-AR5a-8). The source of a migration was removed after the copy
+    /// when its fingerprint was "not different" - which an identity the system does not give
+    /// (FAT, a share without file ids: inode 0) is, whatever else changed in the same size and
+    /// time. Unknown is not Same: the bytes of the two files decide.
+    #[test]
+    fn x_delta_azdrive_files_23_a_source_whose_identity_is_unknown_goes_only_when_the_bytes_are_the_copys(
+    ) {
+        use azul_storage::beneath::Kind;
+        let os = TempDir::new("migrate-unknown-identity");
+        let source = os.path().join("legacy/deck.json");
+        let copy = os.path().join("Azlin/deck.json");
+        write(&source, b"{\"deck\":1}");
+        write(&copy, b"{\"deck\":1}");
+        // An lstat of a system with no inodes: the same size and time, no identity.
+        let stat = |size: u64| Stat {
+            kind: Kind::File,
+            size,
+            mtime_ns: 1_300_000_000_000_000_000,
+            ctime_ns: 0,
+            ino: 0,
+            dev: 0,
+            mode: 0o600,
+            nlink: 1,
+        };
+        let before = Fingerprint::of(&stat(10));
+        assert!(
+            matches!(before.matches(&stat(10)), Tri::Unknown),
+            "the case: everything that can be told matches and the identity cannot"
+        );
+        assert!(
+            unchanged_since(&before, &stat(10), &source, &copy),
+            "the same bytes: nothing was written since the copy"
+        );
+        // Written to in the same size and time (a save that keeps both): the bytes differ.
+        write(&source, b"{\"deck\":2}");
+        assert!(
+            !unchanged_since(&before, &stat(10), &source, &copy),
+            "the source was edited and would have been deleted"
+        );
+        // A known difference stays a difference; a known identity stays the same file.
+        assert!(!unchanged_since(&before, &stat(11), &source, &copy));
+        let known = Fingerprint::from_parts(Kind::File, 10, 5, 0, 1, 42);
+        let mut now = stat(10);
+        now.mtime_ns = 5;
+        now.dev = 1;
+        now.ino = 42;
+        assert!(unchanged_since(&known, &now, &source, &copy));
+        // Bytes that cannot be read are not bytes known to be equal.
+        assert!(!unchanged_since(
+            &before,
+            &stat(10),
+            &os.path().join("gone"),
+            &copy
+        ));
     }
 
     #[test]
