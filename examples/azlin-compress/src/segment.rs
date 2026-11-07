@@ -440,9 +440,17 @@ pub fn brotli_window_bits(len: usize) -> u32 {
     bits
 }
 
+/// The room brotli's output for `len` bytes of input is reserved whole in: a stream that cannot be
+/// shrunk is a little bigger than its input (a header per meta-block), never by this much. The
+/// output is the plaintext in another form, so a buffer that grew would leave a copy of it in
+/// freed heap at every step (AZ-C7); this one does not grow.
+fn brotli_reserve(len: usize) -> usize {
+    len.saturating_add(len / 64).saturating_add(1024)
+}
+
 fn brotli_compress(raw: &[u8], quality: u32) -> Result<Zeroizing<Vec<u8>>, Error> {
     use std::io::Write;
-    let mut out = Zeroizing::new(Vec::with_capacity(raw.len() / 2));
+    let mut out = Zeroizing::new(Vec::with_capacity(brotli_reserve(raw.len())));
     let mut writer =
         brotli::CompressorWriter::new(&mut *out, 64 * 1024, quality, brotli_window_bits(raw.len()));
     writer
@@ -497,4 +505,41 @@ pub fn decode_segment(
         ));
     }
     Ok(plain)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// AZ-C7: brotli's output is the plaintext in another form, and the buffer it is written into
+    /// was reserved at half the input: bytes brotli cannot shrink (here a pseudo-random run) made
+    /// it grow, and every step left a copy of the segment in freed heap. Now the reservation is
+    /// made whole before the first byte is written: the buffer ends in the capacity it began
+    /// with, also for input that does not compress at all.
+    #[test]
+    fn az_c7_the_brotli_output_is_reserved_whole_and_never_grows() {
+        let mut raw = vec![0u8; 300_000];
+        let mut x = 0x2545_f491_4f6c_dd1d_u64;
+        for byte in &mut raw {
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            *byte = (x >> 24) as u8;
+        }
+        let out = brotli_compress(&raw, 5).expect("compresses");
+        assert!(
+            out.len() > raw.len() / 2,
+            "incompressible input: the old half-size reservation had to grow ({} of {})",
+            out.len(),
+            raw.len()
+        );
+        assert_eq!(
+            out.capacity(),
+            Vec::<u8>::with_capacity(brotli_reserve(raw.len())).capacity(),
+            "the buffer was reserved whole and never grew"
+        );
+        // And it still decodes to the input.
+        let plain = decode_segment(Codec::Brotli.byte(), &out, raw.len()).expect("decodes");
+        assert_eq!(&plain[..], &raw[..]);
+    }
 }

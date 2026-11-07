@@ -330,6 +330,8 @@ fn store_entry(
             protection.refusal()
         )));
     }
+    // A key that cannot be written down is an error, never an empty entry in its place; the
+    // serializer's message is not passed on (it could quote the key).
     let text = Zeroizing::new(
         serde_json::to_string(&StoredKey {
             kind: kind.to_string(),
@@ -337,7 +339,7 @@ fn store_entry(
             drive_key_id: drive_key_id.map(KeyId::to_hex),
             committed: committed.map(KeyId::to_hex),
         })
-        .unwrap_or_default(),
+        .map_err(|_| DriveError::Io(format!("the key {entry} could not be written down")))?,
     );
     keyring
         .set(entry, &text)
