@@ -286,6 +286,35 @@ fn az_s16_a_pass_on_a_pairing_another_pass_holds_is_told_so_and_changes_nothing(
     faults::clear(folder.path());
 }
 
+/// X-DELTA-AZDRIVE-FILES-26. The read-back (`verify`) takes no pass lock: it ran beside a pass,
+/// replaced files and rewrote the base under it, and a pass that read the folder meanwhile could
+/// resurrect a delete or add conflict copies. It takes the pass's turn now, and says so when
+/// another holds it. RED not run: the old code verifies beside the pass and `unwrap_err` panics.
+#[test]
+fn x_delta_azdrive_files_26_the_read_back_waits_for_the_pass_that_holds_the_pairing() {
+    let store = Arc::new(S3Bucket::new());
+    let folder = TempDir::new("azcloud-faults-dx26");
+    let state = TempDir::new("azcloud-faults-dx26-state");
+    fs::write(folder.path().join("a.txt"), "one").unwrap();
+    let session = faulted(folder.path(), state.path(), &store);
+    pass(&session).expect("the folder is synced once");
+    let other = LockDir::new(state.path().join("locks"))
+        .lock(PASS_LOCK, Duration::from_secs(1))
+        .expect("a pass holds the pairing");
+    let told = session
+        .verify()
+        .expect_err("the read-back runs beside a pass")
+        .to_string();
+    assert!(told.contains("another window or command"), "{told}");
+    assert!(told.contains("this check waits"), "{told}");
+    drop(other);
+    let report = session
+        .verify()
+        .expect("once the pass is over, the check runs");
+    assert!(report.mismatches.is_empty(), "{report:?}");
+    faults::clear(folder.path());
+}
+
 /// X-AR5a-22. The states mixed the user's answers (a pin, a "keep both", an answer to a question)
 /// with the pass's results, and the pass saved the copy it read when it began: a pin made while it
 /// ran was gone when it ended. The pass's results are merged into the file as it is then; the pin

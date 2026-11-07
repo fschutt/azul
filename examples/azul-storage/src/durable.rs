@@ -37,7 +37,7 @@ use std::{
 };
 
 use crate::{
-    beneath::{self, BeneathError, Dir, Fingerprint, Kind, Stat},
+    beneath::{self, BeneathError, Dir, Fingerprint, Kind, Stat, Tri},
     ctl::{Ctl, Quiet, Stopped},
     DriveError,
 };
@@ -263,6 +263,9 @@ pub(crate) enum Step {
     Check,
     /// The file is renamed over the name.
     Rename,
+    /// [`replace_keeping`] only: the old file has its place in the slot, and the new one is about
+    /// to take its name. A kill here leaves the old file at its name (a test stops the world here).
+    Replace,
     /// The folder is synced.
     SyncDir,
 }
@@ -709,29 +712,28 @@ pub(crate) fn replace_keeping_probed(
     probe.before(Step::Check)?;
     check_expect(dir, name, expect)?;
     probe.before(Step::Rename)?;
-    // The old file out of the way first: it is whole in the slot from here on.
-    match dir.rename_noreplace(name, slot.dir, slot.name) {
-        Ok(()) => {}
-        Err(e) if e.is_not_found() => {
-            // Nothing was there to keep (or it went since the look): the name is free.
-            if matches!(expect, Expect::Is(_)) {
-                return Err(PublishError::Changed);
+    let old = keep_old(dir, name, slot, expect)?;
+    probe.before(Step::Replace)?;
+    let placed = match old {
+        Old::Linked => replace_linked(dir, name, &staged, slot),
+        Old::Moved | Old::Nothing => match staged.dir.rename_noreplace(&staged.name, dir, name) {
+            Ok(()) => Ok(()),
+            Err(e) if old == Old::Nothing => Err(e.into()),
+            // The new version could not go in: the old one comes back.
+            Err(e) => {
+                return match slot.dir.rename_noreplace(slot.name, dir, name) {
+                    Ok(()) => Err(e.into()),
+                    Err(back) if back.is_not_found() => Err(e.into()),
+                    Err(back) => Err(PublishError::Io(io::Error::other(format!(
+                        "the new version could not go in ({e}) and the old one could not be put \
+                         back ({back}): it is kept as \"{}\"",
+                        slot.name
+                    )))),
+                };
             }
-        }
-        Err(e) => return Err(e.into()),
-    }
-    if let Err(e) = staged.dir.rename_noreplace(&staged.name, dir, name) {
-        // The new version could not go in: the old one comes back.
-        return match slot.dir.rename_noreplace(slot.name, dir, name) {
-            Ok(()) => Err(e.into()),
-            Err(back) if back.is_not_found() => Err(e.into()),
-            Err(back) => Err(PublishError::Io(io::Error::other(format!(
-                "the new version could not go in ({e}) and the old one could not be put back \
-                 ({back}): it is kept as \"{}\"",
-                slot.name
-            )))),
-        };
-    }
+        },
+    };
+    placed?;
     staged.placed = true;
     let mut folders = vec![dir];
     if staged.dir.rel() != dir.rel() {
@@ -750,6 +752,85 @@ pub(crate) fn replace_keeping_probed(
         print,
         _sealed: (),
     })
+}
+
+/// How the file that was at the name got its place in the slot.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Old {
+    /// A second name (a hard link): the file is at its name AND in the slot.
+    Linked,
+    /// Renamed out of its place into the slot: the name is empty.
+    Moved,
+    /// Nothing was at the name.
+    Nothing,
+}
+
+/// The old file gets its place in the slot WITHOUT leaving its name first, where the file system
+/// makes hard links: a second name for it, then the new version renamed over the first. A kill or a
+/// power cut between the steps leaves the old file at its name, the new one staged beside it and
+/// the slot naming the old one - never an empty name, which the next sync pass reads as "deleted
+/// here" and takes to the drive (X-DELTA-AZDRIVE-FILES-26: the failure AZ-S4 closed, at the width
+/// of two renames). A volume without links takes the old file out of the way first (two renames).
+fn keep_old(
+    dir: &Dir,
+    name: &str,
+    slot: &TrashSlot<'_>,
+    expect: Expect,
+) -> Result<Old, PublishError> {
+    // Nothing was there to keep (or it went since the look): the name is free.
+    let nothing = || {
+        if matches!(expect, Expect::Is(_)) {
+            Err(PublishError::Changed)
+        } else {
+            Ok(Old::Nothing)
+        }
+    };
+    match dir.link_noreplace(name, slot.dir, slot.name) {
+        Ok(()) => return Ok(Old::Linked),
+        Err(e) if e.is_not_found() => return nothing(),
+        Err(e) if e.is_unsupported() => {}
+        Err(e) => return Err(e.into()),
+    }
+    match dir.rename_noreplace(name, slot.dir, slot.name) {
+        Ok(()) => Ok(Old::Moved),
+        Err(e) if e.is_not_found() => nothing(),
+        Err(e) => Err(e.into()),
+    }
+}
+
+/// The new version renamed over the name, in one step, once the name is still the file that was
+/// linked into the slot: a file another writer put at the name since is not replaced (the old one
+/// stays in the slot, the other writer's at its name). A rename that fails leaves the old file at
+/// its name, and the slot's second name for it goes again.
+fn replace_linked(
+    dir: &Dir,
+    name: &str,
+    staged: &Staged<'_>,
+    slot: &TrashSlot<'_>,
+) -> Result<(), PublishError> {
+    let same = match (dir.lstat(name), slot.dir.lstat(slot.name)) {
+        (Ok(at_name), Ok(in_slot)) => at_name.id().same(&in_slot.id()),
+        _ => Tri::Unknown,
+    };
+    match same {
+        Tri::Same => {}
+        // The old file's only name is the slot's now: it is NOT unlinked.
+        Tri::Different => return Err(PublishError::Changed),
+        Tri::Unknown => {
+            return Err(PublishError::Io(io::Error::other(
+                "the system does not tell whether the name still holds the file kept in the slot",
+            )))
+        }
+    }
+    match staged.dir.rename(&staged.name, dir, name) {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            // collapse-ok: the old file is at its name and was linked a moment ago by this call;
+            // a link that cannot go again is a stray name for a file that is kept, no loss.
+            let _ = slot.dir.unlink(slot.name);
+            Err(e.into())
+        }
+    }
 }
 
 /// Makes the folders of `path`'s parent that are missing (`rwx------` for a private document)

@@ -87,6 +87,12 @@ impl BeneathError {
     pub fn is_already_exists(&self) -> bool {
         matches!(self, BeneathError::Io(e) if e.kind() == io::ErrorKind::AlreadyExists)
     }
+
+    /// The system cannot do it here (a file system without hard links).
+    #[must_use]
+    pub fn is_unsupported(&self) -> bool {
+        matches!(self, BeneathError::Io(e) if e.kind() == io::ErrorKind::Unsupported)
+    }
 }
 
 /// Whether `e` says the disk is full.
@@ -924,6 +930,49 @@ impl Dir {
         }
     }
 
+    /// Gives the file `from` a second name `to` in `target` (a hard link), never over a name that
+    /// is taken: the one way to put a file under another name while it keeps its own. A file that
+    /// is renamed out of its place leaves the name empty until the next step; a link leaves both
+    /// (X-DELTA-AZDRIVE-FILES-26).
+    ///
+    /// # Errors
+    ///
+    /// [`BeneathError::Io`] of kind `AlreadyExists` when `to` is taken, `NotFound` when `from` is
+    /// not there, `Unsupported` when the file system makes no hard links ([`BeneathError::is_unsupported`]).
+    pub fn link_noreplace(&self, from: &str, target: &Dir, to: &str) -> Result<(), BeneathError> {
+        check_name(from)?;
+        check_name(to)?;
+        #[cfg(unix)]
+        {
+            match sys::linkat(&self.fd, OsStr::new(from), &target.fd, OsStr::new(to)) {
+                Ok(()) => Ok(()),
+                Err(e) if sys::no_links(&e) => Err(BeneathError::Io(io::Error::from(
+                    io::ErrorKind::Unsupported,
+                ))),
+                Err(e) => Err(e.into()),
+            }
+        }
+        #[cfg(windows)]
+        {
+            self.still_here()?;
+            target.still_here()?;
+            std::fs::hard_link(self.path.join(from), target.path.join(to)).map_err(|e| {
+                // FAT and exFAT answer ERROR_INVALID_FUNCTION (1), a share ERROR_NOT_SUPPORTED (50).
+                if matches!(e.raw_os_error(), Some(1 | 50)) {
+                    BeneathError::Io(io::Error::from(io::ErrorKind::Unsupported))
+                } else {
+                    BeneathError::Io(e)
+                }
+            })
+        }
+        #[cfg(not(any(unix, windows)))]
+        {
+            Err(BeneathError::Io(io::Error::from(
+                io::ErrorKind::Unsupported,
+            )))
+        }
+    }
+
     /// The folder at `path` as a [`Dir`], links followed: the folder a user chose (the folder of
     /// a download, of a settings file), whose own links are the user's, not a name from another
     /// device. Everything below it is reached without a link, as for any [`Dir`].
@@ -1569,6 +1618,15 @@ mod sys {
         Ok(())
     }
 
+    /// `linkat`: a second name `n2` for the file `n1` (the name itself, a link is not followed),
+    /// failing with `EEXIST` when `n2` is taken.
+    pub fn linkat(d1: &OwnedFd, n1: &OsStr, d2: &OwnedFd, n2: &OsStr) -> io::Result<()> {
+        let (c1, c2) = (cstr(n1)?, cstr(n2)?);
+        // SAFETY: open descriptors and valid C strings; flag 0 links the name, not what it points to.
+        cvt(unsafe { libc::linkat(d1.as_raw_fd(), c1.as_ptr(), d2.as_raw_fd(), c2.as_ptr(), 0) })?;
+        Ok(())
+    }
+
     /// `renameat` that fails with `EEXIST` instead of replacing `n2`.
     pub fn renameat_noreplace(
         d1: &OwnedFd,
@@ -1653,7 +1711,7 @@ mod sys {
     }
 
     /// Whether `e` says the file system makes no hard links.
-    fn no_links(e: &io::Error) -> bool {
+    pub fn no_links(e: &io::Error) -> bool {
         matches!(
             e.raw_os_error(),
             Some(code) if code == libc::EPERM

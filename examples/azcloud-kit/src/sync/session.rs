@@ -1026,7 +1026,7 @@ impl SyncSession {
         cancel: &AtomicBool,
         events: &mut dyn FnMut(SyncEvent),
     ) -> CloudResult<Pass> {
-        let _single_flight = self.pass_lock()?;
+        let _single_flight = self.pass_lock("this pass waits for the next time")?;
         // The quiet folder first, then the states and the base this pass works from: read
         // after the wait, they hold every answer given during it. An answer given while the pass
         // runs is merged into its results at its end ([`SyncSession::keep_results`]).
@@ -1053,16 +1053,17 @@ impl SyncSession {
         self.after_failure(result)
     }
 
-    /// The lock one pass of this pairing holds for as long as it runs.
-    fn pass_lock(&self) -> CloudResult<azul_storage::lock::HeldLock> {
+    /// The lock one pass of this pairing holds for as long as it runs - and the read-back, which
+    /// puts files into the folder and rewrites its base (X-DELTA-AZDRIVE-FILES-26). `waits`: what
+    /// the one that finds it held says it does instead.
+    fn pass_lock(&self, waits: &str) -> CloudResult<azul_storage::lock::HeldLock> {
         LockDir::new(self.dir.join("locks"))
             .lock(PASS_LOCK, PASS_LOCK_WAIT)
             .map_err(|e| {
                 if e.is_busy() {
-                    CloudError::failed(
-                        "another window or command is syncing this folder just now; this pass \
-                         waits for the next time",
-                    )
+                    CloudError::failed(format!(
+                        "another window or command is syncing this folder just now; {waits}"
+                    ))
                 } else {
                     CloudError::from(e)
                 }
@@ -1506,6 +1507,9 @@ impl SyncSession {
                 );
             }
         }
+        // The read-back replaces files and rewrites the base: beside a pass it could resurrect a
+        // delete or add conflict copies, so it takes the pass's turn.
+        let _single_flight = self.pass_lock("this check waits for the next time")?;
         let report = super::verify::verify(
             self.target(),
             &self.root(),

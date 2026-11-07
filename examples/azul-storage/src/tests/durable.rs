@@ -226,6 +226,125 @@ fn x_delta_azdrive_files_14_a_folder_sync_that_answers_an_io_error_is_a_failure_
     );
 }
 
+/// A probe that looks at the folder at the moment the old file has its place in the slot and the new
+/// one is about to take its name - where a kill or a power cut would leave the world.
+struct AtReplace {
+    folder: PathBuf,
+    /// `(the name's bytes, the slot's bytes, the names in the folder)` as they were then.
+    seen: RefCell<Option<(Option<Vec<u8>>, Option<Vec<u8>>, Vec<String>)>>,
+    /// Another writer puts this at the name right then.
+    third: Option<&'static [u8]>,
+}
+
+impl Probe for AtReplace {
+    fn before(&self, step: Step) -> io::Result<()> {
+        if step == Step::Replace {
+            *self.seen.borrow_mut() = Some((
+                fs::read(self.folder.join("doc")).ok(),
+                fs::read(self.folder.join("trash").join("doc.kept")).ok(),
+                names(&self.folder),
+            ));
+            if let Some(bytes) = self.third {
+                let other = self.folder.join("someone-elses");
+                fs::write(&other, bytes).unwrap();
+                fs::rename(&other, self.folder.join("doc")).unwrap();
+            }
+        }
+        Ok(())
+    }
+}
+
+/// X-DELTA-AZDRIVE-FILES-26. `replace_keeping` was two renames: the old file out of its place into
+/// the slot, then the new one into the free name. A kill or a power cut between them left the name
+/// EMPTY, the staged file beside it and the old one in the slot, and the next sync pass read (gone
+/// here, unchanged on the drive) as a delete - AZ-S4's failure at the width of two renames. The
+/// old file now gets a second name in the slot first (a hard link); the new version is renamed
+/// over the first. Where the world would stop between the steps the old file is at its name.
+#[cfg(unix)]
+#[test]
+fn x_delta_azdrive_files_26_the_name_is_never_empty_between_the_old_file_and_the_new_one() {
+    let tmp = TempDir::new("durable-keeping-gap");
+    fs::create_dir(tmp.path().join("trash")).unwrap();
+    fs::write(tmp.path().join("doc"), b"old").unwrap();
+    let root = Root::open(tmp.path()).unwrap();
+    let dir = root.top().unwrap();
+    let trash = root.dir("trash", false).unwrap();
+    let staged = stage(&dir, "doc", &mut &b"the new version"[..], &shared()).unwrap();
+    let slot = TrashSlot {
+        dir: &trash,
+        name: "doc.kept",
+    };
+    let probe = AtReplace {
+        folder: tmp.path().to_path_buf(),
+        seen: RefCell::new(None),
+        third: None,
+    };
+    crate::durable::replace_keeping_probed(&dir, "doc", staged, &slot, Expect::Any, &probe)
+        .unwrap();
+    let (at_name, in_slot, names_then) = probe.seen.borrow().clone().expect("the step was taken");
+    assert_eq!(
+        at_name.as_deref(),
+        Some(&b"old"[..]),
+        "between the steps the name was empty"
+    );
+    assert_eq!(
+        in_slot.as_deref(),
+        Some(&b"old"[..]),
+        "the slot already held it"
+    );
+    assert!(
+        names_then.len() == 3,
+        "the staged file waits beside the name: {names_then:?}"
+    );
+    assert_eq!(
+        fs::read(tmp.path().join("doc")).unwrap(),
+        b"the new version"
+    );
+    assert_eq!(fs::read(tmp.path().join("trash/doc.kept")).unwrap(), b"old");
+}
+
+/// X-DELTA-AZDRIVE-FILES-26. The name must still be the file that was linked into the slot when the
+/// new version is renamed over it: a file another writer put there since is not replaced, and the
+/// old file - whose only name is the slot's now - is not unlinked.
+#[cfg(unix)]
+#[test]
+fn x_delta_azdrive_files_26_a_file_another_writer_put_at_the_name_is_not_replaced() {
+    let tmp = TempDir::new("durable-keeping-third");
+    fs::create_dir(tmp.path().join("trash")).unwrap();
+    fs::write(tmp.path().join("doc"), b"old").unwrap();
+    let root = Root::open(tmp.path()).unwrap();
+    let dir = root.top().unwrap();
+    let trash = root.dir("trash", false).unwrap();
+    let staged = stage(&dir, "doc", &mut &b"new"[..], &shared()).unwrap();
+    let slot = TrashSlot {
+        dir: &trash,
+        name: "doc.kept",
+    };
+    let probe = AtReplace {
+        folder: tmp.path().to_path_buf(),
+        seen: RefCell::new(None),
+        third: Some(b"saved by another process"),
+    };
+    let done =
+        crate::durable::replace_keeping_probed(&dir, "doc", staged, &slot, Expect::Any, &probe);
+    assert!(matches!(done, Err(PublishError::Changed)), "{done:?}");
+    assert_eq!(
+        fs::read(tmp.path().join("doc")).unwrap(),
+        b"saved by another process",
+        "the other writer's file was replaced"
+    );
+    assert_eq!(
+        fs::read(tmp.path().join("trash/doc.kept")).unwrap(),
+        b"old",
+        "the old file, which has no other name, is kept"
+    );
+    assert_eq!(
+        names(tmp.path()),
+        vec!["doc", "trash"],
+        "the staged file is gone"
+    );
+}
+
 /// The kinds of answer a folder sync gives that are no failure: the volume cannot do it.
 #[cfg(unix)]
 #[test]
