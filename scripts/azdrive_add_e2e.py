@@ -170,6 +170,7 @@ import azlin_e2e as e2e
 import azlin_ed25519
 import azlin_mock_stack
 import azlin_period
+import azlin_vault
 from azlin_e2e import Failure
 from azdrive_e2e import Drive, I, item_names, open_item, select_item
 
@@ -332,11 +333,12 @@ def member_entry(path, drive_id):
     return json.loads(text) if text else {}
 
 
-def check_period_tokens(stack, drives_file, checkout, drive_id, redeemed=0):
+def check_period_tokens(stack, drives_file, keyring_file, checkout, drive_id, redeemed=0):
     """AZLINSEC17 F24 and decision 6: the paid checkout's period tokens are issued one month at a
     time (against the issue key of its sealed sign-up) - the first at once, the rest as their
     instalments come due - and AzDrive keeps those not `redeemed` yet with the checkout's grant
-    in the drive's vault (on this computer: one 0600 file per drive beside the drives file; in
+    in the drive's vault (on this computer: one 0600 file per drive beside the drives file, SEALED
+    under a key of the keyring, AZ-K13: `azlin_vault` opens it with the keyring file's entry; in
     the drive itself when its key is here), each one a token the mock's issuer key verifies.
     How many were issued."""
     record = stack.token.state.checkouts.get(checkout) or {}
@@ -346,10 +348,13 @@ def check_period_tokens(stack, drives_file, checkout, drive_id, redeemed=0):
                       % (checkout, issued, months))
     path = os.path.join(os.path.dirname(drives_file), "period-tokens", drive_id + ".json")
     try:
-        with open(path, "r", encoding="utf-8") as f:
-            kept = json.load(f)
+        with open(path, "rb") as f:
+            head = f.read(4)
+        kept = azlin_vault.read_vault(path, drive_id, lambda: keyring_entries(keyring_file))
     except (OSError, ValueError) as e:
         raise Failure("AzDrive keeps no period tokens of %s at %s: %s" % (drive_id, path, e))
+    if head != azlin_vault.MAGIC:
+        raise Failure("the period tokens of %s are not sealed: %s starts with %r" % (drive_id, path, head))
     if os.name == "posix" and os.stat(path).st_mode & 0o077:
         raise Failure("the period tokens file is readable by others: %o" % os.stat(path).st_mode)
     if not any(g.get("checkout_id") == checkout for g in kept.get("grants") or []):
@@ -1854,7 +1859,7 @@ def run(args, logs):
         # Due: one token redeemed at once, under the drive's lock, with its newest token.
         app.until("the period token redeemed", lambda: app.printed(
             "AZDRIVE_PERIOD_REDEEMED", r"%s 1 \S+" % re.escape(late)))
-        months = check_period_tokens(stack, drives_file, first, late, redeemed=1)
+        months = check_period_tokens(stack, drives_file, keyring_file, first, late, redeemed=1)
         until = stack.token.state.drives[late]["period_until"]
         if until < int(time.time()) + 29 * 86400 or len(stack.token.state.redeemed) != 1:
             raise Failure("the redemption did not reach the mock: period until %s, %d redeemed"
@@ -1887,7 +1892,7 @@ def run(args, logs):
         wait_closed(app)
         app.until("the checkout off the keyring's list",
                   lambda: second not in pending_checkouts(keyring_file))
-        check_period_tokens(stack, drives_file, second, paid)
+        check_period_tokens(stack, drives_file, keyring_file, second, paid)
         text, entries = drives_file_entries(drives_file)
         entry = next((e for e in entries if e["id"] == paid), None)
         if not entry or entry["name"] != "Paid while closed":
@@ -1935,7 +1940,7 @@ def run(args, logs):
         stack.token.state.drives[paid]["period_until"] = int(time.time()) + 2 * 86400
         app.until("the period token redeemed by the daily look", lambda: app.printed(
             "AZDRIVE_PERIOD_REDEEMED", r"%s 1 \S+" % re.escape(paid)))
-        check_period_tokens(stack, drives_file, second, paid, redeemed=1)
+        check_period_tokens(stack, drives_file, keyring_file, second, paid, redeemed=1)
         if stack.token.state.drives[paid]["period_until"] < int(time.time()) + 29 * 86400:
             raise Failure("the daily look's redemption did not reach the mock")
         log("6c. AzDrive running, the period of %s nearly over at the token server: the next "
