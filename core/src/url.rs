@@ -131,9 +131,11 @@ impl Url {
     }
 
     /// Opens this URL in the system's default browser. `true` once the
-    /// opener started (`false` where the platform has none). A headless or
-    /// scripted run (`AZ_BACKEND=headless`, `AZ_E2E_TEST`) starts nothing and
-    /// answers `true`.
+    /// opener started (`false` where the platform has none). In a TEST build
+    /// (the cargo feature `test-hooks`) a headless or scripted run
+    /// (`AZ_BACKEND=headless`, `AZ_E2E_TEST`) starts nothing and answers
+    /// `true`; a shipped build always starts the opener, whatever its
+    /// environment says ([`crate::run_mode`]).
     #[cfg(feature = "std")]
     #[must_use]
     pub fn open(&self) -> bool {
@@ -144,7 +146,7 @@ impl Url {
     /// (`open` on macOS, `xdg-open` on Linux and the BSDs, `explorer` on
     /// Windows; the path is one argument, no shell parses it). `true` once
     /// the opener started (`false` where the platform has none). A headless
-    /// or scripted run starts nothing and answers `true`, as [`Self::open`].
+    /// or scripted test run starts nothing and answers `true`, as [`Self::open`].
     #[cfg(feature = "std")]
     #[must_use]
     pub fn open_path(path: &str) -> bool {
@@ -247,35 +249,44 @@ fn opener_command<'a>(
     }
 }
 
-/// Whether this run starts no opener: a headless one (`AZ_BACKEND=headless`)
-/// or one a test scripts (`AZ_E2E_TEST`), as `var` reads the environment.
+/// Starts [`opener_command`] for `os` through `spawn` (program, arguments; `true` once it
+/// started), unless `hooks` say this run opens nothing; `true` once it started.
 ///
-/// There is no desktop to show a page or a file on, and a test must never
-/// pop up the browser of the machine it runs on - the keyring and the
-/// biometric prompt have headless stand-ins for the same reason.
+/// A headless or scripted TEST run (`hooks.open_nothing`, [`crate::run_mode`]) starts nothing
+/// and answers `true`: there is no desktop to show a page or a file on, a test must never pop up
+/// the browser of the machine it runs on, and the test plays the browser while the app goes on as
+/// it would for its user. The keyring and the biometric prompt have stand-ins for the same
+/// reason. A shipped build has no such hook, so `spawn` is asked whatever its environment holds.
 #[cfg(feature = "std")]
-#[must_use]
-fn opens_nothing(var: &dyn Fn(&str) -> Option<String>) -> bool {
-    var("AZ_BACKEND").is_some_and(|backend| backend == "headless")
-        || var("AZ_E2E_TEST").is_some()
-}
-
-/// Spawns [`opener_command`] for this platform; `true` once it started.
-///
-/// A headless or scripted run ([`opens_nothing`]) starts nothing and answers
-/// `true`: the test plays the browser, and the app goes on as it would for
-/// its user.
-#[cfg(feature = "std")]
-fn spawn_opener(target: &str, is_path: bool) -> bool {
-    if opens_nothing(&|name| std::env::var(name).ok()) {
+fn open_with(
+    hooks: &crate::run_mode::TestHooks,
+    target: &str,
+    is_path: bool,
+    os: &str,
+    spawn: &mut dyn FnMut(&str, &[&str]) -> bool,
+) -> bool {
+    if hooks.open_nothing {
         return true;
     }
-    opener_command(target, is_path, std::env::consts::OS).is_some_and(|(program, args)| {
-        std::process::Command::new(program)
-            .args(args)
-            .spawn()
-            .is_ok()
-    })
+    opener_command(target, is_path, os).is_some_and(|(program, args)| spawn(program, &args))
+}
+
+/// Spawns [`opener_command`] for this platform; `true` once it started ([`open_with`] of this
+/// process's hooks).
+#[cfg(feature = "std")]
+fn spawn_opener(target: &str, is_path: bool) -> bool {
+    open_with(
+        crate::run_mode::test_hooks(),
+        target,
+        is_path,
+        std::env::consts::OS,
+        &mut |program, args| {
+            std::process::Command::new(program)
+                .args(args)
+                .spawn()
+                .is_ok()
+        },
+    )
 }
 
 #[cfg(test)]
@@ -284,26 +295,106 @@ mod url_test;
 
 #[cfg(all(test, feature = "std"))]
 mod opener_tests {
-    use super::{opener_command, opens_nothing};
+    use std::ffi::OsString;
 
-    /// The environment `pairs` describe, as `opens_nothing` reads it.
-    fn env(pairs: &'static [(&'static str, &'static str)]) -> impl Fn(&str) -> Option<String> {
-        move |name| {
+    use super::{open_with, opener_command};
+    use crate::run_mode::TestHooks;
+
+    /// The hooks of a run whose environment is `pairs`.
+    fn hooks(pairs: &'static [(&'static str, &'static str)]) -> TestHooks {
+        TestHooks::from_env(&|name| {
             pairs
                 .iter()
                 .find(|(key, _)| *key == name)
-                .map(|(_, value)| (*value).to_string())
-        }
+                .map(|(_, value)| OsString::from(*value))
+        })
+    }
+
+    /// What `open_with` asked its spawner for, and what it answered.
+    fn opened(
+        hooks: &TestHooks,
+        target: &str,
+        is_path: bool,
+        os: &str,
+        spawn_answers: bool,
+    ) -> (bool, Vec<(String, Vec<String>)>) {
+        let mut asked = Vec::new();
+        let answer = open_with(hooks, target, is_path, os, &mut |program, args| {
+            asked.push((
+                program.to_string(),
+                args.iter().map(ToString::to_string).collect(),
+            ));
+            spawn_answers
+        });
+        (answer, asked)
     }
 
     /// A headless or scripted run (an E2E test) starts no browser and no app: an app that
     /// opens a payment page there must not pop it up on the machine running the test.
     #[test]
     fn a_headless_or_scripted_run_starts_no_opener() {
-        assert!(opens_nothing(&env(&[("AZ_BACKEND", "headless")])));
-        assert!(opens_nothing(&env(&[("AZ_E2E_TEST", "/tmp/scenario.json")])));
-        assert!(!opens_nothing(&env(&[])));
-        assert!(!opens_nothing(&env(&[("AZ_BACKEND", "metal")])));
+        for pairs in [
+            &[("AZ_BACKEND", "headless")][..],
+            &[("AZ_E2E_TEST", "/tmp/scenario.json")][..],
+        ] {
+            let run = hooks(pairs);
+            let (answer, asked) =
+                opened(&run, "https://pay.example/checkout", false, "macos", false);
+            assert!(answer, "the test plays the browser: opened");
+            assert!(asked.is_empty(), "an opener was started: {asked:?}");
+            let (answer, asked) = opened(&run, "/tmp/report.pdf", true, "linux", false);
+            assert!(
+                answer && asked.is_empty(),
+                "a file opens nothing either: {asked:?}"
+            );
+        }
+    }
+
+    /// A run that is no test run opens for real, whatever its environment holds: `AZ_BACKEND`
+    /// is a windowing choice, and a shipped build has no hook (`test_hooks()` is none there,
+    /// whatever the variables say - `tests/run_mode_release.rs`). The opener is asked once, with
+    /// the URL as one argument, and its answer is the answer.
+    #[test]
+    fn a_run_without_the_hooks_starts_the_opener_and_reports_what_it_did() {
+        for run in [
+            TestHooks::NONE,
+            hooks(&[("AZ_BACKEND", "metal")]),
+            hooks(&[]),
+        ] {
+            let url = "https://pay.example/checkout?a=1&b=2";
+            let (answer, asked) = opened(&run, url, false, "macos", true);
+            assert!(answer);
+            assert_eq!(asked, vec![("open".to_string(), vec![url.to_string()])]);
+
+            let (answer, asked) = opened(&run, url, false, "linux", false);
+            assert!(!answer, "an opener that failed to start is no success");
+            assert_eq!(asked.len(), 1);
+
+            let (answer, asked) = opened(&run, "/tmp/report.pdf", true, "windows", true);
+            assert!(answer);
+            assert_eq!(asked[0].0, "explorer");
+        }
+    }
+
+    /// A platform with no opener answers `false` without asking anyone, hooks or not.
+    #[test]
+    fn a_platform_without_an_opener_answers_false_unless_the_run_is_a_test_run() {
+        let (answer, asked) = opened(
+            &TestHooks::NONE,
+            "https://example.com",
+            false,
+            "plan9",
+            true,
+        );
+        assert!(!answer && asked.is_empty());
+        let (answer, asked) = opened(
+            &TestHooks::HEADLESS,
+            "https://example.com",
+            false,
+            "plan9",
+            true,
+        );
+        assert!(answer && asked.is_empty());
     }
 
     /// `cmd /C start <url>` re-parsed the line: an `&` (every URL with two

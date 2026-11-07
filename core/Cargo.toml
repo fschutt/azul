@@ -55,6 +55,15 @@ css_parser = ["azul-css/parser"]
 # its default features off.
 system_fonts = ["dep:rust-fontconfig"]
 
+# Test hooks (ARCH28 RF38; decision of 2026-11-04: a shipped build reads no test switch). With this
+# feature `azul_core::run_mode::test_hooks()` reads the environment (`AZ_BACKEND=headless` as a
+# stand-in switch, `AZ_E2E_TEST`, `AZ_E2E`, `AZ_KEYRING`, `AZ_KEYRING_FILE`,
+# `AZ_AUTH_SESSION_REDIRECT`) once and the stand-ins of a test run answer: `Url::open` opens
+# nothing, and the dll's sign-in, biometric prompt, sensors, speech and keyring follow. Without it
+# the hooks are `TestHooks::NONE` and no variable is read. The unit tests of the crates that need
+# it and the E2E builds turn it on (`--features build-dll,test-hooks` of azul-dll); `dist` never.
+test-hooks = ["std"]
+
 # Web-lift diagnostic/shim hooks (the native→wasm remill pipeline). Enables
 # `#[cfg(feature = "web_lift")]` code in azul-core. Pure additive; native
 # builds never enable it. Mirrors azul-layout's web_lift feature.
