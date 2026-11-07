@@ -15,7 +15,7 @@
 //! `node_id` keeps working (the scenarios under `e2e/` use it); exactly one of
 //! the two is given.
 
-use super::{run_e2e_test, E2eTest, E2eTestResult};
+use super::{run_e2e_test, targeting, E2eTest, E2eTestResult, Targeting};
 
 /// The document every test mounts. It starts with `<body>` and has no
 /// whitespace between tags, so the node ids are countable:
@@ -512,4 +512,121 @@ fn a_selector_before_the_document_exists_says_to_wait_for_the_mount() {
     assert_eq!(step.status, "fail", "{}", failures(&result));
     let error = step.error.clone().unwrap_or_default();
     assert!(error.contains("wait_frame"), "{error}");
+}
+
+// ---------------------------------------------------------------------------
+// One rule for the target, read by the ops and by the gate (FIX-87b0f2b8c-1)
+// ---------------------------------------------------------------------------
+
+/// `focus_node` names its target like the DOM-mutation ops (it took the first match
+/// of a selector, and a `node_id` beside a selector won): exactly one of the two,
+/// and a selector names one node.
+#[test]
+fn focus_node_is_refused_with_both_neither_or_a_selector_that_names_several() {
+    let errors = refusals(
+        "focus_node_target",
+        vec![
+            serde_json::json!({ "op": "focus_node" }),
+            serde_json::json!({ "op": "focus_node", "selector": "#a", "node_id": 5 }),
+            serde_json::json!({ "op": "focus_node", "selector": ".box" }),
+            serde_json::json!({ "op": "focus_node", "selector": "#nope" }),
+        ],
+    );
+    assert!(errors[0].contains("needs a `selector`"), "{}", errors[0]);
+    assert!(
+        errors[1].contains("exactly one of `selector` / `node_id`"),
+        "{}",
+        errors[1]
+    );
+    assert!(
+        errors[2].contains("'.box' matches 2 nodes")
+            && errors[2].contains("node 5")
+            && errors[2].contains("node 6"),
+        "{}",
+        errors[2]
+    );
+    assert!(
+        errors[3].contains("no node matches '#nope'"),
+        "{}",
+        errors[3]
+    );
+}
+
+/// The rule is judged by which of the params that name the target are given - the
+/// one function the ops and the `gen-e2e` gate both call.
+#[test]
+fn the_targeting_rule_is_judged_by_which_params_are_given() {
+    let check = |op: &str, given: &[&str]| targeting(op).check(op, &|p| given.contains(&p));
+
+    // A selector or an id.
+    assert!(check("delete_node", &["selector"]).is_ok());
+    assert!(check("delete_node", &["node_id"]).is_ok());
+    assert!(check("delete_node", &["selector", "node_id"])
+        .expect_err("both")
+        .contains("delete_node: give exactly one of `selector` / `node_id`, not both"));
+    assert!(check("delete_node", &[]).expect_err("neither").contains(
+        "delete_node: needs a `selector` (a CSS selector that matches exactly one node)"
+    ));
+    // The parent of an insert has a pair of its own; the other pair's names do not count.
+    assert!(check("insert_node", &["parent_selector"]).is_ok());
+    assert!(check("insert_node", &["parent_id"]).is_ok());
+    assert!(check("insert_node", &["selector", "node_id"])
+        .expect_err("not the parent pair")
+        .contains("needs a `parent_selector`"));
+
+    // A position or a selector.
+    assert!(check("mouse_move", &["selector"]).is_ok());
+    assert!(check("mouse_move", &["x", "y"]).is_ok());
+    for given in [&["x"][..], &["y"], &[]] {
+        assert!(
+            check("mouse_move", given)
+                .expect_err("a position is both coordinates")
+                .contains("needs `x` + `y` (together), or a `selector`"),
+            "{given:?}"
+        );
+    }
+    for given in [
+        &["selector", "x", "y"][..],
+        &["selector", "x"],
+        &["selector", "y"],
+    ] {
+        assert!(
+            check("mouse_move", given)
+                .expect_err("a position and a selector")
+                .contains("give either a `selector` or `x` + `y`, not both"),
+            "{given:?}"
+        );
+    }
+
+    // No single rule: the op has several ways, or none.
+    for op in ["click", "scroll_node_by", "assert_scroll", "no_such_op"] {
+        assert_eq!(targeting(op), Targeting::Free, "{op}");
+        assert!(check(op, &[]).is_ok() && check(op, &["selector", "node_id", "x"]).is_ok());
+    }
+}
+
+/// Every op that resolves its target by a selector or an id has its row, and the
+/// table has no row for an op nothing resolves that way (the ops read it:
+/// `resolve_mutation_target` answers `internal error` for an op without one).
+#[test]
+fn the_ops_that_resolve_a_selector_or_an_id_are_the_rows_of_the_table() {
+    let mut rows: Vec<&str> = super::OP_TARGETING
+        .iter()
+        .filter(|(_, rule)| matches!(rule, Targeting::SelectorOrId { .. }))
+        .map(|(op, _)| *op)
+        .collect();
+    rows.sort_unstable();
+    assert_eq!(
+        rows,
+        [
+            "delete_node",
+            "focus_node",
+            "insert_node",
+            "set_node_classes",
+            "set_node_css_override",
+            "set_node_image",
+            "set_node_text",
+        ]
+    );
+    assert_eq!(targeting("mouse_move"), Targeting::PlaceOrSelector);
 }

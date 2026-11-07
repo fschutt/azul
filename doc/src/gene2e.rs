@@ -2187,74 +2187,26 @@ fn given(step: &serde_json::Map<String, serde_json::Value>, key: &str) -> bool {
     step.get(key).is_some_and(|v| !v.is_null())
 }
 
-/// How many ways of naming its node an op takes, and that EXACTLY ONE is used.
+/// How an op names its target, and that it does so in the one way the rule allows.
 ///
-/// The ops that name their target by CSS `selector` or by numeric `node_id`
-/// (the DOM-mutation family, `focus_node`) declare both as optional, so the
-/// required-param check passes a step with neither and one with both - and the
-/// engine refuses either at run time (`resolve_mutation_target`). Refusing them
-/// here costs nothing and keeps the artifact from being written at all.
-///
-/// DERIVED from the op's params, never from a list of ops: an op with the pair
-/// `selector` / `node_id` (or `parent_selector` / `parent_id`) and no further
-/// way to name a node (`text`, a position) takes exactly one of them, and
-/// `mouse_move`'s `x` + `y` / `selector` is the same rule for a pointer - but
-/// only where the `selector` is OPTIONAL, i.e. an alternative: `assert_scroll`
-/// has a REQUIRED `selector` and its `x` / `y` are the offsets to compare, so
-/// it takes both (batch 2, defect 4).
-/// An op with more ways (`click`: a position, a text, a selector, an id) is
-/// left to the engine, which resolves them in a fixed order.
+/// The rule is the ENGINE's: `azul_layout::e2e::targeting(op)` says whether the op
+/// takes exactly one of a `selector` and a `node_id` (the DOM-mutation family,
+/// `focus_node`, with `parent_selector` / `parent_id` for `insert_node`), a position
+/// or a selector (`mouse_move`), or has no single rule (`click`: a position, a text,
+/// a selector, an id - the engine resolves them in a fixed order; `assert_scroll`: a
+/// REQUIRED `selector` and the offsets to compare). The ops resolve their target by the
+/// same table, and the refusal is the same words. This gate used to DERIVE the rule
+/// from the NAMES of an op's params, which let an op that named its target by another
+/// pair through until the engine refused it at run time (`FIX-87b0f2b8c-1`).
+/// The schema cannot say "exactly one" itself: both params are optional.
 fn check_targeting(
     i: usize,
     op: &str,
-    def: &OpDef,
     step: &serde_json::Map<String, serde_json::Value>,
 ) -> Result<()> {
-    let has = |p: &str| def.params.iter().any(|(n, _)| n == p);
-    // A node can also be named by its text (`click`, `scroll_node_by`: an
-    // OPTIONAL `text`) or by a position (`x`). A REQUIRED `text` is a payload
-    // (`set_node_text`'s new text), not a way of naming anything.
-    let names_by_text = def
-        .params
-        .iter()
-        .any(|(n, required)| n == "text" && !required);
-
-    for (selector, id) in [("selector", "node_id"), ("parent_selector", "parent_id")] {
-        if has(selector) && has(id) && !names_by_text && !has("x") {
-            match (given(step, selector), given(step, id)) {
-                (true, true) => bail!(
-                    "step {i}: `{op}` is given both `{selector}` and `{id}` - give exactly one of \
-                     them (the selector is the one that names the node you mean)"
-                ),
-                (false, false) => bail!(
-                    "step {i}: `{op}` names no node - give a `{selector}` (a CSS selector that \
-                     matches exactly one node) or a `{id}`"
-                ),
-                _ => {}
-            }
-        }
-    }
-
-    // A pointer op that takes a position OR a selector (`mouse_move`): the selector is an
-    // OPTIONAL second way to name the place. `assert_scroll` has a REQUIRED selector, and its
-    // `x` / `y` are the offset to compare, so it takes both.
-    let selector_is_alternative = def
-        .params
-        .iter()
-        .any(|(n, required)| n == "selector" && !required);
-    if selector_is_alternative && has("x") && has("y") && !has("node_id") && !names_by_text {
-        let position = given(step, "x") || given(step, "y");
-        if position && given(step, "selector") {
-            bail!("step {i}: `{op}` is given both a `selector` and `x` / `y` - give exactly one");
-        }
-        if position && !(given(step, "x") && given(step, "y")) {
-            bail!("step {i}: `{op}` needs `x` and `y` together");
-        }
-        if !position && !given(step, "selector") {
-            bail!("step {i}: `{op}` names no place - give `x` + `y`, or a `selector`");
-        }
-    }
-    Ok(())
+    azul_layout::e2e::targeting(op)
+        .check(op, &|param| given(step, param))
+        .map_err(|why| anyhow::anyhow!("step {i}: {why}"))
 }
 
 /// The MECHANICAL GATE. Every failure here means: delete the artifact, count a
@@ -2358,9 +2310,7 @@ pub fn validate(schema: &Schema, json: &str) -> Result<()> {
         }
         // TARGET. An op that names its node by `selector` OR by `node_id` takes
         // exactly one of them, and the schema cannot say so: both are optional.
-        if let Some(def) = schema.known_op(op) {
-            check_targeting(i, op, def, s)?;
-        }
+        check_targeting(i, op, s)?;
         // CLOSED SETS. A string param that takes one of a few values refuses any
         // other: the engine used to read an unknown one as the default.
         check_closed_values(i, op, s)?;
@@ -4374,6 +4324,87 @@ mod tests {
         assert!(l.contains("selector?"), "{l}");
     }
 
+    /// Every row of the engine's targeting table names params the op really has:
+    /// a param renamed in `DebugEvent` must take its row with it, or the rule
+    /// would silently stop applying to the op.
+    #[test]
+    fn every_row_of_the_engines_targeting_table_names_params_the_op_has() {
+        use azul_layout::e2e::{Targeting, OP_TARGETING};
+
+        let s = parse_schema(&root()).unwrap();
+        for (op, rule) in OP_TARGETING {
+            let def = s
+                .known_op(op)
+                .unwrap_or_else(|| panic!("OP_TARGETING has a row for `{op}`, which is no op"));
+            let names: Vec<&str> = match rule {
+                Targeting::SelectorOrId { selector, id } => vec![selector, id],
+                Targeting::PlaceOrSelector => vec!["selector", "x", "y"],
+                Targeting::Free => Vec::new(),
+            };
+            assert!(
+                !names.is_empty(),
+                "`{op}` has a row that says nothing: a Free op needs none"
+            );
+            for name in names {
+                assert!(
+                    def.params.contains(&(name.to_string(), false)),
+                    "`{op}`: OP_TARGETING names the optional param `{name}`, which the op does \
+                     not have: {:?}",
+                    def.params
+                );
+            }
+        }
+    }
+
+    /// The other direction: an op that names its target by an optional
+    /// `selector` / `node_id` pair (or `parent_selector` / `parent_id`) and by
+    /// nothing else (no optional `text`, no `x`) has a row. The gate no longer
+    /// derives the rule from these names - this is what tells a NEW such op that
+    /// it needs a row, instead of letting it through the gate until the engine
+    /// refuses it.
+    #[test]
+    fn an_op_that_names_its_target_by_a_selector_or_an_id_has_a_targeting_row() {
+        use azul_layout::e2e::{targeting, Targeting};
+
+        let s = parse_schema(&root()).unwrap();
+        let mut seen = 0;
+        for name in s.all_op_names() {
+            let Some(def) = s.known_op(name) else {
+                continue;
+            };
+            let has = |p: &str| def.params.iter().any(|(n, _)| n == p);
+            let optional_text = def
+                .params
+                .iter()
+                .any(|(n, required)| n == "text" && !required);
+            for (selector, id) in [("selector", "node_id"), ("parent_selector", "parent_id")] {
+                if has(selector) && has(id) && !optional_text && !has("x") {
+                    seen += 1;
+                    assert_eq!(
+                        targeting(name),
+                        Targeting::SelectorOrId { selector, id },
+                        "`{name}` takes `{selector}` / `{id}` and nothing else to name its node: \
+                         give it a row in OP_TARGETING (layout/src/e2e/full.rs)"
+                    );
+                }
+            }
+        }
+        assert!(
+            seen >= 7,
+            "only {seen} ops name their target by a selector / id pair: the scan broke"
+        );
+        // An op with more ways to name its node, or a required selector, has no one rule.
+        for op in [
+            "click",
+            "double_click",
+            "scroll_node_by",
+            "assert_scroll",
+            "wheel",
+        ] {
+            assert_eq!(targeting(op), Targeting::Free, "`{op}`");
+        }
+    }
+
     /// A scenario that mounts a small document, lets it land, and runs `step`.
     /// The ids are countable: html 0, body 1, `#root` 2, `#a` 3, `#t` 4, its
     /// text 5.
@@ -4391,7 +4422,8 @@ mod tests {
     /// `selector` and `node_id` are both optional in the schema, so the
     /// required-param check cannot say "exactly one" - and the engine refuses a
     /// step with both or neither at run time. The gate says so first, from the
-    /// params the op declares (no list of ops).
+    /// ENGINE's table (`azul_layout::e2e::targeting`), in the engine's words: the
+    /// two owners of the rule read one definition (`FIX-87b0f2b8c-1`).
     #[test]
     fn the_gate_wants_exactly_one_way_of_naming_the_node() {
         let s = parse_schema(&root()).unwrap();
@@ -4419,36 +4451,46 @@ mod tests {
         for (step, why) in [
             (
                 r##"{"op":"set_node_css_override","property":"width","value":"1px"}"##,
-                "names no node",
+                "needs a `selector`",
             ),
             (
                 r##"{"op":"set_node_css_override","selector":"#a","node_id":3,"property":"width","value":"1px"}"##,
-                "both `selector` and `node_id`",
+                "exactly one of `selector` / `node_id`",
             ),
             (
                 r##"{"op":"set_node_classes","classes":["x"]}"##,
-                "names no node",
+                "needs a `selector`",
             ),
-            (r##"{"op":"set_node_text","text":"bye"}"##, "names no node"),
+            (
+                r##"{"op":"set_node_text","text":"bye"}"##,
+                "needs a `selector`",
+            ),
             (
                 r##"{"op":"set_node_image","width":4,"height":4,"color":"red"}"##,
-                "names no node",
+                "needs a `selector`",
             ),
-            (r##"{"op":"delete_node"}"##, "names no node"),
-            (r##"{"op":"focus_node"}"##, "names no node"),
+            (r##"{"op":"delete_node"}"##, "needs a `selector`"),
+            (r##"{"op":"focus_node"}"##, "needs a `selector`"),
+            (
+                r##"{"op":"focus_node","selector":"#a","node_id":3}"##,
+                "exactly one of `selector` / `node_id`",
+            ),
             (
                 r##"{"op":"insert_node","node_type":"div"}"##,
-                "names no node",
+                "needs a `parent_selector`",
             ),
             (
                 r##"{"op":"insert_node","parent_selector":"#root","parent_id":2,"node_type":"div"}"##,
-                "both `parent_selector` and `parent_id`",
+                "exactly one of `parent_selector` / `parent_id`",
             ),
-            (r##"{"op":"mouse_move"}"##, "names no place"),
-            (r##"{"op":"mouse_move","x":10}"##, "`x` and `y` together"),
+            (r##"{"op":"mouse_move"}"##, "needs `x` + `y`"),
+            (
+                r##"{"op":"mouse_move","x":10}"##,
+                "needs `x` + `y` (together)",
+            ),
             (
                 r##"{"op":"mouse_move","selector":"#a","x":10,"y":20}"##,
-                "both a `selector` and `x` / `y`",
+                "`selector` or `x` + `y`, not both",
             ),
         ] {
             let e = validate(&s, &on_a_mounted_dom(step))
@@ -4533,7 +4575,7 @@ mod tests {
         )
         .expect_err("mouse_move {selector, x, y} must stay refused")
         .to_string();
-        assert!(e.contains("both a `selector` and `x` / `y`"), "{e}");
+        assert!(e.contains("`selector` or `x` + `y`, not both"), "{e}");
     }
 
     /// The same rule against the corpus the gate must never contradict: every
@@ -4563,7 +4605,6 @@ mod tests {
         }
 
         let s = parse_schema(&root()).unwrap();
-        let def = s.known_op("assert_scroll").unwrap();
         let (mut scenarios, mut seen) = (0, 0);
         let mut refused = Vec::new();
         for entry in fs::read_dir(root().join("e2e")).expect("e2e/ must exist") {
@@ -4582,7 +4623,7 @@ mod tests {
             scenarios += 1;
             for step in steps {
                 seen += 1;
-                if let Err(e) = check_targeting(0, "assert_scroll", def, step) {
+                if let Err(e) = check_targeting(0, "assert_scroll", step) {
                     refused.push(format!("{}: {e}", path.display()));
                 }
             }

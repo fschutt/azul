@@ -2765,8 +2765,9 @@ pub enum DebugEvent {
     /// substitute either: it needs a coordinate, and a generated test may not
     /// know or guess one.
     ///
-    /// Give exactly one of `selector` / `node_id`. Focuses like the engine's
-    /// `FocusTarget::Id`: a node that cannot hold focus hands it to its first
+    /// Give exactly one of `selector` / `node_id`, and a `selector` that matches
+    /// exactly one node ([`OP_TARGETING`]: the rule of the DOM-mutation ops).
+    /// Focuses like the engine's `FocusTarget::Id`: a node that cannot hold focus hands it to its first
     /// focusable descendant, and the answer (`FocusNodeResponse.node_id`)
     /// names the node that took it. Refuses (loudly) if the node does not
     /// exist or nothing in its subtree can hold focus.
@@ -4448,30 +4449,168 @@ fn resolve_one_node(
     }
 }
 
-/// The target of a DOM-mutation op: the node a `selector` names, or the node
-/// `id_param` counts, and EXACTLY ONE of the two was given. A `node_id` is
-/// returned as is (each op keeps its own range check and its own wording for a
-/// node that is not there); a selector must match exactly one node.
+/// How an op names the node, or the place, it acts on - for the ops that ONE rule
+/// decides it for.
+///
+/// The rule is one definition with two readers: the ops resolve their target by it
+/// ([`resolve_mutation_target`], `mouse_move`), and the `gen-e2e` gate refuses a
+/// step that breaks it before the scenario is written (`doc/src/gene2e.rs`,
+/// [`targeting`]). The gate used to DERIVE it from the names of an op's params (an
+/// optional `selector` and `node_id`, no optional `text`, no `x`) while the ops
+/// enforced it again at run time with wording of their own, so an op that named its
+/// target by another pair escaped the gate silently until the engine refused it
+/// (`FIX-87b0f2b8c-1`). Now an op is in [`OP_TARGETING`] or it is [`Self::Free`].
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Targeting {
+    /// EXACTLY ONE of a CSS `selector` that matches exactly one node and a numeric
+    /// node id - `selector` and `id` are the names of the two params.
+    SelectorOrId {
+        /// The param that takes the selector (`selector`, `parent_selector`).
+        selector: &'static str,
+        /// The param that takes the node id (`node_id`, `parent_id`).
+        id: &'static str,
+    },
+    /// EXACTLY ONE of a position (`x` and `y`, together) and a `selector`
+    /// (`mouse_move`).
+    PlaceOrSelector,
+    /// No single rule: the op has several ways to name its node (`click`: a
+    /// position, a text, a selector, an id - resolved in a fixed order), or none.
+    Free,
+}
+
+/// The ops whose target one rule decides, with the rule - the table [`targeting`]
+/// reads.
+#[cfg(feature = "std")]
+pub const OP_TARGETING: &[(&str, Targeting)] = &[
+    (
+        "insert_node",
+        Targeting::SelectorOrId {
+            selector: "parent_selector",
+            id: "parent_id",
+        },
+    ),
+    (
+        "delete_node",
+        Targeting::SelectorOrId {
+            selector: "selector",
+            id: "node_id",
+        },
+    ),
+    (
+        "set_node_text",
+        Targeting::SelectorOrId {
+            selector: "selector",
+            id: "node_id",
+        },
+    ),
+    (
+        "set_node_classes",
+        Targeting::SelectorOrId {
+            selector: "selector",
+            id: "node_id",
+        },
+    ),
+    (
+        "set_node_css_override",
+        Targeting::SelectorOrId {
+            selector: "selector",
+            id: "node_id",
+        },
+    ),
+    (
+        "set_node_image",
+        Targeting::SelectorOrId {
+            selector: "selector",
+            id: "node_id",
+        },
+    ),
+    (
+        "focus_node",
+        Targeting::SelectorOrId {
+            selector: "selector",
+            id: "node_id",
+        },
+    ),
+    ("mouse_move", Targeting::PlaceOrSelector),
+];
+
+/// How `op` names its target: its row of [`OP_TARGETING`], or [`Targeting::Free`].
+#[cfg(feature = "std")]
+#[must_use]
+pub fn targeting(op: &str) -> Targeting {
+    OP_TARGETING
+        .iter()
+        .find(|(name, _)| *name == op)
+        .map_or(Targeting::Free, |(_, rule)| *rule)
+}
+
+#[cfg(feature = "std")]
+impl Targeting {
+    /// Judge a call of `op` by which of the params that name its target are given
+    /// (`given(param)`: the param is there, with a value). The refusal says what the
+    /// op wants; it is the one wording the ops answer with and the gate refuses
+    /// with.
+    ///
+    /// # Errors
+    ///
+    /// A message naming `op` and the params when none, or more than one way, of
+    /// naming the target is given.
+    pub fn check(&self, op: &str, given: &dyn Fn(&str) -> bool) -> Result<(), String> {
+        match *self {
+            Self::SelectorOrId { selector, id } => match (given(selector), given(id)) {
+                (true, true) => Err(format!(
+                    "{op}: give exactly one of `{selector}` / `{id}`, not both"
+                )),
+                (false, false) => Err(format!(
+                    "{op}: needs a `{selector}` (a CSS selector that matches exactly one node) or \
+                     a `{id}`"
+                )),
+                _ => Ok(()),
+            },
+            Self::PlaceOrSelector => match (given("selector"), given("x"), given("y")) {
+                (true, false, false) | (false, true, true) => Ok(()),
+                (true, _, _) => Err(format!(
+                    "{op}: give either a `selector` or `x` + `y`, not both"
+                )),
+                (false, _, _) => Err(format!("{op}: needs `x` + `y` (together), or a `selector`")),
+            },
+            Self::Free => Ok(()),
+        }
+    }
+}
+
+/// The target of an op whose row of [`OP_TARGETING`] is [`Targeting::SelectorOrId`]:
+/// the node a `selector` names, or the node the id param counts, and EXACTLY ONE of
+/// the two was given ([`Targeting::check`]). A `node_id` is returned as is (each op
+/// keeps its own range check and its own wording for a node that is not there); a
+/// selector must match exactly one node.
 #[cfg(feature = "std")]
 fn resolve_mutation_target(
     callback_info: &azul_layout::callbacks::CallbackInfo,
     dom_id: azul_core::dom::DomId,
     op: &str,
-    selector_param: &str,
-    id_param: &str,
     selector: Option<&str>,
     node_id: Option<u64>,
 ) -> Result<azul_core::id::NodeId, String> {
+    let rule = targeting(op);
+    let Targeting::SelectorOrId {
+        selector: selector_param,
+        id: id_param,
+    } = rule
+    else {
+        return Err(format!(
+            "{op}: internal error - the op resolves its target by a selector or a node id and has \
+             no such row in OP_TARGETING (layout/src/e2e/full.rs)"
+        ));
+    };
+    rule.check(op, &|param| {
+        (param == selector_param && selector.is_some()) || (param == id_param && node_id.is_some())
+    })?;
     match (selector, node_id) {
-        (Some(_), Some(_)) => Err(format!(
-            "{op}: give exactly one of `{selector_param}` / `{id_param}`, not both"
-        )),
-        (None, None) => Err(format!(
-            "{op}: needs a `{selector_param}` (a CSS selector that matches exactly one node) or a \
-             `{id_param}`"
-        )),
+        (Some(sel), _) => resolve_one_node(callback_info, dom_id, op, selector_param, sel),
         (None, Some(id)) => Ok(azul_core::id::NodeId::new(id as usize)),
-        (Some(sel), None) => resolve_one_node(callback_info, dom_id, op, selector_param, sel),
+        (None, None) => Err(format!("{op}: names no node")),
     }
 }
 
@@ -16596,8 +16735,23 @@ pub fn process_debug_event(
             use azul_layout::managers::focus_cursor::{resolve_focus_target, FocusResolution};
 
             let dom = target_dom(request);
-            let target =
-                resolve_node_target(callback_info, dom, selector.as_deref(), *node_id, None);
+            // Exactly one of `selector` / `node_id`, and a selector names exactly
+            // one node: the rule the DOM-mutation ops have ([`OP_TARGETING`]). It
+            // took the first match of a selector, and `node_id` over a selector
+            // given beside it, so a scenario could focus a node nobody meant.
+            let target = match resolve_mutation_target(
+                callback_info,
+                dom,
+                "focus_node",
+                selector.as_deref(),
+                *node_id,
+            ) {
+                Ok(node) => node,
+                Err(why) => {
+                    send_err(request, why);
+                    return needs_update;
+                }
+            };
             let described = selector.clone().unwrap_or_else(|| {
                 node_id.map_or_else(|| "<nothing>".to_string(), |n| format!("node {n}"))
             });
@@ -16615,7 +16769,8 @@ pub fn process_debug_event(
             // node's first focusable descendant (FIX9-INPUT 3.2), and keeps the
             // node itself when nothing inside it can - the one case refused
             // here.
-            let resolution = target.map(|nid| {
+            let resolution = {
+                let nid = target;
                 let asked = DomNodeId {
                     dom,
                     node: NodeHierarchyItemId::from_crate_internal(Some(nid)),
@@ -16643,10 +16798,10 @@ pub fn process_debug_event(
                         .unwrap_or(false)
                 };
                 (nid, asked, taker.filter(|n| can_hold_focus(*n)))
-            });
+            };
 
             match resolution {
-                Some((_, asked, Some(taker))) => {
+                (_, asked, Some(taker)) => {
                     callback_info.set_focus(FocusTarget::Id(asked));
                     send_ok(
                         request,
@@ -16659,7 +16814,7 @@ pub fn process_debug_event(
                         })),
                     );
                 }
-                Some((nid, _, None)) => send_err(
+                (nid, _, None) => send_err(
                     request,
                     format!(
                         "focus_node: '{described}' resolves to node {} but neither it nor any \
@@ -16669,10 +16824,6 @@ pub fn process_debug_event(
                          test nothing.",
                         nid.index()
                     ),
-                ),
-                None => send_err(
-                    request,
-                    format!("focus_node: no node matches '{described}'"),
                 ),
             }
         }
@@ -16929,14 +17080,18 @@ pub fn process_debug_event(
         } => {
             // Where to: a position, or the centre of the ONE node a selector
             // names. Exactly one of the two - a position AND a selector would
-            // leave it open which the scenario meant.
-            let to = match (selector.as_deref(), *x, *y) {
-                (Some(_), Some(_), _) | (Some(_), _, Some(_)) => {
-                    Err("mouse_move: give either a `selector` or `x` + `y`, not both".to_string())
-                }
-                (None, Some(x), Some(y)) => Ok((x, y)),
-                (None, _, _) => Err("mouse_move: needs `x` + `y`, or a `selector`".to_string()),
-                (Some(sel), None, None) => {
+            // leave it open which the scenario meant ([`Targeting::check`], the
+            // rule the gate refuses a step by too).
+            let named = targeting("mouse_move").check("mouse_move", &|param| match param {
+                "selector" => selector.is_some(),
+                "x" => x.is_some(),
+                "y" => y.is_some(),
+                _ => false,
+            });
+            let to = match (named, selector.as_deref(), *x, *y) {
+                (Err(why), ..) => Err(why),
+                (Ok(()), None, Some(x), Some(y)) => Ok((x, y)),
+                (Ok(()), Some(sel), ..) => {
                     let dom_id = target_dom(request);
                     resolve_one_node(callback_info, dom_id, "mouse_move", "selector", sel).and_then(
                         |node| {
@@ -16958,6 +17113,9 @@ pub fn process_debug_event(
                         },
                     )
                 }
+                // `check` let the call through, so a position is whole; this is
+                // the arm of a rule that changed under it.
+                (Ok(()), None, ..) => Err("mouse_move: names no place".to_string()),
             };
             let (x, y) = match to {
                 Ok(at) => at,
@@ -21175,8 +21333,6 @@ pub fn process_debug_event(
                 callback_info,
                 dom_id,
                 "insert_node",
-                "parent_selector",
-                "parent_id",
                 parent_selector.as_deref(),
                 *parent_id,
             ) {
@@ -21285,8 +21441,6 @@ pub fn process_debug_event(
                 callback_info,
                 dom_id,
                 "delete_node",
-                "selector",
-                "node_id",
                 selector.as_deref(),
                 *node_id,
             ) {
@@ -21344,8 +21498,6 @@ pub fn process_debug_event(
                 callback_info,
                 dom_id,
                 "set_node_text",
-                "selector",
-                "node_id",
                 selector.as_deref(),
                 *node_id,
             ) {
@@ -21419,8 +21571,6 @@ pub fn process_debug_event(
                 callback_info,
                 dom_id,
                 "set_node_classes",
-                "selector",
-                "node_id",
                 selector.as_deref(),
                 *node_id,
             ) {
@@ -21518,8 +21668,6 @@ pub fn process_debug_event(
                 callback_info,
                 dom_id,
                 "set_node_css_override",
-                "selector",
-                "node_id",
                 selector.as_deref(),
                 *node_id,
             ) {
@@ -21618,8 +21766,6 @@ pub fn process_debug_event(
                 callback_info,
                 dom_id,
                 "set_node_image",
-                "selector",
-                "node_id",
                 selector.as_deref(),
                 *node_id,
             ) {
