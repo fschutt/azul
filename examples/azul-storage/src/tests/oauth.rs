@@ -11,10 +11,10 @@ use crate::{
     config::SecretOptions,
     oauth::{
         self, exchange_code, is_token_endpoint, refresh, revoke, signed_in, OAuthClient,
-        OAuthError, RefreshingTransport, Revoked, Tokens, CLIENT_ID, PLACEHOLDER_ACCESS_TOKEN,
-        REFRESH_TOKEN, TOKEN_URL,
+        OAuthError, RefreshingTransport, Revoked, Rotation, Tokens, CLIENT_ID,
+        PLACEHOLDER_ACCESS_TOKEN, REFRESH_TOKEN, TOKEN_URL,
     },
-    HttpCall, Method, Transport,
+    HttpCall, HttpReply, Method, Transport,
 };
 
 const TOKEN_URL_HTTPS: &str = "https://oauth2.example/token";
@@ -355,10 +355,13 @@ fn a_request_without_a_bearer_token_passes_untouched() {
 #[test]
 fn a_rotated_refresh_token_is_used_next_and_handed_on() {
     let fake = Fake::default();
-    let kept: Arc<Mutex<Vec<String>>> = Arc::default();
+    let kept: Arc<Mutex<Vec<(String, String)>>> = Arc::default();
     let sink = Arc::clone(&kept);
-    let transport = refreshing(&fake)
-        .on_new_refresh_token(move |token| sink.lock().unwrap().push(token.to_string()));
+    let transport = refreshing(&fake).on_new_refresh_token(move |rotation| {
+        sink.lock()
+            .unwrap()
+            .push((rotation.previous, rotation.current));
+    });
     fake.answer(200, JSON, &token_answer("A1", Some("R2")));
     fake.answer(401, JSON, "{}");
     fake.answer(200, JSON, &token_answer("A2", Some("R3")));
@@ -371,7 +374,11 @@ fn a_rotated_refresh_token_is_used_next_and_handed_on() {
     assert_eq!(form(&calls[2])["refresh_token"], "R2", "the rotated one");
     assert_eq!(
         *kept.lock().unwrap(),
-        vec![String::from("R2"), String::from("R3")]
+        vec![
+            (String::from("1//R"), String::from("R2")),
+            (String::from("R2"), String::from("R3"))
+        ],
+        "each rotation says the token it replaced, in the order they happened"
     );
 }
 
@@ -481,27 +488,193 @@ fn a_drive_without_a_refresh_token_or_a_client_id_or_of_another_service_opens_as
     }
 }
 
+/// What the sink gets is the rotation, to be applied to the keyring's text as it is then; applied to
+/// the text the drive was opened with it is the drive's whole new keyring text.
 #[test]
-fn a_rotated_refresh_token_reaches_the_sink_as_the_drives_whole_keyring_text() {
+fn a_rotated_refresh_token_reaches_the_sink_and_applies_to_the_keyring_text() {
     let fake = Fake::default();
-    let kept: Arc<Mutex<Vec<String>>> = Arc::default();
+    let kept: Arc<Mutex<Vec<Rotation>>> = Arc::default();
     let sink = Arc::clone(&kept);
+    let opened = secrets(&[(REFRESH_TOKEN, "R1"), ("client_secret", "s")]);
     let (_, _, transport) = signed_in(
         "onedrive",
         &options(&[(CLIENT_ID, "id")]),
-        &secrets(&[(REFRESH_TOKEN, "R1"), ("client_secret", "s")]),
+        &opened,
         Box::new(fake.clone()),
-        Some(Box::new(move |text| sink.lock().unwrap().push(text))),
+        Some(Box::new(move |rotation| {
+            sink.lock().unwrap().push(rotation)
+        })),
     );
     fake.answer(200, JSON, &token_answer("A1", Some("R2")));
     fake.answer(200, JSON, "{}");
     transport.send(&api_call(PLACEHOLDER_ACCESS_TOKEN)).unwrap();
     let kept = kept.lock().unwrap();
     assert_eq!(kept.len(), 1);
-    let text = SecretOptions::from_keyring_secret(&kept[0]).unwrap();
     assert_eq!(
-        text,
+        (kept[0].previous.as_str(), kept[0].current.as_str()),
+        ("R1", "R2")
+    );
+    let text = oauth::apply_rotation(&opened.to_keyring_secret(), &kept[0]).expect("still R1");
+    assert_eq!(
+        SecretOptions::from_keyring_secret(&text).unwrap(),
         secrets(&[(REFRESH_TOKEN, "R2"), ("client_secret", "s")])
+    );
+}
+
+/// AZ-CN15: the sink wrote the secrets the drive was OPENED with, with the new token in them: a
+/// drive still open after the user signed in again (a new refresh token, a new client secret) wrote
+/// the older picture over the newer sign-in at its next rotation. A rotation applies to the text
+/// the keyring holds now, and only when its refresh token is still the one that rotated.
+#[test]
+fn az_cn15_a_rotation_never_overwrites_a_newer_sign_in() {
+    let rotation = Rotation {
+        previous: String::from("R1"),
+        current: String::from("R2"),
+    };
+    // The keyring still holds R1: the rotation lands, the other settings stay as the KEYRING has them.
+    let now = secrets(&[
+        (REFRESH_TOKEN, "R1"),
+        ("client_secret", "new-secret"),
+        (crate::config::ORIGIN_KEY, "onedrive||"),
+    ]);
+    let text = oauth::apply_rotation(&now.to_keyring_secret(), &rotation).expect("R1 is current");
+    assert_eq!(
+        SecretOptions::from_keyring_secret(&text).unwrap(),
+        secrets(&[
+            (REFRESH_TOKEN, "R2"),
+            ("client_secret", "new-secret"),
+            (crate::config::ORIGIN_KEY, "onedrive||")
+        ])
+    );
+    // The user signed in again meanwhile (R9), or another window stored R2 already: nothing is written.
+    for newer in ["R9", "R2"] {
+        let held = secrets(&[(REFRESH_TOKEN, newer), ("client_secret", "new-secret")]);
+        assert_eq!(
+            oauth::apply_rotation(&held.to_keyring_secret(), &rotation),
+            None,
+            "{newer}"
+        );
+    }
+    // A text that is no source's secrets, or has no refresh token, takes nothing.
+    assert_eq!(oauth::apply_rotation("not json", &rotation), None);
+    assert_eq!(oauth::apply_rotation("{}", &rotation), None);
+    // Debug output hides both tokens.
+    let debug = format!("{rotation:?}");
+    assert!(!debug.contains("R1") && !debug.contains("R2"), "{debug}");
+}
+
+/// AZ-CN15: the sink ran while the transport's lock was held, so a keyring that asks the user
+/// (the Keychain, Touch ID) stalled every request of the drive. The sink runs after the lock is
+/// let go: a request on another thread is answered while the sink waits.
+#[test]
+fn az_cn15_the_sink_runs_without_the_transports_lock() {
+    use std::sync::mpsc;
+    let fake = Fake::default();
+    let (entered, entered_rx) = mpsc::channel::<()>();
+    let (release, release_rx) = mpsc::channel::<()>();
+    let release_rx = Mutex::new(release_rx);
+    let transport = Arc::new(refreshing(&fake).on_new_refresh_token(move |_| {
+        entered.send(()).unwrap();
+        // The keyring "asks the user": the sink waits for the test to let it go.
+        release_rx.lock().unwrap().recv().unwrap();
+    }));
+    fake.answer(200, JSON, &token_answer("A1", Some("R2")));
+    fake.answer(200, JSON, "{}");
+    fake.answer(200, JSON, "{}");
+    let first = {
+        let transport = Arc::clone(&transport);
+        std::thread::spawn(move || transport.send(&api_call(PLACEHOLDER_ACCESS_TOKEN)).unwrap())
+    };
+    entered_rx.recv().expect("the sink was called");
+    // While the sink waits, another request takes the held access token and is answered.
+    let second = transport.send(&api_call(PLACEHOLDER_ACCESS_TOKEN)).unwrap();
+    assert_eq!(second.status, 200, "a request does not wait for the sink");
+    release.send(()).unwrap();
+    assert_eq!(first.join().unwrap().status, 200);
+}
+
+/// AZ-CN15: rotations are handed on one at a time in the order they happened, though the thread
+/// that got the second finds the first still being stored.
+#[test]
+fn az_cn15_rotations_reach_the_sink_one_at_a_time_in_order() {
+    let fake = Fake::default();
+    let seen: Arc<Mutex<Vec<(String, String)>>> = Arc::default();
+    let sink = Arc::clone(&seen);
+    let transport = refreshing(&fake).on_new_refresh_token(move |rotation| {
+        sink.lock()
+            .unwrap()
+            .push((rotation.previous, rotation.current));
+    });
+    fake.answer(200, JSON, &token_answer("A1", Some("R2")));
+    fake.answer(401, JSON, "{}");
+    fake.answer(200, JSON, &token_answer("A2", Some("R3")));
+    fake.answer(401, JSON, "{}");
+    // A second request: the held token is refused again, a third rotation.
+    fake.answer(401, JSON, "{}");
+    fake.answer(200, JSON, &token_answer("A3", Some("R4")));
+    fake.answer(200, JSON, "{}");
+    transport.send(&api_call(PLACEHOLDER_ACCESS_TOKEN)).unwrap();
+    assert_eq!(
+        seen.lock().unwrap().len(),
+        2,
+        "two rotations in the first request"
+    );
+    let reply = transport.send(&api_call(PLACEHOLDER_ACCESS_TOKEN)).unwrap();
+    assert_eq!(reply.status, 200);
+    assert_eq!(
+        *seen.lock().unwrap(),
+        vec![
+            (String::from("1//R"), String::from("R2")),
+            (String::from("R2"), String::from("R3")),
+            (String::from("R3"), String::from("R4")),
+        ]
+    );
+}
+
+/// AZ-CN15: the wrapper forwards what the transport it wraps trusts and reaches: the defaults said
+/// "the public roots" and "no fallback addresses" for an app that narrowed its roots and a node
+/// reached at its IP.
+#[test]
+fn az_cn15_the_refreshing_transport_forwards_the_trust_and_the_fallback_addresses() {
+    struct Inner {
+        asked: Mutex<Vec<(String, Vec<String>)>>,
+    }
+    impl Transport for Arc<Inner> {
+        fn send(&self, _call: &HttpCall) -> Result<HttpReply, String> {
+            Err(String::from("not sent"))
+        }
+        fn trusts_public_roots(&self) -> bool {
+            false
+        }
+        fn fallback_addresses(&self, host: &str, addresses: &[String]) -> bool {
+            self.asked
+                .lock()
+                .unwrap()
+                .push((host.to_string(), addresses.to_vec()));
+            true
+        }
+    }
+    let inner = Arc::new(Inner {
+        asked: Mutex::default(),
+    });
+    let transport = RefreshingTransport::new(
+        Box::new(Arc::clone(&inner)),
+        "Google Drive",
+        TOKEN_URL_HTTPS,
+        OAuthClient::public("id"),
+        "R",
+    );
+    assert!(
+        !transport.trusts_public_roots(),
+        "the app narrowed its roots"
+    );
+    assert!(transport.fallback_addresses("node.example", &[String::from("203.0.113.7")]));
+    assert_eq!(
+        inner.asked.lock().unwrap().clone(),
+        vec![(
+            String::from("node.example"),
+            vec![String::from("203.0.113.7")]
+        )]
     );
 }
 

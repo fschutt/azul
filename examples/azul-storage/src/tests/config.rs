@@ -505,3 +505,172 @@ fn every_database_engine_has_a_name_and_a_key() {
         assert_eq!(engine.name(), name);
     }
 }
+
+// ==== AZ-CN7: a secret is read back for the address it was typed for ====
+
+fn webdav_form(endpoint: &str) -> crate::catalog::FormValues {
+    [
+        ("endpoint", endpoint),
+        ("username", "ann"),
+        ("password", "sesame-42"),
+    ]
+    .iter()
+    .map(|(k, v)| (k.to_string(), v.to_string()))
+    .collect()
+}
+
+/// A same-user process edits the plain drives.json: the entry's address now points at a server of
+/// its choice, the keyring entry is untouched. Opening the drive used to send the password there
+/// (and on macOS, with the user's own Keychain prompt). The secrets say which address they were
+/// saved for and are not handed out for another.
+#[test]
+fn az_cn7_a_secret_is_not_handed_out_for_an_address_it_was_not_saved_for() {
+    let new = crate::catalog::build_entry(
+        crate::catalog::service("webdav").unwrap(),
+        "nas-1",
+        "NAS",
+        &webdav_form("https://nas.example/remote.php/dav"),
+    )
+    .unwrap();
+    let secret = new.secret.clone().expect("a password is a secret");
+    // The text says where it goes; a copy of it in the keyring is bound.
+    let saved = SecretOptions::from_keyring_secret(&secret).unwrap();
+    assert_eq!(
+        saved.get(crate::config::ORIGIN_KEY),
+        Some("webdav|https://nas.example|")
+    );
+    assert_eq!(saved.get("password"), Some("sesame-42"));
+    assert_eq!(
+        new.entry.secret_origin().as_deref(),
+        Some("webdav|https://nas.example|")
+    );
+
+    // The edit.
+    let mut moved = new.entry.clone();
+    let DriveLocation::Opendal { options, .. } = &mut moved.location else {
+        panic!("not an OpenDAL source");
+    };
+    options.insert(
+        "endpoint".to_string(),
+        "https://evil.example/dav".to_string(),
+    );
+    match moved.open_with_secret(Some(&secret), Box::new(NoNetwork)) {
+        Err(DriveError::Denied { message }) => {
+            assert!(message.contains("address changed"), "{message}");
+            assert!(message.contains("enter it again"), "{message}");
+            assert!(!message.contains("sesame-42"), "{message}");
+        }
+        other => panic!("{:?}", other.map(|_| ())),
+    }
+    // The same address in another spelling, or another path of the same server, is the same place.
+    for same in [
+        "HTTPS://NAS.EXAMPLE/other/path",
+        "https://nas.example/",
+        "https://ann@nas.example",
+    ] {
+        let mut entry = new.entry.clone();
+        let DriveLocation::Opendal { options, .. } = &mut entry.location else {
+            unreachable!()
+        };
+        options.insert("endpoint".to_string(), same.to_string());
+        assert_eq!(entry.secret_origin(), new.entry.secret_origin(), "{same}");
+    }
+    // The port is another server.
+    let mut port = new.entry.clone();
+    let DriveLocation::Opendal { options, .. } = &mut port.location else {
+        unreachable!()
+    };
+    options.insert(
+        "endpoint".to_string(),
+        "https://nas.example:8443/dav".to_string(),
+    );
+    assert_ne!(port.secret_origin(), new.entry.secret_origin());
+}
+
+/// A secret saved before they were bound (no origin in its text) keeps working: stored drives keep
+/// their value; the next save of the drive binds it.
+#[test]
+fn az_cn7_a_secret_saved_before_the_binding_is_taken_as_it_was() {
+    let entry = DriveEntry {
+        id: "nas-0".to_string(),
+        name: "Old NAS".to_string(),
+        location: DriveLocation::Opendal {
+            scheme: "webdav".to_string(),
+            options: [(
+                "endpoint".to_string(),
+                "https://old.example/dav".to_string(),
+            )]
+            .into_iter()
+            .collect(),
+            keyring: true,
+        },
+    };
+    let mut old = SecretOptions::new();
+    old.insert("password", "sesame-42");
+    let outcome = entry.open_with_secret(Some(&old.to_keyring_secret()), Box::new(NoNetwork));
+    assert!(
+        !matches!(outcome, Err(DriveError::Denied { .. })),
+        "{:?}",
+        outcome.map(|_| ())
+    );
+}
+
+#[test]
+fn az_cn7_a_database_and_a_signed_in_drive_are_bound_too() {
+    // A database: the host and the port (the engine's default port is the empty one).
+    let postgres = |host: &str| DriveEntry {
+        id: "db-1".to_string(),
+        name: "Shop".to_string(),
+        location: DriveLocation::Database {
+            engine: DatabaseEngine::Postgres,
+            options: [
+                ("host".to_string(), host.to_string()),
+                ("database".to_string(), "shop".to_string()),
+                ("user".to_string(), "ann".to_string()),
+            ]
+            .into_iter()
+            .collect(),
+            keyring: true,
+        },
+    };
+    assert_eq!(
+        postgres("DB.Example").secret_origin().as_deref(),
+        Some("postgres|db.example|")
+    );
+    let mut bound = SecretOptions::new();
+    bound.insert("password", "pg-sesame");
+    bound.insert(crate::config::ORIGIN_KEY, "postgres|db.example|");
+    let moved = postgres("evil.example")
+        .open_with_secret(Some(&bound.to_keyring_secret()), Box::new(NoNetwork));
+    assert!(
+        matches!(moved, Err(DriveError::Denied { .. })),
+        "{:?}",
+        moved.map(|_| ())
+    );
+
+    // A signed-in cloud: the token endpoint it refreshes at is part of where the secrets go.
+    let cloud = |token_url: Option<&str>| {
+        let mut options = BTreeMap::new();
+        options.insert("client_id".to_string(), "id".to_string());
+        if let Some(url) = token_url {
+            options.insert("token_url".to_string(), url.to_string());
+        }
+        DriveEntry {
+            id: "g-1".to_string(),
+            name: "Drive".to_string(),
+            location: DriveLocation::Opendal {
+                scheme: "gdrive".to_string(),
+                options,
+                keyring: true,
+            },
+        }
+    };
+    assert_eq!(cloud(None).secret_origin().as_deref(), Some("gdrive||"));
+    assert_ne!(
+        cloud(Some("https://evil.example/token")).secret_origin(),
+        cloud(None).secret_origin(),
+        "a token_url put into the file moves the secrets' address"
+    );
+    // A folder, a bucket and an Azlin drive are not bound this way.
+    assert_eq!(s3_entry("s3-1").secret_origin(), None);
+}

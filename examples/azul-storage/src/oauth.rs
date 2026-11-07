@@ -155,9 +155,42 @@ pub const ACCESS_TOKEN: &str = "access_token";
 /// on the request.
 pub const PLACEHOLDER_ACCESS_TOKEN: &str = "azul-storage-refreshing-transport";
 
-/// Where a drive's new keyring text goes when its provider rotated the refresh token (the
-/// caller stores it under the drive's keyring entry).
-pub type SecretSink = Box<dyn Fn(String) + Send + Sync>;
+/// A refresh token a provider rotated: the one that was good until now and the one that is.
+/// `Debug` hides both.
+#[derive(Clone, PartialEq, Eq)]
+pub struct Rotation {
+    pub previous: String,
+    pub current: String,
+}
+
+impl fmt::Debug for Rotation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Rotation")
+            .field("previous", &"<hidden>")
+            .field("current", &"<hidden>")
+            .finish()
+    }
+}
+
+/// The keyring text after `rotation`, built on the text the keyring holds NOW: `Some` only when
+/// its refresh token is still the one that was rotated away (every other setting stays as the
+/// keyring has it). `None` when it is not - the user signed in again meanwhile, or another window
+/// stored this rotation already - and then nothing is written: the open drive's picture of the
+/// secrets is older than the keyring's, and storing it would overwrite the newer sign-in (AZ-CN15).
+#[must_use]
+pub fn apply_rotation(keyring_text: &str, rotation: &Rotation) -> Option<String> {
+    let mut secrets = SecretOptions::from_keyring_secret(keyring_text).ok()?;
+    if secrets.get(REFRESH_TOKEN) != Some(rotation.previous.as_str()) {
+        return None;
+    }
+    secrets.insert(REFRESH_TOKEN, &rotation.current);
+    Some(secrets.to_keyring_secret())
+}
+
+/// Where a refresh token the provider rotated goes (the caller stores it under the drive's keyring
+/// entry, [`apply_rotation`] on the entry as it is then). Called one rotation at a time, in the
+/// order they happened, never under a lock the drive's requests wait for.
+pub type SecretSink = Box<dyn Fn(Rotation) + Send + Sync>;
 
 /// The app's OAuth client at a provider. `Debug` hides the secret.
 #[derive(Clone, PartialEq, Eq)]
@@ -541,7 +574,11 @@ pub struct RefreshingTransport {
     client: OAuthClient,
     /// Held across a refresh's request, so the UI thread never takes it.
     held: NetworkLock<Held>,
-    on_new_refresh_token: Option<Box<dyn Fn(&str) + Send + Sync>>,
+    on_new_refresh_token: Option<Box<dyn Fn(Rotation) + Send + Sync>>,
+    /// The rotations not handed on yet, in the order they happened (made under `held`).
+    pending: std::sync::Mutex<std::collections::VecDeque<Rotation>>,
+    /// Held by the one thread that hands rotations on (its keyring may ask the user).
+    handing_on: std::sync::Mutex<()>,
 }
 
 impl fmt::Debug for RefreshingTransport {
@@ -575,6 +612,8 @@ impl RefreshingTransport {
                 refresh_token: refresh_token.to_string(),
             }),
             on_new_refresh_token: None,
+            pending: std::sync::Mutex::default(),
+            handing_on: std::sync::Mutex::new(()),
         }
     }
 
@@ -585,52 +624,102 @@ impl RefreshingTransport {
         self
     }
 
-    /// Hands every new refresh token the provider rotates to `keep` (to be stored).
+    /// Hands every refresh token the provider rotates to `keep` (to be stored): one at a time, in
+    /// the order they happened, after the request that got it has let go of the transport's lock -
+    /// a keyring that asks the user (Keychain, Touch ID) stalls the thread that stores, not every
+    /// request of the drive (AZ-CN15).
     #[must_use]
-    pub fn on_new_refresh_token(mut self, keep: impl Fn(&str) + Send + Sync + 'static) -> Self {
+    pub fn on_new_refresh_token(mut self, keep: impl Fn(Rotation) + Send + Sync + 'static) -> Self {
         self.on_new_refresh_token = Some(Box::new(keep));
         self
+    }
+
+    /// Hands the pending rotations on, oldest first. One thread does it at a time; a thread that
+    /// finds another at it leaves its rotation to that one, which looks again before it stops.
+    fn hand_on(&self) {
+        let Some(keep) = &self.on_new_refresh_token else {
+            return;
+        };
+        loop {
+            {
+                let _turn = match self.handing_on.try_lock() {
+                    Ok(turn) => turn,
+                    // A sink that panicked left the turn poisoned, not taken.
+                    Err(std::sync::TryLockError::Poisoned(poisoned)) => poisoned.into_inner(),
+                    Err(std::sync::TryLockError::WouldBlock) => return,
+                };
+                loop {
+                    let next = self
+                        .pending
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .pop_front();
+                    match next {
+                        Some(rotation) => keep(rotation),
+                        None => break,
+                    }
+                }
+            }
+            // A rotation queued while this thread was leaving would wait for the next one.
+            if self
+                .pending
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .is_empty()
+            {
+                return;
+            }
+        }
     }
 
     /// The access token to send: the one held, unless it is `stale` (the one a 401 refused) or
     /// there is none - then a new one from the token endpoint. One refresh at a time: the
     /// others wait for it and take its token.
     fn access_token(&self, stale: Option<&str>) -> Result<String, String> {
-        let mut held = self.held.lock();
-        if let Some(token) = held
-            .access_token
-            .as_ref()
-            .filter(|token| stale != Some(token.as_str()))
-        {
-            return Ok(token.clone());
-        }
-        let tokens = refresh(
-            &*self.inner,
-            &self.token_url,
-            &self.client,
-            &held.refresh_token,
-        )
-        .map_err(|e| {
-            if e.needs_sign_in() {
-                format!(
-                    "the sign-in to {} is no longer valid ({e}): sign in again",
-                    self.provider_name
-                )
-            } else {
-                format!("{} gave no new access token: {e}", self.provider_name)
+        let access_token = {
+            let mut held = self.held.lock();
+            if let Some(token) = held
+                .access_token
+                .as_ref()
+                .filter(|token| stale != Some(token.as_str()))
+            {
+                return Ok(token.clone());
             }
-        })?;
-        held.access_token = Some(tokens.access_token.clone());
-        if let Some(rotated) = tokens
-            .refresh_token
-            .filter(|r| !r.is_empty() && *r != held.refresh_token)
-        {
-            held.refresh_token.clone_from(&rotated);
-            if let Some(keep) = &self.on_new_refresh_token {
-                keep(&rotated);
+            let tokens = refresh(
+                &*self.inner,
+                &self.token_url,
+                &self.client,
+                &held.refresh_token,
+            )
+            .map_err(|e| {
+                if e.needs_sign_in() {
+                    format!(
+                        "the sign-in to {} is no longer valid ({e}): sign in again",
+                        self.provider_name
+                    )
+                } else {
+                    format!("{} gave no new access token: {e}", self.provider_name)
+                }
+            })?;
+            held.access_token = Some(tokens.access_token.clone());
+            if let Some(rotated) = tokens
+                .refresh_token
+                .filter(|r| !r.is_empty() && *r != held.refresh_token)
+            {
+                // Queued in the order it happened (under the lock); handed on below, after the
+                // lock is let go.
+                self.pending
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .push_back(Rotation {
+                        previous: std::mem::replace(&mut held.refresh_token, rotated.clone()),
+                        current: rotated,
+                    });
             }
-        }
-        Ok(tokens.access_token)
+            tokens.access_token
+        };
+        self.hand_on();
+        Ok(access_token)
     }
 }
 
@@ -657,6 +746,18 @@ fn with_bearer(call: &HttpCall, token: &str) -> HttpCall {
 }
 
 impl Transport for RefreshingTransport {
+    /// What the transport it wraps trusts: the wrapper adds a bearer token and no TLS of its own
+    /// (AZ-CN15: the defaults said "the public roots" for an app that narrowed them).
+    fn trusts_public_roots(&self) -> bool {
+        self.inner.trusts_public_roots()
+    }
+
+    /// The wrapped transport's fallback addresses (a node reached at its IP when its name does not
+    /// resolve), not none.
+    fn fallback_addresses(&self, host: &str, addresses: &[String]) -> bool {
+        self.inner.fallback_addresses(host, addresses)
+    }
+
     fn send(&self, call: &HttpCall) -> Result<HttpReply, String> {
         if !carries_bearer(call) {
             return self.inner.send(call);
@@ -675,9 +776,9 @@ impl Transport for RefreshingTransport {
 /// The settings and the transport the OpenDAL service `scheme` opens with: a drive signed in
 /// at a provider ([`provider`]; its secrets hold a [`REFRESH_TOKEN`], its options a
 /// [`CLIENT_ID`]) gets OpenDAL's placeholder access token, its OAuth settings taken out, and a
-/// [`RefreshingTransport`] around `transport` (a rotated refresh token goes to `rotated` as the
-/// drive's whole new keyring text). Any other drive gets its settings and `transport` as they
-/// are.
+/// [`RefreshingTransport`] around `transport` (a rotated refresh token goes to `rotated` as a
+/// [`Rotation`], to be applied to the keyring entry as it is then: [`apply_rotation`]). Any other
+/// drive gets its settings and `transport` as they are.
 pub fn signed_in(
     scheme: &str,
     options: &BTreeMap<String, String>,
@@ -704,12 +805,7 @@ pub fn signed_in(
     let mut refreshing =
         RefreshingTransport::new(transport, provider.name, token_url, client, refresh_token);
     if let Some(sink) = rotated {
-        let kept = secrets.clone();
-        refreshing = refreshing.on_new_refresh_token(move |new_token| {
-            let mut secrets = kept.clone();
-            secrets.insert(REFRESH_TOKEN, new_token);
-            sink(secrets.to_keyring_secret());
-        });
+        refreshing = refreshing.on_new_refresh_token(sink);
     }
     let options = options
         .iter()

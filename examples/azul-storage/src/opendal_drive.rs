@@ -261,7 +261,8 @@ pub(crate) fn settings_of(
         .filter(|(key, _)| !matches!(key.as_str(), "anonymous" | "machine_identity"))
         .map(|(k, v)| (k.clone(), v.clone()))
         .chain(secrets.iter().map(|(k, v)| (k.to_string(), v.to_string())))
-        .filter(|(_, v)| !v.trim().is_empty())
+        // The binding of the secrets to their address is ours, not a setting of the service.
+        .filter(|(k, v)| k.as_str() != crate::config::ORIGIN_KEY && !v.trim().is_empty())
         .collect();
     let on = |key: &str| options.get(key).is_some_and(|v| v.trim() == "true");
     match scheme {

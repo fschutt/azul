@@ -672,44 +672,53 @@ impl Slot {
                         }
                         None => azlin,
                     };
-                let auto = crate::encryption::wrap(
-                    &drive_id,
-                    azlin,
-                    self.entry.encryption_record().unwrap_or_default(),
-                    &self.entry.id,
-                    records,
-                    restore,
-                );
-                self.auto = Some(auto.clone());
-                auto
-            };
-            azlin
-        } else {
-            // A signed-in consumer cloud (Google Drive, Dropbox, OneDrive) refreshes its access
-            // token itself; a refresh token its provider rotates (OneDrive) is stored at once,
-            // on the worker thread that got it, and handed to the slot like an Azlin session.
-            let queue = rotated.clone();
-            let id = self.entry.id.clone();
-            let keyring = keyring.clone();
-            let keep: azul_storage::oauth::SecretSink = Box::new(move |secret: String| {
-                let unsaved = keyring
-                    .set(&config::keyring_key(&id), &secret)
-                    .err()
-                    .map(|e| e.to_string());
-                if let Ok(mut queue) = queue.lock() {
-                    queue.push(Rotated {
-                        drive_id: id.clone(),
-                        secret: azcloud_kit::Zeroizing::new(secret),
-                        unsaved,
+                    let auto = crate::encryption::wrap(
+                        &drive_id,
+                        azlin,
+                        self.entry.encryption_record().unwrap_or_default(),
+                        &self.entry.id,
+                        records,
+                        restore,
+                    );
+                    self.auto = Some(auto.clone());
+                    auto
+                };
+                azlin
+            } else {
+                // A signed-in consumer cloud (Google Drive, Dropbox, OneDrive) refreshes its access
+                // token itself; a refresh token its provider rotates (OneDrive) is stored at once,
+                // on the worker thread that got it - on the keyring's text as it is THEN, so a
+                // sign-in made since is not overwritten (AZ-CN15) -, and handed to the slot like an
+                // Azlin session.
+                let queue = rotated.clone();
+                let id = self.entry.id.clone();
+                let keyring = keyring.clone();
+                let opened: Option<String> = self.secret.as_deref().map(String::to_string);
+                let keep: azul_storage::oauth::SecretSink =
+                    Box::new(move |rotation: azul_storage::oauth::Rotation| {
+                        let stored = sign_in::store_rotation(
+                            &keyring,
+                            &config::keyring_key(&id),
+                            opened.as_deref(),
+                            &rotation,
+                        );
+                        let Some((secret, unsaved)) = stored else {
+                            return;
+                        };
+                        if let Ok(mut queue) = queue.lock() {
+                            queue.push(Rotated {
+                                drive_id: id.clone(),
+                                secret: azcloud_kit::Zeroizing::new(secret),
+                                unsaved,
+                            });
+                        }
                     });
-                }
-            });
-            connection(Arc::from(self.entry.open_with_secret_rotating(
-                self.secret.as_deref().map(String::as_str),
-                Box::new(AzulTransport::new(USER_AGENT)),
-                Some(keep),
-            )?))
-        };
+                connection(Arc::from(self.entry.open_with_secret_rotating(
+                    self.secret.as_deref().map(String::as_str),
+                    Box::new(AzulTransport::new(USER_AGENT)),
+                    Some(keep),
+                )?))
+            };
         self.drive = Some(drive.clone());
         Ok(drive)
     }

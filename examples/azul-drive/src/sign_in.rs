@@ -344,9 +344,45 @@ pub(crate) fn end_grant(
     }
 }
 
+/// A refresh token the provider rotated, stored in the drive's keyring entry: under the entry's
+/// lock, on the text the keyring holds NOW ([`oauth::apply_rotation`]). The drive was opened with
+/// the secrets it had then; a sign-in made since (the menu's "Sign in again", another window) has
+/// a newer refresh token, and writing the older picture over it locked the user out for good
+/// (AZ-CN15). `opened` is what the drive was opened with: used only when the keyring cannot be
+/// read, so the open drive still holds the token it rotated to.
+///
+/// `None`: nothing to store or to hand on - the entry is gone (the drive was removed), or its
+/// refresh token is no longer the one that rotated (a newer sign-in holds it). `Some((text,
+/// unsaved))`: the entry's text now, and why the keyring did not take it, if it did not.
+pub(crate) fn store_rotation(
+    keyring: &azcloud_kit::SharedKeyring,
+    key: &str,
+    opened: Option<&str>,
+    rotation: &oauth::Rotation,
+) -> Option<(String, Option<String>)> {
+    let held = keyring.lock(key).map_err(|e| e.to_string());
+    let current = keyring.get(key).map_err(|e| e.to_string());
+    let base = match &current {
+        Ok(Some(text)) => text.clone(),
+        // The drive was removed meanwhile: its entry stays gone.
+        Ok(None) => return None,
+        // The keyring cannot be read: what the drive was opened with is the best picture there is.
+        Err(_) => opened?.to_string(),
+    };
+    let text = oauth::apply_rotation(&base, rotation)?;
+    let unsaved = match (&held, &current) {
+        (Err(why), _) | (_, Err(why)) => Some(why.clone()),
+        _ => keyring.set(key, &text).err().map(|e| e.to_string()),
+    };
+    Some((text, unsaved))
+}
+
 #[cfg(test)]
 mod tests {
-    use std::{collections::BTreeMap, sync::Mutex};
+    use std::{
+        collections::BTreeMap,
+        sync::{Arc, Mutex},
+    };
 
     use azul_storage::{
         keyring::{KeyringStore, MemoryKeyring},
@@ -505,5 +541,88 @@ mod tests {
             },
         };
         assert!(provider_of(&local).is_none() && grant_of(&local, [&a]).is_none());
+    }
+
+    // ==== AZ-CN15: a rotated refresh token is stored on the keyring's text of that moment ====
+
+    fn shared(dir: &std::path::Path, keyring: Arc<MemoryKeyring>) -> azcloud_kit::SharedKeyring {
+        azcloud_kit::SharedKeyring::with_lock_root(
+            keyring,
+            azul_storage::keyring::KeyringNamespace::azlin_shared(),
+            &dir.join("locks"),
+        )
+    }
+
+    fn held(refresh_token: &str, client_secret: &str) -> String {
+        let mut secrets = SecretOptions::default();
+        secrets.insert(REFRESH_TOKEN, refresh_token);
+        secrets.insert(CLIENT_SECRET, client_secret);
+        secrets.to_keyring_secret()
+    }
+
+    /// The drive was opened with R1 and the client secret "old". The user signed in again (R5, "new")
+    /// meanwhile. The open drive's provider rotates R1 -> R2 at its next refresh. Its older picture
+    /// used to be written over the newer sign-in; now the rotation finds R5 where it expected R1
+    /// and writes nothing.
+    #[test]
+    fn az_cn15_a_rotation_of_an_older_sign_in_does_not_overwrite_a_newer_one() {
+        let dir = azul_storage::testing::TempDir::new("signin-rotation-newer");
+        let memory = Arc::new(MemoryKeyring::new());
+        let keyring = shared(dir.path(), memory.clone());
+        let key = azul_storage::config::keyring_key("gd_1");
+        memory.set(&key, &held("R5", "new")).unwrap();
+        let rotation = oauth::Rotation {
+            previous: String::from("R1"),
+            current: String::from("R2"),
+        };
+        let opened = held("R1", "old");
+        assert_eq!(
+            store_rotation(&keyring, &key, Some(&opened), &rotation),
+            None
+        );
+        assert_eq!(
+            memory.get(&key).unwrap(),
+            Some(held("R5", "new")),
+            "the newer sign-in stays"
+        );
+    }
+
+    #[test]
+    fn az_cn15_a_rotation_of_the_current_sign_in_is_stored_on_the_keyrings_other_settings() {
+        let dir = azul_storage::testing::TempDir::new("signin-rotation-current");
+        let memory = Arc::new(MemoryKeyring::new());
+        let keyring = shared(dir.path(), memory.clone());
+        let key = azul_storage::config::keyring_key("gd_1");
+        // The client secret was changed in the keyring since the drive opened.
+        memory.set(&key, &held("R1", "changed since")).unwrap();
+        let rotation = oauth::Rotation {
+            previous: String::from("R1"),
+            current: String::from("R2"),
+        };
+        let (text, unsaved) = store_rotation(&keyring, &key, Some(&held("R1", "old")), &rotation)
+            .expect("R1 is current");
+        assert_eq!(unsaved, None);
+        assert_eq!(text, held("R2", "changed since"));
+        assert_eq!(memory.get(&key).unwrap(), Some(text));
+        // Stored once: the same rotation again finds R2 and does nothing.
+        assert_eq!(store_rotation(&keyring, &key, None, &rotation), None);
+    }
+
+    /// A drive removed meanwhile: its entry stays gone; nothing is handed to the slot.
+    #[test]
+    fn az_cn15_a_rotation_does_not_bring_back_the_entry_of_a_removed_drive() {
+        let dir = azul_storage::testing::TempDir::new("signin-rotation-removed");
+        let memory = Arc::new(MemoryKeyring::new());
+        let keyring = shared(dir.path(), memory.clone());
+        let key = azul_storage::config::keyring_key("gd_1");
+        let rotation = oauth::Rotation {
+            previous: String::from("R1"),
+            current: String::from("R2"),
+        };
+        assert_eq!(
+            store_rotation(&keyring, &key, Some(&held("R1", "s")), &rotation),
+            None
+        );
+        assert_eq!(memory.get(&key).unwrap(), None);
     }
 }

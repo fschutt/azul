@@ -565,3 +565,23 @@ fn az_cn8_a_source_whose_address_holds_a_login_is_refused_without_repeating_it()
     )
     .is_ok());
 }
+
+/// The binding of a source's secrets to its address is ours: OpenDAL is never told it.
+#[test]
+fn az_cn7_the_binding_of_the_secrets_is_no_setting_of_the_service() {
+    let settings = settings_for(
+        "webdav",
+        &[("endpoint", "https://h/dav")],
+        &[
+            ("password", "p"),
+            (crate::config::ORIGIN_KEY, "webdav|https://h|"),
+        ],
+    );
+    assert!(has(&settings, "password", "p"));
+    assert!(
+        !settings
+            .iter()
+            .any(|(k, v)| k.starts_with('@') || v.contains("webdav|")),
+        "{settings:?}"
+    );
+}

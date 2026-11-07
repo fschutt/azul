@@ -20,7 +20,7 @@
 use std::{collections::BTreeMap, fmt};
 
 use crate::{
-    config::{DatabaseEngine, DriveAuth, DriveEntry, DriveLocation, SecretOptions},
+    config::{DatabaseEngine, DriveAuth, DriveEntry, DriveLocation, SecretOptions, ORIGIN_KEY},
     Credentials, HttpCall, HttpReply, S3Config, S3Drive, Transport,
 };
 
@@ -1703,14 +1703,23 @@ pub fn build_entry(
             )
         }
     };
-    Ok(NewDrive {
-        entry: DriveEntry {
-            id: id.to_string(),
-            name,
-            location,
-        },
-        secret,
-    })
+    let entry = DriveEntry {
+        id: id.to_string(),
+        name,
+        location,
+    };
+    // The secrets of a data source are saved for the address it has now, and read back for no
+    // other (AZ-CN7).
+    let secret = match (secret, entry.secret_origin()) {
+        (Some(text), Some(origin)) => {
+            let mut secrets =
+                SecretOptions::from_keyring_secret(&text).map_err(|e| e.to_string())?;
+            secrets.insert(ORIGIN_KEY, &origin);
+            Some(secrets.to_keyring_secret())
+        }
+        (secret, _) => secret,
+    };
+    Ok(NewDrive { entry, secret })
 }
 
 /// A form's filled fields: the plain ones (for the drives file) and the secret ones (for the

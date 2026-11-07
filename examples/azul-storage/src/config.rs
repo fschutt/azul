@@ -178,6 +178,13 @@ pub enum DriveLocation {
     },
 }
 
+/// The reserved setting of a data source's keyring text that BINDS its secrets to where they go:
+/// [`DriveEntry::secret_origin`] as it was when the secrets were saved. drives.json is a plain
+/// file any process of the user can write; the address it holds decides where a password or a
+/// refresh token is sent, so a secret is read back only for the address it was typed for
+/// (AZ-CN7). Not an OpenDAL setting: it never reaches the service.
+pub const ORIGIN_KEY: &str = "@origin";
+
 /// The secret settings of a data source (a password, a token, an account key), by the name of
 /// the setting: the ONE text its keyring entry holds (JSON). `Debug` shows the names, never a
 /// value.
@@ -376,15 +383,57 @@ impl DriveEntry {
         }
     }
 
+    /// Where this drive's secrets are sent, as one text: the scheme, the address (scheme, host and
+    /// port - not the path, not a login) and the token endpoint it was signed in at, for a data
+    /// source; the engine, the host and the port for a database. `None` for a drive whose secrets
+    /// are not bound this way (a folder, a bucket, an Azlin drive). The keyring text of a data
+    /// source holds it ([`ORIGIN_KEY`]) from the day its secrets are saved.
+    #[must_use]
+    pub fn secret_origin(&self) -> Option<String> {
+        let origin = |url: Option<&String>| url.map(|url| origin_of(url)).unwrap_or_default();
+        match &self.location {
+            DriveLocation::Opendal {
+                scheme, options, ..
+            } => Some(format!(
+                "{scheme}|{}|{}",
+                origin(options.get("endpoint")),
+                origin(options.get(crate::oauth::TOKEN_URL))
+            )),
+            DriveLocation::Database {
+                engine, options, ..
+            } => {
+                let text = |key: &str| {
+                    options
+                        .get(key)
+                        .map(|value| value.trim().to_ascii_lowercase())
+                        .unwrap_or_default()
+                };
+                Some(format!(
+                    "{}|{}|{}",
+                    engine.key(),
+                    text("host"),
+                    text("port")
+                ))
+            }
+            DriveLocation::Local { .. } | DriveLocation::S3 { .. } => None,
+        }
+    }
+
     /// A data source's secret settings: its keyring text read back, or none when the entry
-    /// keeps none (`keyring` off).
+    /// keeps none (`keyring` off). Secrets saved for another address than the entry has now are
+    /// not handed out (AZ-CN7): a process that edited drives.json to point the drive somewhere
+    /// else would get the password sent there.
     fn secret_options(
         &self,
         secret: Option<&str>,
         keyring: bool,
     ) -> Result<SecretOptions, DriveError> {
         match secret {
-            Some(text) if !text.trim().is_empty() => SecretOptions::from_keyring_secret(text),
+            Some(text) if !text.trim().is_empty() => {
+                let secrets = SecretOptions::from_keyring_secret(text)?;
+                self.check_bound(&secrets)?;
+                Ok(secrets)
+            }
             _ if keyring => Err(DriveError::Denied {
                 message: format!(
                     "\"{}\" has no password or token (the keyring has no entry for it)",
@@ -393,6 +442,24 @@ impl DriveEntry {
             }),
             _ => Ok(SecretOptions::new()),
         }
+    }
+
+    /// Whether `secrets` were saved for the address this entry has: those saved before they were
+    /// bound (no [`ORIGIN_KEY`]) are taken as they were; bound ones must match.
+    fn check_bound(&self, secrets: &SecretOptions) -> Result<(), DriveError> {
+        let Some(bound) = secrets.get(ORIGIN_KEY) else {
+            return Ok(());
+        };
+        if self.secret_origin().as_deref() == Some(bound) {
+            return Ok(());
+        }
+        Err(DriveError::Denied {
+            message: format!(
+                "\"{}\": its address changed since its password was saved, so the password is not \
+                 sent to the new one: open the drive's form and enter it again",
+                self.name
+            ),
+        })
     }
 
     /// The bucket settings of an S3 drive.
@@ -624,6 +691,20 @@ impl DrivesFile {
     pub fn get(&self, id: &str) -> Option<&DriveEntry> {
         self.drives.iter().find(|d| d.id == id)
     }
+}
+
+/// `url` as `scheme://host[:port]`, lower case, without a login, a path, a query: where a request
+/// to it goes. A text that is no address is itself, trimmed and lower case.
+fn origin_of(url: &str) -> String {
+    let url = url.trim().to_ascii_lowercase();
+    let Some((scheme, rest)) = url.split_once("://") else {
+        return url;
+    };
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    let host = authority
+        .rsplit_once('@')
+        .map_or(authority, |(_, host)| host);
+    format!("{scheme}://{host}")
 }
 
 /// The drives file: `var` (the [`DRIVES_VAR`] variable) when set, else
