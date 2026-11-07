@@ -29,6 +29,14 @@ fn file(key: &str) -> Item {
     }
 }
 
+fn folder(key: &str) -> Item {
+    Item {
+        key: key.to_string(),
+        is_folder: true,
+        size: None,
+    }
+}
+
 fn go(plan: &Plan, source: &dyn Drive, target: &dyn Drive, removes_source: bool) -> Report {
     run(plan, source, target, removes_source, &Quiet, &mut |_| {})
 }
@@ -601,4 +609,114 @@ fn x_delta_azdrive_files_4_a_failed_look_at_the_source_moves_nothing() {
     );
     assert_eq!(source.get("a.txt").unwrap(), b"v1 text");
     assert!(target.get("a.txt").is_err(), "nothing was copied");
+}
+
+// ---- finding 15: the empty folders of a folder that is moved
+
+fn two_disks(name: &str) -> (TempDir, LocalDrive, LocalDrive) {
+    let tmp = TempDir::new(name);
+    let home = LocalDrive::without_manifest(tmp.path().join("home"));
+    let other = LocalDrive::without_manifest(tmp.path().join("other"));
+    (tmp, home, other)
+}
+
+/// A folder on disk has no marker: its empty folders are in no recursive listing. A Move to another
+/// drive removed them from the source and never made them at the target - the structure existed
+/// nowhere. The plan names them and the run makes them before the source is touched.
+#[test]
+fn x_delta_azdrive_files_15_a_move_takes_the_empty_folders_along() {
+    let (tmp, home, other) = two_disks("dx15-move");
+    home.put("docs/a.txt", b"alpha").unwrap();
+    home.create_folder("docs/empty/").unwrap();
+    home.create_folder("docs/sub/deep/er/").unwrap();
+    home.put("docs/sub/b.txt", b"beta").unwrap();
+    let plan = make_plan(&home, &[folder("docs/")], &other, "", true, "Copy").unwrap();
+    for wanted in ["docs/empty/", "docs/sub/deep/", "docs/sub/deep/er/"] {
+        assert!(
+            plan.folders.iter().any(|f| f == wanted),
+            "{wanted} is planned: {:?}",
+            plan.folders
+        );
+    }
+    // The parent of a folder is planned before the folder.
+    let at = |key: &str| plan.folders.iter().position(|f| f == key).unwrap();
+    assert!(at("docs/sub/deep/") < at("docs/sub/deep/er/"));
+    let report = go(&plan, &home, &other, true);
+    assert!(
+        report.failed.is_empty() && report.left.is_empty(),
+        "{report:?}"
+    );
+    let there = tmp.path().join("other").join("docs");
+    assert!(there.join("empty").is_dir(), "the empty folder came along");
+    assert!(there.join("sub").join("deep").join("er").is_dir());
+    assert_eq!(other.get("docs/sub/b.txt").unwrap(), b"beta");
+    assert!(
+        !tmp.path().join("home").join("docs").exists(),
+        "the source is gone, as a move leaves it"
+    );
+}
+
+/// A Copy takes them too: the copy of a folder is the folder.
+#[test]
+fn x_delta_azdrive_files_15_a_copy_takes_the_empty_folders_along() {
+    let (tmp, home, other) = two_disks("dx15-copy");
+    home.put("docs/a.txt", b"alpha").unwrap();
+    home.create_folder("docs/empty/").unwrap();
+    let plan = make_plan(&home, &[folder("docs/")], &other, "", false, "Copy").unwrap();
+    let report = go(&plan, &home, &other, false);
+    assert!(report.failed.is_empty(), "{report:?}");
+    assert!(tmp.path().join("other/docs/empty").is_dir());
+    assert!(
+        tmp.path().join("home/docs/empty").is_dir(),
+        "a copy leaves the source whole"
+    );
+}
+
+/// A link to a folder is not entered and not planned: no loop, and nothing outside the folder is
+/// made into its structure.
+#[cfg(unix)]
+#[test]
+fn x_delta_azdrive_files_15_a_link_to_a_folder_is_not_planned() {
+    let (tmp, home, other) = two_disks("dx15-link");
+    home.put("docs/a.txt", b"alpha").unwrap();
+    std::fs::create_dir_all(tmp.path().join("outside").join("inner")).unwrap();
+    std::os::unix::fs::symlink(
+        tmp.path().join("outside"),
+        tmp.path().join("home").join("docs").join("link"),
+    )
+    .unwrap();
+    std::os::unix::fs::symlink(
+        tmp.path().join("home").join("docs"),
+        tmp.path().join("home").join("docs").join("loop"),
+    )
+    .unwrap();
+    let plan = make_plan(&home, &[folder("docs/")], &other, "", false, "Copy").unwrap();
+    assert!(
+        plan.folders.iter().all(|f| f == "docs/"),
+        "only the folder itself: {:?}",
+        plan.folders
+    );
+}
+
+/// A folder the target would not make stays at the source: an empty folder is in no file's way, and
+/// the move that removed it would end it everywhere.
+#[test]
+fn x_delta_azdrive_files_15_a_folder_the_target_refused_stays_at_the_source() {
+    let (tmp, home, other) = two_disks("dx15-refused");
+    home.put("docs/a.txt", b"alpha").unwrap();
+    home.create_folder("docs/empty/").unwrap();
+    // A FILE of that name at the target: its folder cannot be made.
+    other.put("docs/empty", b"in the way").unwrap();
+    let plan = make_plan(&home, &[folder("docs/")], &other, "", true, "Copy").unwrap();
+    let report = go(&plan, &home, &other, true);
+    assert!(
+        report.failed.iter().any(|(what, _)| what == "docs/empty/"),
+        "the refusal is the folder's failure: {report:?}"
+    );
+    assert!(
+        tmp.path().join("home/docs/empty").is_dir(),
+        "the empty folder is still at the source"
+    );
+    assert_eq!(report.left, vec![String::from("docs/")], "{report:?}");
+    assert_eq!(other.get("docs/a.txt").unwrap(), b"alpha");
 }

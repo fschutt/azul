@@ -465,8 +465,13 @@ pub fn run(
         }
         report(&progress);
     }
+    // A folder the target would not make is a folder the move must not remove from the source: an
+    // empty folder is in no file's way, and its removal would end it everywhere (X-DELTA-AZDRIVE-
+    // FILES-15).
+    let mut folders_made = true;
     for folder in &plan.folders {
         if let Err(e) = target.create_folder(folder) {
+            folders_made = false;
             out.failed.push((folder.clone(), e));
         }
     }
@@ -628,6 +633,10 @@ pub fn run(
         let mut folders: Vec<&String> = plan.source_folders.iter().collect();
         folders.sort_by_key(|folder| std::cmp::Reverse(folder.len()));
         for folder in folders {
+            if !folders_made {
+                out.left.push(folder.clone());
+                continue;
+            }
             match source.remove_empty_folder(folder) {
                 Ok(true) => {}
                 Ok(false) => out.left.push(folder.clone()),

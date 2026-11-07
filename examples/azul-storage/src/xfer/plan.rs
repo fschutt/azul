@@ -283,6 +283,53 @@ pub fn parent_of(item_key: &str) -> String {
     }
 }
 
+/// Every folder below `folder` (ending in `/`) of a source that is a folder on this computer, at any
+/// depth and parents first - the empty ones included, which no recursive listing shows. A link to a
+/// folder is not entered (no loop) and not planned; a source that is not a disk has markers in its
+/// listing and answers nothing here.
+fn disk_subfolders(source: &dyn Drive, folder: &str) -> Result<Vec<String>, DriveError> {
+    /// The deepest and the most folders one planned folder holds: a tree nobody made by hand ends
+    /// the walk, not the plan.
+    const DEPTH: usize = 64;
+    const FOLDERS: usize = 100_000;
+    let mut out: Vec<String> = Vec::new();
+    if source.local_path(folder).is_none() {
+        return Ok(out);
+    }
+    let mut stack: Vec<(String, usize)> = vec![(folder.to_string(), 0)];
+    while let Some((prefix, depth)) = stack.pop() {
+        if depth >= DEPTH {
+            continue;
+        }
+        let level = ops::list_folder_all(source, &prefix)?;
+        // Sorted, and pushed in reverse, so the walk goes in key order and a parent is planned
+        // before the folders in it.
+        let mut below: Vec<String> = level
+            .folders
+            .into_iter()
+            .filter(|sub| {
+                source
+                    .local_path(sub)
+                    .and_then(|path| std::fs::symlink_metadata(path).ok())
+                    .is_some_and(|meta| meta.is_dir())
+            })
+            .collect();
+        below.sort();
+        for sub in &below {
+            if out.len() >= FOLDERS {
+                return Ok(out);
+            }
+            out.push(sub.clone());
+        }
+        for sub in below.into_iter().rev() {
+            stack.push((sub, depth + 1));
+        }
+    }
+    // The walk's order is depth first by level; the plan wants every parent before its children.
+    out.sort();
+    Ok(out)
+}
+
 /// The names the target's disk compares: asked of the disk under `target_prefix`; a bucket's are
 /// exact.
 fn target_volume(site: &Site, target_prefix: &str) -> (Volume, bool) {
@@ -415,6 +462,7 @@ pub fn plan(
             targets.known.push(target_key.clone());
             targets.set.reserve(&target_key);
             plan.folders.push(target_key.clone());
+            let mut below: std::collections::HashSet<String> = std::collections::HashSet::new();
             for object in ops::list_all(source, &item.key)? {
                 let rest = &object.key[item.key.len()..];
                 if rest.is_empty() {
@@ -422,7 +470,9 @@ pub fn plan(
                 }
                 let to = format!("{target_key}{rest}");
                 if rest.ends_with('/') {
-                    plan.folders.push(to);
+                    if below.insert(to.clone()) {
+                        plan.folders.push(to);
+                    }
                     continue;
                 }
                 add_file(
@@ -433,6 +483,15 @@ pub fn plan(
                     Some(object.size),
                     object.etag.clone(),
                 )?;
+            }
+            // A folder on disk has no marker object: the empty folders below it are in no recursive
+            // listing, and a Move removed them from the source without ever making them at the
+            // target - the structure existed nowhere (X-DELTA-AZDRIVE-FILES-15).
+            for sub in disk_subfolders(source, &item.key)? {
+                let to = format!("{target_key}{}", &sub[item.key.len()..]);
+                if below.insert(to.clone()) {
+                    plan.folders.push(to);
+                }
             }
             if removes_source {
                 plan.source_folders.push(item.key.clone());
