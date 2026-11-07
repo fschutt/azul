@@ -1489,3 +1489,69 @@ fn az_cn4_the_refusal_is_said_in_english_and_german() {
         );
     }
 }
+
+/// X-DELTA-AZDRIVE-FILES-30: the sync tasks that change files of the folder one after the other
+/// outside a pass - a delete, a rename, a conflict's answer, "Free up space", files moved in - are
+/// work a close waits for. `Job::Sync(_)` was exempt wholesale, and a close went over them.
+#[test]
+fn x_delta_azdrive_files_30_the_sync_tasks_that_change_files_hold_a_close_back() {
+    use azcloud_kit::sync::session::Resolution;
+
+    use crate::jobs::Job;
+
+    let drive: Arc<dyn Drive> = Arc::new(MemDrive::default());
+    let a = Device::new("cuts-a", &drive, AutoDownload::Everything);
+    let key = || String::from("a.txt");
+    let cuts = vec![
+        SyncJob::Delete {
+            work: a.work(),
+            keys: vec![key()],
+        },
+        SyncJob::Rename {
+            work: a.work(),
+            from: key(),
+            to: String::from("b.txt"),
+        },
+        SyncJob::MoveIn {
+            work: a.work(),
+            from: PathBuf::from("/nowhere/a.txt"),
+            key: key(),
+        },
+        SyncJob::Resolve {
+            work: a.work(),
+            key: key(),
+            choice: Resolution::KeepBoth,
+        },
+        SyncJob::FreeUp {
+            work: a.work(),
+            keys: vec![key()],
+        },
+    ];
+    for job in cuts {
+        assert!(Job::Sync(job).cuts_data(), "a task that changes files");
+    }
+    // A pass is the sync view's to count; the rest cut nothing in two.
+    let quiet = vec![
+        SyncJob::Pass {
+            work: a.work(),
+            cancel: Arc::new(AtomicBool::new(false)),
+        },
+        SyncJob::Open {
+            work: a.work(),
+            key: key(),
+        },
+        SyncJob::Touch {
+            work: a.work(),
+            key: key(),
+        },
+        SyncJob::Fetch {
+            work: a.work(),
+            keys: vec![key()],
+        },
+        SyncJob::AnswerBurst { work: a.work() },
+        SyncJob::Verify { work: a.work() },
+    ];
+    for job in quiet {
+        assert!(!Job::Sync(job).cuts_data());
+    }
+}

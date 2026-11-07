@@ -2970,6 +2970,12 @@ pub(crate) extern "C" fn on_job_done(
     mut info: CallbackInfo,
 ) -> Update {
     let handle = app.clone();
+    // The claim of a job that a close must wait for rides with its answer and ends below, once
+    // the answer is handled (X-DELTA-AZDRIVE-FILES-30); on any early return it ends with the
+    // function.
+    let claim = msg
+        .downcast_mut::<Done>()
+        .and_then(|mut done| done.inflight.take());
     let Some(outcome) = msg
         .downcast_mut::<Done>()
         .and_then(|mut done| done.outcome.take())
@@ -3577,6 +3583,8 @@ pub(crate) extern "C" fn on_job_done(
     // A dialog that waited for the one before it (a new drive's recovery sheet, an answer that
     // came while a dialog that must be seen showed).
     let shown = s.popup.show_waiting();
+    // The answer is handled: this job no longer holds a close back.
+    drop(claim);
     closing::after_job(&mut info, s);
     if refresh || shown {
         Update::RefreshDom

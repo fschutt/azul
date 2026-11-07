@@ -1,6 +1,7 @@
-//! The window's close while work runs that a close would cut off: transfers, sync passes and
-//! a drive being encrypted. The first close waits: the window says what still runs and
-//! closes once it ended. A second close stops the work and goes.
+//! The window's close while work runs that a close would cut off: transfers, sync passes, a
+//! drive being encrypted, the jobs that hold a claim and the program of the command bar. The
+//! first close waits: the window says what still runs and closes once it ended. A second close
+//! stops the work and goes.
 //!
 //! What stopped work leaves behind, and what the next start does with it:
 //! - a download keeps its hidden `.part` file and goes on from there when it is started again;
@@ -71,10 +72,40 @@ impl Drop for Inflight {
     }
 }
 
-/// The pieces of work a close would cut off now: transfers running or waiting, sync passes,
-/// a drive being encrypted, and every job that holds a claim ([`Inflight`]): a delete, a rename,
-/// an undo, a zip, the copy of an unpaid drive, a restore, a save.
-pub(crate) fn work_running(s: &DriveState) -> usize {
+/// The pieces of work a close would cut off, by kind.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Work {
+    /// Transfers running or waiting.
+    pub transfers: usize,
+    /// Sync passes.
+    pub syncs: usize,
+    /// A drive being encrypted.
+    pub encrypting: usize,
+    /// Every job that holds a claim ([`Inflight`]): a delete, a rename, an undo, a zip, the copy
+    /// of an unpaid drive, a restore, a save, a sync task that changes files.
+    pub claims: usize,
+    /// A program the command bar runs (`mv`, `cp -r`, `git switch`): it is not a job, and the
+    /// close used to go over it (X-DELTA-AZDRIVE-FILES-30).
+    pub programs: usize,
+}
+
+impl Work {
+    /// How many pieces of work run. Every field is counted: a new kind of work that is not added
+    /// here does not compile.
+    pub(crate) fn total(&self) -> usize {
+        let Work {
+            transfers,
+            syncs,
+            encrypting,
+            claims,
+            programs,
+        } = *self;
+        transfers + syncs + encrypting + claims + programs
+    }
+}
+
+/// The work running now, by kind.
+pub(crate) fn work_of(s: &DriveState) -> Work {
     let transfers = s
         .queue
         .jobs()
@@ -96,7 +127,20 @@ pub(crate) fn work_running(s: &DriveState) -> usize {
     ));
     #[cfg(not(feature = "encryption"))]
     let encrypting = 0;
-    transfers + syncs + encrypting + s.inflight.load(Ordering::SeqCst)
+    Work {
+        transfers,
+        syncs,
+        encrypting,
+        claims: s.inflight.load(Ordering::SeqCst),
+        programs: usize::from(s.command_bar.running()),
+    }
+}
+
+/// The pieces of work a close would cut off now: transfers running or waiting, sync passes,
+/// a drive being encrypted, every job that holds a claim ([`Inflight`]) and the program the
+/// command bar runs.
+pub(crate) fn work_running(s: &DriveState) -> usize {
+    work_of(s).total()
 }
 
 /// The window is asked to close (its close button, Cmd+Q): see the module.
@@ -199,6 +243,8 @@ fn stop_work(s: &mut DriveState) {
             running.cancel.store(true, Ordering::SeqCst);
         }
     }
+    // The command bar's program: interrupted, and ended with its terminal (it gets SIGHUP).
+    crate::ui_command_bar::end_run(s);
 }
 
 #[cfg(test)]
@@ -226,6 +272,27 @@ mod tests {
             DriveClose::Close,
             "the work ended meanwhile"
         );
+    }
+
+    /// X-DELTA-AZDRIVE-FILES-30: every kind of work is in the count, the command bar's program
+    /// among them; a count of nothing but a program is a close that waits.
+    #[test]
+    fn x_delta_azdrive_files_30_the_command_bars_program_is_work_a_close_waits_for() {
+        assert_eq!(Work::default().total(), 0);
+        let program = Work {
+            programs: 1,
+            ..Work::default()
+        };
+        assert_eq!(program.total(), 1);
+        assert_eq!(drive_close(program.total(), false), DriveClose::Wait);
+        let all = Work {
+            transfers: 1,
+            syncs: 2,
+            encrypting: 1,
+            claims: 3,
+            programs: 1,
+        };
+        assert_eq!(all.total(), 8);
     }
 
     /// AZ-U23: the first close waited for transfers, sync passes and an encryption only: a bulk

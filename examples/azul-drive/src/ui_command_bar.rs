@@ -479,6 +479,12 @@ fn stop(s: &mut DriveState) {
     }
 }
 
+/// The window's second close: the program is interrupted and ended with its terminal.
+pub(crate) fn end_run(s: &mut DriveState) {
+    stop(s);
+    stop(s);
+}
+
 /// The text of a session's screen, line by line (what stays of a program that was ended).
 fn screen_text(session: &Session) -> String {
     let term = session.term.lock();

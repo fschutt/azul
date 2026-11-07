@@ -596,7 +596,9 @@ impl Job {
     ///
     /// Not those the queue counts already (a transfer's plan and run), a sync pass (the sync
     /// view counts it), the dialog of an encryption, and the reads and waits that cut off cost
-    /// nothing: a listing, a preview, a search, a payment's wait.
+    /// nothing: a listing, a preview, a search, a payment's wait. A sync task decides for itself
+    /// ([`SyncJob::cuts_data`]: a delete, a rename, an answered conflict, files freed or moved
+    /// in).
     pub(crate) fn cuts_data(&self) -> bool {
         match self {
             Job::Delete { .. }
@@ -645,8 +647,8 @@ impl Job {
             | Job::IndexDrive { .. }
             | Job::RemoveIndex { .. }
             | Job::BucketSpace { .. }
-            | Job::Sync(_)
             | Job::ReadKeys(_) => false,
+            Job::Sync(job) => job.cuts_data(),
             #[cfg(feature = "encryption")]
             Job::Encryption(_) => false,
         }
@@ -989,15 +991,31 @@ pub(crate) struct JobInit {
 /// A thread's answer, taken out once by the write-back.
 pub(crate) struct Done {
     pub outcome: Option<Outcome>,
+    /// The claim of a job a close must wait for, carried with its LAST answer: it is held until
+    /// the window has handled the answer ([`crate::on_job_done`]), so a close in the gap between
+    /// the thread's end and the answer's read still waits - the answer of a bought drive writes
+    /// its entry in the drives file (X-DELTA-AZDRIVE-FILES-30). An answer that is never read
+    /// drops it with the message.
+    pub inflight: Option<crate::closing::Inflight>,
+}
+
+/// An answer as the message the write-back takes: `inflight` is the claim it carries, if any.
+pub(crate) fn answered(outcome: Outcome, inflight: Option<crate::closing::Inflight>) -> RefAny {
+    RefAny::new(Done {
+        outcome: Some(outcome),
+        inflight,
+    })
 }
 
 /// Sends `outcome` to the UI thread.
 fn send(sender: &mut ThreadSender, outcome: Outcome) {
+    send_message(sender, answered(outcome, None));
+}
+
+fn send_message(sender: &mut ThreadSender, message: RefAny) {
     let _sent = sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg::create(
         crate::on_job_done,
-        RefAny::new(Done {
-            outcome: Some(outcome),
-        }),
+        message,
     )));
 }
 
@@ -4410,9 +4428,9 @@ pub(crate) extern "C" fn job_thread(
         return;
     };
     let outcome = run_job(job, &mut sender);
-    // The job is over: a held close may go once its answer is read (`closing::after_job`).
-    drop(inflight);
-    send(&mut sender, outcome);
+    // The claim goes with the answer and ends when the window has handled it: a close that comes
+    // before then still waits (`closing::after_job` lets it go afterwards).
+    send_message(&mut sender, answered(outcome, inflight));
 }
 
 #[cfg(test)]
@@ -6181,6 +6199,49 @@ mod tests {
             crate::period_tokens_dir(Some(Path::new("/home/ann/.config/azul/drives.json"))),
             Path::new("/home/ann/.config/azul/period-tokens")
         );
+    }
+
+    /// X-DELTA-AZDRIVE-FILES-30. A job's claim was dropped when its thread ended, before the window
+    /// read its answer: a close in that gap saw no work, and the answer of a bought drive - which
+    /// writes its entry in the drives file - was lost. The claim travels with the answer, is held
+    /// while it is handled, and ends with it; an answer nobody reads takes it along.
+    #[test]
+    fn x_delta_azdrive_files_30_the_claim_travels_with_the_answer_until_it_is_handled() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let counter = Arc::new(AtomicUsize::new(0));
+        let mut message = answered(
+            Outcome::ThumbnailsDone,
+            Some(crate::closing::Inflight::start(&counter)),
+        );
+        assert_eq!(
+            counter.load(Ordering::SeqCst),
+            1,
+            "the thread is over and the answer is not read yet: the close still waits"
+        );
+        let claim = message
+            .downcast_mut::<Done>()
+            .and_then(|mut done| done.inflight.take());
+        assert!(claim.is_some());
+        assert_eq!(
+            counter.load(Ordering::SeqCst),
+            1,
+            "held while it is handled"
+        );
+        drop(claim);
+        assert_eq!(counter.load(Ordering::SeqCst), 0, "handled: the close goes");
+        // An answer that is never read (the window went) drops its claim with it.
+        let unread = answered(
+            Outcome::ThumbnailsDone,
+            Some(crate::closing::Inflight::start(&counter)),
+        );
+        assert_eq!(counter.load(Ordering::SeqCst), 1);
+        drop(unread);
+        assert_eq!(counter.load(Ordering::SeqCst), 0);
+        // An answer with no claim (a progress report) holds nothing.
+        let progress = answered(Outcome::ThumbnailsDone, None);
+        assert_eq!(counter.load(Ordering::SeqCst), 0);
+        drop(progress);
     }
 
     /// X-DELTA-AZDRIVE-FILES-29: the path taken for the vault is made and checked, not only named:

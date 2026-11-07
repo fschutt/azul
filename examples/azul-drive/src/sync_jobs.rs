@@ -308,6 +308,34 @@ pub(crate) enum SyncJob {
     },
 }
 
+impl SyncJob {
+    /// Whether a close would cut this task off half done: it changes files of the synced folder
+    /// one after the other (a delete, a rename, a conflict's answer, "Free up space", files moved
+    /// in), outside a pass the sync view counts. The match is exhaustive on purpose: a new task
+    /// does not compile until someone decides whether a close waits for it
+    /// (X-DELTA-AZDRIVE-FILES-30; `Job::cuts_data`).
+    pub(crate) fn cuts_data(&self) -> bool {
+        match self {
+            SyncJob::Delete { .. }
+            | SyncJob::Rename { .. }
+            | SyncJob::MoveIn { .. }
+            | SyncJob::Resolve { .. }
+            | SyncJob::FreeUp { .. } => true,
+            // A pass is counted by the sync view; the rest write a small state file or bring a
+            // file down, and a cut leaves each file whole or absent.
+            SyncJob::Pass { .. }
+            | SyncJob::Open { .. }
+            | SyncJob::Pin { .. }
+            | SyncJob::Touch { .. }
+            | SyncJob::Fetch { .. }
+            | SyncJob::AnswerBurst { .. }
+            | SyncJob::AnswerMassDelete { .. }
+            | SyncJob::SendKept { .. }
+            | SyncJob::Verify { .. } => false,
+        }
+    }
+}
+
 /// What a pass did, in counts.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct PassDone {
