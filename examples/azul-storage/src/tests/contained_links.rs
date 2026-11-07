@@ -5,7 +5,9 @@
 use std::{fs, path::Path};
 
 use super::TempDir;
-use crate::{local::THROUGH_LINK, Drive, DriveError, LocalDrive};
+#[cfg(unix)]
+use crate::{local::THROUGH_LINK, DriveError};
+use crate::{Drive, LocalDrive};
 
 /// A root whose `inbox` links to a folder outside it, which holds `secret.txt` and
 /// `sub/kept.txt`.

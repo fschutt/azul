@@ -471,9 +471,11 @@ fn adopt<'a>(
     let (_, finally) = bits(o.mode, old);
     #[cfg(not(unix))]
     let file = {
-        // A file opened to read cannot be given a time or synced here: open it to write.
+        // A file opened to read cannot be given a time or synced here: open it to write - and to
+        // read as well, so the handle can be asked for its identity and times afterwards.
         drop(file);
         std::fs::OpenOptions::new()
+            .read(true)
             .write(true)
             .open(blob.dir.path().join(blob.name))?
     };

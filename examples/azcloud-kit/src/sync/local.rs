@@ -1469,16 +1469,24 @@ pub fn still_as_scanned(root: &Path, key: &str, scanned: Option<&LocalFile>) -> 
 #[must_use]
 pub fn other_spelling(root: &Path, key: &str) -> Option<String> {
     let path = path_of(root, key);
-    let found = fs::symlink_metadata(&path).ok()?;
     let wanted = path.file_name()?;
     let folder = path.parent()?;
+    // Which entry is the file is the disk's identity of it (Windows' file index too: AZ-W6); a disk
+    // that gives none leaves the size and the time. Nothing answers to the name: no other spelling.
+    let here = beneath::Dir::open_following(folder).ok()?;
+    let found_stat = here.lstat(wanted.to_str()?).ok()?;
     let mut other = None;
     for entry in fs::read_dir(folder).ok()?.flatten() {
         let name = entry.file_name();
         if name.as_os_str() == wanted {
             return None;
         }
-        if other.is_none() && same_file(&found, &entry) {
+        let is_it = other.is_none()
+            && name
+                .to_str()
+                .and_then(|n| here.lstat(n).ok())
+                .is_some_and(|st| same_entry(&found_stat, &st));
+        if is_it {
             other = Some(name.to_string_lossy().into_owned());
         }
     }
@@ -1487,21 +1495,14 @@ pub fn other_spelling(root: &Path, key: &str) -> Option<String> {
     Some(other.unwrap_or_else(|| String::from("another spelling of the name")))
 }
 
-/// Whether `entry` is the file `found` describes.
-#[cfg(unix)]
-fn same_file(found: &fs::Metadata, entry: &fs::DirEntry) -> bool {
-    use std::os::unix::fs::MetadataExt;
-    entry
-        .metadata()
-        .is_ok_and(|m| m.ino() == found.ino() && m.dev() == found.dev())
-}
-
-/// Whether `entry` is the file `found` describes (no inode numbers here: by size and time).
-#[cfg(not(unix))]
-fn same_file(found: &fs::Metadata, entry: &fs::DirEntry) -> bool {
-    entry
-        .metadata()
-        .is_ok_and(|m| m.len() == found.len() && m.modified().ok() == found.modified().ok())
+/// Whether `other` is the file `found` describes: the identity when both have one, else (a disk
+/// that gives none) the size and the time.
+pub(crate) fn same_entry(found: &Stat, other: &Stat) -> bool {
+    match found.id().same(&other.id()) {
+        beneath::Tri::Same => true,
+        beneath::Tri::Different => false,
+        beneath::Tri::Unknown => found.size == other.size && found.mtime_ns == other.mtime_ns,
+    }
 }
 
 /// Whether a link at `key` holding `target` may sync as a link: its target is relative and,

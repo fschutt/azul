@@ -136,6 +136,16 @@ hkdf = { version = "0.12", optional = true }
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
+# Windows: what std does not tell - a file's identity (the volume serial number and the file index),
+# its change time, the free space and the file system of a disk, a rename written through, an
+# owner-only access list (src/win.rs). windows-sys 0.61.2 is in Cargo.lock already (tempfile,
+# tracing-subscriber and turso use it); only the Windows build of this crate names it.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", default-features = false, features = [
+    "Win32_Foundation",
+    "Win32_Storage_FileSystem",
+] }
+
 [dev-dependencies]
 # The tests' DOCX (deflated ZIP members) and their CRC-32s; both already in Cargo.lock (zip, lepton_jpeg).
 flate2 = "1"

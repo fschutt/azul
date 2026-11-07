@@ -12,8 +12,10 @@ use std::{
 };
 
 use super::TempDir;
+#[cfg(unix)]
+use crate::beneath::{Kind, Tri};
 use crate::{
-    beneath::{Dir, Fingerprint, Kind, Root, Tri},
+    beneath::{Dir, Fingerprint, Root},
     ctl::{Ctl, Quiet},
     durable::{
         publish, publish_probed, publish_staged, replace, replace_cache, replace_keeping,

@@ -104,6 +104,9 @@ pub mod transport;
 pub mod trust;
 /// The app's UI thread never waits for a network answer (debug builds assert it).
 pub mod ui_thread;
+/// What std does not tell on Windows - a file's identity and change time, the free space and the file
+/// system of a disk, a rename written through -; its model is built and tested on every host.
+pub(crate) mod win;
 /// The transfer engine: where drives are and whether two places overlap, the plan of a copy or
 /// a move, the run that lands every file before it retires a source.
 pub mod xfer;

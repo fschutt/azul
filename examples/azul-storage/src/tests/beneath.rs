@@ -5,14 +5,21 @@ use std::fs;
 
 use super::TempDir;
 use crate::{
-    beneath::{self, BeneathError, FileId, Fingerprint, Kind, Root, Stat, Tri},
-    local::THROUGH_LINK,
+    beneath::{self, FileId, Kind, Root, Stat, Tri},
     Drive, DriveError, LocalDrive,
 };
+#[cfg(unix)]
+use crate::{
+    beneath::{BeneathError, Fingerprint},
+    local::THROUGH_LINK,
+};
 
-/// A root and, beside it, a folder of the user's that must never be touched.
+/// A root and, beside it, a folder of the user's that must never be touched. The folder outside is
+/// read by the tests that plant a link to it, which are the Unix ones (a Windows user makes a link
+/// only with a privilege).
 struct World {
     root: TempDir,
+    #[cfg_attr(not(unix), allow(dead_code))]
     outside: TempDir,
 }
 
@@ -30,6 +37,7 @@ impl World {
         std::os::unix::fs::symlink(self.outside.path(), self.root.path().join(name)).unwrap();
     }
 
+    #[cfg_attr(not(unix), allow(dead_code))]
     fn outside_names(&self) -> Vec<String> {
         let mut names: Vec<String> = fs::read_dir(self.outside.path())
             .unwrap()
@@ -41,6 +49,7 @@ impl World {
     }
 }
 
+#[cfg(unix)]
 fn through_link(result: Result<(), DriveError>) -> bool {
     matches!(result, Err(DriveError::InvalidKey { reason, .. }) if reason == THROUGH_LINK)
 }

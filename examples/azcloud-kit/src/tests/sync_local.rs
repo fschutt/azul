@@ -8,8 +8,8 @@ use serde_json::Value;
 
 use crate::sync::{
     local::{
-        self, hash_bytes, index_path, json_blob, json_with_local_keys, mtime_ns, path_of,
-        prune_empty_parents, scan, still_as_scanned, BaseEntry, RACY_NS,
+        self, hash_bytes, index_path, json_blob, json_with_local_keys, mtime_ns, other_spelling,
+        path_of, prune_empty_parents, same_entry, scan, still_as_scanned, BaseEntry, RACY_NS,
     },
     rules::Rules,
 };
@@ -413,4 +413,68 @@ fn an_ignore_rule_matches_names_in_either_normalization() {
     assert!(rules.excluded_dir("cafe\u{301}-drafts").is_some());
     assert!(rules.excluded("Pr\u{e4}sentation-2.key").is_some());
     assert!(rules.excluded("keep.txt").is_none());
+}
+
+/// AZ-W6: which entry of a folder is "the same file" is the disk's identity of it. Windows had none
+/// (every file read 0 and 0), so its twin of this question compared the size and the time, and two
+/// files copied with their times kept were one.
+#[test]
+fn az_w6_two_entries_are_the_same_file_by_identity_and_by_size_and_time_only_without_one() {
+    use azul_storage::beneath::{Kind, Stat};
+    let stat = |dev: u64, ino: u64, size: u64, mtime_ns: u64| Stat {
+        kind: Kind::File,
+        size,
+        mtime_ns,
+        ctime_ns: 0,
+        ino,
+        dev,
+        mode: 0o644,
+        nlink: 1,
+    };
+    let a = stat(7, 100, 5, 1_000);
+    // Another file of the same size and time: two files, by their identities.
+    assert!(!same_entry(&a, &stat(7, 101, 5, 1_000)));
+    assert!(!same_entry(&a, &stat(8, 100, 5, 1_000)), "another volume");
+    assert!(same_entry(&a, &stat(7, 100, 5, 1_000)));
+    // The same file after a write: still the same file (the identity says so, not the size).
+    assert!(same_entry(&a, &stat(7, 100, 9, 2_000)));
+    // A disk that gives no identity (ino 0): the size and the time are what is left.
+    let none = stat(0, 0, 5, 1_000);
+    assert!(same_entry(&none, &stat(0, 0, 5, 1_000)));
+    assert!(!same_entry(&none, &stat(0, 0, 6, 1_000)));
+    assert!(!same_entry(&none, &stat(0, 0, 5, 1_001)));
+    // One side known, one not: no identity to compare, the fallback applies the same way.
+    assert!(same_entry(&a, &stat(0, 0, 5, 1_000)));
+}
+
+/// AZ-W6, through the function production calls: on a disk that folds case the other spelling of a
+/// name is the entry that IS the file, not the first entry of its size and time.
+#[test]
+fn az_w6_the_other_spelling_of_a_name_is_the_entry_that_is_the_file_not_one_that_looks_like_it() {
+    let dir = TempDir::new("azcloud-other-spelling");
+    let root = dir.path();
+    // `Aaa.txt` comes before `Notes.txt` in a listing and is a copy of it, time kept.
+    write(root, "Notes.txt", b"same");
+    write(root, "Aaa.txt", b"same");
+    let when = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000);
+    for name in ["Notes.txt", "Aaa.txt"] {
+        fs::File::options()
+            .write(true)
+            .open(root.join(name))
+            .unwrap()
+            .set_modified(when)
+            .unwrap();
+    }
+    // Given: a disk that folds case (macOS and Windows by default); on one that does not there is
+    // no other spelling to find.
+    if fs::symlink_metadata(root.join("NOTES.TXT")).is_err() {
+        assert_eq!(other_spelling(root, "NOTES.TXT"), None);
+        return;
+    }
+    assert_eq!(
+        other_spelling(root, "NOTES.TXT").as_deref(),
+        Some("Notes.txt")
+    );
+    // The spelling it has is not "another": nothing to say.
+    assert_eq!(other_spelling(root, "Notes.txt"), None);
 }

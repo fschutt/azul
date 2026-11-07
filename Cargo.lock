@@ -1714,6 +1714,7 @@ dependencies = [
  "toml 0.9.12+spec-1.1.0",
  "turso-azul",
  "unicode-normalization",
+ "windows-sys 0.61.2",
  "x25519-dalek 2.0.1",
  "zeroize",
 ]

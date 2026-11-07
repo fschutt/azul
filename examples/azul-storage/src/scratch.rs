@@ -464,6 +464,8 @@ fn private_folder(path: &Path) -> io::Result<()> {
 }
 
 fn make_private(path: &Path) -> io::Result<()> {
+    // Only the Unix build sets the mode through the builder.
+    #[cfg_attr(not(unix), allow(unused_mut))]
     let mut builder = fs::DirBuilder::new();
     #[cfg(unix)]
     {

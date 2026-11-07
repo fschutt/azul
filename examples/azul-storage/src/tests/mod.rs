@@ -54,6 +54,9 @@ mod sigv4;
 mod tables;
 mod time;
 mod transfer;
+/// What Windows tells that std does not: a file's identity and change time, what a reparse point
+/// is, the cap of FAT, the errors that say a file is busy (the model on every host).
+mod win;
 /// Names a Windows disk cannot hold, refused before a key becomes a path there.
 mod windows_names;
 /// The conservation matrix of a move: whichever call fails, whenever it is stopped, every file is at

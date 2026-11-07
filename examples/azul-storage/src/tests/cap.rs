@@ -34,6 +34,19 @@ fn x_ar5a_12_the_free_space_of_a_disk_is_known_and_of_a_path_that_is_not_there_i
     );
 }
 
+/// AZ-W3: Windows tells the free space of a disk (`GetDiskFreeSpaceExW`), so the reserve guard is
+/// no longer blind there.
+#[cfg(windows)]
+#[test]
+fn windows_az_w3_x_ar5a_12_the_free_space_of_a_disk_is_told() {
+    let tmp = TempDir::new("cap-free-space-windows");
+    assert!(
+        matches!(free_space(tmp.path()), Cap::Known(bytes) if bytes > 0),
+        "{:?}",
+        free_space(tmp.path())
+    );
+}
+
 /// A drive whose HEAD says the object is bigger than any disk (a lying listing, or a huge file).
 #[cfg(unix)]
 struct Huge(crate::LocalDrive);

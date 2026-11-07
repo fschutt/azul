@@ -2173,9 +2173,10 @@ fn move_here(
 }
 
 /// What the disk reserve does when the disk cannot say its free space: the downloads go on and the
-/// report says that the reserve was not enforced. (Failing closed would lock a system out of its
-/// own drive until its probe exists - Windows', work order RF49; the files a full disk cannot take
-/// still fail one by one, and the report lists them.)
+/// report says that the reserve was not enforced. Every system has a probe now (Windows'
+/// `GetDiskFreeSpaceExW`, RF49), so this is a disk that will not say - a network share, a sandbox
+/// -, and failing closed would lock a user out of a drive on a share that never answers; the files a
+/// full disk cannot take still fail one by one, and the report lists them.
 const FREE_SPACE_POSTURE: Posture = Posture::Degrade(
     "the free space of this disk cannot be read, so the reserve it keeps free is not enforced for \
      these downloads",

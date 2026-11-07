@@ -12,12 +12,15 @@
 //! Regular files are opened with `O_NONBLOCK` (a FIFO swapped in cannot block the open) and
 //! `fstat`ed, so the caller checks it is still the file it listed.
 //!
-//! Windows has no descriptor-relative calls in std: there each name of the path is checked with
-//! `symlink_metadata` right before the step (links and junctions are reparse points). That
-//! leaves a short window between the check and the step.
+//! Windows has no descriptor-relative calls in std: there each name of the path is looked at right
+//! before the step ([`crate::win`]: a link, a junction or a mount point is a [`Kind::Link`]; a file
+//! a filter serves - a compressed one, a hydrated cloud file - is itself). That leaves a short
+//! window between the check and the step.
 
+#[cfg(unix)]
+use std::ffi::OsStr;
 use std::{
-    ffi::{OsStr, OsString},
+    ffi::OsString,
     fmt,
     fs::File,
     io,
@@ -104,6 +107,14 @@ pub fn is_disk_full(e: &io::Error) -> bool {
         let _ = e;
         false
     }
+}
+
+/// Whether `e` says another program has the file - open without sharing it, or a range of it locked
+/// (Windows' sharing and lock violations; no other system has such an error): the file is not
+/// broken, it is busy, and a later try finds it free.
+#[must_use]
+pub fn is_held_open(e: &io::Error) -> bool {
+    crate::win::is_held_open(e)
 }
 
 /// What an entry is, as `lstat` says it (a link is never followed).
@@ -570,8 +581,8 @@ impl Dir {
         #[cfg(not(unix))]
         {
             let path = self.path.join(name);
-            let meta = match std::fs::symlink_metadata(&path) {
-                Ok(meta) => meta,
+            let st = match lstat_path(&path) {
+                Ok(st) => st,
                 Err(e) if e.kind() == io::ErrorKind::NotFound && create => {
                     std::fs::create_dir(&path).or_else(|e| {
                         if e.kind() == io::ErrorKind::AlreadyExists {
@@ -580,11 +591,11 @@ impl Dir {
                             Err(e)
                         }
                     })?;
-                    std::fs::symlink_metadata(&path)?
+                    lstat_path(&path)?
                 }
                 Err(e) => return Err(e.into()),
             };
-            if is_reparse(&meta) || !meta.is_dir() {
+            if st.kind != Kind::Dir {
                 return Err(BeneathError::ThroughLink(rel));
             }
             Ok(Dir {
@@ -607,7 +618,7 @@ impl Dir {
         }
         #[cfg(not(unix))]
         {
-            std::fs::symlink_metadata(&self.path).map(|m| stat_of_meta(&m))
+            lstat_path(&self.path)
         }
     }
 
@@ -624,7 +635,7 @@ impl Dir {
         }
         #[cfg(not(unix))]
         {
-            std::fs::symlink_metadata(self.path.join(name)).map(|m| stat_of_meta(&m))
+            lstat_path(&self.path.join(name))
         }
     }
 
@@ -690,12 +701,11 @@ impl Dir {
         #[cfg(not(unix))]
         {
             let path = self.path.join(name);
-            let meta = std::fs::symlink_metadata(&path)?;
-            if is_reparse(&meta) || !meta.is_file() {
+            if lstat_path(&path)?.kind != Kind::File {
                 return Err(BeneathError::ThroughLink(rel));
             }
             let file = File::open(&path)?;
-            let st = stat_of_meta(&file.metadata()?);
+            let st = fstat_file(&file)?;
             if st.kind != Kind::File {
                 return Err(BeneathError::ThroughLink(rel));
             }
@@ -721,7 +731,10 @@ impl Dir {
         #[cfg(not(unix))]
         {
             let _ = mode;
+            // Read as well as write: a handle that cannot read attributes cannot be asked for its
+            // identity and times ([`stat_of`]).
             Ok(std::fs::OpenOptions::new()
+                .read(true)
                 .write(true)
                 .create_new(true)
                 .open(self.path.join(name))?)
@@ -747,7 +760,15 @@ impl Dir {
                 OsStr::new(to),
             )?)
         }
-        #[cfg(not(unix))]
+        #[cfg(windows)]
+        {
+            Ok(crate::win::rename(
+                &self.path.join(from),
+                &target.path.join(to),
+                true,
+            )?)
+        }
+        #[cfg(not(any(unix, windows)))]
         {
             Ok(std::fs::rename(self.path.join(from), target.path.join(to))?)
         }
@@ -775,7 +796,17 @@ impl Dir {
                 OsStr::new(to),
             )?)
         }
-        #[cfg(not(unix))]
+        #[cfg(windows)]
+        {
+            // `MoveFileExW` without `MOVEFILE_REPLACE_EXISTING`: taken in the one step, or
+            // `AlreadyExists`.
+            Ok(crate::win::rename(
+                &self.path.join(from),
+                &target.path.join(to),
+                false,
+            )?)
+        }
+        #[cfg(not(any(unix, windows)))]
         {
             if std::fs::symlink_metadata(target.path.join(to)).is_ok() {
                 return Err(BeneathError::Io(io::Error::from(
@@ -828,7 +859,11 @@ impl Dir {
         check_name(name)?;
         #[cfg(unix)]
         {
-            Ok(sys::symlinkat(OsStr::new(target), &self.fd, OsStr::new(name))?)
+            Ok(sys::symlinkat(
+                OsStr::new(target),
+                &self.fd,
+                OsStr::new(name),
+            )?)
         }
         #[cfg(not(unix))]
         {
@@ -905,7 +940,7 @@ pub fn stat_of(file: &File) -> io::Result<Stat> {
     }
     #[cfg(not(unix))]
     {
-        file.metadata().map(|m| stat_of_meta(&m))
+        fstat_file(file)
     }
 }
 
@@ -922,36 +957,44 @@ pub fn stat_path(path: &Path) -> io::Result<Stat> {
     }
     #[cfg(not(unix))]
     {
-        std::fs::metadata(path).map(|m| stat_of_meta(&m))
+        stat_following(path)
     }
 }
 
 /// The largest file the disk of `path` holds, when the file system limits it below what a sync
-/// meets (FAT32: 4 GiB - 1 byte); `None` otherwise, or where it cannot be told.
+/// meets (FAT32: 4 GiB - 1 byte, [`crate::win::FAT_FILE_MAX`]); `None` otherwise, or where it
+/// cannot be told.
 #[must_use]
 pub fn file_size_limit(path: &Path) -> Option<u64> {
-    const FAT32_MAX: u64 = (1 << 32) - 1;
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     {
         sys::fs_type_name(path)
             .filter(|name| name == "msdos")
-            .map(|_| FAT32_MAX)
+            .map(|_| crate::win::FAT_FILE_MAX)
     }
     #[cfg(any(target_os = "linux", target_os = "android"))]
     {
         // MSDOS_SUPER_MAGIC: vfat; exFAT has no 4 GiB limit.
         sys::fs_type_magic(path)
             .filter(|magic| *magic == 0x4d44)
-            .map(|_| FAT32_MAX)
+            .map(|_| crate::win::FAT_FILE_MAX)
+    }
+    #[cfg(windows)]
+    {
+        // FAT and FAT32 (a USB stick, an SD card); NTFS, exFAT and ReFS have no such limit.
+        crate::win::file_system_name(path)
+            .ok()
+            .and_then(|name| crate::win::fat_cap(&name))
     }
     #[cfg(not(any(
         target_os = "macos",
         target_os = "ios",
         target_os = "linux",
-        target_os = "android"
+        target_os = "android",
+        windows
     )))]
     {
-        let _ = (path, FAT32_MAX);
+        let _ = path;
         None
     }
 }
@@ -966,7 +1009,14 @@ pub fn free_space(path: &Path) -> Cap<u64> {
             Err(_) => Cap::Unknown("the system did not tell the free space of this disk"),
         }
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        match crate::win::free_space(path) {
+            Ok(bytes) => Cap::Known(bytes),
+            Err(_) => Cap::Unknown("the system did not tell the free space of this disk"),
+        }
+    }
+    #[cfg(not(any(unix, windows)))]
     {
         let _ = path;
         Cap::Unknown("this system does not tell the free space of a disk yet")
@@ -985,22 +1035,49 @@ fn link_or_io(e: io::Error, rel: &str) -> BeneathError {
     }
 }
 
+/// `lstat` of the entry at `path`: a link is the link. For the systems without descriptors.
 #[cfg(not(unix))]
-fn is_reparse(meta: &std::fs::Metadata) -> bool {
+fn lstat_path(path: &Path) -> io::Result<Stat> {
     #[cfg(windows)]
     {
-        use std::os::windows::fs::MetadataExt;
-        meta.file_type().is_symlink() || meta.file_attributes() & 0x400 != 0
+        crate::win::lstat(path)
     }
     #[cfg(not(windows))]
     {
-        meta.file_type().is_symlink()
+        std::fs::symlink_metadata(path).map(|m| stat_of_meta(&m))
     }
 }
 
+/// `stat` of the entry at `path`, a link followed.
 #[cfg(not(unix))]
+fn stat_following(path: &Path) -> io::Result<Stat> {
+    #[cfg(windows)]
+    {
+        crate::win::stat(path)
+    }
+    #[cfg(not(windows))]
+    {
+        std::fs::metadata(path).map(|m| stat_of_meta(&m))
+    }
+}
+
+/// `fstat` of an open file.
+#[cfg(not(unix))]
+fn fstat_file(file: &File) -> io::Result<Stat> {
+    #[cfg(windows)]
+    {
+        crate::win::fstat(file)
+    }
+    #[cfg(not(windows))]
+    {
+        file.metadata().map(|m| stat_of_meta(&m))
+    }
+}
+
+/// A system that is neither Unix nor Windows: what std's metadata says, and no identity.
+#[cfg(not(any(unix, windows)))]
 fn stat_of_meta(meta: &std::fs::Metadata) -> Stat {
-    let kind = if is_reparse(meta) {
+    let kind = if meta.file_type().is_symlink() {
         Kind::Link
     } else if meta.is_dir() {
         Kind::Dir
@@ -1031,6 +1108,7 @@ fn stat_of_meta(meta: &std::fs::Metadata) -> Stat {
 }
 
 /// Linux: the mount points strictly below `root` (from `/proc/self/mountinfo`).
+#[cfg(unix)]
 fn mounts_below(root: &Path) -> Vec<PathBuf> {
     #[cfg(target_os = "linux")]
     {

@@ -45,7 +45,9 @@ fn names(dir: &Path) -> Vec<String> {
 }
 
 /// A file of the module's naming (`<purpose>-<pid>-<run>-<n>`) in `dir`, as a process with that
-/// pid and run id made it.
+/// pid and run id made it. (The sweep tests that plant one ask whether a process runs, which only
+/// Unix can be asked.)
+#[cfg(unix)]
 fn planted(dir: &Path, purpose: &str, pid: u32, run: u64, n: u64) -> String {
     let name = format!("{purpose}-{pid}-{run:x}-{n}");
     fs::write(dir.join(&name), b"left behind").unwrap();
