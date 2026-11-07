@@ -16,8 +16,8 @@ use std::{
 };
 
 use azul_storage::{
-    BatchDelete, BatchMove, BatchStream, ByteRange, Ctl, Drive, DriveError, Limit, ListPage,
-    ListRequest, ObjectInfo, Precondition,
+    BatchDelete, BatchMove, BatchPut, BatchStream, ByteRange, Ctl, Drive, DriveError, Limit,
+    ListPage, ListRequest, ObjectInfo, Precondition,
 };
 
 use crate::state::write_atomic;
@@ -203,6 +203,22 @@ impl Drive for ObjectCache {
         self.inner.put_from_many(items)
     }
 
+    /// The drive below's own batch (a bucket's, an encrypted drive's packing), not one `put` after
+    /// the other. The copy of a key goes as `put` and `put_if` drop it: before an unconditional
+    /// write, after a conditional one that took.
+    fn put_many(&self, items: &[BatchPut<'_>]) -> Vec<Result<Option<String>, DriveError>> {
+        for item in items.iter().filter(|item| item.condition.is_none()) {
+            let _ = self.evict(item.key);
+        }
+        let results = self.inner.put_many(items);
+        for (item, result) in items.iter().zip(&results) {
+            if item.condition.is_some() && result.is_ok() {
+                let _ = self.evict(item.key);
+            }
+        }
+        results
+    }
+
     fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
         self.inner.head(key)
     }
@@ -242,8 +258,18 @@ impl Drive for ObjectCache {
         self.inner.delete_folder(prefix)
     }
 
+    /// The drive below's own (a folder holds no object this cache keeps).
+    fn remove_empty_folder(&self, prefix: &str) -> Result<bool, DriveError> {
+        self.inner.remove_empty_folder(prefix)
+    }
+
     fn local_path(&self, key: &str) -> Option<PathBuf> {
         self.inner.local_path(key)
+    }
+
+    /// Where the drive below is: the cache keeps copies of its objects, it is no other place.
+    fn site(&self) -> azul_storage::xfer::Site {
+        self.inner.site()
     }
 
     fn resume_folder(&self) -> Option<PathBuf> {

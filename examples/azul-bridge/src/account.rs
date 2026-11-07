@@ -242,6 +242,15 @@ impl Drive for AccountDrive {
     fn delete_folder(&self, prefix: &str) -> Result<(), DriveError> {
         self.with_bucket(|b| b.delete_folder(prefix))
     }
+    fn remove_empty_folder(&self, prefix: &str) -> Result<bool, DriveError> {
+        self.with_bucket(|b| b.remove_empty_folder(prefix))
+    }
+    // inherits: site - the bucket is opened with credentials the bridge may have to ask for: the
+    // drive answers as the very object it is
+    // inherits: local_path, resume_folder - the bridge serves a bucket, it has no file on this disk
+    // and keeps no upload state
+    // inherits: put_file, put_file_checked, put_from_if, put_many, delete_many, move_many,
+    // put_from_many - the trait's, which call this drive's own put_from, put_if, delete and copy
     fn metadata(&self, key: &str) -> Result<Vec<(String, String)>, DriveError> {
         self.with_bucket(|b| b.metadata(key))
     }

@@ -770,6 +770,14 @@ impl Drive for AutoEncrypted {
     fn delete_folder(&self, prefix: &str) -> Result<(), DriveError> {
         self.gate(Op::Delete)?.delete_folder(prefix)
     }
+    fn remove_empty_folder(&self, prefix: &str) -> Result<bool, DriveError> {
+        self.gate(Op::Delete)?.remove_empty_folder(prefix)
+    }
+    // inherits: site - the place of an encrypted drive is its own key space (a logical key is no
+    // key of the bucket below), so the drive answers as the very object it is, and asking opens
+    // nothing: no keyring prompt, no network
+    // inherits: local_path, resume_folder - what an Azlin drive keeps is not a file of this disk,
+    // and an upload's resume state is the drive below's business (put_file asks it)
     fn metadata(&self, key: &str) -> Result<Vec<(String, String)>, DriveError> {
         self.gate(Op::Read)?.metadata(key)
     }
@@ -2755,6 +2763,12 @@ impl<D: Drive> Drive for EncryptedDrive<D> {
         self.release(released);
         Ok(())
     }
+    // inherits: remove_empty_folder - the trait's: a listing of the index shows what is in the
+    // folder, and its markers go in one change of the index
+    // inherits: site - the place of an encrypted drive is its own key space (a logical key is no
+    // key of the inner drive), so it answers as the very object it is
+    // inherits: local_path, resume_folder - the inner drive's files are ciphertext, not the file
+    // of this disk a key names, and the resume state is the inner drive's business
 
     fn metadata(&self, key: &str) -> Result<Vec<(String, String)>, DriveError> {
         let entry = self.entry(key)?;

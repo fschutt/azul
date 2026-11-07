@@ -425,8 +425,23 @@ impl Drive for RetryingDrive {
         self.call(|| self.inner.delete_folder(prefix))
     }
 
+    /// The drive below's own: a folder on disk is removed with `rmdir` only when nothing is in it.
+    /// The trait's default would list and delete the folder's markers - and a folder of a disk is
+    /// no object (X-DELTA-AZDRIVE-FILES-2: every Move out of a local slot ended "failed" with its
+    /// emptied folder left behind). Removing an empty folder twice is no harm: a retry is safe.
+    fn remove_empty_folder(&self, prefix: &str) -> Result<bool, DriveError> {
+        self.call(|| self.inner.remove_empty_folder(prefix))
+    }
+
     fn local_path(&self, key: &str) -> Option<std::path::PathBuf> {
         self.inner.local_path(key)
+    }
+
+    /// Where the drive below is ([`Drive::site`]): this wrapper adds retries, not a place. The
+    /// default would name the wrapper (an address), so two slots over one tree would be two
+    /// unknown places and nothing would refuse a folder moved into itself.
+    fn site(&self) -> azul_storage::xfer::Site {
+        self.inner.site()
     }
 
     fn resume_folder(&self) -> Option<std::path::PathBuf> {

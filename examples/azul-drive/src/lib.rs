@@ -164,6 +164,9 @@ mod actions;
 mod transfer_actions;
 #[cfg(test)]
 mod delete_tests;
+/// The file operations on the drives the app really opens (`Slot::open`), not on bare folders.
+#[cfg(test)]
+mod files_tests;
 /// The window's close while transfers, sync passes or an encryption run.
 mod closing;
 /// When a drive's keys are read from the keychain (lazily, quietly, in rounds) and wiped.

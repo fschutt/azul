@@ -171,6 +171,14 @@ impl<D: Drive> Drive for ScopedDrive<D> {
         self.inner.delete_folder(&self.full_name(prefix)?)
     }
 
+    fn remove_empty_folder(&self, prefix: &str) -> Result<bool, DriveError> {
+        self.check_writable()?;
+        self.inner.remove_empty_folder(&self.full_name(prefix)?)
+    }
+
+    // inherits: put_many, delete_many, move_many, put_from_many - the trait's batches call this
+    // drive's own put, delete, copy and put_from, which check the grant and the key of every item
+
     fn local_path(&self, key: &str) -> Option<PathBuf> {
         self.inner.local_path(&self.full_name(key).ok()?)
     }

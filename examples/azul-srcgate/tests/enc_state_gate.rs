@@ -81,6 +81,7 @@ const OPS: &[(&str, &str)] = &[
     ("put_from_many", "Write"),
     ("delete", "Delete"),
     ("delete_folder", "Delete"),
+    ("remove_empty_folder", "Delete"),
     ("delete_many", "Delete"),
 ];
 

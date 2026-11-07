@@ -32,8 +32,8 @@ use std::{
 use azlin_contract::IdempotentScope;
 use azul_storage::{
     config::DriveEntry, ops, time::now_unix, ui_thread::NetworkLock, AzlinError, BatchDelete,
-    BatchMove, BatchStream, BucketSpace, ByteRange, Ctl, Drive, DriveError, Limit, ListPage,
-    ListRequest, ObjectInfo, Precondition, S3Drive, ServiceError, Transport,
+    BatchMove, BatchPut, BatchStream, BucketSpace, ByteRange, Ctl, Drive, DriveError, Limit,
+    ListPage, ListRequest, ObjectInfo, Precondition, S3Drive, ServiceError, Transport,
 };
 
 use crate::{
@@ -690,6 +690,10 @@ impl Drive for AzlinDrive {
     fn move_many(&self, items: &[BatchMove<'_>]) -> Vec<Result<(), DriveError>> {
         self.batch_with_bucket(items, |b, items| b.move_many(items))
     }
+    /// The bucket's batch (an index of small files is written in a few requests, not one each).
+    fn put_many(&self, items: &[BatchPut<'_>]) -> Vec<Result<Option<String>, DriveError>> {
+        self.batch_with_bucket(items, |b, items| b.put_many(items))
+    }
     /// [`azul_storage::PARALLEL_FILES`] uploads at once, each through this drive's own
     /// streamed upload (a refusal of the credentials refreshes them for the next one).
     fn put_from_many(
@@ -713,6 +717,12 @@ impl Drive for AzlinDrive {
     fn delete_folder(&self, prefix: &str) -> Result<(), DriveError> {
         self.with_bucket(|b| b.delete_folder(prefix))
     }
+    /// The bucket's own: the folder's markers go when nothing else is under it.
+    fn remove_empty_folder(&self, prefix: &str) -> Result<bool, DriveError> {
+        self.with_bucket(|b| b.remove_empty_folder(prefix))
+    }
+    // inherits: site - the bucket's place needs its credentials (a call to the token server): the
+    // drive answers as the very object it is, which two clones of one Arc are and nothing else is
     fn local_path(&self, _key: &str) -> Option<PathBuf> {
         None
     }

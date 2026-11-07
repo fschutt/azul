@@ -319,3 +319,80 @@ fn rf48_a_cancel_is_given_up_at_once_never_retried_and_never_shown_as_a_service_
     assert_eq!(drive.get("a.txt"), Err(DriveError::Cancelled));
     assert_eq!(flaky.sent.lock().unwrap().len(), 1, "one try, no second");
 }
+
+/// X-DELTA-AZDRIVE-FILES-2. Home and every folder added as a drive are a `RetryingDrive` over a
+/// `LocalDrive`, and the wrapper forwarded neither `site()` nor `remove_empty_folder()`: its place
+/// was its own address (two slots over one tree were two unknown places, so a folder moved into
+/// itself was not refused) and the trait's default tried to delete the emptied FOLDER as a file
+/// (`it names a folder, not a file`), so every folder Move out of a local slot ended "failed"
+/// with the folder left behind.
+#[test]
+fn x_delta_azdrive_files_2_a_retrying_drive_over_a_folder_is_that_folder_and_removes_an_emptied_one(
+) {
+    use azul_storage::{xfer::Site, Drive, LocalDrive};
+    let dir = azul_storage::testing::TempDir::new("dx2-retry-local");
+    let inner = std::sync::Arc::new(LocalDrive::new(dir.path().to_path_buf()));
+    let drive = crate::sync::retry::RetryingDrive::new(inner.clone());
+    // The place is the folder's own, not the wrapper's address.
+    assert!(
+        matches!(drive.site(), Site::Disk { .. }),
+        "the wrapper's place: {:?}",
+        drive.site()
+    );
+    assert_eq!(drive.site(), inner.site());
+    // Two wrappers over one folder are provably one place.
+    let second = crate::sync::retry::RetryingDrive::new(std::sync::Arc::new(LocalDrive::new(
+        dir.path().to_path_buf(),
+    )));
+    assert!(drive.site().same_place(&second.site()));
+    // An emptied folder is removed (rmdir), where the default tried a file's delete.
+    drive.create_folder("docs/").unwrap();
+    assert_eq!(drive.remove_empty_folder("docs/"), Ok(true));
+    assert!(
+        !dir.path().join("docs").exists(),
+        "the emptied folder stays"
+    );
+    // A folder with a file in it stays, and says so: nothing in it is deleted.
+    drive.put("keep/a.txt", b"a").unwrap();
+    assert_eq!(drive.remove_empty_folder("keep/"), Ok(false));
+    assert_eq!(drive.get("keep/a.txt").unwrap(), b"a");
+}
+
+/// X-DELTA-AZDRIVE-FILES-2, the cache below an encrypted Azlin drive: it keeps ciphertext copies
+/// and adds no place; a batch of small files goes to the drive below as a batch, and a copy it
+/// holds of a key is dropped as `put` and `put_if` drop it.
+#[test]
+fn x_delta_azdrive_files_2_an_object_cache_is_the_place_of_the_drive_below_and_batches_through() {
+    use azul_storage::{xfer::Site, BatchPut, Drive, LocalDrive, Precondition};
+    let below = azul_storage::testing::TempDir::new("dx2-cache-below");
+    let kept = azul_storage::testing::TempDir::new("dx2-cache-kept");
+    let inner: std::sync::Arc<dyn Drive> =
+        std::sync::Arc::new(LocalDrive::new(below.path().to_path_buf()));
+    let cache = crate::sync::objects::ObjectCache::new(inner.clone(), kept.path().to_path_buf());
+    assert_eq!(cache.site(), inner.site());
+    assert!(matches!(cache.site(), Site::Disk { .. }));
+    // The batch lands, and the copy of an unconditional write is dropped before it.
+    inner.put("a.txt", b"old").unwrap();
+    cache.fill("a.txt").unwrap();
+    assert!(cache.has("a.txt"));
+    let items = [BatchPut::new("a.txt", b"new"), BatchPut::new("b.txt", b"b")];
+    let out = cache.put_many(&items);
+    assert!(out.iter().all(Result::is_ok), "{out:?}");
+    assert!(!cache.has("a.txt"), "the copy of an overwritten key stays");
+    assert_eq!(cache.get("a.txt").unwrap(), b"new");
+    assert_eq!(cache.get("b.txt").unwrap(), b"b");
+    // An emptied folder is the drive below's to remove.
+    cache.create_folder("gone/").unwrap();
+    assert_eq!(cache.remove_empty_folder("gone/"), Ok(true));
+    assert!(!below.path().join("gone").exists());
+    // A conditional write that lost leaves the copy.
+    cache.fill("b.txt").unwrap();
+    let lost = [BatchPut::new("b.txt", b"x").when(&Precondition::Absent)];
+    let refused = cache.put_many(&lost);
+    assert!(refused[0].is_err(), "{refused:?}");
+    assert_eq!(inner.get("b.txt").unwrap(), b"b");
+    assert!(
+        cache.has("b.txt"),
+        "a write that did not take dropped the copy"
+    );
+}
