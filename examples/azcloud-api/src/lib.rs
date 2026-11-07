@@ -87,6 +87,10 @@ pub mod https {
         roots: Option<Arc<Vec<reqwest::Certificate>>>,
         /// Shared by every clone (every bucket and token server call of the run).
         pinned: Arc<Mutex<Pinned>>,
+        /// This is a TEST build (`azul_storage::trust::test_build`): a stack on this computer,
+        /// under any name, may stand in for the service. A shipped `azcloud` sends to Azlin
+        /// hosts only.
+        test_build: bool,
     }
 
     /// The client of the run: `timeout` per request, [`CONNECT_TIMEOUT`] to connect, trusting
@@ -198,7 +202,16 @@ pub mod https {
                 timeout,
                 roots,
                 pinned: Arc::new(Mutex::new(Pinned::default())),
+                test_build: azul_storage::trust::test_build(),
             })
+        }
+
+        /// This transport with the build's choice as an argument (the tests of the host rule set
+        /// both).
+        #[cfg(test)]
+        pub(crate) fn with_test_build(mut self, test_build: bool) -> HttpsTransport {
+            self.test_build = test_build;
+            self
         }
 
         /// The client that reaches `url`'s host at its fallback addresses, when it has any.
@@ -260,6 +273,12 @@ pub mod https {
         }
 
         fn send(&self, call: &HttpCall) -> Result<HttpReply, String> {
+            // The Azlin class sends to the service's own hosts only (RF39 2c): an endpoint or a
+            // node list that a file of the state folder names does not decide where the drive's
+            // signed requests and its token go. reqwest's parser reads a backslash as a slash,
+            // so an address it would send elsewhere than a plain split says names no host. The
+            // refusal comes before any connection.
+            azul_storage::trust::admits(self.trust_class(), &call.url, self.test_build)?;
             reqwest::Method::from_bytes(call.method.as_str().as_bytes())
                 .map_err(|e| e.to_string())?;
             let first = self.runtime.block_on(Self::send_with(&self.client, call));
@@ -346,6 +365,41 @@ mod tests {
             let _ = tx.send(head);
         });
         (port, rx)
+    }
+
+    /// RF39 2c: the command line's transport is the Azlin class, and a SHIPPED `azcloud` sends
+    /// nothing to a host the service does not run - not the endpoint and not a node that a file of
+    /// the state folder names: the drive's signed requests and its token stay with the service.
+    /// The refusal comes before any connection. reqwest's parser reads a backslash as a slash
+    /// (the last address goes to evil.example): it names no host. (This crate's tests are a test
+    /// build, which may reach a stack on this computer, as the servers below; the shipped rule is
+    /// the same transport with that flag off.)
+    #[test]
+    fn a_shipped_command_line_sends_nothing_to_a_host_the_service_does_not_run() {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let shipped = HttpsTransport::new(runtime.handle().clone(), HTTPS_TIMEOUT)
+            .unwrap()
+            .with_test_build(false);
+        let call = |url: &str| HttpCall {
+            method: Method::Get,
+            url: url.to_string(),
+            headers: Vec::new(),
+            body: Vec::new(),
+            content_type: String::new(),
+            limits: azul_storage::CallLimits::json(),
+        };
+        for url in [
+            "https://evil.example/d-1/key",
+            "https://azlin.io.evil.example/",
+            "http://127.0.0.1:9000/d-1/key",
+        ] {
+            let why = shipped.send(&call(url)).unwrap_err();
+            assert!(why.contains("not an Azlin host"), "{url}: {why}");
+        }
+        let why = shipped
+            .send(&call("https://evil.example\\@b1.s3.azlin.io/d-1/key"))
+            .unwrap_err();
+        assert!(why.contains("names no host"), "{why}");
     }
 
     /// DNS down: a node whose name does not resolve is reached at the addresses the failover

@@ -92,7 +92,7 @@ def find_binary(explicit):
     for c in candidates:
         if c and os.path.isfile(c) and os.access(c, os.X_OK):
             return c
-    raise Failure("no azcloud binary: `cd examples/azcloud-api && cargo build --release`, "
+    raise Failure("no azcloud binary: `cd examples/azcloud-api && cargo build --release --features test-hooks`, "
                   "or pass --bin / AZCLOUD_BIN (tried %s)" % candidates)
 
 

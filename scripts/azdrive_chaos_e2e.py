@@ -88,7 +88,7 @@ with its default features and the azcloud CLI):
 
     cargo build --release -p azul-dll --features build-dll,test-hooks
     AZ_LINK_PATH=$PWD/target/azul-lib cargo build --release -p AzDrive --features test-hooks
-    (cd examples/azcloud-api && cargo build --release --features encryption)
+    (cd examples/azcloud-api && cargo build --release --features encryption,test-hooks)
     python3 scripts/azdrive_chaos_e2e.py [--only NAME,...] [--bin AzDrive] [--azcloud PATH]
         [--debug-port 8851] [--timeout 300] [--keep] [--big-gb 50] [--many 100000]
 
