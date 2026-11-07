@@ -26,7 +26,8 @@
 //! * Android: `BatteryManager` (`BATTERY_PROPERTY_CAPACITY`, `isCharging`) and `PowerManager`
 //!   (`isPowerSaveMode`; `getCurrentThermalStatus` on Android 10 and later) through JNI.
 //! * Other targets: UNKNOWN.
-//! * A headless or E2E run (`AZ_BACKEND=headless`, `AZ_E2E_TEST`): [`BatteryState::HEADLESS`]
+//! * A headless or E2E TEST run (`AZ_BACKEND=headless`, `AZ_E2E_TEST`; a build with the cargo
+//!   feature `test-hooks` only, a shipped build reads the machine): [`BatteryState::HEADLESS`]
 //!   (no battery, a cool device), or what the file named by `AZ_BATTERY_STATE_FILE`
 //!   ([`BATTERY_STATE_FILE_VAR`]) says, read at every query - so a test drains the battery
 //!   while the app runs, in words ([`BatteryState::from_words`]: `battery 23 discharging

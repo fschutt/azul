@@ -83,11 +83,13 @@ pub mod network;
 /// since the last input), per platform; a fixed reading in headless runs.
 pub mod power;
 
-/// A headless or E2E run (`AZ_BACKEND=headless`, `AZ_E2E_TEST`; the biometric module's test,
-/// the same variables): the device-state readings answer fixed values or a test's switch file,
-/// never the machine's own.
+/// A headless or E2E TEST run (`AZ_BACKEND=headless`, `AZ_E2E_TEST`; the hooks of a build with
+/// the cargo feature `test-hooks`, `azul_core::run_mode`): the device-state readings answer fixed
+/// values or a test's switch file, never the machine's own. A shipped build reads the machine
+/// whatever its environment holds - a battery or a network that answered a fixed value for a
+/// user's `AZ_BACKEND=headless` would hide a metered connection from the app's transfer rules.
 pub(crate) fn headless_run() -> bool {
-    std::env::var("AZ_BACKEND").as_deref() == Ok("headless") || std::env::var("AZ_E2E_TEST").is_ok()
+    azul_core::run_mode::test_hooks().no_sensors
 }
 
 /// The words of a headless run's switch file at `path` (the battery's, the network's), read at
@@ -193,4 +195,26 @@ pub fn poll() {
     linux::poll();
     #[cfg(target_os = "windows")]
     windows::poll();
+}
+
+#[cfg(test)]
+mod tests {
+    /// A build without the cargo feature `test-hooks` takes the machine's own readings, whatever
+    /// the environment holds: the fixed values of a headless run are a test's. (Red when the
+    /// predicate is read from `AZ_BACKEND` / `AZ_E2E_TEST` in a job that sets either.)
+    #[cfg(not(feature = "test-hooks"))]
+    #[test]
+    fn a_shipped_build_reads_the_machine_not_the_fixed_values_of_a_headless_run() {
+        assert!(!super::headless_run());
+    }
+
+    /// With the hooks, the sensors follow them (`no_sensors`): the test sees what it asked for.
+    #[cfg(feature = "test-hooks")]
+    #[test]
+    fn a_test_build_follows_its_hooks() {
+        assert_eq!(
+            super::headless_run(),
+            azul_core::run_mode::test_hooks().no_sensors
+        );
+    }
 }

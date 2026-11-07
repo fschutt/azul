@@ -33,7 +33,8 @@
 //! only. No network name (SSID), access point (BSSID), carrier, address or any other identifier
 //! is read for it, or for anything else here; nothing of the reading leaves the device (the
 //! privacy section of `crate::desktop::extra::sensors`).
-//! * A headless or E2E run (`AZ_BACKEND=headless`, `AZ_E2E_TEST`): [`NetworkState::HEADLESS`]
+//! * A headless or E2E TEST run (`AZ_BACKEND=headless`, `AZ_E2E_TEST`; a build with the cargo
+//!   feature `test-hooks` only, a shipped build reads the machine): [`NetworkState::HEADLESS`]
 //!   (wired, connected, free), or what the file named by `AZ_NETWORK_STATE_FILE`
 //!   ([`NETWORK_STATE_FILE_VAR`]) says, read at every query - so a test switches the network
 //!   while the app runs, in words ([`NetworkState::from_words`]: `wifi metered`, `offline`).

@@ -17,7 +17,8 @@
 //!   has no synchronous idle query (`ext-idle-notify-v1` speaks in events; X11's idle time
 //!   under XWayland sees only X clients): idle stays 0 there for now.
 //! * iOS, Android: not yet ([`PowerState::UNKNOWN`]).
-//! * A headless or E2E run (`AZ_BACKEND=headless`, `AZ_E2E_TEST`): the fixed
+//! * A headless or E2E TEST run (`AZ_BACKEND=headless`, `AZ_E2E_TEST`; a build with the cargo
+//!   feature `test-hooks` only, a shipped build reads the machine): the fixed
 //!   [`PowerState::HEADLESS`] - on mains, never idle - so no test depends on the machine it runs
 //!   on and no background pass starts behind a test's back. On battery when the battery's
 //!   switch file (`AZ_BATTERY_STATE_FILE`, see `super::battery`) names a battery off its
