@@ -1,7 +1,9 @@
 //! What a sync takes and what it never takes: name and path globs, the base rules, the Azlin
 //! tree's, a folder's `.azcloudignore`.
 
-use crate::sync::rules::{match_name, Rules, BOOKKEEPING, CACHE, IGNORED, LOG, OS, STATE, TEMP};
+use crate::sync::rules::{
+    match_name, Rules, BOOKKEEPING, CACHE, IGNORED, LOG, OS, STATE, TEMP, VCS,
+};
 
 #[test]
 fn a_name_glob_takes_stars_and_question_marks() {
@@ -69,6 +71,36 @@ fn the_base_rules_keep_temporary_lock_os_journal_and_repository_files_out() {
         "notes/.history/4b07.json",
         "keys/vaults/abc.azkv",
         ".azcloudignore",
+    ] {
+        assert_eq!(rules.excluded(key), None, "{key}");
+    }
+}
+
+/// X-DELTA-AZDRIVE-FILES-9. The rule was directory-only (`.git/`): a FILE or a link named `.git`
+/// - the pointer file of a submodule or a linked worktree, `gitdir: ../.e` - synced as an ordinary
+/// file and redirected git to a repository another participant syncs. It is left out like the
+/// folder, at any depth (the other spellings are the name table's).
+#[test]
+fn x_delta_azdrive_files_9_a_file_or_link_named_like_a_repository_is_left_out_like_the_folder() {
+    let rules = Rules::base();
+    for key in [
+        ".git",
+        "proj/.git",
+        "a/b/.hg",
+        "x/.svn",
+        "proj/.git/HEAD",
+        "proj/sub/.git/hooks/pre-commit",
+    ] {
+        assert_eq!(rules.excluded(key), Some(VCS), "{key}");
+    }
+    assert_eq!(rules.excluded_dir("proj/.git"), Some(VCS));
+    for key in [
+        "proj/.gitignore",
+        "proj/.gitattributes",
+        "proj/my.git",
+        "gits/readme.md",
+        ".hgignore",
+        "proj/.svnignore",
     ] {
         assert_eq!(rules.excluded(key), None, "{key}");
     }

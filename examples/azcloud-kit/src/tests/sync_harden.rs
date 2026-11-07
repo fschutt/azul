@@ -1249,6 +1249,189 @@ fn az_w7_a_drive_entry_under_a_short_name_of_a_protected_folder_never_lands_here
     }
 }
 
+/// What a participant who can write the drive's index commits when it renames the folder `from`
+/// to `to`: the folder's entry and every file under it at the new key, the old folder's delete
+/// recorded (as this engine's own rename commits it).
+fn the_drive_renames_a_folder(store: &S3Bucket, from: &str, to: &str) {
+    use crate::sync::FolderTombstone;
+    let key = index_key(PREFIX);
+    let mut index = RemoteIndex::parse(&store.read(&key).expect("an index")).unwrap();
+    index.generation += 1;
+    let under = format!("{from}/");
+    let moved = |name: &str| -> String {
+        if name == from {
+            to.to_string()
+        } else if let Some(rest) = name.strip_prefix(&under) {
+            format!("{to}/{rest}")
+        } else {
+            name.to_string()
+        }
+    };
+    let files = std::mem::take(&mut index.files);
+    index.files = files
+        .into_iter()
+        .map(|(name, file)| (moved(&name), file))
+        .collect();
+    let folders = std::mem::take(&mut index.folders);
+    assert!(
+        folders.contains_key(from),
+        "the drive holds an entry for {from}"
+    );
+    for (name, folder) in folders {
+        let new = moved(&name);
+        if new != name {
+            index.deleted_folders.insert(
+                name,
+                FolderTombstone {
+                    id: folder.id.clone(),
+                    gen: index.generation,
+                    at: 1_700_000_000,
+                    device: String::from("someone"),
+                },
+            );
+        }
+        index.folders.insert(new, folder);
+    }
+    store.write(&key, index.to_bytes());
+}
+
+/// Every path below `dir` (the folder's own bookkeeping left out) with a name a disk reads as a
+/// version-control folder or file.
+fn version_control_names_below(dir: &Path, prefix: &str, out: &mut Vec<String>) {
+    for entry in fs::read_dir(dir).unwrap().flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if prefix.is_empty() && name == ".azlin" {
+            continue;
+        }
+        let key = format!("{prefix}{name}");
+        if azul_storage::names::Protected::is_vcs(&name) {
+            out.push(key.clone());
+        }
+        if entry.file_type().unwrap().is_dir() {
+            version_control_names_below(&entry.path(), &format!("{key}/"), out);
+        }
+    }
+}
+
+/// X-DELTA-AZDRIVE-FILES-1 (BLOCKER, the twin of AZ-W1). A participant of a shared drive syncs the
+/// files of a repository's insides (`HEAD`, `config` with a `core.fsmonitor` line, `objects/`,
+/// `hooks/`) in an ordinary folder, then commits an index in which that folder - its identity
+/// kept - is named `.GIT`, `.git.`, `GIT~1`. The victim's `align_folders` read the new name as a
+/// FILE's (a last name `.git` is "an ordinary file") and `move_folders_here` renamed the folder to
+/// it: a repository on the victim's disk, whose configured command runs at the next git command.
+/// The folder is not renamed, the new name is listed as a bad name, and no later pass renames it.
+#[test]
+fn x_delta_azdrive_files_1_a_folder_the_drive_renames_to_a_repository_name_is_not_renamed_here() {
+    let cases: [(&str, &str, &str); 8] = [
+        ("dx1-a0", "dx1-b0", "Documents/.GIT"),
+        ("dx1-a1", "dx1-b1", "Documents/.git"),
+        ("dx1-a2", "dx1-b2", ".git"),
+        ("dx1-a3", "dx1-b3", "Documents/.git."),
+        ("dx1-a4", "dx1-b4", "Documents/GIT~1"),
+        ("dx1-a5", "dx1-b5", "Documents/.g\u{200c}it"),
+        ("dx1-a6", "dx1-b6", "x/.HG"),
+        ("dx1-a7", "dx1-b7", "x/y/.Svn"),
+    ];
+    for (a_name, b_name, target) in cases {
+        let store = S3Bucket::new();
+        let a = Device::new(a_name);
+        let b = Device::new(b_name);
+        a.write("docs/HEAD", b"ref: refs/heads/main\n");
+        a.write("docs/config", b"[core]\n\tfsmonitor = echo owned\n");
+        a.write("docs/objects/x", b"object");
+        a.write("docs/hooks/pre-commit", b"#!/bin/sh\necho owned\n");
+        a.sync(&store);
+        b.sync(&store);
+        assert_eq!(
+            b.read("docs/config").as_deref(),
+            Some(&b"[core]\n\tfsmonitor = echo owned\n"[..]),
+            "{target}: the victim holds the folder"
+        );
+        the_drive_renames_a_folder(&store, "docs", target);
+        for pass in 0..3 {
+            let report = b.sync(&store);
+            let mut made = Vec::new();
+            version_control_names_below(b.path(), "", &mut made);
+            assert!(
+                made.is_empty(),
+                "{target}, pass {pass}: the drive's rename made {made:?} here"
+            );
+            assert!(
+                lists(&report, Code::BadRemoteName, Some(target)),
+                "{target}, pass {pass}: {:?}",
+                report.problems
+            );
+            assert!(
+                !report.moved.iter().any(|m| m.contains(target)),
+                "{target}, pass {pass}: {:?}",
+                report.moved
+            );
+        }
+    }
+}
+
+/// X-DELTA-AZDRIVE-FILES-9. A FILE named `.git` in any spelling is not an ordinary file: git
+/// follows its `gitdir:` line to a repository another participant syncs in an ordinary hidden
+/// folder (`.e/HEAD`, `.e/config` with a `core.fsmonitor` line). Neither the file nor a link of
+/// that name comes down, each is listed and the drive keeps it. The scan does not send a
+/// `.git` file or link of this computer's own either: it is left out like the folder.
+#[test]
+fn x_delta_azdrive_files_9_a_file_named_like_a_repository_never_lands_here_nor_goes_up() {
+    let store = S3Bucket::new();
+    let b = Device::new("dx9-b");
+    let hostile = [
+        "proj2/.GIT",
+        "proj3/.git.",
+        "proj4/GIT~1",
+        "proj5/.g\u{200c}it",
+        "proj6/.Hg",
+    ];
+    put_remote(&store, ".e/HEAD", b"ref: refs/heads/main\n", false);
+    put_remote(
+        &store,
+        ".e/config",
+        b"[core]\n\tfsmonitor = echo owned\n",
+        false,
+    );
+    for key in hostile {
+        put_remote(&store, key, b"gitdir: ../.e\n", false);
+    }
+    // This computer's own submodule pointer and a worktree's: left out, never sent.
+    b.write("sub/.git", b"gitdir: ../.git/modules/sub\n");
+    b.write("sub/readme.md", b"a submodule");
+    for pass in 0..2 {
+        let report = b.sync(&store);
+        for key in hostile {
+            assert!(b.read(key).is_none(), "pass {pass}: {key} landed here");
+            assert!(
+                lists(&report, Code::BadRemoteName, Some(key)),
+                "pass {pass}: {key}: {:?}",
+                report.problems
+            );
+            assert!(
+                index_of(&store).files.contains_key(key),
+                "pass {pass}: {key} left the drive"
+            );
+        }
+        assert_eq!(
+            b.read(".e/HEAD").as_deref(),
+            Some(&b"ref: refs/heads/main\n"[..])
+        );
+        assert!(
+            !index_of(&store).files.contains_key("sub/.git"),
+            "pass {pass}: this computer's .git file went up"
+        );
+        assert!(
+            index_of(&store).files.contains_key("sub/readme.md"),
+            "pass {pass}"
+        );
+        assert!(
+            b.read("sub/.git").is_some(),
+            "pass {pass}: the file is left where it is"
+        );
+    }
+}
+
 /// X2 (the rules): opening a cloud-only entry that a rule of the folder leaves out writes
 /// nothing. The `.azlin` folder's install tree is such a rule's (AZ-Y5): `apps/azdrive/current/
 /// AzDrive` in the drive is not installed because somebody opened it.

@@ -3096,18 +3096,24 @@ fn moved_index(
 }
 
 /// Moves the folders of `moves` here, one after the other, without following a link: how many
-/// were moved (a move that fails stops the rest).
+/// were moved (a move that fails stops the rest). `from` is a folder of this disk (the base's
+/// or the scan's key); `to` is the DRIVE's new name for it, so it passes the whole policy of a
+/// name from the drive - the protected names in any spelling, this system's rows and this
+/// disk's (`volume`) - before a folder of it is made or the folder is renamed to it: a drive
+/// that names a folder `.git` must not make a repository here (X-DELTA-AZDRIVE-FILES-1).
 fn move_folders_here(
     root: &LocalRoot,
     moves: &[(String, String)],
+    volume: &names::Volume,
     report: &mut SyncReport,
 ) -> usize {
     let Ok(tree) = beneath::Root::open(&root.path) else {
         return 0;
     };
+    let policy = names::Policy::here(*volume);
     for (made, (from, to)) in moves.iter().enumerate() {
         let moved = names::walk_local(&tree, from, false).and_then(|(source, name)| {
-            let (target, target_name) = names::walk_local(&tree, to, true)?;
+            let (target, target_name) = policy.walk(&tree, to, names::Purpose::Sync, true)?;
             source.rename(&name, &target, &target_name)?;
             target.sync();
             source.sync();
@@ -3138,16 +3144,20 @@ fn align_folders(
     index: &mut LocalIndex,
     scan: &mut Scan,
     remote: &RemoteIndex,
+    volume: &names::Volume,
     backup: bool,
     report: &mut SyncReport,
 ) -> (Vec<(String, String)>, BTreeMap<String, String>) {
     let none = || (Vec::new(), BTreeMap::new());
+    // The drive's folder entries as they stand BEFORE `RemoteIndex::unreadable` looked at them:
+    // a folder is named by the same table a file is (a last name `.git` included), so the one
+    // the drive renamed to such a name is no rename here (X-DELTA-AZDRIVE-FILES-1).
     let there: BTreeMap<String, RemoteFolder> = remote
         .folders
         .iter()
         .filter(|(key, folder)| {
             remote::check_key(key).is_ok()
-                && names::key_problem(key).is_none()
+                && names::folder_problem(key).is_none()
                 && remote::is_folder_id(&folder.id)
         })
         .map(|(key, folder)| (key.clone(), folder.clone()))
@@ -3169,7 +3179,7 @@ fn align_folders(
             ));
             return none();
         }
-        let made = move_folders_here(root, &found.here, report);
+        let made = move_folders_here(root, &found.here, volume, report);
         moved_scan(scan, &found.here[..made]);
         if made < found.here.len() {
             return none();
@@ -3262,7 +3272,7 @@ fn plan_folders(
     let here: BTreeSet<String> = scan
         .dirs
         .iter()
-        .filter(|key| remote::check_key(key).is_ok() && names::key_problem(key).is_none())
+        .filter(|key| remote::check_key(key).is_ok() && names::folder_problem(key).is_none())
         .cloned()
         .collect();
     let (files_here, files_there) = files_after(actions, scan, readable, unreadable);
@@ -3282,11 +3292,14 @@ fn plan_folders(
 
 /// Makes here the folders the drive has and this side has not, removes the ones the drive
 /// deleted (empty ones only: a folder that still holds something stays), and keeps in `base`
-/// the folders both sides have now, with their inode here.
+/// the folders both sides have now, with their inode here. A folder is made under a name from
+/// the DRIVE: it passes the policy of such a name (`volume` is this disk's) before a folder of it
+/// exists.
 fn apply_folders(
     root: &LocalRoot,
     scan: &Scan,
     actions: &[FolderAction],
+    volume: &names::Volume,
     base: &mut BTreeMap<String, BaseFolder>,
     report: &mut SyncReport,
 ) {
@@ -3304,6 +3317,7 @@ fn apply_folders(
         }
     };
     let here = |key: &str| scan.folder_ids.get(key).copied().unwrap_or((0, 0));
+    let policy = names::Policy::here(*volume);
     for action in actions {
         match action {
             FolderAction::Agree { key, id } | FolderAction::Send { key, id } => {
@@ -3316,8 +3330,10 @@ fn apply_folders(
                 base.insert(key.clone(), entry);
             }
             FolderAction::Make { key, id } => {
-                let made = tree
-                    .dir(key, true)
+                let made = policy
+                    .admit(key, names::Purpose::Sync)
+                    .map_err(BeneathError::from)
+                    .and_then(|admitted| tree.dir(&admitted, true))
                     .and_then(|dir| dir.stat().map_err(BeneathError::from));
                 match made {
                     Ok(st) => {
@@ -4012,7 +4028,15 @@ fn run<R: SyncRemote + ?Sized>(
             && !opts.dry_run
             && remote.generation >= index.generation
         {
-            align_folders(root, &mut index, &mut scanned, &remote, hooks.backup, &mut report)
+            align_folders(
+                root,
+                &mut index,
+                &mut scanned,
+                &remote,
+                &volume,
+                hooks.backup,
+                &mut report,
+            )
         } else {
             (Vec::new(), BTreeMap::new())
         };
@@ -4410,7 +4434,14 @@ fn run<R: SyncRemote + ?Sized>(
     }
     // The folders once the files are in place: a folder is removed only when it is empty.
     if !hooks.cancelled() {
-        apply_folders(root, &scan, &folder_actions, &mut index.folders, &mut report);
+        apply_folders(
+            root,
+            &scan,
+            &folder_actions,
+            &volume,
+            &mut index.folders,
+            &mut report,
+        );
     }
     guard::learn(&mut index.guard, &actions, &root.path, &scan);
     report.paused = pause;

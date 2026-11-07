@@ -179,8 +179,10 @@ fn a_disk_that_ignores_case_or_normalization_folds_names_together() {
 
 /// AZ-W1. The version-control folders and the folder's bookkeeping are compared without regard
 /// to case on EVERY system: APFS and NTFS read `.GIT` as `.git`, and a drive is shared between
-/// systems, so the answer cannot wait for a probe of this disk. A name only the last of a file
-/// key is a file, not a folder (a submodule's `.git` file is synced).
+/// systems, so the answer cannot wait for a probe of this disk. The last name of a key counts as
+/// much as the folders above it: a file or link `.git` is refused like the folder
+/// (X-DELTA-AZDRIVE-FILES-9; a submodule's pointer file is no loss, it points into the unsynced
+/// `.git/modules`).
 #[test]
 fn az_w1_protected_folders_are_refused_in_any_case_on_every_system() {
     for bad in [
@@ -194,6 +196,10 @@ fn az_w1_protected_folders_are_refused_in_any_case_on_every_system() {
         ".AZLIN/sync/trash/20261104/x",
         ".Azlin/sync/tmp/azcloud-sync-0.blob",
         ".azLIN",
+        "proj/.git",
+        "sub/module/.GIT",
+        "a/.Hg",
+        "x/.svn",
     ] {
         assert!(key_problem(bad).is_some(), "{bad:?}");
         for system in System::ALL {
@@ -210,8 +216,6 @@ fn az_w1_protected_folders_are_refused_in_any_case_on_every_system() {
         "proj/.gitattributes",
         ".github/workflows/ci.yml",
         "my.git/x",
-        "proj/.git",
-        "sub/module/.GIT",
         "gits/readme.md",
         ".hgignore",
         ".svnignore/x",
@@ -231,6 +235,10 @@ fn az_w1_protected_folders_are_refused_in_any_case_on_every_system() {
     }
     for folder in ["proj/src", "a/.github", "x/.azlin"] {
         assert_eq!(folder_problem(folder), None, "{folder:?}");
+    }
+    // One table for every kind of entry: what refuses a folder refuses a file of that name.
+    for key in ["proj/.GIT", ".Hg", "a/.svn", "GIT~1", "x/.git."] {
+        assert_eq!(folder_problem(key), key_problem(key), "{key:?}");
     }
 }
 
@@ -253,6 +261,9 @@ fn az_w7_the_short_names_and_other_spellings_of_a_protected_folder_are_refused_l
         "proj/.git::$INDEX_ALLOCATION/hooks/x",
         "proj/.g\u{200c}it/hooks/x",
         "proj/\u{feff}.git/config",
+        "git~1",
+        "proj/git~1",
+        "proj/.git.",
     ] {
         assert!(key_problem(bad).is_some(), "{bad:?}");
         for system in System::ALL {
@@ -265,8 +276,6 @@ fn az_w7_the_short_names_and_other_spellings_of_a_protected_folder_are_refused_l
     for fine in [
         "proj/gitx~1/a",
         "proj/GIT/readme",
-        "git~1",
-        "proj/git~1",
         "proj/git~/a",
         "x/azlin~1/y",
         "proj/.gitx/a",

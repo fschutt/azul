@@ -120,30 +120,31 @@ pub fn key_problem(key: &str) -> Option<String> {
     if key.len() > PATH_MAX_BYTES {
         return Some(format!("a path longer than {PATH_MAX_BYTES} bytes"));
     }
-    if let Some(why) = protected_problem(key, false) {
+    if let Some(why) = protected_problem(key) {
         return Some(why);
     }
     key.split('/').find_map(segment_problem)
 }
 
 /// Why a name of the drive must not point into one of the folder's protected places, or `None`:
-/// the engine's bookkeeping at the root (`.azlin`) and a version-control folder at any depth.
+/// the engine's bookkeeping at the root (`.azlin`) and a version-control name at any depth.
 /// Compared by [`Protected`]: without regard to case, Unicode form, the code points a disk
 /// ignores, trailing dots and spaces, a stream suffix or an NTFS short name (`GIT~1`), on EVERY
 /// system and disk (AZ-W1, AZ-W7): APFS and NTFS read `.GIT` as `.git`, so the answer cannot wait
 /// for a probe of this disk - and a drive is shared between systems, so a name that is harmless
-/// here is not on the next device. `last_is_folder`: the key's last name is a folder too (a
-/// folder entry); else it is a file's, and a file named `.git` (a submodule's pointer) is an
-/// ordinary file.
-fn protected_problem(key: &str, last_is_folder: bool) -> Option<String> {
-    let (_, kind, name) = Protected::in_key(key, last_is_folder)?;
+/// here is not on the next device. The kind of the entry does not matter (X-DELTA-AZDRIVE-FILES-1,
+/// -9): a folder entry, a file and a link are refused alike, and so is a LAST name - a folder the
+/// drive renames to `.git` is a repository here, and so is a file `.git` (git follows its
+/// `gitdir:` line) or a link.
+fn protected_problem(key: &str) -> Option<String> {
+    let (_, kind, name) = Protected::in_key(key)?;
     match kind {
         ProtectedKind::Bookkeeping => Some(String::from(
             "the folder's own bookkeeping (.azlin at its root)",
         )),
         ProtectedKind::Vcs => Some(format!(
-            "a path in a version-control folder ({name}): a repository syncs through git, and a \
-             disk may read this name as its own"
+            "a version-control name ({name}): a repository syncs through git, and a disk may \
+             read this name as its own - whether it is a folder, a file or a link"
         )),
         // Warned of, not refused (the owner's call: hooks and configuration are what matters).
         ProtectedKind::VcsMetadata | ProtectedKind::OsPrivate => None,
@@ -151,11 +152,13 @@ fn protected_problem(key: &str, last_is_folder: bool) -> Option<String> {
 }
 
 /// Why a folder entry of the drive (its key without a slash at the end) can never become a
-/// folder here, on any system, or `None`: [`key_problem`]'s rows, and its last name is not a
-/// protected folder either.
+/// folder here, on any system, or `None`. The rows are [`key_problem`]'s, and the protected names
+/// among them hold for every name of the key, the last included: the name policy does not depend
+/// on the kind of the entry, so a folder made or renamed here passes the same table a file does
+/// (X-DELTA-AZDRIVE-FILES-1).
 #[must_use]
 pub fn folder_problem(key: &str) -> Option<String> {
-    key_problem(key).or_else(|| protected_problem(key, true))
+    key_problem(key)
 }
 
 /// The rows of the name table only Windows refuses: the ones another system keeps and warns of.
@@ -218,7 +221,7 @@ pub fn system_problem(key: &str, system: System) -> Option<String> {
 /// on a disk that refuses what Windows refuses (FAT, exFAT) on any system.
 #[must_use]
 pub fn here_problem(key: &str, system: System, volume: &Volume) -> Option<String> {
-    protected_problem(key, false)
+    protected_problem(key)
         .or_else(|| system_problem(key, system))
         .or_else(|| {
             if volume.windows_names {
@@ -464,24 +467,19 @@ impl Protected {
     }
 
     /// The first name of `key` a sync refuses: the bookkeeping folder as the FIRST name, a
-    /// version-control folder at any depth (a folder: any name but the last, and the last too when
-    /// `last_is_folder`). The position, the kind and the name as written.
+    /// version-control name at any depth and in any position - the last name too, whether the key
+    /// names a folder, a file or a link (a file or link `.git` redirects git to a repository the
+    /// drive's other participants write; X-DELTA-AZDRIVE-FILES-9). The position, the kind and the
+    /// name as written.
     #[must_use]
-    pub fn in_key(key: &str, last_is_folder: bool) -> Option<(usize, ProtectedKind, &str)> {
-        let names: Vec<&str> = key.split('/').collect();
-        let folders = if last_is_folder {
-            names.len()
-        } else {
-            names.len().saturating_sub(1)
-        };
-        names
-            .iter()
+    pub fn in_key(key: &str) -> Option<(usize, ProtectedKind, &str)> {
+        key.split('/')
             .enumerate()
             .find_map(|(at, name)| match Protected::kind(name)? {
                 ProtectedKind::Bookkeeping if at == 0 => {
-                    Some((at, ProtectedKind::Bookkeeping, *name))
+                    Some((at, ProtectedKind::Bookkeeping, name))
                 }
-                ProtectedKind::Vcs if at < folders => Some((at, ProtectedKind::Vcs, *name)),
+                ProtectedKind::Vcs => Some((at, ProtectedKind::Vcs, name)),
                 _ => None,
             })
     }

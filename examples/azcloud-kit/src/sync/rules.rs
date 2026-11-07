@@ -82,9 +82,12 @@ pub const BASE_RULES: &[(&str, &str)] = &[
     ("*-wal", DB_SIDE),
     ("*-shm", DB_SIDE),
     ("*-journal", DB_SIDE),
-    (".git/", VCS),
-    (".hg/", VCS),
-    (".svn/", VCS),
+    // No trailing slash: a FILE or a link of that name is a repository's too (a `.git` file names
+    // the folder git reads, `gitdir: ../x`), so it is left out like the folder
+    // (X-DELTA-AZDRIVE-FILES-9). Other spellings of the names are refused by `names::key_problem`.
+    (".git", VCS),
+    (".hg", VCS),
+    (".svn", VCS),
 ];
 
 /// What the Azlin tree (the data root and the `.azlin` folder) adds: no app

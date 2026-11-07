@@ -5,8 +5,8 @@ use crate::{
     key::System,
     manifest::is_reserved_key,
     names::{
-        here_problem, key_problem, leaf_for_text, local_key, Policy, Protected, ProtectedKind,
-        Purpose, Volume,
+        folder_problem, here_problem, key_problem, leaf_for_text, local_key, Policy, Protected,
+        ProtectedKind, Purpose, Volume,
     },
     Drive, DriveError, LocalDrive,
 };
@@ -117,26 +117,72 @@ fn a_protected_name_is_one_in_every_spelling_a_disk_reads_as_its_own() {
 #[test]
 fn the_first_protected_folder_of_a_key_is_found_where_a_sync_refuses_it() {
     assert_eq!(
-        Protected::in_key("proj/.GIT/hooks/pre-commit", false),
+        Protected::in_key("proj/.GIT/hooks/pre-commit"),
         Some((1, ProtectedKind::Vcs, ".GIT"))
     );
     assert_eq!(
-        Protected::in_key(".azlin/sync/x", false),
+        Protected::in_key(".azlin/sync/x"),
         Some((0, ProtectedKind::Bookkeeping, ".azlin"))
     );
     assert_eq!(
-        Protected::in_key("GIT~1/hooks/x", false),
+        Protected::in_key("GIT~1/hooks/x"),
         Some((0, ProtectedKind::Vcs, "GIT~1"))
     );
-    // A file named `.git` is an ordinary file; a folder entry's last name is a folder's.
-    assert_eq!(Protected::in_key("proj/.git", false), None);
-    assert_eq!(
-        Protected::in_key("proj/.git", true),
-        Some((1, ProtectedKind::Vcs, ".git"))
-    );
     // The bookkeeping name is the root's alone; a user's `x/.azlin` is a folder like any other.
-    assert_eq!(Protected::in_key("x/.azlin/y", false), None);
-    assert_eq!(Protected::in_key("a/.gitmodules/b", false), None);
+    assert_eq!(Protected::in_key("x/.azlin/y"), None);
+    assert_eq!(Protected::in_key("a/.gitmodules/b"), None);
+}
+
+/// X-DELTA-AZDRIVE-FILES-9 (and -1). A version-control name is protected whatever the entry: the
+/// LAST name of a key counts too, so a file or a link named `.git` (git follows its `gitdir:`
+/// line to a repository another participant syncs) and a folder the drive renames to `.GIT` are
+/// refused in every spelling. The old rule let the last name of a file key through as "an
+/// ordinary file" (a submodule's pointer); a pointer into the unsynced `.git/modules` is useless
+/// on another device anyway.
+#[test]
+fn x_delta_azdrive_files_9_a_version_control_name_is_protected_as_the_last_name_too() {
+    for name in GIT.iter().chain(HG).chain(SVN) {
+        let key = format!("proj/{name}");
+        assert_eq!(
+            Protected::in_key(&key),
+            Some((1, ProtectedKind::Vcs, *name)),
+            "{key:?}"
+        );
+        assert!(key_problem(&key).is_some(), "{key:?} as a file or link");
+        assert!(folder_problem(&key).is_some(), "{key:?} as a folder entry");
+        for policy in policies() {
+            assert!(
+                policy.admit(&key, Purpose::Sync).is_err(),
+                "{key:?} is admitted on {:?}",
+                policy.system
+            );
+            // The walk that makes a folder or a file refuses it before anything is made.
+            let tmp = TempDir::new("x-delta-files-9");
+            let tree = crate::beneath::Root::open(tmp.path()).unwrap();
+            assert!(
+                policy.walk(&tree, &key, Purpose::Sync, true).is_err(),
+                "{key:?}"
+            );
+            assert!(
+                !tmp.path().join("proj").exists(),
+                "a folder was made for {key:?}"
+            );
+        }
+    }
+    // The root's `.azlin` is refused as a last name as before, a user's own `x/.azlin` is not.
+    assert!(key_problem(".azlin").is_some());
+    assert_eq!(key_problem("x/.azlin"), None);
+    // What looks like a protected name and is not stays admitted, as a file and as a folder.
+    for key in [
+        "proj/.gitignore",
+        "proj/.gitmodules",
+        "proj/my.git",
+        "gits",
+        "proj/git~",
+    ] {
+        assert_eq!(key_problem(key), None, "{key:?}");
+        assert_eq!(folder_problem(key), None, "{key:?}");
+    }
 }
 
 /// Every system and every disk: the answer of a sync cannot wait for a probe of this disk.
@@ -196,7 +242,7 @@ fn az_w7_a_synced_key_under_a_protected_name_is_refused_in_every_spelling_on_eve
         "proj/.github/workflows/ci.yml",
         "my.git/x",
         "x/.azlin/y",
-        "proj/.git",
+        "proj/.gitmodules",
         "gits/readme.md",
         ".hgignore",
     ] {
