@@ -278,14 +278,12 @@ impl<'d> NamedFiles<'d> {
             };
             match self.drive.put_if(&key, &written.to_bytes(), &condition) {
                 Ok(etag) => {
-                    let etag = match etag {
-                        Some(etag) => bare(&etag),
-                        None => self
-                            .tag_now(record::RECORD_FILE)
-                            .ok()
-                            .flatten()
-                            .unwrap_or_default(),
-                    };
+                    // A write that named no tag is a record of unknown tag, never one whose tag
+                    // is looked up afterwards (AZ-S18): another device may have written the
+                    // record in between, and its tag taken for ours would serve our copy as the
+                    // drive's and let our next conditional write overwrite theirs. The next
+                    // read is a whole one.
+                    let etag = etag.map(|etag| bare(&etag)).unwrap_or_default();
                     let mut memo = lock(&self.memo);
                     memo.record = (!etag.is_empty()).then(|| (etag.clone(), written.clone()));
                     self.dirty.store(true, Ordering::SeqCst);

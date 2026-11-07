@@ -100,16 +100,13 @@ impl RemoteStore for DriveStore {
         };
         match self.drive.put_if(key, data, &condition) {
             Ok(Some(etag)) => Ok(Some(bare(&etag).to_string())),
-            // The drive did not say the new version's tag: ask it (an empty tag makes the
-            // next read a whole one).
-            Ok(None) => Ok(Some(
-                self.drive
-                    .head(key)
-                    .ok()
-                    .and_then(|info| info.etag)
-                    .map(|e| bare(&e).to_string())
-                    .unwrap_or_default(),
-            )),
+            // The write landed and the drive did not say the new version's tag. It is NOT asked
+            // for afterwards (AZ-S18): between the write and the question another device may have
+            // committed, and its tag taken for ours would make the next read answer "not
+            // modified" with our own cached index - and the next conditional write, matching
+            // that tag, overwrite the other device's commit. An empty tag matches nothing: the
+            // next read is a whole one and brings its own tag.
+            Ok(None) => Ok(Some(String::new())),
             Err(DriveError::Conflict { .. }) => Ok(None),
             Err(e) => Err(e.into()),
         }

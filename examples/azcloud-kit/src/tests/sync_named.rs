@@ -704,6 +704,142 @@ fn a_drive_as_a_store_writes_conditionally() {
     assert_eq!(store.list("").unwrap().len(), 1);
 }
 
+/// A drive whose conditional write lands but says nothing of the new version's tag, and whose
+/// object another device replaces right after it - before any question about the tag.
+struct SilentWrite {
+    inner: Arc<dyn Drive>,
+    s3: Arc<FakeS3>,
+    /// The tag of the other device's version, once it wrote.
+    rival: std::sync::Mutex<Option<String>>,
+}
+
+impl Drive for SilentWrite {
+    fn list(&self, request: &ListRequest) -> Result<ListPage, DriveError> {
+        self.inner.list(request)
+    }
+    fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
+        self.inner.get(key)
+    }
+    fn get_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, DriveError> {
+        self.inner.get_range(key, range)
+    }
+    fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
+        self.inner.put(key, bytes)
+    }
+    fn delete(&self, key: &str) -> Result<(), DriveError> {
+        self.inner.delete(key)
+    }
+    fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
+        self.inner.head(key)
+    }
+    fn put_if(
+        &self,
+        key: &str,
+        bytes: &[u8],
+        condition: &Precondition,
+    ) -> Result<Option<String>, DriveError> {
+        self.inner.put_if(key, bytes, condition)?;
+        let tag = self.s3.write(key, b"the other device's commit".to_vec());
+        *self.rival.lock().unwrap() = Some(tag.trim_matches('"').to_string());
+        Ok(None)
+    }
+}
+
+/// AZ-S18 (RED not run: the old code asked the drive for the tag after the write, got the other
+/// device's, and handed it on as the new version's - the `assert_ne!` fails with the two equal).
+#[test]
+fn az_s18_a_write_that_names_no_tag_never_takes_another_devices_tag_as_its_own() {
+    let s3 = FakeS3::new();
+    let drive = Arc::new(SilentWrite {
+        inner: s3_drive(&s3),
+        s3: s3.clone(),
+        rival: std::sync::Mutex::new(None),
+    });
+    let store = DriveStore::new(drive.clone());
+    let ours = store
+        .put_if("index.json", b"mine", None)
+        .unwrap()
+        .expect("the write landed");
+    let rival = drive
+        .rival
+        .lock()
+        .unwrap()
+        .clone()
+        .expect("another device wrote right after");
+    assert_ne!(ours, rival, "the other device's tag is not ours");
+    // Asked with the tag it handed out, the drive's whole object comes - the other device's
+    // commit, never our cached copy served as "not modified".
+    match store.get_unless("index.json", Some(&ours)).unwrap() {
+        Conditional::Found { body, .. } => assert_eq!(body, b"the other device's commit"),
+        other => panic!("a whole read was expected: {other:?}"),
+    }
+}
+
+/// A drive that answers the conditional write of a folder's record without the new version's tag
+/// and with another device's record already in its place (the other writes of this drive are
+/// the inner drive's).
+struct SilentRecord {
+    inner: Arc<dyn Drive>,
+    s3: Arc<FakeS3>,
+}
+
+impl Drive for SilentRecord {
+    fn list(&self, request: &ListRequest) -> Result<ListPage, DriveError> {
+        self.inner.list(request)
+    }
+    fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
+        self.inner.get(key)
+    }
+    fn get_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, DriveError> {
+        self.inner.get_range(key, range)
+    }
+    fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
+        self.inner.put(key, bytes)
+    }
+    fn delete(&self, key: &str) -> Result<(), DriveError> {
+        self.inner.delete(key)
+    }
+    fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
+        self.inner.head(key)
+    }
+    fn put_if(
+        &self,
+        key: &str,
+        bytes: &[u8],
+        condition: &Precondition,
+    ) -> Result<Option<String>, DriveError> {
+        let tag = self.inner.put_if(key, bytes, condition)?;
+        if key.ends_with("record.json") {
+            self.s3.write(key, b"{}".to_vec());
+            return Ok(None);
+        }
+        Ok(tag)
+    }
+}
+
+/// AZ-S18, the second compare-and-swap: the folder's record of a drive synced by name (RED not
+/// run: the old code asked the drive for the record's tag after the write, got the other
+/// device's, and kept it with OUR record in the memo - so the next read answered with our copy as
+/// the drive's, and the next conditional write matched and overwrote theirs).
+#[test]
+fn az_s18_a_folder_record_written_without_a_tag_is_not_kept_under_another_devices_tag() {
+    let s3 = FakeS3::new();
+    let drive = SilentRecord {
+        inner: s3_drive(&s3),
+        s3: s3.clone(),
+    };
+    let a = Device::new("dev-a");
+    a.write("a.txt", b"alpha");
+    a.sync(&drive);
+    let memo: serde_json::Value =
+        serde_json::from_slice(&fs::read(a.state.path().join("index.named.json")).unwrap())
+            .unwrap();
+    assert!(
+        memo.get("record").is_none(),
+        "no record is kept under a tag the write did not name: {memo}"
+    );
+}
+
 #[test]
 fn the_plain_sync_runs_through_a_drive() {
     let s3 = FakeS3::new();
