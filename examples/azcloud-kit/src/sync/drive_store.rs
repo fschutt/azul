@@ -20,7 +20,9 @@ use std::{
 use azul_storage::{
     checked::{CheckedUpload, FileCheck},
     ctl::Quiet,
-    ops, transfer, ByteRange, Drive, DriveError, ListPage, ListRequest, ObjectInfo, Precondition,
+    limits::named::SYNC_OBJECT_CEILING,
+    ops, transfer, ByteRange, Drive, DriveError, Limit, ListPage, ListRequest, ObjectInfo,
+    Precondition,
 };
 
 use crate::{
@@ -65,7 +67,9 @@ impl RemoteStore for DriveStore {
                 return Ok(Conditional::NotModified);
             }
         }
-        match self.drive.get(key) {
+        // Within the size the HEAD just said (X-DELTA-AZDRIVE-KEYS-43).
+        let limit = Limit::as_the_head_said("a synced object", info.size, SYNC_OBJECT_CEILING);
+        match self.drive.get_limited(key, limit) {
             Ok(body) => Ok(Conditional::Found {
                 body,
                 etag: now.map(str::to_string),
@@ -75,8 +79,13 @@ impl RemoteStore for DriveStore {
         }
     }
 
-    fn fetch(&self, key: &str, _size: u64) -> CloudResult<Option<Vec<u8>>> {
-        match self.drive.get(key) {
+    fn fetch(&self, key: &str, size: u64) -> CloudResult<Option<Vec<u8>>> {
+        // A blob is named by its content: it is the size the index names, or it is not the blob
+        // (X-DELTA-AZDRIVE-KEYS-43).
+        match self
+            .drive
+            .get_limited(key, Limit::new("a synced file", size))
+        {
             Ok(bytes) => Ok(Some(bytes)),
             Err(DriveError::NotFound { .. }) => Ok(None),
             Err(e) => Err(e.into()),
@@ -244,6 +253,12 @@ impl Drive for Stoppable<'_> {
     fn get_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, DriveError> {
         self.alive()?;
         self.inner.get_range(key, range)
+    }
+
+    // The inner drive's guard stands: a drive that wraps another forwards the limit.
+    fn get_limited(&self, key: &str, limit: Limit) -> Result<Vec<u8>, DriveError> {
+        self.alive()?;
+        self.inner.get_limited(key, limit)
     }
 
     fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {

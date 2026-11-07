@@ -1120,6 +1120,10 @@ impl DatabaseDrive {
     }
 }
 
+// `get_limited` is the trait's default (the read, then the length): a file of this drive is MADE
+// here, from rows read under the caps of the listing ([`tables::MAX_ROW_FILES`], the CSV's
+// `csv_max_bytes`), so the read is bounded by construction and a size asked first would build the
+// file twice (X-DELTA-AZDRIVE-KEYS-43).
 impl Drive for DatabaseDrive {
     fn list(&self, request: &ListRequest) -> Result<ListPage, DriveError> {
         runtime::block_on(self.list_now(request))?

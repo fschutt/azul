@@ -38,8 +38,8 @@ use std::{
 };
 
 use azul_storage::{
-    ops, BatchDelete, BatchMove, BatchPut, BatchStream, Drive, DriveError, Precondition,
-    CONTENT_HASH_METADATA, SMALL_FILE_BYTES,
+    limits::named::SYNC_OBJECT_CEILING, ops, BatchDelete, BatchMove, BatchPut, BatchStream, Drive,
+    DriveError, Limit, Precondition, CONTENT_HASH_METADATA, SMALL_FILE_BYTES,
 };
 use serde::{Deserialize, Serialize};
 
@@ -228,8 +228,11 @@ impl<'d> NamedFiles<'d> {
             return Ok((RemoteIndex::empty(), None));
         }
         let key = self.full(record::RECORD_FILE);
-        let tag = match self.drive.head(&key) {
-            Ok(info) => info.etag.as_deref().map(bare).unwrap_or_default(),
+        let (tag, size) = match self.drive.head(&key) {
+            Ok(info) => (
+                info.etag.as_deref().map(bare).unwrap_or_default(),
+                info.size,
+            ),
             Err(DriveError::NotFound { .. }) => return Ok((RemoteIndex::empty(), None)),
             Err(DriveError::InvalidKey { .. }) => {
                 self.without_record(memo);
@@ -248,7 +251,10 @@ impl<'d> NamedFiles<'d> {
                 return Ok((cached.clone(), Some(tag)));
             }
         }
-        let bytes = match self.drive.get(&key) {
+        // Within the size the HEAD just said: a storage that streams on is refused on the way in, not
+        // after the memory is full (X-DELTA-AZDRIVE-KEYS-43).
+        let limit = Limit::as_the_head_said("the folder's record", size, SYNC_OBJECT_CEILING);
+        let bytes = match self.drive.get_limited(&key, limit) {
             Ok(bytes) => bytes,
             Err(DriveError::NotFound { .. }) => return Ok((RemoteIndex::empty(), None)),
             Err(e) => return Err(e.into()),

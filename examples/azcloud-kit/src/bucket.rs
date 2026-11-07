@@ -31,8 +31,8 @@ use azul_storage::{
     ctl::Quiet,
     multipart::in_parallel,
     s3::{parse_listing, Idempotency},
-    transfer, ByteRange, Credentials, Ctl, DriveError, HttpReply, ListPage, Method, ObjectInfo,
-    S3Config, S3Drive,
+    transfer, ByteRange, Credentials, Ctl, DriveError, HttpReply, Limit, ListPage, Method,
+    ObjectInfo, S3Config, S3Drive,
 };
 
 use crate::{
@@ -415,11 +415,16 @@ impl Bucket {
     }
 
     /// GET of an object that may be big: a HEAD first, then ranges of the part size, several
-    /// at once; `None` when there is no such object.
-    pub fn get_big(&self, key: &str) -> CloudResult<Option<Vec<u8>>> {
+    /// at once; `None` when there is no such object. `size` is what the caller knows of the
+    /// object (the index's number): a HEAD that says more is not that object, and no request, range
+    /// list or buffer is sized from a length the server wrote (X-DELTA-AZDRIVE-KEYS-43).
+    pub fn get_big(&self, key: &str, size: u64) -> CloudResult<Option<Vec<u8>>> {
         let Some((len, _)) = self.head(key)? else {
             return Ok(None);
         };
+        Limit::new("an object the caller knows the size of", size)
+            .check_object(key, len)
+            .map_err(DriveError::from)?;
         let part = self.part_size as u64;
         if len <= part {
             return self.get(key);
@@ -451,7 +456,8 @@ impl Bucket {
                 _ => Err(Self::failure(&reply, key)),
             }
         })?;
-        let mut out = Vec::with_capacity(usize::try_from(len).unwrap_or(0));
+        // What came, not what the HEAD said: the buffer is made from the parts that are here.
+        let mut out = Vec::with_capacity(parts.iter().map(Vec::len).sum());
         for ((start, end), bytes) in ranges.iter().zip(parts) {
             if bytes.len() as u64 != end - start + 1 {
                 return Err(CloudError::Drive(DriveError::Protocol(format!(
@@ -541,7 +547,7 @@ impl RemoteStore for Bucket {
 
     fn fetch(&self, key: &str, size: u64) -> CloudResult<Option<Vec<u8>>> {
         if size > BIG_BLOB {
-            self.get_big(key)
+            self.get_big(key, size)
         } else {
             self.get(key)
         }

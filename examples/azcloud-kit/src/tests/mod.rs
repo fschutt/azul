@@ -9,6 +9,8 @@ mod answers;
 /// A locked drive's way back: its status, the proof, a device's key.
 mod archive;
 mod ban;
+/// Objects whose size is known are asked for within it (the sync's blobs, records and index, the vault).
+mod bounded_reads;
 mod bucket;
 /// Many files at once: folders deleted and moved, batch deletes and moves.
 mod bulk;

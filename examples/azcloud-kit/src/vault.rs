@@ -670,7 +670,7 @@ mod in_drive {
             DriveKey, KeyId, ObjectId,
         },
         keyring::KeyringStore,
-        Drive, DriveError, Precondition,
+        Drive, DriveError, Limit, Precondition,
     };
 
     use super::{TokenVault, VaultState};
@@ -749,6 +749,10 @@ mod in_drive {
     /// How often a write that lost to another device's is read, joined and tried again.
     const RACES: usize = 8;
 
+    /// The most the vault's object may weigh when its HEAD said nothing: its state is a few
+    /// hundred bytes a month a drive has been paid for.
+    const VAULT_CEILING: u64 = 16 << 20;
+
     impl DriveVault {
         /// The vault's object in the bucket, among the drive's own (`.azlin/`).
         pub const KEY: &'static str = ".azlin/period/v1";
@@ -770,17 +774,24 @@ mod in_drive {
         /// next write puts it under the current key, whether or not it has anything new.
         fn fetch(&self) -> CloudResult<(VaultState, Option<String>, bool)> {
             let bucket = &self.drive.bucket;
-            let etag = match bucket.head(Self::KEY) {
+            let (etag, size) = match bucket.head(Self::KEY) {
                 // a write is only ever conditional on the version read
-                Ok(info) => info.etag.ok_or_else(|| {
-                    CloudError::failed("the bucket names no entity tag of the drive's period vault")
-                })?,
+                Ok(info) => (
+                    info.etag.ok_or_else(|| {
+                        CloudError::failed(
+                            "the bucket names no entity tag of the drive's period vault",
+                        )
+                    })?,
+                    info.size,
+                ),
                 Err(DriveError::NotFound { .. }) => {
                     return Ok((VaultState::default(), None, false))
                 }
                 Err(e) => return Err(e.into()),
             };
-            let bytes = match bucket.get(Self::KEY) {
+            // Within the size the HEAD just said: the bucket is not trusted to stop (X-DELTA-AZDRIVE-KEYS-43).
+            let limit = Limit::as_the_head_said("the drive's period vault", size, VAULT_CEILING);
+            let bytes = match bucket.get_limited(Self::KEY, limit) {
                 Ok(bytes) => bytes,
                 // deleted in between: the next write makes it again
                 Err(DriveError::NotFound { .. }) => {

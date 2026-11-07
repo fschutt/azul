@@ -862,3 +862,33 @@ fn the_plain_sync_runs_through_a_drive() {
     assert_eq!(s3.count("GET"), 0, "{:?}", s3.log.lock().unwrap());
     assert_eq!(s3.count("PUT"), 0);
 }
+
+/// X-DELTA-AZDRIVE-KEYS-43: the folder's record was read with a plain `get` after a HEAD that had
+/// just said how big it is. It is read within that size now: a storage that streams on is refused
+/// on its way in.
+#[test]
+fn x_delta_azdrive_keys_43_the_folders_record_is_read_within_the_size_its_head_said() {
+    use super::bounded_reads::Reads;
+    const RECORD: &str = "Documents/.azlin/sync/record.json";
+    let reads = Arc::new(Reads::new());
+    let a = Device::new("dev-a");
+    let b = Device::new("dev-b");
+    a.write("notes/a.md", b"alpha");
+    let sent = a.sync(&*reads);
+    assert_eq!(sent.files_up, 1, "{}", sent.summary());
+    let size = reads.head(RECORD).expect("the record is there").size;
+
+    // device b's first run reads the record a wrote
+    b.sync(&*reads);
+    let limits = reads.limits_of(RECORD);
+    assert!(
+        limits.contains(&size),
+        "the record (a HEAD said {size} bytes) is read within its size: {limits:?}"
+    );
+    assert_eq!(
+        reads.plain_gets_of(RECORD),
+        0,
+        "never by a plain GET that takes whatever comes"
+    );
+    assert_eq!(b.read("notes/a.md").as_deref(), Some(&b"alpha"[..]));
+}

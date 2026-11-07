@@ -33,7 +33,7 @@ use ::opendal::{
 
 use crate::{
     config::SecretOptions, key, ops, runtime, scrub::scrub_url, ByteRange, Drive, DriveError,
-    HttpCall, HttpReply, ListPage, ListRequest, Method, ObjectInfo, Transport,
+    HttpCall, HttpReply, Limit, ListPage, ListRequest, Method, ObjectInfo, Transport,
 };
 
 /// How the message of the error a request without an answer becomes starts (DNS, connection,
@@ -615,6 +615,12 @@ impl Drive for OpendalDrive {
         runtime::block_on(async { self.op.read(key).await })?
             .map(|buffer| buffer.to_vec())
             .map_err(|e| drive_error(&e, key))
+    }
+
+    /// The service's SDK reads an object whole: its size is asked first (a stat reads nothing), so
+    /// an object over the limit is not started (X-DELTA-AZDRIVE-KEYS-43).
+    fn get_limited(&self, key: &str, limit: Limit) -> Result<Vec<u8>, DriveError> {
+        limit.get_after_looking(self, key)
     }
 
     fn get_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, DriveError> {

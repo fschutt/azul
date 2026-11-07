@@ -90,6 +90,42 @@ impl Limit {
             Err(e) => Err(e),
         }
     }
+
+    /// The limit for an object whose HEAD said `head_size`: that size - an answer past it is not the
+    /// object the HEAD saw (a storage that streams for ever, a body swapped for a bigger one) - or
+    /// `ceiling` when the HEAD said nothing (a missing Content-Length reads as 0) or more than that.
+    #[must_use]
+    pub const fn as_the_head_said(name: &'static str, head_size: u64, ceiling: u64) -> Limit {
+        Limit::new(
+            name,
+            if head_size == 0 || head_size > ceiling {
+                ceiling
+            } else {
+                head_size
+            },
+        )
+    }
+
+    /// [`Drive::get_limited`] for a drive that cannot hand its transport the limit (a service's SDK,
+    /// a database): the size first - a stat reads no byte - and the object read only when it is
+    /// within the limit, its length checked once more after the read (it may have grown since).
+    /// A drive that cannot say the size leaves the read to decide, as it did.
+    ///
+    /// # Errors
+    ///
+    /// `NotFound` for no object, [`DriveError::Protocol`] for one over the limit, else the drive's own.
+    pub fn get_after_looking(self, drive: &dyn Drive, key: &str) -> Result<Vec<u8>, DriveError> {
+        match drive.head(key) {
+            Ok(info) => {
+                self.check_object(key, info.size)?;
+            }
+            Err(e @ DriveError::NotFound { .. }) => return Err(e),
+            Err(_) => {}
+        }
+        let bytes = drive.get(key)?;
+        self.check_object(key, bytes.len() as u64)?;
+        Ok(bytes)
+    }
 }
 
 /// A length past its [`Limit`].
@@ -292,6 +328,9 @@ pub mod named {
     pub const INDEX_OBJECT: Limit = Limit::new("an object of the drive index", 256 << 20);
     /// A share's manifest.
     pub const SHARE_MANIFEST: Limit = Limit::new("a share manifest", 16 << 20);
+    /// The most a sync record or a sync index may weigh when its HEAD said nothing: about 500 MB of
+    /// JSON for a folder of two million files, with room.
+    pub const SYNC_OBJECT_CEILING: u64 = 4 << 30;
     /// One chunk of an HTTP/1.1 answer: the largest body any answer of the nodes holds.
     pub const HTTP_CHUNK: Limit = Limit::new("a chunk of an answer", 256 << 20);
 }

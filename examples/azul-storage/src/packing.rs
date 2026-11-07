@@ -1207,9 +1207,9 @@ impl<D: Drive> EncryptedDrive<D> {
                 e => read_error(ReadError::Drive(e), path),
             });
         }
-        let whole = self
-            .inner
-            .get(&key)
+        // A pack is at most one chunk: a bigger answer is not the pack (X-DELTA-AZDRIVE-KEYS-43).
+        let whole = PACKED_LIMIT
+            .read_from(&self.inner, &key)
             .map_err(|e| read_error(ReadError::Drive(e), path))?;
         self.packs.counted.whole(whole.len());
         if whole.len() as u64 != pack.object_len {
@@ -1694,9 +1694,8 @@ impl<D: Drive> EncryptedDrive<D> {
             let file_key = self
                 .unwrap_file_key(&wrapped, &pack.id)
                 .map_err(|e| e.for_key(first_path))?;
-            let bytes = self
-                .inner
-                .get(&pack.id.bucket_key())
+            let bytes = PACKED_LIMIT
+                .read_from(&self.inner, &pack.id.bucket_key())
                 .map_err(|e| read_error(ReadError::Drive(e), first_path))?;
             let body = Zeroizing::new(
                 azl1::decrypt_expecting(&bytes, &pack.id, &file_key, Some(pack.plaintext_size))

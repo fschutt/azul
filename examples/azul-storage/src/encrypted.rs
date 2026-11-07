@@ -2575,9 +2575,11 @@ impl<D: Drive> Drive for EncryptedDrive<D> {
         let file_key = self
             .unwrap_file_key(&object.wrapped_key, &object.id)
             .map_err(|e| e.for_key(key))?;
-        let bytes = self
-            .inner
-            .get(&object.id.bucket_key())
+        // The object is asked for within the size the index names: a bucket that answers with more
+        // (a storage that streams for ever) is refused on its way in and not after it filled the
+        // memory (X-DELTA-AZDRIVE-KEYS-43).
+        let bytes = Limit::new("an object the index names", object.stored_size)
+            .read_from(&self.inner, &object.id.bucket_key())
             .map_err(|e| read_error(ReadError::Drive(e), key))?;
         // The index's sizes against the object's before a segment is opened or any memory is
         // reserved for the plaintext: the header's sizes are a writer's word.

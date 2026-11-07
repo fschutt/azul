@@ -944,13 +944,14 @@ impl CloudDrive {
         self.bucket.get(key)
     }
 
-    /// GET with ranges, several at once, for a big object (a HEAD first).
+    /// GET with ranges, several at once, for a big object (a HEAD first); `size` is what the
+    /// caller knows of the object: a HEAD that says more is refused.
     ///
     /// # Errors
     ///
-    /// The service's refusal, or no endpoint answers.
-    pub fn get_big(&self, key: &str) -> CloudResult<Option<Vec<u8>>> {
-        self.bucket.get_big(key)
+    /// The service's refusal, a HEAD past `size`, or no endpoint answers.
+    pub fn get_big(&self, key: &str, size: u64) -> CloudResult<Option<Vec<u8>>> {
+        self.bucket.get_big(key, size)
     }
 
     /// PUT of what `body` reads, streamed (a big body in parts); the ETag. Each part goes
@@ -1033,7 +1034,7 @@ impl RemoteStore for CloudDrive {
 
     fn fetch(&self, key: &str, size: u64) -> CloudResult<Option<Vec<u8>>> {
         if size > BIG_BLOB {
-            self.get_big(key)
+            self.get_big(key, size)
         } else {
             self.get(key)
         }

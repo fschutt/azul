@@ -3,6 +3,10 @@
 
 /// Reads and writes that never go through a link out of the root.
 mod beneath;
+/// Objects whose size the index names are asked for within it (feature `encryption`: the encrypted
+/// drive's reads).
+#[cfg(feature = "encryption")]
+mod bounded_reads;
 /// What a probe could not answer: the free space of a disk is a `Cap`, never a number for unknown.
 mod cap;
 mod catalog;

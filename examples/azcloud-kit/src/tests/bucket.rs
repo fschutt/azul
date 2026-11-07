@@ -57,6 +57,30 @@ fn a_bucket_has_one_winner_per_etag_like_the_real_one() {
     );
 }
 
+/// X-DELTA-AZDRIVE-KEYS-43 (AZ-M5): `get_big` sized its range list and its buffer from the HEAD's
+/// Content-Length, whatever the caller knew of the object. A HEAD that says more than the size the
+/// caller holds (the index's number) is not that object: refused after the HEAD, before a range.
+#[test]
+fn x_delta_azdrive_keys_43_get_big_refuses_an_object_bigger_than_the_caller_knows_before_a_range_is_asked(
+) {
+    let s3 = FakeS3::new();
+    let mut bucket = s3.bucket();
+    bucket.set_part_size(4);
+    let data: Vec<u8> = (0..23u8).collect();
+    bucket.put("big.bin", &data).unwrap();
+    s3.clear_log();
+    let err = bucket.get_big("big.bin", 10).unwrap_err();
+    assert!(err.to_string().contains("at most 10 bytes"), "{err}");
+    assert_eq!(s3.count("HEAD"), 1);
+    assert_eq!(
+        s3.count("GET"),
+        0,
+        "no range is asked for an object the index does not describe"
+    );
+    // the size the caller names is the size it gets
+    assert_eq!(bucket.get_big("big.bin", 23).unwrap().unwrap(), data);
+}
+
 #[test]
 fn a_big_object_goes_up_in_parts_and_comes_down_in_ranges() {
     let s3 = FakeS3::new();
@@ -74,10 +98,10 @@ fn a_big_object_goes_up_in_parts_and_comes_down_in_ranges() {
     );
     assert_eq!(s3.count("PUT"), 6, "23 bytes in parts of 4");
     s3.clear_log();
-    assert_eq!(bucket.get_big("big.bin").unwrap().unwrap(), data);
+    assert_eq!(bucket.get_big("big.bin", 23).unwrap().unwrap(), data);
     assert_eq!(s3.count("HEAD"), 1);
     assert_eq!(s3.count("GET"), 6, "six ranges");
-    assert_eq!(bucket.get_big("nothing").unwrap(), None);
+    assert_eq!(bucket.get_big("nothing", 23).unwrap(), None);
     let small = vec![1u8, 2, 3];
     bucket.put("small.bin", &small).unwrap();
     assert_eq!(
