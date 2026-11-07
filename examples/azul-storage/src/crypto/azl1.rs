@@ -38,7 +38,13 @@
 //! ```
 //!
 //! What the bucket shows of an object is its length and the public header: no name, no
-//! plaintext size, no hash of the plaintext (they are sealed in the info).
+//! plaintext size, no hash of the plaintext (they are sealed in the info). The length is not the
+//! plaintext size: compression happens before encryption, so it says how well the file
+//! compressed, and a ranged read asks the bucket for the sealed length of every segment it
+//! covers - which segments are read, and how well each compressed. That is what compression costs
+//! in privacy, per file and never across files (every file is compressed alone, under a key of
+//! its own). Nothing pads it away: a segment padded to the size it would have uncompressed is a
+//! stored one, and the saving is what compression is for (AZ-C9).
 //!
 //! Version 2 holds a file that went through a whole-file transform of azlin-compress (Lepton
 //! for a JPEG, the rebuilt deflate streams of a PDF, Office, ZIP, PNG or gzip file): its

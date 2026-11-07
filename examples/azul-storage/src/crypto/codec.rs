@@ -14,7 +14,10 @@
 //!   file again with [`Compression::Idle`]: the same steps with the highest levels.
 //!
 //! Compression happens before encryption, so a segment's stored size says how well it
-//! compressed: what an observer of the bucket learns about a file beyond its rough size.
+//! compressed: what an observer of the bucket learns about a file beyond its rough size - from
+//! the object's length, and from every ranged read, which asks for the sealed length of each
+//! segment it covers (AZ-C9). There is no padding option: padded to the size it would have
+//! uncompressed, a segment is a stored one.
 
 use azlin_compress::{
     detect,

@@ -313,6 +313,46 @@ fn a_ranged_read_reads_the_header_the_tail_and_only_the_segments_it_covers() {
     assert_eq!(source.reads().len(), 4);
 }
 
+/// AZ-C9: the format's documents said the bucket learns "its rough size", and left out that a
+/// ranged read tells the bucket the sealed length of every segment it covers. What the bucket sees
+/// of a compressed object is pinned here, so a change that shows more (or the document that stops
+/// being true) is noticed: two files of one size, one that compresses to a sliver and one that
+/// does not, differ in length by the compression; a ranged read asks for exactly the sealed bytes
+/// of the segment it covers, which are far fewer than the segment's plaintext.
+#[test]
+fn az_c9_the_bucket_sees_the_length_of_an_object_and_the_sealed_length_of_each_segment_read() {
+    let drive = drive_key();
+    let size = 3 * MIB;
+    let (flat, flat_summary) =
+        encrypt(&text(size), new_id(), &drive, &WriteOptions::default()).unwrap();
+    let (noisy, _) = encrypt(&noise(size), new_id(), &drive, &WriteOptions::default()).unwrap();
+    assert!(
+        flat.len() * 10 < noisy.len(),
+        "the same plaintext size, a different object length: {} and {}",
+        flat.len(),
+        noisy.len()
+    );
+
+    let object_id = PublicHeader::parse(&flat).unwrap().object_id;
+    let source = Counted::new(flat);
+    let opened =
+        OpenObject::open(&source, &object_id, &file_key_of(&drive, &flat_summary)).unwrap();
+    let before = source.reads().len();
+    opened.read_range(&source, 10, 20).unwrap();
+    let reads = source.reads();
+    assert_eq!(reads.len(), before + 1, "one read, for the one segment");
+    assert_eq!(
+        reads[before],
+        opened.segment_span(0),
+        "exactly its sealed bytes"
+    );
+    assert!(
+        opened.segment_span(0).1 < u64::from(DEFAULT_SEGMENT_SIZE) / 10,
+        "a sealed segment of compressible text is a fraction of the {} bytes it holds",
+        DEFAULT_SEGMENT_SIZE
+    );
+}
+
 #[test]
 fn a_range_past_the_end_reads_nothing_and_an_end_past_it_is_clamped() {
     let drive = drive_key();
