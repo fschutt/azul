@@ -17,7 +17,10 @@ use azul_css::AzString;
 
 use azul_core::keyring::KeyringNamespace;
 
-use super::{answer_in, answer_with, service_of, Backend, Prompts};
+use super::{
+    answer_in, answer_with, blob_refusal, has_nul, service_of, Backend, Prompts,
+    CREDENTIAL_BLOB_MAX,
+};
 
 /// The namespace the tests' entries live in (an app's own id).
 const TEST_SERVICE: &str = "org.example.KeyringTest";
@@ -453,4 +456,67 @@ fn the_keyring_offers_quiet_ops_in_a_namespace() {
     let delete: fn(KeyringNamespace, AzString) -> KeyringResult =
         super::Keyring::delete_quietly_in;
     let _ = (get, store, delete);
+}
+
+/// AZ-W16: libsecret took the secret `a\0b` through a C string and kept "" (`unwrap_or_default`), a
+/// key with a NUL looked up another entry. Every backend refuses a NUL the same way now, so what
+/// works on one computer does not become nothing on another.
+#[test]
+fn az_w16_a_key_or_secret_with_a_nul_is_an_error_on_every_backend_and_is_never_kept_as_nothing() {
+    let file = keyring_file("nul");
+    for backend in [Backend::Memory, Backend::File(file.clone())] {
+        let key = unique("nul");
+        assert_eq!(
+            answer_in(TEST_SERVICE, &store(&key, "a\0b"), &backend),
+            KeyringResult::Error,
+            "a secret with a NUL"
+        );
+        assert_eq!(
+            answer_in(TEST_SERVICE, &get(&key), &backend),
+            KeyringResult::NotFound,
+            "and nothing was kept, not even an empty one"
+        );
+        for request in [store("bad\0key", "s"), get("bad\0key"), delete("bad\0key")] {
+            assert_eq!(
+                answer_in(TEST_SERVICE, &request, &backend),
+                KeyringResult::Error,
+                "a key with a NUL: {request:?}"
+            );
+        }
+        assert_eq!(
+            answer_in("service\0name", &store(&key, "s"), &backend),
+            KeyringResult::Error,
+            "a service with a NUL"
+        );
+        // The control: text without a NUL, an empty secret, and the quiet way are as before.
+        assert_eq!(
+            answer_in(TEST_SERVICE, &store(&key, "plain"), &backend),
+            KeyringResult::Stored
+        );
+        assert_eq!(
+            answer_with(TEST_SERVICE, &get(&key), &backend, Prompts::Never),
+            KeyringResult::Retrieved(AzString::from("plain"))
+        );
+        assert_eq!(
+            answer_with(TEST_SERVICE, &store(&key, "a\0b"), &backend, Prompts::Never),
+            KeyringResult::Error,
+            "quiet or not"
+        );
+    }
+    // The predicate itself.
+    assert!(has_nul("s", &store("k", "a\0")));
+    assert!(!has_nul("s", &store("k", "")));
+    assert!(!has_nul("s", &get("k")));
+}
+
+/// AZ-W16: `CredWriteW` refuses a blob over 2560 bytes with a bare error; the sentence says both
+/// sizes, and the limit is the Credential Manager's (the callers' lists are bounded by it).
+#[test]
+fn az_w16_a_secret_over_what_one_credential_holds_is_refused_with_both_sizes() {
+    assert_eq!(CREDENTIAL_BLOB_MAX, 5 * 512);
+    assert_eq!(blob_refusal(0), None);
+    assert_eq!(blob_refusal(CREDENTIAL_BLOB_MAX), None, "exactly the most fits");
+    let over = blob_refusal(CREDENTIAL_BLOB_MAX + 1).expect("one byte too many");
+    assert!(over.contains("2560") && over.contains("2561"), "{over}");
+    assert!(blob_refusal(100_000).expect("far too many").contains("100000"));
 }

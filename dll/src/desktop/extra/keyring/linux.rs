@@ -185,9 +185,15 @@ pub(super) fn handle(service: &str, req: &KeyringRequest) -> KeyringResult {
     let sch = schema(&service_c);
     match req {
         KeyringRequest::Store { key, secret, .. } => {
-            let key_c = CString::new(key.as_str()).unwrap_or_default();
-            let label = CString::new(format!("{service}:{}", key.as_str())).unwrap_or_default();
-            let pw = CString::new(secret.as_str()).unwrap_or_default();
+            // A NUL ends a C string: `answer_with` refuses one first; this is the last line of
+            // that, so a secret is never stored as "".
+            let (Ok(key_c), Ok(label), Ok(pw)) = (
+                CString::new(key.as_str()),
+                CString::new(format!("{service}:{}", key.as_str())),
+                CString::new(secret.as_str()),
+            ) else {
+                return KeyringResult::Error;
+            };
             unsafe {
                 let ht = lib.attrs(&key_c);
                 let mut err: *mut GError = ptr::null_mut();
@@ -213,7 +219,9 @@ pub(super) fn handle(service: &str, req: &KeyringRequest) -> KeyringResult {
             }
         }
         KeyringRequest::Get { key } => {
-            let key_c = CString::new(key.as_str()).unwrap_or_default();
+            let Ok(key_c) = CString::new(key.as_str()) else {
+                return KeyringResult::Error;
+            };
             unsafe {
                 let ht = lib.attrs(&key_c);
                 let mut err: *mut GError = ptr::null_mut();
@@ -232,7 +240,9 @@ pub(super) fn handle(service: &str, req: &KeyringRequest) -> KeyringResult {
             }
         }
         KeyringRequest::Delete { key } => {
-            let key_c = CString::new(key.as_str()).unwrap_or_default();
+            let Ok(key_c) = CString::new(key.as_str()) else {
+                return KeyringResult::Error;
+            };
             unsafe {
                 let ht = lib.attrs(&key_c);
                 let mut err: *mut GError = ptr::null_mut();

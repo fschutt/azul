@@ -339,6 +339,10 @@ pub(crate) fn answer_with(
     backend: &Backend,
     prompts: Prompts,
 ) -> KeyringResult {
+    // The same on every system: libsecret kept a secret with a NUL as "" (a C string ends there).
+    if has_nul(service, req) {
+        return KeyringResult::Error;
+    }
     let run = || {
         if service != KeyringNamespace::LEGACY_SERVICE && namespaces_apply(backend) {
             fold_legacy(service, key_of(req), backend, prompts);
@@ -355,6 +359,32 @@ pub(crate) fn answer_with(
 /// own storage, which no other app reads: there is nothing to move.
 fn namespaces_apply(backend: &Backend) -> bool {
     !(cfg!(target_os = "android") && *backend == Backend::Platform)
+}
+
+/// Whether the service, the key or the secret of `req` holds a NUL. Keys and secrets are text; a C
+/// string ends at a NUL, so a backend built on them would store and look up something other than
+/// what was named (AZ-W16: libsecret kept the secret `a\0b` as the empty one). Refused alike on every
+/// system and every stand-in, so a secret that works on one computer does not become nothing on another.
+pub(crate) fn has_nul(service: &str, req: &KeyringRequest) -> bool {
+    service.contains('\0')
+        || key_of(req).as_str().contains('\0')
+        || matches!(req, KeyringRequest::Store { secret, .. } if secret.as_str().contains('\0'))
+}
+
+/// The most one Windows Credential Manager entry holds: `CRED_MAX_CREDENTIAL_BLOB_SIZE`, 5 * 512 bytes.
+pub(crate) const CREDENTIAL_BLOB_MAX: usize = 2560;
+
+/// Why a secret of `len` bytes cannot be kept in one Credential Manager entry; `None` when it fits.
+/// `CredWriteW` refuses a longer blob with an error the keyring reports as a bare "error"; the
+/// sentence says what the size was and what the most is (AZ-W16). The callers keep their entries under
+/// the limit (a list of pending checkouts is bounded by it); nothing is split over several entries.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+pub(crate) fn blob_refusal(len: usize) -> Option<String> {
+    (len > CREDENTIAL_BLOB_MAX).then(|| {
+        format!(
+            "a Credential Manager entry holds at most {CREDENTIAL_BLOB_MAX} bytes; this secret has {len}"
+        )
+    })
 }
 
 fn key_of(req: &KeyringRequest) -> &AzString {

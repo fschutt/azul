@@ -34,7 +34,16 @@ pub(super) fn handle(service: &str, req: &KeyringRequest) -> KeyringResult {
         KeyringRequest::Store { key, secret, .. } => {
             match store(service, key.as_str(), secret.as_str().as_bytes()) {
                 Ok(()) => KeyringResult::Stored,
-                Err(_) => KeyringResult::Error,
+                Err(e) => {
+                    // Not the secret: the name of the entry and why (a secret over what one entry
+                    // holds is told with both sizes).
+                    crate::plog_warn!(
+                        "[keyring] storing \"{}\" in the Credential Manager failed: {}",
+                        key.as_str(),
+                        e
+                    );
+                    KeyringResult::Error
+                }
             }
         }
         KeyringRequest::Get { key } => match read(service, key.as_str()) {
@@ -62,13 +71,17 @@ fn target_of(service: &str, key: &str) -> Vec<u16> {
 }
 
 fn store(service: &str, key: &str, secret: &[u8]) -> io::Result<()> {
+    // CredWriteW refuses a longer blob with an error nobody can read; say what is wrong (AZ-W16).
+    if let Some(why) = super::blob_refusal(secret.len()) {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, why));
+    }
     let advapi32 = advapi32()?;
     let mut target_w = target_of(service, key);
     let mut user_w: Vec<u16> = service.encode_utf16().chain(std::iter::once(0)).collect();
     let mut cred: CREDENTIALW = unsafe { std::mem::zeroed() };
     cred.Type = CRED_TYPE_GENERIC;
     cred.TargetName = target_w.as_mut_ptr();
-    cred.CredentialBlobSize = secret.len() as DWORD; // <= CRED_MAX_CREDENTIAL_BLOB_SIZE (2560)
+    cred.CredentialBlobSize = secret.len() as DWORD; // <= CREDENTIAL_BLOB_MAX, checked above
     cred.CredentialBlob = secret.as_ptr() as LPBYTE;
     cred.Persist = CRED_PERSIST_LOCAL_MACHINE;
     cred.UserName = user_w.as_mut_ptr(); // must be non-empty for generic creds
