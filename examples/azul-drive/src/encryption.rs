@@ -89,7 +89,7 @@ use azul_storage::{
     rotation::{self, reencrypt_pass, ReencryptState},
     time::now_unix,
     trust::RestoreKind,
-    Drive,
+    Drive, LocalDrive,
 };
 
 use crate::{
@@ -1580,6 +1580,7 @@ pub(crate) fn encrypt_new_drive(
             drive_id: drive_id.to_string(),
             auto,
             new_drive: true,
+            before: None,
         }),
     );
 }
@@ -2130,6 +2131,16 @@ extern "C" fn on_encrypt(mut data: RefAny, mut info: CallbackInfo) -> Update {
             title: t("azdrive-enc-encrypting-title"),
             text: t("azdrive-enc-encrypting"),
         }));
+        // A drive that holds files: the mark that they still have to move is saved by the job
+        // itself before it makes the key.
+        let before = s.settings_drive.clone().map(|drive| {
+            mark_files_will_move_first(
+                drive,
+                s.settings_base.clone(),
+                s.settings.clone(),
+                &drive_id,
+            )
+        });
         spawn(
             info,
             app,
@@ -2138,6 +2149,7 @@ extern "C" fn on_encrypt(mut data: RefAny, mut info: CallbackInfo) -> Update {
                 drive_id,
                 auto,
                 new_drive: false,
+                before,
             }),
         );
     })
@@ -2298,6 +2310,28 @@ extern "C" fn on_unlock(mut data: RefAny, mut info: CallbackInfo) -> Update {
 
 // ==== The jobs ====
 
+/// Work a job does on its own thread BEFORE its first irreversible step: a write of the
+/// settings that the step's effect depends on, so that it is on disk before the effect exists
+/// (X-DELTA-AZDRIVE-KEYS-20). An error stops the job with nothing done.
+pub(crate) type Before = Box<dyn FnOnce() -> Result<(), String> + Send>;
+
+/// The write that puts the mark "this drive's plaintext files still have to move into the
+/// encryption" on disk: `mine` (the window's settings) with the mark set, saved by a merge
+/// against `start` as every save of the settings is. The mark used to be set by the outcome
+/// handler of the setup, after the key was made: a kill in between left an encrypted drive with no
+/// mark, no journal and its plaintext files in the bucket, invisible in the encrypted view. A
+/// mark that turns out stale is harmless: the resume looks at encrypted drives only and the
+/// move's end clears it.
+fn mark_files_will_move_first(
+    drive: LocalDrive,
+    start: crate::model::Settings,
+    mut mine: crate::model::Settings,
+    drive_id: &str,
+) -> Before {
+    state_mut(&mut mine.recovery.drives, drive_id).files_will_move();
+    Box::new(move || crate::save_settings_merged(&drive, &start, &mine).map_err(|e| e.to_string()))
+}
+
 /// One blocking encryption task.
 pub(crate) enum EncryptionJob {
     /// The drive's keys and the recovery code (`new_drive`: as part of the drive's making).
@@ -2305,6 +2339,8 @@ pub(crate) enum EncryptionJob {
         drive_id: String,
         auto: Arc<AutoEncrypted>,
         new_drive: bool,
+        /// Done after the checks and before the key is made (see [`Before`]).
+        before: Option<Before>,
     },
     /// The recovery code opens the drive's key on this computer.
     Recover {
@@ -2567,6 +2603,7 @@ pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
             drive_id,
             auto,
             new_drive,
+            before,
         } => {
             let result = (|| -> Result<Zeroizing<String>, String> {
                 if index_provider().is_none() {
@@ -2582,6 +2619,11 @@ pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
                     && !device::setup_pending(&keyring, auto.drive()).map_err(|e| e.to_string())?
                 {
                     return Err(String::from(ENCRYPTED_ELSEWHERE));
+                }
+                // Recorded before it is done: the mark that the files still have to move is on
+                // disk before the key exists (X-DELTA-AZDRIVE-KEYS-20).
+                if let Some(before) = before {
+                    before()?;
                 }
                 let kdf = RecoveryKdf::fresh().map_err(|e| e.to_string())?;
                 let (_, code) =
@@ -5377,5 +5419,117 @@ mod tests {
             assert!(kept.is_none(), "{why:?}");
             assert_eq!(taken, Some(why));
         }
+    }
+
+    /// X-DELTA-AZDRIVE-KEYS-20: "Encrypt this drive" on a drive that holds files saves the mark
+    /// "the files still have to move" BEFORE the key exists. The job's own first step does it
+    /// (`before`), through the real `run`: here it records whether the drive had a key, or a key
+    /// file in its bucket, at that moment - the old order set the mark in the outcome handler
+    /// after the key was made, and a kill in between left an encrypted drive that nothing moved
+    /// the files into.
+    #[test]
+    fn x_delta_azdrive_keys_20_the_mark_is_on_disk_before_the_setup_makes_its_key() {
+        use azul_storage::meta::MemoryBucket;
+        let drive = "x-delta-keys-20-order";
+        let bucket = Arc::new(MemoryBucket::new());
+        let auto = Arc::new(AutoEncrypted::new(
+            bucket.clone(),
+            drive,
+            Arc::new(azlin_keyring(Asking::User)),
+            Some(Arc::new(MemoryProvider)),
+        ));
+        let seen: Arc<Mutex<Option<(bool, bool)>>> = Arc::new(Mutex::new(None));
+        let before: Before = {
+            let (seen, bucket) = (Arc::clone(&seen), Arc::clone(&bucket));
+            Box::new(move || {
+                let key = device::load_drive_key(&azlin_keyring(Asking::User), drive)
+                    .map_err(|e| e.to_string())?
+                    .is_some();
+                let files = device::is_encrypted(bucket.as_ref()).map_err(|e| e.to_string())?;
+                *seen.lock().unwrap() = Some((key, files));
+                Ok(())
+            })
+        };
+        let outcome = run(EncryptionJob::SetUp {
+            drive_id: drive.to_string(),
+            auto,
+            new_drive: false,
+            before: Some(before),
+        });
+        assert!(
+            matches!(outcome, EncryptionOutcome::SetUp { result: Ok(_), .. }),
+            "the setup went through"
+        );
+        assert_eq!(
+            *seen.lock().unwrap(),
+            Some((false, false)),
+            "when the mark was saved there was no key in the keyring and no key file in the bucket"
+        );
+        assert!(
+            device::load_drive_key(&azlin_keyring(Asking::User), drive)
+                .unwrap()
+                .is_some(),
+            "and then the key was made"
+        );
+    }
+
+    /// X-DELTA-AZDRIVE-KEYS-20: a mark that cannot be saved stops the setup with nothing done - no
+    /// key in the keyring, nothing in the bucket (the mark vouches for the effect, so the effect
+    /// does not happen without it).
+    #[test]
+    fn x_delta_azdrive_keys_20_a_mark_that_cannot_be_saved_stops_the_setup_before_the_key() {
+        use azul_storage::meta::MemoryBucket;
+        let drive = "x-delta-keys-20-refused";
+        let bucket = Arc::new(MemoryBucket::new());
+        let auto = Arc::new(AutoEncrypted::new(
+            bucket.clone(),
+            drive,
+            Arc::new(azlin_keyring(Asking::User)),
+            Some(Arc::new(MemoryProvider)),
+        ));
+        let before: Before =
+            Box::new(|| Err(String::from("the settings folder cannot be written")));
+        let outcome = run(EncryptionJob::SetUp {
+            drive_id: drive.to_string(),
+            auto,
+            new_drive: false,
+            before: Some(before),
+        });
+        match outcome {
+            EncryptionOutcome::SetUp {
+                result: Err(why), ..
+            } => assert!(why.contains("cannot be written"), "{why}"),
+            _ => panic!("a mark that is not on disk is an error"),
+        }
+        assert!(
+            device::load_drive_key(&azlin_keyring(Asking::User), drive)
+                .unwrap()
+                .is_none(),
+            "no key was made"
+        );
+        assert!(
+            !device::is_encrypted(bucket.as_ref()).unwrap(),
+            "nothing reached the bucket"
+        );
+    }
+
+    /// X-DELTA-AZDRIVE-KEYS-20: what the job's first step writes is the window's settings with the
+    /// drive's mark, in the settings file - and the resume finds the move due from it.
+    #[test]
+    fn x_delta_azdrive_keys_20_the_first_step_writes_the_settings_with_the_mark() {
+        use azul_storage::testing::TempDir;
+        let dir = TempDir::new("mark-first");
+        let drive = LocalDrive::new(dir.path().to_path_buf());
+        let start = crate::model::Settings::default();
+        let before = mark_files_will_move_first(drive, start.clone(), start, "d_1");
+        before().unwrap();
+        let text = std::fs::read_to_string(dir.path().join(crate::SETTINGS_KEY)).unwrap();
+        let saved = crate::model::Settings::parse(&text).expect("a settings file");
+        let marked = state_of(&saved.recovery.drives, "d_1").is_some_and(|state| state.moves_files);
+        assert!(marked, "the mark is in the file");
+        assert!(
+            move_is_due(marked, None),
+            "and the resume finds the files due to move"
+        );
     }
 }
