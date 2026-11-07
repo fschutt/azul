@@ -1739,6 +1739,7 @@ azdrive-add-picked-up = Abgeholt. AzDrive fragt jetzt nach dem Laufwerk, dann ei
 azdrive-add-claim-not-kept = Der Abholcode wurde nicht gespeichert: { $why }
 azdrive-add-months-not-fetched = Die bezahlten Monate der Bestellung { $checkout } konnten nicht abgerufen werden: { $why }.
 azdrive-add-checkout-unfinished = Die Bestellung { $checkout } konnte in der Liste des Schlüsselbunds nicht abgeschlossen werden ({ $why }); AzDrive fragt beim nächsten Start erneut danach.
+azdrive-receipt-not-kept = Der Beleg Ihrer Zahlung konnte auf diesem Computer nicht gespeichert werden: { $why }. Das Laufwerk gehört Ihnen trotzdem. Bewahren Sie die Bestätigung Ihrer Zahlung auf.
 azdrive-add-options-failed = Die Zahlungsoptionen konnten nicht geladen werden: { $why }
 azdrive-add-options-failed-short = Die Zahlungsoptionen sind noch nicht da. Versuche es erneut.
 azdrive-add-options-missing = Der Token-Server hat keine Zahlungsoptionen geantwortet. Versuche es gleich noch einmal.

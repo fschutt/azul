@@ -1741,6 +1741,7 @@ azdrive-add-picked-up = Picked up. AzDrive asks for the drive now, then once a d
 azdrive-add-claim-not-kept = The claim code was not kept: { $why }
 azdrive-add-months-not-fetched = The paid months of the checkout { $checkout } could not be fetched: { $why }.
 azdrive-add-checkout-unfinished = The checkout { $checkout } could not be finished in the keyring's list ({ $why }); AzDrive asks about it again at its next start.
+azdrive-receipt-not-kept = The receipt of your payment could not be saved on this computer: { $why }. The drive is yours all the same. Keep the confirmation of your payment.
 azdrive-add-options-failed = The payment options could not be loaded: { $why }
 azdrive-add-options-failed-short = The payment options are not here yet. Try again.
 azdrive-add-options-missing = The token server answered no payment options. Try again in a moment.

@@ -22,7 +22,7 @@ use super::{
 use crate::{
     bundle::PeriodTokens,
     claim::seal,
-    pending::{self, Final, Finished, PendingCheckout, Polled},
+    pending::{self, Final, Finished, PendingCheckout, Polled, Recorded},
     period::{change_due, issue_next, reminder_due, Issued, PeriodToken, PeriodTokenStore, TierChanged},
     token::{CheckoutFor, TokenServer},
     vault::VaultGrant,
@@ -62,8 +62,13 @@ fn a_renewal_signup_is_claimed_as_months_for_its_drive() {
     let transport = Shared(fake);
     let server = TokenServer::new(TOKEN, &transport).unwrap();
     match pending::poll(&server, &shared, &ck) {
-        Polled::Final(Final::Renewed { drive_id, months }) => {
+        Polled::Final(Final::Renewed {
+            drive_id,
+            months,
+            record,
+        }) => {
             assert_eq!((drive_id.as_str(), months), ("d_1", 3));
+            assert_eq!(record, Recorded::Kept, "and the sale is recorded");
         }
         other => panic!("the renewal was not claimed: {other:?}"),
     }
@@ -83,6 +88,59 @@ fn a_renewal_signup_is_claimed_as_months_for_its_drive() {
     let transport = Shared(fake);
     let server = TokenServer::new(TOKEN, &transport).unwrap();
     assert!(matches!(pending::poll(&server, &shared, &other), Polled::Transient(_)));
+}
+
+/// X-DELTA-AZDRIVE-MONEY-2 (ENT27-B06): the months of a renewal are claimed whether or not the
+/// record of the payment can be kept - the poll claims them first, then records the sale, and
+/// says in the answer when it could not (`Recorded::NotKept`). Before, the record came first and
+/// a list that could not be written answered `NotKept` at every poll: the renewal sat on the
+/// list until the token server purged its sealed sign-up.
+#[test]
+fn x_delta_azdrive_money_2_the_months_of_a_renewal_are_claimed_whether_or_not_the_record_is_kept() {
+    let dir = TempDir::new("azcloud-renewal");
+    let shared = keyring_with_session(&dir, "dt_f.3.newest");
+    let claim = ClaimKey::generate().unwrap();
+    let mut ck = PendingCheckout::new("ck_2", &claim, "100GB", TOKEN, "");
+    ck.for_drive = String::from("d_1");
+    pending::add(&shared, &ck).unwrap();
+    // A file where the folder of the paid list should be.
+    let folder = shared
+        .paid()
+        .unwrap()
+        .path()
+        .parent()
+        .unwrap()
+        .to_path_buf();
+    std::fs::create_dir_all(folder.parent().unwrap()).unwrap();
+    std::fs::write(&folder, b"in the way").unwrap();
+    let signup = serde_json::json!({
+        "renewal_of": "ck_1", "grant": "period_tokens", "tier": "100GB",
+        "period_tokens": {"checkout_id": "ck_2", "months": 3, "issue_key": ISSUE_KEY},
+    });
+    let sealed = seal(
+        &claim.public_base64(),
+        "ck_2",
+        signup.to_string().as_bytes(),
+    );
+    let fake = Fake::new(move |_, _| Ok(approved("ck_2", sealed.clone())));
+    let transport = Shared(fake);
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    match pending::poll(&server, &shared, &ck) {
+        Polled::Final(Final::Renewed {
+            drive_id,
+            months,
+            record,
+        }) => {
+            assert_eq!((drive_id.as_str(), months), ("d_1", 3));
+            assert!(record.not_kept().is_some(), "the app is told: {record:?}");
+        }
+        other => panic!("held back by its record: {other:?}"),
+    }
+    let owed = pending::list(&shared).unwrap()[0]
+        .period
+        .clone()
+        .expect("its months wait for the drive");
+    assert_eq!((owed.drive_id.as_str(), owed.months), ("d_1", 3));
 }
 
 /// AD-02: every finished checkout is its drive's price lock (its id, its issue key, its ladder

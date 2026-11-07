@@ -23,7 +23,7 @@ use std::{
 };
 
 use azcloud_kit::{
-    pending::{self, Abandoned, Claimed, Final, Finished, PendingTokens, Polled},
+    pending::{self, Abandoned, Claimed, Final, Finished, PendingTokens, Polled, Recorded},
     change_due, look_at_drive, reminder_due, ActivationCode, Checkout, CheckoutFor, CheckoutVia,
     ClaimKey, CloudError, DriveBundle, DriveTokens, GrantChanged, OptionsQuery, PendingCheckout,
     PeriodTokenStore, PeriodTokens, Quote, SharedKeyring, TierChanged, Tiers, TokenError,
@@ -850,12 +850,14 @@ pub(crate) enum Outcome {
         /// The tier list of the looks' token server.
         news: Option<azcloud_kit::TierNews>,
     },
-    /// A renewal's (or a tier change's) months were claimed for the drive `drive_id`.
+    /// A renewal's (or a tier change's) months were claimed for the drive `drive_id`; `record`:
+    /// what became of the record of the payment (the months came first).
     Renewed {
         serial: Option<u64>,
         checkout_id: String,
         drive_id: String,
         months: u32,
+        record: Recorded,
     },
     PlanCancelled { drive_id: String, result: Result<(), String> },
     /// A proof of a locked drive answered (its Azlin id), with the checkout it named.
@@ -3002,12 +3004,17 @@ fn await_payment(
                     claimed,
                 }
             }
-            Polled::Final(Final::Renewed { drive_id, months }) => {
+            Polled::Final(Final::Renewed {
+                drive_id,
+                months,
+                record,
+            }) => {
                 return Outcome::Renewed {
                     serial: Some(serial),
                     checkout_id: checkout.checkout_id.clone(),
                     drive_id,
                     months,
+                    record,
                 }
             }
             Polled::Final(end) => {
@@ -3175,13 +3182,18 @@ fn claim_pending(
                     );
                 }
                 // Its months wait with it for the drive: the next round finishes it.
-                Polled::Final(Final::Renewed { drive_id, months }) => send(
+                Polled::Final(Final::Renewed {
+                    drive_id,
+                    months,
+                    record,
+                }) => send(
                     sender,
                     Outcome::Renewed {
                         serial: None,
                         checkout_id: checkout.checkout_id.clone(),
                         drive_id,
                         months,
+                        record,
                     },
                 ),
                 Polled::Final(end) => send(
@@ -3357,7 +3369,11 @@ fn renewal_seen(
 /// rather than today's list price (X-AR5b-20).
 fn lock_paid(keyring: &SharedKeyring, checkout_id: &str) -> Option<crate::renewals::LockPaid> {
     // collapse-ok: a paid list that cannot be read shows no price; the order is still held to what the token server charges
-    let record = keyring.paid().of_checkout(checkout_id).ok().flatten()?;
+    let record = keyring
+        .paid()
+        .and_then(|list| list.of_checkout(checkout_id))
+        .ok()
+        .flatten()?;
     Some(crate::renewals::LockPaid {
         months: record.months,
         price: record.charge()?,
@@ -3409,12 +3425,9 @@ fn finish_checkout(
     let Some(grant) = grant else {
         return outcome(Ok(None));
     };
-    let owed = PendingTokens {
-        drive_id: drive_id.to_string(),
-        months: grant.months,
-        issue_key: grant.issue_key.clone(),
-        recurring: grant.recurring,
-    };
+    // What the issue needs; the moments of its wait for the drive's vault are the list's
+    // ([`pending::claimed`] stamped them, [`pending::finish`] reads them there).
+    let owed = PendingTokens::of(grant, drive_id, 0);
     let transport = AzulTransport::new(USER_AGENT);
     let finished = match (TokenServer::new(token_url, &transport), drive_tokens(store, drive_id, azlin)) {
         (Ok(server), Ok(tokens)) => {

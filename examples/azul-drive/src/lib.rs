@@ -3312,7 +3312,17 @@ pub(crate) extern "C" fn on_job_done(
             checkout_id,
             drive_id,
             months,
-        } => add_flow::renewed(&mut info, &handle, s, serial, &checkout_id, &drive_id, months),
+            record,
+        } => add_flow::renewed(
+            &mut info,
+            &handle,
+            s,
+            serial,
+            &checkout_id,
+            &drive_id,
+            months,
+            &record,
+        ),
         Outcome::PlanCancelled { drive_id, result } => {
             renewals::plan_cancelled(s, &drive_id, result);
         }

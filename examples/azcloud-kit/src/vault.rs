@@ -352,12 +352,16 @@ pub trait TokenVault: Send + Sync {
 
 /// The vault on this computer: `<dir>/<drive id>.json`, readable by this user only (a file of an
 /// older version holds its tokens only, and reads as them). Changed under a lock of its own, so
-/// two windows lose none of each other's changes.
+/// two windows lose none of each other's changes. When its file is gone or does not read, the
+/// second copy beside it ([`LocalVault::second_copy`]) is what it holds, and the next change
+/// writes it back.
 #[derive(Debug, Clone)]
 pub struct LocalVault {
     path: PathBuf,
     dir: PathBuf,
     drive_id: String,
+    /// This is the second copy of a vault, which has no copy of its own.
+    is_copy: bool,
 }
 
 /// How long a change waits for another window's change of the same file.
@@ -371,6 +375,7 @@ impl LocalVault {
             path,
             dir: dir.to_path_buf(),
             drive_id: drive_id.to_string(),
+            is_copy: false,
         }
     }
 
@@ -386,10 +391,16 @@ impl LocalVault {
     #[must_use]
     pub fn second_copy(&self) -> LocalVault {
         LocalVault {
-            path: self.dir.join(format!("{}.copy.json", self.drive_id)),
+            path: self.copy_path(),
             dir: self.dir.clone(),
             drive_id: self.drive_id.clone(),
+            is_copy: true,
         }
+    }
+
+    /// The file of the second copy.
+    fn copy_path(&self) -> PathBuf {
+        self.dir.join(format!("{}.copy.json", self.drive_id))
     }
 
     /// The folder of the locks a change of the vaults is made under, `<dir>/locks`.
@@ -408,20 +419,38 @@ impl LocalVault {
         ]
     }
 
-    fn read_file(&self) -> CloudResult<VaultState> {
-        Ok(read_json::<VaultState>(&self.path)?.unwrap_or_default())
+    /// What the vault holds, and whether it is the second copy that says so: the file when it
+    /// reads; else - the file gone, or cut, or damaged - the second copy beside it, when that
+    /// reads (the vault only grows, so a copy that is older lacks what a newer file held and
+    /// holds nothing else). A file that does not read and has no copy that does is an error,
+    /// never an empty vault; and a missing file with a copy that does not read is one too.
+    fn read_file(&self) -> CloudResult<(VaultState, bool)> {
+        let first = read_json::<VaultState>(&self.path);
+        if let Ok(Some(state)) = first {
+            return Ok((state, false));
+        }
+        if self.is_copy {
+            return first.map(|state| (state.unwrap_or_default(), false));
+        }
+        match read_json::<VaultState>(&self.copy_path()) {
+            Ok(Some(copy)) => Ok((copy, true)),
+            Ok(None) => first.map(|state| (state.unwrap_or_default(), false)),
+            Err(copy_error) => first.and(Err(copy_error)),
+        }
     }
 }
 
 impl TokenVault for LocalVault {
     fn read(&self) -> CloudResult<VaultState> {
-        self.read_file()
+        self.read_file().map(|(state, _)| state)
     }
 
     fn join(&self, change: &VaultState) -> CloudResult<VaultState> {
         let _lock = self.locks().lock(&self.drive_id, LOCAL_WAIT)?;
-        let mut state = self.read_file()?;
-        if state.holds(change) && state.format == VAULT_FORMAT {
+        let (mut state, from_copy) = self.read_file()?;
+        // What came from the copy is written to the file whether or not the change adds to it:
+        // the file heals with the next change.
+        if !from_copy && state.holds(change) && state.format == VAULT_FORMAT {
             return Ok(state);
         }
         state.join(change);

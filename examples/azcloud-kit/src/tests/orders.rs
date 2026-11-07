@@ -184,6 +184,8 @@ fn az_p4_only_an_open_order_of_the_same_intent_is_in_the_way() {
             months: 3,
             issue_key: String::from("k"),
             recurring: false,
+            claimed_at: 0,
+            counted_at: 0,
         })
     });
     let claim = ClaimKey::generate().unwrap();

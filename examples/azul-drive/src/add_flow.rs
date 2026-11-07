@@ -38,7 +38,7 @@ use std::sync::{
 };
 
 use azcloud_kit::{
-    pending::{Abandoned, Claimed, Finished},
+    pending::{Abandoned, Claimed, Finished, Recorded},
     PendingCheckout, Tiers,
 };
 use azul::{
@@ -1803,6 +1803,7 @@ pub(crate) fn claimed(
 ) {
     let drive_id = claimed.bundle.drive_id().to_string();
     println!("AZDRIVE_CLAIMED {} {drive_id}", checkout.checkout_id);
+    receipt_not_kept(s, &checkout.checkout_id, &claimed.record);
     // The first look at the drive (its status, a redemption) waits a random while: from the
     // buyer's address in this very second it would tie the payer to the drive (ENT27 n50).
     crate::periods::look_after_claim(s, &drive_id);
@@ -1870,9 +1871,32 @@ pub(crate) fn claimed(
     }
 }
 
+/// The sale of the checkout `checkout_id` could not be recorded in the paid list, when `record`
+/// says so: said once, with the drive (the months) delivered all the same - and the customer
+/// told to keep the confirmation of the payment, since the receipt AzDrive shows is made from
+/// that record.
+fn receipt_not_kept(s: &mut DriveState, checkout_id: &str, record: &Recorded) {
+    if let Some(text) = receipt_notice(checkout_id, record) {
+        s.warn(text);
+    }
+}
+
+/// What to say of `record`, the record of the checkout `checkout_id`'s payment: nothing when the
+/// sale is kept (or was not bought here), else that the receipt was not saved and why.
+pub(crate) fn receipt_notice(checkout_id: &str, record: &Recorded) -> Option<Text> {
+    let why = record.not_kept()?;
+    eprintln!("[azdrive] the receipt of the checkout {checkout_id} was not kept: {why}");
+    Some(
+        Phrase::new("azdrive-receipt-not-kept")
+            .arg("why", l10n::t_label(why))
+            .into(),
+    )
+}
+
 /// A renewal's (or a change of tier's) months were claimed for the drive `drive_id`: said, and
 /// a dialog that waited for them closes; the background claims keep their grant with the
 /// drive and issue the first month ([`azcloud_kit::pending::finish`]).
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn renewed(
     info: &mut CallbackInfo,
     app: &RefAny,
@@ -1881,8 +1905,10 @@ pub(crate) fn renewed(
     checkout_id: &str,
     drive_id: &str,
     months: u32,
+    record: &Recorded,
 ) {
     println!("AZDRIVE_RENEWED {checkout_id} {drive_id} {months}");
+    receipt_not_kept(s, checkout_id, record);
     crate::periods::look_after_claim(s, drive_id);
     s.in_flight.retain(|c| c.checkout_id != checkout_id);
     // a locked drive: the payment is named in a proof, so it counts at once

@@ -721,19 +721,36 @@ fn a_full_list_of_checkouts_still_has_room_for_each_ones_issue_key_after_its_cla
 
 // ==== RF51: evidence, not a guess (AZ-P1, AZ-P5, AZ-P6, X-AR5b-7) ====
 
-/// A claimed checkout `ck_1` on the list, started at `started_at`, with what its issue needs.
+/// A claimed checkout `ck_1` on the list, claimed at `claimed_at` (the list stamps the claim with
+/// this computer's clock; the test puts the moment it wants in its place), with what its issue
+/// needs.
 fn claimed_on_the_list(
     shared: &SharedKeyring,
-    started_at: i64,
+    claimed_at: i64,
 ) -> (PendingCheckout, pending::PendingTokens) {
     let claim = ClaimKey::generate().unwrap();
-    let mut ck = checkout("ck_1", &claim);
-    ck.started_at = started_at;
+    let ck = checkout("ck_1", &claim);
     pending::add(shared, &ck).unwrap();
     pending::claimed(shared, "ck_1", "d_1", Some(&grant(3))).unwrap();
+    restamp(shared, "ck_1", claimed_at, 0);
     let ck = pending::list(shared).unwrap().remove(0);
     let owed = ck.period.clone().expect("what the issue needs");
     (ck, owed)
+}
+
+/// The wait of the claimed checkout `id` as a test wants it: claimed at `claimed_at`, counted to
+/// `counted_at` (0: not yet).
+fn restamp(shared: &SharedKeyring, id: &str, claimed_at: i64, counted_at: i64) -> PendingCheckout {
+    let mut ck = pending::list(shared)
+        .unwrap()
+        .into_iter()
+        .find(|c| c.checkout_id == id)
+        .expect("on the list");
+    let period = ck.period.as_mut().expect("claimed");
+    period.claimed_at = claimed_at;
+    period.counted_at = counted_at;
+    pending::add(shared, &ck).unwrap();
+    ck
 }
 
 /// AZ-P1: the poll and the abandon end a checkout, and erase its claim secret, only on the
@@ -962,14 +979,22 @@ fn x_ar5b_7_a_drive_that_could_not_be_opened_says_why_and_its_grant_waits() {
 /// AZ-P5 / Q20: after thirty days - the sealed sign-up is purged at the token server by then -
 /// a drive that still has no vault gets a SECOND COPY of the grant on this computer, and only
 /// then the keyring lets go; the app is told that the months are on this computer only. One
-/// second short of it, the checkout still waits.
+/// second short of it, the checkout still waits. The thirty days count from the claim, in the
+/// time this computer saw pass.
 #[test]
 fn az_p5_after_thirty_days_without_a_vault_of_the_drive_a_second_copy_is_kept_and_the_checkout_goes(
 ) {
     let dir = TempDir::new("azcloud-pending");
     let (shared, _) = shared(&dir);
-    let started = i64::try_from(NOW).unwrap() - pending::GRANT_WAIT_SECS;
-    let (ck, owed) = claimed_on_the_list(&shared, started + 1);
+    let now = i64::try_from(NOW).unwrap();
+    // Claimed a second short of thirty days ago; the app counted the wait up to a minute ago.
+    let (ck, owed) = claimed_on_the_list(&shared, now - pending::GRANT_WAIT_SECS + 1);
+    restamp(
+        &shared,
+        "ck_1",
+        now - pending::GRANT_WAIT_SECS + 1,
+        now - 60,
+    );
     let fake = issuing_server(keys(), N1, D1, "100GB/2026");
     let transport = Shared(fake);
     let server = TokenServer::new(TOKEN, &transport).unwrap();
@@ -986,9 +1011,8 @@ fn az_p5_after_thirty_days_without_a_vault_of_the_drive_a_second_copy_is_kept_an
         !store.dir().join("d_1.copy.json").exists(),
         "no second copy yet"
     );
-    // The thirtieth day: the same checkout, started a second earlier.
-    let mut older = ck.clone();
-    older.started_at = started;
+    // The thirtieth day: claimed a second earlier.
+    let older = restamp(&shared, "ck_1", now - pending::GRANT_WAIT_SECS, now - 60);
     match pending::finish(&server, &shared, &store, &tokens, &older, &owed, NOW) {
         Finished::LocalOnly { drive_id, why, .. } => {
             assert_eq!(drive_id, "d_1");
@@ -1011,6 +1035,220 @@ fn az_p5_after_thirty_days_without_a_vault_of_the_drive_a_second_copy_is_kept_an
             .mode();
         assert_eq!(mode & 0o077, 0, "readable by this user only: {mode:o}");
     }
+}
+
+/// X-DELTA-AZDRIVE-MONEY-1 (AZ-P5): the thirty days for the drive's vault count from the CLAIM -
+/// the payment as this computer saw it - not from the order. A cash order is made on day 0 and
+/// its letter approved on day 45: its claim, the first `finish` after it, must answer `Waits`,
+/// keep the claim secret and the issue key in the keyring and write no second copy; the old
+/// code counted from `started_at`, found the order 45 days old and erased both at the first call
+/// while the sealed sign-up was zero days old. The claim stamps its moment; a round every five
+/// days then ends the wait on day thirty AFTER the claim, not before.
+#[test]
+fn x_delta_azdrive_money_1_a_cash_order_claimed_on_day_forty_five_waits_thirty_days_from_its_claim()
+{
+    let dir = TempDir::new("azcloud-pending");
+    let (shared, keyring) = shared(&dir);
+    let now = i64::try_from(NOW).unwrap();
+    let claim = ClaimKey::generate().unwrap();
+    let mut ck = checkout("ck_1", &claim);
+    ck.method = String::from("cash");
+    ck.started_at = now - 45 * 86_400;
+    pending::add(&shared, &ck).unwrap();
+    // The claim stamps this computer's clock - the moment of the payment's claim, not the order's.
+    let before = crate::now();
+    pending::claimed(&shared, "ck_1", "d_1", Some(&grant(3))).unwrap();
+    let after = crate::now();
+    let stamped = pending::list(&shared).unwrap().remove(0);
+    let at = stamped.period.as_ref().expect("claimed").claimed_at;
+    assert!((before..=after).contains(&at), "the claim moment: {at}");
+    // A claim made again keeps its first moment.
+    pending::claimed(&shared, "ck_1", "d_1", Some(&grant(3))).unwrap();
+    let again = pending::list(&shared).unwrap().remove(0);
+    assert_eq!(again.period.as_ref().map(|p| p.claimed_at), Some(at));
+    // The rounds below run on the tests' clock: the claim was made at NOW on it.
+    let ck = restamp(&shared, "ck_1", now, 0);
+    let owed = ck.period.clone().unwrap();
+    let fake = issuing_server(keys(), N1, D1, "100GB/2026");
+    let transport = Shared(fake);
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    let store = PeriodTokenStore::new(dir.path().join("period-tokens"));
+    let tokens = store.on_this_device("d_1").unwrap();
+    let day = 86_400_u64;
+    match pending::finish(&server, &shared, &store, &tokens, &ck, &owed, NOW) {
+        Finished::Waits { drive_id, .. } => assert_eq!(drive_id, "d_1"),
+        other => panic!("an order 45 days old is not a payment 30 days old: {other:?}"),
+    }
+    assert!(
+        !store.dir().join("d_1.copy.json").exists(),
+        "no second copy"
+    );
+    let listed = pending::list(&shared).unwrap();
+    assert_eq!(listed.len(), 1, "the checkout stays");
+    assert_eq!(
+        listed[0].claim_secret, ck.claim_secret,
+        "the claim secret stays"
+    );
+    let text = keyring.get(pending::PENDING_KEY).unwrap().unwrap();
+    assert!(text.contains(ISSUE_KEY), "the issue key stays: {text}");
+    // A round every five days from the claim: the wait is over on the thirtieth day, no sooner.
+    for round in 1..=5_u64 {
+        let outcome = pending::finish(
+            &server,
+            &shared,
+            &store,
+            &tokens,
+            &ck,
+            &owed,
+            NOW + round * 5 * day,
+        );
+        assert!(
+            matches!(outcome, Finished::Waits { .. }),
+            "day {}: {outcome:?}",
+            round * 5
+        );
+    }
+    match pending::finish(
+        &server,
+        &shared,
+        &store,
+        &tokens,
+        &ck,
+        &owed,
+        NOW + 30 * day,
+    ) {
+        Finished::LocalOnly { .. } => {}
+        other => panic!("day 30 after the claim: {other:?}"),
+    }
+    assert!(pending::list(&shared).unwrap().is_empty());
+}
+
+/// X-DELTA-AZDRIVE-MONEY-8 (AZ-P5): the local clock alone does not decide to erase the keyring's
+/// copy. A clock set forward by a year (a typed date, a reset battery, a resumed machine) counts
+/// a week of the wait, not a year: the claim secret and the issue key stay, round after round,
+/// until thirty days have been SEEN pass. The old code compared `started_at` with the clock and
+/// let go at the first round.
+#[test]
+fn x_delta_azdrive_money_8_a_clock_set_forward_does_not_end_the_wait() {
+    let dir = TempDir::new("azcloud-pending");
+    let (shared, _) = shared(&dir);
+    let now = i64::try_from(NOW).unwrap();
+    let (ck, owed) = claimed_on_the_list(&shared, now);
+    restamp(&shared, "ck_1", now, now);
+    let fake = issuing_server(keys(), N1, D1, "100GB/2026");
+    let transport = Shared(fake);
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    let store = PeriodTokenStore::new(dir.path().join("period-tokens"));
+    let tokens = store.on_this_device("d_1").unwrap();
+    let day = 86_400_u64;
+    let year_on = NOW + 400 * day;
+    for (what, at) in [
+        ("the clock reads a year ahead", year_on),
+        ("a minute later", year_on + 60),
+        (
+            "a week of seeing it go by, a week of the jump",
+            year_on + 7 * day,
+        ),
+        ("two weeks", year_on + 14 * day),
+        ("three weeks", year_on + 21 * day),
+    ] {
+        match pending::finish(&server, &shared, &store, &tokens, &ck, &owed, at) {
+            Finished::Waits { .. } => {}
+            other => panic!("{what}: the wait is not over: {other:?}"),
+        }
+    }
+    assert_eq!(
+        pending::list(&shared).unwrap().len(),
+        1,
+        "the keyring still holds it"
+    );
+    assert!(!store.dir().join("d_1.copy.json").exists());
+    // Thirty days seen pass since the jump's week: over.
+    match pending::finish(
+        &server,
+        &shared,
+        &store,
+        &tokens,
+        &ck,
+        &owed,
+        year_on + 28 * day,
+    ) {
+        Finished::LocalOnly { .. } => {}
+        other => panic!("five weeks seen: {other:?}"),
+    }
+}
+
+/// X-DELTA-AZDRIVE-MONEY-8: a clock that goes BACK counts nothing and costs nothing: the days
+/// seen pass before the step stay counted, the days after it count as they come.
+#[test]
+fn x_delta_azdrive_money_8_a_clock_set_back_neither_shortens_nor_lengthens_the_wait() {
+    let dir = TempDir::new("azcloud-pending");
+    let (shared, _) = shared(&dir);
+    let now = i64::try_from(NOW).unwrap();
+    let day = 86_400_u64;
+    // Twenty days seen pass already.
+    let (ck, owed) = claimed_on_the_list(&shared, now - 20 * 86_400);
+    restamp(&shared, "ck_1", now - 20 * 86_400, now);
+    let fake = issuing_server(keys(), N1, D1, "100GB/2026");
+    let transport = Shared(fake);
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    let store = PeriodTokenStore::new(dir.path().join("period-tokens"));
+    let tokens = store.on_this_device("d_1").unwrap();
+    // The clock steps back a hundred days: still twenty days counted, so ten more days wait.
+    let back = NOW - 100 * day;
+    for (at, over) in [
+        (back, false),
+        (back + 5 * day, false),
+        (back + 9 * day, false),
+        (back + 10 * day, true),
+    ] {
+        let outcome = pending::finish(&server, &shared, &store, &tokens, &ck, &owed, at);
+        assert_eq!(
+            matches!(outcome, Finished::LocalOnly { .. }),
+            over,
+            "{} days after the step back: {outcome:?}",
+            (at - back) / day
+        );
+        if !over {
+            assert!(matches!(outcome, Finished::Waits { .. }), "{outcome:?}");
+        }
+    }
+}
+
+/// X-DELTA-AZDRIVE-MONEY-8 (AZ-P5): the second copy of the grant is READ. After the keyring let
+/// go the copy is one of two files, and the vault's file damaged (a cut write, a disk error) or
+/// gone must not take the grant with it: the vault reads from the copy, and the next change
+/// writes the file whole again. A file and a copy that both do not read are an error, never an
+/// empty vault. The old code read the first file only, and `state()` failed with the copy lying
+/// beside it.
+#[test]
+fn x_delta_azdrive_money_8_the_second_copy_is_read_when_the_first_file_does_not() {
+    let dir = TempDir::new("azcloud-pending");
+    let store = PeriodTokenStore::new(dir.path().join("period-tokens"));
+    let tokens = store.on_this_device("d_1").unwrap();
+    tokens
+        .keep_grant(crate::vault::VaultGrant::new("ck_1", "100GB", 3, ISSUE_KEY))
+        .unwrap();
+    tokens.keep_second_copy().unwrap();
+    let first = store.path_of("d_1").unwrap();
+    // A cut file.
+    std::fs::write(&first, br#"{"tokens": [{"tier": "100GB", "ye"#).unwrap();
+    let state = tokens.state().expect("the copy reads");
+    assert!(
+        state.grant("ck_1").is_some(),
+        "the grant is not lost with the file"
+    );
+    // The next change writes the file whole again, with the grant and the change.
+    tokens.spend("00ff").unwrap();
+    let healed: VaultState = serde_json::from_slice(&std::fs::read(&first).unwrap()).unwrap();
+    assert!(healed.grant("ck_1").is_some() && healed.spent == ["00ff"]);
+    // A file that is gone.
+    std::fs::remove_file(&first).unwrap();
+    assert!(tokens.state().unwrap().grant("ck_1").is_some());
+    // Both damaged: an error, not an empty vault.
+    std::fs::write(&first, b"{ cut").unwrap();
+    std::fs::write(store.dir().join("d_1.copy.json"), b"{ cut").unwrap();
+    assert!(tokens.state().is_err());
 }
 
 /// AZ-P10: a token server that asks to wait (429 with `Retry-After`) is heard: the poll says how

@@ -182,3 +182,29 @@ fn ent27_b06_the_files_name_holds_only_the_orders_letters_and_digits() {
     odd.checkout = String::from("../../etc/passwd ck_9");
     assert_eq!(file_name(&odd), "Azlin receipt etcpasswdck_9.pdf");
 }
+
+/// X-DELTA-AZDRIVE-MONEY-2: when the sale could not be recorded the user is told - the reason in
+/// one sentence, as a phrase of the window's language - and when it was recorded, or was bought on
+/// another computer, nothing is said. (The paid drive is delivered either way: the poll's tests
+/// in azcloud-kit hold that.)
+#[test]
+fn x_delta_azdrive_money_2_the_user_is_told_when_the_receipt_was_not_kept_and_only_then() {
+    use azcloud_kit::pending::Recorded;
+
+    use crate::add_flow::receipt_notice;
+
+    assert!(receipt_notice("ck_1", &Recorded::Kept).is_none());
+    assert!(receipt_notice("ck_1", &Recorded::NotBoughtHere).is_none());
+    let told = receipt_notice(
+        "ck_1",
+        &Recorded::NotKept(String::from("the folder is read-only")),
+    )
+    .expect("the user is told");
+    assert_eq!(told.keys(), vec!["azdrive-receipt-not-kept"]);
+    let why = told
+        .phrase("azdrive-receipt-not-kept")
+        .and_then(|phrase| phrase.get("why"))
+        .map(ToString::to_string)
+        .unwrap_or_default();
+    assert!(why.contains("read-only"), "{why}");
+}

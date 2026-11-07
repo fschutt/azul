@@ -58,6 +58,10 @@ pub struct SharedKeyring {
     keyring: Arc<dyn KeyringStore>,
     namespace: KeyringNamespace,
     locks: LockDir,
+    /// The locks' folder is in the user's configuration folder (or beside a test stack's
+    /// keyring file), not in the temp folder a system without one falls back to: what must
+    /// outlast a run ([`SharedKeyring::paid`]) is kept in it only then.
+    durable: bool,
 }
 
 impl fmt::Debug for SharedKeyring {
@@ -82,12 +86,25 @@ fn namespace_folder(namespace: &KeyringNamespace) -> String {
 /// build ignores it, like libazul's keyring does).
 #[must_use]
 pub fn lock_folder(namespace: &KeyringNamespace) -> PathBuf {
+    let (keyring_file, config_dir) = lock_home();
+    lock_folder_for(keyring_file, config_dir, namespace)
+}
+
+/// Where this process looks for the locks' folder: a test stack's keyring file (a build with the
+/// cargo feature `test-hooks` only), the user's configuration folder.
+fn lock_home() -> (Option<std::ffi::OsString>, Option<PathBuf>) {
     let keyring_file = if cfg!(feature = "test-hooks") {
         std::env::var_os(KEYRING_FILE_VAR)
     } else {
         None
     };
-    lock_folder_for(keyring_file, azul_storage::lock::user_config_dir(), namespace)
+    (keyring_file, azul_storage::lock::user_config_dir())
+}
+
+/// Whether [`lock_folder_for`] finds a home of its own for these (a stand-in file, or a
+/// configuration folder) and does not fall back to the temp folder.
+fn has_home(keyring_file: Option<&std::ffi::OsString>, config_dir: Option<&PathBuf>) -> bool {
+    keyring_file.is_some_and(|v| !v.is_empty()) || config_dir.is_some()
 }
 
 /// [`lock_folder`] for the stand-in file `keyring_file` (if any) and the configuration folder
@@ -116,11 +133,14 @@ impl SharedKeyring {
     /// entries takes turns at the same locks.
     #[must_use]
     pub fn new(keyring: Arc<dyn KeyringStore>, namespace: KeyringNamespace) -> SharedKeyring {
-        let locks = LockDir::new(lock_folder(&namespace));
+        let (keyring_file, config_dir) = lock_home();
+        let durable = has_home(keyring_file.as_ref(), config_dir.as_ref());
+        let locks = LockDir::new(lock_folder_for(keyring_file, config_dir, &namespace));
         SharedKeyring {
             keyring,
             namespace,
             locks,
+            durable,
         }
     }
 
@@ -138,6 +158,23 @@ impl SharedKeyring {
             keyring,
             namespace,
             locks,
+            durable: true,
+        }
+    }
+
+    /// [`SharedKeyring::with_lock_root`] for a system that names no configuration folder: its
+    /// locks are in the temp folder `root` stands for, and what must outlast a run
+    /// ([`SharedKeyring::paid`]) has no place.
+    #[cfg(any(test, feature = "testing"))]
+    #[must_use]
+    pub fn with_temp_lock_root(
+        keyring: Arc<dyn KeyringStore>,
+        namespace: KeyringNamespace,
+        root: &std::path::Path,
+    ) -> SharedKeyring {
+        SharedKeyring {
+            durable: false,
+            ..SharedKeyring::with_lock_root(keyring, namespace, root)
         }
     }
 
@@ -169,9 +206,21 @@ impl SharedKeyring {
 
     /// What this user's computer paid for ([`crate::pending::PaidList`]): beside the open calls,
     /// in the folder every process of this user that spends the same credentials finds.
-    #[must_use]
-    pub fn paid(&self) -> crate::pending::PaidList {
-        crate::pending::PaidList::in_dir(&self.locks.path().join("paid"))
+    ///
+    /// # Errors
+    ///
+    /// The system knows no configuration folder, so the locks' folder is the temp folder's: a
+    /// receipt is for the customer to keep, and a list there would be gone with the next clean-up.
+    pub fn paid(&self) -> CloudResult<crate::pending::PaidList> {
+        if !self.durable {
+            return Err(CloudError::failed(
+                "this system names no configuration folder for the user, so the list of what this \
+                 computer paid for has no place to be kept",
+            ));
+        }
+        Ok(crate::pending::PaidList::in_dir(
+            &self.locks.path().join("paid"),
+        ))
     }
 
     /// Takes the lock of the entry `key`: one holder in every process of this user at a time.

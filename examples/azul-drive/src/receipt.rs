@@ -185,7 +185,7 @@ pub(crate) fn file_name(record: &PaidRecord) -> String {
 
 /// Opens the receipts of `drive_id`: what this computer paid for it, newest first.
 pub(crate) fn open(s: &mut DriveState, drive_id: &str) {
-    let (records, error) = match s.keyring.paid().records() {
+    let (records, error) = match s.keyring.paid().and_then(|list| list.records()) {
         Ok(all) => {
             let mut mine: Vec<PaidRecord> =
                 all.into_iter().filter(|r| r.drive == drive_id).collect();

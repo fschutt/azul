@@ -24,13 +24,14 @@
 //! An app polls them while its dialog waits, at every start and in the background after "Stop
 //! waiting" ([`poll`]): an approved checkout becomes the drive - its session goes into the
 //! keyring under the drive's lock unless the keyring has it already (idempotent by drive id: a
-//! session that rotated since is never replaced by the sign-up's spent token) - and the app
-//! tells the list once the drive is in its drives file ([`claimed`]): a checkout without period
-//! tokens is done then; a paid one stays, its claim secret and now its issue key with it, until
-//! [`finish`] has kept its period grant with the drive, where every device of it issues the
-//! months (AZDRIVE-INTEGRATION §4). What a poll
-//! found is [`Polled`]: an answer that ends the checkout ([`Final`], said by the one poll that
-//! took it off) or one that keeps it for the next poll ([`Transient`]).
+//! session that rotated since is never replaced by the sign-up's spent token) -, then the sale
+//! the token server booked is recorded in the paid list ([`PaidList`]; a record that cannot be
+//! kept never holds a paid drive back, [`Recorded`]). The app tells the list once the drive is in
+//! its drives file ([`claimed`]): a checkout without period tokens is done then; a paid one
+//! stays, its claim secret and now its issue key with it, until [`finish`] has kept its period
+//! grant with the drive, where every device of it issues the months (AZDRIVE-INTEGRATION §4).
+//! What a poll found is [`Polled`]: an answer that ends the checkout ([`Final`], said by the one
+//! poll that took it off) or one that keeps it for the next poll ([`Transient`]).
 //!
 //! Blocking (the keyring, the token server): call it from an azul `Thread`.
 
@@ -66,8 +67,8 @@ pub const PENDING_KEY: &str = "azcloud/checkouts";
 /// The `format` of its text.
 pub const PENDING_FORMAT: &str = "azcloud.checkouts";
 /// The most bytes the list's entry takes: Windows' Credential Manager keeps at most 2560 per
-/// credential (`CRED_MAX_CREDENTIAL_BLOB_SIZE`), the strictest of the keyrings - about ten
-/// checkouts.
+/// credential (`CRED_MAX_CREDENTIAL_BLOB_SIZE`), the strictest of the keyrings - about six
+/// checkouts with their room for the tokens each one is owed.
 pub const MAX_PENDING_BYTES: usize = 2560;
 /// What an entry's id starts with while its order is on its way (`posting-<claim key's digest>`):
 /// a word no checkout id of the token server (`ck_...`) starts with.
@@ -80,8 +81,9 @@ pub const POSTING_LIFE_SECS: i64 = 86_400;
 /// The longest drive name a checkout keeps, in characters.
 pub const MAX_NAME_CHARS: usize = 64;
 /// The room [`add`] leaves for each unclaimed checkout's [`PendingTokens`] (a drive id of up to
-/// 33 characters, the months, the issue key): its claim never overflows the entry.
-const PERIOD_ROOM: usize = 128;
+/// 33 characters, the months, the issue key, a monthly plan's mark and the two stamps of its wait
+/// for the drive's vault, 192 bytes in the worst case): its claim never overflows the entry.
+const PERIOD_ROOM: usize = 192;
 
 /// One unfinished checkout. `Debug` shows no claim secret.
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -212,7 +214,8 @@ impl fmt::Debug for PendingCheckout {
 
 /// A claimed checkout's period tokens not issued yet: which drive they are for, how many, and
 /// the issue key of its sealed sign-up (kept here: the sign-up is purged 30 days after the
-/// payment). `Debug` shows no key.
+/// payment), and how long this computer has waited for the drive's vault to take them. `Debug`
+/// shows no key.
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PendingTokens {
     pub drive_id: String,
@@ -221,6 +224,22 @@ pub struct PendingTokens {
     /// A monthly plan's: each payment adds a month.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub recurring: bool,
+    /// When this computer saw the payment and saved the drive, in seconds since 1970 (its
+    /// clock): the [`GRANT_WAIT_SECS`] for the drive's vault count from here, not from the
+    /// moment the order was made - a cash order is paid weeks after it was made. Moved forward
+    /// by a step of the clock that did not happen ([`PendingTokens::counted_at`]). 0: not
+    /// recorded (an entry from before this field; its wait starts at the next round).
+    #[serde(default, skip_serializing_if = "is_zero_stamp")]
+    pub claimed_at: i64,
+    /// The moment of this computer's clock the wait was last counted to, in seconds since 1970;
+    /// 0: not counted yet. A round adds the time since this moment to the wait, at most
+    /// [`WAIT_STEP_MAX_SECS`] of it ([`PendingTokens::counted_to`]).
+    #[serde(default, skip_serializing_if = "is_zero_stamp")]
+    pub counted_at: i64,
+}
+
+fn is_zero_stamp(n: &i64) -> bool {
+    *n == 0
 }
 
 impl fmt::Debug for PendingTokens {
@@ -230,11 +249,43 @@ impl fmt::Debug for PendingTokens {
             .field("months", &self.months)
             .field("issue_key", &"<hidden>")
             .field("recurring", &self.recurring)
+            .field("claimed_at", &self.claimed_at)
+            .field("counted_at", &self.counted_at)
             .finish()
     }
 }
 
+/// The most seconds of one step of this computer's clock that count towards the wait for the
+/// drive's vault: a week. An app opened once a week counts every day; a clock set forward by a
+/// month, a machine resumed after a year, count a week - the wait never ends on the strength of
+/// a step the clock made (AZ-P5: the wall clock alone decided to erase the claim secret).
+pub const WAIT_STEP_MAX_SECS: i64 = 7 * 86_400;
+
+/// How often a round writes what it counted into the list: an hour. A round that counts less
+/// leaves the list as it is.
+const WAIT_WRITE_EVERY_SECS: i64 = 3_600;
+
 impl PendingTokens {
+    /// This wait counted to `now` (seconds since 1970, this computer's clock): the claim moment
+    /// and the moment counted to as they stand after the round. A step of the clock - from the
+    /// last moment counted to (else the claim) to `now` - counts for itself up to
+    /// [`WAIT_STEP_MAX_SECS`]; what is more, and a step back, moves the claim moment along, so
+    /// `now - claimed_at` is the time this computer saw pass, not the time the clock says.
+    /// Not recorded yet: the wait starts at `now`.
+    fn counted_to(&self, now: i64) -> (i64, i64) {
+        if self.claimed_at <= 0 || now <= 0 {
+            return (now, now);
+        }
+        let from = if self.counted_at > 0 {
+            self.counted_at
+        } else {
+            self.claimed_at
+        };
+        let step = now.saturating_sub(from);
+        let credit = step.clamp(0, WAIT_STEP_MAX_SECS);
+        (self.claimed_at.saturating_add(step - credit), now)
+    }
+
     /// The grant of the checkout `checkout_id` these are the tokens of.
     #[must_use]
     pub fn grant(&self, checkout_id: &str) -> PeriodTokens {
@@ -243,6 +294,21 @@ impl PendingTokens {
             months: self.months,
             issue_key: self.issue_key.clone(),
             recurring: self.recurring,
+        }
+    }
+
+    /// The tokens `grant` of the drive `drive_id`, claimed at `claimed_at` (seconds since 1970,
+    /// this computer's clock; 0: not known, the wait for the drive's vault starts at its next
+    /// round).
+    #[must_use]
+    pub fn of(grant: &PeriodTokens, drive_id: &str, claimed_at: i64) -> PendingTokens {
+        PendingTokens {
+            drive_id: drive_id.trim().to_string(),
+            months: grant.months,
+            issue_key: grant.issue_key.trim().to_string(),
+            recurring: grant.recurring,
+            claimed_at,
+            counted_at: 0,
         }
     }
 }
@@ -879,6 +945,39 @@ pub fn abandon(server: &TokenServer<'_>, shared: &SharedKeyring, checkout_id: &s
     }
 }
 
+/// What became of the record of a payment ([`PaidList::keep`]), made after the drive (the months)
+/// was delivered: the record never holds a paid drive back, so the app is told when it was not
+/// kept and says so once.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Recorded {
+    /// The sale is in the paid list.
+    Kept,
+    /// Not kept, why (the list's folder cannot be written, it is a newer build's, this system
+    /// has no folder for it). The drive is the customer's all the same.
+    NotKept(String),
+    /// Nothing to keep: the drive was bought on another computer and picked up here with its
+    /// claim code - the buyer's receipt is the buyer's.
+    NotBoughtHere,
+}
+
+impl Recorded {
+    /// The sentence to say when the sale was not kept; `None` otherwise.
+    #[must_use]
+    pub fn not_kept(&self) -> Option<&str> {
+        match self {
+            Recorded::NotKept(why) => Some(why),
+            Recorded::Kept | Recorded::NotBoughtHere => None,
+        }
+    }
+
+    fn of(kept: CloudResult<()>) -> Recorded {
+        match kept {
+            Ok(()) => Recorded::Kept,
+            Err(e) => Recorded::NotKept(e.to_string()),
+        }
+    }
+}
+
 /// A paid checkout's drive, its session in the keyring. `Debug` shows no session.
 pub struct Claimed {
     /// The drive as the token server sealed it (its entry under the server's name).
@@ -888,6 +987,8 @@ pub struct Claimed {
     /// The keyring had the drive's session already (another window or an earlier start claimed
     /// it; it may have rotated since): it stayed as it was.
     pub already: bool,
+    /// What became of the record of the payment, made after the delivery.
+    pub record: Recorded,
 }
 
 impl fmt::Debug for Claimed {
@@ -896,6 +997,7 @@ impl fmt::Debug for Claimed {
             .field("bundle", &self.bundle)
             .field("session", &"<hidden>")
             .field("already", &self.already)
+            .field("record", &self.record)
             .finish()
     }
 }
@@ -920,8 +1022,13 @@ pub enum Final {
     /// ([`claimed`]).
     Claimed(Box<Claimed>),
     /// A renewal's (or a tier change's) months, claimed for the drive its checkout was made
-    /// for: they wait with it until [`finish`] keeps the grant with the drive.
-    Renewed { drive_id: String, months: u32 },
+    /// for: they wait with it until [`finish`] keeps the grant with the drive. `record`: what
+    /// became of the record of the payment, made after the months were claimed.
+    Renewed {
+        drive_id: String,
+        months: u32,
+        record: Recorded,
+    },
     /// Off the list: the payment did not go through (declined, taken back, the cash refused).
     Declined(String),
     /// Off the list: the token server no longer has it (expired, unknown), the drive can no
@@ -1072,19 +1179,6 @@ fn claim_drive(
     bundle: DriveBundle,
     paid: &Paid,
 ) -> Polled {
-    // What was paid, on a durable medium, before the checkout can leave the list: a record that
-    // cannot be kept holds the claim back for the next poll (the claim is idempotent).
-    if let Err(e) = keep_paid(
-        shared,
-        checkout,
-        bundle.drive_id(),
-        bundle.tier.as_deref(),
-        paid,
-    ) {
-        return Polled::Transient(Transient::NotKept(format!(
-            "the record of the payment could not be kept: {e}"
-        )));
-    }
     let kept = if checkout.picked_up {
         keep_picked_up(server, shared, checkout, bundle)
     } else {
@@ -1116,10 +1210,26 @@ fn claim_drive(
             let _ = set_tier(shared, &checkout.checkout_id, tier);
         }
     }
+    // The drive is delivered; what was paid is recorded second, and a record that cannot be kept
+    // never holds it back (the sealed sign-up is purged 30 days after the payment, and the claim
+    // secret with it): the app is told, and says so. The sale of a drive picked up with a claim
+    // code is the buyer's.
+    let record = if checkout.picked_up {
+        Recorded::NotBoughtHere
+    } else {
+        Recorded::of(keep_paid(
+            shared,
+            checkout,
+            bundle.drive_id(),
+            bundle.tier.as_deref(),
+            paid,
+        ))
+    };
     Polled::Final(Final::Claimed(Box::new(Claimed {
         bundle,
         session,
         already,
+        record,
     })))
 }
 
@@ -1159,7 +1269,7 @@ fn keep_paid(
         .find(|t| !t.is_empty())
         .unwrap_or_default()
         .to_string();
-    shared.paid().keep(&PaidRecord {
+    shared.paid()?.keep(&PaidRecord {
         checkout: checkout.checkout_id.clone(),
         drive: drive_id.to_string(),
         tier,
@@ -1198,16 +1308,18 @@ fn claim_months(
             "its sign-up grants months of another checkout, or none",
         )));
     }
-    // What was paid, before the months are claimed (see [`claim_drive`]).
-    if let Err(e) = keep_paid(shared, checkout, drive_id, Some(signup.tier.as_str()), paid) {
-        return Polled::Transient(Transient::NotKept(format!(
-            "the record of the payment could not be kept: {e}"
-        )));
-    }
     match claimed(shared, &checkout.checkout_id, drive_id, Some(&grant)) {
+        // The months are delivered; what was paid is recorded second (see [`claim_drive`]).
         Ok(()) => Polled::Final(Final::Renewed {
             drive_id: drive_id.to_string(),
             months: grant.months,
+            record: Recorded::of(keep_paid(
+                shared,
+                checkout,
+                drive_id,
+                Some(signup.tier.as_str()),
+                paid,
+            )),
         }),
         Err(e) => Polled::Transient(Transient::NotKept(format!(
             "its months could not be kept for the drive {drive_id}: {e}"
@@ -1376,12 +1488,18 @@ pub fn claimed(
         // Finished by another window meanwhile.
         return Ok(());
     };
-    checkout.period = Some(PendingTokens {
-        drive_id: drive_id.trim().to_string(),
-        months: grant.months,
-        issue_key: grant.issue_key.trim().to_string(),
-        recurring: grant.recurring,
-    });
+    // The claim moment is the wait's start: the payment is seen now, whenever the order was
+    // made. A claim made again (another window's poll of the same payment) keeps the first.
+    let earlier = checkout
+        .period
+        .take()
+        .filter(|p| p.drive_id == drive_id.trim() && p.claimed_at > 0);
+    let mut owed = PendingTokens::of(grant, drive_id, crate::now());
+    if let Some(earlier) = earlier {
+        owed.claimed_at = earlier.claimed_at;
+        owed.counted_at = earlier.counted_at;
+    }
+    checkout.period = Some(owed);
     // Claimed: neither in flight nor unopened any more, and their room is the tokens' now.
     checkout.in_flight_since = None;
     checkout.open_failures = 0;
@@ -1435,13 +1553,53 @@ pub enum Finished {
 }
 
 /// How long a paid checkout waits in the keyring for the drive's vault to take its grant: 30
-/// days, as long as the token server keeps the sealed sign-up. After that it is kept in a
-/// second copy on this computer and the keyring's goes.
+/// days, as long as the token server keeps the sealed sign-up - counted from the payment's
+/// claim on this computer ([`PendingTokens::claimed_at`]), not from the order (a cash order is
+/// paid weeks after it was made), and in the time this computer saw pass
+/// ([`WAIT_STEP_MAX_SECS`]), not in what its clock says. After that it is kept in a second copy
+/// on this computer and the keyring's goes.
 pub const GRANT_WAIT_SECS: i64 = 30 * 86_400;
 
-/// Whether `started_at` (seconds since 1970) is [`GRANT_WAIT_SECS`] or more before `now`.
-fn grant_wait_over(started_at: i64, now: u64) -> bool {
-    i64::try_from(now).is_ok_and(|now| now.saturating_sub(started_at) >= GRANT_WAIT_SECS)
+/// What a round of the wait for the drive's vault found.
+enum Wait {
+    /// [`GRANT_WAIT_SECS`] have been seen pass since the claim.
+    Over,
+    /// Not yet.
+    On,
+}
+
+/// Counts the wait of the claimed checkout `checkout_id` (its `period` as the list has it) to
+/// `now` (seconds since 1970): whether it is over, with what was counted written into the list -
+/// when a step of the clock moved the claim moment, or an hour after the last write (a round
+/// every few seconds does not write the keyring every few seconds).
+///
+/// # Errors
+///
+/// The list cannot be changed: the round counts for nothing, and the checkout stays.
+fn count_wait(
+    shared: &SharedKeyring,
+    checkout_id: &str,
+    period: &PendingTokens,
+    now: u64,
+) -> CloudResult<Wait> {
+    let Ok(now) = i64::try_from(now) else {
+        return Ok(Wait::On);
+    };
+    let (claimed_at, counted_at) = period.counted_to(now);
+    let moved = claimed_at != period.claimed_at || period.counted_at <= 0;
+    if moved || now.saturating_sub(period.counted_at) >= WAIT_WRITE_EVERY_SECS {
+        change(shared, checkout_id, |c| {
+            if let Some(kept) = c.period.as_mut() {
+                kept.claimed_at = claimed_at;
+                kept.counted_at = counted_at;
+            }
+        })?;
+    }
+    Ok(if now.saturating_sub(claimed_at) >= GRANT_WAIT_SECS {
+        Wait::Over
+    } else {
+        Wait::On
+    })
 }
 
 /// The lock under which one checkout's period tokens are issued (a second window waits, then
@@ -1473,11 +1631,15 @@ pub fn finish(
         Ok(lock) => lock,
         Err(e) => return Finished::Kept(e.to_string()),
     };
-    match list(shared) {
-        Ok(checkouts) if !checkouts.iter().any(|c| c.checkout_id == id) => return Finished::Settled,
-        Ok(_) => {}
+    // The entry as the list has it now: gone (another window finished it), or with the stamps
+    // of its wait for the drive's vault, which the list keeps and the caller's copy may not.
+    let listed = match list(shared) {
+        Ok(checkouts) => match checkouts.into_iter().find(|c| c.checkout_id == id) {
+            Some(entry) => entry,
+            None => return Finished::Settled,
+        },
         Err(e) => return Finished::Kept(e.to_string()),
-    }
+    };
     let taken_off = |settled: Settled, finished: Finished| match settle(shared, id, settled) {
         Ok(_) => finished,
         Err(e) => Finished::Kept(format!("it could not be taken off the list: {e}")),
@@ -1555,22 +1717,36 @@ pub fn finish(
     // The keyring's entry is the grant's second copy until the grant is in two places elsewhere.
     let (proof, second_copy) = match GrantKept::of(&in_vaults) {
         Some(proof) => (proof, None),
-        None if grant_wait_over(checkout.started_at, now) => match tokens.keep_second_copy() {
-            Ok(second) => match GrantKept::of(&second) {
-                Some(proof) => (proof, Some(in_vaults.why_not_redundant())),
-                None => {
-                    return Finished::Kept(String::from("its second copy is not in two places"))
-                }
-            },
-            Err(e) => {
-                return Finished::Kept(format!("its period grant's second copy was not kept: {e}"))
-            }
-        },
         None => {
-            return Finished::Waits {
-                drive_id,
-                count,
-                why: in_vaults.why_not_redundant(),
+            let period = listed.period.as_ref().unwrap_or(owed);
+            match count_wait(shared, id, period, now) {
+                Ok(Wait::Over) => match tokens.keep_second_copy() {
+                    Ok(second) => match GrantKept::of(&second) {
+                        Some(proof) => (proof, Some(in_vaults.why_not_redundant())),
+                        None => {
+                            return Finished::Kept(String::from(
+                                "its second copy is not in two places",
+                            ))
+                        }
+                    },
+                    Err(e) => {
+                        return Finished::Kept(format!(
+                            "its period grant's second copy was not kept: {e}"
+                        ))
+                    }
+                },
+                Ok(Wait::On) => {
+                    return Finished::Waits {
+                        drive_id,
+                        count,
+                        why: in_vaults.why_not_redundant(),
+                    }
+                }
+                Err(e) => {
+                    return Finished::Kept(format!(
+                        "the wait for the drive's vault could not be counted: {e}"
+                    ))
+                }
             }
         }
     };
