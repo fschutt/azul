@@ -160,6 +160,17 @@ fn write_cached(path: Option<&Path>, bytes: &[u8]) {
     }
 }
 
+/// The highest manifest revision the copy kept in the cache folder `dir` has seen; 0 when there is
+/// no copy there, or it does not open with `sealer` (the state is sealed with the drive's key). What
+/// a manifest the bucket serves must not be older than - for a store that is opened without the
+/// copy (a maintenance round) as much as for the copy itself.
+pub fn cached_floor<S: Sealer>(dir: &Path, sealer: &S) -> u64 {
+    read_cached(Some(dir.join("state").as_path()))
+        .and_then(|sealed| sealer.open(STATE_CONTEXT, &sealed).ok())
+        .and_then(|plain| serde_json::from_slice::<Saved>(&plain).ok())
+        .map_or(0, |saved| saved.store.seen_revision)
+}
+
 /// The restore epoch the cache folder `dir` remembers; `None` when there is no file, or it does
 /// not open with this key (the copy then counts as one that knows no restore: the next
 /// announcement drops it once, which costs a download and nothing else).

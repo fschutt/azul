@@ -926,9 +926,9 @@ impl MetaIndexProvider {
 
     /// One maintenance round of the index in `bucket` ([`MetaStore::maintain`]). The round
     /// runs under the bucket's maintenance lease and does four things: it sweeps orphans,
-    /// folds the live packs into one, writes a checkpoint, and deletes what was retired long
-    /// enough ago. It is meant for an app's idle time, because compaction reads every live
-    /// pack. It answers `None` when the bucket has no index yet or another device holds the
+    /// folds the live packs into packs of at most [`Maintenance::compact_max_bytes`], writes a
+    /// checkpoint, and deletes what was retired long enough ago. It is meant for an app's idle
+    /// time, because compaction reads every live pack it folds. It answers `None` when the bucket has no index yet or another device holds the
     /// lease. It opens the store on its own, so this device's copies stay as they are, and
     /// their next pull reads the new pack.
     pub fn maintain(
@@ -937,13 +937,43 @@ impl MetaIndexProvider {
         drive_key: &DriveKey,
         rules: &Maintenance,
     ) -> Result<Option<Maintained>, DriveError> {
+        self.maintain_above(0, bucket, drive_key, rules)
+    }
+
+    /// [`MetaIndexProvider::maintain`] for the drive `drive`: the round refuses a manifest older
+    /// than the highest one this computer's copy of the drive's index has seen
+    /// ([`MetaError::Rollback`], as for the copy), where `maintain` - which does not know the
+    /// copy - takes whatever the bucket serves. The copy takes an operator's restore of the drive
+    /// (announced by the token server) at its next poll; a round that met the restored drive
+    /// before that stops, and the next one (hours later) runs.
+    pub fn maintain_drive(
+        &self,
+        drive: &str,
+        bucket: Arc<dyn Drive>,
+        drive_key: &DriveKey,
+        rules: &Maintenance,
+    ) -> Result<Option<Maintained>, DriveError> {
+        let floor = self
+            .drive_cache_dir(drive)
+            .map_or(0, |dir| super::repo::cached_floor(&dir, drive_key));
+        self.maintain_above(floor, bucket, drive_key, rules)
+    }
+
+    fn maintain_above(
+        &self,
+        floor: u64,
+        bucket: Arc<dyn Drive>,
+        drive_key: &DriveKey,
+        rules: &Maintenance,
+    ) -> Result<Option<Maintained>, DriveError> {
         let raw = Arc::clone(&bucket);
         let bucket = DriveBucket::new(bucket);
-        let mut store = match MetaStore::open(bucket, drive_key.clone(), &self.device_id()) {
-            Ok(store) => store,
-            Err(MetaError::NoRepository) => return Ok(None),
-            Err(e) => return Err(to_drive(e)),
-        };
+        let mut store =
+            match MetaStore::open_above(bucket, drive_key.clone(), &self.device_id(), floor) {
+                Ok(store) => store,
+                Err(MetaError::NoRepository) => return Ok(None),
+                Err(e) => return Err(to_drive(e)),
+            };
         let done = store.maintain(rules).map_err(to_drive)?;
         // After the round the index is in its smallest shape: the reclaimer looks at the data
         // objects its history released. A round that cannot read the drive does not fail the

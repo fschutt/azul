@@ -9,8 +9,8 @@ use crate::{
         EncryptedDrive, Expect, IndexChange, IndexEntry, IndexPage, IndexProvider, NameIndex,
     },
     meta::{
-        merge::keep_both, open_encrypted_drive, pointer, Maintenance, MemoryBucket, MetaIndex,
-        MetaIndexProvider, MetaRepo, RepoOptions,
+        keys, merge::keep_both, open_encrypted_drive, pointer, Bucket, Maintenance, MemoryBucket,
+        MetaIndex, MetaIndexProvider, MetaRepo, RepoOptions,
     },
     ByteRange, Drive, DriveError, ListPage, ListRequest, ObjectInfo, Precondition,
 };
@@ -315,6 +315,49 @@ fn the_provider_maintains_a_drives_index_while_a_copy_of_it_is_open() {
     drive.put("d.txt", b"d").unwrap();
     assert_eq!(drive.get("a.txt").unwrap(), b"a.txt");
     assert_eq!(drive.get("d.txt").unwrap(), b"d");
+}
+
+/// AZ-M4. A maintenance round that knows its drive refuses a manifest older than the one this
+/// computer's copy of the drive's index has seen: a round that opened the store from nothing took
+/// whatever the bucket served, and its sweep retired the objects of the newer state the older
+/// manifest does not name - the rollback made permanent.
+#[test]
+fn az_m4_a_maintenance_round_of_a_drive_refuses_a_manifest_older_than_its_copy_has_seen() {
+    let dir = TempDir::new("meta-maintain-floor");
+    let raw = MemoryBucket::new();
+    let bucket: Arc<dyn Drive> = Arc::new(raw.clone());
+    let key = DriveKey::generate().unwrap();
+    let provider = MetaIndexProvider::new("Laptop").with_cache_root(Some(dir.path().to_path_buf()));
+    let index = provider
+        .open_index("drive-1", Arc::clone(&bucket), &key)
+        .unwrap();
+    let drive = EncryptedDrive::new(Arc::clone(&bucket), key.clone(), index);
+    drive.put("a.txt", b"a").unwrap();
+    let older = raw.read(keys::MANIFEST).unwrap().unwrap().0;
+    drive.put("b.txt", b"b").unwrap();
+    // The storage serves the older manifest again, and nobody announced a restore.
+    raw.overwrite(keys::MANIFEST, &older);
+
+    let error = provider
+        .maintain_drive(
+            "drive-1",
+            Arc::clone(&bucket),
+            &key,
+            &Maintenance::default(),
+        )
+        .unwrap_err();
+    assert!(
+        matches!(&error, DriveError::Protocol(text) if text.contains("older index")),
+        "{error:?}"
+    );
+    // Nothing was retired on the strength of it.
+    let swept: Vec<_> = raw
+        .read(keys::MANIFEST)
+        .unwrap()
+        .map(|(bytes, _)| bytes)
+        .into_iter()
+        .collect();
+    assert_eq!(swept, [older], "the manifest is as the storage served it");
 }
 
 /// A bucket out of reach: every request fails the way a lost connection does.
