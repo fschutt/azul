@@ -358,3 +358,79 @@ fn a_server_database_over_tls_is_refused_when_the_app_narrowed_its_trusted_roots
         assert!(DatabaseDrive::open_trusting(engine, &options, &secrets, false).is_ok());
     }
 }
+
+/// AZ-CN2: an entry without a TLS word (a hand-made drives file, an older build) opens the way the
+/// form's default does - checking the server - and not as sqlx's own default (`prefer`: plain text
+/// when the server says no TLS, any certificate, the password in clear text on request). A word the
+/// entry has is kept, the opportunistic ones included: a stored drive keeps its value.
+#[test]
+fn az_cn2_a_server_database_without_a_tls_word_checks_the_server() {
+    let mut options = BTreeMap::new();
+    options.insert("host".to_string(), "db.example".to_string());
+    options.insert("database".to_string(), "shop".to_string());
+    options.insert("user".to_string(), "ann".to_string());
+    let secrets = SecretOptions::new();
+    for (engine, none, kept) in [
+        (
+            DatabaseEngine::Postgres,
+            "VerifyFull",
+            [
+                ("prefer", "Prefer"),
+                ("require", "Require"),
+                ("disable", "Disable"),
+            ],
+        ),
+        (
+            DatabaseEngine::Mysql,
+            "VerifyIdentity",
+            [
+                ("preferred", "Preferred"),
+                ("required", "Required"),
+                ("disabled", "Disabled"),
+            ],
+        ),
+    ] {
+        options.remove("sslmode");
+        let drive = DatabaseDrive::open(engine, &options, &secrets).unwrap();
+        assert_eq!(
+            drive.tls_mode().as_deref(),
+            Some(none),
+            "{engine:?}: no word"
+        );
+        for (word, mode) in kept {
+            options.insert("sslmode".to_string(), word.to_string());
+            let drive = DatabaseDrive::open(engine, &options, &secrets).unwrap();
+            assert_eq!(drive.tls_mode().as_deref(), Some(mode), "{engine:?} {word}");
+        }
+    }
+    // A SQLite file has no connection.
+    let dir = TempDir::new("az-cn2");
+    let file = database(&dir);
+    assert_eq!(open(&file).tls_mode(), None);
+}
+
+/// A TLS error of a connection that CHECKS the server says how to reach a server with a certificate
+/// of its own; one that only encrypts, or none, has nothing to add.
+#[test]
+fn az_cn2_a_failed_check_of_the_servers_certificate_says_what_to_choose() {
+    let mut options = BTreeMap::new();
+    options.insert("host".to_string(), "db.example".to_string());
+    options.insert("database".to_string(), "shop".to_string());
+    options.insert("user".to_string(), "ann".to_string());
+    let secrets = SecretOptions::new();
+    let mut hint = |engine, word: Option<&str>| {
+        match word {
+            Some(word) => options.insert("sslmode".to_string(), word.to_string()),
+            None => options.remove("sslmode"),
+        };
+        DatabaseDrive::open(engine, &options, &secrets)
+            .unwrap()
+            .tls_hint()
+    };
+    assert!(hint(DatabaseEngine::Postgres, None).contains("only encrypts"));
+    assert!(hint(DatabaseEngine::Postgres, Some("verify-full")).contains("only encrypts"));
+    assert!(hint(DatabaseEngine::Mysql, None).contains("only encrypts"));
+    assert!(hint(DatabaseEngine::Mysql, Some("verify-ca")).contains("only encrypts"));
+    assert_eq!(hint(DatabaseEngine::Postgres, Some("require")), "");
+    assert_eq!(hint(DatabaseEngine::Mysql, Some("disabled")), "");
+}

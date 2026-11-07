@@ -84,7 +84,10 @@ pub enum FieldKind {
     Number,
     /// `true` or `false` (a check box).
     Bool,
-    /// One of these words (a drop-down), the first the default unless the field says another.
+    /// One of these words (a drop-down). The field's `default` is the word a new form holds - a
+    /// Choice names one (a test over the catalog), and a TLS field's is the word that VERIFIES
+    /// the server ([`PG_SSLMODE_DEFAULT`], [`MYSQL_SSLMODE_DEFAULT`]), never the one that sends a
+    /// password to whoever answers (AZ-CN2).
     Choice(&'static [&'static str]),
 }
 
@@ -610,18 +613,62 @@ const REDIS_FIELDS: &[FieldSpec] = &[
     field("root", "Key prefix", FieldKind::Text, false, ""),
 ];
 
+/// The TLS words of a PostgreSQL form, the verifying one first. `prefer` (sqlx's own default)
+/// answers a server's "no TLS" with plain text and accepts any certificate, and sqlx answers a
+/// server's request for the password in clear text: whoever sits on the path reads it (AZ-CN2).
+pub const PG_SSLMODES: &[&str] = &["verify-full", "require", "disable", "prefer"];
+/// What a new PostgreSQL form holds, and what an entry without the word means: the connection
+/// checks the server's certificate and its name.
+pub const PG_SSLMODE_DEFAULT: &str = "verify-full";
+/// The TLS words of a MySQL / MariaDB form, the verifying one first.
+pub const MYSQL_SSLMODES: &[&str] = &["verify-identity", "required", "disabled", "preferred"];
+/// What a new MySQL form holds, and what an entry without the word means.
+pub const MYSQL_SSLMODE_DEFAULT: &str = "verify-identity";
+
+/// Whether the two texts are the same (a const fn cannot compare `str`s with `==`).
+const fn same_text(a: &str, b: &str) -> bool {
+    let (a, b) = (a.as_bytes(), b.as_bytes());
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut i = 0;
+    while i < a.len() {
+        if a[i] != b[i] {
+            return false;
+        }
+        i += 1;
+    }
+    true
+}
+
+/// Whether `word` is one of `words`.
+const fn has_word(words: &[&str], word: &str) -> bool {
+    let mut i = 0;
+    while i < words.len() {
+        if same_text(words[i], word) {
+            return true;
+        }
+        i += 1;
+    }
+    false
+}
+
+// A TLS default that is not one of the form's words does not compile.
+const _: () = assert!(has_word(PG_SSLMODES, PG_SSLMODE_DEFAULT));
+const _: () = assert!(has_word(MYSQL_SSLMODES, MYSQL_SSLMODE_DEFAULT));
+
 const POSTGRES_FIELDS: &[FieldSpec] = &[
     with_default(field("host", "Host", FieldKind::Text, true, "localhost"), "localhost"),
     with_default(field("port", "Port", FieldKind::Number, false, "5432"), "5432"),
     field("database", "Database", FieldKind::Text, true, ""),
     field("user", "User", FieldKind::Text, true, ""),
     field("password", "Password", FieldKind::Secret, false, ""),
-    field(
-        "sslmode",
-        "TLS",
-        FieldKind::Choice(&["prefer", "disable", "require", "verify-full"]),
-        false,
-        "",
+    with_default(
+        with_help(
+            field("sslmode", "TLS", FieldKind::Choice(PG_SSLMODES), false, ""),
+            "verify-full checks the server's certificate and name; require encrypts without checking it; prefer falls back to no encryption.",
+        ),
+        PG_SSLMODE_DEFAULT,
     ),
 ];
 
@@ -631,12 +678,12 @@ const MYSQL_FIELDS: &[FieldSpec] = &[
     field("database", "Database", FieldKind::Text, true, ""),
     field("user", "User", FieldKind::Text, true, ""),
     field("password", "Password", FieldKind::Secret, false, ""),
-    field(
-        "sslmode",
-        "TLS",
-        FieldKind::Choice(&["preferred", "disabled", "required", "verify-identity"]),
-        false,
-        "",
+    with_default(
+        with_help(
+            field("sslmode", "TLS", FieldKind::Choice(MYSQL_SSLMODES), false, ""),
+            "verify-identity checks the server's certificate and name; required encrypts without checking it; preferred falls back to no encryption.",
+        ),
+        MYSQL_SSLMODE_DEFAULT,
     ),
 ];
 

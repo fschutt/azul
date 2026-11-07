@@ -27,6 +27,7 @@ use sqlx::{
 };
 
 use crate::{
+    catalog::{MYSQL_SSLMODES, MYSQL_SSLMODE_DEFAULT, PG_SSLMODES, PG_SSLMODE_DEFAULT},
     config::{DatabaseEngine, SecretOptions},
     key::folder_of,
     runtime,
@@ -225,7 +226,10 @@ fn postgres_connect(
     secrets: &SecretOptions,
 ) -> Result<(Connect, String), DriveError> {
     let (host, port, database, user) = server(options, 5432)?;
-    let ssl = match setting(options, "sslmode").unwrap_or("prefer") {
+    // No word is not sqlx's own default (`prefer`: plain text when the server answers N, any
+    // certificate, the password in clear text when the server asks for it): it is the form's, which
+    // checks the server (AZ-CN2). A stored entry with a word keeps it.
+    let ssl = match setting(options, "sslmode").unwrap_or(PG_SSLMODE_DEFAULT) {
         "prefer" => PgSslMode::Prefer,
         "disable" => PgSslMode::Disable,
         "allow" => PgSslMode::Allow,
@@ -234,7 +238,8 @@ fn postgres_connect(
         "verify-full" => PgSslMode::VerifyFull,
         other => {
             return Err(DriveError::InvalidConfig(format!(
-                "the TLS mode \"{other}\" is none of prefer, disable, require, verify-full"
+                "the TLS mode \"{other}\" is none of {}",
+                PG_SSLMODES.join(", ")
             )))
         }
     };
@@ -256,7 +261,7 @@ fn mysql_connect(
     secrets: &SecretOptions,
 ) -> Result<(Connect, String), DriveError> {
     let (host, port, database, user) = server(options, 3306)?;
-    let ssl = match setting(options, "sslmode").unwrap_or("preferred") {
+    let ssl = match setting(options, "sslmode").unwrap_or(MYSQL_SSLMODE_DEFAULT) {
         "preferred" => MySqlSslMode::Preferred,
         "disabled" => MySqlSslMode::Disabled,
         "required" => MySqlSslMode::Required,
@@ -264,8 +269,8 @@ fn mysql_connect(
         "verify-identity" => MySqlSslMode::VerifyIdentity,
         other => {
             return Err(DriveError::InvalidConfig(format!(
-                "the TLS mode \"{other}\" is none of preferred, disabled, required, \
-                 verify-identity"
+                "the TLS mode \"{other}\" is none of {}",
+                MYSQL_SSLMODES.join(", ")
             )))
         }
     };
@@ -412,12 +417,48 @@ impl DatabaseDrive {
                 }
             }
             sqlx::Error::Io(e) => DriveError::Transport(format!("{label}: {e}")),
-            sqlx::Error::Tls(e) => DriveError::Transport(format!("{label}: TLS: {e}")),
+            sqlx::Error::Tls(e) => {
+                DriveError::Transport(format!("{label}: TLS: {e}{}", self.tls_hint()))
+            }
             sqlx::Error::PoolTimedOut => {
                 DriveError::Transport(format!("{label} did not answer in time"))
             }
             sqlx::Error::Configuration(e) => DriveError::InvalidConfig(format!("{label}: {e}")),
             other => DriveError::Protocol(format!("{label}: {other}")),
+        }
+    }
+
+    /// How the connection is secured, as sqlx will use it (`VerifyFull`, `Require`, `Prefer`, ...);
+    /// `None` for a SQLite file, which has no connection.
+    #[must_use]
+    pub fn tls_mode(&self) -> Option<String> {
+        match &self.connect {
+            Connect::Sqlite(_) => None,
+            Connect::Postgres(options) => Some(format!("{:?}", options.get_ssl_mode())),
+            Connect::Mysql(options) => Some(format!("{:?}", options.get_ssl_mode())),
+        }
+    }
+
+    /// What to add to a TLS error when the connection CHECKS the server: a server whose
+    /// certificate no public authority signed (a private CA, a self-signed one) is reached with the
+    /// setting that only encrypts.
+    pub(crate) fn tls_hint(&self) -> &'static str {
+        let verifies = match &self.connect {
+            Connect::Sqlite(_) => false,
+            Connect::Postgres(options) => matches!(
+                options.get_ssl_mode(),
+                PgSslMode::VerifyCa | PgSslMode::VerifyFull
+            ),
+            Connect::Mysql(options) => matches!(
+                options.get_ssl_mode(),
+                MySqlSslMode::VerifyCa | MySqlSslMode::VerifyIdentity
+            ),
+        };
+        if verifies {
+            " (the TLS setting checks the server's certificate against the public authorities; \
+             for a server with a certificate of its own choose the setting that only encrypts)"
+        } else {
+            ""
         }
     }
 

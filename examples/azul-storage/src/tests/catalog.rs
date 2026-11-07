@@ -280,7 +280,16 @@ fn a_postgres_form_keeps_its_password_in_the_keyring() {
 fn the_defaults_fill_a_new_form() {
     let defaults = spec("postgres").defaults();
     assert_eq!(defaults.get("port").map(String::as_str), Some("5432"));
-    assert_eq!(defaults.get("sslmode").map(String::as_str), Some("prefer"));
+    // AZ-CN2: the TLS word a new form holds VERIFIES the server (the old pin was "prefer": plain
+    // text when the server says no TLS, any certificate, the password in clear text on request).
+    assert_eq!(
+        defaults.get("sslmode").map(String::as_str),
+        Some("verify-full")
+    );
+    assert_eq!(
+        spec("mysql").defaults().get("sslmode").map(String::as_str),
+        Some("verify-identity")
+    );
     assert_eq!(
         spec("s3").defaults().get("path_style").map(String::as_str),
         Some("true")
@@ -570,4 +579,83 @@ fn az_cn5_az_cn6_the_catalog_says_which_source_needs_the_webdav_verbs_and_which_
         crate::tables::MAX_ROW_FILES,
         "one cap for both the rows/ folder and the CSV"
     );
+}
+
+// ==== AZ-CN2: a TLS choice holds the word that verifies the server ====
+
+/// Every drop-down names the word a new form holds, and it is one of its words: "the first word
+/// is the default" is how `prefer` became the default of a form that asks for a password.
+#[test]
+fn az_cn2_every_choice_names_its_default_and_it_is_one_of_its_words() {
+    let mut choices = 0;
+    for service in catalog::services() {
+        for field in service.fields {
+            let FieldKind::Choice(words) = field.kind else {
+                continue;
+            };
+            choices += 1;
+            assert!(
+                !field.default.is_empty(),
+                "{}.{} leaves its default to the first word",
+                service.id,
+                field.key
+            );
+            assert!(
+                words.contains(&field.default),
+                "{}.{}: {:?} is none of {words:?}",
+                service.id,
+                field.key,
+                field.default
+            );
+        }
+    }
+    assert!(choices >= 2, "PostgreSQL and MySQL have one each");
+}
+
+/// The review's case: a PostgreSQL or MySQL form left untouched must check the server's
+/// certificate and name, and the opportunistic words stay chosen-only, last in the list.
+#[test]
+fn az_cn2_the_tls_default_of_a_database_form_verifies_the_server() {
+    for (id, secure, opportunistic) in [
+        ("postgres", "verify-full", "prefer"),
+        ("mysql", "verify-identity", "preferred"),
+    ] {
+        let field = spec(id).field("sslmode").expect("a TLS field");
+        assert_eq!(field.default, secure, "{id}");
+        assert_eq!(
+            spec(id).defaults().get("sslmode").map(String::as_str),
+            Some(secure),
+            "{id}: a new form holds it"
+        );
+        let FieldKind::Choice(words) = field.kind else {
+            panic!("{id}: the TLS field is a drop-down");
+        };
+        assert_eq!(
+            words.first().copied(),
+            Some(secure),
+            "{id}: first in the list"
+        );
+        assert_eq!(
+            words.last().copied(),
+            Some(opportunistic),
+            "{id}: the opportunistic word is chosen on purpose, last"
+        );
+        // A form the user did not touch is a form that verifies.
+        let mut form = FormValues::new();
+        form.insert("host".to_string(), "db.example".to_string());
+        form.insert("database".to_string(), "shop".to_string());
+        form.insert("user".to_string(), "ann".to_string());
+        form.extend(spec(id).defaults());
+        let new = catalog::build_entry(spec(id), "shop-1", "Shop", &form).expect("a good form");
+        match new.entry.location {
+            DriveLocation::Database { options, .. } => {
+                assert_eq!(
+                    options.get("sslmode").map(String::as_str),
+                    Some(secure),
+                    "{id}"
+                );
+            }
+            other => panic!("{id}: not a database: {other:?}"),
+        }
+    }
 }

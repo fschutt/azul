@@ -105,11 +105,23 @@ fn a_switch_flips_and_a_choice_takes_its_word() {
     assert!(!dialog.bool_value("path_style"));
     assert_eq!(dialog.value("path_style"), "false");
     if dialog.open_service("postgres") {
-        assert_eq!(dialog.value("sslmode"), "prefer");
-        dialog.choose("sslmode", 2);
+        // AZ-CN2: a new form holds the word that checks the server (it was "prefer": plain text
+        // when the server says no TLS, any certificate); a word is chosen by its number.
+        assert_eq!(dialog.value("sslmode"), "verify-full");
+        dialog.choose("sslmode", 1);
         assert_eq!(dialog.value("sslmode"), "require");
         dialog.choose("sslmode", 99);
-        assert_eq!(dialog.value("sslmode"), "require", "no such word: unchanged");
+        assert_eq!(
+            dialog.value("sslmode"),
+            "require",
+            "no such word: unchanged"
+        );
+        dialog.choose("sslmode", 0);
+        assert_eq!(
+            dialog.value("sslmode"),
+            "verify-full",
+            "the first word is the checking one"
+        );
     }
 }
 
