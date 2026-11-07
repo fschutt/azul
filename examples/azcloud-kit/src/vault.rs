@@ -517,15 +517,14 @@ impl LocalVault {
         LockDir::new(self.dir.join("locks"))
     }
 
-    /// Every file this drive's vault on this computer is in: the vault, its second copy and the
-    /// lock a change of them is made under (a removed drive leaves none of them).
+    /// Every file this drive's vault on this computer is in: the vault and its second copy (a
+    /// removed drive leaves neither). Not the lock a change of them is made under: a lock file is
+    /// never removed - a waiter that opened it before would hold a lock of a file nobody else
+    /// locks (`azul_storage::lock`) -, and a removal that unlinked it did exactly that
+    /// (X-DELTA-AZDRIVE-KEYS-32); the empty file stays.
     #[must_use]
     pub fn files(&self) -> Vec<PathBuf> {
-        vec![
-            self.path.clone(),
-            self.second_copy().path,
-            self.locks().file_of(&self.drive_id),
-        ]
+        vec![self.path.clone(), self.second_copy().path]
     }
 
     /// What the vault holds, and whether it is the second copy that says so: the file when it

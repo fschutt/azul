@@ -329,6 +329,33 @@ fn az_u13_a_kept_folder_is_one_per_tag_private_and_swept_when_old() {
     assert!(other_version.exists());
 }
 
+/// X-DELTA-AZDRIVE-KEYS-32: a scratch tagged by a drive is a purpose folder of its own, the same
+/// for the same drive in every run, another for another drive, and a purpose like any: the sweep of
+/// all of them reaches it.
+#[cfg(unix)]
+#[test]
+fn x_delta_azdrive_keys_32_a_scratch_tagged_by_a_drive_is_a_purpose_of_its_own() {
+    let root = TempDir::new("scratch-tagged");
+    let one = Scratch::tagged_under(root.path(), "open", "d_1");
+    let again = Scratch::tagged_under(root.path(), "open", "d_1");
+    let two = Scratch::tagged_under(root.path(), "open", "d_2");
+    assert_eq!(one.dir(), again.dir(), "stable: the next run finds it");
+    assert_ne!(one.dir(), two.dir());
+    let name = one.dir().file_name().unwrap().to_str().unwrap().to_string();
+    assert!(
+        name.starts_with("open-") && name.len() == "open-".len() + 16,
+        "{name}"
+    );
+    assert!(name
+        .bytes()
+        .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-'));
+    let copy = one.keep("docs/a.docx\0v1").unwrap();
+    fs::write(copy.join("a.docx"), b"cloud bytes").unwrap();
+    age_tree(&copy, 3);
+    assert_eq!(scratch::sweep_all_in(root.path(), DAY), 1);
+    assert!(!copy.exists());
+}
+
 /// LANE-AZ-2: what takes a kept folder away before its age does (a removed drive's copies) asks
 /// where it is: `kept` is the path `keep` makes, and makes nothing itself.
 #[test]

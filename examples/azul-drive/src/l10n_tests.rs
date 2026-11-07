@@ -164,3 +164,25 @@ fn a_storage_reason_is_said_in_the_windows_language_even_from_a_worker() {
         assert_eq!(named("AzDrive", "reason", reason), *reason);
     }
 }
+
+/// X-DELTA-AZDRIVE-KEYS-32: the confirm dialog of "Remove drive" promised that the keys go before
+/// anyone knew whether there was a proof. It has two texts - the keys go (and say what else loses
+/// them: AzMail, the bridge), the keys stay (the recovery code was never checked) - in both
+/// languages, and they are not the same words.
+#[test]
+fn x_delta_azdrive_keys_32_the_remove_dialog_says_what_becomes_of_the_keys_in_both_languages() {
+    keep(&sources());
+    for (locale, goes, stays) in [
+        ("en-US", "AzMail", "never checked"),
+        ("de-DE", "AzMail", "nie geprüft"),
+    ] {
+        set_locale(locale);
+        let go = t("azdrive-forget-what");
+        let stay = t("azdrive-forget-what-keys-stay");
+        assert_ne!(go, stay, "{locale}");
+        assert!(go.contains(goes), "{locale}: {go}");
+        assert!(stay.contains(stays), "{locale}: {stay}");
+        assert!(!go.contains(stays), "{locale}: {go}");
+    }
+    set_locale("en-US");
+}

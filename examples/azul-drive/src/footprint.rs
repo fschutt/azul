@@ -25,12 +25,21 @@ use std::path::{Path, PathBuf};
 use azcloud_kit::{sync::session::SyncSetup, Outbox, PeriodTokenStore};
 use azul_storage::{
     footprint::{
-        forget_drive, DrivesListing, Footprint, ForgetReport, KeyringFootprint, Paths, RemovalProof,
+        forget_drive, DrivesListing, Footprint, ForgetReport, KeyringFootprint, Paths,
+        RemovalProof, ScratchFootprint,
     },
     keyring::KeyringStore,
     meta::MetaIndexProvider,
     scratch::Scratch,
 };
+
+/// Where the copies of `drive`'s cloud files handed to apps wait (AZ-W4, AZ-U13): scratch purpose
+/// `open`, one purpose folder per drive (`open-<hash of its id>`), so that a removed drive takes its
+/// own with it and a sweep treats each like any purpose (X-DELTA-AZDRIVE-KEYS-32: one folder for
+/// every drive could not be told apart at a removal).
+pub(crate) fn open_copies_of(drive: &str) -> Scratch {
+    Scratch::tagged("open", drive)
+}
 
 /// The folder of drive `drive`'s copy of its index (named by a hash of its id) under `root`, the
 /// drive indexes' folder (`<cache>/drive-index`): the copy itself, its `search/` (the plain text
@@ -111,6 +120,9 @@ pub(crate) struct Computer {
     pub outbox: Outbox,
     /// The scratch the picker's copies wait in when there is no cache folder.
     pub picked_scratch: Scratch,
+    /// Where scratch lives (`None`: the process's own, [`azul_storage::scratch::root`]): a test's
+    /// folder.
+    pub scratch_root: Option<PathBuf>,
 }
 
 /// One store of a drive's files and folders on this computer.
@@ -149,6 +161,9 @@ pub(crate) struct Places {
     /// The drives file (`None`: this run has none): the entry goes last.
     pub drives_file: Option<PathBuf>,
     pub spots: Vec<Spot>,
+    /// The drive's own scratch of the copies handed to apps: what the program made goes, a copy
+    /// the user edited and saved stays.
+    pub open_copies: Scratch,
 }
 
 impl Places {
@@ -211,18 +226,29 @@ impl Places {
             ));
         }
         if let Some(root) = &computer.sync_root {
-            spots.push(Spot::free(
-                "sync state",
-                pairings
-                    .iter()
-                    .filter(|pairing| pairing.drive_id == drive)
-                    .map(|pairing| pairing.state_dir(root))
-                    .collect(),
-            ));
+            // The state folders of the pairings the settings name, and every other one the drive
+            // has under the root: the first try of a removal takes the pairing off the list, and a
+            // retry after a failed delete of its state would find no pairing and never look again
+            // (X-DELTA-AZDRIVE-KEYS-32).
+            let mut dirs: Vec<PathBuf> = pairings
+                .iter()
+                .filter(|pairing| pairing.drive_id == drive)
+                .map(|pairing| pairing.state_dir(root))
+                .collect();
+            for dir in SyncSetup::state_dirs_of(drive, root) {
+                if !dirs.contains(&dir) {
+                    dirs.push(dir);
+                }
+            }
+            spots.push(Spot::free("sync state", dirs));
         }
         Places {
             drives_file: computer.drives_file.clone(),
             spots,
+            open_copies: match &computer.scratch_root {
+                Some(root) => Scratch::tagged_under(root, "open", drive),
+                None => open_copies_of(drive),
+            },
         }
     }
 }
@@ -250,6 +276,10 @@ pub(crate) fn forget(
             store
         }));
     }
+    stores.push(Box::new(ScratchFootprint::new(
+        "open copies",
+        places.open_copies.clone(),
+    )));
     if let Some(file) = &places.drives_file {
         stores.push(Box::new(DrivesListing::new(file)));
     }
@@ -329,6 +359,7 @@ mod tests {
             period_tokens: PeriodTokenStore::new(root.join("config").join("period-tokens")),
             outbox: Outbox::new(root.join("locks").join("outbox")),
             picked_scratch: Scratch::under(&root.join("cache").join("scratch"), "picked"),
+            scratch_root: Some(root.join("cache").join("scratch")),
         };
         Sandbox {
             dir,
@@ -354,6 +385,7 @@ mod tests {
             (KeyEntry::RotationNext, "next"),
             (KeyEntry::Session, "session"),
             (KeyEntry::AzlinToken, "token"),
+            (KeyEntry::DeviceKey, "device key"),
         ] {
             keyring
                 .set(&entry.name(drive), &format!("{drive} {what}"))
@@ -436,6 +468,22 @@ mod tests {
                 .join("state"),
             format!("{drive} sync state"),
         );
+        // A pairing the settings no longer name (a first try of a removal took it off the list and
+        // its state could not be deleted): found by the drive's name under the sync root.
+        put(
+            SyncSetup::new(drive, "Old/", Path::new("/tmp/a-drive-synced-before"))
+                .state_dir(computer.sync_root.as_ref().unwrap())
+                .join("state"),
+            format!("{drive} sync state of a pairing the settings forgot"),
+        );
+        // The copies handed to apps (decrypted plain text): the drive's own scratch purpose.
+        let opened = Scratch::tagged_under(computer.scratch_root.as_ref().unwrap(), "open", drive);
+        let copy = opened.keep(&format!("{drive}/report.docx\0v1\05")).unwrap();
+        put(
+            copy.join("report.docx"),
+            format!("{drive} the plain text of a file"),
+        );
+        Scratch::note_made(&copy, "report.docx").unwrap();
         DrivesFile::update(computer.drives_file.as_ref().unwrap(), |file| {
             file.add(entry(drive))
         })
@@ -460,12 +508,16 @@ mod tests {
         }
     }
 
-    /// What of the sandbox holds `id` in its name or its text, keyring entries included.
+    /// What of the sandbox holds `id` in its name or its text, keyring entries included. The empty
+    /// lock files stay on purpose (the module doc says so: a lock file is never unlinked, a
+    /// waiter that opened it before would hold a lock of a file nobody locks any more) and are not
+    /// traces: they hold nothing, and their names are `locks`' business.
     fn holding(sandbox: &Sandbox, id: &str) -> Vec<String> {
         let mut all = Vec::new();
         walk(sandbox.root(), sandbox.root(), &mut all);
         let mut found: Vec<String> = all
             .into_iter()
+            .filter(|(path, _)| !path.ends_with(".lock"))
             .filter(|(path, text)| path.contains(id) || text.contains(id))
             .map(|(path, _)| path)
             .collect();
@@ -508,6 +560,8 @@ mod tests {
             "encryption",
             "sync",
             "drives.json",
+            "azul-storage/s3/",
+            "open-",
         ] {
             assert!(
                 before.iter().any(|trace| trace.contains(kind)),
@@ -554,11 +608,19 @@ mod tests {
 
         let keyring: &dyn KeyringStore = &sandbox.keyring;
         let places = sandbox.places(DRIVE);
+        let held: Vec<KeyEntry> = KeyEntry::ALL
+            .into_iter()
+            .filter(|entry| sandbox.keyring.get(&entry.name(DRIVE)).unwrap().is_some())
+            .collect();
+        assert!(
+            held.contains(&KeyEntry::DeviceKey) && held.contains(&KeyEntry::DriveKey),
+            "the drive's life left its device key and its keys: {held:?}"
+        );
         let report = forget(DRIVE, &places, Some(keyring), None);
         assert!(report.complete(), "{report:?}");
         let kept: Vec<String> = report.kept().iter().map(|k| k.what.clone()).collect();
-        for entry in KeyEntry::ALL {
-            if entry.is_key_material() {
+        for entry in held {
+            if entry.goes_with_proof() {
                 assert!(
                     kept.contains(&entry.name(DRIVE)),
                     "{} is kept: {kept:?}",
@@ -572,6 +634,7 @@ mod tests {
                 );
             }
         }
+        assert!(report.keys_kept());
         for spot in places.spots.iter().filter(|spot| spot.only_with_proof) {
             let there: Vec<&PathBuf> = spot.paths.iter().filter(|p| p.exists()).collect();
             assert!(
@@ -598,6 +661,115 @@ mod tests {
         }
         let drives = DrivesFile::load(sandbox.computer.drives_file.as_ref().unwrap()).unwrap();
         assert!(drives.get(DRIVE).is_none(), "the drive is off the list");
+    }
+
+    /// X-DELTA-AZDRIVE-KEYS-32 (b): the first try of a removal takes the pairing off the settings'
+    /// list; a retry after a failed delete of its state is asked for with no pairing at all, and
+    /// used to find no state folder to look in. The folders of the drive are found by name.
+    #[test]
+    fn x_delta_azdrive_keys_32_a_retry_with_no_pairing_still_finds_the_state_folders() {
+        let sandbox = sandbox();
+        leave_traces(&sandbox, DRIVE);
+        leave_traces(&sandbox, OTHER);
+        let root = sandbox.computer.sync_root.clone().unwrap();
+        let before = SyncSetup::state_dirs_of(DRIVE, &root);
+        assert_eq!(before.len(), 2, "its two pairings' folders: {before:?}");
+
+        let places = Places::of(&sandbox.computer, DRIVE, &[]);
+        let proof = RemovalProof::from_checked_code(DRIVE);
+        let keyring: &dyn KeyringStore = &sandbox.keyring;
+        let report = forget(DRIVE, &places, Some(keyring), Some(&proof));
+        assert!(report.complete(), "{report:?}");
+        assert!(
+            SyncSetup::state_dirs_of(DRIVE, &root).is_empty(),
+            "no state folder of the drive is left"
+        );
+        assert_eq!(
+            SyncSetup::state_dirs_of(OTHER, &root).len(),
+            2,
+            "another drive's stay"
+        );
+    }
+
+    /// X-DELTA-AZDRIVE-KEYS-32 (a): the device key is a key of the drive; it goes with the proof
+    /// and not before (it is what gets a locked drive back to its owner).
+    #[test]
+    fn x_delta_azdrive_keys_32_the_device_key_waits_for_the_proof_like_the_keys() {
+        let sandbox = sandbox();
+        leave_traces(&sandbox, DRIVE);
+        let name = KeyEntry::DeviceKey.name(DRIVE);
+        let keyring: &dyn KeyringStore = &sandbox.keyring;
+        let places = sandbox.places(DRIVE);
+
+        let report = forget(DRIVE, &places, Some(keyring), None);
+        assert!(report.complete(), "{report:?}");
+        assert!(
+            sandbox.keyring.get(&name).unwrap().is_some(),
+            "kept without a proof"
+        );
+        assert!(
+            report.kept().iter().any(|kept| kept.what == name),
+            "and said"
+        );
+
+        let proof = RemovalProof::from_checked_code(DRIVE);
+        let report = forget(DRIVE, &places, Some(keyring), Some(&proof));
+        assert!(report.complete(), "{report:?}");
+        assert!(
+            sandbox.keyring.get(&name).unwrap().is_none(),
+            "gone with the proof"
+        );
+    }
+
+    /// X-DELTA-AZDRIVE-KEYS-32 (c): the decrypted copies of the drive's files handed to apps go with
+    /// it - they were one folder for every drive, found by nothing but their age -, a copy the
+    /// user edited stays (and is no "keys kept"), another drive's copies stay.
+    #[cfg(unix)]
+    #[test]
+    fn x_delta_azdrive_keys_32_the_open_copies_go_with_the_drive_and_the_users_edit_stays() {
+        let sandbox = sandbox();
+        leave_traces(&sandbox, DRIVE);
+        leave_traces(&sandbox, OTHER);
+        let root = sandbox.computer.scratch_root.clone().unwrap();
+        let mine = Scratch::tagged_under(&root, "open", DRIVE);
+        let theirs = Scratch::tagged_under(&root, "open", OTHER);
+        // the user saved an edit beside a copy of the drive
+        let edited = mine.keep(&format!("{DRIVE}/notes.txt\0v1\05")).unwrap();
+        durable::replace(&edited.join("notes.txt"), b"cloud bytes", Mode::Private).unwrap();
+        Scratch::note_made(&edited, "notes.txt").unwrap();
+        durable::replace(
+            &edited.join("notes (edited).txt"),
+            b"my words",
+            Mode::Private,
+        )
+        .unwrap();
+
+        let proof = RemovalProof::from_checked_code(DRIVE);
+        let keyring: &dyn KeyringStore = &sandbox.keyring;
+        let report = forget(DRIVE, &sandbox.places(DRIVE), Some(keyring), Some(&proof));
+        assert!(report.complete(), "{report:?}");
+        assert!(
+            !report.keys_kept(),
+            "a file of the user's is not keys kept: {report:?}"
+        );
+        assert!(report
+            .kept()
+            .iter()
+            .all(|kept| kept.because == azul_storage::footprint::KeptBecause::UsersWork));
+        assert_eq!(
+            std::fs::read(edited.join("notes (edited).txt")).unwrap(),
+            b"my words",
+            "the user's work is not the program's to delete"
+        );
+        assert_eq!(
+            std::fs::read_dir(mine.dir()).unwrap().count(),
+            1,
+            "only the folder with the user's edit is left of the drive's copies"
+        );
+        assert!(
+            std::fs::read_dir(theirs.dir()).unwrap().count() >= 1,
+            "another drive's copies stay"
+        );
     }
 
     /// A keyring that refuses to delete one entry until it is told it may.

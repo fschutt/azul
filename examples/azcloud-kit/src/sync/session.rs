@@ -181,6 +181,24 @@ pub struct SyncSetup {
     pub exclude: Vec<String>,
 }
 
+/// The hex digits of a pairing's hash a state folder's name ends with.
+const STATE_HASH_LEN: usize = 12;
+
+/// A drive id as the front of a state folder's name: letters, digits, `-` and `_` as they are,
+/// everything else `_`.
+fn state_dir_name(drive_id: &str) -> String {
+    drive_id
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
 impl SyncSetup {
     /// `folder` paired with `prefix` of the drive `drive_id`, with the default settings.
     #[must_use]
@@ -213,18 +231,52 @@ impl SyncSetup {
             .as_bytes(),
         )
         .to_hex();
-        let name: String = self
-            .drive_id
-            .chars()
-            .map(|c| {
-                if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
-                    c
-                } else {
-                    '_'
+        root.join(format!(
+            "{}-{}",
+            state_dir_name(&self.drive_id),
+            &id.as_str()[..STATE_HASH_LEN]
+        ))
+    }
+
+    /// Every state folder under `root` that a pairing of `drive_id` has or had: the name of
+    /// [`SyncSetup::state_dir`] for any folder and any prefix of the drive. A removal sweeps these
+    /// and not only the folders of the pairings the settings still name: the first try of a
+    /// removal takes the pairing off the list, and a retry after a failed delete of its state
+    /// would find none (X-DELTA-AZDRIVE-KEYS-32).
+    #[must_use]
+    pub fn state_dirs_of(drive_id: &str, root: &Path) -> Vec<PathBuf> {
+        let name = state_dir_name(drive_id);
+        // An id with a character a folder name changes could be written as another drive's front.
+        if name != drive_id {
+            return Vec::new();
+        }
+        let Ok(entries) = std::fs::read_dir(root) else {
+            return Vec::new();
+        };
+        let mut found: Vec<PathBuf> = entries
+            .flatten()
+            .filter(|entry| {
+                // a folder, not a link to one: nothing outside the root is ever followed
+                if !entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+                    return false;
                 }
+                let file = entry.file_name();
+                let Some(tail) = file
+                    .to_str()
+                    .and_then(|file| file.strip_prefix(name.as_str()))
+                    .and_then(|rest| rest.strip_prefix('-'))
+                else {
+                    return false;
+                };
+                tail.len() == STATE_HASH_LEN
+                    && tail
+                        .bytes()
+                        .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
             })
+            .map(|entry| entry.path())
             .collect();
-        root.join(format!("{name}-{}", &id.as_str()[..12]))
+        found.sort();
+        found
     }
 
     /// The size cap in bytes.

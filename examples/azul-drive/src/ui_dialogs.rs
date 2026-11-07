@@ -262,9 +262,22 @@ pub(crate) fn popup_parts(popup: &Popup, s: &DriveState, app: &RefAny) -> (Strin
         Popup::ConfirmForget { drive_id } => {
             let name = s.drive_name(&browse::Place::folder(drive_id, ""));
             let title = t_args("azdrive-forget-title", &[("name", Arg::from(name))]);
+            // What the removal will do with the keys is told before it is pressed: they go with the
+            // evidence of a checked recovery code and stay without it (X-DELTA-AZDRIVE-KEYS-32).
+            let keys_go = crate::recovery_health::removal_proof(
+                &s.settings.recovery.drives,
+                drive_id,
+                crate::actions::now_secs(),
+            )
+            .is_some();
+            let what = if keys_go {
+                "azdrive-forget-what"
+            } else {
+                "azdrive-forget-what-keys-stay"
+            };
             (
                 title.clone(),
-                MessageBox::create(MessageBoxKind::Question, title, t("azdrive-forget-what"))
+                MessageBox::create(MessageBoxKind::Question, title, t(what))
                     .with_detail(t("azdrive-forget-files-stay"))
                     .with_buttons(
                         vec![

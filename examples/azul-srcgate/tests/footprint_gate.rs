@@ -5,10 +5,15 @@
 //! a removed drive left the rest behind, readable by every program of the user. `KeyEntry`
 //! (`azul-storage/src/footprint.rs`) is the one place that writes an entry's name, a golden test
 //! pins the names (users' keys are in them), and `forget_drive` takes the drive off the device
-//! through the stores. Four rules keep it so:
+//! through the stores. Five rules keep it so:
 //!
 //! - a string that starts with `azul-storage/` is the first half of an entry name written by hand:
 //!   it belongs to `KeyEntry::name` (or `contact_key_entry`), nowhere else (no allowance);
+//! - nor is the kind of an entry written as the END of a name built from another
+//!   (`format!("{}/device-key", session_name)`): a string with a `/` before the word of a kind
+//!   (`drive-key`, `vault-key`, `device-key`, ...) is the same hand-written name, one the first
+//!   rule cannot see - the device key was named so and no removal found it
+//!   (X-DELTA-AZDRIVE-KEYS-32; no allowance);
 //! - every `impl KeyringStore for X` in shipped code has a `fn protection`: the keyring says whether
 //!   it is the system's, a plain file (which takes no drive key unless the user allowed it) or
 //!   memory. The default of the trait is `Memory` for a test's stand-in; a store that keeps entries
@@ -63,6 +68,21 @@ const ROOTS: &[Root] = &[
 ];
 
 const BY_HAND: &str = "entry-name-written-by-hand";
+const SUFFIXED: &str = "entry-name-suffixed-by-hand";
+
+/// The words of the kinds of entry that hang below another's name or beside it
+/// (`KeyEntry::kind`), as the last part of a name: not `s3` and `azlin`, which are also words of
+/// the rest of the code.
+const KIND_WORDS: &[&str] = &[
+    "drive-key",
+    "member-key",
+    "drive-key-planned",
+    "drive-key-previous",
+    "drive-key-next",
+    "recovery-request",
+    "vault-key",
+    "device-key",
+];
 const NO_PROTECTION: &str = "keyring-store-without-protection";
 const BUILT_BY_HAND: &str = "azul-keyring-built-by-hand";
 const PROOF_BY_HAND: &str = "removal-proof-made-by-hand";
@@ -136,6 +156,12 @@ fn stores_without_protection(t: &[Located]) -> Vec<usize> {
     found
 }
 
+/// A string with a `/` before the word of a kind of entry at its end.
+fn suffixed_by_hand(text: &str) -> bool {
+    text.rsplit_once('/')
+        .is_some_and(|(_, last)| KIND_WORDS.contains(&last))
+}
+
 fn rules() -> Vec<Rule> {
     vec![
         Rule::new(
@@ -150,6 +176,22 @@ fn rules() -> Vec<Rule> {
                 "let file = dir.join(\"azul-storage\").join(\"drives.json\");",
                 "let name = KeyEntry::DriveKey.name(drive);",
                 "let other = \"azul-storage.drives\";",
+            ],
+        ),
+        Rule::new(
+            SUFFIXED,
+            |t| strings(t, suffixed_by_hand),
+            &[
+                "let name = format!(\"{}/device-key\", session_name(drive));",
+                "let key = base + \"/vault-key\";",
+                "let n = join(\"x/y\", \"/drive-key-next\");",
+            ],
+            &[
+                "let name = KeyEntry::DeviceKey.name(drive);",
+                "let kind = \"device-key\";",
+                "let url = \"https://example.test/api/keys\";",
+                "let field = \"drive-key and the rest\";",
+                "let path = \"docs/drive-keys\";",
             ],
         ),
         Rule::new(

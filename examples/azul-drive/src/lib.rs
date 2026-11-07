@@ -191,6 +191,8 @@ mod tree_leaves_tests;
 mod notices_tests;
 #[cfg(test)]
 mod options_cancel_tests;
+#[cfg(test)]
+mod stop_jobs_tests;
 /// What a drive's state takes (the contract's table): the window's refusals, the sync's passes.
 mod access;
 /// A banned Azlin drive (ban contract v1): the banner, the refusals, Copy everything, closed.
@@ -1311,9 +1313,6 @@ pub(crate) struct DriveState {
     /// The data tree (the data root) the view settings are written into.
     pub settings_drive: Option<LocalDrive>,
     pub downloads: PathBuf,
-    /// Where the copies of cloud files handed to their app wait (AZ-W4, AZ-U13): scratch
-    /// purpose `open`, a private folder, one folder per file and version, read-only, swept.
-    pub opened: Scratch,
     /// Where the caches are kept (a cloud drive's last listing, the drives' indexes):
     /// `--cache-dir`, else AzDrive's folder in the user's cache folder; `None` in a `--shot` run
     /// without the switch (nothing kept) or on a system without a cache folder.
@@ -1409,6 +1408,8 @@ pub(crate) struct DriveState {
     /// The copies of read-only Azlin drives to this computer, by their Azlin id: how far each
     /// got, what it still misses.
     pub rescues: HashMap<String, archive::Rescue>,
+    /// The stop flags of the copies that run (by the drive's Azlin id): a removal raises them.
+    pub rescue_stops: HashMap<String, Arc<AtomicBool>>,
 }
 
 impl DriveState {
@@ -1797,6 +1798,43 @@ pub(crate) fn open_drive(s: &mut DriveState, drive_id: &str) -> Option<Arc<dyn D
 /// an older serial) - a big folder the window left is not read to its end.
 pub(crate) fn cancel_listing(s: &mut DriveState) {
     s.list_cancel.store(true, Ordering::SeqCst);
+}
+
+/// Tells what runs for the drive `drive_id` to stop - its index update, the transfers to or from
+/// it, and the open listing and search when they are its own -: a removal is about to take its
+/// credentials and files off this computer, and a job that goes on holds them and writes what the
+/// removal took (X-DELTA-AZDRIVE-KEYS-32). Raised flags only; the jobs end by themselves.
+pub(crate) fn stop_jobs_of(s: &mut DriveState, drive_id: &str) {
+    raise_cancels_of(&s.indexes, &s.transfers, drive_id);
+    // the copy of a locked drive to this computer reads through a drive that stops answering
+    if let Some(stop) = s.rescue_stops.get(drive_id) {
+        stop.store(true, Ordering::SeqCst);
+    }
+    if s.current_drive_id().as_deref() == Some(drive_id) {
+        cancel_listing(s);
+        stop_find(s);
+    }
+}
+
+/// The cancel flags of `drive_id`'s index update and of every transfer to or from it, raised.
+/// How many were raised.
+pub(crate) fn raise_cancels_of(
+    indexes: &HashMap<String, find::IndexInfo>,
+    transfers: &HashMap<u64, TransferJob>,
+    drive_id: &str,
+) -> usize {
+    let mut raised = 0;
+    if let Some(index) = indexes.get(drive_id) {
+        index.cancel.store(true, Ordering::SeqCst);
+        raised += 1;
+    }
+    for job in transfers.values() {
+        if job.source_id == drive_id || job.target_id == drive_id {
+            job.cancel.store(true, Ordering::SeqCst);
+            raised += 1;
+        }
+    }
+    raised
 }
 
 /// Scans the open folder: its rows stream in batches ([`Outcome::Scanned`]). A `refresh`
@@ -4318,7 +4356,6 @@ pub fn start() {
         drives_file,
         settings_drive,
         downloads,
-        opened: Scratch::new("open"),
         sync: Arc::new(sync_lookup::NoSync),
         cache_dir,
         inline_dialogs,
@@ -4356,6 +4393,7 @@ pub fn start() {
         command_bar: ui_command_bar::CommandBar::default(),
         archives: HashMap::new(),
         rescues: HashMap::new(),
+        rescue_stops: HashMap::new(),
     };
     if args.screen == args::Screen::Settings {
         state.settings_found = Some(state.settings.clone());

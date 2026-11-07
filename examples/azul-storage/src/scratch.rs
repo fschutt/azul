@@ -204,6 +204,21 @@ impl Scratch {
         Scratch::under(&root(), purpose)
     }
 
+    /// The scratch of `purpose` that belongs to `tag` (a drive's id): a purpose folder of its own,
+    /// `<purpose>-<16 hex digits of the tag's hash>`, so that what a removed drive left there is
+    /// one folder to look at, and a sweep treats it like any other purpose's.
+    #[must_use]
+    pub fn tagged(purpose: &str, tag: &str) -> Scratch {
+        Scratch::tagged_under(&root(), purpose, tag)
+    }
+
+    /// [`Scratch::tagged`] with its own `root` (a test's folder).
+    #[must_use]
+    pub fn tagged_under(root: &Path, purpose: &str, tag: &str) -> Scratch {
+        let hash = blake3::hash(tag.as_bytes()).to_hex();
+        Scratch::under(root, &format!("{purpose}-{}", &hash.as_str()[..16]))
+    }
+
     /// [`Scratch::new`] with its own `root` (a test's folder).
     #[must_use]
     pub fn under(root: &Path, purpose: &str) -> Scratch {

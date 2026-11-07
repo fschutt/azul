@@ -199,3 +199,35 @@ fn a_locked_drive_takes_no_device_key() {
         "{refused:?}"
     );
 }
+
+/// X-DELTA-AZDRIVE-KEYS-32: the device key's entry was built here by suffixing the session's name
+/// and was in no list of a drive's entries, so "Remove drive" never found it (an Ed25519 seed that
+/// shows a token server this computer is one of the drive's own devices stayed for ever). The entry
+/// a registration writes is `KeyEntry::DeviceKey`'s, the one a removal looks for.
+#[test]
+fn x_delta_azdrive_keys_32_the_device_key_is_kept_under_the_entry_a_removal_looks_for() {
+    use azul_storage::footprint::KeyEntry;
+    let dir = TempDir::new("azcloud-device-key-entry");
+    let shared = super::period::keyring_with_session(&dir, "dt_f.3.newest");
+    let fake = Fake::new(|_, _| Ok(json(201, r#"{"key_id": "dk_laptop"}"#)));
+    let transport = Shared(fake);
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    ensure_registered(&server, &shared, "d_1").unwrap();
+    let name = KeyEntry::DeviceKey.name("d_1");
+    assert_eq!(crate::device_key::entry_key("d_1"), name);
+    assert!(
+        KeyEntry::ALL.iter().any(|entry| entry.name("d_1") == name),
+        "a removal that walks the drive's entries reaches it"
+    );
+    assert!(
+        shared.get(&name).unwrap().is_some(),
+        "the registered key is under that name"
+    );
+    assert!(
+        shared
+            .get(&KeyEntry::DeviceKey.name("d_2"))
+            .unwrap()
+            .is_none(),
+        "another drive's name is another entry"
+    );
+}

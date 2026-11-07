@@ -25,13 +25,13 @@ use crate::{
     token::{TokenError, TokenServer},
 };
 
-/// The keyring entry of `drive_id`'s device key, beside the drive's session.
+/// The keyring entry of `drive_id`'s device key, beside the drive's session. Named in
+/// `KeyEntry` like every other entry of a drive, so that "Remove drive" finds it
+/// (X-DELTA-AZDRIVE-KEYS-32: it was built here by suffixing the session's name and no list of
+/// the drive's entries had it).
 #[must_use]
 pub fn entry_key(drive_id: &str) -> String {
-    format!(
-        "{}/device-key",
-        azul_storage::config::keyring_key(drive_id)
-    )
+    azul_storage::footprint::KeyEntry::DeviceKey.name(drive_id)
 }
 
 /// What the keyring keeps: the key's seed and the id the token server gave it.

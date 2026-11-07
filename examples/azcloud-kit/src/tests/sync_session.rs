@@ -96,6 +96,39 @@ fn a_pairing_has_the_plans_defaults_and_a_state_folder_of_its_own() {
     assert!(setup.state_dir(&root).starts_with(&root));
 }
 
+/// X-DELTA-AZDRIVE-KEYS-32: a removal takes the pairing off the settings' list first and used to
+/// delete its state folder by that list, so a delete that failed was never tried again (no pairing,
+/// no folder to look in). The folders of a drive are found by their name too.
+#[test]
+fn x_delta_azdrive_keys_32_the_state_folders_of_a_drive_are_found_by_name_without_its_pairing() {
+    let root = TempDir::new("azcloud-session-sweep");
+    let one = TempDir::new("azcloud-session-sweep-one");
+    let two = TempDir::new("azcloud-session-sweep-two");
+    let first = SyncSetup::new("d_test", "Documents/", one.path());
+    let second = SyncSetup::new("d_test", "Other/", two.path());
+    let other_drive = SyncSetup::new("d_test2", "Documents/", one.path());
+    let longer = SyncSetup::new("d_test-0123456789ab", "Documents/", one.path());
+    for setup in [&first, &second, &other_drive, &longer] {
+        fs::create_dir_all(setup.state_dir(root.path())).unwrap();
+    }
+    // things of another name, and a file that is named like a state folder, are not state folders
+    fs::create_dir_all(root.path().join("d_test-notes")).unwrap();
+    fs::write(root.path().join("d_test-0123456789ab"), b"a file").unwrap();
+
+    let mut want = vec![first.state_dir(root.path()), second.state_dir(root.path())];
+    want.sort();
+    assert_eq!(SyncSetup::state_dirs_of("d_test", root.path()), want);
+    assert_eq!(
+        SyncSetup::state_dirs_of("d_test2", root.path()),
+        vec![other_drive.state_dir(root.path())],
+        "another drive's folders are its own"
+    );
+    // an id a folder name would change could be another drive's front: swept by pairing only
+    assert!(SyncSetup::state_dirs_of("d.test", root.path()).is_empty());
+    // no root, no folders
+    assert!(SyncSetup::state_dirs_of("d_test", &root.path().join("none")).is_empty());
+}
+
 #[test]
 fn the_auto_download_policy_takes_new_files_by_size() {
     assert!(AutoDownload::Everything.wants(10_000 * MB));

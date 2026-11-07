@@ -341,7 +341,18 @@ fn lane_az_2_files_of_names_every_file_the_store_keeps_for_a_drive() {
         store.see_members(drive, &status).unwrap();
     }
 
-    let mut on_disk = files_below(store.dir());
+    // A lock file is the lock: never removed, so no list names one (X-DELTA-AZDRIVE-KEYS-32: the
+    // vault's was named, and a removal unlinked it under a waiter that had it open).
+    let (locks, mut on_disk): (Vec<PathBuf>, Vec<PathBuf>) =
+        files_below(store.dir()).into_iter().partition(|path| {
+            path.parent()
+                .and_then(Path::file_name)
+                .is_some_and(|folder| folder == "locks")
+        });
+    assert!(
+        !locks.is_empty(),
+        "the changes of the vaults took their locks"
+    );
     on_disk.sort();
     let mut named: Vec<PathBuf> = ["d_1", "d_2"]
         .iter()
@@ -351,6 +362,10 @@ fn lane_az_2_files_of_names_every_file_the_store_keeps_for_a_drive() {
     assert_eq!(
         on_disk, named,
         "the files there are the files named, no more"
+    );
+    assert!(
+        named.iter().all(|file| !locks.contains(file)),
+        "a lock file is never unlinked, so none is named: {named:?}"
     );
     let first = store.files_of("d_1");
     assert!(first.iter().all(|file| file.exists()), "{first:?}");

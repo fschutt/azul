@@ -9,9 +9,10 @@ use crate::{
     config::{DriveEntry, DriveLocation, DrivesFile},
     footprint::{
         contact_key_entry, forget_drive, DrivesListing, Footprint, KeptBecause, KeyEntry,
-        KeyringFootprint, Paths, RemovalProof, StoreOutcome,
+        KeyringFootprint, Paths, RemovalProof, ScratchFootprint, StoreOutcome,
     },
     keyring::{KeyringError, KeyringStore, MemoryKeyring},
+    scratch::Scratch,
 };
 
 const DRIVE: &str = "d_k3f9";
@@ -75,6 +76,7 @@ fn lane_az_2_the_keyring_entry_names_of_a_drive_are_pinned() {
         [
             "azul-storage/s3/d_1",
             "azul-storage/azlin/d_1",
+            "azul-storage/s3/d_1/device-key",
             "azul-storage/drive-key/d_1",
             "azul-storage/drive-key-previous/d_1",
             "azul-storage/drive-key-next/d_1",
@@ -97,15 +99,20 @@ fn lane_az_2_the_keyring_entry_names_of_a_drive_are_pinned() {
         assert_eq!(KeyEntry::of_name(&entry.name("d_1"), "d_1"), Some(entry));
         assert_eq!(KeyEntry::of_name(&entry.name("d_1"), "d_2"), None);
     }
-    // Only the session, the drive token and the vault's key are credentials; the rest is key
-    // material.
+    // Only the session, the drive token, the device key and the vault's key are credentials; the
+    // rest is key material.
     let credentials: Vec<KeyEntry> = KeyEntry::ALL
         .into_iter()
         .filter(|e| !e.is_key_material())
         .collect();
     assert_eq!(
         credentials,
-        [KeyEntry::Session, KeyEntry::AzlinToken, KeyEntry::VaultKey]
+        [
+            KeyEntry::Session,
+            KeyEntry::AzlinToken,
+            KeyEntry::DeviceKey,
+            KeyEntry::VaultKey
+        ]
     );
 }
 
@@ -125,9 +132,13 @@ fn lane_az_2_a_removal_takes_the_credentials_and_keeps_the_keys_without_a_proof(
         2,
         "the session and the drive token: {done:?}"
     );
-    assert_eq!(done.kept.len(), 6, "the keys stay: {done:?}");
+    assert_eq!(
+        done.kept.len(),
+        8,
+        "the keys, the vault's key and the device key stay: {done:?}"
+    );
     assert!(done.kept.iter().all(|k| k.because == KeptBecause::NoProof));
-    assert_eq!(store.residue(DRIVE).unwrap().len(), 6);
+    assert_eq!(store.residue(DRIVE).unwrap().len(), 8);
 
     let proof = RemovalProof::from_checked_code(DRIVE);
     let done = store.forget(DRIVE, Some(&proof)).unwrap();
@@ -140,6 +151,121 @@ fn lane_az_2_a_removal_takes_the_credentials_and_keeps_the_keys_without_a_proof(
     );
     // Nothing there: nothing to refuse.
     store.forget(DRIVE, Some(&proof)).unwrap();
+}
+
+/// X-DELTA-AZDRIVE-KEYS-32 (a): the device key's entry (azcloud-kit built its name by suffixing
+/// the session's) was in no list of a drive's entries, so a removal never found it. It is a kind of
+/// `KeyEntry`, named below the session's, and it goes with the proof like the keys: it is what
+/// gets a locked drive back to its owner.
+#[test]
+fn x_delta_azdrive_keys_32_the_device_key_is_an_entry_of_the_drive_and_goes_with_its_proof() {
+    let keyring = MemoryKeyring::new();
+    let device = KeyEntry::DeviceKey.name(DRIVE);
+    assert_eq!(
+        device,
+        format!("{}/device-key", KeyEntry::Session.name(DRIVE)),
+        "the name users' keyrings already hold"
+    );
+    assert_eq!(KeyEntry::of_name(&device, DRIVE), Some(KeyEntry::DeviceKey));
+    assert_eq!(
+        KeyEntry::of_name(&KeyEntry::Session.name(DRIVE), DRIVE),
+        Some(KeyEntry::Session),
+        "the session is not mistaken for it"
+    );
+    keyring.set(&device, "{\"seed\":\"c2VlZA\"}").unwrap();
+    keyring
+        .set(&KeyEntry::Session.name(DRIVE), "a session")
+        .unwrap();
+    keyring
+        .set(&KeyEntry::DeviceKey.name("d_other"), "another")
+        .unwrap();
+    let store = KeyringFootprint::new(&keyring);
+
+    // without the proof: the session goes, the device key stays and is said to
+    let done = store.forget(DRIVE, None).unwrap();
+    assert_eq!(done.removed, [KeyEntry::Session.name(DRIVE)]);
+    let kept: Vec<&str> = done.kept.iter().map(|k| k.what.as_str()).collect();
+    assert_eq!(kept, [device.as_str()], "{done:?}");
+    assert_eq!(store.residue(DRIVE).unwrap(), [device.clone()]);
+
+    // with it: gone, and another drive's is not touched
+    let proof = RemovalProof::from_checked_code(DRIVE);
+    store.forget(DRIVE, Some(&proof)).unwrap();
+    assert!(keyring.get(&device).unwrap().is_none());
+    assert!(store.residue(DRIVE).unwrap().is_empty());
+    assert!(keyring
+        .get(&KeyEntry::DeviceKey.name("d_other"))
+        .unwrap()
+        .is_some());
+}
+
+/// X-DELTA-AZDRIVE-KEYS-32 (c): the decrypted copies of a drive's files handed to apps lived in one
+/// scratch purpose for every drive and a removal could not tell them: they waited for the sweep of
+/// a day. A purpose of the drive's own is a store of the removal: the copies the program made go,
+/// a folder that holds the user's own work (a copy edited and saved beside it) stays - said - and
+/// another drive's copies are not touched.
+#[cfg(unix)]
+#[test]
+fn x_delta_azdrive_keys_32_the_copies_of_a_removed_drive_go_and_the_users_own_work_stays() {
+    let dir = TempDir::new("footprint-open-copies");
+    let mine = Scratch::tagged_under(dir.path(), "open", "d_1");
+    let other = Scratch::tagged_under(dir.path(), "open", "d_2");
+    assert_ne!(mine.dir(), other.dir());
+    let make = |scratch: &Scratch, tag: &str, name: &str| {
+        let folder = scratch.keep(tag).unwrap();
+        std::fs::write(folder.join(name), b"the plain text of a file").unwrap();
+        Scratch::note_made(&folder, name).unwrap();
+        folder
+    };
+    let copy = make(&mine, "docs/a.txt\0v1\05", "a.txt");
+    let edited = make(&mine, "docs/b.txt\0v1\05", "b.txt");
+    std::fs::write(edited.join("b (edited).txt"), b"the user's words").unwrap();
+    let theirs = make(&other, "docs/c.txt\0v1\05", "c.txt");
+
+    let store = ScratchFootprint::new("open copies", mine.clone());
+    assert_eq!(store.residue("d_1").unwrap().len(), 2);
+    let done = store.forget("d_1", None).unwrap();
+    assert!(done.removed.is_empty(), "something stays: {done:?}");
+    assert_eq!(done.kept.len(), 1, "{done:?}");
+    assert_eq!(done.kept[0].because, KeptBecause::UsersWork);
+    assert!(!copy.exists(), "the program's own copy is gone");
+    assert_eq!(
+        std::fs::read(edited.join("b (edited).txt")).unwrap(),
+        b"the user's words",
+        "the user's work is not the program's to delete"
+    );
+    assert!(theirs.join("c.txt").exists(), "another drive's copies stay");
+
+    // Once the user's work is gone too, the drive's purpose folder goes with the rest.
+    std::fs::remove_dir_all(&edited).unwrap();
+    let done = store.forget("d_1", None).unwrap();
+    assert_eq!(done.removed.len(), 1, "{done:?}");
+    assert!(done.kept.is_empty());
+    assert!(!mine.dir().exists());
+    assert!(store.residue("d_1").unwrap().is_empty());
+    // and a removal of a drive that opened nothing is nothing to do
+    assert!(store.forget("d_1", None).unwrap().kept.is_empty());
+}
+
+/// The report's "keys kept" is about the proof only: a user's file that stayed is not a key.
+#[test]
+fn x_delta_azdrive_keys_32_a_users_file_that_stayed_is_not_keys_kept() {
+    use crate::footprint::{ForgetReport, Forgotten, Kept, StoreOutcome, StoreReport};
+    let report = |because: KeptBecause| ForgetReport {
+        stores: vec![StoreReport {
+            store: "x",
+            outcome: StoreOutcome::Done(Forgotten {
+                removed: Vec::new(),
+                kept: vec![Kept {
+                    what: String::from("a"),
+                    because,
+                }],
+            }),
+        }],
+    };
+    assert!(report(KeptBecause::NoProof).keys_kept());
+    assert!(!report(KeptBecause::UsersWork).keys_kept());
+    assert!(!ForgetReport::default().keys_kept());
 }
 
 /// X-DELTA-AZDRIVE-KEYS-8: the period vault's FILES go only with a proof (the months paid for the
@@ -184,7 +310,7 @@ fn x_delta_azdrive_keys_8_the_key_of_the_period_vault_goes_only_with_the_proof_i
     for entry in KeyEntry::ALL {
         assert_eq!(
             entry.goes_with_proof(),
-            entry.is_key_material() || entry == KeyEntry::VaultKey,
+            entry.is_key_material() || matches!(entry, KeyEntry::VaultKey | KeyEntry::DeviceKey),
             "{entry:?}"
         );
     }

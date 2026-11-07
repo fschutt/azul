@@ -294,6 +294,9 @@ pub(crate) fn start_forget(
     if !pairings.is_empty() {
         crate::sync_jobs::stop(info, app, s, drive_id);
     }
+    // What else runs for the drive holds its credentials and writes what the removal takes away:
+    // told to stop before the removal starts (X-DELTA-AZDRIVE-KEYS-32).
+    crate::stop_jobs_of(s, drive_id);
     let computer = crate::footprint::Computer {
         drives_file: s.drives_file.clone(),
         cache_dir: s.cache_dir.clone(),
@@ -304,6 +307,7 @@ pub(crate) fn start_forget(
         period_tokens: s.period_tokens.clone(),
         outbox: s.keyring.outbox(),
         picked_scratch: crate::picker::picked_scratch(),
+        scratch_root: None,
     };
     let places = crate::footprint::Places::of(&computer, drive_id, &pairings);
     s.popup.open(Popup::Encryption(Dialog::Busy {
@@ -3709,7 +3713,7 @@ pub(crate) fn on_outcome(
                     s,
                     &drive_id,
                     &name,
-                    !report.kept().is_empty(),
+                    report.keys_kept(),
                 );
             } else {
                 // The drive stays on the list, its entries findable by its id: removing it again
@@ -5102,6 +5106,11 @@ mod tests {
         crate::footprint::Places {
             drives_file: None,
             spots: Vec::new(),
+            open_copies: azul_storage::scratch::Scratch::tagged_under(
+                std::path::Path::new("/nonexistent/azdrive-scratch"),
+                "open",
+                KEYS_DRIVE,
+            ),
         }
     }
 
@@ -5199,6 +5208,11 @@ mod tests {
                 paths: vec![vault.clone()],
                 only_with_proof: true,
             }],
+            open_copies: azul_storage::scratch::Scratch::tagged_under(
+                dir.path(),
+                "open",
+                KEYS_DRIVE,
+            ),
         };
         let keyring = azul_storage::keyring::MemoryKeyring::new();
         let drive_key = DriveKey::generate().unwrap();

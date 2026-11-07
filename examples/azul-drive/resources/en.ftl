@@ -404,7 +404,8 @@ azdrive-delete-warning = { $count ->
     } from "{ $drive }".
 azdrive-delete-button = Delete
 azdrive-forget-title = Remove the drive "{ $name }"?
-azdrive-forget-what = AzDrive forgets the drive and takes its keys out of the keyring and its copies, indexes and settings off this computer.
+azdrive-forget-what = AzDrive signs this computer out of the drive, takes its keys out of the keyring and its copies, indexes and settings off this computer. Keys stay when a key change is unfinished or months paid for the drive are only on this computer. Programs of yours that use the drive here through these keys (AzMail, the bridge) lose them too.
+azdrive-forget-what-keys-stay = AzDrive signs this computer out of the drive and takes its copies, indexes and settings off this computer. Its keys and the months paid for it stay: its recovery code was never checked, and they may be the only way into the drive. They go once the code is checked, no key change is unfinished and the months paid are in the drive too.
 azdrive-forget-files-stay = Its files stay where they are.
 azdrive-forget-button = Remove
 azdrive-location-folder = The folder (a drive's name, then its folders: Home/docs)

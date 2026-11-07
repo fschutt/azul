@@ -23,6 +23,10 @@
 use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
     time::UNIX_EPOCH,
 };
 
@@ -46,7 +50,7 @@ use azul_storage::{
     durable::{self, Expect},
     key::System,
     names::{Policy, Purpose},
-    transfer, Drive, DriveError, LocalDrive, ObjectInfo,
+    transfer, ByteRange, Drive, DriveError, Limit, ListPage, ListRequest, LocalDrive, ObjectInfo,
 };
 use serde::{Deserialize, Serialize};
 
@@ -980,6 +984,14 @@ pub(crate) fn after_look(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
         let Some(source) = crate::open_drive(s, &drive_id) else {
             continue;
         };
+        // The copy reads through a drive that stops answering when the drive is removed
+        // (X-DELTA-AZDRIVE-KEYS-32): its credentials are not used for a drive that is gone.
+        let stop = Arc::new(AtomicBool::new(false));
+        s.rescue_stops.insert(azlin_id.clone(), Arc::clone(&stop));
+        let source: Arc<dyn Drive> = Arc::new(Stops {
+            inner: source,
+            stop,
+        });
         let folder = home.join(RESCUE_DIR).join(folder_name(s, &drive_id));
         let entry = s.rescues.entry(azlin_id.clone()).or_default();
         entry.folder = folder.clone();
@@ -993,6 +1005,55 @@ pub(crate) fn after_look(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
             state,
         };
         spawn(info, app, s, job);
+    }
+}
+
+/// A drive that stops answering once its flag is raised (`Cancelled`): what the copy of a locked
+/// drive to this computer reads through, so that the removal of the drive can end the copy.
+pub(crate) struct Stops {
+    pub inner: Arc<dyn Drive>,
+    pub stop: Arc<AtomicBool>,
+}
+
+impl Stops {
+    fn alive(&self) -> Result<(), DriveError> {
+        if self.stop.load(Ordering::SeqCst) {
+            Err(DriveError::Cancelled)
+        } else {
+            Ok(())
+        }
+    }
+}
+
+impl Drive for Stops {
+    fn list(&self, request: &ListRequest) -> Result<ListPage, DriveError> {
+        self.alive()?;
+        self.inner.list(request)
+    }
+    fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
+        self.alive()?;
+        self.inner.get(key)
+    }
+    fn get_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, DriveError> {
+        self.alive()?;
+        self.inner.get_range(key, range)
+    }
+    // The inner drive's guard stands: a drive that wraps another forwards the limit.
+    fn get_limited(&self, key: &str, limit: Limit) -> Result<Vec<u8>, DriveError> {
+        self.alive()?;
+        self.inner.get_limited(key, limit)
+    }
+    fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
+        self.alive()?;
+        self.inner.put(key, bytes)
+    }
+    fn delete(&self, key: &str) -> Result<(), DriveError> {
+        self.alive()?;
+        self.inner.delete(key)
+    }
+    fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
+        self.alive()?;
+        self.inner.head(key)
     }
 }
 
@@ -1019,14 +1080,32 @@ pub(crate) fn rescue_progress(s: &mut DriveState, azlin_id: &str, copied: usize,
     }
 }
 
-/// A copy ended: kept for the bar, said on stdout.
+/// A copy ended: kept for the bar, said on stdout. A copy whose drive was removed while it ran
+/// (the removal raised its stop: [`Stops`]) leaves nothing of itself: the state it kept on the way
+/// goes (the removal took the file first, and the run wrote it again at every step) and the bar is
+/// not told (X-DELTA-AZDRIVE-KEYS-32). The files it copied are the user's and stay.
 pub(crate) fn rescue_done(s: &mut DriveState, azlin_id: &str, report: Rescue) {
+    s.rescue_stops.remove(azlin_id);
     println!(
         "AZDRIVE_RESCUE {azlin_id} {} {} {}",
         report.copied,
         report.total,
         report.missing.len()
     );
+    if slot_of(s, azlin_id).is_none() {
+        s.rescues.remove(azlin_id);
+        if let Some(file) = rescue_file(s, azlin_id) {
+            if let Err(e) = std::fs::remove_file(&file) {
+                if e.kind() != std::io::ErrorKind::NotFound {
+                    eprintln!(
+                        "AZDRIVE_RESCUE_STATE_STAYS {azlin_id}: {}: {e}",
+                        file.display()
+                    );
+                }
+            }
+        }
+        return;
+    }
     s.rescues.insert(azlin_id.to_string(), report);
 }
 

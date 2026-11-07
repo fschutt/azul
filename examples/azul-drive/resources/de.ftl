@@ -402,7 +402,8 @@ azdrive-delete-warning = { $count ->
     } aus „{ $drive }“.
 azdrive-delete-button = Löschen
 azdrive-forget-title = Laufwerk „{ $name }“ entfernen?
-azdrive-forget-what = AzDrive vergisst das Laufwerk und nimmt seine Schlüssel aus dem Schlüsselbund sowie seine Kopien, Indizes und Einstellungen von diesem Computer.
+azdrive-forget-what = AzDrive meldet diesen Computer vom Laufwerk ab, nimmt seine Schlüssel aus dem Schlüsselbund sowie seine Kopien, Indizes und Einstellungen von diesem Computer. Die Schlüssel bleiben, wenn eine Schlüsseländerung offen ist oder für das Laufwerk bezahlte Monate nur auf diesem Computer liegen. Programme von dir, die das Laufwerk hier mit diesen Schlüsseln nutzen (AzMail, die Bridge), verlieren sie mit.
+azdrive-forget-what-keys-stay = AzDrive meldet diesen Computer vom Laufwerk ab und nimmt seine Kopien, Indizes und Einstellungen von diesem Computer. Seine Schlüssel und die dafür bezahlten Monate bleiben: Sein Wiederherstellungscode wurde nie geprüft, und sie könnten der einzige Weg ins Laufwerk sein. Sie gehen, sobald der Code geprüft ist, keine Schlüsseländerung offen ist und die bezahlten Monate auch im Laufwerk liegen.
 azdrive-forget-files-stay = Seine Dateien bleiben, wo sie sind.
 azdrive-forget-button = Entfernen
 azdrive-location-folder = Der Ordner (der Name eines Laufwerks, dann seine Ordner: Home/docs)

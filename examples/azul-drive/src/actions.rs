@@ -1882,7 +1882,7 @@ pub(crate) fn activate(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState
             return;
         };
         s.info(opening_phrase(&*drive, &item, &entry.name));
-        let copies = s.opened.clone();
+        let copies = crate::footprint::open_copies_of(&drive_id);
         spawn(
             info,
             app,
@@ -1916,7 +1916,7 @@ pub(crate) fn activate(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState
         return;
     };
     s.info(opening_phrase(&*drive, &entry.key, &entry.name));
-    let copies = s.opened.clone();
+    let copies = crate::footprint::open_copies_of(&drive_id);
     spawn(
         info,
         app,
@@ -3208,6 +3208,9 @@ pub(crate) fn request_preview(info: &mut CallbackInfo, app: &RefAny, s: &mut Dri
         });
         return;
     }
+    let Some(drive_id) = s.current_drive_id() else {
+        return;
+    };
     let Some(drive) = open_current(s) else {
         return;
     };
@@ -3215,7 +3218,7 @@ pub(crate) fn request_preview(info: &mut CallbackInfo, app: &RefAny, s: &mut Dri
         key: entry.key.clone(),
         content: None,
     });
-    let copies = s.opened.clone();
+    let copies = crate::footprint::open_copies_of(&drive_id);
     spawn(
         info,
         app,
@@ -4077,6 +4080,9 @@ pub(crate) fn drive_forgotten(
     s.tree.loaded.retain(|node, _| node.0 != drive_id);
     s.root_counts.remove(drive_id);
     s.indexes.remove(drive_id);
+    // What the window remembered of a locked drive's copy and of its archive is the drive's.
+    s.rescues.remove(drive_id);
+    s.archives.remove(drive_id);
     s.settings.forget_drive(drive_id, !keys_kept);
     s.history.clear();
     save_settings(info, app, s);

@@ -28,7 +28,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::keyring::KeyringStore;
+use crate::{keyring::KeyringStore, scratch::Scratch};
 
 /// The folder name every entry of this crate's keyring starts with.
 const PREFIX: &str = "azul-storage";
@@ -60,15 +60,23 @@ pub enum KeyEntry {
     /// period tokens of the months a customer paid for, AZ-K13). A credential: it opens a file of
     /// this device that is removed with the drive.
     VaultKey,
+    /// This device's own Ed25519 key for an Azlin drive (azcloud-kit's `device_key`): its signature
+    /// shows the token server that this computer is one of the drive's own devices, for the
+    /// restore of a locked drive and nothing else. Named beside the session
+    /// (`azul-storage/s3/<drive>/device-key`); not a key to the drive's files, but the one thing
+    /// that lets an owner get a locked drive back without the recovery code's words, so it goes
+    /// with the proof like the keys (X-DELTA-AZDRIVE-KEYS-32).
+    DeviceKey,
 }
 
 impl KeyEntry {
     /// Every kind, the entries that grant access to the drive's server side first, then the keys
     /// (a removal that stops in the middle leaves the keys, which can be found by the drive's id
     /// and tried again).
-    pub const ALL: [KeyEntry; 9] = [
+    pub const ALL: [KeyEntry; 10] = [
         KeyEntry::Session,
         KeyEntry::AzlinToken,
+        KeyEntry::DeviceKey,
         KeyEntry::DriveKey,
         KeyEntry::RotationPrevious,
         KeyEntry::RotationNext,
@@ -82,7 +90,12 @@ impl KeyEntry {
     /// The entry's name in the keyring for the drive `drive`.
     #[must_use]
     pub fn name(self, drive: &str) -> String {
-        format!("{PREFIX}/{}/{drive}", self.kind())
+        let mut name = format!("{PREFIX}/{}/{drive}", self.kind());
+        if let Some(below) = self.below() {
+            name.push('/');
+            name.push_str(below);
+        }
+        name
     }
 
     /// The word of the kind in the name.
@@ -97,6 +110,19 @@ impl KeyEntry {
             KeyEntry::RotationNext => "drive-key-next",
             KeyEntry::RequestKey => "recovery-request",
             KeyEntry::VaultKey => "vault-key",
+            // beside the session's entry, as the entry always was named (see `suffix`)
+            KeyEntry::DeviceKey => "s3",
+        }
+    }
+
+    /// What hangs below the drive's id in the name: the device key's entry is below the session's
+    /// (`azul-storage/s3/<drive>/device-key`), as users' keyrings already have it. (No slash in the
+    /// word: `footprint_gate` reads a string with a slash before a kind's word as a name built by
+    /// hand, and this is the one place that builds them.)
+    const fn below(self) -> Option<&'static str> {
+        match self {
+            KeyEntry::DeviceKey => Some("device-key"),
+            _ => None,
         }
     }
 
@@ -108,17 +134,18 @@ impl KeyEntry {
     pub const fn is_key_material(self) -> bool {
         !matches!(
             self,
-            KeyEntry::Session | KeyEntry::AzlinToken | KeyEntry::VaultKey
+            KeyEntry::Session | KeyEntry::AzlinToken | KeyEntry::VaultKey | KeyEntry::DeviceKey
         )
     }
 
-    /// Whether the entry leaves the device only with a [`RemovalProof`]: key material, and the key
-    /// of the period vault. The vault's FILES go with a proof (the months paid for the drive may
-    /// be only there), so the key that opens them goes with it and never alone: a vault that
-    /// stays without its key is ciphertext nobody can read (X-DELTA-AZDRIVE-KEYS-8).
+    /// Whether the entry leaves the device only with a [`RemovalProof`]: key material, the key of
+    /// the period vault, and the device key. The vault's FILES go with a proof (the months paid for
+    /// the drive may be only there), so the key that opens them goes with it and never alone: a
+    /// vault that stays without its key is ciphertext nobody can read (X-DELTA-AZDRIVE-KEYS-8). The
+    /// device key is what gets a locked drive back to its owner: it stays while the drive's keys do.
     #[must_use]
     pub const fn goes_with_proof(self) -> bool {
-        self.is_key_material() || matches!(self, KeyEntry::VaultKey)
+        self.is_key_material() || matches!(self, KeyEntry::VaultKey | KeyEntry::DeviceKey)
     }
 
     /// The entry of a drive of `drive` whose name is `name`, if it is one.
@@ -240,6 +267,9 @@ impl std::error::Error for FootprintError {}
 pub enum KeptBecause {
     /// Key material, and no [`RemovalProof`]: the keys here may be the only way into the drive.
     NoProof,
+    /// A file in it is the user's own work - a copy of a file that was edited and saved beside or
+    /// over it -, not something the program made: it is not the program's to delete.
+    UsersWork,
 }
 
 /// A trace of the drive left on purpose.
@@ -352,6 +382,16 @@ impl ForgetReport {
             })
             .flatten()
             .collect()
+    }
+
+    /// Whether keys or paid months stayed for want of a [`RemovalProof`] - the one thing the user
+    /// is told about a removal that was otherwise complete (a user's own file that stayed is
+    /// another matter: [`KeptBecause::UsersWork`]).
+    #[must_use]
+    pub fn keys_kept(&self) -> bool {
+        self.kept()
+            .iter()
+            .any(|kept| kept.because == KeptBecause::NoProof)
     }
 }
 
@@ -561,6 +601,78 @@ impl Footprint for Paths {
         } else {
             Err(FootprintError::new(failures.join("; ")))
         }
+    }
+}
+
+/// A drive's scratch ([`Scratch::tagged`]) as a store: the copies the program made in it go - they
+/// are decrypted plain text of the drive's files -, a folder that holds anything the program did
+/// not write (a copy the user edited and saved beside or over it) is that person's work and stays,
+/// and the report says so ([`KeptBecause::UsersWork`]). It goes without a proof: the copies are
+/// made again from the drive.
+pub struct ScratchFootprint {
+    store: &'static str,
+    scratch: Scratch,
+}
+
+impl ScratchFootprint {
+    /// The store `store` over `scratch`.
+    #[must_use]
+    pub fn new(store: &'static str, scratch: Scratch) -> ScratchFootprint {
+        ScratchFootprint { store, scratch }
+    }
+
+    /// What is in the scratch folder now, by path.
+    fn entries(&self) -> Result<Vec<String>, FootprintError> {
+        let read = match std::fs::read_dir(self.scratch.dir()) {
+            Ok(read) => read,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(e) => {
+                return Err(FootprintError::new(format!(
+                    "{}: {e}",
+                    self.scratch.dir().display()
+                )))
+            }
+        };
+        let mut left: Vec<String> = read
+            .flatten()
+            .map(|entry| entry.path().display().to_string())
+            .collect();
+        left.sort();
+        Ok(left)
+    }
+}
+
+impl Footprint for ScratchFootprint {
+    fn store(&self) -> &'static str {
+        self.store
+    }
+
+    fn residue(&self, _drive: &str) -> Result<Vec<String>, FootprintError> {
+        self.entries()
+    }
+
+    fn forget(
+        &self,
+        _drive: &str,
+        _proof: Option<&RemovalProof>,
+    ) -> Result<Forgotten, FootprintError> {
+        // Everything the program made, whatever its age; what holds the user's own work is not
+        // taken, and a folder that cannot be told is not taken either.
+        self.scratch.sweep(std::time::Duration::ZERO);
+        let left = self.entries()?;
+        let mut done = Forgotten::default();
+        if left.is_empty() {
+            // The purpose's own folder is empty now: it goes with the rest (not an error if a
+            // program made something in it in the meantime).
+            let _ = std::fs::remove_dir(self.scratch.dir());
+            done.removed.push(self.scratch.dir().display().to_string());
+        } else {
+            done.kept.extend(left.into_iter().map(|what| Kept {
+                what,
+                because: KeptBecause::UsersWork,
+            }));
+        }
+        Ok(done)
     }
 }
 
