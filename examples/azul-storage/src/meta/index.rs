@@ -33,7 +33,9 @@ use super::{
     objects::{Commit, Mode, ObjectId},
     pack::PackWriter,
     pointer,
-    repo::{remote_head, unpublished, unreachable, Local, MetaRepo, RepoOptions, MAIN},
+    repo::{
+        remote_head, unpublished, unreachable, Local, MetaRepo, RepoOptions, RestoreSource, MAIN,
+    },
     seal::{KeyWindow, Sealer},
     shard::{self, SHARD_PREFIX},
     tree::{apply, entry_at, folder_at, Change},
@@ -165,6 +167,9 @@ impl<B: Bucket, S: Sealer> MetaRepo<B, S> {
                 }));
             }
         }
+        // A restore announced since the last poll: the copy is dropped first, the publish below
+        // reads the restored drive anew.
+        self.take_restore();
         let signature = self.signature();
         let local = &mut self.local;
         let mut outcome: Option<(ObjectId, Vec<ObjectId>)> = None;
@@ -592,7 +597,11 @@ pub fn open_encrypted_drive<D: Drive + 'static>(
     cache_dir: Option<PathBuf>,
     lazy: bool,
 ) -> Result<EncryptedDrive<Arc<D>>, DriveError> {
-    let options = RepoOptions { cache_dir, lazy };
+    let options = RepoOptions {
+        cache_dir,
+        lazy,
+        restore: RestoreSource::default(),
+    };
     let repo = open_or_create(&inner, &drive_key, device_id, device_name, &options)?;
     let index: Arc<dyn NameIndex> = Arc::new(MetaIndex::new(repo));
     Ok(EncryptedDrive::new(inner, drive_key, index))
@@ -608,6 +617,8 @@ pub struct MetaIndexProvider {
     /// Whether the drives it opens pack small files ([`crate::packing`]), their journal in
     /// each drive's cache folder.
     packing: bool,
+    /// Where a restore of the drives it opens is announced (the token server's word).
+    restore: RestoreSource,
 }
 
 impl MetaIndexProvider {
@@ -620,6 +631,7 @@ impl MetaIndexProvider {
             cache_root: None,
             lazy: false,
             packing: false,
+            restore: RestoreSource::default(),
         }
     }
 
@@ -637,6 +649,16 @@ impl MetaIndexProvider {
         self
     }
 
+    /// Where a restore of the drive is announced: the token server's announcement as the app last
+    /// read it ([`RestoreSource`]). A provider is made for one drive in the apps; one that opens
+    /// several asks the same source for each. Without a source a restored drive that serves an
+    /// older state than this device saw is a rollback, for good.
+    #[must_use]
+    pub fn with_restore(mut self, source: RestoreSource) -> Self {
+        self.restore = source;
+        self
+    }
+
     /// The drives it opens pack small files together ([`crate::packing`]): the sync client's
     /// choice for Azlin drives. Their journal lives in `<drive cache>/packs`; without a cache
     /// root it is kept in memory.
@@ -651,6 +673,7 @@ impl MetaIndexProvider {
         RepoOptions {
             cache_dir: self.drive_cache_dir(drive),
             lazy: self.lazy,
+            restore: self.restore.clone(),
         }
     }
 

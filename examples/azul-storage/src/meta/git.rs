@@ -175,6 +175,7 @@ pub fn serve_bucket<B: Bucket, S: Sealer>(
     let options = RepoOptions {
         cache_dir: None,
         lazy: true,
+        ..RepoOptions::default()
     };
     let mut repo = MetaRepo::open_with(bucket, sealer, HELPER_DEVICE, "git", &options)
         .map_err(io_error)?;

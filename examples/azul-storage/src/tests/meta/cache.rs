@@ -23,6 +23,7 @@ fn cached(dir: &TempDir) -> RepoOptions {
     RepoOptions {
         cache_dir: Some(dir.path().to_path_buf()),
         lazy: false,
+        ..RepoOptions::default()
     }
 }
 
@@ -205,6 +206,7 @@ fn a_lazy_device_browses_a_folder_with_ranged_reads_and_never_the_whole_pack() {
     let lazy = RepoOptions {
         cache_dir: None,
         lazy: true,
+        ..RepoOptions::default()
     };
     let mut tablet = Repo::open_with(bucket.clone(), sealer(), "dev-tablet", "Tablet", &lazy).unwrap();
     let docs = tablet.ensure_folder("docs", true).unwrap().unwrap();
@@ -232,6 +234,7 @@ fn a_lazy_device_commits_and_the_others_see_it() {
     let lazy = RepoOptions {
         cache_dir: None,
         lazy: true,
+        ..RepoOptions::default()
     };
     let mut tablet = Repo::open_with(bucket.clone(), sealer(), "dev-tablet", "Tablet", &lazy).unwrap();
     commit(&mut tablet, &[("docs/c.txt", "from the tablet")]);
@@ -248,6 +251,7 @@ fn a_lazy_device_reopened_from_its_cache_reads_no_chunk_twice() {
     let options = RepoOptions {
         cache_dir: Some(dir.path().to_path_buf()),
         lazy: true,
+        ..RepoOptions::default()
     };
     let mut tablet =
         Repo::open_with(bucket.clone(), sealer(), "dev-tablet", "Tablet", &options).unwrap();

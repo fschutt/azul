@@ -29,6 +29,7 @@ mod race;
 #[cfg(feature = "encryption")]
 mod rekey;
 mod repo;
+mod restore_epoch;
 mod scale;
 mod seal;
 mod shard;

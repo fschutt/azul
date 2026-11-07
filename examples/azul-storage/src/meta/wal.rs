@@ -523,6 +523,34 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
         Ok(store)
     }
 
+    /// [`MetaStore::open`] for a device that knows the repository was at revision `floor`
+    /// already (its copy of it, or a record of it): a manifest older than that is
+    /// [`MetaError::Rollback`], as for a device that has been in the repository all along. A
+    /// device that remembers nothing accepts whatever the bucket serves (`floor` 0).
+    pub fn open_above(bucket: B, sealer: S, device: &str, floor: u64) -> Result<Self, MetaError> {
+        let mut store = MetaStore::new(bucket, sealer, device);
+        store.seen_revision = floor;
+        store.sync()?;
+        Ok(store)
+    }
+
+    /// The highest manifest revision this device has seen: what a bucket must not serve less than.
+    #[must_use]
+    pub fn seen_revision(&self) -> u64 {
+        self.seen_revision
+    }
+
+    /// Forgets everything this device knows of the repository - the manifest and its version, the
+    /// state and the highest revision seen: the next poll reads the manifest whole and takes the
+    /// one the bucket serves, as a device new to the drive does. Only for a restore of the drive
+    /// that the token server announced ([`super::repo::MetaRepo::pull`]); a bucket that serves an
+    /// older manifest nobody announced stays [`MetaError::Rollback`].
+    pub(super) fn forget_state(&mut self) {
+        self.synced = None;
+        self.state = RepoState::default();
+        self.seen_revision = 0;
+    }
+
     /// Opens the repository, or creates it when the bucket has none (and opens
     /// the one another device created in the same moment).
     pub fn open_or_create(bucket: B, sealer: S, device: &str) -> Result<Self, MetaError> {

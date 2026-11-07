@@ -394,6 +394,7 @@ impl<'a> MemberRecord<'a> {
         let options = RepoOptions {
             cache_dir: None,
             lazy: true,
+            ..RepoOptions::default()
         };
         let device = crate::ids::new_uuid();
         MetaRepo::open_with(

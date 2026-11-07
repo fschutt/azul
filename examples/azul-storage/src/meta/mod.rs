@@ -123,7 +123,7 @@ pub use objects::{Commit, Kind, Mode, ObjectId, Objects, Signature, Tree, TreeEn
 pub use pack::{PackIndex, PackWriter, SealedPack};
 #[cfg(feature = "encryption")]
 pub use index::{open_encrypted_drive, MetaIndex, MetaIndexProvider};
-pub use repo::{CommitOutcome, MetaRepo, RepoOptions};
+pub use repo::{CommitOutcome, MetaRepo, RepoOptions, RestoreSource};
 #[cfg(feature = "encryption")]
 pub use seal::KeyWindow;
 pub use seal::{SealError, Sealer, TestSealer};

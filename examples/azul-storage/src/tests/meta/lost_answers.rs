@@ -249,6 +249,7 @@ mod encrypted {
         let options = RepoOptions {
             cache_dir: None,
             lazy: false,
+            ..RepoOptions::default()
         };
         let repo =
             MetaRepo::create_with(Arc::clone(meta), key.clone(), "laptop", "Laptop", &options)

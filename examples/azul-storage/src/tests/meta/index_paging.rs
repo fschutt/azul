@@ -19,6 +19,7 @@ fn device(bucket: &MemoryBucket, key: &DriveKey) -> EncryptedDrive<MemoryBucket>
     let options = RepoOptions {
         cache_dir: None,
         lazy: false,
+        ..RepoOptions::default()
     };
     let repo = match MetaRepo::open_with(bucket.clone(), key.clone(), "laptop", "Laptop", &options)
     {

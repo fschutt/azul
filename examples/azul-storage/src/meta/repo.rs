@@ -26,8 +26,9 @@
 
 use std::{
     collections::{BTreeSet, HashMap, HashSet},
-    fs,
+    fmt, fs,
     path::{Path, PathBuf},
+    sync::Arc,
 };
 
 use serde::{Deserialize, Serialize};
@@ -43,13 +44,75 @@ use super::{
     wal::{MetaStore, PackRef, Packs, Publish, Published, RefUpdate, RepoState, StoreSnapshot},
     MetaError,
 };
-use crate::{local::write_atomically, DriveError};
+use crate::{
+    local::write_atomically,
+    restore::{baseline, judge, Clock, RestoreNotice, Seen, Standing},
+    DriveError,
+};
 
 /// The branch that is the drive's history.
 pub const MAIN: &str = "refs/heads/main";
 
 /// The context the cached state is sealed with (it is no bucket object).
 const STATE_CONTEXT: &[u8] = b"azul-storage meta: the cached state of a device";
+
+/// The context the restore epoch is sealed with (it is no bucket object either).
+const EPOCH_CONTEXT: &[u8] = b"azul-storage meta: the newest restore of the drive a device took";
+
+/// The file of the restore epoch in the cache folder: a file of its own, so that dropping the
+/// copy of a restored drive (its state, its packs) never drops the memory of the restore that made
+/// it.
+const EPOCH_FILE: &str = "restore-epoch";
+
+/// Where a repository learns that its drive was restored: the token server's announcement as the
+/// app last read it (`AzlinDrive::restore_notice`), NEVER the bucket - whoever controls the storage
+/// could announce a "restore" of its own to roll a device back (ARCH28 RF45). Without a source no
+/// restore is ever announced, and a bucket that serves an older manifest than the device saw is
+/// [`MetaError::Rollback`] for good.
+#[derive(Clone, Default)]
+pub struct RestoreSource(Option<Arc<dyn Fn() -> Option<RestoreNotice> + Send + Sync>>);
+
+impl RestoreSource {
+    /// The announcements `source` gives, asked at every poll.
+    pub fn new(source: impl Fn() -> Option<RestoreNotice> + Send + Sync + 'static) -> Self {
+        RestoreSource(Some(Arc::new(source)))
+    }
+
+    /// The newest announcement now; `None` without a source or an announcement.
+    #[must_use]
+    pub fn notice(&self) -> Option<RestoreNotice> {
+        self.0.as_ref().and_then(|source| source())
+    }
+
+    /// Whether there is a source at all.
+    #[must_use]
+    pub fn is_set(&self) -> bool {
+        self.0.is_some()
+    }
+}
+
+impl fmt::Debug for RestoreSource {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(if self.is_set() {
+            "RestoreSource(set)"
+        } else {
+            "RestoreSource(none)"
+        })
+    }
+}
+
+impl PartialEq for RestoreSource {
+    /// The same source, or both without one.
+    fn eq(&self, other: &Self) -> bool {
+        match (&self.0, &other.0) {
+            (None, None) => true,
+            (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+            _ => false,
+        }
+    }
+}
+
+impl Eq for RestoreSource {}
 
 /// What a commit became.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -68,6 +131,9 @@ pub struct RepoOptions {
     pub cache_dir: Option<PathBuf>,
     /// Read packs chunk by chunk when objects are needed, not whole on a pull (C6).
     pub lazy: bool,
+    /// Where a restore of the drive is announced ([`RestoreSource`]): the token server's word,
+    /// never the bucket's. Without one a bucket that serves an older state is a rollback.
+    pub restore: RestoreSource,
 }
 
 /// What the device keeps of its state in the cache.
@@ -92,6 +158,16 @@ fn write_cached(path: Option<&Path>, bytes: &[u8]) {
         }
         let _ = write_atomically(path, bytes);
     }
+}
+
+/// The restore epoch the cache folder `dir` remembers; `None` when there is no file, or it does
+/// not open with this key (the copy then counts as one that knows no restore: the next
+/// announcement drops it once, which costs a download and nothing else).
+fn read_epoch<S: Sealer>(dir: &Path, sealer: &S) -> Option<u64> {
+    let sealed = read_cached(Some(dir.join(EPOCH_FILE).as_path()))?;
+    let plain = sealer.open(EPOCH_CONTEXT, &sealed).ok()?;
+    let bytes: [u8; 8] = plain.as_slice().try_into().ok()?;
+    Some(u64::from_le_bytes(bytes))
 }
 
 /// The objects a device holds, and where the others are.
@@ -172,6 +248,7 @@ impl Local {
             .filter(|name| !live.contains(name.as_str()))
             .cloned()
             .collect();
+        let packs_left = !gone.is_empty();
         for name in gone {
             self.indexes.remove(&name);
             self.refs.remove(&name);
@@ -188,7 +265,36 @@ impl Local {
                 }
             }
         }
+        if packs_left {
+            // What the live packs hold, and no more: an object only a pack that left the bucket
+            // held (a restore lost it) is packed again by the next commit that reaches it. It was
+            // only ever added to, so a commit after such a loss named blobs no pack held
+            // (X-AR5a-24).
+            self.published = self
+                .indexes
+                .values()
+                .flat_map(|index| index.entries().iter().map(|e| e.id))
+                .collect();
+        }
         Ok(())
+    }
+
+    /// Forgets the whole copy - the objects, the packs, what is published - and the files of it in
+    /// the cache folder (the state and the packs; the restore epoch stays, it is the memory of why).
+    /// A restore the token server announced: what the drive serves is not what this copy came from.
+    fn reset(&mut self) {
+        self.objects = Objects::new();
+        self.refs.clear();
+        self.indexes.clear();
+        self.fetched.clear();
+        self.chunks.clear();
+        self.published.clear();
+        if let Some(dir) = &self.cache {
+            // collapse-ok: a cache file that cannot be removed is only stale: the state is written
+            // anew by the next save, and a pack is checked against its own ids when it is read.
+            let _ = fs::remove_dir_all(dir.join("packs"));
+            let _ = fs::remove_file(dir.join("state"));
+        }
     }
 
     /// Reads the live pack `name` whole, from the cache or the bucket.
@@ -522,6 +628,11 @@ pub struct MetaRepo<B: Bucket, S: Sealer> {
     pub(super) device_name: String,
     /// Opened from the cache without the bucket; the next pull that reaches it ends it.
     offline: bool,
+    /// Where a restore of the drive is announced.
+    restore: RestoreSource,
+    /// The newest restore of the drive this copy took ([`RestoreNotice::epoch`]); a copy made
+    /// after a restore starts at its epoch ([`baseline`]).
+    epoch: u64,
 }
 
 impl<B: Bucket, S: Sealer> MetaRepo<B, S> {
@@ -532,6 +643,8 @@ impl<B: Bucket, S: Sealer> MetaRepo<B, S> {
             head: None,
             device_name: device_name.to_string(),
             offline: false,
+            restore: options.restore.clone(),
+            epoch: 0,
         }
     }
 
@@ -550,7 +663,10 @@ impl<B: Bucket, S: Sealer> MetaRepo<B, S> {
         options: &RepoOptions,
     ) -> Result<Self, MetaError> {
         let store = MetaStore::create(bucket, sealer, device_id)?;
-        let repo = MetaRepo::with_store(store, device_name, options);
+        let mut repo = MetaRepo::with_store(store, device_name, options);
+        // A drive made now starts at the restore epoch there is (an announcement from before
+        // never excuses a rollback after it).
+        repo.epoch = baseline(repo.restore.notice().as_ref());
         repo.save();
         Ok(repo)
     }
@@ -576,11 +692,24 @@ impl<B: Bucket, S: Sealer> MetaRepo<B, S> {
             .and_then(|sealed| sealer.open(STATE_CONTEXT, &sealed).ok())
             .and_then(|plain| serde_json::from_slice::<Saved>(&plain).ok());
         let from_cache = saved.is_some();
+        // The restore this copy took last. A cached copy with no epoch of its own (made before
+        // there was one, or one that does not open) knows no restore: the first announcement
+        // drops it. A copy made now starts at the epoch the drive has.
+        let cached_epoch = options
+            .cache_dir
+            .as_deref()
+            .and_then(|dir| read_epoch(dir, &sealer));
+        let epoch = match (cached_epoch, from_cache) {
+            (Some(epoch), _) => epoch,
+            (None, true) => 0,
+            (None, false) => baseline(options.restore.notice().as_ref()),
+        };
         let store = match saved {
             Some(saved) => MetaStore::resume(bucket, sealer, device_id, saved.store),
             None => MetaStore::open(bucket, sealer, device_id)?,
         };
         let mut repo = MetaRepo::with_store(store, device_name, options);
+        repo.epoch = epoch;
         match repo.pull() {
             Ok(_) => Ok(repo),
             // No bucket: the copy the cache holds, as it was when it was saved.
@@ -612,6 +741,69 @@ impl<B: Bucket, S: Sealer> MetaRepo<B, S> {
         };
         if let Ok(sealed) = self.store.sealer().seal(STATE_CONTEXT, &plain) {
             write_cached(Some(dir.join("state").as_path()), &sealed);
+        }
+        self.save_epoch();
+    }
+
+    /// Writes the restore epoch to the cache folder (when there is one).
+    fn save_epoch(&self) {
+        let Some(dir) = &self.local.cache else {
+            return;
+        };
+        if let Ok(sealed) = self
+            .store
+            .sealer()
+            .seal(EPOCH_CONTEXT, &self.epoch.to_le_bytes())
+        {
+            write_cached(Some(dir.join(EPOCH_FILE).as_path()), &sealed);
+        }
+    }
+
+    /// The newest restore of the drive this copy took: 0 for a copy that knows none, else the
+    /// epoch of the announcement ([`RestoreNotice::epoch`]) that dropped it - or that the drive
+    /// had when the copy was made.
+    #[must_use]
+    pub fn restore_epoch(&self) -> u64 {
+        self.epoch
+    }
+
+    /// Whether some live pack holds the object `id`: a commit that reaches it does not pack it
+    /// again.
+    #[must_use]
+    pub fn holds_published(&self, id: &ObjectId) -> bool {
+        self.local.published.contains(id)
+    }
+
+    /// The drive was restored and the token server said so: this copy is of a drive that no
+    /// longer is. Everything the device knows of it is dropped - the sealed state with the highest
+    /// revision it saw, the packs it cached, the objects it read, what it believed published - and
+    /// the epoch is remembered, so the announcement is taken once. The next poll reads the manifest
+    /// whole, as a device new to the drive does.
+    fn forget_copy(&mut self, notice: &RestoreNotice) {
+        self.store.forget_state();
+        self.local.reset();
+        self.head = None;
+        self.offline = false;
+        self.epoch = notice.epoch;
+        self.save_epoch();
+    }
+
+    /// Takes an announced restore that this copy has not taken yet: [`crate::restore::judge`]
+    /// decides (a newer epoch that covers the drive, whatever revision the bucket serves - another
+    /// device may have committed on top of the restored state already). Whether the copy was
+    /// dropped: the head is gone then, and the next [`MetaRepo::pull`] reads the drive anew.
+    pub(super) fn take_restore(&mut self) -> bool {
+        let notice = self.restore.notice();
+        let seen = Seen {
+            epoch: self.epoch,
+            clock: self.store.seen_revision(),
+        };
+        match judge(&seen, seen.clock, Clock::Shared, notice.as_ref(), "") {
+            Standing::Restored(notice) => {
+                self.forget_copy(&notice);
+                true
+            }
+            Standing::InSync | Standing::Behind | Standing::Rollback { .. } => false,
         }
     }
 
@@ -667,7 +859,13 @@ impl<B: Bucket, S: Sealer> MetaRepo<B, S> {
     /// Polls the drive: reads the new packs (in a lazy copy: their indexes and
     /// the head's commit and root folder) and moves to the drive's head.
     /// Whether anything changed.
+    ///
+    /// A restore of the drive that the token server announced since this copy was made
+    /// ([`RepoOptions::restore`]) drops the copy first and reads the restored drive anew, once.
+    /// A bucket that serves an older manifest than the device saw, with no announcement, is
+    /// [`MetaError::Rollback`]: refused, and nothing is changed.
     pub fn pull(&mut self) -> Result<bool, MetaError> {
+        let restored = self.take_restore();
         let report = self.store.sync()?;
         let packs = self.store.packs();
         self.local.refresh(self.store.state(), &packs)?;
@@ -683,7 +881,7 @@ impl<B: Bucket, S: Sealer> MetaRepo<B, S> {
         self.head = remote;
         self.offline = false;
         self.save();
-        Ok(report.changed || moved)
+        Ok(report.changed || moved || restored)
     }
 
     /// Makes what reading the entry at `path` needs local: the trees on the
@@ -732,6 +930,11 @@ impl<B: Bucket, S: Sealer> MetaRepo<B, S> {
         message: &str,
         resolve: &mut dyn FnMut(&Conflict) -> Resolution,
     ) -> Result<CommitOutcome, MetaError> {
+        // A restore announced since the last poll: the copy is read anew first, so the commit is
+        // made on the restored drive's head and not on a head the restore lost.
+        if self.take_restore() {
+            self.pull()?;
+        }
         if self.local.lazy {
             self.fetch_all()?;
         }
