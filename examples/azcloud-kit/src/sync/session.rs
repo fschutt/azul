@@ -1419,7 +1419,7 @@ impl SyncSession {
             for key in keys {
                 if on {
                     states.pinned.insert(key.clone());
-                    let under = states.under(&[key.clone()], false);
+                    let under = states.under(std::slice::from_ref(key), false);
                     for freed in under {
                         states.freed.remove(&freed);
                     }
