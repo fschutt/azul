@@ -266,10 +266,29 @@ pub struct ApplyRequest {
     pub asked_unix: u64,
 }
 
-/// Reads the JSON file `path` (`None`: missing or not readable as a `T`).
+/// The most a file the app and the manager tell each other by may weigh (`current.json`,
+/// `staged.json`, `request.json`, `release.json`): a version, a few names and times. Any process of
+/// the user can write them, and the manager polls them every few seconds - a sparse file of ten
+/// gigabytes is not read into memory whole to be told it is not one of ours
+/// (X-DELTA-AZDRIVE-KEYS-35).
+pub const STATE_FILE_MAX: u64 = 1 << 20;
+
+/// The text of the file `path` when it is at most `max` bytes and UTF-8; `None` for one that is
+/// not there, bigger, or not text. At most `max + 1` bytes are ever read.
+#[must_use]
+pub fn read_small_text(path: &Path, max: u64) -> Option<String> {
+    use std::io::Read as _;
+    let file = std::fs::File::open(path).ok()?;
+    let mut text = String::new();
+    file.take(max.saturating_add(1)).read_to_string(&mut text).ok()?;
+    (text.len() as u64 <= max).then_some(text)
+}
+
+/// Reads the JSON file `path` (`None`: missing, bigger than [`STATE_FILE_MAX`] or not readable as
+/// a `T`).
 #[must_use]
 pub fn read_json<T: DeserializeOwned>(path: &Path) -> Option<T> {
-    let text = std::fs::read_to_string(path).ok()?;
+    let text = read_small_text(path, STATE_FILE_MAX)?;
     serde_json::from_str(&text).ok()
 }
 
@@ -803,11 +822,39 @@ pub fn background_round(engine: &dyn UpdateEngine, round: &Round, now_unix: u64)
                 staged_unix: now_unix,
             };
             match write_json(&round.paths.staged(), &staged) {
-                Ok(()) => RoundOutcome::Staged(staged),
+                Ok(()) => {
+                    // The record names this one: the files of releases staged before are of no use
+                    // and each is a whole program (X-DELTA-AZDRIVE-KEYS-35).
+                    prune_staging(&round.paths, &kept);
+                    RoundOutcome::Staged(staged)
+                }
                 Err(e) => RoundOutcome::Failed(format!("{}: {e}", round.paths.staged().display())),
             }
         }
         Err(why) => RoundOutcome::Failed(why),
+    }
+}
+
+/// Removes the other releases of the app staged before: `<key>-<version>.bin` in the staging
+/// folder besides `keep`, and nothing else - a name the code does not build is somebody's own.
+fn prune_staging(paths: &AppPaths, keep: &Path) {
+    let prefix = format!("{}-", paths.key);
+    let Ok(entries) = std::fs::read_dir(paths.staging()) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let ours = path.file_name().and_then(|n| n.to_str()).is_some_and(|name| {
+            name.strip_prefix(prefix.as_str())
+                .and_then(|rest| rest.strip_suffix(".bin"))
+                .is_some_and(safe_version)
+        });
+        let is_file = entry.file_type().is_ok_and(|kind| kind.is_file());
+        if ours && is_file && path != keep {
+            if let Err(e) = std::fs::remove_file(&path) {
+                eprintln!("[update] the release staged before stays: {}: {e}", path.display());
+            }
+        }
     }
 }
 
@@ -1186,6 +1233,59 @@ mod tests {
         // The next round finds it staged: no second download.
         assert_eq!(background_round(&engine, &r, 200), RoundOutcome::Staged(staged));
         assert_eq!(*engine.staged_versions.lock().unwrap(), vec!["2.0.0".to_string()]);
+    }
+
+    /// X-DELTA-AZDRIVE-KEYS-35: a round that stages the next release left the files of the ones
+    /// before it - a whole program each, for ever. Only `<key>-<version>.bin` of this app goes.
+    #[test]
+    fn x_delta_azdrive_keys_35_a_staged_release_takes_the_older_staged_ones_with_it() {
+        let dir = TempDir::new("update-round-prune");
+        let engine = FakeEngine::answering(Check::Available(release("2.0.0")));
+        let r = round(dir.path());
+        std::fs::create_dir_all(r.paths.staging()).unwrap();
+        let old = r.paths.staged_file("1.5.0").unwrap();
+        let older = r.paths.staged_file("1.0.0").unwrap();
+        let other_app = r.paths.staging().join("azclock-1.0.0.bin");
+        let notes = r.paths.staging().join("azwriter-notes.txt");
+        let not_a_version = r.paths.staging().join("azwriter-.bin");
+        for file in [&old, &older, &other_app, &notes, &not_a_version] {
+            std::fs::write(file, b"x").unwrap();
+        }
+        let RoundOutcome::Staged(staged) = background_round(&engine, &r, 100) else {
+            panic!("an available release is staged");
+        };
+        assert!(Path::new(&staged.file).exists(), "the release just staged stays");
+        assert!(!old.exists() && !older.exists(), "the releases staged before are gone");
+        assert!(other_app.exists(), "another app's staging is not ours");
+        assert!(notes.exists() && not_a_version.exists(), "names the code does not build stay");
+    }
+
+    /// X-DELTA-AZDRIVE-KEYS-35: the files the app and the manager tell each other by were read whole
+    /// into memory; a sparse file of any size could be put there by any process of the user.
+    #[test]
+    fn x_delta_azdrive_keys_35_a_state_file_over_the_limit_is_not_read() {
+        let dir = TempDir::new("update-bounded-read");
+        let file = dir.path().join("request.json");
+        std::fs::write(&file, br#"{"pid": 7, "relaunch": true}"#).unwrap();
+        let request: ApplyRequest = read_json(&file).expect("a small file reads");
+        assert_eq!((request.pid, request.relaunch), (7, true));
+
+        // exactly the limit reads, one byte more does not
+        let at = dir.path().join("at.txt");
+        std::fs::write(&at, vec![b'a'; 16]).unwrap();
+        assert_eq!(read_small_text(&at, 16).map(|text| text.len()), Some(16));
+        assert_eq!(read_small_text(&at, 15), None);
+        // a file of the limit's size and more is not read into memory (a sparse one costs nothing
+        // to make)
+        let big = dir.path().join("big.json");
+        let handle = std::fs::File::create(&big).unwrap();
+        handle.set_len(STATE_FILE_MAX + 1).unwrap();
+        assert_eq!(read_json::<ApplyRequest>(&big), None);
+        assert_eq!(read_small_text(&big, STATE_FILE_MAX), None);
+        // not text, not there
+        std::fs::write(dir.path().join("bin"), [0xff, 0xfe, 0x00]).unwrap();
+        assert_eq!(read_small_text(&dir.path().join("bin"), 16), None);
+        assert_eq!(read_small_text(&dir.path().join("none"), 16), None);
     }
 
     #[test]

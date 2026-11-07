@@ -2,8 +2,6 @@
 //! and the apps' "Update now". No callback waits on the network or the disk: each step's outcome
 //! comes back to the window as a write-back ([`Progress`], `crate::on_progress`).
 
-use std::path::Path;
-
 use azul::{
     prelude::*,
     task::{Thread, ThreadId, ThreadReceiveMsg, ThreadReceiver, ThreadSender, ThreadWriteBackMsg},
@@ -350,20 +348,24 @@ fn requests(engine: &dyn UpdateEngine, fetching: &Fetching, send: &mut dyn FnMut
         let Some(entry) = model::entry(&key) else {
             continue;
         };
-        let paths = fetching.places.app(&key);
-        let _ = std::fs::remove_file(paths.request());
         if model::request_is_stale(&request, unix_now()) {
+            model::spend_request(&fetching.places.app(&key));
             eprintln!("[installmgr] the Update now of {key} is too old; ignored");
             continue;
         }
         send(Progress::Started { key: key.clone() });
-        let result = model::carry_out(engine, fetching, entry, unix_now());
-        if let (Ok(registration), true) = (&result, request.relaunch) {
-            if let Err(why) = model::launch(Path::new(&registration.binary)) {
+        // The request is spent after the attempt, and the app comes back whatever the attempt came
+        // to (X-DELTA-AZDRIVE-KEYS-35).
+        let run = model::run_request(engine, fetching, entry, &request, unix_now());
+        if let Some(binary) = &run.relaunch {
+            if let Err(why) = model::launch(binary) {
                 eprintln!("[installmgr] {why}");
             }
         }
-        send(Progress::Requested { key, result });
+        send(Progress::Requested {
+            key,
+            result: run.result,
+        });
     }
 }
 

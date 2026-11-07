@@ -14,10 +14,10 @@ use azul_appkit::{
     anchors::{self, NoRootKey, UpdatePolicy},
     azlin_config::{AzlinConfig, Channel, UpdatesSection},
     update::{
-        audience_for, background_round, copy_verified, manifest_url_for, read_json, sha256_of_file,
-        write_json, AppPaths, ApplyRequest, Audience, Check, CheckRequest, InstallKind,
-        Registration, Release, Round, RoundOutcome, Staged, UpdateEngine, Verified, APPS_DIR,
-        RELEASE_FILE, REQUEST_FILE,
+        audience_for, background_round, copy_verified, manifest_url_for, read_json,
+        read_small_text, sha256_of_file, write_json, AppPaths, ApplyRequest, Audience, Check,
+        CheckRequest, InstallKind, Registration, Release, Round, RoundOutcome, Staged,
+        UpdateEngine, Verified, APPS_DIR, RELEASE_FILE, REQUEST_FILE, STATE_FILE_MAX,
     },
 };
 
@@ -790,6 +790,18 @@ pub fn place(
     Ok(registration)
 }
 
+/// The folders of an app's install folder that the manager makes, and no other: the installed
+/// version, the one before it, the one being laid out, and the two that wait while a move is made.
+fn made_folders(paths: &AppPaths) -> [PathBuf; 5] {
+    [
+        paths.current(),
+        paths.prev(),
+        paths.install.join("next"),
+        paths.install.join(REPLACED_DIR),
+        paths.install.join(REVERTED_DIR),
+    ]
+}
+
 /// Moves the version laid out in `next/` into `current/`: the installed one waits in `replaced/`
 /// meanwhile, the one kept for Revert (`prev/`) is not touched until the new one is in place, and
 /// then [`settle`] makes the replaced one the previous one. A move that fails puts the installed
@@ -833,8 +845,15 @@ pub fn settle(paths: &AppPaths) {
     if replaced.is_dir() {
         if paths.current().exists() {
             let _ = std::fs::remove_dir_all(paths.prev());
-            if std::fs::rename(&replaced, paths.prev()).is_err() {
-                let _ = std::fs::remove_dir_all(&replaced);
+            // The replaced version becomes the one Revert goes back to. When it cannot (on Windows a
+            // file of the old `prev/` held open leaves that folder half gone, and the move over it
+            // fails), it STAYS where it is and the next settle tries again: deleting it threw away
+            // the Revert target without a word (X-DELTA-AZDRIVE-KEYS-35).
+            if let Err(e) = std::fs::rename(&replaced, paths.prev()) {
+                eprintln!(
+                    "[installmgr] the previous version stays in {}: {e}",
+                    replaced.display()
+                );
             }
         } else {
             let _ = std::fs::rename(&replaced, paths.current());
@@ -855,8 +874,10 @@ pub fn settle(paths: &AppPaths) {
 /// Whether the program in `dir` is the one whose hash was recorded when it was installed
 /// ([`PROGRAM_HASH_FILE`]).
 fn program_matches_its_record(dir: &Path, program: &str) -> Result<(), String> {
-    let recorded = std::fs::read_to_string(dir.join(PROGRAM_HASH_FILE))
-        .map_err(|_| "it has no recorded hash (it was not placed by this manager)".to_string())?;
+    // A hash is 64 digits: the file is read as far as a hash goes and no further (any process of the
+    // user can write it, X-DELTA-AZDRIVE-KEYS-35).
+    let recorded = read_small_text(&dir.join(PROGRAM_HASH_FILE), 256)
+        .ok_or_else(|| "it has no recorded hash (it was not placed by this manager)".to_string())?;
     let actual = sha256_of_file(&dir.join(program))?;
     if actual.eq_ignore_ascii_case(recorded.trim()) {
         Ok(())
@@ -955,6 +976,24 @@ pub fn revert(
 /// files and their bytes. A folder with no state is no marks; a state folder or a file that cannot
 /// be read is an error and not "no marks": the uninstall that does not know them would take
 /// them with the registry.
+/// The bytes of `path`, at most `max` of them: a file past that is an error (`InvalidData`) and is
+/// not read into memory whole. The marks are no file to drop when they are too big - the uninstall
+/// stops before it removes anything (X-DELTA-AZDRIVE-KEYS-35).
+fn read_bounded(path: &Path, max: u64) -> std::io::Result<Vec<u8>> {
+    use std::io::Read as _;
+    let mut bytes = Vec::new();
+    std::fs::File::open(path)?
+        .take(max.saturating_add(1))
+        .read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > max {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("it is bigger than {max} bytes"),
+        ));
+    }
+    Ok(bytes)
+}
+
 fn rollback_marks(paths: &AppPaths) -> Result<Vec<(PathBuf, Vec<u8>)>, String> {
     let state = paths.registry.join("state");
     let channels = match std::fs::read_dir(&state) {
@@ -966,7 +1005,7 @@ fn rollback_marks(paths: &AppPaths) -> Result<Vec<(PathBuf, Vec<u8>)>, String> {
     for channel in channels {
         let channel = channel.map_err(|e| format!("{}: {e}", state.display()))?;
         let file = channel.path().join(UPDATE_STATE_FILE);
-        match std::fs::read(&file) {
+        match read_bounded(&file, STATE_FILE_MAX) {
             Ok(bytes) => marks.push((file, bytes)),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
             Err(e) => return Err(format!("{}: {e}", file.display())),
@@ -996,9 +1035,20 @@ pub fn uninstall(places: &Places, entry: &AppEntry) -> Result<(), String> {
     for shortcut in shortcuts(places, entry, &program) {
         shortcut.remove();
     }
-    if paths.install.exists() {
-        std::fs::remove_dir_all(&paths.install)
-            .map_err(|e| format!("{}: {e}", paths.install.display()))?;
+    // The folders the manager made go, and the app's folder with them when nothing else is in it.
+    // The folder can be one the user already had (`~/Documents/aznotes` chosen as the install
+    // folder's place): what is not the manager's stays (X-DELTA-AZDRIVE-KEYS-35).
+    for folder in made_folders(&paths) {
+        if folder.exists() {
+            std::fs::remove_dir_all(&folder).map_err(|e| format!("{}: {e}", folder.display()))?;
+        }
+    }
+    match std::fs::remove_dir(&paths.install) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        // something of the user's is in it: the folder stays with it
+        Err(_) if paths.install.is_dir() => {}
+        Err(e) => return Err(format!("{}: {e}", paths.install.display())),
     }
     if paths.registry.exists() {
         std::fs::remove_dir_all(&paths.registry)
@@ -1603,6 +1653,49 @@ pub fn carry_out(
     update_to(engine, fetching, entry, &release, app.channel, now_unix)
 }
 
+/// What an app's "Update now" came to: the install, and where the app starts again from.
+pub struct RequestRun {
+    pub result: Result<Registration, String>,
+    /// The program to start again: the app asked for it (`relaunch`) and quit to be updated - it
+    /// comes back whether the update worked or not (offline, refused by the signature check, already
+    /// up to date), as the new program when there is one and else as the installed one
+    /// (X-DELTA-AZDRIVE-KEYS-35: the request was spent before the attempt, and an attempt that failed
+    /// left the app closed with nothing to say so).
+    pub relaunch: Option<PathBuf>,
+}
+
+/// Carries out the waiting "Update now" `request` of `entry` ([`carry_out`]) and spends it AFTER the
+/// attempt: a request is a trigger for one try, and what the try came to is reported with where the
+/// app starts again from ([`RequestRun`]).
+pub fn run_request(
+    engine: &dyn UpdateEngine,
+    fetching: &Fetching,
+    entry: &AppEntry,
+    request: &ApplyRequest,
+    now_unix: u64,
+) -> RequestRun {
+    let paths = fetching.places.app(entry.key);
+    let result = carry_out(engine, fetching, entry, now_unix);
+    spend_request(&paths);
+    let installed = match &result {
+        Ok(registration) => Some(registration.binary.clone()),
+        Err(_) => read_json::<Registration>(&paths.registration()).map(|r| r.binary),
+    };
+    RequestRun {
+        relaunch: installed.filter(|_| request.relaunch).map(PathBuf::from),
+        result,
+    }
+}
+
+/// Removes an app's waiting "Update now" (a failure to is said: the request would be tried again).
+pub fn spend_request(paths: &AppPaths) {
+    if let Err(e) = std::fs::remove_file(paths.request()) {
+        if e.kind() != std::io::ErrorKind::NotFound {
+            eprintln!("[installmgr] {}: {e}", paths.request().display());
+        }
+    }
+}
+
 /// Every app's waiting "Update now" (`<azlin>/apps/<key>/request.json`), by key.
 #[must_use]
 pub fn pending_requests(azlin_dir: &Path) -> Vec<(String, ApplyRequest)> {
@@ -1895,6 +1988,9 @@ mod model_tests {
         releases: Vec<(&'static str, &'static str, bool)>,
         asked: Mutex<Vec<(String, Audience)>>,
         refuse_verify: bool,
+        /// A file whose existence is written down at every check.
+        watching: Option<PathBuf>,
+        seen: Mutex<Vec<bool>>,
     }
 
     impl FakeEngine {
@@ -1908,6 +2004,9 @@ mod model_tests {
 
     impl UpdateEngine for FakeEngine {
         fn check(&self, q: &CheckRequest<'_>) -> Check {
+            if let Some(file) = &self.watching {
+                self.seen.lock().unwrap().push(file.exists());
+            }
             self.asked
                 .lock()
                 .unwrap()
@@ -3176,6 +3275,187 @@ mod model_tests {
         }
     }
 
+    /// X-DELTA-AZDRIVE-KEYS-35 (cebf4282d): "Update now" was spent before it was tried, and needed the
+    /// network; the app had quit, and a try that failed left it closed with no request to try again.
+    /// The request is spent AFTER the try, and the app that asked to start again starts again - as
+    /// the new program when the update worked, as the installed one when it did not.
+    #[test]
+    fn x_delta_azdrive_keys_35_an_update_now_is_spent_after_the_try_and_the_app_comes_back_either_way(
+    ) {
+        let dir = TempDir::new("installmgr-update-now");
+        let f = fetching(dir.path());
+        let paths = f.places.app("azwriter");
+        place(
+            &f.places,
+            writer(),
+            &file_with(dir.path(), "v2"),
+            &release("2.0.0"),
+            Channel::Stable,
+            1,
+        )
+        .unwrap();
+        let asked = ApplyRequest {
+            version: String::from("3.0.0"),
+            pid: 0,
+            relaunch: true,
+            asked_unix: 5,
+        };
+
+        // Offline: the update source answers nothing. The try fails, the request is still there
+        // while it runs and gone after it, and the installed program is started again.
+        write_json(&paths.request(), &asked).unwrap();
+        let offline = FakeEngine {
+            watching: Some(paths.request()),
+            ..FakeEngine::default()
+        };
+        let run = run_request(&offline, &f, writer(), &asked, 10);
+        assert!(run.result.is_err(), "{:?}", run.result);
+        assert_eq!(
+            run.relaunch.as_deref(),
+            Some(paths.current().join("AzWriter").as_path()),
+            "the app that quit for the update comes back as it was installed"
+        );
+        assert!(!paths.request().exists(), "spent after the try");
+        assert_eq!(
+            *offline.seen.lock().unwrap(),
+            vec![true],
+            "and not before it"
+        );
+
+        // An app that did not ask to start again is not started.
+        write_json(
+            &paths.request(),
+            &ApplyRequest {
+                relaunch: false,
+                ..asked.clone()
+            },
+        )
+        .unwrap();
+        let quiet = ApplyRequest {
+            relaunch: false,
+            ..asked.clone()
+        };
+        assert_eq!(
+            run_request(&offline, &f, writer(), &quiet, 11).relaunch,
+            None
+        );
+        assert!(!paths.request().exists());
+
+        // The update works: the new program starts.
+        write_json(&paths.request(), &asked).unwrap();
+        let online = FakeEngine {
+            releases: vec![("azwriter", "3.0.0", false)],
+            ..FakeEngine::default()
+        };
+        let run = run_request(&online, &f, writer(), &asked, 12);
+        let registration = run.result.expect("the update went through");
+        assert_eq!(registration.version, "3.0.0");
+        assert_eq!(
+            run.relaunch.as_deref(),
+            Some(Path::new(&registration.binary))
+        );
+        assert!(!paths.request().exists());
+    }
+
+    /// X-DELTA-AZDRIVE-KEYS-35 (settle): the replaced version that could not become `prev/` was
+    /// deleted - the Revert target lost without a word. It stays, and the next settle tries again.
+    #[cfg(unix)]
+    #[test]
+    fn x_delta_azdrive_keys_35_a_replaced_version_that_cannot_become_the_previous_one_stays() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = TempDir::new("installmgr-settle-keeps");
+        let p = places(dir.path(), Os::Linux);
+        let paths = p.app("azwriter");
+        std::fs::create_dir_all(paths.current()).unwrap();
+        std::fs::write(paths.current().join("AzWriter"), "v2").unwrap();
+        let replaced = paths.install.join(REPLACED_DIR);
+        std::fs::create_dir_all(&replaced).unwrap();
+        std::fs::write(replaced.join("AzWriter"), "v1").unwrap();
+        // An old `prev/` that cannot be removed whole (a file in it held open, as on Windows): a
+        // folder whose own folder takes no write leaves it half there, and the move over it fails.
+        let locked = paths.prev().join("old");
+        std::fs::create_dir_all(&locked).unwrap();
+        std::fs::write(locked.join("AzWriter"), "v0").unwrap();
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o500)).unwrap();
+
+        settle(&paths);
+        let kept = std::fs::read_to_string(replaced.join("AzWriter"));
+        // let the sandbox go before anything is asserted
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o700)).unwrap();
+        assert_eq!(
+            kept.as_deref().ok(),
+            Some("v1"),
+            "the replaced version stays: {kept:?}"
+        );
+
+        // Once the old `prev/` can go, the next settle makes the replaced version the previous one.
+        settle(&paths);
+        assert!(!replaced.exists());
+        assert_eq!(
+            std::fs::read_to_string(paths.prev().join("AzWriter")).unwrap(),
+            "v1"
+        );
+    }
+
+    /// X-DELTA-AZDRIVE-KEYS-35 (uninstall): `<install_dir>/<key>` was removed whole, and the folder
+    /// can be one the user had (the install folder chosen as `~/Documents`, with their `aznotes`
+    /// in it). The manager removes the folders it made; its own folder goes when nothing else is
+    /// in it.
+    #[test]
+    fn x_delta_azdrive_keys_35_an_uninstall_leaves_a_users_own_files_in_the_install_folder() {
+        let dir = TempDir::new("installmgr-uninstall-own");
+        let mut p = places(dir.path(), Os::Linux);
+        p.install_dir = dir.path().join("Documents");
+        let paths = p.app("azwriter");
+        std::fs::create_dir_all(&paths.install).unwrap();
+        std::fs::write(paths.install.join("my-notes.txt"), "mine").unwrap();
+        place(
+            &p,
+            writer(),
+            &file_with(dir.path(), "v1"),
+            &release("1.0.0"),
+            Channel::Stable,
+            1,
+        )
+        .unwrap();
+        place(
+            &p,
+            writer(),
+            &file_with(dir.path(), "v2"),
+            &release("2.0.0"),
+            Channel::Stable,
+            2,
+        )
+        .unwrap();
+        assert!(paths.prev().exists());
+
+        uninstall(&p, writer()).unwrap();
+        assert!(
+            !paths.current().exists() && !paths.prev().exists(),
+            "what the manager made goes"
+        );
+        assert_eq!(
+            std::fs::read_to_string(paths.install.join("my-notes.txt")).unwrap(),
+            "mine",
+            "the user's own file stays, and so does its folder"
+        );
+
+        // With nothing of the user's in it the folder goes too.
+        let again = places(dir.path(), Os::Linux);
+        let own = again.app("azclock");
+        place(
+            &again,
+            entry("azclock").unwrap(),
+            &file_with(dir.path(), "c1"),
+            &release("1.0.0"),
+            Channel::Stable,
+            1,
+        )
+        .unwrap();
+        uninstall(&again, entry("azclock").unwrap()).unwrap();
+        assert!(!own.install.join("current").exists());
+    }
+
     /// X-DELTA-AZDRIVE-KEYS-11: marks that cannot be read are not "no marks": the uninstall stops
     /// before it removes a file (the old code skipped what it could not read and removed the
     /// registry).
@@ -3205,6 +3485,39 @@ mod model_tests {
         assert!(outcome.is_err(), "{outcome:?}");
         assert!(paths.current().exists(), "nothing was removed");
         assert!(paths.registration().exists());
+    }
+
+    /// X-DELTA-AZDRIVE-KEYS-35: the marks were read whole into memory; a sparse file of any size in
+    /// their place ran the uninstall out of it. Marks bigger than a state file may be are an error
+    /// that stops the uninstall before it removes anything - they are not dropped.
+    #[test]
+    fn x_delta_azdrive_keys_35_marks_over_the_limit_stop_the_uninstall_before_it_removes_anything()
+    {
+        let dir = TempDir::new("installmgr-marks-huge");
+        let engine = FakeEngine {
+            releases: vec![("azwriter", "2.0.0", false)],
+            ..FakeEngine::default()
+        };
+        let f = fetching(dir.path());
+        install_new(&engine, &f, writer(), Channel::Stable, 1).unwrap();
+        let paths = f.places.app("azwriter");
+        let marks = paths.state(Channel::Stable).join("update-state.json");
+        std::fs::create_dir_all(marks.parent().unwrap()).unwrap();
+        std::fs::File::create(&marks)
+            .unwrap()
+            .set_len(STATE_FILE_MAX + 1)
+            .unwrap();
+        let outcome = uninstall(&f.places, writer());
+        let why = outcome.expect_err("marks that big are not read");
+        assert!(why.contains("bigger than"), "{why}");
+        assert!(
+            paths.current().exists() && paths.registration().exists(),
+            "nothing was removed"
+        );
+        // marks of the limit's size read as they are
+        std::fs::write(&marks, vec![b' '; 64]).unwrap();
+        assert_eq!(read_bounded(&marks, 64).unwrap().len(), 64);
+        assert!(read_bounded(&marks, 63).is_err());
     }
 
     /// X-DELTA-AZDRIVE-KEYS-12: a shell rc file with one byte that is not UTF-8 (a Latin-1
