@@ -940,19 +940,27 @@ pub fn revert(
 }
 
 /// The rollback marks the engine keeps for the app (`state/<channel>/update-state.json`): the
-/// files and their bytes.
-fn rollback_marks(paths: &AppPaths) -> Vec<(PathBuf, Vec<u8>)> {
-    let Ok(channels) = std::fs::read_dir(paths.registry.join("state")) else {
-        return Vec::new();
+/// files and their bytes. A folder with no state is no marks; a state folder or a file that cannot
+/// be read is an error and not "no marks": the uninstall that does not know them would take
+/// them with the registry.
+fn rollback_marks(paths: &AppPaths) -> Result<Vec<(PathBuf, Vec<u8>)>, String> {
+    let state = paths.registry.join("state");
+    let channels = match std::fs::read_dir(&state) {
+        Ok(channels) => channels,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(format!("{}: {e}", state.display())),
     };
-    channels
-        .flatten()
-        .filter_map(|channel| {
-            let file = channel.path().join(UPDATE_STATE_FILE);
-            let bytes = std::fs::read(&file).ok()?;
-            Some((file, bytes))
-        })
-        .collect()
+    let mut marks = Vec::new();
+    for channel in channels {
+        let channel = channel.map_err(|e| format!("{}: {e}", state.display()))?;
+        let file = channel.path().join(UPDATE_STATE_FILE);
+        match std::fs::read(&file) {
+            Ok(bytes) => marks.push((file, bytes)),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(format!("{}: {e}", file.display())),
+        }
+    }
+    Ok(marks)
 }
 
 /// Removes the app: its shortcuts, its install folder and its registry folder (its data in the
@@ -961,11 +969,17 @@ fn rollback_marks(paths: &AppPaths) -> Vec<(PathBuf, Vec<u8>)> {
 /// retired, unexpired signing key once more (REVIEW Y7). They are no user data and no program,
 /// just two numbers and a version per channel.
 ///
+/// The marks are read BEFORE anything is removed: in the default layout the install folder
+/// (`<azlin>/apps/<key>`) and the registry folder are ONE folder, and the first removal takes the
+/// marks with it (X-DELTA-AZDRIVE-KEYS-11); a folder that holds them and cannot be read stops the
+/// uninstall before it removes a file.
+///
 /// # Errors
 ///
-/// What could not be removed.
+/// What could not be removed, or the marks that could not be read.
 pub fn uninstall(places: &Places, entry: &AppEntry) -> Result<(), String> {
     let paths = places.app(entry.key);
+    let marks = rollback_marks(&paths)?;
     let program = paths.current().join(entry.file_name(places.os));
     for shortcut in shortcuts(places, entry, &program) {
         shortcut.remove();
@@ -975,15 +989,14 @@ pub fn uninstall(places: &Places, entry: &AppEntry) -> Result<(), String> {
             .map_err(|e| format!("{}: {e}", paths.install.display()))?;
     }
     if paths.registry.exists() {
-        let marks = rollback_marks(&paths);
         std::fs::remove_dir_all(&paths.registry)
             .map_err(|e| format!("{}: {e}", paths.registry.display()))?;
-        for (file, bytes) in marks {
-            if let Some(dir) = file.parent() {
-                std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-            }
-            std::fs::write(&file, bytes).map_err(|e| format!("{}: {e}", file.display()))?;
+    }
+    for (file, bytes) in marks {
+        if let Some(dir) = file.parent() {
+            std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
         }
+        std::fs::write(&file, bytes).map_err(|e| format!("{}: {e}", file.display()))?;
     }
     Ok(())
 }
@@ -1155,16 +1168,33 @@ impl Shortcut {
                 }
             }
             Shortcut::RcLine { path, line } => {
-                let text = std::fs::read_to_string(path).unwrap_or_default();
-                if text.lines().any(|l| l.trim() == line) {
+                // The user's own file: its bytes are read as bytes (a Latin-1 comment, a pasted
+                // escape is no reason to take it for empty), a file that is there and cannot be
+                // read stops this with the file untouched, and the two lines are APPENDED - never a
+                // write of the file anew, which is how an rc file became two lines
+                // (X-DELTA-AZDRIVE-KEYS-12).
+                let existing = match std::fs::read(path) {
+                    Ok(bytes) => bytes,
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+                    Err(e) => return Err(format!("{}: {e}", path.display())),
+                };
+                if existing
+                    .split(|b| *b == b'\n')
+                    .any(|l| l.trim_ascii() == line.as_bytes())
+                {
                     return Ok(());
                 }
-                let mut out = text;
-                if !out.is_empty() && !out.ends_with('\n') {
-                    out.push('\n');
+                let mut add = Vec::new();
+                if !existing.is_empty() && !existing.ends_with(b"\n") {
+                    add.push(b'\n');
                 }
-                out.push_str(&format!("{RC_MARKER}\n{line}\n"));
-                std::fs::write(path, out).map_err(|e| format!("{}: {e}", path.display()))
+                add.extend_from_slice(format!("{RC_MARKER}\n{line}\n").as_bytes());
+                std::fs::OpenOptions::new()
+                    .append(true)
+                    .create(true)
+                    .open(path)
+                    .and_then(|mut file| std::io::Write::write_all(&mut file, &add))
+                    .map_err(|e| format!("{}: {e}", path.display()))
             }
             Shortcut::StartMenu { path, target } => {
                 mkdir(path)?;
@@ -2571,8 +2601,10 @@ mod model_tests {
         std::fs::write(&marks, text).unwrap();
         std::fs::write(paths.state(Channel::Stable).join("cache.txt"), "x").unwrap();
 
+        // The default layout: the programs and the registry are ONE folder.
+        assert_eq!(paths.install, paths.registry);
         uninstall(&f.places, writer()).unwrap();
-        assert!(!paths.install.exists());
+        assert!(!paths.current().exists(), "the program is gone");
         assert_eq!(
             files_under(&paths.registry),
             vec!["state/stable/update-state.json".to_string()],
@@ -3059,5 +3091,161 @@ mod model_tests {
         // 2026-10-12T10:00:00Z, a Monday.
         assert_eq!(civil_date(1_791_799_200), (2026, 10, 12, 0));
         assert_eq!(civil_date(951_782_400), (2000, 2, 29, 1));
+    }
+
+    /// X-DELTA-AZDRIVE-KEYS-11: the marks stayed only for a CUSTOM install folder. In the default
+    /// layout the install folder is the registry folder, `remove_dir_all(install)` took the marks
+    /// with it and `registry.exists()` was false afterwards, so a reinstall began at generation 0
+    /// and accepted a retired, unexpired signing key again. The marks are read before the first
+    /// removal; the other layout keeps them too.
+    #[test]
+    fn x_delta_azdrive_keys_11_the_marks_survive_an_uninstall_in_the_default_layout_and_in_a_custom_one(
+    ) {
+        for custom in [false, true] {
+            let dir = TempDir::new("installmgr-marks-layouts");
+            let engine = FakeEngine {
+                releases: vec![("azwriter", "2.0.0", false)],
+                ..FakeEngine::default()
+            };
+            let mut f = fetching(dir.path());
+            if custom {
+                f.places.install_dir = dir.path().join("programs");
+            }
+            install_new(&engine, &f, writer(), Channel::Stable, 1).unwrap();
+            let paths = f.places.app("azwriter");
+            assert_eq!(paths.install == paths.registry, !custom, "custom: {custom}");
+            let marks = paths.state(Channel::Stable).join("update-state.json");
+            std::fs::create_dir_all(marks.parent().unwrap()).unwrap();
+            let text = r#"{"highest_seen":"2.0.0","key_generation":4}"#;
+            std::fs::write(&marks, text).unwrap();
+
+            uninstall(&f.places, writer()).unwrap();
+            assert_eq!(
+                std::fs::read_to_string(&marks).unwrap(),
+                text,
+                "custom: {custom}: the marks are what the engine wrote"
+            );
+            assert!(
+                !paths.current().exists() && !paths.prev().exists(),
+                "custom: {custom}"
+            );
+            assert!(!paths.registration().exists(), "custom: {custom}");
+            if custom {
+                assert!(
+                    !paths.install.exists(),
+                    "the custom install folder is removed"
+                );
+            }
+            assert_eq!(
+                files_under(&paths.registry),
+                vec!["state/stable/update-state.json".to_string()],
+                "custom: {custom}"
+            );
+        }
+    }
+
+    /// X-DELTA-AZDRIVE-KEYS-11: marks that cannot be read are not "no marks": the uninstall stops
+    /// before it removes a file (the old code skipped what it could not read and removed the
+    /// registry).
+    #[cfg(unix)]
+    #[test]
+    fn x_delta_azdrive_keys_11_marks_that_cannot_be_read_stop_the_uninstall_before_it_removes_anything(
+    ) {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = TempDir::new("installmgr-marks-unreadable");
+        let engine = FakeEngine {
+            releases: vec![("azwriter", "2.0.0", false)],
+            ..FakeEngine::default()
+        };
+        let f = fetching(dir.path());
+        install_new(&engine, &f, writer(), Channel::Stable, 1).unwrap();
+        let paths = f.places.app("azwriter");
+        let marks = paths.state(Channel::Stable).join("update-state.json");
+        std::fs::create_dir_all(marks.parent().unwrap()).unwrap();
+        std::fs::write(&marks, r#"{"key_generation":4}"#).unwrap();
+        std::fs::set_permissions(&marks, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let readable = std::fs::read(&marks).is_ok();
+        let outcome = uninstall(&f.places, writer());
+        std::fs::set_permissions(&marks, std::fs::Permissions::from_mode(0o600)).unwrap();
+        if readable {
+            return; // a user the permission bits do not bind (root): nothing to show
+        }
+        assert!(outcome.is_err(), "{outcome:?}");
+        assert!(paths.current().exists(), "nothing was removed");
+        assert!(paths.registration().exists());
+    }
+
+    /// X-DELTA-AZDRIVE-KEYS-12: a shell rc file with one byte that is not UTF-8 (a Latin-1
+    /// comment, a pasted escape) was read as EMPTY and written back as the marker and the PATH
+    /// line: the user's `.zshrc` replaced by two lines. The bytes stay as they were and the two
+    /// lines are appended, once.
+    #[test]
+    fn x_delta_azdrive_keys_12_an_rc_file_that_is_not_utf8_keeps_every_byte_and_gets_the_line_once()
+    {
+        let dir = TempDir::new("installmgr-rc-latin1");
+        let p = places(dir.path(), Os::MacOs);
+        let rc = dir.path().join(".zshrc");
+        let original: &[u8] = b"# caf\xe9 au lait\nexport EDITOR=vim\nalias ll='ls -l'";
+        std::fs::write(&rc, original).unwrap();
+        let line = Shortcut::RcLine {
+            path: rc.clone(),
+            line: format!(
+                "export PATH=\"$PATH\":{}",
+                sh_quote(&p.bin_dir().to_string_lossy())
+            ),
+        };
+        line.make().unwrap();
+        let after = std::fs::read(&rc).unwrap();
+        assert!(
+            after.starts_with(original),
+            "every byte of the user's file stays: {after:?}"
+        );
+        let added = &after[original.len()..];
+        let added = std::str::from_utf8(added).unwrap();
+        assert!(
+            added.starts_with('\n'),
+            "the last line had no end: {added:?}"
+        );
+        assert_eq!(added.matches(RC_MARKER).count(), 1);
+        assert!(added.contains("export PATH="));
+        // Again: nothing more.
+        line.make().unwrap();
+        assert_eq!(std::fs::read(&rc).unwrap(), after);
+        // A file that is not there is made.
+        let fresh = dir.path().join(".bash_profile");
+        Shortcut::RcLine {
+            path: fresh.clone(),
+            line: String::from("export A=1"),
+        }
+        .make()
+        .unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&fresh).unwrap(),
+            format!("{RC_MARKER}\nexport A=1\n")
+        );
+    }
+
+    /// X-DELTA-AZDRIVE-KEYS-12: a file that is there and cannot be read is not an empty one: the
+    /// shortcut fails and the file is as it was (write-only, the old code wrote over it).
+    #[cfg(unix)]
+    #[test]
+    fn x_delta_azdrive_keys_12_an_rc_file_that_cannot_be_read_is_left_alone() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = TempDir::new("installmgr-rc-unreadable");
+        let rc = dir.path().join(".zshrc");
+        std::fs::write(&rc, "export KEEP=1\n").unwrap();
+        std::fs::set_permissions(&rc, std::fs::Permissions::from_mode(0o200)).unwrap();
+        let readable = std::fs::read(&rc).is_ok();
+        let outcome = Shortcut::RcLine {
+            path: rc.clone(),
+            line: String::from("export A=1"),
+        }
+        .make();
+        std::fs::set_permissions(&rc, std::fs::Permissions::from_mode(0o600)).unwrap();
+        if readable {
+            return; // root
+        }
+        assert!(outcome.is_err(), "{outcome:?}");
+        assert_eq!(std::fs::read_to_string(&rc).unwrap(), "export KEEP=1\n");
     }
 }
