@@ -83,6 +83,79 @@ fn a_headless_window_no_script_drives_publishes_no_frame() {
     assert!(debug_server::e2e_presented_frame(lw).is_none());
 }
 
+/// `<body>` with one 20x20 decoded picture.
+extern "C" fn one_picture_layout(_data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+    use azul_core::resources::{ImageRef, RawImage, RawImageData, RawImageFormat};
+    use azul_css::{
+        dynamic_selector::CssPropertyWithConditions,
+        props::{
+            layout::dimensions::{LayoutHeight, LayoutWidth},
+            property::CssProperty,
+        },
+    };
+    let image = ImageRef::new_rawimage(RawImage {
+        pixels: RawImageData::U8(vec![255u8, 0, 0, 255].repeat(4 * 4).into()),
+        width: 4,
+        height: 4,
+        premultiplied_alpha: false,
+        data_format: RawImageFormat::RGBA8,
+        tag: b"e2e-host".to_vec().into(),
+    })
+    .expect("a 4x4 RGBA picture");
+    Dom::create_body().with_child(
+        Dom::create_image(image).with_css_props(
+            vec![
+                CssPropertyWithConditions::simple(CssProperty::width(LayoutWidth::px(20.0))),
+                CssPropertyWithConditions::simple(CssProperty::height(LayoutHeight::px(20.0))),
+            ]
+            .into(),
+        ),
+    )
+}
+
+/// E2E-R8: `assert_resource_counts` on `images` / `image_key_map` is not `0 == 0`
+/// against a headless app. This backend registers nothing with a renderer
+/// (`RendererResources` stays empty), so the window a script can drive says so
+/// and the counters are read off the display lists - as in the in-process
+/// runner, where the same scenario is green.
+#[cfg(any(feature = "debug-server", feature = "e2e-scripting"))]
+#[test]
+fn a_headless_window_a_script_drives_counts_the_pictures_its_lists_draw() {
+    let state = Arc::new(RefCell::new(RefAny::new(())));
+    let mut window = make_window_with(&state, one_picture_layout);
+    // What `AZ_E2E` / `AZ_DEBUG` switch on when the window opens.
+    window.publish_presented_frame = true;
+    window.regenerate_layout().expect("a painted frame");
+    let _ = window.common.take_regeneration();
+
+    let lw = window.common.layout_window.as_ref().expect("layout window");
+    let counts = debug_server::e2e_resource_counts(lw);
+    assert_eq!(
+        counts["images"], 1,
+        "the picture the list draws: {counts:?}"
+    );
+    assert_eq!(counts["image_key_map"], 1, "{counts:?}");
+}
+
+/// The control of the test above: a window no script can ask about declares
+/// nothing, and its counters are the (empty) tables of its renderer - so the
+/// picture of the test above is counted because the host said it has no
+/// renderer, not because the tables were filled.
+#[cfg(any(feature = "debug-server", feature = "e2e-scripting"))]
+#[test]
+fn a_headless_window_no_script_drives_reads_the_tables_of_its_renderer() {
+    let state = Arc::new(RefCell::new(RefAny::new(())));
+    let mut window = make_window_with(&state, one_picture_layout);
+    window.publish_presented_frame = false;
+    window.regenerate_layout().expect("a painted frame");
+    let _ = window.common.take_regeneration();
+
+    let lw = window.common.layout_window.as_ref().expect("layout window");
+    let counts = debug_server::e2e_resource_counts(lw);
+    assert_eq!(counts["images"], 0, "{counts:?}");
+    assert_eq!(counts["image_key_map"], 0, "{counts:?}");
+}
+
 /// What [`record_window_id_layout`] saw.
 struct SeenWindowId {
     id: String,

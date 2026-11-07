@@ -37,6 +37,12 @@ mod export;
 
 mod cpu_backend;
 
+// The renderer a host without one does not have, as bookkeeping: the fonts and
+// images the display lists draw, for the renderer-side counters of
+// `assert_resource_counts` (E2E-R8).
+mod virtual_renderer;
+pub use virtual_renderer::VirtualRenderer;
+
 mod runner;
 pub use runner::run_e2e_test;
 
@@ -97,6 +103,11 @@ mod mounted_nodes_tests;
 // that fails: a dead counter no longer hides a live one.
 #[cfg(test)]
 mod resource_counts_tests;
+
+// The renderer-side counters (`fonts`, `images`, `font_hash_map`, `image_key_map`) of
+// a host with no renderer count what the display lists draw: they move (E2E-R8).
+#[cfg(test)]
+mod virtual_renderer_tests;
 
 // `assert_changed` says whose fault a missing repaint is: a fresh render that
 // differs from the snapshot is a STALE SCREEN (engine), one that does not is a

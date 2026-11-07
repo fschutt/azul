@@ -1650,32 +1650,36 @@ invalidation path completely broken. Only the ops listed above exist; use nothin
    - "no leak / counters return"         -> assert_resource_counts {{"vs": "baseline", "parsed_fonts": "eq", "font_chain_cache": "eq", "font_hash_to_families": "eq"}}
    - "the counter PROVABLY moved" (a control): the control must ADD to what the baseline
      holds. A re-mount that REPLACES the baseline's text with text in another font stack
-     releases the old font, so `parsed_fonts` stays flat (or falls) and a `gt` can never
-     pass. Mount the baseline's nodes PLUS one new node whose text uses a font stack the
+     releases the old font, so `parsed_fonts` and `fonts` stay flat (or fall) and a `gt` can
+     never pass. Mount the baseline's nodes PLUS one new node whose text uses a font stack the
      baseline never used (when the baseline has no text, any text node is new),
      `wait_frame`, `wait {{"ms": 100}}`, then
-     assert_resource_counts {{"vs": "baseline", "parsed_fonts": "gt"}} in a call of its own.
+     assert_resource_counts {{"vs": "baseline", "parsed_fonts": "gt", "fonts": "gt"}}.
      `gt` / `lt` are what make a leak test mean something: an `eq` on a counter that never
      moved is `0 == 0`, and holds on an engine that was deleted.
-   - COUNTERS THAT NEVER MOVE: in this headless runner only `parsed_fonts`,
-     `font_chain_cache` and `font_hash_to_families` ever move. The renderer-side counters
-     (`fonts`, `font_hash_map`, `font_id_map`, `font_families_map`, `images`, `image_key_map`)
-     stay 0 before and after anything a scenario can do (a text mount, `<img>` +
-     `set_node_image`, `add_image_to_cache`, `background-image: url(id)`), so
-     `"fonts": "eq"` or `"images": "eq"` is `0 == 0` and an `"images": "gt"` control cannot
-     pass. For font growth assert the live counters and always include the font control.
-   - ONE FAMILY OF COUNTERS PER CALL. `assert_resource_counts` judges every counter of the
-     call and reports each red one, but a dead counter keeps its whole call red: put
-     `parsed_fonts`, `font_chain_cache` and `font_hash_to_families` in a call of their own
-     (red there means the engine, not the harness) and the renderer-side counters the line
-     names in another. When a line compares "the font and image counters" at several samples,
-     EVERY sample asserts the live counters (they can fail today) AND the renderer-side ones
-     the line names (`0 == 0` today). A fixture with no text and no image has nothing to
-     leak: add one text node in a mock font so the font counters have something to hold.
-   - If the line is about the image counters, write the `eq` assertion and the `gt` control
-     as separate calls (the control references the image from a node that is on screen) and
-     let the `images` control go red until the runner counts images; a green `0 == 0` is the
-     one outcome that must not happen.
+   - COUNTERS THAT MOVE, AND THE TWO THAT NEVER DO. All but two counters move in this
+     headless runner: `parsed_fonts`, `font_chain_cache` and `font_hash_to_families` (the font
+     manager's tables), and `fonts`, `font_hash_map`, `images` and `image_key_map`, which count
+     what the display lists on screen draw: one font per font the text is drawn in, one image
+     per decoded picture (a `set_node_image` picture, an `add_image_to_cache` picture that a
+     box's `background-image: url(id)` names). A picture drawn by ten boxes is ONE image, an
+     `<img>` that holds no picture and a registered id that no box names are none, and a font
+     or picture the page no longer draws is gone from them at once (no frames of grace, as a
+     real renderer keeps them). `font_id_map` and `font_families_map` are legacy tables no
+     shell writes any more: they are 0 whatever happens, so never assert them (an `eq` on
+     them is `0 == 0`).
+   - A LEAK TEST HAS TWO SAMPLES AND BOTH READ THE SAME COUNTERS. After the mount that adds the
+     font or the picture: `gt` against the baseline (`parsed_fonts` and `fonts` for a font,
+     `images` for a picture) - it really was loaded, so the leak half cannot go green for the
+     wrong reason. After the mount that removes it: `eq` to the baseline (`lt` against the
+     loaded sample proves the release path ran). A fixture with no text and no image has
+     nothing to leak: add one text node in a mock font, or one `<img>` and a
+     `set_node_image`, so the counters have something to hold.
+   - A picture counts when it is ON SCREEN: `<img class="pic">` plus
+     `set_node_image {{"selector": ".pic", "width": 40, "height": 40, "color": "red"}}`, or a
+     registered id (`add_image_to_cache`) that a box names in `background-image: url("id")`.
+     A swap (`set_node_image` again) replaces the picture, so `images` stays at the same
+     number: it does not grow, and a `gt` control must come from a NEW node or a new id.
    - "damage kind / no full redraw"      -> assert_damage {{"kind": "rects", "max_area_ratio": 0.5}}  (kind is "none" | "rects" | "full")
    - DAMAGE ASSERTIONS READ AN ACCUMULATOR. `assert_damage`, `assert_changed` and
      `assert_damage_covers_changes` look at the damage accumulated since the last
@@ -5889,13 +5893,31 @@ fn eval_assert_changed(params: &Value) -> AssertionResult {{
             "an unknown `which` is refused now, not read as paint"
         );
 
-        // D4: the renderer-side counters are inert headless.
+        // D4 (E2E-R8): the renderer-side counters count what the lists draw, and only the
+        // two legacy tables are inert.
         for want in [
-            "only `parsed_fonts`, `font_chain_cache` and `font_hash_to_families` ever move",
-            "`\"fonts\": \"eq\"` or `\"images\": \"eq\"` is `0 == 0`",
-            "a green `0 == 0` is the one outcome that must not happen",
+            "All but two counters move in this",
+            "`fonts`, `font_hash_map`, `images` and `image_key_map`, which count",
+            "A picture drawn by ten boxes is ONE image",
+            "`font_id_map` and `font_families_map` are legacy tables no",
+            "so never assert them (an `eq` on",
+            "A LEAK TEST HAS TWO SAMPLES AND BOTH READ THE SAME COUNTERS",
+            "A swap (`set_node_image` again) replaces the picture",
+            "\"parsed_fonts\": \"gt\", \"fonts\": \"gt\"",
         ] {
             assert!(p.contains(want), "the prompt lost `{want}`");
+        }
+        for stale in [
+            "only `parsed_fonts`, `font_chain_cache` and `font_hash_to_families` ever move",
+            "`\"fonts\": \"eq\"` or `\"images\": \"eq\"` is `0 == 0`",
+            "stay 0 before and after anything a scenario can do",
+            "let the `images` control go red until the runner counts images",
+            "ONE FAMILY OF COUNTERS PER CALL",
+        ] {
+            assert!(
+                !p.contains(stale),
+                "the prompt still says `{stale}`: the renderer-side counters move now (R8)"
+            );
         }
         assert!(
             !p.contains("\"images\": \"eq\", \"fonts\": \"le\"}"),
@@ -6121,10 +6143,8 @@ fn eval_assert_changed(params: &Value) -> AssertionResult {{
             "the control must ADD to what the baseline holds",
             "Mount the baseline's nodes PLUS one new node whose text uses a font stack the \
              baseline never used",
-            "ONE FAMILY OF COUNTERS PER CALL",
-            "(red there means the engine, not the harness)",
+            "A LEAK TEST HAS TWO SAMPLES AND BOTH READ THE SAME COUNTERS",
             "A fixture with no text and no image has nothing to leak",
-            "write the `eq` assertion and the `gt` control as separate calls",
             // Defect 5: a control that only MOVES boxes reads present damage.
             "and on `assert_changed` (a control that only MOVES boxes is `assert_changed \
              {\"vs\": \"ctl_before\", \"which\": \"present\"}`)",
@@ -6141,6 +6161,9 @@ fn eval_assert_changed(params: &Value) -> AssertionResult {{
             "a second `mount` (or `set_node_text`) whose text uses a font stack the first one did \
              not",
             "still write the `eq` assertion AND the `gt` control",
+            // the renderer-side counters move now (R8): no dead family to call apart
+            "(red there means the engine, not the harness)",
+            "write the `eq` assertion and the `gt` control as separate calls",
             "noop_width_image_flex_row",
             // assert_resource_counts judges every counter now (note B)
             "alphabetically",
@@ -6183,6 +6206,9 @@ fn eval_assert_changed(params: &Value) -> AssertionResult {{
             r#"{"op":"assert_damage_covers_changes","vs":"before","which":"present"}"#,
             r#"{"op":"assert_resource_counts","vs":"baseline","parsed_fonts":"eq","font_chain_cache":"eq","font_hash_to_families":"eq"}"#,
             r#"{"op":"assert_resource_counts","vs":"baseline","parsed_fonts":"gt"}"#,
+            r#"{"op":"assert_resource_counts","vs":"baseline","parsed_fonts":"gt","fonts":"gt"}"#,
+            r#"{"op":"add_image_to_cache","css_id":"pic","width":16,"height":16,"color":"red"}"#,
+            r#"{"op":"assert_resource_counts","vs":"baseline","images":"gt","image_key_map":"gt"}"#,
             r#"{"op":"tick_ms","ms":250}"#,
         ];
         let scenario = format!(
@@ -6199,21 +6225,14 @@ fn eval_assert_changed(params: &Value) -> AssertionResult {{
         validate(&s, &scenario).unwrap_or_else(|e| panic!("{e}\n{scenario}"));
     }
 
-    /// The worked example is part of the prompt, and the prompt says the
-    /// renderer-side resource counters never move: the example must not teach
+    /// The worked example is part of the prompt, and the prompt says two resource
+    /// counters (the legacy font tables) never move: the example must not teach
     /// the `0 == 0` leak test the first batch copied from it.
     #[test]
     fn the_worked_example_does_not_assert_the_counters_the_prompt_calls_inert() {
         let ex: serde_json::Value =
             serde_json::from_str(&fs::read_to_string(root().join(EXAMPLE_JSON)).unwrap()).unwrap();
-        let inert = [
-            "fonts",
-            "font_hash_map",
-            "font_id_map",
-            "font_families_map",
-            "images",
-            "image_key_map",
-        ];
+        let inert = ["font_id_map", "font_families_map"];
         let mut checked = 0;
         for step in ex["steps"].as_array().unwrap() {
             if step["op"] != "assert_resource_counts" {

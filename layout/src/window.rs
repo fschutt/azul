@@ -12799,31 +12799,36 @@ impl LayoutWindow {
     /// their `ImageRefHash`.  Callers can diff the result against the
     /// currently loaded images to find unused ones.
     pub fn scan_used_images(&self, _css_image_cache: &ImageCache) -> BTreeSet<ImageRefHash> {
+        self.images_in_display_lists()
+            .map(ImageRef::get_hash)
+            .collect()
+    }
+
+    /// Every image the display lists of this window draw: the pictures
+    /// (`Image`, a `background-image` that resolved), the image masks
+    /// (`PushImageMaskClip`) and the GPU mask of a stroked path - the ONE scan
+    /// of "which images are on screen". The image GC's live set
+    /// ([`Self::scan_used_images`]), the shell's upload of new images
+    /// (`collect_image_resource_updates`) and the e2e runner's virtual renderer
+    /// (`e2e::VirtualRenderer`) all read it, so a kind of item that draws an
+    /// image is added in this one place.
+    ///
+    /// A stroke's mask is a live image too - leaving it out makes the GC free the
+    /// mask the compositor is still drawing through.
+    pub fn images_in_display_lists(&self) -> impl Iterator<Item = &ImageRef> + '_ {
         use crate::solver3::display_list::DisplayListItem;
 
-        let mut images = BTreeSet::new();
-        for layout_result in self.layout_results.values() {
-            for item in &layout_result.display_list.items {
-                match item {
-                    DisplayListItem::Image { image, .. } => {
-                        images.insert(image.get_hash());
-                    }
-                    DisplayListItem::PushImageMaskClip { mask_image, .. } => {
-                        images.insert(mask_image.get_hash());
-                    }
-                    // A stroke's GPU mask is a live image too - leaving it out
-                    // of the scan makes the GC free the mask the compositor is
-                    // still drawing through.
-                    DisplayListItem::StrokedPath {
-                        mask: Some(mask), ..
-                    } => {
-                        images.insert(mask.get_hash());
-                    }
-                    _ => {}
-                }
-            }
-        }
-        images
+        self.layout_results
+            .values()
+            .flat_map(|layout_result| layout_result.display_list.items.iter())
+            .filter_map(|item| match item {
+                DisplayListItem::Image { image, .. } => Some(image),
+                DisplayListItem::PushImageMaskClip { mask_image, .. } => Some(mask_image),
+                DisplayListItem::StrokedPath {
+                    mask: Some(mask), ..
+                } => Some(mask),
+                _ => None,
+            })
     }
 
     /// Helper function to convert `ScrollManager` to nested format for `CallbackInfo`

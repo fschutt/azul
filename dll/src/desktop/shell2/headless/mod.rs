@@ -3175,6 +3175,14 @@ impl HeadlessWindow {
                 ) {
                     debug_server::e2e_set_presented_frame(lw, frame);
                 }
+                // This backend has no renderer either: nothing is registered in
+                // `RendererResources`, so the renderer-side resource counters of
+                // `assert_resource_counts` (`fonts`, `images`, ...) read what the
+                // display lists draw, as in the in-process runner. They were
+                // `0 == 0` here too.
+                if let Some(lw) = self.common.layout_window.as_ref() {
+                    debug_server::e2e_set_virtual_renderer(lw);
+                }
             }
         }
     }

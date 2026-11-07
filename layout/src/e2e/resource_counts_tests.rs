@@ -3,12 +3,13 @@
 //! headless window.
 //!
 //! It walked its keys in alphabetical order and returned at the first failure.
-//! The renderer-side counters (`fonts`, `images`, ...) are frozen at 0 on a
-//! headless window, so a scenario that asserted them next to the live ones
-//! (`parsed_fonts`, `font_chain_cache`, `font_hash_to_families`) always ended at
-//! the dead one, and `parsed_fonts` - which sorts after both - was never read:
-//! a dead counter hid the live ones (batch 2 of `gen-e2e`, note B of its
-//! review).
+//! The renderer-side counters (`fonts`, `images`, ...) were frozen at 0 on a
+//! headless window (they count what the display lists draw now, E2E-R8), so a
+//! scenario that asserted them next to the live ones (`parsed_fonts`,
+//! `font_chain_cache`, `font_hash_to_families`) always ended at the dead one, and
+//! `parsed_fonts` - which sorts after both - was never read: a dead counter hid the
+//! live ones (batch 2 of `gen-e2e`, note B of its review). What is pinned here is
+//! the loop, not the counters: it judges every key whatever the counter is.
 
 use super::{run_e2e_test, E2eTest, E2eTestResult};
 
@@ -55,9 +56,9 @@ fn error_of(name: &str, assertion: serde_json::Value) -> Option<String> {
     step.error.clone()
 }
 
-/// Note B. Nothing changed after the baseline, so `gt` is red for all three:
-/// `fonts` and `images` are dead (0 == 0) and `parsed_fonts` is live but flat.
-/// The old loop reported `fonts` and stopped.
+/// Note B. Nothing changed after the baseline, so `gt` is red for all three: each
+/// is flat (`fonts`, `images` and `parsed_fonts`). The old loop reported `fonts`
+/// and stopped.
 #[test]
 fn note_b_a_dead_counter_does_not_hide_a_live_one() {
     let error = error_of(

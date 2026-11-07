@@ -207,6 +207,11 @@ impl Runner {
                 // A recording web view backend, as the headless shell has.
                 lw.webviews
                     .set_platform(crate::managers::webview::WebViewPlatform::Backend);
+                // The runner paints on the CPU and registers no font and no image
+                // with a renderer: the renderer-side resource counters read what the
+                // display lists draw instead of `RendererResources`, which stays empty
+                // (E2E-R8).
+                super::full::e2e_set_virtual_renderer(&lw);
                 lw
             },
             renderer_resources: RendererResources::default(),

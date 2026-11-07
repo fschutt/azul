@@ -688,7 +688,6 @@ pub fn collect_image_resource_updates(
     azul_core::FastBTreeSet<azul_core::resources::ImageRefHash>,
 ) {
     use azul_core::{resources::build_add_image_resource_updates, FastBTreeSet};
-    use azul_layout::solver3::display_list::DisplayListItem;
 
     log_debug!(
         LogCategory::Rendering,
@@ -696,31 +695,15 @@ pub fn collect_image_resource_updates(
         layout_window.layout_results.len()
     );
 
-    // Collect all unique ImageRefs from display lists
-    let mut images_in_display_list = FastBTreeSet::new();
+    // Collect all unique ImageRefs from display lists: the pictures, the image
+    // masks and the mask of a stroke (the GPU backend paints a stroke as a
+    // colour through that mask - it has no vector rasteriser - so the mask is
+    // uploaded like any other image; the CPU backend ignores it and strokes the
+    // outline directly). ONE scan, the image GC's and the e2e runner's too.
+    let mut images_in_display_list: FastBTreeSet<ImageRef> =
+        layout_window.images_in_display_lists().cloned().collect();
 
     for layout_result in layout_window.layout_results.values() {
-        // Scan display list for Image and PushImageMaskClip items
-        for item in &layout_result.display_list.items {
-            match item {
-                DisplayListItem::Image { image, .. } => {
-                    images_in_display_list.insert(image.clone());
-                }
-                DisplayListItem::PushImageMaskClip { mask_image, .. } => {
-                    images_in_display_list.insert(mask_image.clone());
-                }
-                // The GPU backend paints a stroke as a colour through this
-                // mask (it has no vector rasteriser), so the mask has to be
-                // uploaded like any other image. The CPU backend ignores it
-                // and strokes the outline directly.
-                DisplayListItem::StrokedPath {
-                    mask: Some(mask), ..
-                } => {
-                    images_in_display_list.insert(mask.clone());
-                }
-                _ => {}
-            }
-        }
         // The text shadows the compositor paints as kept pictures: drawn here
         // the first time they are seen, and live while a list holds them.
         let dpi = layout_window.current_window_state.size.get_hidpi_factor().inner.get();

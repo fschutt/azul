@@ -4815,6 +4815,13 @@ pub struct E2eScratch {
     /// The damage-driven framebuffer of the frame just rendered `(w, h, rgba)`.
     #[cfg(feature = "cpurender")]
     presented_frame: Option<(u32, u32, Vec<u8>)>,
+    /// This window's host has no renderer: it paints on the CPU and registers no
+    /// font and no image with one (the in-process runner, the headless shell), so
+    /// `RendererResources` stays empty whatever the page draws. The renderer-side
+    /// counters of `assert_resource_counts` are then read off the display lists
+    /// ([`super::VirtualRenderer`]) instead of off the empty tables - they were
+    /// `0 == 0` (E2E-R8). Set by [`e2e_set_virtual_renderer`].
+    virtual_renderer: bool,
     /// Per-step composition history for cross-invariant X8.
     ///
     /// Reset by `e2e_reset_composition_trace` at each step boundary and appended
@@ -5373,34 +5380,73 @@ fn build_project_files(
     super::export::project(language, app, title, &map_guard, library)
 }
 
-/// Snapshot the (already `pub`) resource + font-manager counters that a leak
-/// assertion needs. Reachable today from `CallbackInfo::get_layout_window()`.
+/// The resource + font-manager counters of `layout_window`, as
+/// `assert_resource_counts` and `snapshot_resources` read them - for a host's own
+/// test of what its window reports. See [`collect_resource_counts`].
+#[cfg(feature = "std")]
+#[must_use]
+pub fn e2e_resource_counts(
+    layout_window: &azul_layout::window::LayoutWindow,
+) -> BTreeMap<String, u64> {
+    collect_resource_counts(layout_window)
+}
+
+/// The resource + font-manager counters of `layout_window` that a leak assertion
+/// needs (`assert_resource_counts`, `snapshot_resources`). The key set of the map
+/// is the param surface of `assert_resource_counts` (gen-e2e's gate reads the
+/// `insert` calls below), so the helper stays a plain `fn` of this name.
+///
+/// The four renderer-side counters (`fonts`, `font_hash_map`, `images`,
+/// `image_key_map`) are the renderer's own tables when the host has one. A host
+/// that has none ([`e2e_set_virtual_renderer`]: the in-process runner, the
+/// headless shell) registers nothing in them, so there they are what a renderer
+/// WOULD hold for the lists on screen ([`super::VirtualRenderer`]); a table that
+/// stays empty reads 0 before and after anything, and `fonts: "eq"` was `0 == 0`
+/// (E2E-R8). `font_id_map` and `font_families_map` are legacy tables no shell
+/// writes any more: they are 0 everywhere.
 #[cfg(feature = "std")]
 fn collect_resource_counts(
-    callback_info: &azul_layout::callbacks::CallbackInfo,
+    layout_window: &azul_layout::window::LayoutWindow,
 ) -> BTreeMap<String, u64> {
-    let lw = callback_info.get_layout_window();
-    let rr = &lw.renderer_resources;
-    let fm = &lw.font_manager;
+    let rr = &layout_window.renderer_resources;
+    let fm = &layout_window.font_manager;
+    let virtual_renderer = layout_window
+        .e2e_scratch
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .virtual_renderer;
+    let (fonts, font_hash_map, images, image_key_map) = if virtual_renderer {
+        let held = super::VirtualRenderer::of(layout_window);
+        let (fonts, images) = (held.fonts.len() as u64, held.images.len() as u64);
+        // One entry per font and per image in the real tables too: the font by
+        // its hash (`font_hash_map`), the image by its key (`image_key_map`).
+        (fonts, fonts, images, images)
+    } else {
+        (
+            rr.currently_registered_fonts.len() as u64,
+            rr.font_hash_map.len() as u64,
+            rr.currently_registered_images.len() as u64,
+            rr.image_key_map.len() as u64,
+        )
+    };
     let mut out = BTreeMap::new();
-    out.insert(
-        "fonts".to_string(),
-        rr.currently_registered_fonts.len() as u64,
-    );
-    out.insert("font_hash_map".to_string(), rr.font_hash_map.len() as u64);
+    out.insert("fonts".to_string(), fonts);
+    out.insert("font_hash_map".to_string(), font_hash_map);
     out.insert("font_id_map".to_string(), rr.font_id_map.len() as u64);
     out.insert(
         "font_families_map".to_string(),
         rr.font_families_map.len() as u64,
     );
-    out.insert(
-        "images".to_string(),
-        rr.currently_registered_images.len() as u64,
-    );
-    out.insert("image_key_map".to_string(), rr.image_key_map.len() as u64);
+    out.insert("images".to_string(), images);
+    out.insert("image_key_map".to_string(), image_key_map);
+    // A poisoned lock still holds the table: reading it as 0 would be a leak
+    // check that sees the fonts vanish.
     out.insert(
         "parsed_fonts".to_string(),
-        fm.parsed_fonts.lock().map(|p| p.len() as u64).unwrap_or(0),
+        fm.parsed_fonts
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .len() as u64,
     );
     out.insert(
         "font_hash_to_families".to_string(),
@@ -10128,16 +10174,20 @@ fn eval_assert_work_bounded(
 /// `images`, `image_key_map`, `parsed_fonts`, `font_hash_to_families`,
 /// `font_chain_cache`.
 ///
+/// The renderer-side counters (`fonts`, `font_hash_map`, `images`, `image_key_map`) are
+/// a shell's renderer tables, and on a host with none (this runner, the headless shell)
+/// what the display lists on screen draw - see [`collect_resource_counts`] (E2E-R8).
+/// `font_id_map` and `font_families_map` are legacy tables no shell writes: 0 everywhere.
+///
 /// EVERY counter given is judged and every red one is reported (see
-/// [`counters_red`]): the renderer-side counters (`fonts`, `images`, ...) stay 0
-/// on a headless window, so one of them next to a live counter is red for a
-/// reason that says nothing about the live one - and must not hide it.
+/// [`counters_red`]): a counter that is red for one reason (a leak) must not hide
+/// another that is red for a different one.
 #[cfg(feature = "std")]
 fn eval_assert_resource_counts(
     params: &serde_json::Value,
     callback_info: &azul_layout::callbacks::CallbackInfo,
 ) -> AssertionResult {
-    let current = collect_resource_counts(callback_info);
+    let current = collect_resource_counts(callback_info.get_layout_window());
     let baseline = match params.get("vs").and_then(|v| v.as_str()) {
         Some(name) => match scratch(callback_info).resource_snapshots.get(name).cloned() {
             Some(b) => Some(b),
@@ -10155,10 +10205,10 @@ fn eval_assert_resource_counts(
         return AssertionResult::fail("assert_resource_counts: params must be an object");
     };
 
-    // The keys come in alphabetical order, and this used to RETURN at the first red one: a
-    // dead renderer-side counter (`fonts`, `images`) always ended the call before
-    // `parsed_fonts`, which sorts after both, was read (the review of `gen-e2e` batch 2,
-    // note B). Now each is judged, and the red ones are collected.
+    // The keys come in alphabetical order, and this used to RETURN at the first red one: `fonts`
+    // and `images` (dead counters then) always ended the call before `parsed_fonts`, which sorts
+    // after both, was read (the review of `gen-e2e` batch 2, note B). Now each is judged, and the
+    // red ones are collected.
     let mut checked = 0usize;
     let mut red: Vec<CounterFailure> = Vec::new();
     for (key, want) in obj {
@@ -13128,6 +13178,26 @@ fn eval_assert_composition(
         stages.join(" -> "),
         seen.join(", ")
     ))
+}
+
+// ---- the renderer a host does not have ------------------------------------
+
+/// Declare that the host of `layout_window` has NO renderer: it paints on the CPU
+/// and registers no font and no image with one (the in-process runner; the dll's
+/// headless shell), so `RendererResources` stays empty whatever the page draws.
+///
+/// `assert_resource_counts` then reads its renderer-side counters (`fonts`,
+/// `font_hash_map`, `images`, `image_key_map`) off the display lists
+/// ([`super::VirtualRenderer`]) instead of off those empty tables, where they
+/// were `0 == 0` and a `gt` control could never pass (E2E-R8). A host with a
+/// real renderer never calls this, and its counters are the renderer's own.
+#[cfg(feature = "std")]
+pub fn e2e_set_virtual_renderer(layout_window: &azul_layout::window::LayoutWindow) {
+    layout_window
+        .e2e_scratch
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .virtual_renderer = true;
 }
 
 // ---- assert_damage_sound ---------------------------------------------------
@@ -17339,7 +17409,7 @@ pub fn process_debug_event(
         }
 
         DebugEvent::SnapshotResources { name } => {
-            let counts = collect_resource_counts(callback_info);
+            let counts = collect_resource_counts(callback_info.get_layout_window());
             scratch(callback_info)
                 .resource_snapshots
                 .insert(name.clone(), counts);
