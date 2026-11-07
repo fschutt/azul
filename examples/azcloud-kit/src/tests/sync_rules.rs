@@ -77,7 +77,7 @@ fn the_base_rules_keep_temporary_lock_os_journal_and_repository_files_out() {
 }
 
 /// X-DELTA-AZDRIVE-FILES-9. The rule was directory-only (`.git/`): a FILE or a link named `.git`
-/// - the pointer file of a submodule or a linked worktree, `gitdir: ../.e` - synced as an ordinary
+/// (the pointer file of a submodule or a linked worktree, `gitdir: ../.e`) synced as an ordinary
 /// file and redirected git to a repository another participant syncs. It is left out like the
 /// folder, at any depth (the other spellings are the name table's).
 #[test]

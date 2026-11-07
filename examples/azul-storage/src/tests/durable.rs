@@ -227,13 +227,17 @@ fn x_delta_azdrive_files_14_a_folder_sync_that_answers_an_io_error_is_a_failure_
     );
 }
 
+/// What [`AtReplace`] saw: the name's bytes, the slot's bytes and the names in the folder.
+#[cfg(unix)]
+type Seen = (Option<Vec<u8>>, Option<Vec<u8>>, Vec<String>);
+
 /// A probe that looks at the folder at the moment the old file has its place in the slot and the new
 /// one is about to take its name - where a kill or a power cut would leave the world.
 #[cfg(unix)]
 struct AtReplace {
     folder: PathBuf,
     /// `(the name's bytes, the slot's bytes, the names in the folder)` as they were then.
-    seen: RefCell<Option<(Option<Vec<u8>>, Option<Vec<u8>>, Vec<String>)>>,
+    seen: RefCell<Option<Seen>>,
     /// Another writer puts this at the name right then.
     third: Option<&'static [u8]>,
 }

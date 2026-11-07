@@ -323,10 +323,7 @@ impl Scratch {
     pub fn note_made(folder: &Path, name: &str) -> io::Result<()> {
         let dir = Dir::open_following(folder)?;
         let st = dir.lstat(name)?;
-        let mut record = match read_record(folder)? {
-            Some(record) => record,
-            None => MadeRecord::default(),
-        };
+        let mut record = read_record(folder)?.unwrap_or_default();
         record.files.insert(name.to_string(), MadeFile::of(&st));
         let text = serde_json::to_vec(&record).map_err(io::Error::other)?;
         crate::durable::replace_cache(&folder.join(MADE_RECORD), &text)

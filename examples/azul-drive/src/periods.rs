@@ -516,7 +516,7 @@ extern "C" fn on_period_timer(mut data: RefAny, info: TimerCallbackInfo) -> Time
     // A cash order's daily look (its letter may have arrived).
     crate::cash::look_if_due(&mut callback_info, &app, &mut *s);
     // The trash of the local drives, once a day (the start looked at it once).
-    crate::trash::look_if_due(&mut callback_info, &app, &mut *s);
+    crate::trash::look_if_due(&mut callback_info, &app, &mut s);
     // A banned drive's banner counts its hours down.
     if s.bans.is_empty() {
         TimerCallbackReturn::continue_unchanged()

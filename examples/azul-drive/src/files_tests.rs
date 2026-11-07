@@ -253,21 +253,24 @@ fn x_delta_azdrive_files_6_a_selection_that_mixes_the_trash_with_other_rows_is_a
     // Nothing of it in the trash: a local drive trashes; otherwise it is asked, or for good when
     // the question is off.
     assert_eq!(
-        delete_way(&[a.clone()], true, false, true),
+        delete_way(std::slice::from_ref(&a), true, false, true),
         DeleteWay::ToTrash
     );
-    assert_eq!(delete_way(&[a.clone()], true, true, true), DeleteWay::Ask);
     assert_eq!(
-        delete_way(&[a.clone()], true, true, false),
+        delete_way(std::slice::from_ref(&a), true, true, true),
+        DeleteWay::Ask
+    );
+    assert_eq!(
+        delete_way(std::slice::from_ref(&a), true, true, false),
         DeleteWay::ForGood
     );
     assert_eq!(
-        delete_way(&[a.clone()], false, false, false),
+        delete_way(std::slice::from_ref(&a), false, false, false),
         DeleteWay::Ask
     );
     // All of it in the trash: for good, the setting decides.
     assert_eq!(
-        delete_way(&[trash.clone()], true, false, false),
+        delete_way(std::slice::from_ref(&trash), true, false, false),
         DeleteWay::ForGood
     );
     assert_eq!(delete_way(&[old], true, false, true), DeleteWay::Ask);

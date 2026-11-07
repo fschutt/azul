@@ -465,12 +465,12 @@ mod tests {
             seen: NOW - DAY,
             ..Marks::default()
         };
-        let first = plan(&[ancient.clone()], &history, NOW);
+        let first = plan(std::slice::from_ref(&ancient), &history, NOW);
         assert!(first.marks.expired.is_empty(), "{first:?}");
         assert_eq!(first.marks.first_seen.get("ancient"), Some(&NOW));
-        let early = plan(&[ancient.clone()], &first.marks, NOW + 29 * DAY);
+        let early = plan(std::slice::from_ref(&ancient), &first.marks, NOW + 29 * DAY);
         assert!(early.marks.expired.is_empty(), "29 days are not 30");
-        let marked = plan(&[ancient.clone()], &first.marks, NOW + 30 * DAY);
+        let marked = plan(std::slice::from_ref(&ancient), &first.marks, NOW + 30 * DAY);
         assert_eq!(marked.marks.expired.len(), 1);
         assert!(marked.expired.is_empty(), "marked, not removed");
         let gone = plan(&[ancient], &marked.marks, NOW + 37 * DAY);

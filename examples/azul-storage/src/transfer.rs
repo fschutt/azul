@@ -544,7 +544,6 @@ pub fn download_guarded(
         }
     };
     // The version (ETag, date) a resumed download must still find.
-    let mut info = info;
     if size <= chunk {
         // The size is the listing's: an object that grew since (a log) is not read whole into
         // memory because the drive's `get` has no limit - it is refused at the limit, and the

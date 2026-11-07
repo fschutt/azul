@@ -58,13 +58,12 @@ pub fn carry(from: &Path, to: &Path) -> Carried {
     carry_with(from, to, &imp::set)
 }
 
+/// What sets one attribute (`path`, name, value).
+pub(crate) type Setter<'a> = &'a dyn Fn(&Path, &[u8], &[u8]) -> std::io::Result<()>;
+
 /// [`carry`] with the setter a test replaces (a disk that refuses).
 #[must_use]
-pub(crate) fn carry_with(
-    from: &Path,
-    to: &Path,
-    set: &dyn Fn(&Path, &[u8], &[u8]) -> std::io::Result<()>,
-) -> Carried {
+pub(crate) fn carry_with(from: &Path, to: &Path, set: Setter<'_>) -> Carried {
     let mut out = Carried::default();
     // A source on a disk that keeps no attributes, or a file that is gone, has none to carry:
     // there is nothing to say. A source whose attributes could not be READ (a refusal, a failing
