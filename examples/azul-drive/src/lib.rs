@@ -582,7 +582,7 @@ impl Slot {
     pub fn open(
         &mut self,
         rotated: &RotatedSessions,
-        records: &KeyRecords,
+        #[cfg_attr(not(feature = "encryption"), allow(unused_variables))] records: &KeyRecords,
         token_url: Option<&str>,
         relay: Option<&str>,
         keyring: &azcloud_kit::SharedKeyring,
@@ -590,14 +590,8 @@ impl Slot {
         if let Some(drive) = &self.drive {
             return Ok(drive.clone());
         }
-        // An Azlin drive is encrypted, always: a build that cannot open encrypted drives refuses
-        // it here, at the opening, and never shows or fills its bucket as a plain one.
-        if self.entry.azlin().is_some() && cfg!(not(feature = "encryption")) {
-            return Err(DriveError::Unsupported(format!(
-                "\"{}\" is an Azlin drive, which is always encrypted, and this build of AzDrive \
-                 was made without the encryption",
-                self.entry.name
-            )));
+        if let Some(refusal) = azlin_needs_encryption(&self.entry, cfg!(feature = "encryption")) {
+            return Err(refusal);
         }
         let drive: Arc<dyn Drive> = if self.entry.azlin().is_some() {
             let secret = self
@@ -2631,25 +2625,60 @@ pub(crate) fn take_rotated(s: &mut DriveState) {
 /// one, whatever its bucket lists (the key may be gone from the keyring by then - it is locked,
 /// not plain). A file that cannot be written is said.
 pub(crate) fn take_key_records(s: &mut DriveState) {
-    let records: Vec<KeyRecord> = match s.key_records.lock() {
+    let path = s.drives_file.clone();
+    for (name, why) in write_key_records(&mut s.slots, &s.key_records, path.as_deref()) {
+        s.error(Phrase::new("azdrive-drive-not-saved").arg("detail", format!("{name}: {why}")));
+    }
+}
+
+/// [`take_key_records`] without the window: empties `queue`, records each drive's key in its slot
+/// (a drive that is gone from the slots, or recorded with this key already, changes nothing) and
+/// in the drives file at `drives_file` (none: only the slots). The name and the reason of every
+/// write the file refused, for the caller to say.
+pub(crate) fn write_key_records(
+    slots: &mut [Slot],
+    queue: &KeyRecords,
+    drives_file: Option<&Path>,
+) -> Vec<(String, String)> {
+    let records: Vec<KeyRecord> = match queue.lock() {
         Ok(mut queue) => queue.drain(..).collect(),
-        Err(_) => return,
+        Err(_) => return Vec::new(),
     };
+    let mut refused = Vec::new();
     for record in records {
-        let Some(index) = s.slot_index(&record.drive_id) else {
+        let Some(slot) = slots
+            .iter_mut()
+            .find(|slot| slot.entry.id == record.drive_id)
+        else {
             continue;
         };
-        if !s.slots[index].entry.record_encryption(&record.key_id) {
+        if !slot.entry.record_encryption(&record.key_id) {
             continue;
         }
-        let Some(path) = s.drives_file.clone() else {
+        let Some(path) = drives_file else {
             continue;
         };
-        if let Err(e) = DrivesFile::record_encryption(&path, &record.drive_id, &record.key_id) {
-            let name = s.slots[index].name();
-            s.error(Phrase::new("azdrive-drive-not-saved").arg("detail", format!("{name}: {e}")));
+        if let Err(e) = DrivesFile::record_encryption(path, &record.drive_id, &record.key_id) {
+            refused.push((slot.name(), e.to_string()));
         }
     }
+    refused
+}
+
+/// Why a build cannot open `entry`: an Azlin drive is encrypted, always, and a build made without
+/// the encryption (`encrypted_build` false: a build for the tests of the plain paths, never
+/// shipped) refuses it at the opening and never shows or fills its bucket as a plain one.
+pub(crate) fn azlin_needs_encryption(
+    entry: &DriveEntry,
+    encrypted_build: bool,
+) -> Option<DriveError> {
+    (entry.azlin().is_some() && !encrypted_build).then(|| {
+        DriveError::Unsupported(format!(
+            "\"{}\" is an Azlin drive, which is always encrypted, and this build of AzDrive was \
+             made without the encryption",
+            entry.name
+        ))
+    })
 }
 
 /// The request behind a [`KeyringOp`]. Holds a secret while queued; never printed.

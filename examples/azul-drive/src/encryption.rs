@@ -4773,4 +4773,112 @@ mod tests {
         assert!(matches!(plain.decide(), Ok(EncState::Unencrypted(_))));
         assert!(plain_records.lock().unwrap().is_empty());
     }
+
+    /// X-AR6-26802cb54-1: the UI thread's half of the same glue. What the worker threads queued
+    /// reaches the slot and the drives file - for the drive it names and no other -; a drive that
+    /// is gone from the slots, or recorded with that key already, changes and writes nothing; a
+    /// new key (a rotation) is written over the old; and a drives file that refuses the write is
+    /// named with its drive for the window to say, the slot having the record all the same (the
+    /// drive is not opened as a plain one meanwhile).
+    #[test]
+    fn x_ar6_26802cb54_1_a_queued_key_id_reaches_the_slot_and_the_drives_file() {
+        use azul_storage::{
+            config::{DriveAuth, DriveEntry, DriveLocation, DrivesFile},
+            testing::TempDir,
+        };
+        let azlin = |slot: &str| DriveEntry {
+            id: slot.to_string(),
+            name: format!("Drive {slot}"),
+            location: DriveLocation::S3 {
+                endpoint: String::from("https://s3.example.test"),
+                region: String::from("us-east-1"),
+                bucket: slot.to_string(),
+                path_style: true,
+                auth: DriveAuth::Azlin {
+                    drive_id: format!("d_{slot}"),
+                    account_url: String::new(),
+                    encrypted: false,
+                    key_id: None,
+                },
+            },
+        };
+        let recorded = |entry: &DriveEntry| entry.encryption_record().unwrap();
+        let encrypted_with = |key: &str| EncryptionRecord {
+            encrypted: true,
+            key_id: Some(key.to_string()),
+        };
+        let dir = TempDir::new("key-records");
+        let file = dir.path().join("drives.json");
+        DrivesFile::update(&file, |drives| {
+            drives.add(azlin("slot-1"));
+            drives.add(azlin("slot-2"));
+        })
+        .unwrap();
+        let mut slots = vec![
+            crate::Slot::new(azlin("slot-1")),
+            crate::Slot::new(azlin("slot-2")),
+        ];
+        let queue = crate::KeyRecords::default();
+        let queued = |slot: &str, key: &str| {
+            queue.lock().unwrap().push(crate::KeyRecord {
+                drive_id: slot.to_string(),
+                key_id: key.to_string(),
+            });
+        };
+        let first = "11".repeat(16);
+        let second = "22".repeat(16);
+
+        // The drive it names gets it, in its slot and in the file; the other one does not; a
+        // record for a drive that is not there (removed meanwhile) is dropped.
+        queued("slot-1", &first);
+        queued("slot-gone", &first);
+        assert!(crate::write_key_records(&mut slots, &queue, Some(&file)).is_empty());
+        assert!(queue.lock().unwrap().is_empty(), "the queue is emptied");
+        let written = DrivesFile::load(&file).unwrap();
+        assert_eq!(recorded(&slots[0].entry), encrypted_with(&first));
+        assert_eq!(
+            recorded(written.get("slot-1").unwrap()),
+            encrypted_with(&first)
+        );
+        assert_eq!(recorded(&slots[1].entry), EncryptionRecord::default());
+        assert_eq!(
+            recorded(written.get("slot-2").unwrap()),
+            EncryptionRecord::default()
+        );
+        assert!(written.get("slot-gone").is_none());
+
+        // Told again with the same key (the drive opened again): nothing to write, so a file that
+        // would refuse the write is not even asked.
+        let refusing = file.join("not-a-folder").join("drives.json");
+        queued("slot-1", &first);
+        assert!(crate::write_key_records(&mut slots, &queue, Some(&refusing)).is_empty());
+
+        // A new key (a rotation) is written over the old one.
+        queued("slot-1", &second);
+        assert!(crate::write_key_records(&mut slots, &queue, Some(&file)).is_empty());
+        let written = DrivesFile::load(&file).unwrap();
+        assert_eq!(recorded(&slots[0].entry), encrypted_with(&second));
+        assert_eq!(
+            recorded(written.get("slot-1").unwrap()),
+            encrypted_with(&second)
+        );
+
+        // A file that refuses the write: named with the drive, the slot has the key all the same,
+        // the real file was not touched.
+        queued("slot-2", &first);
+        let refused = crate::write_key_records(&mut slots, &queue, Some(&refusing));
+        assert_eq!(refused.len(), 1, "{refused:?}");
+        assert_eq!(refused[0].0, "Drive slot-2");
+        assert!(!refused[0].1.is_empty());
+        assert_eq!(recorded(&slots[1].entry), encrypted_with(&first));
+        assert_eq!(
+            recorded(DrivesFile::load(&file).unwrap().get("slot-2").unwrap()),
+            EncryptionRecord::default()
+        );
+
+        // No drives file (a run without a configuration folder): the slots only.
+        queued("slot-1", &first);
+        assert!(crate::write_key_records(&mut slots, &queue, None).is_empty());
+        assert_eq!(recorded(&slots[0].entry), encrypted_with(&first));
+    }
 }

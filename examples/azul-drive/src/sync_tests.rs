@@ -1236,3 +1236,134 @@ fn x_ar5b_3_an_azlin_drive_is_synced_through_its_names_only_when_it_is_encrypted
         }
     }
 }
+
+/// X-AR6-26802cb54-1: "the sync does not start". A pass on an Azlin drive whose bucket shows a
+/// plain object and no key files (a drive made before the encryption, or a bucket that hides
+/// them: nothing here tells the two apart) starts no session that could read or write the bucket
+/// as a plain one. It fails with the drive's own refusal, and the bucket is as it was.
+#[cfg(feature = "encryption")]
+#[test]
+fn x_ar6_26802cb54_1_a_pass_on_a_drive_that_is_not_encrypted_starts_no_plain_session() {
+    use azul_storage::{keyring::MemoryKeyring, AutoEncrypted};
+
+    let bucket = Arc::new(MemDrive::default());
+    bucket.put("Photos/old.jpg", b"plain").unwrap();
+    let auto = Arc::new(AutoEncrypted::new(
+        bucket.clone(),
+        "d_photos",
+        Arc::new(MemoryKeyring::new()),
+        None,
+    ));
+    let drive: Arc<dyn Drive> = auto.clone();
+    let device = Device::new("not-encrypted", &drive, AutoDownload::Everything);
+    device.write("new.jpg", b"picture");
+    let mut work = device.work();
+    work.auto = Some(auto);
+
+    let answer = sync_jobs::run(
+        SyncJob::Pass {
+            work,
+            cancel: Arc::new(AtomicBool::new(false)),
+        },
+        &mut |_| {},
+    );
+    match answer {
+        Outcome::Sync(SyncOutcome::Passed {
+            result: Err(why), ..
+        }) => assert!(why.contains("not encrypted"), "{why}"),
+        Outcome::Sync(SyncOutcome::Passed {
+            result: Ok(done), ..
+        }) => {
+            panic!("a drive that is not encrypted was synced: {} up", done.up)
+        }
+        _ => panic!("not a pass's answer"),
+    }
+    let keys: Vec<String> = bucket.objects.lock().unwrap().keys().cloned().collect();
+    assert_eq!(
+        keys,
+        vec![String::from("Photos/old.jpg")],
+        "nothing was written"
+    );
+}
+
+// ==== A slot opens through the encryption, or not at all ====
+
+/// X-AR6-26802cb54-1: an Azlin drive is encrypted, always. A build made without the encryption (a
+/// build for the tests of the plain paths, never shipped) refuses it at the opening, with its
+/// name, and takes no other drive for one; a build with the encryption does not refuse it for
+/// that. The last part enters through `Slot::open`, in the build the test runs in.
+#[test]
+fn x_ar6_26802cb54_1_a_build_without_the_encryption_refuses_an_azlin_drive_at_the_opening() {
+    use azul_storage::{
+        config::{DriveAuth, DriveEntry, DriveLocation},
+        keyring::{KeyringNamespace, MemoryKeyring},
+    };
+
+    let azlin = DriveEntry {
+        id: String::from("slot-1"),
+        name: String::from("Photos"),
+        location: DriveLocation::S3 {
+            endpoint: String::from("https://s3.example.test"),
+            region: String::from("us-east-1"),
+            bucket: String::from("photos"),
+            path_style: true,
+            auth: DriveAuth::Azlin {
+                drive_id: String::from("d_photos"),
+                account_url: String::new(),
+                encrypted: false,
+                key_id: None,
+            },
+        },
+    };
+    let local = DriveEntry {
+        id: String::from("slot-2"),
+        name: String::from("Bucket"),
+        location: DriveLocation::Local {
+            root: String::from("/tmp/bucket"),
+        },
+    };
+
+    match crate::azlin_needs_encryption(&azlin, false) {
+        Some(DriveError::Unsupported(why)) => {
+            assert!(why.contains("\"Photos\""), "{why}");
+            assert!(why.contains("without the encryption"), "{why}");
+        }
+        other => panic!("an Azlin drive in a build without the encryption: {other:?}"),
+    }
+    assert!(crate::azlin_needs_encryption(&azlin, true).is_none());
+    assert!(
+        crate::azlin_needs_encryption(&local, false).is_none(),
+        "a folder of this computer is no Azlin drive"
+    );
+    assert!(crate::azlin_needs_encryption(&local, true).is_none());
+
+    // Through the function production calls. The slot has no session: with the encryption that
+    // is its own refusal (Denied), without it the build's.
+    let dir = TempDir::new("slot-open");
+    let keyring = azcloud_kit::SharedKeyring::with_lock_root(
+        Arc::new(MemoryKeyring::new()),
+        KeyringNamespace::azlin_shared(),
+        dir.path(),
+    );
+    let mut slot = crate::Slot::new(azlin);
+    let refused = slot
+        .open(
+            &crate::RotatedSessions::default(),
+            &crate::KeyRecords::default(),
+            None,
+            None,
+            &keyring,
+        )
+        .err();
+    if cfg!(feature = "encryption") {
+        assert!(
+            matches!(refused, Some(DriveError::Denied { .. })),
+            "{refused:?}"
+        );
+    } else {
+        assert!(
+            matches!(refused, Some(DriveError::Unsupported(_))),
+            "{refused:?}"
+        );
+    }
+}
