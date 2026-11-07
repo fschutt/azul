@@ -67,6 +67,7 @@ use crate::{
     },
     key::{check_key, check_prefix},
     keyring::KeyringStore,
+    meta::reclaim::{drop_new_object, Refusal},
     ops::check_folder,
     packing::{PackOptions, PackState, PackedAt},
     scratch::{Scratch, ScratchFile},
@@ -199,6 +200,14 @@ pub struct IndexPage {
 pub trait NameIndex: Send + Sync {
     /// The entry of `path`, if any.
     fn get(&self, path: &str) -> Result<Option<IndexEntry>, DriveError>;
+
+    /// [`NameIndex::get`] that never answers from a copy: the drive is asked now, and an index
+    /// that cannot reach it says so (an error) instead of answering with what it last saw. What a
+    /// decision that deletes rests on. By default the same as `get` (an index in memory has no
+    /// other copy).
+    fn get_fresh(&self, path: &str) -> Result<Option<IndexEntry>, DriveError> {
+        self.get(path)
+    }
 
     /// One page of the entries under `request.prefix` (S3 ListObjectsV2 semantics).
     fn list(&self, request: &ListRequest) -> Result<IndexPage, DriveError>;
@@ -1382,6 +1391,67 @@ pub(crate) enum Rewrite {
     Conflict,
 }
 
+/// What became of a new object whose index change failed ([`Staged::failed`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[must_use]
+pub(crate) enum Settled {
+    /// The index names the object: the change landed and only its answer got lost.
+    Named,
+    /// The change was refused for good, nothing names the object, and it is out of the bucket
+    /// again.
+    Dropped,
+    /// The object stays in the bucket: the change may have landed (no answer, a service error),
+    /// the index could not be asked, or the bucket would not delete it. An object nothing names
+    /// is garbage at worst; one deleted while the index names it is a file lost.
+    Kept,
+}
+
+/// A new data object that is in the bucket and that no index entry names yet: the object of a
+/// write between its upload and the index change that is to name it. It ends in one of three
+/// ways, and only the third deletes anything: the index named it ([`Staged::bound`]), or the
+/// change failed ([`Staged::failed`]) and the error says what is known of the change - refused
+/// for good, the object goes; anything else, it stays (AZ-M1: the same flaw was written four
+/// times, at `bind`, `rewrite`, `promote` and `write_large`; X-AR5a-15).
+pub(crate) struct Staged<'d, D: Drive> {
+    drive: &'d EncryptedDrive<D>,
+    id: ObjectId,
+    path: String,
+}
+
+impl<'d, D: Drive> Staged<'d, D> {
+    /// The object `id`, uploaded for the entry at `path`.
+    pub(crate) fn new(drive: &'d EncryptedDrive<D>, id: ObjectId, path: &str) -> Self {
+        Staged {
+            drive,
+            id,
+            path: path.to_string(),
+        }
+    }
+
+    /// The index named the object: nothing to undo.
+    pub(crate) fn bound(self) {}
+
+    /// The index change that was to name the object ended in `error`. The drive's index is asked
+    /// now, from the drive and not from a copy of it, whether the change landed after all (an
+    /// answer that got lost); an index that cannot be asked leaves the object where it is. Then
+    /// the error decides: a change refused for good or never made ([`Refusal`]) takes the object
+    /// back out of the bucket; one that may have landed does not.
+    pub(crate) fn failed(self, error: &DriveError) -> Settled {
+        match self.drive.index.get_fresh(&self.path) {
+            Ok(Some(entry)) if entry.bucket_object() == Some(self.id) => return Settled::Named,
+            Ok(_) => {}
+            Err(_) => return Settled::Kept,
+        }
+        let Some(refusal) = Refusal::of(error) else {
+            return Settled::Kept;
+        };
+        match drop_new_object(&self.drive.inner, &self.id, &refusal) {
+            Ok(()) => Settled::Dropped,
+            Err(_) => Settled::Kept,
+        }
+    }
+}
+
 /// `inner` (the bucket) seen through its drive key and its index: what it shows are the
 /// index's names with the plaintext of their objects; what it stores are AZL1 objects under
 /// random keys. See the module documentation.
@@ -1578,15 +1648,41 @@ impl<D: Drive> EncryptedDrive<D> {
         match self.inner.put_if(&key, bytes, &Precondition::Absent) {
             Ok(_) => Ok(()),
             Err(DriveError::Unsupported(_)) => self.inner.put(&key, bytes),
-            // The id is 128 random bits, so the object under it is this very write: its answer
-            // was lost and the request, sent again, met the object it had made.
-            Err(DriveError::Conflict { .. }) => Ok(()),
+            // The id is 128 random bits, so an object under it is this very write: its answer was
+            // lost and the request, sent again, met the object it had made. A 412 is only the
+            // storage's word for it: the object is looked at before the write counts as done
+            // (AZ-C13) - a proxy or a node that refuses for another reason leaves no object, and a
+            // name bound to it would be a name without its bytes.
+            Err(DriveError::Conflict { .. }) => self.landed_already(&key, bytes.len() as u64),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// A conditional write of a new object answered "precondition failed": whether the object
+    /// under `key` is the write itself - there, with the length of what was sent. The storage
+    /// holding no such object is a refusal for another reason; an object of another length is not
+    /// ours.
+    fn landed_already(&self, key: &str, sent: u64) -> Result<(), DriveError> {
+        match self.inner.head(key) {
+            Ok(info) if info.size == sent => Ok(()),
+            Ok(info) => Err(DriveError::Corrupt {
+                key: key.to_string(),
+                reason: format!(
+                    "an object of {} bytes is under the key of a write of {sent} bytes",
+                    info.size
+                ),
+            }),
+            Err(DriveError::NotFound { .. }) => Err(DriveError::Protocol(format!(
+                "the storage refused the new object \"{key}\" (precondition failed) and holds no \
+                 such object"
+            ))),
             Err(e) => Err(e),
         }
     }
 
     /// Names the new object in the index (when `expect` holds); takes the object back out of
-    /// the bucket when the index refuses, and deletes what the index released.
+    /// the bucket when the index refused for good ([`Staged::failed`]), and deletes what the
+    /// index released.
     pub(crate) fn bind(
         &self,
         path: &str,
@@ -1612,35 +1708,19 @@ impl<D: Drive> EncryptedDrive<D> {
             entry,
             expect,
         };
+        let staged = Staged::new(self, id, path);
         match self.index.apply(vec![change]) {
             Ok(released) => {
+                staged.bound();
                 self.release(released);
                 Ok(info)
             }
-            // The change landed and only its answer got lost.
-            Err(_) if self.names_object(path, &id) => Ok(info),
-            Err(e) => {
-                if self.may_drop_new_object(&e, path, &id) {
-                    let _ = self.inner.delete(&id.bucket_key());
-                }
-                Err(e)
-            }
+            Err(e) => match staged.failed(&e) {
+                // The change landed and only its answer got lost.
+                Settled::Named => Ok(info),
+                Settled::Dropped | Settled::Kept => Err(e),
+            },
         }
-    }
-
-    /// Whether the index names the object `id` at `path` now (a read; false when it cannot
-    /// tell).
-    fn names_object(&self, path: &str, id: &ObjectId) -> bool {
-        matches!(self.index.get(path), Ok(Some(entry)) if entry.object_id() == Some(*id))
-    }
-
-    /// Whether a new object `id` that a failed index change would have named at `path` may go
-    /// from the bucket: only when the index refused the change for good (a conflict) and does
-    /// not name the object. After any other error the change may have landed with its answer
-    /// lost; the object stays then (one nothing names is garbage for a collector, while a name
-    /// without its object loses the file).
-    fn may_drop_new_object(&self, error: &DriveError, path: &str, id: &ObjectId) -> bool {
-        matches!(error, DriveError::Conflict { .. }) && !self.names_object(path, id)
     }
 
     /// Deletes released objects from the bucket. Best effort: an object the bucket refused to
@@ -1782,21 +1862,20 @@ impl<D: Drive> EncryptedDrive<D> {
             entry: new_entry,
             expect: Expect::Object(old.id),
         };
+        let staged = Staged::new(self, id, path);
         match self.index.apply(vec![change]) {
             Ok(released) => {
+                staged.bound();
                 self.release(released);
                 Ok(Rewrite::Replaced(summary))
             }
-            Err(_) if self.names_object(path, &id) => Ok(Rewrite::Replaced(summary)),
-            Err(e) => {
-                if self.may_drop_new_object(&e, path, &id) {
-                    let _ = self.inner.delete(&id.bucket_key());
+            Err(e) => match (staged.failed(&e), e) {
+                (Settled::Named, _) => Ok(Rewrite::Replaced(summary)),
+                (Settled::Dropped | Settled::Kept, DriveError::Conflict { .. }) => {
+                    Ok(Rewrite::Conflict)
                 }
-                match e {
-                    DriveError::Conflict { .. } => Ok(Rewrite::Conflict),
-                    other => Err(other),
-                }
-            }
+                (Settled::Dropped | Settled::Kept, other) => Err(other),
+            },
         }
     }
 
@@ -1859,18 +1938,17 @@ impl<D: Drive> EncryptedDrive<D> {
             },
             expect: Expect::Object(object.id),
         };
+        let staged = Staged::new(self, id, path);
         match self.index.apply(vec![change]) {
             Ok(released) => {
+                staged.bound();
                 self.release(released);
                 Ok(own)
             }
-            Err(_) if self.names_object(path, &id) => Ok(own),
-            Err(e) => {
-                if self.may_drop_new_object(&e, path, &id) {
-                    let _ = self.inner.delete(&id.bucket_key());
-                }
-                Err(e)
-            }
+            Err(e) => match staged.failed(&e) {
+                Settled::Named => Ok(own),
+                Settled::Dropped | Settled::Kept => Err(e),
+            },
         }
     }
 
@@ -2075,17 +2153,17 @@ impl<D: Drive> EncryptedDrive<D> {
                         break;
                     };
                     let (i, _, entry, _) = live.remove(at);
-                    let id = entry.object_id();
-                    if id.is_some_and(|id| self.names_object(&key, &id)) {
+                    let refused = DriveError::Conflict { key: key.clone() };
+                    let settled = entry
+                        .object_id()
+                        .map(|id| Staged::new(self, id, &key).failed(&refused));
+                    results[i] = Some(match settled {
                         // This very change landed before, its answer lost.
-                        results[i] = Some(Ok(info_of(key.clone(), &entry).etag));
-                        continue;
-                    }
-                    // Nothing names its object: it goes.
-                    if let Some(id) = id {
-                        let _ = self.inner.delete(&id.bucket_key());
-                    }
-                    results[i] = Some(Err(DriveError::Conflict { key }));
+                        Some(Settled::Named) => Ok(info_of(key.clone(), &entry).etag),
+                        // Nothing names its object: it went (or stays where the bucket would
+                        // not let it go).
+                        _ => Err(refused),
+                    });
                 }
                 Err(e) => {
                     // The change may have landed: the objects stay (garbage at worst).

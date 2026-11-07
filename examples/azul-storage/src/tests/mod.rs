@@ -53,6 +53,9 @@ mod scoped;
 /// folders, the names that say who made a file, the sweep.
 mod scratch;
 mod sigv4;
+/// A new data object between its upload and the index change that names it.
+#[cfg(feature = "encryption")]
+mod staged;
 mod tables;
 mod time;
 mod transfer;

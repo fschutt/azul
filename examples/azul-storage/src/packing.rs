@@ -76,6 +76,7 @@ use crate::{
     },
     key::check_key,
     local::write_atomically,
+    meta::reclaim::{drop_new_object, Refusal},
     time::now_unix,
     BatchPut, ByteRange, Drive, DriveError, ObjectInfo,
 };
@@ -1366,6 +1367,8 @@ impl<D: Drive> EncryptedDrive<D> {
             members.iter().map(|_| None).collect();
         let mut released = Vec::new();
         let mut named = false;
+        // The last change the index refused for good: the proof the pack may go again.
+        let mut refused: Option<DriveError> = None;
         loop {
             let mut changes = Vec::new();
             for (i, member) in members.iter().enumerate() {
@@ -1400,6 +1403,7 @@ impl<D: Drive> EncryptedDrive<D> {
                     let Some((i, t)) = found else {
                         return all(DriveError::Conflict { key });
                     };
+                    refused = Some(DriveError::Conflict { key: key.clone() });
                     alive[i][t] = false;
                     if alive[i].iter().all(|a| !a) {
                         results[i] = Some(Err(DriveError::Conflict { key }));
@@ -1419,8 +1423,13 @@ impl<D: Drive> EncryptedDrive<D> {
             }
         }
         if !named {
-            // Nothing names the pack: it goes again.
-            if self.inner.delete(&id.bucket_key()).is_ok() {
+            // Nothing names the pack and every change of it was refused for good: it goes again.
+            // Without that proof it stays in the journal for `recover_packs`.
+            let gone = refused
+                .as_ref()
+                .and_then(Refusal::of)
+                .is_some_and(|refusal| drop_new_object(&self.inner, &id, &refusal).is_ok());
+            if gone {
                 self.packs.journal.end(&id);
             }
         } else {

@@ -79,6 +79,8 @@
 //! - [`git`]: `git-remote-azlin` (C7), plain git reading the repository.
 //! - `policy` (feature `encryption`): `.azlin/policy.toml` (members, roles, folder grants) and
 //!   the members' key wraps as files of the repository: every membership change a commit.
+//! - `reclaim` (feature `encryption`): what may take a data object out of the bucket, and on what
+//!   proof ([`Certainty`], the compensation of a change that was refused, the reclaimer).
 
 // panic = "abort" in every shipped profile, and this module reads bytes other people wrote: no
 // unwrap, expect, panic, todo or unreachable in its shipped code (ARCH28 RF50).
@@ -107,6 +109,8 @@ pub mod pack;
 pub mod pointer;
 #[cfg(feature = "encryption")]
 pub mod policy;
+#[cfg(feature = "encryption")]
+pub mod reclaim;
 pub mod repo;
 pub mod seal;
 pub mod shard;
@@ -123,6 +127,8 @@ pub use objects::{Commit, Kind, Mode, ObjectId, Objects, Signature, Tree, TreeEn
 pub use pack::{PackIndex, PackWriter, SealedPack};
 #[cfg(feature = "encryption")]
 pub use index::{open_encrypted_drive, MetaIndex, MetaIndexProvider};
+#[cfg(feature = "encryption")]
+pub use reclaim::Certainty;
 pub use repo::{CommitOutcome, MetaRepo, RepoOptions, RestoreSource};
 #[cfg(feature = "encryption")]
 pub use seal::KeyWindow;

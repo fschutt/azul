@@ -389,13 +389,9 @@ impl<B: Bucket, S: Sealer> MetaIndex<B, S> {
     }
 }
 
-impl<B: Bucket, S: Sealer> NameIndex for MetaIndex<B, S> {
-    fn get(&self, path: &str) -> Result<Option<IndexEntry>, DriveError> {
-        if path.is_empty() || reserved(path) {
-            return Ok(None);
-        }
-        let mut inner = self.fresh(false)?;
-        let repo = &mut inner.repo;
+impl<B: Bucket, S: Sealer> MetaIndex<B, S> {
+    /// The entry of `path` in `repo`'s copy, its objects read first.
+    fn lookup(repo: &mut MetaRepo<B, S>, path: &str) -> Result<Option<IndexEntry>, DriveError> {
         let Some(root) = repo.root().map_err(to_drive)? else {
             return Ok(None);
         };
@@ -407,6 +403,29 @@ impl<B: Bucket, S: Sealer> NameIndex for MetaIndex<B, S> {
             }
         };
         entry_of(&repo.local, &root, path).map_err(to_drive)
+    }
+}
+
+impl<B: Bucket, S: Sealer> NameIndex for MetaIndex<B, S> {
+    fn get(&self, path: &str) -> Result<Option<IndexEntry>, DriveError> {
+        if path.is_empty() || reserved(path) {
+            return Ok(None);
+        }
+        let mut inner = self.fresh(false)?;
+        Self::lookup(&mut inner.repo, path)
+    }
+
+    /// The drive is polled now; a drive that cannot be reached is an error, never the copy's
+    /// answer.
+    fn get_fresh(&self, path: &str) -> Result<Option<IndexEntry>, DriveError> {
+        if path.is_empty() || reserved(path) {
+            return Ok(None);
+        }
+        let mut inner = self.lock();
+        inner.repo.pull().map_err(to_drive)?;
+        let now = inner.repo.store().now();
+        inner.last_poll = Some(now);
+        Self::lookup(&mut inner.repo, path)
     }
 
     fn list(&self, request: &ListRequest) -> Result<IndexPage, DriveError> {
