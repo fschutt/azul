@@ -68,6 +68,7 @@ use crate::{
     ctl::Quiet,
     key::{check_key, check_prefix},
     keyring::KeyringStore,
+    limits::named,
     meta::reclaim::{
         delete_released, drop_new_object, LiveObjects, ReclaimMode, Refusal, Released, DEFAULT_MODE,
     },
@@ -883,12 +884,16 @@ impl Drive for AutoEncrypted {
 }
 
 /// Whether a plain bucket holds a file of the drive (anything but its `.azlin/` bookkeeping):
-/// one made before encryption. Reads root listing pages until it finds one.
+/// one made before encryption. Reads root listing pages until it finds one, and at most
+/// [`named::ROOT_SCAN_PAGES`] of them: a listing that is not over by then, or that names the page
+/// it was just asked for, says nothing of an empty bucket - the answer is "holds files", the
+/// drive that takes none of ours (`Unencrypted(HiddenOrAbsent)`), never "new" and never a read that
+/// keeps `resolved()` (and its lock) for ever (X-DELTA-AZDRIVE-KEYS-22).
 fn holds_plaintext_files(bucket: &dyn Drive) -> Result<bool, DriveError> {
     // The drive's own folder, spelled once (S3 keys are case-sensitive: `.AZLIN/` is a plain folder).
     let bookkeeping = format!("{}/", crate::names::BOOKKEEPING);
     let mut request = ListRequest::folder("").with_max_keys(8);
-    loop {
+    for _ in 0..named::ROOT_SCAN_PAGES {
         let page = bucket.list(&request)?;
         if page.objects.iter().any(|o| crate::migrate::is_plaintext_key(&o.key))
             || page.folders.iter().any(|f| *f != bookkeeping)
@@ -896,10 +901,14 @@ fn holds_plaintext_files(bucket: &dyn Drive) -> Result<bool, DriveError> {
             return Ok(true);
         }
         match page.next {
-            Some(next) => request.continuation = Some(next),
+            Some(next) if request.continuation.as_deref() != Some(next.as_str()) => {
+                request.continuation = Some(next);
+            }
+            Some(_) => return Ok(true),
             None => return Ok(false),
         }
     }
+    Ok(true)
 }
 
 /// What a decision about a drive rests on: the device's own words first (its keyring, its

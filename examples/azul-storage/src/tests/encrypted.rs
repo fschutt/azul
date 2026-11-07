@@ -1975,3 +1975,54 @@ fn x_delta_azdrive_keys_18_a_reload_keeps_the_recorded_key_and_a_reopening_takes
     drive.list(&ListRequest::folder("")).unwrap();
     assert_eq!(drive.recorded().key_id, Some(stranger.id()));
 }
+
+/// X-DELTA-AZDRIVE-KEYS-22: the question "does this bucket hold a file of the drive" reads root
+/// pages for a bounded number of pages. A storage that answers "there is more" for ever with
+/// nothing but its own bookkeeping used to keep the first call - and the lock every later call
+/// waits on - for ever; it is a drive that holds files now (`HiddenOrAbsent`): nothing is set up,
+/// nothing is written.
+#[test]
+fn x_delta_azdrive_keys_22_a_root_listing_that_never_ends_is_a_drive_that_takes_no_file() {
+    let endless = Arc::new(super::ops::Endless::new(
+        "",
+        |n| format!(".azlin/pad-{n}"),
+        false,
+    ));
+    let drive = AutoEncrypted::new(
+        endless.clone(),
+        "d_1",
+        Arc::new(MemoryKeyring::new()),
+        provider(),
+    );
+    assert_eq!(
+        drive.decide().unwrap(),
+        EncState::Unencrypted(Why::HiddenOrAbsent)
+    );
+    assert_eq!(
+        endless.asked() as usize,
+        crate::limits::named::ROOT_SCAN_PAGES,
+        "the pages read, no more"
+    );
+    assert!(matches!(
+        drive.put("a.txt", b"plaintext"),
+        Err(DriveError::Denied { .. })
+    ));
+
+    // A listing that names its own page as the next is no proof of an empty bucket either.
+    let repeating = Arc::new(super::ops::Endless::new(
+        "",
+        |n| format!(".azlin/pad-{n}"),
+        true,
+    ));
+    let drive = AutoEncrypted::new(
+        repeating.clone(),
+        "d_1",
+        Arc::new(MemoryKeyring::new()),
+        provider(),
+    );
+    assert_eq!(
+        drive.decide().unwrap(),
+        EncState::Unencrypted(Why::HiddenOrAbsent)
+    );
+    assert_eq!(repeating.asked(), 2);
+}

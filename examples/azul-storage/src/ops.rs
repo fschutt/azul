@@ -11,8 +11,8 @@ use std::sync::{
 };
 
 use crate::{
-    same_etag, BatchDelete, BatchMove, BatchStream, Drive, DriveError, ListPage, ListRequest,
-    ObjectInfo, DEFAULT_PAGE_SIZE, PARALLEL_FILES,
+    limits::named, same_etag, BatchDelete, BatchMove, BatchStream, Drive, DriveError, ListPage,
+    ListRequest, ObjectInfo, DEFAULT_PAGE_SIZE, PARALLEL_FILES,
 };
 
 /// Every object under `prefix`, at any depth, across all pages, in key order.
@@ -47,13 +47,15 @@ fn list_from<D: Drive + ?Sized>(
     mut request: ListRequest,
 ) -> Result<Vec<ObjectInfo>, DriveError> {
     let mut out = Vec::new();
+    let mut pages = 0;
     loop {
         let page = drive.list(&request)?;
+        pages += 1;
         out.extend(page.objects);
         match page.next {
             // The pages after the first come from the copy the first one polled.
             Some(token) => {
-                request = request.with_continuation(token);
+                request = continue_listing(request, token, pages)?;
                 request.refresh = false;
             }
             None => break,
@@ -62,18 +64,45 @@ fn list_from<D: Drive + ?Sized>(
     Ok(out)
 }
 
+/// The request for the page after `pages` pages that named `token`, or why the listing cannot go
+/// on: a token the request already carried is a listing that does not advance, and one that is
+/// not over after [`named::LISTING_PAGES`] pages does not end. A bucket that answers either way
+/// (a hostile or a broken one) would keep the caller reading and growing for ever
+/// (X-DELTA-AZDRIVE-KEYS-22).
+pub(crate) fn continue_listing(
+    request: ListRequest,
+    token: String,
+    pages: usize,
+) -> Result<ListRequest, DriveError> {
+    if request.continuation.as_deref() == Some(token.as_str()) {
+        return Err(DriveError::Protocol(format!(
+            "the listing of \"{}\" names the page it was just asked for as its next one",
+            request.prefix
+        )));
+    }
+    if pages >= named::LISTING_PAGES {
+        return Err(DriveError::Protocol(format!(
+            "the listing of \"{}\" does not end after {pages} pages",
+            request.prefix
+        )));
+    }
+    Ok(request.with_continuation(token))
+}
+
 /// One folder level - the folders and the objects directly in `prefix` - across all
 /// pages, in key order, as one page (`next` is `None`). The folder listings of the apps
 /// (a browser's folder, a mail account's folders, the workbooks of `sheets/`).
 pub fn list_folder_all<D: Drive + ?Sized>(drive: &D, prefix: &str) -> Result<ListPage, DriveError> {
     let mut out = ListPage::default();
     let mut request = ListRequest::folder(prefix);
+    let mut pages = 0;
     loop {
         let page = drive.list(&request)?;
+        pages += 1;
         out.folders.extend(page.folders);
         out.objects.extend(page.objects);
         match page.next {
-            Some(token) => request = request.with_continuation(token),
+            Some(token) => request = continue_listing(request, token, pages)?,
             None => break,
         }
     }

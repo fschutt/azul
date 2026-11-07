@@ -397,3 +397,25 @@ fn az_m5_a_drive_that_says_no_size_is_read_under_the_formats_cap() {
     assert_eq!(bucket.read("m/pack").unwrap().unwrap().0.len(), 5_000);
     assert_eq!(spy.limits()[0], crate::limits::named::INDEX_OBJECT);
 }
+
+/// X-DELTA-AZDRIVE-KEYS-22: the maintenance listing of a drive's bucket (the orphan sweep) follows
+/// a bounded number of pages - a bucket that never ends its listing is refused as such, with the
+/// pages named, and not read for ever into a list that grows.
+#[test]
+fn x_delta_azdrive_keys_22_the_maintenance_listing_of_a_bucket_that_never_ends_is_refused() {
+    let endless = Arc::new(super::super::ops::Endless::new(
+        "data/",
+        |n| format!("data/{n}.bin"),
+        false,
+    ));
+    let bucket = DriveBucket::new(endless.clone());
+    let refused = bucket.list_keys("data/").unwrap_err();
+    assert!(
+        matches!(&refused, MetaError::Drive(DriveError::Protocol(why)) if why.contains("does not end")),
+        "{refused:?}"
+    );
+    assert_eq!(
+        endless.asked() as usize,
+        crate::limits::named::LISTING_PAGES
+    );
+}

@@ -956,3 +956,39 @@ fn x_delta_azdrive_keys_41_a_wrap_of_a_cost_this_build_cannot_try_is_said_not_ca
         "an unsupported cost is said, the code is not called wrong: {err:?}"
     );
 }
+
+/// X-DELTA-AZDRIVE-KEYS-22: the member files of a drive are listed within the page cap - a storage
+/// that lists member keys for ever used to keep `load_member_wraps` (and the opening that asked for
+/// it) reading and growing for ever; it is refused as an unending listing now.
+#[test]
+fn x_delta_azdrive_keys_22_the_member_files_of_a_listing_that_never_ends_are_refused() {
+    let endless =
+        super::ops::Endless::new(".azlin/keys/", |n| format!(".azlin/keys/m{n}.key"), false);
+    let refused = crate::crypto::keys::load_member_wraps(&endless).unwrap_err();
+    assert!(
+        matches!(&refused, DriveError::Protocol(why) if why.contains("does not end")),
+        "{refused:?}"
+    );
+    assert_eq!(
+        endless.asked() as usize,
+        crate::limits::named::LISTING_PAGES
+    );
+}
+
+/// X-DELTA-AZDRIVE-KEYS-22: the count of a drive's other devices lists `.azlin/keys/` within the
+/// page cap, as the member files do - an unending listing is an error, not a count that never ends.
+#[test]
+fn x_delta_azdrive_keys_22_the_other_devices_of_a_listing_that_never_ends_are_not_counted() {
+    let endless =
+        super::ops::Endless::new(".azlin/keys/", |n| format!(".azlin/keys/m{n}.key"), false);
+    let refused =
+        crate::crypto::device::other_devices(&endless, &MemoryKeyring::new(), DRIVE).unwrap_err();
+    assert!(
+        matches!(&refused, DriveError::Protocol(why) if why.contains("does not end")),
+        "{refused:?}"
+    );
+    assert_eq!(
+        endless.asked() as usize,
+        crate::limits::named::LISTING_PAGES
+    );
+}

@@ -12,6 +12,7 @@ use std::{
 
 use super::TempDir;
 use crate::{
+    limits::named,
     ops::{exists, folder_exists, list_all, list_all_fresh, list_folder_all},
     transfer::copy_object,
     ByteRange, Drive, DriveError, ListPage, ListRequest, LocalDrive, ObjectInfo,
@@ -490,4 +491,130 @@ fn a_fresh_listing_asks_afresh_once_and_pages_on_from_there() {
     bucket.refreshes.lock().unwrap().clear();
     list_all(&bucket, "").unwrap();
     assert!(bucket.refreshes.lock().unwrap().iter().all(|r| !r), "a plain listing never asks afresh");
+}
+
+/// A bucket whose listing never ends under one prefix: every page holds one object (`key_of` names
+/// it) and names another next page - or, with `repeat`, the page it was just asked for -, and any
+/// other prefix lists as empty. The double gives up with `Denied` after a count above every cap, so
+/// that a caller with no bound fails a test and does not hang it. (X-DELTA-AZDRIVE-KEYS-22)
+pub(crate) struct Endless {
+    prefix: &'static str,
+    key_of: fn(u32) -> String,
+    repeat: bool,
+    asked: AtomicU32,
+}
+
+impl Endless {
+    pub(crate) fn new(prefix: &'static str, key_of: fn(u32) -> String, repeat: bool) -> Endless {
+        Endless {
+            prefix,
+            key_of,
+            repeat,
+            asked: AtomicU32::new(0),
+        }
+    }
+
+    /// How many pages of the endless listing were asked for.
+    pub(crate) fn asked(&self) -> u32 {
+        self.asked.load(Ordering::SeqCst)
+    }
+}
+
+impl Drive for Endless {
+    fn list(&self, request: &ListRequest) -> Result<ListPage, DriveError> {
+        if request.prefix != self.prefix {
+            return Ok(ListPage::default());
+        }
+        let n = self.asked.fetch_add(1, Ordering::SeqCst) + 1;
+        if n as usize > named::LISTING_PAGES + 50 {
+            return Err(DriveError::Denied {
+                message: format!("the double was asked {n} times: the listing never ends"),
+            });
+        }
+        Ok(ListPage {
+            folders: Vec::new(),
+            objects: vec![ObjectInfo {
+                key: (self.key_of)(n),
+                size: 1,
+                modified: Some(1),
+                etag: None,
+            }],
+            next: Some(if self.repeat {
+                String::from("same")
+            } else {
+                format!("page-{n}")
+            }),
+        })
+    }
+    fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
+        Err(DriveError::NotFound {
+            key: key.to_string(),
+        })
+    }
+    fn get_range(&self, key: &str, _range: ByteRange) -> Result<Vec<u8>, DriveError> {
+        Err(DriveError::NotFound {
+            key: key.to_string(),
+        })
+    }
+    fn put(&self, _key: &str, _bytes: &[u8]) -> Result<(), DriveError> {
+        Ok(())
+    }
+    fn delete(&self, _key: &str) -> Result<(), DriveError> {
+        Ok(())
+    }
+    fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
+        Err(DriveError::NotFound {
+            key: key.to_string(),
+        })
+    }
+}
+
+/// X-DELTA-AZDRIVE-KEYS-22: a listing that never ends is refused at the page cap, with the pages
+/// named - `list_all` used to follow a bucket's "there is more" for ever, growing its answer (the
+/// double gives up at the cap and fifty pages: the old code fails the error kind and the count).
+#[test]
+fn x_delta_azdrive_keys_22_list_all_of_a_listing_that_never_ends_is_refused_at_the_page_cap() {
+    let bucket = Endless::new("", |n| format!("o{n}"), false);
+    let refused = list_all(&bucket, "").unwrap_err();
+    assert!(
+        matches!(&refused, DriveError::Protocol(why) if why.contains("does not end")),
+        "{refused:?}"
+    );
+    assert_eq!(bucket.asked() as usize, named::LISTING_PAGES);
+
+    let fresh = Endless::new("", |n| format!("o{n}"), false);
+    let refused = list_all_fresh(&fresh, "").unwrap_err();
+    assert!(
+        matches!(&refused, DriveError::Protocol(why) if why.contains("does not end")),
+        "{refused:?}"
+    );
+
+    let folder = Endless::new("", |n| format!("o{n}"), false);
+    let refused = list_folder_all(&folder, "").unwrap_err();
+    assert!(
+        matches!(&refused, DriveError::Protocol(why) if why.contains("does not end")),
+        "{refused:?}"
+    );
+    assert_eq!(folder.asked() as usize, named::LISTING_PAGES);
+}
+
+/// X-DELTA-AZDRIVE-KEYS-22: a page that names itself as the next one does not advance: refused at
+/// once (the second page), not after a hundred thousand.
+#[test]
+fn x_delta_azdrive_keys_22_a_listing_that_names_the_page_it_was_asked_for_is_refused_at_once() {
+    let bucket = Endless::new("", |n| format!("o{n}"), true);
+    let refused = list_all(&bucket, "").unwrap_err();
+    assert!(
+        matches!(&refused, DriveError::Protocol(why) if why.contains("just asked for")),
+        "{refused:?}"
+    );
+    assert_eq!(
+        bucket.asked(),
+        2,
+        "the first page names it, the second names it again"
+    );
+
+    let folder = Endless::new("", |n| format!("o{n}"), true);
+    assert!(list_folder_all(&folder, "").is_err());
+    assert_eq!(folder.asked(), 2);
 }

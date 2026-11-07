@@ -333,4 +333,14 @@ pub mod named {
     pub const SYNC_OBJECT_CEILING: u64 = 4 << 30;
     /// One chunk of an HTTP/1.1 answer: the largest body any answer of the nodes holds.
     pub const HTTP_CHUNK: Limit = Limit::new("a chunk of an answer", 256 << 20);
+    /// The pages of ONE listing a caller follows before it takes the listing for endless: at the
+    /// default 1000 keys a page that is 100 million keys, many times the objects of the largest
+    /// drive the index describes (a pack index holds about 6 million). A bucket that never ends a
+    /// listing (a hostile one, a broken one) must not keep a caller reading and growing for ever
+    /// (X-DELTA-AZDRIVE-KEYS-22).
+    pub const LISTING_PAGES: usize = 100_000;
+    /// The pages of the root-level listing that decides whether a bucket holds a file of the drive
+    /// at all, 8 entries a page: 128 entries at the root are many times the bookkeeping of a new
+    /// drive. A listing that is not over by then says nothing of an empty bucket.
+    pub const ROOT_SCAN_PAGES: usize = 16;
 }

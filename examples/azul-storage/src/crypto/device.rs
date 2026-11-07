@@ -1238,8 +1238,10 @@ pub fn other_devices(
         .and_then(|secret| member_key_file(&secret.public().id()).ok());
     let mut request = ListRequest::recursive(KEYS_PREFIX);
     let mut count = 0u32;
+    let mut pages = 0;
     loop {
         let page = bucket.list(&request)?;
+        pages += 1;
         for object in &page.objects {
             let key = object.key.as_str();
             let member = key
@@ -1259,7 +1261,8 @@ pub fn other_devices(
             }
         }
         match page.next {
-            Some(next) => request.continuation = Some(next),
+            // Bounded: a storage that lists member files for ever is refused (X-DELTA-AZDRIVE-KEYS-22).
+            Some(next) => request = crate::ops::continue_listing(request, next, pages)?,
             None => break,
         }
     }
