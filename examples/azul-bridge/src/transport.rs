@@ -133,6 +133,9 @@ pub struct UreqTransport {
     fallback: Fallback,
     /// It trusts the Mozilla roots as they are ([`UreqTransport::new`]), not a set of its own.
     public_roots: bool,
+    /// This is a TEST build (`azul_storage::trust::test_build`): a stack on this computer, under
+    /// any name, may stand in for the service. A shipped bridge sends to Azlin hosts only.
+    test_build: bool,
 }
 
 impl Default for UreqTransport {
@@ -202,6 +205,7 @@ impl UreqTransport {
             agent,
             fallback,
             public_roots: false,
+            test_build: azul_storage::trust::test_build(),
         }
     }
 }
@@ -211,7 +215,8 @@ impl Transport for UreqTransport {
         self.public_roots
     }
 
-    /// The bridge talks to the Azlin service only: its token server and its drives' nodes.
+    /// The bridge talks to the Azlin service only: its token server and its drives' nodes. A
+    /// shipped bridge's [`Transport::send`] refuses any other host.
     fn trust_class(&self) -> azul_storage::trust::TrustClass {
         azul_storage::trust::TrustClass::Azlin
     }
@@ -221,6 +226,10 @@ impl Transport for UreqTransport {
     /// [`MAX_BODY`] at most).
     fn send(&self, call: &HttpCall) -> Result<HttpReply, String> {
         let url = call.url.as_str();
+        // The Azlin class sends to the service's own hosts only (RF39 2c): an endpoint or a node
+        // list that a file of the state folder names does not decide where the drive's signed
+        // requests and its token go. The refusal comes before any connection.
+        azul_storage::trust::admits(self.trust_class(), url, self.test_build)?;
         let budget = call.budget();
         let response = match call.method {
             Method::Get | Method::Head | Method::Delete => {
@@ -401,6 +410,40 @@ mod tests {
             ..call
         };
         assert!(UreqTransport::new().send(&nobody).is_err());
+    }
+
+    /// RF39 2c: the bridge's transport is the Azlin class, and a SHIPPED bridge sends nothing to a
+    /// host the service does not run - not the endpoint and not a node that a file of the state
+    /// folder names: the drive's signed requests and its token stay with the service. The refusal
+    /// comes before any connection. (This crate's tests are a test build, which may reach a stack
+    /// on this computer, as the loopback servers above; the shipped rule is the same transport
+    /// with that flag off.)
+    #[test]
+    fn a_shipped_bridge_sends_nothing_to_a_host_the_service_does_not_run() {
+        let call = |url: &str| HttpCall {
+            method: Method::Get,
+            url: url.to_string(),
+            headers: Vec::new(),
+            body: Vec::new(),
+            content_type: String::new(),
+            limits: azul_storage::CallLimits::json(),
+        };
+        let shipped = UreqTransport {
+            test_build: false,
+            ..UreqTransport::new()
+        };
+        for url in [
+            "https://evil.example/d-1/key",
+            "https://azlin.io.evil.example/",
+            "http://127.0.0.1:9000/d-1/key",
+        ] {
+            let why = shipped.send(&call(url)).unwrap_err();
+            assert!(why.contains("not an Azlin host"), "{url}: {why}");
+        }
+        let why = shipped
+            .send(&call("https://evil.example\\@b1.s3.azlin.io/d-1/key"))
+            .unwrap_err();
+        assert!(why.contains("names no host"), "{why}");
     }
 
     /// DNS down: a name that does not resolve is reached at the addresses the failover handed
