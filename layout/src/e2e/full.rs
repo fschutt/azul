@@ -5524,6 +5524,9 @@ struct E2eContinuation {
     /// Engine time (ms) the current `wait_settled` step has advanced the clock
     /// by so far, against its `timeout_ms`. Reset when the step ends.
     settle_waited_ms: u64,
+    /// The `assert_idle_frames` step in progress: the frames it has judged so far
+    /// and the picture each frame is held to. `None` between steps.
+    idle_frames: Option<IdleFramesRun>,
 }
 
 /// How long an app command may answer `"pending": true` before its step
@@ -13986,6 +13989,52 @@ fn resume_e2e_continuation_inner(
                 return needs_update;
             }
 
+            // `assert_idle_frames`: the window stays idle for N frames, ONE step. The
+            // engine's clock moves only when the scenario moves it, so "N frames" is N
+            // turns of (advance `step_ms`, wait for the frame that follows, judge it) -
+            // which a scenario used to spell out as a snapshot / tick / wait_frame /
+            // assert quadruple per frame, 93 to 97 steps for a window held for 40
+            // (`idle_frames_turn` has the rules; the batch-1 review, "missing ops").
+            if op == "assert_idle_frames" {
+                let ask = IdleFramesAsk::read(
+                    &step.params,
+                    step.params.get("frames"),
+                    step.params.get("step_ms"),
+                    step.params.get("vs"),
+                    step.params.get("threshold"),
+                );
+                let turn = match &ask {
+                    Ok(ask) => idle_frames_turn(ask, &mut cont.idle_frames, callback_info),
+                    Err(why) => IdleFramesTurn::Fail(AssertionResult::fail(why.clone())),
+                };
+                let result = match turn {
+                    IdleFramesTurn::Advance(ms) => {
+                        advance_engine_time(callback_info, ms);
+                        let frame_seq = callback_info
+                            .get_layout_window()
+                            .content_journal
+                            .frame_seq();
+                        cont.resume_after_frame = Some(frame_seq + 1);
+                        cont.frame_wait_ticks = 0;
+                        cont.app_data = app_data;
+                        session.pending = Some(cont);
+                        return needs_update;
+                    }
+                    IdleFramesTurn::Pass(message) => AssertionResult::pass(message),
+                    IdleFramesTurn::Fail(result) => result,
+                };
+                cont.idle_frames = None;
+                let (step_result, failed) =
+                    assertion_step_result(step_index, op, step_start, result);
+                cont.current_step_results.push(step_result);
+                cont.current_test_failed |= failed;
+                cont.step_idx = step_index + 1;
+                if cont.current_test_failed && !continue_on_failure {
+                    break;
+                }
+                continue;
+            }
+
             // `assert_response` asserts on the RESPONSE PAYLOAD of the previous
             // step. It lives here, not in `evaluate_assertion`, because it is the
             // only assertion that needs the step history (`cont`) rather than the
@@ -14068,37 +14117,10 @@ fn resume_e2e_continuation_inner(
                     }
                 };
 
-                if result.passed {
-                    cont.current_step_results.push(E2eStepResult {
-                        step_index,
-                        op: op.to_string(),
-                        status: "pass".into(),
-                        duration_ms: step_start.elapsed().as_millis() as u64,
-                        logs: vec![result.message],
-                        screenshot: None,
-                        error: None,
-                        response: None,
-                    });
-                } else {
-                    cont.current_test_failed = true;
-                    let error_msg = if let (Some(ref exp), Some(ref act)) =
-                        (&result.expected, &result.actual)
-                    {
-                        format!("{}: expected {}, got {}", result.message, exp, act)
-                    } else {
-                        result.message.clone()
-                    };
-                    cont.current_step_results.push(E2eStepResult {
-                        step_index,
-                        op: op.to_string(),
-                        status: "fail".into(),
-                        duration_ms: step_start.elapsed().as_millis() as u64,
-                        logs: vec![],
-                        screenshot: None,
-                        error: Some(error_msg),
-                        response: None,
-                    });
-                }
+                let (step_result, failed) =
+                    assertion_step_result(step_index, op, step_start, result);
+                cont.current_step_results.push(step_result);
+                cont.current_test_failed |= failed;
 
                 cont.step_idx = step_index + 1;
                 if cont.current_test_failed && !continue_on_failure {
@@ -21115,6 +21137,7 @@ pub fn process_debug_event(
                 step_attempt: 0,
                 step_pending_since: None,
                 settle_waited_ms: 0,
+                idle_frames: None,
                 response_tx: request.response_tx.clone(),
                 window_id: request.window_id.clone(),
                 tests: tests.clone(),
@@ -23563,6 +23586,282 @@ pub const WAIT_SETTLED_DEFAULT_MS: u64 = 3000;
 /// does: it jumps to the end of the fade).
 #[cfg(feature = "std")]
 const WAIT_SETTLED_STEP_MS: u64 = 100;
+
+/// The most frames one `assert_idle_frames` step judges. Each frame is held against
+/// a full repaint of the window, so the step costs about that many renders.
+#[cfg(feature = "std")]
+pub const ASSERT_IDLE_FRAMES_MAX: u64 = 120;
+
+/// How much engine time `assert_idle_frames` puts between two frames when the step
+/// names no `step_ms`: one frame of a 60 Hz window.
+#[cfg(feature = "std")]
+pub const ASSERT_IDLE_FRAMES_STEP_MS: u64 = 16;
+
+/// The longest `step_ms` of an `assert_idle_frames` step: a minute of engine time.
+#[cfg(feature = "std")]
+const ASSERT_IDLE_FRAMES_MAX_STEP_MS: u64 = 60_000;
+
+/// What an `assert_idle_frames` step asks for.
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(not(feature = "cpurender"), allow(dead_code))]
+struct IdleFramesAsk {
+    /// How many frames the window is held idle for.
+    frames: u64,
+    /// Engine time between two frames, in ms.
+    step_ms: u64,
+    /// The snapshot every frame is held to; `None`: the window as the step found it.
+    vs: Option<String>,
+    /// Per-channel pixel tolerance of the comparison.
+    threshold: u8,
+}
+
+#[cfg(feature = "std")]
+impl IdleFramesAsk {
+    /// Read the step's params (`params` is the whole object, the rest are its
+    /// `frames`, `step_ms`, `vs` and `threshold`). A parameter the op does not
+    /// know, or a value that is not what the key means, is refused by name:
+    /// a typo'd `frame` or `step` used to be dropped by the parser and the step
+    /// held the window for the default.
+    fn read(
+        params: &serde_json::Value,
+        frames: Option<&serde_json::Value>,
+        step_ms: Option<&serde_json::Value>,
+        vs: Option<&serde_json::Value>,
+        threshold: Option<&serde_json::Value>,
+    ) -> Result<Self, String> {
+        if let Some(bad) = reject_unknown_params(
+            "assert_idle_frames",
+            params,
+            &["frames", "step_ms", "vs", "threshold"],
+        ) {
+            return Err(bad.message);
+        }
+        let whole = |key: &str, value: &serde_json::Value, lo: u64, hi: u64| {
+            value
+                .as_u64()
+                .filter(|n| (lo..=hi).contains(n))
+                .ok_or_else(|| {
+                    format!(
+                        "assert_idle_frames: {key} is {value}, which is not a whole number from \
+                         {lo} to {hi}"
+                    )
+                })
+        };
+        let frames = match frames {
+            Some(v) => whole("frames", v, 1, ASSERT_IDLE_FRAMES_MAX)?,
+            None => {
+                return Err(format!(
+                    "assert_idle_frames: needs `frames` (how many idle frames to hold the window \
+                     to, 1 to {ASSERT_IDLE_FRAMES_MAX})"
+                ))
+            }
+        };
+        let step_ms = match step_ms {
+            Some(v) => whole("step_ms", v, 1, ASSERT_IDLE_FRAMES_MAX_STEP_MS)?,
+            None => ASSERT_IDLE_FRAMES_STEP_MS,
+        };
+        let threshold = match threshold {
+            Some(v) => u8::try_from(whole("threshold", v, 0, 255)?).unwrap_or(u8::MAX),
+            None => 0,
+        };
+        let vs = match vs {
+            Some(v) => Some(
+                v.as_str()
+                    .ok_or_else(|| {
+                        format!("assert_idle_frames: vs is {v}, which is not a snapshot name")
+                    })?
+                    .to_string(),
+            ),
+            None => None,
+        };
+        Ok(Self {
+            frames,
+            step_ms,
+            vs,
+            threshold,
+        })
+    }
+}
+
+/// One `assert_idle_frames` step in progress.
+#[cfg(feature = "std")]
+struct IdleFramesRun {
+    /// Frames advanced and judged so far.
+    done: u64,
+    /// The picture every frame is held to: the window as the step found it, or
+    /// the snapshot `vs` named.
+    #[cfg(feature = "cpurender")]
+    baseline: azul_layout::cpurender::AzulPixmap,
+}
+
+/// What a turn of `assert_idle_frames` comes to.
+#[cfg(feature = "std")]
+enum IdleFramesTurn {
+    /// Every frame held: the pass line.
+    Pass(String),
+    /// A frame did not hold, or the step could not run.
+    Fail(AssertionResult),
+    /// Move the engine clock on by this many ms and judge the frame that follows.
+    Advance(u64),
+}
+
+/// One turn of `assert_idle_frames`. The step is re-entered after each frame it
+/// asked for: the first entry holds the picture and restarts the frame counters
+/// (so the counters, and the damage accumulated in them, cover exactly the frames
+/// that follow), each later entry judges the frame that the last `Advance` brought.
+///
+/// A frame holds when (1) a frame was rendered for the turn at all - a window that
+/// rendered nothing has "no damage" for free - (2) the damage accumulated since the
+/// step began is still none, paint and present, and (3) a full repaint of the
+/// window is the picture it is held to. Held to the SAME picture every time, so an
+/// engine that goes A, B, A, B fails at the first B.
+#[cfg(feature = "std")]
+fn idle_frames_turn(
+    ask: &IdleFramesAsk,
+    slot: &mut Option<IdleFramesRun>,
+    callback_info: &azul_layout::callbacks::CallbackInfo,
+) -> IdleFramesTurn {
+    let fail = |message: String| IdleFramesTurn::Fail(AssertionResult::fail(message));
+    if let Some(run) = slot.as_mut() {
+        run.done += 1;
+        let (done, of) = (run.done, ask.frames);
+        let at_ms = done.saturating_mul(ask.step_ms);
+        let report = frame_report_of(callback_info);
+        if u64::from(report.frames_since_reset) < done {
+            return IdleFramesTurn::Fail(AssertionResult::fail_with(
+                format!(
+                    "assert_idle_frames: no frame was rendered by turn {done} of {of} (+{at_ms} ms) \
+                     - nothing was measured, and 'no damage' is vacuously true when nothing \
+                     rendered"
+                ),
+                format!(">= {done} frame(s) since the step began"),
+                report.frames_since_reset.to_string(),
+            ));
+        }
+        if !report.accumulated_paint_damage.is_none()
+            || !report.accumulated_present_damage.is_none()
+        {
+            return IdleFramesTurn::Fail(AssertionResult::fail_with(
+                format!(
+                    "assert_idle_frames: the window repainted by frame {done} of {of} (+{at_ms} \
+                     ms) with no input"
+                ),
+                "paint damage = none, present damage = none".to_string(),
+                format!(
+                    "paint {} ({} rect(s)), present {} ({} rect(s))",
+                    damage_kind_str(&report.accumulated_paint_damage),
+                    report.accumulated_paint_damage.rect_count(),
+                    damage_kind_str(&report.accumulated_present_damage),
+                    report.accumulated_present_damage.rect_count()
+                ),
+            ));
+        }
+        #[cfg(feature = "cpurender")]
+        {
+            let now = match render_current(callback_info) {
+                Ok(p) => p,
+                Err(e) => return fail(format!("assert_idle_frames: {e}")),
+            };
+            let diff = azul_layout::cpurender::pixel_diff(&run.baseline, &now, ask.threshold);
+            if !diff.dimensions_match || diff.diff_count > 0 {
+                return IdleFramesTurn::Fail(AssertionResult::fail_with(
+                    format!(
+                        "assert_idle_frames: frame {done} of {of} (+{at_ms} ms) is not the frame \
+                         it is held to, though no damage said so"
+                    ),
+                    "identical pixels".to_string(),
+                    if diff.dimensions_match {
+                        format!("{} px differ", diff.diff_count)
+                    } else {
+                        "another size".to_string()
+                    },
+                ));
+            }
+        }
+        if done < of {
+            return IdleFramesTurn::Advance(ask.step_ms);
+        }
+        let held = match ask.vs.as_deref() {
+            Some(name) => format!("snapshot '{name}'"),
+            None => "the window as the step found it".to_string(),
+        };
+        return IdleFramesTurn::Pass(format!(
+            "assert_idle_frames: {of} frame(s), {} ms apart ({at_ms} ms of engine time): no \
+             paint or present damage, pixels identical to {held}",
+            ask.step_ms
+        ));
+    }
+
+    // The first entry.
+    #[cfg(feature = "cpurender")]
+    let baseline = match ask.vs.as_deref() {
+        Some(name) => load_snapshot(name, callback_info),
+        None => render_current(callback_info),
+    };
+    #[cfg(feature = "cpurender")]
+    let baseline = match baseline {
+        Ok(p) => p,
+        Err(e) => return fail(format!("assert_idle_frames: {e}")),
+    };
+    // Without `cpurender` the pixel half cannot run. Say so rather than pass
+    // while skipping it.
+    #[cfg(not(feature = "cpurender"))]
+    return fail(
+        "assert_idle_frames: it holds every frame to a full repaint, and the cpurender feature is \
+         not enabled - refusing to pass while skipping the check"
+            .to_string(),
+    );
+    #[cfg(feature = "cpurender")]
+    {
+        callback_info
+            .get_layout_window()
+            .request_frame_report_reset();
+        *slot = Some(IdleFramesRun { done: 0, baseline });
+        IdleFramesTurn::Advance(ask.step_ms)
+    }
+}
+
+/// The step result an assertion's verdict makes: a pass logs its message, a fail
+/// carries "message: expected X, got Y" (or the message alone) as its error. The
+/// second value is whether it failed.
+#[cfg(feature = "std")]
+fn assertion_step_result(
+    step_index: usize,
+    op: &str,
+    step_start: std::time::Instant,
+    result: AssertionResult,
+) -> (E2eStepResult, bool) {
+    let failed = !result.passed;
+    let error = if failed {
+        Some(
+            if let (Some(expected), Some(actual)) = (&result.expected, &result.actual) {
+                format!("{}: expected {expected}, got {actual}", result.message)
+            } else {
+                result.message.clone()
+            },
+        )
+    } else {
+        None
+    };
+    (
+        E2eStepResult {
+            step_index,
+            op: op.to_string(),
+            status: if failed { "fail" } else { "pass" }.into(),
+            duration_ms: step_start.elapsed().as_millis() as u64,
+            logs: if failed {
+                Vec::new()
+            } else {
+                vec![result.message]
+            },
+            screenshot: None,
+            error,
+            response: None,
+        },
+        failed,
+    )
+}
 
 /// Counts [`announce_debug_request`]s, so that EVERY window sees each one
 /// ([`take_debug_request_wake_for`]) - the flag above is taken by whichever

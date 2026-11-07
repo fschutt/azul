@@ -998,6 +998,9 @@ pub fn parse_schema(project_root: &Path) -> Result<Schema> {
         "undo_app_state",
         "redo_app_state",
         "assert_response",
+        // Holds the window idle for N frames in ONE step: it moves the clock and waits
+        // for frames, which an `eval_assert_*` fn cannot (E2E-M2).
+        "assert_idle_frames",
     ]
     .into_iter()
     .filter(|o| src.contains(&format!("\"{o}\"")))
@@ -1565,21 +1568,21 @@ invalidation path completely broken. Only the ops listed above exist; use nothin
    - "damage covers the change" / sound  -> assert_damage_covers_changes {{"vs": "before"}}
    - "a patch, not a full redraw"        -> assert_damage_incremental {{"max_area_ratio": 0.5}}
    - "returns to idle / zero damage"     -> tick_ms, wait, then assert_idle_stable {{"vs": "<a snapshot_frame taken after the change>"}}
-   - "EVERY frame identical to the PREVIOUS one" / "stays idle for N frames"
-     -> this is NOT the single-snapshot form above. `assert_idle_stable` compares
-        against ONE named snapshot, so `snapshot f0; tick; tick; tick; assert vs f0`
-        only proves frame_N == frame_0 — an engine that oscillates A -> B -> A -> B -> A
-        PASSES it. When the line says every frame equals the previous one, or asks
-        the window to stay idle across N frames, RE-SNAPSHOT EACH FRAME and assert
-        against the frame immediately before it:
-            {{"op":"snapshot_frame","as":"f0"}},
-            {{"op":"tick_ms","ms":16}}, {{"op":"wait_frame"}},
-            {{"op":"assert_idle_stable","vs":"f0"}}, {{"op":"snapshot_frame","as":"f1"}},
-            {{"op":"tick_ms","ms":16}}, {{"op":"wait_frame"}},
-            {{"op":"assert_idle_stable","vs":"f1"}}, {{"op":"snapshot_frame","as":"f2"}},
-            … one such triple per frame the line asks for.
-        Use distinct snapshot names (f0, f1, f2 …); reusing one name compares
-        against the wrong frame and silently weakens the test.
+   - "EVERY frame identical to the PREVIOUS one" / "stays idle for N frames" / "identical at
+     frames 1, 10, 20 and 40"
+     -> ONE step, NOT a snapshot / tick / wait_frame / assert quadruple per frame:
+            {{"op":"assert_idle_frames","frames":40,"step_ms":16}}
+        It starts the frame counters afresh, then N times moves the engine clock by `step_ms`
+        (default 16), waits for the frame that follows and holds it to the window as the step
+        FOUND it (or to `"vs": "<a snapshot_frame>"`; `"threshold"` is a per-channel pixel
+        tolerance, default 0): no paint or present damage so far, a full repaint with the same
+        pixels, and a frame rendered for the turn at all. Every frame is held to the SAME
+        picture, so an engine that goes A -> B -> A -> B fails at the first B (a lone
+        `assert_idle_stable vs f0` after the last tick would pass it). It names the first
+        frame that fails ("frame 7 of 40 (+112 ms)"); the frames at 1, 10, 20 and 40 of a line
+        are `"frames": 40` - nothing is sampled. Take the window to rest first (step 5), and
+        follow it with `assert_work_bounded` when the line also says no layout ran: the
+        counters it reads are those of exactly these frames.
    - "settles WITHIN N frames"           -> assert_idle_stable {{"vs": "<snapshot>", "max_frames": N}}
      `max_frames` counts frames since the `reset_frame_counters` of step 3, so put
      that reset immediately before the interaction and the budget is real. Without
@@ -5472,6 +5475,20 @@ fn eval_assert_changed(params: &Value) -> AssertionResult {{
             );
         }
 
+        // `assert_idle_frames` is handled in the step loop, as `assert_response` is: the
+        // gate must know it and advertise every param the step reads (E2E-M2).
+        let idle = line("assert_idle_frames");
+        for p in ["frames", "step_ms", "vs", "threshold"] {
+            assert!(
+                idle.contains(p),
+                "assert_idle_frames must advertise `{p}`, got: {idle}"
+            );
+        }
+        assert!(
+            !idle.contains("(no params)"),
+            "assert_idle_frames takes four: {idle}"
+        );
+
         // The two TIMER ops. They are the only drive surface the suite has for
         // `CallbackChange::AddTimer` / `RemoveTimer`, and every one of their
         // params is load-bearing: an `add_timer` rendered without `node_id` or
@@ -5924,6 +5941,26 @@ fn eval_assert_changed(params: &Value) -> AssertionResult {{
             "the old leak recipe on counters that never move"
         );
 
+        // E2E-M2: N idle frames are ONE step, not a quadruple per frame.
+        for want in [
+            "{\"op\":\"assert_idle_frames\",\"frames\":40,\"step_ms\":16}",
+            "ONE step, NOT a snapshot / tick / wait_frame / assert quadruple per frame",
+            "Every frame is held to the SAME picture",
+            "the frames at 1, 10, 20 and 40 of a line are `\"frames\": 40` - nothing is sampled",
+        ] {
+            assert!(p.contains(want), "the prompt lost `{want}`");
+        }
+        for stale in [
+            "RE-SNAPSHOT EACH FRAME",
+            "one such triple per frame the line asks for",
+            "Use distinct snapshot names (f0, f1, f2",
+        ] {
+            assert!(
+                !p.contains(stale),
+                "the prompt still teaches the unrolled frames: `{stale}`"
+            );
+        }
+
         // D8: a window of identical frames must not overlap the scrollbar fade.
         assert!(p.contains("must not overlap time-driven state"));
         assert!(
@@ -6209,6 +6246,8 @@ fn eval_assert_changed(params: &Value) -> AssertionResult {{
             r#"{"op":"assert_resource_counts","vs":"baseline","parsed_fonts":"gt","fonts":"gt"}"#,
             r#"{"op":"add_image_to_cache","css_id":"pic","width":16,"height":16,"color":"red"}"#,
             r#"{"op":"assert_resource_counts","vs":"baseline","images":"gt","image_key_map":"gt"}"#,
+            r#"{"op":"assert_idle_frames","frames":40,"step_ms":16}"#,
+            r#"{"op":"assert_idle_frames","frames":10,"vs":"before","threshold":2}"#,
             r#"{"op":"tick_ms","ms":250}"#,
         ];
         let scenario = format!(

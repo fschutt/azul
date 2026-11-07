@@ -136,6 +136,12 @@ mod damage_which_tests;
 #[cfg(test)]
 mod wait_settled_tests;
 
+// `assert_idle_frames` holds a window idle for N frames in one step: the engine clock
+// moves a frame at a time, and every frame must be no damage, the same pixels, and rendered
+// (E2E-M2).
+#[cfg(test)]
+mod idle_frames_tests;
+
 // A box fades its overlay scrollbar by the `-azul-scrollbar-fade-delay` /
 // `-azul-scrollbar-fade-duration` it declares (E2E-R9), not by the window's constants.
 #[cfg(test)]
