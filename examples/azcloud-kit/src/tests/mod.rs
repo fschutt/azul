@@ -23,6 +23,8 @@ mod encryption;
 mod endpoints;
 mod failover;
 mod fake_s3;
+/// The entry points of the fuzz targets (`fuzz/`), run on inputs that need no fuzzer.
+mod fuzz_entry;
 /// Grants whose answer was lost: the lockdown and a pick-up's claim asked again.
 mod grants;
 mod hello;
