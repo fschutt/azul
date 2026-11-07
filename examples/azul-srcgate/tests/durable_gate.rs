@@ -206,16 +206,6 @@ const ALLOWED: &[Allow] = &[
     ),
     // ---- C. the writers whose lane has not converted them yet (each lowers its count) ----
     Allow::exactly(
-        "examples/azul-storage/src/encrypted_upload.rs",
-        RAW,
-        1,
-        "the piece an encrypted copy is written into until it is whole (then adopted by \
-         publish_staged, in the same folder): a seekable file beside its final name, AZL1 \
-         writes its header last. The folder is the resume store of an upload, swept by age \
-         (`sweep`) - not scratch (RF48 decided so). A `durable` writer that hands out a seekable \
-         staged file would replace it: Z30-A1B",
-    ),
-    Allow::exactly(
         "examples/azul-appkit/src/ui.rs",
         RAW,
         1,

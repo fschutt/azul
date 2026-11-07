@@ -33,7 +33,7 @@
 )]
 
 use std::{
-    fs::{self, File, OpenOptions},
+    fs::{self, File},
     io::{self, Write},
     path::{Path, PathBuf},
     time::{Duration, SystemTime},
@@ -418,7 +418,9 @@ impl<D: Drive> EncryptedDrive<D> {
             .unwrap_or_default();
         let piece_name = format!("{stem}.{}.part", to_hex(&name));
         let piece = dir.join(&piece_name);
-        let written = self.encrypt_into(key, file, check, &piece);
+        // The folder is walked once: the piece is made in it, and adopted from it.
+        let folder = Dir::open_following(dir).map_err(DriveError::from)?;
+        let written = self.encrypt_into(key, file, check, &folder, &piece_name);
         let summary = match written {
             Ok(Some(summary)) => summary,
             other => {
@@ -432,20 +434,16 @@ impl<D: Drive> EncryptedDrive<D> {
         }
         // The copy in place, whole and synced, under its own name; nothing has that name.
         let copy_name = copy_name(record_path, &summary.object_id.to_hex());
-        let placed = Dir::open_following(dir)
-            .map_err(DriveError::from)
-            .and_then(|folder| {
-                durable::publish_staged(
-                    &folder,
-                    &copy_name,
-                    Blob {
-                        dir: &folder,
-                        name: &piece_name,
-                    },
-                    Publish::new(durable::Expect::Absent, Mode::Shared, &Quiet),
-                )
-                .map_err(|e| e.into_drive(key))
-            });
+        let placed = durable::publish_staged(
+            &folder,
+            &copy_name,
+            Blob {
+                dir: &folder,
+                name: &piece_name,
+            },
+            Publish::new(durable::Expect::Absent, Mode::Shared, &Quiet),
+        )
+        .map_err(|e| e.into_drive(key));
         if let Err(e) = placed {
             let _ = fs::remove_file(&piece);
             return Err(e);
@@ -462,22 +460,24 @@ impl<D: Drive> EncryptedDrive<D> {
         Ok(Some((summary, copy)))
     }
 
-    /// The object of `file` (read through its check when there is one) written to `piece`;
-    /// `None` when the file's bytes are not the checked ones.
+    /// The object of `file` (read through its check when there is one) written to a new file
+    /// `piece_name` of `folder`; `None` when the file's bytes are not the checked ones. The
+    /// piece is made by the folder handle ([`Dir::create_new`]: it must not exist, a link at its
+    /// name is not followed): AZL1 writes its header last, so the sink is a seekable file, and
+    /// that is where the raw `create_new` of this file went (RF41's gate).
     fn encrypt_into(
         &self,
         key: &str,
         file: File,
         check: Option<&FileCheck>,
-        piece: &Path,
+        folder: &Dir,
+        piece_name: &str,
     ) -> Result<Option<ObjectSummary>, DriveError> {
         let id = ObjectId::generate().map_err(|e| e.for_key(key))?;
         let hint = FileHint::for_path(key, file.metadata().ok().map(|m| m.len()));
-        let mut sink = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create_new(true)
-            .open(piece)?;
+        let mut sink = folder
+            .create_new(piece_name, 0o666)
+            .map_err(|e| crate::local::beneath_error(key, e))?;
         let summary = match check {
             Some(c) => {
                 let mut hashed = HashCheck::new(file, &c.blake3);
