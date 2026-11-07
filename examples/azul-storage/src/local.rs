@@ -175,9 +175,9 @@ pub(crate) fn expect_of_tag(tag: &str) -> Option<Expect> {
 }
 
 /// What the name `name` of `dir` must hold for a write that asked `condition`. A tag whose file
-/// the system gave no identity (Windows, until its file index is read) can only be compared by
-/// kind, size and times: that is checked here, now, and the write then goes on without one - a
-/// short window the identity would close.
+/// the system gave no identity (a file system with no file index, a network share) can only be
+/// compared by kind, size and times: that is checked here, now, and the write then goes on without
+/// one - a short window the identity would close.
 fn expectation(
     dir: &Dir,
     name: &str,

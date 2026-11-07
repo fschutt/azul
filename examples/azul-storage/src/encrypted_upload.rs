@@ -60,9 +60,10 @@ use crate::{
 /// The folder of the encrypted copies under a resume folder.
 const SPOOL_DIR: &str = "encrypted";
 /// What the look at the disk's room before the copy is written does when the disk cannot say its
-/// free space: the copy is written anyway. The look is an early warning, not the guard - a disk
-/// that is full says so at the write ([`crate::durable::PublishError::DiskFull`]) - and a system
-/// that has no such probe yet (Windows) is not locked out of resumable uploads.
+/// free space (a network share, a FUSE mount, a sandbox): the copy is written anyway, and the
+/// report says that the look was left out ([`crate::cap::take_unchecked`]). The look is an early
+/// warning, not the guard - a disk that is full says so at the write
+/// ([`crate::durable::PublishError::DiskFull`]).
 const ROOM_POSTURE: Posture = Posture::Degrade(
     "the free space of the disk cannot be read: the copy is written without the early look",
 );
@@ -422,7 +423,9 @@ impl<D: Drive> EncryptedDrive<D> {
                     )));
                 }
             }
-            (Cap::Unknown(_), Posture::Degrade(_)) => {}
+            (Cap::Unknown(why), Posture::Degrade(note)) => {
+                crate::cap::note_unchecked(&format!("{note} ({why})"));
+            }
             (Cap::Unknown(why), Posture::FailClosed) => {
                 return Err(DriveError::Io(format!(
                     "{why}: the encrypted copy of {key} is not written without knowing it fits \

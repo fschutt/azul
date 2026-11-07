@@ -2964,6 +2964,14 @@ fn scanned(
     usage_view::request_space(info, app, s);
 }
 
+/// Says what a transfer went on without: a check whose probe could not answer (the disk's free
+/// space, on a share that does not say) - "the report says what was not checked".
+fn say_unchecked(s: &mut DriveState) {
+    for note in azul_storage::cap::take_unchecked() {
+        s.warn(azul_appkit::l10n::Text::plain(note));
+    }
+}
+
 pub(crate) extern "C" fn on_job_done(
     mut app: RefAny,
     mut msg: RefAny,
@@ -3127,7 +3135,10 @@ pub(crate) extern "C" fn on_job_done(
             s.queue.progress(id, &progress);
             actions::show_progress_when_long(s);
         }
-        Outcome::Ran { id, report } => actions::transfer_ran(&mut info, &handle, s, id, report),
+        Outcome::Ran { id, report } => {
+            actions::transfer_ran(&mut info, &handle, s, id, report);
+            say_unchecked(s);
+        }
         Outcome::Deleted { drive_id, deleted } => {
             // What went is said and can be undone, also when another item of the batch did not.
             let fileops::Deleted {
@@ -3381,7 +3392,12 @@ pub(crate) extern "C" fn on_job_done(
             copied,
             total,
         } => archive::rescue_progress(s, &drive_id, copied, total),
-        Outcome::RescueDone { drive_id, report } => archive::rescue_done(s, &drive_id, report),
+        Outcome::RescueDone { drive_id, report } => {
+            for note in &report.notes {
+                s.warn(azul_appkit::l10n::Text::plain(note.clone()));
+            }
+            archive::rescue_done(s, &drive_id, report);
+        }
         Outcome::DeviceKeyRegistered { drive_id, result } => match result {
             Ok(key_id) => println!("AZDRIVE_DEVICE_KEY {drive_id} {key_id}"),
             Err(why) => eprintln!("[azdrive] this computer's key of {drive_id} is not registered: {why}"),

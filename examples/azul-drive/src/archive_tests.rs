@@ -1123,3 +1123,34 @@ fn x_delta_azdrive_files_32_a_repository_and_a_folder_called_underscore_git_are_
         assert_eq!(contents, [b"fsmonitor".to_vec(), b"mine".to_vec()]);
     }
 }
+
+/// X-DELTA-AZDRIVE-FILES-33: the rescue copy that begins because the disk would not say its room
+/// matched `Posture::Degrade(_)` and dropped the sentence; its report says what was not checked.
+#[test]
+fn x_delta_azdrive_files_33_a_rescue_that_began_without_the_look_at_the_room_says_so() {
+    let tmp = TempDir::new("dx33-rescue-note");
+    let drive = source_with(&tmp, &[("a.txt", b"one")]);
+    let unknown = run_rescue(
+        &drive,
+        &tmp.path().join("unknown"),
+        Cap::Unknown("the system did not say"),
+        None,
+        &mut |_, _| {},
+    );
+    assert_eq!((unknown.copied, unknown.total), (1, 1), "{unknown:?}");
+    assert_eq!(unknown.notes.len(), 1, "{unknown:?}");
+    assert!(
+        unknown.notes[0].contains("without the look at its room")
+            && unknown.notes[0].contains("the system did not say"),
+        "{:?}",
+        unknown.notes
+    );
+    let known = run_rescue(
+        &drive,
+        &tmp.path().join("known"),
+        Cap::Known(u64::MAX / 2),
+        None,
+        &mut |_, _| {},
+    );
+    assert!(known.notes.is_empty(), "{known:?}");
+}

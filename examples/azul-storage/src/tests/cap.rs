@@ -97,3 +97,40 @@ fn x_ar5a_12_a_download_bigger_than_the_disk_is_refused_before_any_file_is_made(
         .unwrap_or_default();
     assert!(left.is_empty(), "no hidden file was made: {left:?}");
 }
+
+/// X-DELTA-AZDRIVE-FILES-33: a file system that answers no blocks at all (a FUSE share) read as
+/// "no room" - every download was refused. It says nothing: the probe cannot tell.
+#[cfg(unix)]
+#[test]
+fn x_delta_azdrive_files_33_a_file_system_with_no_blocks_cannot_tell_its_room() {
+    use crate::beneath::room_from_blocks;
+    assert!(room_from_blocks(0, 0, 4096).is_err());
+    assert!(room_from_blocks(0, 100, 4096).is_err());
+    assert_eq!(room_from_blocks(10, 5, 4096).unwrap(), 20_480);
+    // A full disk is a disk that answers: it has room for nothing.
+    assert_eq!(room_from_blocks(10, 0, 4096).unwrap(), 0);
+}
+
+/// X-DELTA-AZDRIVE-FILES-33: a check that went on without its probe's answer
+/// (`Posture::Degrade`) said nothing; its sentence is kept for the report of the work that asked,
+/// each distinct sentence once.
+#[test]
+fn x_delta_azdrive_files_33_a_check_that_went_on_without_its_probe_is_told() {
+    use crate::cap::{note_unchecked, take_unchecked};
+    let first = "x-delta-33: the free space cannot be read (one)";
+    let second = "x-delta-33: the free space cannot be read (two)";
+    note_unchecked(first);
+    note_unchecked(first);
+    note_unchecked(second);
+    let told = take_unchecked();
+    assert_eq!(
+        told.iter().filter(|s| s.as_str() == first).count(),
+        1,
+        "{told:?}"
+    );
+    assert!(told.iter().any(|s| s.as_str() == second), "{told:?}");
+    assert!(
+        !take_unchecked().iter().any(|s| s.as_str() == first),
+        "taken once"
+    );
+}

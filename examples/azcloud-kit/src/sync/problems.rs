@@ -130,6 +130,9 @@ pub enum Code {
     /// Some folders are not watched (the system's limit of watches is used up, or a folder cannot
     /// be entered): a change in them wakes nothing, and a pass a minute later finds it.
     WatchLimited,
+    /// A check this device could not make and went on without: the sentence says which (the disk's
+    /// free space, on a share that does not say, so the reserve was not enforced).
+    Unchecked,
     /// Anything else, with its sentence.
     Other,
 }
@@ -160,6 +163,7 @@ impl Code {
             | Code::HeldBack
             | Code::XattrsNotSynced
             | Code::WatchLimited
+            | Code::Unchecked
             | Code::ChangedDuringSync => Severity::Warning,
             _ => Severity::Error,
         }
@@ -179,6 +183,7 @@ impl Code {
                 | Code::ServerRestored
                 | Code::StateReset
                 | Code::WatchLimited
+                | Code::Unchecked
         )
     }
 
@@ -202,6 +207,7 @@ impl Code {
                 | Code::UploadsPaused
                 | Code::ServerMoved
                 | Code::WatchLimited
+                | Code::Unchecked
         )
     }
 }

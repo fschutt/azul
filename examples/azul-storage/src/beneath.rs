@@ -1210,6 +1210,17 @@ pub fn file_size_limit(path: &Path) -> Option<u64> {
     }
 }
 
+/// The room a file system answers with: `available` blocks of `unit` bytes - unless it answers no
+/// blocks at all (a FUSE share that does not report): that says nothing of its room, and is "cannot
+/// tell", not "no room" (every download was refused).
+#[cfg(unix)]
+pub(crate) fn room_from_blocks(blocks: u64, available: u64, unit: u64) -> io::Result<u64> {
+    if blocks == 0 {
+        return Err(io::Error::other("the file system reports no blocks"));
+    }
+    Ok(available.saturating_mul(unit))
+}
+
 /// The bytes free for this user on the disk of `path`, or why they cannot be told. The caller
 /// matches it and applies a [`crate::cap::Posture`]: an unknown is never "unlimited".
 pub fn free_space(path: &Path) -> Cap<u64> {
@@ -1805,6 +1816,6 @@ mod sys {
         // SAFETY: zeroed is a valid `statvfs`; statvfs fills it.
         let mut st: libc::statvfs = unsafe { std::mem::zeroed() };
         cvt(unsafe { libc::statvfs(c.as_ptr(), &mut st) })?;
-        Ok((st.f_bavail as u64).saturating_mul(st.f_frsize as u64))
+        super::room_from_blocks(st.f_blocks as u64, st.f_bavail as u64, st.f_frsize as u64)
     }
 }

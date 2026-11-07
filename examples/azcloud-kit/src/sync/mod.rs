@@ -2248,7 +2248,11 @@ fn apply_local<R: SyncRemote + ?Sized>(
     let stamp = root::trash_stamp(crate::now());
     // E3: what the downloads planned so far take of the disk's free space.
     let (free, unread) = free_for_reserve(&root.path, &root.path);
-    report.notes.extend(unread);
+    // The reserve was not enforced because the disk would not say its room: a problem of the pass
+    // (a warning), not a note nothing shows (X-DELTA-AZDRIVE-FILES-33).
+    if let Some(note) = unread {
+        report.tell(Code::Unchecked, "", note);
+    }
     let mut pending: u64 = 0;
     let mut fits = |key: &str, size: u64, report: &mut SyncReport| -> bool {
         if free.saturating_sub(pending) < size.saturating_add(opts.disk_reserve) {

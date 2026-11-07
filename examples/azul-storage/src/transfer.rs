@@ -34,8 +34,8 @@ use crate::{
 };
 
 /// What the look at the disk's room before a big download begins does when the disk cannot say
-/// its free space: the download begins, and a full disk says so at a write. A system that has no
-/// such probe yet (Windows) is not locked out of downloads.
+/// its free space (a network share, a FUSE mount, a sandbox): the download begins, a full disk says
+/// so at a write, and the report says that the look was left out ([`crate::cap::take_unchecked`]).
 const DOWNLOAD_ROOM_POSTURE: Posture = Posture::Degrade(
     "the free space of the disk cannot be read: the download begins without the look at its room",
 );
@@ -367,7 +367,10 @@ pub(crate) fn download_ranges_probed(
             // a sparse file of that length nor a list of its ranges.
             let room = match (beneath::free_space(folder.path()), DOWNLOAD_ROOM_POSTURE) {
                 (Cap::Known(free), _) => Some(free),
-                (Cap::Unknown(_), Posture::Degrade(_)) => None,
+                (Cap::Unknown(why), Posture::Degrade(note)) => {
+                    crate::cap::note_unchecked(&format!("{note} ({why})"));
+                    None
+                }
                 (Cap::Unknown(why), Posture::FailClosed) => {
                     return Err(DriveError::Io(format!(
                         "{why}: \"{key}\" is not downloaded without knowing it fits"

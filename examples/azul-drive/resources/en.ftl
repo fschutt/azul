@@ -744,6 +744,7 @@ azdrive-sync-problem = { $code ->
         [read-only] The drive takes no new files now (kept here)
         [xattrs-not-synced] Attributes and tags are not synced (the content is)
         [watch-limited] Some folders are not watched: a change there is found a minute later
+        [unchecked] A check was left out: this computer could not answer it
        *[other] Not synced
     }
 azdrive-sync-none = No drive syncs with a folder yet: a cloud drive's menu in the source list (or Share > Sync with a folder) pairs it with one.

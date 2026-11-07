@@ -228,3 +228,14 @@ fn a_file_whose_content_the_drive_lost_is_an_unreadable_entry() {
         Code::RemoteEntryUnreadable
     );
 }
+
+/// X-DELTA-AZDRIVE-FILES-33: a check this device went on without (the disk would not say its room, so
+/// the reserve was not enforced) is a problem of the pass - a warning that holds nothing back - and
+/// no longer a note nothing shows.
+#[test]
+fn x_delta_azdrive_files_33_an_unchecked_check_is_a_warning_of_the_pass() {
+    assert_eq!(Code::Unchecked.as_str(), "unchecked");
+    assert_eq!(Code::Unchecked.severity(), Severity::Warning);
+    assert!(!Code::Unchecked.holds_back());
+    assert!(Code::Unchecked.is_pass_wide());
+}

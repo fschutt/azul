@@ -788,6 +788,10 @@ pub(crate) struct Rescue {
     /// the user's own, an edit of a file the copy wrote): left exactly as they are.
     #[serde(default)]
     pub kept: Vec<String>,
+    /// What the last run went on without (a check whose probe could not answer: the disk's free
+    /// space): the report says what was not checked.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub notes: Vec<String>,
     #[serde(skip)]
     pub running: bool,
 }
@@ -1260,7 +1264,9 @@ pub(crate) fn run_rescue(
                 return keep_report(report, state);
             }
         }
-        (Cap::Unknown(_), Posture::Degrade(_)) => {}
+        (Cap::Unknown(why), Posture::Degrade(note)) => {
+            report.notes.push(format!("{note} ({why})"));
+        }
         (Cap::Unknown(_), Posture::FailClosed) => {
             report.missing = files
                 .iter()
