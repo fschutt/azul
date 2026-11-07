@@ -552,11 +552,18 @@ fn cmd_join(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
     #[cfg(feature = "encryption")]
     let account = account.with_s3_endpoint(settings.endpoints.url(Endpoint::S3));
     #[cfg(feature = "encryption")]
-    let got_key = account
-        .adopt_join_key(&code, &account.state().secrets())?
-        .is_some();
+    let adopted = account.adopt_join_key_reporting(&code, &account.state().secrets())?;
+    #[cfg(feature = "encryption")]
+    let got_key = adopted.is_some();
+    // The device has the key; an invite that could not be deleted is said, not a failure.
+    #[cfg(feature = "encryption")]
+    let invite_left = adopted
+        .and_then(|adopted| adopted.invite_left)
+        .map(|why| why.to_string());
     #[cfg(not(feature = "encryption"))]
     let got_key = false;
+    #[cfg(not(feature = "encryption"))]
+    let invite_left: Option<String> = None;
     let key_note = match (code.key_seal.is_some(), got_key) {
         (_, true) => "the drive key came with the code: this device reads the drive's files\n",
         (true, false) => {
@@ -565,6 +572,15 @@ fn cmd_join(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
         }
         (false, false) => "",
     };
+    let invite_note = invite_left
+        .as_deref()
+        .map(|why| {
+            format!(
+                "warning: the join code's key could not be deleted from the drive ({why}): the \
+                 code still opens the drive key until it is withdrawn\n"
+            )
+        })
+        .unwrap_or_default();
     let r = account.record();
     let moved =
         (code.token_url.trim_end_matches('/') != token_url.trim_end_matches('/')).then(|| {
@@ -574,9 +590,10 @@ fn cmd_join(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
             )
         });
     let value = json!({"ok": true, "drive": r.id, "bucket": r.bucket, "member": r.member,
-                       "device": device.name, "note": moved, "drive_key": got_key});
+                       "device": device.name, "note": moved, "drive_key": got_key,
+                       "invite_left": invite_left});
     let text = format!(
-        "joined drive {} (bucket {}) as member {}; this device: {}\n{}{key_note}",
+        "joined drive {} (bucket {}) as member {}; this device: {}\n{}{key_note}{invite_note}",
         r.id,
         r.bucket,
         r.member,

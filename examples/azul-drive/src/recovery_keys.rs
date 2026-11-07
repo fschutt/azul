@@ -1053,11 +1053,8 @@ pub(crate) fn run(job: KeysJob) -> KeysDone {
                 });
                 match added {
                     Ok(key) => Ok((code.to_text(), key.key_id, file)),
-                    Err(e) => {
-                        // No key at the token server: no second kit in the bucket either.
-                        let _ = device::remove_recovery_code(auto.bucket().as_ref(), &file);
-                        Err(token_text(&e))
-                    }
+                    // No key at the token server: no second kit in the bucket either.
+                    Err(e) => Err(rolled_back(auto.bucket().as_ref(), &file, token_text(&e))),
                 }
             })();
             KeysDone::CodeAdded { drive_id, result }
@@ -1301,6 +1298,19 @@ pub(crate) fn on_done(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState,
     }
 }
 
+/// The words for a second kit that could not be added at the token server: its key file goes out
+/// of the bucket again (no key at the token server, no second kit in the bucket either). A delete
+/// that fails is said - the wrap of a code nobody was shown stays in the drive and counts against
+/// the most further codes a drive holds - and is not thrown away (X-AR5b-9).
+fn rolled_back(bucket: &dyn azul_storage::Drive, file: &str, why: String) -> String {
+    match device::remove_recovery_code(bucket, file) {
+        Ok(()) => why,
+        Err(left) => format!(
+            "{why}; the unused key file {file} could not be removed from the drive either ({left})"
+        ),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1413,6 +1423,51 @@ mod tests {
         assert!(
             token_text(&refused("frobnicated")).contains("raw"),
             "as it is otherwise"
+        );
+    }
+
+    /// X-AR5b-9: a second kit that could not be added at the token server is taken out of the
+    /// bucket again, and a delete that fails is part of the answer.
+    #[test]
+    fn x_ar5b_9_a_second_kit_that_could_not_be_added_is_removed_again_or_the_leftover_is_said() {
+        use azul_storage::{
+            crypto::device::{add_recovery_code, EXTRA_RECOVERY_PREFIX},
+            keyring::MemoryKeyring,
+            meta::MemoryBucket,
+            Drive,
+        };
+        let bucket = MemoryBucket::new();
+        let keyring = MemoryKeyring::new();
+        let kdf = RecoveryKdf::with_cost(64, 1, 1).unwrap();
+        device::setup_new_drive(&bucket, &keyring, "d_1", kdf).unwrap();
+        let (file, _code) = add_recovery_code(
+            &bucket,
+            &keyring,
+            "d_1",
+            RecoveryKdf::with_cost(64, 1, 1).unwrap(),
+        )
+        .unwrap();
+        assert!(file.starts_with(EXTRA_RECOVERY_PREFIX));
+        assert!(
+            bucket.head(&file).is_ok(),
+            "the kit's wrap is in the bucket"
+        );
+
+        let said = rolled_back(&bucket, &file, String::from("no answer"));
+        assert_eq!(said, "no answer", "removed: only the reason is said");
+        assert!(bucket.head(&file).is_err(), "the unused wrap is gone");
+
+        // A file the removal refuses (it is no further code's) is a leftover, and is said.
+        let said = rolled_back(
+            &bucket,
+            ".azlin/keys/recovery.key",
+            String::from("no answer"),
+        );
+        assert!(
+            said.starts_with(
+                "no answer; the unused key file .azlin/keys/recovery.key could not be removed"
+            ),
+            "{said}"
         );
     }
 }

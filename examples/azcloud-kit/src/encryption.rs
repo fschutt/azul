@@ -6,8 +6,9 @@
 //!   this device's member wrap in the bucket, the keys in `keyring`.
 //! - [`Account::invite_with_key`]: a join code that carries the drive key, sealed to a one-time
 //!   key (the code's `key_seal`), when this device holds the key.
-//! - [`Account::adopt_join_key`]: after [`Account::join`], the joining device opens the seal,
-//!   enrols itself and deletes the one-time wrap.
+//! - [`Account::adopt_join_key_reporting`]: after [`Account::join`], the joining device opens the
+//!   seal, enrols itself and deletes the one-time wrap - and says when that wrap could not be
+//!   deleted, so the code is still live ([`Account::adopt_join_key`] is the same without the word).
 //! - [`Account::recover_key`]: the recovery code opens the drive key on a device that lost it.
 //! - [`Account::open_encrypted`] / [`open_encrypted`]: the drive's files through
 //!   azul-storage's `EncryptedDrive`, the index from an `IndexProvider` (the bucket's
@@ -33,7 +34,7 @@ use std::{
 pub use azul_storage::encrypted::{open_encrypted, IndexProvider, OpenRefusal};
 use azul_storage::{
     crypto::{
-        device,
+        device::{self, Adopted},
         drops::{self, DropPublic},
         keys::{RecoveryCode, RecoveryKdf},
         DriveKey, KeyId,
@@ -165,7 +166,8 @@ impl Account {
     /// After [`Account::join`] with `code`: the drive key its seal opens, kept in `keyring` with
     /// this device enrolled (its own member wrap); the one-time wrap is deleted. A seal of
     /// another key than the code's `key_id` is refused. `None` for a code without a seal (the
-    /// drive is not encrypted, or the inviting device held no key).
+    /// drive is not encrypted, or the inviting device held no key). A wrap that could not be
+    /// deleted is not said here: the apps ask [`Account::adopt_join_key_reporting`].
     ///
     /// # Errors
     ///
@@ -176,6 +178,23 @@ impl Account {
         code: &JoinCode,
         keyring: &dyn KeyringStore,
     ) -> CloudResult<Option<DriveKey>> {
+        Ok(self
+            .adopt_join_key_reporting(code, keyring)?
+            .map(|adopted| adopted.key))
+    }
+
+    /// [`Account::adopt_join_key`] that says whether the one-time invite is still live afterwards
+    /// ([`Adopted::invite_left`]): the device has joined either way, and the caller tells its
+    /// user that the code still opens the drive key.
+    ///
+    /// # Errors
+    ///
+    /// As [`Account::adopt_join_key`], the failure to delete the invite excepted.
+    pub fn adopt_join_key_reporting(
+        &self,
+        code: &JoinCode,
+        keyring: &dyn KeyringStore,
+    ) -> CloudResult<Option<Adopted>> {
         let Some(seal) = code.key_seal.as_deref() else {
             return Ok(None);
         };
@@ -190,7 +209,7 @@ impl Account {
             None => None,
         };
         let bucket = self.bucket_drive()?;
-        let drive_key = device::adopt_invite(
+        let adopted = device::adopt_invite_reporting(
             &bucket,
             keyring,
             &self.record().id,
@@ -198,8 +217,8 @@ impl Account {
             key_id.as_ref(),
         )?;
         // collapse-ok: the next open of the drive writes the note again.
-        let _ = self.note_encrypted(&drive_key.id().to_hex());
-        Ok(Some(drive_key))
+        let _ = self.note_encrypted(&adopted.key.id().to_hex());
+        Ok(Some(adopted))
     }
 
     /// The drive key on this device: `keyring`'s, else the one this device's member wrap in the

@@ -192,6 +192,81 @@ fn a_second_device_gets_the_drive_key_through_its_join_code_once() {
     ));
 }
 
+/// `cloud` with a bucket that refuses to delete an invite's wrap (403) and passes everything else
+/// on.
+fn cloud_keeping_invites(s3: &Arc<FakeS3>) -> TransportFactory {
+    struct KeepsInvites(Box<dyn Transport>);
+
+    impl Transport for KeepsInvites {
+        fn send(&self, call: &HttpCall) -> Result<HttpReply, String> {
+            if call.method == Method::Delete && call.url.contains("invite-") {
+                return Ok(HttpReply {
+                    status: 403,
+                    headers: vec![(
+                        String::from("content-type"),
+                        String::from("application/xml"),
+                    )],
+                    body: b"<Error><Code>AccessDenied</Code><Message>no</Message></Error>".to_vec(),
+                });
+            }
+            self.0.send(call)
+        }
+    }
+
+    let inner = cloud(s3);
+    Arc::new(move || Box::new(KeepsInvites(inner())) as Box<dyn Transport>)
+}
+
+/// X-AR5b-9: a joining device that has the key is not told it has not joined because the one-time
+/// wrap could not be deleted: `adopt_join_key_reporting` hands the key over and says the code is
+/// live; the same call on a bucket that deletes says nothing.
+#[test]
+fn x_ar5b_9_a_join_whose_invite_could_not_be_deleted_is_a_join_that_says_so() {
+    let s3 = FakeS3::new();
+    let a_dir = TempDir::new("azcloud-enc-a");
+    let a = signed_up(&cloud(&s3), &a_dir);
+    let a_keys = MemoryKeyring::new();
+    a.setup_encryption(&a_keys, cheap()).unwrap();
+    let join = a.invite_with_key(None, &a_keys).unwrap();
+    let decoded = JoinCode::decode(&join.encode()).unwrap();
+
+    let b_dir = TempDir::new("azcloud-enc-b");
+    let b_state = StateDir::open(b_dir.path()).unwrap();
+    let keeping = cloud_keeping_invites(&s3);
+    let b = Account::join(&b_state, TOKEN, keeping, &decoded).unwrap();
+    let b_keys = MemoryKeyring::new();
+    let adopted = b
+        .adopt_join_key_reporting(&decoded, &b_keys)
+        .expect("the join is not an error")
+        .expect("the code carries the key");
+    assert_eq!(
+        Some(adopted.key.clone()),
+        device::load_drive_key(&b_keys, "d_1").unwrap(),
+        "the key is kept on the joined device"
+    );
+    assert!(adopted.invite_left.is_some(), "the code is still live");
+    assert!(
+        s3.keys().iter().any(|k| k.contains("invite-")),
+        "the one-time wrap is still in the bucket: {:?}",
+        s3.keys()
+    );
+
+    // The same code on a bucket that deletes: the device joins, and nothing is left of the invite.
+    let c_dir = TempDir::new("azcloud-enc-c");
+    let c_state = StateDir::open(c_dir.path()).unwrap();
+    let c = Account::join(&c_state, TOKEN, cloud(&s3), &decoded).unwrap();
+    let adopted = c
+        .adopt_join_key_reporting(&decoded, &MemoryKeyring::new())
+        .unwrap()
+        .expect("the code carries the key");
+    assert!(adopted.invite_left.is_none());
+    assert!(
+        s3.keys().iter().all(|k| !k.contains("invite-")),
+        "{:?}",
+        s3.keys()
+    );
+}
+
 #[test]
 fn a_join_code_names_the_key_it_seals_and_a_seal_of_another_key_is_refused() {
     let s3 = FakeS3::new();

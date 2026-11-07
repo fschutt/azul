@@ -8,10 +8,11 @@ use super::mem_bucket::MemBucket;
 use crate::{
     crypto::{
         device::{
-            adopt_invite, drive_key_entry, enroll, forget_keys, invite_from_text, invite_text,
-            is_encrypted, key_entries, load_drive_key, load_key_at, load_member_secret,
-            member_key_entry, plan_drive_key, planned_key_entry, recover, request_key,
-            rotation_key_entries, seal_invite, setup_new_drive, unlock, withdraw_invite,
+            adopt_invite, adopt_invite_reporting, drive_key_entry, enroll, forget_keys,
+            invite_from_text, invite_text, is_encrypted, key_entries, load_drive_key, load_key_at,
+            load_member_secret, member_key_entry, plan_drive_key, planned_key_entry, recover,
+            request_key, rotation_key_entries, seal_invite, setup_new_drive, unlock,
+            withdraw_invite,
         },
         keys::{RecoveryCode, RecoveryKdf, RECOVERY_KEY_FILE},
         to_hex,
@@ -635,4 +636,146 @@ fn az_k19_enrolling_and_committing_hold_the_member_key_once_each() {
     let before = committed.held().len();
     crate::crypto::device::commit_drive_key(&committed, DRIVE, &key.id()).unwrap();
     assert_eq!(committed.held().len() - before, 1, "{:?}", committed.held());
+}
+
+// ==== X-AR5b-9: a joined device is not told it has not joined ====
+
+/// A bucket that takes everything but a delete: that answers an error. With `lost` the delete went
+/// through first and only its answer was lost.
+struct DeleteRefused<'a> {
+    bucket: &'a MemBucket,
+    lost: bool,
+}
+
+impl<'a> DeleteRefused<'a> {
+    fn new(bucket: &'a MemBucket) -> Self {
+        DeleteRefused {
+            bucket,
+            lost: false,
+        }
+    }
+
+    fn answer_lost(bucket: &'a MemBucket) -> Self {
+        DeleteRefused { bucket, lost: true }
+    }
+}
+
+impl Drive for DeleteRefused<'_> {
+    fn list(&self, request: &ListRequest) -> Result<ListPage, DriveError> {
+        self.bucket.list(request)
+    }
+    fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
+        self.bucket.get(key)
+    }
+    fn get_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, DriveError> {
+        self.bucket.get_range(key, range)
+    }
+    fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
+        self.bucket.put(key, bytes)
+    }
+    fn delete(&self, key: &str) -> Result<(), DriveError> {
+        if self.lost {
+            self.bucket.delete(key)?;
+        }
+        Err(DriveError::Transport(String::from(
+            "the connection was cut",
+        )))
+    }
+    fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
+        self.bucket.head(key)
+    }
+    fn put_if(
+        &self,
+        key: &str,
+        bytes: &[u8],
+        condition: &Precondition,
+    ) -> Result<Option<String>, DriveError> {
+        self.bucket.put_if(key, bytes, condition)
+    }
+}
+
+/// X-AR5b-9: the invite's wrap is deleted after the device is enrolled. A delete that failed used
+/// to come back as an error although the device held the key - and left the one-time code live.
+/// Now the join is done, the key is the caller's, and the live invite is said (`invite_left`); the
+/// same code is then withdrawn by deleting the wrap again, and a code that was used cannot be used
+/// twice.
+#[test]
+fn x_ar5b_9_a_joined_device_is_told_it_joined_and_that_the_invite_is_still_live() {
+    let bucket = MemBucket::new();
+    let first = MemoryKeyring::new();
+    let (drive_key, _) = setup_new_drive(&bucket, &first, DRIVE, cheap()).unwrap();
+    let invite = seal_invite(&bucket, DRIVE, &drive_key).unwrap();
+    let invite_wraps = bucket.keys().len();
+
+    let second = MemoryKeyring::new();
+    let adopted = adopt_invite_reporting(
+        &DeleteRefused::new(&bucket),
+        &second,
+        DRIVE,
+        &invite,
+        Some(&drive_key.id()),
+    )
+    .expect("the device joined");
+    assert_eq!(adopted.key, drive_key);
+    assert!(
+        matches!(adopted.invite_left, Some(DriveError::Transport(_))),
+        "{:?}",
+        adopted.invite_left
+    );
+    assert_eq!(
+        load_drive_key(&second, DRIVE).unwrap(),
+        Some(drive_key.clone()),
+        "the key is kept on the joined device"
+    );
+    assert_eq!(
+        bucket.keys().len(),
+        invite_wraps + 1,
+        "the invite's wrap is still there"
+    );
+
+    // The simple form joins the same way; the live invite is the caller's to withdraw.
+    let third = MemoryKeyring::new();
+    assert_eq!(
+        adopt_invite(&DeleteRefused::new(&bucket), &third, DRIVE, &invite, None).unwrap(),
+        drive_key
+    );
+
+    // A delete that works: nothing left. The code opens the key once.
+    let fourth = MemoryKeyring::new();
+    let adopted = adopt_invite_reporting(&bucket, &fourth, DRIVE, &invite, None).unwrap();
+    assert!(adopted.invite_left.is_none());
+    assert!(matches!(
+        adopt_invite_reporting(&bucket, &MemoryKeyring::new(), DRIVE, &invite, None),
+        Err(DriveError::Denied { .. })
+    ));
+}
+
+/// X-AR5b-9: a delete that worked and whose answer was lost is not a live invite: the join looks
+/// again before it says so, and finds the wrap gone.
+#[test]
+fn x_ar5b_9_a_delete_whose_answer_was_lost_leaves_no_live_invite_to_report() {
+    let bucket = MemBucket::new();
+    let (drive_key, _) = setup_new_drive(&bucket, &MemoryKeyring::new(), DRIVE, cheap()).unwrap();
+    let invite = seal_invite(&bucket, DRIVE, &drive_key).unwrap();
+    let invite_wraps = bucket.keys().len();
+
+    let second = MemoryKeyring::new();
+    let adopted = adopt_invite_reporting(
+        &DeleteRefused::answer_lost(&bucket),
+        &second,
+        DRIVE,
+        &invite,
+        Some(&drive_key.id()),
+    )
+    .expect("the device joined");
+    assert!(adopted.invite_left.is_none(), "{:?}", adopted.invite_left);
+    assert_eq!(
+        bucket.keys().len(),
+        invite_wraps,
+        "the invite is gone, this device's wrap is new"
+    );
+    assert!(matches!(
+        adopt_invite_reporting(&bucket, &MemoryKeyring::new(), DRIVE, &invite, None),
+        Err(DriveError::Denied { .. })
+    ));
 }

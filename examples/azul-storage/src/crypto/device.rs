@@ -912,11 +912,28 @@ pub fn invite_from_text(text: &str) -> Option<MemberSecret> {
         .map(|bytes| MemberSecret::from_bytes(*bytes))
 }
 
+/// What [`adopt_invite_reporting`] did.
+#[derive(Debug)]
+#[must_use]
+pub struct Adopted {
+    /// The drive key; this device is enrolled with it and holds it.
+    pub key: DriveKey,
+    /// `Some`: the invite's wrap could not be deleted, so the join code still opens the key until
+    /// it is withdrawn ([`withdraw_invite`] again, or a rotation). The join itself is done - a
+    /// device that has the key is not told it has not.
+    pub invite_left: Option<DriveError>,
+}
+
 /// A joining device takes the drive key its join code's invite opens, enrols itself and
 /// deletes the invite wrap (the code opens the key once). `key_id` is the id of the drive key
 /// the join code names (a code from before has none): a seal of another key is refused
 /// (`KeyRefused`), and so is one of another key than a claim code named when the join code
 /// names none. `Denied` when the invite was used already or withdrawn.
+///
+/// The invite is deleted AFTER the device has the key (make before break); a delete that fails
+/// is not the join's failure - the key is held and kept - but it leaves the code live, and
+/// [`Adopted::invite_left`] says so. This form drops that word; the apps ask for
+/// [`adopt_invite_reporting`].
 pub fn adopt_invite(
     bucket: &dyn Drive,
     keyring: &dyn KeyringStore,
@@ -924,6 +941,17 @@ pub fn adopt_invite(
     invite: &MemberSecret,
     key_id: Option<&KeyId>,
 ) -> Result<DriveKey, DriveError> {
+    adopt_invite_reporting(bucket, keyring, drive, invite, key_id).map(|adopted| adopted.key)
+}
+
+/// [`adopt_invite`] that says whether the invite is still live afterwards ([`Adopted`]).
+pub fn adopt_invite_reporting(
+    bucket: &dyn Drive,
+    keyring: &dyn KeyringStore,
+    drive: &str,
+    invite: &MemberSecret,
+    key_id: Option<&KeyId>,
+) -> Result<Adopted, DriveError> {
     let member = invite_member(invite);
     let file = member_key_file(&member).map_err(|e| e.for_key(drive))?;
     let wrap = match load_member_wrap(bucket, &member) {
@@ -954,8 +982,26 @@ pub fn adopt_invite(
     }
     let drive_key = wrap.open(drive, invite).map_err(|e| e.for_key(&file))?;
     enroll(bucket, keyring, drive, &drive_key)?;
-    bucket.delete(&file)?;
-    Ok(drive_key)
+    // The device has the key. A wrap that is gone is as good as deleted; any other failure leaves
+    // the invite live, and that is said instead of being turned into a failure of the join.
+    Ok(Adopted {
+        key: drive_key,
+        invite_left: invite_left(bucket, &file),
+    })
+}
+
+/// Deletes the invite's wrap `file` and says whether it is still in the bucket afterwards: `None`
+/// when it is gone, else the failure. A delete whose answer was lost may have worked, so a failed
+/// one looks again before it says the invite is live; a look that fails too leaves it unknown, and
+/// unknown is reported as live: the join code is not trusted to be gone.
+fn invite_left(bucket: &dyn Drive, file: &str) -> Option<DriveError> {
+    match bucket.delete(file) {
+        Ok(()) | Err(DriveError::NotFound { .. }) => None,
+        Err(e) => match bucket.head(file) {
+            Err(DriveError::NotFound { .. }) => None,
+            Ok(_) | Err(_) => Some(e),
+        },
+    }
 }
 
 /// Withdraws an invite that was not used (its wrap leaves the bucket).

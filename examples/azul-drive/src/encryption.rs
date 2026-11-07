@@ -2004,6 +2004,14 @@ pub(crate) enum EncryptionOutcome {
         drive_id: String,
         result: Result<(), String>,
     },
+    /// A joined drive's key from its join code's seal ([`EncryptionJob::AdoptJoinKey`]): the
+    /// answer of an unlock, and - when this device has the key - whether the code's one-time key
+    /// file is still in the drive (`invite_left`: why it could not be deleted).
+    JoinKeyAdopted {
+        drive_id: String,
+        result: Result<(), String>,
+        invite_left: Option<String>,
+    },
     Migrated {
         drive_id: String,
         result: Result<MigrationState, String>,
@@ -2414,26 +2422,13 @@ pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
             seal,
             key_id,
         } => {
-            let named = match key_id.as_deref() {
-                Some(text) => KeyId::from_hex(text.trim())
-                    .map(Some)
-                    .ok_or_else(|| String::from("azdrive-invite-seal-damaged")),
-                None => Ok(None),
-            };
-            let result = named.and_then(|named| {
-                let invite = device::invite_from_text(&seal)
-                    .ok_or_else(|| String::from("azdrive-invite-seal-damaged"))?;
-                device::adopt_invite(
-                    auto.bucket().as_ref(),
-                    &keyring,
-                    auto.drive(),
-                    &invite,
-                    named.as_ref(),
-                )
-                .map(|_| auto.reopen())
-                .map_err(|e| e.to_string())
-            });
-            EncryptionOutcome::Recovered { drive_id, result }
+            let (result, invite_left) =
+                adopt_join_key_with(&keyring, &auto, &seal, key_id.as_deref());
+            EncryptionOutcome::JoinKeyAdopted {
+                drive_id,
+                result,
+                invite_left,
+            }
         }
     }
 }
@@ -2912,6 +2907,43 @@ pub(crate) fn recovery_lockdown(
     Ok(pending.pending_until)
 }
 
+/// A joined drive's key from its join code's `seal` (`key_id`: the id of the key the code names),
+/// taken on `keyring`: this device is enrolled with it and the drive opens again. This device has
+/// the key once that works. An invite that could not be deleted from the drive is not the join's
+/// failure, and not the user's to miss: its reason comes back beside the answer (`invite_left`)
+/// and is said in a dialog.
+fn adopt_join_key_with(
+    keyring: &dyn KeyringStore,
+    auto: &AutoEncrypted,
+    seal: &str,
+    key_id: Option<&str>,
+) -> (Result<(), String>, Option<String>) {
+    let named = match key_id {
+        Some(text) => KeyId::from_hex(text.trim())
+            .map(Some)
+            .ok_or_else(|| String::from("azdrive-invite-seal-damaged")),
+        None => Ok(None),
+    };
+    let mut invite_left = None;
+    let result = named.and_then(|named| {
+        let invite = device::invite_from_text(seal)
+            .ok_or_else(|| String::from("azdrive-invite-seal-damaged"))?;
+        device::adopt_invite_reporting(
+            auto.bucket().as_ref(),
+            keyring,
+            auto.drive(),
+            &invite,
+            named.as_ref(),
+        )
+        .map(|adopted| {
+            invite_left = adopted.invite_left.as_ref().map(ToString::to_string);
+            auto.reopen();
+        })
+        .map_err(|e| e.to_string())
+    });
+    (result, invite_left)
+}
+
 /// The UI thread takes a task's answer.
 pub(crate) fn on_outcome(
     info: &mut CallbackInfo,
@@ -3010,6 +3042,34 @@ pub(crate) fn on_outcome(
                 }));
             }
         },
+        EncryptionOutcome::JoinKeyAdopted {
+            drive_id,
+            result,
+            invite_left,
+        } => {
+            let joined = result.is_ok();
+            // The unlock's own ending: the drive shows, its key is registered for a restore.
+            on_outcome(
+                info,
+                app,
+                s,
+                EncryptionOutcome::Recovered {
+                    drive_id: drive_id.clone(),
+                    result,
+                },
+            );
+            if let (true, Some(why)) = (joined, invite_left) {
+                eprintln!("AZDRIVE_INVITE_LEFT {drive_id}: {why}");
+                let name = drive_name(s, &drive_id);
+                s.popup.open_when_free(Popup::Encryption(Dialog::Message {
+                    title: t("azdrive-join-invite-left-title"),
+                    text: t_args(
+                        "azdrive-join-invite-left",
+                        &[("name", Arg::from(name)), ("why", Arg::from(why))],
+                    ),
+                }));
+            }
+        }
         EncryptionOutcome::Migrated { drive_id, result } => {
             if matches!(s.popup.as_ref(), Some(Popup::Encryption(Dialog::Busy { .. }))) {
                 s.popup.close();
@@ -4040,6 +4100,117 @@ mod tests {
         ) -> Result<Arc<dyn azul_storage::encrypted::NameIndex>, azul_storage::DriveError> {
             Ok(Arc::new(azul_storage::encrypted::MemoryIndex::new()))
         }
+    }
+
+    /// A bucket that takes everything but the delete of a key file: it answers an error.
+    struct KeepsKeyFiles(Arc<azul_storage::meta::MemoryBucket>);
+
+    impl Drive for KeepsKeyFiles {
+        fn list(
+            &self,
+            request: &azul_storage::ListRequest,
+        ) -> Result<azul_storage::ListPage, azul_storage::DriveError> {
+            self.0.list(request)
+        }
+        fn get(&self, key: &str) -> Result<Vec<u8>, azul_storage::DriveError> {
+            self.0.get(key)
+        }
+        fn get_range(
+            &self,
+            key: &str,
+            range: azul_storage::ByteRange,
+        ) -> Result<Vec<u8>, azul_storage::DriveError> {
+            self.0.get_range(key, range)
+        }
+        fn put(&self, key: &str, bytes: &[u8]) -> Result<(), azul_storage::DriveError> {
+            self.0.put(key, bytes)
+        }
+        fn delete(&self, _key: &str) -> Result<(), azul_storage::DriveError> {
+            Err(azul_storage::DriveError::Transport(String::from(
+                "the connection was cut",
+            )))
+        }
+        fn head(&self, key: &str) -> Result<azul_storage::ObjectInfo, azul_storage::DriveError> {
+            self.0.head(key)
+        }
+        fn put_if(
+            &self,
+            key: &str,
+            bytes: &[u8],
+            condition: &azul_storage::Precondition,
+        ) -> Result<Option<String>, azul_storage::DriveError> {
+            self.0.put_if(key, bytes, condition)
+        }
+    }
+
+    /// X-AR5b-9: AzDrive's join takes the drive key from the join code and keeps it, whether or
+    /// not the code's one-time key file can be deleted; when it cannot, the answer is still a
+    /// join, and the reason comes back beside it for the dialog that says the code is live. A
+    /// damaged key id or seal is a refusal and nothing is kept.
+    #[test]
+    fn x_ar5b_9_a_join_whose_invite_cannot_be_deleted_is_a_join_with_the_word_beside_it() {
+        use azul_storage::{
+            crypto::device,
+            keyring::{KeyringStore, MemoryKeyring},
+            meta::MemoryBucket,
+        };
+        let kdf = RecoveryKdf::with_cost(64, 1, 1).unwrap();
+        let bucket = Arc::new(MemoryBucket::new());
+        let (key, _code) =
+            device::setup_new_drive(bucket.as_ref(), &MemoryKeyring::new(), "d_az", kdf).unwrap();
+        let invite = device::seal_invite(bucket.as_ref(), "d_az", &key).unwrap();
+        let seal = device::invite_text(&invite).to_string();
+        let key_id = key.id().to_hex();
+        let provider: Option<Arc<dyn IndexProvider>> = Some(Arc::new(MemoryProvider));
+        let drive_over = |bucket: Arc<dyn Drive>, keyring: &Arc<dyn KeyringStore>| {
+            wrap_with(
+                Arc::clone(keyring),
+                provider.clone(),
+                "d_az",
+                bucket,
+                EncryptionRecord::default(),
+                "slot-1",
+                &crate::KeyRecords::default(),
+            )
+        };
+
+        // A damaged seal, or a key id that is no id: refused, nothing kept, no word.
+        let keyring: Arc<dyn KeyringStore> = Arc::new(MemoryKeyring::new());
+        let auto = drive_over(bucket.clone(), &keyring);
+        assert_eq!(
+            adopt_join_key_with(keyring.as_ref(), &auto, "not hex", Some(&key_id)),
+            (Err(String::from("azdrive-invite-seal-damaged")), None)
+        );
+        assert_eq!(
+            adopt_join_key_with(keyring.as_ref(), &auto, &seal, Some("not a key id")),
+            (Err(String::from("azdrive-invite-seal-damaged")), None)
+        );
+        assert_eq!(
+            device::load_drive_key(keyring.as_ref(), "d_az").unwrap(),
+            None
+        );
+
+        // A bucket that cannot delete the key file: joined, the key kept, the reason beside it.
+        let auto = drive_over(Arc::new(KeepsKeyFiles(bucket.clone())), &keyring);
+        let (result, left) = adopt_join_key_with(keyring.as_ref(), &auto, &seal, Some(&key_id));
+        assert_eq!(result, Ok(()));
+        assert!(left.is_some_and(|why| why.contains("connection was cut")));
+        assert_eq!(
+            device::load_drive_key(keyring.as_ref(), "d_az").unwrap(),
+            Some(key.clone())
+        );
+
+        // A bucket that deletes: joined, no word. (A second device; the first one's file stays.)
+        let second: Arc<dyn KeyringStore> = Arc::new(MemoryKeyring::new());
+        let auto = drive_over(bucket.clone(), &second);
+        assert_eq!(
+            adopt_join_key_with(second.as_ref(), &auto, &seal, Some(&key_id)),
+            (Ok(()), None)
+        );
+        assert_eq!(
+            device::load_drive_key(second.as_ref(), "d_az").unwrap(),
+            Some(key)
+        );
     }
 
     /// X-AR6-26802cb54-1: the glue around AutoEncrypted. A drive that opens encrypted puts its slot's

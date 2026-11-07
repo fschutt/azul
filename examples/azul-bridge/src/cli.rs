@@ -393,12 +393,20 @@ pub fn run(options: &Options) -> Result<(), String> {
             // An encrypted drive's key rides in the code (sealed to a one-time key): the bridge
             // keeps it in its keyring and enrols itself, as every other device does.
             #[cfg(feature = "encryption")]
-            if account
-                .adopt_join_key(&code, &*secrets)
+            if let Some(adopted) = account
+                .adopt_join_key_reporting(&code, &*secrets)
                 .map_err(|e| e.to_string())?
-                .is_some()
             {
                 say("AZUL_BRIDGE_DRIVE_KEY kept");
+                // The bridge has the key; a join code whose key file could not be deleted from
+                // the drive still opens the drive key, and that is said (X-AR5b-9).
+                if let Some(why) = &adopted.invite_left {
+                    say(&format!(
+                        "AZUL_BRIDGE_DRIVE_INVITE_LEFT the join code's key could not be deleted \
+                         from the drive ({why}): the code still opens the drive key until the \
+                         keys are replaced"
+                    ));
+                }
             }
             Ok(())
         }
