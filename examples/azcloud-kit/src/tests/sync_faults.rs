@@ -18,7 +18,7 @@ use crate::{
     sync::{
         faults,
         remote::{index_key, RemoteIndex},
-        session::{SyncSession, SyncSetup},
+        session::{Resolution, SyncSession, SyncSetup},
     },
 };
 
@@ -26,12 +26,17 @@ const PREFIX: &str = "faults/";
 
 /// A pairing whose passes hear the fault seam under its folder.
 fn faulted(folder: &Path, state: &Path, store: &Arc<S3Bucket>) -> SyncSession {
+    faulted_as("dev", folder, state, store)
+}
+
+/// [`faulted`] on the device `device` (its name is in the conflict copies it makes).
+fn faulted_as(device: &str, folder: &Path, state: &Path, store: &Arc<S3Bucket>) -> SyncSession {
     let remote: Arc<dyn RemoteStore> = store.clone();
     let root = folder.to_path_buf();
     SyncSession::plain(
         SyncSetup::new("d_faults", PREFIX, folder),
         state.to_path_buf(),
-        "dev",
+        device,
         remote,
     )
     .with_points(Arc::new(move |name: &str| faults::point(&root, name)))
@@ -165,4 +170,86 @@ fn an_edit_after_a_pass_that_crashed_after_its_commit_is_no_conflict() {
         .collect();
     assert_eq!(here, ["main.swift"], "no conflict copy here");
     faults::clear(folder.path());
+}
+
+/// AZ-S10: a pass cut after its commit (the conflict's copy is on the drive with this side's
+/// bytes) and before the rename of this side's file to the copy's name. The next pass finishes
+/// that conflict: the copy stays, no second copy is made, and nothing is deleted on the drive.
+/// RED on the old code (not run): `adopt_sent` took the copy into the base first, so the next
+/// pass planned `DeleteRemote` for it - a tombstone - and a second copy ("... 2)"); the last
+/// assertion on `index.deleted` fails with the copy's name in it.
+#[test]
+fn az_s10_a_conflict_cut_between_its_commit_and_its_rename_is_finished_not_deleted() {
+    let store = Arc::new(S3Bucket::new());
+    let (a, a_state) = (
+        TempDir::new("azcloud-faults-s10-a"),
+        TempDir::new("azcloud-faults-s10-a-state"),
+    );
+    let (b, b_state) = (
+        TempDir::new("azcloud-faults-s10-b"),
+        TempDir::new("azcloud-faults-s10-b-state"),
+    );
+    let on_a = faulted_as("laptop", a.path(), a_state.path(), &store);
+    let on_b = faulted_as("phone", b.path(), b_state.path(), &store);
+    fs::write(a.path().join("plan.txt"), "base").unwrap();
+    pass(&on_a).expect("a sends the file");
+    pass(&on_b).expect("b gets it");
+    fs::write(a.path().join("plan.txt"), "a's edit").unwrap();
+    fs::write(b.path().join("plan.txt"), "b's edit").unwrap();
+    pass(&on_a).expect("a sends its edit");
+    pass(&on_b).expect("b meets the conflict and holds it");
+    on_b.resolve("plan.txt", Resolution::KeepBoth)
+        .expect("the user keeps both");
+    faults::arm_crash(b.path(), "conflict-start");
+    let payload = pass(&on_b).expect_err("b's pass crashes after its commit, before the rename");
+    assert_eq!(
+        faults::crashed_at(payload.as_ref()).as_deref(),
+        Some("conflict-start")
+    );
+    let cut = RemoteIndex::parse(&store.read(&index_key(PREFIX)).expect("an index")).unwrap();
+    let copy: Vec<String> = cut
+        .files
+        .keys()
+        .filter(|key| key.contains("(conflict"))
+        .cloned()
+        .collect();
+    assert_eq!(
+        copy.len(),
+        1,
+        "the commit landed with the copy: {:?}",
+        cut.files.keys()
+    );
+    let copy = copy[0].clone();
+    assert_eq!(
+        fs::read_to_string(b.path().join("plan.txt")).unwrap(),
+        "b's edit",
+        "the file was not renamed yet"
+    );
+
+    pass(&on_b).expect("the next pass runs through");
+
+    let index = RemoteIndex::parse(&store.read(&index_key(PREFIX)).expect("an index")).unwrap();
+    let copies: Vec<&String> = index
+        .files
+        .keys()
+        .filter(|key| key.contains("(conflict"))
+        .collect();
+    assert_eq!(copies, [&copy], "the same copy, never a second one");
+    assert_eq!(
+        fs::read_to_string(b.path().join(&copy)).unwrap(),
+        "b's edit",
+        "this side's bytes are in the copy here"
+    );
+    assert_eq!(
+        fs::read_to_string(b.path().join("plan.txt")).unwrap(),
+        "a's edit",
+        "the drive's version keeps the name"
+    );
+    assert!(
+        index.deleted.is_empty(),
+        "nothing is deleted on the drive: {:?}",
+        index.deleted.keys()
+    );
+    faults::clear(a.path());
+    faults::clear(b.path());
 }

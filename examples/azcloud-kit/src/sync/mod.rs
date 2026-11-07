@@ -703,6 +703,12 @@ fn sending_path(index_path: &Path) -> PathBuf {
 
 /// Notes what `actions` send (best effort: without it a pass that stops short only makes the
 /// next one compare once more).
+///
+/// A conflict's copy is NOT noted (AZ-S10): it goes up under a name of its own, but until the pass
+/// has renamed this side's file to that name the copy is not a file of this folder, and a base
+/// that already held it would plan its delete on the drive - and a second copy - at the next
+/// pass. Left out of the base, the next pass finds the copy on the drive with this side's bytes
+/// and finishes the conflict ([`merge::plan`], `cut_conflicts`).
 fn note_sending(
     index_path: &Path,
     actions: &[Action],
@@ -716,8 +722,7 @@ fn note_sending(
                 files.insert(key.clone(), None);
                 continue;
             }
-            // The conflict's copy is what goes up under a name of its own.
-            Action::Conflict { copy, .. } => copy,
+            Action::Conflict { .. } => continue,
             other => other.key(),
         };
         if let Some(hash) = uploaded_hash(action, scan, merged) {
