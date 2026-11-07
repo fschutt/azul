@@ -238,6 +238,9 @@ impl Default for ReclaimOptions {
 /// key was changed ("I was hacked": re-encrypting every file leaves the old objects, which the old
 /// key still opens, in the history) the history is restorable until the retention is over -
 /// unless they say it is not. Made from the confirmation a person gave and from nothing else.
+// The private field and not `#[non_exhaustive]`: only this module can make one, where
+// `non_exhaustive` would let the whole crate.
+#[allow(clippy::manual_non_exhaustive)]
 #[derive(Debug)]
 pub struct PurgeConfirmation {
     /// When they confirmed (seconds since 1970).

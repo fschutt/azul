@@ -1360,8 +1360,8 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
     /// every device that read the older manifest has had time to finish.
     /// Returns how many objects were due.
     ///
-    /// In three steps. A swap that fences - a collection that read an older manifest cannot go on
-    /// - and takes back from `retired` what a manifest names again (the pack of a slow writer
+    /// In three steps. A swap that fences (a collection that read an older manifest cannot go on)
+    /// and takes back from `retired` what a manifest names again (the pack of a slow writer
     /// that a sweep took for an orphan). Then the deletes, while the due objects are STILL listed
     /// as retired: a writer that meets one of their names takes the object for one on its way out
     /// and uploads its own under another name ([`MetaStore::put_pack`]). Then a swap that drops

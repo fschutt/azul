@@ -602,8 +602,10 @@ fn x_ar5a_14_re_encrypting_the_packs_of_a_drive_that_keeps_its_history_deletes_n
 /// deleted: the pack is named by the first commit only (and the grace of a retired pack is
 /// `grace`).
 fn lab_with_a_retired_pack(grace: u64) -> (Lab, String) {
-    let mut options = PackOptions::default();
-    options.retired_grace_secs = grace;
+    let options = PackOptions {
+        retired_grace_secs: grace,
+        ..PackOptions::default()
+    };
     let lab = Lab::with(|drive| {
         drive
             .with_packing(options)

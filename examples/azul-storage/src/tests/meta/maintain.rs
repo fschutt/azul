@@ -240,7 +240,7 @@ fn az_m5_a_compaction_folds_only_the_packs_that_fit_the_size_a_frozen_drive_take
 /// what the contract lets a frozen drive's node take in one PUT.
 #[test]
 fn az_m5_a_round_compacts_within_the_size_its_rule_names() {
-    assert!(COMPACT_PACK_MAX < azlin_contract::INDEX_OBJECT_MAX);
+    const _: () = assert!(COMPACT_PACK_MAX < azlin_contract::INDEX_OBJECT_MAX);
     assert_eq!(Maintenance::default().compact_max_bytes, COMPACT_PACK_MAX);
     let bucket = MemoryBucket::new();
     let mut laptop = MetaStore::create(bucket.clone(), sealer(), "laptop").unwrap();
