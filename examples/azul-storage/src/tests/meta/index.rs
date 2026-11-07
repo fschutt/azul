@@ -468,3 +468,64 @@ fn an_index_whose_bucket_cannot_be_reached_still_answers_reads_from_the_copy() {
         Err(DriveError::Transport(_))
     ));
 }
+
+/// AZ-M11. A drive that lost only its manifest keeps its log, its packs and its files. A device
+/// that opened it used to create a new, empty index over them, and the next sweep retired
+/// everything the old index was.
+#[test]
+fn az_m11_an_index_that_lost_only_its_manifest_is_not_replaced_by_an_empty_one() {
+    use crate::meta::{keys, Bucket};
+
+    let key = DriveKey::generate().unwrap();
+    let bucket = MemoryBucket::new();
+    let drive = device(&bucket, &key, "laptop", false);
+    drive.put("docs/a.txt", b"the only copy").unwrap();
+    let before = bucket.objects().len();
+    bucket.remove(keys::MANIFEST).unwrap();
+
+    let provider = MetaIndexProvider::new("Phone");
+    let shared: Arc<dyn Drive> = Arc::new(bucket.clone());
+    let opened = provider.open_index("d_1", Arc::clone(&shared), &key);
+    assert!(
+        matches!(opened, Err(DriveError::Corrupt { .. })),
+        "a new index over the old one's files is no answer: {:?}",
+        opened.err()
+    );
+    assert!(
+        bucket.objects().iter().all(|(k, _)| k != keys::MANIFEST),
+        "nothing was created"
+    );
+    assert_eq!(
+        bucket.objects().len(),
+        before - 1,
+        "and nothing else was touched"
+    );
+}
+
+#[test]
+fn az_m11_a_drive_with_data_objects_and_no_index_at_all_is_not_a_new_drive() {
+    let key = DriveKey::generate().unwrap();
+    let bucket = MemoryBucket::new();
+    // What an operator's restore brought back: the data objects, not the index.
+    bucket
+        .put("data/ab/0123456789abcdef0123456789abcdef", b"sealed bytes")
+        .unwrap();
+    let shared: Arc<dyn Drive> = Arc::new(bucket.clone());
+    let provider = MetaIndexProvider::new("Phone");
+    assert!(matches!(
+        provider.open_index("d_1", Arc::clone(&shared), &key),
+        Err(DriveError::Corrupt { .. })
+    ));
+
+    // A user's own folder called "data" is no data object: a new drive still gets its index.
+    let plain = MemoryBucket::new();
+    plain.put("data/notes.txt", b"the user's own file").unwrap();
+    let shared: Arc<dyn Drive> = Arc::new(plain.clone());
+    assert!(provider
+        .open_index("d_2", Arc::clone(&shared), &key)
+        .is_ok());
+
+    // And an empty bucket does.
+    let empty: Arc<dyn Drive> = Arc::new(MemoryBucket::new());
+    assert!(provider.open_index("d_3", empty, &key).is_ok());
+}

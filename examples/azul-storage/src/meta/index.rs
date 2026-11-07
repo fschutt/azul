@@ -634,17 +634,87 @@ fn open_or_create<D: Drive + ?Sized + 'static, S: Sealer + Clone>(
     };
     match open() {
         Ok(repo) => Ok(repo),
-        Err(MetaError::NoRepository) => match MetaRepo::create_with(
-            DriveBucket::new(Arc::clone(inner)),
-            sealer.clone(),
-            device_id,
-            device_name,
-            options,
-        ) {
-            Ok(repo) => Ok(repo),
-            Err(MetaError::RepositoryExists) => open().map_err(to_drive),
-            Err(e) => Err(to_drive(e)),
-        },
+        Err(MetaError::NoRepository) => {
+            // "No manifest" is not "no repository": a drive that lost only its manifest keeps its
+            // log, its packs - and its files. A new, empty index created over them is the winner of
+            // the next sweep, and everything the old one knew (names, pointers, wrapped keys) is
+            // gone two days later (AZ-M11). A repository is created only for a drive that holds
+            // none of it.
+            // The listing is the proof: a drive that cannot be listed is not called empty.
+            if holds_remnants(inner.as_ref())? {
+                // Another device may have created the repository in this very moment: look again
+                // before calling it lost.
+                return match open() {
+                    Ok(repo) => Ok(repo),
+                    Err(MetaError::NoRepository) => Err(DriveError::Corrupt {
+                        key: super::keys::MANIFEST.to_string(),
+                        reason: String::from(
+                            "the drive's index has lost its manifest but not its files: a new \
+                             index is not created over them",
+                        ),
+                    }),
+                    Err(e) => Err(to_drive(e)),
+                };
+            }
+            create_index(inner, sealer, device_id, device_name, options, open)
+        }
+        Err(e) => Err(to_drive(e)),
+    }
+}
+
+/// Whether the drive in `bucket` holds what an index leaves behind or what it names: an object
+/// under the repository's own folder, or a data object (`data/<two hex digits>/...`).
+fn holds_remnants<D: Drive + ?Sized>(bucket: &D) -> Result<bool, DriveError> {
+    let mut request = ListRequest::recursive(super::keys::ROOT);
+    request.max_keys = 1;
+    if !bucket.list(&request)?.objects.is_empty() {
+        return Ok(true);
+    }
+    // A user's own folder `data/` is no data object; only the fan-out folders are.
+    let mut request = ListRequest::folder("data/");
+    for _ in 0..8 {
+        let page = bucket.list(&request)?;
+        let fan_out = |folder: &String| {
+            folder
+                .strip_prefix("data/")
+                .and_then(|rest| rest.strip_suffix('/'))
+                .is_some_and(|digits| {
+                    digits.len() == 2
+                        && digits
+                            .bytes()
+                            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+                })
+        };
+        if page.folders.iter().any(fan_out) {
+            return Ok(true);
+        }
+        match page.next {
+            Some(token) => request = request.with_continuation(token),
+            None => break,
+        }
+    }
+    Ok(false)
+}
+
+/// The index of a drive that holds none: created, or - when another device created it in the
+/// same moment - opened.
+fn create_index<D: Drive + ?Sized + 'static, S: Sealer + Clone>(
+    inner: &Arc<D>,
+    sealer: &S,
+    device_id: &str,
+    device_name: &str,
+    options: &RepoOptions,
+    open: impl Fn() -> Result<MetaRepo<DriveBucket<Arc<D>>, S>, MetaError>,
+) -> Result<MetaRepo<DriveBucket<Arc<D>>, S>, DriveError> {
+    match MetaRepo::create_with(
+        DriveBucket::new(Arc::clone(inner)),
+        sealer.clone(),
+        device_id,
+        device_name,
+        options,
+    ) {
+        Ok(repo) => Ok(repo),
+        Err(MetaError::RepositoryExists) => open().map_err(to_drive),
         Err(e) => Err(to_drive(e)),
     }
 }
