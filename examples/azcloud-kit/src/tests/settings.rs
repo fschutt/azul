@@ -202,3 +202,42 @@ fn without_a_home_folder_there_is_no_state_folder_to_open() {
     assert_eq!(s.config_file.path, None);
     assert!(s.token_url().is_ok(), "the profile still names a token server");
 }
+
+/// X-DELTA-AZDRIVE-KEYS-38: a pinned iroh node (its key and its sockets) decides where every
+/// signed request is dialed, and the variables and switches that name it were live in a shipped
+/// `azcloud`: a SHIPPED build takes no pin from the environment or the switches; a test build
+/// does.
+#[test]
+fn a_shipped_build_takes_no_iroh_pin_from_the_environment_or_the_switches() {
+    let env = |name: &str| -> Option<String> {
+        match name {
+            "AZLIN_IROH_NODE" => Some("ab".repeat(32)),
+            "AZLIN_IROH_ADDR" => Some(String::from("203.0.113.9:41000")),
+            _ => None,
+        }
+    };
+    let flags = Flags {
+        iroh_node: Some("cd".repeat(32)),
+        iroh_addr: Some(String::from("203.0.113.10:41000")),
+        ..Flags::default()
+    };
+    let shipped = Settings::resolve_with(false, &flags, &env, &os(), &no_file);
+    assert_eq!(shipped.iroh_node.value, None);
+    assert_eq!(shipped.iroh_addr.value, None);
+    assert!(
+        crate::transport::pinned_target(&shipped).is_none(),
+        "a pin dialed a node a variable named"
+    );
+    // The same inputs in a test build: the flag over the variable, as before.
+    let test = Settings::resolve_with(true, &flags, &env, &os(), &no_file);
+    assert_eq!(
+        test.iroh_node.value.as_deref(),
+        Some("cd".repeat(32).as_str())
+    );
+    assert_eq!(test.iroh_addr.value.as_deref(), Some("203.0.113.10:41000"));
+    let pinned = crate::transport::pinned_target(&test).expect("a test build pins");
+    assert_eq!(pinned.addrs, vec![String::from("203.0.113.10:41000")]);
+    // The build under test is a test build: `resolve` is `resolve_with(true, ..)`.
+    let default = Settings::resolve(&flags, &env, &os(), &no_file);
+    assert_eq!(default.iroh_node.value, test.iroh_node.value);
+}

@@ -16,7 +16,10 @@
 //! profile, the token server and the S3 endpoint are the build's constants - the live service -
 //! and the file, the environment and the switches are not asked about them: the next refresh sends
 //! the drive token wherever those say, and a same-user process can set all three (REVIEW K20, P7;
-//! [`azul_appkit::anchors`]). The transport, the iroh node and the folders stay settings.
+//! [`azul_appkit::anchors`]). The same holds for the pinned iroh node (`AZLIN_IROH_NODE`,
+//! `--iroh-node`, `AZLIN_IROH_ADDR`, `--iroh-addr`): a pin names the node every signed request is
+//! dialed to, so only a test build reads it (X-DELTA-AZDRIVE-KEYS-38). The transport and the
+//! folders stay settings.
 
 use std::path::{Path, PathBuf};
 
@@ -209,6 +212,29 @@ impl Settings {
         os: &OsDirs,
         load: &dyn Fn(&Path) -> (AzlinConfig, Option<String>),
     ) -> Settings {
+        Settings::resolve_with(
+            azul_appkit::anchors::layers_honoured(),
+            flags,
+            env,
+            os,
+            load,
+        )
+    }
+
+    /// [`Settings::resolve`] with the build's choice as an argument (the tests set both):
+    /// `honour_pins` is whether this build takes a pinned iroh node from the environment and the
+    /// switches. A SHIPPED build does not (X-DELTA-AZDRIVE-KEYS-38): a pin names the node every
+    /// signed request is dialed to - its key and its sockets - and a variable and a switch are
+    /// things any process of the user can set. The nodes it dials are the ones of the token
+    /// server's list ([`crate::transport::targets_from_nodes`]).
+    #[must_use]
+    pub fn resolve_with(
+        honour_pins: bool,
+        flags: &Flags,
+        env: &dyn Fn(&str) -> Option<String>,
+        os: &OsDirs,
+        load: &dyn Fn(&Path) -> (AzlinConfig, Option<String>),
+    ) -> Settings {
         let config_file = config_file(flags, env, os);
         let (config, config_problem) = match &config_file.path {
             Some(path) => load(path),
@@ -230,20 +256,22 @@ impl Settings {
             env,
             check_transport,
         );
+        let no_pin = |_: &str| -> Option<String> { None };
+        let pin_env: &dyn Fn(&str) -> Option<String> = if honour_pins { env } else { &no_pin };
         let iroh_node = layered(
             None,
             IROH_NODE_VAR,
             IROH_NODE_FLAG,
-            flags.iroh_node.as_deref(),
-            env,
+            flags.iroh_node.as_deref().filter(|_| honour_pins),
+            pin_env,
             check_iroh_node,
         );
         let iroh_addr = layered(
             None,
             IROH_ADDR_VAR,
             IROH_ADDR_FLAG,
-            flags.iroh_addr.as_deref(),
-            env,
+            flags.iroh_addr.as_deref().filter(|_| honour_pins),
+            pin_env,
             check_socket_addr,
         );
         let trust = config.trust.pems(

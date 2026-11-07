@@ -38,7 +38,7 @@ use azul_storage::{
 
 use crate::{
     bundle::DriveBundle,
-    failover::{read_nodes, write_nodes, Failover, Node, TrustedEndpoint},
+    failover::{cached_nodes, read_nodes, write_nodes, Failover, Node, TrustedEndpoint},
     outbox,
     period::GrantChanged,
     session::{AzlinSession, Grant},
@@ -255,10 +255,21 @@ impl AzlinDrive {
     }
 
     /// Keeps the node list of every refresh in `path` (not secret: the app's state or cache
-    /// folder), and starts with the list kept there.
+    /// folder), and starts with what a start may take from the list kept there: in a shipped
+    /// build the HINTS of it - the addresses the block host is tried at - not the nodes' URLs
+    /// or their iroh ids and sockets, which the file (any process of the user can write it) does
+    /// not decide ([`cached_nodes`]); the first refresh of this process brings the list
+    /// itself.
     #[must_use]
-    pub fn with_nodes_file(mut self, path: &Path) -> Self {
-        let kept = read_nodes(path);
+    pub fn with_nodes_file(self, path: &Path) -> Self {
+        self.with_nodes_file_for(azul_appkit::anchors::layers_honoured(), path)
+    }
+
+    /// [`AzlinDrive::with_nodes_file`] with the build's choice as an argument (the tests set
+    /// both).
+    #[must_use]
+    pub fn with_nodes_file_for(mut self, honour: bool, path: &Path) -> Self {
+        let kept = cached_nodes(read_nodes(path), honour);
         if !kept.is_empty() {
             self.failover.set_nodes(kept);
         }

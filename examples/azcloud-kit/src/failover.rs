@@ -917,13 +917,92 @@ fn outcome_unknown(reply: &HttpReply) -> bool {
     )
 }
 
-/// Reads a node list kept in `path` (a JSON array of [`Node`]s); empty when there is none.
+/// The most bytes of a node-list file that are read: a list of a dozen nodes is a few kilobytes,
+/// and the file is one any process of the user can write.
+pub const NODES_FILE_MAX: u64 = 256 * 1024;
+/// The most nodes of a node-list file that are kept.
+pub const NODES_MAX: usize = 128;
+
+impl Node {
+    /// Whether the node is of a size a node can be: a name, a URL, an iroh id, at most
+    /// [`MAX_ADDRESSES`] addresses and as many iroh sockets, each of a length an address has.
+    #[must_use]
+    pub fn within_bounds(&self) -> bool {
+        self.name.len() <= 256
+            && self.url.len() <= 2048
+            && self.addresses.len() <= MAX_ADDRESSES
+            && self.addresses.iter().all(|a| a.len() <= 64)
+            && self.iroh_id.as_ref().is_none_or(|id| id.len() <= 128)
+            && self.iroh_addrs.len() <= MAX_ADDRESSES
+            && self.iroh_addrs.iter().all(|a| a.len() <= 64)
+    }
+
+    /// The node as the HINT a cache file may be (X-DELTA-AZDRIVE-KEYS-38): its name, whether it
+    /// served and the IP addresses it is reached at - where the block host is tried when its
+    /// name does not resolve ([`address_book`]; the request still goes to the NAME, so TLS
+    /// verifies the certificate for it and an address that lies only fails) - and nothing that
+    /// makes it a place requests are sent: no URL, no iroh id, no iroh sockets. `None` when no
+    /// address is left. Those come from a token server's answer in this process only.
+    #[must_use]
+    pub fn as_hint(&self) -> Option<Node> {
+        let addresses: Vec<String> = self
+            .addresses
+            .iter()
+            .filter(|a| a.trim().parse::<std::net::IpAddr>().is_ok())
+            .cloned()
+            .collect();
+        (!addresses.is_empty()).then(|| Node {
+            name: self.name.clone(),
+            url: String::new(),
+            addresses,
+            ready: self.ready,
+            iroh_id: None,
+            iroh_addrs: Vec::new(),
+        })
+    }
+}
+
+/// What a start may take from a node list kept on disk (`honour`: a build that may take the
+/// routes of its layers - a TEST build, [`azul_appkit::anchors::layers_honoured`]): all of it in
+/// a test build, the HINTS of it ([`Node::as_hint`]) in a shipped one. A cache file is no
+/// authority over where a drive's signed requests go: the node's URL and its iroh id and sockets
+/// come from the token server's answer of this process, which replaces the list at the first
+/// refresh.
+#[must_use]
+pub fn cached_nodes(nodes: Vec<Node>, honour: bool) -> Vec<Node> {
+    if honour {
+        nodes
+    } else {
+        nodes.iter().filter_map(Node::as_hint).collect()
+    }
+}
+
+/// Reads a node list kept in `path` (a JSON array of [`Node`]s); empty when there is none. The
+/// file is bounded ([`NODES_FILE_MAX`] bytes, [`NODES_MAX`] nodes, each of a size a node can be:
+/// [`Node::within_bounds`]): one that is larger, or no list, is none, and a node out of bounds is
+/// left out.
 #[must_use]
 pub fn read_nodes(path: &std::path::Path) -> Vec<Node> {
-    std::fs::read(path)
-        .ok()
-        .and_then(|text| serde_json::from_slice(&text).ok())
-        .unwrap_or_default()
+    use std::io::Read;
+
+    let Ok(file) = std::fs::File::open(path) else {
+        return Vec::new();
+    };
+    let mut text = Vec::new();
+    if file
+        .take(NODES_FILE_MAX + 1)
+        .read_to_end(&mut text)
+        .is_err()
+        || text.len() as u64 > NODES_FILE_MAX
+    {
+        return Vec::new();
+    }
+    let nodes: Vec<Node> = serde_json::from_slice(&text).unwrap_or_default();
+    nodes
+        .into_iter()
+        .filter(Node::within_bounds)
+        .take(NODES_MAX)
+        .collect()
 }
 
 /// Keeps `nodes` in `path` for the next start (best effort: the next refresh lists them again).

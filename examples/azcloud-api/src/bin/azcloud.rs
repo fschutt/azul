@@ -97,7 +97,9 @@ commands:
 
 flags (every one also has an environment variable; flag > environment > config file > default):
   (azcloud as shipped talks to the live token server: --profile, --token-url and --s3-url, their
-   variables and the config file's endpoints are read by a test build only, --features test-hooks)
+   variables and the config file's endpoints are read by a test build only, --features test-hooks;
+   so are --iroh-node and --iroh-addr and their variables: a shipped build dials the nodes the
+   token server's list names)
   --config F        the shared config file (AZLIN_CONFIG; default ~/.azlin/config.json)
   --profile P       local | trial | production (AZLIN_PROFILE; config endpoints.profile)
   --token-url U     the token server (AZLIN_TOKEN_URL, also AZLIN_TOKEN_SERVER)
@@ -105,7 +107,8 @@ flags (every one also has an environment variable; flag > environment > config f
   --meet-url U      the meeting server (AZMEET_WORKER)
   --relay R         off | default | a relay address (AZMEET_RELAY)
   --transport T     auto | iroh | https (AZCLOUD_TRANSPORT)
-  --iroh-node ID    the node to dial over iroh (AZLIN_IROH_NODE), --iroh-addr IP:PORT (AZLIN_IROH_ADDR)
+  --iroh-node ID    the node to dial over iroh (AZLIN_IROH_NODE), --iroh-addr IP:PORT (AZLIN_IROH_ADDR);
+                    test builds only
   --state-dir D     this device's state folder (AZCLOUD_HOME; default <OS config folder>/azcloud)
   --data-dir D      the data root of the Azlin apps (AZLIN_DATA)
   --azlin-home D    the .azlin folder (AZLIN_HOME; default ~/.azlin)

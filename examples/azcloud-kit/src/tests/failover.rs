@@ -34,7 +34,7 @@ use super::{bundle, empty_listing, fake_s3::FakeS3, header, json, Fake, Shared, 
 use crate::{
     bucket::Bucket,
     drive::{AzlinDrive, TransportFactory},
-    failover::{Node, Retry, STICKY_SECS},
+    failover::{cached_nodes, read_nodes, Node, Retry, NODES_FILE_MAX, NODES_MAX, STICKY_SECS},
     shared::SharedKeyring,
     AzlinSession, DriveBundle,
 };
@@ -620,6 +620,18 @@ fn azlin_drive(
     now: u64,
     nodes_file: &std::path::Path,
 ) -> AzlinDrive {
+    azlin_drive_choice(true, fake, dir, now, nodes_file)
+}
+
+/// The drive as a build that takes the kept node list in full (`honour`: a test build) or as
+/// hints (a shipped one) starts it.
+fn azlin_drive_choice(
+    honour: bool,
+    fake: &Arc<Fake>,
+    dir: &TempDir,
+    now: u64,
+    nodes_file: &std::path::Path,
+) -> AzlinDrive {
     let first = DriveBundle::parse(&bundle("AKID1", "2026-10-08T21:15:00Z", "dt_f.0.aaa")).unwrap();
     let keyring = Arc::new(MemoryKeyring::new());
     keyring
@@ -637,7 +649,7 @@ fn azlin_drive(
     )
     .unwrap()
     .with_clock(move || now)
-    .with_nodes_file(nodes_file)
+    .with_nodes_file_for(honour, nodes_file)
 }
 
 #[test]
@@ -989,4 +1001,171 @@ fn a_completion_without_an_answer_that_did_not_happen_is_sent_again() {
     assert_eq!(completed.unwrap(), Some(done));
     let posts = fake.calls().iter().filter(|c| c.method == Method::Post).count();
     assert_eq!(posts, 2, "the object is not there: the completion goes to the next node");
+}
+
+// ==== The node list kept on disk is a hint (X-DELTA-AZDRIVE-KEYS-38) ====
+
+/// A node as a hostile file writes it: its own host, its own iroh key and socket.
+fn hostile_node() -> Node {
+    Node {
+        name: String::from("n9"),
+        url: String::from("https://evil.example"),
+        addresses: vec![String::from("203.0.113.9"), String::from("evil.example")],
+        ready: true,
+        iroh_id: Some("ab".repeat(32)),
+        iroh_addrs: vec![String::from("203.0.113.9:41000")],
+    }
+}
+
+/// The file is one any process of the user can write: a list of any size is not read, a list of
+/// any length is cut, a node of no size a node has is left out, and a file that is no list is
+/// none.
+#[test]
+fn a_node_list_file_is_read_within_bounds() {
+    let dir = TempDir::new("azcloud-nodes-bounds");
+    let path = dir.path().join("nodes.json");
+    let write = |value: &serde_json::Value| {
+        std::fs::write(&path, serde_json::to_vec(value).unwrap()).unwrap()
+    };
+
+    // A normal list is read.
+    write(&serde_json::json!([{"name": "n2", "url": N2, "ready": true}]));
+    assert_eq!(read_nodes(&path), vec![node("n2", N2, true)]);
+
+    // Longer than the bound: the first NODES_MAX.
+    let many: Vec<serde_json::Value> = (0..NODES_MAX + 50)
+        .map(|i| serde_json::json!({"name": format!("n{i}"), "url": N2, "ready": true}))
+        .collect();
+    write(&serde_json::Value::Array(many));
+    assert_eq!(read_nodes(&path).len(), NODES_MAX);
+
+    // A node of a size no node has is left out; the others stay.
+    write(&serde_json::json!([
+        {"name": "ok", "url": N2, "ready": true},
+        {"name": "x".repeat(300), "url": N2, "ready": true},
+        {"name": "far", "url": format!("https://{}.example", "a".repeat(3000)), "ready": true},
+        {"name": "wide", "url": N2, "addresses": (0..40).map(|i| format!("10.0.0.{i}")).collect::<Vec<_>>()},
+    ]));
+    assert_eq!(read_nodes(&path), vec![node("ok", N2, true)]);
+
+    // A file larger than the bound is not read at all (it is no list a refresh wrote).
+    let filler = "x".repeat(usize::try_from(NODES_FILE_MAX).unwrap());
+    write(&serde_json::json!([{"name": filler, "url": N2, "ready": true}]));
+    assert!(read_nodes(&path).is_empty());
+
+    // No list, no file: none.
+    std::fs::write(&path, b"{\"not\": \"a list\"}").unwrap();
+    assert!(read_nodes(&path).is_empty());
+    std::fs::write(&path, b"\xff\xfe not json").unwrap();
+    assert!(read_nodes(&path).is_empty());
+    assert!(read_nodes(&dir.path().join("missing.json")).is_empty());
+}
+
+/// A SHIPPED start takes the HINTS of a kept list - IP addresses to try the block host at - and
+/// nothing that makes a node a place requests go to: no URL, no iroh id, no iroh sockets, no
+/// address that is not an IP. A test build takes the list as it is.
+#[test]
+fn a_shipped_start_takes_only_the_address_hints_of_a_kept_node_list() {
+    let honest = Node {
+        addresses: vec![String::from("10.0.0.2"), String::from("fd00::2")],
+        iroh_id: Some("cd".repeat(32)),
+        iroh_addrs: vec![String::from("10.0.0.2:41000")],
+        ..node("n2", N2, true)
+    };
+    let list = vec![honest.clone(), hostile_node(), node("n3", N1, true)];
+
+    let hints = cached_nodes(list.clone(), false);
+    assert_eq!(
+        hints.len(),
+        2,
+        "a node with no IP address is no hint: {hints:?}"
+    );
+    for hint in &hints {
+        assert!(hint.url.is_empty(), "a URL came with the file: {hint:?}");
+        assert!(
+            hint.iroh_id.is_none() && hint.iroh_addrs.is_empty(),
+            "{hint:?}"
+        );
+        assert!(
+            hint.addresses
+                .iter()
+                .all(|a| a.parse::<std::net::IpAddr>().is_ok()),
+            "{hint:?}"
+        );
+    }
+    assert_eq!(hints[0].name, "n2");
+    assert_eq!(
+        hints[0].addresses,
+        vec![String::from("10.0.0.2"), String::from("fd00::2")]
+    );
+    assert_eq!(hints[1].name, "n9");
+    assert_eq!(hints[1].addresses, vec![String::from("203.0.113.9")]);
+
+    assert_eq!(
+        cached_nodes(list.clone(), true),
+        list,
+        "a test build takes the list"
+    );
+}
+
+/// The wiring, through the drive: after a restart a shipped drive sends nothing to a node the
+/// file names (the kept list of the first run is used by a test build, as the test above has it),
+/// and a hostile file adds no host, no failover URL and no iroh target.
+#[test]
+fn a_shipped_drive_does_not_route_by_the_node_list_file() {
+    let dir = TempDir::new("azcloud-failover-shipped");
+    let nodes_file = dir.path().join("nodes").join("d_1.json");
+    let fake = cloud_with_nodes();
+    let drive = azlin_drive(&fake, &dir, 1_791_493_500, &nodes_file);
+    drive.failover().set_retry(Retry::once());
+    drive.list(&ListRequest::folder("")).unwrap();
+    assert!(
+        nodes_file.is_file(),
+        "the refresh kept the list for the next start"
+    );
+
+    // The next start, shipped: the kept node is a hint, not a route.
+    let again = Fake::new(|call, _| {
+        if call.url.starts_with(S3) {
+            return Err(String::from("connection refused"));
+        }
+        Ok(empty_listing())
+    });
+    let drive = azlin_drive_choice(false, &again, &dir, 1_791_450_900, &nodes_file);
+    drive.failover().set_retry(Retry::once());
+    let _ = drive.list(&ListRequest::folder(""));
+    assert_eq!(
+        hosts(&again),
+        vec![S3.to_string()],
+        "a node of the file was asked: {:?}",
+        hosts(&again)
+    );
+    assert!(drive.nodes().iter().all(|n| n.url.is_empty()));
+
+    // A file a stranger wrote: nothing of it is a host, an alternative or an iroh target.
+    std::fs::write(
+        &nodes_file,
+        serde_json::to_vec(&vec![hostile_node()]).unwrap(),
+    )
+    .unwrap();
+    let hostile = Fake::new(|call, _| {
+        if call.url.starts_with(S3) {
+            return Err(String::from("connection refused"));
+        }
+        Ok(empty_listing())
+    });
+    let drive = azlin_drive_choice(false, &hostile, &dir, 1_791_450_900, &nodes_file);
+    drive.failover().set_retry(Retry::once());
+    let _ = drive.list(&ListRequest::folder(""));
+    assert!(
+        hosts(&hostile).iter().all(|h| !h.contains("evil")),
+        "the request reached the file's host: {:?}",
+        hosts(&hostile)
+    );
+    assert!(drive
+        .failover()
+        .nodes()
+        .iter()
+        .all(|n| n.iroh_id.is_none() && n.iroh_addrs.is_empty() && n.url.is_empty()));
+    assert!(!drive.failover().route().iter().any(|u| u.contains("evil")));
 }

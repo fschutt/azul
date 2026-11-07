@@ -6,8 +6,11 @@
 //!
 //! - The nodes it dials: every ready node of the last credential refresh that names its
 //!   `iroh_id` (or `sign_pubkey`), at every socket of its `iroh_addrs` - no discovery and no DNS
-//!   needed - in the list's order (healthiest first). `--iroh-node` / `AZLIN_IROH_NODE` (with
-//!   `--iroh-addr` / `AZLIN_IROH_ADDR`, comma-separated sockets) pins one instead.
+//!   needed - in the list's order (healthiest first). In a TEST build `--iroh-node` /
+//!   `AZLIN_IROH_NODE` (with `--iroh-addr` / `AZLIN_IROH_ADDR`, comma-separated sockets) pins one
+//!   instead; a shipped build reads no pin (X-DELTA-AZDRIVE-KEYS-38), and the list is the one the
+//!   token server answered with in this process - a node list kept on disk gives address hints,
+//!   not iroh targets ([`crate::failover::cached_nodes`]).
 //! - Each node is probed once before its first request: one signed HEAD of a key that never
 //!   exists, waited for at most [`PROBE_TIMEOUT`]; any answer means the pipe works.
 //! - A node that does not answer rests for [`IROH_RETRY_SECS`] (its own backoff: the other nodes
@@ -57,8 +60,8 @@ pub const IROH_RETRY_SECS: i64 = 300;
 /// answer is a 404 over a working pipe.
 pub const PROBE_KEY: &str = ".azlin/probe";
 /// Why `auto` cannot use iroh without a node to dial.
-pub const NO_IROH_NODE: &str = "no node's iroh id is known: pass --iroh-node (AZLIN_IROH_NODE); \
-                                the token server's node list names no iroh_id";
+pub const NO_IROH_NODE: &str = "no node's iroh id is known (the token server's node list names \
+                                no iroh_id; a test build can pin one: --iroh-node)";
 
 /// The transport asked for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
