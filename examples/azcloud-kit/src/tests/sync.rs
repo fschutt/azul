@@ -762,6 +762,39 @@ fn garbage_collection_deletes_only_old_blobs_no_index_names() {
     assert!(store.read(&blob_key(PREFIX, &hash_bytes(b"two"))).is_some());
 }
 
+/// AZ-S14. An entry another writer made unreadable in ONE field (a size of -1) is kept as written
+/// and can be healed; its blob is still the entry's content. The garbage collection counted
+/// only the entries it could read, so after the grace period it deleted that blob and the entry
+/// dangled for good. RED not run: the old code deletes `x.txt`'s blob (report.deleted is 2).
+#[test]
+fn az_s14_garbage_collection_keeps_the_blob_a_damaged_but_recoverable_entry_names() {
+    let store = S3Bucket::new();
+    let a = Device::new("dev-s14");
+    a.write("x.txt", b"x");
+    a.write("old.txt", b"old");
+    a.sync(&store);
+    a.write("old.txt", b"newer");
+    a.sync(&store);
+    let key = index_key(PREFIX);
+    let mut whole: serde_json::Value = serde_json::from_slice(&store.read(&key).unwrap()).unwrap();
+    whole["files"]["x.txt"]["size"] = serde_json::json!(-1);
+    whole["generation"] = serde_json::json!(whole["generation"].as_u64().unwrap() + 1);
+    store.write(&key, serde_json::to_vec_pretty(&whole).unwrap());
+    let x = blob_key(PREFIX, &hash_bytes(b"x"));
+    let old = blob_key(PREFIX, &hash_bytes(b"old"));
+    assert!(store.read(&x).is_some() && store.read(&old).is_some());
+    let report = collect_garbage(&store, PREFIX, -1, false).unwrap();
+    assert!(
+        store.read(&x).is_some(),
+        "the blob the damaged entry names is kept: {report:?}"
+    );
+    assert!(
+        store.read(&old).is_none(),
+        "what no entry names, readable or not, still goes: {report:?}"
+    );
+    assert_eq!(report.deleted, 1, "{report:?}");
+}
+
 #[test]
 fn the_azlin_tree_is_the_data_root_and_the_dot_azlin_folder_each_once() {
     let roots = azlin_roots(

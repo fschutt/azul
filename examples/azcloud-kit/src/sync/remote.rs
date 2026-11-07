@@ -451,14 +451,37 @@ impl RemoteIndex {
         self.files.values().any(|f| f.hash == hash) || self.deleted.values().any(|t| t.hash == hash)
     }
 
-    /// Every hash the index names.
+    /// Every hash the index names - also in the entries whose fields cannot be read
+    /// ([`RemoteIndex::damaged`], kept as written): one whose size is garbage may still name its
+    /// content, and a garbage collection that did not count it would delete the blob an entry
+    /// that can be healed still needs (AZ-S14).
     #[must_use]
     pub fn referenced(&self) -> BTreeSet<&str> {
-        self.files
+        let mut out: BTreeSet<&str> = self
+            .files
             .values()
             .map(|f| f.hash.as_str())
             .chain(self.deleted.values().map(|t| t.hash.as_str()))
-            .collect()
+            .collect();
+        for entry in self.damaged.values() {
+            hashes_in(&entry.raw, &mut out);
+        }
+        out
+    }
+}
+
+/// Every string in `value` that is a content hash ([`is_hash`]), wherever in it: an entry that
+/// cannot be read is not read for the field that names its blob.
+fn hashes_in<'a>(value: &'a serde_json::Value, out: &mut BTreeSet<&'a str>) {
+    match value {
+        serde_json::Value::String(text) if is_hash(text) => {
+            out.insert(text.as_str());
+        }
+        serde_json::Value::Array(items) => items.iter().for_each(|item| hashes_in(item, out)),
+        serde_json::Value::Object(fields) => {
+            fields.values().for_each(|field| hashes_in(field, out))
+        }
+        _ => {}
     }
 }
 
