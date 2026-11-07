@@ -13,9 +13,11 @@
 //! that must not wait). Hearing blocks until the user stopped talking or the time is up, so it
 //! is for a worker thread.
 //!
-//! A headless or E2E run (`AZ_BACKEND=headless`, `AZ_E2E_TEST`) neither speaks nor listens:
-//! every utterance is printed as `AZ_SPEECH <language> <text>` (and appended to the file
-//! `AZ_SPEECH_LOG` names), and hearing answers what `AZ_SPEECH_HEARD` holds, or nothing.
+//! A headless or E2E TEST run (`AZ_BACKEND=headless`, `AZ_E2E_TEST`; a build with the cargo
+//! feature `test-hooks` only, `azul_core::run_mode`) neither speaks nor listens: every utterance
+//! is printed as `AZ_SPEECH <language> <text>` (and appended to the file `AZ_SPEECH_LOG`
+//! names), and hearing answers what `AZ_SPEECH_HEARD` holds, or nothing. A shipped build always
+//! speaks and listens, whatever its environment holds.
 
 use azul_css::AzString;
 
@@ -214,12 +216,15 @@ pub(crate) enum Backend {
     Headless,
 }
 
-/// The speech of this run: the headless stand-in in a headless / E2E run (a test on a dev
-/// machine must not talk), else the platform's.
+/// The speech of this run ([`backend_for`] its hooks).
 fn backend_of_run() -> Backend {
-    let headless = std::env::var("AZ_BACKEND").as_deref() == Ok("headless")
-        || std::env::var("AZ_E2E_TEST").is_ok();
-    if headless {
+    backend_for(azul_core::run_mode::test_hooks())
+}
+
+/// The speech under the hooks `hooks`: the headless stand-in in a headless / E2E TEST run (a test
+/// on a dev machine must not talk), else the platform's.
+fn backend_for(hooks: &azul_core::run_mode::TestHooks) -> Backend {
+    if hooks.no_speech {
         Backend::Headless
     } else {
         Backend::Platform

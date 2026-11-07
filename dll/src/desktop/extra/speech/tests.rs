@@ -3,8 +3,29 @@
 //! reached: a test must not talk.
 
 use super::{
-    headless, language_tag, listen_with, sapi_text, say_with, Backend, HeardStatus, SpeechStatus,
+    backend_for, headless, language_tag, listen_with, sapi_text, say_with, Backend, HeardStatus,
+    SpeechStatus,
 };
+
+/// Which engine a run speaks through follows its hooks: a headless / E2E TEST run (hooks of a
+/// build with the cargo feature `test-hooks`) logs and says nothing, every other run - a shipped
+/// build whatever its environment holds - uses the platform's engines.
+#[test]
+fn only_the_hooks_of_a_test_run_stand_in_for_the_speech_engines() {
+    use azul_core::run_mode::TestHooks;
+
+    assert_eq!(backend_for(&TestHooks::HEADLESS), Backend::Headless);
+    assert_eq!(backend_for(&TestHooks::NONE), Backend::Platform);
+    // Each hook is its own switch: a run that stands in for the keyring only still talks.
+    let keyring_only = TestHooks {
+        keyring_headless: true,
+        ..TestHooks::NONE
+    };
+    assert_eq!(backend_for(&keyring_only), Backend::Platform);
+    // A build without the feature has no hooks, so it is the platform's, the environment aside.
+    #[cfg(not(feature = "test-hooks"))]
+    assert_eq!(super::backend_of_run(), Backend::Platform);
+}
 
 #[test]
 fn a_language_is_tagged_as_the_engines_want_it() {
