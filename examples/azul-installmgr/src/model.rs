@@ -1309,6 +1309,9 @@ pub struct Fetching {
     /// update has to prove against. A test builds an unarmed manager (`&[]`) and an armed one
     /// (a key) whatever the constant says.
     pub keys: &'static [&'static str],
+    /// What the vendor has retired, per app ([`anchors::RELEASE_FLOORS`]): a first install takes a
+    /// release newer than its app's entry. A test puts its own.
+    pub floors: &'static [(&'static str, &'static str)],
     /// The machine's rollout cohort.
     pub cohort: u8,
 }
@@ -1358,10 +1361,13 @@ pub fn install_new(
     let url = fetching.manifest(entry, channel)?;
     let paths = fetching.places.app(entry.key);
     let state = paths.state(channel);
+    // A fresh install has no marks to refuse an older release with: it asks for one newer than
+    // what the vendor has retired (X-DELTA-AZDRIVE-KEYS-33), "0" while nothing is.
+    let floor = anchors::release_floor(fetching.floors, entry.key);
     let ask = |audience| {
         engine.check(&CheckRequest {
             manifest_url: &url,
-            current_version: "0",
+            current_version: floor,
             channel,
             state_dir: &state,
             cohort: fetching.cohort,
@@ -2131,6 +2137,7 @@ mod model_tests {
             places: places(dir, Os::Linux),
             updates: config.updates,
             keys: &[],
+            floors: &[],
             cohort: 50,
         }
     }
@@ -2362,6 +2369,56 @@ mod model_tests {
         let text = std::fs::read_to_string(desktop).unwrap();
         assert!(text.contains("Name=AzWriter") && text.contains(&reg.binary), "{text}");
         assert!(!paths.staging().join("2.0.0.bin").exists(), "the download is used up");
+    }
+
+    /// X-DELTA-AZDRIVE-KEYS-33: a first install has no marks to refuse an older release with, so a
+    /// manifest that listed a release the vendor retired - signed once, its statement not expired -
+    /// installed it. The manager asks for a release newer than the vendor's floor for the app: the
+    /// retired one is refused before anything is fetched, the next one installs, and another app's
+    /// floor changes nothing here.
+    #[test]
+    fn x_delta_azdrive_keys_33_a_first_install_takes_only_a_release_newer_than_the_vendors_floor() {
+        let dir = TempDir::new("installmgr-floor");
+        let engine = FakeEngine {
+            releases: vec![("azwriter", "1.4.2", false)],
+            ..FakeEngine::default()
+        };
+        let mut f = fetching(dir.path());
+        f.floors = &[("azwriter", "1.4.2")];
+        let err = install_new(&engine, &f, writer(), Channel::Stable, 1).unwrap_err();
+        assert!(err.contains("no release"), "{err}");
+        assert!(
+            !f.places.app("azwriter").current().exists(),
+            "nothing of the retired release is in place"
+        );
+
+        let engine = FakeEngine {
+            releases: vec![("azwriter", "1.4.3", false)],
+            ..FakeEngine::default()
+        };
+        let (reg, _) = install_new(&engine, &f, writer(), Channel::Stable, 1).unwrap();
+        assert_eq!(reg.version, "1.4.3", "the release after the floor installs");
+
+        let other = TempDir::new("installmgr-floor-other");
+        let mut f = fetching(other.path());
+        f.floors = &[("azmail", "9.0.0")];
+        let engine = FakeEngine {
+            releases: vec![("azwriter", "1.4.2", false)],
+            ..FakeEngine::default()
+        };
+        install_new(&engine, &f, writer(), Channel::Stable, 1)
+            .expect("another app's floor is not this app's");
+    }
+
+    /// X-DELTA-AZDRIVE-KEYS-33: a floor for an app the manager does not offer would retire nothing.
+    #[test]
+    fn x_delta_azdrive_keys_33_every_compiled_floor_names_an_app_the_manager_offers() {
+        for (key, version) in anchors::RELEASE_FLOORS {
+            assert!(
+                entry(key).is_some(),
+                "{key} (floor {version}) is no app of the catalogue"
+            );
+        }
     }
 
     #[test]

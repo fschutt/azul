@@ -247,7 +247,20 @@ version refuses an older one (its marks only move after a release has verified
 in full), but a first install has no marks to compare with, and a client
 cannot tell a withheld fix from a quiet week. Keep old releases' signing keys
 retired through the statement's expiry and `min_generation`, not through the
-hope that nobody keeps a copy.
+hope that nobody keeps a copy. The Azlin manager has one more lever for a first
+install: `RELEASE_FLOORS` in `examples/azul-appkit/src/anchors.rs`, a list of
+`(app key, version)` it asks to be NEWER than (empty until a release is retired;
+raise an app's entry with the release that retires an older one, in the same
+change as the new key generation).
+
+What the signature does not cover: the manifest's channel, its rollout
+(`slow`, the release date the ladder starts from) and the order of its
+releases are words of the manifest, not of a statement. Whoever writes the
+manifest can show a client a signed release of another channel, or end a
+staged rollout early; no client takes a build that was not signed for its app
+and platform, or one older than what it has verified. The marks (the highest
+version, the key generation, the clock floor) are kept per app AND channel, so
+an app's first check of a channel it never used starts from none.
 
 An empty `root_public_key` does **not** disable the chain. An app that
 carries no root key has no way to prove an update: it may check and notify,

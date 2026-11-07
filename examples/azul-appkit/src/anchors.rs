@@ -115,6 +115,28 @@ pub fn token_server_choice<'a>(
 /// `every_compiled_root_key_parses` then pins that each one is a key the updater will read.
 pub const UPDATE_ROOT_KEYS: &[&str] = &[];
 
+/// The newest release of an app that a FIRST install must not take, per app key: `(key, version)`.
+///
+/// An install that has never run has no marks (the highest version seen, the key generation) to
+/// refuse an older release with, so a manifest that lists a release the vendor signed once - one
+/// with a known flaw, under a signing-key statement that has not expired - would install it, and
+/// every later check would only compare with what was installed (X-DELTA-AZDRIVE-KEYS-33). The
+/// manager asks for a release NEWER than the entry ([`release_floor`]). EMPTY until the vendor has
+/// retired a release: the entry is raised with the release that retires an older one, in the same
+/// change as the key generation that does (`doc/guide/en/deploying/signing-updates.md`); tests
+/// pin that each entry is a version a file can carry, and that it names an app the manager offers.
+pub const RELEASE_FLOORS: &[(&str, &str)] = &[];
+
+/// The version a first install of the app `key` must be newer than: its entry in `floors`
+/// ([`RELEASE_FLOORS`] in a build), else `"0"` (any release).
+#[must_use]
+pub fn release_floor<'a>(floors: &'a [(&'a str, &'a str)], key: &str) -> &'a str {
+    floors
+        .iter()
+        .find(|(app, _)| *app == key)
+        .map_or("0", |&(_, version)| version)
+}
+
 /// The sentence every UI starts with when a build cannot prove an update.
 pub const NOT_AVAILABLE: &str = "updates are not available in this build";
 
@@ -328,6 +350,32 @@ mod tests {
             Some(TOKEN_SERVER)
         );
         assert!(TOKEN_SERVER.starts_with("https://"));
+    }
+
+    /// X-DELTA-AZDRIVE-KEYS-33: a first install has no marks, so the floor of an app is what it
+    /// is asked to be newer than: the app's entry of the table, else any release.
+    #[test]
+    fn x_delta_azdrive_keys_33_the_floor_of_a_first_install_is_the_apps_entry_else_any_release() {
+        let floors: &[(&str, &str)] = &[("azwriter", "1.4.2"), ("azmail", "0.9")];
+        assert_eq!(release_floor(floors, "azwriter"), "1.4.2");
+        assert_eq!(release_floor(floors, "azmail"), "0.9");
+        assert_eq!(
+            release_floor(floors, "azsheets"),
+            "0",
+            "an app the vendor retired nothing of"
+        );
+        assert_eq!(release_floor(&[], "azwriter"), "0");
+        // what is compiled in: every entry a version a file can carry, one entry per app
+        let mut keys: Vec<&str> = Vec::new();
+        for (key, version) in RELEASE_FLOORS {
+            assert!(
+                crate::update::safe_version(version)
+                    && version.starts_with(|c: char| c.is_ascii_digit()),
+                "{key}: {version:?} is no version"
+            );
+            assert!(!keys.contains(key), "{key} has two floors");
+            keys.push(key);
+        }
     }
 
     #[test]

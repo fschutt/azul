@@ -158,6 +158,7 @@ impl Manager {
             places: self.places.clone(),
             updates: self.updates.clone(),
             keys: self.keys,
+            floors: azul_appkit::anchors::RELEASE_FLOORS,
             cohort: self.cohort,
         }
     }
