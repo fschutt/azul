@@ -14,8 +14,8 @@
 //!   memory. The default of the trait is `Memory` for a test's stand-in; a store that keeps entries
 //!   on a disk must not be left with it by a copy of another store's impl (no allowance);
 //! - `AzulKeyring::new(` and `::quiet(` are called in `azlin_keyring` only - the one place the
-//!   Azlin apps' keyring is built, where its locks and its policy are applied. What still builds
-//!   one by hand is listed with its owner; the counts only go down;
+//!   Azlin apps' keyring is built, where its locks and its policy are applied (no other
+//!   allowance: AzMail's five went over to it);
 //! - `RemovalProof::from_checked_code(` is called in one place: `RecoveryState::removal_proof`,
 //!   which asks whether the drive's recovery code was typed back right. The proof lets a removed
 //!   drive's keys, paid months and open calls go; whoever made one by hand would make the evidence
@@ -67,19 +67,13 @@ const NO_PROTECTION: &str = "keyring-store-without-protection";
 const BUILT_BY_HAND: &str = "azul-keyring-built-by-hand";
 const PROOF_BY_HAND: &str = "removal-proof-made-by-hand";
 
-/// Where an `AzulKeyring` is still built by hand, and who changes it. TO SHRINK.
+/// Where an `AzulKeyring` is built by hand, and who changes it. TO SHRINK.
 const ALLOWED: &[Allow] = &[
     Allow::exactly(
         "examples/azul-storage/src/azul_keyring.rs",
         BUILT_BY_HAND,
         2,
         "azlin_keyring: the one place (`new` for a keyring that may ask, `quiet` for one that never does)",
-    ),
-    Allow::exactly(
-        "examples/azul-mail/src/lib.rs",
-        BUILT_BY_HAND,
-        5,
-        "AzMail's five: azul-mail/** is Z30-C2's (wave 2); they become azlin_keyring(Asking::User)",
     ),
     Allow::exactly(
         "examples/azul-drive/src/recovery_health.rs",

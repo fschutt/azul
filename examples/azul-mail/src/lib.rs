@@ -118,7 +118,9 @@ use azul_appkit::{
     l10n::{t, t_args, t_text, Arg, Phrase, Text},
     ui as kit,
 };
-use azul_storage::{azul_keyring::AzulKeyring, azul_transport::AzulTransport, Drive};
+use azul_storage::{
+    azul_keyring::azlin_keyring, azul_transport::AzulTransport, keyring::Asking, Drive,
+};
 use listing::{FolderInfo, ListRow, LocalFlags};
 use message::MessageView;
 use store::{DriveFolder, FolderState, IndexEntry, MailStore};
@@ -367,9 +369,7 @@ impl MailApp {
         // The account sessions' locks are the keyring's: every AzMail and Azlin app of this
         // user that reaches the same entries takes turns there.
         let shared_keyring = azcloud_kit::SharedKeyring::new(
-            std::sync::Arc::new(azul_storage::azul_keyring::AzulKeyring::new(
-                azul_storage::keyring::KeyringNamespace::azlin_shared(),
-            )),
+            std::sync::Arc::new(azlin_keyring(Asking::User)),
             azul_storage::keyring::KeyringNamespace::azlin_shared(),
         );
         // Read once, before the window (as the kit reads settings.json).
@@ -1354,14 +1354,14 @@ fn sync_drive(
         session,
         job.endpoints.s3_url.as_deref(),
         Box::new(transport.clone()),
-        &AzulKeyring::new(azul_storage::keyring::KeyringNamespace::azlin_shared()),
+        &azlin_keyring(Asking::User),
     )
     .map_err(azlin_sync::drive_error)?;
     let drive = mail_drive::open(
         session,
         job.endpoints.s3_url.as_deref(),
         Box::new(transport.clone()),
-        std::sync::Arc::new(AzulKeyring::new(azul_storage::keyring::KeyringNamespace::azlin_shared())),
+        std::sync::Arc::new(azlin_keyring(Asking::User)),
     )
     .map_err(azlin_sync::drive_error)?;
     azlin_sync::sync_account(&drive, &MailStore::new(job.mail_root.clone()), options, progress)
@@ -1785,7 +1785,7 @@ impl AzlinContext {
             &session,
             self.endpoints.s3_url.as_deref(),
             Box::new(AzulTransport::new(USER_AGENT)),
-            std::sync::Arc::new(AzulKeyring::new(azul_storage::keyring::KeyringNamespace::azlin_shared())),
+            std::sync::Arc::new(azlin_keyring(Asking::User)),
         )
         .map_err(|e| e.to_string())
     }
@@ -2035,7 +2035,7 @@ extern "C" fn io_thread(mut init: RefAny, mut sender: ThreadSender, _receiver: T
                         .map_err(|e| e.to_string())?;
                     let (_, code) = azul_storage::crypto::device::setup_new_drive(
                         &bucket,
-                        &AzulKeyring::new(azul_storage::keyring::KeyringNamespace::azlin_shared()),
+                        &azlin_keyring(Asking::User),
                         &session.drive_id,
                         kdf,
                     )
