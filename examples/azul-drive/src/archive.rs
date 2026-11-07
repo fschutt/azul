@@ -359,7 +359,7 @@ pub(crate) fn banner(s: &DriveState, app: &RefAny) -> Option<Dom> {
 }
 
 /// What the bar says of the copy to this computer.
-fn rescue_phrase(r: &Rescue) -> Option<Phrase> {
+pub(crate) fn rescue_phrase(r: &Rescue) -> Option<Phrase> {
     let folder = r.folder.display().to_string();
     if let Some((needed, free)) = r.no_space {
         return Some(
@@ -368,7 +368,8 @@ fn rescue_phrase(r: &Rescue) -> Option<Phrase> {
                 .arg("free", azcloud_kit::usage::size_text(free)),
         );
     }
-    if r.running {
+    // A record a cut-off run left says how far it got, not "done": the next look goes on.
+    if r.running || (r.cut_off() && r.total > 0) {
         return Some(
             Phrase::new("azdrive-archive-rescue-running")
                 .arg("folder", folder.as_str())
@@ -385,7 +386,8 @@ fn rescue_phrase(r: &Rescue) -> Option<Phrase> {
                 .arg("folder", folder.as_str()),
         );
     }
-    (r.total > 0).then(|| Phrase::new("azdrive-archive-rescue-done").arg("folder", folder.as_str()))
+    (r.total > 0 && r.copied >= r.total)
+        .then(|| Phrase::new("azdrive-archive-rescue-done").arg("folder", folder.as_str()))
 }
 
 // ==== The locked drive ====
@@ -773,7 +775,8 @@ pub(crate) struct Rescue {
     /// The disk had too little room: what the copy needed, and what was free.
     #[serde(default)]
     pub no_space: Option<(u64, u64)>,
-    /// When the last copy ended (seconds since 1970).
+    /// When the last copy ended (seconds since 1970); 0 in the record a run keeps while it is still
+    /// copying - a run that is cut off leaves that one, and it is not "done".
     #[serde(default)]
     pub at: u64,
     /// What the copy wrote, key by key: the length and the time of the file as it was written. A
@@ -787,6 +790,16 @@ pub(crate) struct Rescue {
     pub kept: Vec<String>,
     #[serde(skip)]
     pub running: bool,
+}
+
+impl Rescue {
+    /// Whether this is the record of a run that did not end: kept part-way (no end time) or with
+    /// fewer files copied than the drive has and nothing said to be missing.
+    pub(crate) fn cut_off(&self) -> bool {
+        self.no_space.is_none()
+            && self.missing.is_empty()
+            && (self.at == 0 || self.copied < self.total)
+    }
 }
 
 /// A file as the copy wrote it.
@@ -936,10 +949,7 @@ pub(crate) fn after_look(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
                 s.rescues.insert(azlin_id.clone(), kept);
             }
         }
-        let due = s.rescues.get(&azlin_id).is_none_or(|r| {
-            !r.running && (!r.missing.is_empty() || r.no_space.is_some() || now >= r.at + DAY)
-        });
-        if !due {
+        if !rescue_due(s.rescues.get(&azlin_id), now) {
             continue;
         }
         let Some(drive_id) = slot_of(s, &azlin_id) else {
@@ -962,6 +972,21 @@ pub(crate) fn after_look(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
         };
         spawn(info, app, s, job);
     }
+}
+
+/// Whether the copy of a drive whose last state is `last` (none before a first copy) runs now: it
+/// is not running, and it has not ended well yet - files missing, too little room, a record kept
+/// part-way by a run that was cut off (no end time, or fewer files than the drive has) - or a day
+/// passed since it ended (X-DELTA-AZDRIVE-FILES-18: the record of a cut run said "done" and
+/// waited a day).
+pub(crate) fn rescue_due(last: Option<&Rescue>, now: u64) -> bool {
+    last.is_none_or(|r| {
+        !r.running
+            && (!r.missing.is_empty()
+                || r.no_space.is_some()
+                || r.cut_off()
+                || now >= r.at.saturating_add(DAY))
+    })
 }
 
 /// How far a running copy got.
@@ -1148,9 +1173,10 @@ pub(crate) fn run_rescue(
     progress: &mut dyn FnMut(usize, usize),
 ) -> Rescue {
     let earlier = state.and_then(rescue_read).unwrap_or_default();
+    // `at` stays 0 while the copy runs: the record kept on the way is a run that did not end
+    // (X-DELTA-AZDRIVE-FILES-18); `keep_report` says when it ended.
     let mut report = Rescue {
         folder: folder.to_path_buf(),
-        at: now_secs(),
         written: earlier.written,
         ..Rescue::default()
     };
@@ -1218,6 +1244,7 @@ pub(crate) fn run_rescue(
         }
     }
     let target_drive = LocalDrive::without_manifest(folder);
+    let mut since_kept = 0usize;
     for (n, ((o, target), step)) in files.iter().zip(&targets).zip(steps).enumerate() {
         match step {
             Step::Have => {
@@ -1285,17 +1312,32 @@ pub(crate) fn run_rescue(
         }
         if n % 25 == 0 {
             progress(report.copied, report.total);
-            // What is written so far is remembered: a copy cut off here does not forget it.
+        }
+        // What is written so far is remembered: a copy cut off here does not forget it - but the
+        // whole ledger is rewritten (and synced) each time, so the writes are spread by the
+        // ledger's size, not by a fixed number of files.
+        since_kept += 1;
+        if keep_due(since_kept, report.written.len()) {
+            since_kept = 0;
             keep_report_partly(&report, state);
         }
     }
     keep_report(report, state)
 }
 
+/// How many files a run copies between two writes of its record: 25 at least, and an eighth of the
+/// ledger as it is - so the bytes written in all grow with the ledger and not with its square (a
+/// 100,000-file drive rewrote a ~10 MB ledger 4,000 times, each time synced:
+/// X-DELTA-AZDRIVE-FILES-18).
+pub(crate) fn keep_due(files_since: usize, ledger: usize) -> bool {
+    files_since >= (ledger / 8).max(25)
+}
+
 /// The state written whole to `state` (nowhere without one): the old file or the new one
 /// survives a crash or a power cut, and a torn file does not lose the list of what is missing
-/// (AZ X-AR5a-5).
-fn keep_report(report: Rescue, state: Option<&Path>) -> Rescue {
+/// (AZ X-AR5a-5). The end of a run, with the time it ended.
+fn keep_report(mut report: Rescue, state: Option<&Path>) -> Rescue {
+    report.at = now_secs();
     keep_report_partly(&report, state);
     report
 }

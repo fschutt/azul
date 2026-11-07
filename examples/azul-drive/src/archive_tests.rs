@@ -16,8 +16,8 @@ use azul_storage::{
 use azul_appkit::phrase::{Arg, Phrase};
 
 use crate::archive::{
-    folder_name_among, months_needed, run_rescue, stage_of, stage_phrase, target_of, target_of_on,
-    Rescue, Stage,
+    folder_name_among, keep_due, months_needed, rescue_due, rescue_phrase, run_rescue, stage_of,
+    stage_phrase, target_of, target_of_on, Rescue, Stage,
 };
 
 /// A disk whose free space the test's system cannot tell.
@@ -901,4 +901,137 @@ fn x_delta_azdrive_files_17_the_name_of_a_file_gone_from_the_drive_is_not_given_
             (String::from("report.txt"), b"lower".to_vec()),
         ]
     );
+}
+
+/// A run that is cut off (killed, powered off) leaves the record it kept on the way: that record
+/// said `missing = []`, the bar showed "done", and the next copy waited a day after the cut run
+/// BEGAN - 9,500 files of a drive that locks within that day were not rescued.
+#[test]
+fn x_delta_azdrive_files_18_a_run_cut_off_leaves_a_record_that_is_not_done_and_is_due() {
+    let tmp = TempDir::new("dx18-cut");
+    let names: Vec<String> = (0..60).map(|i| format!("f{i:02}.txt")).collect();
+    let files: Vec<(&str, &[u8])> = names.iter().map(|n| (n.as_str(), &b"abc"[..])).collect();
+    let drive = Tagged::with(&files);
+    let folder = tmp.path().join("copy");
+    let state = tmp.path().join("d_x.rescue.json");
+    let cut = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let mut heard = 0;
+        run_rescue(&drive, &folder, NO_PROBE, Some(&state), &mut |_, _| {
+            heard += 1;
+            // The third report comes at the 51st file: the power goes out there.
+            assert!(heard < 3, "the power went out");
+        })
+    }));
+    assert!(cut.is_err(), "the run was cut off");
+    let kept: Rescue = serde_json::from_str(&std::fs::read_to_string(&state).unwrap()).unwrap();
+    assert!(kept.copied > 0 && kept.copied < kept.total, "{kept:?}");
+    assert_eq!(kept.at, 0, "it did not end: {kept:?}");
+    assert!(kept.missing.is_empty());
+    assert!(
+        rescue_due(Some(&kept), crate::actions::now_secs()),
+        "the next look goes on, not a day later"
+    );
+    let phrase = rescue_phrase(&kept).unwrap();
+    assert_ne!(phrase.key, "azdrive-archive-rescue-done", "{phrase:?}");
+    assert_eq!(phrase.key, "azdrive-archive-rescue-running");
+    // The next run finishes it and keeps the end.
+    let end = run_rescue(&drive, &folder, NO_PROBE, Some(&state), &mut |_, _| {});
+    assert_eq!((end.copied, end.total), (60, 60), "{end:?}");
+    let kept: Rescue = serde_json::from_str(&std::fs::read_to_string(&state).unwrap()).unwrap();
+    assert!(kept.at > 0, "it ended: {kept:?}");
+    assert_eq!(
+        rescue_phrase(&kept).unwrap().key,
+        "azdrive-archive-rescue-done"
+    );
+    assert!(
+        !rescue_due(Some(&kept), kept.at + 60),
+        "done: not again at once"
+    );
+    assert!(rescue_due(Some(&kept), kept.at + DAY), "a day later it is");
+}
+
+/// When a copy runs again: never while it runs; at once when nothing was kept, files are missing,
+/// there was no room, or the last run did not end - however old its record; a day after it ended.
+#[test]
+fn x_delta_azdrive_files_18_when_the_copy_runs_again() {
+    let now = 10 * DAY;
+    let ended = Rescue {
+        total: 5,
+        copied: 5,
+        at: now - 60,
+        ..Rescue::default()
+    };
+    assert!(rescue_due(None, now), "no copy yet");
+    assert!(!rescue_due(Some(&ended), now));
+    assert!(rescue_due(Some(&ended), now + DAY));
+    let running = Rescue {
+        running: true,
+        ..Rescue::default()
+    };
+    assert!(!rescue_due(Some(&running), now));
+    for (what, record) in [
+        (
+            "missing",
+            Rescue {
+                missing: vec![String::from("a")],
+                ..ended.clone()
+            },
+        ),
+        (
+            "no room",
+            Rescue {
+                no_space: Some((10, 1)),
+                ..ended.clone()
+            },
+        ),
+        (
+            "kept part-way",
+            Rescue {
+                copied: 2,
+                at: 0,
+                ..ended.clone()
+            },
+        ),
+        (
+            // A record an older AzDrive kept on the way: the time of the START, nothing missing.
+            "an older cut-off record",
+            Rescue {
+                copied: 2,
+                at: now - 60,
+                ..ended.clone()
+            },
+        ),
+    ] {
+        assert!(rescue_due(Some(&record), now), "{what}");
+        assert_ne!(
+            rescue_phrase(&record).map(|p| p.key),
+            Some(String::from("azdrive-archive-rescue-done")),
+            "{what}"
+        );
+    }
+}
+
+/// The record is written whole and synced each time: 25 files at a time rewrote a ledger of
+/// 100,000 files 4,000 times. The writes follow the ledger's size, so the bytes written in all
+/// follow the ledger and not its square.
+#[test]
+fn x_delta_azdrive_files_18_the_record_is_not_rewritten_every_25_files() {
+    let (mut flushes, mut entries_written, mut since) = (0usize, 0usize, 0usize);
+    let n = 100_000usize;
+    for ledger in 1..=n {
+        since += 1;
+        if keep_due(since, ledger) {
+            since = 0;
+            flushes += 1;
+            entries_written += ledger;
+        }
+    }
+    assert!(flushes < 100, "{flushes} writes for {n} files");
+    assert!(
+        entries_written < 12 * n,
+        "{entries_written} ledger entries written for {n} files"
+    );
+    // A small run still keeps its record every 25 files.
+    assert!(!keep_due(24, 0) && keep_due(25, 0));
+    assert!(!keep_due(25, 1000) && keep_due(125, 1000));
 }
