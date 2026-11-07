@@ -269,13 +269,24 @@ pub struct Compacted {
     pub replaced: Vec<String>,
 }
 
+/// The most bytes of packs one compaction folds into one new pack (the sum of the packs it
+/// replaces): three quarters of the largest index object a frozen drive takes in one PUT
+/// ([`azlin_contract::INDEX_OBJECT_MAX`], 64 MiB), so that the compacted pack is an object the
+/// drive's node still takes when the drive is unpaid, and a compaction never holds more than this
+/// in memory (AZ-M5).
+pub const COMPACT_PACK_MAX: u64 = azlin_contract::INDEX_OBJECT_MAX / 4 * 3;
+
 /// When a maintenance round ([`MetaStore::maintain`]) does what.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Maintenance {
-    /// How long the round may hold the lease (seconds).
+    /// How long the round may hold the lease (seconds). The round extends it before the steps
+    /// that need it, so a long round keeps it.
     pub lease_secs: u64,
-    /// Fold the live packs into one from this many on.
+    /// Fold the live packs from this many on.
     pub compact_at_packs: usize,
+    /// The most bytes of packs a compaction folds into one pack ([`COMPACT_PACK_MAX`]): a drive
+    /// whose index is bigger keeps several packs, none bigger than this.
+    pub compact_max_bytes: u64,
     /// Write a checkpoint from this many log entries after the last one on.
     pub checkpoint_at_entries: usize,
     /// How old an object no manifest names must be before the sweep retires it (seconds).
@@ -285,11 +296,13 @@ pub struct Maintenance {
 }
 
 impl Default for Maintenance {
-    /// Ten minutes of lease; 16 packs; 64 log entries; a day for orphans and for the grace.
+    /// Ten minutes of lease; 16 packs of at most [`COMPACT_PACK_MAX`] folded; 64 log entries; a
+    /// day for orphans and for the grace.
     fn default() -> Self {
         Maintenance {
             lease_secs: 600,
             compact_at_packs: 16,
+            compact_max_bytes: COMPACT_PACK_MAX,
             checkpoint_at_entries: 64,
             orphan_age: 86_400,
             grace: 86_400,
@@ -306,6 +319,20 @@ pub struct Maintained {
     pub checkpointed: bool,
     /// The retired objects deleted.
     pub collected: usize,
+}
+
+/// Whether the steps of a maintenance round that are left are worth trying after a step failed
+/// with `e`: the storage did not answer, or another device was quicker. A lease that was lost, a
+/// repository that does not open or read right, or one that went back in time end the round.
+fn round_goes_on(e: &MetaError) -> bool {
+    matches!(
+        e,
+        MetaError::Drive(_)
+            | MetaError::Raced { .. }
+            | MetaError::Conflict { .. }
+            | MetaError::OutcomeUnknown { .. }
+            | MetaError::Contended { .. }
+    )
 }
 
 fn sealed_error(key: &str, e: &SealError) -> MetaError {
@@ -1227,10 +1254,35 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
     /// Folds every live pack into one (under `guard`): the objects stay, the old
     /// packs are retired. `Ok(None)` when there is at most one pack.
     pub fn compact(&mut self, guard: &LeaseGuard) -> Result<Option<Compacted>, MetaError> {
+        self.compact_within(guard, u64::MAX)
+    }
+
+    /// [`MetaStore::compact`] of the smallest packs whose bytes add up to `max_bytes` at most: the
+    /// pack it makes is never bigger than that (and holds that much in memory at most). A pack
+    /// that is bigger than `max_bytes` itself is left as it is; `Ok(None)` when fewer than two
+    /// packs fit together (AZ-M5: a repository of a few hundred MiB was folded into one pack a
+    /// frozen drive's node refuses, and read whole by every device that opened it).
+    pub fn compact_within(
+        &mut self,
+        guard: &LeaseGuard,
+        max_bytes: u64,
+    ) -> Result<Option<Compacted>, MetaError> {
         self.check_guard(guard)?;
         for attempt in 1..=self.attempts {
             self.sync()?;
-            let old = self.state.packs.clone();
+            let mut by_size = self.state.packs.clone();
+            by_size.sort_by_key(|pack| (pack.pack_size, pack.seq));
+            let mut total = 0u64;
+            let mut old = Vec::new();
+            for pack in by_size {
+                match total.checked_add(pack.pack_size) {
+                    Some(sum) if sum <= max_bytes => {
+                        total = sum;
+                        old.push(pack);
+                    }
+                    _ => break,
+                }
+            }
             if old.len() < 2 {
                 return Ok(None);
             }
@@ -1490,21 +1542,26 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
     /// on, the garbage collection; then the lease goes back. A device runs it now and then,
     /// idle and on mains power.
     pub fn maintain(&mut self, rules: &Maintenance) -> Result<Option<Maintained>, MetaError> {
-        let guard = match self.acquire_lease(MAINTENANCE, rules.lease_secs) {
+        let mut guard = match self.acquire_lease(MAINTENANCE, rules.lease_secs) {
             Ok(guard) => guard,
             Err(MetaError::LeaseHeld { .. }) => return Ok(None),
             Err(e) => return Err(e),
         };
-        let done = self.maintain_under(&guard, rules);
+        let done = self.maintain_under(&mut guard, rules);
         let released = self.release_lease(guard);
         let done = done?;
         released?;
         Ok(Some(done))
     }
 
+    /// The steps of a round, each when it is due. They do not hang on each other: a compaction
+    /// that fails (the storage did not answer, another device was quicker) does not keep the
+    /// checkpoint and the collection from running, and the first failure is the round's answer
+    /// when they are done. The lease is extended before the steps that hold it, so a round that
+    /// takes longer than the lease still ends under it; a lease that is lost ends the round.
     fn maintain_under(
         &mut self,
-        guard: &LeaseGuard,
+        guard: &mut LeaseGuard,
         rules: &Maintenance,
     ) -> Result<Maintained, MetaError> {
         let swept = match self.sweep_orphans(guard, rules.orphan_age) {
@@ -1513,25 +1570,45 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
             Err(e) => return Err(e),
         };
         self.sync()?;
-        let compacted = if self.state.packs.len() >= rules.compact_at_packs.max(2) {
-            self.compact(guard)?.is_some()
-        } else {
-            false
-        };
+        let mut failed: Option<MetaError> = None;
+        let mut compacted = false;
+        if self.state.packs.len() >= rules.compact_at_packs.max(2) {
+            self.renew_lease(guard, rules.lease_secs)?;
+            match self.compact_within(guard, rules.compact_max_bytes) {
+                Ok(done) => compacted = done.is_some(),
+                Err(e) if round_goes_on(&e) => failed = Some(e),
+                Err(e) => return Err(e),
+            }
+        }
         let entries = self.synced.as_ref().map_or(0, |s| s.manifest.log.len());
-        let checkpointed = if entries >= rules.checkpoint_at_entries.max(1) {
-            self.checkpoint()?;
-            true
-        } else {
-            false
+        let mut checkpointed = false;
+        if entries >= rules.checkpoint_at_entries.max(1) {
+            match self.checkpoint() {
+                Ok(_) => checkpointed = true,
+                Err(e) if round_goes_on(&e) => {
+                    failed.get_or_insert(e);
+                }
+                Err(e) => return Err(e),
+            }
+        }
+        self.renew_lease(guard, rules.lease_secs)?;
+        let collected = match self.collect_garbage(guard, rules.grace) {
+            Ok(collected) => collected,
+            Err(e) if round_goes_on(&e) => {
+                failed.get_or_insert(e);
+                0
+            }
+            Err(e) => return Err(e),
         };
-        let collected = self.collect_garbage(guard, rules.grace)?;
-        Ok(Maintained {
-            swept,
-            compacted,
-            checkpointed,
-            collected,
-        })
+        match failed {
+            Some(e) => Err(e),
+            None => Ok(Maintained {
+                swept,
+                compacted,
+                checkpointed,
+                collected,
+            }),
+        }
     }
 
     /// Finds what no manifest names - the packs of lost swaps, the log entries

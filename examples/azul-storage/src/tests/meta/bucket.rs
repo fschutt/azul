@@ -1,13 +1,15 @@
 use std::{
+    collections::VecDeque,
     fs::File,
-    sync::{Arc, Barrier},
+    sync::{Arc, Barrier, Mutex},
     time::Duration,
 };
 
 use super::{every_bucket, TempDir};
 use crate::{
-    meta::{Bucket, Fetched, FolderBucket, MemoryBucket, MetaError},
-    ByteRange, Drive, ListRequest,
+    limits::Limit,
+    meta::{Bucket, DriveBucket, Fetched, FolderBucket, MemoryBucket, MetaError},
+    ByteRange, Drive, DriveError, ListPage, ListRequest, ObjectInfo, Precondition,
 };
 
 fn is_conflict(result: &Result<Option<String>, MetaError>) -> bool {
@@ -246,4 +248,152 @@ fn a_folder_bucket_leaves_no_temporary_file_behind() {
         .collect();
     names.sort();
     assert_eq!(names, ["manifest", "manifest.lock"]);
+}
+
+// ==== AZ-M5: an object of the index is read for the size it has ====
+
+/// A drive that keeps the limit of every `get_limited` and can say sizes of its own in a HEAD (the
+/// next ones, then the true one).
+struct Spy {
+    inner: MemoryBucket,
+    limits: Mutex<Vec<Limit>>,
+    sizes: Mutex<VecDeque<u64>>,
+}
+
+impl Spy {
+    fn holding(key: &str, bytes: &[u8]) -> Arc<Spy> {
+        let inner = MemoryBucket::new();
+        inner.create(key, bytes).unwrap();
+        Arc::new(Spy {
+            inner,
+            limits: Mutex::new(Vec::new()),
+            sizes: Mutex::new(VecDeque::new()),
+        })
+    }
+
+    fn says(&self, sizes: &[u64]) {
+        self.sizes.lock().unwrap().extend(sizes.iter().copied());
+    }
+
+    fn limits(&self) -> Vec<Limit> {
+        self.limits.lock().unwrap().clone()
+    }
+}
+
+impl Drive for Spy {
+    fn list(&self, request: &ListRequest) -> Result<ListPage, DriveError> {
+        self.inner.list(request)
+    }
+
+    fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
+        Drive::get(&self.inner, key)
+    }
+
+    fn get_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, DriveError> {
+        Drive::get_range(&self.inner, key, range)
+    }
+
+    fn get_limited(&self, key: &str, limit: Limit) -> Result<Vec<u8>, DriveError> {
+        self.limits.lock().unwrap().push(limit);
+        let bytes = Drive::get(&self.inner, key)?;
+        limit.check_object(key, bytes.len() as u64)?;
+        Ok(bytes)
+    }
+
+    fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
+        Drive::put(&self.inner, key, bytes)
+    }
+
+    fn delete(&self, key: &str) -> Result<(), DriveError> {
+        Drive::delete(&self.inner, key)
+    }
+
+    fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
+        let mut info = Drive::head(&self.inner, key)?;
+        if let Some(size) = self.sizes.lock().unwrap().pop_front() {
+            info.size = size;
+        }
+        Ok(info)
+    }
+
+    fn put_if(
+        &self,
+        key: &str,
+        bytes: &[u8],
+        condition: &Precondition,
+    ) -> Result<Option<String>, DriveError> {
+        Drive::put_if(&self.inner, key, bytes, condition)
+    }
+}
+
+/// AZ-M5. An object of the index is read with the size its HEAD said, and a little room, as its
+/// cap - so the transport's time follows the object - and not with the 256 MiB the format allows.
+#[test]
+fn az_m5_an_index_object_is_read_with_the_size_its_head_said_as_its_cap() {
+    let spy = Spy::holding("m/pack", &vec![7u8; 1_000_000]);
+    let bucket = DriveBucket::new(Arc::clone(&spy));
+    let (bytes, _) = bucket.read("m/pack").unwrap().unwrap();
+    assert_eq!(bytes.len(), 1_000_000);
+    let limits = spy.limits();
+    assert_eq!(limits.len(), 1);
+    assert!(
+        (1_000_000..2_000_000).contains(&limits[0].max),
+        "the size and a little room, not 256 MiB: {:?}",
+        limits[0]
+    );
+    // The conditional read of a version that moved reads the same way.
+    let Fetched::Changed { bytes, .. } = bucket
+        .read_if_changed("m/pack", "an older version")
+        .unwrap()
+    else {
+        panic!("the version moved");
+    };
+    assert_eq!(bytes.len(), 1_000_000);
+    assert!(spy.limits()[1].max < 2_000_000);
+}
+
+/// AZ-M5. An object whose HEAD says it is more than an index object may weigh is refused before a
+/// byte of it is asked for.
+#[test]
+fn az_m5_an_index_object_its_head_says_is_too_big_is_refused_before_any_get() {
+    let spy = Spy::holding("m/pack", b"small");
+    spy.says(&[300 << 20, 300 << 20]);
+    let bucket = DriveBucket::new(Arc::clone(&spy));
+    let error = bucket.read("m/pack").unwrap_err();
+    assert!(
+        matches!(&error, MetaError::Drive(DriveError::Protocol(text)) if text.contains("an object of the drive index")),
+        "{error:?}"
+    );
+    assert!(matches!(
+        bucket.read_if_changed("m/pack", "another version"),
+        Err(MetaError::Drive(DriveError::Protocol(_)))
+    ));
+    assert!(spy.limits().is_empty(), "no GET was sent");
+}
+
+/// AZ-M5. An object replaced by a longer one between the HEAD and the GET is asked about again
+/// and read, where the cap made of the old size refused it for good.
+#[test]
+fn az_m5_an_object_replaced_by_a_longer_one_since_its_head_is_read_after_a_second_head() {
+    let spy = Spy::holding("m/pack", &vec![9u8; 1_000_000]);
+    spy.says(&[10]);
+    let bucket = DriveBucket::new(Arc::clone(&spy));
+    let (bytes, _) = bucket.read("m/pack").unwrap().unwrap();
+    assert_eq!(bytes.len(), 1_000_000);
+    let limits = spy.limits();
+    assert_eq!(limits.len(), 2, "{limits:?}");
+    assert!(
+        limits[0].max < 1_000_000 && limits[1].max >= 1_000_000,
+        "{limits:?}"
+    );
+}
+
+/// AZ-M5. A drive that does not say a size (0) is read under the format's own cap, as before.
+#[test]
+fn az_m5_a_drive_that_says_no_size_is_read_under_the_formats_cap() {
+    let spy = Spy::holding("m/pack", &vec![1u8; 5_000]);
+    spy.says(&[0]);
+    let bucket = DriveBucket::new(Arc::clone(&spy));
+    assert_eq!(bucket.read("m/pack").unwrap().unwrap().0.len(), 5_000);
+    assert_eq!(spy.limits()[0], crate::limits::named::INDEX_OBJECT);
 }

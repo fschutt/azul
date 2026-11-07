@@ -575,11 +575,11 @@ impl<D> DriveBucket<D> {
 }
 
 impl<D: Drive> DriveBucket<D> {
-    /// The object's version, `None` when there is no object.
-    fn version_of(&self, key: &str) -> Result<Option<Version>, MetaError> {
+    /// The object's version and its size as a HEAD says them, `None` when there is no object.
+    fn head_of(&self, key: &str) -> Result<Option<(Version, u64)>, MetaError> {
         match self.drive.head(key) {
             Ok(info) => match info.etag {
-                Some(etag) => Ok(Some(etag)),
+                Some(etag) => Ok(Some((etag, info.size))),
                 None => Err(MetaError::Unsupported(format!(
                     "the drive shows no version of \"{key}\""
                 ))),
@@ -588,38 +588,66 @@ impl<D: Drive> DriveBucket<D> {
             Err(e) => Err(MetaError::Drive(e)),
         }
     }
+
+    /// The object whose HEAD said `head` (version, size), read whole: refused before any byte is
+    /// read when the HEAD says it is more than an index object may weigh, else read with the size
+    /// the HEAD said, and a little room, as its cap - so the transport's time follows the object
+    /// (a minute and what it takes at the slowest link) and not the 256 MiB the format allows
+    /// (AZ-M5). An object that was replaced by a longer one since the HEAD is asked about again.
+    fn fetch(
+        &self,
+        key: &str,
+        mut head: (Version, u64),
+    ) -> Result<Option<(Vec<u8>, Version)>, MetaError> {
+        const ASKS: usize = 3;
+        let format = crate::limits::named::INDEX_OBJECT;
+        for ask in 1..=ASKS {
+            let (version, size) = head;
+            format.check_object(key, size).map_err(MetaError::Drive)?;
+            // A size of 0 is a drive that does not say it: the format's own cap.
+            let limit = if size == 0 {
+                format
+            } else {
+                let room = size / 8 + (64 << 10);
+                crate::limits::Limit::new(format.name, size.saturating_add(room).min(format.max))
+            };
+            match self.drive.get_limited(key, limit) {
+                Ok(bytes) => return Ok(Some((bytes, version))),
+                Err(DriveError::NotFound { .. }) => return Ok(None),
+                Err(DriveError::Protocol(_)) if limit.max < format.max && ask < ASKS => {
+                    match self.head_of(key)? {
+                        Some(again) => head = again,
+                        None => return Ok(None),
+                    }
+                }
+                Err(e) => return Err(MetaError::Drive(e)),
+            }
+        }
+        Err(MetaError::Drive(DriveError::Protocol(format!(
+            "\"{key}\" kept changing while it was read"
+        ))))
+    }
 }
 
 impl<D: Drive> Bucket for DriveBucket<D> {
     fn read(&self, key: &str) -> Result<Option<(Vec<u8>, Version)>, MetaError> {
-        let Some(version) = self.version_of(key)? else {
-            return Ok(None);
-        };
-        match self
-            .drive
-            .get_limited(key, crate::limits::named::INDEX_OBJECT)
-        {
-            Ok(bytes) => Ok(Some((bytes, version))),
-            Err(DriveError::NotFound { .. }) => Ok(None),
-            Err(e) => Err(MetaError::Drive(e)),
+        match self.head_of(key)? {
+            Some(head) => self.fetch(key, head),
+            None => Ok(None),
         }
     }
 
     fn read_if_changed(&self, key: &str, known: &str) -> Result<Fetched, MetaError> {
-        let Some(version) = self.version_of(key)? else {
+        let Some(head) = self.head_of(key)? else {
             return Ok(Fetched::Missing);
         };
-        if version == known {
+        if head.0 == known {
             return Ok(Fetched::NotModified);
         }
-        match self
-            .drive
-            .get_limited(key, crate::limits::named::INDEX_OBJECT)
-        {
-            Ok(bytes) => Ok(Fetched::Changed { bytes, version }),
-            Err(DriveError::NotFound { .. }) => Ok(Fetched::Missing),
-            Err(e) => Err(MetaError::Drive(e)),
-        }
+        Ok(match self.fetch(key, head)? {
+            Some((bytes, version)) => Fetched::Changed { bytes, version },
+            None => Fetched::Missing,
+        })
     }
 
     fn read_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, MetaError> {

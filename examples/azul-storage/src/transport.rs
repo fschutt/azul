@@ -77,13 +77,15 @@ impl ExpectedBody {
         }
     }
 
-    /// The bytes the answer's time is reckoned for: a document's cap, a range's length (a
-    /// stream's size is not known, so it gets no time of its own).
+    /// The bytes the answer's time is reckoned for: a document's cap, a range's length, a
+    /// stream's cap (a stream without one - `u64::MAX` - has no size known, so it gets no time
+    /// of its own).
     fn timed_bytes(&self) -> u64 {
         match self {
             ExpectedBody::Json { max } => *max,
             ExpectedBody::Range(range) => range_len(range).unwrap_or(0),
-            ExpectedBody::Stream { .. } => 0,
+            ExpectedBody::Stream { max } if *max == u64::MAX => 0,
+            ExpectedBody::Stream { max } => *max,
         }
     }
 }
@@ -174,12 +176,19 @@ impl CallLimits {
         }
     }
 
-    /// An object read whole that may weigh `max` bytes at most: a minute, an answer past `max`
-    /// refused by the transport before it is held in memory ([`crate::Drive::get_limited`]).
+    /// An object read whole that may weigh `max` bytes at most: an answer past `max` is refused
+    /// by the transport before it is held in memory ([`crate::Drive::get_limited`]), and the time
+    /// is a minute and what `max` bytes take at [`TRANSFER_MIN_RATE`] - so an object that is as
+    /// big as its cap gets the time to arrive over a slow link, where a flat minute let the read
+    /// of a big index object die on every try (AZ-M5). Where the size is known (a HEAD said it)
+    /// pass it as `max`: a cap far above the object is time the object does not need.
     #[must_use]
     pub const fn object(max: u64) -> Self {
         CallLimits {
-            timeout: RequestTimeout::Overall(DEFAULT_TIMEOUT),
+            timeout: RequestTimeout::Throughput {
+                base: DEFAULT_TIMEOUT,
+                min_rate: TRANSFER_MIN_RATE,
+            },
             answer: ExpectedBody::Stream { max },
         }
     }

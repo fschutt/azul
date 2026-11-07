@@ -301,3 +301,30 @@ fn az_cn5_a_propfind_has_the_limits_of_a_listing_and_not_of_an_upload() {
         CallLimits::json()
     );
 }
+
+/// AZ-M5. An object read whole under a cap gets a minute and the time its cap takes at the slowest
+/// link (32 KiB/s); at the flat minute a 64 MiB index object over a 1 MiB/s link was refused on
+/// every try. An object with no cap known keeps the minute.
+#[test]
+fn az_m5_a_capped_whole_object_gets_the_time_its_cap_takes_at_the_slowest_link() {
+    let key_file = CallLimits::object(64 * 1024).budget(0);
+    assert_eq!(key_file.recv_body, Some(Duration::from_secs(60 + 2)));
+    let index = CallLimits::object(64 * MIB).budget(0);
+    assert_eq!(index.recv_body, Some(Duration::from_secs(60 + 2048)));
+    assert_eq!(index.max_answer, 64 * MIB);
+    assert!(
+        index.recv_body.unwrap() > Duration::from_secs(64),
+        "the minute that refused 64 MiB at 1 MiB/s"
+    );
+    // The request of a GET has no body to move: a minute of its own.
+    assert_eq!(index.send_body, Some(Duration::from_secs(60)));
+    // No cap: no size to reckon, the minute as before.
+    assert_eq!(
+        CallLimits::object(u64::MAX).budget(0).recv_body,
+        Some(Duration::from_secs(60))
+    );
+    assert_eq!(
+        CallLimits::whole_object().budget(0).overall,
+        Duration::from_secs(60)
+    );
+}

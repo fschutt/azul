@@ -144,7 +144,7 @@ pub use seal::{SealError, Sealer, TestSealer};
 pub use tree::Change;
 pub use wal::{
     reseal, LeaseGuard, LogEntry, Maintained, Maintenance, Manifest, MetaStore, PackRef, Packs,
-    Publish, Published, RefUpdate, RepoState, Resealed, StoreSnapshot, SyncReport,
+    Publish, Published, RefUpdate, RepoState, Resealed, StoreSnapshot, SyncReport, COMPACT_PACK_MAX,
 };
 
 use crate::DriveError;
