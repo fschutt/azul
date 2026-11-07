@@ -373,13 +373,33 @@ fn open_json<T: DeserializeOwned, S: Sealer + ?Sized>(
     serde_json::from_slice(&plain).map_err(|e| corrupt(key, e.to_string()))
 }
 
+/// Whether a sealed pack of `pack` bytes with an index of `idx` bytes is one a reader takes: neither
+/// is more than an index object may weigh ([`crate::limits::named::INDEX_OBJECT`]).
+pub(crate) fn check_writable(pack: usize, idx: usize) -> Result<(), MetaError> {
+    let limit = crate::limits::named::INDEX_OBJECT;
+    for (what, len) in [("pack", pack), ("index", idx)] {
+        if len as u64 > limit.max {
+            return Err(MetaError::Unsupported(format!(
+                "a {what} of the drive index of {len} bytes is more than {} may be ({} bytes): the \
+                 change names too many files at once",
+                limit.name, limit.max
+            )));
+        }
+    }
+    Ok(())
+}
+
 /// Writes a sealed pack and its index (create-only; one of the same name holds
-/// the same objects) and says what a manifest holds of it.
+/// the same objects) and says what a manifest holds of it. A pack or an index that is more than
+/// an index object may weigh ([`crate::limits::named::INDEX_OBJECT`]) is not written: no reader
+/// would take it (the check of the read side refuses it), so a drive that stored it would not
+/// open - the write fails instead, and says why.
 fn put_sealed_pack<B: Bucket + ?Sized>(
     bucket: &B,
     sealed: SealedPack,
     seq: u64,
 ) -> Result<PackRef, MetaError> {
+    check_writable(sealed.pack.len(), sealed.idx.len())?;
     for (key, bytes) in [
         (keys::pack(&sealed.name), &sealed.pack),
         (keys::idx(&sealed.name), &sealed.idx),
@@ -1727,7 +1747,7 @@ pub fn reseal<B: Bucket + ?Sized, O: Sealer, N: Sealer>(
     device: &str,
     now: u64,
 ) -> Result<Resealed, MetaError> {
-    for attempt in 1..=DEFAULT_ATTEMPTS {
+    'attempts: for attempt in 1..=DEFAULT_ATTEMPTS {
         let Some((bytes, version)) = bucket.read(keys::MANIFEST)? else {
             return Ok(Resealed::default());
         };
@@ -1745,23 +1765,35 @@ pub fn reseal<B: Bucket + ?Sized, O: Sealer, N: Sealer>(
         if store.state().revision != manifest.revision {
             continue;
         }
-        let mut objects = Objects::new();
-        for pack in &store.state().packs {
-            store.fetch_pack(pack, &mut objects)?;
-        }
         let head = store.state().head_seq;
-        let mut packs = Vec::new();
-        if !objects.is_empty() {
+        // Pack by pack: each live pack is read, sealed again under `new` as ONE pack of its own and
+        // dropped from memory. The objects of all of them in one new pack held the whole index in
+        // memory, made a pack of the size of the index (a drive of some 600,000 files: more than
+        // an index object may weigh, which no reader takes, and more than a frozen drive's node
+        // takes in one PUT), and a repository the compaction keeps in several packs came out as
+        // one (X-DELTA-AZDRIVE-KEYS-13).
+        let mut packs: Vec<PackRef> = Vec::new();
+        for old_pack in &store.state().packs {
+            let mut objects = Objects::new();
+            store.fetch_pack(old_pack, &mut objects)?;
+            if objects.is_empty() {
+                continue;
+            }
             let mut writer = PackWriter::new();
             let ids: Vec<ObjectId> = objects.ids().copied().collect();
             for id in &ids {
                 writer.add_from(&objects, id)?;
             }
             match put_sealed_pack(bucket, writer.seal(new)?, head) {
-                Ok(pack) => packs.push(pack),
+                // Two packs of the same objects are one pack under the new key.
+                Ok(pack) => {
+                    if !packs.iter().any(|kept| kept.name == pack.name) {
+                        packs.push(pack);
+                    }
+                }
                 Err(MetaError::Raced { .. }) => {
                     back_off(attempt);
-                    continue;
+                    continue 'attempts;
                 }
                 Err(e) => return Err(e),
             }

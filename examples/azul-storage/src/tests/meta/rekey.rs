@@ -135,3 +135,83 @@ fn a_drive_without_an_index_yet_rekeys_as_nothing_to_do() {
         .unwrap();
     assert!(repository(&bucket).is_empty());
 }
+
+// ==== X-DELTA-AZDRIVE-KEYS-13: the index is sealed again pack by pack ====
+
+/// The live packs of the repository under `key`: name and sealed size.
+fn live_packs(bucket: &Arc<MemoryBucket>, key: &DriveKey) -> Vec<(String, u64)> {
+    let repo = MetaRepo::open(bucket.clone(), key.clone(), "checker", "Checker").unwrap();
+    repo.store()
+        .state()
+        .packs
+        .iter()
+        .map(|pack| (pack.name.clone(), pack.pack_size))
+        .collect()
+}
+
+/// X-DELTA-AZDRIVE-KEYS-13: `reseal` read every live pack into one `Objects` and wrote ONE pack of
+/// them all: the pack of a rotated drive of some 600,000 files was bigger than an index object may
+/// be (`INDEX_OBJECT`, which every reader refuses), bigger than a frozen drive's node takes in one
+/// PUT, and the whole index sat in memory. Now each live pack is sealed again as one pack, so no
+/// pack grows and none is merged with another.
+#[test]
+fn x_delta_azdrive_keys_13_a_rekey_keeps_the_packs_apart_and_none_grows() {
+    let (old, new) = (DriveKey::generate().unwrap(), DriveKey::generate().unwrap());
+    let bucket = Arc::new(MemoryBucket::new());
+    let provider = MetaIndexProvider::new("Laptop");
+    drive_with_files(&bucket, &provider, &old);
+    let before = live_packs(&bucket, &old);
+    assert!(
+        before.len() >= 3,
+        "each commit of the drive made a pack: {before:?}"
+    );
+    let biggest_before = before.iter().map(|(_, size)| *size).max().unwrap();
+
+    provider.rekey(DRIVE, bucket.clone(), &old, &new).unwrap();
+    let after = live_packs(&bucket, &new);
+    assert_eq!(
+        after.len(),
+        before.len(),
+        "one new pack for each old one, not one for the whole index: {after:?}"
+    );
+    let biggest_after = after.iter().map(|(_, size)| *size).max().unwrap();
+    assert!(
+        biggest_after <= biggest_before,
+        "no pack is bigger than the biggest it came from: {biggest_after} > {biggest_before}"
+    );
+    // Everything came along.
+    let index = provider.open_index(DRIVE, bucket.clone(), &new).unwrap();
+    assert!(index.get("notes/plan.txt").unwrap().is_some());
+    assert_eq!(index.get("a.txt").unwrap(), None);
+    let repo = MetaRepo::open(bucket.clone(), new.clone(), "checker", "Checker").unwrap();
+    assert_eq!(repo.history().unwrap().len(), 3);
+}
+
+/// X-DELTA-AZDRIVE-KEYS-13: the writer does not write what the reader refuses. A pack or an index
+/// over an index object's limit is not put (a drive that held it would open for no device); the
+/// largest pack the compaction makes, and the largest object a frozen drive's node takes, are inside
+/// what a reader takes.
+#[test]
+fn x_delta_azdrive_keys_13_the_writer_writes_nothing_the_reader_refuses() {
+    use crate::{limits::named::INDEX_OBJECT, meta::wal::COMPACT_PACK_MAX};
+    let max = usize::try_from(INDEX_OBJECT.max).unwrap();
+    assert!(
+        crate::meta::wal::check_writable(max, max).is_ok(),
+        "the limit itself is writable"
+    );
+    for (pack, idx) in [(max + 1, 10), (10, max + 1)] {
+        let refused = crate::meta::wal::check_writable(pack, idx);
+        assert!(
+            matches!(&refused, Err(MetaError::Unsupported(why)) if why.contains("too many files")),
+            "{pack} bytes of pack, {idx} of index: {refused:?}"
+        );
+    }
+    assert!(
+        COMPACT_PACK_MAX < INDEX_OBJECT.max,
+        "the compaction's biggest pack is inside what a reader takes"
+    );
+    assert!(
+        azlin_contract::INDEX_OBJECT_MAX < INDEX_OBJECT.max,
+        "a frozen drive's biggest PUT is inside what a reader takes"
+    );
+}
