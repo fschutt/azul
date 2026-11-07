@@ -24,7 +24,7 @@
 use std::{
     cmp::Reverse,
     collections::BTreeMap,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{Arc, Mutex, MutexGuard, PoisonError},
 };
 
@@ -734,11 +734,58 @@ pub fn open_encrypted_drive<D: Drive + 'static>(
     let options = RepoOptions {
         cache_dir,
         lazy,
-        restore: RestoreSource::default(),
+        // gate:restore-none allow: a drive opened bare, for tools and tests, has no token server to ask [X-DELTA-AZDRIVE-SYNC-3]
+        restore: RestoreSource::none("a bare drive has no token server to ask"),
     };
     let repo = open_or_create(&inner, &drive_key, device_id, device_name, &options)?;
     let index: Arc<dyn NameIndex> = Arc::new(MetaIndex::new(repo));
     Ok(EncryptedDrive::new(inner, drive_key, index))
+}
+
+/// How an app's device keeps the drives' indexes: ONE value with no `Default`, so that every field
+/// is said where a provider is made (ARCH29 C6b, X-DELTA-AZDRIVE-SYNC-3). The provider used to be
+/// `new(name)` and five optional builders, and the app that left `with_restore` out kept a
+/// persistent copy and refused a restored drive for good (AzMail, the bridge and the command line
+/// did; AzDrive alone was wired). A struct literal cannot leave `restore` or `reclaim` out.
+#[derive(Clone, Debug)]
+pub struct IndexProfile {
+    /// Names this device in conflict copies ("report (conflict, <device>).docx") and in the
+    /// commits of the drives' logs.
+    pub device_name: String,
+    /// Where the copies of the drives' indexes are kept between runs (`<root>/<hash of the drive's
+    /// id>`); `None`: in memory, read anew on every start.
+    pub cache_root: Option<PathBuf>,
+    /// Whether the copies read their packs lazily (C6): a folder's objects arrive in ranged reads
+    /// when it is browsed.
+    pub lazy: bool,
+    /// Whether the drives pack small files together ([`crate::packing`]), their journal in each
+    /// drive's cache folder.
+    pub packing: bool,
+    /// Where a restore of the drives is announced: the token server's word as the app last read it
+    /// ([`RestoreSource::new`]), or - for a drive that is not the token server's, a provider that
+    /// opens no copy of an index, a test - [`RestoreSource::none`] with its reason. Without a source
+    /// a restored drive that serves an older state than this device saw is a rollback, for good.
+    pub restore: RestoreSource,
+    /// How the reclaimer of the drives it maintains runs: [`ReclaimOptions::shadow`] (it reports
+    /// what it would delete and deletes nothing) or [`ReclaimOptions::off`] (the kill switch).
+    pub reclaim: ReclaimOptions,
+}
+
+impl IndexProfile {
+    /// A provider for a test: in memory, eager, unpacked, no restore source and the reclaimer in
+    /// shadow mode.
+    #[cfg(any(test, feature = "testing"))]
+    #[must_use]
+    pub fn in_memory(device_name: &str) -> IndexProfile {
+        IndexProfile {
+            device_name: device_name.to_string(),
+            cache_root: None,
+            lazy: false,
+            packing: false,
+            restore: RestoreSource::none("a test's provider has no token server to ask"),
+            reclaim: ReclaimOptions::shadow(),
+        }
+    }
 }
 
 /// The apps' [`IndexProvider`]: an encrypted drive's index is its bucket's
@@ -760,6 +807,21 @@ pub struct MetaIndexProvider {
 }
 
 impl MetaIndexProvider {
+    /// The provider `profile` describes. There is no other way to make one (the old `new(name)`
+    /// and its builders are being removed): see [`IndexProfile`].
+    #[must_use]
+    pub fn from_profile(profile: IndexProfile) -> Self {
+        MetaIndexProvider {
+            device_name: profile.device_name,
+            cache_root: profile.cache_root,
+            lazy: profile.lazy,
+            packing: profile.packing,
+            restore: profile.restore,
+            reclaim: profile.reclaim,
+            last_reclaim: Mutex::new(None),
+        }
+    }
+
     /// `device_name` names this device in conflict copies ("report (conflict,
     /// <device>).docx") and commits.
     #[must_use]
@@ -770,7 +832,7 @@ impl MetaIndexProvider {
             lazy: false,
             packing: false,
             restore: RestoreSource::default(),
-            reclaim: ReclaimOptions::default(),
+            reclaim: ReclaimOptions::shadow(),
             last_reclaim: Mutex::new(None),
         }
     }
@@ -900,9 +962,15 @@ impl MetaIndexProvider {
     /// there (a search index), and it goes with the copy when the drive's key is rotated.
     #[must_use]
     pub fn drive_cache_dir(&self, drive: &str) -> Option<PathBuf> {
-        self.cache_root
-            .as_ref()
-            .map(|root| root.join(hex(&Sha256::digest(drive.as_bytes())[..16])))
+        MetaIndexProvider::drive_cache_dir_in(self.cache_root.as_deref(), drive)
+    }
+
+    /// [`MetaIndexProvider::drive_cache_dir`] for a caller that only needs the path (the removal of
+    /// a drive's copies, a search index beside the copy) and has no provider: the folder of the
+    /// drive `drive` under the cache root `root`; `None` without a root.
+    #[must_use]
+    pub fn drive_cache_dir_in(root: Option<&Path>, drive: &str) -> Option<PathBuf> {
+        root.map(|root| root.join(hex(&Sha256::digest(drive.as_bytes())[..16])))
     }
 
     /// This device's id in the drives' logs and leases: kept in `<cache

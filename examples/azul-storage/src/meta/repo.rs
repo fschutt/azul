@@ -68,43 +68,81 @@ const EPOCH_FILE: &str = "restore-epoch";
 /// app last read it (`AzlinDrive::restore_notice`), NEVER the bucket - whoever controls the storage
 /// could announce a "restore" of its own to roll a device back (ARCH28 RF45). Without a source no
 /// restore is ever announced, and a bucket that serves an older manifest than the device saw is
-/// [`MetaError::Rollback`] for good.
-#[derive(Clone, Default)]
-pub struct RestoreSource(Option<Arc<dyn Fn() -> Option<RestoreNotice> + Send + Sync>>);
+/// [`MetaError::Rollback`] for good: an app that opens a drive of the Azlin token server gives the
+/// source of that drive ([`RestoreSource::new`]), and one that cannot says why
+/// ([`RestoreSource::none`]) (X-DELTA-AZDRIVE-SYNC-3: AzMail, the bridge and the command line used to
+/// leave it out, and a restored drive stayed closed to them).
+#[derive(Clone)]
+pub struct RestoreSource {
+    source: Option<Arc<dyn Fn() -> Option<RestoreNotice> + Send + Sync>>,
+    /// Why there is none, when it was said.
+    none_because: &'static str,
+}
+
+impl Default for RestoreSource {
+    /// No source (the lower layers' options: a repository that was never given one).
+    fn default() -> Self {
+        RestoreSource {
+            source: None,
+            none_because: "not given",
+        }
+    }
+}
 
 impl RestoreSource {
     /// The announcements `source` gives, asked at every poll.
     pub fn new(source: impl Fn() -> Option<RestoreNotice> + Send + Sync + 'static) -> Self {
-        RestoreSource(Some(Arc::new(source)))
+        RestoreSource {
+            source: Some(Arc::new(source)),
+            none_because: "",
+        }
+    }
+
+    /// No source, on purpose: `why` (a sentence for a reader of the code) says what has none -
+    /// a drive that is not the token server's, a provider that only reads a path, a test. In the
+    /// shipped code of the apps a call carries `// gate:restore-none allow: <why> [<id>]`
+    /// (`azul-srcgate`'s `index_profile_gate`).
+    #[must_use]
+    pub fn none(why: &'static str) -> Self {
+        RestoreSource {
+            source: None,
+            none_because: why,
+        }
     }
 
     /// The newest announcement now; `None` without a source or an announcement.
     #[must_use]
     pub fn notice(&self) -> Option<RestoreNotice> {
-        self.0.as_ref().and_then(|source| source())
+        self.source.as_ref().and_then(|source| source())
     }
 
     /// Whether there is a source at all.
     #[must_use]
     pub fn is_set(&self) -> bool {
-        self.0.is_some()
+        self.source.is_some()
+    }
+
+    /// Why there is no source, as [`RestoreSource::none`] was told (`None` for a set one).
+    #[must_use]
+    pub fn none_because(&self) -> Option<&'static str> {
+        self.source.is_none().then_some(self.none_because)
     }
 }
 
 impl fmt::Debug for RestoreSource {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(if self.is_set() {
-            "RestoreSource(set)"
+        if self.is_set() {
+            f.write_str("RestoreSource(set)")
         } else {
-            "RestoreSource(none)"
-        })
+            write!(f, "RestoreSource(none: {})", self.none_because)
+        }
     }
 }
 
 impl PartialEq for RestoreSource {
     /// The same source, or both without one.
     fn eq(&self, other: &Self) -> bool {
-        match (&self.0, &other.0) {
+        match (&self.source, &other.source) {
             (None, None) => true,
             (Some(a), Some(b)) => Arc::ptr_eq(a, b),
             _ => false,

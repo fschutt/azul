@@ -46,9 +46,7 @@ pub(crate) fn open_copies_of(drive: &str) -> Scratch {
 /// of its files), its `objects/` and its `packs/` journal. `None` without a root (the copies are in
 /// memory).
 pub(crate) fn drive_cache_dir(root: Option<PathBuf>, drive: &str) -> Option<PathBuf> {
-    MetaIndexProvider::new("AzDrive")
-        .with_cache_root(root)
-        .drive_cache_dir(drive)
+    MetaIndexProvider::drive_cache_dir_in(root.as_deref(), drive)
 }
 
 /// Where a migration keeps its state: `<state dir>/<drive>.migration.json`.

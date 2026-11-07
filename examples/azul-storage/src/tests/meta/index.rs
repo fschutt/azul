@@ -1,6 +1,6 @@
 //! The encrypted drive over the drive index (feature `encryption`).
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use super::{TempDir, Unplugged};
 use crate::{
@@ -9,9 +9,10 @@ use crate::{
         EncryptedDrive, Expect, IndexChange, IndexEntry, IndexPage, IndexProvider, NameIndex,
     },
     meta::{
-        keys, merge::keep_both, open_encrypted_drive, pointer, Bucket, Maintenance, MemoryBucket,
-        MetaIndex, MetaIndexProvider, MetaRepo, RepoOptions,
+        keys, merge::keep_both, open_encrypted_drive, pointer, Bucket, IndexProfile, Maintenance,
+        MemoryBucket, MetaIndex, MetaIndexProvider, MetaRepo, RepoOptions, RestoreSource,
     },
+    restore::RestoreNotice,
     ByteRange, Drive, DriveError, ListPage, ListRequest, ObjectInfo, Precondition,
 };
 
@@ -623,4 +624,98 @@ fn az_m11_a_drive_with_data_objects_and_no_index_at_all_is_not_a_new_drive() {
     // And an empty bucket does.
     let empty: Arc<dyn Drive> = Arc::new(MemoryBucket::new());
     assert!(provider.open_index("d_3", empty, &key).is_ok());
+}
+
+/// X-DELTA-AZDRIVE-SYNC-3 (AZ-M4). The provider an app builds is where its device says where its
+/// drives' restores are announced, and the profile cannot be written without saying it: a provider
+/// whose source is `RestoreSource::none` refuses a drive the operator restored from its lagging
+/// off-site copy, for good; the same copy of the index under a provider whose source gives the
+/// token server's announcement takes the restore once and reads the restored drive. RED not run:
+/// AzMail, the bridge and the command line built the provider with `new(name)` and no source, and
+/// only the first of the two cases existed for them.
+#[test]
+fn x_delta_azdrive_sync_3_a_provider_with_a_restore_source_takes_an_announced_restore_and_one_without_stays_refused(
+) {
+    let dir = TempDir::new("meta-provider-restore");
+    let raw = MemoryBucket::new();
+    let bucket: Arc<dyn Drive> = Arc::new(raw.clone());
+    let key = DriveKey::generate().unwrap();
+    let announced: Arc<Mutex<Option<RestoreNotice>>> = Arc::new(Mutex::new(None));
+    let source = {
+        let cell = Arc::clone(&announced);
+        RestoreSource::new(move || cell.lock().unwrap().clone())
+    };
+    let profile = |restore: RestoreSource| IndexProfile {
+        cache_root: Some(dir.path().to_path_buf()),
+        restore,
+        ..IndexProfile::in_memory("Laptop")
+    };
+
+    let provider = MetaIndexProvider::from_profile(profile(source.clone()));
+    let index = provider
+        .open_index("drive-1", Arc::clone(&bucket), &key)
+        .unwrap();
+    let drive = EncryptedDrive::new(Arc::clone(&bucket), key.clone(), index);
+    drive.put("a.txt", b"a").unwrap();
+    let older = raw.read(keys::MANIFEST).unwrap().unwrap().0;
+    drive.put("b.txt", b"b").unwrap();
+    drop(drive);
+    // The operator restored the bucket from the off-site copy that lags: the older manifest.
+    raw.overwrite(keys::MANIFEST, &older);
+
+    // A provider that was given no source: refused, and the copy is as it was.
+    let without = MetaIndexProvider::from_profile(profile(RestoreSource::none(
+        "this test's app has no token server",
+    )));
+    let refused = without
+        .open_index("drive-1", Arc::clone(&bucket), &key)
+        .err()
+        .expect("a restored drive with no announcement is a rollback");
+    assert!(
+        matches!(&refused, DriveError::Protocol(text) if text.contains("older index")),
+        "{refused:?}"
+    );
+
+    // The token server announces the restore: the provider with the source takes it, once.
+    *announced.lock().unwrap() = Some(RestoreNotice {
+        epoch: 1,
+        ..RestoreNotice::default()
+    });
+    let with = MetaIndexProvider::from_profile(profile(source.clone()));
+    let index = with
+        .open_index("drive-1", Arc::clone(&bucket), &key)
+        .unwrap();
+    let drive = EncryptedDrive::new(Arc::clone(&bucket), key.clone(), index);
+    let page = drive.list(&ListRequest::recursive("")).unwrap();
+    let files: Vec<&str> = page
+        .objects
+        .iter()
+        .map(|o| o.key.as_str())
+        .filter(|key| key.ends_with(".txt"))
+        .collect();
+    assert_eq!(
+        files,
+        ["a.txt"],
+        "the restored drive; b.txt was after the copy"
+    );
+    // The same announcement again excuses nothing: the epoch this copy took is remembered.
+    drop(drive);
+    let again = MetaIndexProvider::from_profile(profile(source));
+    assert!(again
+        .open_index("drive-1", Arc::clone(&bucket), &key)
+        .is_ok());
+}
+
+/// `RestoreSource::none` says why, and a set source does not.
+#[test]
+fn x_delta_azdrive_sync_3_a_restore_source_that_is_none_says_why() {
+    let none = RestoreSource::none("a test");
+    assert!(!none.is_set());
+    assert_eq!(none.none_because(), Some("a test"));
+    assert!(format!("{none:?}").contains("a test"), "{none:?}");
+    let set = RestoreSource::new(|| None);
+    assert!(set.is_set());
+    assert_eq!(set.none_because(), None);
+    assert_eq!(set.notice(), None);
+    assert_eq!(none, RestoreSource::default(), "no source is no source");
 }

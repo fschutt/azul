@@ -987,12 +987,32 @@ fn cmd_gc(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
 /// device's copy of it in the state folder (`<state>/drive-index`), named in its commits by the
 /// device's name.
 #[cfg(feature = "encryption")]
-fn index_provider(state: &StateDir, device: &str) -> Box<dyn azcloud_kit::encryption::IndexProvider> {
-    Box::new(
-        azul_storage::meta::MetaIndexProvider::new(device)
-            .with_cache_root(Some(state.path().join("drive-index")))
-            .with_packing(true),
-    )
+fn index_provider(
+    state: &StateDir,
+    device: &str,
+    restore: azul_storage::meta::RestoreSource,
+) -> Box<dyn azcloud_kit::encryption::IndexProvider> {
+    Box::new(azul_storage::meta::MetaIndexProvider::from_profile(
+        azul_storage::meta::IndexProfile {
+            device_name: device.to_string(),
+            cache_root: Some(state.path().join("drive-index")),
+            lazy: false,
+            packing: true,
+            restore,
+            reclaim: azul_storage::meta::ReclaimOptions::shadow(),
+        },
+    ))
+}
+
+/// Where the account's drive restore announcement comes from for the drive index: the token
+/// server's word as the last sign-in recorded it (`DriveRecord::restore`). The copy of the index
+/// this command line keeps in the state folder refuses a drive the operator restored, for good,
+/// without it (X-DELTA-AZDRIVE-SYNC-3).
+#[cfg(feature = "encryption")]
+fn announced_restore(
+    notice: Option<azcloud_kit::sync::RestoreNotice>,
+) -> azul_storage::meta::RestoreSource {
+    azul_storage::meta::RestoreSource::new(move || notice.clone())
 }
 
 /// Decrypts the encrypted drive's `key` into `file` through a hidden file next to it that is
@@ -1048,7 +1068,7 @@ fn encrypted_drive(
     let account = encrypted_account(settings, net, args)?;
     let keyring = account.state().secrets();
     let device = account.state().device(args.value("--device-name"))?;
-    let provider = index_provider(account.state(), &device.name);
+    let provider = index_provider(account.state(), &device.name, announced_restore(account.record().restore.clone()));
     account
         .open_encrypted_only(&keyring, provider.as_ref())
         .map_err(|refusal| match refusal {
@@ -1187,7 +1207,7 @@ fn cmd_rotate(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
     }
     let mut account = encrypted_account(settings, net, args)?;
     let device = account.state().device(args.value("--device-name"))?;
-    let provider = index_provider(account.state(), &device.name);
+    let provider = index_provider(account.state(), &device.name, announced_restore(account.record().restore.clone()));
     let keyring = account.state().secrets();
     let kdf = azul_storage::crypto::keys::RecoveryKdf::fresh()?;
     let rotated = account.rotate_drive_key(&keyring, provider.as_ref(), kdf)?;
@@ -1233,7 +1253,7 @@ fn cmd_rotate(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
 fn cmd_reencrypt(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
     let account = encrypted_account(settings, net, args)?;
     let device = account.state().device(args.value("--device-name"))?;
-    let provider = index_provider(account.state(), &device.name);
+    let provider = index_provider(account.state(), &device.name, announced_restore(account.record().restore.clone()));
     let keyring = account.state().secrets();
     let mut state =
         azul_storage::rotation::ReencryptState::new(azul_storage::time::now_unix());
@@ -1650,10 +1670,56 @@ mod tests {
         assert!(USAGE.contains("packs [--grace-days D]"));
         let dir = std::env::temp_dir().join(format!("azcloud-packs-{}", std::process::id()));
         let state = StateDir::open(&dir).unwrap();
-        let provider = index_provider(&state, "laptop");
+        let provider = index_provider(
+            &state,
+            "laptop",
+            azul_storage::meta::RestoreSource::none("a test has no token server to ask"),
+        );
         let packing = provider.packing("d_1").expect("small files are packed");
         let journal = packing.journal.expect("a journal beside the drive index");
         assert!(journal.starts_with(dir.join("drive-index")), "{journal:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// X-DELTA-AZDRIVE-SYNC-3 (AZ-M4). The command line keeps a copy of the drive index in its state
+    /// folder, and left the restore announcement out: a drive the operator restored from its
+    /// off-site copy was refused as a rollback for good. The provider asks the source it was given,
+    /// and the account's source gives what its last sign-in recorded. RED not run: the old
+    /// `index_provider(state, device)` took no source and asked nothing.
+    #[cfg(feature = "encryption")]
+    #[test]
+    fn x_delta_azdrive_sync_3_the_command_lines_provider_asks_the_accounts_restore_announcement() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let dir = std::env::temp_dir().join(format!("azcloud-restore-{}", std::process::id()));
+        let state = StateDir::open(&dir).unwrap();
+        let asked = Arc::new(AtomicUsize::new(0));
+        let counter = Arc::clone(&asked);
+        let provider = index_provider(
+            &state,
+            "laptop",
+            azul_storage::meta::RestoreSource::new(move || {
+                counter.fetch_add(1, Ordering::SeqCst);
+                None
+            }),
+        );
+        let bucket: Arc<dyn azul_storage::Drive> = Arc::new(azul_storage::meta::MemoryBucket::new());
+        let key = azul_storage::crypto::DriveKey::generate().unwrap();
+        provider.open_index("d_restore", bucket, &key).unwrap();
+        assert!(
+            asked.load(Ordering::SeqCst) > 0,
+            "the index asked where the drive's restore stands"
+        );
+        let notice = azcloud_kit::sync::RestoreNotice {
+            epoch: 2,
+            ..azcloud_kit::sync::RestoreNotice::default()
+        };
+        assert_eq!(
+            announced_restore(Some(notice.clone())).notice(),
+            Some(notice),
+            "the account's last announcement"
+        );
+        assert!(announced_restore(None).is_set(), "a source that has announced nothing");
+        assert_eq!(announced_restore(None).notice(), None);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -25,7 +25,9 @@ use azcloud_kit::{
     DriveToken,
 };
 use azul_storage::{
+    meta::RestoreSource,
     ops,
+    restore::RestoreNotice,
     sigv4::{sha256_hex, uri_decode, uri_encode},
     time::{amz_date, parse_iso8601},
     Credentials, Drive, DriveError, ObjectInfo, S3Config, S3Drive, Transport,
@@ -277,6 +279,12 @@ pub struct AzlinSession {
     /// (a token server handing out long-lived keys).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expires_at: Option<u64>,
+    /// The drive's newest restore announcement as the last sign-in at the token server answered it
+    /// (an operator restored the drive from its off-site copy): what the drive index's copy takes
+    /// once instead of refusing the restored drive as a rollback for good
+    /// ([`AzlinSession::restore_source`], X-DELTA-AZDRIVE-SYNC-3). `None`: none was announced.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub restore: Option<RestoreNotice>,
 }
 
 fn path_style_default() -> bool {
@@ -311,7 +319,17 @@ impl AzlinSession {
             secret_access_key: String::new(),
             session_token: None,
             expires_at: None,
+            restore: None,
         }
+    }
+
+    /// Where the drive's restore announcement comes from for the drive index of this session: the
+    /// announcement its last sign-in carried. A session lives as long as its credentials (hours)
+    /// and the provider made from it as long as one sync or one open, so a snapshot is as fresh as
+    /// the token server's answer was.
+    pub fn restore_source(&self) -> RestoreSource {
+        let notice = self.restore.clone();
+        RestoreSource::new(move || notice.clone())
     }
 
     /// The keyring entry's text (JSON).
@@ -471,6 +489,7 @@ pub fn session_of(bundle: &DriveBundle) -> Result<AzlinSession, TokenError> {
         secret_access_key: credentials.secret_access_key.clone(),
         session_token: credentials.session_token.clone(),
         expires_at: credentials.expires_at,
+        restore: bundle.restore.clone(),
     };
     if !session.has_credentials() {
         return Err(TokenError::Protocol(String::from(
@@ -1039,6 +1058,45 @@ mod tests {
         .to_string()
     }
 
+    /// X-DELTA-AZDRIVE-SYNC-3 (AZ-M4). The token server announces the restore of a drive in the
+    /// bundle of a sign-in; the mail's session used to drop it, so AzMail's copy of the drive
+    /// index never heard of a restore. The session carries the newest announcement, keeps it in the
+    /// keyring entry and gives it as the restore source of the mail's drive index. RED not run: the
+    /// old `session_of` had no `restore` and `AzlinSession` no `restore_source`.
+    #[test]
+    fn x_delta_azdrive_sync_3_a_session_carries_the_restore_announcement_of_its_sign_in() {
+        let mut value: serde_json::Value =
+            serde_json::from_str(&bundle("dt_f.1.abc", "2026-10-08T21:15:00Z")).unwrap();
+        value["restore"] = serde_json::json!({"epoch": 4, "prefix": "", "kind": "offsite"});
+        let session = session_from_bundle(&value.to_string()).unwrap();
+        assert_eq!(session.restore.as_ref().map(|notice| notice.epoch), Some(4));
+        // It stays in the keyring entry and is read back with the rest.
+        let back = AzlinSession::from_secret(&session.to_secret(), "d_42");
+        assert_eq!(back.restore, session.restore);
+        assert_eq!(
+            back.restore_source().notice().map(|notice| notice.epoch),
+            Some(4)
+        );
+
+        // A sign-in that announced nothing: none, and nothing of it in the entry's text.
+        let plain = session_from_bundle(&bundle("dt_f.2.abc", "2026-10-08T21:15:00Z")).unwrap();
+        assert!(plain.restore.is_none());
+        assert!(
+            !plain.to_secret().contains("restore"),
+            "{}",
+            plain.to_secret()
+        );
+        assert!(
+            plain.restore_source().is_set(),
+            "it asks; nothing is announced"
+        );
+        assert_eq!(plain.restore_source().notice(), None);
+        // A keyring entry an older AzMail wrote reads as before.
+        let old =
+            AzlinSession::from_secret(r#"{"drive_id":"d_42","drive_token":"dt_f.0.old"}"#, "d_42");
+        assert!(old.restore.is_none());
+    }
+
     #[test]
     fn a_drive_bundle_becomes_a_session() {
         let session = session_from_bundle(&bundle("dt_f.1.abc", "2026-10-08T21:15:00Z")).unwrap();
@@ -1376,6 +1434,7 @@ mod shared_refresh_tests {
             secret_access_key: String::from("sk"),
             session_token: Some(String::from("st")),
             expires_at: Some(FIRST_EXPIRES + generation * 12 * 3600),
+            restore: None,
         }
     }
 

@@ -309,7 +309,10 @@ pub(crate) mod encrypted {
     use azul_storage::{
         crypto::{azl1::OpenObject, device, keys, DriveKey, ObjectId},
         encrypted::{open_encrypted, EncryptedDrive},
-        meta::{pointer, DriveBucket, MetaIndexProvider, MetaRepo},
+        meta::{
+            pointer, DriveBucket, IndexProfile, MetaIndexProvider, MetaRepo, ReclaimOptions,
+            RestoreSource,
+        },
         Drive,
     };
 
@@ -368,7 +371,15 @@ pub(crate) mod encrypted {
         let bucket: Arc<dyn Drive> = Arc::new(Direct {
             remote: remote.clone(),
         });
-        let provider = MetaIndexProvider::new("e2e-tamper").with_cache_root(None);
+        let provider = MetaIndexProvider::from_profile(IndexProfile {
+            device_name: String::from("e2e-tamper"),
+            cache_root: None,
+            lazy: false,
+            packing: false,
+            // gate:restore-none allow: the tamper command reads the remote's index to aim and writes nothing; the harness has no token server [X-DELTA-AZDRIVE-SYNC-3]
+            restore: RestoreSource::none("the harness has no token server to ask"),
+            reclaim: ReclaimOptions::off(),
+        });
         open_encrypted(bucket, remote.keyring.as_ref(), &remote.drive_name, &provider)
             .map_err(|e| format!("the remote's index cannot be read to aim: {e}"))
     }

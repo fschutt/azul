@@ -222,14 +222,28 @@ pub struct ReclaimOptions {
     pub use_mark: bool,
 }
 
-impl Default for ReclaimOptions {
-    fn default() -> Self {
+impl ReclaimOptions {
+    /// The reclaimer as the first release ships it (ARCH28 Q30): it runs, says what it would
+    /// delete and deletes nothing. There is no `Default`: an app that builds an index provider says
+    /// which it wants ([`ReclaimOptions::shadow`] or [`ReclaimOptions::off`]), and a reader of its
+    /// code sees it (X-DELTA-AZDRIVE-SYNC-3).
+    #[must_use]
+    pub fn shadow() -> ReclaimOptions {
         ReclaimOptions {
             mode: DEFAULT_MODE,
             caps: Caps::default(),
             retention: super::retention::RETENTION,
             server_clock: ServerClock::Required,
             use_mark: true,
+        }
+    }
+
+    /// The kill switch: the reclaimer does not run.
+    #[must_use]
+    pub fn off() -> ReclaimOptions {
+        ReclaimOptions {
+            mode: ReclaimMode::Off,
+            ..ReclaimOptions::shadow()
         }
     }
 }

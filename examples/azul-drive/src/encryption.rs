@@ -3,7 +3,7 @@
 //! An Azlin drive opens through azul-storage's `AutoEncrypted`: its first call, on a worker
 //! thread, finds whether the drive is encrypted (this computer keeps its key, or the bucket
 //! holds key files) and then goes through the encryption, the index from
-//! [`index_provider`] - the bucket's encrypted metadata repository, browsed without listing
+//! [`restoring_provider`] - the bucket's encrypted metadata repository, browsed without listing
 //! the bucket; a plain drive is used as it is.
 //!
 //! The flows, from a cloud drive's menu in the source list:
@@ -81,8 +81,8 @@ use azul_storage::{
     keyring::KeyringStore,
     scratch::Scratch,
     meta::{
-        merge::keep_both, DriveBucket, Maintained, Maintenance, MetaIndexProvider, MetaRepo,
-        RestoreSource,
+        merge::keep_both, DriveBucket, IndexProfile, Maintained, Maintenance, MetaIndexProvider,
+        MetaRepo, ReclaimOptions, RestoreSource,
     },
     migrate::{migrate, MigrationState},
     recompress::{run_pass, RecompressPolicy, RecompressState},
@@ -104,33 +104,49 @@ use crate::{
     with_state, DriveState, Popup,
 };
 
-/// The provider of encrypted drives' indexes: the drive's encrypted metadata repository
-/// (azul-storage's `meta` module), this computer's copy of it kept in the user's cache folder
-/// between runs (`<cache>/AzDrive/drive-index`), so a drive opens with one conditional read and
-/// browses without listing the bucket.
-pub(crate) fn index_provider() -> Option<Arc<dyn IndexProvider>> {
-    Some(Arc::new(meta_provider(drive_index_root())))
+/// AzDrive's profile of the provider of encrypted drives' indexes: the drive's encrypted metadata
+/// repository (azul-storage's `meta` module), this computer's copy of it kept in the user's cache
+/// folder between runs (`<cache>/AzDrive/drive-index`), so a drive opens with one conditional read
+/// and browses without listing the bucket. The copies are lazy (C6): opening reads the pack
+/// indexes only, and a folder's objects arrive in ranged chunk reads when it is browsed, so a
+/// computer new to a drive browses it before every pack has downloaded. Small files are packed
+/// together (one ranged read each, one index commit per pack), their journal beside the drive's
+/// index copy. `restore` is where the drive's restore announcement comes from.
+pub(crate) fn index_profile(cache_root: Option<PathBuf>, restore: RestoreSource) -> IndexProfile {
+    IndexProfile {
+        device_name: String::from("AzDrive"),
+        cache_root,
+        lazy: true,
+        packing: true,
+        restore,
+        reclaim: ReclaimOptions::shadow(),
+    }
 }
 
-/// The drive index's provider with this computer's copies under `cache_root`. The copies
-/// are lazy (C6): opening reads the pack indexes only, and a folder's objects arrive in
-/// ranged chunk reads when it is browsed, so a computer new to a drive browses it before
-/// every pack has downloaded. Small files are packed together (one ranged read each, one
-/// index commit per pack), their journal beside the drive's index copy.
+/// The drive index's provider with this computer's copies under `cache_root`, for a provider that
+/// opens no copy of an index: the maintenance round reads the copy's floor and runs under the
+/// bucket's lease, and the slot's own provider ([`restoring_provider`]) takes the announcement.
+/// What opens an index goes through [`restoring_provider`] or the slot's provider
+/// (`AutoEncrypted::provider`).
 pub(crate) fn meta_provider(cache_root: Option<PathBuf>) -> MetaIndexProvider {
-    MetaIndexProvider::new("AzDrive")
-        .with_cache_root(cache_root)
-        .with_lazy(true)
-        .with_packing(true)
+    MetaIndexProvider::from_profile(index_profile(
+        cache_root,
+        // gate:restore-none allow: a maintenance round opens no copy of an index, and the slot's provider takes the announcement [X-DELTA-AZDRIVE-SYNC-3]
+        RestoreSource::none("a maintenance round opens no copy of an index"),
+    ))
 }
 
-/// [`meta_provider`] for one drive: its indexes ask `restore` (the drive's restore announcement
-/// as the token server gave it) at every poll and every commit.
+/// The provider of one drive's slot: its indexes ask `restore` (the drive's restore announcement
+/// as the token server gave it) at every poll and every commit. The jobs that open the same
+/// drive's index on their own (migrate, rotate, re-encrypt, totals) take this provider from the
+/// slot ([`AutoEncrypted::provider`]) and not one of their own.
 pub(crate) fn restoring_provider(
     cache_root: Option<PathBuf>,
     restore: RestoreSource,
 ) -> Arc<dyn IndexProvider> {
-    Arc::new(meta_provider(cache_root).with_restore(restore))
+    Arc::new(MetaIndexProvider::from_profile(index_profile(
+        cache_root, restore,
+    )))
 }
 
 /// The run's cache folder (`--cache-dir`, else `<cache>/AzDrive`; `None` in a `--shot` run
@@ -447,9 +463,9 @@ fn tell_grant(s: &mut DriveState, end: &crate::sign_in::GrantEnd) {
     }
 }
 
-/// Whether the encryption flows are offered (an index provider is in this build).
+/// Whether the encryption flows are offered: always - the drive index is in every build.
 pub(crate) fn offered() -> bool {
-    index_provider().is_some()
+    true
 }
 
 /// Where a drive's migration keeps its state: beside the drives file.
@@ -2675,7 +2691,7 @@ pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
             before,
         } => {
             let result = (|| -> Result<Zeroizing<String>, String> {
-                if index_provider().is_none() {
+                if auto.provider().is_none() {
                     return Err(String::from("azdrive-enc-err-no-index"));
                 }
                 // A drive that arrived with key files was set up by the computer it was
@@ -2729,7 +2745,7 @@ pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
                     load_state(&state_file, |text| MigrationState::from_json(text).ok())?
                         .unwrap_or_default();
                 let provider =
-                    index_provider().ok_or_else(|| String::from("azdrive-enc-err-no-index"))?;
+                    auto.provider().ok_or_else(|| String::from("azdrive-enc-err-no-index"))?;
                 let drive = open_encrypted(
                     Arc::clone(auto.bucket()),
                     &keyring,
@@ -2753,7 +2769,8 @@ pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
                 let mut state =
                     load_state(&state_file, |text| RecompressState::from_json(text).ok())?
                         .unwrap_or_default();
-                let provider = index_provider()
+                let provider = auto
+                    .provider()
                     .ok_or_else(|| String::from("azdrive-enc-err-no-index"))?;
                 let drive = open_encrypted(
                     Arc::clone(auto.bucket()),
@@ -2787,7 +2804,8 @@ pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
             reencrypt_state,
         } => {
             let result = (|| -> Result<RotationDone, String> {
-                let provider = index_provider()
+                let provider = auto
+                    .provider()
                     .ok_or_else(|| String::from("azdrive-enc-err-no-index"))?;
                 // The rotation of THIS device that stopped has had its lockdown. A journal anyone
                 // planted in the bucket is none: it must not skip the lockdown. A rotation that
@@ -2865,7 +2883,8 @@ pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
         }
         EncryptionJob::Totals { azlin_id, auto } => {
             let result = (|| -> Result<(u64, u64), String> {
-                let provider = index_provider()
+                let provider = auto
+                    .provider()
                     .ok_or_else(|| String::from("azdrive-enc-err-no-index"))?;
                 let drive = open_encrypted(
                     Arc::clone(auto.bucket()),
@@ -2891,7 +2910,8 @@ pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
                     rotated_at,
                 )
                 .unwrap_or_else(|| ReencryptState::new(now_unix()));
-                let provider = index_provider()
+                let provider = auto
+                    .provider()
                     .ok_or_else(|| String::from("azdrive-enc-err-no-index"))?;
                 let drive = open_encrypted(
                     Arc::clone(auto.bucket()),
@@ -4675,6 +4695,61 @@ mod tests {
         assert!(
             asked.load(Ordering::SeqCst) > 0,
             "the index asked where the drive's restore stands"
+        );
+    }
+
+    /// X-DELTA-AZDRIVE-SYNC-3. A job that opens the index of the slot's drive on its own
+    /// (migrate, recompress, rotate, re-encrypt, totals) took `index_provider()` - a provider made
+    /// without the drive's restore source, so a drive the operator restored was refused to the job
+    /// as a rollback for good while the slot took the announcement. It takes the slot's provider
+    /// (`AutoEncrypted::provider`) and so asks the same source. RED not run: the old job built its
+    /// provider with no source and asked nothing.
+    #[test]
+    fn x_delta_azdrive_sync_3_a_job_opens_the_drives_index_with_the_provider_of_its_slot() {
+        use azul_storage::{crypto::DriveKey, keyring::MemoryKeyring, meta::MemoryBucket};
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let asked = Arc::new(AtomicUsize::new(0));
+        let counter = Arc::clone(&asked);
+        let provider = restoring_provider(
+            None,
+            RestoreSource::new(move || {
+                counter.fetch_add(1, Ordering::SeqCst);
+                None
+            }),
+        );
+        let bucket = Arc::new(MemoryBucket::new());
+        let auto = wrap_with(
+            Arc::new(MemoryKeyring::new()),
+            Some(provider),
+            "d_job",
+            bucket.clone(),
+            EncryptionRecord::default(),
+            "slot-1",
+            &crate::KeyRecords::default(),
+        );
+        let job = auto
+            .provider()
+            .expect("the provider the slot was made with");
+        let key = DriveKey::generate().unwrap();
+        job.open_index("d_job", bucket as Arc<dyn Drive>, &key)
+            .unwrap();
+        assert!(
+            asked.load(Ordering::SeqCst) > 0,
+            "the job's index asked where the drive's restore stands"
+        );
+        let none = wrap_with(
+            Arc::new(MemoryKeyring::new()),
+            None,
+            "d_none",
+            Arc::new(MemoryBucket::new()),
+            EncryptionRecord::default(),
+            "slot-2",
+            &crate::KeyRecords::default(),
+        );
+        assert!(
+            none.provider().is_none(),
+            "a drive made without an index has none"
         );
     }
 

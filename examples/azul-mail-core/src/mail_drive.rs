@@ -35,7 +35,7 @@ use azul_storage::{
     encrypted::{open_encrypted, AutoEncrypted, IndexProvider},
     Precondition,
 };
-use azul_storage::{keyring::KeyringStore, Drive, DriveError, Transport};
+use azul_storage::{keyring::KeyringStore, meta::RestoreSource, Drive, DriveError, Transport};
 
 use crate::azlin::AzlinSession;
 
@@ -50,9 +50,13 @@ static DEVICE_NAME: Mutex<Option<String>> = Mutex::new(None);
 pub const DEFAULT_DEVICE_NAME: &str = "AzMail";
 
 /// The provider of encrypted drives' indexes: the drive's encrypted metadata repository
-/// (azul-storage's `meta` module), this computer's copy of it under the cache root.
+/// (azul-storage's `meta` module), this computer's copy of it under the cache root. `restore` is
+/// where the drive's restore announcement comes from (the token server's word, as the session's
+/// last sign-in answered it): a copy that is kept between runs and has no source refuses a drive
+/// the operator restored, for good (X-DELTA-AZDRIVE-SYNC-3: AzMail, the bridge and the command line
+/// built the provider without it, and only AzDrive's drives could be restored).
 #[cfg(feature = "encryption")]
-fn index_provider() -> Option<Arc<dyn IndexProvider>> {
+fn index_provider(restore: RestoreSource) -> Option<Arc<dyn IndexProvider>> {
     let root = INDEX_CACHE_ROOT
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -63,8 +67,15 @@ fn index_provider() -> Option<Arc<dyn IndexProvider>> {
         .clone()
         .unwrap_or_else(|| DEFAULT_DEVICE_NAME.to_string());
     Some(Arc::new(
-        azul_storage::meta::MetaIndexProvider::new(&name).with_cache_root(root),
-    ))
+        azul_storage::meta::MetaIndexProvider::from_profile(azul_storage::meta::IndexProfile {
+            device_name: name,
+            cache_root: root,
+            lazy: false,
+            packing: false,
+            restore,
+            reclaim: azul_storage::meta::ReclaimOptions::shadow(),
+        },
+    )))
 }
 
 /// Names this device in the drive index's commits and conflict copies ("AzMail", "Azlin
@@ -86,19 +97,21 @@ pub fn set_index_cache_root(root: Option<PathBuf>) {
 /// `bucket`, the Azlin drive `drive_id`'s, as the mail's drive. An Azlin drive is encrypted: the
 /// mail opens one that is ([`AutoEncrypted::encrypted_only`]) and reads or writes nothing of one
 /// that is not (a new drive, an older one, a bucket that hides its key files, which cannot be
-/// told apart) - it is encrypted in AzDrive first.
+/// told apart) - it is encrypted in AzDrive first. `restore` is where the drive's restore
+/// announcement comes from ([`crate::azlin::AzlinSession::restore_source`]).
 pub fn wrap(
     bucket: Arc<dyn Drive>,
     drive_id: &str,
     keyring: Arc<dyn KeyringStore>,
+    restore: RestoreSource,
 ) -> Arc<dyn Drive> {
     #[cfg(feature = "encryption")]
     {
-        wrap_auto(bucket, drive_id, keyring)
+        wrap_auto(bucket, drive_id, keyring, restore)
     }
     #[cfg(not(feature = "encryption"))]
     {
-        let _ = (bucket, drive_id, keyring);
+        let _ = (bucket, drive_id, keyring, restore);
         Arc::new(NoEncryption)
     }
 }
@@ -150,8 +163,11 @@ pub fn wrap_auto(
     bucket: Arc<dyn Drive>,
     drive_id: &str,
     keyring: Arc<dyn KeyringStore>,
+    restore: RestoreSource,
 ) -> Arc<AutoEncrypted> {
-    Arc::new(AutoEncrypted::new(bucket, drive_id, keyring, index_provider()).encrypted_only())
+    Arc::new(
+        AutoEncrypted::new(bucket, drive_id, keyring, index_provider(restore)).encrypted_only(),
+    )
 }
 
 /// Files the drops of the drive `drive_id` (in its plain `bucket`) into its encrypted mail
@@ -211,7 +227,7 @@ pub fn receive_drops(
 ) -> Result<u64, DriveError> {
     #[cfg(feature = "encryption")]
     {
-        let Some(provider) = index_provider() else {
+        let Some(provider) = index_provider(session.restore_source()) else {
             return Ok(0);
         };
         if device::load_drive_key(keyring, &session.drive_id)?.is_none() {
@@ -256,16 +272,28 @@ pub fn open(
     keyring: Arc<dyn KeyringStore>,
 ) -> Result<Arc<dyn Drive>, DriveError> {
     let bucket = session.open_drive(endpoint_override, transport)?;
-    Ok(wrap(Arc::new(bucket), &session.drive_id, keyring))
+    Ok(wrap(
+        Arc::new(bucket),
+        &session.drive_id,
+        keyring,
+        session.restore_source(),
+    ))
 }
 
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
 
-    use azul_storage::{keyring::MemoryKeyring, testing::TempDir, Drive, LocalDrive};
+    use azul_storage::{
+        keyring::MemoryKeyring, meta::RestoreSource, testing::TempDir, Drive, LocalDrive,
+    };
 
     use super::wrap;
+
+    /// A test's drive has no token server to announce a restore.
+    fn no_restore() -> RestoreSource {
+        RestoreSource::none("a test has no token server to ask")
+    }
 
     /// "We always encrypt and compress": the mail core's default build opens an encrypted
     /// account's drive through the encryption (AzMail and the bridge build on it).
@@ -298,7 +326,12 @@ mod tests {
         let tmp = TempDir::new("azmail-mail-drive");
         let bucket = LocalDrive::without_manifest(tmp.path());
         bucket.put("mail/Inbox/1.eml", b"Subject: hi\r\n\r\nhello").unwrap();
-        let drive = wrap(Arc::new(bucket), "d_1", Arc::new(MemoryKeyring::new()));
+        let drive = wrap(
+            Arc::new(bucket),
+            "d_1",
+            Arc::new(MemoryKeyring::new()),
+            no_restore(),
+        );
         assert!(matches!(
             drive.get("mail/Inbox/1.eml"),
             Err(DriveError::Unsupported(_))
@@ -323,7 +356,12 @@ mod tests {
         let tmp = TempDir::new("azmail-mail-drive");
         let bucket = LocalDrive::without_manifest(tmp.path());
         bucket.put("mail/Inbox/1.eml", b"Subject: hi\r\n\r\nhello").unwrap();
-        let drive = wrap(Arc::new(bucket), "d_1", Arc::new(MemoryKeyring::new()));
+        let drive = wrap(
+            Arc::new(bucket),
+            "d_1",
+            Arc::new(MemoryKeyring::new()),
+            no_restore(),
+        );
         assert!(matches!(
             drive.get("mail/Inbox/1.eml"),
             Err(DriveError::Denied { .. })
@@ -353,6 +391,7 @@ mod tests {
             Arc::new(LocalDrive::without_manifest(tmp.path())),
             "d_1",
             keyring,
+            no_restore(),
         );
         assert!(matches!(
             drive.put("mail/Sent/2.eml", b"secret"),
@@ -376,7 +415,7 @@ mod tests {
         let bucket = Arc::new(MemoryBucket::new());
         let cheap = RecoveryKdf::with_cost(64, 1, 1).unwrap();
         device::setup_new_drive(bucket.as_ref(), keyring.as_ref(), "d_new", cheap).unwrap();
-        let drive = wrap(bucket.clone(), "d_new", keyring);
+        let drive = wrap(bucket.clone(), "d_new", keyring, no_restore());
         let sent = b"Subject: the quarterly plan\r\n\r\nhello\r\n";
         drive
             .put("mail/Sent/20261010T080000Z-0011223344556677.eml", sent)
@@ -413,7 +452,7 @@ mod tests {
         let bucket = Arc::new(MemoryBucket::new());
         let cheap = RecoveryKdf::with_cost(64, 1, 1).unwrap();
         device::setup_new_drive(bucket.as_ref(), keyring.as_ref(), "d_cache", cheap).unwrap();
-        let drive = wrap(bucket, "d_cache", keyring);
+        let drive = wrap(bucket, "d_cache", keyring, no_restore());
         drive.put("mail/Inbox/1.eml", b"hello").unwrap();
         super::set_index_cache_root(None);
         let kept: Vec<String> = std::fs::read_dir(tmp.path())
@@ -489,7 +528,7 @@ mod tests {
                 .unwrap();
         bucket.put(&key, &sealed).unwrap();
 
-        let auto = super::wrap_auto(bucket.clone(), "d_drops", keyring.clone());
+        let auto = super::wrap_auto(bucket.clone(), "d_drops", keyring.clone(), no_restore());
         assert_eq!(super::receive_drops_into(&auto, keyring.as_ref()).unwrap(), 1);
         let name = crate::azlin::object_name(raw, 1_791_619_200);
         assert_eq!(auto.get(&format!("mail/Inbox/{name}")).unwrap(), raw);
@@ -503,7 +542,80 @@ mod tests {
         );
         assert_eq!(super::receive_drops_into(&auto, keyring.as_ref()).unwrap(), 0);
 
-        let plain = super::wrap_auto(Arc::new(MemoryBucket::new()), "d_plain", keyring.clone());
+        let plain = super::wrap_auto(
+            Arc::new(MemoryBucket::new()),
+            "d_plain",
+            keyring.clone(),
+            no_restore(),
+        );
         assert_eq!(super::receive_drops_into(&plain, keyring.as_ref()).unwrap(), 0);
+    }
+
+    /// X-DELTA-AZDRIVE-SYNC-3 (AZ-M4). AzMail keeps this computer's copy of the drive index between
+    /// runs; the operator restores the drive from its lagging off-site copy and the token server
+    /// announces it in the sign-in. A mail drive made with the session's announcement takes the
+    /// restore once and shows the restored folders; one made with no source refuses the drive for
+    /// good ("an older index than this device has seen"). RED not run: `wrap` took no source, so
+    /// the second case was the only one AzMail had.
+    #[cfg(feature = "encryption")]
+    #[test]
+    fn x_delta_azdrive_sync_3_the_mail_takes_a_restore_its_session_announces_and_refuses_one_nobody_did(
+    ) {
+        use azul_storage::{
+            crypto::{device, keys::RecoveryKdf},
+            meta::{keys, MemoryBucket},
+            restore::RestoreNotice,
+            ListRequest,
+        };
+        let _turn = provider_turn();
+        let tmp = TempDir::new("azmail-restore");
+        super::set_index_cache_root(Some(tmp.path().to_path_buf()));
+        let keyring = Arc::new(MemoryKeyring::new());
+        let bucket = Arc::new(MemoryBucket::new());
+        let cheap = RecoveryKdf::with_cost(64, 1, 1).unwrap();
+        device::setup_new_drive(bucket.as_ref(), keyring.as_ref(), "d_restore", cheap).unwrap();
+        let drive = wrap(bucket.clone(), "d_restore", keyring.clone(), no_restore());
+        drive.put("mail/Inbox/1.eml", b"one").unwrap();
+        let older = bucket
+            .objects()
+            .into_iter()
+            .find(|(key, _)| key == keys::MANIFEST)
+            .map(|(_, bytes)| bytes)
+            .expect("the index's manifest");
+        drive.put("mail/Inbox/2.eml", b"two").unwrap();
+        drop(drive);
+        // The operator restores the bucket from the off-site copy that lags: the older manifest.
+        bucket.overwrite(keys::MANIFEST, &older);
+
+        let refused = wrap(bucket.clone(), "d_restore", keyring.clone(), no_restore());
+        let error = refused
+            .list(&ListRequest::recursive("mail/"))
+            .expect_err("a restored drive nobody announced is a rollback");
+        assert!(error.to_string().contains("older index"), "{error}");
+
+        let mut session = crate::azlin::AzlinSession::with_token("d_restore", "dt_f.0.t");
+        session.restore = Some(RestoreNotice {
+            epoch: 1,
+            ..RestoreNotice::default()
+        });
+        let taken = wrap(
+            bucket.clone(),
+            "d_restore",
+            keyring,
+            session.restore_source(),
+        );
+        let page = taken.list(&ListRequest::recursive("mail/")).unwrap();
+        let files: Vec<&str> = page
+            .objects
+            .iter()
+            .map(|o| o.key.as_str())
+            .filter(|key| key.ends_with(".eml"))
+            .collect();
+        super::set_index_cache_root(None);
+        assert_eq!(
+            files,
+            ["mail/Inbox/1.eml"],
+            "the restored drive: the second message was after the off-site copy"
+        );
     }
 }

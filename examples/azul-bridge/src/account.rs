@@ -131,6 +131,20 @@ impl AccountDrive {
             .clone()
     }
 
+    /// The drive's newest restore announcement as the last refresh answered it: the token server's
+    /// word (never the bucket's) that an operator restored the drive from its off-site copy. What
+    /// the bridge's copy of the drive index takes once, instead of refusing the restored drive as a
+    /// rollback for good (X-DELTA-AZDRIVE-SYNC-3; AzDrive's `AzlinDrive::restore_notice`).
+    #[must_use]
+    pub fn restore_notice(&self) -> Option<azcloud_kit::sync::RestoreNotice> {
+        self.account
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .record()
+            .restore
+            .clone()
+    }
+
     /// The bucket with credentials that work now; `force` renews them first.
     fn current(&self, force: bool) -> Result<(Arc<S3Drive>, String), DriveError> {
         let mut account = self

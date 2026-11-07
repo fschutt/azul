@@ -127,7 +127,7 @@ pub use bucket::{
 };
 pub use certainty::Certainty;
 #[cfg(feature = "encryption")]
-pub use index::{open_encrypted_drive, MetaIndex, MetaIndexProvider};
+pub use index::{open_encrypted_drive, IndexProfile, MetaIndex, MetaIndexProvider};
 pub use merge::{Conflict, ConflictKind, Merged, Resolution, Resolved};
 pub use objects::{Commit, Kind, Mode, ObjectId, Objects, Signature, Tree, TreeEntry};
 pub use pack::{PackIndex, PackWriter, SealedPack};
@@ -319,7 +319,10 @@ impl fmt::Display for MetaError {
             MetaError::Rollback { seen, served } => write!(
                 f,
                 "the storage answered with an older index (revision {served}) than this \
-                 device has seen (revision {seen})"
+                 device has seen (revision {seen}). If the drive was restored from its \
+                 off-site copy, the token server announces it and this computer takes the \
+                 announcement at its next sign-in; if not, the storage lost writes or serves an \
+                 old state, and nothing was changed here"
             ),
             MetaError::LeaseHeld { holder, expires_at } => write!(
                 f,

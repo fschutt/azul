@@ -115,7 +115,7 @@ fn options(mode: ReclaimMode) -> ReclaimOptions {
     ReclaimOptions {
         mode,
         server_clock: ServerClock::Unchecked,
-        ..ReclaimOptions::default()
+        ..ReclaimOptions::shadow()
     }
 }
 
@@ -345,7 +345,7 @@ fn az_m2_a_clock_the_storage_does_not_agree_with_deletes_nothing() {
     lab.at(T0 + 100 * DAY);
     let required = ReclaimOptions {
         mode: ReclaimMode::Delete,
-        ..ReclaimOptions::default()
+        ..ReclaimOptions::shadow()
     };
 
     // The storage does not tell the time: the device's word alone is not believed.
@@ -552,7 +552,7 @@ fn az_m2_the_providers_maintenance_round_ends_with_a_shadow_round_and_tells_what
     // The kill switch: no round at all.
     let off = MetaIndexProvider::new("Laptop").with_reclaim(ReclaimOptions {
         mode: ReclaimMode::Off,
-        ..ReclaimOptions::default()
+        ..ReclaimOptions::shadow()
     });
     off.maintain(Arc::clone(&bucket), &key, &Maintenance::default())
         .unwrap();

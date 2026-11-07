@@ -544,6 +544,16 @@ impl AutoEncrypted {
         &self.drive
     }
 
+    /// The provider of the drive's index this drive was made with: a job that opens the index of
+    /// the same drive on its own (a migration, a rotation, a re-encryption) takes THIS one, with
+    /// its cache folder and the restore announcement it asks, and not a provider of its own made
+    /// without them (X-DELTA-AZDRIVE-SYNC-3: a second provider without the source refused a
+    /// restored drive for good). `None`: the drive was made without an index.
+    #[must_use]
+    pub fn provider(&self) -> Option<Arc<dyn IndexProvider>> {
+        self.provider.clone()
+    }
+
     /// Forgets the decision: the next call decides again (after the drive was encrypted, or
     /// this device got its key). The user's own act, so a declined prompt is asked again, and
     /// the key id the drives file recorded is the new key's to write - which is why only an act

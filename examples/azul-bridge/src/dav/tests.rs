@@ -700,7 +700,12 @@ fn webdav_over_an_encrypted_drive_keeps_no_name_or_byte_in_the_bucket_in_the_cle
     let bucket = Arc::new(MemoryBucket::new());
     let cheap = RecoveryKdf::with_cost(64, 1, 1).unwrap();
     device::setup_new_drive(bucket.as_ref(), keyring.as_ref(), "d_dav", cheap).unwrap();
-    let drive = mail_drive::wrap_auto(bucket.clone(), "d_dav", keyring);
+    let drive = mail_drive::wrap_auto(
+        bucket.clone(),
+        "d_dav",
+        keyring,
+        azul_storage::meta::RestoreSource::none("a test has no token server to ask"),
+    );
     let dav = Dav::new(
         drive,
         Credentials::new(USER, PASSWORD),

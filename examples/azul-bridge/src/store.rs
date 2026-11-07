@@ -840,7 +840,12 @@ mod tests {
         let sealed = drops::seal_drop(&public, DRIVE, &key, OCT_1, DropFolder::Inbox, &raw).unwrap();
         bucket.put(&key, &sealed).unwrap();
 
-        let auto = mail_drive::wrap_auto(bucket.clone(), DRIVE, keyring.clone());
+        let auto = mail_drive::wrap_auto(
+            bucket.clone(),
+            DRIVE,
+            keyring.clone(),
+            azul_storage::meta::RestoreSource::none("a test has no token server to ask"),
+        );
         let store = DriveMailStore::new(auto.clone()).with_incoming(drops_incoming(auto, keyring));
         let inbox = store.messages("Inbox").unwrap();
         assert_eq!(inbox.len(), 1, "{inbox:?}");

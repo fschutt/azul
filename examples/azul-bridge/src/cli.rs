@@ -581,11 +581,19 @@ fn serve(
     if let Some(secs) = options.idle_poll {
         limits.idle_poll = Duration::from_secs(secs);
     }
-    // The Azlin drive's id (`None`: a development drive of this computer).
-    let (drive, uids, drive_id): (Arc<dyn Drive>, UidMaps, Option<String>) = if options.memory {
+    // The Azlin drive's id (`None`: a development drive of this computer) and where its restore
+    // announcement comes from: the device account's last refresh, asked at every poll of the
+    // drive index (X-DELTA-AZDRIVE-SYNC-3).
+    let (drive, uids, drive_id, restore): (
+        Arc<dyn Drive>,
+        UidMaps,
+        Option<String>,
+        Option<azul_storage::meta::RestoreSource>,
+    ) = if options.memory {
         (
             Arc::new(MemoryDrive::new()) as Arc<dyn Drive>,
             UidMaps::in_memory(),
+            None,
             None,
         )
     } else if let Some(folder) = &options.folder {
@@ -593,6 +601,7 @@ fn serve(
         (
             Arc::new(LocalDrive::without_manifest(folder.clone())) as Arc<dyn Drive>,
             UidMaps::in_folder(state.join(UIDS_DIR)),
+            None,
             None,
         )
     } else {
@@ -607,10 +616,15 @@ fn serve(
         };
         let id = drive.drive_id();
         say(&format!("AZUL_BRIDGE_DRIVE {id}"));
+        let drive = Arc::new(drive);
+        let announcer = Arc::clone(&drive);
         (
-            Arc::new(drive) as Arc<dyn Drive>,
+            drive as Arc<dyn Drive>,
             UidMaps::in_folder(state.join(UIDS_DIR)),
             Some(id),
+            Some(azul_storage::meta::RestoreSource::new(move || {
+                announcer.restore_notice()
+            })),
         )
     };
     // An Azlin drive goes through the encryption, as AzMail's does (azul-mail-core's mail_drive:
@@ -619,27 +633,28 @@ fn serve(
     // the mail Worker leaves are filed before a folder is listed. IMAP, SMTP, WebDAV, CalDAV and
     // CardDAV all use this drive.
     #[cfg(feature = "encryption")]
-    let (drive, incoming) = match &drive_id {
-        Some(id) => {
+    let (drive, incoming) = match (&drive_id, restore) {
+        (Some(id), Some(restore)) => {
             azmail_core::mail_drive::set_device_name("Azlin Bridge");
             azmail_core::mail_drive::set_index_cache_root(Some(state.join(config::INDEX_CACHE_DIR)));
-            let auto = azmail_core::mail_drive::wrap_auto(drive, id, secrets.clone());
+            let auto = azmail_core::mail_drive::wrap_auto(drive, id, secrets.clone(), restore);
             let incoming = crate::store::drops_incoming(Arc::clone(&auto), secrets.clone());
             (auto as Arc<dyn Drive>, Some(incoming))
         }
-        None => (drive, None),
+        _ => (drive, None),
     };
     // A build without the encryption opens an Azlin drive through no call (the mail's drive refuses
     // every one): the bare account drive would serve the mail and the WebDAV files in the clear
     // (X-DELTA-AZDRIVE-KEYS-23).
     #[cfg(not(feature = "encryption"))]
-    let (drive, incoming): (Arc<dyn Drive>, Option<crate::store::Incoming>) = match &drive_id {
-        Some(id) => (
-            azmail_core::mail_drive::wrap(drive, id, secrets.clone()),
-            None,
-        ),
-        None => (drive, None),
-    };
+    let (drive, incoming): (Arc<dyn Drive>, Option<crate::store::Incoming>) =
+        match (&drive_id, restore) {
+            (Some(id), Some(restore)) => (
+                azmail_core::mail_drive::wrap(drive, id, secrets.clone(), restore),
+                None,
+            ),
+            _ => (drive, None),
+        };
     let mut mail_store = DriveMailStore::new(drive.clone());
     if let Some(incoming) = incoming {
         mail_store = mail_store.with_incoming(incoming);
