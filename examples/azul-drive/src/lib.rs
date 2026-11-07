@@ -3462,6 +3462,8 @@ pub(crate) extern "C" fn on_job_done(
                     index.error = None;
                 }
                 Err(error) => {
+                    // The error may name a URL with a password in it (AZ-CN3).
+                    let error = azul_storage::scrub::scrub_url(&error);
                     println!("AZDRIVE_INDEX_FAILED {drive_id} {error}");
                     index.error = Some(error);
                 }

@@ -263,6 +263,94 @@ fn a_request_without_an_answer_is_a_transport_error() {
     }
 }
 
+/// A transport with no answer that says which URL it tried, as an HTTP client's error does
+/// ("Connection failed: {url}").
+struct NamesTheUrl;
+
+impl Transport for NamesTheUrl {
+    fn send(&self, call: &HttpCall) -> Result<HttpReply, String> {
+        Err(format!("Connection failed: {}", call.url))
+    }
+}
+
+/// A server that answers every request with a 500.
+struct AlwaysBroken;
+
+impl Transport for AlwaysBroken {
+    fn send(&self, _call: &HttpCall) -> Result<HttpReply, String> {
+        Ok(HttpReply {
+            status: 500,
+            headers: vec![("content-type".to_string(), "text/plain".to_string())],
+            body: b"broken".to_vec(),
+        })
+    }
+}
+
+fn pcloud(transport: Box<dyn Transport>) -> OpendalDrive {
+    let mut options = BTreeMap::new();
+    options.insert("endpoint".to_string(), "https://api.pcloud.com".to_string());
+    options.insert("username".to_string(), "ann".to_string());
+    let mut secrets = SecretOptions::new();
+    secrets.insert("password", "hunter2");
+    OpendalDrive::open("pcloud", &options, &secrets, transport).expect("the pCloud source")
+}
+
+fn webhdfs(transport: Box<dyn Transport>) -> OpendalDrive {
+    let mut options = BTreeMap::new();
+    options.insert("endpoint".to_string(), "http://namenode:9870".to_string());
+    options.insert("user_name".to_string(), "ann".to_string());
+    let mut secrets = SecretOptions::new();
+    secrets.insert("delegation", "HAAAABBCCDD-token");
+    OpendalDrive::open("webhdfs", &options, &secrets, transport).expect("the WebHDFS source")
+}
+
+/// AZ-CN3: pCloud sends the user name and the PASSWORD in the query of every request, WebHDFS its
+/// delegation token; a request that got no answer said "Connection failed: {url}", and that text
+/// was the red line under "Test connection" (the review's screen share). No error of the drive
+/// names the secret, shown or in its Debug output, and the host is still there.
+#[test]
+fn az_cn3_a_source_that_puts_its_credentials_in_the_url_names_none_in_a_failure() {
+    for (drive, secret, host) in [
+        (pcloud(Box::new(NamesTheUrl)), "hunter2", "api.pcloud.com"),
+        (
+            webhdfs(Box::new(NamesTheUrl)),
+            "HAAAABBCCDD",
+            "namenode:9870",
+        ),
+    ] {
+        let error = drive.list(&ListRequest::folder("")).unwrap_err();
+        let (shown, debug) = (error.to_string(), format!("{error:?}"));
+        for text in [&shown, &debug] {
+            assert!(
+                !text.contains(secret),
+                "the failure names the secret: {text}"
+            );
+            assert!(
+                text.contains(host),
+                "the host is what finds the server: {text}"
+            );
+        }
+    }
+}
+
+/// The same for a server that answered: OpenDAL's error carries the request's URI as context.
+#[test]
+fn az_cn3_an_error_answer_of_such_a_source_names_no_credential_either() {
+    for (drive, secret) in [
+        (pcloud(Box::new(AlwaysBroken)), "hunter2"),
+        (webhdfs(Box::new(AlwaysBroken)), "HAAAABBCCDD"),
+    ] {
+        let error = drive.list(&ListRequest::folder("")).unwrap_err();
+        let (shown, debug) = (error.to_string(), format!("{error:?}"));
+        for text in [&shown, &debug] {
+            assert!(
+                !text.contains(secret),
+                "the failure names the secret: {text}"
+            );
+        }
+    }
+}
+
 #[test]
 fn a_sources_secrets_reach_opendal_but_never_its_debug_output() {
     let mut options = BTreeMap::new();

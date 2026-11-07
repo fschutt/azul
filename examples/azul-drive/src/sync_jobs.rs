@@ -1880,7 +1880,10 @@ fn take_outcome(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, outco
                     done.newer_format.len(),
                     done.held
                 ),
-                Err(e) => println!("AZDRIVE_SYNC_FAILED {drive_id} {e}"),
+                Err(e) => println!(
+                    "AZDRIVE_SYNC_FAILED {drive_id} {}",
+                    azul_storage::scrub::scrub_url(&e.to_string())
+                ),
             }
             guards_seen(info, s, &drive_id, &before);
             // A refused write: the token server says whether the drive is read-only.

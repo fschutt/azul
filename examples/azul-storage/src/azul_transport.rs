@@ -66,8 +66,13 @@ fn pool() -> &'static Pool {
     })
 }
 
+/// Why a request got no answer, as a sentence. azul's client names the URL it tried ("Connection
+/// failed: {url}", "{url}: the name did not resolve"), and pCloud and WebHDFS put the password and
+/// the delegation token in the query of every URL, a user may have typed `user:password@` into an
+/// address: the text is scrubbed here, where it is made, before it can reach a form's red line, a
+/// toast, a log or stdout (AZ-CN3).
 fn http_error_text(e: &HttpError) -> String {
-    match e {
+    let text = match e {
         HttpError::Timeout => String::from("timed out"),
         // By type, not by its words: the failover reaches the host at its addresses.
         HttpError::DnsFailed(s) => format!("{DNS_FAILED}: {}", s.as_str()),
@@ -77,7 +82,8 @@ fn http_error_text(e: &HttpError) -> String {
         | HttpError::IoError(s)
         | HttpError::Other(s) => s.as_str().to_string(),
         other => format!("{other:?}"),
-    }
+    };
+    crate::scrub::scrub_url(&text)
 }
 
 /// The answer of a blocking request.
@@ -165,5 +171,51 @@ impl Transport for AzulTransport {
             took |= pool().0.add_fallback_address(host, address.as_str());
         }
         took
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use azul::{error::HttpError, str::String as AzString};
+
+    use super::http_error_text;
+    use crate::transport::{is_dns_failure, DNS_FAILED};
+
+    fn text(words: &str) -> AzString {
+        AzString::from(words)
+    }
+
+    /// AZ-CN3: azul's client says "Connection failed: {url}" and "{url}: the name did not
+    /// resolve", and pCloud's URL holds the password: the text this transport makes names the host
+    /// and the path and nothing of the query.
+    #[test]
+    fn az_cn3_a_failed_request_names_no_password_of_its_url() {
+        let url = "https://api.pcloud.com/listfolder?path=/&username=ann&password=hunter2";
+        for error in [
+            HttpError::ConnectionFailed(text(&format!("Connection failed: {url}"))),
+            HttpError::IoError(text(&format!("{url}: connection reset"))),
+            HttpError::TlsError(text(&format!("{url}: bad certificate"))),
+            HttpError::InvalidUrl(text(url)),
+            HttpError::Other(text(&format!("{url}: unexpected"))),
+        ] {
+            let said = http_error_text(&error);
+            assert!(!said.contains("hunter2"), "{said}");
+            assert!(
+                said.contains("https://api.pcloud.com/listfolder?<hidden>"),
+                "{said}"
+            );
+        }
+    }
+
+    /// The failover reads a lookup that failed by its sentence: scrubbing keeps it.
+    #[test]
+    fn az_cn3_a_name_that_did_not_resolve_is_still_said_so() {
+        let said = http_error_text(&HttpError::DnsFailed(text(
+            "https://api.pcloud.com/listfolder?password=hunter2: the name did not resolve",
+        )));
+        assert!(said.starts_with(DNS_FAILED), "{said}");
+        assert!(is_dns_failure(&said), "{said}");
+        assert!(!said.contains("hunter2"), "{said}");
+        assert_eq!(http_error_text(&HttpError::Timeout), "timed out");
     }
 }

@@ -329,9 +329,11 @@ impl fmt::Debug for HttpCall {
                 )
             })
             .collect();
+        // A URL can hold a secret in its query (pCloud's password, WebHDFS' token, a presigned
+        // request's signature): Debug output goes to logs and failure messages.
         f.debug_struct("HttpCall")
             .field("method", &self.method)
-            .field("url", &self.url)
+            .field("url", &crate::scrub::scrub_url(&self.url))
             .field("headers", &headers)
             .field("body_len", &self.body.len())
             .field("content_type", &self.content_type)

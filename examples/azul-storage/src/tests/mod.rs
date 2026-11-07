@@ -55,6 +55,8 @@ mod scoped;
 /// The one private place for what a program keeps for a while: a spool above its memory limit, the
 /// folders, the names that say who made a file, the sweep.
 mod scratch;
+/// A text that names a URL without the secret in it (the user info, the query, the fragment).
+mod scrub;
 mod sigv4;
 /// A new data object between its upload and the index change that names it.
 #[cfg(feature = "encryption")]

@@ -97,6 +97,8 @@ pub mod scoped;
 /// The one place for what a program keeps for a while and nobody asked for: private, named by
 /// its owner process, swept.
 pub mod scratch;
+/// A text that names a URL without the secret in it (the user info, the query, the fragment).
+pub mod scrub;
 /// Where an object's bytes lie in an Azlin server's 4 + 2 code: chunks and data shards.
 pub mod shards;
 pub mod sigv4;

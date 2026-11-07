@@ -643,8 +643,16 @@ pub(crate) fn signed_in(s: &mut DriveState, serial: u64, result: Result<Tokens, 
     );
 }
 
+/// A connection test's answer as the form shows it: the failure names the address it tried, and
+/// an address may hold a password (pCloud's query, `user:password@`), so the red line under the
+/// form shows it without (AZ-CN3).
+pub(crate) fn shown(result: Result<String, String>) -> Result<String, String> {
+    result.map_err(|why| azul_storage::scrub::scrub_url(&why))
+}
+
 /// A connection test's answer.
 pub(crate) fn tested(s: &mut DriveState, serial: u64, result: Result<String, String>) {
+    let result = shown(result);
     println!(
         "AZDRIVE_TESTED {}",
         if result.is_ok() { "ok" } else { "error" }

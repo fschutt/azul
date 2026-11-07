@@ -23,8 +23,8 @@ use ::opendal::{
 };
 
 use crate::{
-    config::SecretOptions, key, ops, runtime, ByteRange, Drive, DriveError, HttpCall, HttpReply,
-    ListPage, ListRequest, Method, ObjectInfo, Transport,
+    config::SecretOptions, key, ops, runtime, scrub::scrub_url, ByteRange, Drive, DriveError,
+    HttpCall, HttpReply, ListPage, ListRequest, Method, ObjectInfo, Transport,
 };
 
 /// How the message of the error a request without an answer becomes starts (DNS, connection,
@@ -137,6 +137,9 @@ impl HttpTransport for TransportHttp {
                 .set_source(e)
             })?;
         let reply = sent.map_err(|why| {
+            // Whatever transport it was: its text may name the URL, and a URL may hold a password
+            // (pCloud) or a token (WebHDFS) in its query.
+            let why = scrub_url(&why);
             ::opendal::Error::new(ErrorKind::Unexpected, format!("{NO_ANSWER}: {why}"))
                 .set_temporary()
         })?;
@@ -163,28 +166,30 @@ impl fmt::Debug for OpendalDrive {
 
 /// An OpenDAL error as the drive's: a missing key, a refusal, a setting that cannot work, a
 /// request without an answer, the rest as the service said it.
+///
+/// The text of an OpenDAL error carries its context, and the context names the URI of the request:
+/// pCloud's has `password=...` in it, WebHDFS's the delegation token ([`scrub_url`], AZ-CN3).
 fn drive_error(e: &::opendal::Error, key: &str) -> DriveError {
     if let Some(why) = e
         .message()
         .strip_prefix(NO_ANSWER)
         .and_then(|rest| rest.strip_prefix(": "))
     {
-        return DriveError::Transport(why.to_string());
+        return DriveError::Transport(scrub_url(why));
     }
+    let said = || scrub_url(&e.to_string());
     match e.kind() {
         ErrorKind::NotFound => DriveError::NotFound {
             key: key.to_string(),
         },
-        ErrorKind::PermissionDenied => DriveError::Denied {
-            message: e.to_string(),
-        },
-        ErrorKind::ConfigInvalid => DriveError::InvalidConfig(e.to_string()),
-        ErrorKind::Unsupported => DriveError::Unsupported(e.to_string()),
+        ErrorKind::PermissionDenied => DriveError::Denied { message: said() },
+        ErrorKind::ConfigInvalid => DriveError::InvalidConfig(said()),
+        ErrorKind::Unsupported => DriveError::Unsupported(said()),
         ErrorKind::RangeNotSatisfied => DriveError::InvalidRange {
             key: key.to_string(),
         },
-        ErrorKind::RateLimited => DriveError::Transport(e.to_string()),
-        _ => DriveError::Protocol(e.to_string()),
+        ErrorKind::RateLimited => DriveError::Transport(said()),
+        _ => DriveError::Protocol(said()),
     }
 }
 
@@ -286,7 +291,9 @@ impl OpendalDrive {
             .filter(|(_, v)| !v.trim().is_empty())
             .collect();
         let op = Operator::via_iter(scheme, settings).map_err(|e| {
-            DriveError::InvalidConfig(format!("the {scheme} source cannot be opened: {e}"))
+            DriveError::InvalidConfig(scrub_url(&format!(
+                "the {scheme} source cannot be opened: {e}"
+            )))
         })?;
         let transport: Arc<dyn Transport> = Arc::from(transport);
         let op = op.with_context(
