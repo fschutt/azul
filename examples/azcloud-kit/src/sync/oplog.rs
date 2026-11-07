@@ -127,12 +127,5 @@ fn open_append(path: &Path) -> std::io::Result<fs::File> {
     if let Some(dir) = path.parent() {
         crate::state::create_private_dir(dir)?;
     }
-    let mut options = fs::OpenOptions::new();
-    options.create(true).append(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-    options.open(path)
+    crate::state::open_private_append(path)
 }

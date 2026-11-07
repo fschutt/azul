@@ -145,16 +145,12 @@ const ALLOWED: &[Allow] = &[
         "the known-objects log of a pack cache is append-only (Z30-R3)",
     ),
     Allow::exactly(
-        "examples/azcloud-kit/src/sync/journal.rs",
+        "examples/azcloud-kit/src/state.rs",
         RAW,
         1,
-        "the sync's journal of intents is append-only: its lines ARE the record",
-    ),
-    Allow::exactly(
-        "examples/azcloud-kit/src/sync/oplog.rs",
-        RAW,
-        1,
-        "the operations log is append-only: its lines ARE the record",
+        "the append-only files of the state folder (the journal of intents, the operations log): \
+         their lines ARE the record; made with create_new and made private the moment they are \
+         new (X-DELTA-AZDRIVE-FILES-28)",
     ),
     Allow::exactly(
         "examples/azul-appkit/src/migrate.rs",

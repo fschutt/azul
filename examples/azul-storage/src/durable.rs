@@ -930,6 +930,28 @@ fn keep_new_file_private(dir: &Dir, name: &str) -> io::Result<()> {
     }
 }
 
+/// Makes the file at `path`, which the caller has just made (so this user owns it), private to this
+/// user where the system has access lists: on Windows a protected list for this user, the system
+/// and the administrators, instead of the one the folder it was made in lends it (a state folder
+/// that existed before was not made private, and what is made in it inherits its list); on Unix the
+/// file was made `rw-------` and nothing is done.
+///
+/// # Errors
+///
+/// On Windows, a refusal of the access list on a disk that keeps lists - a secret is not left
+/// readable because the protection did not take.
+pub fn make_file_private(path: &Path) -> io::Result<()> {
+    #[cfg(windows)]
+    {
+        crate::win::make_private(path, false).map(|_| ())
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = path;
+        Ok(())
+    }
+}
+
 pub(crate) fn replace_probed(
     path: &Path,
     bytes: &[u8],

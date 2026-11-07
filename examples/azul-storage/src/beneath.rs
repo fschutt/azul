@@ -671,6 +671,11 @@ impl Dir {
             let st = match lstat_path(&path) {
                 Ok(st) => st,
                 Err(e) if e.kind() == io::ErrorKind::NotFound && create => {
+                    // Windows: this folder is still under the root before a folder is made in it -
+                    // after a junction was swapped in for it the folder would be made in another
+                    // tree and only found out afterwards (AZ-W14).
+                    #[cfg(windows)]
+                    self.still_here()?;
                     std::fs::create_dir(&path).or_else(|e| {
                         if e.kind() == io::ErrorKind::AlreadyExists {
                             Ok(())
@@ -745,10 +750,18 @@ impl Dir {
         }
         #[cfg(not(unix))]
         {
+            // Windows: the folder is still under the root's resolved path before and after it is
+            // read - a junction swapped in for it lists another tree, or an empty one, as this
+            // folder, and a scan that takes the empty list for the folder deletes on the drive's
+            // side what it did not see (AZ-W14).
+            #[cfg(windows)]
+            self.still_here().map_err(io_of_beneath)?;
             let mut out = Vec::new();
             for entry in std::fs::read_dir(&self.path)? {
                 out.push(entry?.file_name());
             }
+            #[cfg(windows)]
+            self.still_here().map_err(io_of_beneath)?;
             Ok(out)
         }
     }
@@ -1254,6 +1267,15 @@ fn link_or_io(e: io::Error, rel: &str) -> BeneathError {
             BeneathError::ThroughLink(rel.to_string())
         }
         _ => BeneathError::Io(e),
+    }
+}
+
+/// A walk error as the I/O error it wraps, or one that says it.
+#[cfg(windows)]
+fn io_of_beneath(e: BeneathError) -> io::Error {
+    match e {
+        BeneathError::Io(e) => e,
+        other => io::Error::other(other.to_string()),
     }
 }
 

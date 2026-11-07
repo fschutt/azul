@@ -256,6 +256,38 @@ pub(crate) fn create_private_dir(dir: &Path) -> std::io::Result<()> {
     azul_storage::durable::create_private_dirs(dir)
 }
 
+/// Opens `path` to append, made `rw-------` when it is new - on Windows given its own protected
+/// access list the moment it is made, not the one a state folder that existed before lends it
+/// (X-DELTA-AZDRIVE-FILES-28; AZ-W12: the oplog names every file of the folder). The file is made
+/// with `create_new`, so the one that made it is the one that makes it private.
+///
+/// # Errors
+///
+/// The I/O error that stopped it; a file made and not made private is removed again.
+pub(crate) fn open_private_append(path: &Path) -> std::io::Result<fs::File> {
+    let mut options = fs::OpenOptions::new();
+    options.append(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    match options.clone().create_new(true).open(path) {
+        Ok(file) => {
+            if let Err(e) = azul_storage::durable::make_file_private(path) {
+                drop(file);
+                // collapse-ok: a file made a moment ago that cannot be removed again is the error
+                // already being returned.
+                let _ = fs::remove_file(path);
+                return Err(e);
+            }
+            Ok(file)
+        }
+        Err(e) if e.kind() == ErrorKind::AlreadyExists => options.open(path),
+        Err(e) => Err(e),
+    }
+}
+
 /// Writes `bytes` to `path` through a temporary file beside it and a rename
 /// ([`azul_storage::durable::replace`]): the file is synced to the disk before the rename and the
 /// folder after, so a power cut leaves the old file or the new one and never an empty one;

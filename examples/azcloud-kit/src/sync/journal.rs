@@ -156,14 +156,7 @@ impl Journal {
             if let Some(dir) = self.path.parent() {
                 crate::state::create_private_dir(dir)?;
             }
-            let mut options = fs::OpenOptions::new();
-            options.create(true).append(true);
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::OpenOptionsExt;
-                options.mode(0o600);
-            }
-            let mut file = options.open(&self.path)?;
+            let mut file = crate::state::open_private_append(&self.path)?;
             file.write_all(text.as_bytes())?;
             file.sync_data()
         })()

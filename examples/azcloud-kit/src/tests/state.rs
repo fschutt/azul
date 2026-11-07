@@ -157,3 +157,37 @@ fn windows_az_w12_the_state_folder_and_a_private_file_in_it_are_closed_to_other_
     assert_eq!(fs::read(&secrets).unwrap(), b"two");
     assert!(!open_to_others(&list_of(&secrets)));
 }
+
+/// X-DELTA-AZDRIVE-FILES-28 (AZ-W12): the journal of intents and the operations log were opened with a
+/// Unix-only `mode(0o600)`; in a state folder that existed before, a new one inherited the folder's
+/// list on Windows, and the oplog names every file. A new append-only file is made private the
+/// moment it is made (on Windows by an access list of its own), and one that is there is appended
+/// to, never truncated or replaced.
+#[test]
+fn x_delta_azdrive_files_28_a_new_append_only_file_is_private_in_a_folder_that_was_there() {
+    use std::io::Write;
+
+    use crate::state::open_private_append;
+    let dir = TempDir::new("dx28-append");
+    // A state folder that existed before (the default mode of its maker), not made private by us.
+    let state = dir.path().join("state");
+    fs::create_dir_all(&state).unwrap();
+    let path = state.join("journal.jsonl");
+    let mut file = open_private_append(&path).unwrap();
+    file.write_all(b"one\n").unwrap();
+    drop(file);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(
+            fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+    }
+    let mut again = open_private_append(&path).unwrap();
+    again.write_all(b"two\n").unwrap();
+    drop(again);
+    assert_eq!(fs::read_to_string(&path).unwrap(), "one\ntwo\n");
+    // A name that cannot be made is an error, not a file somewhere else.
+    assert!(open_private_append(&state.join("missing").join("journal.jsonl")).is_err());
+}
