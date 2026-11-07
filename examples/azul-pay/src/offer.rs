@@ -1,5 +1,5 @@
 //! The token server's offer: its provider descriptors (`GET /v1/checkout/options`), checked
-//! against the registry (CHECKOUT-PLAN §3.3, §3.11).
+//! against the registry (azul-apps/iso/docs/PRICES.md §12.3, §12.10).
 //!
 //! The server chooses, the app constrains. The server answers for the buyer's declared country:
 //! only the methods that are switched on and routed there, each ranked by that country's order

@@ -157,7 +157,7 @@ No Rust cluster, no cloud, no pip: Python's standard library only.
                                                     codes it takes: add_voucher(code, months,
                                                     value_cents, tier)
 
-  With fake payment providers (`--providers`, `set_providers`; CHECKOUT-PLAN §3.11, §4.2 - see
+  With fake payment providers (`--providers`, `set_providers`; azul-apps/iso/docs/PRICES.md §12.10, §14.2 - see
   "The fake payment providers" below for their pages and webhooks):
 
     GET /v1/checkout/options?tier&months&country    200 for the buyer's country: the methods a
@@ -345,7 +345,7 @@ TEST_VOUCHERS = {
     'AZLIN-TEST-EUR10': {'months': 0, 'value_cents': 1000, 'tier': None},
 }
 
-# ==== The fake payment providers (CHECKOUT-PLAN §4.2) ====
+# ==== The fake payment providers (azul-apps/iso/docs/PRICES.md §14.2) ====
 #
 # One fake per provider shape, with the shape's pages, redirects and signed webhooks - not its
 # look. They exist only when the stack is started with `--providers` (or after
@@ -936,7 +936,7 @@ class TokenState:
         surface = None
         currency = 'EUR'
         if provider:
-            # Claim contract v1, extended: a checkout through a provider (CHECKOUT-PLAN §3.11),
+            # Claim contract v1, extended: a checkout through a provider (azul-apps/iso/docs/PRICES.md §12.10),
             # in the buyer's country's currency, for a method routed for that country.
             if provider not in self.providers:
                 raise ApiError(400, 'bad_provider', 'this token server offers no such provider')
@@ -1157,7 +1157,7 @@ class TokenState:
                 'pending': self.base_url + '/return/pending'}
 
     def checkout_options(self, query):
-        """GET /v1/checkout/options (CHECKOUT-PLAN §3.11) for the buyer's declared country: only
+        """GET /v1/checkout/options (azul-apps/iso/docs/PRICES.md §12.10) for the buyer's declared country: only
         the methods a provider here has switched on AND that are routed for that country, in the
         country's order of use (`rank`), each priced in the country's currency (the ladder's
         frozen row; the euro where it has none), with what it tells about the payer

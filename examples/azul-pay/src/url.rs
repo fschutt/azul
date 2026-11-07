@@ -1,4 +1,4 @@
-//! The URL policy of a payment page (CHECKOUT-PLAN §3.7): a web view has no address bar the user
+//! The URL policy of a payment page (azul-apps/iso/docs/PRICES.md §12.7): a web view has no address bar the user
 //! can trust, so every main-frame navigation is read strictly and matched against the origins
 //! of the provider the page belongs to.
 //!

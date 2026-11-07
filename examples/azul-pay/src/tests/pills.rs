@@ -1,4 +1,4 @@
-//! The payment pills (CHECKOUT-PLAN §2.2): the methods the server offered for the payer's
+//! The payment pills (azul-apps/iso/docs/PRICES.md §11.2): the methods the server offered for the payer's
 //! country, in its order, with which provider, and which is the default.
 
 use serde_json::{json, Value};

@@ -1,4 +1,4 @@
-//! The checkout's state machine (CHECKOUT-PLAN §3.4): one pure [`step`] from a state and an
+//! The checkout's state machine (azul-apps/iso/docs/PRICES.md §12.4): one pure [`step`] from a state and an
 //! event to the next state and the effects the app runs. No window, no network, no clock.
 //!
 //! ```text

@@ -1,4 +1,4 @@
-//! The compiled-in registry: the providers this app knows (CHECKOUT-PLAN §1.3, §3.3).
+//! The compiled-in registry: the providers this app knows (azul-apps/iso/docs/PRICES.md §6.6, §12.3).
 //!
 //! It is the reviewed table of what each provider says about embedding its pages - which
 //! payment method may show the provider's hosted fields in the app's popover, which the hosted
@@ -622,7 +622,7 @@ pub struct EmbedPolicy {
     pub breaks: &'static [Breaks],
 }
 
-/// Who sells (CHECKOUT-PLAN §3.13).
+/// Who sells (azul-apps/iso/docs/PRICES.md §12.12).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProviderKind {
     /// The provider processes the payment; Azlin sells (its receipts, its withdrawal and cancel

@@ -1,4 +1,4 @@
-//! The payment pills (CHECKOUT-PLAN §2.2): a pill is a payment METHOD, with its provider named
+//! The payment pills (azul-apps/iso/docs/PRICES.md §11.2): a pill is a payment METHOD, with its provider named
 //! under it ("via GoCardless") - people pick how they pay, not whom. Where two providers offer
 //! one method the pill keeps both, the cheaper route chosen (the server's `preferred`), and the
 //! popover can switch.

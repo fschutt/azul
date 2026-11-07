@@ -1,6 +1,6 @@
 //! What a checkout opens: the `surface` of the token server's answer to `POST /v1/checkout`
 //! (and to `POST /v1/checkout/{id}/surface`), checked against the chosen provider before
-//! anything shows it (CHECKOUT-PLAN §3.3, §3.11):
+//! anything shows it (azul-apps/iso/docs/PRICES.md §12.3, §12.10):
 //!
 //! ```json
 //! {"checkout_id": "ck_...", "pay_url": "...", "provider": "stripe", "method": "card",

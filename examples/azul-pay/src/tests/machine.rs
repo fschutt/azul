@@ -1,4 +1,4 @@
-//! The checkout's state machine (CHECKOUT-PLAN §3.4, §3.6, §3.7, §2.4): every row of the
+//! The checkout's state machine (azul-apps/iso/docs/PRICES.md §12.4, §12.6, §12.7, §11.4): every row of the
 //! state table, every fallback, and the cases between them.
 
 use super::fixtures::{

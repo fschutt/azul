@@ -1,5 +1,5 @@
 //! The checkout's surface (`POST /v1/checkout`): every URL the server returns is checked
-//! against the chosen provider before anything shows it (CHECKOUT-PLAN §3.3, §3.11).
+//! against the chosen provider before anything shows it (azul-apps/iso/docs/PRICES.md §12.3, §12.10).
 
 use serde_json::{json, Value};
 

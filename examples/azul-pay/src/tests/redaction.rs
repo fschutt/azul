@@ -1,6 +1,6 @@
 //! Nothing a checkout passes through is `Debug`ged with a secret: no client secret, no
-//! publishable key, no session id in a path, no fragment, no cardholder name (CHECKOUT-PLAN
-//! §3.4, the house rule azcloud-kit follows).
+//! publishable key, no session id in a path, no fragment, no cardholder name (azul-apps/iso/docs/PRICES.md
+//! §12.4, the house rule azcloud-kit follows).
 
 use super::fixtures::{
     answer, browser_surface, choice, complete_card, created, fields_surface, nav, run,

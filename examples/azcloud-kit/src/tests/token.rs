@@ -589,7 +589,7 @@ fn a_refused_drive_token_means_signing_in_again_under_any_context() {
     assert!(!busy.is_sign_in());
 }
 
-// ==== The checkout through a provider (CHECKOUT-PLAN §3.11: claim contract v1, extended) ====
+// ==== The checkout through a provider (azul-apps/iso/docs/PRICES.md §12.10: claim contract v1, extended) ====
 
 #[test]
 fn the_payment_options_are_asked_for_the_tier_period_country_and_surfaces() {

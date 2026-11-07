@@ -243,7 +243,7 @@ impl CheckoutFor<'_> {
     }
 }
 
-/// What `GET /v1/checkout/options` is asked for (CHECKOUT-PLAN §3.11): the tier, the months
+/// What `GET /v1/checkout/options` is asked for (azul-apps/iso/docs/PRICES.md §12.10): the tier, the months
 /// paid at once, the payer's country and currency, the surfaces this app can show (`fields`,
 /// `page`, `browser`, ...).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

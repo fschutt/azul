@@ -1,5 +1,5 @@
 //! The URL policy: what a payment page may navigate to, against the classics of phishing a
-//! web view without an address bar (CHECKOUT-PLAN §3.7).
+//! web view without an address bar (azul-apps/iso/docs/PRICES.md §12.7).
 
 use std::borrow::Cow;
 

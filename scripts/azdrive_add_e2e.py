@@ -45,7 +45,7 @@ sheet of `--dialogs inline`:
        a device added at the token server announced (AZDRIVE_NEW_DEVICE), and Options > Drives
        > "Restore as of..." putting its bucket back as it was at a time (AZDRIVE_RESTORED).
 
-    7. A card payment in the popover (CHECKOUT-PLAN §4.3, the mock's fake providers on): Buy
+    7. A card payment in the popover (azul-apps/iso/docs/PRICES.md §14.3, the mock's fake providers on): Buy
        storage shows the pills (direct debit via Fake GoCardless, card via Fake Stripe), the card
        pill and the consent, Buy: the checkout goes through fake-stripe with a claim key, in
        euros for a payer in Germany (AZLIN_COUNTRY); the
@@ -529,7 +529,7 @@ def new_drive(app, payment):
 def hand_back(app, popover, view, url, redirect=False):
     """The page in the popover hands the payment back (a bridge result, a return page, a login
     for the browser): the dialog waits for the drive, and the popover - which shows a page only
-    while the payment is presented (CHECKOUT-PLAN §2.4) - closes. Nothing is asked of the
+    while the payment is presented (azul-apps/iso/docs/PRICES.md §11.4) - closes. Nothing is asked of the
     popover's window afterwards: it is gone."""
     app.after("the dialog waiting for the drive", "AZDRIVE_PAY", r"waiting",
               lambda: navigate(popover, view, url, redirect))

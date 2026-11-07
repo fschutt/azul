@@ -1,5 +1,5 @@
 //! The token server's offer (`GET /v1/checkout/options`): it picks, orders and narrows - and
-//! never widens what the registry allows (CHECKOUT-PLAN §3.3).
+//! never widens what the registry allows (azul-apps/iso/docs/PRICES.md §12.3).
 
 use serde_json::{json, Value};
 

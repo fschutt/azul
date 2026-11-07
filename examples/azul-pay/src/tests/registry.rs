@@ -1,4 +1,4 @@
-//! The compiled-in registry: what the reviewed table of CHECKOUT-PLAN §1.3 says about each
+//! The compiled-in registry: what the reviewed table of azul-apps/iso/docs/PRICES.md §6.6 says about each
 //! provider and method, and that it says it consistently.
 
 use crate::{

@@ -1,4 +1,4 @@
-//! The navigation bridge (CHECKOUT-PLAN §3.5): what a fields page tells the app by navigating
+//! The navigation bridge (azul-apps/iso/docs/PRICES.md §12.5): what a fields page tells the app by navigating
 //! to `<pages>/_bridge/<message>?...`, and what the app tells the page with a new fragment.
 
 use crate::{

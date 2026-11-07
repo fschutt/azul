@@ -87,7 +87,7 @@
 #   mix_year   integer the year the mix describes; 0 = no mix
 #   prefer     list    the methods payers of the country are offered, most used first: an app shows these and only
 #                      these, in this order (a method that serves the country but is not listed is not offered there).
-#                      From the research's usage shares (PAYMENT-METHODS.md §3: who pays with what, then the routes
+#                      From the research's usage shares (azul-apps/iso/docs/PRICES.md §6.7: who pays with what, then the routes
 #                      the research names for recurring plans); every euro-area list ends with SEPA Direct Debit,
 #                      which every euro account can be debited by (Regulation (EU) 260/2012).
 #   sources    list    URLs

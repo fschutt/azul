@@ -1,4 +1,4 @@
-//! The navigation bridge between a hosted-fields page and the app (CHECKOUT-PLAN §3.5).
+//! The navigation bridge between a hosted-fields page and the app (azul-apps/iso/docs/PRICES.md §12.5).
 //!
 //! The web view has no script bridge and the app injects no script (an injected script switches
 //! Apple Pay on the web off for the page, and a script bridge would be one more door into the
