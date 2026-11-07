@@ -32,7 +32,7 @@ use std::{
     fmt,
     fs::File,
     io::{self, Read, Write},
-    path::Path,
+    path::{Path, PathBuf},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
@@ -970,6 +970,24 @@ pub fn replace(path: &Path, bytes: &[u8], mode: Mode) -> io::Result<()> {
 /// The I/O error that stopped the write (the old file stays then).
 pub fn replace_cache(path: &Path, bytes: &[u8]) -> io::Result<()> {
     replace_probed(path, bytes, Mode::Shared, Durability::Cache, &Unprobed)
+}
+
+/// Renames the file `path` next to itself as `<name>.damaged-<tag>`, never over a file that has
+/// that name: the bytes of a file that is there and cannot be read stay (the next write does not
+/// replace the only record of them) and its name is free. The new path.
+///
+/// # Errors
+///
+/// When the file cannot be renamed, or the name it would take is taken.
+pub fn set_aside(path: &Path, tag: &str) -> io::Result<PathBuf> {
+    let (dir, name) = parent_of(path, false)?;
+    let aside = format!("{name}.damaged-{tag}");
+    dir.rename_noreplace(&name, &dir, &aside)
+        .map_err(|e| match e {
+            BeneathError::Io(e) => e,
+            other => io::Error::other(other.to_string()),
+        })?;
+    Ok(path.with_file_name(aside))
 }
 
 /// What a cut-off write leaves in a folder: a temporary file of [`stage`] (its name carries the

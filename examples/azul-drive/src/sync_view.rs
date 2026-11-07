@@ -1167,6 +1167,21 @@ fn answer_button(text: &str, app: &RefAny, answer: Answer, id: AzString, primary
     } else {
         ButtonType::Default
     };
+    answer_button_of(text, app, answer, id, kind)
+}
+
+/// The face of the answer that deletes from the drive: the danger face, never the main button
+/// (X-DELTA-AZDRIVE-FILES-34; AZ-U12: an answer that loses something is not what a key press does).
+pub(crate) const DELETE_FACE: ButtonType = ButtonType::Danger;
+
+/// [`answer_button`] with the face given.
+fn answer_button_of(
+    text: &str,
+    app: &RefAny,
+    answer: Answer,
+    id: AzString,
+    kind: ButtonType,
+) -> Dom {
     Button::with_type(l10n::label(text), kind)
         .with_on_click(
             RefAny::new(AnswerRef {
@@ -1292,12 +1307,12 @@ pub(crate) fn dialog_parts(dialog: &SyncDialog, s: &DriveState, app: &RefAny) ->
                     ),
                     buttons(vec![
                         button("kit-button-cancel", app, on_cancel_popup),
-                        answer_button(
+                        answer_button_of(
                             "azdrive-delete-button",
                             app,
                             Answer::Delete,
                             ids::SYNC_DELETE_OK,
-                            true,
+                            DELETE_FACE,
                         ),
                     ]),
                 ])

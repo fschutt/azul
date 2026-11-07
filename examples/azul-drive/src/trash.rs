@@ -58,6 +58,13 @@ pub(crate) struct Marks {
     /// For each stamp, when a pass first found the delete expired.
     #[serde(default)]
     pub expired: BTreeMap<String, u64>,
+    /// For each stamp in the trash, the time a delete's age counts from: its stamp - unless it
+    /// appeared after a pass that is later than its stamp, which only a delete made by a clock that
+    /// was behind can do; then the pass that first saw it (X-DELTA-AZDRIVE-FILES-34). An RTC reset
+    /// to 2000 made a delete "old" the moment the clock was put right, and it was removed a week
+    /// later instead of after its 30 days.
+    #[serde(default)]
+    pub first_seen: BTreeMap<String, u64>,
 }
 
 impl Document for Marks {}
@@ -124,14 +131,16 @@ pub(crate) fn marks_file(cache: &Path, drive_id: &str) -> Option<PathBuf> {
 /// each for the drives that have a trash. Without a cache folder there is nowhere to write the
 /// marks, and nothing is removed.
 pub(crate) fn start(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
+    let now = crate::actions::now_secs();
+    s.trash_looked = now;
     let Some(cache) = s.cache_dir.clone() else {
         return;
     };
-    let now = crate::actions::now_secs();
+    // Every local drive, the Azlin data tree among them: its deletes go to the same trash and
+    // nothing else ever took them out (X-DELTA-AZDRIVE-FILES-34).
     let drives: Vec<(String, PathBuf)> = s
         .slots
         .iter()
-        .filter(|slot| slot.entry.id != crate::DATA_ID)
         .filter_map(|slot| match &slot.entry.location {
             DriveLocation::Local { root } => Some((slot.entry.id.clone(), PathBuf::from(root))),
             _ => None,
@@ -158,6 +167,19 @@ pub(crate) fn start(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
     }
 }
 
+/// The timer's look: the trash is looked at again once a day - an app that stays open for weeks
+/// removed nothing, the look was the start's alone (X-DELTA-AZDRIVE-FILES-34).
+pub(crate) fn look_if_due(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
+    if look_is_due(s.trash_looked, crate::actions::now_secs()) {
+        start(info, app, s);
+    }
+}
+
+/// Whether a look at `now` is due, the last having been at `looked` (0: none yet).
+pub(crate) fn look_is_due(looked: u64, now: u64) -> bool {
+    now >= looked.saturating_add(DAY)
+}
+
 /// What the passes so far and the clock now decide about `deletes`: mark the ones both records
 /// call old, remove the ones marked [`GRACE_DAYS`] ago, unmark the ones that are not old, and
 /// judge nothing when the clock is behind a pass that was.
@@ -178,10 +200,23 @@ pub(crate) fn plan(deletes: &[Delete], before: &Marks, now: u64) -> Pass {
     let mut marks = Marks {
         seen,
         expired: BTreeMap::new(),
+        first_seen: BTreeMap::new(),
     };
     let mut expired = Vec::new();
     for delete in deletes {
-        if !(old(delete.stamped, now) && old(delete.modified, now)) {
+        // What the delete's age counts from: what an earlier pass wrote down; else its stamp -
+        // unless an earlier pass is later than the stamp and did not know it (made by a clock that
+        // was behind): then now.
+        let counted_from = match before.first_seen.get(&delete.stamp) {
+            Some(&then) if then <= now => then,
+            _ => match delete.stamped {
+                Some(stamped) if before.seen == 0 || stamped >= before.seen => stamped,
+                _ => now,
+            },
+        };
+        marks.first_seen.insert(delete.stamp.clone(), counted_from);
+        if !(old(delete.stamped, now) && old(delete.modified, now) && old(Some(counted_from), now))
+        {
             continue;
         }
         match before.expired.get(&delete.stamp) {
@@ -379,6 +414,11 @@ mod tests {
         let history = Marks {
             seen: NOW - DAY,
             expired: BTreeMap::new(),
+            // The pass yesterday knew both deletes.
+            first_seen: BTreeMap::from([
+                (String::from("yesterday"), NOW - DAY),
+                (String::from("last-month"), NOW - 25 * DAY),
+            ]),
         };
         let wrong = NOW + 400 * DAY;
         let pass = plan(&deletes, &history, wrong);
@@ -406,6 +446,64 @@ mod tests {
         assert!(!after.behind);
         assert!(after.expired.is_empty(), "{after:?}");
         assert!(after.marks.expired.values().all(|&at| at == NOW + 62 * DAY));
+    }
+
+    /// X-DELTA-AZDRIVE-FILES-34: a delete made by a clock that was behind (an RTC reset to 2000)
+    /// has a stamp and a folder time of 2000 - "old" the moment the clock is put right, removed a
+    /// week later instead of after 30 days. A delete a pass did not know and whose stamp is before
+    /// that pass counts its 30 days from the pass that first saw it.
+    #[test]
+    fn x_delta_azdrive_files_34_a_delete_made_by_a_clock_that_was_behind_lives_thirty_days_from_sight(
+    ) {
+        let ancient = Delete {
+            stamp: String::from("ancient"),
+            stamped: Some(946_684_800),
+            modified: Some(946_684_800),
+        };
+        // A pass yesterday under the right clock; the delete was made after it.
+        let history = Marks {
+            seen: NOW - DAY,
+            ..Marks::default()
+        };
+        let first = plan(&[ancient.clone()], &history, NOW);
+        assert!(first.marks.expired.is_empty(), "{first:?}");
+        assert_eq!(first.marks.first_seen.get("ancient"), Some(&NOW));
+        let early = plan(&[ancient.clone()], &first.marks, NOW + 29 * DAY);
+        assert!(early.marks.expired.is_empty(), "29 days are not 30");
+        let marked = plan(&[ancient.clone()], &first.marks, NOW + 30 * DAY);
+        assert_eq!(marked.marks.expired.len(), 1);
+        assert!(marked.expired.is_empty(), "marked, not removed");
+        let gone = plan(&[ancient], &marked.marks, NOW + 37 * DAY);
+        assert_eq!(gone.expired.len(), 1, "{gone:?}");
+    }
+
+    /// The first pass ever judges a trash that was there before it by the stamps (the trash of the
+    /// time before the purge), and a delete a pass knew keeps the time it was first seen.
+    #[test]
+    fn x_delta_azdrive_files_34_the_first_pass_trusts_the_stamps_and_a_known_delete_keeps_its_time()
+    {
+        let first = plan(&[delete("old", Some(40), Some(40))], &Marks::default(), NOW);
+        assert_eq!(first.marks.first_seen.get("old"), Some(&(NOW - 40 * DAY)));
+        assert!(first.marks.expired.contains_key("old"));
+        // A delete a pass saw is not counted from the pass after it.
+        let known = Marks {
+            seen: NOW,
+            first_seen: BTreeMap::from([(String::from("seen"), NOW - 3 * DAY)]),
+            ..Marks::default()
+        };
+        let again = plan(&[delete("seen", Some(40), Some(40))], &known, NOW + DAY);
+        assert_eq!(again.marks.first_seen.get("seen"), Some(&(NOW - 3 * DAY)));
+        assert!(again.marks.expired.is_empty(), "seen 4 days ago: not 30");
+    }
+
+    /// The look at the trash is once a day; the start's was the only one.
+    #[test]
+    fn x_delta_azdrive_files_34_the_trash_is_looked_at_once_a_day() {
+        assert!(look_is_due(0, NOW), "never looked");
+        assert!(!look_is_due(NOW, NOW + DAY - 1));
+        assert!(look_is_due(NOW, NOW + DAY));
+        // A clock put back is no reason to look again at once.
+        assert!(!look_is_due(NOW, NOW - 5));
     }
 
     /// What cannot be read is kept: a name that is no stamp, a folder nobody could date, a stamp

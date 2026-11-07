@@ -11,6 +11,11 @@ azdrive-transfer-failed = { $count ->
    *[other] { $count } Elemente sind fehlgeschlagen
     }; „{ $name }“:
 
+azdrive-transfer-left = { $count ->
+        [one] Der Ordner „{ $name }“ bleibt: Es ist noch etwas darin.
+       *[other] { $count } Ordner bleiben (zum Beispiel „{ $name }“): Es ist noch etwas darin.
+    }
+
 ## Menüband und Datei-Menü
 azdrive-file-about = Info zu AzDrive
 azdrive-file-about-about = Version, Lizenz, Danksagungen.
@@ -389,7 +394,7 @@ azdrive-delete-question = Möchtest du { $count ->
        *[other] diese { $count } Elemente
     } endgültig aus „{ $drive }“ löschen?
 azdrive-delete-cannot-undo = Das kann nicht rückgängig gemacht werden.
-azdrive-delete-can-restore = Das Laufwerk behält die letzten { $days } Tage: „Wiederherstellen auf den Stand von…“ in seinem Menü holt gelöschte Dateien zurück.
+azdrive-delete-can-restore = Das Laufwerk behält die letzten { $days } Tage: „Wiederherstellen auf den Stand von…“ in seinem Menü holt das ganze Laufwerk auf den Stand eines Tages zurück (alles darauf, nicht nur diese Dateien).
 azdrive-delete-folders = Ein Ordner geht mit allem darin.
 azdrive-delete-warning = { $count ->
         [one] Löscht ein Element

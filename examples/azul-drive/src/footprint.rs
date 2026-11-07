@@ -190,6 +190,11 @@ impl Places {
             }
             copies.extend(crate::trash::marks_file(cache, drive));
         }
+        // The rescue copy's state names every key of the drive's copy: it goes with the drive
+        // (X-DELTA-AZDRIVE-FILES-34). The copy's files are the user's own and stay.
+        if let Some(file) = &computer.drives_file {
+            copies.extend(crate::archive::rescue_file_of(file, drive));
+        }
         copies.push(computer.picked_scratch.kept(drive));
         spots.push(Spot::free("copies and indexes", copies));
 
@@ -406,6 +411,11 @@ mod tests {
         put(
             crate::trash::marks_file(cache, drive).unwrap(),
             format!("{drive} trash marks"),
+        );
+        // The rescue copy's state lists every key of the drive's copy (X-DELTA-AZDRIVE-FILES-34).
+        put(
+            crate::archive::rescue_file_of(computer.drives_file.as_ref().unwrap(), drive).unwrap(),
+            format!("{drive} the keys of its rescue copy"),
         );
         put(
             crate::nodes_file_in(&computer.nodes_root, drive),

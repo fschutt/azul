@@ -874,3 +874,23 @@ fn az_u15_a_sweep_removes_the_temp_files_of_dead_processes_and_old_partial_downl
     // Nothing more to sweep: a second sweep removes nothing.
     assert_eq!(sweep_temps(&dir, Duration::from_secs(6 * 24 * 3600)), 0);
 }
+
+/// X-DELTA-AZDRIVE-FILES-34: a file that is there and cannot be read is renamed next to itself, its
+/// bytes whole, and never over a file that already has the new name.
+#[test]
+fn x_delta_azdrive_files_34_set_aside_keeps_the_bytes_and_never_replaces() {
+    let tmp = TempDir::new("durable-set-aside");
+    let path = tmp.path().join("state.json");
+    fs::write(&path, b"{ cut").unwrap();
+    let aside = crate::durable::set_aside(&path, "7").unwrap();
+    assert_eq!(aside, tmp.path().join("state.json.damaged-7"));
+    assert!(!path.exists());
+    assert_eq!(fs::read(&aside).unwrap(), b"{ cut");
+    // The name is taken: the file stays where it is, and the first record stays whole.
+    fs::write(&path, b"second").unwrap();
+    assert!(crate::durable::set_aside(&path, "7").is_err());
+    assert_eq!(fs::read(&path).unwrap(), b"second");
+    assert_eq!(fs::read(&aside).unwrap(), b"{ cut");
+    // A file that is not there is an error, not a name made up.
+    assert!(crate::durable::set_aside(&tmp.path().join("gone.json"), "1").is_err());
+}

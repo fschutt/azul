@@ -1608,3 +1608,17 @@ fn x_delta_azdrive_files_32_a_pairing_folder_with_dots_in_its_path_is_refused() 
         }
     }
 }
+
+/// X-DELTA-AZDRIVE-FILES-34: the answer that deletes from the drive (here and on the other devices)
+/// is never the main button of its dialog; the mass-delete question's main button loses nothing.
+#[test]
+fn x_delta_azdrive_files_34_the_answer_that_deletes_is_not_the_main_button() {
+    use azul::widgets::ButtonType;
+    assert_ne!(sync_view::DELETE_FACE, ButtonType::Primary);
+    assert_ne!(sync_view::DELETE_FACE, ButtonType::Default);
+    for here in [true, false] {
+        for choice in sync_view::mass_delete_choices(here) {
+            assert_eq!(choice.primary, !choice.deletes, "{}", choice.text);
+        }
+    }
+}

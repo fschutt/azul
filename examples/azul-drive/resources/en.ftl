@@ -13,6 +13,11 @@ azdrive-transfer-failed = { $count ->
    *[other] { $count } items failed
     }; "{ $name }":
 
+azdrive-transfer-left = { $count ->
+        [one] The folder "{ $name }" stays: something is still in it.
+       *[other] { $count } folders stay (for example "{ $name }"): something is still in them.
+    }
+
 ## The ribbon and the File menu
 azdrive-file-about = About AzDrive
 azdrive-file-about-about = The version, the license, the credits.
@@ -391,7 +396,7 @@ azdrive-delete-question = Are you sure you want to delete { $count ->
        *[other] these { $count } items
     } from "{ $drive }" for good?
 azdrive-delete-cannot-undo = This cannot be undone.
-azdrive-delete-can-restore = The drive keeps its last { $days } days: "Restore as of…" in its menu brings deleted files back.
+azdrive-delete-can-restore = The drive keeps its last { $days } days: "Restore as of…" in its menu brings the whole drive back as it was on a day (everything on it, not only these files).
 azdrive-delete-folders = A folder goes with everything in it.
 azdrive-delete-warning = { $count ->
         [one] Deletes one item

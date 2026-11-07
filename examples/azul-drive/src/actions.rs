@@ -2427,6 +2427,15 @@ pub(crate) fn transfer_ran(
     if let (Some(text), false) = (&failed, report.cancelled) {
         s.error(text.clone());
     }
+    // The folders a move left because something is still in them (a file it could not move, one
+    // made there since): the user is told, not left to find them (X-DELTA-AZDRIVE-FILES-34).
+    if let (Some(first), false) = (report.left.first(), report.cancelled) {
+        s.info(
+            Phrase::new("azdrive-transfer-left")
+                .arg("count", report.left.len())
+                .arg("name", key::last_segment(first.trim_end_matches('/'))),
+        );
+    }
     if let Some(job) = &job {
         action_ended(
             s,

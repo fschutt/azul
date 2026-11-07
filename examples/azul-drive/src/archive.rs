@@ -920,17 +920,35 @@ fn home(s: &DriveState) -> Option<PathBuf> {
 /// a drives file: the copy then runs without a memory of the last one (it never overwrites a file
 /// it did not just write).
 fn rescue_file(s: &DriveState, azlin_id: &str) -> Option<PathBuf> {
+    rescue_file_of(s.drives_file.as_deref()?, azlin_id)
+}
+
+/// [`rescue_file`] from the drives file's path alone: the one place the name is spelled. Remove
+/// drive asks it (`footprint.rs`): the state lists every key of the drive's copy.
+pub(crate) fn rescue_file_of(drives_file: &Path, azlin_id: &str) -> Option<PathBuf> {
     let file: String = azlin_id
         .chars()
         .filter(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-')
         .collect();
-    let beside = s.drives_file.as_deref()?.parent()?;
+    let beside = drives_file.parent()?;
     Some(beside.join("rescue").join(format!("{file}.rescue.json")))
 }
 
-/// The copy's state the last run left (none before a first copy).
+/// The copy's state the last run left (none before a first copy). A state that is there and does
+/// not read is no state - but it is not lost: it is set aside whole (`<name>.damaged-<time>`), so
+/// the next run's state does not replace the only record of what the copy wrote
+/// (X-DELTA-AZDRIVE-FILES-34).
 fn rescue_read(path: &Path) -> Option<Rescue> {
-    serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()
+    let text = std::fs::read_to_string(path).ok()?;
+    match serde_json::from_str(&text) {
+        Ok(rescue) => Some(rescue),
+        Err(_) => {
+            // collapse-ok: a state that cannot even be moved is overwritten by the next run, as it
+            // was before; the copy never overwrites a file it did not write.
+            let _aside = durable::set_aside(path, &now_secs().to_string());
+            None
+        }
+    }
 }
 
 /// After a look: every read-only drive whose copy is not running and is due (none yet, files

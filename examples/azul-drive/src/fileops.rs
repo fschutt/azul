@@ -334,19 +334,12 @@ pub fn restore_pairs(
     keys: &[String],
 ) -> Result<Vec<(String, String)>, DriveError> {
     let mut pairs: Vec<(String, String)> = Vec::new();
-    let mut add = |trashed: &str| {
-        if let Some(origin) = trash_origin(trashed) {
-            if !pairs.iter().any(|(_, held)| held == trashed) {
-                pairs.push((origin, trashed.to_string()));
-            }
-        }
-    };
     for key in keys {
         if !is_in_trash(key) {
             continue;
         }
         if trash_origin(key).is_some() {
-            add(key);
+            add_restore(drive, key, &mut pairs, 0)?;
         } else if trash_folder_of(key).as_deref() == Some(key.as_str()) {
             let held = azul_storage::ops::list_folder_all(drive, key)?;
             for trashed in held
@@ -355,11 +348,49 @@ pub fn restore_pairs(
                 .map(String::as_str)
                 .chain(held.objects.iter().map(|object| object.key.as_str()))
             {
-                add(trashed);
+                add_restore(drive, trashed, &mut pairs, 0)?;
             }
         }
     }
     Ok(pairs)
+}
+
+/// How deep a folder put back into one that is there is followed, one item at a time.
+const MERGE_DEPTH: usize = 16;
+
+/// Adds what putting `trashed` back moves. A folder whose place is taken by a folder (the user made
+/// `docs/` again, or restored part of it) is not renamed over it - that is refused whole, and what
+/// was in it stayed in the trash: what it held comes back into the folder that is there, item by
+/// item, each never over a name taken since (X-DELTA-AZDRIVE-FILES-34; AZ-U12).
+fn add_restore(
+    drive: &dyn Drive,
+    trashed: &str,
+    pairs: &mut Vec<(String, String)>,
+    depth: usize,
+) -> Result<(), DriveError> {
+    let Some(origin) = trash_origin(trashed) else {
+        return Ok(());
+    };
+    if pairs.iter().any(|(_, held)| held == trashed) {
+        return Ok(());
+    }
+    if trashed.ends_with('/')
+        && depth < MERGE_DEPTH
+        && azul_storage::ops::folder_exists(drive, &origin)?
+    {
+        let held = azul_storage::ops::list_folder_all(drive, trashed)?;
+        for child in held
+            .folders
+            .iter()
+            .map(String::as_str)
+            .chain(held.objects.iter().map(|object| object.key.as_str()))
+        {
+            add_restore(drive, child, pairs, depth + 1)?;
+        }
+        return Ok(());
+    }
+    pairs.push((origin, trashed.to_string()));
+    Ok(())
 }
 
 /// What a delete did: the items that went, and the ones that did not. A batch that fails for
@@ -1093,18 +1124,22 @@ mod tests {
         restore_items(&home, &pairs).unwrap();
         assert_eq!(home.get("readme.txt").unwrap(), b"hello");
 
-        // The delete's own folder: everything it still holds. A name taken since stays in the
-        // trash, the others come back, and the error says which did not.
+        // The delete's own folder: everything it still holds. The folder `docs/` was made again
+        // since: what it held comes back INTO it, item by item - a name taken since stays in the
+        // trash and the error says which did not (X-DELTA-AZDRIVE-FILES-34).
         home.put("docs/a.txt", b"newer").unwrap();
         let whole = restore_pairs(&home, &[format!("{TRASH_FOLDER}{stamp}/")]).unwrap();
         assert_eq!(
             whole,
-            vec![(String::from("docs/"), trash_key("docs/", &stamp))],
-            "the folder came back as one item"
+            vec![
+                (String::from("docs/sub/"), trash_key("docs/sub/", &stamp)),
+                (String::from("docs/a.txt"), trash_key("docs/a.txt", &stamp)),
+            ],
+            "docs/ is there: its items come back one by one, a folder with no name here as one"
         );
         assert!(
             restore_items(&home, &whole).is_err(),
-            "docs/ is taken: a folder is not merged"
+            "docs/a.txt is taken: that one stays, and the error says so"
         );
         assert_eq!(
             home.get("docs/a.txt").unwrap(),
@@ -1112,15 +1147,61 @@ mod tests {
             "what is there is untouched"
         );
         assert_eq!(
-            home.get(&trash_key("docs/sub/b.txt", &stamp)).unwrap(),
-            b"beta",
+            home.get(&trash_key("docs/a.txt", &stamp)).unwrap(),
+            b"alpha",
             "what could not come back is still in the trash"
+        );
+        assert_eq!(
+            home.get("docs/sub/b.txt").unwrap(),
+            b"beta",
+            "what had no name here came back into the folder that is there"
         );
 
         // Not in the trash: none of its business.
         assert!(restore_pairs(&home, &[String::from("docs/a.txt")])
             .unwrap()
             .is_empty());
+    }
+
+    /// X-DELTA-AZDRIVE-FILES-34: a folder put back where a folder is now merges two levels down;
+    /// a folder with nothing at its place is one item as before.
+    #[test]
+    fn x_delta_azdrive_files_34_a_restore_merges_into_a_folder_that_is_there_at_every_depth() {
+        let tmp = TempDir::new("trash-restore-merge");
+        let home = seeded(&tmp);
+        let stamp = trash_stamp(1_759_300_000, 1);
+        let deleted = delete_items(&home, &[item("docs/")], Some(&stamp));
+        assert!(deleted.failed.is_empty(), "{:?}", deleted.failed);
+        // Made again since: `docs/` and its `sub/`, each with something else in it.
+        home.put("docs/new.txt", b"new").unwrap();
+        home.put("docs/sub/c.txt", b"gamma").unwrap();
+        let pairs = restore_pairs(&home, &[format!("{TRASH_FOLDER}{stamp}/")]).unwrap();
+        assert_eq!(
+            pairs,
+            vec![
+                (
+                    String::from("docs/sub/b.txt"),
+                    trash_key("docs/sub/b.txt", &stamp)
+                ),
+                (String::from("docs/a.txt"), trash_key("docs/a.txt", &stamp)),
+            ],
+            "{pairs:?}"
+        );
+        restore_items(&home, &pairs).unwrap();
+        for (key, bytes) in [
+            ("docs/a.txt", &b"alpha"[..]),
+            ("docs/sub/b.txt", b"beta"),
+            ("docs/new.txt", b"new"),
+            ("docs/sub/c.txt", b"gamma"),
+        ] {
+            assert_eq!(home.get(key).unwrap(), bytes, "{key}");
+        }
+        // Nothing left in the trash for this delete: its folder went with the last item.
+        assert!(
+            home.local_path(&format!("{TRASH_FOLDER}{stamp}/"))
+                .is_none_or(|p| !p.exists()),
+            "the delete's folder is empty and gone"
+        );
     }
 
     #[test]

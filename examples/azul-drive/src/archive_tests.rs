@@ -1154,3 +1154,31 @@ fn x_delta_azdrive_files_33_a_rescue_that_began_without_the_look_at_the_room_say
     );
     assert!(known.notes.is_empty(), "{known:?}");
 }
+
+/// X-DELTA-AZDRIVE-FILES-34: a state that is there and does not read was `.ok()?` - no state - and
+/// the next run replaced the only record of what the copy wrote. It is set aside whole.
+#[test]
+fn x_delta_azdrive_files_34_a_state_that_does_not_read_is_set_aside_not_replaced() {
+    let tmp = TempDir::new("dx34-damaged-state");
+    let drive = source_with(&tmp, &[("a.txt", b"one")]);
+    let folder = tmp.path().join("copy");
+    let state = tmp.path().join("state").join("d_x.rescue.json");
+    std::fs::create_dir_all(state.parent().unwrap()).unwrap();
+    std::fs::write(&state, b"{ \"written\": cut off").unwrap();
+    let report = run_rescue(&drive, &folder, NO_PROBE, Some(&state), &mut |_, _| {});
+    assert_eq!((report.copied, report.total), (1, 1), "{report:?}");
+    let mut aside: Vec<std::path::PathBuf> = std::fs::read_dir(state.parent().unwrap())
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .filter(|p| p.to_string_lossy().contains(".damaged-"))
+        .collect();
+    assert_eq!(aside.len(), 1, "{aside:?}");
+    assert_eq!(
+        std::fs::read(aside.pop().unwrap()).unwrap(),
+        b"{ \"written\": cut off",
+        "the unreadable record stayed whole"
+    );
+    // The new state reads.
+    let kept: Rescue = serde_json::from_str(&std::fs::read_to_string(&state).unwrap()).unwrap();
+    assert_eq!(kept.copied, 1);
+}

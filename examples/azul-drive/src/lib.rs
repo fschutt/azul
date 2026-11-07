@@ -1202,6 +1202,9 @@ pub(crate) struct DriveState {
     pub settings_base: Settings,
     /// The jobs running that a close would cut off half done ([`closing::Inflight`]).
     pub inflight: Arc<std::sync::atomic::AtomicUsize>,
+    /// When the trash of the drives was last looked at (seconds since 1970; 0: not yet):
+    /// [`trash::look_if_due`] looks once a day.
+    pub trash_looked: u64,
     /// A save of the settings is running (the next one waits for it).
     pub settings_saving: bool,
     /// The settings changed while a save ran: one more save follows.
@@ -4250,6 +4253,7 @@ pub fn start() {
         settings,
         settings_base,
         inflight: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+        trash_looked: 0,
         settings_saving: false,
         settings_dirty: false,
         search: String::new(),
