@@ -248,9 +248,11 @@ pub(crate) fn path_may_be_opened(t: &str, system: System) -> bool {
         [letter, b':', b'\\' | b'/', ..] if letter.is_ascii_alphabetic() => &t[2..],
         _ => t,
     };
-    let network_or_device = ["\\\\", "//", "\\??\\", "/??/"]
-        .iter()
-        .any(|start| t.starts_with(start));
+    // Windows reads both slashes as the separator, mixed too: `/\x` and `\/x` are `\\x` (a share),
+    // `/\?\UNC\x` and `\/??/x` the device paths. The text is judged as Windows reads it
+    // (X-DELTA-AZDRIVE-FILES-10).
+    let windows: String = t.chars().map(|c| if c == '/' { '\\' } else { c }).collect();
+    let network_or_device = windows.starts_with("\\\\") || windows.starts_with("\\??\\");
     !network_or_device && !rest.contains(':')
 }
 
@@ -524,6 +526,14 @@ mod tests {
             r"\\.\pipe\x",
             r"\??\C:\x",
             "/??/C:/x",
+            // Windows reads a mixed pair of slashes as the separator too (X-DELTA-AZDRIVE-FILES-10).
+            r"/\attacker\share\x.exe",
+            r"\/attacker/share/x.exe",
+            r"/\?\UNC\attacker\share\x.exe",
+            r"\/?/UNC/attacker/share/x.exe",
+            r"\/??\GLOBALROOT\x",
+            r"/\??/GLOBALROOT/x",
+            r"/\.\pipe\x",
             r"C:\docs\a.txt:stream",
             "a.txt:stream",
             "C:x",
