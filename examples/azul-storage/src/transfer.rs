@@ -78,6 +78,30 @@ impl Read for ProgressReader<'_> {
     }
 }
 
+/// A reader that asks `ctl` before every read and stops, with [`Stopped::io`], once it says so; it
+/// reports no bytes (the progress of the phase it belongs to was told already). The upload of a
+/// spool that was filled while the progress was told, the encryption of a file into its copy: long
+/// phases a stop used to go unheard in (X-DELTA-AZDRIVE-FILES-13).
+pub(crate) struct StopReader<'a> {
+    inner: &'a mut dyn Read,
+    ctl: &'a dyn Ctl,
+}
+
+impl<'a> StopReader<'a> {
+    pub(crate) fn new(inner: &'a mut dyn Read, ctl: &'a dyn Ctl) -> Self {
+        StopReader { inner, ctl }
+    }
+}
+
+impl Read for StopReader<'_> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        if self.ctl.cancelled() {
+            return Err(Stopped::io());
+        }
+        self.inner.read(buf)
+    }
+}
+
 /// [`DriveError::Cancelled`] when `ctl` says stop.
 fn stop_if_asked(ctl: &dyn Ctl) -> Result<(), DriveError> {
     if ctl.cancelled() {

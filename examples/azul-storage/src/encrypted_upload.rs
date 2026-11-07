@@ -328,7 +328,7 @@ impl<D: Drive> EncryptedDrive<D> {
                     let _ = fs::remove_file(dir.join(copy_name(&record_path, &old.object_id)));
                 }
                 let _ = fs::remove_file(&record_path);
-                match self.encrypt_copy(key, path, check, &before, &dir, &record_path)? {
+                match self.encrypt_copy(key, path, check, &before, &dir, &record_path, ctl)? {
                     Some((summary, copy)) => (summary, copy, false),
                     None => return Ok(Some(Spooled::Changed)),
                 }
@@ -351,9 +351,20 @@ impl<D: Drive> EncryptedDrive<D> {
         if up_already {
             ctl.bytes(plain);
         } else {
-            // A stop reaches the bucket's upload (it aborts and forgets its state); the copy and
-            // its record stay for the next try.
-            self.inner.put_file(&object_key, &copy, &told)?;
+            // A stop reaches the bucket's upload (it aborts and forgets its state) and leaves
+            // nothing behind, as `Drive::put_file` promises: the copy goes with its record. Any
+            // other failure keeps both for the next try.
+            if let Err(e) = self.inner.put_file(&object_key, &copy, &told) {
+                if matches!(e, DriveError::Cancelled) {
+                    let _ = fs::remove_file(&copy);
+                    if read_record(&record_path)
+                        .is_some_and(|record| record.object_id == summary.object_id.to_hex())
+                    {
+                        let _ = fs::remove_file(&record_path);
+                    }
+                }
+                return Err(e);
+            }
         }
         // The copy and its record go only once the index names the object. A commit that fails
         // leaves them, and the next try names the same object again; they used to go first, so
@@ -389,6 +400,7 @@ impl<D: Drive> EncryptedDrive<D> {
     /// (nothing is kept). The record is written after the copy is in place and names it, so a
     /// record is never beside a copy it is not of, and a cut between the two leaves a copy
     /// nothing names (swept) - not a record without its copy.
+    #[allow(clippy::too_many_arguments)]
     fn encrypt_copy(
         &self,
         key: &str,
@@ -397,6 +409,7 @@ impl<D: Drive> EncryptedDrive<D> {
         before: &Stat,
         dir: &Path,
         record_path: &Path,
+        ctl: &dyn Ctl,
     ) -> Result<Option<(ObjectSummary, PathBuf)>, DriveError> {
         match (crate::beneath::free_space(dir), ROOM_POSTURE) {
             (Cap::Known(free), _) => {
@@ -439,7 +452,7 @@ impl<D: Drive> EncryptedDrive<D> {
         let piece = dir.join(&piece_name);
         // The folder is walked once: the piece is made in it, and adopted from it.
         let folder = Dir::open_following(dir).map_err(DriveError::from)?;
-        let written = self.encrypt_into(key, file, check, &folder, &piece_name);
+        let written = self.encrypt_into(key, file, check, &folder, &piece_name, ctl);
         let summary = match written {
             Ok(Some(summary)) => summary,
             other => {
@@ -491,23 +504,30 @@ impl<D: Drive> EncryptedDrive<D> {
         check: Option<&FileCheck>,
         folder: &Dir,
         piece_name: &str,
+        ctl: &dyn Ctl,
     ) -> Result<Option<ObjectSummary>, DriveError> {
         let id = ObjectId::generate().map_err(|e| e.for_key(key))?;
         let hint = FileHint::for_path(key, file.metadata().ok().map(|m| m.len()));
         let mut sink = folder
             .create_new(piece_name, 0o666)
             .map_err(|e| crate::local::beneath_error(key, e))?;
+        // The file is read through a reader that asks `ctl` before every read: the encryption of
+        // a 20 GB file is the first long phase of the upload, and a stop pressed there used to be
+        // heard only when the bucket's upload began (X-DELTA-AZDRIVE-FILES-13).
         let summary = match check {
             Some(c) => {
                 let mut hashed = HashCheck::new(file, &c.blake3);
-                let summary = azl1::encrypt_stream_as(
-                    &mut hashed,
-                    &mut sink,
-                    id,
-                    &self.drive_key,
-                    &self.options,
-                    &hint,
-                );
+                let summary = {
+                    let mut stoppable = crate::transfer::StopReader::new(&mut hashed, ctl);
+                    azl1::encrypt_stream_as(
+                        &mut stoppable,
+                        &mut sink,
+                        id,
+                        &self.drive_key,
+                        &self.options,
+                        &hint,
+                    )
+                };
                 if hashed.changed() {
                     return Ok(None);
                 }
@@ -515,8 +535,9 @@ impl<D: Drive> EncryptedDrive<D> {
             }
             None => {
                 let mut file = file;
+                let mut stoppable = crate::transfer::StopReader::new(&mut file, ctl);
                 azl1::encrypt_stream_as(
-                    &mut file,
+                    &mut stoppable,
                     &mut sink,
                     id,
                     &self.drive_key,

@@ -396,3 +396,55 @@ fn x_delta_azdrive_files_2_an_object_cache_is_the_place_of_the_drive_below_and_b
         "a write that did not take dropped the copy"
     );
 }
+
+/// A stop that is pressed from the outside.
+struct Pressed(std::sync::atomic::AtomicBool);
+
+impl azul_storage::Ctl for Pressed {
+    fn bytes(&self, _done: u64) {}
+
+    fn cancelled(&self) -> bool {
+        self.0.load(std::sync::atomic::Ordering::SeqCst)
+    }
+}
+
+/// X-DELTA-AZDRIVE-FILES-13 (AZ-U10). The backoff between the tries of a file's upload never asked
+/// the stop: a Cancel pressed while the drive waited for its next try went unheard for the whole
+/// wait, and the upload was tried again after it. Now the wait is cut short, the file is not sent
+/// again, and the answer is Cancelled - not the 503 of the last try.
+#[test]
+fn x_delta_azdrive_files_13_a_cancel_is_heard_during_the_backoff_between_the_tries_of_an_upload() {
+    use azul_storage::Drive;
+    let dir = azul_storage::testing::TempDir::new("dx13-backoff");
+    let file = dir.path().join("f.bin");
+    std::fs::write(&file, b"x").unwrap();
+    let (flaky, mut drive) = retrying(Flaky::new(&dir, vec![drive_service(503, None); 6]));
+    // Thirty seconds between tries: the cancel must not wait for them.
+    drive.policy = RetryPolicy {
+        attempts: 4,
+        base: Duration::from_secs(30),
+        ceiling: Duration::from_secs(30),
+        max_wait: Duration::from_secs(60),
+    };
+    let cancel = std::sync::Arc::new(Pressed(std::sync::atomic::AtomicBool::new(false)));
+    let presser = {
+        let cancel = std::sync::Arc::clone(&cancel);
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(200));
+            cancel.0.store(true, std::sync::atomic::Ordering::SeqCst);
+        })
+    };
+    let started = Instant::now();
+    let result = drive.put_file("f.bin", &file, &*cancel);
+    presser.join().unwrap();
+    assert_eq!(result, Err(DriveError::Cancelled), "{result:?}");
+    assert!(
+        started.elapsed() < Duration::from_secs(5),
+        "the cancel waited for the backoff: {:?}",
+        started.elapsed()
+    );
+    assert!(
+        flaky.sent.lock().unwrap().len() <= 2,
+        "the file was sent again after the cancel"
+    );
+}

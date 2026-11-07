@@ -149,7 +149,15 @@ pub fn with_retries<T>(
     jitter: &dyn Fn() -> f64,
     request: impl FnMut() -> CloudResult<T>,
 ) -> CloudResult<T> {
-    retry_loop(policy, gate, jitter, &classify, &gate_closed, request)
+    retry_loop(
+        policy,
+        gate,
+        jitter,
+        &classify,
+        &gate_closed,
+        &std::thread::sleep,
+        request,
+    )
 }
 
 /// [`with_retries`] for any error: `verdict` tells what passes by itself, `closed` is the
@@ -160,6 +168,7 @@ fn retry_loop<T, E>(
     jitter: &dyn Fn() -> f64,
     verdict: &dyn Fn(&E) -> Verdict,
     closed: &dyn Fn(Duration) -> E,
+    sleep: &dyn Fn(Duration),
     mut request: impl FnMut() -> Result<T, E>,
 ) -> Result<T, E> {
     let mut attempt = 0u32;
@@ -180,8 +189,22 @@ fn retry_loop<T, E>(
             return Err(error);
         }
         if server_wait.is_none() {
-            std::thread::sleep(policy.delay(attempt, jitter()));
+            sleep(policy.delay(attempt, jitter()));
         }
+    }
+}
+
+/// Sleeps `wait` in short slices and stops sleeping the moment `stop` says so: a backoff of many
+/// seconds is no reason for a pressed Cancel to go unheard (X-DELTA-AZDRIVE-FILES-13).
+fn sleep_unless_stopped(wait: Duration, stop: &dyn Ctl) {
+    const SLICE: Duration = Duration::from_millis(50);
+    let until = Instant::now() + wait;
+    while !stop.cancelled() {
+        let left = until.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            break;
+        }
+        std::thread::sleep(left.min(SLICE));
     }
 }
 
@@ -297,8 +320,44 @@ impl RetryingDrive {
             &random_jitter,
             &classify_drive,
             &drive_gate_closed,
+            &std::thread::sleep,
             request,
         )
+    }
+
+    /// [`RetryingDrive::call`] of a request that hears a stop (`ctl`): it is not sent again after
+    /// one, a backoff is cut short by one, and what ends it is [`DriveError::Cancelled`] - not the
+    /// 503 the last try got. The request is a file's upload: tries of many seconds apart.
+    fn call_stoppable<T>(
+        &self,
+        ctl: &dyn Ctl,
+        mut request: impl FnMut() -> Result<T, DriveError>,
+    ) -> Result<T, DriveError> {
+        let verdict = |e: &DriveError| {
+            if ctl.cancelled() {
+                Verdict::GiveUp
+            } else {
+                classify_drive(e)
+            }
+        };
+        let result = retry_loop(
+            &self.policy,
+            &self.gate,
+            &random_jitter,
+            &verdict,
+            &drive_gate_closed,
+            &|wait| sleep_unless_stopped(wait, ctl),
+            || {
+                if ctl.cancelled() {
+                    return Err(DriveError::Cancelled);
+                }
+                request()
+            },
+        );
+        match result {
+            Err(_) if ctl.cancelled() => Err(DriveError::Cancelled),
+            other => other,
+        }
     }
 
     /// One try after the gate (a body that cannot be read twice); a 429 still closes the gate.
@@ -454,7 +513,7 @@ impl Drive for RetryingDrive {
 
     fn put_file(&self, key: &str, path: &Path, ctl: &dyn Ctl) -> Result<u64, DriveError> {
         // The file is opened again for every try.
-        self.call(|| self.inner.put_file(key, path, ctl))
+        self.call_stoppable(ctl, || self.inner.put_file(key, path, ctl))
     }
 
     fn put_file_checked(
@@ -465,7 +524,7 @@ impl Drive for RetryingDrive {
         ctl: &dyn Ctl,
     ) -> Result<CheckedUpload, DriveError> {
         // Opened and checked again for every try: a file that changed meanwhile says so.
-        self.call(|| self.inner.put_file_checked(key, path, check, ctl))
+        self.call_stoppable(ctl, || self.inner.put_file_checked(key, path, check, ctl))
     }
 
     fn put_from_if(
@@ -490,7 +549,7 @@ impl Drive for RetryingDrive {
     ) -> Result<Option<String>, DriveError> {
         // The file is opened again for every try, and the condition is asked again when each
         // upload completes: a lost race (Conflict) is no failure that passes.
-        self.call(|| self.inner.put_file_if(key, path, condition, ctl))
+        self.call_stoppable(ctl, || self.inner.put_file_if(key, path, condition, ctl))
     }
 
     fn put_many(&self, items: &[BatchPut<'_>]) -> Vec<Result<Option<String>, DriveError>> {

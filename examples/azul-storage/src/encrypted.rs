@@ -65,6 +65,7 @@ use crate::{
         keys::load_key_chain,
         CryptoError, DriveKey, FileKey, KeyId, ObjectId, ShareKey, WrappedKey,
     },
+    ctl::Quiet,
     key::{check_key, check_prefix},
     keyring::KeyringStore,
     meta::reclaim::{
@@ -1857,16 +1858,30 @@ impl<D: Drive> EncryptedDrive<D> {
         body: &mut dyn Read,
         expect: Expect,
     ) -> Result<ObjectInfo, DriveError> {
+        self.write_from_ctl(path, body, expect, &Quiet)
+    }
+
+    /// [`EncryptedDrive::write_from`] that stops, with [`DriveError::Cancelled`] and nothing named,
+    /// once `ctl` says so - in either long phase: the body read into the spool, and the spool
+    /// sent to the bucket, which used to go on to its end whatever was pressed
+    /// (X-DELTA-AZDRIVE-FILES-13).
+    pub fn write_from_ctl(
+        &self,
+        path: &str,
+        body: &mut dyn Read,
+        expect: Expect,
+        ctl: &dyn Ctl,
+    ) -> Result<ObjectInfo, DriveError> {
         check_key(path)?;
         let Some(threshold) = self.pack_threshold() else {
-            return self.write_stream(path, body, expect);
+            return self.write_stream(path, body, expect, ctl);
         };
         let head = crate::crypto::read_wiped(&mut *body, threshold)?;
         if (head.len() as u64) < threshold {
             return self.write_packed(path, &head, expect);
         }
         let mut whole = Cursor::new(head.as_slice()).chain(body);
-        self.write_stream(path, &mut whole, expect)
+        self.write_stream(path, &mut whole, expect, ctl)
     }
 
     /// [`EncryptedDrive::write_from`] into an object of its own.
@@ -1875,23 +1890,41 @@ impl<D: Drive> EncryptedDrive<D> {
         path: &str,
         body: &mut dyn Read,
         expect: Expect,
+        ctl: &dyn Ctl,
     ) -> Result<ObjectInfo, DriveError> {
         let id = ObjectId::generate().map_err(|e| e.for_key(path))?;
         let mut spool = Spool::new();
         let hint = FileHint::for_path(path, None);
-        let summary =
-            azl1::encrypt_stream_as(body, &mut spool, id, &self.drive_key, &self.options, &hint)
-                .map_err(|e| e.for_key(path))?;
-        self.put_spooled(&id, spool)?;
+        let mut stoppable = crate::transfer::StopReader::new(body, ctl);
+        let summary = azl1::encrypt_stream_as(
+            &mut stoppable,
+            &mut spool,
+            id,
+            &self.drive_key,
+            &self.options,
+            &hint,
+        )
+        .map_err(|e| e.for_key(path))?;
+        self.put_spooled(&id, spool, ctl)?;
         self.bind(path, summary, expect)
     }
 
     /// Puts a new object from its spool: conditionally when it is in memory, streamed through
-    /// the inner drive's `put_from` when it went to a file.
-    fn put_spooled(&self, id: &ObjectId, mut spool: Spool) -> Result<(), DriveError> {
+    /// the inner drive's `put_from` when it went to a file - read through a reader that asks `ctl`
+    /// before every read, so a stop reaches the upload (the bucket aborts it).
+    fn put_spooled(
+        &self,
+        id: &ObjectId,
+        mut spool: Spool,
+        ctl: &dyn Ctl,
+    ) -> Result<(), DriveError> {
+        if ctl.cancelled() {
+            return Err(DriveError::Cancelled);
+        }
         if spool.is_in_file() {
             spool.seek(SeekFrom::Start(0))?;
-            self.inner.put_from(&id.bucket_key(), &mut spool)?;
+            let mut stoppable = crate::transfer::StopReader::new(&mut spool, ctl);
+            self.inner.put_from(&id.bucket_key(), &mut stoppable)?;
             Ok(())
         } else {
             let bytes = std::mem::take(spool.memory.get_mut());
@@ -1934,7 +1967,7 @@ impl<D: Drive> EncryptedDrive<D> {
         if !keep(&summary) {
             return Ok(Rewrite::Declined);
         }
-        self.put_spooled(&id, spool)?;
+        self.put_spooled(&id, spool, &Quiet)?;
         before_bind();
         let new_entry = IndexEntry {
             size: entry.size,
@@ -2275,7 +2308,7 @@ impl<D: Drive> EncryptedDrive<D> {
         let summary =
             azl1::encrypt_stream_as(body, &mut spool, id, &self.drive_key, &self.options, &hint)
                 .map_err(|e| e.for_key(path))?;
-        self.put_spooled(&id, spool)?;
+        self.put_spooled(&id, spool, &Quiet)?;
         Ok(IndexEntry {
             size: summary.plaintext_size,
             modified: Some(now_unix()),
@@ -2630,7 +2663,8 @@ impl<D: Drive> Drive for EncryptedDrive<D> {
             None => {
                 let mut file = File::open(path)?;
                 let mut reader = crate::transfer::ProgressReader::new(&mut file, ctl);
-                self.put_from(key, &mut reader)
+                self.write_from_ctl(key, &mut reader, Expect::Any, ctl)
+                    .map(|info| info.size)
             }
         }
     }
@@ -2658,7 +2692,8 @@ impl<D: Drive> Drive for EncryptedDrive<D> {
         let mut hashed = HashCheck::new(file, &check.blake3);
         let sent = {
             let mut reader = crate::transfer::ProgressReader::new(&mut hashed, ctl);
-            self.put_from(key, &mut reader)
+            self.write_from_ctl(key, &mut reader, Expect::Any, ctl)
+                .map(|info| info.size)
         };
         match sent {
             Ok(written) => Ok(CheckedUpload::Sent(written)),
@@ -2696,7 +2731,8 @@ impl<D: Drive> Drive for EncryptedDrive<D> {
             None => {
                 let mut file = File::open(path)?;
                 let mut reader = crate::transfer::ProgressReader::new(&mut file, ctl);
-                self.put_from_if(key, &mut reader, condition)
+                self.write_from_ctl(key, &mut reader, expect_of(key, condition)?, ctl)
+                    .map(|info| info.etag)
             }
         }
     }
