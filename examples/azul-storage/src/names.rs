@@ -151,6 +151,21 @@ fn protected_problem(key: &str) -> Option<String> {
     }
 }
 
+/// A note for a key with a repository's own configuration in its name (`.gitmodules`,
+/// `.gitattributes`, in any spelling): warned of, not refused - git reads such a file where it
+/// lies, and a drive's other participants write it (X-DELTA-AZDRIVE-FILES-32).
+#[must_use]
+pub fn vcs_metadata_note(key: &str) -> Option<String> {
+    key.split('/')
+        .find(|name| Protected::kind(name) == Some(ProtectedKind::VcsMetadata))
+        .map(|name| {
+            format!(
+                "{name} is a repository's own configuration: git reads it where it lies, and the \
+                 drive's other participants write it"
+            )
+        })
+}
+
 /// Why a folder entry of the drive (its key without a slash at the end) can never become a
 /// folder here, on any system, or `None`. The rows are [`key_problem`]'s, and the protected names
 /// among them hold for every name of the key, the last included: the name policy does not depend

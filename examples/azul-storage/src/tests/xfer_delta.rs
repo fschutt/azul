@@ -720,3 +720,103 @@ fn x_delta_azdrive_files_15_a_folder_the_target_refused_stays_at_the_source() {
     assert_eq!(report.left, vec![String::from("docs/")], "{report:?}");
     assert_eq!(other.get("docs/a.txt").unwrap(), b"alpha");
 }
+
+// ---- finding 32: names a drive gives
+
+/// Paste, download, drop and "Copy everything" of a drive wrote the names it gave through
+/// `LocalDrive::path_of`, which checks the shape only: `.GIT/config` of a shared drive is
+/// `.git/config` on APFS and NTFS (a conflict question, then a file in a real repository). A spelling
+/// the disk would read as a protected name is refused by the plan, each as a failure of its own;
+/// the exact `.git` of a repository the user copies on purpose is not.
+#[test]
+fn x_delta_azdrive_files_32_a_name_the_disk_reads_as_git_is_not_written_from_a_drive() {
+    let tmp = TempDir::new("dx32-names");
+    let source = Versioned::with(&[
+        ("proj/.GIT/config", b"[core]\nfsmonitor = x"),
+        ("proj/GIT~1/hooks/post-commit", b"#!/bin/sh"),
+        ("proj/.AZLIN/x", b"y"),
+        ("proj/.git/config", b"[core]"),
+        ("proj/readme.txt", b"hello"),
+    ]);
+    let target = LocalDrive::without_manifest(tmp.path().join("other"));
+    let plan = make_plan(&source, &[folder("proj/")], &target, "", true, "Copy").unwrap();
+    let mut refused: Vec<&str> = plan.refused.iter().map(|(key, _)| key.as_str()).collect();
+    refused.sort_unstable();
+    assert_eq!(
+        refused,
+        [
+            "proj/.AZLIN/x",
+            "proj/.GIT/config",
+            "proj/GIT~1/hooks/post-commit"
+        ]
+    );
+    let planned: Vec<&str> = plan.files.iter().map(|f| f.target_key.as_str()).collect();
+    assert!(!planned
+        .iter()
+        .any(|key| key.contains("GIT") && !key.contains(".git/")));
+    let report = go(&plan, &source, &target, true);
+    let refusals = report
+        .failed
+        .iter()
+        .filter(|(_, why)| matches!(why, DriveError::InvalidKey { .. }))
+        .count();
+    assert_eq!(refusals, 3, "{report:?}");
+    assert_eq!(report.done, 2, "{report:?}");
+    assert_eq!(target.get("proj/readme.txt").unwrap(), b"hello");
+    assert_eq!(target.get("proj/.git/config").unwrap(), b"[core]");
+    let mut made: Vec<String> = std::fs::read_dir(tmp.path().join("other").join("proj"))
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    made.sort();
+    assert_eq!(
+        made,
+        [".git", "readme.txt"],
+        "nothing was made for the refused names"
+    );
+    // A move leaves the refused names where they are.
+    assert_eq!(
+        source.get("proj/.GIT/config").unwrap(),
+        b"[core]\nfsmonitor = x"
+    );
+    assert!(
+        source.get("proj/readme.txt").is_err(),
+        "the copied file moved"
+    );
+}
+
+/// A file picked by itself is checked too, and a copy from one folder of this disk to another is
+/// not: those names are on the disk already.
+#[test]
+fn x_delta_azdrive_files_32_a_single_file_is_checked_and_a_copy_on_this_disk_is_not() {
+    let tmp = TempDir::new("dx32-single");
+    let source = Versioned::with(&[(".GIT", b"gitdir: ../elsewhere")]);
+    let target = LocalDrive::without_manifest(tmp.path().join("other"));
+    let plan = make_plan(&source, &[file(".GIT")], &target, "", false, "Copy").unwrap();
+    assert_eq!(plan.refused.len(), 1, "{plan:?}");
+    assert!(plan.files.is_empty());
+    assert!(
+        !plan.is_empty(),
+        "a plan that refused something is not 'nothing to do'"
+    );
+    // The same names between two folders of this computer: nobody downloaded them.
+    let (_tmp, home, other) = two_disks("dx32-local");
+    home.put("proj/.GIT/x", b"mine").unwrap();
+    let plan = make_plan(&home, &[folder("proj/")], &other, "", false, "Copy").unwrap();
+    assert!(plan.refused.is_empty(), "{plan:?}");
+    let report = go(&plan, &home, &other, false);
+    assert!(report.failed.is_empty(), "{report:?}");
+}
+
+/// The names below the folder a drive's items go into are the drive's; the folder is the user's.
+#[test]
+fn x_delta_azdrive_files_32_only_the_names_below_the_target_folder_are_checked() {
+    let tmp = TempDir::new("dx32-prefix");
+    // A folder of the user's own, spelled the way a drive's name may not be.
+    let target = LocalDrive::without_manifest(tmp.path().join("other"));
+    target.put(".GIT/keep.txt", b"theirs").unwrap();
+    let source = Versioned::with(&[("a.txt", b"alpha")]);
+    let plan = make_plan(&source, &[file("a.txt")], &target, ".GIT/", false, "Copy").unwrap();
+    assert!(plan.refused.is_empty(), "{plan:?}");
+    assert_eq!(plan.files.len(), 1);
+}

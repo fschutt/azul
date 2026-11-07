@@ -144,6 +144,12 @@ struct Saved {
     head: Option<String>,
 }
 
+/// Whether `name` is one plain file name as it stands: no separator, no `..`, no drive letter or
+/// device name, no dot or space at its end ([`crate::key::safe_file_name`] would leave it as it is).
+pub(crate) fn plain_file_name(name: &str) -> bool {
+    crate::key::safe_file_name(name).as_deref() == Some(name)
+}
+
 /// Reads a cache file; `None` when there is none (or no cache).
 fn read_cached(path: Option<&Path>) -> Option<Vec<u8>> {
     fs::read(path?).ok()
@@ -212,7 +218,13 @@ impl Local {
         }
     }
 
+    /// The cache file `name` of a pack. A pack's name comes from the sealed manifest - written by
+    /// whoever holds the drive's key - and is joined into a path only when it is one plain file
+    /// name: no separator, no `..`, no drive letter or device name (X-DELTA-AZDRIVE-FILES-32).
     fn file(&self, name: &str) -> Option<PathBuf> {
+        if !plain_file_name(name) {
+            return None;
+        }
         self.cache.as_ref().map(|dir| dir.join("packs").join(name))
     }
 

@@ -227,3 +227,30 @@ fn a_new_device_reads_the_drive_from_a_checkpoint_and_a_compacted_pack_without_l
     assert_eq!(files(&phone), files(&laptop));
     assert_eq!(bucket.counts().lists, 0);
 }
+
+/// X-DELTA-AZDRIVE-FILES-32 (e): a pack's name comes from the sealed manifest and was joined into the
+/// cache's path as it stood. Only one plain file name is.
+#[test]
+fn x_delta_azdrive_files_32_a_pack_name_from_the_manifest_is_one_plain_file_name() {
+    use crate::meta::repo::plain_file_name;
+    for good in ["0a1b2c3d4e5f", "pack-12_ab.idx", "k.1.chunk"] {
+        assert!(plain_file_name(good), "{good:?}");
+    }
+    for bad in [
+        "",
+        ".",
+        "..",
+        "../x",
+        "a/b",
+        "/etc/passwd",
+        "a\\b",
+        "C:evil",
+        "nul.idx",
+        "a:stream",
+        "trailing.",
+        "trailing ",
+        "x\0y",
+    ] {
+        assert!(!plain_file_name(bad), "{bad:?}");
+    }
+}

@@ -425,7 +425,13 @@ pub fn safe_file_name(key: &str) -> Option<String> {
         while !stem.is_char_boundary(end) {
             end -= 1;
         }
-        cleaned = format!("{}{extension}", &stem[..end]);
+        // The cut can end in a dot or a space, which Windows drops (`a ` and `a` would be one
+        // file): they go, as they do at the end of a name that was not cut.
+        let stem = stem[..end].trim_end_matches(['.', ' ']);
+        cleaned = format!("{stem}{extension}");
+        if cleaned.trim().is_empty() {
+            return None;
+        }
     }
     Some(cleaned)
 }

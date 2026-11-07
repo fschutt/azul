@@ -416,15 +416,14 @@ pub(crate) fn key_under(folder: &Path, path: &Path, is_folder: bool) -> Option<S
     Some(key)
 }
 
-/// A new pairing's folder: `AzDrive/<drive name>` in Home (a name's slashes, colons and
-/// backslashes made underscores).
+/// A new pairing's folder: `AzDrive/<drive name>` in Home, the drive's name made a folder name by
+/// the one name policy ([`crate::ban::copy_prefix`]): a name of `..` or a device name or a
+/// protected name is no folder of Home's own (it was, with the old three-character rule), and a
+/// name that leaves nothing is a word of the window's language.
 #[must_use]
 pub(crate) fn default_folder(home: &Path, drive_name: &str) -> PathBuf {
-    let name: String = drive_name
-        .chars()
-        .map(|c| if matches!(c, '/' | '\\' | ':') { '_' } else { c })
-        .collect();
-    home.join("AzDrive").join(name.trim())
+    let name = crate::ban::copy_prefix(drive_name);
+    home.join("AzDrive").join(name.trim_end_matches('/'))
 }
 
 // ==== The window's questions ====

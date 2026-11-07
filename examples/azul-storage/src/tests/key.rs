@@ -275,3 +275,21 @@ fn az_c8_a_download_never_gets_a_device_name_a_trailing_dot_or_more_than_255_byt
         );
     }
 }
+
+/// X-DELTA-AZDRIVE-FILES-32: the 255-byte cut can end in a space or a dot, which Windows drops (`a `
+/// and `a` would be one file).
+#[test]
+fn x_delta_azdrive_files_32_the_cut_of_a_long_name_does_not_end_in_a_space_or_a_dot() {
+    let spaced = format!("{} {}", "a".repeat(254), "b".repeat(10));
+    let name = safe_file_name(&spaced).unwrap();
+    assert!(name.len() <= 255, "{}", name.len());
+    assert!(!name.ends_with(' ') && !name.ends_with('.'), "{name:?}");
+    let dotted = format!("{}.{}", "a".repeat(254), "b".repeat(300));
+    let name = safe_file_name(&dotted).unwrap();
+    assert!(name.len() <= 255, "{}", name.len());
+    assert!(!name.ends_with(' ') && !name.ends_with('.'), "{name:?}");
+    // The extension stays when there is one.
+    let long = format!("{} .txt", "a".repeat(300));
+    let name = safe_file_name(&long).unwrap();
+    assert!(name.ends_with(".txt") && name.len() <= 255, "{name:?}");
+}

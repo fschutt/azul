@@ -1147,6 +1147,28 @@ pub(crate) fn pair(
     pair_with(info, app, s, drive_id, folder, prefix, |_| {})
 }
 
+/// The folder a pairing is asked for, typed: a whole path, with no `..` in it. The checks
+/// that follow it ("lies in a drive this window shows", "not inside another pairing") compare paths
+/// by their names, so `~/AzDrive/../../etc` was "inside Home" and `create_dir_all` made it where
+/// the `..` led (X-DELTA-AZDRIVE-FILES-32).
+pub(crate) fn pair_folder(folder: &str) -> Result<PathBuf, Text> {
+    if folder.is_empty() {
+        return Err(Text::key("azdrive-sync-pair-type-folder"));
+    }
+    let folder = PathBuf::from(folder);
+    if !folder.is_absolute()
+        || folder.components().any(|c| {
+            matches!(
+                c,
+                std::path::Component::ParentDir | std::path::Component::CurDir
+            )
+        })
+    {
+        return Err(Text::key("azdrive-sync-pair-whole-path"));
+    }
+    Ok(folder)
+}
+
 /// [`pair`] with the pairing's settings changed by `edit` before its first pass (a backup
 /// pairing, on-demand files, what this device leaves out).
 pub(crate) fn pair_with(
@@ -1166,13 +1188,7 @@ pub(crate) fn pair_with(
     {
         return Err(Text::key(why));
     }
-    if folder.is_empty() {
-        return Err(Text::key("azdrive-sync-pair-type-folder"));
-    }
-    let folder = PathBuf::from(folder);
-    if !folder.is_absolute() {
-        return Err(Text::key("azdrive-sync-pair-whole-path"));
-    }
+    let folder = pair_folder(folder)?;
     let prefix = azcloud_kit::sync::remote::normalize_prefix(prefix)
         .map_err(|e| Text::plain(e.to_string()))?;
     if sync_view::setup_of(s, drive_id).is_some() {

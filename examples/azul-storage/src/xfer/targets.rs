@@ -34,7 +34,7 @@ pub fn volume_of(dir: &Path) -> Volume {
 
 /// Whether the disk of `dir` takes `Name` and `name` for one file; `None` when it cannot be
 /// told (no name of the path has a letter to swap, or the disk would not say).
-fn folds_case(dir: &Path) -> Option<bool> {
+pub(crate) fn folds_case(dir: &Path) -> Option<bool> {
     // A folder the transfer is about to make takes the rule of the folder it is made in.
     let real = dir
         .ancestors()
@@ -42,34 +42,84 @@ fn folds_case(dir: &Path) -> Option<bool> {
     let mut here = real.as_path();
     loop {
         let name = here.file_name()?.to_str()?;
-        let swapped: String = name
-            .chars()
-            .map(|c| {
-                if c.is_lowercase() {
-                    c.to_uppercase().next().unwrap_or(c)
-                } else if c.is_uppercase() {
-                    c.to_lowercase().next().unwrap_or(c)
-                } else {
-                    c
-                }
-            })
-            .collect();
-        if swapped != name {
-            let twin = here.with_file_name(&swapped);
-            return match (beneath::stat_path(&twin), beneath::stat_path(here)) {
-                // The other spelling is a file: the same one, or - on a disk that tells case
-                // apart - another that happens to exist.
-                (Ok(other), Ok(own)) => Some(match other.id().same(&own.id()) {
-                    Tri::Same | Tri::Unknown => true,
-                    Tri::Different => false,
-                }),
-                // No file of the other spelling: the disk tells case apart.
-                (Err(e), Ok(_)) if e.kind() == std::io::ErrorKind::NotFound => Some(false),
-                _ => None,
-            };
+        // The other spelling of a name is looked for in the folder above it - which is another
+        // disk when the name is a mount point (an exFAT stick under /Volumes answers for the disk
+        // of /Volumes): the disk is then asked through a name inside it.
+        if is_mount_point(here) {
+            return folds_case_inside(here);
+        }
+        if let Some(twin) = swapped_case(name) {
+            return same_file_in_the_other_case(&here.with_file_name(twin), here);
         }
         here = here.parent()?;
     }
+}
+
+/// Whether `path` is the root of another disk than its folder's.
+fn is_mount_point(path: &Path) -> bool {
+    match (
+        beneath::stat_path(path),
+        path.parent().map(beneath::stat_path),
+    ) {
+        (Ok(own), Some(Ok(above))) => own.dev != above.dev,
+        _ => false,
+    }
+}
+
+/// `name` with each letter's case swapped, or `None` when there is no letter to swap or a letter
+/// that does not change into exactly one (`ß` becomes `SS`, `ǆ` has a title case): such a name is
+/// no probe - its other spelling is not the one a disk that ignores case looks up.
+pub(crate) fn swapped_case(name: &str) -> Option<String> {
+    let mut changed = false;
+    let mut out = String::with_capacity(name.len());
+    for c in name.chars() {
+        if c.is_lowercase() || c.is_uppercase() {
+            let mut swapped = if c.is_lowercase() {
+                c.to_uppercase().collect::<Vec<char>>()
+            } else {
+                c.to_lowercase().collect::<Vec<char>>()
+            };
+            if swapped.len() != 1 {
+                return None;
+            }
+            let one = swapped.pop()?;
+            // A letter that comes back as itself (no other case) swaps to nothing.
+            changed |= one != c;
+            out.push(one);
+        } else {
+            out.push(c);
+        }
+    }
+    changed.then_some(out)
+}
+
+/// Whether `twin` (a name in the other case) is the same file as `own`: the same one, or - on a
+/// disk that tells case apart - another that happens to exist; a disk that has no file of the
+/// other spelling tells case apart.
+fn same_file_in_the_other_case(twin: &Path, own: &Path) -> Option<bool> {
+    match (beneath::stat_path(twin), beneath::stat_path(own)) {
+        (Ok(other), Ok(own)) => Some(match other.id().same(&own.id()) {
+            Tri::Same | Tri::Unknown => true,
+            Tri::Different => false,
+        }),
+        (Err(e), Ok(_)) if e.kind() == std::io::ErrorKind::NotFound => Some(false),
+        _ => None,
+    }
+}
+
+/// The disk of the folder `dir`, asked through an entry inside it that has a letter to swap
+/// (`None`: the folder is empty or has none).
+pub(crate) fn folds_case_inside(dir: &Path) -> Option<bool> {
+    /// Entries looked at: a folder with a million is not read whole for this.
+    const LOOKS: usize = 64;
+    for entry in std::fs::read_dir(dir).ok()?.take(LOOKS).flatten() {
+        let name = entry.file_name();
+        let Some(twin) = name.to_str().and_then(swapped_case) else {
+            continue;
+        };
+        return same_file_in_the_other_case(&dir.join(twin), &entry.path());
+    }
+    None
 }
 
 /// Who holds a name of the target.

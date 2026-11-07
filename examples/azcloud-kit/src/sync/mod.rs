@@ -3648,6 +3648,12 @@ fn check_remote(
         for risk in names::display_risks(key) {
             report.tell(Code::DisplayRisk, key, format!("its name has {risk}"));
         }
+        // A repository's own configuration (`.gitmodules`, `.gitattributes`) that arrives from a
+        // drive other people write to is warned of, not refused: git reads it where it lies
+        // (X-DELTA-AZDRIVE-FILES-32).
+        if let Some(note) = names::vcs_metadata_note(key) {
+            report.tell(Code::DisplayRisk, key, note);
+        }
         if !scan.files.contains_key(key) {
             for (other, why) in names::portability(key, system) {
                 report.tell(

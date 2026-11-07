@@ -252,3 +252,31 @@ fn a_folder_cannot_go_into_itself_and_a_move_onto_itself_is_nothing() {
     let copy = plan(&home, &[folder("docs/")], &again, "", false, "Copy").unwrap();
     assert_eq!(copy.tops, vec![String::from("docs - Copy/")]);
 }
+
+/// X-DELTA-AZDRIVE-FILES-32: a letter that changes into two (`ß` is `SS` in capitals) is no probe of
+/// a disk's case: its "other spelling" is not the one a disk that ignores case looks up, and
+/// `Straße` answered "this disk tells case apart".
+#[test]
+fn x_delta_azdrive_files_32_a_letter_that_changes_into_two_is_no_probe_of_the_disks_case() {
+    use crate::xfer::targets::swapped_case;
+    assert_eq!(swapped_case("Report.txt"), Some(String::from("rEPORT.TXT")));
+    assert_eq!(swapped_case("12345"), None, "no letter to swap");
+    assert_eq!(swapped_case("Straße"), None);
+    assert_eq!(swapped_case("ǆ").as_deref(), Some("Ǆ"));
+}
+
+/// X-DELTA-AZDRIVE-FILES-32: the name of a mount point is looked up in the folder above it, which
+/// is another disk (an exFAT stick under `/Volumes` answered for `/Volumes`' disk). The disk is then
+/// asked through a name inside it - and the answer is the one a name of the folder itself gives.
+#[test]
+fn x_delta_azdrive_files_32_a_disk_is_asked_through_a_name_inside_it() {
+    use crate::xfer::targets::{folds_case, folds_case_inside};
+    let tmp = TempDir::new("dx32-inside");
+    std::fs::write(tmp.path().join("Probe.txt"), b"x").unwrap();
+    let inside = folds_case_inside(tmp.path());
+    assert!(inside.is_some(), "a file with letters is a probe");
+    assert_eq!(inside, folds_case(&tmp.path().join("Probe.txt")));
+    // An empty folder has nothing to ask through.
+    let empty = TempDir::new("dx32-inside-empty");
+    assert_eq!(folds_case_inside(empty.path()), None);
+}

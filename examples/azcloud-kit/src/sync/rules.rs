@@ -142,6 +142,9 @@ pub struct Rule {
     path: bool,
     /// A `!` rule: it takes back what the rules before it excluded.
     negated: bool,
+    /// One of the engine's own folders (the bookkeeping, the state, the install tree): matched
+    /// without regard to case ([`Rule::matches`]).
+    lowercase: bool,
 }
 
 impl Rule {
@@ -168,6 +171,7 @@ impl Rule {
         // folder a Mac named decomposed).
         let segments: Vec<String> = core.split('/').map(super::names::nfc).collect();
         let path = anchored || segments.len() > 1;
+        let lowercase = !negated && (reason == BOOKKEEPING || reason == STATE || reason == INSTALL);
         Some(Rule {
             pattern: p.to_string(),
             reason: reason.to_string(),
@@ -175,6 +179,7 @@ impl Rule {
             dir_only,
             path,
             negated,
+            lowercase,
         })
     }
 
@@ -190,6 +195,13 @@ impl Rule {
         if self.dir_only && !is_dir {
             return false;
         }
+        // The folders the engine keeps for itself (the bookkeeping, the state and the install
+        // tree) are those folders in whatever case a disk reads them: `Apps/` is `apps/` on APFS
+        // and NTFS, and a synced file there is run with no signature chain
+        // (X-DELTA-AZDRIVE-FILES-32; AZ-Y5).
+        if self.lowercase {
+            return self.matches_lowercase(parts);
+        }
         if self.path {
             let pattern: Vec<&str> = self.segments.iter().map(String::as_str).collect();
             match_path(&pattern, parts)
@@ -197,6 +209,21 @@ impl Rule {
             parts
                 .last()
                 .is_some_and(|name| match_name(&self.segments[0], name))
+        }
+    }
+
+    /// [`Rule::matches`] with both sides lowercased.
+    fn matches_lowercase(&self, parts: &[&str]) -> bool {
+        let pattern: Vec<String> = self.segments.iter().map(|s| s.to_lowercase()).collect();
+        if self.path {
+            let pattern: Vec<&str> = pattern.iter().map(String::as_str).collect();
+            let parts: Vec<String> = parts.iter().map(|p| p.to_lowercase()).collect();
+            let parts: Vec<&str> = parts.iter().map(String::as_str).collect();
+            match_path(&pattern, &parts)
+        } else {
+            parts
+                .last()
+                .is_some_and(|name| match_name(&pattern[0], &name.to_lowercase()))
         }
     }
 }

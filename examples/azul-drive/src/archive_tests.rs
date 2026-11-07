@@ -1060,3 +1060,66 @@ fn x_delta_azdrive_files_19_the_rescue_copy_marks_what_it_brings_from_a_drive() 
         "a folder of this disk was not downloaded"
     );
 }
+
+// ---- the rescue copy against X-DELTA-AZDRIVE-FILES-32
+
+/// A repository's folder of a drive is copied - it is the user's data - but not as one: another
+/// participant of a shared drive wrote its `config`, and a `core.fsmonitor` in it runs the next
+/// time git is run in the copy. The names git reads are not written; the spellings a disk merges
+/// into them were never.
+#[test]
+fn x_delta_azdrive_files_32_the_rescue_copy_keeps_a_repository_but_not_as_one() {
+    let folder = std::path::Path::new("/home/me/Azlin rescue/Photos");
+    assert_eq!(
+        target_of(folder, "proj/.git/config"),
+        Some(folder.join("proj").join("_.git").join("config"))
+    );
+    assert_eq!(target_of(folder, ".git"), Some(folder.join("_.git")));
+    assert_eq!(
+        target_of(folder, "a/.hg/hgrc"),
+        Some(folder.join("a").join("_.hg").join("hgrc"))
+    );
+    assert_eq!(
+        target_of(folder, ".svn/entries"),
+        Some(folder.join("_.svn").join("entries"))
+    );
+    // What only looks like one is the user's, and the disguised spellings are refused as before.
+    assert_eq!(
+        target_of(folder, "proj/.gitignore"),
+        Some(folder.join("proj").join(".gitignore"))
+    );
+    assert_eq!(target_of(folder, "proj/.GIT/config"), None);
+}
+
+/// A repository copied as `_.git` and a folder of the drive that is called `_.git` are two folders.
+#[test]
+fn x_delta_azdrive_files_32_a_repository_and_a_folder_called_underscore_git_are_two_folders() {
+    let tmp = TempDir::new("dx32-rescue-git");
+    let drive = Tagged::with(&[
+        ("proj/.git/config", b"fsmonitor"),
+        ("proj/_.git/config", b"mine"),
+        ("proj/readme.md", b"r"),
+    ]);
+    let folder = tmp.path().join("copy");
+    let state = tmp.path().join("d_x.rescue.json");
+    for _ in 0..2 {
+        let report = run_rescue(&drive, &folder, NO_PROBE, Some(&state), &mut |_, _| {});
+        assert_eq!((report.copied, report.total), (3, 3), "{report:?}");
+        assert!(
+            report.missing.is_empty() && report.kept.is_empty(),
+            "{report:?}"
+        );
+        let mut under_proj: Vec<String> = std::fs::read_dir(folder.join("proj"))
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        under_proj.sort();
+        assert_eq!(under_proj, ["_.git", "readme.md"], "no folder git reads");
+        let mut contents: Vec<Vec<u8>> = files_below(&folder.join("proj").join("_.git"))
+            .into_iter()
+            .map(|(_, bytes)| bytes)
+            .collect();
+        contents.sort();
+        assert_eq!(contents, [b"fsmonitor".to_vec(), b"mine".to_vec()]);
+    }
+}

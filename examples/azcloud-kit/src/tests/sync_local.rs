@@ -623,3 +623,46 @@ fn az_w15_a_placeholder_is_not_told_as_a_link_to_nowhere() {
     );
     assert!(!placeholder.contains("link to"), "{placeholder}");
 }
+
+/// X-DELTA-AZDRIVE-FILES-32 (b): a link whose target reaches the bookkeeping was refused only for the
+/// exact first name `.azlin`, and a link to a repository's folder not at all - `.GIT/hooks` is
+/// `.git/hooks` on APFS and NTFS. The names a link reaches are held to what a drive's keys are.
+#[test]
+fn x_delta_azdrive_files_32_a_link_into_a_protected_name_is_not_made_in_any_spelling() {
+    use crate::sync::local::link_stays_inside;
+    // The bookkeeping is the folder's first name, in any spelling.
+    for target in [
+        ".azlin/index.json",
+        ".AZLIN/index.json",
+        ".Azlin",
+        "sub/../.AZLIN/x",
+    ] {
+        assert!(!link_stays_inside("l", target), "{target:?}");
+    }
+    for target in ["../.azlin/x", "../.AZLIN/x"] {
+        assert!(!link_stays_inside("links/l", target), "{target:?}");
+    }
+    // A version-control name at any depth.
+    for target in [
+        ".git/hooks",
+        ".GIT/hooks/post-commit",
+        "sub/.git",
+        "sub/GIT~1/config",
+        "sub/.hg/hgrc",
+        ".svn",
+    ] {
+        assert!(!link_stays_inside("links/l", target), "{target:?}");
+    }
+    // Ordinary names are made, and so is one that only looks like a protected one, or a user's
+    // own `.azlin` below the root.
+    for target in [
+        "a.txt",
+        "../docs/a.txt",
+        "sub/.gitignore",
+        "gits/x",
+        "x/.azlin/y",
+    ] {
+        assert!(link_stays_inside("links/l", target), "{target:?}");
+    }
+    assert!(link_stays_inside("l", "x/.azlin/y"));
+}

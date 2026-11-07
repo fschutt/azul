@@ -418,6 +418,18 @@ pub fn run(
         out.cancelled = true;
         return out;
     }
+    // Names a drive gave that this computer's disk would read as something else (`.GIT/config` is
+    // `.git/config` on APFS and NTFS) are not written: each is a failure of its own, and a move
+    // leaves it where it is (X-DELTA-AZDRIVE-FILES-32).
+    for (source_key, _why) in &plan.refused {
+        out.failed.push((
+            source_key.clone(),
+            DriveError::InvalidKey {
+                key: source_key.clone(),
+                reason: "it is not a name this computer can hold as it is meant",
+            },
+        ));
+    }
     // A folder is renamed as a whole; the files go in one batch (an encrypted drive changes its
     // index once for all of them, a bucket copies them side by side).
     let (folder_moves, file_moves): (Vec<&(String, String)>, Vec<&(String, String)>) =

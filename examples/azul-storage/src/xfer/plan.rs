@@ -13,7 +13,11 @@ use super::{
     site::{overlap, Overlap, Site},
     targets::{volume_of, Claim, TargetSet},
 };
-use crate::{key, names::Volume, ops, Drive, DriveError};
+use crate::{
+    key,
+    names::{Policy, Purpose, Volume},
+    ops, Drive, DriveError,
+};
 
 /// What the user decided for a name that is taken at the target.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -81,6 +85,11 @@ pub struct Plan {
     /// goes by the drive's own copy (CopyObject, no byte through AzDrive); on disk by the chunked
     /// file copy, which reports its progress megabyte by megabyte.
     pub same_drive: bool,
+    /// Files and folders of a drive whose names this computer's disk reads as something else - a
+    /// spelling of `.git` or `.azlin`, a device name, a stream - and so are not copied there:
+    /// `(source key, why)`. The run lists each as a failure; nothing is made at the target for
+    /// them and a move leaves them where they are (X-DELTA-AZDRIVE-FILES-32).
+    pub refused: Vec<(String, String)>,
 }
 
 impl Plan {
@@ -150,7 +159,10 @@ impl Plan {
     /// Nothing to do.
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.files.is_empty() && self.folders.is_empty() && self.moves.is_empty()
+        self.files.is_empty()
+            && self.folders.is_empty()
+            && self.moves.is_empty()
+            && self.refused.is_empty()
     }
 }
 
@@ -230,6 +242,36 @@ fn exists_below(targets: &Targets<'_>, key: &str) -> Result<bool, DriveError> {
         Ok(false)
     } else {
         exists_at(targets.drive, key)
+    }
+}
+
+/// The name check of a plan that writes names a drive gave into a folder of this computer: its
+/// names are other people's words, and the disk may read one as something it is not
+/// ([`Purpose::Copy`]).
+struct NameCheck {
+    policy: Policy,
+    /// The folder of the target the items go into: only the names below it are the drive's.
+    prefix: String,
+}
+
+impl NameCheck {
+    /// Whether the plan may write `wanted` (a key of the target, folders too); else it is noted as
+    /// refused for `source_key` and the caller goes on without it.
+    fn refuses(check: Option<&NameCheck>, plan: &mut Plan, source_key: &str, wanted: &str) -> bool {
+        let Some(check) = check else {
+            return false;
+        };
+        let relative = wanted.strip_prefix(check.prefix.as_str()).unwrap_or(wanted);
+        match check
+            .policy
+            .admit(relative.trim_end_matches('/'), Purpose::Copy)
+        {
+            Ok(_) => false,
+            Err(refusal) => {
+                plan.refused.push((source_key.to_string(), refusal.why));
+                true
+            }
+        }
     }
 }
 
@@ -370,6 +412,7 @@ pub fn plan(
         ..Plan::default()
     };
     let (volume, on_disk) = target_volume(&target_site, target_prefix);
+    let policy = Policy::here(volume);
     let mut targets = Targets {
         drive: target,
         set: TargetSet::new(volume, on_disk),
@@ -404,6 +447,12 @@ pub fn plan(
         items
     };
     for item in items {
+        // Names a drive gave, written to a folder of this computer (not a copy from one folder of
+        // it to another: those names are on the disk already).
+        let check = (on_disk && source.local_path(&item.key).is_none()).then(|| NameCheck {
+            policy,
+            prefix: target_prefix.to_string(),
+        });
         let name = key::last_segment(&item.key).to_string();
         let slash = if item.is_folder { "/" } else { "" };
         // Where the item lands with its own name.
@@ -444,6 +493,9 @@ pub fn plan(
         };
         if item.is_folder {
             let target_key = format!("{target_prefix}{target_name}/");
+            if NameCheck::refuses(check.as_ref(), &mut plan, &item.key, &target_key) {
+                continue;
+            }
             let target_exists = targets.is_there(&target_key)?;
             let free = targets.set.state(&target_key) == Claim::Free;
             if plan.same_drive && removes_source && !target_exists && free {
@@ -469,6 +521,9 @@ pub fn plan(
                     continue; // the folder's own marker
                 }
                 let to = format!("{target_key}{rest}");
+                if NameCheck::refuses(check.as_ref(), &mut plan, &object.key, &to) {
+                    continue;
+                }
                 if rest.ends_with('/') {
                     if below.insert(to.clone()) {
                         plan.folders.push(to);
@@ -498,6 +553,9 @@ pub fn plan(
             }
         } else {
             let wanted = format!("{target_prefix}{target_name}");
+            if NameCheck::refuses(check.as_ref(), &mut plan, &item.key, &wanted) {
+                continue;
+            }
             let state = targets.set.state(&wanted);
             let in_the_way =
                 state == Claim::Existing || (state == Claim::Free && targets.is_there(&wanted)?);

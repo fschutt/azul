@@ -418,3 +418,25 @@ fn rf42_a_walk_takes_only_a_key_the_policy_let_through_and_makes_nothing_for_one
     assert_eq!(kept, "c.txt");
     assert!(tmp.path().join(".azlin/sync/trash/2026").is_dir());
 }
+
+/// X-DELTA-AZDRIVE-FILES-32 (h): `.gitmodules` and `.gitattributes` were "warned of" in the doc and
+/// nothing warned. A note says it, in any spelling and at any depth; other names have none.
+#[test]
+fn x_delta_azdrive_files_32_a_repositorys_own_configuration_is_warned_of() {
+    use crate::names::vcs_metadata_note;
+    for key in [
+        ".gitmodules",
+        "proj/.GITATTRIBUTES",
+        "a/b/GITMOD~1",
+        "proj/.gitmodules/x",
+    ] {
+        let note = vcs_metadata_note(key).unwrap_or_default();
+        assert!(
+            note.contains("repository's own configuration"),
+            "{key:?}: {note:?}"
+        );
+    }
+    for key in ["proj/.gitignore", "readme.md", "proj/.git/config", "gits/x"] {
+        assert_eq!(vcs_metadata_note(key), None, "{key:?}");
+    }
+}

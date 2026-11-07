@@ -1553,10 +1553,14 @@ pub fn link_stays_inside(key: &str, target: &str) -> bool {
             name => parts.push(name),
         }
     }
-    if parts.first() == Some(&names::BOOKKEEPING) {
+    // The names it reaches are held to what a drive's keys are: the bookkeeping as the first name
+    // and a version-control name at any depth, in any spelling a disk reads as theirs - a link to
+    // `.GIT/hooks` is as much a way in as one to `.git/hooks` (X-DELTA-AZDRIVE-FILES-32).
+    let reached = parts.join("/");
+    if names::Protected::in_key(&reached).is_some() {
         return false;
     }
-    parts.is_empty() || azul_storage::key::check_path_key(&parts.join("/")).is_ok()
+    parts.is_empty() || azul_storage::key::check_path_key(&reached).is_ok()
 }
 
 /// Takes the links out of `scan`'s files, for a drive that keeps no links: each is skipped and

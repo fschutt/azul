@@ -1032,10 +1032,34 @@ pub(crate) fn target_of_on(folder: &Path, key: &str, system: System) -> Option<P
         system,
         volume: Volume::default(),
     };
-    policy
-        .admit(key, Purpose::Rescue)
-        .ok()
-        .map(|admitted| admitted.under(folder))
+    policy.admit(key, Purpose::Rescue).ok().map(|admitted| {
+        let mut path = folder.to_path_buf();
+        for name in admitted.as_str().split('/') {
+            path.push(rescued_name(name).as_ref());
+        }
+        path
+    })
+}
+
+/// The name a name of the drive has in the rescue copy: a repository's own folder (`.git`, `.hg`,
+/// `.svn`) is copied - it is the user's data - but not as one. `proj/.git/config` of a shared drive
+/// is a file another participant wrote, and a `core.fsmonitor` in it runs the next time git is run
+/// in the copy; as `proj/_.git/config` git does not read it, and the user renames it back when
+/// they have looked (X-DELTA-AZDRIVE-FILES-32).
+fn rescued_name(name: &str) -> std::borrow::Cow<'_, str> {
+    if names::Protected::is_vcs(name) {
+        std::borrow::Cow::Owned(format!("_{name}"))
+    } else {
+        std::borrow::Cow::Borrowed(name)
+    }
+}
+
+/// `key` with each name of it as the rescue copy spells it ([`rescued_name`]).
+fn rescued_key(key: &str) -> String {
+    key.split('/')
+        .map(rescued_name)
+        .collect::<Vec<_>>()
+        .join("/")
 }
 
 /// Where each of `keys` goes under `folder`, parallel to `keys`: [`target_of`], except that two
@@ -1052,7 +1076,11 @@ fn targets_of(
     kept: &[Option<&str>],
     held: &[&str],
 ) -> Vec<Option<PathBuf>> {
-    azul_storage::key::without_twins_keeping(keys, kept, held, &|name| {
+    // The names as the copy spells them, then told apart: a drive's `_.git` and its `.git` (copied
+    // as `_.git`) are two files.
+    let rescued: Vec<String> = keys.iter().map(|key| rescued_key(key)).collect();
+    let rescued: Vec<&str> = rescued.iter().map(String::as_str).collect();
+    azul_storage::key::without_twins_keeping(&rescued, kept, held, &|name| {
         names::fold(name, &STRONGEST)
     })
     .iter()

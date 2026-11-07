@@ -282,8 +282,39 @@ fn a_new_pairing_is_a_folder_under_home_named_after_the_drive() {
     );
     assert_eq!(
         sync_view::default_folder(Path::new("/home/me"), "a/b:c"),
-        PathBuf::from("/home/me/AzDrive/a_b_c")
+        PathBuf::from("/home/me/AzDrive/a-b-c")
     );
+}
+
+/// X-DELTA-AZDRIVE-FILES-32 (c): a drive called `..` gave `~/AzDrive/..` - Home itself - for the
+/// pairing; the old rule replaced three characters. The one name policy makes the folder name.
+#[test]
+fn x_delta_azdrive_files_32_no_drive_name_makes_the_pairing_folder_leave_azdrive() {
+    let home = Path::new("/home/me");
+    let inside = |name: &str| {
+        let folder = sync_view::default_folder(home, name);
+        assert_eq!(
+            folder.parent(),
+            Some(Path::new("/home/me/AzDrive")),
+            "{name:?} gave {folder:?}"
+        );
+        folder
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default()
+    };
+    for name in ["..", ".", " .. ", "../..", "...", "", "   "] {
+        let leaf = inside(name);
+        assert!(
+            !leaf.is_empty() && leaf != ".." && leaf != ".",
+            "{name:?} gave {leaf:?}"
+        );
+    }
+    // A device name and a protected name are not taken as they are.
+    assert_ne!(inside("CON"), "CON");
+    assert_ne!(inside(".git"), ".git");
+    assert_ne!(inside(".azlin"), ".azlin");
+    assert_eq!(inside("Photos 2026"), "Photos 2026");
 }
 
 #[test]
@@ -1553,5 +1584,27 @@ fn x_delta_azdrive_files_30_the_sync_tasks_that_change_files_hold_a_close_back()
     ];
     for job in quiet {
         assert!(!Job::Sync(job).cuts_data());
+    }
+}
+
+/// X-DELTA-AZDRIVE-FILES-32 (c): a typed pairing folder is a whole path with no `..` in it; the
+/// checks after it compare names, so `~/AzDrive/../../etc` was "inside Home".
+#[test]
+fn x_delta_azdrive_files_32_a_pairing_folder_with_dots_in_its_path_is_refused() {
+    use crate::sync_jobs::pair_folder;
+    assert!(pair_folder("").is_err());
+    #[cfg(unix)]
+    {
+        assert_eq!(
+            pair_folder("/home/me/AzDrive/Photos").unwrap(),
+            PathBuf::from("/home/me/AzDrive/Photos")
+        );
+        for bad in [
+            "AzDrive/Photos",
+            "/home/me/AzDrive/../../etc",
+            "/home/me/..",
+        ] {
+            assert!(pair_folder(bad).is_err(), "{bad:?}");
+        }
     }
 }

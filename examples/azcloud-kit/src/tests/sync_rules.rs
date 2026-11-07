@@ -2,7 +2,7 @@
 //! tree's, a folder's `.azcloudignore`.
 
 use crate::sync::rules::{
-    match_name, Rules, BOOKKEEPING, CACHE, IGNORED, LOG, OS, STATE, TEMP, VCS,
+    match_name, Rules, BOOKKEEPING, CACHE, IGNORED, INSTALL, LOG, OS, STATE, TEMP, VCS,
 };
 
 #[test]
@@ -243,4 +243,33 @@ fn az_y5_the_install_tree_of_the_azlin_folder_is_never_synced() {
     home.add_ignore_file("!bin/\n!apps/\n");
     assert!(home.excluded("apps/azdrive/current/AzDrive").is_some());
     assert!(home.excluded("bin/azdrive").is_some());
+}
+
+/// X-DELTA-AZDRIVE-FILES-32 (g): `Apps/` is `apps/` on APFS and NTFS: the engine's own folders (the
+/// bookkeeping, the state, the install tree) are left out in whatever case a disk reads them, and a
+/// synced file there is run with no signature chain. Other rules stay as exact as they were.
+#[test]
+fn x_delta_azdrive_files_32_the_engines_own_folders_are_left_out_in_any_case() {
+    let home = Rules::azlin_home();
+    for key in [
+        "Apps/azdrive/current/AzDrive",
+        "APPS/azmail/request.json",
+        "BIN/azdrive",
+        "Bin/git",
+        "Azcloud/secrets.json",
+        "AZCLOUD/x",
+    ] {
+        assert!(home.excluded(key).is_some(), "{key}");
+    }
+    assert_eq!(home.excluded("Apps/x"), Some(INSTALL));
+    assert_eq!(home.excluded("Azcloud/x"), Some(STATE));
+    let base = Rules::base();
+    assert_eq!(base.excluded(".AZLIN/index.json"), Some(BOOKKEEPING));
+    assert_eq!(base.excluded_dir(".Azlin"), Some(BOOKKEEPING));
+    // The anchored rules are about the root: a user's `docs/Apps/` is hers.
+    assert_eq!(home.excluded("docs/Apps/x"), None);
+    assert_eq!(home.excluded("docs/apps/x"), None);
+    // An ordinary rule is as exact as before.
+    assert_eq!(base.excluded("a.TMP"), None);
+    assert_eq!(base.excluded("a.tmp"), Some(TEMP));
 }
