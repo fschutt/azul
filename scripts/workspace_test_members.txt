@@ -77,6 +77,7 @@ tested: AzERP                # dll_tests (money, depreciation schedules, record 
 tested: AzInstallManager     # dll_tests (the update source setting and its empty state, the jobs, the install plan)
 tested: azul-routing         # dll_tests (the routing tiles' format and manifest, the cache, A*, the generator, transit, navigation, GNSS; no libazul)
 tested: azul-fonts-calmet    # dll_tests (the packed Calmet UI faces unpack into fonts the parser reads; no libazul)
+tested: azul-srcgate        # "Run azul-srcgate tests (the source gates)" (the gates read the apps' crates and fail when a rule is broken or a counted allowance moved; tests/ci_gate.rs pins the step)
 
 # ── members with genuinely no tests. The script verifies the claim by grepping
 #    for #[test]; if any of these grows one, it fails until it is moved up and

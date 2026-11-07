@@ -4,8 +4,10 @@
 //! A root is a crate's `src` directory (`examples/azul-storage/src`), one package (its
 //! `Cargo.toml` beside `src/`), or a directory of packages (`examples`: each package in it). A
 //! package's files are the module trees of its targets (`lib.rs`, `main.rs`, `bin/*.rs`,
-//! `bin/*/main.rs`, `build.rs`, `examples/*.rs`); a file only a test build compiles is a test
-//! file and is not read. A root that holds too few files was read in the wrong place and fails.
+//! `bin/*/main.rs`, `build.rs`, `examples/*.rs`, and the `path` of a `[lib]` or a `[[bin]]` of its
+//! `Cargo.toml` that stands elsewhere: `src/tray_main.rs`); a file only a test build compiles is a
+//! test file and is not read. A root that holds too few files was read in the wrong place and
+//! fails.
 
 use std::{
     collections::BTreeSet,
@@ -95,13 +97,61 @@ fn targets(src: &Path) -> Vec<PathBuf> {
     out
 }
 
+/// The `path = ".."` of the `[lib]` and the `[[bin]]` tables of a package's `Cargo.toml`, as files
+/// below the package: the targets that do not stand where cargo looks for them
+/// (`[[bin]] name = "azul-bridge-tray" path = "src/tray_main.rs"`). Read by lines - the manifests
+/// of this workspace write a table's keys under its header - so a target the reading cannot
+/// follow is left out and not guessed. (`[[test]]`, `[[bench]]` and `[[example]]` tables are not
+/// shipped code.)
+fn declared_targets(package: &Path) -> Vec<PathBuf> {
+    let Ok(manifest) = std::fs::read_to_string(package.join("Cargo.toml")) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    let mut in_target = false;
+    for line in manifest.lines() {
+        let line = line.split('#').next().unwrap_or("").trim();
+        if line.starts_with('[') {
+            in_target = line == "[lib]" || line == "[[bin]]";
+            continue;
+        }
+        if !in_target {
+            continue;
+        }
+        let Some(value) = line
+            .strip_prefix("path")
+            .and_then(|rest| rest.trim_start().strip_prefix('='))
+        else {
+            continue;
+        };
+        let Some(quoted) = value.trim().strip_prefix('"') else {
+            continue;
+        };
+        let Some(end) = quoted.find('"') else {
+            continue;
+        };
+        let target = package.join(&quoted[..end]);
+        if target.is_file() {
+            out.push(target);
+        }
+    }
+    out
+}
+
 /// What a root holds: each crate as (the directory whose `.rs` files must all be compiled, the
 /// targets its module trees start from).
 fn crates_of(dir: &Path) -> Result<Vec<(PathBuf, Vec<PathBuf>)>, String> {
     let is_src = |d: &Path| d.join("lib.rs").is_file() || d.join("main.rs").is_file();
     let is_package = |p: &Path| p.join("Cargo.toml").is_file() && is_src(&p.join("src"));
     if is_src(dir) {
-        return Ok(vec![(dir.to_path_buf(), targets(dir))]);
+        // a `src` folder named as the root: the manifest beside it is read for its declared targets
+        let mut t = targets(dir);
+        for declared in dir.parent().map(declared_targets).unwrap_or_default() {
+            if !t.contains(&declared) {
+                t.push(declared);
+            }
+        }
+        return Ok(vec![(dir.to_path_buf(), t)]);
     }
     let mut packages: Vec<PathBuf> = if is_package(dir) {
         vec![dir.to_path_buf()]
@@ -128,6 +178,11 @@ fn crates_of(dir: &Path) -> Result<Vec<(PathBuf, Vec<PathBuf>)>, String> {
                 t.push(p.join("build.rs"));
             }
             t.extend(entry_files(&p.join("examples")));
+            for declared in declared_targets(&p) {
+                if !t.contains(&declared) {
+                    t.push(declared);
+                }
+            }
             (p.join("src"), t)
         })
         .collect())

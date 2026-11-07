@@ -100,6 +100,11 @@ jobs:
       - name: Public tree (no credentials, no agent notes)
         run: python3 scripts/check_public_tree.py --self-test && python3 scripts/check_public_tree.py
 
+      # AzDrive ships with panic = "abort": a panic written in the code that reads a bucket's answer, a key
+      # file or an index is the program's end. The list only shrinks (X-DELTA-AZDRIVE-KEYS-16).
+      - name: Panic surface (the places a panic is written in the crates that read hostile bytes)
+        run: python3 scripts/panic_surface.py
+
       - name: Backends must not touch content state
         run: |
           set -e
@@ -6716,6 +6721,21 @@ jobs:
           set -o pipefail
           cargo clippy -p azul-core -p azul-css -p azul-layout --all-targets -- -D warnings 2>&1 | tee clippy.txt
 
+      # azul-storage, azlin-compress and azlin-preflate deny the panic family outside tests
+      # (`#![cfg_attr(not(test), deny(clippy::unwrap_used, ..))]`, kept in place by the source gate
+      # lint_gate) and azcloud-kit reads what the token server and the nodes answer. The deny is
+      # clippy's: `cargo build` and `cargo test` never see it, so before this step it bit nobody
+      # (X-DELTA-AZDRIVE-KEYS-16). The style lints of the default groups are allowed here - about a
+      # thousand findings, 830 of them the size of `DriveError`; they are not this step's business -
+      # and rustc's warnings are errors.
+      - name: clippy (the panic family denied in the crates that read hostile bytes)
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo clippy -p azul-storage -p azlin-compress -p azlin-preflate -p azcloud-kit \
+            --features azul-storage/encryption,azcloud-kit/encryption,azcloud-kit/state-db \
+            --all-targets -- -A clippy::all -D warnings 2>&1 | tee clippy-panic-family.txt
+
       - name: clippy summary
         if: always()
         shell: bash
@@ -6742,6 +6762,41 @@ jobs:
           path: stats/clippy.txt
           if-no-files-found: warn
           retention-days: 30
+
+  fuzz_build:
+    # The fuzz targets of the crates that read bytes other people wrote (azul-storage, azcloud-kit)
+    # are BUILT, so a target that stopped compiling is a red job and not a corpus nobody runs
+    # (X-DELTA-AZDRIVE-KEYS-42). A run is for a machine with hours to spend
+    # (`cargo +nightly fuzz run <target>`, from the crate's fuzz folder); a CI job can afford a build.
+    needs: [supply_chain_preflight]
+    name: Fuzz targets build
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
+        with:
+          toolchain: 1.91.0
+      # The sanitizer flags cargo-fuzz sets are unstable: a nightly, PINNED to a date like the miri
+      # and TSan jobs, so a new nightly cannot turn this job red on its own.
+      - name: Install nightly (pinned)
+        run: rustup toolchain install nightly-2026-09-03 --profile minimal
+      - name: Cache cargo-fuzz
+        id: cache-cargo-fuzz
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cargo/bin/cargo-fuzz
+          key: ${{ runner.os }}-cargo-fuzz-0.13.2
+      - name: Install cargo-fuzz
+        if: steps.cache-cargo-fuzz.outputs.cache-hit != 'true'
+        run: cargo install cargo-fuzz --version 0.13.2 --locked
+      - name: Build the fuzz targets
+        run: |
+          set -euo pipefail
+          for crate in examples/azul-storage examples/azcloud-kit; do
+            echo "=== cargo fuzz build in $crate ==="
+            (cd "$crate" && cargo +nightly-2026-09-03 fuzz build)
+          done
 
   sanitizers:
     # Runs C examples with ASan, UBSan, and TSan headless.

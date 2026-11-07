@@ -13,10 +13,18 @@
 //!
 //! It reads attributes as tokens ([`azul_srcgate::lex`]), as the other gates read calls: an
 //! attribute is found by its identifiers, not parsed. The cases at the end show what it relies on.
+//!
+//! The presence of the deny is not enough: a later `#![allow(clippy::unwrap_used)]` in the same
+//! file, or an `#[allow(..)]` on one function, switches it off again and the first test above
+//! still passes. So a second rule reads every attribute of the three crates' shipped code and
+//! finds the ones that lower a lint of the family (`allow`, `expect`, `warn`, also behind
+//! `cfg_attr`); the sites that must stay are counted, with their reason
+//! (X-DELTA-AZDRIVE-KEYS-16). And the deny is clippy's, not rustc's: the CI runs clippy over these
+//! crates (the "clippy (the panic family denied ..)" step of rust.yml, pinned by `ci_storage_gate`).
 
 use std::collections::BTreeSet;
 
-use azul_srcgate::{code, locate, workspace, Located};
+use azul_srcgate::{code, locate, workspace, Allow, Budget, Gate, Located, Orphans, Root, Rule};
 
 /// The lints of the panic family a module denies outside tests.
 const PANIC_FAMILY: &[&str] = &[
@@ -28,10 +36,14 @@ const PANIC_FAMILY: &[&str] = &[
     "unimplemented",
 ];
 
-/// The modules whose shipped code denies the panic family (a `mod.rs` covers its folder): the
-/// formats and the transports of azul-storage that read what a bucket, a key file or an index
-/// holds. A module that reads bytes of that kind is added here with its attribute.
+/// The modules whose shipped code denies the panic family (a `mod.rs` covers its folder, a crate's
+/// `lib.rs` the crate): the formats and the transports of azul-storage that read what a bucket, a
+/// key file or an index holds, and the two crates below it that decode what a member of the drive
+/// wrote (azlin-compress, azlin-preflate). A module that reads bytes of that kind is added here
+/// with its attribute.
 const MODULES: &[&str] = &[
+    "examples/azlin-compress/src/lib.rs",
+    "examples/azlin-preflate/src/lib.rs",
     "examples/azul-storage/src/crypto/mod.rs",
     "examples/azul-storage/src/meta/mod.rs",
     "examples/azul-storage/src/http1.rs",
@@ -191,6 +203,113 @@ fn denies_the_panic_family(attribute: &BTreeSet<String>) -> bool {
         .all(|name| attribute.contains(*name))
 }
 
+/// The attributes of the file's shipped code that lower a lint of the panic family: an
+/// `#![allow(clippy::unwrap_used)]` after the module's deny, an `#[allow(clippy::panic)]` on a
+/// function or a statement, `expect(..)` or `warn(..)` of one (also behind a `cfg_attr`), or of the
+/// whole group (`clippy::restriction`). The lines.
+fn lowers_the_panic_family(t: &[Located]) -> Vec<usize> {
+    let mut found = Vec::new();
+    let mut i = 0;
+    while i + 1 < t.len() {
+        if t[i].tok.is_punct('#') {
+            let open = if t[i + 1].tok.is_punct('!') {
+                i + 2
+            } else {
+                i + 1
+            };
+            if t.get(open).is_some_and(|x| x.tok.is_punct('[')) {
+                let (idents, next) = attribute(t, open);
+                let lowers = ["allow", "expect", "warn"]
+                    .iter()
+                    .any(|name| idents.contains(*name));
+                let names = idents.contains("clippy")
+                    && (idents.contains("restriction")
+                        || PANIC_FAMILY.iter().any(|name| idents.contains(*name)));
+                if lowers && names {
+                    found.push(t[i].line);
+                }
+                i = next;
+                continue;
+            }
+        }
+        i += 1;
+    }
+    found
+}
+
+/// The rule of the second test: its name, and its own cases (a lowering it must find, code it
+/// must not).
+const LOWERED: &str = "panic-lint-lowered-below-the-deny";
+
+fn lowering_rules() -> Vec<Rule> {
+    vec![Rule::new(
+        LOWERED,
+        lowers_the_panic_family,
+        &[
+            "#![allow(clippy::unwrap_used)]",
+            "#[allow(clippy::expect_used)] let n = x.expect(\"len\");",
+            "#[expect(clippy::panic)] panic!();",
+            "#![warn(clippy::todo, clippy::unimplemented)]",
+            "#[cfg_attr(not(test), allow(clippy::unreachable))] let n = 1;",
+            "#![allow(clippy::restriction)]",
+            "#[allow(\n    clippy::needless_return,\n    clippy::unwrap_used\n)]\nlet n = 1;",
+        ],
+        &[
+            "#![cfg_attr(not(test), deny(clippy::unwrap_used, clippy::expect_used))]",
+            "#[deny(clippy::indexing_slicing)] let n = 1;",
+            "#[allow(clippy::needless_return)] let n = 1;",
+            "#[allow(clippy::panic_in_result_fn)] let n = 1;",
+            "#![allow(dead_code)]",
+            "let allow = 1; let unwrap_used = allow;",
+        ],
+    )]
+}
+
+/// The crates whose shipped code denies the panic family, read whole.
+const CRATES: &[Root] = &[
+    Root {
+        dir: "examples/azul-storage/src",
+        min_files: 60,
+    },
+    Root {
+        dir: "examples/azlin-compress/src",
+        min_files: 12,
+    },
+    Root {
+        dir: "examples/azlin-preflate/src",
+        min_files: 25,
+    },
+];
+
+/// Where a lint of the family is lowered on purpose, counted. TO SHRINK (or to stay, with its
+/// reason).
+const LOWERED_ALLOWED: &[Allow] = &[
+    Allow::exactly(
+        "examples/azlin-preflate/src/deflate/deflate_constants.rs",
+        LOWERED,
+        1,
+        "`into_array` is a `const fn`: its `unwrap` runs at compile time, where a table out of \
+         range is a build error and not a panic of the program",
+    ),
+    Allow::exactly(
+        "examples/azul-storage/src/meta/seal.rs",
+        LOWERED,
+        2,
+        "`hmac_parts` and the test double's `tag_mac`: `Hmac::new_from_slice` takes a key of any \
+         length, so its `expect` cannot fire (the attribute says so as its `reason`)",
+    ),
+];
+
+fn lowering_gate(roots: &'static [Root], allowed: &'static [Allow]) -> Gate<'static> {
+    Gate {
+        name: "no panic lint is lowered below the deny",
+        roots,
+        rules: lowering_rules(),
+        budget: Budget(allowed),
+        orphans: Orphans::Ignore,
+    }
+}
+
 /// `deny(clippy::indexing_slicing)`.
 fn denies_indexing(attribute: &BTreeSet<String>) -> bool {
     ["deny", "clippy", "indexing_slicing"]
@@ -248,6 +367,11 @@ fn the_modules_that_read_untrusted_bytes_deny_the_panic_family_outside_tests() {
          clippy::panic, clippy::unreachable, clippy::todo, clippy::unimplemented))]:\n{}",
         wrong.join("\n")
     );
+}
+
+#[test]
+fn nothing_in_the_shipped_code_of_these_crates_lowers_a_panic_lint_below_the_deny() {
+    lowering_gate(CRATES, LOWERED_ALLOWED).run();
 }
 
 #[test]
@@ -343,4 +467,82 @@ fn a_free_function_is_told_from_a_method_of_the_same_name() {
     let wrong = indexing_open("x.rs", source, Where::Anywhere, &["from_hex"]);
     assert_eq!(wrong.len(), 1, "{wrong:?}");
     assert!(wrong[0].contains("x.rs:4"), "{wrong:?}");
+}
+
+/// A tree on disk below a fresh base: (path below the base, text).
+fn base_with(name: &str, files: &[(&str, &str)]) -> std::path::PathBuf {
+    let base =
+        std::env::temp_dir().join(format!("azul-srcgate-lint-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    for (path, text) in files {
+        let full = base.join(path);
+        std::fs::create_dir_all(full.parent().unwrap()).unwrap();
+        std::fs::write(full, text).unwrap();
+    }
+    base
+}
+
+const SMALL: &[Root] = &[Root {
+    dir: "examples/azul-storage/src",
+    min_files: 1,
+}];
+
+#[test]
+fn a_later_allow_a_function_s_allow_and_an_expect_are_found_with_their_lines() {
+    let planted = format!(
+        "{DENYING}\
+         #![allow(clippy::unwrap_used)]\n\
+         pub fn parse(b: &[u8]) -> u8 {{\n\
+         \x20   #[allow(clippy::expect_used)]\n\
+         \x20   let n = b.first().expect(\"one\");\n\
+         \x20   *n\n\
+         }}\n\
+         #[expect(clippy::panic)]\n\
+         pub fn boom() {{ panic!(); }}\n\
+         #[cfg(test)]\n\
+         mod tests {{\n\
+         \x20   #![allow(clippy::unwrap_used)]\n\
+         }}\n"
+    );
+    let base = base_with("planted", &[("examples/azul-storage/src/lib.rs", &planted)]);
+    let wrong = lowering_gate(SMALL, &[])
+        .check(&base)
+        .expect_err("three lowerings are findings");
+    let _ = std::fs::remove_dir_all(&base);
+    // the deny itself (DENYING is 11 lines) is none; the test module's allow is none
+    assert_eq!(wrong.len(), 3, "{wrong:?}");
+    for line in [12, 14, 18] {
+        assert!(
+            wrong
+                .iter()
+                .any(|w| w.contains(&format!("lib.rs:{line}:")) && w.contains(LOWERED)),
+            "line {line}: {wrong:?}"
+        );
+    }
+}
+
+#[test]
+fn a_counted_site_is_counted_and_one_more_is_a_new_site() {
+    static ONE: &[Allow] = &[Allow::exactly(
+        "examples/azul-storage/src/lib.rs",
+        LOWERED,
+        1,
+        "the planted site",
+    )];
+    let one = "#[allow(clippy::unwrap_used)]\nconst fn f() {}\n";
+    let two =
+        "#[allow(clippy::unwrap_used)]\nconst fn f() {}\n#[allow(clippy::panic)]\nfn g() {}\n";
+    let base = base_with("counted", &[("examples/azul-storage/src/lib.rs", one)]);
+    assert!(lowering_gate(SMALL, ONE).check(&base).is_ok());
+    std::fs::write(base.join("examples/azul-storage/src/lib.rs"), two).unwrap();
+    let wrong = lowering_gate(SMALL, ONE)
+        .check(&base)
+        .expect_err("a second site");
+    assert!(
+        wrong
+            .iter()
+            .any(|w| w.contains("holds 2 x") && w.contains("says 1")),
+        "{wrong:?}"
+    );
+    let _ = std::fs::remove_dir_all(&base);
 }
