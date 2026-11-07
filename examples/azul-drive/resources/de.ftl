@@ -1799,8 +1799,8 @@ azdrive-renew-period-end = „{ $drive }“ ist bis { $at } bezahlt. Verlängere
 azdrive-renew-read-only = „{ $drive }“ wird am { $at } schreibgeschützt, wenn es nicht verlängert wird. Seine Dateien bleiben lesbar.
 azdrive-renew-closing = „{ $drive }“ wird am { $at } gesperrt, wenn es nicht verlängert wird: Seine Dateien kommen dann in eine Offline-Kopie und erst nach Bezahlung zurück, was einige Tage dauern kann. Kopiere, was du brauchst, oder verlängere es jetzt.
 azdrive-months-renewed = { $months ->
-        [one] 1 Monat wurde für „{ $drive }“ gekauft und wird jetzt hinzugefügt.
-       *[other] { $months } Monate wurden für „{ $drive }“ gekauft: Der erste wird jetzt hinzugefügt, die weiteren folgen einzeln.
+        [one] 1 Monat wurde für „{ $drive }“ gekauft. Er wird eine Woche vor dem Ende des bezahlten Zeitraums hinzugefügt.
+       *[other] { $months } Monate wurden für „{ $drive }“ gekauft. Jeder Monat wird eine Woche vor dem Ende des bezahlten Zeitraums hinzugefügt.
     }
 azdrive-tier-change-waits = „{ $drive }“ wechselt am Ende seines bezahlten Zeitraums auf die kleinere Stufe, ab { $at }.
 azdrive-tier-change-too-full = „{ $drive }“ passt noch nicht in die kleinere Stufe: gib zuerst { $free } frei. Die neue Stufe wartet.

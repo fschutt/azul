@@ -1268,10 +1268,13 @@ fn az_p11_the_yearly_label_follows_the_ladder() {
     azul_appkit::l10n::set_locale("en-US");
 }
 
-/// AZ-P12: a renewal's toast says what was BOUGHT and that the first month is being added now -
-/// the period grows one month at a time, as each token is redeemed.
+/// AZ-P12 and X-DELTA-AZDRIVE-MONEY-16: a renewal's toast says what was BOUGHT and when each month
+/// is added - a week before the paid period ends, as each token is redeemed (the first look comes
+/// ten minutes to six hours after the claim, and a month is redeemed only within seven days of
+/// the period's end). It does not say the first is being added NOW: for a renewal made weeks
+/// before the end the period grows then, not now.
 #[test]
-fn az_p12_the_toast_of_a_renewal_says_bought_not_added() {
+fn x_delta_azdrive_money_16_the_toast_of_a_renewal_says_bought_and_when_each_month_is_added() {
     use azul_appkit::l10n::{t_phrase, Phrase};
     crate::l10n::in_english();
     let said = |months: u32| {
@@ -1283,17 +1286,21 @@ fn az_p12_the_toast_of_a_renewal_says_bought_not_added() {
     };
     assert_eq!(
         said(1),
-        "1 month is bought for \"Photos\" and is being added now."
+        "1 month is bought for \"Photos\". It is added a week before the paid period ends."
     );
-    assert!(
-        said(12).starts_with("12 months are bought for \"Photos\": the first is being added now"),
-        "{}",
-        said(12)
+    assert_eq!(
+        said(12),
+        "12 months are bought for \"Photos\". Each month is added a week before the paid period ends."
     );
     for text in [said(1), said(12)] {
-        assert!(!text.contains("were added"), "{text}");
+        for untrue in ["were added", "added now", "being added", "right away"] {
+            assert!(!text.contains(untrue), "{untrue:?} in {text}");
+        }
+        assert!(text.contains("a week before"), "{text}");
     }
     azul_appkit::l10n::set_locale("de-DE");
     assert!(said(12).contains("gekauft"), "{}", said(12));
+    assert!(said(12).contains("eine Woche vor dem Ende"), "{}", said(12));
+    assert!(!said(1).contains("jetzt"), "{}", said(1));
     azul_appkit::l10n::set_locale("en-US");
 }

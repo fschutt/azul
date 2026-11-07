@@ -1801,8 +1801,8 @@ azdrive-renew-period-end = "{ $drive }" is paid until { $at }. Renew it to keep 
 azdrive-renew-read-only = "{ $drive }" turns read-only on { $at } unless it is renewed. Its files stay readable.
 azdrive-renew-closing = "{ $drive }" is locked on { $at } unless it is renewed: its files are then moved to one offline copy and come back only after payment, which can take some days. Copy what you need, or renew it now.
 azdrive-months-renewed = { $months ->
-        [one] 1 month is bought for "{ $drive }" and is being added now.
-       *[other] { $months } months are bought for "{ $drive }": the first is being added now, the others follow one by one.
+        [one] 1 month is bought for "{ $drive }". It is added a week before the paid period ends.
+       *[other] { $months } months are bought for "{ $drive }". Each month is added a week before the paid period ends.
     }
 azdrive-tier-change-waits = "{ $drive }" moves to its smaller tier at the end of its paid period, from { $at }.
 azdrive-tier-change-too-full = "{ $drive }" does not fit its smaller tier yet: free { $free } first. The new tier waits.
