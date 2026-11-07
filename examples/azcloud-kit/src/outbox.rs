@@ -59,6 +59,20 @@ pub fn is_final<T>(outcome: &Result<T, TokenError>) -> bool {
     outcome.as_ref().err().is_none_or(is_final_error)
 }
 
+/// Whether a request of `scope` spends what a customer paid for (a month, a voucher, a checkout's
+/// tokens, a claim): sent only with its key written down (AZ-P20).
+#[must_use]
+pub fn spends(scope: IdempotentScope) -> bool {
+    matches!(
+        scope,
+        IdempotentScope::Redeem
+            | IdempotentScope::Voucher
+            | IdempotentScope::Issue
+            | IdempotentScope::Checkout
+            | IdempotentScope::Claim
+    )
+}
+
 /// Whether the refusal `e` is final ([`is_final`]).
 #[must_use]
 pub fn is_final_error(e: &TokenError) -> bool {
@@ -160,11 +174,16 @@ impl Outbox {
     }
 
     /// Sends a call with its key ([`Outbox::open`]) and closes it when the outcome is final
-    /// ([`is_final`]); an open one is sent again with the same key by the next call.
+    /// ([`is_final`]); an open one is sent again with the same key by the next call. A call that
+    /// SPENDS a customer's money or months ([`spends`]) is not sent when its key could not be
+    /// written down: after a crash the retry would carry a key of its own and spend twice. The
+    /// others - a lockdown above all, which is needed most when things go wrong - go on with the
+    /// key they have in this process.
     ///
     /// # Errors
     ///
-    /// What `send` answers, or no random source for a new key.
+    /// What `send` answers, or no random source for a new key, or - for a call that spends - a key
+    /// that could not be written down (nothing was sent).
     pub fn send<T>(
         &self,
         scope: IdempotentScope,
@@ -173,6 +192,14 @@ impl Outbox {
         send: impl FnOnce(&IdempotencyKey) -> Result<T, TokenError>,
     ) -> Result<T, TokenError> {
         let call = self.open(scope, drive_id, what)?;
+        if spends(scope) {
+            if let Err(why) = call.kept() {
+                return Err(TokenError::Config(format!(
+                    "The request is not sent: the note that would keep its key for a retry could \
+                     not be written ({why}), and a retry with another key could be paid for twice."
+                )));
+            }
+        }
         let outcome = send(call.key());
         if is_final(&outcome) {
             call.close();

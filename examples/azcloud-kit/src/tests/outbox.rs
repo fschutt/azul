@@ -120,3 +120,54 @@ fn no_answer_a_cut_answer_a_busy_server_leave_a_call_open() {
     }
     assert!(is_final(&Err::<(), _>(TokenError::SignIn(String::new()))));
 }
+
+/// AZ-P20: `Outbox::send` sent when the key could not be written down, whatever the request: after
+/// a crash the retry had a key of its own, and a month, a voucher or a checkout could be paid for
+/// twice. The requests that spend are not sent without it; a lockdown still is.
+#[test]
+fn az_p20_a_request_that_spends_is_not_sent_when_its_key_could_not_be_written_down() {
+    use std::cell::Cell;
+
+    use crate::outbox::spends;
+    let dir = TempDir::new("azcloud-outbox-unwritable");
+    // The outbox's folder is under a FILE: no key can be written.
+    std::fs::write(dir.path().join("blocked"), b"a file").unwrap();
+    let outbox = Outbox::new(dir.path().join("blocked").join("outbox"));
+    for scope in IdempotentScope::ALL {
+        let sent = Cell::new(false);
+        let outcome = outbox.send(scope, "d_1", "words", |_| {
+            sent.set(true);
+            Ok(())
+        });
+        if spends(scope) {
+            assert!(
+                matches!(outcome, Err(TokenError::Config(_))),
+                "{scope:?}: {outcome:?}"
+            );
+            assert!(!sent.get(), "{scope:?} was sent without its key kept");
+        } else {
+            assert!(outcome.is_ok(), "{scope:?}: {outcome:?}");
+            assert!(sent.get(), "{scope:?} is needed most when things go wrong");
+        }
+    }
+    // The ones that spend: money and months, nothing else.
+    let spending: Vec<IdempotentScope> = IdempotentScope::ALL
+        .into_iter()
+        .filter(|scope| spends(*scope))
+        .collect();
+    assert_eq!(
+        spending,
+        vec![
+            IdempotentScope::Claim,
+            IdempotentScope::Redeem,
+            IdempotentScope::Voucher,
+            IdempotentScope::Issue,
+            IdempotentScope::Checkout,
+        ]
+    );
+    // With a folder that takes the key, the same request goes.
+    let writable = Outbox::new(dir.path().join("outbox"));
+    assert!(writable
+        .send(IdempotentScope::Redeem, "d_1", "words", |_| Ok(()))
+        .is_ok());
+}
