@@ -49,41 +49,31 @@ pub const DNS_CACHE_SECS: u32 = 300;
 #[derive(Debug, Clone)]
 pub struct AzulTransport {
     user_agent: String,
-    /// Whose traffic it carries; `None`: not said (a transport made by [`AzulTransport::new`],
-    /// which the call sites of the Azlin service leave for [`AzulTransport::azlin`]).
-    class: Option<TrustClass>,
+    /// Whose traffic it carries. There is no constructor that leaves it unsaid: a call site
+    /// chooses [`AzulTransport::azlin`] or [`AzulTransport::foreign`].
+    class: TrustClass,
 }
 
 impl AzulTransport {
-    /// A transport whose class is not said: it sends on the foreign pool and checks no host.
-    /// A call site says which traffic it carries: [`AzulTransport::azlin`] or
-    /// [`AzulTransport::foreign`].
-    #[must_use]
-    pub fn new(user_agent: &str) -> Self {
-        AzulTransport {
-            user_agent: user_agent.to_string(),
-            class: None,
-        }
-    }
-
     /// The Azlin service's transport: the token server and the blocks and nodes of its drives,
     /// on the pool that trusts the pinned authorities (the app's roots until the operator names
-    /// them, [`trust::AZLIN_TLS_ROOTS_PEM`]).
+    /// them, [`trust::AZLIN_TLS_ROOTS_PEM`]). It sends to Azlin hosts only ([`trust::admits`]; a
+    /// test build may reach a stack on this computer).
     #[must_use]
     pub fn azlin(user_agent: &str) -> Self {
         AzulTransport {
             user_agent: user_agent.to_string(),
-            class: Some(TrustClass::Azlin),
+            class: TrustClass::Azlin,
         }
     }
 
     /// Everybody else's transport: a data source, an OAuth provider, a feed, an address the user
-    /// typed - on the pool that follows the app's roots.
+    /// typed - on the pool that follows the app's roots. It never sends to an Azlin host.
     #[must_use]
     pub fn foreign(user_agent: &str) -> Self {
         AzulTransport {
             user_agent: user_agent.to_string(),
-            class: Some(TrustClass::Foreign),
+            class: TrustClass::Foreign,
         }
     }
 }
@@ -99,11 +89,11 @@ unsafe impl Sync for Pool {}
 
 /// The pool of `class`: the Azlin class has its own, whose TLS trusts the pinned authorities; every
 /// other transport shares the foreign one, which follows the app's roots.
-fn pool(class: Option<TrustClass>) -> &'static Pool {
+fn pool(class: TrustClass) -> &'static Pool {
     static FOREIGN: OnceLock<Pool> = OnceLock::new();
     static AZLIN: OnceLock<Pool> = OnceLock::new();
     match class {
-        Some(TrustClass::Azlin) => AZLIN.get_or_init(|| {
+        TrustClass::Azlin => AZLIN.get_or_init(|| {
             let config = HttpClientConfig::create().with_dns_cache_secs(DNS_CACHE_SECS);
             Pool(HttpClient::create(
                 match pinned_roots(trust::AZLIN_TLS_ROOTS_PEM) {
@@ -112,7 +102,7 @@ fn pool(class: Option<TrustClass>) -> &'static Pool {
                 },
             ))
         }),
-        Some(TrustClass::Foreign) | None => FOREIGN.get_or_init(|| {
+        TrustClass::Foreign => FOREIGN.get_or_init(|| {
             Pool(HttpClient::create(
                 HttpClientConfig::create().with_dns_cache_secs(DNS_CACHE_SECS),
             ))
@@ -202,14 +192,14 @@ impl Transport for AzulTransport {
     /// authorities, once they are named.
     fn trusts_public_roots(&self) -> bool {
         match (self.class, pinned_roots(trust::AZLIN_TLS_ROOTS_PEM)) {
-            (Some(TrustClass::Azlin), Some(_)) => false,
+            (TrustClass::Azlin, Some(_)) => false,
             _ => TrustRoots::app_default().is_public_roots(),
         }
     }
 
-    /// Whose traffic it carries; a transport that was not given a class is foreign.
+    /// Whose traffic it carries.
     fn trust_class(&self) -> TrustClass {
-        self.class.unwrap_or(TrustClass::Foreign)
+        self.class
     }
 
     fn send(&self, call: &HttpCall) -> Result<HttpReply, String> {
@@ -219,6 +209,10 @@ impl Transport for AzulTransport {
                 "a request was sent from the UI thread, which never waits for an answer",
             ));
         }
+        // The class decides which hosts it may send to: an Azlin transport carries drive tokens and
+        // signed requests to the service's own hosts only, a foreign one never to an Azlin host
+        // (RF39 2c; a drive's endpoint and its nodes come from files and answers).
+        trust::admits(self.class, call.url.as_str(), trust::test_build())?;
         let method = method_of(call.method);
         let budget = call.budget();
         let mut config = HttpRequestConfig::create()
@@ -259,11 +253,24 @@ mod tests {
 
     use azul::http::HttpMethod;
 
-    use super::{http_error_text, method_of};
+    use super::{http_error_text, method_of, AzulTransport};
     use crate::{
         transport::{is_dns_failure, DNS_FAILED},
-        Method,
+        trust::{self, TrustClass},
+        CallLimits, HttpCall, Method, Transport,
     };
+
+    /// A GET of `url`: nothing is sent when the transport refuses it first.
+    fn get(url: &str) -> HttpCall {
+        HttpCall {
+            method: Method::Get,
+            url: url.to_string(),
+            headers: Vec::new(),
+            body: Vec::new(),
+            content_type: String::new(),
+            limits: CallLimits::json(),
+        }
+    }
 
     fn text(words: &str) -> AzString {
         AzString::from(words)
@@ -330,5 +337,51 @@ mod tests {
             Method::ALL.len(),
             "a verb of Method is missing from this list"
         );
+    }
+    /// ENT27-M16 / RF39 2c: the class a transport reports is the one it was made with - there is no
+    /// constructor that leaves it unsaid.
+    #[test]
+    fn a_transport_reports_the_class_it_was_made_with() {
+        assert_eq!(AzulTransport::azlin("ua").trust_class(), TrustClass::Azlin);
+        assert_eq!(
+            AzulTransport::foreign("ua").trust_class(),
+            TrustClass::Foreign
+        );
+    }
+
+    /// A foreign transport sends nothing to an Azlin host, whatever the build: Azlin's traffic
+    /// belongs on the pool that trusts the pinned authorities. The refusal comes before any
+    /// connection, so no network is needed.
+    #[test]
+    fn a_foreign_transport_sends_nothing_to_an_azlin_host() {
+        let foreign = AzulTransport::foreign("ua");
+        for url in [
+            "https://token.azlin.io/v1/drives",
+            "https://b1.s3.azlin.io/d-1/key",
+            "https://ann@token.azlin.io/",
+        ] {
+            let why = foreign.send(&get(url)).unwrap_err();
+            assert!(why.contains("Azlin host"), "{url}: {why}");
+        }
+    }
+
+    /// An Azlin transport sends nothing to a host the service does not run - not the endpoint a
+    /// file names, not a node a stranger listed: the drive's signed requests and its tokens stay
+    /// with the service. (A test build may reach a stack on this computer, so this holds in a
+    /// build that is none.)
+    #[test]
+    fn an_azlin_transport_sends_nothing_to_a_host_the_service_does_not_run() {
+        if trust::test_build() {
+            return;
+        }
+        let azlin = AzulTransport::azlin("ua");
+        for url in [
+            "https://evil.example/d-1/key",
+            "https://azlin.io.evil.example/",
+            "http://127.0.0.1:9000/d-1/key",
+        ] {
+            let why = azlin.send(&get(url)).unwrap_err();
+            assert!(why.contains("not an Azlin host"), "{url}: {why}");
+        }
     }
 }

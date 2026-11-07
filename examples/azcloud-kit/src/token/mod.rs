@@ -314,6 +314,29 @@ fn refusal(reply: &HttpReply, with_token: bool) -> TokenError {
     )
 }
 
+/// Whether a token server at `base` may be reached through a transport of `class` (RF39 2c,
+/// ENT27-M16): only through the Azlin class - its pool trusts the pinned authorities - and only at
+/// an Azlin host. A token server carries drive tokens, recovery keys and payments. `test_build`:
+/// the crate's tests and the E2E builds, whose stack runs on this computer under any name.
+///
+/// # Errors
+///
+/// [`TokenError::Config`] with the sentence, when it may not.
+pub fn check_azlin(
+    base: &str,
+    class: azul_storage::trust::TrustClass,
+    test_build: bool,
+) -> Result<(), TokenError> {
+    if class != azul_storage::trust::TrustClass::Azlin && !test_build {
+        return Err(TokenError::Config(String::from(
+            "the token server is reached through the Azlin transport, whose connections trust the \
+             pinned authorities; this transport is another's",
+        )));
+    }
+    azul_storage::trust::admits(azul_storage::trust::TrustClass::Azlin, base, test_build)
+        .map_err(TokenError::Config)
+}
+
 /// The token server at a base address. Blocking: call it from an azul `Thread`.
 pub struct TokenServer<'a> {
     base: String,
@@ -330,9 +353,16 @@ pub struct TokenServer<'a> {
 impl<'a> TokenServer<'a> {
     /// The token server at `base` (`http://127.0.0.1:8081`, `https://token.example`), its
     /// requests sent through `transport`; refused when it is no usable address
-    /// ([`check_token_url`]). Sends nothing.
+    /// ([`check_token_url`]) or when the transport is not the Azlin service's
+    /// ([`check_azlin`]: a drive token never rides a foreign pool, nor goes to a host the
+    /// service does not run - a test build is the exception). Sends nothing.
     pub fn new(base: &str, transport: &'a dyn Transport) -> Result<TokenServer<'a>, TokenError> {
         check_token_url(base)?;
+        check_azlin(
+            base,
+            transport.trust_class(),
+            azul_storage::trust::test_build(),
+        )?;
         Ok(TokenServer {
             base: base.trim().trim_end_matches('/').to_string(),
             transport,

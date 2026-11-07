@@ -2,6 +2,8 @@
 //! as the real ones do (the token server's JSON, S3's XML) and records every call.
 
 mod account;
+/// The token server is reached through the Azlin transport, at an Azlin host (RF39 2c).
+mod azlin_class;
 /// Every answer of the token server read once by what it means, and asked again by one policy.
 mod answers;
 /// A locked drive's way back: its status, the proof, a device's key.
