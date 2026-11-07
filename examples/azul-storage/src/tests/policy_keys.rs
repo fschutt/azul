@@ -214,3 +214,25 @@ fn a_rotation_removes_every_member_the_policy_names_but_this_device() {
         .get(&format!("{KEYS_PREFIX}{}.key", member_id(&phone)))
         .is_err());
 }
+
+/// AZ-M15. The key flows rewrite the policy as its next revision: whatever number the policy
+/// made from the key files has, every member change after it is greater.
+#[test]
+fn az_m15_every_member_change_of_the_key_flows_counts_the_policys_revision_up() {
+    let (bucket, _laptop, key) = drive_with_index();
+    let revision = || {
+        MetaRepo::open(Arc::clone(&bucket), key.clone(), "checker", "Checker")
+            .unwrap()
+            .policy()
+            .unwrap()
+            .unwrap()
+            .revision
+    };
+    let _phone = join(&bucket, &key);
+    let first = revision();
+    let _tablet = join(&bucket, &key);
+    let second = revision();
+    assert!(second > first, "{second} after {first}");
+    let _tv = join(&bucket, &key);
+    assert!(revision() > second);
+}
