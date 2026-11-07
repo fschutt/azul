@@ -303,7 +303,15 @@ pub fn open_state(options: &Options) -> Result<Opened, String> {
     )
     .ok_or("no state folder: pass --state-dir or set AZUL_BRIDGE_HOME")?;
     let state_dir = StateDir::open(&state).map_err(|e| e.to_string())?;
-    let config = BridgeConfig::load(&state).ok().flatten();
+    // A settings file that cannot be read is said and does not stop the run (`init` writes it
+    // anew): the keyring is the build's and the plain file takes no key until the flag says so.
+    let config = match BridgeConfig::load(&state) {
+        Ok(config) => config,
+        Err(e) => {
+            say(&format!("AZUL_BRIDGE_CONFIG_UNREADABLE {e}"));
+            None
+        }
+    };
     let choice = match &options.keyring {
         Some(text) => KeyringChoice::parse(text).ok_or("--keyring takes os or file")?,
         None => config

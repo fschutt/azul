@@ -519,7 +519,7 @@ extern "C" fn on_recompress_timer(mut data: RefAny, info: TimerCallbackInfo) -> 
     let Some((drive_id, auto)) = encrypted.into_iter().next() else {
         return TimerCallbackReturn::continue_unchanged();
     };
-    let state_file = match state_dir(&*s) {
+    let state_file = match state_dir(&s) {
         Ok(dir) => crate::footprint::recompress_state(&dir, &drive_id),
         Err(why) => {
             eprintln!("AZDRIVE_RECOMPRESS_SKIPPED {drive_id}: {why}");

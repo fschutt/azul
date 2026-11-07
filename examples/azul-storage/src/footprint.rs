@@ -446,11 +446,14 @@ impl Footprint for KeyringFootprint<'_> {
     }
 }
 
+/// The places a drive has in a store, from its id.
+type PlacesOf = Box<dyn Fn(&str) -> Vec<PathBuf> + Send + Sync>;
+
 /// Files and folders of a drive, named by the code that writes them: `places_of(drive)` gives
 /// the paths the drive has in this store (a file, or a folder with everything in it).
 pub struct Paths {
     store: &'static str,
-    places_of: Box<dyn Fn(&str) -> Vec<PathBuf> + Send + Sync>,
+    places_of: PlacesOf,
     /// Whether what is here may be the only way back to the drive or to what was paid for it,
     /// so that it goes only with a [`RemovalProof`].
     needs_proof: bool,

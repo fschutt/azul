@@ -805,8 +805,8 @@ mod tests {
         }
     }
 
-    /// K6, LANE-AZ-2: "Remove drive" takes the drive's keys - and the paid months kept beside them
-    /// - off the computer only with the evidence that its recovery code was typed back right once;
+    /// K6, LANE-AZ-2: "Remove drive" takes the drive's keys, and the paid months kept beside them,
+    /// off the computer only with the evidence that its recovery code was typed back right once;
     /// before that they are the only way into the drive. A check stamped after `now` is none.
     #[test]
     fn lane_az_2_a_removed_drives_keys_go_only_once_its_recovery_code_was_checked() {
