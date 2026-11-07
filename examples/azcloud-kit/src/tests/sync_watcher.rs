@@ -210,7 +210,9 @@ fn az_w10_the_poll_names_the_folders_of_new_gone_and_changed_entries() {
     let mut now = poll::Look::new();
     poll::look(root.path(), "", &mut now);
     let folders: Vec<String> = poll::changed(&before, &now).into_iter().collect();
-    assert_eq!(folders, ["", "docs", "sub/deeper"]);
+    // The poll lists the folders too: `sub/deeper` changed (its file is gone), which names its own
+    // folder `sub`, and the file that is gone names `sub/deeper`.
+    assert_eq!(folders, ["", "docs", "sub", "sub/deeper"]);
 }
 
 /// AZ-W10: no watcher at all (inotify refuses a new instance past the user's limit) was `.ok()`: the

@@ -351,6 +351,7 @@ fn mode_of(path: &Path) -> u32 {
     std::fs::metadata(path).unwrap().permissions().mode() & 0o777
 }
 
+#[cfg(unix)]
 fn give_time(path: &Path, at: std::time::SystemTime) {
     std::fs::File::options()
         .write(true)
@@ -491,6 +492,8 @@ fn az_w19_a_name_of_240_bytes_is_written_copied_and_downloaded_like_any_other() 
     }
 }
 
+// The pid of a process that cannot exist is "running" where the system cannot be asked (Windows).
+#[cfg(unix)]
 #[test]
 fn az_u15_the_first_copy_into_a_folder_sweeps_what_an_earlier_run_left_there() {
     let tmp = TempDir::new("transfer-u15");

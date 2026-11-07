@@ -1577,7 +1577,15 @@ mod tests {
         assert!(home.get("readme.txt").is_err() && home.get("c.txt").is_err());
         // For good: the same.
         let for_good = delete_items(&home, &[item("missing.txt"), item("docs/")], None);
-        assert_eq!(for_good.gone, vec![(String::from("docs/"), String::new())]);
+        // A folder goes when its turn comes, the files in one batch after it; a file that is not
+        // there is deleted already (the drive's batch delete says Ok), so it is among what went.
+        assert_eq!(
+            for_good.gone,
+            vec![
+                (String::from("docs/"), String::new()),
+                (String::from("missing.txt"), String::new()),
+            ]
+        );
         assert_eq!(
             for_good.failed.len(),
             0,
@@ -1609,7 +1617,6 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn x_ar5a_10_an_undo_keeps_the_trash_folder_that_holds_something_it_did_not_put_back() {
-        use std::os::unix::net::UnixListener;
         let tmp = TempDir::new("x10-undo");
         let home = seeded(&tmp);
         let stamp = trash_stamp(1_759_300_000, 1);
@@ -1617,7 +1624,9 @@ mod tests {
         assert!(deleted.failed.is_empty());
         let folder = tmp.path().join("home").join(TRASH_FOLDER).join(&stamp);
         let socket = folder.join("s");
-        let _listener = UnixListener::bind(&socket).unwrap();
+        // The path of this test's folder is over the 104 bytes a socket's address holds on macOS:
+        // the bind goes through a short link to the folder.
+        let _listener = azul_storage::testing::bind_unix_socket(&folder, "s").unwrap();
         restore_items(&home, &deleted.gone).unwrap();
         assert_eq!(home.get("readme.txt").unwrap(), b"hello");
         assert!(

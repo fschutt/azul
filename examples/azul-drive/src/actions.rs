@@ -2337,14 +2337,10 @@ pub(crate) fn resolve_conflict(
     }
 }
 
-/// Cancel: a waiting transfer never starts, a running one stops before its
-/// next file, one waiting for a conflict answer ends now.
-pub(crate) fn cancel_transfer(
-    info: &mut CallbackInfo,
-    app: &RefAny,
-    s: &mut DriveState,
-    id: u64,
-) {
+/// Cancel: a waiting transfer never starts, a running one stops at the next chunk of the file it
+/// is copying (a stop is looked for inside a file, not between two), one waiting for a conflict
+/// answer ends now.
+pub(crate) fn cancel_transfer(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, id: u64) {
     if let Some(job) = s.transfers.get(&id) {
         job.cancel.store(true, std::sync::atomic::Ordering::SeqCst);
     }

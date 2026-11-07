@@ -2,13 +2,14 @@
 //! a cut at each one leaves, what the name must still hold, the bits and the time of the new
 //! file, a stop between chunks, the old file kept in a slot, a name taken in one step.
 
+#[cfg(unix)]
+use std::time::{Duration, SystemTime};
 use std::{
     cell::RefCell,
     fs,
     io::{self, Read},
     path::{Path, PathBuf},
     sync::atomic::{AtomicU64, Ordering},
-    time::{Duration, SystemTime},
 };
 
 use super::TempDir;
@@ -829,6 +830,8 @@ fn az_s19_az_p20_a_private_document_is_synced_before_the_rename_and_its_folder_a
     assert_eq!(names(&tmp.path().join("state")), vec!["outbox.json"]);
 }
 
+// The pid of a process that cannot exist is "running" where the system cannot be asked (Windows).
+#[cfg(unix)]
 #[test]
 fn az_u15_a_sweep_removes_the_temp_files_of_dead_processes_and_old_partial_downloads() {
     use crate::durable::sweep_temps;

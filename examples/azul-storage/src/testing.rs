@@ -48,6 +48,32 @@ impl TempDir {
     }
 }
 
+/// Binds a Unix socket named `name` in the folder `dir`, however long the folder's path is: a
+/// socket's address holds 104 bytes on macOS, and the folder of a test under `$TMPDIR` is longer.
+/// The bind goes through a short link to the folder in `/tmp`, removed at once (the socket stays
+/// where it was made).
+///
+/// # Errors
+///
+/// When the link or the socket cannot be made.
+#[cfg(unix)]
+pub fn bind_unix_socket(
+    dir: &Path,
+    name: &str,
+) -> std::io::Result<std::os::unix::net::UnixListener> {
+    static NEXT: AtomicU32 = AtomicU32::new(0);
+    let link = Path::new("/tmp").join(format!(
+        "azs-{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    ));
+    std::os::unix::fs::symlink(dir, &link)?;
+    let bound = std::os::unix::net::UnixListener::bind(link.join(name));
+    // The link was only the short way to the folder.
+    std::fs::remove_file(&link)?;
+    bound
+}
+
 impl Drop for TempDir {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.0);

@@ -229,7 +229,9 @@ pub(crate) fn after_job(info: &mut CallbackInfo, s: &mut DriveState) {
     }
 }
 
-/// A second close: every transfer and sync pass is told to stop between two files.
+/// A second close: every transfer is told to stop at the next chunk of the file it copies (inside
+/// the file, not between two), every sync pass between two files, and the command bar's program is
+/// ended.
 fn stop_work(s: &mut DriveState) {
     for job in s.transfers.values() {
         job.cancel.store(true, Ordering::SeqCst);
