@@ -203,6 +203,8 @@ struct MemoryState {
     whole_reads: Vec<String>,
     /// Runs before the next `replace` of the key (then removed).
     before_replace: BTreeMap<String, Hook>,
+    /// Runs before the next `remove` of the key (then removed).
+    before_remove: BTreeMap<String, Hook>,
     /// The next create, replace or remove of the key fails with this, changing nothing.
     fail_next: BTreeMap<String, MetaError>,
     /// The clock this bucket answers [`Bucket::modified_of`] by, as a server does with its own;
@@ -262,6 +264,14 @@ impl MemoryBucket {
     pub fn before_next_replace(&self, key: &str, hook: impl FnOnce() + Send + 'static) {
         self.lock()
             .before_replace
+            .insert(key.to_string(), Box::new(hook));
+    }
+
+    /// Runs `hook` just before the next [`Bucket::remove`] of `key`, outside the bucket's lock:
+    /// whatever it writes comes first (a writer that names an object a collection is deleting).
+    pub fn before_next_remove(&self, key: &str, hook: impl FnOnce() + Send + 'static) {
+        self.lock()
+            .before_remove
             .insert(key.to_string(), Box::new(hook));
     }
 
@@ -364,6 +374,10 @@ impl Bucket for MemoryBucket {
     }
 
     fn remove(&self, key: &str) -> Result<(), MetaError> {
+        let hook = self.lock().before_remove.remove(key);
+        if let Some(hook) = hook {
+            hook();
+        }
         let mut state = self.lock();
         state.counts.removes += 1;
         if let Some(error) = state.fail_next.remove(key) {

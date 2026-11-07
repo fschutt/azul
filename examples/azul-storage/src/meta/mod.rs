@@ -98,6 +98,7 @@
 )]
 
 pub mod bucket;
+pub mod certainty;
 #[cfg(feature = "index-cache")]
 pub mod cache;
 pub mod git;
@@ -129,13 +130,12 @@ pub use objects::{Commit, Kind, Mode, ObjectId, Objects, Signature, Tree, TreeEn
 pub use pack::{PackIndex, PackWriter, SealedPack};
 #[cfg(feature = "encryption")]
 pub use index::{open_encrypted_drive, MetaIndex, MetaIndexProvider};
+pub use certainty::Certainty;
 #[cfg(feature = "encryption")]
 pub use reclaim::{
-    Caps, Certainty, Deleted, LiveObjects, NotYet, ReclaimMode, ReclaimOptions, ReclaimReport,
-    PurgeConfirmation, Reclaimable, Released, ServerClock,
+    gone_objects, Caps, Deleted, LiveObjects, NotYet, PurgeConfirmation, ReclaimMode,
+    ReclaimOptions, ReclaimReport, Reclaimable, Released, ServerClock,
 };
-#[cfg(feature = "encryption")]
-pub use reclaim::gone_objects;
 pub use repo::{CommitOutcome, MetaRepo, RepoOptions, RestoreSource};
 pub use retention::{Retention, RETENTION};
 #[cfg(feature = "encryption")]

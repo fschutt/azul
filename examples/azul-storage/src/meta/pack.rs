@@ -124,9 +124,31 @@ impl PackWriter {
         hex(&sealer.name_hash(&input))
     }
 
+    /// The name the pack of these objects gets when `salt` is mixed in: another name for the same
+    /// objects. A writer takes one for a pack whose ordinary name a garbage collection is about
+    /// to delete (the key is listed as retired), so it never names an object that is on its way
+    /// out ([`MetaStore::publish`](super::wal::MetaStore::publish)).
+    #[must_use]
+    pub fn salted_name(&self, sealer: &dyn Sealer, salt: &[u8]) -> String {
+        let mut input = Vec::with_capacity(NAME_LABEL.len() + self.objects.len() * 32 + salt.len());
+        input.extend_from_slice(NAME_LABEL);
+        for id in self.objects.keys() {
+            input.extend_from_slice(&id.0);
+        }
+        input.extend_from_slice(salt);
+        hex(&sealer.name_hash(&input))
+    }
+
     /// Seals the pack. An empty pack is refused (a publish without objects has none).
     pub fn seal(&self, sealer: &dyn Sealer) -> Result<SealedPack, MetaError> {
-        let name = self.name(sealer);
+        self.seal_as(sealer, &self.name(sealer))
+    }
+
+    /// Seals the pack under the name `name` ([`PackWriter::name`] or [`PackWriter::salted_name`]):
+    /// the chunks and the index are sealed with the name in their context, so a pack opens only
+    /// under the name it was made with.
+    pub fn seal_as(&self, sealer: &dyn Sealer, name: &str) -> Result<SealedPack, MetaError> {
+        let name = name.to_string();
         let pack_key = keys::pack(&name);
         let idx_key = keys::idx(&name);
         if self.objects.is_empty() {

@@ -101,16 +101,75 @@ fn a_pack_a_writer_names_after_the_sweep_is_kept() {
     bucket.create(&keys::idx(&sealed.name), &sealed.idx).unwrap();
     let guard = laptop.acquire_lease(MAINTENANCE, 600).unwrap();
     assert_eq!(laptop.sweep_orphans(&guard, 0).unwrap(), 2);
-    // Now the writer swaps: its pack is there (same objects, same name).
+    // Now the writer swaps. The pack the sweep retired is on its way out, so the writer does not
+    // take it for its own (a collection could delete it the moment the swap lands, AZ-M9): its
+    // objects go up again under a name of their own, and the manifest names that.
     publish(&mut laptop, "c1");
-    assert_eq!(laptop.collect_garbage(&guard, 0).unwrap(), 0);
-    assert!(present(&bucket, &keys::pack(&sealed.name)));
+    let named = laptop.state().packs[0].name.clone();
+    assert_ne!(
+        named, sealed.name,
+        "another name than the pack on its way out"
+    );
+    assert_eq!(
+        laptop.collect_garbage(&guard, 0).unwrap(),
+        2,
+        "the orphan goes"
+    );
+    assert!(!present(&bucket, &keys::pack(&sealed.name)));
+    assert!(
+        present(&bucket, &keys::pack(&named)),
+        "the writer's pack stays"
+    );
     assert!(laptop.manifest().unwrap().retired.is_empty());
     let phone = MetaStore::open(bucket, sealer(), "phone").unwrap();
     let mut objects = Objects::new();
     phone
         .fetch_pack(&phone.state().packs[0].clone(), &mut objects)
         .unwrap();
+    assert_eq!(objects.len(), 1);
+}
+
+/// AZ-M9. A writer comes back after a long stall and republishes the very objects of a pack its
+/// own crash left behind: the same objects make the same name. A sweep has retired that pack and
+/// a collection is deleting it. The writer used to find the pack there (its create answered
+/// "exists"), take it for its own and name it - and the delete that was already under way removed
+/// a pack the manifest names.
+#[test]
+fn az_m9_a_writer_republishing_a_pack_that_is_being_deleted_is_not_left_with_a_manifest_naming_nothing(
+) {
+    let bucket = MemoryBucket::new();
+    let mut laptop = MetaStore::create(bucket.clone(), sealer(), "laptop").unwrap();
+    let sealed = pack_of("c1").seal(&sealer()).unwrap();
+    bucket
+        .create(&keys::pack(&sealed.name), &sealed.pack)
+        .unwrap();
+    bucket
+        .create(&keys::idx(&sealed.name), &sealed.idx)
+        .unwrap();
+    let guard = laptop.acquire_lease(MAINTENANCE, 600).unwrap();
+    assert_eq!(laptop.sweep_orphans(&guard, 0).unwrap(), 2);
+
+    // Just before the collection deletes the first of the two, the writer comes back.
+    let mut writer = MetaStore::open(bucket.clone(), sealer(), "writer").unwrap();
+    let comes_back: Box<dyn FnOnce() + Send> = Box::new(move || publish(&mut writer, "c1"));
+    let once = std::sync::Arc::new(std::sync::Mutex::new(Some(comes_back)));
+    for key in [keys::pack(&sealed.name), keys::idx(&sealed.name)] {
+        let once = std::sync::Arc::clone(&once);
+        bucket.before_next_remove(&key, move || {
+            if let Some(run) = once.lock().unwrap().take() {
+                run();
+            }
+        });
+    }
+    assert_eq!(laptop.collect_garbage(&guard, 0).unwrap(), 2);
+
+    // A device that opens the repository afterwards finds every pack its manifest names.
+    let phone = MetaStore::open(bucket.clone(), sealer(), "phone").unwrap();
+    assert_eq!(phone.state().packs.len(), 1);
+    let mut objects = Objects::new();
+    phone
+        .fetch_pack(&phone.state().packs[0].clone(), &mut objects)
+        .expect("the manifest names a pack that is in the bucket");
     assert_eq!(objects.len(), 1);
 }
 

@@ -541,3 +541,71 @@ fn maintenance_needs_the_lease_still_to_be_this_devices_in_the_bucket() {
         Err(MetaError::LeaseHeld { .. })
     ));
 }
+
+/// The sealed log entries in the bucket.
+fn log_entries(bucket: &MemoryBucket) -> usize {
+    bucket
+        .objects()
+        .into_iter()
+        .filter(|(key, _)| key.starts_with(keys::LOG_DIR))
+        .count()
+}
+
+/// AZ-M6. A drive whose index changes the storage refuses (a frozen drive, a quota) left one
+/// sealed log entry behind per try: the sync retries every pass, and the entries are counted in
+/// the budget the drive has for them. An entry no manifest names, and that a refusal says will
+/// never be named, goes again; one a lost answer may have landed stays.
+#[test]
+fn az_m6_a_swap_the_storage_refuses_for_good_leaves_no_log_entry_behind() {
+    use crate::{AzlinError, DriveError, ServiceError};
+
+    let bucket = MemoryBucket::new();
+    let mut laptop = MetaStore::create(bucket.clone(), sealer(), "laptop").unwrap();
+    set_ref(&mut laptop, MAIN, "one");
+    assert_eq!(log_entries(&bucket), 1);
+
+    let try_to_set = |laptop: &mut MetaStore<MemoryBucket, TestSealer>, value: &str| {
+        laptop.publish(|state| {
+            Ok(Some(Publish {
+                pack: Some(pack_of(value)),
+                updates: vec![RefUpdate {
+                    name: MAIN.to_string(),
+                    old: state.refs.get(MAIN).cloned(),
+                    new: Some(value.to_string()),
+                }],
+                message: String::new(),
+            }))
+        })
+    };
+
+    // The drive is frozen: its node refuses the swap (403, read_only_unpaid), three times.
+    for value in ["two", "three", "four"] {
+        bucket.fail_next_write(
+            keys::MANIFEST,
+            MetaError::Drive(DriveError::Service(ServiceError {
+                status: 403,
+                code: String::from("AccessDenied"),
+                message: String::from("the drive takes no writes"),
+                azlin_error: Some(AzlinError::ReadOnlyUnpaid),
+                ..ServiceError::default()
+            })),
+        );
+        assert!(matches!(
+            try_to_set(&mut laptop, value),
+            Err(MetaError::Drive(DriveError::Service(_)))
+        ));
+        assert_eq!(
+            log_entries(&bucket),
+            1,
+            "the refused try left nothing ({value})"
+        );
+    }
+
+    // A connection lost after the request went out says nothing: the entry may be named.
+    bucket.fail_next_write(
+        keys::MANIFEST,
+        MetaError::Drive(DriveError::Transport(String::from("reset"))),
+    );
+    assert!(try_to_set(&mut laptop, "five").is_err());
+    assert_eq!(log_entries(&bucket), 2, "an entry that may be named stays");
+}

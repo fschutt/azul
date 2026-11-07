@@ -20,6 +20,7 @@ use std::{
 
 use super::{
     bucket::Bucket,
+    certainty::Certainty,
     objects::{Mode, ObjectId as GitId, Objects, TreeEntry},
     pointer,
     repo::MetaRepo,
@@ -30,43 +31,6 @@ use super::{
     MetaError,
 };
 use crate::{crypto::ObjectId, BatchDelete, Drive, DriveError};
-
-/// What a failed call says about the change it tried to make: did it happen?
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Certainty {
-    /// The change was refused for good: whoever looked said no and wrote nothing (an expectation
-    /// that did not hold, a service that refused).
-    Refused,
-    /// The change may have landed, or not: no answer, a lost connection, a service error, a reply
-    /// that could not be read. Neither "someone else wrote first" nor "it went through".
-    Unknown,
-    /// The change never went out: the call was refused before a byte was sent.
-    NotAttempted,
-}
-
-impl DriveError {
-    /// Whether the change this error ended is known not to have happened ([`Certainty`]). Total:
-    /// a new error needs its place here.
-    #[must_use]
-    pub fn certainty(&self) -> Certainty {
-        match self {
-            DriveError::Conflict { .. } | DriveError::Denied { .. } => Certainty::Refused,
-            DriveError::InvalidKey { .. }
-            | DriveError::InvalidRange { .. }
-            | DriveError::Locked { .. }
-            | DriveError::KeyRefused { .. }
-            | DriveError::Unsupported(_)
-            | DriveError::InvalidConfig(_)
-            | DriveError::Cancelled => Certainty::NotAttempted,
-            DriveError::NotFound { .. }
-            | DriveError::Service(_)
-            | DriveError::Transport(_)
-            | DriveError::Io(_)
-            | DriveError::Protocol(_)
-            | DriveError::Corrupt { .. } => Certainty::Unknown,
-        }
-    }
-}
 
 /// The proof that the change which was to name a new object did not happen. Made from an error
 /// whose certainty is [`Certainty::Refused`] or [`Certainty::NotAttempted`], and from nothing else;

@@ -528,7 +528,9 @@ impl Local {
         for id in ids {
             writer.add_from(&self.objects, id)?;
         }
-        let sealed = writer.seal(sealer)?;
+        // Under the name the pack has in the manifest: a pack that was given another name than
+        // its objects' ordinary one opens only under its own.
+        let sealed = writer.seal_as(sealer, &pack.name)?;
         let index = PackIndex::open(sealer, &sealed.name, &sealed.idx)?;
         write_cached(self.file(&format!("{}.idx", pack.name)).as_deref(), &sealed.idx);
         write_cached(self.file(&format!("{}.pack", pack.name)).as_deref(), &sealed.pack);

@@ -43,6 +43,7 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 use super::{
     bucket::{Bucket, Fetched, Version},
+    certainty::Certainty,
     keys,
     objects::{ObjectId, Objects},
     pack::{PackIndex, PackWriter, SealedPack},
@@ -761,9 +762,27 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
     // ---- packs ----
 
     /// Writes the sealed pack and its index (create-only; one of the same name
-    /// is the same objects) and says what the manifest will hold of it.
+    /// is the same objects) and says what the manifest will hold of it. The ordinary name of a
+    /// pack is the keyed hash of its objects, so the same objects meet the same keys: when one of
+    /// them is listed as retired - a sweep took the pack for an orphan, and a garbage collection
+    /// is deleting it, or will - the writer does not take the object for its own, which would let
+    /// the collection delete a pack the manifest names the moment the writer's swap lands: it gives
+    /// the pack another name and uploads it anew (AZ-M9).
     fn put_pack(&self, writer: &PackWriter, seq: u64) -> Result<PackRef, MetaError> {
-        put_sealed_pack(&self.bucket, writer.seal(&self.sealer)?, seq)
+        let ordinary = writer.name(&self.sealer);
+        let burned = self.synced.as_ref().is_some_and(|synced| {
+            synced
+                .manifest
+                .retired
+                .iter()
+                .any(|r| r.key == keys::pack(&ordinary) || r.key == keys::idx(&ordinary))
+        });
+        let name = if burned {
+            writer.salted_name(&self.sealer, attempt_id().as_bytes())
+        } else {
+            ordinary
+        };
+        put_sealed_pack(&self.bucket, writer.seal_as(&self.sealer, &name)?, seq)
     }
 
     /// Opens the index of `pack`.
@@ -947,6 +966,16 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
                     |manifest: &Manifest| manifest.log.iter().any(|r| r.key == log_key);
                 match self.swap_landed(names_entry)? {
                     Some(true) => Ok(true),
+                    // Refused for good - a drive that is frozen, over its quota - and named by no
+                    // manifest: the entry goes again. Every try of a drive that refuses its index
+                    // changes used to leave one sealed entry behind, counted in the budget the
+                    // drive has for them (AZ-M6).
+                    Some(false) if refused_for_good(&e) => {
+                        // collapse-ok: an entry nothing names is only space; a delete the
+                        // storage also refuses leaves it for the orphan sweep.
+                        let _ = self.bucket.remove(&log_key);
+                        Err(e)
+                    }
                     _ => Err(e),
                 }
             }
@@ -1277,7 +1306,15 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
 
     /// Deletes what was retired at least `grace` seconds ago (under `guard`):
     /// every device that read the older manifest has had time to finish.
-    /// Returns how many objects were deleted.
+    /// Returns how many objects were due.
+    ///
+    /// In three steps. A swap that fences - a collection that read an older manifest cannot go on
+    /// - and takes back from `retired` what a manifest names again (the pack of a slow writer
+    /// that a sweep took for an orphan). Then the deletes, while the due objects are STILL listed
+    /// as retired: a writer that meets one of their names takes the object for one on its way out
+    /// and uploads its own under another name ([`MetaStore::put_pack`]). Then a swap that drops
+    /// what was deleted from the list; one that is lost leaves the names listed for the next
+    /// round, and an object the storage would not delete stays listed for it too.
     pub fn collect_garbage(&mut self, guard: &LeaseGuard, grace: u64) -> Result<usize, MetaError> {
         self.check_guard(guard)?;
         for attempt in 1..=self.attempts {
@@ -1300,7 +1337,7 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
             }
             let mut next = synced.manifest.clone();
             let known = synced.version.clone();
-            next.retired = keep;
+            next.retired = keep.iter().chain(due.iter()).cloned().collect();
             next.revision += 1;
             next.writer = self.device.clone();
             next.updated_at = now;
@@ -1314,9 +1351,13 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
                     });
                     // No manifest names them any more: deleting them is safe, and
                     // one that stays behind is only space.
+                    let mut gone: Vec<String> = Vec::new();
                     for retired in &due {
-                        let _ = self.bucket.remove(&retired.key);
+                        if self.bucket.remove(&retired.key).is_ok() {
+                            gone.push(retired.key.clone());
+                        }
                     }
+                    self.forget_retired(&gone);
                     return Ok(due.len());
                 }
                 Err(MetaError::Conflict { .. }) => {}
@@ -1327,6 +1368,51 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
         Err(MetaError::Contended {
             attempts: self.attempts,
         })
+    }
+
+    /// Drops `gone` - objects that were deleted - from the list of retired objects. Best effort: a
+    /// swap that is lost leaves them listed, and the next collection lists them again (deleting an
+    /// object that is not there is nothing).
+    fn forget_retired(&mut self, gone: &[String]) {
+        if gone.is_empty() {
+            return;
+        }
+        for attempt in 1..=self.attempts {
+            if self.sync().is_err() {
+                return;
+            }
+            let Some(synced) = self.synced.as_ref() else {
+                return;
+            };
+            if !synced
+                .manifest
+                .retired
+                .iter()
+                .any(|r| gone.contains(&r.key))
+            {
+                return;
+            }
+            let mut next = synced.manifest.clone();
+            let known = synced.version.clone();
+            next.retired.retain(|r| !gone.contains(&r.key));
+            next.revision += 1;
+            next.writer = self.device.clone();
+            next.updated_at = self.now();
+            match self.swap_manifest(&next, known.as_deref()) {
+                Ok(version) => {
+                    self.seen_revision = next.revision;
+                    self.state.revision = next.revision;
+                    self.synced = Some(Synced {
+                        manifest: next,
+                        version,
+                    });
+                    return;
+                }
+                Err(MetaError::Conflict { .. }) => {}
+                Err(MetaError::Raced { .. }) => back_off(attempt),
+                Err(_) => return,
+            }
+        }
     }
 
     /// Under `guard`: swaps the manifest for the same one a revision higher - with the reclaimer's
@@ -1722,6 +1808,12 @@ fn remove_old<B: Bucket + ?Sized, N: Sealer>(
         }
     }
     Ok(removed)
+}
+
+/// Whether `e` says the storage refused the change for good (or it was never made): nothing
+/// landed, and nothing will.
+fn refused_for_good(e: &MetaError) -> bool {
+    matches!(e, MetaError::Drive(d) if d.certainty() != Certainty::Unknown)
 }
 
 /// Every key the manifest names: itself, the live packs and their indexes, the
