@@ -1305,10 +1305,73 @@ fn x_ar5b_3_an_azlin_drive_is_synced_through_its_names_only_when_it_is_encrypted
     }
 }
 
+/// A drive handle that counts the calls made through it and hands them on: what a pass did with
+/// the drive it was given, not only what came of it.
+#[cfg(feature = "encryption")]
+struct CountedCalls {
+    inner: Arc<dyn Drive>,
+    calls: AtomicU64,
+}
+
+#[cfg(feature = "encryption")]
+impl CountedCalls {
+    fn new(inner: Arc<dyn Drive>) -> CountedCalls {
+        CountedCalls {
+            inner,
+            calls: AtomicU64::new(0),
+        }
+    }
+
+    fn calls(&self) -> u64 {
+        self.calls.load(Ordering::SeqCst)
+    }
+
+    fn counted(&self) -> &Arc<dyn Drive> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        &self.inner
+    }
+}
+
+#[cfg(feature = "encryption")]
+impl Drive for CountedCalls {
+    fn list(&self, request: &ListRequest) -> Result<ListPage, DriveError> {
+        self.counted().list(request)
+    }
+    fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
+        self.counted().get(key)
+    }
+    fn get_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, DriveError> {
+        self.counted().get_range(key, range)
+    }
+    fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
+        self.counted().put(key, bytes)
+    }
+    fn delete(&self, key: &str) -> Result<(), DriveError> {
+        self.counted().delete(key)
+    }
+    fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
+        self.counted().head(key)
+    }
+    fn put_if(
+        &self,
+        key: &str,
+        bytes: &[u8],
+        condition: &Precondition,
+    ) -> Result<Option<String>, DriveError> {
+        self.counted().put_if(key, bytes, condition)
+    }
+}
+
 /// X-AR6-26802cb54-1: "the sync does not start". A pass on an Azlin drive whose bucket shows a
 /// plain object and no key files (a drive made before the encryption, or a bucket that hides
 /// them: nothing here tells the two apart) starts no session that could read or write the bucket
 /// as a plain one. It fails with the drive's own refusal, and the bucket is as it was.
+///
+/// The refusal and the untouched bucket alone prove nothing about the session: the drive the
+/// pass is given is the encryption's gate, and a session that had been started anyway would be
+/// refused by the gate in the same words (X-DELTA-AZDRIVE-KEYS-40). What tells them apart is the
+/// number of calls the pass makes through that handle: the one probe that lets the gate decide,
+/// and nothing after it - a plain session would list the drive, and be refused, at least once more.
 #[cfg(feature = "encryption")]
 #[test]
 fn x_ar6_26802cb54_1_a_pass_on_a_drive_that_is_not_encrypted_starts_no_plain_session() {
@@ -1322,7 +1385,9 @@ fn x_ar6_26802cb54_1_a_pass_on_a_drive_that_is_not_encrypted_starts_no_plain_ses
         Arc::new(MemoryKeyring::new()),
         None,
     ));
-    let drive: Arc<dyn Drive> = auto.clone();
+    let gate: Arc<dyn Drive> = auto.clone();
+    let counted = Arc::new(CountedCalls::new(gate));
+    let drive: Arc<dyn Drive> = counted.clone();
     let device = Device::new("not-encrypted", &drive, AutoDownload::Everything);
     device.write("new.jpg", b"picture");
     let mut work = device.work();
@@ -1354,6 +1419,11 @@ fn x_ar6_26802cb54_1_a_pass_on_a_drive_that_is_not_encrypted_starts_no_plain_ses
         keys,
         vec![String::from("Photos/old.jpg")],
         "nothing was written"
+    );
+    assert_eq!(
+        counted.calls(),
+        1,
+        "the pass asked the drive once, to decide what it is, and started no session on it"
     );
 }
 
