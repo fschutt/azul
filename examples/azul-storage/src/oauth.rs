@@ -752,6 +752,11 @@ impl Transport for RefreshingTransport {
         self.inner.trusts_public_roots()
     }
 
+    /// Whose traffic the wrapped transport carries.
+    fn trust_class(&self) -> crate::trust::TrustClass {
+        self.inner.trust_class()
+    }
+
     /// The wrapped transport's fallback addresses (a node reached at its IP when its name does not
     /// resolve), not none.
     fn fallback_addresses(&self, host: &str, addresses: &[String]) -> bool {

@@ -144,6 +144,11 @@ pub fn dial(id: &str, addrs: &[String], relay: Option<&str>) -> Result<Box<dyn T
 }
 
 impl Transport for AzulIrohTransport {
+    /// It dials the Azlin nodes of a drive (their iroh ids and sockets), with its signed requests.
+    fn trust_class(&self) -> crate::trust::TrustClass {
+        crate::trust::TrustClass::Azlin
+    }
+
     fn send(&self, call: &HttpCall) -> Result<HttpReply, String> {
         let request = encode_request(call)?;
         let addresses = StringVec::from_vec(

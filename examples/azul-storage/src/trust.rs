@@ -1,10 +1,18 @@
-//! What this device trusts, as two facts and nothing else.
+//! What this device trusts, as three facts and nothing else.
 //!
 //! - The certificate authorities the Azlin apps pin: the iroh relays (n0's and the Azlin nodes')
 //!   are served under Let's Encrypt, so a relay's TLS trusts Let's Encrypt's four roots and
 //!   nothing else of the ~150 public ones. A forged relay certificate from any other authority is
-//!   refused in the handshake. The token server's and the nodes' HTTPS keep the public roots for
-//!   now: their edge certificates rotate among several authorities.
+//!   refused in the handshake. The token server's and the nodes' HTTPS keep the app's roots for
+//!   now: their edge certificates rotate among several authorities, and which ones is the
+//!   operator's to say ([`AZLIN_TLS_ROOTS_PEM`], empty until then).
+//! - Whose traffic a request is ([`TrustClass`], RF39 2c, ENT27-M16): Azlin's - the token
+//!   server, the blocks and the nodes of its drives, [`AZLIN_HOST_SUFFIXES`] - or anybody else's.
+//!   The two have their own connection pools: Azlin's trusts the pinned authorities once they
+//!   are named and follows no setting of a file; a foreign pool follows the app's roots. An Azlin
+//!   transport refuses a host that is not Azlin's, a foreign one refuses an Azlin host
+//!   ([`admits`]): a drive token or a signed request never rides a pool that was not made for it,
+//!   and never goes to a host the service does not run.
 //! - Whether a drive is encrypted ([`EncState`], feature `encryption`): one value with one
 //!   owner ([`crate::AutoEncrypted`]), read by every app through the policy that names what it
 //!   decides. "Could not tell" is a state of its own and never reads as "plain": the bucket's
@@ -19,6 +27,229 @@ pub const AZLIN_RELAY_ROOTS: [(&str, &str); 4] = [
     ("ISRG Root YE", include_str!("../roots/ISRGRootYE.pem")),
     ("ISRG Root YR", include_str!("../roots/ISRGRootYR.pem")),
 ];
+
+/// The hosts that are Azlin's: the token server (`token.azlin.io`, `token-trial.azlin.io`), the
+/// blocks and the nodes of its drives (`b1.s3.azlin.io`, `n1.s3.azlin.io`). A name ending in one
+/// of these - or the name itself without its dot - is Azlin's ([`is_azlin_host`]).
+pub const AZLIN_HOST_SUFFIXES: &[&str] = &[".azlin.io"];
+
+/// The issuing certificate authorities of Azlin's hosts, PEM text, one or more `CERTIFICATE` blocks
+/// each - the CURRENT ones and the NEXT (2 to 4 issuing CAs, never a leaf: a rotation must not lock
+/// every client out).
+///
+/// OWNER / OPS INPUT: EMPTY until the operator says which authorities issue the token server's
+/// edge certificate and the nodes' (ACME), and how they rotate - nothing is guessed here. Empty:
+/// the Azlin class trusts what the app trusts ([`TrustClass::Azlin`]'s pool follows the app's
+/// roots), exactly as before; a release gate refuses to ship while it is empty. Filled in, the
+/// Azlin pool trusts these and nothing else, and a certificate from any other authority fails the
+/// handshake with a sentence that names the pin.
+pub const AZLIN_TLS_ROOTS_PEM: &[&str] = &[];
+
+/// Whose traffic a transport carries.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum TrustClass {
+    /// The Azlin service's: the token server and the blocks and nodes of its drives. Its
+    /// requests carry a drive token or a signature for one of them.
+    Azlin,
+    /// Everybody else's: a data source, an OAuth provider, a feed, an address the user typed.
+    Foreign,
+}
+
+/// The host of `url`, lower case, without brackets, port and trailing dot; `None` when it names
+/// none. The user info is not part of it (`https://a@evil.example` is `evil.example`).
+#[must_use]
+pub fn host_of_url(url: &str) -> Option<String> {
+    let rest = url.trim().split_once("://")?.1;
+    let authority = rest.split(['/', '?', '#']).next()?;
+    let authority = authority
+        .rsplit_once('@')
+        .map_or(authority, |(_, host)| host);
+    let host = if let Some(v6) = authority.strip_prefix('[') {
+        v6.split(']').next()?
+    } else {
+        match authority.rsplit_once(':') {
+            Some((host, port)) if port.chars().all(|c| c.is_ascii_digit()) => host,
+            _ => authority,
+        }
+    };
+    let host = host.trim_end_matches('.').to_ascii_lowercase();
+    (!host.is_empty()).then_some(host)
+}
+
+/// Whether `host` (as [`host_of_url`] gives it) is Azlin's: it ends in a suffix of
+/// [`AZLIN_HOST_SUFFIXES`] on a label boundary, or is the suffix without its dot.
+#[must_use]
+pub fn is_azlin_host(host: &str) -> bool {
+    AZLIN_HOST_SUFFIXES
+        .iter()
+        .any(|suffix| host.ends_with(suffix) || host == suffix.trim_start_matches('.'))
+}
+
+/// Whether this is a TEST build (the E2E builds and the tests of the crates that turn on this
+/// crate's `testing` or `test-hooks`): a stack on this computer, under any name, may stand in for
+/// the service. A shipped build is never one.
+#[must_use]
+pub const fn test_build() -> bool {
+    cfg!(any(feature = "testing", feature = "test-hooks"))
+}
+
+/// Whether a transport of `class` may send a request for `url`: `Ok`, or why not, as a sentence
+/// (the host only - a URL may hold a password).
+///
+/// - Azlin: only to an Azlin host. A drive's endpoint and its nodes come from files and answers
+///   (`drives.json`, the cache of a node list, a token server's bundle); the transport that
+///   carries the drive's signed requests and its tokens does not follow them to a host the
+///   service does not run. A TEST build (`test_build`) may reach a stack on this computer.
+/// - Foreign: never to an Azlin host. That traffic belongs on the Azlin pool, where the pinned
+///   authorities apply; a call site that forgot to say so fails loudly instead of riding the
+///   wrong pool.
+///
+/// # Errors
+///
+/// The sentence, when `class` may not send to `url`.
+pub fn admits(class: TrustClass, url: &str, test_build: bool) -> Result<(), String> {
+    let Some(host) = host_of_url(url) else {
+        return Err(String::from("the request names no host"));
+    };
+    match class {
+        TrustClass::Azlin if is_azlin_host(&host) || test_build => Ok(()),
+        TrustClass::Azlin => Err(format!(
+            "{host} is not an Azlin host: the Azlin transport carries drive tokens and signed \
+             requests to the service's own hosts only"
+        )),
+        TrustClass::Foreign if is_azlin_host(&host) => Err(format!(
+            "{host} is an Azlin host: it is reached through the Azlin transport, whose pool \
+             trusts the pinned authorities, not through a foreign one"
+        )),
+        TrustClass::Foreign => Ok(()),
+    }
+}
+
+#[cfg(test)]
+mod class_tests {
+    use super::*;
+
+    /// The host as the class check reads it: scheme, user info, port, case and the trailing dot
+    /// of a fully qualified name do not hide it.
+    #[test]
+    fn the_host_of_a_url_is_the_host_a_request_goes_to() {
+        for (url, host) in [
+            ("https://token.azlin.io", "token.azlin.io"),
+            ("https://token.azlin.io/v1/drives?x=1#f", "token.azlin.io"),
+            ("HTTPS://Token.Azlin.IO:8443/path", "token.azlin.io"),
+            ("https://token.azlin.io./v1", "token.azlin.io"),
+            ("https://ann:pw@token.azlin.io/v1", "token.azlin.io"),
+            ("https://evil.example@token.azlin.io/", "token.azlin.io"),
+            ("https://token.azlin.io@evil.example/", "evil.example"),
+            ("http://[::1]:8081/x", "::1"),
+            ("http://127.0.0.1:9000", "127.0.0.1"),
+        ] {
+            assert_eq!(host_of_url(url).as_deref(), Some(host), "{url}");
+        }
+        for url in [
+            "",
+            "token.azlin.io",
+            "https://",
+            "https:///x",
+            "https://:80",
+        ] {
+            assert_eq!(host_of_url(url), None, "{url:?}");
+        }
+    }
+
+    /// A name is Azlin's when it ends in the suffix on a label boundary - not when it merely
+    /// contains it.
+    #[test]
+    fn an_azlin_host_ends_in_the_suffix_on_a_label_boundary() {
+        for host in [
+            "azlin.io",
+            "token.azlin.io",
+            "b1.s3.azlin.io",
+            "n1.s3-trial.azlin.io",
+        ] {
+            assert!(is_azlin_host(host), "{host}");
+        }
+        for host in [
+            "evilazlin.io",
+            "azlin.io.evil.example",
+            "token.azlin.io.evil.example",
+            "azlin.iox",
+            "azlin.com",
+            "127.0.0.1",
+            "localhost",
+            "",
+        ] {
+            assert!(!is_azlin_host(host), "{host}");
+        }
+    }
+
+    /// An Azlin transport carries the service's own hosts only; a stack on this computer is for
+    /// a test build.
+    #[test]
+    fn an_azlin_transport_goes_to_azlin_hosts_only_and_a_test_build_to_a_stack_too() {
+        assert!(admits(TrustClass::Azlin, "https://token.azlin.io/v1", false).is_ok());
+        assert!(admits(TrustClass::Azlin, "https://b1.s3.azlin.io/d-1/key", false).is_ok());
+        for url in [
+            "https://evil.example/d-1/key",
+            "https://azlin.io.evil.example/",
+            "http://127.0.0.1:9000/d-1/key",
+            "http://localhost:8081",
+        ] {
+            let why = admits(TrustClass::Azlin, url, false).unwrap_err();
+            assert!(why.contains("not an Azlin host"), "{url}: {why}");
+            assert!(admits(TrustClass::Azlin, url, true).is_ok(), "{url}");
+        }
+        assert!(admits(TrustClass::Azlin, "no url", false).is_err());
+    }
+
+    /// A foreign transport never carries Azlin's traffic - in any build.
+    #[test]
+    fn a_foreign_transport_refuses_an_azlin_host_and_takes_every_other() {
+        for test_build in [false, true] {
+            let why =
+                admits(TrustClass::Foreign, "https://token.azlin.io/v1", test_build).unwrap_err();
+            assert!(why.contains("Azlin host"), "{why}");
+            assert!(admits(TrustClass::Foreign, "https://b1.s3.azlin.io/", test_build).is_err());
+            for url in [
+                "https://api.dropbox.com/2/files",
+                "https://cloud.example/dav",
+                "http://127.0.0.1:8080/x",
+                "https://azlin.io.evil.example/",
+            ] {
+                assert!(
+                    admits(TrustClass::Foreign, url, test_build).is_ok(),
+                    "{url}"
+                );
+            }
+        }
+    }
+
+    /// The message of a refusal names the host and nothing of the URL's password or query.
+    #[test]
+    fn a_refusal_names_the_host_and_never_the_secret_of_the_url() {
+        let why = admits(
+            TrustClass::Azlin,
+            "https://ann:hunter2@evil.example/x?token=t0k3n",
+            false,
+        )
+        .unwrap_err();
+        assert!(why.contains("evil.example"), "{why}");
+        assert!(!why.contains("hunter2") && !why.contains("t0k3n"), "{why}");
+    }
+
+    /// The pins are the operator's to name: until then the list is empty, and an empty list
+    /// means "the app's roots", never "no check at all".
+    #[test]
+    fn the_pinned_authorities_are_empty_until_the_operator_names_them() {
+        assert!(AZLIN_TLS_ROOTS_PEM.is_empty());
+        for pem in AZLIN_TLS_ROOTS_PEM {
+            assert!(
+                pem.contains("BEGIN CERTIFICATE"),
+                "a pin that is no certificate"
+            );
+        }
+    }
+}
 
 #[cfg(feature = "encryption")]
 pub use enc_state::{EncState, IndexHome, Op, RestoreKind, SyncKind, Via, Why};

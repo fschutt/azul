@@ -433,4 +433,12 @@ pub trait Transport: Send + Sync {
     fn trusts_public_roots(&self) -> bool {
         true
     }
+
+    /// Whose traffic this transport carries: the Azlin service's (the token server and the blocks
+    /// and nodes of its drives) or everybody else's. A transport that says nothing is foreign, and
+    /// the token server's client refuses it outside a test build: Azlin's traffic rides the pool
+    /// that trusts the pinned authorities ([`crate::trust`], RF39 2c).
+    fn trust_class(&self) -> crate::trust::TrustClass {
+        crate::trust::TrustClass::Foreign
+    }
 }

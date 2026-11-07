@@ -12,22 +12,34 @@
 //! times its body may take to send and its answer to arrive, and the most bytes the answer may
 //! have (a bigger one is refused, never cut short).
 //!
-//! Every `AzulTransport` of the process sends through ONE `HttpClient`: its connections
+//! Every `AzulTransport` of a class sends through ONE `HttpClient` of that class: its connections
 //! are pooled (a multipart upload's parts and a download's ranges reuse them), its DNS answers
 //! are cached for [`DNS_CACHE_SECS`] and served stale while the name does not resolve, and the
 //! fallback addresses a drive's failover hands it ([`Transport::fallback_addresses`]: a
 //! node reached at its IP when its name does not resolve, TLS still verified for the name)
 //! hold for every request. A name that does not resolve fails with [`DNS_FAILED`] in front.
+//!
+//! There are two classes ([`TrustClass`], RF39 2c, ENT27-M16): [`AzulTransport::azlin`] carries
+//! the service's own traffic - the token server and the blocks and nodes of its drives, with a
+//! drive token or a signature for one - on a pool that trusts the pinned authorities
+//! ([`crate::trust::AZLIN_TLS_ROOTS_PEM`]) once the operator names them and follows no setting of a
+//! file; [`AzulTransport::foreign`] carries everything else on a pool that follows the app's
+//! roots. Each refuses the other's hosts ([`crate::trust::admits`]).
 
 use std::{sync::OnceLock, time::Duration};
 
 use azul::{
     error::{HttpError, ResultHttpResponseHttpError},
     http::{HttpClient, HttpClientConfig, HttpMethod, HttpRequestConfig, TrustRoots},
-    vec::U8Vec,
+    str::String as AzString,
+    vec::{StringVec, U8Vec},
 };
 
-use crate::{transport::DNS_FAILED, HttpCall, HttpReply, Method, Transport};
+use crate::{
+    transport::DNS_FAILED,
+    trust::{self, TrustClass},
+    HttpCall, HttpReply, Method, Transport,
+};
 
 /// Seconds the pool reuses a host's DNS answer; once the name stops resolving, the engine serves
 /// the last answer for seven days (serve-stale) - a drive keeps working while DNS is down.
@@ -37,13 +49,41 @@ pub const DNS_CACHE_SECS: u32 = 300;
 #[derive(Debug, Clone)]
 pub struct AzulTransport {
     user_agent: String,
+    /// Whose traffic it carries; `None`: not said (a transport made by [`AzulTransport::new`],
+    /// which the call sites of the Azlin service leave for [`AzulTransport::azlin`]).
+    class: Option<TrustClass>,
 }
 
 impl AzulTransport {
+    /// A transport whose class is not said: it sends on the foreign pool and checks no host.
+    /// A call site says which traffic it carries: [`AzulTransport::azlin`] or
+    /// [`AzulTransport::foreign`].
     #[must_use]
     pub fn new(user_agent: &str) -> Self {
         AzulTransport {
             user_agent: user_agent.to_string(),
+            class: None,
+        }
+    }
+
+    /// The Azlin service's transport: the token server and the blocks and nodes of its drives,
+    /// on the pool that trusts the pinned authorities (the app's roots until the operator names
+    /// them, [`trust::AZLIN_TLS_ROOTS_PEM`]).
+    #[must_use]
+    pub fn azlin(user_agent: &str) -> Self {
+        AzulTransport {
+            user_agent: user_agent.to_string(),
+            class: Some(TrustClass::Azlin),
+        }
+    }
+
+    /// Everybody else's transport: a data source, an OAuth provider, a feed, an address the user
+    /// typed - on the pool that follows the app's roots.
+    #[must_use]
+    pub fn foreign(user_agent: &str) -> Self {
+        AzulTransport {
+            user_agent: user_agent.to_string(),
+            class: Some(TrustClass::Foreign),
         }
     }
 }
@@ -57,13 +97,38 @@ struct Pool(HttpClient);
 unsafe impl Send for Pool {}
 unsafe impl Sync for Pool {}
 
-fn pool() -> &'static Pool {
-    static POOL: OnceLock<Pool> = OnceLock::new();
-    POOL.get_or_init(|| {
-        Pool(HttpClient::create(
-            HttpClientConfig::create().with_dns_cache_secs(DNS_CACHE_SECS),
-        ))
-    })
+/// The pool of `class`: the Azlin class has its own, whose TLS trusts the pinned authorities; every
+/// other transport shares the foreign one, which follows the app's roots.
+fn pool(class: Option<TrustClass>) -> &'static Pool {
+    static FOREIGN: OnceLock<Pool> = OnceLock::new();
+    static AZLIN: OnceLock<Pool> = OnceLock::new();
+    match class {
+        Some(TrustClass::Azlin) => AZLIN.get_or_init(|| {
+            let config = HttpClientConfig::create().with_dns_cache_secs(DNS_CACHE_SECS);
+            Pool(HttpClient::create(
+                match pinned_roots(trust::AZLIN_TLS_ROOTS_PEM) {
+                    Some(roots) => config.with_trust_roots(roots),
+                    None => config,
+                },
+            ))
+        }),
+        Some(TrustClass::Foreign) | None => FOREIGN.get_or_init(|| {
+            Pool(HttpClient::create(
+                HttpClientConfig::create().with_dns_cache_secs(DNS_CACHE_SECS),
+            ))
+        }),
+    }
+}
+
+/// Only `pems` (PEM text) as the roots of a pool; `None` for none named: the pool follows the
+/// app's roots then, as a pool that pins nothing does.
+fn pinned_roots(pems: &[&str]) -> Option<TrustRoots> {
+    if pems.is_empty() {
+        return None;
+    }
+    Some(TrustRoots::pinned(StringVec::from_vec(
+        pems.iter().map(|pem| AzString::from(*pem)).collect(),
+    )))
 }
 
 /// Why a request got no answer, as a sentence. azul's client names the URL it tried ("Connection
@@ -133,9 +198,18 @@ fn method_of(method: Method) -> HttpMethod {
 }
 
 impl Transport for AzulTransport {
-    /// The pool trusts the app's set (`AppConfig::trust_roots`).
+    /// The pool trusts the app's set (`AppConfig::trust_roots`); the Azlin pool the pinned
+    /// authorities, once they are named.
     fn trusts_public_roots(&self) -> bool {
-        TrustRoots::app_default().is_public_roots()
+        match (self.class, pinned_roots(trust::AZLIN_TLS_ROOTS_PEM)) {
+            (Some(TrustClass::Azlin), Some(_)) => false,
+            _ => TrustRoots::app_default().is_public_roots(),
+        }
+    }
+
+    /// Whose traffic it carries; a transport that was not given a class is foreign.
+    fn trust_class(&self) -> TrustClass {
+        self.class.unwrap_or(TrustClass::Foreign)
     }
 
     fn send(&self, call: &HttpCall) -> Result<HttpReply, String> {
@@ -154,7 +228,7 @@ impl Transport for AzulTransport {
             // 0 is "no cap" to azul: an object read whole has none.
             .with_max_size(if budget.max_answer == u64::MAX { 0 } else { budget.max_answer })
             .with_user_agent(self.user_agent.as_str())
-            .with_client(pool().0.clone());
+            .with_client(pool(self.class).0.clone());
         for (name, value) in &call.headers {
             config = config.with_header(name.as_str(), value.as_str());
         }
@@ -171,7 +245,9 @@ impl Transport for AzulTransport {
     fn fallback_addresses(&self, host: &str, addresses: &[String]) -> bool {
         let mut took = false;
         for address in addresses {
-            took |= pool().0.add_fallback_address(host, address.as_str());
+            took |= pool(self.class)
+                .0
+                .add_fallback_address(host, address.as_str());
         }
         took
     }
