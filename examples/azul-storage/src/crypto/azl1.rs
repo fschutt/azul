@@ -1492,7 +1492,16 @@ impl OpenObject {
         let mut out = Vec::with_capacity(reserve(self.info.plaintext_size));
         {
             let _slot = TransformSlot::take();
-            transform::inverse(block.id, &mut stream.as_slice(), &mut out, &limits, decode_threads())?;
+            // Under the poison pill of the read path: the decoders run over bytes any member of the
+            // drive wrote, and a stream that ended the program is not decoded again and again.
+            transform::inverse_guarded(
+                block.id,
+                stream.as_slice(),
+                &mut out,
+                &limits,
+                decode_threads(),
+                codec::marker_dir().as_deref(),
+            )?;
         }
         if out.len() as u64 != self.info.plaintext_size
             || blake3::hash(&out) != self.info.blake3

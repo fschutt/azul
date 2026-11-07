@@ -212,6 +212,36 @@ pub fn forward(input: &[u8], kind: Kind, options: &Options) -> Forward {
     }
 }
 
+/// [`inverse`] of a stream held in memory whole, bracketed by the poison pill of the READ path
+/// when `poison_dir` is given ([`marker`]): the decoders run over bytes any member of the drive
+/// can have written, and a stream that has ended the program [`marker::DECODE_TRIES`] times is
+/// refused by name (`Error::Unsupported`) and not decoded again. No transform (`id` none) takes no
+/// marker.
+pub fn inverse_guarded<W: Write>(
+    id: TransformId,
+    input: &[u8],
+    writer: &mut W,
+    limits: &Limits,
+    threads: usize,
+    poison_dir: Option<&std::path::Path>,
+) -> Result<u64, Error> {
+    // Held until the decode is over, then removed; a process that ends inside it leaves it.
+    let _marker = match (id, poison_dir) {
+        (TransformId::None, _) | (_, None) => None,
+        (_, Some(dir)) => match marker::Marker::enter_decoding(dir, input) {
+            marker::Entered::Clear(marker) => Some(marker),
+            marker::Entered::Left => {
+                return Err(Error::Unsupported(format!(
+                    "a stored transform that has ended the program {} times is not decoded again",
+                    marker::DECODE_TRIES
+                )))
+            }
+            marker::Entered::Unavailable => None,
+        },
+    };
+    inverse(id, &mut &*input, writer, limits, threads)
+}
+
 /// Decodes the transformed stream of `reader` (transform `id`) into `writer`; returns the bytes
 /// written. `threads` is what Lepton may use.
 pub fn inverse<R: Read, W: Write>(

@@ -67,3 +67,136 @@ fn x_ar5b_5_without_a_folder_there_is_no_marker_and_the_analysis_runs() {
         transform::Forward::Applied(_)
     ));
 }
+
+// ==== X-DELTA-AZDRIVE-KEYS-15: the READ path has a pill too ====
+
+/// The marker the decode of `stream` leaves while it runs.
+fn decoding_marker(dir: &std::path::Path, stream: &[u8]) -> std::path::PathBuf {
+    dir.join(format!("{}.decoding", blake3::hash(stream).to_hex()))
+}
+
+/// X-DELTA-AZDRIVE-KEYS-15: Lepton's decoder and the preflate rebuild run over bytes any member of
+/// the drive wrote, `catch_unwind` around them is dead under `panic = "abort"`, and the pill
+/// bracketed the ENCODE only: a malformed stream ended every device that read it, the sync read it
+/// again after each restart. A decode leaves its marker (with a count); one that returned leaves
+/// none; a stream that has ended the program three times is refused by name.
+#[test]
+fn x_delta_azdrive_keys_15_a_stream_whose_decode_did_not_come_back_is_not_decoded_again() {
+    let dir = folder("decode");
+    let analysis = Options {
+        threads: 1,
+        ..Options::idle()
+    };
+    let transform::Forward::Applied(t) = transform::forward(BASELINE, Kind::Jpeg, &analysis) else {
+        panic!("the transform applies");
+    };
+    let limits = Options::default().limits;
+    let marker = decoding_marker(&dir, &t.bytes);
+
+    // A decode that returns leaves no marker, and the file comes back bit for bit.
+    let mut out = Vec::new();
+    transform::inverse_guarded(
+        TransformId::Jpeg,
+        &t.bytes,
+        &mut out,
+        &limits,
+        1,
+        Some(&dir),
+    )
+    .expect("the stream decodes");
+    assert_eq!(out, BASELINE);
+    assert!(!marker.exists(), "no marker after a decode that returned");
+
+    // Two decodes that did not come back (the process ended inside them) are counted, and the
+    // third try is still let in - an app that was only quit meanwhile reads its file - and clears it.
+    std::fs::write(&marker, b"decoding 2\n").unwrap();
+    let mut out = Vec::new();
+    transform::inverse_guarded(
+        TransformId::Jpeg,
+        &t.bytes,
+        &mut out,
+        &limits,
+        1,
+        Some(&dir),
+    )
+    .expect("the third try is let in");
+    assert_eq!(out, BASELINE);
+    assert!(!marker.exists(), "a decode that came back clears the count");
+
+    // Three that did not: refused by name, nothing decoded, the marker stays.
+    std::fs::write(&marker, b"decoding 3\n").unwrap();
+    let mut out = Vec::new();
+    let refused = transform::inverse_guarded(
+        TransformId::Jpeg,
+        &t.bytes,
+        &mut out,
+        &limits,
+        1,
+        Some(&dir),
+    );
+    assert!(
+        matches!(&refused, Err(azlin_compress::Error::Unsupported(why)) if why.contains("ended the program")),
+        "{refused:?}"
+    );
+    assert!(out.is_empty(), "the decoder was not entered");
+    assert!(marker.exists());
+
+    // No folder, no marker; no transform, no marker.
+    let mut out = Vec::new();
+    transform::inverse_guarded(TransformId::Jpeg, &t.bytes, &mut out, &limits, 1, None).unwrap();
+    assert_eq!(out, BASELINE);
+    let mut copied = Vec::new();
+    transform::inverse_guarded(
+        TransformId::None,
+        b"plain",
+        &mut copied,
+        &limits,
+        1,
+        Some(&dir),
+    )
+    .unwrap();
+    assert_eq!(copied, b"plain");
+    assert!(!decoding_marker(&dir, b"plain").exists());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// X-DELTA-AZDRIVE-KEYS-15: the pack members are containers decoded by `decode`; the same pill
+/// brackets them when the options name a folder.
+#[test]
+fn x_delta_azdrive_keys_15_a_container_with_a_transform_is_decoded_under_the_pill_too() {
+    let dir = folder("decode-container");
+    let options = Options {
+        threads: 1,
+        ..Options::idle()
+    }
+    .with_poison_dir(Some(dir.clone()));
+    let encoded = azlin_compress::encode(BASELINE, &options).expect("encodes");
+    assert_ne!(
+        encoded.report.transform,
+        TransformId::None,
+        "the JPEG is transformed"
+    );
+    let container = encoded.bytes.to_vec();
+
+    let plain = azlin_compress::decode(&container, &options).expect("decodes");
+    assert_eq!(&plain[..], BASELINE);
+    assert!(
+        !decoding_marker(&dir, &container).exists(),
+        "no marker after a decode that returned"
+    );
+
+    std::fs::write(decoding_marker(&dir, &container), b"decoding 3\n").unwrap();
+    let refused = azlin_compress::decode(&container, &options);
+    assert!(
+        matches!(&refused, Err(azlin_compress::Error::Unsupported(why)) if why.contains("ended the program")),
+        "{refused:?}"
+    );
+
+    // A container without a transform enters no decoder and takes no marker.
+    let stored =
+        azlin_compress::encode(b"just some text, no transform", &options).expect("encodes");
+    let text = azlin_compress::decode(&stored.bytes, &options).expect("decodes");
+    assert_eq!(&text[..], b"just some text, no transform");
+    assert!(!decoding_marker(&dir, &stored.bytes).exists());
+    let _ = std::fs::remove_dir_all(&dir);
+}

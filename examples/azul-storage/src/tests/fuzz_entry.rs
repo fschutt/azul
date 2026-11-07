@@ -12,7 +12,7 @@ use crate::{
         DriveKey, FileKey, ObjectId,
     },
     http1,
-    meta::{pointer, PackIndex, TestSealer},
+    meta::{pointer, PackIndex, Sealer, TestSealer},
 };
 
 /// An AZL1 object read with a file key and an object id the input names: `key (32) || id (16) ||
@@ -30,6 +30,13 @@ pub(crate) fn azl1_object(data: &[u8]) {
     let mut bytes = [0u8; 16];
     bytes.copy_from_slice(id);
     let id = ObjectId(bytes);
+    // The input as a FILE: written (detection, transforms, codecs) and read back.
+    let drive_key = DriveKey::from_bytes([7; 32]);
+    if let Ok((sealed, summary)) = azl1::encrypt(object, id, &drive_key, &WriteOptions::default()) {
+        if let Ok(own_key) = drive_key.unwrap_file_key(&summary.wrapped_key, &id) {
+            let _ = azl1::decrypt(&sealed, &id, &own_key);
+        }
+    }
     let _ = azl1::decrypt(object, &id, &file_key);
     if let Ok(open) = OpenObject::open_expecting(object, &id, &file_key, object.len() as u64) {
         let _ = open.read_all(object);
@@ -57,10 +64,54 @@ pub(crate) fn pointer_blob(data: &[u8]) {
     let _ = pointer::decode(data);
 }
 
-/// A sealed pack index of the drive index.
+/// A pack index of the drive index: the input is its PLAINTEXT, sealed first (the sealer checks its
+/// magic and tag before the parser sees a byte, so raw bytes never got past them).
 pub(crate) fn pack_index(data: &[u8]) {
     let sealer = TestSealer::new([5; 32]);
-    let _ = PackIndex::open(&sealer, "pack", data);
+    let Ok(sealed) = sealer.seal(crate::meta::keys::idx("pack").as_bytes(), data) else {
+        return;
+    };
+    let _ = PackIndex::open(&sealer, "pack", &sealed);
+}
+
+/// The read path of a stored transform: the first byte names it (0 none, 1 JPEG, 2 containers), the
+/// rest is the record stream Lepton's decoder and the preflate rebuild decode.
+pub(crate) fn records_inverse(data: &[u8]) {
+    use azlin_compress::{transform, Limits, TransformId};
+    let Some((id, stream)) = data.split_first() else {
+        return;
+    };
+    let id = match id % 3 {
+        0 => TransformId::None,
+        1 => TransformId::Jpeg,
+        _ => TransformId::Containers,
+    };
+    let limits = Limits {
+        max_decoded_len: 1 << 22,
+        ..Limits::default()
+    };
+    let mut out = Vec::new();
+    let _ = transform::inverse(id, &mut &*stream, &mut out, &limits, 1);
+}
+
+/// A container (AZC1) as a pack member or a stored object holds it.
+pub(crate) fn container_decode(data: &[u8]) {
+    let mut options = azlin_compress::Options::default();
+    options.limits.max_decoded_len = 1 << 22;
+    let _ = azlin_compress::decode(data, &options);
+}
+
+/// A tree and a commit of the drive index, as a pack hands them over.
+pub(crate) fn tree_decode(data: &[u8]) {
+    let _ = crate::meta::Tree::decode(data);
+    let _ = crate::meta::Commit::decode(data);
+}
+
+/// An S3 listing as a bucket answers it.
+pub(crate) fn list_xml(data: &[u8]) {
+    if let Ok(xml) = std::str::from_utf8(data) {
+        let _ = crate::s3::parse_listing(xml);
+    }
 }
 
 fn every_entry(data: &[u8]) {
@@ -69,6 +120,10 @@ fn every_entry(data: &[u8]) {
     http1_answer(data);
     pointer_blob(data);
     pack_index(data);
+    records_inverse(data);
+    container_decode(data);
+    tree_decode(data);
+    list_xml(data);
 }
 
 /// A fixed pseudo-random byte sequence (xorshift): the same inputs on every run.
@@ -164,4 +219,40 @@ fn x_ar5b_5_a_valid_sample_with_a_bit_flipped_is_an_error_or_a_value_and_never_a
             http1_answer(&sample[..cut]);
         }
     }
+}
+
+/// X-DELTA-AZDRIVE-KEYS-42: the old `pack_index` target gave raw bytes to `PackIndex::open`, whose
+/// sealer checks the magic and the tag first: nothing the fuzzer made ever reached the parser. The
+/// target seals the input first, as a member of the drive who holds the key can: a pack's real
+/// index plaintext, sealed that way, opens; the same plaintext raw is refused by the sealer.
+#[test]
+fn x_delta_azdrive_keys_42_the_pack_index_target_reaches_the_parser_by_sealing_its_input() {
+    use crate::meta::{keys, MetaError, PackWriter};
+    let sealer = TestSealer::new([5; 32]);
+    let mut writer = PackWriter::new();
+    writer.add(crate::meta::Kind::Blob, b"a blob of the index".to_vec());
+    let pack = writer.seal(&sealer).unwrap();
+    let context = keys::idx(&pack.name);
+    let plain = sealer.open(context.as_bytes(), &pack.idx).unwrap();
+
+    assert!(
+        matches!(
+            PackIndex::open(&sealer, &pack.name, &plain),
+            Err(MetaError::Sealed { .. })
+        ),
+        "raw bytes stop at the sealer: the old target never got further"
+    );
+    let sealed = sealer.seal(context.as_bytes(), &plain).unwrap();
+    assert!(PackIndex::open(&sealer, &pack.name, &sealed).is_ok());
+    // And the parser itself is reached with damage: a plaintext one byte short is a Corrupt, not a
+    // Sealed.
+    let short = sealer
+        .seal(context.as_bytes(), &plain[..plain.len() - 1])
+        .unwrap();
+    assert!(matches!(
+        PackIndex::open(&sealer, &pack.name, &short),
+        Err(MetaError::Corrupt { .. })
+    ));
+    pack_index(&plain);
+    pack_index(&plain[..plain.len() - 1]);
 }

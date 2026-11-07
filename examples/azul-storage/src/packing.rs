@@ -506,7 +506,10 @@ pub(crate) fn decode_record(
         .map_err(|e| corrupt(&format!("the file's size: {e}")))?;
     let expected = usize::try_from(size).map_err(|_| corrupt("it is larger than memory"))?;
     // The entry's size caps what the record may decode to.
-    let plain = azlin_compress::decode_member(codec_byte, data, expected, &Options::default())
+    // A member that is a container with a transform is decoded under the poison pill of the read
+    // path (Lepton, the preflate rebuild): a record that ended the program is not tried for ever.
+    let options = Options::default().with_poison_dir(codec::marker_dir());
+    let plain = azlin_compress::decode_member(codec_byte, data, expected, &options)
         .map_err(|e| CryptoError::from(e).for_key(path))?
         .to_vec();
     if plain.len() != expected || blake3::hash(&plain).as_bytes() != expected_hash {

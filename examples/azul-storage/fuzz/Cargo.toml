@@ -10,8 +10,12 @@
 #
 # The entry points are the same the unit tests run on a few thousand fixed inputs
 # (`src/tests/fuzz_entry.rs`), so a target here is a few lines: take the bytes, call the parser.
-# The AZL1 target takes `file key (32) || object id (16) || object`, so the fuzzer reaches the
-# segments and not only the commitment check.
+# The AZL1 target takes `file key (32) || object id (16) || object`: it reaches the header and the
+# commitment check; the info block and the segments are authenticated, so bytes that were not
+# sealed with the key stop there (X-DELTA-AZDRIVE-KEYS-42) - what a member who holds the key can
+# write is reached through `pack_index` (which seals its input), `records_inverse` and
+# `container_decode` (the decoders, which authentication does not guard), `tree_decode` and
+# `list_xml`. `corpus/` is not committed.
 [package]
 name = "azul-storage-fuzz"
 version = "0.0.0"
@@ -24,6 +28,7 @@ cargo-fuzz = true
 [dependencies]
 libfuzzer-sys = "0.4"
 azul-storage = { path = "..", features = ["encryption"] }
+azlin-compress = { path = "../../azlin-compress" }
 
 # Not a member of azul's workspace: it needs nightly and libfuzzer, and keeps both out of the
 # lockfile of the apps.
@@ -60,6 +65,34 @@ bench = false
 [[bin]]
 name = "pack_index"
 path = "fuzz_targets/pack_index.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "records_inverse"
+path = "fuzz_targets/records_inverse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "container_decode"
+path = "fuzz_targets/container_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "tree_decode"
+path = "fuzz_targets/tree_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "list_xml"
+path = "fuzz_targets/list_xml.rs"
 test = false
 doc = false
 bench = false

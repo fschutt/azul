@@ -63,6 +63,17 @@ pub fn set_analysis_marker_dir(dir: Option<std::path::PathBuf>) {
         .unwrap_or_else(std::sync::PoisonError::into_inner) = dir;
 }
 
+/// The folder of the poison pill as the application set it ([`set_analysis_marker_dir`]): the
+/// analysis of a file for a transform leaves its marker there, and so does the decode of a stored
+/// transform (the read path runs the same decoders over bytes any member of the drive wrote).
+#[must_use]
+pub(crate) fn marker_dir() -> Option<std::path::PathBuf> {
+    ANALYSIS_MARKERS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clone()
+}
+
 /// How a file is compressed when it is written.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Compression {
@@ -86,10 +97,7 @@ impl Compression {
             Compression::Idle => Options::idle(),
         };
         options.segment_size = segment_size;
-        options.poison_dir = ANALYSIS_MARKERS
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .clone();
+        options.poison_dir = marker_dir();
         Some(match extension {
             Some(extension) => options.with_extension(extension),
             None => options,

@@ -507,9 +507,31 @@ pub fn decode_to<R: Read, W: Write>(mut reader: R, writer: W, options: &Options)
     Ok(written)
 }
 
-/// Decodes a container held in memory.
+/// Decodes a container held in memory. With [`Options::poison_dir`] a container with a transform
+/// is decoded under the poison pill of the read path ([`transform::inverse_guarded`]): one whose
+/// decode has ended the program [`transform::marker::DECODE_TRIES`] times is refused.
 pub fn decode(container: &[u8], options: &Options) -> Result<Zeroizing<Vec<u8>>, Error> {
     let mut out = Zeroizing::new(Vec::with_capacity(container.len().saturating_mul(2).min(64 << 20)));
+    // Held until the decode is over; the header is read once more to know whether a decoder runs.
+    let _marker = match (
+        options.poison_dir.as_deref(),
+        read_header(&mut Cursor::new(container)),
+    ) {
+        (Some(dir), Ok(Header { transform, .. })) if transform != TransformId::None => {
+            match transform::marker::Marker::enter_decoding(dir, container) {
+                transform::marker::Entered::Clear(marker) => Some(marker),
+                transform::marker::Entered::Left => {
+                    return Err(Error::Unsupported(format!(
+                        "a stored transform that has ended the program {} times is not decoded again",
+                        transform::marker::DECODE_TRIES
+                    )))
+                }
+                transform::marker::Entered::Unavailable => None,
+            }
+        }
+        // No folder, no transform, or a header the decode below names.
+        _ => None,
+    };
     decode_to(Cursor::new(container), &mut *out, options)?;
     Ok(out)
 }

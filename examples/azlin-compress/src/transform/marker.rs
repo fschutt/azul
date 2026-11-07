@@ -11,6 +11,17 @@
 //!
 //! The marker holds no part of the file, only its hash. A folder that cannot be written is no
 //! protection and no obstacle: the analysis runs as before.
+//!
+//! The READ path has the same hole (X-DELTA-AZDRIVE-KEYS-15): decoding a stored transform runs
+//! Lepton's decoder and the preflate rebuild over bytes that any member of the drive wrote (it holds
+//! the file key, so "authenticated" says nothing of what is inside), and `catch_unwind` around them
+//! is dead under `panic = "abort"`. A member who stores a malformed stream ends every device that
+//! reads it, and the sync reads it again after each restart. The decode is bracketed by a marker
+//! of the stream's hash too, with a count: the first try that does not come back leaves `1`, and
+//! a read that finds the marker counts up and goes on - an app that was only quit or killed
+//! meanwhile reads the file all the same, and removes the marker - until a stream has ended the
+//! program [`DECODE_TRIES`] times: then it is refused by name instead of looped on. The first abort
+//! is not prevented: that needs a process of its own for the decoder.
 
 use std::{
     fs::{self, OpenOptions},
@@ -27,6 +38,10 @@ pub(crate) enum Entered {
     /// No marker could be written (no folder, no room): the analysis runs without one.
     Unavailable,
 }
+
+/// How many decodes of the same stream may begin without having come back before the next is
+/// refused ([`Marker::enter_decoding`]).
+pub(crate) const DECODE_TRIES: u32 = 3;
 
 /// The marker of an analysis under way; removed when it is dropped.
 pub(crate) struct Marker {
@@ -55,6 +70,50 @@ impl Marker {
                 Entered::Clear(Marker { path })
             }
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Entered::Left,
+            Err(_) => Entered::Unavailable,
+        }
+    }
+}
+
+/// The marker's file name for the decode of `input`.
+pub(crate) fn decoding_marker_name(input: &[u8]) -> String {
+    format!("{}.decoding", blake3::hash(input).to_hex())
+}
+
+impl Marker {
+    /// Writes (or counts up) the marker of the DECODE of the stream `input` into `dir`. The file
+    /// says how many decodes of this stream began without coming back; one more is let in until
+    /// [`DECODE_TRIES`] have, then `Left`. A marker that cannot be read or written is no
+    /// protection and no obstacle (`Unavailable`).
+    pub(crate) fn enter_decoding(dir: &Path, input: &[u8]) -> Entered {
+        if fs::create_dir_all(dir).is_err() {
+            return Entered::Unavailable;
+        }
+        let path = dir.join(decoding_marker_name(input));
+        let before = match fs::read_to_string(&path) {
+            Ok(text) => text
+                .trim()
+                .strip_prefix("decoding ")
+                .and_then(|n| n.parse::<u32>().ok())
+                // Not a count (a stray file of the same name): one try is on record.
+                .unwrap_or(1),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => 0,
+            Err(_) => return Entered::Unavailable,
+        };
+        if before >= DECODE_TRIES {
+            return Entered::Left;
+        }
+        let written = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(&path)
+            .and_then(|mut file| {
+                file.write_all(format!("decoding {}\n", before + 1).as_bytes())?;
+                file.sync_all()
+            });
+        match written {
+            Ok(()) => Entered::Clear(Marker { path }),
             Err(_) => Entered::Unavailable,
         }
     }
@@ -113,6 +172,74 @@ mod tests {
         // A folder below a file cannot be made.
         assert!(matches!(
             Marker::enter(&blocker.join("below"), b"data"),
+            Entered::Unavailable
+        ));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// X-DELTA-AZDRIVE-KEYS-15: a decode that returned leaves nothing; one that did not leaves a
+    /// count, the next try counts it up and goes on, and a stream that ended the program
+    /// DECODE_TRIES times is refused - a crash loop stops, an app that was only quit once does
+    /// not lock its file out.
+    #[test]
+    fn a_stream_that_ended_the_program_three_times_is_not_decoded_a_fourth() {
+        let dir = folder("decoding");
+        let stream = b"a stream that ends the program";
+        // A decode that comes back leaves no marker, however often it runs.
+        for _ in 0..5 {
+            let Entered::Clear(marker) = Marker::enter_decoding(&dir, stream) else {
+                panic!("a decode that came back is let in again");
+            };
+            drop(marker);
+            assert!(!dir.join(decoding_marker_name(stream)).exists());
+        }
+        // Decodes that do not come back (the marker is forgotten, as an abort does).
+        for tries in 1..=DECODE_TRIES {
+            let Entered::Clear(marker) = Marker::enter_decoding(&dir, stream) else {
+                panic!("try {tries} is let in");
+            };
+            std::mem::forget(marker);
+            assert_eq!(
+                fs::read_to_string(dir.join(decoding_marker_name(stream)))
+                    .unwrap()
+                    .trim(),
+                format!("decoding {tries}")
+            );
+        }
+        assert!(matches!(
+            Marker::enter_decoding(&dir, stream),
+            Entered::Left
+        ));
+        // Another stream is let in, and the analysis marker of the same bytes is another file.
+        assert!(matches!(
+            Marker::enter_decoding(&dir, b"another"),
+            Entered::Clear(_)
+        ));
+        assert!(matches!(Marker::enter(&dir, stream), Entered::Clear(_)));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_stray_file_of_the_markers_name_counts_as_one_try_and_a_folder_that_cannot_be_made_blocks_nothing(
+    ) {
+        let dir = folder("decoding-stray");
+        let stream = b"stream";
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join(decoding_marker_name(stream)), "not a count").unwrap();
+        let Entered::Clear(marker) = Marker::enter_decoding(&dir, stream) else {
+            panic!("a stray file is one try, not a refusal");
+        };
+        std::mem::forget(marker);
+        assert_eq!(
+            fs::read_to_string(dir.join(decoding_marker_name(stream)))
+                .unwrap()
+                .trim(),
+            "decoding 2"
+        );
+        let blocker = dir.join("file");
+        fs::write(&blocker, b"x").unwrap();
+        assert!(matches!(
+            Marker::enter_decoding(&blocker.join("below"), b"data"),
             Entered::Unavailable
         ));
         let _ = fs::remove_dir_all(&dir);
