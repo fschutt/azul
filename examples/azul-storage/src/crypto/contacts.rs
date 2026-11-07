@@ -16,9 +16,9 @@
 //! - a PRINTED SHARE `S<n>-<the split's id, 8 hex>-<the share as a recovery code's text>`: on
 //!   paper, unsealed - one share alone says nothing about the code;
 //! - a RECOVERY REQUEST `azlin-recover:<64 hex>`: the public half of a one-time key the
-//!   recovering computer made, with its SAFETY NUMBER (12 digits from it) that the contact
-//!   compares with the owner by phone or in person before answering - against scams that fake
-//!   a friend;
+//!   recovering computer made, with its SAFETY NUMBER (20 digits from it, [`SAFETY_DIGITS`]) that
+//!   the contact compares with the owner by phone or in person before answering - against scams
+//!   that fake a friend;
 //! - a REPLY `azlin-share-reply:<hex>`: the contact's share sealed to the request's key.
 //!
 //! The split's id is the first 4 bytes of a BLAKE3 key derivation of the code: every share
