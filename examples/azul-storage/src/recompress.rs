@@ -25,6 +25,20 @@
 //!   [`STATE_FORMAT`] starts the pass over every file once: the state file of the format before
 //!   the transforms is refused, and the pass begins from scratch.
 
+// panic = "abort" in every shipped profile, and this module reads bytes other people wrote: no
+// unwrap, expect, panic, todo or unreachable in its shipped code (ARCH28 RF50).
+#![cfg_attr(
+    not(test),
+    deny(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::unreachable,
+        clippy::todo,
+        clippy::unimplemented
+    )
+)]
+
 use std::io::{Cursor, Read};
 
 use serde::{Deserialize, Serialize};

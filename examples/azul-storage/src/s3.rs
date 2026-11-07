@@ -11,6 +11,20 @@
 //! [`Transport`], so the same code runs over azul's HTTP client in the apps and
 //! over a recording fake in the tests.
 
+// panic = "abort" in every shipped profile, and this module reads bytes other people wrote: no
+// unwrap, expect, panic, todo or unreachable in its shipped code (ARCH28 RF50).
+#![cfg_attr(
+    not(test),
+    deny(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::unreachable,
+        clippy::todo,
+        clippy::unimplemented
+    )
+)]
+
 use std::{
     fmt,
     io::Read,

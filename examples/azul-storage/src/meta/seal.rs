@@ -107,6 +107,10 @@ impl<S: Sealer + ?Sized> Sealer for Box<S> {
 type HmacSha256 = Hmac<Sha256>;
 
 /// HMAC-SHA256 of the parts, one after the other.
+#[allow(
+    clippy::expect_used,
+    reason = "HMAC takes a key of any length: new_from_slice cannot fail"
+)]
 fn hmac_parts(key: &[u8], parts: &[&[u8]]) -> [u8; 32] {
     let mut mac = <HmacSha256 as Mac>::new_from_slice(key).expect("HMAC takes a key of any length");
     for part in parts {
@@ -165,6 +169,10 @@ impl TestSealer {
         }
     }
 
+    #[allow(
+        clippy::expect_used,
+        reason = "HMAC takes a key of any length: new_from_slice cannot fail"
+    )]
     fn tag_mac(&self, context: &[u8], nonce: &[u8], ciphertext: &[u8]) -> HmacSha256 {
         let mut mac =
             <HmacSha256 as Mac>::new_from_slice(&self.mac).expect("HMAC takes a key of any length");

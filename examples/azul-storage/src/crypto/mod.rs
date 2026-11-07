@@ -36,6 +36,20 @@
 //! `*_CONTEXT` constants): one key, one purpose. Secrets wipe themselves when dropped
 //! (`zeroize`) and print as `***`; nothing here logs.
 
+// panic = "abort" in every shipped profile, and this module reads bytes other people wrote: no
+// unwrap, expect, panic, todo or unreachable in its shipped code (ARCH28 RF50).
+#![cfg_attr(
+    not(test),
+    deny(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::unreachable,
+        clippy::todo,
+        clippy::unimplemented
+    )
+)]
+
 pub mod azl1;
 pub mod codec;
 pub mod contacts;
@@ -649,17 +663,22 @@ fn hex_digit(c: u8) -> Option<u8> {
 }
 
 /// The bytes of hex text (either case); `None` for anything else.
+#[deny(clippy::indexing_slicing)]
 pub(crate) fn from_hex(text: &str) -> Option<Vec<u8>> {
     let text = text.as_bytes();
     if text.len() % 2 != 0 {
         return None;
     }
-    text.chunks(2)
-        .map(|pair| Some((hex_digit(pair[0])? << 4) | hex_digit(pair[1])?))
+    text.chunks_exact(2)
+        .map(|pair| match pair {
+            [high, low] => Some((hex_digit(*high)? << 4) | hex_digit(*low)?),
+            _ => None,
+        })
         .collect()
 }
 
 /// Exactly `N` bytes of hex text.
+#[deny(clippy::indexing_slicing)]
 pub(crate) fn hex_array<const N: usize>(text: &str) -> Option<[u8; N]> {
     from_hex(text)?.try_into().ok()
 }

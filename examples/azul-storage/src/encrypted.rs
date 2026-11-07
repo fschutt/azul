@@ -34,6 +34,20 @@
 //! - A drive that packs ([`EncryptedDrive::with_packing`]) puts small files into shared AZL1
 //!   objects instead, each file read back with one ranged GET ([`crate::packing`]).
 
+// panic = "abort" in every shipped profile, and this module reads bytes other people wrote: no
+// unwrap, expect, panic, todo or unreachable in its shipped code (ARCH28 RF50).
+#![cfg_attr(
+    not(test),
+    deny(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::unreachable,
+        clippy::todo,
+        clippy::unimplemented
+    )
+)]
+
 use std::{
     cell::Cell,
     collections::{BTreeMap, HashMap, HashSet},

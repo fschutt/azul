@@ -36,6 +36,20 @@
 //! - A share is a snapshot: files added to a shared folder later are not in it (live folder
 //!   shares need folder keys in the drive index).
 
+// panic = "abort" in every shipped profile, and this module reads bytes other people wrote: no
+// unwrap, expect, panic, todo or unreachable in its shipped code (ARCH28 RF50).
+#![cfg_attr(
+    not(test),
+    deny(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::unreachable,
+        clippy::todo,
+        clippy::unimplemented
+    )
+)]
+
 use crate::{
     crypto::{
         azl1,

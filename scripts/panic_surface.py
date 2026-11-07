@@ -13,9 +13,11 @@ asks for the list to be lowered, so the list only shrinks.
     scripts/panic_surface.py --print    print the counts
 
 What it is not: a proof of reach. A panic that nothing hostile can trigger is counted like one
-that anything can; the lint set of the crates (`clippy::unwrap_used`, `expect_used`, `panic`,
-`unreachable`, `todo`, `unimplemented`, denied outside tests in azlin-preflate and azlin-compress)
-and the fuzz targets (`examples/azul-storage/fuzz`) are what keep the count honest.
+that anything can; the lint set (`clippy::unwrap_used`, `expect_used`, `panic`, `unreachable`,
+`todo`, `unimplemented`, denied outside tests in azlin-preflate and azlin-compress and, module by
+module, in the parsing modules of azul-storage - `examples/azul-srcgate/tests/lint_gate.rs` keeps
+the attributes there) and the fuzz targets (`examples/azul-storage/fuzz`,
+`examples/azcloud-kit/fuzz`) are what keep the count honest.
 """
 
 import json

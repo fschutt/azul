@@ -37,13 +37,10 @@
   },
   "azul-storage": {
     "total": {
-      "expect": 4
+      "expect": 2
     },
     "files": {
       "meta/seal.rs": {
-        "expect": 2
-      },
-      "meta/tree.rs": {
         "expect": 2
       }
     }

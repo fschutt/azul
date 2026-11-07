@@ -46,6 +46,20 @@
 //! Every step can be run again: a rotation that stopped (a crash, no network) resumes from the
 //! journal on the device that started it (the one with K2), with the same call.
 
+// panic = "abort" in every shipped profile, and this module reads bytes other people wrote: no
+// unwrap, expect, panic, todo or unreachable in its shipped code (ARCH28 RF50).
+#![cfg_attr(
+    not(test),
+    deny(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::unreachable,
+        clippy::todo,
+        clippy::unimplemented
+    )
+)]
+
 use std::{collections::BTreeSet, sync::Arc};
 
 use serde::{Deserialize, Serialize};

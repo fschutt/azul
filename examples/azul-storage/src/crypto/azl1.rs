@@ -190,25 +190,51 @@ fn reserve(len: u64) -> usize {
     usize::try_from(len).map_or(RESERVE_CAP, |len| len.min(RESERVE_CAP))
 }
 
-fn le_u16(bytes: &[u8]) -> u16 {
-    u16::from_le_bytes([bytes[0], bytes[1]])
-}
+// The header and the trailer are read by offsets, and no offset is trusted to lie inside the
+// bytes it is read from: the readers below answer the damaged-object error where a slice or an
+// index would panic (`panic = "abort"` is the shipped profile). The functions that read an
+// object's header or trailer deny `clippy::indexing_slicing` (ARCH28 RF50).
 
-fn le_u32(bytes: &[u8]) -> u32 {
-    u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])
-}
-
-fn le_u64(bytes: &[u8]) -> u64 {
-    let mut out = [0u8; 8];
-    out.copy_from_slice(&bytes[..8]);
-    u64::from_le_bytes(out)
-}
-
-/// The `N` bytes of a slice of exactly `N`.
-fn array<const N: usize>(bytes: &[u8]) -> Result<[u8; N], CryptoError> {
+/// The `N` bytes of `bytes` from `at`.
+#[deny(clippy::indexing_slicing)]
+fn array_at<const N: usize>(bytes: &[u8], at: usize) -> Result<[u8; N], CryptoError> {
     bytes
-        .try_into()
-        .map_err(|_| damaged("a header field has the wrong length"))
+        .get(at..)
+        .and_then(|rest| rest.first_chunk::<N>())
+        .copied()
+        .ok_or_else(|| damaged("a header field lies outside the header"))
+}
+
+/// `bytes[range]`.
+#[deny(clippy::indexing_slicing)]
+fn field<R: std::slice::SliceIndex<[u8], Output = [u8]>>(
+    bytes: &[u8],
+    range: R,
+) -> Result<&[u8], CryptoError> {
+    bytes
+        .get(range)
+        .ok_or_else(|| damaged("a header field lies outside the header"))
+}
+
+/// `bytes[at]`.
+#[deny(clippy::indexing_slicing)]
+fn byte(bytes: &[u8], at: usize) -> Result<u8, CryptoError> {
+    bytes
+        .get(at)
+        .copied()
+        .ok_or_else(|| damaged("a header field lies outside the header"))
+}
+
+fn le_u16(bytes: &[u8], at: usize) -> Result<u16, CryptoError> {
+    array_at::<2>(bytes, at).map(u16::from_le_bytes)
+}
+
+fn le_u32(bytes: &[u8], at: usize) -> Result<u32, CryptoError> {
+    array_at::<4>(bytes, at).map(u32::from_le_bytes)
+}
+
+fn le_u64(bytes: &[u8], at: usize) -> Result<u64, CryptoError> {
+    array_at::<8>(bytes, at).map(u64::from_le_bytes)
 }
 
 /// A segment size this build writes and reads.
@@ -301,17 +327,18 @@ impl Info {
         out
     }
 
+    #[deny(clippy::indexing_slicing)]
     fn parse(bytes: &[u8]) -> Result<Info, CryptoError> {
         if bytes.len() != INFO_LEN {
             return Err(damaged("the header info has the wrong length"));
         }
-        let plaintext_size = le_u64(&bytes[0..8]);
+        let plaintext_size = le_u64(bytes, 0)?;
         Ok(Info {
             plaintext_size,
-            segment_count: le_u64(&bytes[8..16]),
-            object_len: le_u64(&bytes[16..24]),
-            blake3: array(&bytes[24..56])?,
-            flags: le_u32(&bytes[56..60]),
+            segment_count: le_u64(bytes, 8)?,
+            object_len: le_u64(bytes, 16)?,
+            blake3: array_at(bytes, 24)?,
+            flags: le_u32(bytes, 56)?,
             stream_len: plaintext_size,
         })
     }
@@ -377,12 +404,13 @@ impl TransformBlock {
 
     /// The block of a file of `plaintext_size` bytes: a transform this build reads, a stream
     /// no longer than that transform can make of such a file.
+    #[deny(clippy::indexing_slicing)]
     fn parse(bytes: &[u8], plaintext_size: u64) -> Result<TransformBlock, CryptoError> {
         if bytes.len() != TRANSFORM_LEN {
             return Err(damaged("the transform block has the wrong length"));
         }
-        let id = TransformId::from_bytes(bytes[0], bytes[1])?;
-        if id == TransformId::None || bytes[2..8].iter().any(|b| *b != 0) {
+        let id = TransformId::from_bytes(byte(bytes, 0)?, byte(bytes, 1)?)?;
+        if id == TransformId::None || field(bytes, 2..8)?.iter().any(|b| *b != 0) {
             return Err(CryptoError::Unsupported(String::from(
                 "a transform block of a newer version",
             )));
@@ -393,14 +421,14 @@ impl TransformBlock {
                 "a transformed file larger than this version transforms",
             )));
         }
-        let transformed_len = le_u64(&bytes[8..16]);
+        let transformed_len = le_u64(bytes, 8)?;
         if transformed_len > transform::max_transformed_len(id, plaintext_size) {
             return Err(damaged("the transformed stream is longer than its file allows"));
         }
         Ok(TransformBlock {
             id,
             transformed_len,
-            blake3: array(&bytes[16..48])?,
+            blake3: array_at(bytes, 16)?,
         })
     }
 }
@@ -1046,60 +1074,62 @@ impl PublicHeader {
 
     /// The header in the first [`HEADER_LEN`] bytes of `bytes`: its magic, version, length and
     /// segment size checked, its unused bytes zero.
+    #[deny(clippy::indexing_slicing)]
     pub fn parse(bytes: &[u8]) -> Result<PublicHeader, CryptoError> {
         let Some(bytes) = bytes.get(..HEADER_LEN) else {
             return Err(damaged("the object is shorter than an AZL1 header"));
         };
-        if bytes[..MAGIC.len()] != MAGIC[..] {
+        if !bytes.starts_with(&MAGIC) {
             return Err(damaged("not an AZL1 object"));
         }
-        let version = le_u16(&bytes[OFF_VERSION..]);
+        let version = le_u16(bytes, OFF_VERSION)?;
         let used = match version {
             VERSION => HEADER_USED,
             VERSION_TRANSFORMED => HEADER_USED_TRANSFORMED,
             other => return Err(CryptoError::Unsupported(format!("AZL1 version {other}"))),
         };
-        if le_u16(&bytes[OFF_FLAGS..]) != 0 {
+        if le_u16(bytes, OFF_FLAGS)? != 0 {
             return Err(CryptoError::Unsupported(String::from(
                 "header flags of a newer version",
             )));
         }
-        let header_len = le_u32(&bytes[OFF_HEADER_LEN..]);
+        let header_len = le_u32(bytes, OFF_HEADER_LEN)?;
         if header_len as usize != HEADER_LEN {
             return Err(CryptoError::Unsupported(format!(
                 "a header of {header_len} bytes"
             )));
         }
-        let segment_size = le_u32(&bytes[OFF_SEGMENT_SIZE..]);
+        let segment_size = le_u32(bytes, OFF_SEGMENT_SIZE)?;
         check_segment_size(segment_size)?;
-        let unused = bytes[OFF_PREFIX + PREFIX_LEN..OFF_COMMITMENT]
+        let unused = field(bytes, OFF_PREFIX + PREFIX_LEN..OFF_COMMITMENT)?
             .iter()
-            .chain(&bytes[used..]);
+            .chain(field(bytes, used..)?);
         if unused.copied().any(|b| b != 0) {
             return Err(damaged("the header's unused bytes are not zero"));
         }
-        let wrapped_key = WrappedKey::from_bytes(&bytes[OFF_WRAP..OFF_WRAP + WrappedKey::LEN])
-            .ok_or_else(|| damaged("the wrapped file key"))?;
+        let wrapped_key =
+            WrappedKey::from_bytes(field(bytes, OFF_WRAP..OFF_WRAP + WrappedKey::LEN)?)
+                .ok_or_else(|| damaged("the wrapped file key"))?;
         let sealed_transform = if version == VERSION_TRANSFORMED {
             Some((
-                array(&bytes[OFF_TRANSFORM_NONCE..OFF_TRANSFORM_NONCE + NONCE_LEN])?,
-                array(&bytes[OFF_TRANSFORM..HEADER_USED_TRANSFORMED])?,
+                array_at::<NONCE_LEN>(bytes, OFF_TRANSFORM_NONCE)?,
+                array_at::<{ TRANSFORM_LEN + TAG_LEN }>(bytes, OFF_TRANSFORM)?,
             ))
         } else {
             None
         };
         Ok(PublicHeader {
             segment_size,
-            object_id: ObjectId(array(&bytes[OFF_OBJECT_ID..OFF_OBJECT_ID + OBJECT_ID_LEN])?),
+            object_id: ObjectId(array_at::<OBJECT_ID_LEN>(bytes, OFF_OBJECT_ID)?),
             wrapped_key,
             version,
             sealed_transform,
-            context: array(&bytes[..CONTEXT_LEN])?,
-            prefix: array(&bytes[OFF_PREFIX..OFF_PREFIX + PREFIX_LEN])?,
-            commitment: array(&bytes[OFF_COMMITMENT..OFF_COMMITMENT + COMMITMENT_LEN])?,
-            info_nonce: array(&bytes[OFF_INFO_NONCE..OFF_INFO_NONCE + NONCE_LEN])?,
-            sealed_info: array(&bytes[OFF_INFO..OFF_INFO + INFO_LEN + TAG_LEN])?,
-            trailer_nonce: array(&bytes[OFF_TRAILER_NONCE..OFF_TRAILER_NONCE + NONCE_LEN])?,
+            context: array_at::<CONTEXT_LEN>(bytes, 0)?,
+            prefix: array_at::<PREFIX_LEN>(bytes, OFF_PREFIX)?,
+            commitment: array_at::<COMMITMENT_LEN>(bytes, OFF_COMMITMENT)?,
+            info_nonce: array_at::<NONCE_LEN>(bytes, OFF_INFO_NONCE)?,
+            sealed_info: array_at::<{ INFO_LEN + TAG_LEN }>(bytes, OFF_INFO)?,
+            trailer_nonce: array_at::<NONCE_LEN>(bytes, OFF_TRAILER_NONCE)?,
         })
     }
 
@@ -1154,6 +1184,7 @@ impl PublicHeader {
 
     /// Where every segment starts, then where the trailer starts, from the object's tail (its
     /// last `trailer + 8` bytes, read from `tail_start`).
+    #[deny(clippy::indexing_slicing)]
     fn segment_offsets(
         &self,
         keys: &ObjectKeys,
@@ -1165,7 +1196,7 @@ impl PublicHeader {
         if tail.len() != trailer + LENGTH_FIELD as usize {
             return Err(damaged("the object is cut short"));
         }
-        if le_u64(&tail[trailer..]) != trailer as u64 {
+        if le_u64(tail, trailer)? != trailer as u64 {
             return Err(damaged("the trailer's length does not match the header"));
         }
         let table = keys
@@ -1173,7 +1204,7 @@ impl PublicHeader {
             .decrypt(
                 XNonce::from_slice(&self.trailer_nonce),
                 Payload {
-                    msg: &tail[..trailer],
+                    msg: field(tail, ..trailer)?,
                     aad: &self.context,
                 },
             )
@@ -1182,7 +1213,7 @@ impl PublicHeader {
         let mut offsets = Vec::with_capacity(table.len() / TRAILER_ENTRY + 1);
         let mut at = HEADER_LEN as u64;
         for (index, entry) in table.chunks_exact(TRAILER_ENTRY).enumerate() {
-            let len = u64::from(le_u32(entry));
+            let len = u64::from(le_u32(entry, 0)?);
             let plain = info.segment_plain_len(segment_size, index as u64);
             if !(SEGMENT_OVERHEAD..=plain + SEGMENT_OVERHEAD).contains(&len) {
                 return Err(damaged(format!("segment {index} has an impossible length")));

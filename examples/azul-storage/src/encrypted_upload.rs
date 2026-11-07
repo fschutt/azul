@@ -18,6 +18,20 @@
 //! The ciphertext holds no plaintext and the record no key: the file key in it is wrapped
 //! with the drive key, as in the object's own header.
 
+// panic = "abort" in every shipped profile, and this module reads bytes other people wrote: no
+// unwrap, expect, panic, todo or unreachable in its shipped code (ARCH28 RF50).
+#![cfg_attr(
+    not(test),
+    deny(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::unreachable,
+        clippy::todo,
+        clippy::unimplemented
+    )
+)]
+
 use std::{
     fs::{self, File, OpenOptions},
     io::{self, Write},

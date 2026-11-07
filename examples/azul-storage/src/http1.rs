@@ -13,6 +13,19 @@
 //! taken by a [`Declared`] count that cannot run past the answer, and no size in it reserves
 //! memory ahead of the bytes (ARCH28 RF50).
 
+// panic = "abort" in every shipped profile, and this module reads bytes other people wrote: no
+// unwrap, expect, panic, todo or unreachable in its shipped code (ARCH28 RF50).
+#![cfg_attr(
+    not(test),
+    deny(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::unreachable,
+        clippy::todo,
+        clippy::unimplemented
+    )
+)]
 #![deny(clippy::indexing_slicing)]
 
 use crate::{

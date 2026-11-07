@@ -364,6 +364,7 @@ impl MemberWrap {
     }
 
     /// The wrap of a key file.
+    #[deny(clippy::indexing_slicing)]
     pub fn parse(bytes: &[u8]) -> Result<MemberWrap, CryptoError> {
         let file: MemberFile =
             serde_json::from_slice(bytes).map_err(|_| damaged("not a member key file"))?;
@@ -398,6 +399,7 @@ fn check_file(format: &str, version: u32, kind: &str, expected: &str) -> Result<
 
 /// The value of one Crockford base32 character (either case; `O` reads as 0, `I` and `L` as
 /// 1, as Crockford's decoding does).
+#[deny(clippy::indexing_slicing)]
 fn crockford_value(c: char) -> Option<u32> {
     match c.to_ascii_uppercase() {
         'O' => Some(0),
@@ -466,6 +468,7 @@ impl RecoveryCode {
     /// spaces, `O` for 0 and `I` / `L` for 1. `None` unless it is exactly 26 characters whose
     /// last two bits are zero.
     #[must_use]
+    #[deny(clippy::indexing_slicing)]
     pub fn parse(text: &str) -> Option<RecoveryCode> {
         let mut code = RecoveryCode([0u8; RECOVERY_CODE_LEN]);
         let mut filled = 0;
@@ -485,7 +488,7 @@ impl RecoveryCode {
             bits += 5;
             if bits >= 8 {
                 bits -= 8;
-                code.0[filled] = (buffer >> bits) as u8;
+                *code.0.get_mut(filled)? = (buffer >> bits) as u8;
                 filled += 1;
             }
         }
@@ -723,6 +726,7 @@ impl RecoveryWrap {
     }
 
     /// The wrap of a key file; its cost must be one this build derives with.
+    #[deny(clippy::indexing_slicing)]
     pub fn parse(bytes: &[u8]) -> Result<RecoveryWrap, CryptoError> {
         let file: RecoveryFile =
             serde_json::from_slice(bytes).map_err(|_| damaged("not a recovery key file"))?;
@@ -917,6 +921,7 @@ impl KeyChain {
 
     /// The chain of a key chain file; a file over [`CHAIN_MAX_BYTES`] or holding more than
     /// [`CHAIN_MAX_LINKS`] links is refused.
+    #[deny(clippy::indexing_slicing)]
     pub fn parse(bytes: &[u8]) -> Result<KeyChain, CryptoError> {
         if bytes.len() > CHAIN_MAX_BYTES {
             return Err(damaged("a key chain file of an unreasonable size"));

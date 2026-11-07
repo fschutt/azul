@@ -2,6 +2,20 @@
 //! read: the ListObjectsV2 `ListBucketResult` and the `Error` body.
 //! Elements are matched by local name, so the S3 namespace does not matter.
 
+// panic = "abort" in every shipped profile, and this module reads bytes other people wrote: no
+// unwrap, expect, panic, todo or unreachable in its shipped code (ARCH28 RF50).
+#![cfg_attr(
+    not(test),
+    deny(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::unreachable,
+        clippy::todo,
+        clippy::unimplemented
+    )
+)]
+
 use roxmltree::{Document, Node};
 
 use crate::{time::parse_iso8601, DriveError, ListPage, ObjectInfo, ServiceError};

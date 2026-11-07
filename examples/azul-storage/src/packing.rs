@@ -34,6 +34,20 @@
 //! - **Quota and dedup:** the quota counts a pack's stored bytes once, padding and garbage
 //!   included; nothing is deduplicated.
 
+// panic = "abort" in every shipped profile, and this module reads bytes other people wrote: no
+// unwrap, expect, panic, todo or unreachable in its shipped code (ARCH28 RF50).
+#![cfg_attr(
+    not(test),
+    deny(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::unreachable,
+        clippy::todo,
+        clippy::unimplemented
+    )
+)]
+
 use std::{
     collections::{BTreeMap, HashMap, HashSet, VecDeque},
     fs,

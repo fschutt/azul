@@ -80,6 +80,20 @@
 //! - `policy` (feature `encryption`): `.azlin/policy.toml` (members, roles, folder grants) and
 //!   the members' key wraps as files of the repository: every membership change a commit.
 
+// panic = "abort" in every shipped profile, and this module reads bytes other people wrote: no
+// unwrap, expect, panic, todo or unreachable in its shipped code (ARCH28 RF50).
+#![cfg_attr(
+    not(test),
+    deny(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::unreachable,
+        clippy::todo,
+        clippy::unimplemented
+    )
+)]
+
 pub mod bucket;
 #[cfg(feature = "index-cache")]
 pub mod cache;

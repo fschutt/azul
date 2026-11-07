@@ -22,6 +22,20 @@
 //! The other devices must have stopped writing plaintext (they see `.azlin/keys/` and open the
 //! drive encrypted): a plaintext write between the last check and the delete would be lost.
 
+// panic = "abort" in every shipped profile, and this module reads bytes other people wrote: no
+// unwrap, expect, panic, todo or unreachable in its shipped code (ARCH28 RF50).
+#![cfg_attr(
+    not(test),
+    deny(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::unreachable,
+        clippy::todo,
+        clippy::unimplemented
+    )
+)]
+
 use std::{
     collections::BTreeMap,
     io::{self, Read},

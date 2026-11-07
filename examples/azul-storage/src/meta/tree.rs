@@ -36,12 +36,17 @@ pub fn segments(path: &str) -> Result<Vec<&str>, MetaError> {
             .iter()
             .any(|p| !is_valid_name(p) || p.starts_with(SHARD_PREFIX))
     {
-        return Err(MetaError::Corrupt {
-            key: path.to_string(),
-            reason: "not a valid path in the drive".to_string(),
-        });
+        return Err(not_a_path(path));
     }
     Ok(parts)
+}
+
+/// The error of a path that is no path in the drive.
+fn not_a_path(path: &str) -> MetaError {
+    MetaError::Corrupt {
+        key: path.to_string(),
+        reason: "not a valid path in the drive".to_string(),
+    }
 }
 
 /// The entry at `path` under the tree `root`; `None` when there is none.
@@ -234,7 +239,9 @@ pub fn apply(
         match change {
             Change::Put { path, id } => {
                 let parts = segments(path)?;
-                let (name, folders) = parts.split_last().expect("segments are never empty");
+                let Some((name, folders)) = parts.split_last() else {
+                    return Err(not_a_path(path));
+                };
                 let dir = top.descend(objects, folders, path)?;
                 let entries = dir.entries(objects)?;
                 if matches!(entries.get(*name), Some(Node::Dir(_))) {
@@ -251,7 +258,9 @@ pub fn apply(
             }
             Change::Delete { path } => {
                 let parts = segments(path)?;
-                let (name, folders) = parts.split_last().expect("segments are never empty");
+                let Some((name, folders)) = parts.split_last() else {
+                    return Err(not_a_path(path));
+                };
                 let removed = match top.find(objects, folders)? {
                     Some(dir) => dir.entries(objects)?.remove(*name).is_some(),
                     None => false,
