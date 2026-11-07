@@ -8,8 +8,9 @@ use serde_json::Value;
 
 use crate::sync::{
     local::{
-        self, hash_bytes, index_path, json_blob, json_with_local_keys, mtime_ns, other_spelling,
-        path_of, prune_empty_parents, same_entry, scan, still_as_scanned, BaseEntry, RACY_NS,
+        self, hash_bytes, index_path, json_blob, json_with_local_keys, mtime_ns, open_checked,
+        other_spelling, path_of, prune_empty_parents, read_failed, same_entry, scan,
+        still_as_scanned, BaseEntry, Skip, RACY_NS,
     },
     rules::Rules,
 };
@@ -477,4 +478,77 @@ fn az_w6_the_other_spelling_of_a_name_is_the_entry_that_is_the_file_not_one_that
     );
     // The spelling it has is not "another": nothing to say.
     assert_eq!(other_spelling(root, "Notes.txt"), None);
+}
+
+/// AZ-W8: the scan opens a file to hash it and asks whether another app holds it. On Windows the
+/// probe was a shared lock over the whole file kept until the hash was done - and Windows' locks are
+/// mandatory, so the app that writes the file (a log, a database, an editor saving in place) failed
+/// with a lock violation for as long as the scan read it. The probe asks and takes nothing there.
+#[test]
+fn az_w8_the_scans_open_of_a_file_never_stops_the_app_that_writes_it() {
+    use std::io::Write;
+    let dir = TempDir::new("azcloud-probe-lock");
+    write(dir.path(), "log.txt", b"line 1\n");
+    let tree = azul_storage::beneath::Root::open(dir.path()).unwrap();
+    let top = tree.top().unwrap();
+    let st = top.lstat("log.txt").unwrap();
+    // Through the function the scan calls: the file open as the scan has it while it reads.
+    let (reader, _) = open_checked(&top, "log.txt", &st)
+        .ok()
+        .flatten()
+        .expect("a file nobody holds opens");
+    let mut writer = fs::OpenOptions::new()
+        .append(true)
+        .open(dir.path().join("log.txt"))
+        .unwrap();
+    writer
+        .write_all(b"line 2\n")
+        .expect("the app that writes the file is not stopped by the scan's read");
+    drop(reader);
+    assert_eq!(
+        fs::read(dir.path().join("log.txt")).unwrap(),
+        b"line 1\nline 2\n"
+    );
+}
+
+/// AZ-W8: a read that fails because another app locked the range is "busy" - the file is skipped
+/// for this pass and never taken for deleted - not "cannot be read"; the Windows numbers for it
+/// (32, 33) are other errors elsewhere.
+#[test]
+fn az_w8_a_read_refused_by_a_lock_is_busy_and_any_other_failure_is_unreadable() {
+    let busy = |code| {
+        matches!(
+            read_failed(&std::io::Error::from_raw_os_error(code)),
+            Skip::Locked
+        )
+    };
+    assert_eq!(busy(33), cfg!(windows), "ERROR_LOCK_VIOLATION");
+    assert_eq!(busy(32), cfg!(windows), "ERROR_SHARING_VIOLATION");
+    assert!(!busy(5));
+    assert!(matches!(
+        read_failed(&std::io::Error::from(std::io::ErrorKind::PermissionDenied)),
+        Skip::Unreadable(_)
+    ));
+}
+
+/// AZ-W11: a replace that another app held up is "locked, the next pass tries again", not a broken
+/// disk. Windows' sharing and lock violations (32, 33) have no `ErrorKind` of their own, so they
+/// were told `IoError`; the numbers are other errors on other systems (EPIPE, EDOM).
+#[test]
+fn az_w11_a_step_another_app_held_up_is_locked_and_a_broken_one_is_an_io_error() {
+    use crate::sync::{problem_of, problems::Code};
+    use azul_storage::beneath::BeneathError;
+    let io = |code| BeneathError::Io(std::io::Error::from_raw_os_error(code));
+    for code in [32, 33] {
+        let wanted = if cfg!(windows) {
+            Code::Locked
+        } else {
+            Code::IoError
+        };
+        assert_eq!(problem_of("a.txt", &io(code)).code, wanted, "{code}");
+    }
+    let denied = BeneathError::Io(std::io::Error::from(std::io::ErrorKind::PermissionDenied));
+    assert_eq!(problem_of("a.txt", &denied).code, Code::Locked);
+    let other = BeneathError::Io(std::io::Error::from(std::io::ErrorKind::InvalidData));
+    assert_eq!(problem_of("a.txt", &other).code, Code::IoError);
 }

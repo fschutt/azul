@@ -1922,7 +1922,7 @@ struct Download {
 }
 
 /// The problem a failed step on this disk is.
-fn problem_of(key: &str, e: &BeneathError) -> problems::Problem {
+pub(crate) fn problem_of(key: &str, e: &BeneathError) -> problems::Problem {
     use problems::{Code, Problem};
     match e {
         BeneathError::ThroughLink(at) => Problem::new(
@@ -1940,11 +1940,17 @@ fn problem_of(key: &str, e: &BeneathError) -> problems::Problem {
             key,
             "the disk is full; the old version stays as it was",
         ),
-        BeneathError::Io(io) if io.kind() == std::io::ErrorKind::PermissionDenied => Problem::new(
-            Code::Locked,
-            key,
-            format!("it cannot be replaced ({io}); the next pass tries again"),
-        ),
+        // Another app has the file or the name open (Windows' sharing and lock violations,
+        // which std files under no kind of their own - AZ-W11 - and a refused access).
+        BeneathError::Io(io)
+            if io.kind() == std::io::ErrorKind::PermissionDenied || beneath::is_held_open(io) =>
+        {
+            Problem::new(
+                Code::Locked,
+                key,
+                format!("it cannot be replaced ({io}); the next pass tries again"),
+            )
+        }
         other => Problem::new(Code::IoError, key, other.to_string()),
     }
 }

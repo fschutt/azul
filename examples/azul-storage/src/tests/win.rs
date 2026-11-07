@@ -307,6 +307,30 @@ mod on_windows {
         );
     }
 
+    /// A virus scanner or an indexer has the new file open for a moment, without sharing delete:
+    /// the rename fails with a sharing violation and used to give up on the first. It waits.
+    #[test]
+    fn windows_az_w11_a_rename_waits_for_a_program_that_has_the_file_open_for_a_moment() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let tmp = TempDir::new("win-rename-held");
+        let top = Root::open(tmp.path()).unwrap().top().unwrap();
+        fs::write(tmp.path().join("new.tmp"), b"new").unwrap();
+        // FILE_SHARE_READ | FILE_SHARE_WRITE: the holder does not let the file be renamed.
+        let holder = fs::OpenOptions::new()
+            .read(true)
+            .share_mode(3)
+            .open(tmp.path().join("new.tmp"))
+            .unwrap();
+        let letting_go = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(150));
+            drop(holder);
+        });
+        top.rename("new.tmp", &top, "final.txt")
+            .expect("the rename waited for the holder");
+        letting_go.join().unwrap();
+        assert_eq!(fs::read(tmp.path().join("final.txt")).unwrap(), b"new");
+    }
+
     /// A rename that must not replace takes the name in one step or says `AlreadyExists`; one that
     /// replaces does, a read-only target included.
     #[test]

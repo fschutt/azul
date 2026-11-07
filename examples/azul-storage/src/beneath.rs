@@ -117,6 +117,30 @@ pub fn is_held_open(e: &io::Error) -> bool {
     crate::win::is_held_open(e)
 }
 
+/// Whether another app holds `file` locked against a reader - it is being written. On Unix a shared
+/// lock of ours is asked for without waiting and kept until the file is closed: `flock` is advisory,
+/// so ours stands in nobody's way. Windows' locks are mandatory: a shared lock of ours would deny
+/// every other writer of the file for as long as it is read (a log, a database, a file an editor saves
+/// in place failed with a lock violation while the sync hashed it, AZ-W8), so there none is taken, and
+/// a read of a range another app has locked fails with a lock violation ([`is_held_open`]), which the
+/// reader treats as the same "busy". A disk that keeps no locks answers an error, which says nothing
+/// about the file.
+#[must_use]
+pub fn held_by_another(file: &File) -> bool {
+    #[cfg(unix)]
+    {
+        matches!(
+            file.try_lock_shared(),
+            Err(std::fs::TryLockError::WouldBlock)
+        )
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = file;
+        false
+    }
+}
+
 /// What an entry is, as `lstat` says it (a link is never followed).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {

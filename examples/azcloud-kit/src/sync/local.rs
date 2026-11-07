@@ -1260,7 +1260,7 @@ fn note_attributes(
 }
 
 /// Why a file the scan found is not taken.
-enum Skip {
+pub(crate) enum Skip {
     /// It changed (or was swapped for something else) while it was read: the next pass.
     Changed,
     /// It cannot be read: unknown, never a delete.
@@ -1348,7 +1348,7 @@ fn scan_file(
 
 /// Opens the file `name` of `dir` without following a link and checks it is the file `st`
 /// describes; `Ok(None)` when it is gone.
-fn open_checked(
+pub(crate) fn open_checked(
     dir: &beneath::Dir,
     name: &str,
     st: &Stat,
@@ -1358,25 +1358,32 @@ fn open_checked(
         // nothing to tell by, and what is read is the file that was opened (its own fstat is
         // what the scan records, and the hash is of its bytes), so that goes on.
         Ok((file, at)) if !at.id().same(&st.id()).is_different() => {
-            // An exclusive lock of another app's (flock, LockFileEx) means it is being written:
-            // a shared lock of ours, held while it is read, says so without waiting. A disk
-            // that keeps no locks answers an error, which says nothing about the file.
-            if let Err(std::fs::TryLockError::WouldBlock) = file.try_lock_shared() {
+            // An exclusive lock of another app's (flock, LockFileEx) means it is being written.
+            // Where locks are advisory ours says so without waiting; where they are mandatory
+            // (Windows) the read says so, and no lock of ours stands in the way of the other app's
+            // writes while the file is read (AZ-W8): `beneath::held_by_another`.
+            if beneath::held_by_another(&file) {
                 return Err(Skip::Locked);
             }
             Ok(Some((file, at)))
         }
         Ok(_) | Err(BeneathError::ThroughLink(_)) => Err(Skip::Changed),
         Err(e) if e.is_not_found() => Ok(None),
-        Err(BeneathError::Io(io)) if held_open_elsewhere(&io) => Err(Skip::Locked),
+        // Another app holds it open without sharing it (Windows' sharing and lock violations).
+        Err(BeneathError::Io(io)) if beneath::is_held_open(&io) => Err(Skip::Locked),
         Err(e) => Err(Skip::Unreadable(format!("cannot be read ({e})"))),
     }
 }
 
-/// Whether opening a file failed because another app holds it open without sharing it
-/// (Windows' sharing and lock violations); other systems keep no such opens.
-fn held_open_elsewhere(e: &std::io::Error) -> bool {
-    cfg!(windows) && matches!(e.raw_os_error(), Some(32 | 33))
+/// Why a read of an opened file failed: a range another app has locked (Windows' mandatory locks
+/// answer the read, not the open) is "busy", the same as a lock the probe found; anything else
+/// means the file cannot be read.
+pub(crate) fn read_failed(e: &std::io::Error) -> Skip {
+    if beneath::is_held_open(e) {
+        Skip::Locked
+    } else {
+        Skip::Unreadable(format!("cannot be read ({e})"))
+    }
 }
 
 /// After a read: the file's `fstat` must still be what it was when it was opened.
@@ -1403,8 +1410,7 @@ fn read_checked(
         return Ok(None);
     };
     let mut bytes = Vec::new();
-    file.read_to_end(&mut bytes)
-        .map_err(|e| Skip::Unreadable(format!("cannot be read ({e})")))?;
+    file.read_to_end(&mut bytes).map_err(|e| read_failed(&e))?;
     still_same(&file, &at)?;
     Ok(Some((bytes, at)))
 }
@@ -1417,9 +1423,7 @@ fn hash_checked(dir: &beneath::Dir, name: &str, st: &Stat) -> Result<Option<(Str
     let mut hasher = blake3::Hasher::new();
     let mut buf = vec![0u8; 256 * 1024];
     loop {
-        let n = file
-            .read(&mut buf)
-            .map_err(|e| Skip::Unreadable(format!("cannot be read ({e})")))?;
+        let n = file.read(&mut buf).map_err(|e| read_failed(&e))?;
         if n == 0 {
             break;
         }
