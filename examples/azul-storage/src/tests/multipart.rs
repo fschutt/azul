@@ -288,6 +288,54 @@ fn a_conditional_streamed_upload_that_loses_is_a_conflict_and_leaves_nothing_beh
     );
 }
 
+/// X-DELTA-AZDRIVE-FILES-3. The engine looked at a name once, when a big file's upload began, and
+/// the upload wrote over whatever was there when it ended. A file's upload now asks its condition
+/// on the request that completes it (S3 checks `If-None-Match` / `If-Match` on
+/// CompleteMultipartUpload): a name made while the parts went up is a Conflict, the parts are
+/// aborted and the other device's object stays.
+#[test]
+fn x_delta_azdrive_files_3_a_name_made_while_the_parts_go_up_is_a_conflict_and_the_object_stays() {
+    let s3 = FakeBucket::new();
+    let dir = TempDir::new("dx3-parts");
+    let (path, _) = file_with(&dir, "big.bin", 4, 5);
+    let resume = dir.path().join("resume");
+    let made = std::sync::atomic::AtomicBool::new(false);
+    let ctl = |sent: u64| {
+        // The first part is up: another device saves the name now.
+        if sent > 0 && !made.swap(true, Ordering::SeqCst) {
+            s3.write("taken.bin", b"another device's");
+        }
+    };
+    let error = drive_on(&s3, Some(&resume), NOW)
+        .put_file_if("taken.bin", &path, &Precondition::Absent, &ctl)
+        .unwrap_err();
+    assert_eq!(
+        error,
+        DriveError::Conflict {
+            key: String::from("taken.bin")
+        },
+        "{:?}",
+        s3.log()
+    );
+    assert_eq!(s3.object("taken.bin").unwrap(), b"another device's");
+    assert!(s3.uploads().is_empty(), "aborted: {:?}", s3.log());
+    assert!(
+        state_files(&resume).is_empty(),
+        "no state is kept for a lost race"
+    );
+    // The version the plan saw is the condition of a replace: a newer one is a conflict too.
+    let etag = drive_on(&s3, None, NOW)
+        .put_file_if("new.bin", &path, &Precondition::Absent, &no_progress)
+        .unwrap()
+        .expect("the tag of the new version");
+    s3.write("new.bin", b"saved meanwhile");
+    let error = drive_on(&s3, None, NOW)
+        .put_file_if("new.bin", &path, &Precondition::Matches(etag), &no_progress)
+        .unwrap_err();
+    assert!(matches!(error, DriveError::Conflict { .. }), "{error:?}");
+    assert_eq!(s3.object("new.bin").unwrap(), b"saved meanwhile");
+}
+
 #[test]
 fn a_conditional_streamed_upload_of_a_new_key_wins_with_its_etag() {
     let s3 = FakeBucket::new();

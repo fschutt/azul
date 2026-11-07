@@ -73,6 +73,8 @@ const OPS: &[(&str, &str)] = &[
     ("put_file_checked", "Write"),
     ("put_if", "Write"),
     ("put_from_if", "Write"),
+    ("put_file_if", "Write"),
+    ("conditional_writes", "Write"),
     ("copy", "Write"),
     ("create_folder", "Write"),
     ("rename", "Write"),

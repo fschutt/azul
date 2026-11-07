@@ -245,6 +245,20 @@ impl Drive for AccountDrive {
     fn remove_empty_folder(&self, prefix: &str) -> Result<bool, DriveError> {
         self.with_bucket(|b| b.remove_empty_folder(prefix))
     }
+    // The bucket asks its condition when an upload completes: a conditional file upload goes to
+    // it as it is, not read into memory by the trait's default.
+    fn conditional_writes(&self) -> bool {
+        true
+    }
+    fn put_file_if(
+        &self,
+        key: &str,
+        path: &std::path::Path,
+        condition: &Precondition,
+        ctl: &dyn azul_storage::Ctl,
+    ) -> Result<Option<String>, DriveError> {
+        self.with_bucket(|b| b.put_file_if(key, path, condition, ctl))
+    }
     // inherits: site - the bucket is opened with credentials the bridge may have to ask for: the
     // drive answers as the very object it is
     // inherits: local_path, resume_folder - the bridge serves a bucket, it has no file on this disk

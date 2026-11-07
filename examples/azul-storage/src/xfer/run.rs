@@ -192,19 +192,27 @@ fn copy_one(
     stop: &dyn Ctl,
     progress: &mut dyn FnMut(u64),
 ) -> Result<u64, DriveError> {
-    let expect = if target.local_path(&file.target_key).is_some() {
+    let on_disk = target.local_path(&file.target_key).is_some();
+    let expect = if on_disk {
         expect_on_disk(target, &file.target_key, guard)?
     } else {
         precheck(target, &file.target_key, guard)?;
         Expect::Any
     };
+    // The look above is an early refusal, nothing more: a big file takes an hour, and a name made
+    // in that hour must not be written over. A drive that can ask asks again in the step that
+    // completes the upload (X-DELTA-AZDRIVE-FILES-3).
+    let condition = if on_disk { None } else { guard.condition() };
     let len = transfer::copy_object_relayed(
         source,
         &file.source_key,
         file.size,
         target,
         &file.target_key,
-        expect,
+        transfer::When {
+            expect,
+            condition: condition.as_ref(),
+        },
         stop,
         progress,
     )?;

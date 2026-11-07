@@ -227,4 +227,20 @@ impl<D: Drive> Drive for ScopedDrive<D> {
         self.inner
             .put_from_if(&self.full_key(key)?, body, condition)
     }
+
+    fn conditional_writes(&self) -> bool {
+        self.inner.conditional_writes()
+    }
+
+    fn put_file_if(
+        &self,
+        key: &str,
+        path: &std::path::Path,
+        condition: &Precondition,
+        ctl: &dyn Ctl,
+    ) -> Result<Option<String>, DriveError> {
+        self.check_writable()?;
+        self.inner
+            .put_file_if(&self.full_key(key)?, path, condition, ctl)
+    }
 }

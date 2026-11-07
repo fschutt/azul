@@ -1567,6 +1567,27 @@ impl Drive for S3Drive {
         crate::multipart::upload_file(self, key, path, None, ctl).map(|(written, _)| written)
     }
 
+    /// A bucket honours `If-None-Match: *` and `If-Match` (AWS S3, R2 and MinIO do), on a
+    /// multipart upload's completion too.
+    fn conditional_writes(&self) -> bool {
+        true
+    }
+
+    /// [`S3Drive::put_file`]'s upload, completed only when `condition` holds: S3 checks it on the
+    /// request that completes the object, so a name made while the parts went up (a big file
+    /// takes an hour) is a [`DriveError::Conflict`] and the upload is aborted
+    /// (X-DELTA-AZDRIVE-FILES-3).
+    fn put_file_if(
+        &self,
+        key: &str,
+        path: &Path,
+        condition: &Precondition,
+        ctl: &dyn Ctl,
+    ) -> Result<Option<String>, DriveError> {
+        check_s3_key(key)?;
+        crate::multipart::upload_file(self, key, path, Some(condition), ctl).map(|(_, etag)| etag)
+    }
+
     /// [`Drive::put_file`] that never completes with bytes other than `check` names: the file
     /// must be as scanned when the upload starts and when its parts are complete (hashed whole
     /// once more then); a cut-off upload resumes from its state file with the missing parts.

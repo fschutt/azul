@@ -256,8 +256,9 @@ impl Ctl for Scaled<'_> {
 
 /// How the upload of a file ended, when it went the resumable way.
 pub(crate) enum Spooled {
-    /// The object holds the file's bytes: how many.
-    Sent(u64),
+    /// The object holds the file's bytes: how many, and the entity tag the index names the new
+    /// version by.
+    Sent(u64, Option<String>),
     /// The file is not the one the upload was asked for (it changed): nothing was completed.
     Changed,
 }
@@ -265,13 +266,17 @@ pub(crate) enum Spooled {
 impl<D: Drive> EncryptedDrive<D> {
     /// Writes the local file `path` as `key`, an object of its own, so that a cut upload resumes
     /// at its next part (see the module); `check`: the file must be the one it describes (a
-    /// sync's). `None` when this drive does not upload that way: its bucket resumes no uploads,
-    /// or the file is small enough to be packed - the caller streams it then.
+    /// sync's). `expect`: what the index must hold of `key` when the object is named - checked in
+    /// the index change that names it, after the hours the upload may have taken
+    /// (X-DELTA-AZDRIVE-FILES-3); [`Expect::Any`] for a write that replaces whatever is there.
+    /// `None` when this drive does not upload that way: its bucket resumes no uploads, or the
+    /// file is small enough to be packed - the caller streams it then.
     pub(crate) fn put_file_resumable(
         &self,
         key: &str,
         path: &Path,
         check: Option<&FileCheck>,
+        expect: Expect,
         ctl: &dyn Ctl,
     ) -> Result<Option<Spooled>, DriveError> {
         check_key(key)?;
@@ -356,12 +361,26 @@ impl<D: Drive> EncryptedDrive<D> {
         // object named by nothing. The record goes only if it is still this copy's: another
         // process that encrypted the same file meanwhile has a record of its own there.
         let object_id = summary.object_id.to_hex();
-        self.bind(key, summary, Expect::Any)?;
+        let named = match self.bind(key, summary, expect) {
+            Ok(info) => info,
+            // The name changed while the object went up: the index refused, and took the object
+            // back out of the bucket. The copy is of no use to anyone now (the user decides again,
+            // and a copy of a big file is as big as the file): it goes with its record, where a
+            // failure that may pass (a 503) keeps both for the retry.
+            Err(e @ DriveError::Conflict { .. }) => {
+                let _ = fs::remove_file(&copy);
+                if read_record(&record_path).is_some_and(|record| record.object_id == object_id) {
+                    let _ = fs::remove_file(&record_path);
+                }
+                return Err(e);
+            }
+            Err(e) => return Err(e),
+        };
         let _ = fs::remove_file(&copy);
         if read_record(&record_path).is_some_and(|record| record.object_id == object_id) {
             let _ = fs::remove_file(&record_path);
         }
-        Ok(Some(Spooled::Sent(plain)))
+        Ok(Some(Spooled::Sent(plain, named.etag)))
     }
 
     /// Encrypts `path` (the file `before` describes, the one `check` names when there is one)

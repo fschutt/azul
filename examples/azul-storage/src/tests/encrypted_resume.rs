@@ -16,8 +16,10 @@ use super::{
 };
 use crate::{
     crypto::{random_bytes, DriveKey},
-    encrypted::{EncryptedDrive, IndexChange, IndexPage, MemoryIndex, NameIndex},
-    Credentials, Drive, DriveError, ListRequest, S3Config, S3Drive,
+    encrypted::{
+        EncryptedDrive, Expect, IndexChange, IndexEntry, IndexPage, MemoryIndex, NameIndex,
+    },
+    Credentials, Drive, DriveError, ListRequest, Precondition, S3Config, S3Drive,
 };
 
 /// 2026-10-10T00:00:00Z.
@@ -341,4 +343,93 @@ fn az_c12_a_record_names_its_copy_and_a_new_encryption_replaces_both() {
         .filter(|f| f.extension().is_some_and(|e| e == "azl1"))
         .collect();
     assert_eq!(azl1.len(), 1, "{azl1:?}");
+}
+
+/// An index where another device names `film.bin` right before this device's first change: the
+/// name is made while the upload's object is on its way (X-DELTA-AZDRIVE-FILES-3).
+struct RacedIndex {
+    inner: MemoryIndex,
+    other_device: std::sync::Mutex<Option<IndexEntry>>,
+}
+
+impl NameIndex for RacedIndex {
+    fn get(&self, path: &str) -> Result<Option<IndexEntry>, DriveError> {
+        self.inner.get(path)
+    }
+
+    fn list(&self, request: &ListRequest) -> Result<IndexPage, DriveError> {
+        self.inner.list(request)
+    }
+
+    fn apply(&self, changes: Vec<IndexChange>) -> Result<crate::meta::Released, DriveError> {
+        let theirs = self.other_device.lock().unwrap().take();
+        if let Some(entry) = theirs {
+            self.inner.apply(vec![IndexChange::Put {
+                path: String::from("film.bin"),
+                entry,
+                expect: Expect::Any,
+            }])?;
+        }
+        self.inner.apply(changes)
+    }
+}
+
+/// X-DELTA-AZDRIVE-FILES-3. An encrypted file is named in the index only if the name still holds
+/// what the plan saw when the upload ENDS: `bind` took `Expect::Any`, so a name another device made
+/// during the hour the object went up was replaced by it (and in a Move the source then went). A
+/// lost race removes the object from the bucket, the file's encrypted copy and its record.
+#[test]
+fn x_delta_azdrive_files_3_an_encrypted_file_is_named_only_if_the_name_holds_when_the_upload_ends()
+{
+    let tmp = TempDir::new("encrypted-resume-condition");
+    let resume = tmp.path().join("resume");
+    let path = tmp.path().join("film.bin");
+    let plain = noise(10 * PART + 7);
+    std::fs::write(&path, &plain).unwrap();
+    let s3 = FakeBucket::new();
+    let key = DriveKey::generate().unwrap();
+    let index = Arc::new(RacedIndex {
+        inner: MemoryIndex::new(),
+        other_device: std::sync::Mutex::new(Some(IndexEntry {
+            size: 3,
+            modified: Some(1),
+            object: None,
+        })),
+    });
+    let drive = EncryptedDrive::new(
+        drive_on(&s3, &resume, NOW),
+        key.clone(),
+        Arc::clone(&index) as Arc<dyn NameIndex>,
+    );
+    assert!(
+        drive.conditional_writes(),
+        "an encrypted drive asks in its index"
+    );
+    let error = drive
+        .put_file_if("film.bin", &path, &Precondition::Absent, &|_| {})
+        .unwrap_err();
+    assert!(matches!(error, DriveError::Conflict { .. }), "{error:?}");
+    assert_eq!(
+        index.get("film.bin").unwrap().map(|entry| entry.size),
+        Some(3),
+        "the other device's entry was replaced by the object of this upload"
+    );
+    assert!(
+        files_under(&resume).is_empty(),
+        "a lost race leaves no copy and no record: {:?}",
+        files_under(&resume)
+    );
+    assert!(s3.uploads().is_empty());
+    // A free name is named, and the tag it answers is the object's.
+    let etag = drive
+        .put_file_if("free.bin", &path, &Precondition::Absent, &|_| {})
+        .unwrap()
+        .expect("the tag of the new version");
+    assert_eq!(drive.get("free.bin").unwrap(), plain);
+    assert!(drive
+        .put_file_if("free.bin", &path, &Precondition::Absent, &|_| {})
+        .is_err());
+    assert!(drive
+        .put_file_if("free.bin", &path, &Precondition::Matches(etag), &|_| {})
+        .is_ok());
 }

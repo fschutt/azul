@@ -858,6 +858,43 @@ pub trait Drive: Send + Sync {
         self.put_if(key, &bytes, condition)
     }
 
+    /// Whether this drive writes only when a [`Precondition`] holds, in the step that makes the
+    /// object visible: [`Drive::put_if`], [`Drive::put_from_if`] and [`Drive::put_file_if`] ask
+    /// the condition THEN (a bucket: S3's `If-None-Match` / `If-Match` on the request that
+    /// completes the object; an encrypted drive: the index change that names it), not at the
+    /// start of a long upload. `false` by default: a folder on disk keeps no versions (a copy
+    /// into it is guarded by the rename that puts the file in place, `durable::Expect`), and a
+    /// data source answers [`DriveError::Unsupported`]. A caller that has a long write ahead asks
+    /// first, so that it neither reads a big body only to hear "unsupported" nor writes the file
+    /// unconditionally after one look at the name when the upload began.
+    fn conditional_writes(&self) -> bool {
+        false
+    }
+
+    /// [`Drive::put_file`], only when `condition` holds ([`Drive::put_if`]'s rules, asked when the
+    /// upload completes): the new version's entity tag when the drive tells it;
+    /// [`DriveError::Conflict`] when the condition did not hold, with nothing written (a stopped
+    /// upload leaves nothing behind, as [`Drive::put_file`]'s). By default the file is streamed
+    /// into [`Drive::put_from_if`] for a drive that [writes conditionally](Drive::conditional_writes)
+    /// and refused at once, unread, with [`DriveError::Unsupported`] for any other - the caller
+    /// looks at the name first and uses [`Drive::put_file`].
+    fn put_file_if(
+        &self,
+        key: &str,
+        path: &Path,
+        condition: &Precondition,
+        ctl: &dyn Ctl,
+    ) -> Result<Option<String>, DriveError> {
+        if !self.conditional_writes() {
+            return Err(DriveError::Unsupported(format!(
+                "writing \"{key}\" from a file only if it is unchanged"
+            )));
+        }
+        let mut file = std::fs::File::open(path)?;
+        let mut reader = transfer::ProgressReader::new(&mut file, ctl);
+        self.put_from_if(key, &mut reader, condition)
+    }
+
     /// Writes several files, each as [`Drive::put`] or (with a condition) [`Drive::put_if`]
     /// would: one result per item, in order, the entity tag when the drive tells it. A failed
     /// condition refuses that file only. By default one write after the other (a plain bucket
@@ -1009,6 +1046,18 @@ macro_rules! forward_drive {
                 condition: &Precondition,
             ) -> Result<Option<String>, DriveError> {
                 (**self).put_from_if(key, body, condition)
+            }
+            fn conditional_writes(&self) -> bool {
+                (**self).conditional_writes()
+            }
+            fn put_file_if(
+                &self,
+                key: &str,
+                path: &Path,
+                condition: &Precondition,
+                ctl: &dyn Ctl,
+            ) -> Result<Option<String>, DriveError> {
+                (**self).put_file_if(key, path, condition, ctl)
             }
             fn put_many(
                 &self,

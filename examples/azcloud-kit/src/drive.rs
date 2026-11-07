@@ -749,6 +749,21 @@ impl Drive for AzlinDrive {
     ) -> Result<azul_storage::checked::CheckedUpload, DriveError> {
         self.with_bucket(|b| b.put_file_checked(key, path, check, ctl))
     }
+    /// Its bucket is an S3 drive, which asks `If-None-Match` / `If-Match` when an upload completes.
+    fn conditional_writes(&self) -> bool {
+        true
+    }
+    /// The bucket's resumable upload, completed only when `condition` holds; after a refusal of
+    /// the credentials it is sent again with fresh ones (and resumes with the parts already up).
+    fn put_file_if(
+        &self,
+        key: &str,
+        path: &Path,
+        condition: &Precondition,
+        ctl: &dyn Ctl,
+    ) -> Result<Option<String>, DriveError> {
+        self.with_bucket(|b| b.put_file_if(key, path, condition, ctl))
+    }
     /// The bucket's streamed conditional upload; like [`AzlinDrive::put_from`], a refusal of the
     /// credentials half way refreshes them for the next call and is the caller's to retry.
     fn put_from_if(

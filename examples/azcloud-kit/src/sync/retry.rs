@@ -477,6 +477,22 @@ impl Drive for RetryingDrive {
         self.once(|| self.inner.put_from_if(key, body, condition))
     }
 
+    fn conditional_writes(&self) -> bool {
+        self.inner.conditional_writes()
+    }
+
+    fn put_file_if(
+        &self,
+        key: &str,
+        path: &Path,
+        condition: &Precondition,
+        ctl: &dyn Ctl,
+    ) -> Result<Option<String>, DriveError> {
+        // The file is opened again for every try, and the condition is asked again when each
+        // upload completes: a lost race (Conflict) is no failure that passes.
+        self.call(|| self.inner.put_file_if(key, path, condition, ctl))
+    }
+
     fn put_many(&self, items: &[BatchPut<'_>]) -> Vec<Result<Option<String>, DriveError>> {
         self.batch(items, |round| self.inner.put_many(round))
     }

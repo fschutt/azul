@@ -16,6 +16,8 @@ const LOCAL_DEFAULTS: &[(&str, &str)] = &[
     ("resume_folder", "a folder on disk has no multipart state: None"),
     ("put_file", "streams the file through LocalDrive::put_from"),
     ("put_file_checked", "opens the checked file once, streams it through LocalDrive::put_from"),
+    ("conditional_writes", "false: a folder on disk keeps no versions; a copy into it is guarded by the rename that puts the file in place (durable::Expect)"),
+    ("put_file_if", "refused at once, unread (a folder asks no condition, see conditional_writes): the engine guards a file it copies in with Expect"),
     ("put_many", "one LocalDrive::put after the other: a folder packs nothing"),
     ("delete_many", "one LocalDrive::delete after the other, a version checked by LocalDrive::head's tag"),
     ("put_from_many", "one LocalDrive::put_from after the other"),

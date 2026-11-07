@@ -72,6 +72,9 @@ mod windows_names;
 /// The conservation matrix of a move: whichever call fails, whenever it is stopped, every file is at
 /// the source or at the target.
 mod xfer_conserve;
+/// The engine against the delta review of the file lanes (X-DELTA-AZDRIVE-FILES-*): a big file
+/// written only if the name holds, a retire that knows the version, ranges that are on disk.
+mod xfer_delta;
 /// The conditional vocabulary on a folder on disk, moves that are renames, a folder removed only
 /// when empty, the default moves of a drive with tags.
 mod xfer_local;

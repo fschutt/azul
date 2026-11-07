@@ -30,7 +30,7 @@ use crate::{
     key::safe_file_name,
     local::{beneath_error, source_bits},
     multipart::{in_parallel, STALE_AFTER_SECS},
-    ByteRange, Drive, DriveError, ObjectInfo,
+    ByteRange, Drive, DriveError, ObjectInfo, Precondition,
 };
 
 /// What the look at the disk's room before a big download begins does when the disk cannot say
@@ -584,6 +584,19 @@ fn copy_file(source: &Path, dest: &Path, expect: Expect, ctl: &dyn Ctl) -> Resul
         .map_err(|e| e.into_drive(&shown))
 }
 
+/// What the name at the target must hold when a copied file is put in place there, asked in the
+/// step that makes the file visible - after the hours a big copy may have taken, not at its start
+/// (X-DELTA-AZDRIVE-FILES-3).
+#[derive(Debug)]
+pub struct When<'a> {
+    /// For a folder on this computer: checked by the rename that puts the file in place.
+    pub expect: Expect,
+    /// For a drive that [writes conditionally](Drive::conditional_writes): checked by the request
+    /// that completes the object (a bucket) or the index change that names it (an encrypted
+    /// drive). A drive that cannot is not asked: the caller looks at its name first.
+    pub condition: Option<&'a Precondition>,
+}
+
 /// Copies ONE object from `source` to `target` (the same drive or another):
 /// a file copy on disk when both are folders on this computer; ranged GETs of
 /// [`CHUNK`] bytes, several at once, into the target's file when only the target
@@ -615,12 +628,12 @@ pub fn copy_object_relayed(
     size: Option<u64>,
     target: &dyn Drive,
     target_key: &str,
-    expect: Expect,
+    when: When<'_>,
     stop: &dyn Ctl,
     progress: &mut dyn FnMut(u64),
 ) -> Result<u64, DriveError> {
     relay_progress_with(progress, stop, |ctl| {
-        copy_object_guarded(source, key, size, target, target_key, expect, ctl)
+        copy_object_when(source, key, size, target, target_key, when, ctl)
     })
 }
 
@@ -643,7 +656,7 @@ pub fn copy_object_with_ctl(
 /// what `expect` says ([`Expect::Absent`]: a name made meanwhile is not replaced;
 /// [`Expect::Is`]: only the version the plan saw is), in the one step that renames it in -
 /// [`DriveError::Conflict`] and nothing written when it does not. A bucket target has no such step
-/// here: its caller looks first (and asks [`Drive::put_if`] where the bucket can).
+/// here (the guard of a drive that asks its condition is [`copy_object_when`]'s).
 pub fn copy_object_guarded(
     source: &dyn Drive,
     key: &str,
@@ -653,7 +666,33 @@ pub fn copy_object_guarded(
     expect: Expect,
     ctl: &dyn Ctl,
 ) -> Result<u64, DriveError> {
+    let when = When {
+        expect,
+        condition: None,
+    };
+    copy_object_when(source, key, size, target, target_key, when, ctl)
+}
+
+/// [`copy_object_guarded`] that also asks the target drive its condition in the step that makes
+/// the object visible, when the drive can ([`Drive::conditional_writes`]): a big file into a
+/// bucket or an encrypted drive was looked at once, at its start, and written unconditionally an
+/// hour later - over a name another device made meanwhile (X-DELTA-AZDRIVE-FILES-3). Now the
+/// request that completes the upload asks, and a name that no longer holds what the plan saw is a
+/// [`DriveError::Conflict`] with the target as it was. A target that cannot ask is written as
+/// before (its caller looked first).
+pub fn copy_object_when(
+    source: &dyn Drive,
+    key: &str,
+    size: Option<u64>,
+    target: &dyn Drive,
+    target_key: &str,
+    when: When<'_>,
+    ctl: &dyn Ctl,
+) -> Result<u64, DriveError> {
     stop_if_asked(ctl)?;
+    let expect = when.expect;
+    // Only a drive that can ask is asked: any other would read a big body for nothing.
+    let condition = when.condition.filter(|_| target.conditional_writes());
     match (source.local_path(key), target.local_path(target_key)) {
         (Some(from), Some(to)) => {
             if !from.is_file() {
@@ -670,7 +709,15 @@ pub fn copy_object_guarded(
                     key: key.to_string(),
                 });
             }
-            target.put_file(target_key, &from, ctl)
+            match condition {
+                Some(condition) => {
+                    let len = fs::metadata(&from)?.len();
+                    target
+                        .put_file_if(target_key, &from, condition, ctl)
+                        .map(|_| len)
+                }
+                None => target.put_file(target_key, &from, ctl),
+            }
         }
         (None, None) => {
             let size = match size {
@@ -680,7 +727,10 @@ pub fn copy_object_guarded(
             if size <= CHUNK {
                 let bytes = source.get(key)?;
                 stop_if_asked(ctl)?;
-                target.put(target_key, &bytes)?;
+                match condition {
+                    Some(condition) => target.put_if(target_key, &bytes, condition).map(|_| ())?,
+                    None => target.put(target_key, &bytes)?,
+                }
                 ctl.bytes(bytes.len() as u64);
                 return Ok(bytes.len() as u64);
             }
@@ -694,7 +744,12 @@ pub fn copy_object_guarded(
                 at: 0,
             };
             let mut reader = ProgressReader::new(&mut ranges, ctl);
-            target.put_from(target_key, &mut reader)
+            match condition {
+                Some(condition) => target
+                    .put_from_if(target_key, &mut reader, condition)
+                    .map(|_| size),
+                None => target.put_from(target_key, &mut reader),
+            }
         }
     }
 }

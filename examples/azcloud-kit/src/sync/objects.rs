@@ -313,4 +313,22 @@ impl Drive for ObjectCache {
         self.evict(key)?;
         Ok(written)
     }
+
+    fn conditional_writes(&self) -> bool {
+        self.inner.conditional_writes()
+    }
+
+    /// The drive below's own (a bucket asks its condition when the upload completes); the copy
+    /// here is dropped when the write took, as [`ObjectCache::put_if`] drops it.
+    fn put_file_if(
+        &self,
+        key: &str,
+        path: &std::path::Path,
+        condition: &Precondition,
+        ctl: &dyn Ctl,
+    ) -> Result<Option<String>, DriveError> {
+        let written = self.inner.put_file_if(key, path, condition, ctl)?;
+        self.evict(key)?;
+        Ok(written)
+    }
 }

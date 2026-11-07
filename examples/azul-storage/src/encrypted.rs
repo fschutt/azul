@@ -758,6 +758,23 @@ impl Drive for AutoEncrypted {
     ) -> Result<Option<String>, DriveError> {
         self.gate(Op::Write)?.put_if(key, bytes, condition)
     }
+    // Whether the drive writes conditionally is asked of the drive the gate hands out (the bucket
+    // plain, the encrypted drive over it otherwise): both do. A drive the gate refuses cannot be
+    // written, and the write that follows asks the same gate and says why.
+    fn conditional_writes(&self) -> bool {
+        // collapse-ok: the write that follows asks the same gate and says why it is closed
+        self.gate(Op::Write)
+            .is_ok_and(|drive| drive.conditional_writes())
+    }
+    fn put_file_if(
+        &self,
+        key: &str,
+        path: &std::path::Path,
+        condition: &Precondition,
+        ctl: &dyn Ctl,
+    ) -> Result<Option<String>, DriveError> {
+        self.gate(Op::Write)?.put_file_if(key, path, condition, ctl)
+    }
     fn copy(&self, from: &str, to: &str) -> Result<(), DriveError> {
         self.gate(Op::Write)?.copy(from, to)
     }
@@ -2604,8 +2621,8 @@ impl<D: Drive> Drive for EncryptedDrive<D> {
         path: &std::path::Path,
         ctl: &dyn Ctl,
     ) -> Result<u64, DriveError> {
-        match self.put_file_resumable(key, path, None, ctl)? {
-            Some(crate::encrypted_upload::Spooled::Sent(written)) => Ok(written),
+        match self.put_file_resumable(key, path, None, Expect::Any, ctl)? {
+            Some(crate::encrypted_upload::Spooled::Sent(written, _)) => Ok(written),
             Some(crate::encrypted_upload::Spooled::Changed) => Err(DriveError::Io(format!(
                 "{} changed while it was uploaded",
                 path.display()
@@ -2628,8 +2645,8 @@ impl<D: Drive> Drive for EncryptedDrive<D> {
         ctl: &dyn Ctl,
     ) -> Result<crate::checked::CheckedUpload, DriveError> {
         use crate::checked::{open_checked, CheckedUpload, HashCheck};
-        match self.put_file_resumable(key, path, Some(check), ctl)? {
-            Some(crate::encrypted_upload::Spooled::Sent(written)) => {
+        match self.put_file_resumable(key, path, Some(check), Expect::Any, ctl)? {
+            Some(crate::encrypted_upload::Spooled::Sent(written, _)) => {
                 return Ok(CheckedUpload::Sent(written));
             }
             Some(crate::encrypted_upload::Spooled::Changed) => return Ok(CheckedUpload::Changed),
@@ -2647,6 +2664,40 @@ impl<D: Drive> Drive for EncryptedDrive<D> {
             Ok(written) => Ok(CheckedUpload::Sent(written)),
             Err(_) if hashed.changed() => Ok(CheckedUpload::Changed),
             Err(e) => Err(e),
+        }
+    }
+
+    /// The index change that names an object is conditional, whatever the inner drive supports:
+    /// this drive asks its conditions there ([`Drive::put_if`], [`Drive::put_from_if`],
+    /// [`Drive::put_file_if`]).
+    fn conditional_writes(&self) -> bool {
+        true
+    }
+
+    /// [`Drive::put_file`] that names the object in the index only when `condition` holds of the
+    /// entry then, after the hours the upload may have taken (X-DELTA-AZDRIVE-FILES-3): a name
+    /// made meanwhile is a [`DriveError::Conflict`], the object goes back out of the bucket and
+    /// the file's encrypted copy is dropped. Uploaded the way [`Drive::put_file`] uploads (resumed
+    /// at its next part), or streamed through [`Drive::put_from_if`] when the drive does not.
+    fn put_file_if(
+        &self,
+        key: &str,
+        path: &std::path::Path,
+        condition: &Precondition,
+        ctl: &dyn Ctl,
+    ) -> Result<Option<String>, DriveError> {
+        let expect = expect_of(key, condition)?;
+        match self.put_file_resumable(key, path, None, expect, ctl)? {
+            Some(crate::encrypted_upload::Spooled::Sent(_, etag)) => Ok(etag),
+            Some(crate::encrypted_upload::Spooled::Changed) => Err(DriveError::Io(format!(
+                "{} changed while it was uploaded",
+                path.display()
+            ))),
+            None => {
+                let mut file = File::open(path)?;
+                let mut reader = crate::transfer::ProgressReader::new(&mut file, ctl);
+                self.put_from_if(key, &mut reader, condition)
+            }
         }
     }
 
