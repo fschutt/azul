@@ -61,7 +61,7 @@ use azcloud_kit::{
 };
 use azul_appkit::{
     client_health::{client_health, Device},
-    l10n::{t, t_args, t_label, Arg, Phrase, Text},
+    l10n::{t, t_args, t_label, t_text, Arg, Phrase, Text},
 };
 use azul_storage::{
     azul_keyring::azlin_keyring,
@@ -742,6 +742,7 @@ impl Sheet {
     }
 
     /// The groups (0-based) the user types back, in order.
+    #[cfg(test)]
     pub(crate) fn asked(&self) -> Vec<usize> {
         self.checks.clone()
     }
@@ -1220,13 +1221,10 @@ pub(crate) fn dialog_parts(dialog: &Dialog, s: &DriveState, app: &RefAny) -> (St
         Dialog::DeviceRemoved { drive_id, device } => (
             t("azdrive-device-removed-title"),
             column(vec![
-                line(&t_args(
-                    "azdrive-device-removed",
-                    &[
-                        ("device", Arg::from(device.as_str())),
-                        ("name", Arg::from(drive_name(s, drive_id))),
-                    ],
-                )),
+                line(&t_text(&Text::from(crate::devices::removed_text(
+                    &drive_name(s, drive_id),
+                    device,
+                )))),
                 buttons(vec![
                     button("azdrive-drill-later", app, on_cancel_popup),
                     typed_button(

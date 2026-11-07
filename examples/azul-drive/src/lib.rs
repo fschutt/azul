@@ -2573,7 +2573,9 @@ pub(crate) enum KeyringOp {
     Unlock { drive_id: String },
     /// Saving a new drive's keys.
     Store { drive_id: String },
-    /// Removing a forgotten drive's keys.
+    /// Removing a forgotten drive's keys (a build without the encryption: the other builds take
+    /// the drive off the computer with `footprint::forget`).
+    #[cfg(not(feature = "encryption"))]
     Forget,
     /// The Azlin Bridge's password, read into the clipboard (Options > Drives).
     BridgePassword,
@@ -2654,6 +2656,7 @@ pub(crate) fn take_key_records(s: &mut DriveState) {
 pub(crate) enum KeyringCall {
     Get(String),
     Store(String, String),
+    #[cfg(not(feature = "encryption"))]
     Delete(String),
 }
 
@@ -2666,6 +2669,7 @@ fn issue(info: &mut CallbackInfo, call: &KeyringCall) {
         KeyringCall::Store(key, secret) => {
             info.keyring_store_in(shared(), key.as_str(), secret.as_str(), false)
         }
+        #[cfg(not(feature = "encryption"))]
         KeyringCall::Delete(key) => info.keyring_delete_in(shared(), key.as_str()),
     }
 }
@@ -2737,6 +2741,7 @@ extern "C" fn on_keyring_result(mut data: RefAny, mut info: CallbackInfo) -> Upd
                 ));
             }
         }
+        #[cfg(not(feature = "encryption"))]
         KeyringOp::Forget => {
             // A key that stays in the keyring after its drive was removed is said.
             if !matches!(result, KeyringResult::Deleted | KeyringResult::NotFound) {
