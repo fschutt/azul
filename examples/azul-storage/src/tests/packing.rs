@@ -17,7 +17,7 @@ use crate::{
     encrypted::{
         read_shared, EncryptedDrive, IndexChange, IndexEntry, IndexPage, MemoryIndex, NameIndex,
     },
-    meta::pointer,
+    meta::{pointer, Released},
     packing::{
         data_shards_of, pack_object_len, plan_layout, segment_span, PackOptions, JOURNAL_STALE_SECS,
         PACK_FILL, PACK_MAX, PACK_THRESHOLD,
@@ -387,7 +387,7 @@ impl NameIndex for FailingIndex {
     fn list(&self, request: &ListRequest) -> Result<IndexPage, DriveError> {
         self.inner.list(request)
     }
-    fn apply(&self, changes: Vec<IndexChange>) -> Result<Vec<ObjectId>, DriveError> {
+    fn apply(&self, changes: Vec<IndexChange>) -> Result<Released, DriveError> {
         match self.mode.swap(0, Ordering::SeqCst) {
             1 => Err(DriveError::Transport(String::from("the computer went off"))),
             2 => {
@@ -741,8 +741,11 @@ impl NameIndex for KeepsHistory {
     fn list(&self, request: &ListRequest) -> Result<IndexPage, DriveError> {
         self.0.list(request)
     }
-    fn apply(&self, changes: Vec<IndexChange>) -> Result<Vec<ObjectId>, DriveError> {
-        self.0.apply(changes).map(|_| Vec::new())
+    fn apply(&self, changes: Vec<IndexChange>) -> Result<Released, DriveError> {
+        // What it releases is held by its history: nothing for the drive to delete.
+        self.0
+            .apply(changes)
+            .map(|released| Released::held(released.delete_now))
     }
 }
 

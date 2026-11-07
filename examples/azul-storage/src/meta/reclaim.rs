@@ -13,7 +13,7 @@
 //!   a repository: every state of the drive is a commit). Deleting is a decision about history,
 //!   and only the reclaimer makes it.
 
-use crate::{crypto::ObjectId, Drive, DriveError};
+use crate::{crypto::ObjectId, BatchDelete, Drive, DriveError};
 
 /// What a failed call says about the change it tried to make: did it happen?
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -83,4 +83,92 @@ pub(crate) fn drop_new_object<D: Drive + ?Sized>(
     _refusal: &Refusal,
 ) -> Result<(), DriveError> {
     drive.delete(&id.bucket_key())
+}
+
+/// What an index releases when a change leaves objects that no entry of its head names any more.
+/// Two obligations that used to share one return value: an object nobody can ask for again is
+/// deleted at once; one the history still names is not deleted by whoever released it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Released {
+    /// Objects no state of the drive names any more - an index that keeps no history
+    /// ([`crate::encrypted::MemoryIndex`]): they may go from the bucket now.
+    pub delete_now: Vec<ObjectId>,
+    /// Objects the head no longer names but the history does (a repository: every state of the
+    /// drive is a commit). They stay in the bucket until the reclaimer has proved them past their
+    /// retention ([`super::retention::RETENTION`]). A hint: it tells a caller not to delete, and
+    /// wakes the reclaimer; nothing depends on it, because the reclaimer derives what was released
+    /// from the commits themselves.
+    pub held_by_history: Vec<ObjectId>,
+}
+
+impl Released {
+    /// Nothing released.
+    #[must_use]
+    pub fn none() -> Released {
+        Released::default()
+    }
+
+    /// `ids` can go from the bucket now.
+    #[must_use]
+    pub fn delete_now(ids: Vec<ObjectId>) -> Released {
+        Released {
+            delete_now: ids,
+            held_by_history: Vec::new(),
+        }
+    }
+
+    /// `ids` are held by the history.
+    #[must_use]
+    pub fn held(ids: Vec<ObjectId>) -> Released {
+        Released {
+            delete_now: Vec::new(),
+            held_by_history: ids,
+        }
+    }
+
+    /// Whether nothing was released.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.delete_now.is_empty() && self.held_by_history.is_empty()
+    }
+
+    /// What `other` released as well.
+    pub fn extend(&mut self, other: Released) {
+        self.delete_now.extend(other.delete_now);
+        self.held_by_history.extend(other.held_by_history);
+    }
+}
+
+/// Deletes the objects an index without history released ([`Released::delete_now`]). The objects the
+/// bucket would not delete come back with its answer: they are named by nothing and count against
+/// the quota, so the caller keeps them to try again and says so (AZ-U22) - they used to be dropped
+/// on the floor.
+pub(crate) fn delete_released<D: Drive + ?Sized>(
+    drive: &D,
+    released: &Released,
+) -> Vec<(ObjectId, DriveError)> {
+    if released.delete_now.is_empty() {
+        return Vec::new();
+    }
+    let keys: Vec<String> = released
+        .delete_now
+        .iter()
+        .map(ObjectId::bucket_key)
+        .collect();
+    let items: Vec<BatchDelete<'_>> = keys.iter().map(|key| BatchDelete::new(key)).collect();
+    let mut answers = drive.delete_many(&items).into_iter();
+    let mut failed = Vec::new();
+    for id in &released.delete_now {
+        // A drive that answers for fewer items than it was asked is not taken to have deleted
+        // the rest.
+        let answer = answers.next().unwrap_or_else(|| {
+            Err(DriveError::Protocol(String::from(
+                "the storage answered for fewer deletes than were asked",
+            )))
+        });
+        if let Err(e) = answer {
+            failed.push((*id, e));
+        }
+    }
+    failed
 }

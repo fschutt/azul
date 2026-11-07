@@ -80,7 +80,8 @@
 //! - `policy` (feature `encryption`): `.azlin/policy.toml` (members, roles, folder grants) and
 //!   the members' key wraps as files of the repository: every membership change a commit.
 //! - `reclaim` (feature `encryption`): what may take a data object out of the bucket, and on what
-//!   proof ([`Certainty`], the compensation of a change that was refused, the reclaimer).
+//!   proof ([`Certainty`], the compensation of a change that was refused, [`Released`], the
+//!   reclaimer); [`retention`]: how long a drive keeps what it released ([`RETENTION`]).
 
 // panic = "abort" in every shipped profile, and this module reads bytes other people wrote: no
 // unwrap, expect, panic, todo or unreachable in its shipped code (ARCH28 RF50).
@@ -112,6 +113,7 @@ pub mod policy;
 #[cfg(feature = "encryption")]
 pub mod reclaim;
 pub mod repo;
+pub mod retention;
 pub mod seal;
 pub mod shard;
 pub mod tree;
@@ -128,8 +130,9 @@ pub use pack::{PackIndex, PackWriter, SealedPack};
 #[cfg(feature = "encryption")]
 pub use index::{open_encrypted_drive, MetaIndex, MetaIndexProvider};
 #[cfg(feature = "encryption")]
-pub use reclaim::Certainty;
+pub use reclaim::{Certainty, Released};
 pub use repo::{CommitOutcome, MetaRepo, RepoOptions, RestoreSource};
+pub use retention::{Retention, RETENTION};
 #[cfg(feature = "encryption")]
 pub use seal::KeyWindow;
 pub use seal::{SealError, Sealer, TestSealer};

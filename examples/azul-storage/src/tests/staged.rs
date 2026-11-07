@@ -18,7 +18,7 @@ use crate::{
     encrypted::{
         EncryptedDrive, Expect, IndexChange, IndexEntry, IndexPage, MemoryIndex, NameIndex, Rewrite,
     },
-    meta::Certainty,
+    meta::{Certainty, Released},
     packing::PackOptions,
     BatchStream, ByteRange, Drive, DriveError, ListPage, ListRequest, ObjectInfo, Precondition,
     ServiceError,
@@ -71,7 +71,7 @@ impl NameIndex for LandedAndDenied {
         self.inner.list(request)
     }
 
-    fn apply(&self, changes: Vec<IndexChange>) -> Result<Vec<crate::crypto::ObjectId>, DriveError> {
+    fn apply(&self, changes: Vec<IndexChange>) -> Result<Released, DriveError> {
         let key = match changes.first() {
             Some(IndexChange::Put { path, .. } | IndexChange::Remove { path, .. }) => path.clone(),
             None => String::new(),

@@ -44,6 +44,9 @@ mod oauth;
 mod ops;
 /// The "downloaded from elsewhere" mark on what a transfer brings from a drive to this disk.
 mod quarantine;
+/// What an index releases and how long a drive keeps it (feature `encryption`).
+#[cfg(feature = "encryption")]
+mod released;
 /// The restore protocol: the truth table of `judge`, the baseline of a new pairing, the pure
 /// rebase of a base after a restore.
 mod restore;

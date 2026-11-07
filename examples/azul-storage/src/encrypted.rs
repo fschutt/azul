@@ -50,7 +50,7 @@
 
 use std::{
     cell::Cell,
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     fmt,
     fs::File,
     io::{self, Cursor, Read, Seek, SeekFrom, Write},
@@ -67,7 +67,7 @@ use crate::{
     },
     key::{check_key, check_prefix},
     keyring::KeyringStore,
-    meta::reclaim::{drop_new_object, Refusal},
+    meta::reclaim::{delete_released, drop_new_object, Refusal, Released},
     ops::check_folder,
     packing::{PackOptions, PackState, PackedAt},
     scratch::{Scratch, ScratchFile},
@@ -214,10 +214,11 @@ pub trait NameIndex: Send + Sync {
 
     /// Applies `changes` all together or not at all, in their order (a batch may remove a
     /// path and put another, as a rename does): [`DriveError::Conflict`] naming the path whose
-    /// expectation did not hold, and nothing changed. Returns the objects that nothing in the
-    /// index names any more, for the drive to delete from the bucket; an index that keeps
-    /// history returns none.
-    fn apply(&self, changes: Vec<IndexChange>) -> Result<Vec<ObjectId>, DriveError>;
+    /// expectation did not hold, and nothing changed. Returns what the change released
+    /// ([`Released`]): the objects no state of the drive names any more, for the drive to delete
+    /// from the bucket now; an index that keeps history returns those its history still names
+    /// instead, and the drive deletes nothing of them.
+    fn apply(&self, changes: Vec<IndexChange>) -> Result<Released, DriveError>;
 }
 
 /// Opens the persistent [`NameIndex`] of an encrypted drive: the bucket's encrypted metadata
@@ -1115,7 +1116,7 @@ impl NameIndex for MemoryIndex {
         Ok(page)
     }
 
-    fn apply(&self, changes: Vec<IndexChange>) -> Result<Vec<ObjectId>, DriveError> {
+    fn apply(&self, changes: Vec<IndexChange>) -> Result<Released, DriveError> {
         let mut entries = lock(&self.entries);
         // Every expectation against the state the earlier changes of the batch leave.
         let mut staged: BTreeMap<String, Option<IndexEntry>> = BTreeMap::new();
@@ -1153,7 +1154,7 @@ impl NameIndex for MemoryIndex {
         before.sort();
         before.dedup();
         before.retain(|id| !entries.values().any(|e| e.bucket_object() == Some(*id)));
-        Ok(before)
+        Ok(Released::delete_now(before))
     }
 }
 
@@ -1469,6 +1470,10 @@ pub struct EncryptedDrive<D: Drive> {
     opened: Mutex<HashMap<ObjectId, Arc<OpenObject>>>,
     /// Whether and how small files are packed, the packs in flight, the hot packs.
     pub(crate) packs: PackState,
+    /// Objects the index released for deleting at once that the bucket would not delete: named by
+    /// nothing and counted in the quota, tried again with the next release and by
+    /// [`EncryptedDrive::retry_undeleted`] (AZ-U22).
+    undeleted: Mutex<BTreeSet<ObjectId>>,
 }
 
 impl<D: Drive> fmt::Debug for EncryptedDrive<D> {
@@ -1491,6 +1496,7 @@ impl<D: Drive> EncryptedDrive<D> {
             options: WriteOptions::default(),
             opened: Mutex::new(HashMap::new()),
             packs: PackState::new(None),
+            undeleted: Mutex::new(BTreeSet::new()),
         }
     }
 
@@ -1723,22 +1729,40 @@ impl<D: Drive> EncryptedDrive<D> {
         }
     }
 
-    /// Deletes released objects from the bucket. Best effort: an object the bucket refused to
-    /// delete is named by nothing, garbage for a collector, not an error of the call that
-    /// released it.
-    pub(crate) fn release(&self, released: Vec<ObjectId>) {
+    /// Deletes the objects the index released for deleting at once ([`Released::delete_now`]; an
+    /// index that keeps history releases none: its objects stay until the reclaimer proves them
+    /// past their retention). What the bucket would not delete is named by nothing and counts in
+    /// the quota; it is kept ([`EncryptedDrive::undeleted`]) and tried again with the next release
+    /// and by [`EncryptedDrive::retry_undeleted`]. It is no error of the call that released it.
+    pub(crate) fn release(&self, released: Released) {
         {
             let mut cache = lock(&self.opened);
-            for id in &released {
+            for id in released.delete_now.iter().chain(&released.held_by_history) {
                 cache.remove(id);
             }
         }
-        for id in &released {
+        for id in released.delete_now.iter().chain(&released.held_by_history) {
             self.forget_pack(id);
         }
-        let keys: Vec<String> = released.iter().map(ObjectId::bucket_key).collect();
-        let items: Vec<BatchDelete<'_>> = keys.iter().map(|key| BatchDelete::new(key)).collect();
-        let _ = self.inner.delete_many(&items);
+        let mut now = released.delete_now;
+        now.extend(std::mem::take(&mut *lock(&self.undeleted)));
+        now.sort();
+        now.dedup();
+        let failed = delete_released(&self.inner, &Released::delete_now(now));
+        lock(&self.undeleted).extend(failed.into_iter().map(|(id, _)| id));
+    }
+
+    /// The objects an index released that the bucket would not delete yet: named by nothing,
+    /// counted in the quota, tried again by the next release and [`EncryptedDrive::retry_undeleted`].
+    #[must_use]
+    pub fn undeleted(&self) -> Vec<ObjectId> {
+        lock(&self.undeleted).iter().copied().collect()
+    }
+
+    /// Tries to delete the [`EncryptedDrive::undeleted`] objects again; how many are left.
+    pub fn retry_undeleted(&self) -> usize {
+        self.release(Released::none());
+        lock(&self.undeleted).len()
     }
 
     /// Writes `path` from `bytes` when `expect` holds of its index entry; what the listing now

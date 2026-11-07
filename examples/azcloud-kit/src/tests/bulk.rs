@@ -249,7 +249,7 @@ mod encrypted {
     };
 
     use azul_storage::{
-        crypto::{DriveKey, ObjectId},
+        crypto::DriveKey,
         encrypted::{EncryptedDrive, IndexChange, IndexEntry, IndexPage, MemoryIndex, NameIndex},
         meta::{open_encrypted_drive, MemoryBucket},
         ops::list_all,
@@ -275,7 +275,10 @@ mod encrypted {
         fn list(&self, request: &ListRequest) -> Result<IndexPage, DriveError> {
             self.inner.list(request)
         }
-        fn apply(&self, changes: Vec<IndexChange>) -> Result<Vec<ObjectId>, DriveError> {
+        fn apply(
+            &self,
+            changes: Vec<IndexChange>,
+        ) -> Result<azul_storage::meta::Released, DriveError> {
             if self.fail_next.swap(0, Ordering::SeqCst) == 1 {
                 return Err(DriveError::Transport(String::from("the computer went off")));
             }

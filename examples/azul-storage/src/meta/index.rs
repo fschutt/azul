@@ -13,8 +13,9 @@
 //!   inside the publish, after the poll that brought the other devices' entries, every
 //!   expectation is checked against their state, and the batch is committed on top of it. A
 //!   failed expectation is [`DriveError::Conflict`] and nothing changes; a swap lost to another
-//!   device is checked and applied again on the newer state. The index keeps the history, so it
-//!   releases no object (the old versions stay restorable).
+//!   device is checked and applied again on the newer state. The index keeps the history, so what
+//!   it releases is only HELD by it ([`Released::held_by_history`]): the old versions stay
+//!   restorable, and no one deletes them but the reclaimer, past their retention.
 //! - `.azlin` at the root (the drive's policy and keys) and the shards' names are no drive
 //!   paths: hidden from reads, refused for changes. Only the sync's bookkeeping under it
 //!   ([`SYNC_BOOKKEEPING`], the record of a folder synced at the root) is read and written by
@@ -46,6 +47,7 @@ use crate::{
     crypto::{DriveKey, ObjectId as DataId},
     encrypted::{EncryptedDrive, IndexChange, IndexEntry, IndexPage, IndexProvider, NameIndex},
     key::folder_of,
+    meta::reclaim::Released,
     Drive, DriveError, ListRequest, DEFAULT_PAGE_SIZE,
 };
 use sha2::{Digest, Sha256};
@@ -157,8 +159,9 @@ fn ensure_for_change<B: Bucket, S: Sealer>(
 
 impl<B: Bucket, S: Sealer> MetaRepo<B, S> {
     /// Applies an index batch as one compare-and-swap against the drive as it
-    /// is (see the module docs); `Conflict` when an expectation does not hold.
-    pub fn apply_index(&mut self, changes: &[IndexChange]) -> Result<(), MetaError> {
+    /// is (see the module docs); `Conflict` when an expectation does not hold. The data objects
+    /// the batch left unnamed in the head - they stay in the history, which still names them.
+    pub fn apply_index(&mut self, changes: &[IndexChange]) -> Result<Vec<DataId>, MetaError> {
         for change in changes {
             if reserved(change_path(change)) {
                 return Err(MetaError::Drive(DriveError::InvalidKey {
@@ -172,7 +175,7 @@ impl<B: Bucket, S: Sealer> MetaRepo<B, S> {
         self.take_restore();
         let signature = self.signature();
         let local = &mut self.local;
-        let mut outcome: Option<(ObjectId, Vec<ObjectId>)> = None;
+        let mut outcome: Option<(ObjectId, Vec<ObjectId>, Vec<DataId>)> = None;
         let result = self.store.publish_with(|state, packs| {
             local.refresh(state, packs)?;
             let remote = remote_head(state)?;
@@ -192,6 +195,8 @@ impl<B: Bucket, S: Sealer> MetaRepo<B, S> {
             let mut staged: BTreeMap<String, Option<IndexEntry>> = BTreeMap::new();
             let mut tree_changes: Vec<Change> = Vec::new();
             let mut removed_folders: Vec<String> = Vec::new();
+            // The objects the batch leaves unnamed in the head.
+            let mut held: Vec<DataId> = Vec::new();
             for change in changes {
                 let path = change_path(change);
                 let current = match staged.get(path) {
@@ -218,6 +223,12 @@ impl<B: Bucket, S: Sealer> MetaRepo<B, S> {
                             });
                             staged.insert(path.clone(), Some(marker()));
                         } else {
+                            if let Some(old) = current.as_ref().and_then(IndexEntry::bucket_object)
+                            {
+                                if entry.bucket_object() != Some(old) {
+                                    held.push(old);
+                                }
+                            }
                             let id = local.objects.write_blob(&pointer::encode(entry));
                             tree_changes.push(Change::Put {
                                 path: path.clone(),
@@ -230,6 +241,7 @@ impl<B: Bucket, S: Sealer> MetaRepo<B, S> {
                         if let Some(folder) = path.strip_suffix('/') {
                             removed_folders.push(folder.to_string());
                         } else if current.is_some() {
+                            held.extend(current.as_ref().and_then(IndexEntry::bucket_object));
                             tree_changes.push(Change::Delete { path: path.clone() });
                         }
                         staged.insert(path.clone(), None);
@@ -264,7 +276,9 @@ impl<B: Bucket, S: Sealer> MetaRepo<B, S> {
             for id in &new_objects {
                 writer.add_from(&local.objects, id)?;
             }
-            outcome = Some((commit, new_objects));
+            held.sort();
+            held.dedup();
+            outcome = Some((commit, new_objects, held));
             Ok(Some(Publish {
                 pack: Some(writer),
                 updates: vec![RefUpdate {
@@ -288,18 +302,20 @@ impl<B: Bucket, S: Sealer> MetaRepo<B, S> {
                 return Err(e);
             }
         };
-        match (result, outcome) {
-            (Some(published), Some((head, packed))) => {
+        let held = match (result, outcome) {
+            (Some(published), Some((head, packed, held))) => {
                 self.landed(Some(published), &packed)?;
                 self.head = Some(head);
+                held
             }
             _ => {
                 // Nothing to change: the copy is at the drive's head anyway.
                 self.head = remote_head(self.store.state())?;
+                Vec::new()
             }
-        }
+        };
         self.save();
-        Ok(())
+        Ok(held)
     }
 }
 
@@ -508,12 +524,13 @@ impl<B: Bucket, S: Sealer> NameIndex for MetaIndex<B, S> {
         Ok(page)
     }
 
-    fn apply(&self, changes: Vec<IndexChange>) -> Result<Vec<DataId>, DriveError> {
+    fn apply(&self, changes: Vec<IndexChange>) -> Result<Released, DriveError> {
         let mut inner = self.lock();
-        inner.repo.apply_index(&changes).map_err(to_drive)?;
+        let held = inner.repo.apply_index(&changes).map_err(to_drive)?;
         let now = inner.repo.store().now();
         inner.last_poll = Some(now);
-        Ok(Vec::new())
+        // The index keeps the history: nothing it released may be deleted now.
+        Ok(Released::held(held))
     }
 }
 

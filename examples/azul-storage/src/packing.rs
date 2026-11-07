@@ -76,7 +76,7 @@ use crate::{
     },
     key::check_key,
     local::write_atomically,
-    meta::reclaim::{drop_new_object, Refusal},
+    meta::reclaim::{drop_new_object, Refusal, Released},
     time::now_unix,
     BatchPut, ByteRange, Drive, DriveError, ObjectInfo,
 };
@@ -102,9 +102,11 @@ pub const REPACK_BELOW_PERCENT: u64 = 50;
 /// Packs smaller than this are merged when there are two or more of them (packs a lone writer
 /// sealed, the rest of a batch).
 pub const SMALL_PACK: u64 = 1 << 20;
-/// How long a retired pack stays in the bucket: a version restored from the drive's history
-/// within a month still finds its bytes.
-pub const RETIRED_GRACE_SECS: u64 = 30 * 86_400;
+/// How long a retired pack stays in the bucket: as long as the drive keeps the versions of its
+/// files ([`crate::meta::retention::RETENTION`]), so a version restored from the history within
+/// that time still finds its bytes (the grace was a span of its own, thirty days, shorter than
+/// the versions' ninety: X-AR5a-21).
+pub const RETIRED_GRACE_SECS: u64 = crate::meta::retention::RETENTION.versions.as_secs();
 /// A pack in the journal for longer than this is no longer in flight: its writer stopped.
 pub const JOURNAL_STALE_SECS: u64 = 15 * 60;
 /// Reads of one pack after which it is fetched whole and kept (a sync reading a folder).
@@ -958,7 +960,7 @@ struct Committed {
     /// Per member, in order: the entry its paths name now, or why it is not named.
     results: Vec<Result<IndexEntry, DriveError>>,
     /// What the index released (objects nothing names any more).
-    released: Vec<ObjectId>,
+    released: Released,
     /// The packs the index names (two or more when a full drive refused the whole one).
     packs: Vec<PackRef>,
 }
@@ -1336,7 +1338,7 @@ impl<D: Drive> EncryptedDrive<D> {
     fn commit_pack(&self, members: &[Member]) -> Committed {
         let all = |e: DriveError| Committed {
             results: members.iter().map(|_| Err(e.clone())).collect(),
-            released: Vec::new(),
+            released: Released::none(),
             packs: Vec::new(),
         };
         let first = members.first().map_or("", Member::first_path);
@@ -1365,7 +1367,7 @@ impl<D: Drive> EncryptedDrive<D> {
             .collect();
         let mut results: Vec<Option<Result<IndexEntry, DriveError>>> =
             members.iter().map(|_| None).collect();
-        let mut released = Vec::new();
+        let mut released = Released::none();
         let mut named = false;
         // The last change the index refused for good: the proof the pack may go again.
         let mut refused: Option<DriveError> = None;
@@ -1416,7 +1418,7 @@ impl<D: Drive> EncryptedDrive<D> {
                         .collect();
                     return Committed {
                         results,
-                        released: Vec::new(),
+                        released: Released::none(),
                         packs: Vec::new(),
                     };
                 }
@@ -1455,13 +1457,11 @@ impl<D: Drive> EncryptedDrive<D> {
         }
     }
 
-    /// Deletes what the index released, except `keep` (retired packs wait for their grace).
-    fn release_except(&self, released: Vec<ObjectId>, keep: &HashSet<ObjectId>) {
-        let gone: Vec<ObjectId> = released.into_iter().filter(|id| !keep.contains(id)).collect();
-        for id in &gone {
-            self.forget_pack(id);
-        }
-        self.release(gone);
+    /// Deletes what the index released for deleting at once, except `keep` (retired packs wait
+    /// for their grace).
+    fn release_except(&self, mut released: Released, keep: &HashSet<ObjectId>) {
+        released.delete_now.retain(|id| !keep.contains(id));
+        self.release(released);
     }
 
     /// The packs the head index names, with their live versions.

@@ -140,7 +140,7 @@ impl NameIndex for FlakyIndex {
         self.inner.list(request)
     }
 
-    fn apply(&self, changes: Vec<IndexChange>) -> Result<Vec<crate::crypto::ObjectId>, DriveError> {
+    fn apply(&self, changes: Vec<IndexChange>) -> Result<crate::meta::Released, DriveError> {
         if self
             .failing
             .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
