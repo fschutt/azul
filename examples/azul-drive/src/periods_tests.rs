@@ -324,7 +324,7 @@ fn a_background_job_reads_the_sealed_period_vault_through_its_own_keyring() {
         signature: String::from("c2lnbmF0dXJl"),
         randomizer: String::from("cmFuZG9taXplcg=="),
     };
-    store.add("d_1", &[token.clone()]).unwrap();
+    store.add("d_1", std::slice::from_ref(&token)).unwrap();
     assert!(
         blob::is_sealed(&std::fs::read(store.path_of("d_1").unwrap()).unwrap()),
         "the tokens are in the clear"

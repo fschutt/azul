@@ -1318,8 +1318,8 @@ fn x_delta_azdrive_money_16_the_toast_of_a_renewal_says_bought_and_when_each_mon
 }
 
 /// AZ-CN3: "Test connection" showed "Test failed: no answer from the storage service: ..
-/// https://api.pcloud.com/listfolder?path=/&username=ann&password=hunter2: the name did not resolve"
-/// - the password on a screen that is shared. The answer the form shows names the host and not the
+/// https://api.pcloud.com/listfolder?path=/&username=ann&password=hunter2: the name did not resolve",
+/// the password on a screen that is shared. The answer the form shows names the host and not the
 /// query; a success is a key of the resources and stays.
 #[test]
 fn az_cn3_the_red_line_under_the_form_names_no_password() {

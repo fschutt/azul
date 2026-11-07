@@ -499,5 +499,6 @@ fn az_cn14_the_pages_of_a_csv_build_follow_the_size_of_the_rows() {
     );
     assert_eq!(tables::csv_page_rows(100 * 1024), 81);
     assert_eq!(tables::csv_page_rows(usize::MAX), 10);
-    assert!(tables::CSV_FIRST_PAGE <= tables::ROWS_PAGE);
+    // Both are constants: a plain `assert!` of them is one that can never fail at run time.
+    const _: () = assert!(tables::CSV_FIRST_PAGE <= tables::ROWS_PAGE);
 }

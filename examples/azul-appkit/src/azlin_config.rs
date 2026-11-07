@@ -146,6 +146,9 @@ impl fmt::Debug for AzlinConfig {
 
 /// What reading the shared config found. A file that is there and is no config is not "no
 /// opinion" ([`ConfigState::Broken`]).
+// A value of one read, consumed at once by `into_loaded`: boxing the config would only move the
+// same bytes to the heap.
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, PartialEq)]
 pub enum ConfigState {
     /// No file, or an empty one: no opinion.
