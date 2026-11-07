@@ -32,9 +32,11 @@
 //! The same timer keeps the drive index small. In such a minute (idle, on mains, on a free
 //! network), before the pass, an encrypted drive whose index was not maintained from this
 //! computer in the last six hours gets one maintenance round (azul-storage's
-//! `MetaIndexProvider::maintain`). The round runs under the bucket's lease, so only one
-//! computer runs it at a time. It folds the index's packs into one, writes a checkpoint and
-//! deletes what was retired a day ago. One thing runs at a time: the round or the pass.
+//! `MetaIndexProvider::maintain_drive`). The round runs under the bucket's lease, so only one
+//! computer runs it at a time. It folds the index's packs (into packs of at most 48 MiB, which a
+//! drive the owner has not paid still takes), writes a checkpoint and deletes what was retired a
+//! day ago; the log then says what the reclaimer would delete of the drive's data objects
+//! (`AZDRIVE_RECLAIM`). One thing runs at a time: the round or the pass.
 
 use std::{
     collections::BTreeMap,
@@ -614,6 +616,19 @@ pub(crate) fn pack_reads_lines(source_id: &str, target_id: &str) -> Vec<String> 
         .collect()
 }
 
+/// The log line of the reclaimer's round at the end of a maintenance round
+/// ([`MetaIndexProvider::last_reclaim`]): in shadow mode what it would delete - the evidence the
+/// switch to deleting waits for - or why the round could not read the drive. `None`: no round ran.
+fn reclaim_marker(
+    drive: &str,
+    outcome: Option<Result<azul_storage::meta::ReclaimReport, String>>,
+) -> Option<String> {
+    Some(match outcome? {
+        Ok(report) => format!("AZDRIVE_RECLAIM {drive} {}", report.line()),
+        Err(why) => format!("AZDRIVE_RECLAIM_STOPPED {drive}: {why}"),
+    })
+}
+
 /// One maintenance round of the drive `drive`'s index in `bucket`
 /// (`MetaIndexProvider::maintain`), with this computer's key from `keyring`: what it did to the
 /// index, and to the packs of the drive's small files. `None`: there is no index yet, or
@@ -632,6 +647,10 @@ fn run_maintenance(
     let maintained = provider
         .maintain_drive(drive, Arc::clone(bucket), &drive_key, rules)
         .map_err(|e| e.to_string())?;
+    // What the reclaimer's round at its end came to (in shadow mode: what it would delete).
+    if let Some(line) = reclaim_marker(drive, provider.last_reclaim()) {
+        println!("{line}");
+    }
     // The packs of small files, when the index's round ran (there is an index): uploads a
     // crash left half done cleared up, sparse packs repacked, retired packs deleted after
     // their grace period.
@@ -4340,6 +4359,23 @@ mod tests {
             asked.load(Ordering::SeqCst) > 0,
             "the index asked where the drive's restore stands"
         );
+    }
+
+    /// AZ-M2. The reclaimer's round after a maintenance round is told in the log - in shadow mode
+    /// what it would delete - or why it could not read the drive; no round, no line.
+    #[test]
+    fn az_m2_the_reclaimers_round_is_told_in_the_log_as_what_it_would_delete() {
+        use azul_storage::meta::{ReclaimMode, ReclaimReport};
+
+        assert_eq!(reclaim_marker("d1", None), None);
+        let line =
+            reclaim_marker("d1", Some(Ok(ReclaimReport::none(ReclaimMode::Shadow)))).unwrap();
+        assert!(
+            line.starts_with("AZDRIVE_RECLAIM d1 reclaim (shadow): would delete 0 objects"),
+            "{line}"
+        );
+        let stopped = reclaim_marker("d1", Some(Err(String::from("no answer")))).unwrap();
+        assert_eq!(stopped, "AZDRIVE_RECLAIM_STOPPED d1: no answer");
     }
 
     #[test]
