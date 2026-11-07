@@ -474,6 +474,32 @@ fn the_shared_config_travels_without_its_endpoints_and_merges_key_by_key() {
     assert_eq!(on_a["endpoints"]["profile"], "local");
 }
 
+/// X-AR5a-16 (the second site of AZ-S22): the blob of a big JSON-merge file is on the drive
+/// short. RED not run: the old code found the key and counted the blob as uploaded.
+#[test]
+fn x_ar5a_16_a_big_json_blob_the_drive_holds_short_is_sent_again() {
+    let store = S3Bucket::new();
+    let mut a = Device::new("dev-a-x16");
+    a.json_merge = vec![String::from("config.json")];
+    a.rules = Rules::azlin_home();
+    let big = format!(
+        r#"{{"currentTheme": "flat", "note": "{}"}}"#,
+        "x".repeat(crate::store::BIG_BLOB as usize + 1024)
+    );
+    a.write("config.json", big.as_bytes());
+    let blob = crate::sync::local::json_blob(big.as_bytes()).expect("a JSON object");
+    assert!(blob.len() as u64 > crate::store::BIG_BLOB);
+    let key = blob_key(PREFIX, &hash_bytes(&blob));
+    store.write(&key, blob[..blob.len() / 3].to_vec());
+    let report = a.sync(&store);
+    assert!(report.errors.is_empty(), "{}", report.summary());
+    assert_eq!(
+        store.read(&key).as_deref(),
+        Some(&blob[..]),
+        "the whole blob is on the drive"
+    );
+}
+
 #[test]
 fn a_copy_on_a_new_device_of_a_file_deleted_elsewhere_is_kept_listed_and_not_sent_again() {
     // D5: no login path removes a file. A device paired afresh (a re-login, a restore from a

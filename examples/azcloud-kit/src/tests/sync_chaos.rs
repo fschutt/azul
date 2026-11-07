@@ -367,6 +367,41 @@ fn a_big_file_cut_off_by_a_dropped_connection_resumes_with_the_parts_it_lacked()
     );
 }
 
+/// AZ-S22: the blob of a big file is on the drive under the right name but SHORT (cut off, or
+/// damaged there). Its presence is no proof that it is whole: it is sent again, and the index
+/// does not come to name a blob that reads back as an error. RED not run: the old code HEADed
+/// the key, found something and called the blob uploaded, so the drive's copy stayed short.
+#[test]
+fn az_s22_a_big_blob_the_drive_holds_short_is_sent_again_not_taken_for_uploaded() {
+    let store = S3Bucket::new();
+    let laptop = Device::new("laptop-s22");
+    let bytes = twelve_parts();
+    laptop.write("video.bin", &bytes);
+    let blob = blob_key(PREFIX, &hash_bytes(&bytes));
+    store.write(&blob, bytes[..bytes.len() / 2].to_vec());
+    let report = laptop.sync(&store);
+    assert!(report.errors.is_empty(), "{}", report.summary());
+    assert_eq!(
+        store.read(&blob).as_deref(),
+        Some(&bytes[..]),
+        "the whole blob is on the drive"
+    );
+    // A blob that is whole (an earlier run sent it and was stopped before its commit) is found
+    // by its size and not sent again.
+    let whole = S3Bucket::new();
+    let other = Device::new("laptop-s22-whole");
+    other.write("video.bin", &bytes);
+    whole.write(&blob, bytes.clone());
+    let report = other.sync(&whole);
+    assert!(report.errors.is_empty(), "{}", report.summary());
+    assert_eq!(report.blobs_reused, 1, "{}", report.summary());
+    assert_eq!(
+        whole.count_under("PUT", &blob) + whole.count_under("POST", &blob),
+        0,
+        "nothing of the whole blob went up again"
+    );
+}
+
 /// A drive whose PUTs of one key get no answer (a connection that drops for that request).
 struct OneCut {
     inner: Arc<S3Bucket>,

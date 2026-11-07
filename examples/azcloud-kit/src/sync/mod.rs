@@ -1425,7 +1425,7 @@ fn upload_one<S: RemoteStore + ?Sized>(
     if let BlobSource::File(path) = &job.source {
         if job.size > BIG_BLOB {
             let key = remote::blob_key(prefix, &job.hash);
-            if store.head(&key)?.is_some() {
+            if blob_is_whole(store, &key, job.size)? {
                 return Ok(Outcome::Existed);
             }
             // Held open for the whole upload: it is the scanned file (no link, no FIFO), and
@@ -1470,12 +1470,21 @@ fn upload_one<S: RemoteStore + ?Sized>(
         Err(why) => return Ok(Outcome::Changed(why)),
     };
     let key = remote::blob_key(prefix, &job.hash);
-    if bytes.len() as u64 > BIG_BLOB && store.head(&key)?.is_some() {
+    let n = bytes.len() as u64;
+    if n > BIG_BLOB && blob_is_whole(store, &key, n)? {
         return Ok(Outcome::Existed);
     }
-    let n = bytes.len() as u64;
     store.put(&key, &bytes)?;
     Ok(Outcome::Uploaded(n))
+}
+
+/// Whether the drive holds the blob `key` WHOLE: an object of the size the blob has. A blob is
+/// named by its BLAKE3, so its name proves nothing of the bytes the drive holds under it: one
+/// that was cut short or damaged on the drive is there, the wrong size, and is sent again
+/// (AZ-S22, X-AR5a-16); counting its presence as "uploaded" put an index entry on a blob that
+/// reads back as an error.
+fn blob_is_whole<S: RemoteStore + ?Sized>(store: &S, key: &str, size: u64) -> CloudResult<bool> {
+    Ok(store.head(key)? == Some(size))
 }
 
 /// [`upload_one`], told as it moves and skipped once the run is stopped.
