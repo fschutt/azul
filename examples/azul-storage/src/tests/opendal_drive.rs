@@ -351,6 +351,41 @@ fn az_cn3_an_error_answer_of_such_a_source_names_no_credential_either() {
     }
 }
 
+/// AZ-CN5: the first request of a WebDAV source is a PROPFIND (a listing, a stat), and it reaches
+/// the transport as one. (The transport of the apps refused it: its own test pins the mapping.)
+#[test]
+fn az_cn5_a_webdav_source_sends_propfind_through_the_transport() {
+    struct RecordsVerbs(std::sync::Arc<Mutex<Vec<(Method, String)>>>);
+    impl Transport for RecordsVerbs {
+        fn send(&self, call: &HttpCall) -> Result<HttpReply, String> {
+            self.0.lock().unwrap().push((call.method, call.url.clone()));
+            Err("no network in this test".to_string())
+        }
+    }
+    let seen = std::sync::Arc::new(Mutex::new(Vec::new()));
+    let mut options = BTreeMap::new();
+    options.insert(
+        "endpoint".to_string(),
+        "https://cloud.example/remote.php/dav/files/ann".to_string(),
+    );
+    options.insert("username".to_string(), "ann".to_string());
+    let mut secrets = SecretOptions::new();
+    secrets.insert("password", "sesame-42");
+    let drive = OpendalDrive::open(
+        "webdav",
+        &options,
+        &secrets,
+        Box::new(RecordsVerbs(seen.clone())),
+    )
+    .unwrap();
+    let _ = drive.list(&ListRequest::folder(""));
+    let seen = seen.lock().unwrap().clone();
+    assert!(
+        seen.iter().any(|(method, _)| *method == Method::Propfind),
+        "a WebDAV listing is a PROPFIND: {seen:?}"
+    );
+}
+
 #[test]
 fn a_sources_secrets_reach_opendal_but_never_its_debug_output() {
     let mut options = BTreeMap::new();

@@ -110,22 +110,25 @@ fn secs(time: Duration) -> u64 {
         .max(1)
 }
 
-/// azul's verb for `method`. azul's `HttpMethod` has GET, HEAD, POST, PUT, PATCH and DELETE
-/// only: WebDAV's verbs (PROPFIND, MKCOL, COPY, MOVE, ...) cannot be sent through it yet
-/// (layout/src/http.rs `HttpMethod`), so a WebDAV source fails with this sentence until the
-/// engine sends any verb.
-fn method_of(method: Method) -> Result<HttpMethod, String> {
+/// azul's verb for `method`: every verb the drives send, WebDAV's included (azul's `HttpMethod`
+/// has OPTIONS, PROPFIND, PROPPATCH, MKCOL, COPY and MOVE since its client sends any verb, and
+/// bodies for the ones that take one). The match has no wildcard: a verb added to [`Method`] does
+/// not compile until it is mapped (AZ-CN5: this said "azul's HTTP client cannot send PROPFIND
+/// requests yet", so Nextcloud, ownCloud and Synology could not be connected at all).
+fn method_of(method: Method) -> HttpMethod {
     match method {
-        Method::Get => Ok(HttpMethod::Get),
-        Method::Head => Ok(HttpMethod::Head),
-        Method::Put => Ok(HttpMethod::Put),
-        Method::Post => Ok(HttpMethod::Post),
-        Method::Delete => Ok(HttpMethod::Delete),
-        Method::Patch => Ok(HttpMethod::Patch),
-        other => Err(format!(
-            "azul's HTTP client cannot send {} requests yet (WebDAV needs them)",
-            other.as_str()
-        )),
+        Method::Get => HttpMethod::Get,
+        Method::Head => HttpMethod::Head,
+        Method::Put => HttpMethod::Put,
+        Method::Post => HttpMethod::Post,
+        Method::Delete => HttpMethod::Delete,
+        Method::Patch => HttpMethod::Patch,
+        Method::Options => HttpMethod::Options,
+        Method::Propfind => HttpMethod::Propfind,
+        Method::Proppatch => HttpMethod::Proppatch,
+        Method::Mkcol => HttpMethod::Mkcol,
+        Method::Copy => HttpMethod::Copy,
+        Method::Move => HttpMethod::Move,
     }
 }
 
@@ -142,7 +145,7 @@ impl Transport for AzulTransport {
                 "a request was sent from the UI thread, which never waits for an answer",
             ));
         }
-        let method = method_of(call.method)?;
+        let method = method_of(call.method);
         let budget = call.budget();
         let mut config = HttpRequestConfig::create()
             .with_timeout(secs(budget.overall))
@@ -178,8 +181,13 @@ impl Transport for AzulTransport {
 mod tests {
     use azul::{error::HttpError, str::String as AzString};
 
-    use super::http_error_text;
-    use crate::transport::{is_dns_failure, DNS_FAILED};
+    use azul::http::HttpMethod;
+
+    use super::{http_error_text, method_of};
+    use crate::{
+        transport::{is_dns_failure, DNS_FAILED},
+        Method,
+    };
 
     fn text(words: &str) -> AzString {
         AzString::from(words)
@@ -217,5 +225,34 @@ mod tests {
         assert!(is_dns_failure(&said), "{said}");
         assert!(!said.contains("hunter2"), "{said}");
         assert_eq!(http_error_text(&HttpError::Timeout), "timed out");
+    }
+
+    /// AZ-CN5 / X-AR5b-21: every verb a drive sends reaches azul's client as the same verb. WebDAV's
+    /// six were refused with "cannot send PROPFIND requests yet"; the first request of every WebDAV
+    /// source is a PROPFIND.
+    #[test]
+    fn az_cn5_every_verb_of_a_drive_is_the_verb_of_azuls_client() {
+        macro_rules! maps {
+            ($($ours:ident),+ $(,)?) => {{
+                let mut mapped = 0;
+                $(
+                    assert!(
+                        matches!(method_of(Method::$ours), HttpMethod::$ours),
+                        "{} is not sent as itself",
+                        Method::$ours.as_str()
+                    );
+                    mapped += 1;
+                )+
+                mapped
+            }};
+        }
+        let mapped = maps!(
+            Get, Head, Put, Post, Delete, Patch, Options, Propfind, Proppatch, Mkcol, Copy, Move
+        );
+        assert_eq!(
+            mapped,
+            Method::ALL.len(),
+            "a verb of Method is missing from this list"
+        );
     }
 }

@@ -5,8 +5,8 @@
 //! - **One HTTP stack.** OpenDAL's HTTP services send through the app's [`Transport`]
 //!   ([`TransportHttp`], OpenDAL's `HttpTransport` seam): azul's HTTP client and its TLS in the
 //!   apps, a fake in the tests - the same seam as the S3 client's. OpenDAL is built without
-//!   reqwest. (azul's client sends GET, HEAD, POST, PUT, PATCH and DELETE; WebDAV's PROPFIND /
-//!   MKCOL / COPY / MOVE fail with a sentence until the engine sends any verb.)
+//!   reqwest. (azul's client sends every verb a drive uses, WebDAV's PROPFIND, PROPPATCH, MKCOL,
+//!   COPY and MOVE and OPTIONS included: `AzulTransport` maps them one to one.)
 //! - **Blocking, like every drive.** OpenDAL is async: a call runs its future to the end on the
 //!   calling thread ([`crate::runtime::block_on`], an azul `Thread`); a request's blocking send
 //!   runs on tokio's blocking pool, so no runtime worker ever waits on the network.
