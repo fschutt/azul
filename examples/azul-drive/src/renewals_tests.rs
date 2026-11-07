@@ -12,7 +12,10 @@ use azul_storage::testing::TempDir;
 
 use crate::{
     add_drive::{AddDialog, TiersState},
-    renewals::{price_notices, reminder_text, space_offer, RenewFor, RenewOrder, Waitlist},
+    renewals::{
+        notices_file, price_notices, reminder_text, space_offer, NoticeLog, RenewFor, RenewOrder,
+        Waitlist,
+    },
 };
 
 fn tier(id: &str, gb: u64, month: u64, year: u64) -> Tier {
@@ -191,4 +194,42 @@ fn the_full_drive_warning_offers_only_what_exists() {
     let none = crate::usage_view::usage_warning("Photos", &usage, None).unwrap();
     assert_eq!(none.get("bigger"), Some(&Arg::from("none")));
     assert!(crate::l10n::EN.contains("[none] ."), "no bigger tier: free space only");
+}
+
+/// X-AR5a-6: the notices a drive was shown and the waitlist live in the folder of the period
+/// tokens and are as private as it: put in place whole, for this user alone (`fs::write` made them
+/// with the default mode, in place - a power cut left an empty file that showed every notice again).
+#[cfg(unix)]
+#[test]
+fn x_ar5a_6_the_notice_log_and_the_waitlist_are_private_and_whole() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = TempDir::new("azdrive-renewals-private");
+    let tokens = dir.path().join("period-tokens");
+    let log = NoticeLog::new(&tokens, "d_k3f9");
+    assert!(log.first_time(7).unwrap(), "the first time");
+    assert!(!log.first_time(7).unwrap(), "said once");
+    assert!(log.first_time(8).unwrap(), "another change");
+    let file = notices_file(&tokens, "d_k3f9");
+    let list = Waitlist::new(&tokens);
+    list.add("10TB").unwrap();
+    for path in [file, tokens.join("waitlist.json")] {
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "{}: {mode:o}", path.display());
+        assert!(
+            serde_json::from_str::<serde_json::Value>(&std::fs::read_to_string(&path).unwrap())
+                .is_ok(),
+            "{}",
+            path.display()
+        );
+    }
+    let folder = std::fs::metadata(&tokens).unwrap().permissions().mode() & 0o777;
+    assert_eq!(
+        folder, 0o700,
+        "the folder made for them is private too: {folder:o}"
+    );
+    let names: Vec<String> = std::fs::read_dir(&tokens)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(names.len(), 2, "no temporary file stays: {names:?}");
 }

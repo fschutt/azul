@@ -246,7 +246,7 @@ pub(crate) fn price_notices(
 
 /// The price notices a drive was shown (their change ids), so each is shown and saved once:
 /// `<dir>/<drive id>.notices.json`.
-struct NoticeLog {
+pub(crate) struct NoticeLog {
     path: PathBuf,
 }
 
@@ -268,14 +268,14 @@ pub(crate) fn notices_file(dir: &Path, drive_id: &str) -> PathBuf {
 }
 
 impl NoticeLog {
-    fn new(dir: &Path, drive_id: &str) -> NoticeLog {
+    pub(crate) fn new(dir: &Path, drive_id: &str) -> NoticeLog {
         NoticeLog {
             path: notices_file(dir, drive_id),
         }
     }
 
     /// Whether the change `id` is shown for the first time (it is marked shown then).
-    fn first_time(&self, id: u64) -> Result<bool, String> {
+    pub(crate) fn first_time(&self, id: u64) -> Result<bool, String> {
         let mut file: NoticeFile = match std::fs::read_to_string(&self.path) {
             Ok(text) => serde_json::from_str(&text).map_err(|e| e.to_string())?,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => NoticeFile::default(),
@@ -285,11 +285,15 @@ impl NoticeLog {
             return Ok(false);
         }
         file.shown.push(id);
-        if let Some(dir) = self.path.parent() {
-            std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-        }
         let text = serde_json::to_string(&file).map_err(|e| e.to_string())?;
-        std::fs::write(&self.path, text).map_err(|e| e.to_string())?;
+        // In the folder of the period tokens, so as private as they are; a power cut leaves the old
+        // list or the new one, never an empty file that shows every notice again.
+        azul_storage::durable::replace(
+            &self.path,
+            text.as_bytes(),
+            azul_storage::durable::Mode::Private,
+        )
+        .map_err(|e| e.to_string())?;
         Ok(true)
     }
 }
@@ -325,11 +329,13 @@ impl Waitlist {
     }
 
     fn write(&self, file: &WaitlistFile) -> Result<(), String> {
-        if let Some(dir) = self.path.parent() {
-            std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-        }
         let text = serde_json::to_string(file).map_err(|e| e.to_string())?;
-        std::fs::write(&self.path, text).map_err(|e| e.to_string())
+        azul_storage::durable::replace(
+            &self.path,
+            text.as_bytes(),
+            azul_storage::durable::Mode::Private,
+        )
+        .map_err(|e| e.to_string())
     }
 
     /// Keeps `tier` until it is sold again.

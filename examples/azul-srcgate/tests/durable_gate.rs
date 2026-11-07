@@ -216,12 +216,6 @@ const ALLOWED: &[Allow] = &[
          staged file would replace it: Z30-A1B",
     ),
     Allow::exactly(
-        "examples/azul-drive/src/renewals.rs",
-        RAW,
-        2,
-        "the shown-notices file and the waitlist: Z30-B (durable::replace)",
-    ),
-    Allow::exactly(
         "examples/azul-appkit/src/ui.rs",
         RAW,
         1,
