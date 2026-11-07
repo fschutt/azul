@@ -4553,7 +4553,9 @@ pub fn evict_file(root: &LocalRoot, index_path: &Path, key: &str) -> CloudResult
     if st.kind != Kind::File {
         fail!("{key} is no file here: nothing is freed");
     }
-    let unmoved = st.size == entry.size && st.mtime_ns == entry.mtime_ns;
+    // Unread only when the file is, for certain, the one that was hashed (AZ-S13: size and
+    // modification time also pass an edit that kept both); else its bytes are read first.
+    let unmoved = entry.holds(&st, index.scanned_at_ns);
     if !unmoved && hash_here(&root.path, key).as_deref() != Some(entry.hash.as_str()) {
         fail!("{key} changed since its last sync and is not synced yet: it stays on this device");
     }

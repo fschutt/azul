@@ -106,6 +106,17 @@ impl BaseEntry {
             .matches(st)
             .is_same()
     }
+
+    /// Whether this entry's hash is, for certain, the hash of the file `st` shows: the file is
+    /// untouched since it was hashed ([`BaseEntry::untouched`]: size, time, status-change time and
+    /// identity) and was not written in the two seconds before the scan that hashed it started
+    /// (`scanned_ns`; git's "racy" files, which a timestamp of whole seconds cannot tell from a
+    /// later edit). The scan trusts a kept hash on exactly this, the read-back judges rot by it,
+    /// and "Free up space" unlinks a file unread on it (AZ-S13): one question, one answer.
+    #[must_use]
+    pub fn holds(&self, st: &Stat, scanned_ns: u64) -> bool {
+        self.untouched(st) && st.mtime_ns.saturating_add(RACY_NS) < scanned_ns
+    }
 }
 
 /// A folder both sides had at the last sync.
@@ -1306,11 +1317,9 @@ fn scan_file(
     }
     // The base's hash is kept for a file that is, for certain, the file it was hashed from: an
     // unknown identity reads the file again (its hash is not taken on a guess).
-    let unchanged = base.get(key).filter(|b| {
-        b.untouched(st)
-            && b.exec == st.executable()
-            && st.mtime_ns.saturating_add(RACY_NS) < base_scanned_ns
-    });
+    let unchanged = base
+        .get(key)
+        .filter(|b| b.holds(st, base_scanned_ns) && b.exec == st.executable());
     if let Some(b) = unchanged {
         return Ok(Some((
             file_of(b.hash.clone(), st.size, Content::Raw, st),

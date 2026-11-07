@@ -857,6 +857,48 @@ fn big(fill: u8) -> Vec<u8> {
     vec![fill; (MB + 1) as usize]
 }
 
+/// Writes `key` with a modification time an hour old: the pass that hashes it trusts the hash later
+/// (a file written within two seconds of its scan is "racy" and is read again).
+fn aged(p: &Paired, key: &str, bytes: &[u8]) {
+    p.write(key, bytes);
+    let then = std::time::SystemTime::now() - std::time::Duration::from_secs(3600);
+    fs::File::options()
+        .write(true)
+        .open(path_of(p.folder.path(), key))
+        .unwrap()
+        .set_modified(then)
+        .unwrap();
+}
+
+/// An edit through the file system that keeps the size and puts the modification time back
+/// (`rsync -t`, `touch -r`): the file's change time moves, as it does for every write.
+fn edit_keeping_size_and_time(p: &Paired, key: &str, bytes: &[u8]) {
+    let path = path_of(p.folder.path(), key);
+    let mtime = fs::metadata(&path).unwrap().modified().unwrap();
+    fs::write(&path, bytes).unwrap();
+    fs::File::options()
+        .write(true)
+        .open(&path)
+        .unwrap()
+        .set_modified(mtime)
+        .unwrap();
+}
+
+/// Rot: other bytes of the same size under the same times and the same identity, as a failing disk
+/// or a raw write leaves a file. A write through the file system always moves the change time, so
+/// the change time the file has now is written into the base as the one it was hashed with
+/// ([`edit_keeping_size_and_time`] is the edit that the change time gives away).
+fn rot(p: &Paired, key: &str, bytes: &[u8]) {
+    edit_keeping_size_and_time(p, key, bytes);
+    let st = azul_storage::beneath::stat_path(&path_of(p.folder.path(), key)).unwrap();
+    let index_path = p.state.path().join(crate::sync::session::INDEX_FILE);
+    let mut index = crate::sync::LocalIndex::load(&index_path)
+        .unwrap()
+        .expect("a base");
+    index.files.get_mut(key).expect("synced").ctime_ns = st.ctime_ns;
+    index.save(&index_path).unwrap();
+}
+
 #[test]
 fn a_limited_pass_sends_small_files_and_keeps_big_ones_here_for_a_free_pass() {
     let store = Arc::new(S3Bucket::new());
@@ -1114,8 +1156,8 @@ fn a_pairing_that_downloads_everything_brings_cloud_only_files_down_but_not_free
 fn the_read_back_heals_a_damaged_drive_copy_and_puts_back_a_rotted_one_here() {
     let store = Arc::new(S3Bucket::new());
     let a = paired("verify-a", &store, |_| {});
-    a.write("a.bin", b"archive a");
-    a.write("b.bin", b"archive b");
+    aged(&a, "a.bin", b"archive a");
+    aged(&a, "b.bin", b"archive b");
     a.pass();
     let blob = |text: &[u8]| {
         crate::sync::remote::blob_key("Documents/", &crate::sync::local::hash_bytes(text))
@@ -1126,16 +1168,8 @@ fn the_read_back_heals_a_damaged_drive_copy_and_puts_back_a_rotted_one_here() {
     assert_eq!(report.mismatches, vec![String::from("a.bin")]);
     assert_eq!(report.healed, vec![String::from("a.bin")], "sent again from the good copy here");
     assert_eq!(store.read(&blob(b"archive a")).as_deref(), Some(&b"archive a"[..]));
-    // This device's copy rots: same size, same time, other bytes.
-    let path = path_of(a.folder.path(), "b.bin");
-    let mtime = fs::metadata(&path).unwrap().modified().unwrap();
-    fs::write(&path, b"archive X").unwrap();
-    fs::File::options()
-        .write(true)
-        .open(&path)
-        .unwrap()
-        .set_modified(mtime)
-        .unwrap();
+    // This device's copy rots: same size, same time, same identity, other bytes.
+    rot(&a, "b.bin", b"archive X");
     let report = a.session.verify().unwrap();
     assert_eq!(report.rotted, vec![String::from("b.bin")]);
     assert_eq!(report.restored, vec![String::from("b.bin")]);
@@ -1158,17 +1192,10 @@ fn the_read_back_heals_a_damaged_drive_copy_and_puts_back_a_rotted_one_here() {
 fn the_repair_swaps_in_the_staged_version_and_keeps_the_rotted_bytes_in_the_trash() {
     let store = Arc::new(S3Bucket::new());
     let a = paired("verify-swap", &store, |_| {});
-    a.write("docs/b.bin", b"archive b");
+    aged(&a, "docs/b.bin", b"archive b");
     a.pass();
     let path = path_of(a.folder.path(), "docs/b.bin");
-    let mtime = fs::metadata(&path).unwrap().modified().unwrap();
-    fs::write(&path, b"archive X").unwrap();
-    fs::File::options()
-        .write(true)
-        .open(&path)
-        .unwrap()
-        .set_modified(mtime)
-        .unwrap();
+    rot(&a, "docs/b.bin", b"archive X");
     let report = a.session.verify().unwrap();
     assert_eq!(
         report.restored,
@@ -1278,18 +1305,10 @@ fn az_s4_a_rotted_file_stays_where_it_is_when_the_replacement_cannot_be_fetched(
         folder,
         state,
     };
-    a.write("b.bin", b"archive b");
+    aged(&a, "b.bin", b"archive b");
     a.pass();
-    // This device's copy rots: same size, same time, other bytes.
-    let path = path_of(a.folder.path(), "b.bin");
-    let mtime = fs::metadata(&path).unwrap().modified().unwrap();
-    fs::write(&path, b"archive X").unwrap();
-    fs::File::options()
-        .write(true)
-        .open(&path)
-        .unwrap()
-        .set_modified(mtime)
-        .unwrap();
+    // This device's copy rots: same size, same time, same identity, other bytes.
+    rot(&a, "b.bin", b"archive X");
     // The read-back reads the drive's copy once (whole), then the repair's fetch gets no answer.
     drops.fetches_left.store(1, Ordering::SeqCst);
     let report = a.session.verify().unwrap();
@@ -1309,6 +1328,55 @@ fn az_s4_a_rotted_file_stays_where_it_is_when_the_replacement_cannot_be_fetched(
         index_of(&store)
     );
     assert!(a.read("b.bin").is_some());
+}
+
+/// AZ-S13. The read-back judged "rot" by size and modification time alone, so an edit that keeps
+/// both (`rsync -t`, `touch -r`, a volume of whole-second times) was taken for rot: the drive's
+/// version was put over it and the edit sat in the trash. The change time moves with every write
+/// and nobody can set it back; a file whose change time moved is an edit, and the next pass sends
+/// it. RED not run: the old code reports `b.bin` as rotted and restores the base's bytes.
+#[test]
+fn az_s13_an_edit_that_keeps_size_and_time_is_no_rot_and_the_next_pass_sends_it() {
+    let store = Arc::new(S3Bucket::new());
+    let a = paired("verify-s13", &store, |_| {});
+    aged(&a, "b.bin", b"archive b");
+    a.pass();
+    edit_keeping_size_and_time(&a, "b.bin", b"archive X");
+    let report = a.session.verify().unwrap();
+    assert!(report.rotted.is_empty(), "an edit is no rot: {report:?}");
+    assert!(report.restored.is_empty(), "{report:?}");
+    assert_eq!(
+        a.read("b.bin").as_deref(),
+        Some(&b"archive X"[..]),
+        "the edit stays"
+    );
+    a.pass();
+    assert_eq!(
+        index_of(&store)["files"]["b.bin"]["hash"],
+        crate::sync::local::hash_bytes(b"archive X"),
+        "the edit was sent"
+    );
+}
+
+/// AZ-S13. "Free up space" (and the size cap behind every pass) unlinked a file unread when its
+/// size and modification time were the base's: an edit that kept both was deleted from this
+/// computer, and the drive had only the version before the edit. RED not run: the old code frees
+/// the file (`freed.freed` is `["b.bin"]`) and the edit is gone.
+#[test]
+fn az_s13_free_up_space_keeps_a_file_edited_under_the_same_size_and_time() {
+    let store = Arc::new(S3Bucket::new());
+    let a = paired("evict-s13", &store, |_| {});
+    aged(&a, "b.bin", b"archive b");
+    a.pass();
+    edit_keeping_size_and_time(&a, "b.bin", b"archive X");
+    let freed = a.session.free_up(&[String::from("b.bin")]).unwrap();
+    assert!(freed.freed.is_empty(), "{freed:?}");
+    assert_eq!(freed.kept.len(), 1, "{freed:?}");
+    assert_eq!(
+        a.read("b.bin").as_deref(),
+        Some(&b"archive X"[..]),
+        "the edit is still here"
+    );
 }
 
 // ==== The guards' answers are for the question they were given to (AZ-S7, AZ-S8, AZ-S9) ====

@@ -5,11 +5,12 @@
 //!   against its BLAKE3. A copy that does not read back whole is listed (`hash-mismatch`) and,
 //!   when this device holds that very version, sent again from here - the drive heals from a
 //!   good copy, never from a guess.
-//! - **This device's copies**: a synced file whose size and time are as its last sync left
-//!   them but whose bytes are not (a failing disk, a raw write) is no edit: the drive's version
-//!   is put back and the damaged bytes go into the folder's trash (an edit that kept its size
-//!   and time is never lost: it is in the trash, and in the operations log). A pass would have
-//!   trusted the time and never read it.
+//! - **This device's copies**: a synced file whose size, times and identity are as its last
+//!   sync left them but whose bytes are not (a failing disk, a raw write) is no edit: the
+//!   drive's version is put back and the damaged bytes go into the folder's trash (and the
+//!   operations log). A pass would have trusted the unchanged file and never read it. A file
+//!   whose status-change time moved was written to: that is an edit, whatever it did to the
+//!   size and the modification time, and the next pass sends it.
 //!
 //! The report is kept in the pairing's state folder ([`VERIFY_FILE`]): the window says when the
 //! folder was last checked and what was found.
@@ -161,8 +162,11 @@ fn run<R: SyncRemote + ?Sized>(
         let Ok(Some(st)) = stat_now(&root.path, &key) else {
             continue;
         };
-        if st.kind != Kind::File || st.size != entry.size || st.mtime_ns != entry.mtime_ns {
-            // Changed as an edit changes a file: the next pass's.
+        // As it was when it was hashed (AZ-S13 - size and time alone also pass an edit that keeps
+        // both, `touch -r`, a volume with whole-second times; an edit cannot set the status-change
+        // time back): the question the scan asks before it trusts a hash. Anything else is an
+        // edit, the next pass's.
+        if st.kind != Kind::File || !entry.holds(&st, index.scanned_at_ns) {
             continue;
         }
         let Some(hash) = hash_here(&root.path, &key) else {
