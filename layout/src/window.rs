@@ -16366,6 +16366,12 @@ impl LayoutWindow {
     }
 
     /// Helper function to calculate scrollbar opacity based on activity time
+    ///
+    /// The two zeros are the documented ones of `-azul-scrollbar-fade-delay` /
+    /// `-azul-scrollbar-fade-duration` (css `scrollbar.rs`): a delay of 0 is a bar
+    /// that "never fades (always visible)", a duration of 0 is "instant
+    /// disappearance" once the delay is up. They are decided here, before the
+    /// ratios below divide by them (0 / 0 and x / 0 are NaN and inf).
     // Instant is a ref-counted FFI clock handle threaded through the scrollbar-fade path by value.
     #[allow(clippy::needless_pass_by_value)]
     fn calculate_scrollbar_opacity(
@@ -16374,6 +16380,10 @@ impl LayoutWindow {
         fade_delay: Duration,
         fade_duration: Duration,
     ) -> f32 {
+        if fade_delay.as_nanos() == 0 {
+            return 1.0;
+        }
+
         let Some(last_activity) = last_activity else {
             return 0.0;
         };
@@ -16385,12 +16395,61 @@ impl LayoutWindow {
             return 1.0;
         }
 
-        // Phase 2: Fade out over fade_duration
+        // Phase 2: Fade out over fade_duration (none: gone at once)
+        if fade_duration.as_nanos() == 0 {
+            return 0.0;
+        }
         let time_into_fade = time_since_activity.div(&fade_delay) - 1.0;
         let fade_progress = (time_into_fade * fade_delay.div(&fade_duration)).min(1.0);
 
         // Phase 3: Fully faded
         (1.0 - fade_progress).max(0.0)
+    }
+
+    /// The fade of the overlay bar(s) of `node_id`: its OWN
+    /// `-azul-scrollbar-fade-delay` / `-azul-scrollbar-fade-duration` when the
+    /// cascade has them for it (a stylesheet rule, an inline style, a user
+    /// override), the window's otherwise. Each property alone: a node that sets
+    /// only the delay keeps the window's duration.
+    ///
+    /// Only what a node DECLARES is read. The UA sheet's platform answers
+    /// (`ComputedScrollbarStyle::fade_delay_ms`: 500/200 on macOS, 300/150 on
+    /// Android, 0/0 for the classic bar of every other system) are not: the
+    /// window's constants have always been the fade of every bar, and 0/0 would
+    /// read as "never fades" here. Before this read, the two properties were
+    /// parsed, cascaded and never consulted: `-azul-scrollbar-fade-delay: 3000ms`
+    /// faded at 500 ms like any other (`gen-e2e` batch 1, E2E-R9).
+    fn scrollbar_fade_of(
+        styled_dom: &StyledDom,
+        node_id: NodeId,
+        window_delay: Duration,
+        window_duration: Duration,
+    ) -> (Duration, Duration) {
+        let cache = styled_dom.get_css_property_cache();
+        let nodes = styled_dom.node_data.as_container();
+        let states = styled_dom.styled_nodes.as_container();
+        let (Some(node), Some(styled)) = (nodes.get(node_id), states.get(node_id)) else {
+            return (window_delay, window_duration);
+        };
+        let state = &styled.styled_node_state;
+        // Almost every scroll box has no scrollbar CSS: one flag, no cascade walk.
+        if state.is_normal()
+            && cache
+                .compact_cache
+                .as_ref()
+                .is_some_and(|cc| !cc.has_scrollbar_css(node_id.index()))
+        {
+            return (window_delay, window_duration);
+        }
+        let delay = cache
+            .get_scrollbar_fade_delay(node, &node_id, state)
+            .and_then(|v| v.get_property())
+            .map_or(window_delay, |d| Duration::from_millis(u64::from(d.ms)));
+        let duration = cache
+            .get_scrollbar_fade_duration(node, &node_id, state)
+            .and_then(|v| v.get_property())
+            .map_or(window_duration, |d| Duration::from_millis(u64::from(d.ms)));
+        (delay, duration)
     }
 
     /// Synchronize scrollbar opacity values with the GPU value cache.
@@ -16450,6 +16509,7 @@ impl LayoutWindow {
                 scroll_manager,
                 *dom_id,
                 &layout_result.layout_tree,
+                &layout_result.styled_dom,
                 &system_callbacks,
                 fade_delay,
                 fade_duration,
@@ -18578,6 +18638,14 @@ impl LayoutWindow {
         }
     }
 
+    /// One frame of every overlay scrollbar's fade in `dom_id`: its opacity from
+    /// the time since its box last scrolled, and the GPU cache's opacity key for it.
+    ///
+    /// `fade_delay` / `fade_duration` are the WINDOW's fade; a box that declares
+    /// `-azul-scrollbar-fade-delay` / `-azul-scrollbar-fade-duration` in
+    /// `styled_dom` (the DOM of `dom_id`) fades by its own
+    /// ([`Self::scrollbar_fade_of`]).
+    #[allow(clippy::too_many_arguments)] // the managers, the DOM, its tree and style, the clock, the fade
     #[allow(clippy::too_many_lines)] // one cohesive fade state machine per scrollbar; no natural
                                      // split
     pub fn synchronize_scrollbar_opacity(
@@ -18585,6 +18653,7 @@ impl LayoutWindow {
         scroll_manager: &ScrollManager,
         dom_id: DomId,
         layout_tree: &LayoutTree,
+        styled_dom: &StyledDom,
         system_callbacks: &ExternalSystemCallbacks,
         fade_delay: Duration,
         fade_duration: Duration,
@@ -18623,6 +18692,9 @@ impl LayoutWindow {
             let has_horizontal_bar = scrollbar_info
                 .presence(ScrollbarOrientation::Horizontal)
                 .is_present();
+            // This box's fade: its own CSS where it declares one, the window's otherwise.
+            let (node_delay, node_duration) =
+                Self::scrollbar_fade_of(styled_dom, node_id, fade_delay, fade_duration);
             let vertical_opacity = if !has_vertical_bar {
                 0.0
             } else if scroll_manager.is_thumb_dragged(dom_id, node_id, ScrollbarOrientation::Vertical)
@@ -18632,8 +18704,8 @@ impl LayoutWindow {
                 Self::calculate_scrollbar_opacity(
                     scroll_manager.get_last_activity_time(dom_id, node_id),
                     now.clone(),
-                    fade_delay,
-                    fade_duration,
+                    node_delay,
+                    node_duration,
                 )
             };
 
@@ -18649,8 +18721,8 @@ impl LayoutWindow {
                 Self::calculate_scrollbar_opacity(
                     scroll_manager.get_last_activity_time(dom_id, node_id),
                     now.clone(),
-                    fade_delay,
-                    fade_duration,
+                    node_delay,
+                    node_duration,
                 )
             };
 

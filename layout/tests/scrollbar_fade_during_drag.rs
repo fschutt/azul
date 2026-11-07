@@ -112,6 +112,7 @@ fn opacity_at(lw: &mut LayoutWindow, now: u64) -> f32 {
         scroll_manager,
         DOM,
         layout_tree,
+        &layout_results[&DOM].styled_dom,
         &cbs,
         ticks(FADE_DELAY),
         ticks(FADE_DURATION),

@@ -120,6 +120,11 @@ mod moved_frame_tests;
 #[cfg(test)]
 mod damage_which_tests;
 
+// A box fades its overlay scrollbar by the `-azul-scrollbar-fade-delay` /
+// `-azul-scrollbar-fade-duration` it declares (E2E-R9), not by the window's constants.
+#[cfg(test)]
+mod scrollbar_fade_css_tests;
+
 // `set_node_classes` re-runs the cascade for the new classes (R-classes): the rules
 // of the class a node has now apply, a colour-only swap changes a pixel, the
 // classes a node already has cost nothing.

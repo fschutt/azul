@@ -2700,6 +2700,7 @@ pub fn build_webrender_transaction(
                 &layout_window.scroll_manager,
                 *dom_id,
                 &layout_result.layout_tree,
+                &layout_result.styled_dom,
                 &system_callbacks,
                 azul_core::task::Duration::System(azul_core::task::SystemTimeDiff::from_millis(
                     500,
@@ -2877,6 +2878,7 @@ fn build_webrender_transaction_tail(
                 &layout_window.scroll_manager,
                 *dom_id,
                 &layout_result.layout_tree,
+                &layout_result.styled_dom,
                 &system_callbacks,
                 azul_core::task::Duration::System(azul_core::task::SystemTimeDiff::from_millis(
                     500,
@@ -3012,6 +3014,7 @@ pub fn build_image_only_transaction(
                 &layout_window.scroll_manager,
                 *dom_id,
                 &layout_result.layout_tree,
+                &layout_result.styled_dom,
                 &system_callbacks,
                 azul_core::task::Duration::System(azul_core::task::SystemTimeDiff::from_millis(
                     500,

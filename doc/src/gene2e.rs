@@ -1539,13 +1539,15 @@ invalidation path completely broken. Only the ops listed above exist; use nothin
    A window of "identical frames" must not overlap time-driven state: take the first
    snapshot only AFTER it has finished.
    A wheel, a drag or a hover over a scroller makes its overlay scrollbar visible, and that
-   STARTS A FADE: 500 ms visible, then 200 ms fading. These are window-level constants. The
-   per-node `-azul-scrollbar-fade-delay`/`-duration` properties are parsed but inert (never plan a
-   timeline around the values a line quotes), and `scrollbar-width`/`scrollbar-color` configure no
-   fade at all. So between such an input and the first `reset_frame_counters`/`snapshot_frame` of an
-   idle chain ALWAYS put four `tick_ms` 250 ms, each followed by `wait_frame`. That preamble is not
-   one of the steps the line counts: "wheel-scroll, then advance the clock in 6 steps of 150ms"
-   still gets it, and the 6 steps follow it.
+   STARTS A FADE: 500 ms visible, then 200 ms fading. A box that declares
+   `-azul-scrollbar-fade-delay` and/or `-azul-scrollbar-fade-duration` fades by them instead (each
+   alone: a box that sets only the delay keeps the 200 ms; a delay of 0 is a bar that never fades,
+   a duration of 0 a bar that is gone the moment the delay is up), and `scrollbar-width`/
+   `scrollbar-color` configure no fade at all. So between such an input and the first
+   `reset_frame_counters`/`snapshot_frame` of an idle chain ALWAYS put four `tick_ms` 250 ms, each
+   followed by `wait_frame` (together more than the box's delay + duration when it declares
+   them). That preamble is not one of the steps the line counts: "wheel-scroll, then advance the
+   clock in 6 steps of 150ms" still gets it, and the 6 steps follow it.
    `wait_settled` does not help in this runner: it does not advance the clock.
    SCROLLING. `wheel` is a RAW hardware notch: a NEGATIVE `delta_y` scrolls the content DOWN
    (`{{"op":"wheel","x":100,"y":100,"delta_x":0,"delta_y":-120}}` leaves the offset at 120 once it
@@ -6003,15 +6005,18 @@ fn eval_assert_changed(params: &Value) -> AssertionResult {{
     }
 
     /// Batch 3, Defects 2-4: a wheel/drag/hover STARTS a fade and the idle chain
-    /// gets its four ticks first; the per-node fade properties are inert; the
-    /// overflow recipe is a shape; `pending` is the last resort. The old wording is gone.
+    /// gets its four ticks first; the per-node fade properties are the box's own
+    /// fade (E2E-R9; they were inert); the overflow recipe is a shape; `pending` is the
+    /// last resort. The old wording is gone.
     #[test]
     fn b3_d2_d3_d4_the_fade_preamble_the_overflow_shape_and_the_pending_hatch() {
         let p = flat_prompt();
         for want in [
             "A wheel, a drag or a hover over a scroller makes its overlay scrollbar visible, and \
              that STARTS A FADE: 500 ms visible, then 200 ms fading",
-            "are parsed but inert (never plan a timeline around the values a line quotes)",
+            "fades by them instead (each alone: a box that sets only the delay keeps the 200 ms",
+            "a delay of 0 is a bar that never fades, a duration of 0 a bar that is gone the moment \
+             the delay is up",
             "ALWAYS put four `tick_ms` 250 ms, each followed by `wait_frame`",
             "That preamble is not one of the steps the line counts",
             "`#kid { width: 100px; height: 200px; background: blue; flex-shrink: 0; }`",
@@ -6023,6 +6028,8 @@ fn eval_assert_changed(params: &Value) -> AssertionResult {{
         }
         for stale in [
             "are parsed but do not",
+            "are parsed but inert",
+            "These are window-level constants",
             "four or more times",
             "that no fixture can make visible",
             "(wrap it in a window-sized frame)",
