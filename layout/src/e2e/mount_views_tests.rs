@@ -162,7 +162,7 @@ fn e2e_m1_a_view_that_cannot_land_is_refused_by_name() {
             "`row_html` is not valid markup",
         ),
     ] {
-        let error = apply_views(&mut document(), &[bad.clone()])
+        let error = apply_views(&mut document(), std::slice::from_ref(&bad))
             .expect_err(&format!("{bad:?} cannot land"));
         assert!(
             error.contains("virtual_views[0]") && error.contains(want),

@@ -3334,14 +3334,14 @@ pub enum DebugEvent {
         /// keep `<pre>` and `<textarea>` content on one line.
         #[serde(default)]
         collapse_whitespace: bool,
-        /// Lists too long to build, as VirtualViews: each entry turns the ONE
+        /// Lists too long to build, as `VirtualView`s: each entry turns the ONE
         /// EMPTY element its `selector` names into a view of `rows` rows of
         /// `row_height` px, row `i` built from `row_html` (`{i}` its zero-based
         /// index, `{n}` its number from 1; `row_css` styles them - the page's `css`
         /// does not reach into a view). The view materializes the visible rows and
         /// a screen either side and asks for more as it scrolls, so a scenario
         /// can scroll 5000 rows and count how few nodes exist. Markup alone cannot
-        /// make a VirtualView: `<virtual-view>` and `<iframe>` mount as plain
+        /// make a `VirtualView`: `<virtual-view>` and `<iframe>` mount as plain
         /// `<div>`s. See [`MountView`].
         #[serde(default)]
         virtual_views: Vec<MountView>,

@@ -1,6 +1,6 @@
 //! Virtual views in a mounted document (E2E-M1).
 //!
-//! A `mount` is XML, and the XML parser has no VirtualView: `<virtual-view>`,
+//! A `mount` is XML, and the XML parser has no `VirtualView`: `<virtual-view>`,
 //! `<iframe>` and `data-virtual-*` attributes mount as a plain `<div>` with the
 //! attributes dropped, so a scenario about a 5000-row list (`gen-e2e` batch 1,
 //! lines 7, 8, 16, 45-50) could only be written with a plain `div` of 5000 rows or
@@ -8,7 +8,7 @@
 //! callback, was never reached.
 //!
 //! `mount` takes `virtual_views`: for each entry the one EMPTY element its
-//! `selector` names becomes a VirtualView whose callback ([`render_e2e_rows`])
+//! `selector` names becomes a `VirtualView` whose callback ([`render_e2e_rows`])
 //! is deterministic - `rows` rows of `row_height` px, row `i` built from
 //! `row_html` (`{i}` its zero-based index, `{n}` its number from 1) - and
 //! windowed like an app's list: it materializes the visible rows with a screen
@@ -112,6 +112,8 @@ pub fn rows_window(rows: usize, row_height: f32, offset_y: f32, height: f32) -> 
 /// The markup of row `i`: `row_html` with its placeholders filled, parsed as the
 /// content of a `<body>`. A row that does not parse shows why (the `mount`
 /// parses row 0 before it lands, so this is the row whose index breaks it).
+// `{i}` and `{n}` are the key's own placeholders, not format arguments.
+#[allow(clippy::literal_string_with_formatting_args)]
 fn row_content(row_html: &str, i: usize) -> Dom {
     let html = row_html
         .replace("{i}", &i.to_string())
@@ -193,7 +195,7 @@ fn matching_elements(styled_dom: &StyledDom, css_path: &azul_css::css::CssPath) 
 }
 
 /// Check `views` and put each into `styled_dom`: the empty element its selector
-/// names becomes a VirtualView (its ids, classes, attributes and style stay).
+/// names becomes a `VirtualView` (its ids, classes, attributes and style stay).
 ///
 /// This is what the `mount` op runs on its own parse before it lets the document
 /// land, so a view that cannot be mounted is refused at the step that asked for it.
@@ -203,6 +205,8 @@ fn matching_elements(styled_dom: &StyledDom, css_path: &azul_css::css::CssPath) 
 /// A message naming the view (`virtual_views[N]`) and what is wrong: a field out
 /// of range, a row that is not valid markup, a selector that is not CSS, matches
 /// no element or several, or names an element that has children.
+// `{i}` and `{n}` are the key's own placeholders, not format arguments.
+#[allow(clippy::literal_string_with_formatting_args)]
 pub fn apply_views(styled_dom: &mut StyledDom, views: &[MountView]) -> Result<(), String> {
     for (n, view) in views.iter().enumerate() {
         let what = format!("mount: virtual_views[{n}] ('{}')", view.selector);

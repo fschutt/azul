@@ -4209,6 +4209,10 @@ pub fn translate_hint_for_patch(
 /// compile error in both callers until each fills it in, which is how the next
 /// one cannot be missed by one of them. A field is `true` when that part of
 /// the frame has something to do.
+// Nine independent facts, each one its own reason to draw: a state machine or
+// two-variant enums would only hide the one-`bool`-per-cause table the
+// compile-error contract above relies on.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone, Copy)]
 pub struct FrameChanges {
     /// The display-list diff found changed items, or could not tell (it gave
@@ -4243,7 +4247,7 @@ impl FrameChanges {
     /// Nothing to draw: the frame is skipped entirely, no pixel is written and
     /// the frame reports no damage.
     #[must_use]
-    pub fn is_idle(&self) -> bool {
+    pub const fn is_idle(&self) -> bool {
         let Self {
             items,
             view_shifts,
