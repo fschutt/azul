@@ -775,6 +775,9 @@ pub(crate) enum Dialog {
     },
     /// After a rotation: "Re-encrypt every file?"
     OfferReencrypt { drive_id: String },
+    /// A device was removed from the drive: it cannot sign in again but keeps the drive's key and
+    /// what it copied; "I was hacked: new keys" is offered (AZ-K4).
+    DeviceRemoved { drive_id: String, device: String },
     /// "Lock down with the recovery code...": the code typed, signing a lockdown without a
     /// drive token.
     RecoveryLockdown {
@@ -1156,6 +1159,27 @@ pub(crate) fn dialog_parts(dialog: &Dialog, s: &DriveState, app: &RefAny) -> (St
         Dialog::Drill { .. } => crate::recovery::drill_parts(dialog, s, app),
         Dialog::Contacts(page) => crate::recovery_contacts::dialog_parts(page, s, app),
         Dialog::Keys(page) => crate::recovery_keys::dialog_parts(page, s, app),
+        Dialog::DeviceRemoved { drive_id, device } => (
+            t("azdrive-device-removed-title"),
+            column(vec![
+                line(&t_args(
+                    "azdrive-device-removed",
+                    &[
+                        ("device", Arg::from(device.as_str())),
+                        ("name", Arg::from(drive_name(s, drive_id))),
+                    ],
+                )),
+                buttons(vec![
+                    button("azdrive-drill-later", app, on_cancel_popup),
+                    typed_button(
+                        "azdrive-side-rotate",
+                        ButtonType::Primary,
+                        app,
+                        on_new_keys_after_removal,
+                    ),
+                ]),
+            ]),
+        ),
         Dialog::OfferReencrypt { drive_id } => (
             t("azdrive-enc-reencrypt-title"),
             column(vec![
@@ -1544,6 +1568,17 @@ pub(crate) fn ask_rotate(s: &mut DriveState, drive_id: &str) {
             error: String::new(),
         }));
     }
+}
+
+/// "I was hacked: new keys…" from the answer to a device's removal: the question of the new keys
+/// for the drive the device was removed from.
+extern "C" fn on_new_keys_after_removal(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_state(&mut data, &mut info, |_info, _app, s| {
+        let Some(Popup::Encryption(Dialog::DeviceRemoved { drive_id, .. })) = s.popup.take() else {
+            return;
+        };
+        ask_rotate(s, &drive_id);
+    })
 }
 
 extern "C" fn on_rotate(mut data: RefAny, mut info: CallbackInfo) -> Update {

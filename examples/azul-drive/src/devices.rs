@@ -1,7 +1,8 @@
 //! The devices of an Azlin drive (Options > Drives): the drive's members as its last look saw
 //! them (the token server's `members` and `you`), each one but this computer with Remove. A
 //! removal revokes that device's token families and credentials at once, from this computer
-//! ([`azcloud_kit::SharedKeyring::remove_member`], named by a key the outbox keeps).
+//! ([`azcloud_kit::SharedKeyring::remove_member`], named by a key the outbox keeps). That is all
+//! it does: the device keeps the drive's key and what it copied, so the answer offers new keys.
 //!
 //! On stdout: `AZDRIVE_DEVICE_REMOVED <drive id> <member>`.
 
@@ -147,6 +148,28 @@ extern "C" fn on_remove(mut data: RefAny, mut info: CallbackInfo) -> Update {
     })
 }
 
+/// A removed device cannot sign in again, but it keeps the drive's key and what it already
+/// copied: that is said, and new keys are offered (AZ-K4). An encrypted drive's window asks the
+/// question in a dialog of its own ([`crate::encryption::Dialog::DeviceRemoved`]); a build without
+/// the encryption says it in the status line.
+fn tell_removed(s: &mut DriveState, drive_id: &str, name: &str, member: &str) {
+    #[cfg(feature = "encryption")]
+    {
+        let _ = name;
+        s.popup.open_when_free(crate::Popup::Encryption(
+            crate::encryption::Dialog::DeviceRemoved {
+                drive_id: drive_id.to_string(),
+                device: member.to_string(),
+            },
+        ));
+    }
+    #[cfg(not(feature = "encryption"))]
+    {
+        let _ = drive_id;
+        s.success(removed_text(name, member));
+    }
+}
+
 /// What the removal of `member` from `drive_id` came to: said, and the device leaves the row.
 pub(crate) fn removed(s: &mut DriveState, drive_id: &str, member: &str, result: Result<(), Text>) {
     let name = s
@@ -159,7 +182,7 @@ pub(crate) fn removed(s: &mut DriveState, drive_id: &str, member: &str, result: 
             if let Some(devices) = s.devices.get_mut(drive_id) {
                 devices.removed(member);
             }
-            s.success(removed_text(&name, member));
+            tell_removed(s, drive_id, &name, member);
         }
         Err(why) => s.error(Text::key("azdrive-device-remove-failed").then(" ").then(why)),
     }

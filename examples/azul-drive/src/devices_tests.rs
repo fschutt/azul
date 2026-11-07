@@ -42,3 +42,48 @@ fn a_removal_is_said_with_the_device_and_the_drive() {
     // the server's own names are no device to remove
     assert!(matches!(Removable::of("recovery-pending"), Removable::No));
 }
+
+/// AZ-K4: a removal revokes the device's token families and credentials, nothing more: the device
+/// keeps the drive's key and what it already copied. The answer used to say "it can no longer open
+/// the drive", which is not so; now it says what the removal did not do and where the new keys that
+/// do are (the encrypted drive's window asks the question in a dialog of its own, with that
+/// button).
+#[test]
+fn az_k4_the_removal_does_not_say_the_device_can_no_longer_open_the_drive() {
+    use azul_appkit::l10n::{keep, set_locale, t_text, Text};
+
+    keep(&crate::l10n::sources());
+    for (locale, keeps, new_keys, old_claim) in [
+        (
+            "en-US",
+            "still has the drive's key",
+            "new keys",
+            "can no longer open the drive",
+        ),
+        (
+            "de-DE",
+            "noch den Schlüssel des Laufwerks",
+            "neue Schlüssel",
+            "nicht mehr öffnen",
+        ),
+    ] {
+        set_locale(locale);
+        let said = t_text(&Text::from(crate::devices::removed_text(
+            "Work", "pickup-2",
+        )));
+        assert!(said.contains("pickup-2") && said.contains("Work"), "{said}");
+        assert!(
+            said.contains(keeps),
+            "{locale}: it says the device keeps the key: {said}"
+        );
+        assert!(
+            said.contains(new_keys),
+            "{locale}: it names the new keys: {said}"
+        );
+        assert!(
+            !said.contains(old_claim),
+            "{locale}: it no longer claims the lock-out: {said}"
+        );
+    }
+    set_locale("en-US");
+}
