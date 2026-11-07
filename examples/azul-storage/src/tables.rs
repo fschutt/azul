@@ -33,6 +33,14 @@ pub const MAX_ROW_FILES: u64 = 10_000;
 pub const ROWS_PAGE: u64 = 1000;
 /// Rows a table's CSV file holds at most.
 pub const CSV_MAX_ROWS: u64 = 10_000;
+/// Rows the first page of a CSV's build asks for: few enough that a table of big cells is seen
+/// before a thousand of them are in memory ([`csv_page_rows`] sizes the next ones).
+pub const CSV_FIRST_PAGE: u64 = 100;
+/// The bytes of row text a page of a CSV's build aims to hold in memory at once.
+pub const CSV_PAGE_BYTES: usize = 8 * 1024 * 1024;
+/// Bytes a table's CSV file holds at most (a BLOB column is written as hex: 10,000 rows of a
+/// megabyte each would be twenty gigabytes of memory for one click, AZ-CN14).
+pub const CSV_MAX_BYTES: usize = 64 * 1024 * 1024;
 /// The folder of a table's row files.
 pub const ROWS_FOLDER: &str = "rows";
 /// A table's schema file.
@@ -254,9 +262,11 @@ pub fn note_name() -> String {
 pub fn note_text(folder: &str) -> String {
     let table = unescape_segment(folder).unwrap_or_else(|| folder.to_string());
     format!(
-        "The table \"{table}\" has more than {MAX_ROW_FILES} rows. {csv} and {ROWS_FOLDER}/ show the \
-         first {MAX_ROW_FILES} only, in key order, so a copy of them is not the whole table.\n",
-        csv = csv_name(folder)
+        "The table \"{table}\" has more rows than are shown. {ROWS_FOLDER}/ lists {MAX_ROW_FILES} at \
+         most and {csv} holds {MAX_ROW_FILES} at most and {limit} MiB, in key order, so a copy \
+         of them is not the whole table.\n",
+        csv = csv_name(folder),
+        limit = CSV_MAX_BYTES / (1024 * 1024)
     )
 }
 
@@ -799,19 +809,83 @@ fn csv_value(value: Option<&Value>) -> String {
 /// columns' names, then a line per row, the columns in the table's order. Lines end in `\n`.
 #[must_use]
 pub fn csv_text(columns: &[Column], rows: &[Value]) -> String {
-    let mut out = String::new();
-    let header: Vec<String> = columns.iter().map(|c| csv_field(&c.name)).collect();
-    out.push_str(&header.join(","));
-    out.push('\n');
+    let mut csv = CsvText::new(columns, usize::MAX);
     for row in rows {
-        let fields: Vec<String> = columns
+        csv.push(row);
+    }
+    csv.finish()
+}
+
+/// How many rows the next page of a CSV's build asks for when the rows seen so far were `avg_bytes`
+/// each: as many as fit [`CSV_PAGE_BYTES`], from ten to [`ROWS_PAGE`] (a table of small rows is
+/// read a thousand at a time, one of megabyte cells a few).
+#[must_use]
+pub fn csv_page_rows(avg_bytes: usize) -> u64 {
+    let fit = CSV_PAGE_BYTES / avg_bytes.max(1);
+    u64::try_from(fit).unwrap_or(u64::MAX).clamp(10, ROWS_PAGE)
+}
+
+/// A CSV text built row by row within a byte budget: a row that would take the text past it is
+/// not added (and nothing after it), so a table of big cells is cut where the memory says, not
+/// where the row count does (AZ-CN14).
+pub struct CsvText<'a> {
+    columns: &'a [Column],
+    out: String,
+    rows: u64,
+    max_bytes: usize,
+    /// A row did not fit: no later row is added either (the text is the FIRST rows).
+    full: bool,
+}
+
+impl<'a> CsvText<'a> {
+    /// The header line of `columns`, and a budget of `max_bytes` for the whole text.
+    #[must_use]
+    pub fn new(columns: &'a [Column], max_bytes: usize) -> CsvText<'a> {
+        let header: Vec<String> = columns.iter().map(|c| csv_field(&c.name)).collect();
+        let mut out = header.join(",");
+        out.push('\n');
+        CsvText {
+            columns,
+            out,
+            rows: 0,
+            max_bytes,
+            full: false,
+        }
+    }
+
+    /// Adds the line of `row`; `false` (and nothing added, now or later) when it would pass the
+    /// budget.
+    pub fn push(&mut self, row: &Value) -> bool {
+        if self.full {
+            return false;
+        }
+        let fields: Vec<String> = self
+            .columns
             .iter()
             .map(|c| csv_field(&csv_value(row.get(c.name.as_str()))))
             .collect();
-        out.push_str(&fields.join(","));
-        out.push('\n');
+        let line = fields.join(",");
+        if self.out.len().saturating_add(line.len()).saturating_add(1) > self.max_bytes {
+            self.full = true;
+            return false;
+        }
+        self.out.push_str(&line);
+        self.out.push('\n');
+        self.rows += 1;
+        true
     }
-    out
+
+    /// The lines added so far.
+    #[must_use]
+    pub fn rows(&self) -> u64 {
+        self.rows
+    }
+
+    /// The text.
+    #[must_use]
+    pub fn finish(self) -> String {
+        self.out
+    }
 }
 
 /// A table's `schema.json`: its name, engine, columns (name, type, nullable, in the primary

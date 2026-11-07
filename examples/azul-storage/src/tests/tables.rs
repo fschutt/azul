@@ -373,13 +373,14 @@ fn az_cn6_the_note_of_a_capped_table_is_a_file_with_a_name_no_row_has() {
     assert!(tables::note_name().contains(&tables::MAX_ROW_FILES.to_string()));
     let text = tables::note_text("customers");
     assert!(
-        text.contains("\"customers\" has more than 10000 rows"),
+        text.contains("\"customers\" has more rows than are shown"),
         "{text}"
     );
     assert!(
         text.contains("customers.csv") && text.contains("rows/"),
         "{text}"
     );
+    assert!(text.contains("10000") && text.contains("64 MiB"), "{text}");
     assert!(text.contains("not the whole table"), "{text}");
     // A table named with a slash is said by its name, not its escape.
     assert!(tables::note_text("a%2Fb").contains("\"a/b\""));
@@ -436,4 +437,67 @@ fn a_byte_range_of_a_file_is_a_slice_of_it() {
         tables::byte_range(bytes, ByteRange::new(10, None), "k"),
         Err(DriveError::InvalidRange { .. })
     ));
+}
+
+// ==== AZ-CN14: a CSV is built within a byte budget ====
+
+/// Ten thousand rows with a megabyte BLOB each (written as hex) are twenty gigabytes for one click.
+/// A CSV is built row by row within a budget: the row that would pass it, and every row after it,
+/// stays out - the text is the FIRST rows, whole lines only.
+#[test]
+fn az_cn14_a_csv_stops_before_the_row_that_passes_its_budget_and_takes_none_after_it() {
+    let columns = vec![column("id", "INTEGER", 1), column("data", "BLOB", 0)];
+    let header = "id,data\n";
+    let small = |id: u32| json!({"id": id, "data": "ab"});
+    let big = json!({"id": 99, "data": "cd".repeat(100)});
+    let mut csv = tables::CsvText::new(&columns, header.len() + "1,ab\n".len() * 2);
+    assert!(csv.push(&small(1)));
+    assert!(csv.push(&small(2)));
+    assert!(
+        !csv.push(&small(3)),
+        "the third small row is one line too many"
+    );
+    assert!(!csv.push(&small(4)), "nothing after a row that did not fit");
+    assert_eq!(csv.rows(), 2);
+    assert_eq!(csv.finish(), "id,data\n1,ab\n2,ab\n");
+
+    let mut csv = tables::CsvText::new(&columns, header.len() + 20);
+    assert!(csv.push(&small(1)));
+    assert!(!csv.push(&big), "a row of 200 hex digits does not fit");
+    assert!(
+        !csv.push(&small(2)),
+        "and a small one after it is out as well: the first rows only"
+    );
+    assert_eq!(csv.finish(), "id,data\n1,ab\n");
+
+    // csv_text has no budget and is what it was.
+    let rows = vec![small(1), big.clone(), small(2)];
+    let text = tables::csv_text(&columns, &rows);
+    assert_eq!(text.lines().count(), 4);
+    assert!(text.contains(&"cd".repeat(100)));
+    // The real budget is far above a normal table's CSV and is a named constant.
+    assert_eq!(tables::CSV_MAX_BYTES, 64 * 1024 * 1024);
+}
+
+/// A page of a CSV's build holds about eight megabytes of rows: a thousand small rows, a few huge ones.
+#[test]
+fn az_cn14_the_pages_of_a_csv_build_follow_the_size_of_the_rows() {
+    assert_eq!(
+        tables::csv_page_rows(0),
+        tables::ROWS_PAGE,
+        "no rows seen yet is no reason to be careful"
+    );
+    assert_eq!(
+        tables::csv_page_rows(120),
+        tables::ROWS_PAGE,
+        "small rows: the most"
+    );
+    assert_eq!(
+        tables::csv_page_rows(2 * 1024 * 1024),
+        10,
+        "megabyte cells: few (four would fit), never fewer than ten"
+    );
+    assert_eq!(tables::csv_page_rows(100 * 1024), 81);
+    assert_eq!(tables::csv_page_rows(usize::MAX), 10);
+    assert!(tables::CSV_FIRST_PAGE <= tables::ROWS_PAGE);
 }

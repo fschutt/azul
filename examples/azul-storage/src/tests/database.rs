@@ -509,7 +509,7 @@ fn az_cn6_a_table_with_more_rows_than_the_cap_says_so_where_a_copy_looks() {
         "the note comes with the last page"
     );
     let text = String::from_utf8(drive.get(&format!("big/{note}")).unwrap()).unwrap();
-    assert!(text.contains("has more than 10000 rows"), "{text}");
+    assert!(text.contains("has more rows than are shown"), "{text}");
     assert_eq!(
         drive.get(&format!("big/rows/{note}")).unwrap(),
         text.as_bytes()
@@ -569,5 +569,111 @@ fn az_cn6_the_metadata_of_a_table_item_names_the_row_limit() {
     assert!(
         rows.contains(&("Row limit".to_string(), "10000".to_string())),
         "{rows:?}"
+    );
+}
+
+// ==== AZ-CN14: the CSV is bounded, reused for a while, and the sessions read only ====
+
+/// A table whose CSV would pass its byte budget stops where the budget says, says so in the folder
+/// (the note) and in `schema.json`, and a read of schema.json or the note agrees with the listing.
+#[test]
+fn az_cn14_a_csv_past_its_byte_budget_is_cut_and_says_so() {
+    let dir = TempDir::new("db-csv-budget");
+    let file = database_with_rows(&dir, &[("t", 50)]);
+    // `id,label` and 50 lines of about 12 bytes: 150 bytes hold a dozen of them.
+    let drive = open(&file).with_csv_budget(150);
+    let note = "_ONLY-THE-FIRST-10000-ROWS.txt";
+    let table = drive.list(&ListRequest::folder("t/")).unwrap();
+    assert_eq!(
+        keys(&table.objects),
+        vec!["t/t.csv", "t/schema.json", &format!("t/{note}")]
+    );
+    let csv = drive.get("t/t.csv").unwrap();
+    assert!(csv.len() <= 150, "{} bytes", csv.len());
+    let text = String::from_utf8(csv).unwrap();
+    assert!(
+        text.starts_with("id,label\n1,row 1\n2,row 2\n"),
+        "the first rows: {text}"
+    );
+    assert!(
+        text.ends_with('\n') && text.lines().count() < 51,
+        "whole lines only: {text}"
+    );
+    // What the listing said is what a read says.
+    let listed = table
+        .objects
+        .iter()
+        .find(|o| o.key == "t/t.csv")
+        .unwrap()
+        .size;
+    assert_eq!(listed, text.len() as u64);
+    let schema: serde_json::Value =
+        serde_json::from_slice(&drive.get("t/schema.json").unwrap()).unwrap();
+    assert_eq!(schema["rows_truncated"], true);
+    assert!(drive.get(&format!("t/{note}")).is_ok());
+    // The rows/ folder lists all fifty (its cap is the row cap) and needs no note.
+    let rows = all_pages(&drive, "t/rows/");
+    assert_eq!(rows.len(), 50);
+    assert!(matches!(
+        drive.get(&format!("t/rows/{note}")),
+        Err(DriveError::NotFound { .. })
+    ));
+}
+
+/// Opening a table builds its CSV once for a while: the next listing of the folder reuses it
+/// (a table changed meanwhile shows at the user's refresh, or after the CSV's few seconds).
+#[test]
+fn az_cn14_a_folder_listed_again_reuses_its_csv_until_the_user_refreshes() {
+    let dir = TempDir::new("db-csv-reuse");
+    let file = database_with_rows(&dir, &[("t", 3)]);
+    let drive = open(&file);
+    let first = drive.list(&ListRequest::folder("t/")).unwrap();
+    let size = |page: &crate::ListPage| {
+        page.objects
+            .iter()
+            .find(|o| o.key == "t/t.csv")
+            .unwrap()
+            .size
+    };
+    // A row is added behind the drive's back.
+    runtime::block_on(async {
+        let options = SqliteConnectOptions::new().filename(&file);
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO t (id, label) VALUES (4, 'a late row')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        pool.close().await;
+    })
+    .unwrap();
+    let again = drive.list(&ListRequest::folder("t/")).unwrap();
+    assert_eq!(
+        size(&again),
+        size(&first),
+        "the CSV of the last listing is reused"
+    );
+    let refreshed = drive.list(&ListRequest::folder("t/").refreshed()).unwrap();
+    assert!(
+        size(&refreshed) > size(&first),
+        "a refresh builds a new one"
+    );
+}
+
+/// PostgreSQL and MySQL sessions are told first that their transactions are read-only (SQLite's is
+/// opened read-only): a view or a function of a shared database cannot change anything as the user
+/// on a listing.
+#[test]
+fn az_cn14_a_server_session_starts_read_only() {
+    assert_eq!(
+        crate::database::PG_READ_ONLY,
+        "SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY"
+    );
+    assert_eq!(
+        crate::database::MYSQL_READ_ONLY,
+        "SET SESSION TRANSACTION READ ONLY"
     );
 }

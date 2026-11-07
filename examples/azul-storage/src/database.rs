@@ -16,7 +16,7 @@ use std::{
     fmt,
     path::PathBuf,
     sync::{Arc, Mutex, MutexGuard, PoisonError},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use serde_json::Value;
@@ -39,6 +39,16 @@ use crate::{
 const MAX_CONNECTIONS: u32 = 2;
 /// How long a call waits for a connection (a server that does not answer).
 const ACQUIRE_TIMEOUT: Duration = Duration::from_secs(15);
+/// How long a CSV built by a listing is reused by the next listing of the same folder (a user's
+/// refresh builds a new one): opening a table built its whole CSV on every listing (AZ-CN14).
+const CSV_FRESH: Duration = Duration::from_secs(30);
+/// Tables whose CSV is kept at most; the oldest goes first.
+const CSV_KEPT: usize = 4;
+
+/// What a PostgreSQL session is told first: the transactions it starts are read-only.
+pub(crate) const PG_READ_ONLY: &str = "SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY";
+/// What a MySQL / MariaDB session is told first.
+pub(crate) const MYSQL_READ_ONLY: &str = "SET SESSION TRANSACTION READ ONLY";
 
 /// How to connect, per engine.
 enum Connect {
@@ -139,8 +149,10 @@ pub struct DatabaseDrive {
     folders: Mutex<HashMap<String, TableRef>>,
     /// The columns and key of each table asked for, by folder.
     tables: Mutex<HashMap<String, Table>>,
-    /// Each table's CSV as its folder's last listing made it, by folder.
+    /// Each table's CSV as its folder's last listing made it, by folder (at most [`CSV_KEPT`]).
     csv: Mutex<HashMap<String, Csv>>,
+    /// The most bytes a CSV holds ([`tables::CSV_MAX_BYTES`]).
+    csv_max_bytes: usize,
 }
 
 /// A table's CSV and whether the table has more rows than it holds (the cap: AZ-CN6).
@@ -148,6 +160,8 @@ pub struct DatabaseDrive {
 struct Csv {
     bytes: Arc<Vec<u8>>,
     capped: bool,
+    /// When it was built.
+    built: Instant,
 }
 
 impl fmt::Debug for DatabaseDrive {
@@ -352,7 +366,15 @@ impl DatabaseDrive {
             folders: Mutex::new(HashMap::new()),
             tables: Mutex::new(HashMap::new()),
             csv: Mutex::new(HashMap::new()),
+            csv_max_bytes: tables::CSV_MAX_BYTES,
         })
+    }
+
+    /// With a CSV budget of `bytes` (a test's: the real one is 64 MiB).
+    #[cfg(test)]
+    pub(crate) fn with_csv_budget(mut self, bytes: usize) -> DatabaseDrive {
+        self.csv_max_bytes = bytes;
+        self
     }
 
     /// The connections, opened on first use. Call it on the storage runtime (inside
@@ -369,16 +391,33 @@ impl DatabaseDrive {
                     .acquire_timeout(ACQUIRE_TIMEOUT)
                     .connect_lazy_with(options.clone()),
             ),
+            // A database is browsed, never written: every session starts read-only (SQLite's is
+            // opened read-only), so a view or a function a shared database holds cannot change
+            // anything as the user on a listing (AZ-CN14).
             Connect::Postgres(options) => Pool::Postgres(
                 PgPoolOptions::new()
                     .max_connections(MAX_CONNECTIONS)
                     .acquire_timeout(ACQUIRE_TIMEOUT)
+                    .after_connect(|connection, _meta| {
+                        Box::pin(async move {
+                            sqlx::query(PG_READ_ONLY).execute(&mut *connection).await?;
+                            Ok(())
+                        })
+                    })
                     .connect_lazy_with(options.clone()),
             ),
             Connect::Mysql(options) => Pool::Mysql(
                 MySqlPoolOptions::new()
                     .max_connections(MAX_CONNECTIONS)
                     .acquire_timeout(ACQUIRE_TIMEOUT)
+                    .after_connect(|connection, _meta| {
+                        Box::pin(async move {
+                            sqlx::query(MYSQL_READ_ONLY)
+                                .execute(&mut *connection)
+                                .await?;
+                            Ok(())
+                        })
+                    })
                     .connect_lazy_with(options.clone()),
             ),
         };
@@ -670,9 +709,9 @@ impl DatabaseDrive {
             .ok_or(DriveError::NotFound { key })
     }
 
-    /// A table's CSV: the one its folder's last listing made, or (`fresh`, or none yet) a new
-    /// one of its first rows - one row more than it holds is asked for, to know whether the table
-    /// has more than the cap (AZ-CN6).
+    /// A table's CSV: the one its folder's last listing made, or (`fresh`, or none yet) a new one
+    /// of its first rows - built page by page within the byte budget, and one row past the cap is
+    /// asked for to know whether the table has more than the cap (AZ-CN6, AZ-CN14).
     async fn csv(
         &self,
         pool: &Pool,
@@ -686,21 +725,52 @@ impl DatabaseDrive {
                 return Ok(csv);
             }
         }
-        let mut rows = self
-            .rows(pool, folder, table, tables::CSV_MAX_ROWS + 1, 0)
-            .await?;
-        let held = usize::try_from(tables::CSV_MAX_ROWS).unwrap_or(usize::MAX);
-        let capped = rows.len() > held;
-        rows.truncate(held);
-        let values: Vec<Value> = rows
-            .iter()
-            .map(|(_, json)| serde_json::from_str(json).unwrap_or(Value::Null))
-            .collect();
+        let mut text = tables::CsvText::new(&table.columns, self.csv_max_bytes);
+        let mut capped = false;
+        let mut offset = 0;
+        let mut page_rows = tables::CSV_FIRST_PAGE;
+        while !capped && offset <= tables::CSV_MAX_ROWS {
+            let want = page_rows.min(tables::CSV_MAX_ROWS + 1 - offset);
+            let page = self.rows(pool, folder, table, want, offset).await?;
+            let got = page.len() as u64;
+            // The next page is sized by the rows seen: a thousand small ones, a few big ones.
+            let seen: usize = page.iter().map(|(_, json)| json.len()).sum();
+            page_rows = tables::csv_page_rows(seen / page.len().max(1));
+            for (_, json) in page {
+                // The row past the cap, or one that takes the text past its budget: the table has
+                // more than the CSV holds.
+                if text.rows() >= tables::CSV_MAX_ROWS {
+                    capped = true;
+                    break;
+                }
+                let value: Value = serde_json::from_str(&json).unwrap_or(Value::Null);
+                if !text.push(&value) {
+                    capped = true;
+                    break;
+                }
+            }
+            if got < want {
+                break;
+            }
+            offset += got;
+        }
         let csv = Csv {
-            bytes: Arc::new(tables::csv_text(&table.columns, &values).into_bytes()),
+            bytes: Arc::new(text.finish().into_bytes()),
             capped,
+            built: Instant::now(),
         };
-        lock(&self.csv).insert(folder.to_string(), csv.clone());
+        let mut kept = lock(&self.csv);
+        kept.insert(folder.to_string(), csv.clone());
+        while kept.len() > CSV_KEPT {
+            let Some(oldest) = kept
+                .iter()
+                .min_by_key(|(_, csv)| csv.built)
+                .map(|(folder, _)| folder.clone())
+            else {
+                break;
+            };
+            kept.remove(&oldest);
+        }
         Ok(csv)
     }
 
@@ -715,6 +785,23 @@ impl DatabaseDrive {
             .rows(pool, folder, table, 1, tables::MAX_ROW_FILES)
             .await?
             .is_empty())
+    }
+
+    /// Whether a note exists: the table's folder has one when its CSV stops before the table's
+    /// last row (the row cap or the byte budget), its `rows/` folder when the table has more rows
+    /// than that lists.
+    async fn has_note(
+        &self,
+        pool: &Pool,
+        folder: &str,
+        table: &Table,
+        in_rows: bool,
+    ) -> Result<bool, DriveError> {
+        if in_rows {
+            self.beyond_the_cap(pool, folder, table).await
+        } else {
+            Ok(self.csv(pool, folder, table, false).await?.capped)
+        }
     }
 
     /// A table's `schema.json`; `capped`: the table has more rows than a listing shows.
@@ -767,7 +854,14 @@ impl DatabaseDrive {
                     return Ok(ListPage::default());
                 }
                 let table = self.table(pool, &folder, true).await?;
-                let csv = self.csv(pool, &folder, &table, true).await?;
+                // The CSV of the last listing is reused for a while: the folder is listed again
+                // by every look at it, and a user's refresh builds a new one (AZ-CN14).
+                let stale = lock(&self.csv)
+                    .get(&folder)
+                    .is_none_or(|csv| csv.built.elapsed() > CSV_FRESH);
+                let csv = self
+                    .csv(pool, &folder, &table, request.refresh || stale)
+                    .await?;
                 let schema = self.schema(&table, csv.capped);
                 let mut objects = vec![
                     object(
@@ -886,10 +980,9 @@ impl DatabaseDrive {
                 .key(),
                 self.schema(&table, csv.capped).len(),
             ));
-            // A table with more rows than the listing holds: the note, in both places (AZ-CN6).
+            // A table with more rows than the CSV holds: the note beside it (AZ-CN6).
             if csv.capped {
                 objects.push(DatabaseDrive::note_object(&folder, false));
-                objects.push(DatabaseDrive::note_object(&folder, true));
             }
             let mut offset = 0;
             while offset < tables::MAX_ROW_FILES {
@@ -910,6 +1003,11 @@ impl DatabaseDrive {
                     break;
                 }
                 offset += count;
+            }
+            // The listing stopped at the cap while the table goes on: the note in rows/ too.
+            if offset >= tables::MAX_ROW_FILES && self.beyond_the_cap(pool, &folder, &table).await?
+            {
+                objects.push(DatabaseDrive::note_object(&folder, true));
             }
         }
         objects.retain(|o| o.key.starts_with(prefix));
@@ -954,13 +1052,13 @@ impl DatabaseDrive {
             }
             TablePath::Schema { folder } => {
                 let table = self.table(&pool, &folder, false).await?;
-                let capped = self.beyond_the_cap(&pool, &folder, &table).await?;
+                let capped = self.csv(&pool, &folder, &table, false).await?.capped;
                 Ok(self.schema(&table, capped).into_bytes())
             }
-            TablePath::Note { folder, .. } => {
-                // Only a table that has more rows than a listing shows has the note.
+            TablePath::Note { folder, in_rows } => {
+                // Only a table that has more rows than the listing it is in shows has the note.
                 let table = self.table(&pool, &folder, false).await?;
-                if !self.beyond_the_cap(&pool, &folder, &table).await? {
+                if !self.has_note(&pool, &folder, &table, in_rows).await? {
                     return Err(DriveError::NotFound {
                         key: key.to_string(),
                     });
@@ -995,12 +1093,12 @@ impl DatabaseDrive {
             }
             TablePath::Schema { folder } => {
                 let table = self.table(&pool, &folder, false).await?;
-                let capped = self.beyond_the_cap(&pool, &folder, &table).await?;
+                let capped = self.csv(&pool, &folder, &table, false).await?.capped;
                 self.schema(&table, capped).len()
             }
-            TablePath::Note { folder, .. } => {
+            TablePath::Note { folder, in_rows } => {
                 let table = self.table(&pool, &folder, false).await?;
-                if !self.beyond_the_cap(&pool, &folder, &table).await? {
+                if !self.has_note(&pool, &folder, &table, in_rows).await? {
                     return Err(DriveError::NotFound {
                         key: key.to_string(),
                     });
