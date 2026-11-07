@@ -1,88 +1,63 @@
-//! Gate: the CI runs the tests of the code that decides what gets installed (AZ-Y13).
+//! Gate: the CI runs the source gates (X-DELTA-AZDRIVE-FILES-12, K29 "a gate nobody asserts").
 //!
-//! The updater's unit tests - every signature-chain test, 75 of them - are compiled only with the
-//! cargo feature `updater` of azul-layout, which no default switches on. A test that no job runs
-//! protects nothing: the chain that decides which program is installed could break and the CI stay
-//! green. This reads `.github/workflows/rust.yml` and fails when the step that runs azul-layout's
-//! tests does not pass `azul-layout/updater`, or when the module is no longer behind that feature
-//! (the premise of the check).
+//! The gates of this crate are tests that read other crates' code. No workflow step ran
+//! `cargo test -p azul-srcgate`, so two of them were red at HEAD for days (a count that moved when
+//! a lane deleted a call, a file a gate named that a lane had deleted) and nobody saw. This test
+//! reads the workflow: a step runs this package's tests, through the guard that fails a run in
+//! which no test ran.
 
 use azul_srcgate::workspace;
 
-fn read(relative: &str) -> String {
-    let path = workspace().join(relative);
-    std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()))
-}
+const WORKFLOW: &str = ".github/workflows/rust.yml";
 
-/// The shell command that starts at the first line containing `start`: its lines joined while they
-/// end in a backslash.
-fn command_from(text: &str, start: &str) -> Option<String> {
-    let mut lines = text.lines().skip_while(|line| !line.contains(start));
-    let mut command = String::new();
-    for line in lines.by_ref() {
-        let trimmed = line.trim();
-        command.push_str(trimmed.trim_end_matches('\\'));
-        command.push(' ');
-        if !trimmed.ends_with('\\') {
-            break;
+/// The text of the workflow step that runs the source gates, or why there is none.
+fn gate_step(workflow: &str) -> Result<String, String> {
+    let mut steps: Vec<String> = Vec::new();
+    for line in workflow.lines() {
+        if line.trim_start().starts_with("- name:") {
+            steps.push(String::new());
+        }
+        if let Some(step) = steps.last_mut() {
+            step.push_str(line);
+            step.push('\n');
         }
     }
-    (!command.is_empty()).then_some(command)
+    steps
+        .into_iter()
+        .find(|step| step.contains("cargo test -p azul-srcgate"))
+        .ok_or_else(|| format!("no step of {WORKFLOW} runs `cargo test -p azul-srcgate`"))
 }
 
 #[test]
-fn the_ci_runs_the_layout_tests_with_the_updater_feature() {
-    let workflow = read(".github/workflows/rust.yml");
-    let command = command_from(
-        &workflow,
-        "cargo test -p azul-css -p azul-core -p azul-layout",
-    )
-    .expect("the CI has a step that runs azul-layout's tests");
+fn a_ci_step_runs_the_source_gates_and_fails_a_run_in_which_no_test_ran() {
+    let text = std::fs::read_to_string(workspace().join(WORKFLOW))
+        .unwrap_or_else(|e| panic!("{WORKFLOW}: {e}"));
+    let step = gate_step(&text).unwrap_or_else(|why| panic!("{why}"));
     assert!(
-        command.contains("-p azul-layout"),
-        "the step does not run azul-layout's tests: {command}"
+        step.contains("--no-fail-fast"),
+        "the gates run to the end, so one red gate does not hide the next:\n{step}"
     );
-    let features: Vec<&str> = command
-        .split("--features")
-        .nth(1)
-        .and_then(|rest| rest.split_whitespace().next())
-        .map(|list| list.split(',').collect())
-        .unwrap_or_default();
     assert!(
-        features.contains(&"azul-layout/updater"),
-        "the updater's tests (the signature chain) are not run by the CI: --features {features:?}"
+        step.contains("zero_test_guard.sh --strict"),
+        "a run in which nothing ran is no pass:\n{step}"
+    );
+    assert!(
+        !step.contains("--lib") && !step.contains("--test "),
+        "the whole package runs, every gate file:\n{step}"
     );
 }
 
-/// The premise: the updater module and its tests exist behind that feature.
+/// The finder itself: a workflow without the step is an error, one with it a step.
 #[test]
-fn the_updater_and_its_tests_are_behind_the_feature_the_ci_passes() {
-    let lib = read("layout/src/lib.rs");
-    let gated = lib.lines().zip(lib.lines().skip(1)).any(|(attr, item)| {
-        attr.trim() == "#[cfg(feature = \"updater\")]" && item.trim() == "pub mod updater;"
-    });
-    assert!(
-        gated,
-        "layout/src/lib.rs no longer gates `pub mod updater;` by the feature `updater`"
+fn the_step_finder_reads_steps_by_their_name_line() {
+    let without = "jobs:\n  t:\n    steps:\n      - name: Run azul-storage tests\n        run: |\n          cargo test -p azul-storage\n";
+    assert!(gate_step(without).is_err());
+    let with = format!(
+        "{without}      - name: Run gates\n        run: |\n          cargo test -p azul-srcgate --no-fail-fast\n      - name: Later\n        run: echo x\n"
     );
-    let updater = read("layout/src/updater.rs");
-    let tests = updater.matches("#[test]").count();
-    assert!(tests >= 30, "the updater lost its tests: {tests}");
-    let manifest = read("layout/Cargo.toml");
+    let step = gate_step(&with).expect("the step");
     assert!(
-        manifest.lines().any(|line| line.starts_with("updater = [")),
-        "layout/Cargo.toml has no `updater` feature"
+        step.contains("Run gates") && !step.contains("Later"),
+        "{step}"
     );
-}
-
-/// The command finder on its own cases: a continued line is one command, a command that is not
-/// continued ends at its line.
-#[test]
-fn the_command_finder_joins_continued_lines() {
-    let text = "      - name: x\n        run: |\n          cargo test -p a \\\n            --features one,two \\\n            --no-fail-fast 2>&1 | tee out.txt\n          ./next.sh\n";
-    let command = command_from(text, "cargo test -p a").expect("a command");
-    assert!(command.contains("--features one,two"), "{command}");
-    assert!(command.contains("--no-fail-fast"), "{command}");
-    assert!(!command.contains("next.sh"), "{command}");
-    assert!(command_from(text, "cargo bench").is_none());
 }
