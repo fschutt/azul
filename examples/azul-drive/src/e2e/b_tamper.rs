@@ -708,6 +708,8 @@ pub(crate) fn restore_of(drive_id: &str) -> Option<RestoreNotice> {
             .and_then(serde_json::Value::as_str)
             .unwrap_or("")
             .to_string(),
+        // The kind and the moment the sync's judge also reads (RF45) are not played here.
+        ..RestoreNotice::default()
     })
 }
 

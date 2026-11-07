@@ -1075,6 +1075,7 @@ fn an_announced_restore_reaches_the_pass_and_the_files_after_the_copy_go_up_agai
     work.restore = Some(azcloud_kit::sync::RestoreNotice {
         epoch: 1,
         prefix: String::new(),
+        ..azcloud_kit::sync::RestoreNotice::default()
     });
     let answer = sync_jobs::run(
         SyncJob::Pass {
