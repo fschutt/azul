@@ -30,8 +30,15 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-/// The features no shipped build may have.
-const DOORS: [&str; 4] = ["test-hooks", "debug-server", "e2e-scripting", "e2e-test"];
+/// The features no shipped build may have. `web-e2e-runner` makes any azul binary the web test
+/// runner (it spawns node, bun or deno).
+const DOORS: [&str; 5] = [
+    "test-hooks",
+    "debug-server",
+    "e2e-scripting",
+    "e2e-test",
+    "web-e2e-runner",
+];
 
 /// A dependency's feature that is the same door: named as `pkg/feature` or `pkg?/feature`.
 const DEPENDENCY_DOORS: [&str; 3] = ["e2e-server", "e2e-server-http", "test-hooks"];
@@ -202,6 +209,33 @@ fn the_feature_closure_of_dist_holds_no_debug_server_no_e2e_scripting_and_no_tes
     assert!(doors.is_empty(), "`dist` switches on {doors:?}");
 }
 
+/// X-DELTA-AZDRIVE-KEYS-10: cargo features ADD UP. A `--features dist` that did not say
+/// `--no-default-features` carries every default along, so a door in `default` is a door in the
+/// libazul that ships: `debug-server` and `web-e2e-runner` were defaults, and the gate above looked
+/// at `dist` alone. No default is a door, nor leads to one.
+#[test]
+fn the_feature_closure_of_the_defaults_holds_no_door() {
+    let table = dll_features();
+    let default = table.get("default").expect("the dll has a `default`");
+    for door in DOORS {
+        assert!(
+            !default.iter().any(|entry| entry == door),
+            "`default` names the door `{door}`: {default:?}"
+        );
+    }
+    let doors = doors_in(&table, "default");
+    assert!(doors.is_empty(), "`default` switches on {doors:?}");
+    // What ships is the union of what it names and the defaults it did not switch off.
+    let mut shipped = closure(&table, "dist").0;
+    shipped.extend(closure(&table, "default").0);
+    for door in DOORS {
+        assert!(
+            !shipped.contains(door),
+            "`dist` + `default` switch on `{door}`"
+        );
+    }
+}
+
 /// The shipped extension modules are shipped: the wheel and the PHP extension are `dist` too (the
 /// E2E builds add `debug-server` by name).
 #[test]
@@ -297,5 +331,159 @@ fn the_dlls_test_hooks_switch_on_the_hooks_of_core_and_layout() {
     assert!(
         core_features.contains("std"),
         "core's `test-hooks` needs `std` (the module is std-only): {core_features:?}"
+    );
+}
+
+// ==== the recipes that SHIP build `dist` (X-DELTA-AZDRIVE-KEYS-10) ====
+
+/// The shell commands of a file: lines joined at a trailing `\`, comment lines dropped.
+fn commands(text: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut current = String::new();
+    for raw in text.lines() {
+        let line = raw.trim();
+        if current.is_empty() && line.starts_with('#') {
+            continue;
+        }
+        current.push_str(line.trim_end_matches('\\'));
+        current.push(' ');
+        if !line.ends_with('\\') {
+            out.push(std::mem::take(&mut current));
+        }
+    }
+    if !current.trim().is_empty() {
+        out.push(current);
+    }
+    out
+}
+
+/// The features a command asks for: `--features a,b`, `--features="a,b"` or `--features=a,b`.
+fn features_asked(command: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let words: Vec<&str> = command.split_whitespace().collect();
+    for (at, word) in words.iter().enumerate() {
+        let value = if let Some(rest) = word.strip_prefix("--features=") {
+            Some(rest)
+        } else if *word == "--features" {
+            words.get(at + 1).copied()
+        } else {
+            None
+        };
+        if let Some(value) = value {
+            out.extend(
+                value
+                    .trim_matches(|c| c == '"' || c == '\'')
+                    .split(',')
+                    .map(|f| f.trim().to_string())
+                    .filter(|f| !f.is_empty()),
+            );
+        }
+    }
+    out
+}
+
+/// What is wrong with a shipping command of azul-dll: it must switch `dist` (or an extension that
+/// is built on it) on and no door.
+fn shipping_fault(command: &str, table: &BTreeMap<String, Vec<String>>) -> Option<String> {
+    let asked = features_asked(command);
+    let mut on = BTreeSet::new();
+    for feature in &asked {
+        on.extend(closure(table, feature).0);
+    }
+    if !on.contains("dist") {
+        return Some(format!("builds without `dist`: {command}"));
+    }
+    DOORS
+        .iter()
+        .find(|door| on.contains(**door))
+        .map(|door| format!("switches on `{door}` ({asked:?}): {command}"))
+}
+
+fn repo_file(path: &str) -> String {
+    let file = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("the dll folder has a parent")
+        .join(path);
+    std::fs::read_to_string(&file).unwrap_or_else(|e| panic!("read {}: {e}", file.display()))
+}
+
+/// Debug builds that are published as such, by what names them in the command.
+const DEBUG_ARTIFACTS: [&str; 1] = ["target/azuldbg"];
+
+/// Every release job of the workflow builds the libazul that ships with `dist`, and so does the
+/// AUR package, the base image and the cache image: `build-dll` ships the HTTP debugger and the
+/// `AZ_E2E=script.json` engine to the customer's machine.
+#[test]
+fn the_recipes_that_ship_libazul_build_dist_and_never_build_dll() {
+    let table = dll_features();
+    let mut faults = Vec::new();
+    let mut seen = 0;
+    for command in commands(&repo_file(".github/workflows/rust.yml")) {
+        let shipping = command.contains("azul-dll")
+            && command.contains("build")
+            && (command.contains("prod-release") || command.contains("rust9x"));
+        if !shipping
+            || DEBUG_ARTIFACTS
+                .iter()
+                .any(|a| command.contains(a) && command.contains("debug-server"))
+        {
+            continue;
+        }
+        seen += 1;
+        faults.extend(shipping_fault(&command, &table));
+    }
+    assert!(
+        seen >= 5,
+        "the scanner found {seen} shipping commands in the workflow"
+    );
+    for file in ["packaging/aur/PKGBUILD", "Dockerfile", "docker/Dockerfile"] {
+        let mut here = 0;
+        for command in commands(&repo_file(file)) {
+            if command.contains("cargo build") && command.contains("azul-dll") {
+                here += 1;
+                faults.extend(shipping_fault(&command, &table).map(|f| format!("{file}: {f}")));
+            }
+        }
+        assert!(here >= 1, "{file}: no `cargo build -p azul-dll` found");
+    }
+    assert!(
+        faults.is_empty(),
+        "shipping recipes that are not `dist`:\n{}",
+        faults.join("\n")
+    );
+}
+
+/// The mutants of the recipe scanner: a release command with `build-dll`, with `dist` and a door
+/// by name, and with no `dist` at all are each found; `dist` and the extensions pass.
+#[test]
+fn the_recipe_scanner_sees_build_dll_a_door_by_name_and_a_missing_dist() {
+    let table = dll_features();
+    let ok = |c: &str| shipping_fault(c, &table).is_none();
+    assert!(ok(
+        r#"cargo build --profile prod-release -p azul-dll --features="dist""#
+    ));
+    assert!(ok(
+        "cargo build --release -p azul-dll --lib --features python-extension"
+    ));
+    assert!(ok(
+        "cargo build --release -p azul-dll --features dist,web-transpiler-static"
+    ));
+    assert!(!ok(
+        r#"cargo build --profile prod-release -p azul-dll --features="build-dll""#
+    ));
+    assert!(!ok(
+        "cargo build --release -p azul-dll --features dist,debug-server"
+    ));
+    assert!(!ok(
+        "cargo build --release -p azul-dll --features dist,test-hooks"
+    ));
+    assert!(!ok("cargo build --release -p azul-dll"));
+    // Continuation lines are one command; comments are none.
+    let joined = commands("# cargo build -p azul-dll --features build-dll\ncargo build \\\n  -p azul-dll \\\n  --features build-dll\n");
+    assert_eq!(joined.len(), 1, "{joined:?}");
+    assert!(!ok(&joined[0]));
+    assert_eq!(
+        features_asked(r#"x --features "a,b" --features=c"#),
+        vec!["a", "b", "c"]
     );
 }

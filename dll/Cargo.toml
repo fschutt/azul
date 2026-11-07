@@ -699,21 +699,28 @@ __memtest_no_export = []
 
 # Default: Build with static linking (for Rust applications)
 # Use --features "dist" when building the shared library that ships, "build-dll" for the one
-# developers and the E2E builds use (dist + the debug server + the E2E scripting engine)
+# developers and the E2E builds use (dist + the debug server + the E2E scripting engine + the
+# web-e2e executor).
+#
+# NO DOOR IS A DEFAULT (X-DELTA-AZDRIVE-KEYS-10): cargo features add up, so a `--features dist`
+# that forgot `--no-default-features` would carry every default along. `debug-server` (an HTTP
+# port and a debugger inside the customer's process) and `web-e2e-runner` (the binary becomes
+# the test runner) used to be defaults, and the libazul that shipped carried both.
+# `dll/tests/run_mode_gate.rs` pins that the closure of `default` holds none of the doors, and that
+# no shipping recipe builds `build-dll`.
 default = [
     "std",
     "link-static",
     "logging",
     "a11y",
-    "debug-server",
     "all_img_formats",
-    "web-e2e-runner",
 ]
 
 # Embedded web-e2e executor: bundles scripts/e2e-web (brotli, build.rs) into
 # the binary so `AZ_BACKEND=<http url> AZ_E2E=<dir|file>` makes ANY azul app
 # act as the test runner against a web server (spawns node/bun/deno on the
-# extracted bundle; desktop-parity cargo-test output). On by default.
+# extracted bundle; desktop-parity cargo-test output). In `build-dll` (the developers' and the
+# E2E builds), never in a default and never in `dist`.
 web-e2e-runner = ["dep:brotli-decompressor"]
 
 # -----------------------------------------------------------------------------
@@ -800,15 +807,15 @@ dist = [
     "materials",
 ]
 
-# The libazul of developers, tests and the E2E builds: `dist` plus the debug server and the E2E
-# scripting engine. NEVER ship it - `dist` is what ships. `test-hooks` is not in it either: the
-# E2E builds ask for it by name (`--features build-dll,test-hooks`).
+# The libazul of developers, tests and the E2E builds: `dist` plus the debug server, the E2E
+# scripting engine and the web-e2e executor. NEVER ship it - `dist` is what ships. `test-hooks`
+# is not in it either: the E2E builds ask for it by name (`--features build-dll,test-hooks`).
 #
 # `e2e-scripting` is here so a script handed over via `AZ_E2E=script.json` runs against an app
 # built the normal way (without it an app silently ignored AZ_E2E - exactly what "the app did
 # nothing" looked like, 2026-09-01); `debug-server` is the HTTP port and the debugger. Both used
 # to be named in the list above (three times) in a build the comments call lean.
-build-dll = ["dist", "debug-server", "e2e-scripting"]
+build-dll = ["dist", "debug-server", "e2e-scripting", "web-e2e-runner"]
 
 # SQLite-backed `Db` API (P4.3). Pulls the bundled-SQLite `rusqlite`
 # engine; the public surface (SQL strings + DbValue/DbRows) hides it. Kept

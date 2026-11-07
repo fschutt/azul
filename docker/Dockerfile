@@ -94,10 +94,11 @@ RUN git clone --depth 1 --branch "${AZUL_REF}" \
         https://github.com/fschutt/azul.git /src/azul
 
 WORKDIR /src/azul
-# Build libazul. The subprocess lift path is what we warm, so plain build-dll
-# is sufficient (web-transpiler-static would only help the non-default
-# in-process native path). See README.md / use_native_remill docs.
-RUN cargo build --profile prod-release -p azul-dll --features="build-dll"
+# Build libazul. The subprocess lift path is what we warm, so plain `dist` (the libazul that
+# ships, without the debug server and the E2E engines) is sufficient (web-transpiler-static
+# would only help the non-default in-process native path). See README.md / use_native_remill
+# docs.
+RUN cargo build --profile prod-release -p azul-dll --features="dist"
 
 # Build a minimal azul app WITH the subprocess web transpiler so we can drive
 # the whole-framework lift. Best-effort: if the `web` feature isn't wired in the

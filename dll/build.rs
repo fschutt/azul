@@ -169,8 +169,13 @@ fn main() {
     // and — on Linux python builds — Py*/_Py* so libpython can still interpose
     // the weak stubs at import. Audit §2.1. Only affects the cdylib; the
     // staticlib keeps all symbols for static consumers of db-sqlite.
-    if env::var("CARGO_FEATURE_BUILD_DLL").is_ok()
+    // `dist` is the shipped libazul (build-dll, the python and the PHP extension imply it, but
+    // a `--features dist` build is the one that ships and does not imply any of them): the
+    // restriction is for every cdylib of the azul C API (X-DELTA-AZDRIVE-KEYS-39).
+    if env::var("CARGO_FEATURE_DIST").is_ok()
+        || env::var("CARGO_FEATURE_BUILD_DLL").is_ok()
         || env::var("CARGO_FEATURE_PYTHON_EXTENSION").is_ok()
+        || env::var("CARGO_FEATURE_PHP_EXTENSION").is_ok()
     {
         restrict_cdylib_exports(&target);
     }

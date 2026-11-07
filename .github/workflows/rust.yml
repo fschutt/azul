@@ -1615,14 +1615,14 @@ jobs:
         if: steps.cache-valid.outputs.skip != 'true' && matrix.use_cross
         env:
           RUSTFLAGS: ${{ matrix.rustflags || '' }}
-        run: cross build --profile prod-release --target ${{ matrix.target }} -p azul-dll --features="build-dll"
+        run: cross build --profile prod-release --target ${{ matrix.target }} -p azul-dll --features="dist"
 
       - name: Build natively (Windows/macOS cross-arch)
         if: steps.cache-valid.outputs.skip != 'true' && !matrix.use_cross
         env:
           RUSTFLAGS: ${{ matrix.rustflags || '' }}
           MACOSX_DEPLOYMENT_TARGET: ${{ matrix.macos_deployment_target || '' }}
-        run: cargo build --profile prod-release --target ${{ matrix.target }} -p azul-dll --features="build-dll"
+        run: cargo build --profile prod-release --target ${{ matrix.target }} -p azul-dll --features="dist"
 
       - name: Strip static lib (bitcode + debug)
         if: steps.cache-valid.outputs.skip != 'true' && (success() || matrix.experimental)
@@ -1791,7 +1791,7 @@ jobs:
         run: |
           cargo +rust9x build --release \
             --target i686-rust9x-windows-msvc \
-            -p azul-dll --features="build-dll"
+            -p azul-dll --features="dist"
 
       - name: Upload rust9x artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -2613,7 +2613,7 @@ jobs:
 
       - name: Build DLL (for C/C++ examples)
         if: steps.cache-valid.outputs.skip != 'true'
-        run: cargo build --profile prod-release -p azul-dll --features="build-dll"
+        run: cargo build --profile prod-release -p azul-dll --features="dist"
 
       - name: Strip static lib (.a/.lib)
         if: steps.cache-valid.outputs.skip != 'true'
