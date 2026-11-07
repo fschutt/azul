@@ -625,6 +625,10 @@ pub(crate) struct Sheet {
     /// The sheet of a further recovery code (a second kit): it only closes when its groups are
     /// typed back - the drive was set up long ago.
     pub extra: bool,
+    /// The second step: the code is hidden and its groups are asked for. The groups are typed
+    /// from the user's own copy - a code that stays on the screen while it is checked is checked
+    /// by copying it (AZ-K12).
+    pub checking: bool,
 }
 
 /// A group of a recovery code as people type it: no spaces or dashes, upper case, `O` for 0,
@@ -667,6 +671,27 @@ impl Sheet {
             copied: false,
             previous_code: None,
             extra: false,
+            checking: false,
+        }
+    }
+
+    /// The code is hidden and its groups are asked for ([`Sheet::checking`]); what was typed
+    /// before is gone.
+    pub(crate) fn hide_code(&mut self) {
+        self.checking = true;
+        self.clear_typed();
+    }
+
+    /// The code shows again; what was typed is gone.
+    pub(crate) fn show_code(&mut self) {
+        self.checking = false;
+        self.clear_typed();
+    }
+
+    fn clear_typed(&mut self) {
+        self.error.clear();
+        for typed in &mut self.typed {
+            *typed = Zeroizing::new(String::new());
         }
     }
 
@@ -854,13 +879,67 @@ fn drive_name(s: &DriveState, drive_id: &str) -> String {
     s.drive_name(&browse::Place::folder(drive_id, ""))
 }
 
+/// A dialog's column of `children`.
+fn dialog_column(children: Vec<Dom>) -> Dom {
+    Dom::create_div()
+        .with_css("display: flex; flex-direction: column; min-width: 420px; max-width: 520px;")
+        .with_children(DomVec::from(children))
+}
+
+/// The second step of the recovery sheet: the code is NOT on this page. The groups asked for are
+/// typed from the user's own copy; a sheet that keeps the code on the screen while it is checked
+/// is checked by copying it (AZ-K12).
+fn check_page(sheet: &Sheet, app: &RefAny) -> Dom {
+    let mut body = dialog_column(Vec::new());
+    body.add_child(label(&t_args(
+        "azdrive-enc-sheet-check",
+        &[("groups", Arg::from(sheet.asked_words()))],
+    )));
+    let mut boxes = Dom::create_div().with_css("display: flex; flex-direction: row;");
+    for (slot, (&group, typed)) in sheet.checks.iter().zip(&sheet.typed).enumerate() {
+        boxes.add_child(
+            Dom::create_div()
+                .with_css("display: flex; flex-direction: column; margin-right: 8px;")
+                .with_child(label(&t_args(
+                    "azdrive-enc-group",
+                    &[("n", Arg::from(group + 1))],
+                )))
+                .with_child(
+                    TextInput::create()
+                        .with_text(AzString::from(typed.as_str()))
+                        .with_placeholder(AzString::from("XXXXX"))
+                        .with_on_text_input(
+                            RefAny::new(GroupRef {
+                                app: app.clone(),
+                                slot,
+                            }),
+                            on_group_typed as TextInputOnTextInputCallbackType,
+                        )
+                        .dom()
+                        .with_id(crate::ids::sheet_group(slot)),
+                ),
+        );
+    }
+    body.add_child(boxes);
+    if !sheet.error.is_empty() {
+        body.add_child(line(&sheet.error).with_css("color: system:danger;"));
+    }
+    body.add_child(buttons(vec![
+        button("azdrive-enc-sheet-show", app, on_sheet_show).with_id(crate::ids::SHEET_BACK),
+        typed_button(
+            "azdrive-enc-written-down",
+            ButtonType::Primary,
+            app,
+            on_sheet_done,
+        )
+        .with_id(crate::ids::SHEET_DONE),
+    ]));
+    body
+}
+
 /// The dialog's title and content.
 pub(crate) fn dialog_parts(dialog: &Dialog, s: &DriveState, app: &RefAny) -> (String, Dom) {
-    let column = |children: Vec<Dom>| {
-        Dom::create_div()
-            .with_css("display: flex; flex-direction: column; min-width: 420px; max-width: 520px;")
-            .with_children(DomVec::from(children))
-    };
+    let column = dialog_column;
     match dialog {
         Dialog::Confirm { drive_id } => (
             t_args("azdrive-enc-confirm-title", &[("name", Arg::from(drive_name(s, drive_id)))]),
@@ -882,6 +961,7 @@ pub(crate) fn dialog_parts(dialog: &Dialog, s: &DriveState, app: &RefAny) -> (St
                 buttons(vec![button("azdrive-enc-hide", app, on_cancel_popup)]),
             ]),
         ),
+        Dialog::Sheet(sheet) if sheet.checking => (sheet.title(), check_page(sheet, app)),
         Dialog::Sheet(sheet) => {
             let mut body = column(Vec::new());
             if sheet.new_drive {
@@ -929,46 +1009,18 @@ pub(crate) fn dialog_parts(dialog: &Dialog, s: &DriveState, app: &RefAny) -> (St
                         .with_id(crate::ids::KIT_NOT_ACTIVE),
                 );
             }
-            body.add_child(label(&t_args(
-                "azdrive-enc-sheet-check",
+            // The check is the next step, with the code hidden.
+            body.add_child(line(&t_args(
+                "azdrive-enc-sheet-next",
                 &[("groups", Arg::from(sheet.asked_words()))],
             )));
-            let mut boxes = Dom::create_div().with_css("display: flex; flex-direction: row;");
-            for (slot, (&group, typed)) in sheet.checks.iter().zip(&sheet.typed).enumerate() {
-                boxes.add_child(
-                    Dom::create_div()
-                        .with_css("display: flex; flex-direction: column; margin-right: 8px;")
-                        .with_child(label(&t_args(
-                            "azdrive-enc-group",
-                            &[("n", Arg::from(group + 1))],
-                        )))
-                        .with_child(
-                            TextInput::create()
-                                .with_text(AzString::from(typed.as_str()))
-                                .with_placeholder(AzString::from("XXXXX"))
-                                .with_on_text_input(
-                                    RefAny::new(GroupRef {
-                                        app: app.clone(),
-                                        slot,
-                                    }),
-                                    on_group_typed as TextInputOnTextInputCallbackType,
-                                )
-                                .dom()
-                                .with_id(crate::ids::sheet_group(slot)),
-                        ),
-                );
-            }
-            body.add_child(boxes);
-            if !sheet.error.is_empty() {
-                body.add_child(line(&sheet.error).with_css("color: system:danger;"));
-            }
             body.add_child(buttons(vec![typed_button(
-                "azdrive-enc-written-down",
+                "azdrive-enc-sheet-hide",
                 ButtonType::Primary,
                 app,
-                on_sheet_done,
+                on_sheet_hide,
             )
-            .with_id(crate::ids::SHEET_DONE)]));
+            .with_id(crate::ids::SHEET_NEXT)]));
             (sheet.title(), body)
         }
         Dialog::Unlock {
@@ -1813,6 +1865,30 @@ extern "C" fn on_encrypt(mut data: RefAny, mut info: CallbackInfo) -> Update {
                 new_drive: false,
             }),
         );
+    })
+}
+
+/// "Hide the code and check it": the second step of the sheet. A code that was copied leaves the
+/// clipboard now (when it is still the code), so that the check cannot be pasted.
+extern "C" fn on_sheet_hide(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_state(&mut data, &mut info, |info, _app, s| {
+        let Some(Popup::Encryption(Dialog::Sheet(sheet))) = s.popup.as_mut() else {
+            return;
+        };
+        if sheet.copied {
+            crate::ui_bridge::clipboard_forget(info, sheet.code.as_str());
+            sheet.copied = false;
+        }
+        sheet.hide_code();
+    })
+}
+
+/// "Show the code again": back to the first step.
+extern "C" fn on_sheet_show(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_state(&mut data, &mut info, |_info, _app, s| {
+        if let Some(Popup::Encryption(Dialog::Sheet(sheet))) = s.popup.as_mut() {
+            sheet.show_code();
+        }
     })
 }
 
@@ -3919,6 +3995,68 @@ mod tests {
             .map(|_| Sheet::new("d_1", code.to_text()).asked())
             .collect();
         assert!(left_out.len() > 1, "chosen at random: {left_out:?}");
+    }
+
+    /// Every text `dom` shows, in document order.
+    fn texts_of(dom: &Dom) -> Vec<String> {
+        let mut out: Vec<String> = dom
+            .root
+            .node_type
+            .get_text()
+            .into_option()
+            .map(|t| t.as_str().to_string())
+            .filter(|t| !t.is_empty())
+            .into_iter()
+            .collect();
+        for child in dom.children.as_slice() {
+            out.extend(texts_of(child));
+        }
+        out
+    }
+
+    /// AZ-K12: the sheet showed the code and asked for four of its groups on the same page, so the
+    /// check was satisfied by copying and pasting from the screen - it proved that the boxes work,
+    /// not that a copy of the code exists somewhere else. Now the check is a step of its own: the
+    /// page that asks for the groups does not show the code, going back shows it again and wipes
+    /// what was typed, and only the groups asked for, typed on that page, confirm.
+    #[test]
+    fn az_k12_the_page_that_asks_for_the_groups_does_not_show_the_code() {
+        crate::l10n::in_english();
+        let code = RecoveryCode::from_bytes([0x5A; 16]);
+        let mut sheet = Sheet::new("d_1", code.to_text());
+        assert!(!sheet.checking, "the first step shows the code");
+
+        sheet.hide_code();
+        assert!(sheet.checking);
+        let texts = texts_of(&check_page(&sheet, &RefAny::new(0_u32)));
+        assert!(!texts.is_empty(), "the page asks something");
+        for group in sheet.code.split('-') {
+            assert!(
+                texts.iter().all(|text| !text.contains(group)),
+                "group {group} of the code is on the page that checks it: {texts:?}"
+            );
+        }
+        assert!(
+            texts
+                .iter()
+                .any(|text| text.contains("type groups") && text.contains("from your copy")),
+            "it asks for the groups from the user's copy: {texts:?}"
+        );
+
+        // What is typed there confirms; going back wipes it and shows the code again.
+        type_groups(&mut sheet, str::to_lowercase);
+        assert!(sheet.confirmed());
+        sheet.show_code();
+        assert!(!sheet.checking);
+        assert!(
+            !sheet.confirmed(),
+            "back at the code, nothing is typed any more"
+        );
+        sheet.hide_code();
+        assert!(!sheet.confirmed(), "and again hidden, the boxes are empty");
+        sheet.error = String::from("not all");
+        sheet.hide_code();
+        assert!(sheet.error.is_empty(), "a step clears the last complaint");
     }
 
     #[test]

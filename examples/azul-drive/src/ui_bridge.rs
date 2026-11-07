@@ -133,6 +133,15 @@ pub(crate) fn clipboard_secret(
     );
 }
 
+/// A secret that was copied is taken off the clipboard now - when the clipboard still holds it
+/// (or cannot be read): what the user copied since stays.
+pub(crate) fn clipboard_forget(info: &mut CallbackInfo, secret: &str) {
+    let now = info.get_system_clipboard().into_option();
+    if still_ours(now.as_ref().map(|c| c.plain_text.as_str()), secret) {
+        info.set_clipboard_content(content_of("", false));
+    }
+}
+
 /// A secret the clear timer takes off the clipboard again.
 pub(crate) struct CopiedSecret {
     text: String,

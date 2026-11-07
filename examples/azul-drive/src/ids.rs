@@ -524,6 +524,10 @@ pub fn sheet_group(slot: usize) -> AzString {
 }
 /// The recovery sheet's "I have written it down".
 pub const SHEET_DONE: AzString = AzString::from_const_str("__azdrive_sheet_done");
+/// The recovery sheet's "Hide the code and check it" (the first step's button).
+pub const SHEET_NEXT: AzString = AzString::from_const_str("__azdrive_sheet_next");
+/// The check's "Show the code again" (the second step's button).
+pub const SHEET_BACK: AzString = AzString::from_const_str("__azdrive_sheet_back");
 /// The recovery sheet's code (selectable text) and its "Copy".
 pub const SHEET_CODE: AzString = AzString::from_const_str("__azdrive_sheet_code");
 pub const SHEET_COPY: AzString = AzString::from_const_str("__azdrive_sheet_copy");

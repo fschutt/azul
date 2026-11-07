@@ -637,26 +637,42 @@ def signed_by_code(code, drive_id, what):
     return {"nonce": nonce, "signature": azlin_ed25519.sign_b64(seed, message)}
 
 
-def finish_new_drive_sheet(app, drive_id, out=None, thorough=False, stack=None, logs=None):
-    """A new drive's recovery sheet ("we always encrypt": the drive is encrypted as it is made):
-    the code and the four groups it asks for typed back; the drive is ready then
-    (AZDRIVE_ENCRYPTED_NEW_DRIVE). `thorough` (step 5, once): the kit saved as a PDF first,
-    Escape keeps the sheet, "I have written it down" without the groups and with a wrong one is
-    refused, a group in lower case is taken; the recovery key reaches the token server and the
-    settings file keeps the check, never the code. Returns the code."""
-    # The window that shows the sheet: the first other window may be the Add drive dialog (or a
-    # busy note) about to close as the sheet's window opens.
-    popup = e2e.modal_window(app, showing="#__azdrive_sheet_group_0")
+def sheet_check_step(popup):
+    """The recovery sheet's second step (AZ-K12): the first page - the code, Copy, the kit - is left
+    with "Hide the code and check it"; the page that asks for the groups does not show the code and
+    names the groups to type from the user's own copy. Returns the numbers (1-based) of the groups
+    asked."""
+    popup.click(selector="#__azdrive_sheet_next", frames=3)
+    popup.until("the groups asked", lambda: popup.has("#__azdrive_sheet_group_0"))
     texts = popup.texts()
-    code = found(texts, CODE_RE)
+    if found(texts, CODE_RE):
+        raise Failure("the page that asks for the groups still shows the code: %r" % texts[:20])
     asked = found(texts, ASKED_RE)
-    if not code or not asked:
-        raise Failure("the sheet shows no code or no groups to type: %r" % texts[:20])
-    code = code.group(0)
-    groups = code.split("-")
+    if not asked:
+        raise Failure("the sheet names no groups to type: %r" % texts[:20])
     numbers = [int(n) for n in re.findall(r"\d+", asked.group(1))]
     if len(numbers) != 4 or len(set(numbers)) != 4 or not all(1 <= n <= 5 for n in numbers):
         raise Failure("the sheet asks for groups %r: four of five, each once" % numbers)
+    return numbers
+
+
+def finish_new_drive_sheet(app, drive_id, out=None, thorough=False, stack=None, logs=None):
+    """A new drive's recovery sheet ("we always encrypt": the drive is encrypted as it is made):
+    the code, then - with the code hidden - the four groups it asks for typed back; the drive is
+    ready then (AZDRIVE_ENCRYPTED_NEW_DRIVE). `thorough` (step 5, once): the kit saved as a PDF
+    first, Escape keeps the sheet, Back shows the code again, "I have written it down" without the
+    groups and with a wrong one is refused, a group in lower case is taken; the recovery key
+    reaches the token server and the settings file keeps the check, never the code. Returns the
+    code."""
+    # The window that shows the sheet: the first other window may be the Add drive dialog (or a
+    # busy note) about to close as the sheet's window opens.
+    popup = e2e.modal_window(app, showing="#__azdrive_sheet_code")
+    texts = popup.texts()
+    code = found(texts, CODE_RE)
+    if not code:
+        raise Failure("the sheet shows no code: %r" % texts[:20])
+    code = code.group(0)
+    groups = code.split("-")
     if thorough:
         # Item 7: the code as text with a Copy (cleared again in a minute), the kit, the groups.
         if not popup.has("#__azdrive_sheet_code"):
@@ -677,8 +693,14 @@ def finish_new_drive_sheet(app, drive_id, out=None, thorough=False, stack=None, 
             popup.screenshot(os.path.join(out, "5-recovery-sheet.png"))
         popup.key("escape")
         app.frame(3)
-        if not popup.has("#__azdrive_sheet_group_0"):
+        if not popup.has("#__azdrive_sheet_code"):
             raise Failure("Escape took the recovery sheet away before its groups were typed")
+    numbers = sheet_check_step(popup)
+    if thorough:
+        # Back shows the code again; the check that follows asks for groups again.
+        popup.click(selector="#__azdrive_sheet_back", frames=3)
+        popup.until("the code shown again", lambda: found(popup.texts(), CODE_RE))
+        numbers = sheet_check_step(popup)
         popup.click(selector="#__azdrive_sheet_done", frames=3)
         if app.printed("AZDRIVE_RECOVERY_VERIFIED", re.escape(drive_id)):
             raise Failure("the setup finished without the groups typed back")
@@ -908,14 +930,12 @@ def recovery_steps(app, stack, args, logs, out, binary, switches, env, drives_fi
     app.after("the second kit", "AZDRIVE_RECOVERY_CODE_ADDED", re.escape(drive_id),
               lambda: popup.click(selector="#__azdrive_recovery_sign_ok"))
     popup = e2e.modal_window(app)
-    popup.until("the second kit's sheet", lambda: popup.has("#__azdrive_sheet_group_0"))
-    texts = popup.texts()
-    second_code = found(texts, CODE_RE).group(0)
+    popup.until("the second kit's sheet", lambda: popup.has("#__azdrive_sheet_code"))
+    second_code = found(popup.texts(), CODE_RE).group(0)
     if second_code == code:
         raise Failure("the second kit has the first code")
     second_groups = second_code.split("-")
-    for slot, number in enumerate(int(n) for n in re.findall(r"\d+",
-                                                              found(texts, ASKED_RE).group(1))):
+    for slot, number in enumerate(sheet_check_step(popup)):
         popup.text_input("#__azdrive_sheet_group_%d" % slot, second_groups[number - 1])
     app.after("its groups typed back", "AZDRIVE_RECOVERY_CODE_VERIFIED", re.escape(drive_id),
               lambda: popup.click(selector="#__azdrive_sheet_done"))
