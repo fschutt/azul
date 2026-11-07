@@ -74,7 +74,8 @@ fn the_gate_reads_the_shipped_files_of_the_three_crates_and_not_their_tests() {
     for shipped in [
         "examples/azul-storage/src/lib.rs",
         "examples/azul-storage/src/meta/wal.rs",
-        "examples/azul-storage/src/overlap.rs",
+        // `overlap.rs` is gone (the engine's places are `xfer/site.rs`).
+        "examples/azul-storage/src/xfer/site.rs",
         "examples/azlin-preflate/src/lib.rs",
         "examples/azlin-compress/src/lib.rs",
     ] {

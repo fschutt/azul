@@ -121,7 +121,7 @@ const ALLOWED: &[Allow] = &[
     Allow::exactly(
         "examples/azul-storage/src/local.rs",
         PARENT_OF,
-        5,
+        4,
         "the contained LocalDrive's walks (read, rename, make and remove a folder): each holds a \
          LocalKey of its own, made from a key its call checked already",
     ),

@@ -881,6 +881,16 @@ jobs:
           ./scripts/zero_test_guard.sh --strict azcloud-kit-tests.txt
           cargo check -p azcloud-kit --tests
 
+      # The source gates: each reads the shipped code of the storage, sync and AzDrive crates and
+      # fails when a rule is broken where it must not be (the durable write path, the name policy,
+      # scratch, the platform probes, the encryption state, ...) or a counted allowance moved.
+      # They are tests like the rest: a gate nobody runs asserts nothing (X-DELTA-AZDRIVE-FILES-12).
+      - name: Run azul-srcgate tests (the source gates)
+        run: |
+          set -o pipefail
+          cargo test -p azul-srcgate --no-fail-fast 2>&1 | tee azul-srcgate-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-srcgate-tests.txt
+
       # The client-side compression azul-storage seals: deflate rebuilt bit for bit, Lepton,
       # the codecs, and the format 1 golden vectors that must decode forever.
       - name: Run azlin-preflate and azlin-compress tests

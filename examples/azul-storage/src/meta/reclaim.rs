@@ -648,7 +648,7 @@ impl<'a> Walk<'a> {
     ) -> Result<(), NotYet> {
         let find = |walk: &Walk<'_>, azlin: &GitId| -> Result<Option<GitId>, NotYet> {
             let folder = shard::read_folder(walk.objects, azlin)
-                .map_err(|e| NotYet::unreadable(".azlin", e))?;
+                .map_err(|e| NotYet::unreadable(crate::names::BOOKKEEPING, e))?;
             Ok(folder
                 .entries()
                 .iter()
@@ -665,8 +665,8 @@ impl<'a> Walk<'a> {
 
     /// The `sync` folder of the drive's `.azlin` folder, if it has one.
     fn bookkeeping(&self, azlin: &GitId, stack: &mut Vec<(GitId, bool)>) -> Result<(), NotYet> {
-        let folder =
-            shard::read_folder(self.objects, azlin).map_err(|e| NotYet::unreadable(".azlin", e))?;
+        let folder = shard::read_folder(self.objects, azlin)
+            .map_err(|e| NotYet::unreadable(crate::names::BOOKKEEPING, e))?;
         if let Some(sync) = folder
             .entries()
             .iter()
