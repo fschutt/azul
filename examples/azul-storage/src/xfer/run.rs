@@ -15,8 +15,8 @@ use super::{
     site::{overlap, Overlap},
 };
 use crate::{
-    ctl::Ctl, durable::Expect, local, ops, quarantine, same_etag, transfer, BatchDelete, BatchMove,
-    BatchPut, Drive, DriveError, ObjectInfo, Precondition,
+    ctl::Ctl, durable::Expect, local, ops, same_etag, transfer, BatchDelete, BatchMove, BatchPut,
+    Drive, DriveError, ObjectInfo, Precondition,
 };
 
 /// Where a running transfer is.
@@ -278,13 +278,7 @@ fn copy_one(
         progress,
     )?;
     // A file of a drive that lands on this disk carries the system's "downloaded from elsewhere"
-    // mark, so the system looks at an `.exe`, a script or a shortcut of a shared drive before it runs
-    // it (AZ-W20); a copy from one folder of this disk to another is no download.
-    if source.local_path(&file.source_key).is_none() {
-        if let Some(path) = target.local_path(&file.target_key) {
-            quarantine::mark_downloaded(&path);
-        }
-    }
+    // mark (AZ-W20): `copy_object_when` puts it on, for every caller of a copy.
     Ok(len)
 }
 

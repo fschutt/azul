@@ -30,7 +30,7 @@ use crate::{
     key::safe_file_name,
     local::{beneath_error, source_bits},
     multipart::{in_parallel, STALE_AFTER_SECS},
-    ByteRange, Drive, DriveError, ObjectInfo, Precondition,
+    quarantine, ByteRange, Drive, DriveError, ObjectInfo, Precondition,
 };
 
 /// What the look at the disk's room before a big download begins does when the disk cannot say
@@ -749,7 +749,16 @@ pub fn copy_object_when(
             }
             copy_file(&from, &to, expect, ctl)
         }
-        (None, Some(to)) => download_guarded(source, key, size, &to, CHUNK, expect, ctl),
+        (None, Some(to)) => {
+            let len = download_guarded(source, key, size, &to, CHUNK, expect, ctl)?;
+            // A file that came down from a drive carries the system's "downloaded from elsewhere"
+            // mark, so the system looks at an `.exe`, a script or a shortcut of a shared drive
+            // before it runs it (AZ-W20) - whoever calls this: a Download, a Paste, the rescue
+            // copy of a read-only drive (X-DELTA-AZDRIVE-FILES-19). A copy from one folder of this
+            // disk to another is no download and is not marked.
+            quarantine::mark_downloaded(&to);
+            Ok(len)
+        }
         (Some(from), None) => {
             if !from.is_file() {
                 return Err(DriveError::NotFound {

@@ -5,10 +5,12 @@
 //! `com.apple.quarantine` on macOS (Gatekeeper), the `Zone.Identifier` stream ("Mark of the Web") on
 //! Windows (SmartScreen). Linux has no such check, so nothing is set there.
 //!
-//! Two callers: the folder sync marks the files other people's devices wrote (azcloud-kit,
-//! `sync::quarantine`), and AzDrive's own Open and Download mark what they bring to this disk
-//! ([`mark_downloaded`], called by [`crate::transfer::download_guarded`]) - an `.exe`, a `.js` or a
-//! `.lnk` of a shared drive opened from AzDrive was run without the system's second look.
+//! Three callers: the folder sync marks the files other people's devices wrote (azcloud-kit,
+//! `sync::quarantine`), and so does the opening of a file that stayed in the cloud (`fetch_file`);
+//! AzDrive's own copies mark what they bring to this disk ([`mark_downloaded`], called by
+//! [`crate::transfer::copy_object_when`] for a Download, a Paste and the rescue copy of a read-only
+//! drive, and by AzDrive's Open for its copy of a file) - an `.exe`, a `.js` or a `.lnk` of a
+//! shared drive opened from AzDrive was run without the system's second look.
 //!
 //! The mark goes on after the file is in place. A file that cannot be marked (a disk without
 //! extended attributes or streams) is still there; the sync lists that once as a warning.

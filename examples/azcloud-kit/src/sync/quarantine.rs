@@ -10,7 +10,7 @@
 //! that once as a warning.
 
 pub use azul_storage::quarantine::{
-    is_marked, macos_value, mark, supported, AGENT, ZONE_IDENTIFIER,
+    is_marked, macos_value, mark, mark_downloaded, supported, AGENT, ZONE_IDENTIFIER,
 };
 
 /// Who wrote a file, as the quarantine rule sees it: the user's own devices need no mark.

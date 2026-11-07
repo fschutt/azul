@@ -312,6 +312,69 @@ fn a_freed_file_stays_on_the_drive_and_opening_it_brings_it_back() {
     assert!(got.cloud_only.is_empty());
 }
 
+/// X-DELTA-AZDRIVE-FILES-19: a file that stayed in the cloud and is opened came down with no
+/// "downloaded from elsewhere" mark: a shared drive's `setup.exe` was run without the system's
+/// second look. It follows the pass's own rule: another person's file carries the mark, the user's
+/// own devices' files do not. (Only a system that has a mark - macOS, Windows - can tell.)
+#[test]
+fn x_delta_azdrive_files_19_opening_a_cloud_only_file_marks_what_another_writer_made() {
+    let store = S3Bucket::new();
+    let a = Device::new("dev-a");
+    let b = Device::new("dev-b");
+    a.write("tools/setup.exe", b"MZ a program with some length to it");
+    a.sync(&store);
+    let hooks = RunHooks {
+        fetch: Some(&small_only),
+        ..RunHooks::default()
+    };
+    b.run(&store, &hooks);
+    assert!(b.base().files["tools/setup.exe"].cloud_only);
+    let path = fetch_file(
+        Target::Index(&store),
+        &b.root(),
+        &b.index(),
+        &b.opts(),
+        "tools/setup.exe",
+    )
+    .unwrap();
+    assert_eq!(
+        crate::sync::quarantine::is_marked(&path),
+        crate::sync::quarantine::supported(),
+        "another person's device wrote it"
+    );
+    // The next pass finds the file as it was left (the mark changed no byte).
+    let got = b.sync(&store);
+    assert_eq!(got.files_up, 0, "{}", got.summary());
+}
+
+#[test]
+fn x_delta_azdrive_files_19_opening_a_cloud_only_file_of_the_users_own_device_marks_nothing() {
+    let store = S3Bucket::new();
+    let a = Device::new("dev-a");
+    let b = Device::new("dev-b");
+    a.write("tools/setup.exe", b"MZ a program with some length to it");
+    a.sync(&store);
+    let hooks = RunHooks {
+        fetch: Some(&small_only),
+        ..RunHooks::default()
+    };
+    b.run(&store, &hooks);
+    let mut opts = b.opts();
+    opts.own_devices = vec![String::from("dev-a")];
+    let path = fetch_file(
+        Target::Index(&store),
+        &b.root(),
+        &b.index(),
+        &opts,
+        "tools/setup.exe",
+    )
+    .unwrap();
+    assert!(
+        !crate::sync::quarantine::is_marked(&path),
+        "the user's own device wrote it"
+    );
+}
+
 #[test]
 fn a_file_changed_since_its_last_sync_is_not_freed() {
     let store = S3Bucket::new();

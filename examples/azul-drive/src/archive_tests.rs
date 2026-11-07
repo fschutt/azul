@@ -1035,3 +1035,28 @@ fn x_delta_azdrive_files_18_the_record_is_not_rewritten_every_25_files() {
     assert!(!keep_due(24, 0) && keep_due(25, 0));
     assert!(!keep_due(25, 1000) && keep_due(125, 1000));
 }
+
+/// X-DELTA-AZDRIVE-FILES-19: a file of a shared drive lands in `Azlin rescue/` with the system's
+/// "downloaded from elsewhere" mark (where the system has one), so a double click on its `.exe` or
+/// `.lnk` gets the second look; a drive that is a folder of this disk was never downloaded.
+#[test]
+fn x_delta_azdrive_files_19_the_rescue_copy_marks_what_it_brings_from_a_drive() {
+    let tmp = TempDir::new("dx19-rescue-mark");
+    let drive = Tagged::with(&[("tools/setup.exe", b"MZ some program")]);
+    let folder = tmp.path().join("copy");
+    run_rescue(&drive, &folder, NO_PROBE, None, &mut |_, _| {});
+    let landed = folder.join("tools").join("setup.exe");
+    assert!(landed.is_file());
+    assert_eq!(
+        azul_storage::quarantine::is_marked(&landed),
+        azul_storage::quarantine::supported()
+    );
+    let local = source_with(&tmp, &[("tools/setup.exe", b"MZ some program")]);
+    let second = tmp.path().join("copy2");
+    run_rescue(&local, &second, NO_PROBE, None, &mut |_, _| {});
+    assert!(second.join("tools").join("setup.exe").is_file());
+    assert!(
+        !azul_storage::quarantine::is_marked(&second.join("tools").join("setup.exe")),
+        "a folder of this disk was not downloaded"
+    );
+}

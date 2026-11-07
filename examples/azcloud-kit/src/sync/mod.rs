@@ -4513,13 +4513,18 @@ pub fn fetch_file(
     key: &str,
 ) -> CloudResult<PathBuf> {
     match target {
-        Target::Index(store) => {
-            fetch_one(&BlobIndex::new(store, &opts.prefix), root, index_path, key)
-        }
+        Target::Index(store) => fetch_one(
+            &BlobIndex::new(store, &opts.prefix),
+            root,
+            index_path,
+            opts,
+            key,
+        ),
         Target::Named(drive) => fetch_one(
             &named::NamedFiles::new(drive, &opts.prefix, index_path),
             root,
             index_path,
+            opts,
             key,
         ),
     }
@@ -4539,6 +4544,7 @@ fn fetch_one<R: SyncRemote + ?Sized>(
     remote_side: &R,
     root: &LocalRoot,
     index_path: &Path,
+    opts: &SyncOptions,
     key: &str,
 ) -> CloudResult<PathBuf> {
     let mut index = synced_index(root, index_path)?;
@@ -4616,6 +4622,13 @@ fn fetch_one<R: SyncRemote + ?Sized>(
             Err(Replace::Failed(e)) => return Err(e.into()),
         }
     };
+    // The file came down from the drive: as in a pass, another person's file carries the system's
+    // "downloaded from elsewhere" mark, so the system looks at an `.exe`, a script or a shortcut
+    // before it runs it, and the user's own devices' files do not (AZ-W20; X-DELTA-AZDRIVE-FILES-
+    // 19). Before the base entry is taken: setting the mark changes the file's change time.
+    if !opts.trusts(&file.device) {
+        quarantine::mark_downloaded(&path);
+    }
     root.drive().note_written(key);
     if let Some(entry) = local::entry_now(&root.path, key, &hash) {
         index.files.insert(key.to_string(), entry);
