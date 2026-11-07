@@ -34,7 +34,10 @@ pub(crate) fn azl1_object(data: &[u8]) {
     let drive_key = DriveKey::from_bytes([7; 32]);
     if let Ok((sealed, summary)) = azl1::encrypt(object, id, &drive_key, &WriteOptions::default()) {
         if let Ok(own_key) = drive_key.unwrap_file_key(&summary.wrapped_key, &id) {
-            let _ = azl1::decrypt(&sealed, &id, &own_key);
+            // The oracle: what is written is what is read, whatever the transforms did to it.
+            let back = azl1::decrypt(&sealed, &id, &own_key)
+                .expect("an object this program just wrote reads back");
+            assert_eq!(back, object, "the file read back is not the file written");
         }
     }
     let _ = azl1::decrypt(object, &id, &file_key);

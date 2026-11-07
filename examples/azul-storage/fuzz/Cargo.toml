@@ -14,8 +14,10 @@
 # commitment check; the info block and the segments are authenticated, so bytes that were not
 # sealed with the key stop there (X-DELTA-AZDRIVE-KEYS-42) - what a member who holds the key can
 # write is reached through `pack_index` (which seals its input), `records_inverse` and
-# `container_decode` (the decoders, which authentication does not guard), `tree_decode` and
-# `list_xml`. `corpus/` is not committed.
+# `container_decode` (the decoders, which authentication does not guard), `tree_decode`,
+# `list_xml` and `preflate_deflate` (the deflate analysis and rebuild, directly). `azl1_object`
+# also writes its input as a file and asserts that it reads back as written. `corpus/` is not
+# committed.
 [package]
 name = "azul-storage-fuzz"
 version = "0.0.0"
@@ -29,6 +31,7 @@ cargo-fuzz = true
 libfuzzer-sys = "0.4"
 azul-storage = { path = "..", features = ["encryption"] }
 azlin-compress = { path = "../../azlin-compress" }
+azlin-preflate = { path = "../../azlin-preflate" }
 
 # Not a member of azul's workspace: it needs nightly and libfuzzer, and keeps both out of the
 # lockfile of the apps.
@@ -93,6 +96,13 @@ bench = false
 [[bin]]
 name = "list_xml"
 path = "fuzz_targets/list_xml.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "preflate_deflate"
+path = "fuzz_targets/preflate_deflate.rs"
 test = false
 doc = false
 bench = false

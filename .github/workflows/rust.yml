@@ -6795,6 +6795,9 @@ jobs:
           set -euo pipefail
           for crate in examples/azul-storage examples/azcloud-kit; do
             echo "=== cargo fuzz build in $crate ==="
+            # A fuzz project is no member of the workspace and its Cargo.lock is not committed: start
+            # from the workspace's, so the targets build against the versions the tests run on.
+            cp Cargo.lock "$crate/fuzz/Cargo.lock"
             (cd "$crate" && cargo +nightly-2026-09-03 fuzz build)
           done
 
