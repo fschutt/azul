@@ -17,11 +17,12 @@
 //! without libazul, hence the file. Nothing here prints a secret: errors name
 //! the entry, never its value.
 
-use std::{collections::BTreeMap, path::PathBuf};
+use std::{collections::BTreeMap, path::PathBuf, time::Duration};
 
 use azul_storage::{
     footprint::{Allow, KeyEntry, Protection},
-    keyring::{KeyringError, KeyringStore},
+    keyring::{KeyringError, KeyringStore, ENTRY_LOCK_WAIT},
+    lock::{HeldLock, LockDir},
 };
 use serde::{Deserialize, Serialize};
 
@@ -32,6 +33,19 @@ use crate::{
 
 /// The `format` of the file.
 pub const SECRETS_FORMAT: &str = "azcloud.secrets";
+
+/// The lock a change of the whole file is made under (`locks/` beside the file, where the state
+/// folder keeps its locks).
+pub(crate) const FILE_LOCK: &str = "secrets-file";
+/// How long a change of the file waits for another process's change of it: a blink, a read and a
+/// flushed write.
+const FILE_LOCK_WAIT: Duration = Duration::from_secs(30);
+
+/// The lock of one entry held across a read, a decision and a write of it
+/// ([`KeyringStore::hold`]).
+pub(crate) fn entry_lock(key: &str) -> String {
+    format!("entry {key}")
+}
 
 /// The keyring entry of a drive's credentials (azul-storage's name).
 #[must_use]
@@ -92,6 +106,17 @@ impl FileSecrets {
         &self.path
     }
 
+    /// The folder of this file's locks: `locks/` beside it - the state folder's, whose other
+    /// locks (the refresh, the vault) are there, so every process on the folder takes turns at
+    /// the same ones.
+    fn locks(&self) -> LockDir {
+        LockDir::new(
+            self.path
+                .parent()
+                .map_or_else(|| PathBuf::from("locks"), |dir| dir.join("locks")),
+        )
+    }
+
     fn load(&self) -> CloudResult<SecretsFile> {
         let bytes = match std::fs::read(&self.path) {
             Ok(bytes) => Some(bytes),
@@ -137,6 +162,11 @@ impl FileSecrets {
     ///
     /// When the file cannot be read or written.
     pub fn set(&self, name: &str, secret: &str) -> CloudResult<()> {
+        // The whole file is read, changed and written back: held, so that two processes on one
+        // state folder (two commands, the command line and the bridge) do not lose each other's
+        // change - a rotated drive token that is lost revokes the device's family
+        // (X-DELTA-AZDRIVE-KEYS-26). Fails closed where the file system has no file locks.
+        let _held = self.locks().lock(FILE_LOCK, FILE_LOCK_WAIT)?;
         let mut file = self.load()?;
         file.entries.insert(name.to_string(), secret.to_string());
         write_json(&self.path, &file, true)
@@ -148,6 +178,7 @@ impl FileSecrets {
     ///
     /// When the file cannot be read or written.
     pub fn remove(&self, name: &str) -> CloudResult<bool> {
+        let _held = self.locks().lock(FILE_LOCK, FILE_LOCK_WAIT)?;
         let mut file = self.load()?;
         let had = file.entries.remove(name).is_some();
         if had {
@@ -177,5 +208,15 @@ impl KeyringStore for FileSecrets {
 
     fn protection(&self) -> Protection {
         Protection::PlainFile { allow: self.allow }
+    }
+
+    /// The entry's lock is a file lock in `locks/` beside the secrets file, held by every process
+    /// that reaches the same state folder - not the default's, which holds among the threads of
+    /// this process only (two commands enrolling at once made two member keys, and the second
+    /// one's was kept: AZ-K19, X-DELTA-AZDRIVE-KEYS-26).
+    fn hold(&self, key: &str) -> Result<HeldLock, KeyringError> {
+        self.locks()
+            .lock(&entry_lock(key), ENTRY_LOCK_WAIT)
+            .map_err(|e| KeyringError::Failed(e.to_string()))
     }
 }

@@ -58,6 +58,12 @@ impl KeyringStore for FileKeyring {
     fn protection(&self) -> Protection {
         self.0.protection()
     }
+
+    /// The file's own hold: a lock every process on the state folder takes turns at, not the
+    /// default's (this process only).
+    fn hold(&self, key: &str) -> Result<azul_storage::lock::HeldLock, KeyringError> {
+        KeyringStore::hold(&self.0, key)
+    }
 }
 
 /// Which keyring the bridge keeps its secrets in (`bridge.json`'s `keyring`).
@@ -131,6 +137,26 @@ mod tests {
     use azul_storage::testing::TempDir;
 
     use super::*;
+
+    /// X-DELTA-AZDRIVE-KEYS-26: the bridge's file keyring holds an entry with the secrets file's
+    /// own lock (`locks/` beside the file, seen by every process on the folder), not the default's
+    /// (this process only).
+    #[test]
+    fn x_delta_azdrive_keys_26_the_file_keyring_holds_an_entry_with_the_lock_of_the_state_folder() {
+        use std::time::Duration;
+
+        let dir = TempDir::new("bridge-keyring-hold");
+        let keyring = FileKeyring(FileSecrets::new(dir.0.join("secrets.json")));
+        let held = KeyringStore::hold(&keyring, PASSWORD_ENTRY).unwrap();
+        let busy = azul_storage::lock::LockDir::new(dir.0.join("locks"))
+            .lock(
+                &format!("entry {PASSWORD_ENTRY}"),
+                Duration::from_millis(100),
+            )
+            .unwrap_err();
+        assert!(busy.is_busy(), "another process is kept out: {busy}");
+        drop(held);
+    }
 
     #[test]
     fn the_file_keyring_keeps_entries_under_their_keyring_names() {
