@@ -10,7 +10,7 @@ use std::{
     time::Duration,
 };
 
-use azul_storage::testing::TempDir;
+use azul_storage::{lock::LockDir, testing::TempDir};
 
 use super::fake_s3::S3Bucket;
 use crate::{
@@ -18,7 +18,7 @@ use crate::{
     sync::{
         faults,
         remote::{index_key, RemoteIndex},
-        session::{Resolution, SyncSession, SyncSetup},
+        session::{Resolution, SyncSession, SyncSetup, SyncStates, PASS_LOCK},
     },
 };
 
@@ -252,4 +252,82 @@ fn az_s10_a_conflict_cut_between_its_commit_and_its_rename_is_finished_not_delet
     );
     faults::clear(a.path());
     faults::clear(b.path());
+}
+
+/// AZ-S16. Nothing kept two passes on one pairing apart: a second window or the command line ran
+/// beside the first, recovered the journal under it and saved the states it had read before the
+/// other's. One pass at a time now; the second is told so after two seconds and changes nothing -
+/// not the drive, not the states (no failure is recorded: it did not run). RED not run: the old
+/// code runs the pass and `unwrap_err` panics.
+#[test]
+fn az_s16_a_pass_on_a_pairing_another_pass_holds_is_told_so_and_changes_nothing() {
+    let store = Arc::new(S3Bucket::new());
+    let folder = TempDir::new("azcloud-faults-s16");
+    let state = TempDir::new("azcloud-faults-s16-state");
+    fs::write(folder.path().join("a.txt"), "one").unwrap();
+    let session = faulted(folder.path(), state.path(), &store);
+    let other = LockDir::new(state.path().join("locks"))
+        .lock(PASS_LOCK, Duration::from_secs(1))
+        .expect("the other pass holds the pairing");
+    let told = session
+        .pass(&AtomicBool::new(false), &mut |_| {})
+        .expect_err("a pass runs beside another")
+        .to_string();
+    assert!(told.contains("another window or command"), "{told}");
+    assert!(store.read(&index_key(PREFIX)).is_none(), "nothing went up");
+    assert_eq!(
+        session.states(),
+        SyncStates::default(),
+        "the pass did not run: no failure is recorded"
+    );
+    drop(other);
+    pass(&session).expect("once the other pass is over, this one runs");
+    assert!(store.read(&index_key(PREFIX)).is_some());
+    faults::clear(folder.path());
+}
+
+/// X-AR5a-22. The states mixed the user's answers (a pin, a "keep both", an answer to a question)
+/// with the pass's results, and the pass saved the copy it read when it began: a pin made while it
+/// ran was gone when it ended. The pass's results are merged into the file as it is then; the pin
+/// stays. RED not run: the old code writes its start-time copy over the pin.
+#[test]
+fn x_ar5a_22_a_pin_made_while_a_pass_runs_is_not_lost_when_the_pass_ends() {
+    let store = Arc::new(S3Bucket::new());
+    let folder = TempDir::new("azcloud-faults-x22");
+    let state = TempDir::new("azcloud-faults-x22-state");
+    fs::write(folder.path().join("a.txt"), "one").unwrap();
+    let session = Arc::new(faulted(folder.path(), state.path(), &store));
+    faults::arm_pause(folder.path(), "after-scan");
+    let running = {
+        let session = Arc::clone(&session);
+        std::thread::spawn(move || session.pass(&AtomicBool::new(false), &mut |_| {}).is_ok())
+    };
+    assert_eq!(
+        faults::wait_paused(folder.path(), Duration::from_secs(30)).as_deref(),
+        Some("after-scan")
+    );
+    // The user pins a file while the pass is paused in the middle of its work.
+    session.pin(&[String::from("a.txt")], true).unwrap();
+    faults::release(folder.path());
+    assert!(running.join().expect("the pass ends"), "the pass succeeds");
+    let states = session.states();
+    assert!(
+        states.pinned.contains("a.txt"),
+        "the pin outlived the pass: {:?}",
+        states.pinned
+    );
+    assert!(
+        states.files.contains_key("a.txt"),
+        "and the pass's results are there"
+    );
+    // The states name every file of the pairing: this user's alone, the folder and the file.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        for path in [state.path().to_path_buf(), state.path().join("files.json")] {
+            let mode = fs::metadata(&path).unwrap().permissions().mode();
+            assert_eq!(mode & 0o077, 0, "{path:?} is {:o}", mode & 0o777);
+        }
+    }
+    faults::clear(folder.path());
 }

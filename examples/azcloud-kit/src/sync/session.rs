@@ -37,8 +37,13 @@ use std::{
     time::Duration,
 };
 
-use azul_storage::{Drive, DriveError, ListRequest};
+use azul_storage::{
+    docs::{merge_values, Doc, DocError, DocRead, Document},
+    lock::LockDir,
+    Drive, DriveError, ListRequest,
+};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 #[cfg(feature = "encryption")]
 use super::objects::ObjectCache;
@@ -51,7 +56,7 @@ use super::{
 };
 use crate::{
     error::{fail, CloudError, CloudResult, Context},
-    state::{read_json, write_json},
+    state::write_json,
     store::RemoteStore,
     user_errors::{Code, UserError},
 };
@@ -60,6 +65,11 @@ use crate::{
 pub const STATES_FILE: &str = "files.json";
 /// The pairing's local index (the sync's base), in its state folder.
 pub const INDEX_FILE: &str = "index.json";
+/// The lock a pass of the pairing holds, in the `locks` folder of its state folder (AZ-S16): the
+/// pass of another window or command waits for it, or is told.
+pub const PASS_LOCK: &str = "sync-pass";
+/// How long a pass waits for the pass that is running on the same pairing before it is told so.
+const PASS_LOCK_WAIT: Duration = Duration::from_secs(2);
 
 const MB: u64 = 1024 * 1024;
 const GB: u64 = 1024 * MB;
@@ -395,16 +405,20 @@ pub struct SyncStates {
 }
 
 impl SyncStates {
-    /// The states kept in the state folder `dir` (none yet: empty).
+    /// The states kept in the state folder `dir` (none yet, or a file that is none of this
+    /// version's: empty - the next change renames a cut file aside and leaves a newer version's
+    /// alone, [`SyncSession`]'s changes go through [`Doc::update`]).
     #[must_use]
     pub fn load(dir: &Path) -> SyncStates {
-        read_json::<SyncStates>(&dir.join(STATES_FILE))
-            .ok()
-            .flatten()
-            .unwrap_or_default()
+        match states_doc(dir).read() {
+            DocRead::Found(states) => states,
+            DocRead::Absent | DocRead::Damaged(_) | DocRead::Foreign(_) => SyncStates::default(),
+        }
     }
 
-    /// Keeps them in the state folder `dir`.
+    /// Writes them whole in the state folder `dir`, over what is there. A pairing changes its
+    /// states through [`SyncSession`], which changes what is in the file NOW; this is for a state
+    /// that is made from nothing (a test, a first write).
     ///
     /// # Errors
     ///
@@ -582,6 +596,62 @@ impl SyncStates {
             }
         }
         out.into_iter().collect()
+    }
+}
+
+/// The states are a document several writers change - the app's threads, a second window, the
+/// command line, and a pass for as long as it runs ([`Doc`], AZ-S16, X-AR5a-22).
+impl Document for SyncStates {}
+
+/// The states document in the state folder `dir`.
+fn states_doc(dir: &Path) -> Doc<SyncStates> {
+    Doc::new(dir.join(STATES_FILE))
+}
+
+/// Takes the group's and everybody's access to `path` away when it has any (Unix): its owner keeps
+/// `mode`. Nothing where there is no such file or no such bits.
+fn keep_private(path: &Path, mode: u32) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        match fs::metadata(path) {
+            Ok(meta) if meta.permissions().mode() & 0o077 != 0 => {
+                fs::set_permissions(path, fs::Permissions::from_mode(mode))
+            }
+            Ok(_) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(e),
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (path, mode);
+        Ok(())
+    }
+}
+
+/// A states change that could not be kept.
+fn states_error(e: DocError) -> CloudError {
+    CloudError::failed(format!(
+        "the sync states of this folder cannot be kept: {e}"
+    ))
+}
+
+/// How the entries of the states' lists are told apart when a pass's results meet what the user
+/// answered meanwhile: a set of keys by the key, the consents by their kind and the keys' hash.
+fn state_key(path: &str, item: &Value) -> Option<String> {
+    // A question is one thing a pass asked: its lists are not merged with another question's.
+    if path.starts_with(".mass_delete") || path.starts_with(".burst") {
+        return None;
+    }
+    match item {
+        Value::String(key) => Some(key.clone()),
+        Value::Object(_) if path == ".consents" => Some(format!(
+            "{}/{}",
+            item.get("kind")?.as_str()?,
+            item.get("keys_hash")?.as_str()?
+        )),
+        _ => None,
     }
 }
 
@@ -911,18 +981,24 @@ impl SyncSession {
     /// One pass: the sync (or, for encrypted copies, the drive's listing and the copies), told
     /// to `events` as it moves files, stopped by `cancel`.
     ///
+    /// Only one pass runs on a pairing at a time, in this process and in every other (a second
+    /// window, the command line): the states, the base and the journal are one pass's (AZ-S16). A
+    /// pass that finds another one running waits two seconds and then says so, without touching
+    /// anything.
+    ///
     /// # Errors
     ///
-    /// When the run fails (the states keep why, and whether the drive is read-only).
+    /// When another pass is running, or the run fails (the states keep why, and whether the drive
+    /// is read-only).
     pub fn pass(
         &self,
         cancel: &AtomicBool,
         events: &mut dyn FnMut(SyncEvent),
     ) -> CloudResult<Pass> {
+        let _single_flight = self.pass_lock()?;
         // The quiet folder first, then the states and the base this pass works from: read
-        // before the wait, they missed every answer given during it (a question answered
-        // "these changes are mine" or "take the drive's version" was overwritten by the pass
-        // and asked again).
+        // after the wait, they hold every answer given during it. An answer given while the pass
+        // runs is merged into its results at its end ([`SyncSession::keep_results`]).
         if !self.settle.is_zero() {
             local::settle(
                 &self.setup.folder,
@@ -932,31 +1008,114 @@ impl SyncSession {
                 &|| cancel.load(Ordering::SeqCst),
             );
         }
-        let mut states = self.states();
+        let start = self.states();
+        let mut states = start.clone();
         #[cfg(feature = "encryption")]
         {
             if let SessionRemote::Encrypted { drive, objects } = &self.remote {
-                let result = self.cache_pass(drive.as_ref(), objects, &mut states, cancel, events);
-                return self.after_failure(result, &mut states);
+                let result =
+                    self.cache_pass(drive.as_ref(), objects, &start, &mut states, cancel, events);
+                return self.after_failure(result);
             }
         }
-        let result = self.sync_pass(&mut states, cancel, events);
-        self.after_failure(result, &mut states)
+        let result = self.sync_pass(&start, &mut states, cancel, events);
+        self.after_failure(result)
+    }
+
+    /// The lock one pass of this pairing holds for as long as it runs.
+    fn pass_lock(&self) -> CloudResult<azul_storage::lock::HeldLock> {
+        LockDir::new(self.dir.join("locks"))
+            .lock(PASS_LOCK, PASS_LOCK_WAIT)
+            .map_err(|e| {
+                if e.is_busy() {
+                    CloudError::failed(
+                        "another window or command is syncing this folder just now; this pass \
+                         waits for the next time",
+                    )
+                } else {
+                    CloudError::from(e)
+                }
+            })
     }
 
     /// A failed pass keeps why in the states.
-    fn after_failure(&self, result: CloudResult<Pass>, states: &mut SyncStates) -> CloudResult<Pass> {
+    fn after_failure(&self, result: CloudResult<Pass>) -> CloudResult<Pass> {
         if let Err(e) = &result {
-            states.last_error = Some(e.to_string());
-            states.last_problem = SyncProblem::of(e);
-            states.read_only = is_read_only(e) && self.readable();
-            let _ = states.save(&self.dir);
+            let last_error = e.to_string();
+            let last_problem = SyncProblem::of(e);
+            let read_only = is_read_only(e) && self.readable();
+            // A pass that failed is not failed twice: a states file that cannot be kept is the
+            // lesser of the two.
+            let _ = self.change(|states| {
+                states.last_error = Some(last_error);
+                states.last_problem = last_problem;
+                states.read_only = read_only;
+            });
         }
         result
     }
 
+    /// Changes the states in the file as they are NOW: under the file's lock, read fresh, `change`
+    /// applied, put in place whole (X-AR5a-22). Every writer of the states - this session's calls
+    /// from the app's threads, a second window, the command line, a pass's results - changes them
+    /// so, and none writes a snapshot it read earlier over another's change.
+    ///
+    /// The states name every file of the pairing: the folder they are in is this user's alone and
+    /// so is the file ([`keep_private`]; the document writes with the default permissions).
+    fn change<R>(&self, change: impl FnOnce(&mut SyncStates) -> R) -> CloudResult<(SyncStates, R)> {
+        crate::state::create_private_dir(&self.dir)
+            .with_context(|| self.dir.display().to_string())?;
+        keep_private(&self.dir, 0o700).with_context(|| self.dir.display().to_string())?;
+        let doc = states_doc(&self.dir);
+        let done = doc.update(change).map_err(states_error)?;
+        keep_private(doc.path(), 0o600).with_context(|| doc.path().display().to_string())?;
+        Ok(done)
+    }
+
+    /// Puts a pass's results into the states (X-AR5a-22): `mine` is the pass's copy, `start` what it
+    /// read when it began. The file may have changed since - a pin, a "keep both", an answer to a
+    /// question, a file opened - and keeps what the pass did not change ([`merge_values`]: what
+    /// the pass changed is its, what only the file changed is the file's, a list keeps what either
+    /// added). The states as they are now.
+    fn keep_results(&self, start: &SyncStates, mine: &SyncStates) -> CloudResult<SyncStates> {
+        let encode = |e: serde_json::Error| {
+            CloudError::failed(format!("the sync states cannot be put into JSON: {e}"))
+        };
+        let given = start.consents.clone();
+        let start = serde_json::to_value(start).map_err(encode)?;
+        let mine = serde_json::to_value(mine).map_err(encode)?;
+        let (merged, outcome) = self.change(|fresh| -> CloudResult<()> {
+            let theirs = serde_json::to_value(&*fresh).map_err(encode)?;
+            let merged = merge_values(&start, &mine, &theirs, state_key);
+            *fresh = serde_json::from_value(merged).map_err(encode)?;
+            // A question the user answered while the pass ran, and the pass asked again, is
+            // answered: the answer (a consent the pass was not given) covers it.
+            let answered = |fresh: &SyncStates, kind: ConsentKind, shown: &[&str]| {
+                fresh
+                    .consents
+                    .iter()
+                    .any(|c| !given.contains(c) && c.covers(kind, shown))
+            };
+            if let Some(pause) = fresh.burst.clone() {
+                if answered(fresh, ConsentKind::Burst, &[pause.identity().as_str()]) {
+                    fresh.burst = None;
+                }
+            }
+            if let Some(asked) = fresh.mass_delete.clone() {
+                let keys: Vec<&str> = asked.keys.iter().map(String::as_str).collect();
+                if answered(fresh, ConsentKind::MassDelete, &keys) {
+                    fresh.mass_delete = None;
+                }
+            }
+            Ok(())
+        })?;
+        outcome?;
+        Ok(merged)
+    }
+
     fn sync_pass(
         &self,
+        start: &SyncStates,
         states: &mut SyncStates,
         cancel: &AtomicBool,
         events: &mut dyn FnMut(SyncEvent),
@@ -1037,40 +1196,16 @@ impl SyncSession {
         if let Some(remote) = &report.remote {
             super::movein::settle(&self.dir, remote);
         }
-        // An answer given while this pass ran (it waits for a quiet folder first) came after
-        // the states it read: it is the next pass's, and the question it answered is not asked
-        // again. The answers this pass was given are used up with it - needed or not (S8) - unless
-        // it was stopped.
-        let answered_now = self.states();
-        let given_since: Vec<Consent> = answered_now
-            .consents
-            .iter()
-            .filter(|c| !opts.consents.contains(c))
-            .cloned()
-            .collect();
-        let answered =
-            |kind: ConsentKind, shown: &[&str]| given_since.iter().any(|c| c.covers(kind, shown));
-        // The guards' questions, unless an answer given meanwhile settles them.
-        states.burst = report
-            .paused
-            .clone()
-            .filter(|pause| !answered(ConsentKind::Burst, &[pause.identity().as_str()]));
-        states.mass_delete = report.mass_delete.clone().filter(|asked| {
-            let keys: Vec<&str> = asked.keys.iter().map(String::as_str).collect();
-            !answered(ConsentKind::MassDelete, &keys)
-        });
+        // The guards' questions as this pass found them. An answer given while it ran is in the
+        // file already: it is the next pass's, and a question it answered is not asked again
+        // ([`SyncSession::keep_results`] merges the two). The answers this pass was given are used
+        // up with it - needed or not (S8) - unless it was stopped.
+        states.burst = report.paused.clone();
+        states.mass_delete = report.mass_delete.clone();
         states.newer_format.clone_from(&report.newer_format);
-        let mut kept = if report.cancelled {
-            std::mem::take(&mut states.consents)
-        } else {
-            Vec::new()
-        };
-        for consent in given_since {
-            if !kept.contains(&consent) {
-                kept.push(consent);
-            }
+        if !report.cancelled {
+            states.consents.retain(|c| !opts.consents.contains(c));
         }
-        states.consents = kept;
         // Pinned files kept in the cloud come down now (within the limit; the rest wait) - and,
         // when the pairing downloads everything (on-demand switched off), every cloud-only
         // file the user did not free up.
@@ -1141,10 +1276,10 @@ impl SyncSession {
         states.last_error = None;
         states.last_problem = None;
         states.read_only = false;
-        states.save(&self.dir)?;
+        let merged = self.keep_results(start, states)?;
         Ok(Pass {
             report: Some(report),
-            states: states.clone(),
+            states: merged,
             fetched,
             freed,
             held,
@@ -1205,12 +1340,20 @@ impl SyncSession {
     pub fn open(&self, key: &str) -> CloudResult<PathBuf> {
         let mut states = self.states();
         let path = self.open_path(key, &mut states)?;
-        states.freed.remove(key);
-        if let Some(record) = states.files.get_mut(key) {
-            record.last_used = crate::now();
-            record.error = None;
-        }
-        states.save(&self.dir)?;
+        // What opening did to the file's record (its bytes are here now), on the states as they
+        // are now.
+        let opened = states.files.get(key).cloned();
+        let now = crate::now();
+        self.change(|states| {
+            states.freed.remove(key);
+            if let (Some(record), Some(opened)) = (states.files.get_mut(key), opened) {
+                record.cloud_only = opened.cloud_only;
+                record.encrypted_copy = opened.encrypted_copy;
+                record.object = opened.object;
+                record.last_used = now;
+                record.error = None;
+            }
+        })?;
         Ok(path)
     }
 
@@ -1241,19 +1384,19 @@ impl SyncSession {
     ///
     /// When the states cannot be kept.
     pub fn pin(&self, keys: &[String], on: bool) -> CloudResult<SyncStates> {
-        let mut states = self.states();
-        for key in keys {
-            if on {
-                states.pinned.insert(key.clone());
-                let under = states.under(&[key.clone()], false);
-                for freed in under {
-                    states.freed.remove(&freed);
+        let (states, ()) = self.change(|states| {
+            for key in keys {
+                if on {
+                    states.pinned.insert(key.clone());
+                    let under = states.under(&[key.clone()], false);
+                    for freed in under {
+                        states.freed.remove(&freed);
+                    }
+                } else {
+                    states.pinned.remove(key);
                 }
-            } else {
-                states.pinned.remove(key);
             }
-        }
-        states.save(&self.dir)?;
+        })?;
         Ok(states)
     }
 
@@ -1265,10 +1408,12 @@ impl SyncSession {
     ///
     /// When the states cannot be kept.
     pub fn free_up(&self, keys: &[String]) -> CloudResult<Freed> {
-        let mut states = self.states();
-        for key in keys {
-            states.pinned.remove(key);
-        }
+        // Freeing a pinned file or folder unpins it: the choice is kept at once.
+        let (mut states, ()) = self.change(|states| {
+            for key in keys {
+                states.pinned.remove(key);
+            }
+        })?;
         let mut out = Freed::default();
         for key in states.here_under(keys) {
             if states.is_pinned(&key) {
@@ -1295,7 +1440,19 @@ impl SyncSession {
                 }
             }
         }
-        states.save(&self.dir)?;
+        // What freeing did, on the states as they are now.
+        self.change(|fresh| {
+            for key in &out.freed {
+                fresh.freed.insert(key.clone());
+                if let (Some(record), Some(done)) =
+                    (fresh.files.get_mut(key), states.files.get(key))
+                {
+                    record.cloud_only = done.cloud_only;
+                    record.encrypted_copy = done.encrypted_copy;
+                    record.object.clone_from(&done.object);
+                }
+            }
+        })?;
         Ok(out)
     }
 
@@ -1355,11 +1512,12 @@ impl SyncSession {
     ///
     /// When the states cannot be kept.
     pub fn touch(&self, key: &str) -> CloudResult<()> {
-        let mut states = self.states();
-        if let Some(record) = states.files.get_mut(key) {
-            record.last_used = crate::now();
-            states.save(&self.dir)?;
-        }
+        let now = crate::now();
+        self.change(|states| {
+            if let Some(record) = states.files.get_mut(key) {
+                record.last_used = now;
+            }
+        })?;
         Ok(())
     }
 
@@ -1374,7 +1532,7 @@ impl SyncSession {
     /// When a file here cannot be removed, the base or the states cannot be kept, or (encrypted
     /// local copies) the drive refuses the delete.
     pub fn delete(&self, keys: &[String]) -> CloudResult<Vec<String>> {
-        let mut states = self.states();
+        let states = self.states();
         let targets = states.under(keys, false);
         #[cfg(feature = "encryption")]
         {
@@ -1384,9 +1542,8 @@ impl SyncSession {
                     if let Some(object) = states.files.get(key).and_then(|r| r.object.clone()) {
                         objects.evict(&object)?;
                     }
-                    states.files.remove(key);
                 }
-                states.save(&self.dir)?;
+                self.forget_files(&targets)?;
                 return Ok(targets);
             }
         }
@@ -1406,13 +1563,22 @@ impl SyncSession {
             }
             // A file that is not there is no error.
             here.delete(key)?;
-            states.files.remove(key);
         }
         if let Some(index) = &index {
             index.save(&index_path)?;
         }
-        states.save(&self.dir)?;
+        self.forget_files(&targets)?;
         Ok(targets)
+    }
+
+    /// The files of `keys` are gone from the states.
+    fn forget_files(&self, keys: &[String]) -> CloudResult<()> {
+        self.change(|states| {
+            for key in keys {
+                states.files.remove(key);
+            }
+        })?;
+        Ok(())
     }
 
     /// "Send it again": files the drive deleted before this pairing knew them, kept here and
@@ -1439,19 +1605,21 @@ impl SyncSession {
     ///
     /// When the states cannot be kept.
     pub fn answer_burst(&self) -> CloudResult<()> {
-        let mut states = self.states();
-        // The answer is to the pause the user was shown; with none waiting there is nothing to
-        // answer (a later pause is another question).
-        let Some(pause) = states.burst.take() else {
-            return Ok(());
-        };
-        states.consents.retain(|c| c.kind != ConsentKind::Burst);
-        states.consents.push(Consent::new(
-            ConsentKind::Burst,
-            &[pause.identity().as_str()],
-            crate::now(),
-        ));
-        states.save(&self.dir)
+        let now = crate::now();
+        self.change(|states| {
+            // The answer is to the pause the user was shown; with none waiting there is nothing to
+            // answer (a later pause is another question).
+            let Some(pause) = states.burst.take() else {
+                return;
+            };
+            states.consents.retain(|c| c.kind != ConsentKind::Burst);
+            states.consents.push(Consent::new(
+                ConsentKind::Burst,
+                &[pause.identity().as_str()],
+                now,
+            ));
+        })?;
+        Ok(())
     }
 
     /// Answers the mass delete waiting: `delete_too` deletes them with the next pass (on the
@@ -1462,20 +1630,10 @@ impl SyncSession {
     ///
     /// When the base or the states cannot be kept.
     pub fn answer_mass_delete(&self, delete_too: bool) -> CloudResult<()> {
-        let mut states = self.states();
-        let Some(asked) = states.mass_delete.take() else {
+        let Some(asked) = self.states().mass_delete else {
             return Ok(());
         };
-        if delete_too {
-            // For these files and no others: a later plan that deletes another set asks again.
-            let keys: Vec<&str> = asked.keys.iter().map(String::as_str).collect();
-            states
-                .consents
-                .retain(|c| c.kind != ConsentKind::MassDelete);
-            states
-                .consents
-                .push(Consent::new(ConsentKind::MassDelete, &keys, crate::now()));
-        } else {
+        if !delete_too {
             let path = self.index_path();
             if let Some(mut index) = LocalIndex::load(&path)? {
                 for key in &asked.keys {
@@ -1498,7 +1656,26 @@ impl SyncSession {
                 index.save(&path)?;
             }
         }
-        states.save(&self.dir)
+        let now = crate::now();
+        self.change(|states| {
+            // The answer is to the question the user was shown; one a pass asked since is another.
+            if states.mass_delete.as_ref() != Some(&asked) {
+                return;
+            }
+            states.mass_delete = None;
+            if delete_too {
+                // For these files and no others: a later plan that deletes another set asks
+                // again.
+                let keys: Vec<&str> = asked.keys.iter().map(String::as_str).collect();
+                states
+                    .consents
+                    .retain(|c| c.kind != ConsentKind::MassDelete);
+                states
+                    .consents
+                    .push(Consent::new(ConsentKind::MassDelete, &keys, now));
+            }
+        })?;
+        Ok(())
     }
 
     /// Renames `from` to `to` (files, or folders ending in `/`) in the synced folder - a plain
@@ -1535,20 +1712,21 @@ impl SyncSession {
         // below the synced folder points at.
         self.root().drive().contained().rename(from, to)?;
         // The states follow at once (the next pass makes it so on the drive).
-        let mut states = self.states();
-        let moved: Vec<String> = states.under(&[from.to_string()], false);
-        for key in moved {
-            if let Some(record) = states.files.remove(&key) {
-                let rest = &key[from.len().min(key.len())..];
-                let new = if from.ends_with('/') {
-                    format!("{to}{rest}")
-                } else {
-                    to.to_string()
-                };
-                states.files.insert(new, record);
+        self.change(|states| {
+            let moved: Vec<String> = states.under(&[from.to_string()], false);
+            for key in moved {
+                if let Some(record) = states.files.remove(&key) {
+                    let rest = &key[from.len().min(key.len())..];
+                    let new = if from.ends_with('/') {
+                        format!("{to}{rest}")
+                    } else {
+                        to.to_string()
+                    };
+                    states.files.insert(new, record);
+                }
             }
-        }
-        states.save(&self.dir)
+        })?;
+        Ok(())
     }
 
     /// Answers the conflict of `key` (D52); the next pass does it.
@@ -1557,14 +1735,17 @@ impl SyncSession {
     ///
     /// When `key` has no conflict, or the base cannot be changed.
     pub fn resolve(&self, key: &str, choice: Resolution) -> CloudResult<()> {
-        let mut states = self.states();
-        let Some(held) = states.files.get(key).and_then(|r| r.conflict.clone()) else {
+        let Some(held) = self
+            .states()
+            .files
+            .get(key)
+            .and_then(|r| r.conflict.clone())
+        else {
             fail!("{key} has no conflict to answer");
         };
         match choice {
-            Resolution::KeepBoth => {
-                states.keep_both.insert(key.to_string());
-            }
+            // Recorded with the answer below.
+            Resolution::KeepBoth => {}
             // The base takes the drive's version: mine is the change, and goes up.
             Resolution::KeepMine => self.set_base(
                 key,
@@ -1596,10 +1777,15 @@ impl SyncSession {
                 )?;
             }
         }
-        if let Some(record) = states.files.get_mut(key) {
-            record.conflict = None;
-        }
-        states.save(&self.dir)
+        self.change(|states| {
+            if choice == Resolution::KeepBoth {
+                states.keep_both.insert(key.to_string());
+            }
+            if let Some(record) = states.files.get_mut(key) {
+                record.conflict = None;
+            }
+        })?;
+        Ok(())
     }
 
     /// A copy of this computer's file `key` in the folder's trash (`.azlin/sync/trash/<pass>/<key>`,
@@ -1651,6 +1837,7 @@ impl SyncSession {
         &self,
         drive: &dyn Drive,
         objects: &ObjectCache,
+        start: &SyncStates,
         states: &mut SyncStates,
         cancel: &AtomicBool,
         events: &mut dyn FnMut(SyncEvent),
@@ -1743,10 +1930,10 @@ impl SyncSession {
         states.last_error = None;
         states.last_problem = None;
         states.read_only = false;
-        states.save(&self.dir)?;
+        let merged = self.keep_results(start, states)?;
         Ok(Pass {
             report: None,
-            states: states.clone(),
+            states: merged,
             fetched,
             freed,
             held,
