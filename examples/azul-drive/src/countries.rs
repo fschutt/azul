@@ -106,6 +106,15 @@ pub(crate) fn declared_for(
     declared(remembered, |name| if test_build { var(name) } else { None })
 }
 
+/// The country the buyer declared, as this build reads it: the environment names it in a
+/// `test-hooks` build only ([`declared_for`]); `remembered` is what this computer remembers.
+#[must_use]
+pub(crate) fn declared_country(remembered: Option<&str>) -> Option<String> {
+    declared_for(cfg!(feature = "test-hooks"), remembered, |name| {
+        std::env::var(name).ok()
+    })
+}
+
 /// The country `code`'s name in the window's language (its code where the resources lack it).
 #[must_use]
 pub(crate) fn name(code: &str) -> String {

@@ -1070,6 +1070,90 @@ fn x_delta_azdrive_money_6_a_renewal_waits_while_the_price_lock_could_not_be_loo
     assert_eq!(unread.order_waits_for(), None);
 }
 
+/// AZ-P4 (the v1 page's wiring): the order button ends a checkout the dialog has in flight before
+/// it orders again - it may be paid already or any moment. A dialog with nothing in flight orders
+/// at once, one whose checkout is being ended waits for the end and does not end it twice. Before,
+/// only azul-pay's machine was tested for this; the button of the v1 page decides by this answer.
+#[test]
+fn az_p4_the_order_button_ends_a_checkout_in_flight_before_it_orders() {
+    use azul_pay::State as PayState;
+
+    use crate::add_flow::must_release_first;
+    let mut dialog = AddDialog::new(1);
+    assert!(
+        !must_release_first(&dialog),
+        "nothing in flight: order at once"
+    );
+    dialog.pay = PayState::InFlight {
+        checkout_id: String::from("ck_1"),
+    };
+    assert!(
+        must_release_first(&dialog),
+        "in flight: it may be paid, end it first"
+    );
+    dialog.pay = PayState::Releasing {
+        checkout_id: String::from("ck_1"),
+    };
+    assert!(
+        !must_release_first(&dialog),
+        "being ended: wait for the end"
+    );
+    // The dialog's own state agrees with the machine's.
+    dialog.pay = PayState::InFlight {
+        checkout_id: String::from("ck_1"),
+    };
+    assert!(!dialog.pay.may_order() && !dialog.pay.busy());
+}
+
+/// X-AR5b-19 (the wiring): the options call's answer makes the dialog's offer. No such route at a
+/// token server on this computer is the v1 page; at any other token server it is a failure to ask
+/// again, never a page. A call that failed is its failure, and the token server's refusal of this
+/// buyer is shown as it is. Before, only the helper `v1_page_allowed` was tested.
+#[test]
+fn x_ar5b_19_the_options_answer_makes_the_offer_by_where_the_token_server_is() {
+    use crate::{
+        add_flow::{offer_from, OptionsAnswer},
+        jobs::OptionsFailed,
+    };
+    crate::l10n::in_english();
+    let state = |answer: OptionsAnswer| match answer {
+        OptionsAnswer::State(state) => state,
+        OptionsAnswer::Offer(_) => panic!("an offer"),
+    };
+    assert!(matches!(
+        state(offer_from("http://127.0.0.1:18081", Ok(None))),
+        OfferState::Legacy
+    ));
+    match state(offer_from("https://token.azlin.io", Ok(None))) {
+        OfferState::Failed(why) => assert!(!why.is_empty()),
+        _ => panic!("a production token server without the route is a failure"),
+    }
+    match state(offer_from(
+        "https://token.azlin.io",
+        Err(OptionsFailed::Failed(String::from("no answer"))),
+    )) {
+        OfferState::Failed(why) => assert_eq!(why, "no answer"),
+        _ => panic!("a failed call is a failure"),
+    }
+    assert!(matches!(
+        state(offer_from(
+            "http://127.0.0.1:18081",
+            Err(OptionsFailed::Refused(azul_appkit::l10n::Text::plain(
+                "not here"
+            )))
+        )),
+        OfferState::Refused(_)
+    ));
+    // An answer that is no offer is a failure too, never a page.
+    match state(offer_from(
+        "http://127.0.0.1:18081",
+        Ok(Some(String::from("not json"))),
+    )) {
+        OfferState::Failed(why) => assert!(!why.is_empty()),
+        _ => panic!("an answer that is no offer"),
+    }
+}
+
 /// X-AR5b-19: the v1 payment page stands in only for a token server on this computer. A
 /// production token server whose payment options fail, or have no such route, is "Try again".
 #[test]

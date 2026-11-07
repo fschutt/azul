@@ -2619,6 +2619,30 @@ fn start_checkout(
             }
         },
     };
+    order_and_start(
+        &server, tier, months, method, name, keyring, via, renew, lock, quote,
+    )
+}
+
+/// The order of `tier` for `months` placed at `server` and carried on to what the buyer is shown
+/// ([`finish_start`]): a renewal under the price `lock` names it; when the token server no longer
+/// takes the lock (used, not this checkout's, another tier, none, not paid) the order goes again
+/// without it, as period tokens only at today's price - the quote still holds the charge to what
+/// the buyer was shown. The first refusal ended that order's entry on the list, so the second is
+/// a new one.
+#[allow(clippy::too_many_arguments)]
+fn order_and_start(
+    server: &TokenServer<'_>,
+    tier: &str,
+    months: u32,
+    method: &str,
+    name: &str,
+    keyring: &SharedKeyring,
+    via: Option<&PayVia>,
+    renew: Option<&RenewJob>,
+    lock: Option<azcloud_kit::RenewalLock>,
+    quote: Option<&Quote>,
+) -> Result<Started, StartFailed> {
     let fresh = ClaimKey::generate()
         .map_err(|e| StartFailed::from(token_error_text(&TokenError::Config(e.to_string()))))?;
     let mut draft = PendingCheckout::posting(&fresh, tier, server.base(), name);
@@ -2628,7 +2652,7 @@ fn start_checkout(
     }
     let order = |what: CheckoutFor<'_>| {
         pending::place_order(keyring, &draft, |claim| {
-            checkout_for(&server, claim, tier, months, method, via, what)
+            checkout_for(server, claim, tier, months, method, via, what)
         })
     };
     let placed = match order(order_of(renew, lock.as_ref())) {
@@ -2654,7 +2678,7 @@ fn start_checkout(
         kept.renews = renews.unwrap_or_default();
     }
     finish_start(
-        &server,
+        server,
         keyring,
         &placed.posting_id,
         tier,
@@ -5174,21 +5198,32 @@ mod tests {
     /// ends any checkout it is asked to abandon; it records what it was asked.
     struct Orders {
         pay_url: &'static str,
+        /// What an abandon is answered: the status and the body (an ended checkout by default).
+        abandon: (u16, &'static str),
         calls: std::sync::Mutex<Vec<String>>,
     }
+
+    /// An abandon that ends the checkout.
+    const ABANDON_ENDS: (u16, &str) = (200, r#"{"checkout_id": "ck_1", "status": "expired"}"#);
 
     impl Transport for Orders {
         fn send(&self, call: &HttpCall) -> Result<HttpReply, String> {
             self.calls.lock().unwrap().push(call.url.clone());
-            let body = if call.url.ends_with("/abandon") {
-                String::from(r#"{"checkout_id": "ck_1", "status": "expired"}"#)
-            } else {
-                format!(
-                    r#"{{"checkout_id": "ck_1", "pay_url": "{}", "tier": "100GB", "months": 1,
-                        "amount_cents": 449, "currency": "PLN"}}"#,
-                    self.pay_url
-                )
-            };
+            if call.url.ends_with("/abandon") {
+                return Ok(HttpReply {
+                    status: self.abandon.0,
+                    headers: vec![(
+                        String::from("content-type"),
+                        String::from("application/json"),
+                    )],
+                    body: self.abandon.1.as_bytes().to_vec(),
+                });
+            }
+            let body = format!(
+                r#"{{"checkout_id": "ck_1", "pay_url": "{}", "tier": "100GB", "months": 1,
+                    "amount_cents": 449, "currency": "PLN"}}"#,
+                self.pay_url
+            );
             Ok(HttpReply {
                 status: 200,
                 headers: vec![(
@@ -5210,6 +5245,15 @@ mod tests {
         dir: &TempDir,
         pay_url: &'static str,
     ) -> (Orders, SharedKeyring, Checkout, PendingCheckout, String) {
+        placed_with(dir, pay_url, ABANDON_ENDS)
+    }
+
+    /// [`placed`] at a token server that answers an abandon with `abandon`.
+    fn placed_with(
+        dir: &TempDir,
+        pay_url: &'static str,
+        abandon: (u16, &'static str),
+    ) -> (Orders, SharedKeyring, Checkout, PendingCheckout, String) {
         let keyring = SharedKeyring::with_lock_root(
             Arc::new(MemoryKeyring::new()),
             KeyringNamespace::azlin_shared(),
@@ -5217,6 +5261,7 @@ mod tests {
         );
         let orders = Orders {
             pay_url,
+            abandon,
             calls: std::sync::Mutex::new(Vec::new()),
         };
         let (checkout, kept, posting_id) = {
@@ -5284,6 +5329,183 @@ mod tests {
         assert!(
             pending::list(&keyring).unwrap().is_empty(),
             "it left the list: nobody may pay it"
+        );
+    }
+
+    /// X-AR5b-8 (the decisive branch): a checkout that is not shown (here: the price changed) and
+    /// whose abandon cannot end it - the token server says it was paid meanwhile, or leaves it
+    /// pending - stays on the keyring's list, in flight, and the buyer is told so in words that say
+    /// it may still be paid. Before, the two tests of this branch used an abandon that ended it.
+    #[test]
+    fn x_ar5b_8_a_checkout_that_is_not_shown_and_cannot_be_ended_stays_in_flight_and_says_so() {
+        for (abandon, key) in [
+            (
+                (
+                    409_u16,
+                    r#"{"error": "checkout_paid", "message": "the drive comes"}"#,
+                ),
+                "azdrive-order-not-shown-paid",
+            ),
+            (
+                (200, r#"{"checkout_id": "ck_1", "status": "pending"}"#),
+                "azdrive-order-not-shown-open",
+            ),
+        ] {
+            let dir = TempDir::new("azdrive-start");
+            let (orders, keyring, checkout, kept, posting_id) =
+                placed_with(&dir, "http://127.0.0.1:18081/v1/pay/ck_1", abandon);
+            let server = TokenServer::new("http://127.0.0.1:18081", &orders).expect("a server");
+            let quote = Quote {
+                price: eur(99),
+                tier: String::from("100GB"),
+                months: 1,
+                at_most: false,
+            };
+            let failed = match finish_start(
+                &server,
+                &keyring,
+                &posting_id,
+                "100GB",
+                1,
+                None,
+                Some(&quote),
+                checkout,
+                None,
+                kept,
+            ) {
+                Err(failed) => failed,
+                Ok(_) => panic!("shown at another price"),
+            };
+            assert_eq!(
+                failed.why.keys(),
+                vec!["azdrive-order-price-changed", key],
+                "the price changed, and the order may still be paid"
+            );
+            assert!(
+                failed
+                    .why
+                    .phrase(key)
+                    .and_then(|phrase| phrase.get("checkout"))
+                    .is_some_and(|arg| arg.to_string() == "ck_1"),
+                "it names the checkout"
+            );
+            let listed = pending::list(&keyring).unwrap();
+            assert_eq!(listed.len(), 1, "{key}: the claim key stays");
+            assert_eq!(listed[0].checkout_id, "ck_1");
+            assert!(
+                listed[0].in_flight_since.is_some(),
+                "{key}: marked in flight"
+            );
+        }
+    }
+
+    /// The token server's answers to a renewal: 409 `lock_used` to an order that names a price
+    /// lock, a checkout for the order that does not; it records the bodies it was sent.
+    struct LockUsed {
+        bodies: std::sync::Mutex<Vec<serde_json::Value>>,
+    }
+
+    impl Transport for LockUsed {
+        fn send(&self, call: &HttpCall) -> Result<HttpReply, String> {
+            let body: serde_json::Value =
+                serde_json::from_slice(&call.body).map_err(|e| e.to_string())?;
+            let (status, answer) = if body.get("renews").is_some() {
+                (
+                    409,
+                    String::from(r#"{"error": "lock_used", "message": "the lock was used"}"#),
+                )
+            } else {
+                (
+                    200,
+                    String::from(
+                        r#"{"checkout_id": "ck_2", "pay_url": "http://127.0.0.1:18081/v1/pay/ck_2",
+                            "tier": "100GB", "months": 1, "amount_cents": 99, "currency": "EUR"}"#,
+                    ),
+                )
+            };
+            self.bodies.lock().unwrap().push(body);
+            Ok(HttpReply {
+                status,
+                headers: vec![(
+                    String::from("content-type"),
+                    String::from("application/json"),
+                )],
+                body: answer.into_bytes(),
+            })
+        }
+    }
+
+    /// A renewal that names its price lock, which the token server no longer takes (`lock_used`),
+    /// goes again without it as period tokens only - the order after the refusal is a new one (the
+    /// refusal ended the first one's entry), it names no lock, the checkout it makes is the only
+    /// one on the list, and the quote still holds it to the price shown. (Not exercised before:
+    /// `start_checkout` makes its own transport.)
+    #[test]
+    fn x_ar5b_20_a_renewal_whose_lock_is_refused_goes_again_without_it_as_the_only_order() {
+        let dir = TempDir::new("azdrive-start");
+        let keyring = SharedKeyring::with_lock_root(
+            Arc::new(MemoryKeyring::new()),
+            KeyringNamespace::azlin_shared(),
+            &dir.path().join("locks"),
+        );
+        let token = LockUsed {
+            bodies: std::sync::Mutex::new(Vec::new()),
+        };
+        let server = TokenServer::new("http://127.0.0.1:18081", &token).expect("a server");
+        let renew = RenewJob {
+            order: crate::renewals::RenewOrder {
+                drive_id: String::from("d_1"),
+                tier: String::from("100GB"),
+                change_tier: false,
+                upgrade: false,
+            },
+            store: PeriodTokenStore::new(dir.path().join("period-tokens")),
+            azlin: None,
+        };
+        let lock = azcloud_kit::RenewalLock {
+            checkout_id: String::from("ck_1"),
+            tier: String::from("100GB"),
+            issue_key: String::from("a-key"),
+            ladder_version: Some(7),
+            kept_at: 1,
+            used_by: None,
+        };
+        let quote = Quote {
+            price: eur(99),
+            tier: String::from("100GB"),
+            months: 1,
+            at_most: true,
+        };
+        let started = order_and_start(
+            &server,
+            "100GB",
+            1,
+            "sepa",
+            "Photos",
+            &keyring,
+            None,
+            Some(&renew),
+            Some(lock),
+            Some(&quote),
+        )
+        .ok()
+        .expect("the order without the lock");
+        assert_eq!(started.checkout.checkout_id, "ck_2");
+        assert!(started.kept.renews.is_empty(), "no lock was used");
+        assert_eq!(started.kept.for_drive, "d_1");
+        let bodies = token.bodies.lock().unwrap();
+        assert_eq!(bodies.len(), 2, "the order with the lock, then without it");
+        assert_eq!(bodies[0]["renews"]["checkout_id"], "ck_1");
+        assert!(bodies[1].get("renews").is_none(), "{}", bodies[1]);
+        assert_eq!(bodies[1]["grant"], "period_tokens");
+        let listed = pending::list(&keyring).unwrap();
+        assert_eq!(
+            listed
+                .iter()
+                .map(|c| c.checkout_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["ck_2"],
+            "the refused order left no record"
         );
     }
 

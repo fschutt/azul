@@ -97,8 +97,13 @@ fn ent27_b06_a_paid_checkout_is_recorded_with_its_receipt_before_it_leaves_the_l
         ),
         (190, "DE", "payment_receipt")
     );
-    // Asked again (the claim is idempotent): one record, the first moment kept.
-    let first = record.at;
+    // Asked again (the claim is idempotent): one record, the FIRST moment kept. The record is
+    // moved back in time first, so that a second poll that overwrote its moment would show (both
+    // polls run in one second).
+    let first = record.at - 1_000;
+    let mut earlier = record.clone();
+    earlier.at = first;
+    shared.paid().unwrap().keep(&earlier).unwrap();
     assert!(matches!(
         pending::poll(&server, &shared, &ck),
         Polled::Final(Final::Claimed(_))

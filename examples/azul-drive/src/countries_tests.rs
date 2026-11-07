@@ -133,3 +133,22 @@ fn x_ar5b_24_the_environment_declares_a_country_in_a_test_build_only() {
         "nothing declared: the dialog asks"
     );
 }
+
+/// X-AR5b-24 (the wiring): in a shipped build (without `test-hooks`) the VAT country of an order is
+/// the buyer's own declaration - what this computer remembers - and nothing `$AZLIN_COUNTRY`
+/// says. The switch is set for the test: a build that does not read it lets nothing else see it.
+#[cfg(not(feature = "test-hooks"))]
+#[test]
+fn x_ar5b_24_a_shipped_build_takes_no_country_from_the_environment() {
+    use crate::countries::declared_country;
+    std::env::set_var("AZLIN_COUNTRY", "FR");
+    let without = declared_country(None);
+    let remembered = declared_country(Some("PL"));
+    std::env::remove_var("AZLIN_COUNTRY");
+    assert_eq!(without, None, "the environment declares nothing");
+    assert_eq!(
+        remembered.as_deref(),
+        Some("PL"),
+        "the buyer's own declaration stands"
+    );
+}

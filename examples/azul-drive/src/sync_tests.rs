@@ -1367,3 +1367,20 @@ fn x_ar6_26802cb54_1_a_build_without_the_encryption_refuses_an_azlin_drive_at_th
         );
     }
 }
+
+/// X-AR5b-24 (the wiring): a shipped build (without `test-hooks`) polls every synced drive every 30
+/// seconds and waits two seconds for a folder to be quiet, whatever `$AZDRIVE_SYNC_POLL` and
+/// `$AZDRIVE_SYNC_SETTLE_MS` say; only a test build reads them. The switches are set for the test:
+/// a build that does not read them lets nothing else see them.
+#[cfg(not(feature = "test-hooks"))]
+#[test]
+fn x_ar5b_24_a_shipped_build_polls_and_settles_at_its_own_pace() {
+    std::env::set_var("AZDRIVE_SYNC_POLL", "1");
+    std::env::set_var("AZDRIVE_SYNC_SETTLE_MS", "1");
+    let poll = sync_jobs::poll_secs();
+    let settle = sync_jobs::settle();
+    std::env::remove_var("AZDRIVE_SYNC_POLL");
+    std::env::remove_var("AZDRIVE_SYNC_SETTLE_MS");
+    assert_eq!(poll, 30);
+    assert_eq!(settle, std::time::Duration::from_millis(2_000));
+}

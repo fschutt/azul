@@ -166,12 +166,8 @@ pub(crate) fn open(s: &mut DriveState) {
     let env = |name: &str| std::env::var(name).ok();
     // The buyer's VAT country comes from the buyer: what they declared and this computer
     // remembers. A variable of the environment names it only in a test build (X-AR5b-24).
-    d.country = countries::declared_for(
-        cfg!(feature = "test-hooks"),
-        s.settings.residence_country.as_deref(),
-        env,
-    )
-    .unwrap_or_default();
+    d.country =
+        countries::declared_country(s.settings.residence_country.as_deref()).unwrap_or_default();
     let first = if d.country.is_empty() {
         countries::guess(&l10n::locale(), env)
     } else {
@@ -885,27 +881,51 @@ pub(crate) fn options_answered(
     let Some(d) = dialog_of(s, serial).filter(|d| d.options_current(asked)) else {
         return;
     };
+    match offer_from(&token_url, result) {
+        OptionsAnswer::Offer(offer) => d.offer_loaded(offer),
+        OptionsAnswer::State(state) => d.offer = state,
+    }
+    tiers_ready(d);
+}
+
+/// What an options call came to.
+pub(crate) enum OptionsAnswer {
+    /// The offer, narrowed by azul-pay's registry.
+    Offer(Offer),
+    /// No offer: the state the dialog's offer is in.
+    State(OfferState),
+}
+
+/// What the options call's answer `result` from the token server at `token_url` makes of the
+/// dialog's offer: the offer narrowed by azul-pay's registry (what it dropped goes to the log),
+/// the token server's refusal of this buyer (its own sentence, shown as it is: a country it does
+/// not serve), the v1 checkout (an older token server ON THIS COMPUTER that has no such route),
+/// or a failure to ask again. A production token server whose route is missing is a failure, not
+/// a page to fall back to (X-AR5b-19).
+pub(crate) fn offer_from(
+    token_url: &str,
+    result: Result<Option<String>, OptionsFailed>,
+) -> OptionsAnswer {
     match result {
-        Ok(Some(text)) => match Offer::parse(&text, &OfferContext::for_token_url(&token_url)) {
+        Ok(Some(text)) => match Offer::parse(&text, &OfferContext::for_token_url(token_url)) {
             Ok(offer) => {
                 for why in &offer.dropped {
                     eprintln!("[azdrive] a payment option was not taken: {why}");
                 }
-                d.offer_loaded(offer);
+                OptionsAnswer::Offer(offer)
             }
-            Err(why) => d.offer = OfferState::Failed(why.to_string()),
+            Err(why) => OptionsAnswer::State(OfferState::Failed(why.to_string())),
         },
-        // No such route: an older token server on this computer speaks the v1 page; anywhere
-        // else it is a failure to ask again, not a page to fall back to (X-AR5b-19).
-        Ok(None) if crate::add_drive::v1_page_allowed(&token_url) => d.offer = OfferState::Legacy,
-        Ok(None) => d.offer = OfferState::Failed(t("azdrive-add-options-missing")),
+        Ok(None) if crate::add_drive::v1_page_allowed(token_url) => {
+            OptionsAnswer::State(OfferState::Legacy)
+        }
+        Ok(None) => OptionsAnswer::State(OfferState::Failed(t("azdrive-add-options-missing"))),
         Err(OptionsFailed::Refused(said)) => {
             println!("AZDRIVE_PAY_REFUSED");
-            d.offer = OfferState::Refused(l10n::t_text(&said));
+            OptionsAnswer::State(OfferState::Refused(l10n::t_text(&said)))
         }
-        Err(OptionsFailed::Failed(why)) => d.offer = OfferState::Failed(why),
+        Err(OptionsFailed::Failed(why)) => OptionsAnswer::State(OfferState::Failed(why)),
     }
-    tiers_ready(d);
 }
 
 /// The page is ready: the tiers and the payment options are in.
@@ -1118,12 +1138,20 @@ fn look_name(info: &CallbackInfo) -> String {
     format!("{theme}-{mode}")
 }
 
+/// Whether the order button must first end the checkout the dialog has in flight: it may be paid
+/// already or any moment, so a new order waits for its end ([`Event::Release`]) - the same for
+/// the pills' order and the v1 page's (AZ-P4). Nothing in flight, a checkout that runs (the
+/// machine is busy: it ends itself) and a declined one do not.
+pub(crate) fn must_release_first(d: &AddDialog) -> bool {
+    !d.pay.may_order() && !d.pay.busy()
+}
+
 /// The v1 checkout: on the keyring's list of unfinished checkouts with its claim key; its
 /// payment page opens in the browser when it is made.
 fn buy_on_the_payment_page(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
     // A checkout in flight may be paid already or any moment: the machine ends it first, as for
     // an order of its own, and this order goes on from the button when it is ended (AZ-P4).
-    if dialog_ref(s).is_some_and(|d| !d.pay.may_order() && !d.pay.busy()) {
+    if dialog_ref(s).is_some_and(must_release_first) {
         let _ = pay(info, app, s, Event::Release);
         return;
     }

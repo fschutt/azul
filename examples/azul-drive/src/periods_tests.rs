@@ -184,3 +184,15 @@ fn ent27_n50_the_first_look_after_a_claim_waits_a_random_while() {
     schedule.look_later("d_1", now, 100);
     assert_eq!(due(&schedule, now + 699), vec!["d_2"]);
 }
+
+/// X-AR5b-24 (the wiring): a shipped build (without `test-hooks`) looks at each drive's period at
+/// its own pace whatever `$AZDRIVE_PERIOD_CHECK_SECS` says; only a test build reads it. The
+/// switch is set for the test: in a build that does not read it nothing else can see it.
+#[cfg(not(feature = "test-hooks"))]
+#[test]
+fn x_ar5b_24_a_shipped_build_looks_at_its_own_pace_whatever_the_environment_says() {
+    std::env::set_var("AZDRIVE_PERIOD_CHECK_SECS", "5");
+    let every = Schedule::default().every();
+    std::env::remove_var("AZDRIVE_PERIOD_CHECK_SECS");
+    assert_eq!(every, DAY_SECS);
+}

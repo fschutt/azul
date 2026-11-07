@@ -760,7 +760,7 @@ pub(crate) fn run(job: SyncJob, emit: &mut dyn FnMut(Outcome)) -> Outcome {
 /// How long a pass waits for its folder to be quiet first: `$AZDRIVE_SYNC_SETTLE_MS`
 /// (scripts, a test build), else two seconds - long enough for a checkout or an unzip to finish
 /// its burst, short enough that a saved file still goes up at once.
-fn settle() -> StdDuration {
+pub(crate) fn settle() -> StdDuration {
     let millis = test_switch("AZDRIVE_SYNC_SETTLE_MS")
         .and_then(|v| v.trim().parse::<u64>().ok())
         .unwrap_or(2_000);
@@ -792,7 +792,7 @@ pub(crate) fn polled(states: &SyncStates) -> bool {
 
 /// How often the timer polls every synced drive: `$AZDRIVE_SYNC_POLL` seconds (scripts, a test
 /// build), else 30.
-fn poll_secs() -> u64 {
+pub(crate) fn poll_secs() -> u64 {
     test_switch("AZDRIVE_SYNC_POLL")
         .and_then(|v| v.trim().parse::<u64>().ok())
         .filter(|secs| *secs > 0)
