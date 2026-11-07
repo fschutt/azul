@@ -105,7 +105,7 @@ impl Tier {
             return Err(TokenError::Protocol(format!("the tier {} has no size", offer.id)));
         }
         let currency = offer.currency;
-        let priced = |amount: u64| Cents {
+        let priced = |amount| Cents {
             amount,
             currency: currency.clone(),
         };

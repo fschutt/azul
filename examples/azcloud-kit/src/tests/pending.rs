@@ -117,7 +117,7 @@ fn the_unfinished_checkouts_are_one_keyring_entry_two_windows_change_without_los
     assert_eq!(pending::list(&shared).unwrap().len(), 8, "none lost");
     let text = keyring.get(pending::PENDING_KEY).unwrap().unwrap();
     assert!(text.contains("ck_0_3") && text.contains("ck_1_0"));
-    let ended = || Settled::abandoned(azlin_contract::AbandonAnswer::Expired).unwrap();
+    let ended = Settled::expired_for_tests;
     assert!(pending::settle(&shared, "ck_0_3", ended()).unwrap());
     assert!(!pending::settle(&shared, "ck_0_3", ended()).unwrap(), "removed once");
     assert_eq!(pending::list(&shared).unwrap().len(), 7);
@@ -161,7 +161,7 @@ fn the_unfinished_checkouts_stay_within_what_every_keyring_keeps_in_one_entry() 
     assert!(listed.iter().all(|c| c.name.chars().count() <= 64));
     assert!(listed.iter().all(|c| c.claim_key().is_ok()));
     // Taking one off makes room again.
-    let ended = Settled::abandoned(azlin_contract::AbandonAnswer::Expired).unwrap();
+    let ended = Settled::expired_for_tests();
     assert!(pending::settle(&shared, &listed[0].checkout_id, ended).unwrap());
     let claim = ClaimKey::generate().unwrap();
     pending::add(&shared, &checkout("ck_room", &claim)).unwrap();
@@ -497,8 +497,6 @@ fn an_abandon_that_ended_the_checkout_takes_it_off_the_list() {
             "a second window finds it gone"
         );
     }
-    // A pending answer never ends it, whatever it is called from.
-    assert!(Settled::abandoned(azlin_contract::AbandonAnswer::StillPending).is_none());
 }
 
 /// X-DELTA-AZDRIVE-MONEY-5: an abandon decides from the token server's answer, not from whether an
@@ -534,7 +532,7 @@ fn x_delta_azdrive_money_5_a_paid_checkout_whose_entry_is_gone_is_not_ended_by_i
         let claim = ClaimKey::generate().unwrap();
         pending::add(&shared, &checkout("ck_1", &claim)).unwrap();
         // The claims finished it meanwhile: off the list.
-        let finished = Settled::abandoned(azlin_contract::AbandonAnswer::Expired).unwrap();
+        let finished = Settled::expired_for_tests();
         assert!(pending::settle(&shared, "ck_1", finished).unwrap());
         let transport = Shared(abandoning(&claim, (status, body)));
         let server = TokenServer::new(TOKEN, &transport).unwrap();

@@ -23,12 +23,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::{ids, jobs::Job, pay_words, spawn, DriveState};
 
-/// `amount` in the smallest unit of `currency`, as the window writes money.
-fn show(amount: u64, currency: &azcloud_kit::azlin_contract::Currency) -> String {
-    pay_words::show(&Cents {
-        amount,
-        currency: currency.clone(),
-    })
+/// `price` as the window writes money.
+fn show(price: Cents) -> String {
+    pay_words::show(&price)
 }
 
 /// What this computer paid for a drive's price lock: the months and what they cost, from the
@@ -199,12 +196,24 @@ pub(crate) fn price_notices(
                     let monthly = if wire.month_cents > 0 {
                         t_args(
                             "azdrive-pay-a-month",
-                            &[("price", Arg::from(show(wire.month_cents, currency)))],
+                            &[(
+                                "price",
+                                Arg::from(show(Cents {
+                                    amount: wire.month_cents,
+                                    currency: currency.clone(),
+                                })),
+                            )],
                         )
                     } else {
                         t_args(
                             "azdrive-pay-a-year",
-                            &[("price", Arg::from(show(wire.year_cents, currency)))],
+                            &[(
+                                "price",
+                                Arg::from(show(Cents {
+                                    amount: wire.year_cents,
+                                    currency: currency.clone(),
+                                })),
+                            )],
                         )
                     };
                     t_args(

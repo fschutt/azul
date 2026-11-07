@@ -123,7 +123,7 @@ fn az_p4_a_second_order_of_one_intent_is_refused_in_a_second_window_and_after_a_
     }
 
     // Ended at the token server: the next order may begin.
-    let ended = pending::Settled::abandoned(azlin_contract::AbandonAnswer::Expired).unwrap();
+    let ended = pending::Settled::expired_for_tests();
     assert!(pending::settle(&window_one, "ck_1", ended).unwrap());
     assert!(matches!(
         pending::begin(&window_two, &second).unwrap(),

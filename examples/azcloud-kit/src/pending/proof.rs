@@ -22,7 +22,7 @@
 //!   without an answer;
 //! - a poll's answer that ends the checkout ([`Settled::ended_by`]): declined, expired, gone, the
 //!   hand-over purged;
-//! - an abandon's answer that ended it ([`Settled::abandoned`]).
+//! - an abandon's answer that ended it (`Settled::abandoned`, called by [`super::abandon`] only).
 //!
 //! `money_gate` reads the sources: `Settled(` and `SettledBy::` stand in this file only.
 
@@ -217,12 +217,21 @@ impl Settled {
     }
 
     /// The abandon's answer, when it ended the checkout ([`AbandonAnswer::is_over`]); `None`
-    /// when the checkout may still be paid.
+    /// when the checkout may still be paid. Made by [`super::abandon`] from the answer the token
+    /// server gave it and nowhere else: the answer is a public enum, so a caller that could call
+    /// this would end any checkout with one it made up (X-DELTA-AZDRIVE-MONEY-11).
     #[must_use]
-    pub fn abandoned(answer: AbandonAnswer) -> Option<Settled> {
+    pub(super) fn abandoned(answer: AbandonAnswer) -> Option<Settled> {
         answer
             .is_over()
             .then_some(Settled(SettledBy::Abandoned(answer)))
+    }
+
+    /// A proof for the tests of the list itself: a checkout whose abandon the token server
+    /// answered "expired".
+    #[cfg(test)]
+    pub(crate) fn expired_for_tests() -> Settled {
+        Settled(SettledBy::Abandoned(AbandonAnswer::Expired))
     }
 
     /// What a poll's answer `status` ends - the payment declined or taken back, the checkout
@@ -256,6 +265,31 @@ impl Settled {
             | CheckoutStatus::Unreadable(_)
             | CheckoutStatus::Renewal(..)
             | CheckoutStatus::Unknown(_) => None,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use azlin_contract::AbandonAnswer;
+
+    use super::Settled;
+
+    /// An abandon's answer ends a checkout only when the token server says it is over; a pending
+    /// one (a letter of cash in the post) or a word this build does not know never does. (Only
+    /// `abandon` calls `Settled::abandoned`: the answer is a public enum.)
+    #[test]
+    fn an_abandon_ends_a_checkout_only_with_an_answer_that_says_it_is_over() {
+        for over in [
+            AbandonAnswer::Expired,
+            AbandonAnswer::Declined,
+            AbandonAnswer::Reversed,
+            AbandonAnswer::Rejected,
+        ] {
+            assert!(Settled::abandoned(over).is_some(), "{over:?}");
+        }
+        for open in [AbandonAnswer::StillPending, AbandonAnswer::Unknown] {
+            assert!(Settled::abandoned(open).is_none(), "{open:?}");
         }
     }
 }

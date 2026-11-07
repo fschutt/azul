@@ -5,16 +5,24 @@
 //! payment methods' data and AzDrive (comments and test items blanked, as every gate of the
 //! apps reads: `azul-srcgate`) and fails when
 //!
-//! 1. `Settled(` or `SettledBy` stands outside `pending/proof.rs`: a checkout's claim secret and
-//!    issue key are erased only on a proof made there from evidence nobody else constructs;
-//! 2. a file that names `TokenError` decides by `status: 4xx`, `status ==`, `code == "word"`,
-//!    `.contains(&code.as_str())`, or holds one of the contract's code words as a literal,
-//!    outside the two files that decode a refusal (`token/refusal.rs`, `answer.rs`);
-//! 3. an amount (`amount_cents: u64`) or a currency (`currency: String`) stands alone outside
-//!    the wire and the records of the wire;
-//! 4. an amount, VAT or currency is defaulted: `.unwrap_or("EUR")`, `.unwrap_or(0)` and
-//!    `.unwrap_or_default()` in a statement that talks of one;
-//! 5. `l10n::money(` is called anywhere but `pay_words::show`.
+//! 1. `Settled(` or `SettledBy` stands outside `pending/proof.rs`, or a constructor of the proof
+//!    is called by its path (`Settled::abandoned(..)`) outside `pending/`: a checkout's claim
+//!    secret and issue key are erased only on a proof made there from evidence nobody else
+//!    constructs (X-DELTA-AZDRIVE-MONEY-11: `abandoned` took a public enum and was `pub`);
+//! 2. a file that names `TokenError` or `Refusal` decides by `status: 4xx`, a `status: s` bound
+//!    and compared with a status number, `status ==` (and `>=`, `<`, ..), `code == "word"`,
+//!    `code.starts_with("..")`, `e.to_string().contains("..")`, `.contains(&code.as_str())`, or
+//!    holds one of the contract's code words as a literal, outside the two files that decode a
+//!    refusal (`token/refusal.rs`, `answer.rs`);
+//! 3. an amount (`amount_cents: u64`, `price_cents: i64`, `amount: Option<u64>` - any
+//!    whole-number field or parameter whose name says amount, cents or price) or a currency
+//!    (`currency: String`, `Option<String>`, `&String`) stands alone outside the wire and the
+//!    records of the wire;
+//! 4. an amount, VAT or currency is defaulted: `.unwrap_or("EUR")`, `.map_or("EUR", ..)`,
+//!    `.unwrap_or(DEFAULT_CURRENCY)`, `.unwrap_or(0)` in any spelling (`0u64`, `0_u64`),
+//!    `.unwrap_or_else(|| 0)`, `.map_or(0, ..)` and `.unwrap_or_default()` in a statement that
+//!    talks of one;
+//! 5. `l10n::money(` is called anywhere but `pay_words::show`, or imported as another name.
 //!
 //! The allowances name the file, the rule, how many and why. A hit no allowance takes fails, an
 //! allowance whose count is not the code's fails and so does one nothing uses any more: the
