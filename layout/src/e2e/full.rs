@@ -3063,16 +3063,19 @@ pub enum DebugEvent {
     /// `{ "op": "wait_settled", "timeout_ms": 3000 }` - answer once nothing in
     /// the window moves on its own clock any more: no layout animation (the
     /// slide a rebuild gives a moved node), CSS transition, keyframe track,
-    /// exiting node, scroll easing or fading scrollbar
-    /// ([`window_still_moving`]). The op to put before a screenshot that must
+    /// exiting node, scroll easing, fading scrollbar or scrollbar still to fade
+    /// out ([`window_still_moving`]). The op to put before a screenshot that must
     /// show the window at rest - one taken right after a rebuild catches the
     /// slides mid-way and shows "two layouts at once". An error names what
     /// still moved at the deadline (default 3000 ms).
     ///
     /// Waits over the debug server (`AZ_DEBUG`), where the window's own clock
-    /// runs. In a scripted run (`AZ_E2E`, the in-process runner) it answers at
-    /// once - the engine clock moves only when the scenario moves it (`wait`,
-    /// `tick_animations`) - with an error if something is in flight.
+    /// runs. In a scripted run (`AZ_E2E`, the in-process runner) the engine
+    /// clock moves only when the scenario moves it, so the op moves it: a turn
+    /// at a time it advances the injectable clock (`tick_ms`'s way, no sleeping;
+    /// 100 ms, or to the end of the longest scrollbar fade when one is waiting)
+    /// and looks again, and `timeout_ms` is ENGINE time. It answers at once for a
+    /// window that is at rest.
     WaitSettled {
         #[serde(default)]
         timeout_ms: Option<u64>,
@@ -4876,6 +4879,41 @@ fn request_repaint(callback_info: &mut azul_layout::callbacks::CallbackInfo) {
     callback_info.modify_window_state(state);
 }
 
+/// Move the engine's time on by `ms` without sleeping - what `tick_ms` does and
+/// what a scripted `wait_settled` does a step at a time. Returns the test
+/// clock's offset now.
+///
+/// Engine time is ONE clock. A real shell ticks the animation manager every
+/// rendered frame, so advancing the test clock by N ms must advance animations
+/// by the same N ms - otherwise a scenario that remounts a DOM (which retains
+/// exit zombies, by design, on EVERY unmount) and then `tick_ms 2000`s to
+/// settle its timers is left with zombies that never finish, and every idle
+/// assertion after it fails on perpetual zombie damage. Fixed 16.6 ms substeps
+/// because the spring integrator is semi-implicit Euler - one 2000 ms step is
+/// outside its stable region, and a real shell never hands it more than a frame.
+///
+/// And a REPAINT is requested ([`request_repaint`]): time-driven state (fade /
+/// momentum / blink / animation) must actually advance and re-render for an
+/// idle engine to report `FrameDamage::None`, which is what `assert_idle_stable`
+/// asserts - not `needs_update`: advancing a clock is no reason to rebuild the
+/// DOM, and charging the window a DOM regeneration per tick made every "an idle
+/// frame does no work" assertion unanswerable.
+#[cfg(feature = "std")]
+fn advance_engine_time(callback_info: &mut azul_layout::callbacks::CallbackInfo, ms: u64) -> u64 {
+    let total = azul_core::task::advance_test_clock_ms(ms);
+    callback_info.push_change(azul_layout::callbacks::CallbackChange::TickAnimations {
+        dt_micros: E2E_TEST_FRAME_STEP_MICROS,
+        steps: u32::try_from(
+            ms.saturating_mul(1000)
+                .div_ceil(u64::from(E2E_TEST_FRAME_STEP_MICROS))
+                .max(1),
+        )
+        .unwrap_or(u32::MAX),
+    });
+    request_repaint(callback_info);
+    total
+}
+
 /// Build the XML document for a `mount` op out of the (line-array) html + css.
 ///
 /// The CSS is injected as a `<style>` element inside a `<head>` — the XML parser
@@ -5342,6 +5380,9 @@ struct E2eContinuation {
     /// When the current step's first pending answer came (wall clock). The
     /// step fails once its `timeout_ms` passed since then.
     step_pending_since: Option<std::time::Instant>,
+    /// Engine time (ms) the current `wait_settled` step has advanced the clock
+    /// by so far, against its `timeout_ms`. Reset when the step ends.
+    settle_waited_ms: u64,
 }
 
 /// How long an app command may answer `"pending": true` before its step
@@ -13689,6 +13730,97 @@ fn resume_e2e_continuation_inner(
                 return needs_update;
             }
 
+            // `wait_settled` in a scripted run. The engine's clock moves only when
+            // the scenario moves it, so waiting for the window to come to rest
+            // means MOVING the clock: a turn at a time, until
+            // `window_still_moving` has nothing to name or `timeout_ms` of ENGINE
+            // time is spent. It answered at once before - "settled" 50 ms after a
+            // wheel with the scrollbar still to fall some 750 ms later, or an error
+            // for anything in flight - so a scenario could neither wait for a fade
+            // nor trust the answer. (The debug server's own `wait_settled` REQUEST
+            // is not a step: it waits on the window's clock,
+            // `serve_settle_waiters`.)
+            if op == "wait_settled" {
+                let timeout = match step.params.get("timeout_ms") {
+                    None => Ok(WAIT_SETTLED_DEFAULT_MS),
+                    Some(v) => v.as_u64().ok_or_else(|| {
+                        format!(
+                            "wait_settled: timeout_ms is {v}, which is not a whole number of \
+                             milliseconds"
+                        )
+                    }),
+                };
+                let refusal = reject_unknown_params("wait_settled", &step.params, &["timeout_ms"])
+                    .map(|bad| bad.message)
+                    .or_else(|| timeout.clone().err());
+                let timeout_ms = timeout.unwrap_or(WAIT_SETTLED_DEFAULT_MS);
+                let waited_ms = cont.settle_waited_ms;
+                let moving = window_still_moving(callback_info.get_layout_window());
+                let verdict: Option<Result<String, String>> = match (refusal, moving) {
+                    (Some(why), _) => Some(Err(why)),
+                    (None, None) => Some(Ok(format!(
+                        "settled after {waited_ms} ms of engine time (virtual clock)"
+                    ))),
+                    (None, Some(what)) if waited_ms >= timeout_ms => Some(Err(format!(
+                        "wait_settled: the window was still moving after {timeout_ms} ms of \
+                         engine time: {what}"
+                    ))),
+                    (None, Some(_)) => None,
+                };
+                if let Some(verdict) = verdict {
+                    let (status, logs, error) = match verdict {
+                        Ok(log) => ("pass", vec![log], None),
+                        Err(why) => {
+                            cont.current_test_failed = true;
+                            ("fail", Vec::new(), Some(why))
+                        }
+                    };
+                    cont.current_step_results.push(E2eStepResult {
+                        step_index,
+                        op: op.to_string(),
+                        status: status.into(),
+                        duration_ms: step_start.elapsed().as_millis() as u64,
+                        logs,
+                        screenshot: None,
+                        error,
+                        response: None,
+                    });
+                    cont.settle_waited_ms = 0;
+                    cont.step_idx = step_index + 1;
+                    if cont.current_test_failed && !continue_on_failure {
+                        break;
+                    }
+                    continue;
+                }
+                // Not at rest yet: one more step of engine time, and a turn of the
+                // shell's loop that renders the frame this step looks at next.
+                // To the end of the longest scrollbar fade when one waits (its
+                // half-faded frames in between show a bar nobody asked about, and
+                // each costs the runner's redraw pump), else 100 ms.
+                let left_ms = timeout_ms.saturating_sub(waited_ms);
+                let step_ms = match callback_info
+                    .get_layout_window()
+                    .gpu_state_manager
+                    .scrollbar_fade_left()
+                {
+                    0 => WAIT_SETTLED_STEP_MS,
+                    fade_left_ms => fade_left_ms.saturating_add(1),
+                }
+                .min(left_ms)
+                .max(1);
+                advance_engine_time(callback_info, step_ms);
+                cont.settle_waited_ms = waited_ms.saturating_add(step_ms);
+                let frame_seq = callback_info
+                    .get_layout_window()
+                    .content_journal
+                    .frame_seq();
+                cont.resume_after_frame = Some(frame_seq + 1);
+                cont.frame_wait_ticks = 0;
+                cont.app_data = app_data;
+                session.pending = Some(cont);
+                return needs_update;
+            }
+
             // `assert_response` asserts on the RESPONSE PAYLOAD of the previous
             // step. It lives here, not in `evaluate_assertion`, because it is the
             // only assertion that needs the step history (`cont`) rather than the
@@ -17124,41 +17256,13 @@ pub fn process_debug_event(
         }
 
         DebugEvent::TickMs { ms } => {
-            let total = azul_core::task::advance_test_clock_ms(*ms);
+            let total = advance_engine_time(callback_info, *ms);
             log(
                 LogLevel::Debug,
                 LogCategory::EventLoop,
                 format!("[E2E] tick_ms: +{ms} ms (clock offset now {total} ms)"),
                 None,
             );
-            // Engine time is ONE clock. A real shell ticks the animation
-            // manager every rendered frame, so advancing the test clock by
-            // N ms must advance animations by the same N ms — otherwise a
-            // scenario that remounts a DOM (which retains exit zombies, by
-            // design, on EVERY unmount) and then `tick_ms 2000`s to settle
-            // its timers is left with zombies that never finish, and every
-            // idle assertion after it fails on perpetual zombie damage.
-            // Fixed 16.6 ms substeps because the spring integrator is
-            // semi-implicit Euler — one 2000 ms step is outside its stable
-            // region, and a real shell never hands it more than a frame.
-            callback_info.push_change(azul_layout::callbacks::CallbackChange::TickAnimations {
-                dt_micros: E2E_TEST_FRAME_STEP_MICROS,
-                steps: u32::try_from(
-                    (u64::from(*ms) * 1000)
-                        .div_ceil(u64::from(E2E_TEST_FRAME_STEP_MICROS))
-                        .max(1),
-                )
-                .unwrap_or(u32::MAX),
-            });
-            // Force a frame so that time-driven state (fade / momentum / blink /
-            // animation) actually advances and re-renders; an idle engine then
-            // reports FrameDamage::None, which is what `assert_idle_stable` asserts.
-            //
-            // A REPAINT, not `needs_update`: advancing a clock is not a reason
-            // to rebuild the DOM, and charging the window a DOM regeneration per
-            // tick made every "an idle frame does no work" assertion
-            // unanswerable. See `request_repaint`.
-            request_repaint(callback_info);
             send_ok(request, None, None);
         }
 
@@ -20841,6 +20945,7 @@ pub fn process_debug_event(
                 setup_applied: false,
                 step_attempt: 0,
                 step_pending_since: None,
+                settle_waited_ms: 0,
                 response_tx: request.response_tx.clone(),
                 window_id: request.window_id.clone(),
                 tests: tests.clone(),
@@ -23225,6 +23330,12 @@ pub fn window_still_moving(layout_window: &azul_layout::window::LayoutWindow) ->
     }
     if lw.gpu_state_manager.scrollbar_fade_active {
         moving.push(String::from("a scrollbar fading"));
+    } else if lw.gpu_state_manager.scrollbar_fade_left() > 0 {
+        // The hold before the fade: opacity 1.0, nothing on the screen moves yet
+        // (`scrollbar_fade_active` is false), and the whole bar is about to. A
+        // window read as settled here was caught with its track half a second
+        // from falling (`wait_settled` 50 ms after a wheel, E2E-M3).
+        moving.push(String::from("a scrollbar waiting to fade out"));
     }
     (!moving.is_empty()).then(|| moving.join(", "))
 }
@@ -23277,6 +23388,12 @@ fn serve_settle_waiters(session: &mut E2eSession, callback_info: &azul_layout::c
 /// How long `wait_settled` waits when the request names no `timeout_ms`.
 #[cfg(feature = "std")]
 pub const WAIT_SETTLED_DEFAULT_MS: u64 = 3000;
+
+/// How much engine time a scripted `wait_settled` advances in one turn when
+/// nothing tells it better: a tenth of a second (a scrollbar still to fade out
+/// does: it jumps to the end of the fade).
+#[cfg(feature = "std")]
+const WAIT_SETTLED_STEP_MS: u64 = 100;
 
 /// Counts [`announce_debug_request`]s, so that EVERY window sees each one
 /// ([`take_debug_request_wake_for`]) - the flag above is taken by whichever

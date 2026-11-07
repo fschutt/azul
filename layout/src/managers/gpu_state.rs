@@ -95,11 +95,24 @@ pub struct GpuStateManager {
     pub fade_delay: Duration,
     /// Duration of the fade-out animation
     pub fade_duration: Duration,
-    /// Whether any scrollbar has non-zero opacity and needs continued frame
-    /// generation. Set during both the `fade_delay` period (opacity == 1.0)
-    /// and the active fade-out phase (0 < opacity < 1).
-    /// Set by `LayoutWindow::synchronize_scrollbar_opacity`, read by the platform render loop.
+    /// Whether any scrollbar is MID-FADE (0 < opacity < 1) and the platform loop
+    /// has to keep generating frames for it. NOT set in the hold before the
+    /// fade (opacity == 1.0): that phase is driven by the scroll timer, and
+    /// counting it repainted forever. [`Self::scrollbar_fade_left_ms`] is the
+    /// one that sees the hold. Set by `LayoutWindow::synchronize_scrollbar_opacity`,
+    /// read by the platform render loop.
     pub scrollbar_fade_active: bool,
+    /// How much longer each DOM's overlay scrollbars are still on screen, in
+    /// whole milliseconds rounded up: the longest of its painted, unheld bars
+    /// has `hold + fade - time since its box last scrolled` left. A DOM with no
+    /// such bar is absent. It is what makes a window that has just been
+    /// scrolled NOT settled while its bar waits to fade
+    /// ([`Self::scrollbar_fade_left`]): `scrollbar_fade_active` is false for the
+    /// whole hold, and `wait_settled` answered "settled" 50 ms after a wheel
+    /// with the track still to fall some 750 ms later (E2E-M3). Set by
+    /// `LayoutWindow::synchronize_scrollbar_opacity`; a bar with a delay of 0
+    /// never fades and counts nothing.
+    pub scrollbar_fade_left_ms: BTreeMap<DomId, u64>,
     /// Digest of the dynamic properties (scrollbar opacities + transforms)
     /// last handed to the renderer, so an IDENTICAL set can be recognised and
     /// skipped. See [`GpuStateManager::gpu_values_changed`].
@@ -242,6 +255,17 @@ impl GpuStateManager {
         self.last_scroll_digest = None;
     }
 
+    /// The longest any DOM's overlay scrollbar still has to be on screen, in
+    /// milliseconds ([`Self::scrollbar_fade_left_ms`]); 0 when none is.
+    #[must_use]
+    pub fn scrollbar_fade_left(&self) -> u64 {
+        self.scrollbar_fade_left_ms
+            .values()
+            .copied()
+            .max()
+            .unwrap_or(0)
+    }
+
     /// Creates a new GPU state manager with specified fade timing.
     #[must_use]
     pub fn new(fade_delay: Duration, fade_duration: Duration) -> Self {
@@ -250,6 +274,7 @@ impl GpuStateManager {
             fade_delay,
             fade_duration,
             scrollbar_fade_active: false,
+            scrollbar_fade_left_ms: BTreeMap::new(),
             last_gpu_value_digest: None,
             last_image_digest: None,
             last_scroll_digest: None,

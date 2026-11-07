@@ -1548,7 +1548,10 @@ invalidation path completely broken. Only the ops listed above exist; use nothin
    followed by `wait_frame` (together more than the box's delay + duration when it declares
    them). That preamble is not one of the steps the line counts: "wheel-scroll, then advance the
    clock in 6 steps of 150ms" still gets it, and the 6 steps follow it.
-   `wait_settled` does not help in this runner: it does not advance the clock.
+   `wait_settled` is the other way to that rest: it moves the clock itself, a step at a time (a
+   scrollbar still to fade out counts, and the step runs to the end of its fade), until nothing in
+   the window moves any more, or `timeout_ms` of ENGINE time (default 3000) is spent and the step
+   fails naming what still moved. No `wait_frame` is needed after it.
    SCROLLING. `wheel` is a RAW hardware notch: a NEGATIVE `delta_y` scrolls the content DOWN
    (`{{"op":"wheel","x":100,"y":100,"delta_x":0,"delta_y":-120}}` leaves the offset at 120 once it
    has glided); a positive `delta_y` scrolls UP, which at the top of a list moves nothing.
@@ -5891,7 +5894,13 @@ fn eval_assert_changed(params: &Value) -> AssertionResult {{
 
         // D8: a window of identical frames must not overlap the scrollbar fade.
         assert!(p.contains("must not overlap time-driven state"));
-        assert!(p.contains("`wait_settled` does not help in this runner"));
+        assert!(
+            p.contains("`wait_settled` is the other way to that rest: it moves the clock itself")
+        );
+        assert!(
+            !p.contains("`wait_settled` does not help in this runner"),
+            "a scripted wait_settled advances the clock now (E2E-M3)"
+        );
     }
 
     /// Batch 3, Defect 1. An op's doc is its first PARAGRAPH, on one line - not

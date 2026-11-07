@@ -15,7 +15,7 @@
 use std::cell::Cell;
 
 use azul_core::{
-    dom::{Dom, DomId, IdOrClass, NodeId},
+    dom::{Dom, DomId, IdOrClass, NodeId, ScrollbarOrientation},
     events::EasingFunction,
     geom::{LogicalPosition, LogicalSize},
     resources::RendererResources,
@@ -227,5 +227,64 @@ fn e2e_r9_a_duration_of_zero_ends_the_bar_at_once() {
         opacity_at(&mut lw, 37),
         0.0,
         "616 ms: the hold is over and there is no fade"
+    );
+}
+
+/// E2E-M3: the time a bar still has to live is what a window that was just
+/// scrolled is waiting for (`GpuStateManager::scrollbar_fade_left`): the rest of
+/// the hold and the whole fade, down to nothing once it has fallen. Before, a
+/// bar in its hold was "not fading" and the window read as settled.
+#[test]
+fn e2e_m3_a_bar_in_its_hold_or_fade_has_time_left_and_a_faded_one_has_none() {
+    let mut lw = scroller(BOTH);
+    scroll_once_at_zero(&mut lw);
+    let _ = opacity_at(&mut lw, 30);
+    assert_eq!(
+        lw.gpu_state_manager.scrollbar_fade_left(),
+        400,
+        "500 ms in: 100 ms of the 600 ms hold and the 300 ms fade"
+    );
+    let _ = opacity_at(&mut lw, 45);
+    assert_eq!(
+        lw.gpu_state_manager.scrollbar_fade_left(),
+        150,
+        "750 ms in: the last 150 ms of the fade"
+    );
+    let _ = opacity_at(&mut lw, 80);
+    assert_eq!(
+        lw.gpu_state_manager.scrollbar_fade_left(),
+        0,
+        "gone: nothing to wait for"
+    );
+    assert!(
+        !lw.gpu_state_manager
+            .scrollbar_fade_left_ms
+            .contains_key(&DOM),
+        "a DOM without a bar to come is absent from the table"
+    );
+}
+
+/// E2E-M3: a bar a thumb holds does not fall, and one that never fades has
+/// nothing to wait for either.
+#[test]
+fn e2e_m3_a_held_bar_and_a_bar_that_never_fades_leave_nothing_to_wait_for() {
+    let mut held = scroller(BOTH);
+    scroll_once_at_zero(&mut held);
+    held.scroll_manager
+        .begin_thumb_drag(DOM, scroll_box(), ScrollbarOrientation::Vertical, at(0));
+    let _ = opacity_at(&mut held, 30);
+    assert_eq!(
+        held.gpu_state_manager.scrollbar_fade_left(),
+        0,
+        "a held thumb pins the bar"
+    );
+
+    let mut never = scroller("-azul-scrollbar-fade-delay: 0;");
+    scroll_once_at_zero(&mut never);
+    let _ = opacity_at(&mut never, 30);
+    assert_eq!(
+        never.gpu_state_manager.scrollbar_fade_left(),
+        0,
+        "a delay of 0 never fades"
     );
 }

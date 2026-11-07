@@ -120,6 +120,11 @@ mod moved_frame_tests;
 #[cfg(test)]
 mod damage_which_tests;
 
+// `wait_settled` in a scripted run moves the engine's clock until the window is at
+// rest (a scrollbar still to fade out is not), or fails at its deadline naming what moves.
+#[cfg(test)]
+mod wait_settled_tests;
+
 // A box fades its overlay scrollbar by the `-azul-scrollbar-fade-delay` /
 // `-azul-scrollbar-fade-duration` it declares (E2E-R9), not by the window's constants.
 #[cfg(test)]

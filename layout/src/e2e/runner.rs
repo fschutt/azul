@@ -3886,6 +3886,12 @@ impl Runner {
             Some(None) => {
                 // `unmount`: drop the mounted document entirely.
                 self.layout_window.layout_results.clear();
+                // ... and with it the scrollbars that were still to fade out
+                // (`window_still_moving` would wait for bars that are gone).
+                self.layout_window
+                    .gpu_state_manager
+                    .scrollbar_fade_left_ms
+                    .clear();
                 self.cpu_backend.previous_display_list = None;
                 self.resize_pending = false;
                 self.dpi_pending = false;

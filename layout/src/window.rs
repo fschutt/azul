@@ -11710,6 +11710,8 @@ impl LayoutWindow {
         self.text_cache = TextLayoutCache::new();
         self.layout_results.clear();
         self.scroll_manager = ScrollManager::new();
+        // The bars that were still to fade went with their boxes and their scroll stamps.
+        self.gpu_state_manager.scrollbar_fade_left_ms.clear();
     }
 
     /// Set scroll position for a node
@@ -18660,6 +18662,9 @@ impl LayoutWindow {
     ) -> Vec<GpuScrollbarOpacityEvent> {
         let mut events = Vec::new();
         let mut any_opacity_nonzero = false;
+        // The longest any bar of this DOM still has to live, in ns
+        // (`GpuStateManager::scrollbar_fade_left_ms`).
+        let mut fade_left_ns: u128 = 0;
         let gpu_cache = gpu_state_manager.caches.entry(dom_id).or_default();
 
         // Get current time from system callbacks
@@ -18725,6 +18730,30 @@ impl LayoutWindow {
                     node_duration,
                 )
             };
+
+            // How long this box's bars are still on screen: from the box's last
+            // scroll, its hold plus its fade. A bar a thumb holds does not fall,
+            // and a delay of 0 is a bar that never does: neither is "to come".
+            let vertical_held = has_vertical_bar
+                && scroll_manager.is_thumb_dragged(dom_id, node_id, ScrollbarOrientation::Vertical);
+            let horizontal_held = has_horizontal_bar
+                && scroll_manager.is_thumb_dragged(
+                    dom_id,
+                    node_id,
+                    ScrollbarOrientation::Horizontal,
+                );
+            let falling_bar =
+                (has_vertical_bar && !vertical_held) || (has_horizontal_bar && !horizontal_held);
+            if falling_bar && node_delay.as_nanos() > 0 {
+                if let Some(last_activity) = scroll_manager.get_last_activity_time(dom_id, node_id)
+                {
+                    let elapsed = now.duration_since(&last_activity).as_nanos();
+                    let total = node_delay
+                        .as_nanos()
+                        .saturating_add(node_duration.as_nanos());
+                    fade_left_ns = fade_left_ns.max(total.saturating_sub(elapsed));
+                }
+            }
 
             // Track whether any scrollbar is actively fading (0 < opacity < 1).
             // We do NOT count fully-visible scrollbars (opacity == 1.0) because
@@ -18840,6 +18869,14 @@ impl LayoutWindow {
         // to complete the scrollbar fade animation. The caller should
         // schedule a redraw while this flag is true.
         gpu_state_manager.scrollbar_fade_active = any_opacity_nonzero;
+        let fade_left_ms = u64::try_from(fade_left_ns.div_ceil(1_000_000)).unwrap_or(u64::MAX);
+        if fade_left_ms == 0 {
+            gpu_state_manager.scrollbar_fade_left_ms.remove(&dom_id);
+        } else {
+            gpu_state_manager
+                .scrollbar_fade_left_ms
+                .insert(dom_id, fade_left_ms);
+        }
 
         events
     }
@@ -29691,6 +29728,7 @@ impl LayoutWindow {
         for child in dropped_child_doms {
             self.remap_node_ids(child, &gone);
             self.gpu_state_manager.caches.remove(&child);
+            self.gpu_state_manager.scrollbar_fade_left_ms.remove(&child);
             self.gl_texture_cache.solved_textures.remove(&child);
         }
     }
