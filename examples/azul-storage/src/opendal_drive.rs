@@ -11,11 +11,20 @@
 //!   calling thread ([`crate::runtime::block_on`], an azul `Thread`); a request's blocking send
 //!   runs on tokio's blocking pool, so no runtime worker ever waits on the network.
 //! - **S3 semantics.** A folder listing returns the folders (common prefixes, `docs/`) and the
-//!   files directly in it, sorted; a recursive one every file under the prefix and no folder.
-//!   Pages continue after the last key of the page before (OpenDAL streams a folder in one go;
-//!   the page is cut here).
+//!   files directly in it, sorted; a recursive one every file under the prefix and the folders
+//!   as markers (a key ending in `/`, as a bucket's empty "folder/" object: a folder with only
+//!   empty folders in it still has them, a move takes them along, a delete removes them).
+//!   Pages continue after the last key of the page before. OpenDAL streams a folder in one go: the
+//!   first page lists it, sorts it and keeps it for a minute, the pages after it are cut from that
+//!   copy (they used to list the whole folder again each, 200 calls for 200,000 objects); a
+//!   question whether anything is under a folder stops at its first entry.
 
-use std::{collections::BTreeMap, fmt, sync::Arc};
+use std::{
+    collections::BTreeMap,
+    fmt,
+    sync::{Arc, Mutex, PoisonError},
+    time::{Duration, Instant},
+};
 
 use ::opendal::{
     Buffer, Capability, ErrorKind, HttpBody, HttpTransport, HttpTransporter, Metadata,
@@ -149,11 +158,56 @@ impl HttpTransport for TransportHttp {
 
 // ==== The drive ====
 
+/// How long the pages after the first one are cut from the copy of the folder the first one
+/// listed.
+const LISTING_FRESH: Duration = Duration::from_secs(60);
+
+/// How much of a file is in memory at once when an upload or a copy of this drive streams it: a
+/// copy fallback and `put_from` held the whole file (AZ-CN10).
+const STREAM_CHUNK: usize = 8 * 1024 * 1024;
+
+/// Why a streamed transfer stopped: the service, or the reader that supplies the bytes.
+enum Streamed {
+    Service(::opendal::Error),
+    Read(std::io::Error),
+}
+
+impl From<::opendal::Error> for Streamed {
+    fn from(e: ::opendal::Error) -> Self {
+        Streamed::Service(e)
+    }
+}
+
+impl From<std::io::Error> for Streamed {
+    fn from(e: std::io::Error) -> Self {
+        Streamed::Read(e)
+    }
+}
+
+/// A streamed transfer's failure as the drive's.
+fn streamed_error(e: Streamed, key: &str) -> DriveError {
+    match e {
+        Streamed::Service(e) => drive_error(&e, key),
+        Streamed::Read(e) => DriveError::from(e),
+    }
+}
+
+/// A whole listing of one folder, kept for the pages after the first: sorted by key, one entry per
+/// key.
+struct Listing {
+    path: String,
+    recursive: bool,
+    at: Instant,
+    entries: Arc<Vec<Listed>>,
+}
+
 /// A data source through OpenDAL. `Debug` names the service, never a setting.
 pub struct OpendalDrive {
     op: Operator,
     scheme: String,
     capability: Capability,
+    /// The last folder listed ([`LISTING_FRESH`]).
+    listing: Mutex<Option<Listing>>,
 }
 
 impl fmt::Debug for OpendalDrive {
@@ -206,6 +260,7 @@ fn object_info(key: &str, meta: &Metadata) -> ObjectInfo {
 }
 
 /// One entry of a listing, before it is cut into a page.
+#[derive(Clone)]
 enum Listed {
     Folder(String),
     Object(ObjectInfo),
@@ -220,29 +275,68 @@ impl Listed {
     }
 }
 
-/// The page of `request` out of a whole listing: the entries in key order after the
-/// continuation key, `request.page_size()` of them, `next` the last one's key when more follow.
-fn page_of(mut listed: Vec<Listed>, request: &ListRequest) -> ListPage {
-    listed.sort_by(|a, b| a.key().cmp(b.key()));
-    listed.dedup_by(|a, b| a.key() == b.key());
+/// The page of `request` out of a whole listing, which is sorted by key and holds one entry a
+/// key ([`sorted`]): the entries under the request's prefix after the continuation key,
+/// `request.page_size()` of them, `next` the last one's key when more follow.
+fn page_of(listed: &[Listed], request: &ListRequest) -> ListPage {
     let after = request.continuation.as_deref();
     let size = request.page_size() as usize;
-    let mut rest = listed
-        .into_iter()
-        .filter(|entry| after.is_none_or(|after| entry.key() > after));
+    let mut rest = listed.iter().filter(|entry| {
+        entry.key().starts_with(request.prefix.as_str())
+            && after.is_none_or(|after| entry.key() > after)
+    });
     let mut page = ListPage::default();
     let mut last = None;
     for entry in rest.by_ref().take(size) {
         last = Some(entry.key().to_string());
         match entry {
-            Listed::Folder(prefix) => page.folders.push(prefix),
-            Listed::Object(object) => page.objects.push(object),
+            Listed::Folder(prefix) => page.folders.push(prefix.clone()),
+            Listed::Object(object) => page.objects.push(object.clone()),
         }
     }
     if rest.next().is_some() {
         page.next = last;
     }
     page
+}
+
+/// `listed` in key order with one entry a key. Two entries of one name (a service that allows
+/// them: Google Drive) are shown once: a key must name one thing to be read, renamed or deleted.
+fn sorted(mut listed: Vec<Listed>) -> Vec<Listed> {
+    listed.sort_by(|a, b| a.key().cmp(b.key()));
+    listed.dedup_by(|a, b| a.key() == b.key());
+    listed
+}
+
+/// `listed` (sorted) without the folder markers that have something under them: a bucket lists
+/// the markers somebody made, and the services that have real folders list every folder they walk
+/// into. What is left is an EMPTY folder - the one thing a listing of files cannot show, and the
+/// reason a folder that holds only empty folders moved as "not found" and a move left them behind
+/// (AZ-CN11). Keys sort so that everything under `docs/` follows `docs/` directly.
+fn without_full_folders(listed: Vec<Listed>) -> Vec<Listed> {
+    let mut kept = Vec::with_capacity(listed.len());
+    for (i, entry) in listed.iter().enumerate() {
+        let full = match entry {
+            Listed::Object(object) if object.key.ends_with('/') => listed
+                .get(i + 1)
+                .is_some_and(|next| next.key().starts_with(object.key.as_str())),
+            _ => false,
+        };
+        if !full {
+            kept.push(entry.clone());
+        }
+    }
+    kept
+}
+
+/// The marker of a folder in a recursive listing: an empty object whose key ends in `/`.
+fn folder_marker(key: &str) -> ObjectInfo {
+    ObjectInfo {
+        key: key.to_string(),
+        size: 0,
+        modified: None,
+        etag: None,
+    }
 }
 
 /// The settings OpenDAL gets for `scheme`: the form's options and secrets, a switch of the form
@@ -353,6 +447,7 @@ impl OpendalDrive {
             op,
             scheme: scheme.to_string(),
             capability,
+            listing: Mutex::new(None),
         })
     }
 
@@ -369,6 +464,135 @@ impl OpendalDrive {
     }
 }
 
+impl OpendalDrive {
+    /// Every entry under `path`, sorted ([`sorted`]): OpenDAL lists the whole folder; the folder
+    /// itself and what the request's partial name excludes are not in it. A recursive listing has
+    /// the folders as markers.
+    fn list_remote(
+        &self,
+        path: &str,
+        folder: &str,
+        recursive: bool,
+    ) -> Result<Vec<Listed>, DriveError> {
+        let entries =
+            runtime::block_on(async { self.op.list_with(path).recursive(recursive).await })?
+                .map_err(|e| drive_error(&e, folder))?;
+        let mut listed = Vec::with_capacity(entries.len());
+        for entry in entries {
+            let key = entry.path().trim_start_matches('/');
+            // The folder itself (OpenDAL lists the prefix's own entry): not an entry of its own
+            // listing - but a recursive one keeps it as the folder's marker, which is all that is
+            // left of a folder with nothing in it ([`without_full_folders`] drops it otherwise).
+            if key.is_empty() || (key == folder && !recursive) {
+                continue;
+            }
+            if key.ends_with('/') {
+                listed.push(if recursive {
+                    Listed::Object(folder_marker(key))
+                } else {
+                    Listed::Folder(key.to_string())
+                });
+            } else {
+                listed.push(Listed::Object(object_info(key, entry.metadata())));
+            }
+        }
+        let listed = sorted(listed);
+        Ok(if recursive {
+            without_full_folders(listed)
+        } else {
+            listed
+        })
+    }
+
+    /// The listing of `path` the pages of one request are cut from: the copy the first page kept
+    /// for the ones after it, else the folder listed now (and kept).
+    fn listing(
+        &self,
+        path: &str,
+        folder: &str,
+        recursive: bool,
+        request: &ListRequest,
+    ) -> Result<Arc<Vec<Listed>>, DriveError> {
+        if request.continuation.is_some() && !request.refresh {
+            let kept = self.listing.lock().unwrap_or_else(PoisonError::into_inner);
+            if let Some(kept) = kept.as_ref().filter(|kept| {
+                kept.path == path
+                    && kept.recursive == recursive
+                    && kept.at.elapsed() < LISTING_FRESH
+            }) {
+                return Ok(kept.entries.clone());
+            }
+        }
+        let entries = Arc::new(self.list_remote(path, folder, recursive)?);
+        *self.listing.lock().unwrap_or_else(PoisonError::into_inner) = Some(Listing {
+            path: path.to_string(),
+            recursive,
+            at: Instant::now(),
+            entries: entries.clone(),
+        });
+        Ok(entries)
+    }
+
+    /// `from` copied to `to` a chunk at a time ([`STREAM_CHUNK`]): the service has no copy of its
+    /// own, and reading the file whole into memory to put it again held a whole file (a gigabyte
+    /// video) per copy.
+    fn copy_streaming(&self, from: &str, to: &str) -> Result<(), DriveError> {
+        runtime::block_on(async {
+            let size = self.op.stat(from).await?.content_length();
+            let reader = self.op.reader(from).await?;
+            let mut writer = self.op.writer(to).await?;
+            let mut offset = 0u64;
+            while offset < size {
+                let end = offset.saturating_add(STREAM_CHUNK as u64).min(size);
+                let chunk = reader.read(offset..end).await?;
+                writer.write(chunk).await?;
+                offset = end;
+            }
+            writer.close().await?;
+            Ok::<(), ::opendal::Error>(())
+        })?
+        .map_err(|e| drive_error(&e, from))
+    }
+
+    /// Whether anything is under the request's prefix, asked as `folder_exists` asks it (one key
+    /// of a recursive listing): the first entry decides, the rest of the folder is not listed.
+    fn first_under(
+        &self,
+        path: &str,
+        folder: &str,
+        request: &ListRequest,
+    ) -> Result<ListPage, DriveError> {
+        use futures::StreamExt;
+        let found = runtime::block_on(async {
+            let mut lister = self.op.lister_with(path).recursive(true).await?;
+            while let Some(entry) = lister.next().await {
+                let entry = entry?;
+                let key = entry.path().trim_start_matches('/');
+                // The folder's own entry counts: a folder with nothing in it is there.
+                if key.is_empty() || !key.starts_with(request.prefix.as_str()) {
+                    continue;
+                }
+                return Ok(Some(if key.ends_with('/') {
+                    folder_marker(key)
+                } else {
+                    object_info(key, entry.metadata())
+                }));
+            }
+            Ok::<_, ::opendal::Error>(None)
+        })?;
+        let found = match found {
+            Ok(found) => found,
+            // A service with real folders refuses to list one that is not there: nothing is there.
+            Err(e) if e.kind() == ErrorKind::NotFound => None,
+            Err(e) => return Err(drive_error(&e, folder)),
+        };
+        Ok(ListPage {
+            objects: found.into_iter().collect(),
+            ..ListPage::default()
+        })
+    }
+}
+
 impl Drive for OpendalDrive {
     fn list(&self, request: &ListRequest) -> Result<ListPage, DriveError> {
         key::check_path_prefix(&request.prefix)?;
@@ -379,27 +603,12 @@ impl Drive for OpendalDrive {
         } else {
             folder.clone()
         };
-        let entries = runtime::block_on(async {
-            self.op.list_with(&path).recursive(recursive).await
-        })?
-        .map_err(|e| drive_error(&e, &folder))?;
-        let mut listed = Vec::with_capacity(entries.len());
-        for entry in entries {
-            let key = entry.path().trim_start_matches('/');
-            // The folder itself (OpenDAL lists the prefix's own entry), and what the request's
-            // partial name excludes.
-            if key.is_empty() || key == folder || !key.starts_with(request.prefix.as_str()) {
-                continue;
-            }
-            if key.ends_with('/') {
-                if !recursive {
-                    listed.push(Listed::Folder(key.to_string()));
-                }
-            } else {
-                listed.push(Listed::Object(object_info(key, entry.metadata())));
-            }
+        // "Is anything there?" (`folder_exists`, an emptiness check): the first entry answers.
+        if recursive && request.max_keys == 1 && request.continuation.is_none() {
+            return self.first_under(&path, &folder, request);
         }
-        Ok(page_of(listed, request))
+        let entries = self.listing(&path, &folder, recursive, request)?;
+        Ok(page_of(&entries, request))
     }
 
     fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
@@ -417,6 +626,37 @@ impl Drive for OpendalDrive {
         })?;
         read.map(|buffer| buffer.to_vec())
             .map_err(|e| drive_error(&e, key))
+    }
+
+    /// What `body` reads, written a chunk at a time ([`STREAM_CHUNK`]); a body that fails midway
+    /// leaves the writer unclosed, and the service keeps nothing of it.
+    fn put_from(&self, key: &str, body: &mut dyn std::io::Read) -> Result<u64, DriveError> {
+        if key.ends_with('/') {
+            // A folder marker is an empty put; it is not streamed.
+            let mut bytes = Vec::new();
+            body.read_to_end(&mut bytes)?;
+            self.put(key, &bytes)?;
+            return Ok(bytes.len() as u64);
+        }
+        runtime::block_on(async {
+            let mut writer = self.op.writer(key).await?;
+            let mut total = 0u64;
+            loop {
+                let mut chunk = Vec::new();
+                let read = std::io::Read::read_to_end(
+                    &mut std::io::Read::take(&mut *body, STREAM_CHUNK as u64),
+                    &mut chunk,
+                )?;
+                if read == 0 {
+                    break;
+                }
+                total += read as u64;
+                writer.write(Buffer::from(chunk)).await?;
+            }
+            writer.close().await?;
+            Ok::<u64, Streamed>(total)
+        })?
+        .map_err(|e| streamed_error(e, key))
     }
 
     fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
@@ -441,6 +681,11 @@ impl Drive for OpendalDrive {
     }
 
     fn copy(&self, from: &str, to: &str) -> Result<(), DriveError> {
+        // A folder's marker (an empty "folder/" a recursive listing shows) copies as a marker: a
+        // move of a folder takes its empty folders along.
+        if from.ends_with('/') && to.ends_with('/') {
+            return self.create_folder(to);
+        }
         if let Some(folder) = [from, to].into_iter().find(|k| k.ends_with('/')) {
             return Err(DriveError::InvalidKey {
                 key: folder.to_string(),
@@ -452,8 +697,7 @@ impl Drive for OpendalDrive {
                 .map(|_| ())
                 .map_err(|e| drive_error(&e, from));
         }
-        let bytes = self.get(from)?;
-        self.put(to, &bytes)
+        self.copy_streaming(from, to)
     }
 
     fn create_folder(&self, prefix: &str) -> Result<(), DriveError> {

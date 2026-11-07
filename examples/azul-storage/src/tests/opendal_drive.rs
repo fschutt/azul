@@ -585,3 +585,182 @@ fn az_cn7_the_binding_of_the_secrets_is_no_setting_of_the_service() {
         "{settings:?}"
     );
 }
+
+// ==== AZ-CN10 / AZ-CN11: listings ====
+
+/// A recursive listing has the folders with nothing in them, as a bucket has its markers; a folder
+/// with something in it has no marker of its own (the services with real folders list every folder
+/// they walk into). It dropped them all: a folder holding only empty folders moved as "not found".
+#[test]
+fn az_cn11_an_empty_folder_is_a_marker_of_a_recursive_listing_and_a_full_one_is_not() {
+    let drive = memory();
+    drive.put("docs/a.txt", b"alpha").unwrap();
+    drive.create_folder("empty/").unwrap();
+    drive.create_folder("deep/inner/").unwrap();
+    let all = drive.list(&ListRequest::recursive("")).unwrap();
+    assert_eq!(keys(&all), vec!["deep/inner/", "docs/a.txt", "empty/"]);
+    assert!(
+        all.objects
+            .iter()
+            .filter(|o| o.key.ends_with('/'))
+            .all(|o| o.size == 0),
+        "a marker is an empty object"
+    );
+    // The folder stops being empty: its marker is no entry any more.
+    drive.put("empty/file.txt", b"x").unwrap();
+    let all = drive.list(&ListRequest::recursive("")).unwrap();
+    assert_eq!(
+        keys(&all),
+        vec!["deep/inner/", "docs/a.txt", "empty/file.txt"]
+    );
+    // A listing of the folder itself: an empty folder is its own marker.
+    let alone = drive.list(&ListRequest::recursive("deep/inner/")).unwrap();
+    assert_eq!(keys(&alone), vec!["deep/inner/"]);
+    // A folder level is as it was: the folders, the files directly in it.
+    let root = drive.list(&ListRequest::folder("")).unwrap();
+    assert_eq!(root.folders, vec!["deep/", "docs/", "empty/"]);
+}
+
+/// The review: a move copied the files and left the empty folders at the source, and a folder that
+/// held only empty folders was "not found". The empty folders go along.
+#[test]
+fn az_cn11_a_folder_move_takes_its_empty_folders_along() {
+    let drive = memory();
+    drive.put("proj/a.txt", b"alpha").unwrap();
+    drive.create_folder("proj/empty/").unwrap();
+    drive.create_folder("only/inner/").unwrap();
+    drive.rename("proj/", "moved/").unwrap();
+    let moved = drive.list(&ListRequest::recursive("moved/")).unwrap();
+    assert_eq!(keys(&moved), vec!["moved/a.txt", "moved/empty/"]);
+    let left = drive.list(&ListRequest::recursive("proj/")).unwrap();
+    assert!(left.objects.is_empty(), "{:?}", keys(&left));
+    // A folder that holds only an empty folder moves (it was "not found").
+    drive.rename("only/", "kept/").unwrap();
+    let kept = drive.list(&ListRequest::recursive("kept/")).unwrap();
+    assert_eq!(keys(&kept), vec!["kept/inner/"]);
+    // A folder with nothing at all moves as well, and is deleted with its markers.
+    drive.create_folder("blank/").unwrap();
+    drive.rename("blank/", "blank-2/").unwrap();
+    assert!(crate::ops::folder_exists(&drive, "blank-2/").unwrap());
+    drive.delete_folder("moved/").unwrap();
+    assert!(!crate::ops::folder_exists(&drive, "moved/").unwrap());
+}
+
+/// "Is anything there?" answers for a folder with a file, a folder with nothing in it and a folder
+/// that is not there.
+#[test]
+fn az_cn10_az_cn11_a_folder_exists_when_it_has_something_or_is_itself_all_there_is() {
+    let drive = memory();
+    drive.put("docs/a.txt", b"alpha").unwrap();
+    drive.create_folder("empty/").unwrap();
+    assert!(crate::ops::folder_exists(&drive, "docs/").unwrap());
+    assert!(crate::ops::folder_exists(&drive, "empty/").unwrap());
+    assert!(!crate::ops::folder_exists(&drive, "nope/").unwrap());
+}
+
+/// AZ-CN10: OpenDAL lists a folder in one go and every page of the old code listed the whole
+/// folder again (200,000 objects, 200 pages: 200 whole listings). The first page lists and keeps
+/// the folder; the pages after it are cut from that copy - a file deleted meanwhile is still in
+/// them, until a refresh lists again.
+#[test]
+fn az_cn10_the_pages_after_the_first_are_cut_from_the_copy_the_first_one_listed() {
+    let drive = memory();
+    for name in ["a", "b", "c", "d", "e"] {
+        drive.put(&format!("{name}.txt"), name.as_bytes()).unwrap();
+    }
+    let first = drive
+        .list(&ListRequest::folder("").with_max_keys(2))
+        .unwrap();
+    assert_eq!(keys(&first), vec!["a.txt", "b.txt"]);
+    let token = first.next.expect("more follow");
+    // A file goes while the pages are read.
+    drive.delete("d.txt").unwrap();
+    let second = drive
+        .list(
+            &ListRequest::folder("")
+                .with_max_keys(2)
+                .with_continuation(token.clone()),
+        )
+        .unwrap();
+    assert_eq!(
+        keys(&second),
+        vec!["c.txt", "d.txt"],
+        "the copy of the first page's listing"
+    );
+    let third = drive
+        .list(
+            &ListRequest::folder("")
+                .with_max_keys(2)
+                .with_continuation(second.next.unwrap()),
+        )
+        .unwrap();
+    assert_eq!(keys(&third), vec!["e.txt"]);
+    assert_eq!(third.next, None);
+    // A refresh lists the folder again.
+    let again = drive
+        .list(
+            &ListRequest::folder("")
+                .with_max_keys(2)
+                .with_continuation(token)
+                .refreshed(),
+        )
+        .unwrap();
+    assert_eq!(keys(&again), vec!["c.txt", "e.txt"]);
+    // Another folder is listed from the service, not from the copy of this one.
+    drive.put("sub/x.txt", b"x").unwrap();
+    let sub = drive
+        .list(
+            &ListRequest::folder("sub/")
+                .with_max_keys(1)
+                .with_continuation("sub/a"),
+        )
+        .unwrap();
+    assert_eq!(keys(&sub), vec!["sub/x.txt"]);
+}
+
+/// AZ-CN10: the copy fallback and `put_from` held a whole file in memory; a file of more than one
+/// chunk is now sent and copied in pieces and arrives whole, and a body that fails midway leaves no
+/// object behind.
+#[test]
+fn az_cn10_a_file_over_one_chunk_is_uploaded_and_copied_in_pieces_and_arrives_whole() {
+    let drive = memory();
+    let big: Vec<u8> = (0..(9_u32 * 1024 * 1024 + 123))
+        .map(|i| (i % 251) as u8)
+        .collect();
+    let written = drive
+        .put_from("big.bin", &mut std::io::Cursor::new(big.clone()))
+        .unwrap();
+    assert_eq!(written, big.len() as u64);
+    assert_eq!(drive.get("big.bin").unwrap(), big);
+    drive.copy("big.bin", "copy.bin").unwrap();
+    assert_eq!(drive.get("copy.bin").unwrap(), big);
+    assert_eq!(drive.head("copy.bin").unwrap().size, big.len() as u64);
+    // An empty file is an empty object, by either way.
+    assert_eq!(
+        drive.put_from("empty.bin", &mut std::io::empty()).unwrap(),
+        0
+    );
+    drive.copy("empty.bin", "empty-copy.bin").unwrap();
+    assert_eq!(drive.head("empty-copy.bin").unwrap().size, 0);
+
+    struct FailsMidway(bool);
+    impl std::io::Read for FailsMidway {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            if self.0 {
+                return Err(std::io::Error::other("the disk went away"));
+            }
+            self.0 = true;
+            let n = buf.len().min(100);
+            buf[..n].fill(7);
+            Ok(n)
+        }
+    }
+    assert!(matches!(
+        drive.put_from("failed.bin", &mut FailsMidway(false)),
+        Err(DriveError::Io(_))
+    ));
+    assert!(matches!(
+        drive.head("failed.bin"),
+        Err(DriveError::NotFound { .. })
+    ));
+}

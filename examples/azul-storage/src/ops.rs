@@ -168,7 +168,11 @@ pub fn rename_by_copy<D: Drive + ?Sized>(
         }
         // Only the versions that were listed go: a file written to since stays where it is, and
         // the move reports it (a duplicate, never a loss).
-        let deletes: Vec<BatchDelete<'_>> = objects
+        // Deepest first: a folder marker goes after what is in it (FTP's RMD refuses a folder that
+        // is not empty).
+        let mut by_depth: Vec<&ObjectInfo> = objects.iter().collect();
+        by_depth.sort_by_key(|object| std::cmp::Reverse(object.key.len()));
+        let deletes: Vec<BatchDelete<'_>> = by_depth
             .iter()
             .map(|object| delete_of(&object.key, object.etag.as_deref()))
             .collect();
@@ -235,6 +239,8 @@ pub fn delete_by_listing<D: Drive + ?Sized>(drive: &D, prefix: &str) -> Result<(
     if !keys.iter().any(|key| key == prefix) {
         keys.push(prefix.to_string());
     }
+    // Deepest first: a folder marker goes after what is in it.
+    keys.sort_by_key(|key| std::cmp::Reverse(key.len()));
     let items: Vec<BatchDelete<'_>> = keys.iter().map(|key| BatchDelete::new(key)).collect();
     drive
         .delete_many(&items)
