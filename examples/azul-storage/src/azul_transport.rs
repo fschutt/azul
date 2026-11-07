@@ -52,6 +52,9 @@ pub struct AzulTransport {
     /// Whose traffic it carries. There is no constructor that leaves it unsaid: a call site
     /// chooses [`AzulTransport::azlin`] or [`AzulTransport::foreign`].
     class: TrustClass,
+    /// This is a TEST build ([`trust::test_build`]): a stack on this computer, under any name,
+    /// may stand in for the service. Read once, when the transport is made.
+    test_build: bool,
 }
 
 impl AzulTransport {
@@ -64,6 +67,7 @@ impl AzulTransport {
         AzulTransport {
             user_agent: user_agent.to_string(),
             class: TrustClass::Azlin,
+            test_build: trust::test_build(),
         }
     }
 
@@ -74,7 +78,16 @@ impl AzulTransport {
         AzulTransport {
             user_agent: user_agent.to_string(),
             class: TrustClass::Foreign,
+            test_build: trust::test_build(),
         }
+    }
+
+    /// This transport with the build's choice as an argument (the tests of the host rule set
+    /// both).
+    #[cfg(test)]
+    fn with_test_build(mut self, test_build: bool) -> Self {
+        self.test_build = test_build;
+        self
     }
 }
 
@@ -212,7 +225,7 @@ impl Transport for AzulTransport {
         // The class decides which hosts it may send to: an Azlin transport carries drive tokens and
         // signed requests to the service's own hosts only, a foreign one never to an Azlin host
         // (RF39 2c; a drive's endpoint and its nodes come from files and answers).
-        trust::admits(self.class, call.url.as_str(), trust::test_build())?;
+        trust::admits(self.class, call.url.as_str(), self.test_build)?;
         let method = method_of(call.method);
         let budget = call.budget();
         let mut config = HttpRequestConfig::create()
@@ -226,6 +239,12 @@ impl Transport for AzulTransport {
         for (name, value) in &call.headers {
             config = config.with_header(name.as_str(), value.as_str());
         }
+        // The Azlin service answers itself: a redirect from one of its hosts (a node, a proxy, a
+        // stranger in the path) is an answer to read, never a place to follow - a signed request
+        // and a drive token go where they were sent and nowhere else, as the bridge's transport
+        // has it. Everybody else's servers move files and folders, and their redirects are
+        // followed.
+        config.follow_redirects = self.class != TrustClass::Azlin;
         answer_of(config.http_request_blocking(
             method,
             call.url.as_str(),
@@ -249,6 +268,8 @@ impl Transport for AzulTransport {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use azul::{error::HttpError, str::String as AzString};
 
     use azul::http::HttpMethod;
@@ -256,7 +277,7 @@ mod tests {
     use super::{http_error_text, method_of, pinned_roots, AzulTransport};
     use crate::{
         transport::{is_dns_failure, DNS_FAILED},
-        trust::{self, TrustClass},
+        trust::TrustClass,
         CallLimits, HttpCall, Method, Transport,
     };
 
@@ -386,14 +407,12 @@ mod tests {
 
     /// An Azlin transport sends nothing to a host the service does not run - not the endpoint a
     /// file names, not a node a stranger listed: the drive's signed requests and its tokens stay
-    /// with the service. (A test build may reach a stack on this computer, so this holds in a
-    /// build that is none.)
+    /// with the service. The refusal comes before any connection. (This crate's tests may be a
+    /// test build, which reaches a stack on this computer; the shipped rule is the same
+    /// transport with that flag off.)
     #[test]
     fn an_azlin_transport_sends_nothing_to_a_host_the_service_does_not_run() {
-        if trust::test_build() {
-            return;
-        }
-        let azlin = AzulTransport::azlin("ua");
+        let azlin = AzulTransport::azlin("ua").with_test_build(false);
         for url in [
             "https://evil.example/d-1/key",
             "https://azlin.io.evil.example/",
@@ -402,5 +421,89 @@ mod tests {
             let why = azlin.send(&get(url)).unwrap_err();
             assert!(why.contains("not an Azlin host"), "{url}: {why}");
         }
+        // An address that parsers read differently names no host (trust::host_of_url).
+        let why = azlin
+            .send(&get("https://evil.example\\@b1.s3.azlin.io/d-1/key"))
+            .unwrap_err();
+        assert!(why.contains("names no host"), "{why}");
+    }
+
+    /// A TEST build reaches a stack on this computer through an Azlin transport, whatever its
+    /// name: the refusal above is not the answer (nothing listens at port 1, so the answer is a
+    /// connection that failed).
+    #[test]
+    fn a_test_build_reaches_a_stack_on_this_computer_through_the_azlin_transport() {
+        let why = AzulTransport::azlin("ua")
+            .with_test_build(true)
+            .send(&get("http://127.0.0.1:1/d-1/key"))
+            .unwrap_err();
+        assert!(!why.contains("not an Azlin host"), "{why}");
+    }
+
+    /// A one-connection HTTP server on this computer: it answers `reply` to the first request and
+    /// hands back that request's first line.
+    fn serve_once(reply: String) -> (String, std::sync::mpsc::Receiver<String>) {
+        use std::io::{BufRead, BufReader, Write};
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let Ok((mut stream, _)) = listener.accept() else {
+                return;
+            };
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut first = String::new();
+            let _ = reader.read_line(&mut first);
+            loop {
+                let mut line = String::new();
+                if reader.read_line(&mut line).unwrap_or(0) == 0 || line == "\r\n" {
+                    break;
+                }
+            }
+            let _ = stream.write_all(reply.as_bytes());
+            let _ = tx.send(first);
+        });
+        (url, rx)
+    }
+
+    /// The reply of a server that moved the page to `to`.
+    fn moved_to(to: &str) -> String {
+        format!("HTTP/1.1 302 Found\r\nLocation: {to}/moved\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+    }
+
+    /// RF39 2c: a signed request and a drive token go where they were sent. A redirect from an
+    /// Azlin host is the answer (the 302 itself) and is not followed - the second server hears
+    /// nothing - while everybody else's redirect is followed, as a WebDAV or a feed server that
+    /// moved a page expects.
+    #[test]
+    fn a_redirect_is_the_answer_of_an_azlin_request_and_a_foreign_request_follows_it() {
+        let ok =
+            String::from("HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok");
+        let (elsewhere, elsewhere_heard) = serve_once(ok);
+        let (moved, _) = serve_once(moved_to(&elsewhere));
+        let reply = AzulTransport::azlin("ua")
+            .with_test_build(true)
+            .send(&get(&format!("{moved}/x")))
+            .unwrap();
+        assert_eq!(reply.status, 302, "the redirect is the answer");
+        assert!(
+            elsewhere_heard
+                .recv_timeout(Duration::from_millis(500))
+                .is_err(),
+            "the redirect of an Azlin host was followed to {elsewhere}"
+        );
+
+        let (moved, _) = serve_once(moved_to(&elsewhere));
+        let reply = AzulTransport::foreign("ua")
+            .with_test_build(true)
+            .send(&get(&format!("{moved}/x")))
+            .unwrap();
+        assert_eq!(reply.status, 200, "a foreign request follows the redirect");
+        assert_eq!(reply.body, b"ok");
+        let heard = elsewhere_heard
+            .recv_timeout(Duration::from_secs(5))
+            .unwrap();
+        assert!(heard.starts_with("GET /moved "), "{heard}");
     }
 }
