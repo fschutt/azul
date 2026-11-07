@@ -102,3 +102,13 @@ fn a_non_xml_error_body_still_names_the_status() {
     let html = parse_error(502, "<html><body>Bad gateway</body></html>");
     assert!(html.to_string().contains("502"));
 }
+
+/// AZ-M13. A proxy may weaken the tag a node sent: `W/"x"` is the version `x`. The weak marker
+/// used to stay and the closing quote was cut: `W/"x`, a tag no node knows.
+#[test]
+fn az_m13_a_weak_entity_tag_is_the_version_it_weakens() {
+    use crate::xml::strip_quotes;
+    assert_eq!(strip_quotes("W/\"abc\""), "abc");
+    assert_eq!(strip_quotes(" \"abc\" "), "abc");
+    assert_eq!(strip_quotes("abc"), "abc");
+}

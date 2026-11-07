@@ -306,14 +306,14 @@ fn xml_escape(text: &str) -> String {
         .replace('>', "&gt;")
 }
 
-/// An entity tag as `If-Match` sends it: in quotes (a weak one, `W/"..."`, as it is).
+/// An entity tag as `If-Match` sends it: in quotes, and strong. A weak one (`W/"x"`: a proxy
+/// weakened what the node sent) is sent as the strong tag it was made from: `If-Match` compares
+/// strongly, and the tag the node holds is `"x"` - the weak form, or one with a quote missing,
+/// never matches and made every swap after it a conflict for good (AZ-M13).
 fn quoted_etag(etag: &str) -> String {
     let etag = etag.trim();
-    if etag.starts_with('"') || etag.starts_with("W/") {
-        etag.to_string()
-    } else {
-        format!("\"{etag}\"")
-    }
+    let etag = etag.strip_prefix("W/").unwrap_or(etag);
+    format!("\"{}\"", etag.trim_matches('"'))
 }
 
 /// How often a conditional PUT is sent when S3 answers 409 (another conditional write of

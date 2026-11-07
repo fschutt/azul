@@ -949,6 +949,27 @@ fn a_conditional_put_asks_if_none_match_or_if_match_and_reads_a_412_as_a_conflic
     assert_eq!(fake.calls().len(), 3);
 }
 
+/// AZ-M13. The tag a swap is made from may have been weakened on its way (`W/"e1"`); `If-Match`
+/// compares strongly, so it goes back as the strong tag it was made from. The weak form passed
+/// through, malformed after the quotes were cut, and every swap after it was a conflict for good.
+#[test]
+fn az_m13_a_weak_entity_tag_goes_back_as_the_strong_one_it_was_made_from() {
+    let fake = Fake::default();
+    fake.answer(200, &[("ETag", "W/\"e2\"")], "");
+    let drive = local_drive(&fake);
+    let replaced = drive.put_if(
+        "data/ab/obj",
+        b"three",
+        &Precondition::Matches(String::from("W/\"e1\"")),
+    );
+    assert_eq!(
+        replaced,
+        Ok(Some(String::from("e2"))),
+        "the tag the node's answer gave has no weak marker"
+    );
+    assert_eq!(header(&fake.last(), "if-match"), Some("\"e1\""));
+}
+
 /// S3's answer to a conditional write that met another one in flight: nothing was written.
 const IN_FLIGHT: &str = "<Error><Code>ConditionalRequestConflict</Code><Message>A conflicting \
      conditional operation is currently in progress against this resource. Please try \

@@ -36,9 +36,15 @@ pub(crate) fn first_text(xml: &str, name: &str) -> Option<String> {
         .map(|n| n.text().unwrap_or("").trim().to_string())
 }
 
-/// An ETag without its quotes.
+/// An ETag without its quotes - and without the weak marker a proxy may have put in front of
+/// them (`W/"x"` is the tag `x`: a version is opaque and compared, and `W/"x` with one quote is
+/// one that no server knows, AZ-M13).
 pub(crate) fn strip_quotes(etag: &str) -> String {
-    etag.trim().trim_matches('"').to_string()
+    let etag = etag.trim();
+    etag.strip_prefix("W/")
+        .unwrap_or(etag)
+        .trim_matches('"')
+        .to_string()
 }
 
 /// A `ListBucketResult` to a page.
