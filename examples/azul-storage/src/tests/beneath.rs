@@ -301,3 +301,39 @@ fn x_ar5a_8_a_fingerprint_is_the_same_only_for_the_known_untouched_file() {
     let from_record = Fingerprint::from_parts(Kind::File, f.size, f.mtime_ns, f.ctime_ns, f.dev, 0);
     assert_eq!(from_record.matches(&f), Tri::Unknown);
 }
+
+/// AZ-W15 (Linux): btrfs gives every subvolume a device number of its own and mounts none of them, so
+/// "another device" read as "another disk mounted here" and a synced folder with a subvolume in it
+/// skipped it and listed it as a mount. The mount table says which: only a folder it lists is a disk.
+#[cfg(unix)]
+#[test]
+fn az_w15_a_folder_of_another_device_is_a_disk_only_when_the_mount_table_lists_it() {
+    use std::path::{Path, PathBuf};
+    // A btrfs volume at /data with a subvolume /data/sub (no line of its own) and a disk mounted at
+    // "/data/usb stick" (a space is written \040).
+    let table = "\
+36 29 0:30 / /data rw,relatime shared:1 - btrfs /dev/sda1 rw,subvolid=5
+37 36 8:17 / /data/usb\\040stick rw,relatime shared:2 - vfat /dev/sdb1 rw
+38 29 0:31 / /proc rw - proc proc rw
+";
+    assert_eq!(
+        beneath::mount_points(table).collect::<Vec<_>>(),
+        [
+            PathBuf::from("/data"),
+            PathBuf::from("/data/usb stick"),
+            PathBuf::from("/proc")
+        ]
+    );
+    let is_disk = |path: &str| beneath::is_disk_in(Some(table), Some(Path::new(path)));
+    assert!(is_disk("/data/usb stick"), "a disk mounted here");
+    assert!(!is_disk("/data/sub"), "a subvolume of the same file system");
+    assert!(
+        !is_disk("/data/usb"),
+        "the beginning of a mount point is not one"
+    );
+    assert!(!is_disk("/data/usb stick/inner"));
+    // A table that could not be read, or a folder that could not be resolved, says nothing: the
+    // device number stands and the folder is kept out.
+    assert!(beneath::is_disk_in(None, Some(Path::new("/data/sub"))));
+    assert!(beneath::is_disk_in(Some(table), None));
+}

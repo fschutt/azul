@@ -1059,11 +1059,7 @@ pub fn scan_settled(
                         key.clone(),
                         String::from("a symbolic link (never followed)"),
                     ));
-                    out.tell(
-                        Code::SymlinkSkipped,
-                        &key,
-                        format!("a link to {target:?} is never followed"),
-                    );
+                    out.tell(Code::SymlinkSkipped, &key, link_detail(&target));
                     out.links.insert(key, target);
                     continue;
                 }
@@ -1236,6 +1232,21 @@ pub fn scan_settled(
         }
     }
     Ok(out)
+}
+
+/// What the problem list says of an entry the scan met as a link and does not follow: where it
+/// points when that can be read. A Windows entry that is a reparse point but no link - a cloud
+/// placeholder whose bytes are not on this computer, which reading would download - has no target
+/// (AZ-W15: it used to be told as "a link to \"\"").
+pub(crate) fn link_detail(target: &str) -> String {
+    if target.is_empty() {
+        String::from(
+            "it is a link, or a file whose bytes are not on this computer (a cloud placeholder): \
+             it is never followed or downloaded, and not taken for deleted",
+        )
+    } else {
+        format!("a link to {target:?} is never followed")
+    }
 }
 
 /// Says once for `folder` that its items' extended attributes and flags are not synced, when

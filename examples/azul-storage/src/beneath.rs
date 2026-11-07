@@ -416,7 +416,9 @@ pub struct Dir {
     /// Its path from the root (`""` is the root, `a/b` a folder in it).
     rel: String,
     path: PathBuf,
-    root_dev: u64,
+    /// The device it is on (0 where the system gives none): a folder below it on another device is
+    /// a disk mounted there, or - on Linux - a subvolume of the same file system.
+    dev: u64,
     #[cfg(unix)]
     fd: std::os::fd::OwnedFd,
 }
@@ -476,7 +478,7 @@ impl Root {
             Ok(Dir {
                 rel: String::new(),
                 path: self.path.clone(),
-                root_dev: self.dev,
+                dev: self.dev,
                 fd: self.fd.try_clone()?,
             })
         }
@@ -485,7 +487,7 @@ impl Root {
             Ok(Dir {
                 rel: String::new(),
                 path: self.path.clone(),
-                root_dev: self.dev,
+                dev: self.dev,
             })
         }
     }
@@ -592,13 +594,17 @@ impl Dir {
                 Err(e) => return Err(link_or_io(e, &rel)),
             };
             let st = sys::fstat(&fd)?;
-            if st.dev != self.root_dev {
+            let path = self.path.join(name);
+            // Another device is another disk mounted here - unless the mount table does not list the
+            // folder: btrfs gives every subvolume a device number of its own without mounting it
+            // (AZ-W15), and a folder in one is as much in the synced folder as any other.
+            if st.dev != self.dev && is_disk(&path) {
                 return Err(BeneathError::CrossesMount(rel));
             }
             Ok(Dir {
                 rel,
-                path: self.path.join(name),
-                root_dev: self.root_dev,
+                path,
+                dev: st.dev,
                 fd,
             })
         }
@@ -625,7 +631,7 @@ impl Dir {
             Ok(Dir {
                 rel,
                 path,
-                root_dev: self.root_dev,
+                dev: self.dev,
             })
         }
     }
@@ -1131,41 +1137,57 @@ fn stat_of_meta(meta: &std::fs::Metadata) -> Stat {
     }
 }
 
-/// Linux: the mount points strictly below `root` (from `/proc/self/mountinfo`).
+/// The mount points `/proc/self/mountinfo` lists (its fifth field of each line), unescaped.
+#[cfg(unix)]
+pub(crate) fn mount_points(text: &str) -> impl Iterator<Item = PathBuf> + '_ {
+    text.lines()
+        .filter_map(|line| line.split(' ').nth(4))
+        .map(|point| PathBuf::from(unescape_mount(point)))
+}
+
+/// The mount points strictly below `root`, as the caller spells it (Linux: bind mounts share the
+/// root's device number, so only the mount table tells them apart; elsewhere the table cannot be read
+/// and the device numbers do).
 #[cfg(unix)]
 fn mounts_below(root: &Path) -> Vec<PathBuf> {
-    #[cfg(target_os = "linux")]
-    {
-        let Ok(real) = std::fs::canonicalize(root) else {
-            return Vec::new();
-        };
-        let Ok(text) = std::fs::read_to_string("/proc/self/mountinfo") else {
-            return Vec::new();
-        };
-        let mut out = Vec::new();
-        for line in text.lines() {
-            let Some(point) = line.split(' ').nth(4) else {
-                continue;
-            };
-            let point = PathBuf::from(unescape_mount(point));
-            if point != real && point.starts_with(&real) {
-                // Kept under the root's path as the caller spells it.
-                if let Ok(rest) = point.strip_prefix(&real) {
-                    out.push(root.join(rest));
-                }
-            }
-        }
-        out
-    }
-    #[cfg(not(target_os = "linux"))]
-    {
-        let _ = root;
-        Vec::new()
+    let Ok(real) = std::fs::canonicalize(root) else {
+        return Vec::new();
+    };
+    let Ok(text) = std::fs::read_to_string(MOUNT_TABLE) else {
+        return Vec::new();
+    };
+    mount_points(&text)
+        .filter(|point| *point != real)
+        .filter_map(|point| point.strip_prefix(&real).ok().map(|rest| root.join(rest)))
+        .collect()
+}
+
+/// The kernel's table of mounts.
+#[cfg(unix)]
+const MOUNT_TABLE: &str = "/proc/self/mountinfo";
+
+/// Whether the folder at `path`, which is on another device than the folder it is in, is a disk
+/// mounted there. `table` is the mount table's text (`None`: it could not be read - macOS has none -
+/// so the device number is all there is), `real` the folder's resolved path (`None`: it could not
+/// be resolved). Only a table that was read and does not list the folder says it is no disk.
+#[cfg(unix)]
+pub(crate) fn is_disk_in(table: Option<&str>, real: Option<&Path>) -> bool {
+    match (table, real) {
+        (Some(table), Some(real)) => mount_points(table).any(|point| point == real),
+        _ => true,
     }
 }
 
+/// [`is_disk_in`] for the table and the folder as they are now.
+#[cfg(unix)]
+fn is_disk(path: &Path) -> bool {
+    let table = std::fs::read_to_string(MOUNT_TABLE).ok();
+    let real = std::fs::canonicalize(path).ok();
+    is_disk_in(table.as_deref(), real.as_deref())
+}
+
 /// A mountinfo field with its octal escapes (`\040` is a space) undone.
-#[cfg(target_os = "linux")]
+#[cfg(unix)]
 fn unescape_mount(field: &str) -> String {
     let bytes = field.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());

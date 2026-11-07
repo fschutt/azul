@@ -9,7 +9,7 @@ use serde_json::Value;
 use crate::sync::{
     local::{
         self, hash_bytes, index_path, json_blob, json_with_local_keys, mtime_ns, open_checked,
-        other_spelling, path_of, prune_empty_parents, read_failed, same_entry, scan,
+        link_detail, other_spelling, path_of, prune_empty_parents, read_failed, same_entry, scan,
         still_as_scanned, BaseEntry, Skip, RACY_NS,
     },
     rules::Rules,
@@ -551,4 +551,21 @@ fn az_w11_a_step_another_app_held_up_is_locked_and_a_broken_one_is_an_io_error()
     assert_eq!(problem_of("a.txt", &denied).code, Code::Locked);
     let other = BeneathError::Io(std::io::Error::from(std::io::ErrorKind::InvalidData));
     assert_eq!(problem_of("a.txt", &other).code, Code::IoError);
+}
+
+/// AZ-W15: a reparse point that is no link - a OneDrive placeholder - was told as "a link to \"\"".
+/// It is told for what it is, and a link keeps its target in the sentence.
+#[test]
+fn az_w15_a_placeholder_is_not_told_as_a_link_to_nowhere() {
+    assert_eq!(
+        link_detail("../other"),
+        "a link to \"../other\" is never followed"
+    );
+    let placeholder = link_detail("");
+    assert!(placeholder.contains("cloud placeholder"), "{placeholder}");
+    assert!(
+        placeholder.contains("not taken for deleted"),
+        "{placeholder}"
+    );
+    assert!(!placeholder.contains("link to"), "{placeholder}");
 }
