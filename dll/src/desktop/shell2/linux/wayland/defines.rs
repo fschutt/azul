@@ -277,6 +277,7 @@ pub struct xdg_wm_base {
     _private: [u8; 0],
 }
 #[repr(C)]
+#[derive(Clone, Copy)]
 pub struct xdg_surface {
     _private: [u8; 0],
 }

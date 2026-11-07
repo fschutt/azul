@@ -30,6 +30,42 @@
 #![warn(unused_extern_crates)]
 #![warn(unused_lifetimes)]
 #![warn(unused_macro_rules)]
+// Vendored code, in upstream's style (preflate-rs 0.7.6): the clippy lints below find style,
+// complexity and cleanliness in the ORIGINAL, and the crate stays close to it so a newer release
+// merges. None is a correctness or safety finding - those stay denied (the panic lints just below,
+// and clippy's correctness group). Listed one by one, not as a group, so a NEW kind of finding in
+// code written here shows up.
+#![allow(
+    clippy::assertions_on_constants,
+    clippy::assign_op_pattern,
+    clippy::collapsible_if,
+    clippy::derivable_impls,
+    clippy::empty_line_after_doc_comments,
+    clippy::identity_op,
+    clippy::int_plus_one,
+    clippy::io_other_error,
+    clippy::len_without_is_empty,
+    clippy::let_and_return,
+    clippy::manual_clamp,
+    clippy::manual_div_ceil,
+    clippy::manual_is_multiple_of,
+    clippy::manual_memcpy,
+    clippy::match_ref_pats,
+    clippy::needless_borrow,
+    clippy::needless_late_init,
+    clippy::needless_range_loop,
+    clippy::needless_return,
+    clippy::new_without_default,
+    clippy::ptr_arg,
+    clippy::redundant_field_names,
+    clippy::same_item_push,
+    clippy::single_match,
+    clippy::too_many_arguments,
+    clippy::unneeded_struct_pattern,
+    clippy::unused_enumerate_index,
+    clippy::useless_conversion,
+    clippy::while_let_on_iterator
+)]
 // panic = "abort" in every shipped profile: a panic reachable from a hostile deflate stream ends
 // AzDrive. The analysis path has none that the compiler can see: an unwrap, an expect, a panic,
 // a todo or an unreachable is a build error outside the tests (ARCH28 RF50 / AR5b-5). Plain
