@@ -81,6 +81,7 @@ fn lane_az_2_the_keyring_entry_names_of_a_drive_are_pinned() {
             "azul-storage/drive-key-planned/d_1",
             "azul-storage/member-key/d_1",
             "azul-storage/recovery-request/d_1",
+            "azul-storage/vault-key/d_1",
         ]
     );
     assert_eq!(contact_key_entry("ab12"), "azul-storage/contact-key/ab12");
@@ -96,12 +97,16 @@ fn lane_az_2_the_keyring_entry_names_of_a_drive_are_pinned() {
         assert_eq!(KeyEntry::of_name(&entry.name("d_1"), "d_1"), Some(entry));
         assert_eq!(KeyEntry::of_name(&entry.name("d_1"), "d_2"), None);
     }
-    // Only the session and the drive token are credentials; the rest is key material.
+    // Only the session, the drive token and the vault's key are credentials; the rest is key
+    // material.
     let credentials: Vec<KeyEntry> = KeyEntry::ALL
         .into_iter()
         .filter(|e| !e.is_key_material())
         .collect();
-    assert_eq!(credentials, [KeyEntry::Session, KeyEntry::AzlinToken]);
+    assert_eq!(
+        credentials,
+        [KeyEntry::Session, KeyEntry::AzlinToken, KeyEntry::VaultKey]
+    );
 }
 
 /// LANE-AZ-2: a removal without the evidence that the recovery code was checked takes the

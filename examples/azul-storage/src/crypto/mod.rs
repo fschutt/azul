@@ -51,6 +51,7 @@
 )]
 
 pub mod azl1;
+pub mod blob;
 pub mod codec;
 pub mod contacts;
 pub mod device;

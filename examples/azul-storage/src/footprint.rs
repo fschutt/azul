@@ -56,13 +56,17 @@ pub enum KeyEntry {
     RotationNext,
     /// The one-time key of a recovery request, kept while trusted contacts answer.
     RequestKey,
+    /// The random key that seals the drive's period vault on this computer (the issue keys and
+    /// period tokens of the months a customer paid for, AZ-K13). A credential: it opens a file of
+    /// this device that is removed with the drive.
+    VaultKey,
 }
 
 impl KeyEntry {
     /// Every kind, the entries that grant access to the drive's server side first, then the keys
     /// (a removal that stops in the middle leaves the keys, which can be found by the drive's id
     /// and tried again).
-    pub const ALL: [KeyEntry; 8] = [
+    pub const ALL: [KeyEntry; 9] = [
         KeyEntry::Session,
         KeyEntry::AzlinToken,
         KeyEntry::DriveKey,
@@ -71,6 +75,8 @@ impl KeyEntry {
         KeyEntry::PlannedKey,
         KeyEntry::MemberKey,
         KeyEntry::RequestKey,
+        // Last: a removal that stops before it leaves the vault readable.
+        KeyEntry::VaultKey,
     ];
 
     /// The entry's name in the keyring for the drive `drive`.
@@ -90,6 +96,7 @@ impl KeyEntry {
             KeyEntry::RotationPrevious => "drive-key-previous",
             KeyEntry::RotationNext => "drive-key-next",
             KeyEntry::RequestKey => "recovery-request",
+            KeyEntry::VaultKey => "vault-key",
         }
     }
 
@@ -99,7 +106,10 @@ impl KeyEntry {
     /// allowed it ([`Allow::PlainSecrets`]).
     #[must_use]
     pub const fn is_key_material(self) -> bool {
-        !matches!(self, KeyEntry::Session | KeyEntry::AzlinToken)
+        !matches!(
+            self,
+            KeyEntry::Session | KeyEntry::AzlinToken | KeyEntry::VaultKey
+        )
     }
 
     /// The entry of a drive of `drive` whose name is `name`, if it is one.
