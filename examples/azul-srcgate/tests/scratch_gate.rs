@@ -25,19 +25,19 @@ const TEMP: &str = "temp-dir";
 const ROOTS: &[Root] = &[
     Root {
         dir: "examples/azul-storage/src",
-        min_files: 55,
+        min_files: 80,
     },
     Root {
         dir: "examples/azcloud-kit/src",
-        min_files: 55,
+        min_files: 72,
     },
     Root {
         dir: "examples/azul-drive/src",
-        min_files: 65,
+        min_files: 88,
     },
     Root {
         dir: "examples/azul-appkit/src",
-        min_files: 20,
+        min_files: 26,
     },
 ];
 
@@ -103,10 +103,13 @@ const ALLOWED: &[Allow] = &[
          at all - every program of the user must agree on one path, so it cannot be a run's \
          scratch; Z30-B (a private per-user folder)",
     ),
-    Allow::file(
+    Allow::exactly(
         "examples/azul-drive/src/e2e/",
+        TEMP,
+        2,
         "the E2E commands (registered only when AZ_E2E or AZ_DEBUG is set) make their working \
-         folders in the system's temp folder, as another program on the computer would",
+         folders in the system's temp folder, as another program on the computer would; counted, \
+         so a new one is seen",
     ),
 ];
 

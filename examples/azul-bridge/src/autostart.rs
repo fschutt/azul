@@ -152,10 +152,14 @@ pub fn item_text(system: System, binary: &Path, state: &Path) -> String {
 /// When it cannot be written.
 pub fn enable(system: System, home: &Path, config: &Path, binary: &Path, state: &Path) -> std::io::Result<PathBuf> {
     let path = item_path(system, home, config);
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)?;
-    }
-    std::fs::write(&path, item_text(system, binary, state))?;
+    // Put in place whole (staged, synced, renamed): a login item a power cut left empty is a script
+    // that does nothing and a plist that makes the system complain at every login. The folder is
+    // made when it is missing.
+    azul_storage::durable::replace(
+        &path,
+        item_text(system, binary, state).as_bytes(),
+        azul_storage::durable::Mode::Shared,
+    )?;
     Ok(path)
 }
 
@@ -233,5 +237,48 @@ mod tests {
             config.join("autostart").join("azul-bridge.desktop")
         );
         assert!(item_path(System::MacOs, &home, &config).ends_with("Library/LaunchAgents/io.azlin.bridge.plist"));
+    }
+
+    /// X-DELTA-AZDRIVE-FILES-35: the login item was `fs::write`: a power cut left an empty script,
+    /// and a second `enable` wrote into the file a login might be reading. It is put in place whole
+    /// (staged, synced, renamed): the old text or the new one, no temporary file left beside it.
+    #[test]
+    fn enable_puts_the_item_in_place_whole_and_replaces_an_older_one() {
+        let dir = TempDir::new("bridge-autostart-whole");
+        let (home, config) = (dir.0.join("home"), dir.0.join("config"));
+        let first = enable(
+            System::Linux,
+            &home,
+            &config,
+            Path::new("/old/azul-bridge"),
+            Path::new("/s"),
+        )
+        .unwrap();
+        assert!(std::fs::read_to_string(&first)
+            .unwrap()
+            .contains("/old/azul-bridge"));
+        let second = enable(
+            System::Linux,
+            &home,
+            &config,
+            Path::new("/new/azul-bridge"),
+            Path::new("/s"),
+        )
+        .unwrap();
+        assert_eq!(first, second);
+        let text = std::fs::read_to_string(&second).unwrap();
+        assert!(
+            text.contains("/new/azul-bridge") && !text.contains("/old/azul-bridge"),
+            "{text}"
+        );
+        let beside: Vec<String> = std::fs::read_dir(second.parent().unwrap())
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(
+            beside,
+            vec![String::from("azul-bridge.desktop")],
+            "{beside:?}"
+        );
     }
 }

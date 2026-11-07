@@ -36,19 +36,19 @@ const PARENT_OF: &str = "parent-of-call";
 const ROOTS: &[Root] = &[
     Root {
         dir: "examples/azul-storage/src",
-        min_files: 55,
+        min_files: 80,
     },
     Root {
         dir: "examples/azcloud-kit/src",
-        min_files: 55,
+        min_files: 72,
     },
     Root {
         dir: "examples/azul-drive/src",
-        min_files: 65,
+        min_files: 88,
     },
     Root {
         dir: "examples/azul-appkit/src",
-        min_files: 20,
+        min_files: 26,
     },
 ];
 
@@ -181,10 +181,12 @@ const ALLOWED: &[Allow] = &[
         "CONFIG_DIR: the user's `~/.azlin` config folder, a different thing from a synced \
          folder's bookkeeping",
     ),
-    Allow::file(
+    Allow::exactly(
         "examples/azul-drive/src/e2e/",
+        BOOKKEEPING_NAME,
+        9,
         "the E2E commands look at the disk by name on purpose (the bookkeeping is what some of \
-         them check)",
+         them check); counted, so a new name there is seen",
     ),
 ];
 

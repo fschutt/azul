@@ -9,7 +9,8 @@
 //! must still hold, renamed, the folder synced. This gate keeps the raw calls out of the four
 //! storage crates' shipped code: `fs::rename`, `fs::copy`, `File::create`, `fs::write` and a
 //! `.create(true)` / `.create_new(true)` open. The descriptor-relative primitives of `beneath.rs`
-//! (and, outside this gate's roots, `durable.rs` itself) are where they live.
+//! are where they live - `durable.rs` itself is inside the roots and has none: it is built on
+//! those primitives.
 //!
 //! What stays is a counted allowance with its reason, and the lane that removes it: a lock file
 //! made with `create_new` (the file IS the mutual exclusion), an append-only log (a line appended
@@ -32,19 +33,19 @@ const RAW: &str = "raw-write";
 const ROOTS: &[Root] = &[
     Root {
         dir: "examples/azul-storage/src",
-        min_files: 55,
+        min_files: 80,
     },
     Root {
         dir: "examples/azcloud-kit/src",
-        min_files: 55,
+        min_files: 72,
     },
     Root {
         dir: "examples/azul-drive/src",
-        min_files: 65,
+        min_files: 88,
     },
     Root {
         dir: "examples/azul-appkit/src",
-        min_files: 20,
+        min_files: 26,
     },
 ];
 
@@ -96,11 +97,14 @@ fn rules() -> Vec<Rule> {
 /// Where a raw write stands today. TO SHRINK, never to grow: the group says who converts it.
 const ALLOWED: &[Allow] = &[
     // ---- the one module of the descriptor-relative primitives ----
-    Allow::file(
+    Allow::exactly(
         "examples/azul-storage/src/beneath.rs",
-        "the primitives durable.rs is built on: create_new and rename of a folder handle, and \
-         their path-based fallbacks where the system has no descriptor-relative calls (Windows \
-         goes through win.rs; what is left is a system that is neither Unix nor Windows)",
+        RAW,
+        3,
+        "the primitives durable.rs is built on: the path-based `create_new` of a system with no \
+         descriptor-relative calls - Windows too, where the handle is checked against the root \
+         and the file removed again if the folder was swapped (`Dir::create_new`) - and the two \
+         renames of a system that is neither Unix nor Windows (Windows renames through win.rs)",
     ),
     Allow::exactly(
         "examples/azul-storage/src/win.rs",
@@ -188,10 +192,13 @@ const ALLOWED: &[Allow] = &[
          too: AZ-W20)",
     ),
     // ---- B. the test harness plays other actors on the disk on purpose ----
-    Allow::file(
+    Allow::exactly(
         "examples/azul-drive/src/e2e/",
+        RAW,
+        31,
         "the E2E commands (registered only when AZ_E2E or AZ_DEBUG is set) make, move, copy and \
-         tamper with files the way another device, another program or a damaged disk would",
+         tamper with files the way another device, another program or a damaged disk would; \
+         counted, so a new raw write there is seen",
     ),
     Allow::exactly(
         "examples/azcloud-kit/src/sync/folder_remote.rs",
