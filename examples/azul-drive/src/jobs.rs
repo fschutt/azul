@@ -47,8 +47,8 @@ use azul_storage::{
     durable::Expect,
     ops as storage_ops,
     scratch::{self, MadeState, Scratch},
-    transfer, ByteRange, Drive, DriveError, ListPage, ListRequest, LocalDrive, ObjectInfo,
-    Precondition,
+    transfer, BatchDelete, ByteRange, Drive, DriveError, ListPage, ListRequest, LocalDrive,
+    ObjectInfo, Precondition,
 };
 
 use crate::{
@@ -1663,23 +1663,35 @@ fn tree_folders(
 /// was created - an empty folder, an empty file - never with what the user
 /// put in since.
 fn undo_create(drive: &dyn Drive, key: &str) -> Result<(), DriveError> {
-    let still_new = if key.ends_with('/') {
-        storage_ops::list_all(drive, key)?
-            .iter()
-            .all(|o| o.key == key)
-    } else {
-        drive.head(key)?.size == 0
+    let no_longer_new = || DriveError::InvalidKey {
+        key: key.to_string(),
+        reason: "it is not empty any more; delete it instead",
     };
-    if !still_new {
-        return Err(DriveError::InvalidKey {
-            key: key.to_string(),
-            reason: "it is not empty any more; delete it instead",
-        });
-    }
     if key.ends_with('/') {
-        drive.delete_folder(key)
-    } else {
-        drive.delete(key)
+        // The drive removes a folder only when nothing is in it ([`Drive::remove_empty_folder`]):
+        // a listing cannot see a socket, a link to a folder or a name that is not UTF-8 (an unzip
+        // of a Latin-1 archive), and `delete_folder` after "the listing shows nothing" removed
+        // them with the folder (X-DELTA-AZDRIVE-FILES-20, the twin of X-AR5a-10).
+        return if drive.remove_empty_folder(key)? {
+            Ok(())
+        } else {
+            Err(no_longer_new())
+        };
+    }
+    let info = drive.head(key)?;
+    if info.size != 0 {
+        return Err(no_longer_new());
+    }
+    // Deleted only while it is still the empty file that was looked at: one written to between
+    // the look and the delete is the user's.
+    let item = match &info.etag {
+        Some(tag) => BatchDelete::new(key).of_version(tag),
+        None => BatchDelete::new(key),
+    };
+    match drive.delete_many(&[item]).into_iter().next() {
+        Some(Err(DriveError::Conflict { .. })) => Err(no_longer_new()),
+        Some(other) => other,
+        None => Ok(()),
     }
 }
 
@@ -6155,6 +6167,91 @@ mod tests {
         let again = create_empty_file(&home, "a.txt").unwrap_err();
         assert!(matches!(again, DriveError::InvalidKey { .. }), "{again:?}");
         assert_eq!(home.get("a.txt").unwrap(), b"mine");
+    }
+
+    /// X-DELTA-AZDRIVE-FILES-20 (X-AR5a-10's twin). Ctrl+Z of a New folder decided "still empty" by a
+    /// listing, which cannot see a link to a folder (or a socket, or a name that is not UTF-8), and
+    /// then `delete_folder` (`remove_dir_all` on a disk) took them with the folder.
+    #[cfg(unix)]
+    #[test]
+    fn x_delta_azdrive_files_20_undoing_a_new_folder_keeps_what_the_listing_cannot_see() {
+        let dir = TempDir::new("dx20-undo-folder");
+        let home = LocalDrive::without_manifest(dir.path().to_path_buf());
+        home.create_folder("New folder/").unwrap();
+        // A link to a folder: no listing shows it.
+        let link = dir.path().join("New folder").join("link");
+        std::os::unix::fs::symlink(dir.path(), &link).unwrap();
+        assert!(
+            storage_ops::list_all(&home, "New folder/")
+                .unwrap()
+                .iter()
+                .all(|o| o.key == "New folder/"),
+            "the listing shows nothing in it"
+        );
+        let refused = undo_create(&home, "New folder/").unwrap_err();
+        assert!(
+            matches!(&refused, DriveError::InvalidKey { reason, .. } if reason.contains("not empty")),
+            "{refused:?}"
+        );
+        assert!(
+            link.symlink_metadata().is_ok(),
+            "the link went with the folder"
+        );
+        // Once it is really empty, the folder goes.
+        std::fs::remove_file(&link).unwrap();
+        undo_create(&home, "New folder/").unwrap();
+        assert!(!dir.path().join("New folder").exists());
+    }
+
+    /// An empty file that was written to between the look and the delete is the user's.
+    #[test]
+    fn x_delta_azdrive_files_20_undoing_a_new_file_deletes_only_the_empty_one_it_looked_at() {
+        struct WrittenAfterTheLook {
+            looks: AtomicUsize,
+            deleted: AtomicUsize,
+        }
+        impl Drive for WrittenAfterTheLook {
+            fn list(&self, _request: &ListRequest) -> Result<ListPage, DriveError> {
+                Ok(ListPage::default())
+            }
+            fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
+                Err(DriveError::NotFound { key: key.into() })
+            }
+            fn get_range(&self, key: &str, _range: ByteRange) -> Result<Vec<u8>, DriveError> {
+                self.get(key)
+            }
+            fn put(&self, _key: &str, _bytes: &[u8]) -> Result<(), DriveError> {
+                Ok(())
+            }
+            fn delete(&self, _key: &str) -> Result<(), DriveError> {
+                self.deleted.fetch_add(1, Ordering::SeqCst);
+                Ok(())
+            }
+            fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
+                // The first look: the empty file. Every look after it: the user saved text.
+                let first = self.looks.fetch_add(1, Ordering::SeqCst) == 0;
+                Ok(ObjectInfo {
+                    key: key.to_string(),
+                    size: if first { 0 } else { 12 },
+                    modified: Some(1),
+                    etag: Some(String::from(if first { "v1" } else { "v2" })),
+                })
+            }
+        }
+        let drive = WrittenAfterTheLook {
+            looks: AtomicUsize::new(0),
+            deleted: AtomicUsize::new(0),
+        };
+        let refused = undo_create(&drive, "notes.txt").unwrap_err();
+        assert!(
+            matches!(refused, DriveError::InvalidKey { .. }),
+            "{refused:?}"
+        );
+        assert_eq!(
+            drive.deleted.load(Ordering::SeqCst),
+            0,
+            "the file the user wrote to was deleted"
+        );
     }
 
     /// A drive that cannot ask (no conditional put) is looked at first, as before.
