@@ -205,16 +205,46 @@ impl Drive for ObjectCache {
 
     /// The drive below's own batch (a bucket's, an encrypted drive's packing), not one `put` after
     /// the other. The copy of a key goes as `put` and `put_if` drop it: before an unconditional
-    /// write, after a conditional one that took.
+    /// write - an item whose copy cannot be dropped fails, as `put` fails, and is not written - and
+    /// after a conditional one that took.
     fn put_many(&self, items: &[BatchPut<'_>]) -> Vec<Result<Option<String>, DriveError>> {
-        for item in items.iter().filter(|item| item.condition.is_none()) {
-            let _ = self.evict(item.key);
-        }
-        let results = self.inner.put_many(items);
-        for (item, result) in items.iter().zip(&results) {
+        let mut refused: Vec<Option<DriveError>> = items
+            .iter()
+            .map(|item| {
+                if item.condition.is_none() {
+                    self.evict(item.key).err()
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let sent: Vec<BatchPut<'_>> = items
+            .iter()
+            .zip(&refused)
+            .filter(|(_, refused)| refused.is_none())
+            .map(|(item, _)| *item)
+            .collect();
+        let mut answers = self.inner.put_many(&sent).into_iter();
+        let mut results = Vec::with_capacity(items.len());
+        for (item, refusal) in items.iter().zip(refused.iter_mut()) {
+            let result = match refusal.take() {
+                Some(e) => Err(e),
+                None => answers.next().unwrap_or_else(|| {
+                    Err(DriveError::Protocol(format!(
+                        "{}: the batch answered fewer files than it was given",
+                        item.key
+                    )))
+                }),
+            };
             if item.condition.is_some() && result.is_ok() {
-                let _ = self.evict(item.key);
+                // The write took: the copy of the key it replaced is dropped; one that cannot be
+                // is a copy of an older version, which this item must not report as written.
+                if let Err(e) = self.evict(item.key) {
+                    results.push(Err(e));
+                    continue;
+                }
             }
+            results.push(result);
         }
         results
     }

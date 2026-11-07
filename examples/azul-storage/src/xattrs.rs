@@ -35,6 +35,23 @@ pub fn is_managed(name: &[u8]) -> bool {
         || name.starts_with(b"security.")
 }
 
+/// Whether `e`, the answer to "which attributes does this file have", says there are none to have:
+/// the disk keeps no attributes at all, or the file is not there.
+pub(crate) fn keeps_no_attributes(e: &std::io::Error) -> bool {
+    if matches!(
+        e.kind(),
+        std::io::ErrorKind::Unsupported | std::io::ErrorKind::NotFound
+    ) {
+        return true;
+    }
+    #[cfg(unix)]
+    if let Some(code) = e.raw_os_error() {
+        // Compared with `||`: on some systems two of the names are one number.
+        return code == libc::ENOTSUP || code == libc::EOPNOTSUPP || code == libc::ENOSYS;
+    }
+    false
+}
+
 /// Puts the extended attributes of the file `from` on the file `to`, which landed as its copy.
 #[must_use]
 pub fn carry(from: &Path, to: &Path) -> Carried {
@@ -49,10 +66,17 @@ pub(crate) fn carry_with(
     set: &dyn Fn(&Path, &[u8], &[u8]) -> std::io::Result<()>,
 ) -> Carried {
     let mut out = Carried::default();
-    // A source whose attributes cannot be listed (a disk without any, a file gone) has none to
-    // carry: there is nothing to say.
-    let Ok(names) = imp::names(from) else {
-        return out;
+    // A source on a disk that keeps no attributes, or a file that is gone, has none to carry:
+    // there is nothing to say. A source whose attributes could not be READ (a refusal, a failing
+    // disk) may have had some: that is a loss the Move must see, not an empty list.
+    let names = match imp::names(from) {
+        Ok(names) => names,
+        Err(e) if keeps_no_attributes(&e) => return out,
+        Err(_) => {
+            out.lost
+                .push(String::from("(the attributes could not be read)"));
+            return out;
+        }
     };
     for name in names {
         if is_managed(&name) {

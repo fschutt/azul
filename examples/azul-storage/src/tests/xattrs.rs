@@ -7,7 +7,7 @@ use std::path::Path;
 use super::TempDir;
 use crate::{
     ctl::Quiet,
-    xattrs::{carry, carry_with, is_managed, set_for_test, value_for_test},
+    xattrs::{carry, carry_with, is_managed, keeps_no_attributes, set_for_test, value_for_test},
     xfer::{plan, run, Item},
     Drive, LocalDrive,
 };
@@ -126,4 +126,25 @@ fn x_delta_azdrive_files_16_a_move_between_two_disks_brings_the_attribute_and_re
         home.get("photo.jpg").is_err(),
         "the source went: nothing was lost"
     );
+}
+
+/// A source whose attributes could not be READ may have had some: only "this disk keeps none" and
+/// "the file is not there" are an empty list; any other answer is a loss a Move must see (a failed
+/// read is not an absent value).
+#[test]
+fn x_delta_azdrive_files_16_a_failed_read_of_the_attributes_is_not_an_empty_list() {
+    use std::io::{Error, ErrorKind};
+    assert!(keeps_no_attributes(&Error::from(ErrorKind::NotFound)));
+    assert!(keeps_no_attributes(&Error::from(ErrorKind::Unsupported)));
+    assert!(!keeps_no_attributes(&Error::from(
+        ErrorKind::PermissionDenied
+    )));
+    assert!(!keeps_no_attributes(&Error::other("a failing disk")));
+    #[cfg(unix)]
+    {
+        assert!(keeps_no_attributes(&Error::from_raw_os_error(
+            libc::ENOTSUP
+        )));
+        assert!(!keeps_no_attributes(&Error::from_raw_os_error(libc::EIO)));
+    }
 }

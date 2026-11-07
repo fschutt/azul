@@ -346,16 +346,22 @@ fn disk_subfolders(source: &dyn Drive, folder: &str) -> Result<Vec<String>, Driv
         let level = ops::list_folder_all(source, &prefix)?;
         // Sorted, and pushed in reverse, so the walk goes in key order and a parent is planned
         // before the folders in it.
-        let mut below: Vec<String> = level
-            .folders
-            .into_iter()
-            .filter(|sub| {
-                source
-                    .local_path(sub)
-                    .and_then(|path| std::fs::symlink_metadata(path).ok())
-                    .is_some_and(|meta| meta.is_dir())
-            })
-            .collect();
+        let mut below: Vec<String> = Vec::new();
+        for sub in level.folders {
+            let Some(path) = source.local_path(&sub) else {
+                continue;
+            };
+            match std::fs::symlink_metadata(path) {
+                Ok(meta) if meta.is_dir() => below.push(sub),
+                // A link to a folder, or something that is no folder any more.
+                Ok(_) => {}
+                // Gone since it was listed: its parent is read afresh when the move runs.
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                // A folder that cannot be looked at is a folder the plan cannot vouch for: the
+                // plan fails, and nothing is moved on the strength of a structure it did not see.
+                Err(e) => return Err(DriveError::Io(format!("{sub}: {e}"))),
+            }
+        }
         below.sort();
         for sub in &below {
             if out.len() >= FOLDERS {
