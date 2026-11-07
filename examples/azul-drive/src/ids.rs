@@ -366,11 +366,9 @@ pub fn voucher_button(drive_id: &str) -> AzString {
     AzString::from(format!("__azdrive_voucher_{}", id_part(drive_id)))
 }
 
-/// Options > Drives' "Receipts" of a drive: `__azdrive_receipts_<id>`.
-#[must_use]
-pub fn receipts_button(drive_id: &str) -> AzString {
-    AzString::from(format!("__azdrive_receipts_{}", id_part(drive_id)))
-}
+/// Options > Drives > Receipts' one button, which shows everything this computer paid:
+/// `__azdrive_receipts_open`.
+pub const RECEIPTS_OPEN: AzString = AzString::from_const_str("__azdrive_receipts_open");
 
 /// The receipts dialog, and the Save of the receipt of a checkout: `__azdrive_receipt_save_<id>`.
 pub const RECEIPTS: AzString = AzString::from_const_str("__azdrive_receipts");

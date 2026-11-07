@@ -1749,10 +1749,11 @@ azdrive-order-page-not-ours = The payment page the token server named is not one
 azdrive-order-price-changed = The price changed from { $shown } to { $charged } while the order was made, so nothing was ordered. The prices are loaded again: check them and order once more.
 azdrive-order-changed = The order was made for { $charged } instead of { $shown }, so nothing was ordered. The prices are loaded again: check them and order once more.
 azdrive-options-receipts = Receipts
-azdrive-receipts-title = Receipts of { $name }
-azdrive-receipts-none = Nothing was paid for this drive on this computer yet.
+azdrive-options-receipts-show = Show receipts
+azdrive-receipts-title = Receipts
+azdrive-receipts-none = Nothing was paid on this computer yet.
 azdrive-receipts-unreadable = The list of payments could not be read: { $why }
-azdrive-receipts-row = { $date }: { $tier }, { $months ->
+azdrive-receipts-row = { $date }: { $drive }, { $tier }, { $months ->
         [one] 1 month
        *[other] { $months } months
     } { $amount }

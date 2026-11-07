@@ -1747,10 +1747,11 @@ azdrive-order-page-not-ours = Die Zahlungsseite, die der Token-Server nannte, is
 azdrive-order-price-changed = Der Preis hat sich beim Bestellen von { $shown } auf { $charged } geändert, deshalb wurde nichts bestellt. Die Preise werden neu geladen: Prüfe sie und bestelle noch einmal.
 azdrive-order-changed = Die Bestellung wurde für { $charged } statt für { $shown } aufgegeben, deshalb wurde nichts bestellt. Die Preise werden neu geladen: Prüfen Sie sie und bestellen Sie noch einmal.
 azdrive-options-receipts = Belege
-azdrive-receipts-title = Belege von { $name }
-azdrive-receipts-none = Für dieses Laufwerk wurde auf diesem Computer noch nichts bezahlt.
+azdrive-options-receipts-show = Belege anzeigen
+azdrive-receipts-title = Belege
+azdrive-receipts-none = Auf diesem Computer wurde noch nichts bezahlt.
 azdrive-receipts-unreadable = Die Liste der Zahlungen konnte nicht gelesen werden: { $why }
-azdrive-receipts-row = { $date }: { $tier }, { $months ->
+azdrive-receipts-row = { $date }: { $drive }, { $tier }, { $months ->
         [one] 1 Monat
        *[other] { $months } Monate
     } { $amount }

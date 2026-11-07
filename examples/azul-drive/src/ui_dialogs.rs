@@ -332,11 +332,7 @@ pub(crate) fn popup_parts(popup: &Popup, s: &DriveState, app: &RefAny) -> (Strin
             ]));
             (t_args("azdrive-voucher-title", &[("name", Arg::from(name))]), body)
         }
-        Popup::Receipts {
-            drive_id,
-            records,
-            error,
-        } => crate::receipt::dialog_parts(s, app, drive_id, records, error),
+        Popup::Receipts { records, error } => crate::receipt::dialog_parts(s, app, records, error),
         #[cfg(feature = "encryption")]
         Popup::Encryption(dialog) => crate::encryption::dialog_parts(dialog, s, app),
         Popup::Sync(dialog) => crate::sync_view::dialog_parts(dialog, s, app),
@@ -1192,18 +1188,6 @@ fn options_of(s: &DriveState, app: &RefAny, category: usize) -> Vec<(String, Dom
                                 .with_id(ids::voucher_button(&slot.entry.id)),
                         );
                         row.add_child(
-                            Button::create(l10n::label("azdrive-options-receipts"))
-                                .with_on_click(
-                                    RefAny::new(DriveRef {
-                                        app: app.clone(),
-                                        index,
-                                    }),
-                                    on_receipts_drive as ButtonOnClickCallbackType,
-                                )
-                                .dom()
-                                .with_id(ids::receipts_button(&slot.entry.id)),
-                        );
-                        row.add_child(
                             Button::create(l10n::label("azdrive-options-restore"))
                                 .with_on_click(
                                     RefAny::new(DriveRef {
@@ -1247,6 +1231,17 @@ fn options_of(s: &DriveState, app: &RefAny, category: usize) -> Vec<(String, Dom
             let mut sections = vec![
                 section("azdrive-options-drives", column_of(rows)),
                 section("azdrive-options-sync", crate::sync_view::options_section(s, app)),
+                // One entry for everything this computer paid: a drive that was removed or
+                // has lapsed keeps its receipts here (X-DELTA-AZDRIVE-MONEY-17).
+                section(
+                    "azdrive-options-receipts",
+                    Dom::create_div()
+                        .with_css("display: flex; flex-direction: row;")
+                        .with_child(
+                            button("azdrive-options-receipts-show", app, on_receipts)
+                                .with_id(ids::RECEIPTS_OPEN),
+                        ),
+                ),
                 section(
                     "azdrive-options-other-programs",
                     crate::ui_bridge::section(&s.bridge, app),
@@ -1364,18 +1359,10 @@ extern "C" fn on_voucher_drive(mut data: RefAny, mut info: CallbackInfo) -> Upda
     })
 }
 
-/// Options > Drives' "Receipts" of an Azlin drive: its dialog.
-extern "C" fn on_receipts_drive(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    let Some((mut app, index)) = data
-        .downcast_ref::<DriveRef>()
-        .map(|d| (d.app.clone(), d.index))
-    else {
-        return Update::DoNothing;
-    };
-    with_state(&mut app, &mut info, |_info, _app, s| {
-        if let Some(drive_id) = s.slots.get(index).map(|slot| slot.entry.id.clone()) {
-            crate::receipt::open(s, &drive_id);
-        }
+/// Options > Drives > Receipts' "Show receipts": the dialog with everything this computer paid.
+extern "C" fn on_receipts(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_state(&mut data, &mut info, |_info, _app, s| {
+        crate::receipt::open(s)
     })
 }
 

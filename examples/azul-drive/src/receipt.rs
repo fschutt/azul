@@ -1,5 +1,6 @@
-//! The customer's receipt (ENT27-B06), on a durable medium: Options > Drives > "Receipts" of an
-//! Azlin drive lists what this computer paid for it and saves a page as a PDF.
+//! The customer's receipt (ENT27-B06), on a durable medium: Options > Drives > Receipts lists
+//! everything this computer paid - for the drives in the list and for the ones removed or lapsed
+//! since - and saves a page as a PDF.
 //!
 //! The token server books each sale and answers it with the checkout's approval; azcloud-kit
 //! keeps the booked sale as a [`PaidRecord`] before the checkout leaves its list. The page is
@@ -13,7 +14,8 @@
 
 use azcloud_kit::{
     azlin_contract::{Cents, ReceiptWire},
-    pending::PaidRecord,
+    pending::{PaidList, PaidRecord},
+    CloudResult,
 };
 use azul::{
     callbacks::ButtonOnClickCallbackType, dialog::FileDialog, pdf::Pdf, prelude::*,
@@ -37,7 +39,8 @@ pub(crate) fn lines(record: &PaidRecord, drive: &str) -> Vec<(&'static str, Stri
         ("azdrive-receipt-checkout", record.checkout.clone()),
         (
             "azdrive-receipt-drive",
-            if drive.is_empty() {
+            // A drive that is gone from the list has no name to show but its id.
+            if drive.is_empty() || drive == record.drive {
                 record.drive.clone()
             } else {
                 format!("{drive} ({})", record.drive)
@@ -183,29 +186,32 @@ pub(crate) fn file_name(record: &PaidRecord) -> String {
 
 // ==== The dialog ====
 
-/// Opens the receipts of `drive_id`: what this computer paid for it, newest first.
-pub(crate) fn open(s: &mut DriveState, drive_id: &str) {
-    let (records, error) = match s.keyring.paid().and_then(|list| list.records()) {
-        Ok(all) => {
-            let mut mine: Vec<PaidRecord> =
-                all.into_iter().filter(|r| r.drive == drive_id).collect();
-            mine.reverse();
-            (mine, Text::default())
+/// Opens the receipts of this computer: everything it paid, newest first.
+pub(crate) fn open(s: &mut DriveState) {
+    let (records, error) = shown(s.keyring.paid());
+    s.popups_opened += 1;
+    s.popup.open(Popup::Receipts { records, error });
+}
+
+/// What the dialog shows of the paid list `list`: every record - whichever drive it was paid for,
+/// and whether that drive is still in AzDrive's list or was removed or lapsed since (the receipt
+/// of a drive the customer no longer has is still theirs) - newest first; or, when the list cannot
+/// be read, why, and no record (a list that cannot be read is never shown as "nothing paid").
+/// X-DELTA-AZDRIVE-MONEY-17.
+#[must_use]
+pub(crate) fn shown(list: CloudResult<PaidList>) -> (Vec<PaidRecord>, Text) {
+    match list.and_then(|list| list.records()) {
+        Ok(mut all) => {
+            all.reverse();
+            (all, Text::default())
         }
-        // A list that cannot be read is said; it is never shown as "nothing paid".
         Err(why) => (
             Vec::new(),
             azul_appkit::l10n::Phrase::new("azdrive-receipts-unreadable")
                 .arg("why", why.to_string())
                 .into(),
         ),
-    };
-    s.popups_opened += 1;
-    s.popup.open(Popup::Receipts {
-        drive_id: drive_id.to_string(),
-        records,
-        error,
-    });
+    }
 }
 
 /// What a Save button carries.
@@ -218,11 +224,9 @@ struct SaveRef {
 pub(crate) fn dialog_parts(
     s: &DriveState,
     app: &RefAny,
-    drive_id: &str,
     records: &[PaidRecord],
     error: &Text,
 ) -> (String, Dom) {
-    let name = s.drive_name(&crate::browse::Place::folder(drive_id, ""));
     let mut body = Dom::create_div()
         .with_id(ids::RECEIPTS)
         .with_css("display: flex; flex-direction: column; min-width: 420px;");
@@ -232,17 +236,9 @@ pub(crate) fn dialog_parts(
         body.add_child(line("azdrive-receipts-none"));
     }
     for record in records {
-        let what = t_args(
-            "azdrive-receipts-row",
-            &[
-                ("date", Arg::from(day_of(record))),
-                ("tier", Arg::from(record.tier.as_str())),
-                ("months", Arg::from(record.months)),
-                (
-                    "amount",
-                    Arg::from(record.charge().map_or_else(String::new, |c| show(&c))),
-                ),
-            ],
+        let what = row_text(
+            record,
+            &listed_name(s, &record.drive).unwrap_or_else(|| record.drive.clone()),
         );
         body.add_child(
             Dom::create_div()
@@ -265,7 +261,32 @@ pub(crate) fn dialog_parts(
         );
     }
     body.add_child(buttons(vec![button("kit-button-ok", app, on_cancel_popup)]));
-    (t_args("azdrive-receipts-title", &[("name", Arg::from(name))]), body)
+    (t("azdrive-receipts-title"), body)
+}
+
+/// The name of the drive `drive_id` while it is in AzDrive's list; `None` once it is removed
+/// (the record knows only the id then).
+fn listed_name(s: &DriveState, drive_id: &str) -> Option<String> {
+    s.slot_index(drive_id).map(|at| s.slots[at].name())
+}
+
+/// One line of the dialog: the day, the drive (`drive`: its name, or its id once it is gone), the
+/// tier and months bought, and the amount booked.
+#[must_use]
+pub(crate) fn row_text(record: &PaidRecord, drive: &str) -> String {
+    t_args(
+        "azdrive-receipts-row",
+        &[
+            ("date", Arg::from(day_of(record))),
+            ("drive", Arg::from(drive)),
+            ("tier", Arg::from(record.tier.as_str())),
+            ("months", Arg::from(record.months)),
+            (
+                "amount",
+                Arg::from(record.charge().map_or_else(String::new, |c| show(&c))),
+            ),
+        ],
+    )
 }
 
 /// The day of `record`: the booked sale's, else the one this computer saw it paid.
@@ -291,19 +312,17 @@ extern "C" fn on_save(mut data: RefAny, mut info: CallbackInfo) -> Update {
         let Some(s) = app.downcast_ref::<DriveState>() else {
             return Update::DoNothing;
         };
-        let Some(Popup::Receipts {
-            drive_id, records, ..
-        }) = s.popup.as_ref()
-        else {
+        let Some(Popup::Receipts { records, .. }) = s.popup.as_ref() else {
             return Update::DoNothing;
         };
-        records.iter().find(|r| r.checkout == checkout).map(|record| {
-            let name = s.drive_name(&crate::browse::Place::folder(drive_id, ""));
-            (
-                file_name(record),
-                receipt_pdf(&mut info, record, &name),
-            )
-        })
+        records
+            .iter()
+            .find(|r| r.checkout == checkout)
+            .map(|record| {
+                // The page names the drive when it is still in the list, else shows its id alone.
+                let name = listed_name(&s, &record.drive).unwrap_or_default();
+                (file_name(record), receipt_pdf(&mut info, record, &name))
+            })
     };
     let Some((name, bytes)) = made else {
         return Update::DoNothing;
