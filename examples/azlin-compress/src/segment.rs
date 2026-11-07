@@ -461,13 +461,27 @@ fn brotli_compress(raw: &[u8], quality: u32) -> Result<Zeroizing<Vec<u8>>, Error
     Ok(out)
 }
 
+/// The most one segment or one pack member decodes to: AZL1's largest segment (16 MiB) is the
+/// largest of them, and a pack member is a file below a pack's size. `expected` is the word of
+/// whoever wrote the entry (a header, an index entry), and the decoders below reserve what it says -
+/// zstd up to the size its frame declares, brotli its capacity - so a size past this is refused
+/// before a byte is reserved (X-DELTA-AZDRIVE-KEYS-14: `2^60` aborted the process under
+/// `panic = "abort"`).
+pub const DECODED_MAX: usize = 1 << 24;
+
 /// The plaintext of a segment from its codec byte and its stored bytes; it must be exactly
-/// `expected` bytes (decoding stops one byte past: a segment cannot inflate past its size).
+/// `expected` bytes (decoding stops one byte past: a segment cannot inflate past its size), and
+/// `expected` at most [`DECODED_MAX`].
 pub fn decode_segment(
     codec_byte: u8,
     data: &[u8],
     expected: usize,
 ) -> Result<Zeroizing<Vec<u8>>, Error> {
+    if expected > DECODED_MAX {
+        return Err(damaged(
+            "a segment or a member that is said to decode to more than any can",
+        ));
+    }
     let plain = match Codec::from_byte(codec_byte)? {
         Codec::Stored => Zeroizing::new(data.to_vec()),
         Codec::Zstd => Zeroizing::new(
@@ -510,6 +524,30 @@ pub fn decode_segment(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// X-DELTA-AZDRIVE-KEYS-14: `expected` is an index entry's word. zstd reserves the size its
+    /// frame declares when that is not above the capacity it was given, brotli reserved its
+    /// capacity: 2^60 was a `capacity overflow` abort. A size past [`DECODED_MAX`] is refused
+    /// first, whatever the codec; the largest legitimate segment still decodes.
+    #[test]
+    fn x_delta_azdrive_keys_14_a_size_past_what_any_segment_decodes_to_reserves_nothing() {
+        let mut frame = vec![0x28, 0xB5, 0x2F, 0xFD, 0xE0];
+        frame.extend_from_slice(&(1u64 << 60).to_le_bytes());
+        frame.extend_from_slice(&[0x01, 0x00, 0x00]);
+        for codec in [Codec::Zstd, Codec::Brotli, Codec::Stored] {
+            for expected in [1usize << 60, DECODED_MAX + 1, usize::MAX] {
+                let refused = decode_segment(codec.byte(), &frame, expected);
+                assert!(refused.is_err(), "{codec:?}, {expected}");
+            }
+        }
+        let mut dictionary = vec![0u8, 0u8];
+        dictionary.extend_from_slice(&frame);
+        assert!(decode_segment(Codec::ZstdDict.byte(), &dictionary, 1 << 60).is_err());
+        // The biggest a segment is allowed to be is still read.
+        let raw = vec![7u8; DECODED_MAX];
+        let stored = decode_segment(Codec::Stored.byte(), &raw, DECODED_MAX).expect("16 MiB");
+        assert_eq!(stored.len(), DECODED_MAX);
+    }
 
     /// AZ-C7: brotli's output is the plaintext in another form, and the buffer it is written into
     /// was reserved at half the input: bytes brotli cannot shrink (here a pseudo-random run) made

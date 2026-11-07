@@ -67,6 +67,12 @@ pub fn decode_member(
     if codec != MEMBER_CONTAINER {
         return decode_segment(codec, data, expected);
     }
+    // The entry's size is its writer's word: no container decodes to more than a member can be.
+    if expected > crate::segment::DECODED_MAX {
+        return Err(damaged(
+            "a segment or a member that is said to decode to more than any can",
+        ));
+    }
     // The entry knows the size: nothing larger is decoded.
     let mut capped = options.clone();
     capped.limits.max_decoded_len = expected as u64;

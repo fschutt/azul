@@ -993,3 +993,77 @@ fn x_ar4_37_a_range_an_index_entry_names_does_not_reserve_its_whole_length() {
         vec![7u8; 50]
     );
 }
+
+// ==== X-DELTA-AZDRIVE-KEYS-14: numbers an index entry carries size nothing ====
+
+/// A zstd frame that declares `size` bytes of content in its header (single segment, an 8-byte
+/// content size) and holds one empty raw block.
+fn zstd_frame_declaring(size: u64) -> Vec<u8> {
+    let mut frame = vec![0x28, 0xB5, 0x2F, 0xFD, 0xE0];
+    frame.extend_from_slice(&size.to_le_bytes());
+    frame.extend_from_slice(&[0x01, 0x00, 0x00]);
+    frame
+}
+
+/// X-DELTA-AZDRIVE-KEYS-14: `decode_record(.., entry.size, ..)` handed the entry's size - a number
+/// a member of the drive writes - to `zstd::bulk::decompress` and `Vec::with_capacity`: a record of
+/// 16 bytes (a frame declaring 2^60) and a pointer with `size = 2^60` aborted every reader of the
+/// file (`panic = "abort"`), and the sync again after the restart. The size is held against what a
+/// pack can be before a byte is reserved.
+#[test]
+fn x_delta_azdrive_keys_14_a_record_written_for_a_huge_size_is_refused_before_it_is_reserved() {
+    let hash = [0u8; 32];
+    for codec in [
+        azlin_compress::segment::Codec::Zstd,
+        azlin_compress::segment::Codec::Brotli,
+        azlin_compress::segment::Codec::ZstdDict,
+    ] {
+        let mut record = vec![codec.byte()];
+        record.extend(zstd_frame_declaring(1 << 60));
+        for size in [1u64 << 60, PACK_MAX + 1, u64::MAX] {
+            let refused = crate::packing::decode_record(&record, size, &hash, "a.txt");
+            assert!(
+                matches!(&refused, Err(DriveError::Corrupt { reason, .. }) if reason.contains("file")),
+                "{codec:?}, {size}: {refused:?}"
+            );
+        }
+    }
+    // The member container (codec byte 5) is held to the same bound.
+    let refused = crate::packing::decode_record(&[5, 1, 2, 3], 1 << 60, &hash, "a.txt");
+    assert!(
+        matches!(refused, Err(DriveError::Corrupt { .. })),
+        "{refused:?}"
+    );
+}
+
+/// X-DELTA-AZDRIVE-KEYS-14: the numbers of a packed file's entry and of its pack's reference are
+/// each held against a pack's size: the file, its record, the pack's plaintext, the pack's object.
+#[test]
+fn x_delta_azdrive_keys_14_every_number_of_a_packed_entry_is_held_against_a_packs_size() {
+    use crate::packing::{check_packed, PackRef, PackedAt};
+    let at = |length: u64, plaintext: u64, object: u64| PackedAt {
+        pack: PackRef {
+            id: ObjectId([7; 16]),
+            plaintext_size: plaintext,
+            object_len: object,
+            segment_size: 4096,
+            prefix: [0; crate::crypto::azl1::PREFIX_LEN],
+        },
+        offset: 0,
+        length,
+    };
+    assert!(check_packed("a.txt", 10_000, &at(10_001, PACK_MAX, PACK_MAX)).is_ok());
+    for (size, packed) in [
+        (PACK_MAX + 1, at(10, 4096, 4096)),
+        (10, at(PACK_MAX + 1, 4096, 4096)),
+        (10, at(10, PACK_MAX + 1, 4096)),
+        (10, at(10, 4096, PACK_MAX + 1)),
+        (1 << 60, at(1 << 60, 1 << 60, 1 << 60)),
+    ] {
+        let refused = check_packed("a.txt", size, &packed);
+        assert!(
+            matches!(refused, Err(DriveError::Corrupt { .. })),
+            "{size} {packed:?}: {refused:?}"
+        );
+    }
+}

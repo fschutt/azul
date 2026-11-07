@@ -75,6 +75,7 @@ use crate::{
         StoredObject,
     },
     key::check_key,
+    limits::{Declared, Limit, LimitError},
     local::write_atomically,
     meta::reclaim::{
         delete_reclaimable, drop_new_object, Deleted, LiveObjects, ReclaimMode, Refusal, Released,
@@ -453,6 +454,38 @@ impl Member {
     }
 }
 
+/// The most a packed file may say it weighs, and a record or a pack may be: a pack is at most one
+/// chunk ([`PACK_MAX`]) and a file is packed only below the drive's threshold (512 KiB unless it is
+/// raised, never past a pack). The numbers of an index entry and of a pack's reference are the
+/// words of whoever wrote them - a member of the drive holds the key and can write any - so they
+/// are held against this before one byte is reserved or one request is sized from them
+/// (X-DELTA-AZDRIVE-KEYS-14).
+pub const PACKED_LIMIT: Limit = Limit::new("a file or a record in a pack", PACK_MAX);
+
+/// A packed file's entry and its pack's reference as a reader takes them: every number inside what
+/// a pack can be, else `Corrupt`.
+pub(crate) fn check_packed(
+    path: &str,
+    entry_size: u64,
+    packed: &PackedAt,
+) -> Result<(), DriveError> {
+    let corrupt = |what: &str, e: LimitError| DriveError::Corrupt {
+        key: path.to_string(),
+        reason: format!("{what}: {e}"),
+    };
+    for (what, value) in [
+        ("the file's size", entry_size),
+        ("its record", packed.length),
+        ("its pack's plaintext", packed.pack.plaintext_size),
+        ("its pack's object", packed.pack.object_len),
+    ] {
+        Declared::new(value)
+            .within(PACKED_LIMIT)
+            .map_err(|e| corrupt(what, e))?;
+    }
+    Ok(())
+}
+
 /// The plaintext of a record, checked against the index: its size and its BLAKE3.
 pub(crate) fn decode_record(
     record: &[u8],
@@ -467,6 +500,10 @@ pub(crate) fn decode_record(
     let Some((&codec_byte, data)) = record.split_first() else {
         return Err(corrupt("its record in the pack is empty"));
     };
+    // The entry's size is its writer's word: nothing is decoded to more than a pack can hold.
+    Declared::new(size)
+        .within(PACKED_LIMIT)
+        .map_err(|e| corrupt(&format!("the file's size: {e}")))?;
     let expected = usize::try_from(size).map_err(|_| corrupt("it is larger than memory"))?;
     // The entry's size caps what the record may decode to.
     let plain = azlin_compress::decode_member(codec_byte, data, expected, &Options::default())
@@ -1107,6 +1144,8 @@ impl<D: Drive> EncryptedDrive<D> {
         packed: &PackedAt,
     ) -> Result<Vec<u8>, DriveError> {
         let pack = &packed.pack;
+        // Before a key is unwrapped, a segment table built or a request sized from them.
+        check_packed(path, entry.size, packed)?;
         let file_key = self
             .unwrap_file_key(&object.wrapped_key, &pack.id)
             .map_err(|e| e.for_key(path))?;
