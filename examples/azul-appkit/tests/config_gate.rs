@@ -91,6 +91,50 @@ fn the_config_file_is_written_by_edit_and_by_nothing_else() {
     }
 }
 
+/// X-DELTA-AZDRIVE-FILES-22 (X-AR5a-6, X-AR5b-13): the shared config and the updater's registration,
+/// staged update and request were `fs::write` to one fixed temporary name and renamed - an empty
+/// file under the real name after a power cut, two apps interleaving through one temporary name.
+/// Both are put in place through `azul_storage::durable` now (staged beside the name, synced,
+/// renamed; one temporary name per write and process): no raw write, rename or fixed `.json.tmp` in
+/// the shipped code of either file.
+#[test]
+fn the_config_and_the_updaters_files_are_put_in_place_durably() {
+    for name in ["azlin_config.rs", "update.rs"] {
+        let file = source(name);
+        let code = shipped(&file);
+        for raw in [
+            "fs::write(",
+            "fs::rename(",
+            "fs::copy(",
+            "File::create(",
+            ".json.tmp",
+        ] {
+            assert!(!code.contains(raw), "{name} writes with `{raw}`");
+        }
+    }
+    let update = source("update.rs");
+    let write = between(shipped(&update), "pub fn write_json<", "\n}\n");
+    assert!(
+        write.contains("durable::replace(path"),
+        "write_json does not put the file in place durably: {write}"
+    );
+    assert!(
+        write.contains("Mode::Shared"),
+        "the app and the manager write beside each other: the file is shared, not private: {write}"
+    );
+    // The config can hold an OAuth client secret: this user alone reads it.
+    let config = source("azlin_config.rs");
+    let writer = between(
+        shipped(&config),
+        "    fn write(&self, path: &Path)",
+        "\n    }\n",
+    );
+    assert!(
+        writer.contains("Mode::Private"),
+        "the config is no longer readable by its owner alone: {writer}"
+    );
+}
+
 #[test]
 fn only_the_look_leaves_the_computer_with_the_synced_folder() {
     let file = source("azlin_config.rs");
