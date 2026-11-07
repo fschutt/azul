@@ -229,3 +229,48 @@ fn b3_p10_align_items_center_moves_both_items_and_the_frame_is_not_skipped() {
         "center",
     ));
 }
+
+/// The same two items on a red flex container, mounted with `justify` as its
+/// `justify-content`.
+fn two_items_mounted_with(justify: &str) -> serde_json::Value {
+    serde_json::json!({
+        "op": "mount",
+        "html": TWO_ITEMS_ON_RED_HTML,
+        "css": [
+            "html, body { margin: 0; width: 100%; height: 100%; }",
+            "#frame { width: 400px; height: 300px; }",
+            format!(
+                "#flex {{ display: flex; flex-direction: row; justify-content: {justify}; \
+                 align-items: stretch; width: 400px; height: 300px; background: red; }}"
+            ),
+            ".item { width: 60px; background: blue; }",
+        ],
+    })
+}
+
+/// E2E-R12, the contrast of the review's `jc_mount.json`: the same move arriving
+/// with a SECOND `mount` of the identical markup and a changed `justify-content`
+/// (not an override) showed the same under-paint - "so this is not the runner's
+/// double pass". The new document keeps the structure, the layout moves the
+/// second item by one delta, and the frame has to be painted.
+#[test]
+fn r12_a_second_mount_that_only_changes_the_justify_content_paints_the_move() {
+    assert_passes(&run(
+        "r12_second_mount",
+        vec![
+            two_items_mounted_with("flex-start"),
+            serde_json::json!({ "op": "wait_frame" }),
+            serde_json::json!({ "op": "wait", "ms": 100 }),
+            serde_json::json!({ "op": "reset_frame_counters" }),
+            serde_json::json!({ "op": "snapshot_frame", "as": "before" }),
+            two_items_mounted_with("space-between"),
+            serde_json::json!({ "op": "wait_frame" }),
+            serde_json::json!({ "op": "wait", "ms": 100 }),
+            serde_json::json!({ "op": "assert_changed", "vs": "before", "min_damage_rects": 1 }),
+            serde_json::json!({ "op": "assert_changed", "vs": "before", "which": "present" }),
+            serde_json::json!({
+                "op": "assert_damage_covers_changes", "vs": "before", "which": "present",
+            }),
+        ],
+    ));
+}
