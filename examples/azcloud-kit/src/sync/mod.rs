@@ -2937,13 +2937,23 @@ fn hold_big(
 }
 
 /// How the restored drive `remote` relates to the base's `entry` of `key`, for
-/// [`restore::rebase`]: the files it lost (no entry, no recorded delete), the ones it holds in
-/// another version than the base's (the edit may exist nowhere else; an entry that holds no
-/// bytes here is no edit - a new version of it on the drive is an ordinary download), and the
-/// ones it agrees with or recorded the delete of.
+/// [`restore::rebase`]: the files it lost (no entry, no recorded delete OF THIS VERSION), the ones
+/// it holds in another version than the base's (the edit may exist nowhere else; an entry that
+/// holds no bytes here is no edit - a new version of it on the drive is an ordinary download), and
+/// the ones it agrees with or recorded the delete of. A tombstone is the delete of one version
+/// (its hash): a name deleted at generation 2, made again at generation 3 and restored to
+/// generation 2 holds the OLD tombstone, and the new bytes are lost to the restore, not deleted -
+/// they used to read as "deleted elsewhere, unchanged here" and went to the trash on every device
+/// that had pulled them (X-DELTA-AZDRIVE-FILES-8).
 fn restore_relation(remote: &RemoteIndex, key: &str, entry: &BaseEntry) -> restore::Remote {
     match remote.files.get(key) {
-        None if remote.deleted.contains_key(key) => restore::Remote::Deleted,
+        None if remote
+            .deleted
+            .get(key)
+            .is_some_and(|tomb| tomb.hash == entry.hash) =>
+        {
+            restore::Remote::Deleted
+        }
         None => restore::Remote::Lost,
         Some(file) if !entry.cloud_only && !merge::same_version(entry, file) => {
             restore::Remote::Other

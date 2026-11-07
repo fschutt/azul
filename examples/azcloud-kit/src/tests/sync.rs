@@ -784,6 +784,52 @@ fn az_s2_an_announced_restore_keeps_a_file_edited_after_the_off_site_copy() {
     );
 }
 
+/// X-DELTA-AZDRIVE-FILES-8. The heal kept every base entry the restored index recorded a delete of
+/// as "deleted elsewhere" - without asking whose version the tombstone is. `n.md` deleted at
+/// generation 2, made again at generation 3 (the tombstone cleared), the drive restored to generation
+/// 2: the NEW bytes read as deleted elsewhere and unchanged here, and went to the trash - on every
+/// device that had pulled them, the only copies. A tombstone of another version is no delete of this
+/// one: the file is lost to the restore and sent again.
+#[test]
+fn x_delta_azdrive_files_8_a_name_made_again_after_its_delete_is_not_deleted_by_the_restore() {
+    let store = S3Bucket::new();
+    let a = Device::new("dev-dx8-a");
+    a.write("n.md", b"old text");
+    a.write("keep.md", b"keep");
+    a.sync(&store);
+    a.remove("n.md");
+    a.sync(&store);
+    let backup = store.read(&index_key(PREFIX)).unwrap();
+    assert!(
+        index_of(&store).deleted.contains_key("n.md"),
+        "the copy holds the tombstone of the old n.md"
+    );
+    a.write("n.md", b"new text, made after the copy");
+    a.sync(&store);
+    store.write(&index_key(PREFIX), backup);
+    let mut opts = a.opts();
+    opts.restore = Some(RestoreNotice {
+        epoch: 1,
+        prefix: String::new(),
+        ..RestoreNotice::default()
+    });
+    let report = a.sync_with(&store, &opts).unwrap();
+    assert!(report.refused.is_none(), "{}", report.summary());
+    assert_eq!(report.deleted_here, 0, "{}", report.summary());
+    assert_eq!(
+        a.read("n.md").as_deref(),
+        Some(&b"new text, made after the copy"[..]),
+        "the new n.md went to the trash as 'deleted elsewhere'"
+    );
+    assert!(
+        index_of(&store)
+            .files
+            .get("n.md")
+            .is_some_and(|f| f.hash == hash_bytes(b"new text, made after the copy")),
+        "sent again from here"
+    );
+}
+
 /// AZ-S3 (its second half), RF45 `baseline`. A pairing made after an announcement starts at that
 /// epoch, not at 0: the announcement is not new to it, so it neither heals anything nor excuses
 /// a LATER rollback.
