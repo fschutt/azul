@@ -15,11 +15,13 @@ data root are never read or written):
              the built-in defaults still in use - the hard-coding report
   signup     a drive at the token server, encrypted as every signup's is: a file up and down
              through the encryption, sync and share refused with words (the command line does
-             not take an encrypted drive through them); then a `--plaintext` drive for the
-             checks below, and `refresh` (POST /v1/drives/{id}/credentials) works
+             not take an encrypted drive through them), and `refresh`
+             (POST /v1/drives/{id}/credentials) works. Every Azlin drive is encrypted: there is
+             no plaintext one to run the checks below on (X-DELTA-AZDRIVE-KEYS-31)
   files      a 1 MiB and a 50 MiB file up and down, compared by SHA-256 (and azcloud's BLAKE3)
-  sync       a folder synced twice: the second run uploads nothing and writes no index; then an
-             edit, an addition, a delete; machine B joins (invite / join) and gets the same tree
+  sync       skipped: the folder sync of the command line does not take an encrypted drive
+             (AzDrive's e2e covers the sync of a drive's folders); machine B joins (invite / join)
+             in the Azlin step below
   azlin      the Azlin tree (data root + .azlin) from A to B: app files travel, caches / logs /
              locks / secret-shaped files / .azlin/cache never do, config.json arrives without A's
              endpoints and keeps B's; concurrent edits converge; a clash keeps both versions
@@ -353,9 +355,9 @@ def main():
     def signup_step():
         # A signup makes an encrypted drive ("we always encrypt"): up, down and ls go through
         # the encryption, sync and share are not built for an encrypted drive in the command
-        # line and must say so instead of storing plaintext or handing out ciphertext. The
-        # checks after this one run on a plaintext drive (`signup --plaintext`), the only kind
-        # the command line syncs and shares.
+        # line and must say so instead of storing plaintext or handing out ciphertext. There is no
+        # other kind of Azlin drive (`signup --plaintext` was refused by the parser since
+        # 857e4a2c8): the checks after this one run on this drive.
         enc = a.az("signup", "--name", "azcloud e2e encrypted", "--tier", "100GB")
         expect(enc["drive"].startswith("d_"), "drive id %r" % enc["drive"])
         up_down(a, 64 * 1024, "e2e/encrypted.bin")
@@ -368,9 +370,8 @@ def main():
             words = str(refused.get("error") or "")
             expect(refused["_exit"] != 0 and "does not go through the encryption" in words,
                    "%s of an encrypted drive: exit %d, %r" % (what, refused["_exit"], words))
-        s = a.az("signup", "--plaintext", "--name", "azcloud e2e", "--tier", "100GB")
+        s = enc
         ctx["drive"] = s["drive"]
-        expect(s["drive"].startswith("d_"), "drive id %r" % s["drive"])
         st = a.az("status")
         expect(st["drive"] == s["drive"], "status names another drive")
         before = st["expires_at"]
@@ -378,9 +379,9 @@ def main():
         expect(r["drive"] == s["drive"], "refresh answered for another drive")
         info = a.az("info")
         expect(info.get("id") == s["drive"], "info: %s" % info)
-        return ("encrypted drive %s: up/down through the encryption, sync and share refused; "
-                "plaintext drive %s, bucket %s, %d nodes; refresh ok (was %s, now %s); info %s" % (
-                    enc["drive"], s["drive"], s["bucket"], s["nodes"], before, r["expires_at"],
+        return ("encrypted drive %s, bucket %s, %d nodes: up/down through the encryption, sync "
+                "and share refused; refresh ok (was %s, now %s); info %s" % (
+                    enc["drive"], s["bucket"], s["nodes"], before, r["expires_at"],
                     info.get("tier")))
 
     def up_down(machine, size, key, *flags):
@@ -404,14 +405,9 @@ def main():
         keys = {o["key"]: o["size"] for o in listing["objects"]}
         expect(keys.get("e2e/1m.bin") == MIB, "ls: %s" % keys)
         expect(keys.get("e2e/big.bin") == args.big_mib * MIB, "ls: %s" % keys)
-        # A presigned link reads the object without any credentials.
-        link = a.az("share", "e2e/1m.bin", "--expires", "600")
-        with urllib.request.urlopen(link["url"], timeout=60) as r:
-            shared = r.read()
-        expect(hashlib.sha256(shared).hexdigest()
-               == sha256_file(os.path.join(a.work, "e2e_1m.bin")),
-               "the presigned link read other bytes")
-        return "1 MiB and %d MiB match (over %s; big up %.1f s, down %.1f s); share link ok" % (
+        # (A presigned link of a plain drive read an object without credentials; an encrypted
+        # drive hands out no link of the command line: the refusal is checked at the signup.)
+        return "1 MiB and %d MiB match (over %s; big up %.1f s, down %.1f s)" % (
             args.big_mib, up1["transport"], upb["_seconds"], downb["_seconds"])
 
     def make_sync_folder(root):
@@ -426,8 +422,11 @@ def main():
         return out["reports"][i]
 
     def sync_step():
-        if "sync" in skip:
-            raise Skip("--skip sync")
+        # Every Azlin drive is encrypted, and the command line's folder sync does not take an
+        # encrypted drive (cc332a97d): the step ran on a `--plaintext` drive that cannot be made
+        # any more. What it checked - the second run uploads nothing, an edit/add/delete travels,
+        # a second machine joins and gets the same tree - is AzDrive's sync e2e's now.
+        raise Skip("an Azlin drive is encrypted and `azcloud sync <folder>` refuses it")
         src = os.path.join(a.work, "sync-src")
         make_sync_folder(src)
         first = sync_report(a.az("sync", src, "--prefix", "e2e/sync/"))

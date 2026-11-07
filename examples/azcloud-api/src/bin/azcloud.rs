@@ -584,7 +584,7 @@ fn cmd_join(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
         .map(|why| {
             format!(
                 "warning: the join code's key could not be deleted from the drive ({why}): the \
-                 code still opens the drive key until it is withdrawn\n"
+                 code still opens the drive key until the keys are changed (azcloud rotate)\n"
             )
         })
         .unwrap_or_default();
@@ -1222,8 +1222,9 @@ fn cmd_rotate(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
         ));
     }
     text.push_str(
-        "Recommended after a compromise: azcloud reencrypt (every file into a new object, so \
-         nothing in the bucket opens with the old key).\n",
+        "Recommended after a compromise: azcloud reencrypt (every file into a new object, so the \
+         files as they are now no longer open with the old key; the older versions and the trash \
+         of a drive that keeps its history do, until they expire).\n",
     );
     Ok((value, text))
 }

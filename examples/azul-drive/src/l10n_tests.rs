@@ -186,3 +186,30 @@ fn x_delta_azdrive_keys_32_the_remove_dialog_says_what_becomes_of_the_keys_in_bo
     }
     set_locale("en-US");
 }
+
+/// X-DELTA-AZDRIVE-KEYS-31: "nothing in the drive opens with the old key any more" was said after
+/// re-encrypting every file, and on a drive that keeps its history (since a1c5e2a77) the older
+/// versions and the trash still do. The sentence says what is true.
+#[test]
+fn x_delta_azdrive_keys_31_the_re_encrypted_message_does_not_claim_that_nothing_opens_with_the_old_key(
+) {
+    keep(&sources());
+    for (locale, old_claim, true_words) in [
+        (
+            "en-US",
+            "nothing in the drive opens with the old key",
+            "older versions",
+        ),
+        (
+            "de-DE",
+            "Nichts im Laufwerk öffnet sich mehr mit dem alten Schlüssel",
+            "älteren Versionen",
+        ),
+    ] {
+        set_locale(locale);
+        let said = t("azdrive-enc-reencrypted");
+        assert!(!said.contains(old_claim), "{locale}: {said}");
+        assert!(said.contains(true_words), "{locale}: {said}");
+    }
+    set_locale("en-US");
+}

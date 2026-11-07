@@ -178,9 +178,14 @@ oci://registry.example.com:5000/team/app        # a port is not a tag
 
 The nice property here is that **the layer digest is the pin**. A registry
 already content-addresses its blobs, so an OCI release is digest-verified by
-construction — there is no checksum file to publish, forget, or trust. The
-minisign chain still applies on top if you pin a root key; put the `.minisig`
-and the statement in the manifest's annotations or ship them as extra layers.
+construction — there is no checksum file to publish, forget, or trust.
+
+The minisign chain has no way in through an OCI manifest yet: the client reads
+no `.minisig` and no key statement from a manifest's annotations or its layers.
+With a root key pinned, an OCI source therefore checks and notifies and
+installs nothing — the chain fails closed, it does not fall back to the digest
+(the digest only protects against a swapped file, not against whoever writes
+the manifest). To ship signed updates, use a manifest URL or a release host.
 
 ## Why there are two keys
 
@@ -234,8 +239,15 @@ azul-release-v1|app=<id>|version=<semver>|platform=<os-arch>|sha256=<hex>|releas
 
 A manifest cannot name its own signing key — only a root-signed statement
 can. That is the whole point: an attacker who controls your download server
-and your manifest still cannot make a client install anything, because they
-cannot produce a statement the root key signed.
+and your manifest still cannot make a client install a build you never
+signed, because they cannot produce a statement the root key signed. What
+they can do is offer a build you DID sign, again: an older release, or a
+signed beta, as the manifest's latest. A client that has already seen a newer
+version refuses an older one (its marks only move after a release has verified
+in full), but a first install has no marks to compare with, and a client
+cannot tell a withheld fix from a quiet week. Keep old releases' signing keys
+retired through the statement's expiry and `min_generation`, not through the
+hope that nobody keeps a copy.
 
 An empty `root_public_key` does **not** disable the chain. An app that
 carries no root key has no way to prove an update: it may check and notify,

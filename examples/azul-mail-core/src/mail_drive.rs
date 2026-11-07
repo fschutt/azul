@@ -6,8 +6,10 @@
 //! first call decides whether the drive is encrypted (this computer keeps its key - AzDrive's
 //! entry for the same drive id, the keyring is shared - or the bucket holds key files); an
 //! encrypted one then goes through the drive index (the bucket's encrypted metadata
-//! repository); a plain one is used as it is. Without the feature the bucket is used as it is,
-//! as before.
+//! repository); one that is not encrypted is read and written by NO call (an Azlin drive is
+//! encrypted in AzDrive first). Without the feature (a build for tests, never shipped) an Azlin
+//! drive is opened through no call at all: every one answers why (X-DELTA-AZDRIVE-KEYS-23) - the
+//! bare bucket would hand the mail and the WebDAV files to the storage in the clear.
 //!
 //! Incoming mail of an encrypted drive arrives as DROPS: the customer's Cloudflare Email Worker
 //! seals each message to the drive's drop key (azul-storage's `crypto::drops`, AZD1) and puts it
@@ -96,8 +98,47 @@ pub fn wrap(
     }
     #[cfg(not(feature = "encryption"))]
     {
-        let _ = (drive_id, keyring);
-        bucket
+        let _ = (bucket, drive_id, keyring);
+        Arc::new(NoEncryption)
+    }
+}
+
+/// The mail's drive in a build without the encryption: an Azlin drive is encrypted, and this build
+/// can open none, so it reads and writes nothing of it - AzDrive's `Slot::open` refuses the same
+/// way (`azlin_needs_encryption`). A bare bucket in its place served the mail folders and the
+/// WebDAV files in the clear.
+#[cfg(not(feature = "encryption"))]
+struct NoEncryption;
+
+#[cfg(not(feature = "encryption"))]
+impl NoEncryption {
+    fn refused() -> DriveError {
+        DriveError::Unsupported(String::from(
+            "this build has no encryption, and an Azlin drive is encrypted: nothing of it is read \
+             or written",
+        ))
+    }
+}
+
+#[cfg(not(feature = "encryption"))]
+impl Drive for NoEncryption {
+    fn list(&self, _: &azul_storage::ListRequest) -> Result<azul_storage::ListPage, DriveError> {
+        Err(NoEncryption::refused())
+    }
+    fn get(&self, _: &str) -> Result<Vec<u8>, DriveError> {
+        Err(NoEncryption::refused())
+    }
+    fn get_range(&self, _: &str, _: azul_storage::ByteRange) -> Result<Vec<u8>, DriveError> {
+        Err(NoEncryption::refused())
+    }
+    fn put(&self, _: &str, _: &[u8]) -> Result<(), DriveError> {
+        Err(NoEncryption::refused())
+    }
+    fn delete(&self, _: &str) -> Result<(), DriveError> {
+        Err(NoEncryption::refused())
+    }
+    fn head(&self, _: &str) -> Result<azul_storage::ObjectInfo, DriveError> {
+        Err(NoEncryption::refused())
     }
 }
 
@@ -246,23 +287,29 @@ mod tests {
         PROVIDER.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
-    /// Without the feature the bucket is the mail's drive as it is.
+    /// X-DELTA-AZDRIVE-KEYS-23: without the feature the bucket WAS the mail's drive as it is - the
+    /// mail folders and the WebDAV files of an Azlin drive in the clear, where AzDrive refuses such a
+    /// build at `Slot::open`. It is opened through no call now: every one answers why.
     #[cfg(not(feature = "encryption"))]
     #[test]
-    fn a_plain_drive_carries_the_mail_as_it_is() {
+    fn x_delta_azdrive_keys_23_a_build_without_the_encryption_reads_and_writes_nothing_of_an_azlin_drive(
+    ) {
+        use azul_storage::{DriveError, ListRequest};
         let tmp = TempDir::new("azmail-mail-drive");
         let bucket = LocalDrive::without_manifest(tmp.path());
         bucket.put("mail/Inbox/1.eml", b"Subject: hi\r\n\r\nhello").unwrap();
         let drive = wrap(Arc::new(bucket), "d_1", Arc::new(MemoryKeyring::new()));
-        assert_eq!(
-            drive.get("mail/Inbox/1.eml").unwrap(),
-            b"Subject: hi\r\n\r\nhello"
-        );
-        drive.put("mail/Sent/2.eml", b"sent").unwrap();
-        assert_eq!(
-            std::fs::read(tmp.path().join("mail/Sent/2.eml")).unwrap(),
-            b"sent"
-        );
+        assert!(matches!(
+            drive.get("mail/Inbox/1.eml"),
+            Err(DriveError::Unsupported(_))
+        ));
+        assert!(matches!(
+            drive.put("mail/Sent/2.eml", b"sent"),
+            Err(DriveError::Unsupported(_))
+        ));
+        assert!(drive.list(&ListRequest::recursive("")).is_err());
+        assert!(drive.head("mail/Inbox/1.eml").is_err());
+        assert!(!tmp.path().join("mail/Sent").exists(), "nothing written");
     }
 
     /// With it, an Azlin drive is encrypted-only (C1/K8, X-AR5b-1): a bucket that lists plaintext

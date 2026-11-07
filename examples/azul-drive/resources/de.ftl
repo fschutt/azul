@@ -1461,7 +1461,7 @@ azdrive-enc-reencrypted = { $count ->
     } von „{ $name }“ { $count ->
         [one] hat
        *[other] haben
-    } neue Schlüssel: Nichts im Laufwerk öffnet sich mehr mit dem alten Schlüssel.
+    } neue Schlüssel: Die Dateien, wie sie jetzt sind, öffnen sich nicht mehr mit dem alten Schlüssel. Ihre älteren Versionen und der Papierkorb tun es noch, bis sie ablaufen.
 azdrive-enc-reencrypt-damaged = { $count ->
         [one] Eine beschädigte Datei blieb,
        *[other] { $count } beschädigte Dateien blieben,

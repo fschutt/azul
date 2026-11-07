@@ -1463,7 +1463,7 @@ azdrive-enc-reencrypted = { $count ->
     } of "{ $name }" { $count ->
         [one] has
        *[other] have
-    } new keys: nothing in the drive opens with the old key any more.
+    } new keys: the files as they are now no longer open with the old key. Their older versions and the trash still do, until they expire.
 azdrive-enc-reencrypt-damaged = { $count ->
         [one] One damaged file was
        *[other] { $count } damaged files were

@@ -610,10 +610,11 @@ fn serve(
             Some(id),
         )
     };
-    // An Azlin drive goes through the encryption when it is encrypted, as AzMail's does
-    // (azul-mail-core's mail_drive: AutoEncrypted with the drive index, its copy in the state
-    // folder; the drive key from the bridge's keyring), and the drops the mail Worker leaves are
-    // filed before a folder is listed. IMAP, SMTP, WebDAV, CalDAV and CardDAV all use this drive.
+    // An Azlin drive goes through the encryption, as AzMail's does (azul-mail-core's mail_drive:
+    // AutoEncrypted with the drive index, its copy in the state folder; the drive key from the
+    // bridge's keyring; a drive that is not encrypted is neither read nor written), and the drops
+    // the mail Worker leaves are filed before a folder is listed. IMAP, SMTP, WebDAV, CalDAV and
+    // CardDAV all use this drive.
     #[cfg(feature = "encryption")]
     let (drive, incoming) = match &drive_id {
         Some(id) => {
@@ -625,10 +626,16 @@ fn serve(
         }
         None => (drive, None),
     };
+    // A build without the encryption opens an Azlin drive through no call (the mail's drive refuses
+    // every one): the bare account drive would serve the mail and the WebDAV files in the clear
+    // (X-DELTA-AZDRIVE-KEYS-23).
     #[cfg(not(feature = "encryption"))]
-    let incoming: Option<crate::store::Incoming> = {
-        let _ = &drive_id;
-        None
+    let (drive, incoming): (Arc<dyn Drive>, Option<crate::store::Incoming>) = match &drive_id {
+        Some(id) => (
+            azmail_core::mail_drive::wrap(drive, id, secrets.clone()),
+            None,
+        ),
+        None => (drive, None),
     };
     let mut mail_store = DriveMailStore::new(drive.clone());
     if let Some(incoming) = incoming {
