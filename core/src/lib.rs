@@ -453,8 +453,10 @@ pub mod custom_property_cascade;
 pub mod refany;
 /// Resource management: font/image loading, caching, and garbage collection.
 pub mod resources;
-/// What only a TEST run may do: the one place that reads the test switches (`AZ_BACKEND=headless`
-/// as a stand-in, `AZ_E2E_TEST`, `AZ_KEYRING`, ...), behind the cargo feature `test-hooks`.
+/// What only a TEST run may do, behind the cargo feature `test-hooks`.
+///
+/// The one place that reads the test switches (`AZ_BACKEND=headless` as a stand-in,
+/// `AZ_E2E_TEST`, `AZ_KEYRING`, ...).
 #[cfg(feature = "std")]
 pub mod run_mode;
 /// Scaling of raw images and video frames (thumbnails, consumer cuts).

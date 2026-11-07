@@ -35,7 +35,12 @@ fn a_shipped_build_has_no_hook_whatever_the_environment_holds() {
         "the process really holds the switches: {asked:?}"
     );
 
-    assert!(!run_mode::AVAILABLE, "the feature is off in this binary");
+    // `black_box`: the constant is known to be false here, and a plain `assert!(!false)` is
+    // what clippy rejects as an assertion that can never fail.
+    assert!(
+        !std::hint::black_box(run_mode::AVAILABLE),
+        "the feature is off in this binary"
+    );
     let hooks = test_hooks();
     assert_eq!(hooks, &TestHooks::NONE);
     assert!(!hooks.open_nothing, "Url::open is skipped by a variable");

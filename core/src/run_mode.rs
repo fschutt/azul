@@ -52,9 +52,10 @@ const BACKEND_VAR: &str = "AZ_BACKEND";
 /// (`dist`) is built without it.
 pub const AVAILABLE: bool = cfg!(feature = "test-hooks");
 
-/// The stand-ins a test run turns on. Every field is its own switch (a test of one consumer
-/// builds a value with just that field); the environment turns them on together, as the old
-/// per-consumer reads did.
+/// The stand-ins a test run turns on.
+///
+/// Every field is its own switch (a test of one consumer builds a value with just that field);
+/// the environment turns them on together, as the old per-consumer reads did.
 // Each field is one independent switch of a test: a state machine or a set of enums would only
 // rename them.
 #[allow(clippy::struct_excessive_bools)]
@@ -76,7 +77,7 @@ pub struct TestHooks {
     /// `Url::open` starts nothing and answers "opened".
     pub open_nothing: bool,
     /// The biometric prompt answers "unavailable" and shows no sheet. `presence::decide` of
-    /// AzDrive runs the action of an unavailable sensor ONLY when this is on.
+    /// `AzDrive` runs the action of an unavailable sensor ONLY when this is on.
     pub no_biometric: bool,
     /// The device-state readings (battery, network, power) are fixed values or a test's switch
     /// file, never the machine's own.

@@ -20,7 +20,9 @@ fn a_build_with_the_feature_reads_the_switches_of_its_environment_once() {
     std::env::remove_var("AZ_E2E_TEST");
     std::env::remove_var("AZ_E2E");
 
-    assert!(run_mode::AVAILABLE);
+    // `black_box`: the constant is known to be true here, and a plain `assert!(true)` is what
+    // clippy rejects as an assertion that can never fail.
+    assert!(std::hint::black_box(run_mode::AVAILABLE));
     let hooks = test_hooks();
     assert!(hooks.fake_sign_in && hooks.open_nothing && hooks.no_biometric);
     assert!(hooks.no_sensors && hooks.no_speech && hooks.keyring_headless);

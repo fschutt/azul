@@ -55,11 +55,12 @@ pub mod android;
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 mod apple;
 
-/// The variable a headless or E2E TEST run answers every sign-in from: the URL the "browser"
-/// comes back to, with `{redirect_uri}`, `{state}` and `{code_challenge}` replaced by the
-/// request's (`{redirect_uri}?code=e2e-{code_challenge}&state={state}`); `cancel` or `timeout`
-/// for those answers. Unset: the sign-in is Unsupported. Read by `azul_core::run_mode` in a build
-/// with the cargo feature `test-hooks` only.
+/// The variable a headless or E2E TEST run answers every sign-in from.
+///
+/// The URL the "browser" comes back to, with `{redirect_uri}`, `{state}` and `{code_challenge}`
+/// replaced by the request's (`{redirect_uri}?code=e2e-{code_challenge}&state={state}`); `cancel`
+/// or `timeout` for those answers. Unset: the sign-in is Unsupported. Read by
+/// `azul_core::run_mode` in a build with the cargo feature `test-hooks` only.
 pub const FAKE_REDIRECT_VAR: &str = azul_core::run_mode::FAKE_REDIRECT_VAR;
 
 /// What a session answers: now, or through a poll the request pump asks every frame.
@@ -224,9 +225,11 @@ fn host_of(url: &str) -> &str {
     rest.split(['/', '?', '#']).next().unwrap_or_default()
 }
 
-/// What a headless test run answers: `fake` (the value of [`FAKE_REDIRECT_VAR`]) with the
-/// request's redirect URI, state and code challenge filled in, checked like a real redirect;
-/// `cancel` and `timeout` as those; nothing set: Unsupported.
+/// What a headless test run answers.
+///
+/// `fake` (the value of [`FAKE_REDIRECT_VAR`]) with the request's redirect URI, state and code
+/// challenge filled in, checked like a real redirect; `cancel` and `timeout` as those; nothing
+/// set: Unsupported.
 #[must_use]
 pub fn fake_answer(
     fake: Option<&str>,

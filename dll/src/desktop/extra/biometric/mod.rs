@@ -151,7 +151,7 @@ mod tests {
     /// proves the hook is off in a build without the feature, whatever the environment holds.)
     #[test]
     fn a_test_runs_prompt_resolves_unavailable_without_a_sheet() {
-        let _ = azul_layout::managers::biometric::drain_biometric_results();
+        drop(azul_layout::managers::biometric::drain_biometric_results());
         super::request_with(&TestHooks::HEADLESS, &BiometricPrompt::default());
         assert_eq!(
             azul_layout::managers::biometric::drain_biometric_results(),

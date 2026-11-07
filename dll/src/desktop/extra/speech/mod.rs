@@ -223,7 +223,7 @@ fn backend_of_run() -> Backend {
 
 /// The speech under the hooks `hooks`: the headless stand-in in a headless / E2E TEST run (a test
 /// on a dev machine must not talk), else the platform's.
-fn backend_for(hooks: &azul_core::run_mode::TestHooks) -> Backend {
+const fn backend_for(hooks: &azul_core::run_mode::TestHooks) -> Backend {
     if hooks.no_speech {
         Backend::Headless
     } else {
