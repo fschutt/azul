@@ -942,6 +942,8 @@ impl SyncSession {
         }
         opts.settle = self.settle;
         opts.file_settle = self.file_settle;
+        // The harness's wrong clock reaches the expiries too.
+        opts.clock_offset = self.clock_offset as i64;
         opts.restore.clone_from(&self.restore);
         Ok(opts)
     }

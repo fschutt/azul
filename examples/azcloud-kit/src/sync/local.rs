@@ -29,6 +29,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use super::{
+    clock::ClockRecord,
     guard::Guard,
     names::{self, System, Volume},
     problems::{Code, Problem, Severity},
@@ -174,6 +175,10 @@ pub struct LocalIndex {
     /// system with no device numbers).
     #[serde(default, skip_serializing_if = "is_zero")]
     pub volume_dev: u64,
+    /// The wall clock this pairing last judged an expiry by and since when it has been steady
+    /// ([`super::clock`]).
+    #[serde(default, skip_serializing_if = "ClockRecord::is_unset")]
+    pub clock: ClockRecord,
     /// Files here the drive deleted before this pairing knew them (D5): kept, listed and not
     /// sent until the user chooses ([`super::session::SyncSession::send_kept`]).
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
@@ -200,6 +205,7 @@ impl LocalIndex {
             restore_epoch: 0,
             volume: None,
             volume_dev: 0,
+            clock: ClockRecord::default(),
             kept: BTreeSet::new(),
         }
     }

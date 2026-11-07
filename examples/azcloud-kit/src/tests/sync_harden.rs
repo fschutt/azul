@@ -741,6 +741,95 @@ fn x_ar5a_3_a_probe_that_could_not_run_is_not_kept_as_the_disks_answer() {
     assert!(index.volume.is_some(), "the next pass probes again");
 }
 
+/// AZ-S12. The trash and the tombstones expired by the computer's wall clock alone: a clock a year
+/// ahead removed every trash folder at once, the delete of a minute ago included, and its next
+/// commit dropped every tombstone of the shared index. A clock is believed once it has been steady
+/// for a day and is not behind the drive ([`crate::sync::clock`]). Passes at `hours` after the
+/// first play the time (SyncOptions::clock_offset, as the harness's wrong clock does). RED not run:
+/// the old code removes the young trash folder and the young tombstone in the pass a year ahead.
+#[test]
+fn az_s12_a_clock_one_year_ahead_purges_no_trash_and_expires_no_tombstone() {
+    const DAY: i64 = 86_400;
+    let store = S3Bucket::new();
+    let a = Device::new("s12-a");
+    let mut counter = 0;
+    let mut pass_at = |hours: i64| {
+        counter += 1;
+        // Every pass sends a new file, so every pass commits (the tombstones expire at a commit).
+        a.write(&format!("f{counter}.txt"), counter.to_string().as_bytes());
+        let mut opts = a.opts();
+        opts.clock_offset = hours * 3_600;
+        a.sync_with(&store, &opts).expect("the pass runs")
+    };
+    pass_at(0);
+    // Trash folders of passes 10 and 40 days ago; tombstones 60 and 100 days old on the drive.
+    let now = crate::now();
+    let trash = a.path().join(".azlin").join("sync").join("trash");
+    let make = |days: i64| {
+        let stamp = root::trash_stamp(now - days * DAY);
+        fs::create_dir_all(trash.join(&stamp)).unwrap();
+        fs::write(trash.join(&stamp).join("deleted.txt"), b"deleted").unwrap();
+        stamp
+    };
+    let (young_trash, ancient_trash) = (make(10), make(40));
+    let key = index_key(PREFIX);
+    let mut index = RemoteIndex::parse(&store.read(&key).unwrap()).unwrap();
+    for (name, days) in [("old/young.txt", 60), ("old/ancient.txt", 100)] {
+        index.deleted.insert(
+            name.to_string(),
+            crate::sync::Tombstone {
+                hash: hash_bytes(name.as_bytes()),
+                gen: 1,
+                at: now - days * DAY,
+                device: String::from("another-device"),
+                confirmed: false,
+            },
+        );
+    }
+    index.generation += 1;
+    store.write(&key, index.to_bytes());
+    let drive_has = |name: &str| index_of(&store).deleted.contains_key(name);
+
+    // The first looks: nothing is believed yet.
+    pass_at(20);
+    assert!(
+        names(&trash).contains(&ancient_trash),
+        "twenty hours: nothing expires"
+    );
+    assert!(drive_has("old/ancient.txt"));
+    // A day and more of a steady clock: the old expire, the young stay (a control that the fix
+    // does not just switch the expiry off).
+    pass_at(40);
+    assert!(
+        !names(&trash).contains(&ancient_trash),
+        "the 40-day-old trash goes"
+    );
+    assert!(
+        names(&trash).contains(&young_trash),
+        "the 10-day-old trash stays"
+    );
+    assert!(
+        !drive_has("old/ancient.txt"),
+        "the 100-day-old tombstone goes"
+    );
+    assert!(drive_has("old/young.txt"), "the 60-day-old tombstone stays");
+
+    // The clock jumps a year ahead: nothing is judged by it, on the first pass or the next.
+    pass_at(40 + 365 * 24);
+    assert!(
+        names(&trash).contains(&young_trash),
+        "the young trash survives a clock a year ahead"
+    );
+    assert!(drive_has("old/young.txt"), "and the young tombstone");
+    pass_at(40 + 365 * 24 + 20);
+    assert!(names(&trash).contains(&young_trash), "on probation still");
+    assert!(drive_has("old/young.txt"));
+    // A clock that stays there for a day is all there is to believe.
+    pass_at(40 + 365 * 24 + 40);
+    assert!(!names(&trash).contains(&young_trash));
+    assert!(!drive_has("old/young.txt"));
+}
+
 /// A system without permission bits (Windows) shows every file as not executable: its volume
 /// keeps none, so an edit made there sends the bit the version had on the drive, never a
 /// cleared one, and a download keeps the drive's bit in the base.

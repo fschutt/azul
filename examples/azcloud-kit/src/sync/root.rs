@@ -238,13 +238,15 @@ pub fn trash_target(
     Ok((trash, target, path))
 }
 
-/// Removes the trash folders of passes older than [`TRASH_DAYS`] (their names start with the
-/// date). The bytes stay on the drive as its versions.
-pub fn purge_trash(root: &Root, now: i64) {
+/// Removes the trash folders of passes dated before `before` (seconds since 1970; their names start
+/// with the date). The bytes stay on the drive as its versions. `before` is a time a clock that
+/// was believed gave ([`super::clock::TrustedClock::purge_before`] of [`TRASH_DAYS`]), never the
+/// wall clock as it stands (AZ-S12).
+pub fn purge_trash(root: &Root, before: i64) {
     let Ok(trash) = root.dir(TRASH_DIR, false) else {
         return;
     };
-    let horizon = crate::rfc3339(now - TRASH_DAYS * 86_400);
+    let horizon = crate::rfc3339(before);
     let horizon: String = horizon
         .chars()
         .take(10)

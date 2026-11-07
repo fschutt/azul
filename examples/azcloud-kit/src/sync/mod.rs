@@ -55,6 +55,8 @@
 pub mod attrs;
 #[cfg(feature = "state-db")]
 pub mod base;
+// The clock an expiry is judged by: steady for a day, and not behind the drive.
+pub mod clock;
 // The user's answers to the guards' questions, bound to what was shown.
 pub mod consent;
 pub mod drive_store;
@@ -192,6 +194,10 @@ pub struct SyncOptions {
     pub dry_run: bool,
     pub max_file_bytes: u64,
     pub tombstone_days: i64,
+    /// Seconds this computer's clock is off the true time, as a test harness plays a wrong clock
+    /// ([`session::SyncSession::with_clock`], the command line's `AZSYNC_CLOCK_OFFSET`): the
+    /// expiries read the wall clock through it ([`clock::TrustedClock`]). Zero in every real run.
+    pub clock_offset: i64,
     /// A run first waits until nothing in the folder changed for this long (at most
     /// [`SETTLE_MAX`]): a burst of changes - a checkout, an unzip, a build - goes in one run
     /// as a whole, in batches, and the burst guard sees all of it. Zero (the default): the run
@@ -239,6 +245,7 @@ impl SyncOptions {
             dry_run: false,
             max_file_bytes: MAX_FILE_BYTES,
             tombstone_days: TOMBSTONE_DAYS,
+            clock_offset: 0,
             settle: Duration::ZERO,
             file_settle: Duration::ZERO,
             disk_reserve: DISK_RESERVE,
@@ -1769,7 +1776,7 @@ fn next_index(
     merged: &BTreeMap<String, Merged>,
     device: &str,
     now: i64,
-    tombstone_days: i64,
+    expire_before: Option<i64>,
     confirmed: &dyn Fn(&str) -> bool,
 ) -> RemoteIndex {
     let mut next = remote.clone();
@@ -1875,9 +1882,12 @@ fn next_index(
         }
     }
     if changed {
-        let horizon = now - tombstone_days * 86_400;
-        next.deleted.retain(|_, t| t.at >= horizon);
-        next.deleted_folders.retain(|_, t| t.at >= horizon);
+        // The tombstones that are older than the clock a believed reading gave are dropped; with
+        // no such reading none is (AZ-S12: a clock a year ahead dropped them all at its commit).
+        if let Some(horizon) = expire_before {
+            next.deleted.retain(|_, t| t.at >= horizon);
+            next.deleted_folders.retain(|_, t| t.at >= horizon);
+        }
         // An index with folders says so: a version that does not know them would drop them.
         let has_folders = !next.folders.is_empty() || !next.deleted_folders.is_empty();
         let has_links = next.files.values().any(|f| f.link.is_some());
@@ -3886,7 +3896,6 @@ fn run<R: SyncRemote + ?Sized>(
                 }
             }
             if let Ok(tree) = beneath::Root::open(&root.path) {
-                root::purge_trash(&tree, crate::now());
                 root::purge_spool(&tree);
             }
         }
@@ -3938,6 +3947,8 @@ fn run<R: SyncRemote + ?Sized>(
     let date = today();
     let mut cached = load_cache(index_path, &index);
     let mut pause = None;
+    // The clock the expiries of this pass are judged by, looked at once the drive has answered.
+    let mut trusted: Option<clock::TrustedClock> = None;
     let mut attempt = 0u32;
     // The files D5 keeps (the last attempt's), remembered in the base.
     let mut kept: BTreeSet<String>;
@@ -3962,6 +3973,24 @@ fn run<R: SyncRemote + ?Sized>(
             report.newer_format = newer;
             report.generation = remote.generation;
             return Ok(report);
+        }
+        // The trash and the tombstones expire by age, and only by a clock that has proved itself
+        // (AZ-S12): one that stayed steady for a day and is not behind what the drive has seen. The
+        // look comes after the drive has answered - against a storage node a clock that is far off
+        // has been refused by now - and before any expiry of the pass.
+        if trusted.is_none() && !opts.dry_run {
+            let clock = clock::TrustedClock::look(
+                &mut index.clock,
+                crate::now().saturating_add(opts.clock_offset),
+                remote.updated_at,
+            );
+            if let (Some(before), Ok(tree)) = (
+                clock.purge_before(root::TRASH_DAYS),
+                beneath::Root::open(&root.path),
+            ) {
+                root::purge_trash(&tree, before);
+            }
+            trusted = Some(clock);
         }
         // A4: what the last pass of this folder sent before it stopped short of saving its
         // base (a crash or a kill after its commit) and that is on the drive now is this
@@ -4303,7 +4332,7 @@ fn run<R: SyncRemote + ?Sized>(
             &merged,
             &opts.device,
             crate::now(),
-            opts.tombstone_days,
+            trusted.and_then(|clock| clock.purge_before(opts.tombstone_days)),
             &deletes_confirmed,
         );
         if next == *read.as_ref().unwrap_or(&remote) {

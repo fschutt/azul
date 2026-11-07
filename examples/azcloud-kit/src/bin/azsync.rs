@@ -267,6 +267,8 @@ fn options(config: &Config, confirm: bool) -> SyncOptions {
     // 1 GiB).
     opts.file_settle = Duration::from_millis(config.settle_ms);
     opts.disk_reserve = config.reserve;
+    // The wrong clock of the harness reaches the expiries (the trash, the tombstones) too.
+    opts.clock_offset = clock_offset() as i64;
     opts
 }
 
