@@ -16,6 +16,7 @@ use std::{collections::BTreeMap, path::Path};
 
 use azul_storage::{
     beneath::{self, BeneathError, Kind, Root},
+    cap::Cap,
     ctl::Quiet,
     durable::{self, Expect, Mode, Publish},
 };
@@ -337,8 +338,12 @@ pub fn purge_spool(root: &Root) -> usize {
 /// What the disk under `root` does with names, probed with empty files in the bookkeeping
 /// folder (removed again). Windows refuses its own names anyway, and creating `a:b` there
 /// would write a stream of `a`, so that probe runs elsewhere only.
-#[must_use]
-pub fn probe_volume(root: &Path) -> Volume {
+///
+/// A probe that could not run - the folder cannot be opened, its bookkeeping folder cannot be made,
+/// the first test file cannot be created - is [`Cap::Unknown`], never a disk that treats names the
+/// way an empty [`Volume`] says (X-AR5a-3: the answer of a failed probe was kept as the folder's
+/// disk for good).
+pub fn probe_volume(root: &Path) -> Cap<Volume> {
     // A system without permission bits (Windows) keeps none on any disk: a file there keeps the
     // bit its synced version has, as on a FAT disk elsewhere.
     let mut volume = Volume {
@@ -347,15 +352,19 @@ pub fn probe_volume(root: &Path) -> Volume {
         ..Volume::default()
     };
     let Ok(root) = Root::open(root) else {
-        return volume;
+        return Cap::Unknown(
+            "the folder cannot be opened to find out what its disk does with names",
+        );
     };
     let Ok(dir) = root.dir(SYNC_DIR, true) else {
-        return volume;
+        return Cap::Unknown("the folder's bookkeeping folder cannot be made or entered");
     };
     let touch = |name: &str| dir.create_new(name, 0o600).map(drop).is_ok();
     if touch("probe-Aa") {
         volume.case_insensitive = dir.lstat("probe-aA").is_ok();
         let _ = dir.unlink("probe-Aa");
+    } else {
+        return Cap::Unknown("a test file cannot be made in the folder's bookkeeping folder");
     }
     // The decomposed name, looked up composed.
     if touch("probe-e\u{301}") {
@@ -398,5 +407,31 @@ pub fn probe_volume(root: &Path) -> Volume {
             }
         }
     }
-    volume
+    Cap::Known(volume)
+}
+
+/// What a pass judges names by when the disk could not be probed: the strict side of every
+/// question - names that differ in case or in Unicode form may be one file, and the names Windows
+/// refuses are refused - for this pass only. A name that the strict side holds back is listed and
+/// waits for the next pass, which probes again; nothing is written under a name the disk might
+/// read as another.
+#[must_use]
+pub fn unprobed_volume() -> Volume {
+    Volume {
+        case_insensitive: true,
+        norm_insensitive: true,
+        windows_names: true,
+        no_exec_bits: !cfg!(unix),
+        ..Volume::default()
+    }
+}
+
+/// The disk the folder `root` is on (its device number), when the system says: a folder moved to
+/// another disk keeps its marker and so its identity, but not the facts of the old disk.
+#[must_use]
+pub fn device_of(root: &Path) -> Option<u64> {
+    Root::open(root)
+        .ok()
+        .map(|tree| tree.dev())
+        .filter(|dev| *dev != 0)
 }

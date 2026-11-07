@@ -165,9 +165,15 @@ pub struct LocalIndex {
     /// refused unless its restore epoch is higher (the drive was restored and announced it).
     #[serde(default, skip_serializing_if = "is_zero")]
     pub restore_epoch: u64,
-    /// What the disk under the folder does with names, probed at the first pass.
+    /// What the disk under the folder does with names, probed at the first pass and again when
+    /// the folder is on another disk ([`LocalIndex::volume_dev`]). Never the answer of a probe that
+    /// could not run.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub volume: Option<Volume>,
+    /// The device the volume was probed on (0: not known - a base an older version wrote, or a
+    /// system with no device numbers).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub volume_dev: u64,
     /// Files here the drive deleted before this pairing knew them (D5): kept, listed and not
     /// sent until the user chooses ([`super::session::SyncSession::send_kept`]).
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
@@ -193,6 +199,7 @@ impl LocalIndex {
             root_id: None,
             restore_epoch: 0,
             volume: None,
+            volume_dev: 0,
             kept: BTreeSet::new(),
         }
     }

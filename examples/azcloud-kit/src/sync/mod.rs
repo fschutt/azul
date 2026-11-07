@@ -3863,8 +3863,27 @@ fn run<R: SyncRemote + ?Sized>(
             }
         }
         if !opts.dry_run {
-            if index.volume.is_none() {
-                index.volume = Some(root::probe_volume(&root.path));
+            // What the disk does with names: probed at the first pass, and again when the folder
+            // is on another disk than the one it was probed on (it keeps its marker, and so its
+            // identity, when it is moved). A probe that could not answer is no answer: nothing is
+            // kept, this pass judges names by the strict side, the next one tries again (X-AR5a-3).
+            let disk = root::device_of(&root.path);
+            let moved = disk.is_some_and(|disk| index.volume_dev != disk);
+            if index.volume.is_none() || moved {
+                match root::probe_volume(&root.path) {
+                    Cap::Known(volume) => {
+                        index.volume = Some(volume);
+                        index.volume_dev = disk.unwrap_or(0);
+                    }
+                    Cap::Unknown(why) => {
+                        index.volume = None;
+                        index.volume_dev = 0;
+                        report.notes.push(format!(
+                            "{why}; this pass judges names as strictly as any disk could, and \
+                             the next one tries again"
+                        ));
+                    }
+                }
             }
             if let Ok(tree) = beneath::Root::open(&root.path) {
                 root::purge_trash(&tree, crate::now());
@@ -3872,7 +3891,7 @@ fn run<R: SyncRemote + ?Sized>(
             }
         }
     }
-    let volume = index.volume.unwrap_or_default();
+    let volume = index.volume.unwrap_or_else(root::unprobed_volume);
     // The folder as it was at one moment: a change made while it is read is read again whole.
     let scanned = local::scan_unchanged(
         &root.path,
@@ -4454,7 +4473,7 @@ fn fetch_one<R: SyncRemote + ?Sized>(
     if let Some(why) = names::here_problem(
         key,
         names::System::here(),
-        &index.volume.unwrap_or_default(),
+        &index.volume.unwrap_or_else(root::unprobed_volume),
     )
     .or_else(|| names::key_problem(key))
     {

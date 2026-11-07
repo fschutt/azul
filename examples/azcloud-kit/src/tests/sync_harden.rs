@@ -6,7 +6,7 @@
 
 use std::{fs, path::Path, time::Duration};
 
-use azul_storage::testing::TempDir;
+use azul_storage::{cap::Cap, testing::TempDir};
 
 use super::{
     fake_s3::S3Bucket,
@@ -644,7 +644,9 @@ fn a_fifo_in_the_folder_is_listed_and_never_opened() {
 #[test]
 fn the_volume_is_probed_once_and_the_probe_leaves_nothing_behind() {
     let dir = TempDir::new("azcloud-probe");
-    let volume = root::probe_volume(dir.path());
+    let Cap::Known(volume) = root::probe_volume(dir.path()) else {
+        panic!("a writable folder can be probed");
+    };
     if cfg!(target_os = "macos") {
         // APFS as macOS formats it ignores case and normalization.
         assert!(
@@ -655,6 +657,90 @@ fn the_volume_is_probed_once_and_the_probe_leaves_nothing_behind() {
     assert!(names(&dir.path().join(".azlin").join("sync")).is_empty());
 }
 
+/// X-AR5a-3. The probe was kept for ever: a folder moved to another disk keeps its marker and so its
+/// identity, and the case and normalisation facts of the old disk judged the new one. The answer
+/// is kept with the disk it was found on and found again when that changes - and not on every
+/// pass. RED not run: the old code keeps the stale answer (`max_file` stays 7).
+#[test]
+fn x_ar5a_3_the_volume_is_probed_again_when_the_folder_is_on_another_disk() {
+    use crate::sync::local::LocalIndex;
+    let store = S3Bucket::new();
+    let a = Device::new("x3-a");
+    a.write("a.txt", b"a");
+    a.sync(&store);
+    let disk = root::device_of(a.path());
+    let mut index = LocalIndex::load(&a.index()).unwrap().expect("a base");
+    assert!(index.volume.is_some(), "probed at the first pass");
+    assert_eq!(
+        index.volume_dev,
+        disk.unwrap_or(0),
+        "and kept with its disk"
+    );
+    let Some(disk) = disk else {
+        return;
+    };
+    // An answer no probe gives (FAT32's limit is one byte short of 4 GiB), kept for another disk.
+    let stale = azul_storage::names::Volume {
+        max_file: Some(7),
+        ..azul_storage::names::Volume::default()
+    };
+    index.volume = Some(stale);
+    index.volume_dev = disk.wrapping_add(1);
+    index.save(&a.index()).unwrap();
+    a.sync(&store);
+    let index = LocalIndex::load(&a.index()).unwrap().expect("a base");
+    assert_ne!(
+        index.volume.and_then(|v| v.max_file),
+        Some(7),
+        "found again"
+    );
+    assert_eq!(index.volume_dev, disk);
+    // On the disk it was found on, the answer is kept: no probe on every pass.
+    let mut index = index;
+    index.volume = Some(stale);
+    index.save(&a.index()).unwrap();
+    a.sync(&store);
+    let index = LocalIndex::load(&a.index()).unwrap().expect("a base");
+    assert_eq!(index.volume, Some(stale), "the same disk: the answer stays");
+}
+
+/// X-AR5a-3. A probe that could not run (here: no test file can be made in the bookkeeping
+/// folder) was kept as the answer - a disk that treats names as an empty Volume says. It is no
+/// answer now: nothing is kept, the pass says so, and the next pass probes again. RED not run:
+/// the old code keeps a volume.
+#[cfg(unix)]
+#[test]
+fn x_ar5a_3_a_probe_that_could_not_run_is_not_kept_as_the_disks_answer() {
+    use std::os::unix::fs::PermissionsExt;
+
+    use crate::sync::local::LocalIndex;
+    let store = S3Bucket::new();
+    let a = Device::new("x3-b");
+    a.write("a.txt", b"a");
+    // The folder knows its pairing, but its bookkeeping folder takes no new file.
+    root::write_marker(a.path()).unwrap();
+    let sync_dir = a.path().join(".azlin").join("sync");
+    fs::set_permissions(&sync_dir, fs::Permissions::from_mode(0o500)).unwrap();
+    if fs::File::create(sync_dir.join("probe-test")).is_ok() {
+        // A user who can write anywhere (root): the case cannot be made here.
+        let _ = fs::remove_file(sync_dir.join("probe-test"));
+        fs::set_permissions(&sync_dir, fs::Permissions::from_mode(0o700)).unwrap();
+        return;
+    }
+    let report = a.sync(&store);
+    fs::set_permissions(&sync_dir, fs::Permissions::from_mode(0o700)).unwrap();
+    assert!(
+        report.notes.iter().any(|note| note.contains("tries again")),
+        "the pass says the disk could not be probed: {:?}",
+        report.notes
+    );
+    let index = LocalIndex::load(&a.index()).unwrap().expect("a base");
+    assert_eq!(index.volume, None, "no answer is kept");
+    a.sync(&store);
+    let index = LocalIndex::load(&a.index()).unwrap().expect("a base");
+    assert!(index.volume.is_some(), "the next pass probes again");
+}
+
 /// A system without permission bits (Windows) shows every file as not executable: its volume
 /// keeps none, so an edit made there sends the bit the version had on the drive, never a
 /// cleared one, and a download keeps the drive's bit in the base.
@@ -662,7 +748,10 @@ fn the_volume_is_probed_once_and_the_probe_leaves_nothing_behind() {
 #[test]
 fn a_system_without_permission_bits_keeps_the_drives_executable_bit() {
     let dir = TempDir::new("azcloud-probe-exec");
-    assert!(root::probe_volume(dir.path()).no_exec_bits);
+    let Cap::Known(volume) = root::probe_volume(dir.path()) else {
+        panic!("a writable folder can be probed");
+    };
+    assert!(volume.no_exec_bits);
 }
 
 #[test]
