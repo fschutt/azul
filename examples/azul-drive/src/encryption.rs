@@ -430,17 +430,23 @@ extern "C" fn on_recompress_timer(mut data: RefAny, info: TimerCallbackInfo) -> 
     if !offered() {
         return TimerCallbackReturn::terminate_unchanged();
     }
-    // A recovery drill that is due opens (once a minute, when no dialog shows).
+    let mut callback_info = info.callback_info;
+    let app = data.clone();
+    // A recovery drill that is due opens (once a minute, when no dialog shows), and so does the
+    // question of re-encrypting the files a rotation left under their old file keys.
     if let Some(mut s) = data.downcast_mut::<DriveState>() {
-        if crate::recovery::drill_if_due(&mut s, now_unix()) {
+        let now = now_unix();
+        if crate::recovery::drill_if_due(&mut s, now) {
+            return TimerCallbackReturn::continue_and_refresh_dom();
+        }
+        if reencrypt_if_due(&mut s, now) {
+            crate::save_settings(&mut callback_info, &app, &mut s);
             return TimerCallbackReturn::continue_and_refresh_dom();
         }
     }
     if RECOMPRESSING.load(Ordering::SeqCst) || !recompress_may_run() {
         return TimerCallbackReturn::continue_unchanged();
     }
-    let mut callback_info = info.callback_info;
-    let app = data.clone();
     let Some(mut s) = data.downcast_mut::<DriveState>() else {
         return TimerCallbackReturn::continue_unchanged();
     };
@@ -1556,6 +1562,37 @@ pub(crate) const ENCRYPTED_ELSEWHERE: &str = "azdrive-enc-new-drive-encrypted-el
 /// Add drive dialog the drive was picked up in stays; the status line says why).
 pub(crate) fn set_up_failure_shows_as_dialog(why: &str, popup: Option<&Popup>) -> bool {
     why != ENCRYPTED_ELSEWHERE && sheet_shows_now(popup)
+}
+
+/// The question of re-encrypting the files a rotation left under their old file keys, asked
+/// again (AZ-K18): a drive whose files wait ([`RecoveryState::reencrypt_due`]) that is open
+/// encrypted on this computer and was not asked about in the last week, when no dialog shows.
+/// What was asked is stamped (the caller saves the settings). Whether a dialog opened.
+fn reencrypt_if_due(s: &mut DriveState, now: u64) -> bool {
+    if s.popup.is_some() {
+        return false;
+    }
+    let due = s
+        .settings
+        .recovery
+        .drives
+        .iter()
+        .find(|state| {
+            state.reencrypt_ask_due(now)
+                && s.slot_index(&state.drive_id)
+                    .and_then(|index| s.slots[index].auto.as_ref())
+                    .is_some_and(|auto| auto.state().has_drive_index())
+        })
+        .map(|state| state.drive_id.clone());
+    let Some(drive_id) = due else {
+        return false;
+    };
+    state_mut(&mut s.settings.recovery.drives, &drive_id).reencrypt_questioned(now);
+    println!("AZDRIVE_REENCRYPT_DUE {drive_id}");
+    s.popups_opened += 1;
+    s.popup
+        .open(Popup::Encryption(Dialog::OfferReencrypt { drive_id }));
+    true
 }
 
 /// "I was hacked: new keys...": the question.
@@ -3185,6 +3222,9 @@ pub(crate) fn on_outcome(
         EncryptionOutcome::Rotated { drive_id, result } => match result {
             Ok(done) => {
                 crate::recovery::code_made(s, &drive_id, &done.code);
+                // The files keep their old file keys until the pass has been over all of them:
+                // the question comes back until it is done (AZ-K18).
+                state_mut(&mut s.settings.recovery.drives, &drive_id).reencrypt_wanted(now_unix());
                 crate::save_settings(info, app, s);
                 begin_registration(
                     info,
@@ -3237,6 +3277,9 @@ pub(crate) fn on_outcome(
             let name = drive_name(s, &drive_id);
             match result {
                 Ok(state) => {
+                    // Every file was written anew: nothing waits, nothing is asked again.
+                    state_mut(&mut s.settings.recovery.drives, &drive_id).reencrypted();
+                    crate::save_settings(info, app, s);
                     let mut said = Text::from(
                         Phrase::new("azdrive-enc-reencrypted")
                             .arg("count", state.done)

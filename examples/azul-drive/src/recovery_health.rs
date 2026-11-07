@@ -28,6 +28,8 @@ pub const SECOND_DRILL: u64 = 91 * DAY;
 pub const YEARLY: u64 = 365 * DAY;
 /// How far "Later" moves a drill.
 pub const POSTPONE: u64 = 7 * DAY;
+/// How long after the question of re-encrypting the files it is asked again, until it is done.
+pub const REENCRYPT_REMIND: u64 = 7 * DAY;
 /// Shares of a code that open it (of the three trusted contacts hold).
 pub const SHARES_NEEDED: usize = 2;
 
@@ -128,6 +130,13 @@ pub struct RecoveryState {
     /// Whether the token server knows the code: until it does, the code locks nothing down
     /// and finds nothing, so the health is red and no emergency kit is offered.
     pub registration: Registration,
+    /// Since when the files wait for their re-encryption: a rotation made new keys (this time,
+    /// seconds since 1970), and every file still holds the file key the old drive key wraps -
+    /// whoever has that key and a copy of the data reads them - until the pass has been over all
+    /// of them. `None`: nothing waits.
+    pub reencrypt_due: Option<u64>,
+    /// When the question of re-encrypting them was last asked (seconds since 1970).
+    pub reencrypt_asked: Option<u64>,
 }
 
 /// Whether a drive's recovery code is registered at its token server.
@@ -293,6 +302,35 @@ impl RecoveryState {
         self.extra_codes.clear();
         self.findable_key = None;
         self.registration = Registration::Unknown;
+    }
+
+    /// A rotation made new keys `now`: the files wait for their re-encryption. The question that
+    /// follows the rotation is the first time it is asked.
+    pub fn reencrypt_wanted(&mut self, now: u64) {
+        self.reencrypt_due = Some(now);
+        self.reencrypt_asked = Some(now);
+    }
+
+    /// The question of re-encrypting the files is asked now.
+    pub fn reencrypt_questioned(&mut self, now: u64) {
+        self.reencrypt_asked = Some(now);
+    }
+
+    /// The pass over every file ended: nothing waits any more.
+    pub fn reencrypted(&mut self) {
+        self.reencrypt_due = None;
+        self.reencrypt_asked = None;
+    }
+
+    /// Whether the question of re-encrypting the files is to be asked again at `now`: files wait,
+    /// and it was not asked in the last [`REENCRYPT_REMIND`] seconds. A stamp from a clock that ran
+    /// ahead is stale, not recent: the question is asked.
+    #[must_use]
+    pub fn reencrypt_ask_due(&self, now: u64) -> bool {
+        self.reencrypt_due.is_some()
+            && self
+                .reencrypt_asked
+                .is_none_or(|asked| asked > now || now - asked >= REENCRYPT_REMIND)
     }
 
     /// The new code's registration is sent: pending until the token server has it.
@@ -1188,5 +1226,59 @@ mod tests {
         let mut known = checked();
         known.keys_listed(&[String::from("key")]);
         assert_eq!(known.registration, Registration::Registered);
+    }
+
+    /// AZ-K18: after a rotation "Later" on "Re-encrypt every file?" left nothing that remembered:
+    /// the files kept their old file keys for ever. Now a rotation marks them as waiting, the
+    /// question comes back every week (also after a restart: the stamps are the settings'), a
+    /// stamp from a clock that ran ahead does not silence it, and the finished pass ends it.
+    #[test]
+    fn az_k18_the_files_a_rotation_left_wait_and_the_question_comes_back_until_the_pass_is_done() {
+        let mut state = RecoveryState::new("d_1");
+        assert!(
+            !state.reencrypt_ask_due(NOW),
+            "nothing waits before a rotation"
+        );
+
+        state.reencrypt_wanted(NOW);
+        assert_eq!(state.reencrypt_due, Some(NOW));
+        assert!(
+            !state.reencrypt_ask_due(NOW),
+            "the rotation's own question was the first"
+        );
+        assert!(!state.reencrypt_ask_due(NOW + REENCRYPT_REMIND - 1));
+        assert!(
+            state.reencrypt_ask_due(NOW + REENCRYPT_REMIND),
+            "a week later it is asked again"
+        );
+
+        state.reencrypt_questioned(NOW + REENCRYPT_REMIND);
+        assert!(
+            !state.reencrypt_ask_due(NOW + REENCRYPT_REMIND + DAY),
+            "and not again at once"
+        );
+        assert!(state.reencrypt_ask_due(NOW + 2 * REENCRYPT_REMIND));
+        assert!(
+            state.reencrypt_ask_due(NOW),
+            "a question stamped after now is from a clock that ran ahead: stale, asked again"
+        );
+
+        // It survives the settings file: the stamps are plain data.
+        let kept: RecoveryState =
+            serde_json::from_str(&serde_json::to_string(&state).unwrap()).unwrap();
+        assert_eq!(kept.reencrypt_due, Some(NOW));
+        assert!(kept.reencrypt_ask_due(NOW + 2 * REENCRYPT_REMIND));
+        // A file from before the field existed reads as nothing waiting.
+        let old: RecoveryState = serde_json::from_str(r#"{"drive_id": "d_1"}"#).unwrap();
+        assert!(old.reencrypt_due.is_none() && !old.reencrypt_ask_due(NOW));
+
+        state.reencrypted();
+        assert!(
+            !state.reencrypt_ask_due(NOW + 100 * REENCRYPT_REMIND),
+            "the pass ended it"
+        );
+        // A new rotation starts it again.
+        state.reencrypt_wanted(NOW + 5 * DAY);
+        assert!(state.reencrypt_due.is_some());
     }
 }
