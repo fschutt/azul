@@ -102,11 +102,14 @@ impl Wizard {
     /// A first run whose install folder is `path`, with `package_manager` on the PATH.
     pub(crate) fn new(path: String, package_manager: Option<PackageManager>) -> Wizard {
         let rows = component_rows();
+        // Through the manager only where Setup may run it: one that asks for root is shown, not
+        // run (X-DELTA-AZDRIVE-KEYS-36).
+        let through_manager = package_manager.is_some_and(|pm| !pm.runs_as_root());
         Wizard {
-            steps: model::steps(package_manager, true),
+            steps: model::steps(package_manager, through_manager),
             step: Step::Welcome,
             package_manager,
-            through_manager: package_manager.is_some(),
+            through_manager,
             available: None,
             components: components_page(&rows),
             rows,
@@ -166,7 +169,7 @@ impl Wizard {
 
     /// The choice on the package manager's page: the steps follow it.
     pub(crate) fn choose_manager(&mut self, through: bool) {
-        self.through_manager = through && self.package_manager.is_some();
+        self.through_manager = through && self.package_manager.is_some_and(|pm| !pm.runs_as_root());
         self.steps = model::steps(self.package_manager, self.through_manager);
         println!("AZINSTALLMGR_THROUGH {}", self.installing_through().map_or("azlin", PackageManager::name));
     }
@@ -243,9 +246,28 @@ fn package_manager_page(w: &Wizard, pm: PackageManager, app: &RefAny) -> Dom {
     .with_on_change(app.clone(), on_choose_manager)
     .dom()
     .with_id(s("installmgr-pm-choice"));
+    // A manager that asks for administrator rights is not offered as a way: Setup shows its command
+    // and the user runs it (X-DELTA-AZDRIVE-KEYS-36).
+    let (found, choice) = if pm.runs_as_root() {
+        (
+            paragraph(t_args(
+                "azinstallmgr-pm-root",
+                &[("manager", Arg::from(pm.name()))],
+            )),
+            Dom::create_div(),
+        )
+    } else {
+        (
+            paragraph(t_args(
+                "azinstallmgr-pm-found",
+                &[("manager", Arg::from(pm.name()))],
+            )),
+            pieces::block("margin-bottom: 12px;", choice),
+        )
+    };
     let mut children = vec![
-        paragraph(t_args("azinstallmgr-pm-found", &[("manager", Arg::from(pm.name()))])),
-        pieces::block("margin-bottom: 12px;", choice),
+        found,
+        choice,
         paragraph(t_args(
             if w.through_manager {
                 "azinstallmgr-pm-runs"
@@ -721,6 +743,78 @@ mod tests {
             std::path::PathBuf::from("/tmp/azlin-test/config.json"),
             config.updates,
         )
+    }
+
+    /// X-DELTA-AZDRIVE-KEYS-36 (AZ-Y14): a package manager that asks for administrator rights was the
+    /// DEFAULT way to install (`pkexec` ran as root for package names nobody owns, in an unarmed build
+    /// the only route that worked). It is shown, never offered as a way and never run; the ones that
+    /// do not ask for root are the default as before.
+    #[test]
+    fn x_delta_azdrive_keys_36_a_package_manager_that_asks_for_root_is_shown_and_never_the_way() {
+        crate::l10n::in_english();
+        for pm in [
+            PackageManager::Apt,
+            PackageManager::Dnf,
+            PackageManager::Pacman,
+        ] {
+            let mut w = Wizard::new(String::from("/tmp/azlin"), Some(pm));
+            assert_eq!(
+                w.installing_through(),
+                None,
+                "{}: not the default",
+                pm.name()
+            );
+            w.choose_manager(true);
+            assert_eq!(
+                w.installing_through(),
+                None,
+                "{}: not even when asked for",
+                pm.name()
+            );
+            assert!(
+                w.steps.contains(&Step::PackageManager),
+                "the page that shows the command stays"
+            );
+            assert!(
+                w.steps.contains(&Step::Destination),
+                "Azlin's own way has its destination"
+            );
+        }
+        for pm in [
+            PackageManager::Homebrew,
+            PackageManager::Flatpak,
+            PackageManager::Winget,
+        ] {
+            let mut w = Wizard::new(String::from("/tmp/azlin"), Some(pm));
+            assert_eq!(
+                w.installing_through(),
+                Some(pm),
+                "{}: no root: the default",
+                pm.name()
+            );
+            w.choose_manager(false);
+            assert_eq!(w.installing_through(), None);
+            w.choose_manager(true);
+            assert_eq!(w.installing_through(), Some(pm));
+        }
+        // the page of a root manager has no choice to make, and still shows the command
+        let mut m = manager(None);
+        m.wizard = Wizard::new(String::from("/tmp/azlin"), Some(PackageManager::Apt));
+        m.wizard.step = Step::PackageManager;
+        let (dom, reason) = page(&m, &RefAny::new(0u8));
+        assert_eq!(reason, "");
+        assert!(
+            !crate::has_id(&dom, "installmgr-pm-choice"),
+            "no choice offered"
+        );
+        assert!(
+            crate::has_id(&dom, "installmgr-pm-command"),
+            "the command is shown"
+        );
+        assert!(
+            crate::has_id(&dom, "installmgr-pm-copy"),
+            "and can be copied"
+        );
     }
 
     /// REVIEW Y1: a build with no root key does not claim a signature check, and holds Install

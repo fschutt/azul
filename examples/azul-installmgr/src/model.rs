@@ -433,6 +433,18 @@ impl PackageManager {
         }
     }
 
+    /// Whether installing through it asks for administrator rights (`pkexec`). Such a manager is
+    /// never run by Setup: the packages `azlin-<name>` of the system's repositories are names
+    /// nobody has proved to be Azlin's (a squatted one would install as root), so Setup shows the
+    /// command and the user runs it (X-DELTA-AZDRIVE-KEYS-36, AZ-Y14).
+    #[must_use]
+    pub const fn runs_as_root(self) -> bool {
+        matches!(
+            self,
+            PackageManager::Apt | PackageManager::Dnf | PackageManager::Pacman
+        )
+    }
+
     /// The commands (program and arguments) that install `apps` through it, run one after the
     /// other.
     #[must_use]
@@ -2059,6 +2071,26 @@ mod model_tests {
             PackageManager::Flatpak.install_command(&[writer()]),
             "flatpak install --user -y azlin app.azlin.Writer"
         );
+    }
+
+    /// X-DELTA-AZDRIVE-KEYS-36 (AZ-Y14): the managers that ask for root are the ones Setup never runs.
+    #[test]
+    fn x_delta_azdrive_keys_36_the_managers_that_need_root_are_exactly_the_pkexec_ones() {
+        let all = [
+            PackageManager::Homebrew,
+            PackageManager::Apt,
+            PackageManager::Dnf,
+            PackageManager::Pacman,
+            PackageManager::Flatpak,
+            PackageManager::Winget,
+        ];
+        for pm in all {
+            let escalates = pm
+                .install_runs(&[writer()])
+                .iter()
+                .any(|run| run.first().map(String::as_str) == Some("pkexec"));
+            assert_eq!(pm.runs_as_root(), escalates, "{}", pm.name());
+        }
     }
 
     #[test]

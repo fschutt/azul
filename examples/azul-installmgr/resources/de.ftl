@@ -46,6 +46,7 @@ azinstallmgr-welcome-unsigned = Dies ist ein Testbuild des Setups: Apps werden n
 azinstallmgr-welcome-unavailable = Dieses Setup enthält keinen Update-Signaturschlüssel und kann daher keine Apps laden oder installieren: Updates sind in diesem Build nicht verfügbar.
 azinstallmgr-welcome-next = Klicken Sie auf „Weiter“, um fortzufahren, oder auf „Abbrechen“, um das Setup zu beenden.
 azinstallmgr-pm-found = { $manager } ist auf diesem Computer installiert. Es kann die Azlin-Apps stattdessen installieren und hält sie dann zusammen mit allem anderen aktuell.
+azinstallmgr-pm-root = { $manager } ist auf diesem Computer installiert, und die Installation damit verlangt Administratorrechte. Das führt Setup nicht für Sie aus: Die Apps werden auf Azlins eigene Art in Ihren Benutzerordner installiert. Wenn Sie sie trotzdem über { $manager } wollen, steht der Befehl unten.
 azinstallmgr-pm-how = Um die Apps, die Sie auf den nächsten Seiten auswählen, über { $manager } zu installieren, führen Sie dies in einem Terminal aus:
 azinstallmgr-copy = Kopieren
 azinstallmgr-copied = Der Befehl ist in der Zwischenablage.

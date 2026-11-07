@@ -275,12 +275,32 @@ pub(crate) fn run(
         Job::ThroughManager { manager, runs } => {
             for run in runs {
                 let command = model::shell_words(&run);
-                eprintln!("[installmgr] {}: {command}", manager.name());
-                let result = model::run_command(&run);
+                let result = through_manager(manager, &command, || {
+                    eprintln!("[installmgr] {}: {command}", manager.name());
+                    model::run_command(&run)
+                });
                 send(Progress::RanManager { command, result });
             }
         }
     }
+}
+
+/// One command of a manager's install: `run` it, unless the manager asks for administrator rights.
+/// Such a manager is never run from here, whatever asked for it (X-DELTA-AZDRIVE-KEYS-36, AZ-Y14):
+/// the packages `azlin-<name>` of the system's repositories are names nobody has proved to be
+/// Azlin's, and a squatted one would install as root. The page shows its command and the user runs it.
+fn through_manager<T>(
+    manager: PackageManager,
+    command: &str,
+    run: impl FnOnce() -> Result<T, String>,
+) -> Result<T, String> {
+    if manager.runs_as_root() {
+        return Err(format!(
+            "{} asks for administrator rights and Setup does not run it: run `{command}` yourself",
+            manager.name()
+        ));
+    }
+    run()
 }
 
 /// The first install: the runtime first (without it no app starts, so a failed runtime ends
@@ -350,6 +370,36 @@ fn requests(engine: &dyn UpdateEngine, fetching: &Fetching, send: &mut dyn FnMut
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// X-DELTA-AZDRIVE-KEYS-36 (AZ-Y14): the install ran `pkexec sh -c 'apt update && apt install -y
+    /// azlin-<name>'` as root for packages nobody has proved to be Azlin's. A manager that asks for
+    /// root is not run; one that does not is.
+    #[test]
+    fn x_delta_azdrive_keys_36_a_manager_that_asks_for_root_is_never_run() {
+        for manager in [
+            PackageManager::Apt,
+            PackageManager::Dnf,
+            PackageManager::Pacman,
+        ] {
+            let ran = std::cell::Cell::new(false);
+            let result = through_manager(manager, "pkexec dnf install -y azlin-writer", || {
+                ran.set(true);
+                Ok(String::new())
+            });
+            assert!(!ran.get(), "{}: pkexec was run", manager.name());
+            let why = result.unwrap_err();
+            assert!(why.contains("administrator rights"), "{why}");
+            assert!(why.contains("yourself"), "{why}");
+        }
+        for manager in [
+            PackageManager::Homebrew,
+            PackageManager::Flatpak,
+            PackageManager::Winget,
+        ] {
+            let result = through_manager(manager, "a command", || Ok(String::from("done")));
+            assert_eq!(result.as_deref(), Ok("done"), "{}", manager.name());
+        }
+    }
 
     #[test]
     fn a_new_update_source_is_kept_in_the_config_and_an_empty_one_removes_it() {

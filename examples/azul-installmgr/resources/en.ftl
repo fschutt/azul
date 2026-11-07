@@ -46,6 +46,7 @@ azinstallmgr-welcome-unsigned = This is a test build of Setup: apps are checked 
 azinstallmgr-welcome-unavailable = This build of Setup carries no update signing key, so it cannot fetch or install apps: updates are not available in this build.
 azinstallmgr-welcome-next = Click Next to continue, or Cancel to exit Setup.
 azinstallmgr-pm-found = { $manager } is installed on this computer. It can install the Azlin apps instead, and then keeps them up to date with everything else it installs.
+azinstallmgr-pm-root = { $manager } is installed on this computer, and installing with it asks for administrator rights. Setup does not run that for you: the apps are installed Azlin's own way, into your home folder. If you want them through { $manager } anyway, the command is below.
 azinstallmgr-pm-how = To install the apps you pick on the next pages through { $manager }, run this in a terminal:
 azinstallmgr-copy = Copy
 azinstallmgr-copied = The command is on the clipboard.
