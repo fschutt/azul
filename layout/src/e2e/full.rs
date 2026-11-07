@@ -29,6 +29,7 @@ use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 #[cfg(feature = "std")]
 use std::sync::{mpsc, Arc, Mutex, OnceLock};
 
+use super::mount_views::{apply_views, MountView};
 use crate::solver3::layout_tree::LayoutNodeId;
 
 const ROOT_DOM_ID: azul_core::dom::DomId = azul_core::dom::DomId { inner: 0 };
@@ -3333,6 +3334,17 @@ pub enum DebugEvent {
         /// keep `<pre>` and `<textarea>` content on one line.
         #[serde(default)]
         collapse_whitespace: bool,
+        /// Lists too long to build, as VirtualViews: each entry turns the ONE
+        /// EMPTY element its `selector` names into a view of `rows` rows of
+        /// `row_height` px, row `i` built from `row_html` (`{i}` its zero-based
+        /// index, `{n}` its number from 1; `row_css` styles them - the page's `css`
+        /// does not reach into a view). The view materializes the visible rows and
+        /// a screen either side and asks for more as it scrolls, so a scenario
+        /// can scroll 5000 rows and count how few nodes exist. Markup alone cannot
+        /// make a VirtualView: `<virtual-view>` and `<iframe>` mount as plain
+        /// `<div>`s. See [`MountView`].
+        #[serde(default)]
+        virtual_views: Vec<MountView>,
     },
     /// Remove the `mount` override: the next DOM regeneration goes back to the
     /// app's own `layout_callback`.
@@ -4961,6 +4973,10 @@ pub struct E2eScratch {
     /// ([`super::VirtualRenderer`]) instead of off the empty tables - they were
     /// `0 == 0` (E2E-R8). Set by [`e2e_set_virtual_renderer`].
     virtual_renderer: bool,
+    /// The virtual views of the last `mount` ([`MountView`]), put into every
+    /// document the mount parses ([`apply_mount_views`]): the first, and a
+    /// re-parse after a theme switch.
+    mount_views: Vec<MountView>,
     /// Per-step composition history for cross-invariant X8.
     ///
     /// Reset by `e2e_reset_composition_trace` at each step boundary and appended
@@ -5289,15 +5305,11 @@ fn finish_builder_op(
             let needs_update = match reply.remount {
                 super::builder::Remount::Keep => false,
                 super::builder::Remount::Mount(xml) => {
-                    callback_info.push_change(azul_layout::callbacks::CallbackChange::RemountDom {
-                        xml: Some(xml.into()),
-                    });
+                    remount_document(callback_info, Some(xml), Vec::new());
                     true
                 }
                 super::builder::Remount::Unmount => {
-                    callback_info.push_change(azul_layout::callbacks::CallbackChange::RemountDom {
-                        xml: None,
-                    });
+                    remount_document(callback_info, None, Vec::new());
                     true
                 }
             };
@@ -5324,9 +5336,7 @@ fn remount_builder_if_active(
     };
     match xml {
         Some(xml) => {
-            callback_info.push_change(azul_layout::callbacks::CallbackChange::RemountDom {
-                xml: Some(xml.into()),
-            });
+            remount_document(callback_info, Some(xml), Vec::new());
             true
         }
         None => false,
@@ -13334,6 +13344,72 @@ pub fn e2e_set_virtual_renderer(layout_window: &azul_layout::window::LayoutWindo
         .virtual_renderer = true;
 }
 
+/// Keep the virtual views a `mount` asked for with the window that mounts them
+/// (empty: none - a `mount` without `virtual_views`, an `unmount`). Read back by
+/// [`apply_mount_views`] when the host parses the mounted XML.
+#[cfg(feature = "std")]
+pub fn e2e_set_mount_views(
+    layout_window: &azul_layout::window::LayoutWindow,
+    views: Vec<MountView>,
+) {
+    layout_window
+        .e2e_scratch
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .mount_views = views;
+}
+
+/// The virtual views of the last `mount` of this window ([`e2e_set_mount_views`]).
+#[cfg(feature = "std")]
+#[must_use]
+pub fn e2e_mount_views(layout_window: &azul_layout::window::LayoutWindow) -> Vec<MountView> {
+    layout_window
+        .e2e_scratch
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .mount_views
+        .clone()
+}
+
+/// Hand the window the document it shows from now on (`None`: the app's own `layout()`)
+/// together with the virtual views that go into it. THE one place that pushes a
+/// `CallbackChange::RemountDom`: the views belong to the document, so every path that
+/// installs one installs the other. The `mount` op passes the views it asked for; `unmount`
+/// and the builder ops pass none - a builder document is not the one the views of an earlier
+/// `mount` were written for, and a view left over would land on whatever empty element of it
+/// the selector happens to match.
+#[cfg(feature = "std")]
+fn remount_document(
+    callback_info: &mut azul_layout::callbacks::CallbackInfo,
+    xml: Option<String>,
+    views: Vec<MountView>,
+) {
+    e2e_set_mount_views(callback_info.get_layout_window(), views);
+    callback_info.push_change(azul_layout::callbacks::CallbackChange::RemountDom {
+        xml: xml.map(Into::into),
+    });
+}
+
+/// Whether a `mount` of this markup with these `virtual_views` can land: the
+/// document parses and every view finds its one empty element (the dry run the
+/// `mount` op makes, for the `gen-e2e` gate to make before a scenario is written).
+///
+/// # Errors
+///
+/// The refusal the `mount` op would answer with.
+#[cfg(feature = "std")]
+pub fn check_mount_views(
+    html: &TextLines,
+    css: &TextLines,
+    collapse_whitespace: bool,
+    views: &[MountView],
+) -> Result<(), String> {
+    let xml = build_mount_document(html, css, collapse_whitespace);
+    let mut dry_run = azul_layout::xml::parse_xml_to_styled_dom(&xml)
+        .map_err(|e| format!("mount: XML parse error: {e:?}"))?;
+    apply_views(&mut dry_run, views)
+}
+
 // ---- assert_damage_sound ---------------------------------------------------
 
 /// Publish the damage-driven framebuffer of the frame just rendered onto the
@@ -17522,6 +17598,7 @@ pub fn process_debug_event(
             html,
             css,
             collapse_whitespace,
+            virtual_views,
         } => {
             if html.is_empty() {
                 send_err(request, "mount: 'html' is empty".to_string());
@@ -17530,16 +17607,21 @@ pub fn process_debug_event(
                 // Validate up-front so a broken test fails at the mount step
                 // rather than silently rendering the app's own DOM.
                 match azul_layout::xml::parse_xml_to_styled_dom(&xml) {
-                    Ok(_) => {
+                    Ok(mut dry_run) => {
+                        // The virtual views land on this parse first: one that
+                        // cannot (no element, several, one with content, a row
+                        // that is no markup) is refused HERE, at the step that
+                        // asked for it, not as a list that never appears.
+                        if let Err(why) = apply_views(&mut dry_run, virtual_views) {
+                            send_err(request, why);
+                            return needs_update;
+                        }
                         // Route the document through the SAME change pipeline
                         // every other op uses; the shell applies it to
                         // `LayoutWindow::e2e_mount` and `regenerate_layout`
-                        // reads it back. No process-global sink.
-                        callback_info.push_change(
-                            azul_layout::callbacks::CallbackChange::RemountDom {
-                                xml: Some(xml.into()),
-                            },
-                        );
+                        // reads it back (and puts the views into what it
+                        // parses). No process-global sink.
+                        remount_document(callback_info, Some(xml), virtual_views.clone());
                         needs_update = true; // → Update::RefreshDom → regenerate_layout
                         send_ok(request, None, None);
                     }
@@ -17551,8 +17633,7 @@ pub fn process_debug_event(
         }
 
         DebugEvent::Unmount => {
-            callback_info
-                .push_change(azul_layout::callbacks::CallbackChange::RemountDom { xml: None });
+            remount_document(callback_info, None, Vec::new());
             needs_update = true;
             send_ok(request, None, None);
         }

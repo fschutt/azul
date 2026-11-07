@@ -3882,7 +3882,10 @@ impl Runner {
         let mut is_new_tree = false;
         let styled_dom = match mount_change {
             Some(Some(xml)) => match azul_layout::xml::parse_xml_to_styled_dom(&xml) {
-                Ok(sd) => {
+                Ok(mut sd) => {
+                    // The mount's virtual views, in this document as in every one
+                    // the mount parses (a theme switch re-parses it).
+                    super::apply_mount_views(&self.layout_window, &mut sd);
                     is_new_tree = true;
                     Some(sd)
                 }

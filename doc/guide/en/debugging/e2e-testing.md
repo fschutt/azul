@@ -121,7 +121,23 @@ Every `op` accepted by `POST /` (covered in [Debugging](..md)) is a valid step. 
   "css":  [".a { width: 100px; background: blue; }"] }
 ```
 
-The lines are joined with `\n`, the CSS is injected as a `<style>` element and the document is parsed by azul's XML→StyledDom parser. `unmount` restores the app's own DOM.
+The lines are joined with `\n`, the CSS is injected as a `<style>` element and the document is parsed by azul's XML→StyledDom parser. `unmount` restores the app's own DOM. `collapse_whitespace: true` drops the white space that only lays the markup out (a line break and indent between two tags), so the node ids count the elements.
+
+#### A list too long to build: `virtual_views`
+
+Markup cannot make a VirtualView (`<virtual-view>` and `<iframe>` mount as plain `<div>`s). A `mount` that needs one names it in `virtual_views`: each entry turns the one **empty** element its `selector` names into a view of `rows` rows of `row_height` px, row `i` built from `row_html` (`{i}` is its zero-based index, `{n}` its number from 1; `row_css` styles the rows, because the page's `css` does not reach into a view's document):
+
+```json
+{ "op": "mount",
+  "collapse_whitespace": true,
+  "html": ["<div id=\"list\"></div>"],
+  "css":  ["#list { width: 300px; height: 200px; overflow: auto; }"],
+  "virtual_views": [{ "selector": "#list", "rows": 5000, "row_height": 24,
+                      "row_html": ["<div class=\"label\">Row {n}</div>"],
+                      "row_css":  [".label { font-size: 14px; }"] }] }
+```
+
+The host keeps its id, classes and style, and sizes the view (give it a width, a height and `overflow`). Each row sits in `<div class="e2e-row" id="row-{i}">` of `row_height` px. Like an app's list the view builds only the visible rows and a screen of rows either side, and is asked for more when the scroll position comes within 200 px of the edge of what it built (`scroll_node_by`, `wheel`, a dragged thumb) — so a scenario can scroll through 5000 rows and watch how few nodes exist. `get_virtual_view_states` reports the whole document (`virtual_scroll_size_height` is `rows × row_height`) and the rows built (`scroll_size_height`); `get_virtual_view_layout {"node_id": <the host's id>}` lists the nodes of the view's document (with `collapse_whitespace` the html is node 0, the body 1, the first element 2), among them `row-100`. A view that cannot land — a selector that matches no element or several, an element with content, `rows` outside 1 to 10,000,000, a `row_height` that is not above 0 up to 100,000, a `row_html` that is not well-formed — fails the `mount` step with the reason, and `azul-doc gen-e2e` refuses the scenario with the same words. A second `mount` replaces the views (one without `virtual_views` has none), `unmount` drops them.
 
 ### Damage, frame-work and resource assertions
 

@@ -927,6 +927,15 @@ pub fn regenerate_layout(
                 // re-mount (a theme switch) keeps what the user gave them.
                 None => match layout_window.style_xml_document(&xml, icon_provider, system_style) {
                     Ok(styled) => {
+                        // The mount's virtual views (`mount`'s `virtual_views`), in
+                        // this document as in every one the mount parses. (A build
+                        // without the E2E engine has no `mount` and so no views.)
+                        #[cfg(any(feature = "debug-server", feature = "e2e-scripting"))]
+                        let styled = {
+                            let mut styled = styled;
+                            debug_server::apply_mount_views(layout_window, &mut styled);
+                            styled
+                        };
                         log_debug!(
                             LogCategory::Layout,
                             "[regenerate_layout] using E2E mount override ({} bytes of XML)",

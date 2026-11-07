@@ -43,6 +43,14 @@ mod cpu_backend;
 mod virtual_renderer;
 pub use virtual_renderer::VirtualRenderer;
 
+// Virtual views in a mounted document: `mount`'s `virtual_views` turn an empty element into a
+// list of N rows backed by a deterministic, windowed callback (E2E-M1).
+mod mount_views;
+pub use mount_views::{
+    apply_mount_views, apply_views, rows_window, MountView, MOUNT_VIEW_MAX_ROWS,
+    MOUNT_VIEW_MAX_ROW_HEIGHT,
+};
+
 mod runner;
 pub use runner::run_e2e_test;
 
@@ -135,6 +143,11 @@ mod damage_which_tests;
 // rest (a scrollbar still to fade out is not), or fails at its deadline naming what moves.
 #[cfg(test)]
 mod wait_settled_tests;
+
+// A mounted virtual view: the rows it materializes follow the scroll offset, the document stays
+// whole for the scroll bar, and a view that cannot land is refused at the `mount` (E2E-M1).
+#[cfg(test)]
+mod mount_views_tests;
 
 // `assert_idle_frames` holds a window idle for N frames in one step: the engine clock
 // moves a frame at a time, and every frame must be no damage, the same pixels, and rendered

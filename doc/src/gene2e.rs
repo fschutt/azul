@@ -1509,11 +1509,26 @@ invalidation path completely broken. Only the ops listed above exist; use nothin
    `set_node_image` on it (after the `wait_frame` that follows the `mount`). A page whose
    only content is an `<img>` renders blank white, and nothing about such an image can move
    a pixel.
-   `<virtual-view>`, `<virtualview>`, `<iframe>` and `data-virtual-*`/`rows` attributes do NOT
-   create a VirtualView: they mount as a plain `<div>` with the attributes dropped. A line
-   that needs a VirtualView cannot be expressed: write the nearest plain-scroller test and add
-   the top-level key "pending": "needs a mountable VirtualView" instead of presenting a plain
-   list as a virtual view.
+   A VIRTUALVIEW (a list too long to build) is a key of the `mount`, never markup:
+   `<virtual-view>`, `<virtualview>`, `<iframe>` and `data-virtual-*`/`rows` attributes mount as
+   a plain `<div>` with the attributes dropped. Write the host as an EMPTY element, size it in the
+   `css`, and name it in `virtual_views` (the mount is refused at its step when the selector
+   matches no element or several, or the element has content):
+       {{"op":"mount","collapse_whitespace":true,"html":["<div class=\"list\"></div>"],
+         "css":[".list {{ width:300px; height:200px; overflow:auto; }}"],
+         "virtual_views":[{{"selector":".list","rows":5000,"row_height":24,
+                           "row_html":["<div class=\"label\">Row {{n}}</div>"],
+                           "row_css":[".label {{ font-size:14px; }}"]}}]}}
+   Row `i` (`{{i}}` counts from 0, `{{n}}` from 1) sits in `<div class="e2e-row" id="row-{{i}}">` of
+   `row_height` px. Only the visible rows and a screen of rows either side exist - a few dozen
+   nodes, not 5000 - and the view builds more as it scrolls near an edge of what it built
+   (`scroll_node_by` or `wheel` on the host). The rows are the VIEW's document: the page's `css`
+   does not reach them (that is what `row_css` is for), a `selector` finds the host and never a
+   row, and the host is the node to scroll and to give a `set_node_css_override`. Look at the
+   view with `get_virtual_view_states` and `assert_response` `contains`: its
+   `virtual_scroll_size_height` is the whole document (rows x row_height), its
+   `scroll_size_height` the rows it has built (a few dozen x row_height, never the 5000) and
+   `was_invoked` says its callback ran.
    FONTS: for any text, use only the built-in mock fonts — `Azul Mock Mono`
    (0.5em advance) or `Azul Mock Wide` (1.0em advance). They are registered
    automatically, always resolve, and need no @font-face. If a case needs N
@@ -2356,6 +2371,7 @@ pub fn validate(schema: &Schema, json: &str) -> Result<()> {
             html,
             css,
             collapse_whitespace,
+            virtual_views,
         }) = &event
         {
             if html.is_empty() {
@@ -2368,6 +2384,13 @@ pub fn validate(schema: &Schema, json: &str) -> Result<()> {
             }
             let nodes = mounted_nodes_with(html, css, *collapse_whitespace)
                 .map_err(|e| anyhow::anyhow!("step {i}: {e}"))?;
+            // The views land on the document the mount parses: one that cannot (no
+            // element, several, one with content, a row that is no markup) is the
+            // refusal the `mount` op would answer with.
+            if !virtual_views.is_empty() {
+                azul_layout::e2e::check_mount_views(html, css, *collapse_whitespace, virtual_views)
+                    .map_err(|e| anyhow::anyhow!("step {i}: {e}"))?;
+            }
             dom.mount(i, nodes);
         }
         if op == "unmount" {
@@ -6166,8 +6189,10 @@ fn eval_assert_changed(params: &Value) -> AssertionResult {{
             // D5
             "an \"empty body\" is [\"<body></body>\"], never []",
             "`html, body { margin:0; width:100%; height:100% }`",
-            "do NOT create a VirtualView",
-            "\"pending\": \"needs a mountable VirtualView\"",
+            "A VIRTUALVIEW (a list too long to build) is a key of the `mount`, never markup",
+            "\"virtual_views\":[{\"selector\":\".list\",\"rows\":5000,\"row_height\":24,",
+            "The rows are the VIEW's document: the page's `css` does not reach them",
+            "Look at the view with `get_virtual_view_states` and `assert_response` `contains`",
             // D6 (batch 2 replaced the paragraph: the per-property recipe)
             "A CONTROL THAT CANNOT MOVE A PIXEL PROVES NOTHING",
             "never a `flex-grow:1` item (it ignores an overridden `width`)",
@@ -6181,6 +6206,105 @@ fn eval_assert_changed(params: &Value) -> AssertionResult {{
         ] {
             assert!(p.contains(want), "the prompt lost `{want}`");
         }
+        // E2E-M1: a VirtualView CAN be mounted now; the line that sent the generator to
+        // the nearest plain scroller and a `pending` is gone.
+        for stale in [
+            "A line that needs a VirtualView cannot be expressed",
+            "\"pending\": \"needs a mountable VirtualView\"",
+            "do NOT create a VirtualView",
+        ] {
+            assert!(!p.contains(stale), "the prompt still says `{stale}`");
+        }
+    }
+
+    /// E2E-M1: the paragraph that teaches `virtual_views` sends the generator only to ops the
+    /// gate lets through. The first draft told it to look inside the view with
+    /// `get_virtual_view_layout`, which is geometry and DENIED - every scenario that followed
+    /// the prompt would have been refused by the gate.
+    #[test]
+    fn e2e_m1_the_virtual_view_paragraph_names_only_ops_the_gate_allows() {
+        let s = parse_schema(&root()).unwrap();
+        let p = flat_prompt();
+        let start = p
+            .find("A VIRTUALVIEW (a list too long to build)")
+            .expect("the prompt has the paragraph about virtual views");
+        let end = start
+            + p[start..]
+                .find("FONTS:")
+                .expect("the paragraph is followed by FONTS");
+        let mut named = Vec::new();
+        // The odd pieces of a split on the backtick are the words inside backticks.
+        for word in p[start..end].split('`').skip(1).step_by(2) {
+            if s.is_known(word) {
+                named.push(word);
+            }
+        }
+        for op in ["scroll_node_by", "wheel", "get_virtual_view_states"] {
+            assert!(
+                named.contains(&op),
+                "the paragraph no longer names `{op}`: {named:?}"
+            );
+        }
+        for op in &named {
+            assert_eq!(
+                classify(op),
+                OpClass::Allowed,
+                "the paragraph names `{op}`, which the gate refuses"
+            );
+        }
+    }
+
+    /// E2E-M1: a `mount` whose virtual view cannot land is refused by the gate at its step, in
+    /// the words of the `mount` op ([`azul_layout::e2e::check_mount_views`]) - not as a list
+    /// that never appears at run time - and a view that lands passes, the ops after it
+    /// addressing the host by the class the page gave it.
+    #[test]
+    fn e2e_m1_the_gate_refuses_a_mount_whose_virtual_view_cannot_land() {
+        let s = parse_schema(&root()).unwrap();
+        let scenario = |views: &str| {
+            format!(
+                r##"{{"name":"x","steps":[
+                    {{"op":"mount","collapse_whitespace":true,"html":["<div class=\"list\"></div>"],
+                      "css":[".list {{ width:300px; height:200px; overflow:auto; }}"],
+                      "virtual_views":{views}}},
+                    {{"op":"wait_frame"}},
+                    {{"op":"snapshot_frame","as":"before"}},
+                    {{"op":"scroll_node_by","selector":".list","delta_x":0,"delta_y":240}},
+                    {{"op":"wait_frame"}},
+                    {{"op":"assert_changed","vs":"before"}}]}}"##
+            )
+        };
+        let view = |selector: &str, rows: &str, row_html: &str| {
+            format!(
+                r##"[{{"selector":"{selector}","rows":{rows},"row_height":24,"row_html":{row_html}}}]"##
+            )
+        };
+        let row = r##"["<div class=\"label\">Row {n}</div>"]"##;
+
+        validate(&s, &scenario(&view(".list", "5000", row)))
+            .unwrap_or_else(|e| panic!("a view that lands is refused: {e}"));
+
+        refused(
+            &s,
+            &scenario(&view(".nothing", "5000", row)),
+            "virtual_views[0] ('.nothing'): the selector must match exactly one element",
+        );
+        refused(&s, &scenario(&view(".list", "0", row)), "rows is 0");
+        refused(
+            &s,
+            &scenario(&view(".list", "5000", r##"["<div>"]"##)),
+            "`row_html` is not valid markup",
+        );
+        // A field the view does not have is the engine's refusal, by name.
+        refused(
+            &s,
+            &scenario(
+                r##"[{"selector":".list","rows":5,"row_height":24,"row_html":["x"],"row_count":5}]"##,
+            ),
+            "row_count",
+        );
+        // The refusal names the step, as the other mount refusals do.
+        refused(&s, &scenario(&view(".nothing", "5000", row)), "step 0");
     }
 
     /// Batch 2 of the review (defects 1, 2, 3, 5, 6). The paragraph that said "a
