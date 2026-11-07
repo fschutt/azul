@@ -22,8 +22,10 @@
 //!   Custom Tab; the app's redirect intent comes back through `AzulActivity.onNewIntent`, a
 //!   return to the app without it is a cancel. The manifest needs the redirect scheme
 //!   (`AZ_ANDROID_AUTH_SCHEME` in build-android.sh).
-//! - **A headless or E2E run** (`AZ_BACKEND=headless`, `AZ_E2E_TEST`) opens nothing: it answers
-//!   from [`FAKE_REDIRECT_VAR`] ([`fake_answer`]).
+//! - **A headless or E2E TEST run** (`AZ_BACKEND=headless`, `AZ_E2E_TEST`; a build with the cargo
+//!   feature `test-hooks` only, `azul_core::run_mode`) opens nothing: it answers from
+//!   [`FAKE_REDIRECT_VAR`] ([`fake_answer`]). A shipped build has no such hook: whatever its
+//!   environment holds, a sign-in opens the provider's page and no variable answers for the user.
 //!
 //! Every platform hands its URL to `azul_layout::auth_session::finish`: the redirect must be the
 //! request's redirect URI exactly and carry the request's `state`, or the session FAILS rather
@@ -53,11 +55,12 @@ pub mod android;
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 mod apple;
 
-/// The variable a headless or E2E run answers every sign-in from: the URL the "browser" comes
-/// back to, with `{redirect_uri}`, `{state}` and `{code_challenge}` replaced by the request's
-/// (`{redirect_uri}?code=e2e-{code_challenge}&state={state}`); `cancel` or `timeout` for those
-/// answers. Unset: the sign-in is Unsupported.
-pub const FAKE_REDIRECT_VAR: &str = "AZ_AUTH_SESSION_REDIRECT";
+/// The variable a headless or E2E TEST run answers every sign-in from: the URL the "browser"
+/// comes back to, with `{redirect_uri}`, `{state}` and `{code_challenge}` replaced by the
+/// request's (`{redirect_uri}?code=e2e-{code_challenge}&state={state}`); `cancel` or `timeout`
+/// for those answers. Unset: the sign-in is Unsupported. Read by `azul_core::run_mode` in a build
+/// with the cargo feature `test-hooks` only.
+pub const FAKE_REDIRECT_VAR: &str = azul_core::run_mode::FAKE_REDIRECT_VAR;
 
 /// What a session answers: now, or through a poll the request pump asks every frame.
 enum Begun {
@@ -143,13 +146,32 @@ fn fallback_entropy(out: &mut [u8]) {
     }
 }
 
-/// A headless or E2E run: no browser opens, [`fake_answer`] answers.
-fn headless() -> bool {
-    std::env::var("AZ_BACKEND").as_deref() == Ok("headless") || std::env::var("AZ_E2E_TEST").is_ok()
+/// What the stand-in of a test run answers for a sign-in at `authorize_url`: [`fake_answer`] of
+/// the hooks' redirect when they have a fake sign-in (a headless or E2E TEST run; no browser
+/// opens), `None` when they have not - every shipped build, whatever its environment holds - and
+/// the real session starts.
+fn answered_by_hooks(
+    hooks: &azul_core::run_mode::TestHooks,
+    authorize_url: &str,
+    redirect_uri: &str,
+) -> Option<AuthSessionResult> {
+    hooks
+        .fake_sign_in
+        .then(|| fake_answer(hooks.fake_redirect.as_deref(), authorize_url, redirect_uri))
 }
 
 /// The session for `request`, started from the window `window`.
 fn begin(request: &AuthRequest, window: RawWindowHandle) -> Begun {
+    begin_with(azul_core::run_mode::test_hooks(), request, window)
+}
+
+/// [`begin`] under the hooks `hooks`: a request a real session would refuse is refused first, and
+/// then the stand-in of a test run answers ([`answered_by_hooks`]) or the real session starts.
+fn begin_with(
+    hooks: &azul_core::run_mode::TestHooks,
+    request: &AuthRequest,
+    window: RawWindowHandle,
+) -> Begun {
     let redirect_uri = request.redirect_uri.as_str().trim();
     let authorize_url = request.authorize_url.as_str().trim();
     let failed = |message: String| {
@@ -168,12 +190,7 @@ fn begin(request: &AuthRequest, window: RawWindowHandle) -> Begun {
         Ok(redirect) => redirect,
         Err(why) => return failed(why),
     };
-    if headless() {
-        let answer = fake_answer(
-            std::env::var(FAKE_REDIRECT_VAR).ok().as_deref(),
-            authorize_url,
-            redirect_uri,
-        );
+    if let Some(answer) = answered_by_hooks(hooks, authorize_url, redirect_uri) {
         crate::plog_info!(
             "[auth_session] headless: a sign-in at {} answered {:?}",
             host_of(authorize_url),
@@ -207,9 +224,9 @@ fn host_of(url: &str) -> &str {
     rest.split(['/', '?', '#']).next().unwrap_or_default()
 }
 
-/// What a headless run answers: `fake` (the value of [`FAKE_REDIRECT_VAR`]) with the request's
-/// redirect URI, state and code challenge filled in, checked like a real redirect; `cancel` and
-/// `timeout` as those; nothing set: Unsupported.
+/// What a headless test run answers: `fake` (the value of [`FAKE_REDIRECT_VAR`]) with the
+/// request's redirect URI, state and code challenge filled in, checked like a real redirect;
+/// `cancel` and `timeout` as those; nothing set: Unsupported.
 #[must_use]
 pub fn fake_answer(
     fake: Option<&str>,
@@ -412,6 +429,80 @@ mod tests {
     const AUTH: &str =
         "https://accounts.example/auth?client_id=c&code_challenge=Ch-al_l&state=St-4te";
     const REDIRECT: &str = "http://127.0.0.1/cb";
+
+    /// The hooks of a headless test run whose browser comes back to `fake`.
+    fn headless_hooks(fake: Option<&str>) -> azul_core::run_mode::TestHooks {
+        azul_core::run_mode::TestHooks {
+            fake_redirect: fake.map(String::from),
+            ..azul_core::run_mode::TestHooks::HEADLESS
+        }
+    }
+
+    /// The answer a sign-in gave at once.
+    fn at_once(begun: Begun) -> AuthSessionResult {
+        match begun {
+            Begun::Now(result) => result,
+            Begun::Later(_) => panic!("a session was started: it should have answered at once"),
+        }
+    }
+
+    /// AZ-CN18: the fake answers ONLY for the hooks of a test run. A redirect variable alone is
+    /// no switch - without `fake_sign_in` (every shipped build) the hooks answer nothing and the
+    /// real session starts; a forged answer needs the test build.
+    #[test]
+    fn only_a_test_runs_hooks_answer_a_sign_in() {
+        use azul_core::run_mode::TestHooks;
+
+        let answer = answered_by_hooks(&headless_hooks(Some("cancel")), AUTH, REDIRECT)
+            .expect("a headless test run answers");
+        assert_eq!(answer.status, AuthSessionStatus::Cancelled);
+
+        assert!(answered_by_hooks(&TestHooks::NONE, AUTH, REDIRECT).is_none());
+        let only_the_variable = TestHooks {
+            fake_redirect: Some(String::from("{redirect_uri}?code=forged&state={state}")),
+            ..TestHooks::NONE
+        };
+        assert!(
+            answered_by_hooks(&only_the_variable, AUTH, REDIRECT).is_none(),
+            "the redirect variable without the stand-in switch forged a sign-in"
+        );
+    }
+
+    /// The entry point under a test run's hooks: a request a real session would accept is
+    /// answered from the redirect (the state and the code challenge are the request's); one it
+    /// would refuse is refused before the fake looks at it.
+    #[test]
+    fn a_test_runs_sign_in_is_answered_from_the_redirect_after_the_request_is_checked() {
+        let hooks = headless_hooks(Some(
+            "{redirect_uri}?code=e2e-{code_challenge}&state={state}",
+        ));
+        let request = AuthRequest::create(AzString::from(AUTH), AzString::from(REDIRECT));
+        let answer = at_once(begin_with(&hooks, &request, RawWindowHandle::Unsupported));
+        assert_eq!(answer.status, AuthSessionStatus::Redirected);
+        assert_eq!(
+            answer.redirect_url.as_str(),
+            "http://127.0.0.1/cb?code=e2e-Ch-al_l&state=St-4te"
+        );
+
+        let not_a_web_address = AuthRequest::create(
+            AzString::from("file:///etc/passwd?state=St-4te"),
+            AzString::from(REDIRECT),
+        );
+        let refused = at_once(begin_with(
+            &hooks,
+            &not_a_web_address,
+            RawWindowHandle::Unsupported,
+        ));
+        assert_eq!(refused.status, AuthSessionStatus::Failed);
+
+        let no_redirect = AuthRequest::create(AzString::from(AUTH), AzString::from("cb"));
+        let refused = at_once(begin_with(
+            &hooks,
+            &no_redirect,
+            RawWindowHandle::Unsupported,
+        ));
+        assert_eq!(refused.status, AuthSessionStatus::Failed);
+    }
 
     #[test]
     fn a_headless_run_without_a_fake_redirect_answers_unsupported() {

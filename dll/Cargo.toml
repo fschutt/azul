@@ -1249,7 +1249,13 @@ e2e-test = ["serde_json", "azul-layout?/probe"]
 # A release or distribution build (`dist`, `prod-release`) never reads them: a
 # variable in a shell profile, a launcher or a wrapper cannot send a user's drive keys to process
 # memory (lost at exit) or to a plaintext file. Not part of `build-dll`; never ship it.
-test-hooks = []
+#
+# The same feature gates every other stand-in of a headless or E2E run (RF38 phase 2): the sign-in
+# that answers from AZ_AUTH_SESSION_REDIRECT, `Url::open` that opens nothing, the biometric prompt
+# that says "unavailable", the fixed battery / network readings, the speech that says nothing and
+# the armed request mocks. azul-core's `run_mode::test_hooks()` is the one place that reads those
+# variables, and it reads them only with this feature (the `?` keeps a dependency that is off off).
+test-hooks = ["azul-core?/test-hooks", "azul-layout?/test-hooks"]
 
 # -----------------------------------------------------------------------------
 # Integration tests that need a non-default feature
