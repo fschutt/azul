@@ -98,9 +98,9 @@
 )]
 
 pub mod bucket;
-pub mod certainty;
 #[cfg(feature = "index-cache")]
 pub mod cache;
+pub mod certainty;
 pub mod git;
 #[cfg(feature = "encryption")]
 pub mod index;
@@ -125,12 +125,12 @@ use std::fmt;
 pub use bucket::{
     Bucket, DriveBucket, Fetched, FolderBucket, Listed, MemoryBucket, RequestCounts, Version,
 };
+pub use certainty::Certainty;
+#[cfg(feature = "encryption")]
+pub use index::{open_encrypted_drive, MetaIndex, MetaIndexProvider};
 pub use merge::{Conflict, ConflictKind, Merged, Resolution, Resolved};
 pub use objects::{Commit, Kind, Mode, ObjectId, Objects, Signature, Tree, TreeEntry};
 pub use pack::{PackIndex, PackWriter, SealedPack};
-#[cfg(feature = "encryption")]
-pub use index::{open_encrypted_drive, MetaIndex, MetaIndexProvider};
-pub use certainty::Certainty;
 #[cfg(feature = "encryption")]
 pub use reclaim::{
     gone_objects, Caps, Deleted, LiveObjects, NotYet, PurgeConfirmation, ReclaimMode,
@@ -144,7 +144,8 @@ pub use seal::{SealError, Sealer, TestSealer};
 pub use tree::Change;
 pub use wal::{
     reseal, LeaseGuard, LogEntry, Maintained, Maintenance, Manifest, MetaStore, PackRef, Packs,
-    Publish, Published, RefUpdate, RepoState, Resealed, StoreSnapshot, SyncReport, COMPACT_PACK_MAX,
+    Publish, Published, RefUpdate, RepoState, Resealed, StoreSnapshot, SyncReport,
+    COMPACT_PACK_MAX,
 };
 
 use crate::DriveError;
