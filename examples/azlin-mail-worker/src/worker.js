@@ -2,15 +2,20 @@
 // the CUSTOMER's own Cloudflare account (Email Routing -> this Worker); Azlin never runs a mail
 // server and never sees the mail.
 //
-// - A plain drive: the message's exact bytes go to `mail/Inbox/<stamp>-<hash>.eml` (or
-//   `mail/Spam/`), the names AzMail reads (examples/azul-mail/AZLIN_MAIL.md).
-// - An encrypted drive (the variable AZLIN_DROP_PUBLIC_KEY is set - the app sets it with the
-//   customer's own Cloudflare API token): the message is sealed to the drive's drop key (AZD1,
-//   src/azd1.js) and put at `.azlin/drop/<random>`; a device of the drive opens it and files it
-//   into the encrypted mail folders. Neither the bucket nor this Worker keeps it in the clear.
+// - An encrypted drive (every Azlin drive; the variable AZLIN_DROP_PUBLIC_KEY is set - the app
+//   sets it with the customer's own Cloudflare API token): the message is sealed to the drive's
+//   drop key (AZD1, src/azd1.js) and put at `.azlin/drop/<random>`; a device of the drive opens
+//   it and files it into the encrypted mail folders. Neither the bucket nor this Worker keeps it
+//   in the clear.
+// - A plain bucket (NOT an Azlin drive), only when the configuration says so in so many words
+//   (AZLIN_PLAIN_DRIVE = "yes"): the message's exact bytes go to `mail/Inbox/<stamp>-<hash>.eml`
+//   (or `mail/Spam/`), the names AzMail reads (examples/azul-mail/AZLIN_MAIL.md).
+// - Neither: the Worker FAILS CLOSED. A drive whose key was not set yet (the routing rules come
+//   before it in a hurried install), or whose secret was removed, gets no plain message: the
+//   node's operator would read it, and the drive's owner would not see it in the index.
 //
-// The Worker logs nothing of a message (no address, no subject). A failed PUT throws: the
-// delivery fails and the sending server tries again later.
+// The Worker logs nothing of a message (no address, no subject). A failed PUT, and a delivery
+// that fails closed, throw: the delivery fails and the sending server tries again later.
 
 import { hexToBytes, newDropObjectKey, sealDrop } from "./azd1.js";
 import { messageKey, objectName } from "./mailname.js";
@@ -26,11 +31,26 @@ export function folderOf(headers) {
   return flag === "YES" || status.startsWith("yes") ? "Spam" : "Inbox";
 }
 
-/** The drop public key of an encrypted drive's configuration; `null` for a plain drive. */
+/** Whether the configuration says, in so many words, that the bucket is a plain one. */
+export function plainDriveSwitch(env) {
+  return String(env.AZLIN_PLAIN_DRIVE || "").trim().toLowerCase() === "yes";
+}
+
+/**
+ * The drop public key of an encrypted drive's configuration; `null` only for a bucket that the
+ * configuration declares plain (AZLIN_PLAIN_DRIVE = "yes"). Without a key and without that word
+ * it throws: no message is written, the sender tries again once the key is set.
+ */
 export function dropPublicKey(env) {
   const hex = (env.AZLIN_DROP_PUBLIC_KEY || "").trim();
   if (!hex) {
-    return null;
+    if (plainDriveSwitch(env)) {
+      return null;
+    }
+    throw new Error(
+      "AZLIN_DROP_PUBLIC_KEY is not set: this Worker writes no plain mail into a drive unless " +
+        'AZLIN_PLAIN_DRIVE is "yes" (a bucket that is not an Azlin drive)',
+    );
   }
   if (!/^[0-9a-fA-F]{64}$/.test(hex)) {
     throw new Error("AZLIN_DROP_PUBLIC_KEY is not 64 hex digits");

@@ -175,11 +175,16 @@ or relays mail.
 
 ## 9. The seam for incoming mail
 
-The customer's Cloudflare Email Worker, for each message: name = stamp of now + `-` + the first
-16 hex digits of SHA-256 of the bytes; PutObject `mail/Inbox/<name>.eml` (or `mail/Spam/` on its
-own spam verdict) with the customer's bucket credentials. Nothing else: there is no index to
-update (the listing is the index) and no state to write (unread is no marker). Encryption on
-arrival is a later layer between the Worker and the bucket.
+The customer's Cloudflare Email Worker (`examples/azlin-mail-worker`) files each message with the
+customer's bucket credentials. An Azlin drive is always encrypted: the Worker seals the message to
+the drive's drop key (AZD1) and puts it at `.azlin/drop/<random>`, and a device of the drive opens
+it and files it into the encrypted `mail/` folders. A Worker without the drop key **fails
+closed**: it files nothing and the delivery fails, so the sending server tries again - it never
+writes the mail into an encrypted drive's bucket in the clear. Only a bucket that is not an Azlin
+drive, and only when the Worker's configuration says `AZLIN_PLAIN_DRIVE = "yes"`, gets the plain
+seam: name = stamp of now + `-` + the first 16 hex digits of SHA-256 of the bytes; PutObject
+`mail/Inbox/<name>.eml` (or `mail/Spam/` on its own spam verdict). Nothing else: there is no
+index to update (the listing is the index) and no state to write (unread is no marker).
 
 ## 10. Testing it locally
 

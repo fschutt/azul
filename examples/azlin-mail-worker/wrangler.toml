@@ -9,11 +9,17 @@ compatibility_date = "2026-01-01"
 S3_ENDPOINT = "https://s3.example.invalid"
 S3_BUCKET = "your-drive-bucket"
 S3_REGION = "us-east-1"
-# The drive's id: an encrypted drive's drops name it (any value for a plain drive).
+# The drive's id: an encrypted drive's drops name it.
 AZLIN_DRIVE_ID = "your-drive-id"
+# Only for a bucket that is NOT an Azlin drive (every Azlin drive is encrypted): without the drop
+# key below, the Worker refuses to file any mail unless this says "yes", in so many words. Mail
+# then lands as plain .eml objects in the bucket, which its operator can read.
+# AZLIN_PLAIN_DRIVE = "yes"
 
 # Secrets (never in this file):
 #   S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY   the drive's write credentials for incoming mail
 #   S3_SESSION_TOKEN                         only with temporary credentials
 #   AZLIN_DROP_PUBLIC_KEY                    an encrypted drive's drop key (64 hex digits); the
-#                                            app sets it with your own Cloudflare API token
+#                                            app sets it with your own Cloudflare API token.
+#                                            Without it (and without AZLIN_PLAIN_DRIVE) the
+#                                            Worker files nothing and the sender tries again

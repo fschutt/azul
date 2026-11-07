@@ -3,7 +3,7 @@ import { test } from "node:test";
 
 import { bytesToHex, openDrop } from "../src/azd1.js";
 import { amzDate, objectName } from "../src/mailname.js";
-import worker, { deliver, folderOf, MAX_MESSAGE_BYTES } from "../src/worker.js";
+import worker, { deliver, dropPublicKey, folderOf, MAX_MESSAGE_BYTES } from "../src/worker.js";
 
 const encoder = new TextEncoder();
 const NOW = Date.UTC(2026, 9, 10, 8, 0, 0);
@@ -16,6 +16,8 @@ const S3 = {
   S3_ACCESS_KEY_ID: "AKIDTEST",
   S3_SECRET_ACCESS_KEY: "secret",
 };
+// A bucket that is not an Azlin drive, declared plain in so many words.
+const PLAIN = { ...S3, AZLIN_PLAIN_DRIVE: "yes" };
 
 function recorder() {
   const puts = [];
@@ -34,7 +36,7 @@ test("the stable name is AzMail's: the arrival stamp and 16 hex digits of the SH
 
 test("a plain drive gets the message's exact bytes under its stable name", async () => {
   const { puts, fetchImpl } = recorder();
-  const result = await deliver({ raw: RAW, headers: new Headers(), env: S3, now: NOW, fetchImpl });
+  const result = await deliver({ raw: RAW, headers: new Headers(), env: PLAIN, now: NOW, fetchImpl });
   assert.equal(result.encrypted, false);
   assert.equal(result.folder, "Inbox");
   assert.equal(result.key, `mail/Inbox/${await objectName(RAW, NOW / 1000)}`);
@@ -43,7 +45,7 @@ test("a plain drive gets the message's exact bytes under its stable name", async
   assert.deepEqual(puts[0].body, RAW);
   assert.equal(puts[0].contentType, "message/rfc822");
   // A retry of the same message lands on the same name: no duplicate.
-  const again = await deliver({ raw: RAW, headers: new Headers(), env: S3, now: NOW, fetchImpl });
+  const again = await deliver({ raw: RAW, headers: new Headers(), env: PLAIN, now: NOW, fetchImpl });
   assert.equal(again.key, result.key);
 });
 
@@ -55,7 +57,7 @@ test("an upstream spam verdict files the message into Spam", async () => {
   const result = await deliver({
     raw: RAW,
     headers: new Headers({ "X-Spam-Flag": "YES" }),
-    env: S3,
+    env: PLAIN,
     now: NOW,
     fetchImpl,
   });
@@ -135,10 +137,76 @@ test("the email handler rejects what is too big and files the rest", async () =>
       headers: new Headers(),
       setReject: () => assert.fail("not rejected"),
     };
-    await worker.email(message, S3);
+    await worker.email(message, PLAIN);
   } finally {
     globalThis.fetch = originalFetch;
   }
   assert.equal(puts.length, 1);
   assert.match(puts[0], /\/drive-bucket\/mail\/Inbox\/\d{8}T\d{6}Z-[0-9a-f]{16}\.eml$/);
+});
+
+// X-DELTA-AZDRIVE-KEYS-17: the Worker fails CLOSED. Every Azlin drive is encrypted; a Worker whose
+// drop key was not set yet (the routing rules came first), or whose secret was removed, wrote the
+// mail of the domain as plain .eml objects into the bucket - readable by the node's operator and
+// invisible to the owner's index. Without the key and without the word "yes" nothing is written
+// and the delivery fails, so the sending server tries again.
+test("x_delta_azdrive_keys_17 a Worker without a drop key files nothing unless the drive is declared plain", async () => {
+  for (const env of [
+    S3,
+    { ...S3, AZLIN_DROP_PUBLIC_KEY: "" },
+    { ...S3, AZLIN_DROP_PUBLIC_KEY: "   ", AZLIN_PLAIN_DRIVE: "" },
+    { ...S3, AZLIN_PLAIN_DRIVE: "no" },
+    { ...S3, AZLIN_PLAIN_DRIVE: "true" },
+  ]) {
+    const { puts, fetchImpl } = recorder();
+    await assert.rejects(
+      deliver({ raw: RAW, headers: new Headers(), env, now: NOW, fetchImpl }),
+      /AZLIN_DROP_PUBLIC_KEY is not set/,
+    );
+    assert.equal(puts.length, 0, "nothing reaches the bucket");
+  }
+});
+
+test("x_delta_azdrive_keys_17 the email handler fails the delivery of a Worker without a key, and sends nothing", async () => {
+  const originalFetch = globalThis.fetch;
+  const puts = [];
+  globalThis.fetch = async (url) => {
+    puts.push(url);
+    return new Response(null, { status: 200 });
+  };
+  try {
+    const message = {
+      rawSize: RAW.length,
+      raw: new Blob([RAW]).stream(),
+      headers: new Headers(),
+      setReject: () => assert.fail("a closed Worker fails the delivery; it does not reject the mail"),
+    };
+    await assert.rejects(worker.email(message, S3), /AZLIN_DROP_PUBLIC_KEY is not set/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  assert.equal(puts.length, 0);
+});
+
+test("x_delta_azdrive_keys_17 the plain-drive word is read as the word it is, and a drop key wins over it", async () => {
+  assert.equal(dropPublicKey({ AZLIN_PLAIN_DRIVE: "yes" }), null);
+  assert.equal(dropPublicKey({ AZLIN_PLAIN_DRIVE: " YES " }), null);
+  assert.throws(() => dropPublicKey({}), /not set/);
+  // With a key the drive is encrypted, whatever the switch says.
+  const key = dropPublicKey({
+    AZLIN_PLAIN_DRIVE: "yes",
+    AZLIN_DROP_PUBLIC_KEY: "11".repeat(32),
+    AZLIN_DRIVE_ID: "d_1",
+  });
+  assert.equal(key.length, 32);
+  const { puts, fetchImpl } = recorder();
+  const result = await deliver({
+    raw: RAW,
+    headers: new Headers(),
+    env: { ...PLAIN, AZLIN_DROP_PUBLIC_KEY: "11".repeat(32), AZLIN_DRIVE_ID: "d_1" },
+    now: NOW,
+    fetchImpl,
+  });
+  assert.equal(result.encrypted, true);
+  assert.match(puts[0].url, /\/\.azlin\/drop\/[0-9a-f]{32}$/);
 });
