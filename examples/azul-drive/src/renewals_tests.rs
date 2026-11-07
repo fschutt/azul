@@ -233,3 +233,97 @@ fn x_ar5a_6_the_notice_log_and_the_waitlist_are_private_and_whole() {
         .collect();
     assert_eq!(names.len(), 2, "no temporary file stays: {names:?}");
 }
+
+/// X-DELTA-AZDRIVE-KEYS-4: a price notice was written with the Azlin drive's own handle - below
+/// the encryption's gate - as a plaintext object in an encrypted drive's bucket, its name and text
+/// the token server's words (and a folder in the clear that made a new drive look like an old
+/// one). It is a document of the drive as the window opens it: in the encrypted index, and
+/// nothing of it in the bucket.
+#[cfg(feature = "encryption")]
+#[test]
+fn x_delta_azdrive_keys_4_a_price_notice_is_a_document_of_the_encrypted_drive_not_a_plain_object() {
+    use std::sync::Arc;
+
+    use azul_storage::{
+        config::EncryptionRecord,
+        crypto::{device, keys::RecoveryKdf},
+        keyring::MemoryKeyring,
+        meta::MemoryBucket,
+        Drive,
+    };
+
+    let key = "Azlin notices/2026-12-01 price change 100GB.txt";
+    let text = "The price of 100GB changes on 2026-12-01.";
+    let bucket = Arc::new(MemoryBucket::new());
+    let keyring = Arc::new(MemoryKeyring::new());
+    device::setup_new_drive(
+        bucket.as_ref(),
+        keyring.as_ref(),
+        "d_az",
+        RecoveryKdf::with_cost(64, 1, 1).unwrap(),
+    )
+    .unwrap();
+    let records = crate::KeyRecords::default();
+    let auto = crate::encryption::wrap_with(
+        keyring,
+        Some(Arc::new(crate::encryption::meta_provider(None))),
+        "d_az",
+        bucket.clone(),
+        EncryptionRecord::default(),
+        "slot-1",
+        &records,
+    );
+    let drive: Arc<dyn Drive> = auto;
+
+    crate::jobs::save_notice(drive.as_ref(), key, text).expect("the encrypted drive takes it");
+    assert_eq!(
+        drive.get(key).unwrap(),
+        text.as_bytes(),
+        "a document of the drive"
+    );
+    assert!(
+        bucket.get(key).is_err(),
+        "no object of that name in the bucket: the gate wrote it into the index"
+    );
+    for (name, bytes) in bucket.objects() {
+        assert!(
+            !String::from_utf8_lossy(&bytes).contains("price of 100GB"),
+            "{name} shows the notice in the clear"
+        );
+    }
+    assert!(
+        !bucket
+            .objects()
+            .iter()
+            .any(|(name, _)| name.starts_with("Azlin notices/")),
+        "no folder of notices in the clear"
+    );
+}
+
+/// X-DELTA-AZDRIVE-KEYS-4: a drive that is not (yet) encrypted refuses the notice at the gate and
+/// its bucket is as it was - the write the old job made went to the bucket whatever the state.
+#[cfg(feature = "encryption")]
+#[test]
+fn x_delta_azdrive_keys_4_a_drive_that_is_not_encrypted_takes_no_notice() {
+    use std::sync::Arc;
+
+    use azul_storage::{
+        config::EncryptionRecord, keyring::MemoryKeyring, meta::MemoryBucket, Drive,
+    };
+
+    let bucket = Arc::new(MemoryBucket::new());
+    let records = crate::KeyRecords::default();
+    let auto = crate::encryption::wrap_with(
+        Arc::new(MemoryKeyring::new()),
+        Some(Arc::new(crate::encryption::meta_provider(None))),
+        "d_new",
+        bucket.clone(),
+        EncryptionRecord::default(),
+        "slot-1",
+        &records,
+    );
+    let drive: Arc<dyn Drive> = auto;
+    let before = bucket.objects();
+    assert!(crate::jobs::save_notice(drive.as_ref(), "Azlin notices/n.txt", "text").is_err());
+    assert_eq!(bucket.objects(), before, "nothing was written");
+}

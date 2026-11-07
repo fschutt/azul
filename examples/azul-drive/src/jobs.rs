@@ -434,9 +434,13 @@ pub(crate) enum Job {
         drive_id: String,
         checkout_id: String,
     },
-    /// A notice saved as a document in the drive (a price change: the durable medium).
+    /// A notice saved as a document in the drive (a price change: the durable medium). It goes
+    /// through the drive the window shows - the encryption's gate included - and never to the
+    /// bucket below it: the key and the text are the token server's words, and an object of them
+    /// in the clear in an encrypted drive's bucket is a plaintext write the gate never saw
+    /// (X-DELTA-AZDRIVE-KEYS-4).
     SaveNotice {
-        azlin: Arc<azcloud_kit::AzlinDrive>,
+        drive: Arc<dyn Drive>,
         key: String,
         text: String,
     },
@@ -3441,6 +3445,13 @@ fn claim_pending(
     }
 }
 
+/// A price notice written as a document of `drive` - the drive as the window opens it, so an
+/// encrypted drive's gate decides (`Encrypted` takes it into the index, anything else refuses it
+/// and nothing is written).
+pub(crate) fn save_notice(drive: &dyn Drive, key: &str, text: &str) -> Result<(), DriveError> {
+    drive.put(key, text.as_bytes())
+}
+
 /// A drive's period tokens: kept with the drive when its key is on this computer (every device
 /// of the drive redeems them and issues its next months), else on this computer only - and then
 /// the tokens say why ([`azcloud_kit::NoVault`]): a paid grant is erased from the keyring only
@@ -4012,8 +4023,8 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
             result: cancel_plan(&token_url, &store, azlin.as_ref(), &drive_id, &checkout_id),
             drive_id,
         },
-        Job::SaveNotice { azlin, key, text } => Outcome::NoticeSaved {
-            result: azlin.put(&key, text.as_bytes()),
+        Job::SaveNotice { drive, key, text } => Outcome::NoticeSaved {
+            result: save_notice(drive.as_ref(), &key, &text),
             key,
         },
         Job::Options {

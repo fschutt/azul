@@ -10,7 +10,10 @@
 //! On stdout: `AZDRIVE_RENEW_REMINDER <drive> <kind> <days>`, `AZDRIVE_TIER_CHANGED <drive>
 //! <tier>`, `AZDRIVE_PRICE_NOTICE <drive> <key>`, `AZDRIVE_TIER_BACK <tier>`.
 
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use azcloud_kit::{
     azlin_contract::{Cents, DeadlineKind, ScheduledChange, TierId},
@@ -18,7 +21,7 @@ use azcloud_kit::{
 };
 use azul::{callbacks::ButtonOnClickCallbackType, prelude::*, str::String as AzString};
 use azul_appkit::l10n::{label, t_args, Arg, Phrase};
-use azul_storage::time::iso8601;
+use azul_storage::{time::iso8601, Drive};
 use serde::{Deserialize, Serialize};
 
 use crate::{ids, jobs::Job, pay_words, spawn, DriveState};
@@ -530,6 +533,16 @@ pub(crate) fn renewals_seen(
     }
 }
 
+/// The drive as the window opened it (the encryption's gate included) of the Azlin drive
+/// `drive_id` (its id at the token server): where a notice is written. Never the Azlin drive's own
+/// handle below the gate.
+pub(crate) fn notice_drive(s: &DriveState, drive_id: &str) -> Option<Arc<dyn Drive>> {
+    s.slots
+        .iter()
+        .find(|slot| slot.entry.azlin().is_some_and(|(id, _)| id == drive_id))
+        .and_then(|slot| slot.drive.clone())
+}
+
 /// Saves each notice not saved before as a document in the drive `drive_id` and shows it.
 fn save_notices(
     info: &mut CallbackInfo,
@@ -538,7 +551,7 @@ fn save_notices(
     drive_id: &str,
     notices: Vec<PriceNotice>,
 ) {
-    let Some(azlin) = crate::periods::azlin_drives(s).get(drive_id).cloned() else {
+    let Some(drive) = notice_drive(s, drive_id) else {
         return;
     };
     let log = NoticeLog::new(s.period_tokens.dir(), drive_id);
@@ -550,7 +563,7 @@ fn save_notices(
         println!("AZDRIVE_PRICE_NOTICE {drive_id} {}", notice.key);
         s.warn(azul_appkit::l10n::Text::from(notice.text.clone()));
         let job = Job::SaveNotice {
-            azlin: azlin.clone(),
+            drive: drive.clone(),
             key: notice.key,
             text: notice.text,
         };
