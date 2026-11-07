@@ -117,6 +117,14 @@ pub struct PlanInput<'a> {
 /// taken.
 #[must_use]
 pub fn conflict_name(key: &str, device: &str, date: &str, taken: &dyn Fn(&str) -> bool) -> String {
+    copy_name(key, &format!("conflict {device} {date}"), taken)
+}
+
+/// The name of a second copy of `key` that says what it is, `notes/a (label).md` in the same
+/// folder, `(label 2)`, `(label 3)` when that is taken: a conflict's copy ([`conflict_name`]) and
+/// a trashed version put back beside a file that has its name now ([`super::trash`]).
+#[must_use]
+pub fn copy_name(key: &str, label: &str, taken: &dyn Fn(&str) -> bool) -> String {
     let (dir, stem, ext) = name_parts(key);
     let mut n = 1u32;
     loop {
@@ -125,7 +133,7 @@ pub fn conflict_name(key: &str, device: &str, date: &str, taken: &dyn Fn(&str) -
         } else {
             format!(" {n}")
         };
-        let candidate = format!("{dir}{stem} (conflict {device} {date}{suffix}){ext}");
+        let candidate = format!("{dir}{stem} ({label}{suffix}){ext}");
         if !taken(&candidate) {
             return candidate;
         }

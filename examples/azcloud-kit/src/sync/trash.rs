@@ -1,19 +1,35 @@
 //! Undoing a delete from this device: a file a pass moved into the folder's trash (because the
-//! drive deleted it) is put back where it was, found through the operations log, which names
-//! each file's place in the trash. The next pass sends it up again: a file made here with the
-//! bytes of one deleted earlier is the user's (the merge's D5 rule), so the undo travels to
-//! every device. [`trashed`] lists what a restore would bring back, for the app's trash view.
+//! drive deleted it) is put back where it was. The next pass sends it up again: a file made here
+//! with the bytes of one deleted earlier is the user's (the merge's D5 rule), so the undo travels
+//! to every device. [`trashed`] lists what a restore would bring back, for the app's trash view.
+//!
+//! What is in the trash is read from the trash's own folders (`.azlin/sync/trash/<pass>/<the
+//! file's path>`, AZ-S20): the operations log ([`OpLog`]) names the key of a trashed path and
+//! which version of a file a pass trashed last, but it is a cache of descriptions - trimmed by
+//! size, lost with the pairing's state folder when a drive is forgotten - and the files are in the
+//! trash all the same. A file whose name is taken again comes back beside the file that has it
+//! (AZ-U19), never over it and never skipped.
 
-use std::{collections::BTreeSet, path::Path};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    path::Path,
+};
 
-use azul_storage::beneath::Root;
+use azul_storage::beneath::{self, Dir, Kind, Root};
 
 use super::{
-    names,
+    merge, names,
     oplog::{OpKind, OpLog},
     root::{TRASH_DAYS, TRASH_DIR},
 };
 use crate::error::{CloudResult, Context};
+
+/// How many entries one look at the trash goes through at most, the newest passes first: a trash
+/// of more is shown by its newest part (the date purge, [`super::root::purge_trash`], empties
+/// the rest).
+const LOOKS: usize = 200_000;
+/// The deepest folder of a trashed path that is looked into.
+const DEPTH: usize = 64;
 
 /// A file of the folder's trash: the newest version of `key` a pass moved there.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -35,54 +51,193 @@ impl Trashed {
     }
 }
 
+/// A file in the trash, as the trash's folders show it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Item {
+    /// From the synced folder's root: `.azlin/sync/trash/<pass>/<its path>`.
+    path: String,
+    /// The pass's folder name (`20261024-110000-bbbbbb`): it sorts by time.
+    pass: String,
+    /// Where a restore puts it: the key the log names for `path`, else its path under the pass's
+    /// folder.
+    key: String,
+    bytes: u64,
+}
+
+/// One walk through the trash.
+struct Look<'a> {
+    pass: String,
+    named: &'a BTreeMap<String, String>,
+    looks: usize,
+    found: Vec<Item>,
+}
+
+/// Every file of the trash, the newest pass first.
+fn in_trash(tree: &Root, named: &BTreeMap<String, String>) -> Vec<Item> {
+    let Ok(trash) = tree.dir(TRASH_DIR, false) else {
+        return Vec::new();
+    };
+    let Ok(names) = trash.names() else {
+        return Vec::new();
+    };
+    let mut passes: Vec<String> = names
+        .iter()
+        .filter_map(|name| name.to_str().map(str::to_string))
+        .collect();
+    passes.sort_unstable_by(|a, b| b.cmp(a));
+    let mut out = Vec::new();
+    let mut looks = LOOKS;
+    for pass in passes {
+        let Ok(folder) = trash.child(&pass, false) else {
+            continue;
+        };
+        let rel = format!("{TRASH_DIR}/{pass}");
+        let mut look = Look {
+            pass,
+            named,
+            looks,
+            found: Vec::new(),
+        };
+        walk(&mut look, &folder, &rel, "", 0);
+        looks = look.looks;
+        out.append(&mut look.found);
+        if looks == 0 {
+            break;
+        }
+    }
+    out
+}
+
+/// The files below `dir` (`rel` from the root, `under` from the pass's folder), never through a
+/// link.
+fn walk(look: &mut Look<'_>, dir: &Dir, rel: &str, under: &str, depth: usize) {
+    let Ok(mut names) = dir.names() else {
+        return;
+    };
+    names.sort_unstable();
+    for name in names {
+        if look.looks == 0 {
+            return;
+        }
+        look.looks -= 1;
+        let Some(name) = name.to_str() else {
+            continue;
+        };
+        let Ok(st) = dir.lstat(name) else {
+            continue;
+        };
+        let here = format!("{rel}/{name}");
+        let below = if under.is_empty() {
+            name.to_string()
+        } else {
+            format!("{under}/{name}")
+        };
+        match st.kind {
+            Kind::File => {
+                let key = look.named.get(&here).cloned().unwrap_or(below);
+                look.found.push(Item {
+                    path: here,
+                    pass: look.pass.clone(),
+                    key,
+                    bytes: st.size,
+                });
+            }
+            Kind::Dir if depth < DEPTH => {
+                if let Ok(child) = dir.child(name, false) {
+                    walk(look, &child, &here, &below, depth + 1);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// The pass's folder name in a trash path: `20261024-110000-bbbbbb`.
+fn pass_of(path: &str) -> &str {
+    path.strip_prefix(TRASH_DIR)
+        .unwrap_or(path)
+        .trim_start_matches('/')
+        .split('/')
+        .next()
+        .unwrap_or("")
+}
+
+/// What the trash holds that a restore would bring back: each file's newest version in the
+/// trash. The log only describes (the key of a trashed path) and tells one thing the folders
+/// cannot: when the newest version a pass trashed of a file is not in the trash any more (put
+/// back, or purged), the older versions of it are not offered in its place.
+fn candidates(tree: &Root, state_dir: &Path) -> Vec<Item> {
+    let mut named: BTreeMap<String, String> = BTreeMap::new();
+    let mut logged: BTreeMap<String, String> = BTreeMap::new();
+    for op in OpLog::new(state_dir).read() {
+        if op.op != OpKind::Trash {
+            continue;
+        }
+        let Some(to) = op.to else {
+            continue;
+        };
+        named.insert(to.clone(), op.key.clone());
+        // Oldest line first: the newest line of a key is the one that stays.
+        logged.insert(op.key, to);
+    }
+    let mut seen: BTreeSet<String> = BTreeSet::new();
+    in_trash(tree, &named)
+        .into_iter()
+        .filter(|item| {
+            if !seen.insert(item.key.clone()) {
+                return false;
+            }
+            !logged
+                .get(&item.key)
+                .is_some_and(|newest| *newest != item.path && pass_of(newest) > item.pass.as_str())
+        })
+        .collect()
+}
+
+/// Whether the file at the item's key is its bytes already: there is nothing to put back.
+fn already_back(root: &Path, tree: &Root, item: &Item) -> bool {
+    let Ok((dir, name)) = names::walk_local(tree, &item.key, false) else {
+        return false;
+    };
+    let Ok(now) = dir.lstat(&name) else {
+        return false;
+    };
+    now.kind == Kind::File
+        && now.size == item.bytes
+        && super::hash_here(root, &item.key).is_some_and(|here| {
+            super::hash_here(root, &item.path).as_deref() == Some(here.as_str())
+        })
+}
+
 /// What [`untrash`] would put back of the whole folder `root` of the pairing whose state folder
-/// is `state_dir`: each file's newest trashed version that is still in the trash and whose
-/// place is free, newest first (then by key). A file purged, put back by hand, or made again
-/// where it was is not listed, as a restore would not bring it back.
+/// is `state_dir`: each file's newest trashed version that is still in the trash, newest first
+/// (then by key). A file purged, or put back by hand, is not listed, nor one whose place holds
+/// its bytes already; one whose place holds another file is: it comes back beside it.
 #[must_use]
 pub fn trashed(root: &Path, state_dir: &Path) -> Vec<Trashed> {
     let Ok(tree) = Root::open(root) else {
         return Vec::new();
     };
-    let mut seen: BTreeSet<String> = BTreeSet::new();
-    let mut out = Vec::new();
-    for op in OpLog::new(state_dir).read().into_iter().rev() {
-        if op.op != OpKind::Trash || seen.contains(&op.key) {
-            continue;
-        }
-        let Some(trashed) = op.to.as_deref() else {
-            continue;
-        };
-        // Only the newest version counts, as for a restore.
-        seen.insert(op.key.clone());
-        let Ok((dir, name)) = names::walk_local(&tree, trashed, false) else {
-            continue;
-        };
-        let Ok(stat) = dir.lstat(&name) else {
-            continue;
-        };
-        let taken = names::walk_local(&tree, &op.key, false)
-            .is_ok_and(|(dir, name)| dir.lstat(&name).is_ok());
-        if taken {
-            continue;
-        }
-        out.push(Trashed {
-            trashed_at: stamp_time(trashed),
-            bytes: stat.size,
-            key: op.key,
-        });
-    }
-    out.sort_by(|a, b| b.trashed_at.cmp(&a.trashed_at).then_with(|| a.key.cmp(&b.key)));
+    let mut out: Vec<Trashed> = candidates(&tree, state_dir)
+        .into_iter()
+        .filter(|item| !already_back(root, &tree, item))
+        .map(|item| Trashed {
+            trashed_at: stamp_time(&item.path),
+            bytes: item.bytes,
+            key: item.key,
+        })
+        .collect();
+    out.sort_by(|a, b| {
+        b.trashed_at
+            .cmp(&a.trashed_at)
+            .then_with(|| a.key.cmp(&b.key))
+    });
     out
 }
 
 /// When the pass whose trash folder holds `path` ran: the folder's name, `20261024-110000-...`.
 fn stamp_time(path: &str) -> Option<i64> {
-    let stamp = path
-        .strip_prefix(TRASH_DIR)?
-        .trim_start_matches('/')
-        .split('/')
-        .next()?;
+    let stamp = pass_of(path);
     let (date, rest) = stamp.split_once('-')?;
     let time = rest.get(..6)?;
     let digits = |text: &str| text.bytes().all(|b| b.is_ascii_digit());
@@ -102,8 +257,10 @@ fn stamp_time(path: &str) -> Option<i64> {
 
 /// Puts back what the passes of the pairing whose state folder is `state_dir` trashed of `key`
 /// (a file, or a folder with everything in it; `""` the whole folder) in the synced folder
-/// `root`: the newest trashed version of each file, never over a file that is there now. The
-/// keys put back.
+/// `root`: the newest trashed version of each file. A file whose place is free goes back to it;
+/// one whose place holds another file comes back beside it, as `name (deleted 2026-10-24).ext`
+/// (AZ-U19) - never over a file that is there, never skipped. A file whose place holds its bytes
+/// already is left in the trash. The keys put back (a copy's key as it is now).
 ///
 /// # Errors
 ///
@@ -113,41 +270,40 @@ pub fn untrash(root: &Path, state_dir: &Path, key: &str) -> CloudResult<Vec<Stri
     let under = |k: &str| {
         folder.is_empty()
             || k == folder
-            || k.strip_prefix(folder).is_some_and(|rest| rest.starts_with('/'))
+            || k.strip_prefix(folder)
+                .is_some_and(|rest| rest.starts_with('/'))
     };
-    let mut done: BTreeSet<String> = BTreeSet::new();
     let mut out = Vec::new();
     // Both names are reached from the folder's root without a link: a file never goes back
     // into a folder that a link below the synced folder points at.
     let tree = Root::open(root).with_context(|| root.display())?;
-    for op in OpLog::new(state_dir).read().into_iter().rev() {
-        if op.op != OpKind::Trash || !under(&op.key) || done.contains(&op.key) {
+    for item in candidates(&tree, state_dir) {
+        if !under(&item.key) || already_back(root, &tree, &item) {
             continue;
         }
-        let Some(trashed) = op.to.as_deref() else {
+        let Ok((source, from)) = names::walk_local(&tree, &item.path, false) else {
             continue;
-        };
-        // Gone from the trash already (purged, put back by hand), or a file is there now.
-        let (source, from) = match names::walk_local(&tree, trashed, false) {
-            Ok((dir, name)) if dir.lstat(&name).is_ok() => (dir, name),
-            _ => {
-                done.insert(op.key.clone());
-                continue;
-            }
         };
         let (target, to) =
-            names::walk_local(&tree, &op.key, true).with_context(|| op.key.clone())?;
-        if target.lstat(&to).is_ok() {
-            done.insert(op.key.clone());
-            continue;
-        }
+            names::walk_local(&tree, &item.key, true).with_context(|| item.key.clone())?;
+        let (name, restored) = if target.lstat(&to).is_err() {
+            (to, item.key.clone())
+        } else {
+            let label = match stamp_time(&item.path).map(crate::rfc3339) {
+                Some(moment) => format!("deleted {}", moment.get(..10).unwrap_or_default()),
+                None => String::from("deleted"),
+            };
+            let copy = merge::copy_name(&item.key, &label, &|candidate| {
+                target.lstat(beneath::split_key(candidate).1).is_ok()
+            });
+            (beneath::split_key(&copy).1.to_string(), copy)
+        };
         source
-            .rename(&from, &target, &to)
-            .with_context(|| trashed.to_string())?;
+            .rename_noreplace(&from, &target, &name)
+            .with_context(|| item.path.clone())?;
         target.sync();
         source.sync();
-        done.insert(op.key.clone());
-        out.push(op.key);
+        out.push(restored);
     }
     out.sort();
     Ok(out)
@@ -171,22 +327,48 @@ mod tests {
             let path = path_of(root.path(), &to);
             fs::create_dir_all(path.parent().unwrap()).unwrap();
             fs::write(&path, text).unwrap();
-            log.record(&Op { t: 1.0, op: OpKind::Trash, key: key.to_string(), to: Some(to), hash: None })
-                .unwrap();
+            log.record(&Op {
+                t: 1.0,
+                op: OpKind::Trash,
+                key: key.to_string(),
+                to: Some(to),
+                hash: None,
+            })
+            .unwrap();
         };
         trash("20261024-100000-aaaaaa", "photos/a.jpg", "old a");
         trash("20261024-110000-bbbbbb", "photos/a.jpg", "new a");
         trash("20261024-110000-bbbbbb", "photos/b.jpg", "b");
-        trash("20261024-110000-bbbbbb", "photosets/c.jpg", "not under photos");
+        trash(
+            "20261024-110000-bbbbbb",
+            "photosets/c.jpg",
+            "not under photos",
+        );
         fs::create_dir_all(root.path().join("photos")).unwrap();
         fs::write(root.path().join("photos/b.jpg"), "made again here").unwrap();
         let back = untrash(root.path(), state.path(), "photos").unwrap();
-        assert_eq!(back, vec![String::from("photos/a.jpg")]);
-        assert_eq!(fs::read_to_string(root.path().join("photos/a.jpg")).unwrap(), "new a");
+        // AZ-U19: this test pinned "a file whose name is taken is skipped"; it comes back beside
+        // the file that has the name now.
+        assert_eq!(
+            back,
+            vec![
+                String::from("photos/a.jpg"),
+                String::from("photos/b (deleted 2026-10-24).jpg")
+            ]
+        );
+        assert_eq!(
+            fs::read_to_string(root.path().join("photos/a.jpg")).unwrap(),
+            "new a"
+        );
         assert_eq!(
             fs::read_to_string(root.path().join("photos/b.jpg")).unwrap(),
             "made again here",
             "never over a file that is there"
+        );
+        assert_eq!(
+            fs::read_to_string(root.path().join("photos/b (deleted 2026-10-24).jpg")).unwrap(),
+            "b",
+            "the trashed version, beside it"
         );
         assert!(!root.path().join("photosets/c.jpg").exists());
     }
@@ -204,8 +386,14 @@ mod tests {
             let path = path_of(root.path(), &to);
             fs::create_dir_all(path.parent().unwrap()).unwrap();
             fs::write(&path, text).unwrap();
-            log.record(&Op { t: 1.0, op: OpKind::Trash, key: key.to_string(), to: Some(to), hash: None })
-                .unwrap();
+            log.record(&Op {
+                t: 1.0,
+                op: OpKind::Trash,
+                key: key.to_string(),
+                to: Some(to),
+                hash: None,
+            })
+            .unwrap();
             path
         };
         trash("20261024-100000-aaaaaa", "photos/a.jpg", "old a");
@@ -215,7 +403,11 @@ mod tests {
         fs::remove_file(gone).unwrap();
         let list = trashed(root.path(), state.path());
         let keys: Vec<&str> = list.iter().map(|t| t.key.as_str()).collect();
-        assert_eq!(keys, ["notes/b.txt", "photos/a.jpg"], "newest first, one row per file");
+        assert_eq!(
+            keys,
+            ["notes/b.txt", "photos/a.jpg"],
+            "newest first, one row per file"
+        );
         let a = &list[1];
         assert_eq!(a.bytes, 6, "the newest version's size");
         assert_eq!(a.trashed_at, crate::parse_rfc3339("2026-10-24T11:00:00Z"));
@@ -226,7 +418,133 @@ mod tests {
         );
         // Restored, it leaves the list.
         untrash(root.path(), state.path(), "photos").unwrap();
-        let keys: Vec<String> = trashed(root.path(), state.path()).into_iter().map(|t| t.key).collect();
+        let keys: Vec<String> = trashed(root.path(), state.path())
+            .into_iter()
+            .map(|t| t.key)
+            .collect();
         assert_eq!(keys, ["notes/b.txt"]);
+    }
+
+    /// A file put in the trash on `pass` (its folder name) at `key`: where it lies.
+    fn put_in_trash(root: &Path, pass: &str, key: &str, text: &str) -> String {
+        let to = format!(".azlin/sync/trash/{pass}/{key}");
+        let path = path_of(root, &to);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, text).unwrap();
+        to
+    }
+
+    /// AZ-S20. The trash's index was the operations log, which drops its older half past 4 MiB (and
+    /// goes with the state folder when a drive is forgotten): the files were still in the trash
+    /// but neither the trash view nor Restore could find them, and the date purge removed them
+    /// silently. RED not run: the old `trashed` lists nothing here (no line names the files).
+    #[test]
+    fn az_s20_the_trash_is_read_from_its_folders_when_the_log_lost_its_lines() {
+        let root = TempDir::new("azcloud-trash-s20");
+        let state = TempDir::new("azcloud-trash-s20-state");
+        let log = OpLog::new(state.path());
+        let a = put_in_trash(root.path(), "20261024-100000-aaaaaa", "photos/a.jpg", "a");
+        log.record(&Op {
+            t: 1.0,
+            op: OpKind::Trash,
+            key: String::from("photos/a.jpg"),
+            to: Some(a),
+            hash: None,
+        })
+        .unwrap();
+        put_in_trash(root.path(), "20261024-110000-bbbbbb", "notes/b.txt", "bb");
+        // The log grows past its size: the older half goes, the Trash line with it.
+        let filler = "x".repeat(1_200_000);
+        for _ in 0..4 {
+            log.record(&Op {
+                t: 2.0,
+                op: OpKind::Move,
+                key: filler.clone(),
+                to: None,
+                hash: None,
+            })
+            .unwrap();
+        }
+        assert!(
+            !log.read().iter().any(|op| op.op == OpKind::Trash),
+            "the log trimmed itself and lost the Trash line"
+        );
+        let list = trashed(root.path(), state.path());
+        let keys: Vec<&str> = list.iter().map(|t| t.key.as_str()).collect();
+        assert_eq!(keys, ["notes/b.txt", "photos/a.jpg"], "{list:?}");
+        assert_eq!(list[1].bytes, 1);
+        // A forgotten drive: its state folder is gone, the trash in the folder is not.
+        let gone = TempDir::new("azcloud-trash-s20-forgotten");
+        let back = untrash(root.path(), gone.path(), "").unwrap();
+        assert_eq!(back, ["notes/b.txt", "photos/a.jpg"]);
+        assert_eq!(
+            fs::read_to_string(root.path().join("photos/a.jpg")).unwrap(),
+            "a"
+        );
+        assert_eq!(
+            fs::read_to_string(root.path().join("notes/b.txt")).unwrap(),
+            "bb"
+        );
+    }
+
+    /// AZ-U19. A trashed file whose name was taken again was skipped by Restore and dropped from
+    /// the list, so the old version could not be reached from the app. RED not run: the old
+    /// `untrash` returns nothing for it and `trashed` does not list it.
+    #[test]
+    fn az_u19_a_trashed_file_whose_name_is_taken_again_comes_back_beside_it() {
+        let root = TempDir::new("azcloud-trash-u19");
+        let state = TempDir::new("azcloud-trash-u19-state");
+        let log = OpLog::new(state.path());
+        for (pass, key, text) in [
+            (
+                "20261024-110000-bbbbbb",
+                "docs/plan.txt",
+                "the plan as it was",
+            ),
+            ("20261024-110000-bbbbbb", "docs/same.txt", "same bytes"),
+        ] {
+            let to = put_in_trash(root.path(), pass, key, text);
+            log.record(&Op {
+                t: 1.0,
+                op: OpKind::Trash,
+                key: key.to_string(),
+                to: Some(to),
+                hash: None,
+            })
+            .unwrap();
+        }
+        fs::create_dir_all(root.path().join("docs")).unwrap();
+        fs::write(
+            root.path().join("docs/plan.txt"),
+            "a new plan, made again here",
+        )
+        .unwrap();
+        fs::write(root.path().join("docs/same.txt"), "same bytes").unwrap();
+        // Listed although its name is taken; not listed when the bytes are back already.
+        let keys: Vec<String> = trashed(root.path(), state.path())
+            .into_iter()
+            .map(|t| t.key)
+            .collect();
+        assert_eq!(keys, ["docs/plan.txt"]);
+        let back = untrash(root.path(), state.path(), "docs").unwrap();
+        assert_eq!(back, ["docs/plan (deleted 2026-10-24).txt"]);
+        assert_eq!(
+            fs::read_to_string(root.path().join("docs/plan.txt")).unwrap(),
+            "a new plan, made again here",
+            "never over the file that is there"
+        );
+        assert_eq!(
+            fs::read_to_string(root.path().join("docs/plan (deleted 2026-10-24).txt")).unwrap(),
+            "the plan as it was"
+        );
+        // Once more with the name taken again: another copy, never the same name over a file.
+        put_in_trash(
+            root.path(),
+            "20261025-090000-cccccc",
+            "docs/plan.txt",
+            "plan, third version",
+        );
+        let again = untrash(root.path(), state.path(), "docs/plan.txt").unwrap();
+        assert_eq!(again, ["docs/plan (deleted 2026-10-25).txt"]);
     }
 }
