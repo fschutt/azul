@@ -485,7 +485,7 @@ impl Root {
         {
             let meta = std::fs::metadata(path)?;
             if !meta.is_dir() {
-                return Err(io::Error::new(io::ErrorKind::Other, "not a folder"));
+                return Err(io::Error::other("not a folder"));
             }
             Ok(Root {
                 path: path.to_path_buf(),
@@ -575,7 +575,7 @@ impl Root {
             for name in rel.split('/') {
                 path.push(name);
             }
-            self.mounts.iter().any(|m| *m == path)
+            self.mounts.contains(&path)
         }
     }
 
@@ -935,7 +935,7 @@ impl Dir {
         let root = Root::open(path)?;
         root.top().map_err(|e| match e {
             BeneathError::Io(e) => e,
-            other => io::Error::new(io::ErrorKind::Other, other.to_string()),
+            other => io::Error::other(other.to_string()),
         })
     }
 
