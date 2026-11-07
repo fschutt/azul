@@ -1844,7 +1844,7 @@ jobs:
         run: |
           set -o pipefail
           cargo test -p azul-css -p azul-core -p azul-layout -p webrender --lib --tests \
-            --features azul-core/serde-json,azul-core/url,azul-layout/json,azul-layout/e2e-server \
+            --features azul-core/serde-json,azul-core/url,azul-layout/json,azul-layout/e2e-server,azul-layout/updater \
             --no-fail-fast 2>&1 | tee workspace-tests.txt
           ./scripts/zero_test_guard.sh workspace-tests.txt
 
