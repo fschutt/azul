@@ -79,6 +79,12 @@ azul-storage = { path = "../azul-storage", features = ["testing"] }
 azul-mail-core = { path = "../azul-mail-core", default-features = false, features = ["testing"] }
 
 [features]
+# The test switches (RF38; decision of 2026-11-04: a shipped build reads none): the password and
+# the certificate of a headless run (AZMAIL_TEST_PASSWORD, AZMAIL_TEST_CA), and - through the Azlin
+# kit - the local stack's token server and the keyring stand-in file's locks. The E2E builds
+# (scripts/azmail_e2e.py) turn it on together with a libazul built with `--features
+# build-dll,test-hooks`; a release or distribution build has neither.
+test-hooks = ["azcloud-kit/test-hooks"]
 # "We always encrypt and compress": an Azlin account's mail goes through the drive's encryption
 # (azul-mail-core's mail_drive: AutoEncrypted, the drive index, the drive key from the keyring
 # AzDrive shares, the AZD1 drops filed into the folders). `--no-default-features` builds the

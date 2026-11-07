@@ -83,8 +83,10 @@ DKIM on, Create a key, Save; sending.json says `submission` with the key's publi
 is sent, and the sink got it signed in as the account (PLAIN / LOGIN on the unencrypted test
 connection) with a DKIM-Signature of the account's domain and selector.
 
-Usage (from the azul repository, after building AzMail and a libazul with the debug server and the
-test hooks, `--features build-dll,test-hooks`: its keyring file AZ_KEYRING_FILE needs them):
+Usage (from the azul repository, after building AzMail with `--features test-hooks` - its test
+password and certificate, AZMAIL_TEST_PASSWORD and AZMAIL_TEST_CA, are read by a test build only -
+and a libazul with the debug server and the test hooks, `--features build-dll,test-hooks`: its
+keyring file AZ_KEYRING_FILE needs them):
 
     python3 scripts/azmail_e2e.py [--bin target/release/AzMail] [--debug-port 8772]
         [--timeout 150] [--runner <run_capped.sh>] [--keep-logs]

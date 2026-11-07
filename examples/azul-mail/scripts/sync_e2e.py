@@ -23,7 +23,9 @@
    back ("3 pictures"); "Download pictures" fetches the web picture alone - no background, no
    pixel, no cookie - and shows it.
 
-Usage (from the azul repository, after building AzMail and libazul with the debug server):
+Usage (from the azul repository, after building AzMail with `--features test-hooks` - its test
+password and certificate are read by a test build only - and libazul with the debug server and
+the test hooks, `--features build-dll,test-hooks`):
 
     python3 examples/azul-mail/scripts/sync_e2e.py [--bin target/release/AzMail]
         [--debug-port 8769] [--timeout 90] [--tls] [--keep-logs]

@@ -40,9 +40,11 @@
 //!
 //! Environment:
 //! - `AZMAIL_DATA`: the AzMail folder (default: `AzMail` in the user's data folder).
-//! - `AZMAIL_TEST_PASSWORD`, `AZMAIL_TEST_CA`: with `AZ_BACKEND=headless` only, the password to
-//!   sign in with and a PEM certificate to trust (a test server's). A headless run never
-//!   touches the real keyring either: azul serves it from memory.
+//! - `AZMAIL_TEST_PASSWORD`, `AZMAIL_TEST_CA`: in a TEST build (`--features test-hooks`) with
+//!   `AZ_BACKEND=headless` only, the password to sign in with and a PEM certificate to trust (a
+//!   test server's). A shipped AzMail reads neither, whatever its environment holds. A headless
+//!   test run never touches the real keyring either: a libazul built with the test hooks serves
+//!   it from memory.
 //! - `AZLIN_TOKEN_URL`, `AZLIN_S3_URL` (over the shared Azlin config's `endpoints`; the switches
 //!   `--azlin-token-url`, `--azlin-s3-url` win): where the Azlin services are.
 //!
@@ -88,6 +90,8 @@ mod l10n_tests;
 mod sync_cancel_tests;
 #[cfg(test)]
 mod compose_address_tests;
+#[cfg(test)]
+mod test_switch_tests;
 mod ui_account;
 mod ui_backstage;
 mod ui_bridge;
@@ -795,19 +799,41 @@ fn local_today() -> (u32, u32, u32) {
     (now.year().max(0) as u32, now.month(), now.day())
 }
 
-/// The headless test password, if this is a headless run that has one.
+/// The headless test password, if this is a headless run of a TEST build that has one.
 pub(crate) fn test_secret() -> Option<Secret> {
+    test_secret_in(cfg!(feature = "test-hooks"), &|name| {
+        std::env::var(name).ok()
+    })
+}
+
+/// [`test_secret`] for a build that has the test hooks (`hooks`) or not, in the environment `var`
+/// reads. A shipped build (RF38: no test hooks) takes no password from the environment - not for
+/// `AZ_BACKEND=headless`, a windowing choice, and not at all: it does not even read the variable.
+fn test_secret_in(hooks: bool, var: &dyn Fn(&str) -> Option<String>) -> Option<Secret> {
+    if !hooks {
+        return None;
+    }
     account::test_secret(
-        std::env::var("AZ_BACKEND").ok().as_deref(),
-        std::env::var(account::TEST_PASSWORD_VAR).ok().as_deref(),
+        var("AZ_BACKEND").as_deref(),
+        var(account::TEST_PASSWORD_VAR).as_deref(),
     )
 }
 
-/// The headless test server's certificate, if this is a headless run that has one.
+/// The headless test server's certificate, if this is a headless run of a TEST build that has one.
 fn test_ca() -> Option<PathBuf> {
-    (std::env::var("AZ_BACKEND").as_deref() == Ok("headless"))
-        .then(|| std::env::var(account::TEST_CA_VAR).ok())
-        .flatten()
+    test_ca_in(cfg!(feature = "test-hooks"), &|name| {
+        std::env::var(name).ok()
+    })
+}
+
+/// [`test_ca`] for a build that has the test hooks (`hooks`) or not, in the environment `var`
+/// reads. A shipped build trusts no certificate named by its environment: that would let a
+/// variable make the IMAP connection of a user's mail accept a stranger's server.
+fn test_ca_in(hooks: bool, var: &dyn Fn(&str) -> Option<String>) -> Option<PathBuf> {
+    if !hooks || var("AZ_BACKEND").as_deref() != Some("headless") {
+        return None;
+    }
+    var(account::TEST_CA_VAR)
         .filter(|p| !p.trim().is_empty())
         .map(PathBuf::from)
 }
