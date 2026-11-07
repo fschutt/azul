@@ -370,12 +370,20 @@ pub fn register(drives_file: &Path) {
         return;
     };
     let path = registration_path(drives_file);
-    let text = serde_json::to_string_pretty(&registration(&exec.to_string_lossy()))
-        .unwrap_or_default();
-    let written = path
-        .parent()
-        .map_or(Ok(()), std::fs::create_dir_all)
-        .and_then(|()| std::fs::write(&path, text));
+    let text = match serde_json::to_string_pretty(&registration(&exec.to_string_lossy())) {
+        Ok(text) => text,
+        Err(e) => {
+            eprintln!("[azdrive] the file picker registration could not be made: {e}");
+            return;
+        }
+    };
+    // Put in place by rename, synced (another app reads it at any moment, and a power cut must not
+    // leave the empty file `fs::write` left); every user of the computer's apps may read it.
+    let written = azul_storage::durable::replace(
+        &path,
+        format!("{text}\n").as_bytes(),
+        azul_storage::durable::Mode::Shared,
+    );
     if let Err(e) = written {
         eprintln!("[azdrive] the file picker registration {} could not be written: {e}", path.display());
     }

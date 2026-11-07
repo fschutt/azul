@@ -29,6 +29,11 @@
 
 use std::path::{Path, PathBuf};
 
+use azul_storage::{
+    beneath::Dir,
+    ctl::Quiet,
+    durable::{self, Blob, Expect, Mode, Publish},
+};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 use crate::{
@@ -268,20 +273,18 @@ pub fn read_json<T: DeserializeOwned>(path: &Path) -> Option<T> {
     serde_json::from_str(&text).ok()
 }
 
-/// Writes `value` to `path` as JSON, creating the folder: through a temporary file and a
-/// rename, so a reader never sees half a file.
+/// Writes `value` to `path` as JSON, creating the folder: staged beside the name, synced, renamed
+/// over it ([`azul_storage::durable`]), so a reader never sees half a file and a power cut leaves
+/// the old file or the new one - never the empty file `fs::write` left (the registration, the
+/// staged update and the request are what the app and the manager tell each other by). One
+/// temporary name per write: the app and the manager write beside each other.
 ///
 /// # Errors
 ///
 /// The I/O error that stopped the write.
 pub fn write_json<T: Serialize>(path: &Path, value: &T) -> std::io::Result<()> {
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)?;
-    }
     let text = serde_json::to_string_pretty(value).map_err(std::io::Error::other)?;
-    let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, text)?;
-    std::fs::rename(&tmp, path)
+    durable::replace(path, text.as_bytes(), Mode::Shared)
 }
 
 /// Whether `a` and `b` name the same program: the same path, or the same file once links are
@@ -528,8 +531,7 @@ impl Verified {
 ///
 /// That the file could not be copied, or that it is no longer the file that was verified.
 pub fn copy_verified(verified: &Verified, to: &Path) -> Result<(), String> {
-    std::fs::copy(verified.path(), to)
-        .map_err(|e| format!("{}: {e}", verified.path().display()))?;
+    copy_durably(verified.path(), to).map_err(|e| format!("{}: {e}", verified.path().display()))?;
     let actual = std::fs::File::open(to)
         .and_then(azul_storage::sigv4::sha256_hex_of)
         .map_err(|e| format!("{}: {e}", to.display()));
@@ -549,6 +551,44 @@ pub fn copy_verified(verified: &Verified, to: &Path) -> Result<(), String> {
             Err(why)
         }
     }
+}
+
+/// The bits `fs::copy` would give the copy of `from`: its own (a program stays a program).
+#[cfg(unix)]
+fn bits_of(meta: &std::fs::Metadata) -> u32 {
+    use std::os::unix::fs::PermissionsExt;
+    meta.permissions().mode() & 0o777
+}
+
+/// The bits of a copy on a system with no mode bits: the usual ones (the system's own rules decide).
+#[cfg(not(unix))]
+fn bits_of(_meta: &std::fs::Metadata) -> u32 {
+    0o644
+}
+
+/// Copies `from` to `to` through [`azul_storage::durable`]: staged beside `to`, with the bits of
+/// `from`, synced, renamed over it. A copy never shows half a file, and a failed one leaves nothing
+/// behind. (`fs::copy` wrote `to` in place.)
+fn copy_durably(from: &Path, to: &Path) -> std::io::Result<()> {
+    let mut source = std::fs::File::open(from)?;
+    let bits = bits_of(&source.metadata()?);
+    let parent = to
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let name = to
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidInput, "no file name"))?;
+    let dir = Dir::open_following(parent)?;
+    durable::publish(
+        &dir,
+        name,
+        &mut source,
+        Publish::new(Expect::Any, Mode::FromSource(bits), &Quiet),
+    )
+    .map(|_| ())
+    .map_err(std::io::Error::from)
 }
 
 /// The update engine's calls. Blocking: the app and the manager make them on a `Thread`.
@@ -626,9 +666,41 @@ fn keep_as(verified: &Verified, kept: &Path) -> Result<(), String> {
     if verified.path() == kept {
         return Ok(());
     }
-    // A file of an earlier attempt under that name goes; a rename onto it fails on Windows.
-    let _ = std::fs::remove_file(kept);
-    std::fs::rename(verified.path(), kept).map_err(|e| {
+    // A file of an earlier attempt under that name is replaced in one step ([`durable`] does what a
+    // rename onto it cannot do on Windows), and the file that lands is synced first.
+    let placed = (|| -> std::io::Result<()> {
+        let folder = |path: &Path| {
+            path.parent()
+                .filter(|p| !p.as_os_str().is_empty())
+                .map(Path::to_path_buf)
+                .unwrap_or_else(|| PathBuf::from("."))
+        };
+        let name = |path: &Path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .map(str::to_string)
+                .ok_or_else(|| {
+                    std::io::Error::new(std::io::ErrorKind::InvalidInput, "no file name")
+                })
+        };
+        let (from_dir, to_dir) = (
+            Dir::open_following(&folder(verified.path()))?,
+            Dir::open_following(&folder(kept))?,
+        );
+        let (from_name, to_name) = (name(verified.path())?, name(kept)?);
+        durable::publish_staged(
+            &to_dir,
+            &to_name,
+            Blob {
+                dir: &from_dir,
+                name: &from_name,
+            },
+            Publish::new(Expect::Any, Mode::Shared, &Quiet),
+        )
+        .map(|_| ())
+        .map_err(std::io::Error::from)
+    })();
+    placed.map_err(|e| {
         let _ = std::fs::remove_file(verified.path());
         format!("{}: {e}", kept.display())
     })
@@ -1279,6 +1351,99 @@ mod tests {
         std::fs::remove_file(&file).unwrap();
         assert!(copy_verified(&verified, &dir.path().join("next-3")).is_err());
         assert!(Verified::of(file).is_err());
+    }
+
+    /// X-AR5a-6: the registration, the staged update and the request are written through
+    /// `durable::replace`, which stages a file of its own beside the name. The old code wrote
+    /// `<name>.json.tmp` - one name for the app and the manager - so anything standing there (a
+    /// folder, a file of a writer that was cut off and is read-only) stopped every later write.
+    #[test]
+    fn x_ar5a_6_the_updaters_state_files_use_no_fixed_temporary_name() {
+        let dir = TempDir::new("update-state-durable");
+        let path = dir.path().join("apps/azmail/request.json");
+        // The name the old code wrote first is taken by a folder.
+        std::fs::create_dir_all(path.with_extension("json.tmp")).unwrap();
+        let request = ApplyRequest {
+            version: "2.0.0".to_string(),
+            pid: 7,
+            relaunch: true,
+            asked_unix: 1,
+        };
+        write_json(&path, &request).expect("no fixed temporary name stands in the way");
+        assert_eq!(read_json::<ApplyRequest>(&path), Some(request.clone()));
+        // A second write replaces the first in one step and leaves nothing of its own.
+        let later = ApplyRequest { pid: 8, ..request };
+        write_json(&path, &later).unwrap();
+        assert_eq!(read_json::<ApplyRequest>(&path), Some(later));
+        let names: Vec<String> = std::fs::read_dir(path.parent().unwrap())
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert!(
+            names
+                .iter()
+                .all(|n| n == "request.json" || n == "request.json.tmp"),
+            "{names:?}"
+        );
+    }
+
+    /// X-AR5a-6: the install copy is put in place by rename, not written in place: a program that
+    /// runs the file being replaced (or a reader that has it open) keeps the bytes it had.
+    #[cfg(unix)]
+    #[test]
+    fn x_ar5a_6_the_install_copy_replaces_the_file_it_does_not_write_into_it() {
+        use std::{io::Read, os::unix::fs::PermissionsExt};
+        let dir = TempDir::new("update-copy-durable");
+        let file = dir.path().join("AzWriter.download");
+        std::fs::write(&file, b"program 2.0.0").unwrap();
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let verified = Verified::of(file).unwrap();
+        let copy = dir.path().join("AzWriter");
+        std::fs::write(&copy, b"program 1.0.0 (running)").unwrap();
+        let mut running = std::fs::File::open(&copy).unwrap();
+        copy_verified(&verified, &copy).expect("the verified bytes copy");
+        let mut seen = String::new();
+        running.read_to_string(&mut seen).unwrap();
+        assert_eq!(
+            seen, "program 1.0.0 (running)",
+            "the old file was not written into"
+        );
+        assert_eq!(std::fs::read(&copy).unwrap(), b"program 2.0.0");
+        let mode = std::fs::metadata(&copy).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o755, "a program stays a program: {mode:o}");
+        let names: Vec<String> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(
+            names.len(),
+            2,
+            "the download, the copy, nothing else: {names:?}"
+        );
+    }
+
+    /// X-AR5a-6: the kept download takes the name every reader derives, replacing an earlier
+    /// attempt under it in one step; the staged name is gone afterwards.
+    #[test]
+    fn x_ar5a_6_the_kept_download_replaces_an_earlier_attempt_under_its_name() {
+        let dir = TempDir::new("update-keep-durable");
+        let staged = dir.path().join("AzWriter.download");
+        let kept = dir.path().join("azwriter-2.0.0.bin");
+        std::fs::write(&staged, b"program 2.0.0").unwrap();
+        std::fs::write(&kept, b"an earlier attempt").unwrap();
+        let verified = Verified::of(staged.clone()).unwrap();
+        keep_as(&verified, &kept).expect("kept");
+        assert_eq!(std::fs::read(&kept).unwrap(), b"program 2.0.0");
+        assert!(!staged.exists(), "the download was renamed, not copied");
+        assert!(
+            keep_as(&Verified::of(kept.clone()).unwrap(), &kept).is_ok(),
+            "already there"
+        );
+        let names: Vec<String> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(names, vec!["azwriter-2.0.0.bin".to_string()], "{names:?}");
     }
 
     #[test]

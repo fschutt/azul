@@ -204,3 +204,52 @@ fn the_default_location_opens_in_the_drive_that_holds_it() {
     assert_eq!(place_of_path(Path::new("/Users/meadow"), &roots), None, "whole folder names");
     assert_eq!(place_of_path(Path::new("/etc"), &roots), None);
 }
+
+/// X-AR5a-6: the registration other apps find the picker by is put in place whole, by rename: a
+/// reader that has the old one open keeps the bytes it had (`fs::write` truncated that very file
+/// and wrote into it), the new one parses, and nothing else is left in the folder.
+#[cfg(unix)]
+#[test]
+fn x_ar5a_6_the_registration_replaces_the_file_it_does_not_write_into_it() {
+    use std::io::Read;
+    let dir = azul_storage::testing::TempDir::new("picker-registration");
+    let drives = dir.path().join("azul-storage").join("drives.json");
+    let path = registration_path(&drives);
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(&path, br#"{"format": "an older registration"}"#).unwrap();
+    let mut reading = std::fs::File::open(&path).unwrap();
+    register(&drives);
+    let mut old = String::new();
+    reading.read_to_string(&mut old).unwrap();
+    assert!(
+        old.contains("an older registration"),
+        "the open file kept its bytes: {old}"
+    );
+    let text = std::fs::read_to_string(&path).unwrap();
+    let value: serde_json::Value = serde_json::from_str(&text).expect("whole JSON");
+    assert_eq!(value["format"], "azul-storage.file-picker");
+    assert_eq!(value["provider"], "AzDrive");
+    let names: Vec<String> = std::fs::read_dir(path.parent().unwrap())
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(names, vec!["file-picker.json".to_string()], "{names:?}");
+}
+
+/// A first start: the folder of the drives file is made, and the registration is there.
+#[test]
+fn x_ar5a_6_a_first_start_makes_the_folder_and_the_registration() {
+    let dir = azul_storage::testing::TempDir::new("picker-registration-new");
+    let drives = dir
+        .path()
+        .join("config")
+        .join("azul-storage")
+        .join("drives.json");
+    register(&drives);
+    let text = std::fs::read_to_string(registration_path(&drives)).expect("written");
+    assert!(text.ends_with('\n'), "{text:?}");
+    assert!(
+        serde_json::from_str::<serde_json::Value>(&text).is_ok(),
+        "{text}"
+    );
+}

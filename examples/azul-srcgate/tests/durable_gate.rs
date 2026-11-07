@@ -216,23 +216,10 @@ const ALLOWED: &[Allow] = &[
          staged file would replace it: Z30-A1B",
     ),
     Allow::exactly(
-        "examples/azul-drive/src/picker.rs",
-        RAW,
-        1,
-        "the file picker's registration beside drives.json: Z30-C2 (durable::replace)",
-    ),
-    Allow::exactly(
         "examples/azul-drive/src/renewals.rs",
         RAW,
         2,
         "the shown-notices file and the waitlist: Z30-B (durable::replace)",
-    ),
-    Allow::exactly(
-        "examples/azul-appkit/src/update.rs",
-        RAW,
-        4,
-        "the updater's state file (tmp and rename), the install copy and the kept download's \
-         rename: Z30-C1 (X-AR5a-6, durable::replace / publish)",
     ),
     Allow::exactly(
         "examples/azul-appkit/src/ui.rs",
