@@ -271,15 +271,33 @@ pub struct RecoverySettings {
 impl RecoveryState {
     /// The evidence that this drive's keys - and what was paid for it, kept beside them - may
     /// leave this computer with the drive: its recovery code was typed back right at least once
-    /// (the setup's check, a drill) at a time that is not after `now`. The keys on this computer
-    /// may be the only way into the drive, and removing a drive must not make one nobody can
-    /// open: without a checked code they stay. A stamp from a clock that ran ahead is no check.
-    /// The one place a [`RemovalProof`] is made (`footprint_gate` counts the callers).
+    /// (the setup's check, a drill) at a time that is not after `now`, and the token server knows
+    /// the code (a code whose registration is pending or missing locks nothing down and finds
+    /// nothing: it is no method, [`RecoveryState::methods`], and so no way back). The keys on this
+    /// computer may be the only way into the drive, and removing a drive must not make one nobody
+    /// can open: without a checked code they stay. A stamp from a clock that ran ahead is no
+    /// check. This is the proof of the SETTINGS; the removal takes it back where the keyring or
+    /// the drive say otherwise when it runs (`encryption::proof_for_removal`). The one place a
+    /// [`RemovalProof`] is made (`footprint_gate` counts the callers).
     #[must_use]
     pub fn removal_proof(&self, now: u64) -> Option<RemovalProof> {
+        if self.code_unregistered() {
+            return None;
+        }
         self.code_checked
             .filter(|checked| *checked <= now)
             .map(|_| RemovalProof::from_checked_code(&self.drive_id))
+    }
+
+    /// A key change or a new code is about to replace the drive's recovery wrap: the code that was
+    /// typed back right is no witness any more, whatever comes of the call. The wrap may be
+    /// replaced before the new code is shown or recorded, and a stop in between (a failed answer,
+    /// a kill) leaves a wrap whose code nobody holds while this flag says the old paper was
+    /// checked: it would pass every drill and let the drive's keys go with a removal. So the check
+    /// is forgotten here, before the job starts; a code is checked again after its sheet
+    /// ([`RecoveryState::setup_verified`]).
+    pub fn wrap_may_change(&mut self) {
+        self.code_checked = None;
     }
 
     #[must_use]
@@ -832,6 +850,46 @@ mod tests {
             removal_proof(&states, "d_1", NOW - 1).is_none(),
             "a check from the future is stale, not proof"
         );
+    }
+
+    /// X-DELTA-AZDRIVE-KEYS-8: a code the token server does not know (the registration is pending
+    /// or missing) is no method - the health is red - and so no evidence for a removal: the
+    /// removal dropped the signed pending requests, which cannot be made again without the code.
+    #[test]
+    fn x_delta_azdrive_keys_8_a_code_the_token_server_does_not_know_is_no_proof_for_a_removal() {
+        let mut state = checked();
+        assert!(
+            state.removal_proof(NOW).is_some(),
+            "registration unknown: as before"
+        );
+        state.registration = Registration::Pending(PendingRegistration::default());
+        assert!(state.code_unregistered());
+        assert!(
+            state.removal_proof(NOW).is_none(),
+            "pending: the health is red, the proof must not be there"
+        );
+        state.registration = Registration::Missing;
+        assert!(state.removal_proof(NOW).is_none());
+        state.registration = Registration::Registered;
+        assert!(state.removal_proof(NOW).is_some());
+    }
+
+    /// X-DELTA-AZDRIVE-KEYS-2 and -7: a rotation is about to replace the recovery wrap. The code
+    /// typed back right is no witness from then on (it would pass every drill and let a removal
+    /// delete the keys after a rotation that stopped with the wrap replaced and the new code never
+    /// seen): the check is forgotten when the job starts, and the proof with it.
+    #[test]
+    fn x_delta_azdrive_keys_2_a_rotation_forgets_the_check_of_the_code_it_may_replace() {
+        let mut state = checked();
+        assert!(state.removal_proof(NOW).is_some());
+        assert_eq!(state.health(NOW), Health::Yellow, "one method: the code");
+        state.wrap_may_change();
+        assert_eq!(state.code_checked, None);
+        assert!(state.removal_proof(NOW).is_none());
+        assert_eq!(state.health(NOW), Health::Red, "no checked method any more");
+        // The code was made and is not checked: that is the state `setup_unfinished` reads as a
+        // drive whose new code is to be made and shown (a stop after the wrap was replaced).
+        assert!(state.code_made.is_some() && state.code_checked.is_none());
     }
 
     #[test]

@@ -142,6 +142,55 @@ fn lane_az_2_a_removal_takes_the_credentials_and_keeps_the_keys_without_a_proof(
     store.forget(DRIVE, Some(&proof)).unwrap();
 }
 
+/// X-DELTA-AZDRIVE-KEYS-8: the period vault's FILES go only with a proof (the months paid for the
+/// drive may be only there); the key that opens them went without one, and the files that stayed
+/// were ciphertext nobody could read. The key stays with the files.
+#[test]
+fn x_delta_azdrive_keys_8_the_key_of_the_period_vault_goes_only_with_the_proof_its_files_wait_for()
+{
+    let keyring = MemoryKeyring::new();
+    keyring
+        .set(&KeyEntry::VaultKey.name(DRIVE), "the vault's key")
+        .unwrap();
+    keyring
+        .set(&KeyEntry::Session.name(DRIVE), "a session")
+        .unwrap();
+    let store = KeyringFootprint::new(&keyring);
+
+    let done = store.forget(DRIVE, None).unwrap();
+    let kept: Vec<&str> = done.kept.iter().map(|k| k.what.as_str()).collect();
+    assert_eq!(kept, [KeyEntry::VaultKey.name(DRIVE).as_str()], "{done:?}");
+    assert!(keyring
+        .get(&KeyEntry::VaultKey.name(DRIVE))
+        .unwrap()
+        .is_some());
+    assert!(
+        keyring
+            .get(&KeyEntry::Session.name(DRIVE))
+            .unwrap()
+            .is_none(),
+        "a credential goes without a proof"
+    );
+
+    let proof = RemovalProof::from_checked_code(DRIVE);
+    store.forget(DRIVE, Some(&proof)).unwrap();
+    assert!(keyring
+        .get(&KeyEntry::VaultKey.name(DRIVE))
+        .unwrap()
+        .is_none());
+
+    // The rule in one place: key material and the vault's key wait for a proof, the credentials
+    // of the session do not.
+    for entry in KeyEntry::ALL {
+        assert_eq!(
+            entry.goes_with_proof(),
+            entry.is_key_material() || entry == KeyEntry::VaultKey,
+            "{entry:?}"
+        );
+    }
+    assert!(!KeyEntry::Session.goes_with_proof() && !KeyEntry::AzlinToken.goes_with_proof());
+}
+
 /// A keyring that cannot be looked into: every read of an entry is refused.
 struct Unreadable(MemoryKeyring);
 

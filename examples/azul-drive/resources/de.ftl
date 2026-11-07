@@ -1091,7 +1091,7 @@ azdrive-keyring-token-gone = Sein Laufwerkstoken ist weg: Auf einem Gerät mit d
 azdrive-keyring-enter-keys = Gib seine Schlüssel erneut ein.
 azdrive-keyring-not-forgotten = Ein Schlüssel des entfernten Laufwerks konnte nicht aus dem Schlüsselbund genommen werden:
 azdrive-keyring-forget-by-hand = Er bleibt dort, bis du ihn in der Schlüsselbund-App des Systems entfernst.
-azdrive-forget-keys-kept = Die Schlüssel von „{ $name }“ und die dafür bezahlten Monate bleiben auf diesem Computer: Der Wiederherstellungscode wurde nie geprüft, und sie könnten der einzige Weg ins Laufwerk sein. Füge das Laufwerk erneut hinzu, prüfe den Code und entferne das Laufwerk dann noch einmal.
+azdrive-forget-keys-kept = Die Schlüssel von „{ $name }“ und die dafür bezahlten Monate bleiben auf diesem Computer: Sie könnten der einzige Weg ins Laufwerk sein. Sie gehen erst, wenn sein Wiederherstellungscode geprüft und dem Token-Server bekannt ist, keine Schlüsseländerung offen ist und die bezahlten Monate auch im Laufwerk liegen. Füge das Laufwerk erneut hinzu, schließe ab, was offen ist, prüfe den Code und entferne das Laufwerk dann noch einmal.
 azdrive-forget-busy-title = Laufwerk wird entfernt
 azdrive-forget-busy = „{ $name }“ wird von diesem Computer genommen: Schlüssel, Kopien, Indizes und Einstellungen.
 azdrive-forget-failed = „{ $name }“ steht noch in der Liste: { $why }. Entferne es noch einmal, um den Rest zu versuchen.
@@ -1451,8 +1451,9 @@ azdrive-enc-migrated-changed = Einige haben sich inzwischen geändert: „Versch
 azdrive-enc-migrate-stopped = Das Verschieben der Dateien von „{ $name }“ in die Verschlüsselung wurde angehalten: { $why }. Es macht beim nächsten Mal dort weiter, wo es aufgehört hat.
 azdrive-enc-rotated = „{ $name }“ ist gesperrt und hat neue Schlüssel: { $members } andere Computer und Einladungen entfernt, { $links } freigegebene Links widerrufen.
 azdrive-enc-rotated-mail = Eingehende E-Mails haben einen neuen Ablageschlüssel: Gib ihn deinem Mail-Worker (AzMail oder azcloud mail-drop).
-azdrive-enc-not-rotated = Die Schlüssel wurden nicht geändert
-azdrive-enc-not-rotated-why = { $why }. Eine angehaltene Schlüsseländerung macht dort weiter, wo sie aufgehört hat, wenn du es auf diesem Computer erneut versuchst.
+azdrive-enc-not-rotated = Die neuen Schlüssel sind nicht fertig
+azdrive-enc-not-rotated-why = { $why }. Versuche es auf diesem Computer erneut: Eine angehaltene Schlüsseländerung macht dort weiter, wo sie aufgehört hat. Bis sie fertig ist, verlass dich nicht auf den alten Wiederherstellungscode; der am Ende gezeigte Code ist der, den du aufbewahren sollst.
+azdrive-enc-rotated-left-over = Die neuen Schlüssel sind eingerichtet. Diese Reste der Änderung konnten nicht entfernt werden (sie schaden nicht; die nächste Schlüsseländerung räumt sie auf): { $what }
 azdrive-enc-reencrypted = { $count ->
         [one] Eine Datei
        *[other] { $count } Dateien

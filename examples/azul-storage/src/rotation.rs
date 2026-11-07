@@ -254,6 +254,20 @@ pub fn resumable(
     Ok(journal.authentic(drive, &new).then_some(journal))
 }
 
+/// Whether a key change of this device is unfinished: the keyring holds the new key of a rotation
+/// (`drive-key-next`) and it is not the drive key yet, so the index may be sealed under a key
+/// the drive key does not open, and the keyring's copy of K2 is the only one. Nothing of such a
+/// drive is deleted on the word of a flag that was made before: a removal of the drive keeps its
+/// keys (X-DELTA-AZDRIVE-KEYS-2). A rotation that went past its Members step and left its keyring
+/// entries behind has the drive key in `drive-key-next` and is finished.
+pub fn unfinished(keyring: &dyn KeyringStore, drive: &str) -> Result<bool, DriveError> {
+    let (_, next_entry) = device::rotation_key_entries(drive);
+    let Some(next) = device::load_key_at(keyring, &next_entry)? else {
+        return Ok(false);
+    };
+    Ok(device::load_drive_key(keyring, drive)?.as_ref() != Some(&next))
+}
+
 /// How a call of [`rotate`] starts, decided from the keyring and the bucket alone: nothing is
 /// written for it.
 pub enum Start {

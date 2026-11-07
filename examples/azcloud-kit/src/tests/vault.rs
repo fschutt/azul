@@ -4,7 +4,16 @@
 
 use std::sync::Arc;
 
-use azul_storage::{crypto::DriveKey, meta::MemoryBucket, testing::TempDir, Drive};
+use azul_storage::{
+    crypto::{
+        azl1::{PublicHeader, HEADER_LEN},
+        keys::{store_key_chain, KeyChain},
+        DriveKey,
+    },
+    meta::MemoryBucket,
+    testing::TempDir,
+    ByteRange, Drive, DriveError, ListPage, ListRequest, ObjectInfo, Precondition,
+};
 
 use super::{
     period::{keyring_with_session, redeeming_server, stored, DAY, ISSUE_KEY, NOW},
@@ -12,7 +21,7 @@ use super::{
 };
 use crate::{
     period::{redeem_due, PeriodTokenStore, Redeemed},
-    vault::{DriveVault, TokenVault, UnlockedDrive, VaultGrant},
+    vault::{DriveVault, TokenVault, UnlockedDrive, VaultGrant, VaultState},
     TokenServer,
 };
 
@@ -117,4 +126,166 @@ fn az_c15_an_older_vault_the_storage_puts_back_is_healed_from_this_computers_cop
         .for_drive(&drive)
         .unwrap();
     assert_eq!(seen.unspent("100GB").unwrap(), vec![stored("bb")]);
+}
+
+// ==== X-DELTA-AZDRIVE-KEYS-5: the vault and a rotation of the drive's key ====
+
+/// X-DELTA-AZDRIVE-KEYS-5: a rotation re-wraps the index and the member files; the period vault
+/// stayed under the key it was written with and `DriveVault::open` used the current key only, so
+/// after K1 -> K2 it answered "does not open" for ever (and `join` fetched first: it could not
+/// even overwrite it). The key chain - K1 sealed under K2 - holds the key that wrapped it.
+#[test]
+fn x_delta_azdrive_keys_5_a_vault_sealed_before_a_rotation_opens_through_the_key_chain() {
+    let bucket: Arc<dyn Drive> = Arc::new(MemoryBucket::new());
+    let k1 = DriveKey::generate().unwrap();
+    let before = UnlockedDrive::new("d_1", bucket.clone(), k1.clone());
+    let laptop = TempDir::new("azcloud-vault-laptop");
+    let kept = PeriodTokenStore::new(laptop.path().join("period-tokens"))
+        .for_drive(&before)
+        .unwrap();
+    kept.add_tokens(&[stored("aa")]).unwrap();
+    kept.keep_grant(VaultGrant::new("ck_1", "100GB", 3, ISSUE_KEY))
+        .unwrap();
+
+    // The drive's key is rotated: K2, and K1 sealed under it in the key chain.
+    let k2 = DriveKey::generate().unwrap();
+    let mut chain = KeyChain::new();
+    chain.add("d_1", &k1, &k2).unwrap();
+    store_key_chain(bucket.as_ref(), &chain).unwrap();
+    let after = UnlockedDrive::new("d_1", bucket.clone(), k2.clone());
+    let key_id_of_the_object = || {
+        let bytes = bucket.get(DriveVault::KEY).unwrap();
+        PublicHeader::parse(&bytes[..HEADER_LEN])
+            .unwrap()
+            .wrapped_key
+            .key_id
+    };
+    assert_eq!(key_id_of_the_object(), k1.id());
+
+    // A device that joined again holds K2 only: it reads the vault, every part of it.
+    let phone = TempDir::new("azcloud-vault-phone");
+    let seen = PeriodTokenStore::new(phone.path().join("period-tokens"))
+        .for_drive(&after)
+        .unwrap();
+    let state = seen
+        .state_of_all()
+        .expect("the vault opens through the key chain, in every place");
+    assert_eq!(state.tokens, vec![stored("aa")]);
+    assert!(
+        state.grant("ck_1").is_some(),
+        "the grant that only the drive held"
+    );
+
+    // The next write puts it under the current key, even when it has nothing new to add.
+    DriveVault::new(&after)
+        .join(&VaultState::default())
+        .unwrap();
+    assert_eq!(
+        key_id_of_the_object(),
+        k2.id(),
+        "written again under the current key"
+    );
+    assert_eq!(
+        DriveVault::new(&after).read().unwrap().tokens,
+        vec![stored("aa")]
+    );
+
+    // A key the chain does not hold opens nothing.
+    let stranger = UnlockedDrive::new("d_1", bucket, DriveKey::generate().unwrap());
+    assert!(DriveVault::new(&stranger).read().is_err());
+}
+
+// ==== X-DELTA-AZDRIVE-KEYS-8: this computer's vault may go with the drive only when the drive holds it ====
+
+/// A drive that does not take a write of one key (no answer, a token that ran out).
+struct RefusesPuts {
+    inner: Arc<dyn Drive>,
+    key: &'static str,
+}
+
+impl Drive for RefusesPuts {
+    fn list(&self, request: &ListRequest) -> Result<ListPage, DriveError> {
+        self.inner.list(request)
+    }
+    fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
+        self.inner.get(key)
+    }
+    fn get_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, DriveError> {
+        self.inner.get_range(key, range)
+    }
+    fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
+        if key == self.key {
+            return Err(DriveError::Transport(String::from("no answer")));
+        }
+        self.inner.put(key, bytes)
+    }
+    fn delete(&self, key: &str) -> Result<(), DriveError> {
+        self.inner.delete(key)
+    }
+    fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
+        self.inner.head(key)
+    }
+    fn put_if(
+        &self,
+        key: &str,
+        bytes: &[u8],
+        condition: &Precondition,
+    ) -> Result<Option<String>, DriveError> {
+        if key == self.key {
+            return Err(DriveError::Transport(String::from("no answer")));
+        }
+        self.inner.put_if(key, bytes, condition)
+    }
+}
+
+/// X-DELTA-AZDRIVE-KEYS-8: "Remove drive" erased the local vault on the strength of a recovery
+/// code's check; a prepaid month whose write into the drive had failed was only here. The vault
+/// is redundant when the drive's own vault holds all of it (it is written once more, then read),
+/// and not when the drive has none, or does not take the write.
+#[test]
+fn x_delta_azdrive_keys_8_this_computers_vault_is_redundant_only_when_the_drive_holds_it() {
+    let mem: Arc<dyn Drive> = Arc::new(MemoryBucket::new());
+    let key = DriveKey::generate().unwrap();
+    let laptop = TempDir::new("azcloud-vault-laptop");
+    let store = PeriodTokenStore::new(laptop.path().join("period-tokens"));
+
+    // This computer alone (the drive's key is not here): nothing to lose while it holds nothing.
+    let alone = store.on_this_device("d_1").unwrap();
+    assert!(
+        alone.local_is_redundant().unwrap(),
+        "nothing kept: nothing to lose"
+    );
+    alone.add_tokens(&[stored("aa")]).unwrap();
+    assert!(
+        !alone.local_is_redundant().unwrap(),
+        "the months are only on this computer"
+    );
+
+    // The drive has a vault and takes the write: it holds them now.
+    let unlocked = UnlockedDrive::new("d_1", mem.clone(), key.clone());
+    let with_drive = store.for_drive(&unlocked).unwrap();
+    assert!(with_drive.local_is_redundant().unwrap());
+    assert_eq!(
+        DriveVault::new(&unlocked).read().unwrap().tokens,
+        vec![stored("aa")]
+    );
+
+    // The drive's vault does not take the write: the months are only here.
+    let other = TempDir::new("azcloud-vault-other");
+    let store = PeriodTokenStore::new(other.path().join("period-tokens"));
+    store
+        .on_this_device("d_2")
+        .unwrap()
+        .add_tokens(&[stored("bb")])
+        .unwrap();
+    let refusing: Arc<dyn Drive> = Arc::new(RefusesPuts {
+        inner: mem,
+        key: DriveVault::KEY,
+    });
+    let unlocked = UnlockedDrive::new("d_2", refusing, key);
+    let tokens = store.for_drive(&unlocked).unwrap();
+    assert!(
+        !tokens.local_is_redundant().unwrap(),
+        "the drive's vault lacks them"
+    );
 }

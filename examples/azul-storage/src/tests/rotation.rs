@@ -27,8 +27,8 @@ use crate::{
     encrypted::{open_encrypted, Expect, IndexChange, IndexProvider, MemoryIndex, NameIndex},
     keyring::{KeyringError, KeyringStore, MemoryKeyring},
     rotation::{
-        lockdown_needed, pending, reencrypt_pass, resumable, rotate, Phase, ReencryptState,
-        JOURNAL_FILE,
+        lockdown_needed, pending, reencrypt_pass, resumable, rotate, unfinished, Phase,
+        ReencryptState, JOURNAL_FILE,
     },
     sharing::{list_shares, share},
     time::now_unix,
@@ -935,4 +935,30 @@ fn x_delta_azdrive_keys_30_the_mail_sealed_to_the_first_drop_key_still_opens_aft
         Some(second),
         "the single-key reader still gives the newest"
     );
+}
+
+/// X-DELTA-AZDRIVE-KEYS-2: a key change that stopped is "unfinished" for as long as the keyring
+/// holds a new key that is not the drive key: the question a removal asks the keyring before it
+/// deletes keys.
+#[test]
+fn x_delta_azdrive_keys_2_a_rotation_that_stopped_is_unfinished_until_it_ends() {
+    let s = set_up();
+    let bucket: Arc<dyn Drive> = s.bucket.clone();
+    assert!(
+        !unfinished(&s.keyring, DRIVE).unwrap(),
+        "no rotation under way"
+    );
+    s.provider.rekey_failures.store(1, Ordering::SeqCst);
+    assert!(rotate(bucket.clone(), &s.keyring, DRIVE, &s.provider, cheap()).is_err());
+    assert!(
+        unfinished(&s.keyring, DRIVE).unwrap(),
+        "K2 is kept and is not the drive key"
+    );
+    rotate(bucket.clone(), &s.keyring, DRIVE, &s.provider, cheap()).unwrap();
+    assert!(
+        !unfinished(&s.keyring, DRIVE).unwrap(),
+        "finished: the entries are gone"
+    );
+    // Another device has no new key: nothing of its own is unfinished.
+    assert!(!unfinished(&s.other_device, DRIVE).unwrap());
 }

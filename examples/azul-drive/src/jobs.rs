@@ -3446,7 +3446,7 @@ fn claim_pending(
 /// the tokens say why ([`azcloud_kit::NoVault`]): a paid grant is erased from the keyring only
 /// when it is in two places ([`pending::finish`], X-AR5b-7), so whether the drive happened to be
 /// open decides nothing about a paid month.
-fn drive_tokens(
+pub(crate) fn drive_tokens(
     store: &PeriodTokenStore,
     drive_id: &str,
     azlin: Option<&Arc<azcloud_kit::AzlinDrive>>,

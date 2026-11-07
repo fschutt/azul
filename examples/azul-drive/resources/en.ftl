@@ -1093,7 +1093,7 @@ azdrive-keyring-token-gone = Its drive token is gone: on a device that has the d
 azdrive-keyring-enter-keys = Enter its keys again.
 azdrive-keyring-not-forgotten = A key of the removed drive could not be taken out of the keyring:
 azdrive-keyring-forget-by-hand = It stays there until you remove it in the system's keychain app.
-azdrive-forget-keys-kept = The keys of "{ $name }" and the months paid for it stay on this computer: its recovery code was never checked, and they may be the only way into the drive. Add the drive again, check the code, then remove the drive once more.
+azdrive-forget-keys-kept = The keys of "{ $name }" and the months paid for it stay on this computer: they may be the only way into the drive. They go once its recovery code is checked and known to the token server, no key change is unfinished, and the months paid are in the drive too. Add the drive again, finish what is open, check the code, then remove the drive once more.
 azdrive-forget-busy-title = Removing the drive
 azdrive-forget-busy = Taking "{ $name }" off this computer: its keys, copies, indexes and settings.
 azdrive-forget-failed = "{ $name }" is still on the list: { $why }. Remove it again to try the rest.
@@ -1453,8 +1453,9 @@ azdrive-enc-migrated-changed = Some changed meanwhile: "Encrypt" again moves the
 azdrive-enc-migrate-stopped = Moving the files of "{ $name }" into the encryption stopped: { $why }. It continues where it stopped the next time.
 azdrive-enc-rotated = "{ $name }" is locked down and has new keys: { $members } other computers and invites removed, { $links } shared links revoked.
 azdrive-enc-rotated-mail = Incoming mail has a new drop key: give it to your mail Worker (AzMail, or azcloud mail-drop).
-azdrive-enc-not-rotated = The keys were not changed
-azdrive-enc-not-rotated-why = { $why }. A rotation that stopped continues where it stopped when you try again on this computer.
+azdrive-enc-not-rotated = The new keys are not finished
+azdrive-enc-not-rotated-why = { $why }. Try again on this computer: a rotation that stopped continues where it stopped. Until it is done, do not rely on the old recovery code; the code shown at the end is the one to keep.
+azdrive-enc-rotated-left-over = The new keys are in place. These leftovers of the change could not be cleared (they do no harm; the next key change clears them): { $what }
 azdrive-enc-reencrypted = { $count ->
         [one] One file
        *[other] { $count } files

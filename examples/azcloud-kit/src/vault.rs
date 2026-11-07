@@ -665,7 +665,9 @@ mod in_drive {
     use azul_storage::{
         crypto::{
             azl1::{self, PublicHeader, WriteOptions, HEADER_LEN},
-            device, DriveKey, ObjectId,
+            device,
+            keys::load_key_chain,
+            DriveKey, KeyId, ObjectId,
         },
         keyring::KeyringStore,
         Drive, DriveError, Precondition,
@@ -763,41 +765,72 @@ mod in_drive {
             }
         }
 
-        /// What the object holds and its entity tag (`None`: no object yet).
-        fn fetch(&self) -> CloudResult<(VaultState, Option<String>)> {
+        /// What the object holds, its entity tag (`None`: no object yet) and whether it is sealed
+        /// under a drive key older than the current one (a rotation since it was written): the
+        /// next write puts it under the current key, whether or not it has anything new.
+        fn fetch(&self) -> CloudResult<(VaultState, Option<String>, bool)> {
             let bucket = &self.drive.bucket;
             let etag = match bucket.head(Self::KEY) {
                 // a write is only ever conditional on the version read
                 Ok(info) => info.etag.ok_or_else(|| {
                     CloudError::failed("the bucket names no entity tag of the drive's period vault")
                 })?,
-                Err(DriveError::NotFound { .. }) => return Ok((VaultState::default(), None)),
+                Err(DriveError::NotFound { .. }) => {
+                    return Ok((VaultState::default(), None, false))
+                }
                 Err(e) => return Err(e.into()),
             };
             let bytes = match bucket.get(Self::KEY) {
                 Ok(bytes) => bytes,
                 // deleted in between: the next write makes it again
-                Err(DriveError::NotFound { .. }) => return Ok((VaultState::default(), None)),
+                Err(DriveError::NotFound { .. }) => {
+                    return Ok((VaultState::default(), None, false))
+                }
                 Err(e) => return Err(e.into()),
             };
-            Ok((self.open(&bytes)?, Some(etag)))
+            let (state, older) = self.open(&bytes)?;
+            Ok((state, Some(etag), older))
         }
 
-        fn open(&self, bytes: &[u8]) -> CloudResult<VaultState> {
+        /// The drive key that wrapped the object's file key: the current one, else an older one
+        /// of the drive's key chain (the current key opens it) - a rotation re-wraps the index and
+        /// the member files and leaves this object under the key it was written with
+        /// (X-DELTA-AZDRIVE-KEYS-5).
+        fn older_key(&self, id: &KeyId) -> Result<DriveKey, String> {
+            let chain = load_key_chain(self.drive.bucket.as_ref())
+                .map_err(|e| e.to_string())?
+                .ok_or_else(|| String::from("the drive has no key chain"))?;
+            chain
+                .open(&self.drive.drive_id, &self.drive.key)
+                .into_iter()
+                .find(|key| key.id() == *id)
+                .ok_or_else(|| String::from("it is sealed under a drive key the key chain lacks"))
+        }
+
+        /// The vault the sealed `bytes` hold, and whether they are under an older drive key.
+        fn open(&self, bytes: &[u8]) -> CloudResult<(VaultState, bool)> {
             let damaged = |why: String| {
                 CloudError::failed(format!("the drive's period vault does not open: {why}"))
             };
             if bytes.len() < HEADER_LEN {
                 return Err(damaged(String::from("it is too short")));
             }
-            let header = PublicHeader::parse(&bytes[..HEADER_LEN]).map_err(|e| damaged(e.to_string()))?;
-            let file_key = self
-                .drive
-                .key
+            let header =
+                PublicHeader::parse(&bytes[..HEADER_LEN]).map_err(|e| damaged(e.to_string()))?;
+            let older = header.wrapped_key.key_id != self.drive.key.id();
+            let wrapper = if older {
+                self.older_key(&header.wrapped_key.key_id)
+                    .map_err(damaged)?
+            } else {
+                self.drive.key.clone()
+            };
+            let file_key = wrapper
                 .unwrap_file_key(&header.wrapped_key, &self.object)
                 .map_err(|e| damaged(e.to_string()))?;
-            let plain = azl1::decrypt(bytes, &self.object, &file_key).map_err(|e| damaged(e.to_string()))?;
-            serde_json::from_slice(&plain).map_err(|e| damaged(e.to_string()))
+            let plain = azl1::decrypt(bytes, &self.object, &file_key)
+                .map_err(|e| damaged(e.to_string()))?;
+            let state = serde_json::from_slice(&plain).map_err(|e| damaged(e.to_string()))?;
+            Ok((state, older))
         }
 
         fn seal(&self, state: &VaultState) -> CloudResult<Vec<u8>> {
@@ -816,8 +849,11 @@ mod in_drive {
 
         fn join(&self, change: &VaultState) -> CloudResult<VaultState> {
             for _ in 0..RACES {
-                let (mut state, etag) = self.fetch()?;
-                if etag.is_some() && state.holds(change) {
+                let (mut state, etag, older) = self.fetch()?;
+                // An object under an older drive key is written again under the current one
+                // even when it holds all of `change`: it opens through the key chain meanwhile,
+                // and a vault that depended on that file for ever would be lost with it.
+                if etag.is_some() && !older && state.holds(change) {
                     return Ok(state);
                 }
                 state.join(change);
@@ -1095,6 +1131,30 @@ impl DriveTokens {
         let mut kept = self.join(&state)?;
         kept.second_copy = true;
         Ok(kept)
+    }
+
+    /// Whether the drive's own vault holds everything this computer's vault holds, so that this
+    /// computer's may go with the drive: what the drive lacks is written into it once more, and
+    /// then the drive's vault is read and asked. A drive with no vault of its own (its key is not
+    /// here, or it could not be opened) holds nothing: this computer's vault is the only copy of
+    /// the months paid, the grants and the issue keys unless it is empty.
+    ///
+    /// # Errors
+    ///
+    /// This computer's vault, or the drive's, cannot be read: whether the months are kept
+    /// elsewhere is not known, and not knowing is no answer.
+    pub fn local_is_redundant(&self) -> CloudResult<bool> {
+        let local = self.local.read()?;
+        let held = match self.vaults.get(1) {
+            Some(drive) => {
+                // collapse-ok: a write that does not go through leaves the drive lacking what it
+                // lacked, which the read below finds.
+                let _ = drive.join(&local);
+                drive.read()?
+            }
+            None => VaultState::default(),
+        };
+        Ok(held.holds(&local))
     }
 
     /// The tokens of `tier` not spent, oldest first.

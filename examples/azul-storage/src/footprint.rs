@@ -112,6 +112,15 @@ impl KeyEntry {
         )
     }
 
+    /// Whether the entry leaves the device only with a [`RemovalProof`]: key material, and the key
+    /// of the period vault. The vault's FILES go with a proof (the months paid for the drive may
+    /// be only there), so the key that opens them goes with it and never alone: a vault that
+    /// stays without its key is ciphertext nobody can read (X-DELTA-AZDRIVE-KEYS-8).
+    #[must_use]
+    pub const fn goes_with_proof(self) -> bool {
+        self.is_key_material() || matches!(self, KeyEntry::VaultKey)
+    }
+
     /// The entry of a drive of `drive` whose name is `name`, if it is one.
     #[must_use]
     pub fn of_name(name: &str, drive: &str) -> Option<KeyEntry> {
@@ -428,7 +437,7 @@ impl Footprint for KeyringFootprint<'_> {
         let mut failures = Vec::new();
         for entry in KeyEntry::ALL {
             let name = entry.name(drive);
-            if entry.is_key_material() && proof.is_none() {
+            if entry.goes_with_proof() && proof.is_none() {
                 // Key material stays without the evidence - when there is some. An entry that is
                 // not there is nothing to keep and is not said to be (a drive of a bucket has a
                 // session and no key); one that cannot be looked at is neither kept nor gone: the
