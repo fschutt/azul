@@ -1175,7 +1175,7 @@ azdrive-bridge-every-setting = every setting
 azdrive-bridge-copy-password = Copy password
 azdrive-bridge-copied = Copied: { $what }.
 azdrive-bridge-no-password = The bridge's secrets file has no password: azul-bridge password makes a new one.
-azdrive-bridge-password-copied = Copied the bridge's password: paste it where the other program asks for the password.
+azdrive-bridge-password-copied = Copied the bridge's password: paste it where the other program asks for the password. It leaves the clipboard again in a minute.
 
 ## Panes
 

@@ -14,6 +14,7 @@ use azul::{
     option::OptionString,
     prelude::*,
     str::String as AzString,
+    time::{Duration as UiDuration, SystemTimeDiff},
     vec::StyledTextRunVec,
 };
 
@@ -65,16 +66,103 @@ fn line(text: &str) -> Dom {
     Dom::create_span_with_text(label(text)).with_css(TEXT)
 }
 
-pub(crate) fn clipboard(info: &mut CallbackInfo, text: &str) {
-    info.set_clipboard_content(ClipboardContent {
+/// The clipboard's content for `text`: `concealed` keeps clipboard managers and history from
+/// recording it.
+fn content_of(text: &str, concealed: bool) -> ClipboardContent {
+    ClipboardContent {
         plain_text: AzString::from(text),
         styled_runs: StyledTextRunVec::create(),
         html: OptionString::None,
         files: azul::vec::StringVec::create(),
         image: azul::option::OptionU8Vec::None,
         link: azul::option::OptionString::None,
-        concealed: false,
-    });
+        concealed,
+    }
+}
+
+/// An address or a name on the clipboard (nothing secret).
+pub(crate) fn clipboard(info: &mut CallbackInfo, text: &str) {
+    info.set_clipboard_content(content_of(text, false));
+}
+
+/// How long a secret stays on the clipboard: a password manager's habit.
+pub(crate) const CLEAR_SECRET_MS: u64 = 60_000;
+
+/// What copying a secret asks of the window: the clipboard and a timer. [`CallbackInfo`] is the
+/// window; a test is a recording of what was asked.
+pub(crate) trait SecretClipboard {
+    /// Puts `content` on the clipboard.
+    fn put(&mut self, content: ClipboardContent);
+
+    /// Calls the clear timer ([`on_clear_copied_secret`]) with `secret` after `delay_ms`.
+    fn clear_later(&mut self, secret: CopiedSecret, delay_ms: u64);
+}
+
+impl SecretClipboard for CallbackInfo {
+    fn put(&mut self, content: ClipboardContent) {
+        self.set_clipboard_content(content);
+    }
+
+    fn clear_later(&mut self, secret: CopiedSecret, delay_ms: u64) {
+        let get_time = self.get_system_time_fn();
+        self.add_timer(
+            TimerId::unique(),
+            Timer::create(RefAny::new(secret), on_clear_copied_secret, get_time)
+                .with_delay(UiDuration::System(SystemTimeDiff::from_millis(delay_ms))),
+        );
+    }
+}
+
+/// A secret on the clipboard - the recovery code, the bridge's password: flagged `concealed`, so
+/// that clipboard managers and history leave it alone, and taken off again after
+/// [`CLEAR_SECRET_MS`] unless something else was copied meanwhile (the timer keeps the text, to
+/// tell). `cleared` is the line printed when it is taken off (AZ-K14: the bridge's password went
+/// to the clipboard unconcealed and stayed for ever, while the recovery code did neither).
+pub(crate) fn clipboard_secret(
+    window: &mut dyn SecretClipboard,
+    text: &str,
+    cleared: &'static str,
+) {
+    window.put(content_of(text, true));
+    window.clear_later(
+        CopiedSecret {
+            text: text.to_string(),
+            cleared,
+        },
+        CLEAR_SECRET_MS,
+    );
+}
+
+/// A secret the clear timer takes off the clipboard again.
+pub(crate) struct CopiedSecret {
+    text: String,
+    cleared: &'static str,
+}
+
+/// Whether the clipboard still holds the secret that was copied (or nothing readable): then it is
+/// ours to clear; anything else was copied by the user since, and stays.
+fn still_ours(current: Option<&str>, copied: &str) -> bool {
+    current.is_none_or(|current| current == copied)
+}
+
+extern "C" fn on_clear_copied_secret(
+    mut data: RefAny,
+    info: TimerCallbackInfo,
+) -> TimerCallbackReturn {
+    let mut callback_info = info.callback_info;
+    let Some((copied, cleared)) = data
+        .downcast_ref::<CopiedSecret>()
+        .map(|c| (c.text.clone(), c.cleared))
+    else {
+        return TimerCallbackReturn::terminate_unchanged();
+    };
+    let now = callback_info.get_system_clipboard().into_option();
+    if !still_ours(now.as_ref().map(|c| c.plain_text.as_str()), &copied) {
+        return TimerCallbackReturn::terminate_unchanged();
+    }
+    callback_info.set_clipboard_content(content_of("", false));
+    println!("{cleared}");
+    TimerCallbackReturn::terminate_unchanged()
 }
 
 fn copy_button(app: &RefAny, words: &str, text: &str, what: &str) -> Dom {
@@ -185,6 +273,77 @@ extern "C" fn on_copy_password(mut data: RefAny, mut info: CallbackInfo) -> Upda
 
 /// The bridge's password, read: into the clipboard, never onto the screen.
 pub(crate) fn copy_password(info: &mut CallbackInfo, s: &mut DriveState, password: &str) {
-    clipboard(info, password);
+    password_copied(info, password);
     s.success(Text::key("azdrive-bridge-password-copied"));
+}
+
+/// The bridge's password on the clipboard as a secret ([`clipboard_secret`]); what "Copy
+/// password" does to the window.
+fn password_copied(window: &mut dyn SecretClipboard, password: &str) {
+    clipboard_secret(
+        window,
+        password,
+        "AZDRIVE_BRIDGE_PASSWORD_CLIPBOARD_CLEARED",
+    );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A window that records what a copy asked of it.
+    #[derive(Default)]
+    struct Recorded {
+        put: Vec<ClipboardContent>,
+        timers: Vec<(String, u64)>,
+    }
+
+    impl SecretClipboard for Recorded {
+        fn put(&mut self, content: ClipboardContent) {
+            self.put.push(content);
+        }
+
+        fn clear_later(&mut self, secret: CopiedSecret, delay_ms: u64) {
+            self.timers.push((secret.text, delay_ms));
+        }
+    }
+
+    /// AZ-K14: "Copy password" put the bridge's password on the clipboard with `concealed: false`
+    /// and never took it off, while the recovery code was concealed and cleared. Through the
+    /// function "Copy password" calls: one copy, concealed, and one clear timer for that very text
+    /// after a minute.
+    #[test]
+    fn az_k14_the_bridge_password_goes_to_the_clipboard_concealed_and_is_cleared_after_a_minute() {
+        let mut window = Recorded::default();
+        password_copied(&mut window, "k7m2p-9qxat-4bfw8");
+        assert_eq!(window.put.len(), 1);
+        assert!(window.put[0].concealed, "clipboard managers leave it alone");
+        assert_eq!(window.put[0].plain_text.as_str(), "k7m2p-9qxat-4bfw8");
+        assert_eq!(
+            window.timers,
+            [(String::from("k7m2p-9qxat-4bfw8"), 60_000)],
+            "taken off again, once"
+        );
+    }
+
+    /// AZ-K14: an address is no secret (not concealed, no timer), and the clear timer takes a
+    /// secret off only while it is still what the clipboard holds: a later copy of the user's
+    /// stays.
+    #[test]
+    fn az_k14_an_address_is_not_concealed_and_a_later_copy_is_not_cleared() {
+        assert!(!content_of("http://127.0.0.1:1180/", false).concealed);
+        assert!(content_of("k7m2p-9qxat-4bfw8", true).concealed);
+        assert!(
+            still_ours(Some("k7m2p-9qxat-4bfw8"), "k7m2p-9qxat-4bfw8"),
+            "the secret: clear it"
+        );
+        assert!(
+            still_ours(None, "k7m2p-9qxat-4bfw8"),
+            "nothing readable: clear it"
+        );
+        assert!(
+            !still_ours(Some("something the user copied since"), "k7m2p-9qxat-4bfw8"),
+            "another copy stays"
+        );
+    }
 }

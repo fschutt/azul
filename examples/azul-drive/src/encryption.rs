@@ -560,7 +560,8 @@ pub(crate) struct Sheet {
     /// The sheet of a NEW drive's code (encrypted as it was made): nothing to move into the
     /// encryption afterwards.
     pub new_drive: bool,
-    /// "Copy" put the code on the clipboard (cleared again after [`CLEAR_COPIED_CODE_MS`]).
+    /// "Copy" put the code on the clipboard (cleared again after
+    /// [`crate::ui_bridge::CLEAR_SECRET_MS`]).
     pub copied: bool,
     /// The code this one replaces, as typed under "I was hacked: new keys": it signs the new
     /// code's registration at the token server (F12 C). A secret: never printed.
@@ -569,9 +570,6 @@ pub(crate) struct Sheet {
     /// typed back - the drive was set up long ago.
     pub extra: bool,
 }
-
-/// How long a copied recovery code stays on the clipboard.
-pub(crate) const CLEAR_COPIED_CODE_MS: u64 = 60_000;
 
 /// A group of a recovery code as people type it: no spaces or dashes, upper case, `O` for 0,
 /// `I` and `L` for 1.
@@ -1204,59 +1202,17 @@ extern "C" fn on_copy_code(mut data: RefAny, mut info: CallbackInfo) -> Update {
         let Some(Popup::Encryption(Dialog::Sheet(sheet))) = s.popup.as_mut() else {
             return;
         };
-        info.set_clipboard_content(azul::dom::ClipboardContent {
-            plain_text: AzString::from(sheet.code.as_str()),
-            styled_runs: azul::vec::StyledTextRunVec::create(),
-            html: azul::option::OptionString::None,
-            files: azul::vec::StringVec::create(),
-            image: azul::option::OptionU8Vec::None,
-            link: azul::option::OptionString::None,
-            // A recovery code is a secret: clipboard managers and history leave it alone.
-            concealed: true,
-        });
+        // A recovery code is a secret: clipboard managers and history leave it alone, and it
+        // leaves the clipboard again unless something else was copied meanwhile.
+        crate::ui_bridge::clipboard_secret(
+            info,
+            sheet.code.as_str(),
+            "AZDRIVE_CODE_CLIPBOARD_CLEARED",
+        );
         sheet.copied = true;
         println!("AZDRIVE_CODE_COPIED {}", sheet.drive_id);
-        // The code leaves the clipboard again (a password manager's habit), unless something
-        // else was copied meanwhile: the timer keeps the code to tell.
-        let get_time = info.get_system_time_fn();
-        info.add_timer(
-            TimerId::unique(),
-            Timer::create(
-                RefAny::new(CopiedCode(sheet.code.to_string())),
-                on_clear_copied_code,
-                get_time,
-            )
-            .with_delay(Duration::System(SystemTimeDiff::from_millis(CLEAR_COPIED_CODE_MS))),
-        );
         let _ = app;
     })
-}
-
-/// The recovery code the clear timer takes off the clipboard again.
-struct CopiedCode(String);
-
-extern "C" fn on_clear_copied_code(mut data: RefAny, info: TimerCallbackInfo) -> TimerCallbackReturn {
-    let mut callback_info = info.callback_info;
-    let ours = data.downcast_ref::<CopiedCode>().is_some_and(|copied| {
-        callback_info
-            .get_system_clipboard()
-            .into_option()
-            .is_none_or(|content| content.plain_text.as_str() == copied.0.as_str())
-    });
-    if !ours {
-        return TimerCallbackReturn::terminate_unchanged();
-    }
-    callback_info.set_clipboard_content(azul::dom::ClipboardContent {
-        plain_text: AzString::from(""),
-        styled_runs: azul::vec::StyledTextRunVec::create(),
-        html: azul::option::OptionString::None,
-        files: azul::vec::StringVec::create(),
-        image: azul::option::OptionU8Vec::None,
-        link: azul::option::OptionString::None,
-        concealed: false,
-    });
-    println!("AZDRIVE_CODE_CLIPBOARD_CLEARED");
-    TimerCallbackReturn::terminate_unchanged()
 }
 
 /// Whether a drive that was just made is encrypted as part of its making: every new Azlin

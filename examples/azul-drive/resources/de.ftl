@@ -1173,7 +1173,7 @@ azdrive-bridge-every-setting = alle Einstellungen
 azdrive-bridge-copy-password = Kennwort kopieren
 azdrive-bridge-copied = Kopiert: { $what }.
 azdrive-bridge-no-password = Die Geheimnisdatei der Brücke hat kein Kennwort: azul-bridge password erstellt ein neues.
-azdrive-bridge-password-copied = Das Kennwort der Brücke wurde kopiert: Füge es dort ein, wo das andere Programm nach dem Kennwort fragt.
+azdrive-bridge-password-copied = Das Kennwort der Brücke wurde kopiert: Füge es dort ein, wo das andere Programm nach dem Kennwort fragt. Es verschwindet in einer Minute wieder aus der Zwischenablage.
 
 ## Panes
 
