@@ -184,11 +184,17 @@ impl CallLimits {
         }
     }
 
-    /// The limits of a call the caller knows nothing more about than its verb and body: an
-    /// upload's with a body, an object's read whole for a GET, a document's otherwise.
+    /// The limits of a call the caller knows nothing more about than its verb and body: a
+    /// listing's for WebDAV's PROPFIND, an upload's with a body, an object's read whole for a GET,
+    /// a document's otherwise.
     #[must_use]
     pub fn for_request(method: Method, body_len: usize) -> Self {
-        if body_len > 0 {
+        if method == Method::Propfind {
+            // WebDAV's listing: a small XML question (its body) and the members of a collection as
+            // the answer, which a folder of a few thousand files makes bigger than a document's
+            // 1 MiB - not an upload (AZ-CN5).
+            Self::listing()
+        } else if body_len > 0 {
             Self::upload()
         } else if method == Method::Get {
             Self::whole_object()

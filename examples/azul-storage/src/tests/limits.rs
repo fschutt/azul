@@ -268,3 +268,36 @@ fn the_link_is_estimated_from_the_uploads_that_moved_a_mebibyte_or_more() {
     let rate = link.rate().unwrap().0;
     assert!(rate > MIB && rate < 4 * MIB, "{rate}");
 }
+
+/// AZ-CN5: WebDAV's first request is a PROPFIND with a small XML body, and its answer lists a
+/// collection's members. Taken for an upload it capped the answer at a document's 1 MiB, which a
+/// folder of a few thousand files exceeds: it has a listing's limits whatever its body weighs.
+#[test]
+fn az_cn5_a_propfind_has_the_limits_of_a_listing_and_not_of_an_upload() {
+    for body in [0, 120, 4096] {
+        assert_eq!(
+            CallLimits::for_request(crate::Method::Propfind, body),
+            CallLimits::listing(),
+            "a PROPFIND with a body of {body} bytes"
+        );
+    }
+    assert_eq!(
+        CallLimits::for_request(crate::Method::Propfind, 120)
+            .answer
+            .max_bytes(),
+        LISTING_MAX
+    );
+    // The others are as they were.
+    assert_eq!(
+        CallLimits::for_request(crate::Method::Put, 10),
+        CallLimits::upload()
+    );
+    assert_eq!(
+        CallLimits::for_request(crate::Method::Get, 0),
+        CallLimits::whole_object()
+    );
+    assert_eq!(
+        CallLimits::for_request(crate::Method::Mkcol, 0),
+        CallLimits::json()
+    );
+}
