@@ -392,7 +392,9 @@ fn check_name(name: &str) -> Result<(), BeneathError> {
     }
     // Windows reads `C:x` as a path of its own (relative to drive C) and `a:s` as a stream:
     // joined to a folder's path, such a name leaves the folder.
-    if cfg!(windows) && crate::key::windows_name_problem(name).is_some() {
+    if crate::key::System::here() == crate::key::System::Windows
+        && crate::key::windows_name_problem(name).is_some()
+    {
         return Err(BeneathError::BadName(name.to_string()));
     }
     Ok(())

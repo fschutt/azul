@@ -278,7 +278,7 @@ fn disk(a: &Path, b: &Path) -> Overlap {
 /// Two resolved paths by their names (component-wise; Windows ignores case).
 fn path_text(a: &Path, b: &Path) -> Overlap {
     let norm = |p: &Path| -> PathBuf {
-        if cfg!(windows) {
+        if crate::key::System::here() == crate::key::System::Windows {
             PathBuf::from(p.to_string_lossy().to_lowercase())
         } else {
             p.to_path_buf()
@@ -317,7 +317,7 @@ pub fn names_below(root: &Path, path: &Path) -> Option<Vec<String>> {
         // Nothing to ask the disk (a root that is gone, a disk without identities): the resolved
         // paths by their names.
         let (root, path) = (cr.full(), cp.full());
-        if cfg!(windows) {
+        if crate::key::System::here() == crate::key::System::Windows {
             let lower = |p: &Path| PathBuf::from(p.to_string_lossy().to_lowercase());
             let (lower_root, lower_path) = (lower(&root), lower(&path));
             let rest = lower_path.strip_prefix(&lower_root).ok()?.to_path_buf();

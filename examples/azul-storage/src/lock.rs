@@ -21,6 +21,8 @@ use std::{
     time::{Duration, Instant},
 };
 
+use crate::key::System;
+
 /// Why a lock was not taken: held by someone for longer than the caller waits, or its file could
 /// not be made or locked. The sentence names the lock's file, never a value.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -186,13 +188,13 @@ pub fn user_config_dir() -> Option<PathBuf> {
             .filter(|v| !v.is_empty())
             .map(PathBuf::from)
     };
-    if cfg!(windows) {
-        return var("APPDATA");
+    match System::here() {
+        System::Windows => var("APPDATA"),
+        System::Macos => var("HOME").map(|home| home.join("Library").join("Application Support")),
+        System::Linux => {
+            var("XDG_CONFIG_HOME").or_else(|| var("HOME").map(|home| home.join(".config")))
+        }
     }
-    if cfg!(target_os = "macos") {
-        return var("HOME").map(|home| home.join("Library").join("Application Support"));
-    }
-    var("XDG_CONFIG_HOME").or_else(|| var("HOME").map(|home| home.join(".config")))
 }
 
 /// The folder where the locks of the keyring entries of every namespace are, beside each other:
