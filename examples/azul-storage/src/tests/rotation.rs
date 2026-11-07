@@ -14,7 +14,10 @@ use super::{
 use crate::{
     crypto::{
         azl1::OpenObject,
-        device::{self, enroll, recover, rotation_key_entries, seal_invite, setup_new_drive},
+        device::{
+            self, add_recovery_code, enroll, recover, rotation_key_entries, seal_invite,
+            setup_new_drive,
+        },
         drops::{
             enable_drop, load_drop_key, load_previous_drop_key, load_previous_drop_keys,
             DROP_KEY_FILE,
@@ -130,6 +133,34 @@ fn wrapped_key_ids(provider: &Provider) -> Vec<crate::crypto::KeyId> {
         .iter()
         .filter_map(|(_, e)| e.object.as_ref().map(|o| o.wrapped_key.key_id))
         .collect()
+}
+
+/// X-DELTA-AZDRIVE-KEYS-27: a rotation deletes the further recovery codes' wraps (each sealed the
+/// old key) and counted them among the members - "3 other computers removed" for two computers and
+/// a kit in a drawer. Counted apart; the kit's paper opens nothing afterwards.
+#[test]
+fn x_delta_azdrive_keys_27_a_rotation_counts_the_further_recovery_codes_apart_from_the_members() {
+    let s = set_up();
+    let (kit_id, kit) = add_recovery_code(s.bucket.as_ref(), &s.keyring, DRIVE, cheap()).unwrap();
+    let kit_file = s
+        .bucket
+        .keys()
+        .into_iter()
+        .find(|key| key.contains("recovery-"))
+        .expect("the kit's wrap is in the bucket");
+    assert!(kit_file.contains(&kit_id), "{kit_file}");
+    let bucket: Arc<dyn Drive> = s.bucket.clone();
+
+    let rotated = rotate(bucket.clone(), &s.keyring, DRIVE, &s.provider, cheap()).unwrap();
+    assert_eq!(
+        rotated.members_removed, 3,
+        "the other device, the invite, this device's old wrap - and not the kit"
+    );
+    assert_eq!(rotated.codes_removed, 1, "the kit");
+    assert!(s.bucket.object(&kit_file).is_none(), "its wrap is gone");
+    // its paper opens nothing now
+    let elsewhere = MemoryKeyring::new();
+    assert!(recover(bucket.as_ref(), &elsewhere, DRIVE, &kit).is_err());
 }
 
 #[test]

@@ -1285,6 +1285,49 @@ pub fn add_recovery_code(
     drive: &str,
     kdf: RecoveryKdf,
 ) -> Result<(String, RecoveryCode), DriveError> {
+    add_recovery_code_named(bucket, keyring, drive, kdf, |_| {
+        let mut id = [0u8; 8];
+        super::random_bytes(&mut id).map_err(|e| e.for_key(drive))?;
+        Ok(format!("{EXTRA_RECOVERY_PREFIX}{}.key", to_hex(&id)))
+    })
+}
+
+/// The key file of the further recovery code whose key at the token server is `public_key` (its
+/// base64 text): `.azlin/keys/recovery-<16 hex digits of the text's hash>.key`. Named so, a kit's
+/// wrap is found by anyone who sees the key at the server - a removal of the key from ANOTHER
+/// computer than the one that made the kit finds the wrap too (X-DELTA-AZDRIVE-KEYS-28). Kits made
+/// before had a random name, known only to the computer that made them.
+#[must_use]
+pub fn recovery_code_file_for(public_key: &str) -> String {
+    let hash = blake3::hash(public_key.trim().as_bytes());
+    format!(
+        "{EXTRA_RECOVERY_PREFIX}{}.key",
+        to_hex(&hash.as_bytes()[..8])
+    )
+}
+
+/// [`add_recovery_code`] whose file is named by the code's key at the token server
+/// ([`recovery_code_file_for`]); `public_key_of` says that key from the code.
+pub fn add_recovery_code_for_key(
+    bucket: &dyn Drive,
+    keyring: &dyn KeyringStore,
+    drive: &str,
+    kdf: RecoveryKdf,
+    public_key_of: impl FnOnce(&RecoveryCode) -> String,
+) -> Result<(String, RecoveryCode), DriveError> {
+    add_recovery_code_named(bucket, keyring, drive, kdf, |code| {
+        Ok(recovery_code_file_for(&public_key_of(code)))
+    })
+}
+
+/// [`add_recovery_code`] in the file `file_of` names for the new code.
+fn add_recovery_code_named(
+    bucket: &dyn Drive,
+    keyring: &dyn KeyringStore,
+    drive: &str,
+    kdf: RecoveryKdf,
+    file_of: impl FnOnce(&RecoveryCode) -> Result<String, DriveError>,
+) -> Result<(String, RecoveryCode), DriveError> {
     if extra_recovery_files(bucket)?.len() >= MAX_EXTRA_RECOVERY_CODES {
         return Err(DriveError::Unsupported(format!(
             "a drive holds at most {MAX_EXTRA_RECOVERY_CODES} further recovery codes: remove one first"
@@ -1296,9 +1339,7 @@ pub fn add_recovery_code(
         })?;
     let code = RecoveryCode::generate().map_err(|e| e.for_key(drive))?;
     let wrap = RecoveryWrap::seal(&drive_key, drive, &code, kdf).map_err(|e| e.for_key(drive))?;
-    let mut id = [0u8; 8];
-    super::random_bytes(&mut id).map_err(|e| e.for_key(drive))?;
-    let file = format!("{EXTRA_RECOVERY_PREFIX}{}.key", to_hex(&id));
+    let file = file_of(&code)?;
     publish_recovery_wrap(bucket, &stashed, &wrap, Publish::Extra(&file))?;
     Ok((file, code))
 }
@@ -1306,19 +1347,59 @@ pub fn add_recovery_code(
 /// Removes a further recovery code's wrap: its kit no longer opens the drive (a file that is
 /// gone already is no error). Refused for any other file - the first code's, a member's.
 pub fn remove_recovery_code(bucket: &dyn Drive, file: &str) -> Result<(), DriveError> {
-    let named = file
-        .strip_prefix(EXTRA_RECOVERY_PREFIX)
-        .and_then(|rest| rest.strip_suffix(".key"))
-        .is_some_and(|id| !id.is_empty() && id.bytes().all(|b| b.is_ascii_hexdigit()));
-    if !named {
-        return Err(DriveError::InvalidConfig(format!(
-            "{file} is no further recovery code's key file"
-        )));
-    }
+    check_extra_recovery_file(file)?;
     match bucket.delete(file) {
         Ok(()) | Err(DriveError::NotFound { .. }) => Ok(()),
         Err(e) => Err(e),
     }
+}
+
+/// `file` names a further recovery code's key file and no other.
+fn check_extra_recovery_file(file: &str) -> Result<(), DriveError> {
+    let named = file
+        .strip_prefix(EXTRA_RECOVERY_PREFIX)
+        .and_then(|rest| rest.strip_suffix(".key"))
+        .is_some_and(|id| !id.is_empty() && id.bytes().all(|b| b.is_ascii_hexdigit()));
+    if named {
+        Ok(())
+    } else {
+        Err(DriveError::InvalidConfig(format!(
+            "{file} is no further recovery code's key file"
+        )))
+    }
+}
+
+/// The bytes of a further recovery code's key file, to be put back by
+/// [`restore_recovery_code`] when the removal they were taken for is refused; `None` for a file
+/// that is not there.
+///
+/// # Errors
+///
+/// A name that is no further recovery code's, the bucket's refusal, a file past the key files'
+/// limit.
+pub fn read_recovery_code(bucket: &dyn Drive, file: &str) -> Result<Option<Vec<u8>>, DriveError> {
+    check_extra_recovery_file(file)?;
+    match crate::limits::named::KEY_FILE.read_from(bucket, file) {
+        Ok(bytes) => Ok(Some(bytes)),
+        Err(DriveError::NotFound { .. }) => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
+/// Puts a further recovery code's key file (as [`read_recovery_code`] read it) back, only where
+/// nothing is: a removal the token server refused leaves the kit as it was.
+///
+/// # Errors
+///
+/// A name that is no further recovery code's, the bucket's refusal; [`DriveError::Conflict`] when
+/// something is there already.
+pub fn restore_recovery_code(
+    bucket: &dyn Drive,
+    file: &str,
+    bytes: &[u8],
+) -> Result<(), DriveError> {
+    check_extra_recovery_file(file)?;
+    put_new(bucket, file, bytes)
 }
 
 /// The key files of the drive's further recovery codes: the first [`MAX_EXTRA_RECOVERY_CODES`]

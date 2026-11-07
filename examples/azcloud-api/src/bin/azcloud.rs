@@ -1196,13 +1196,14 @@ fn cmd_rotate(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
     let mut value = json!({"ok": true, "drive": id, "rotated": true,
                            "rewrapped": rotated.rewrapped,
                            "members_removed": rotated.members_removed,
+                           "codes_removed": rotated.codes_removed,
                            "shares_revoked": rotated.shares_revoked,
                            "left_over": rotated.left_over,
                            "drop_public_key": drop});
     let mut text = format!(
         "drive {id} is locked down and has a new key ({} files re-wrapped; {} other devices and \
-         invites removed, {} shares revoked).\n",
-        rotated.rewrapped, rotated.members_removed, rotated.shares_revoked
+         invites removed, {} further recovery codes removed, {} shares revoked).\n",
+        rotated.rewrapped, rotated.members_removed, rotated.codes_removed, rotated.shares_revoked
     );
     text.push_str("The drive has a NEW recovery code; the old one opens nothing.\n");
     if !rotated.left_over.is_empty() {

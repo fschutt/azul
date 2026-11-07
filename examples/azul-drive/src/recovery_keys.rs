@@ -772,13 +772,18 @@ extern "C" fn on_sign_ok(mut data: RefAny, mut info: CallbackInfo) -> Update {
                 }
             }
             KeyAction::Remove { key_id, .. } => {
-                let extra_file = state_of(&s.settings.recovery.drives, &drive_id)
-                    .and_then(|state| state.extra_code(&key_id))
-                    .map(|code| code.file.clone());
-                let auto = if extra_file.is_some() {
-                    crate::encryption::auto_for(s, &drive_id)
-                } else {
-                    None
+                let kit = kit_wrap_of(state_of(&s.settings.recovery.drives, &drive_id), &key_id);
+                let (extra_file, auto) = match kit {
+                    // A kit this computer made: its wrap is there, and the drive must be open.
+                    KitWrap::Known(file) => (Some(file), crate::encryption::auto_for(s, &drive_id)),
+                    // A kit named by its key at the token server (a kit another computer made, or
+                    // the first code, whose name is nothing): the wrap is looked for when the drive
+                    // is open, and a drive that is not open has none to look for.
+                    KitWrap::Named(file) => match crate::encryption::auto_for(s, &drive_id) {
+                        Some(auto) => (Some(file), Some(auto)),
+                        None => (None, None),
+                    },
+                    KitWrap::Unknown => (None, None),
                 };
                 KeysJob::Remove {
                     drive_id,
@@ -896,22 +901,69 @@ pub(crate) enum RemoveFailed {
     /// its code still opens the drive key for anyone who reaches the bucket, so the key stays
     /// listed and the removal can be tried again.
     Wrap(String),
-    /// The token server's answer, or none (after the wrap went).
+    /// The token server's answer, or none (after the wrap went): a removal it did not refuse runs
+    /// again, the wrap being gone already.
     Server(TokenError),
+    /// The token server REFUSED to remove the key (the last one, a signature it does not take), and
+    /// the wrap, taken out of the drive before, could not be put back: the kit is dead and still
+    /// listed, and it is said so (X-DELTA-AZDRIVE-KEYS-28).
+    WrapLost { refused: TokenError, why: String },
+}
+
+/// Which wrap in the drive's storage a recovery key's removal takes with it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum KitWrap {
+    /// The file this computer recorded when it made the kit.
+    Known(String),
+    /// The file a kit is named by when its key at the token server is known
+    /// (`device::recovery_code_file_for`): kits made since the name was the key's, by any
+    /// computer. No such file is no failure (the first code has none).
+    Named(String),
+    /// The server's key is not listed here: nothing to look for.
+    Unknown,
+}
+
+/// The wrap that goes with recovery key `key_id` of a drive whose recovery state is `state`: this
+/// computer's own record of the kit, else the file named by the key's public half as the token
+/// server listed it.
+fn kit_wrap_of(state: Option<&RecoveryState>, key_id: &str) -> KitWrap {
+    let Some(state) = state else {
+        return KitWrap::Unknown;
+    };
+    if let Some(code) = state.extra_code(key_id) {
+        return KitWrap::Known(code.file.clone());
+    }
+    state
+        .server_keys
+        .iter()
+        .find(|key| key.key_id == key_id && !key.recovery_pubkey.is_empty())
+        .map_or(KitWrap::Unknown, |key| {
+            KitWrap::Named(device::recovery_code_file_for(&key.recovery_pubkey))
+        })
 }
 
 /// Removes a recovery key: its wrap in the drive's storage first (`delete_wrap`: what lets its
-/// code open the drive key - a kit that was lost must not keep doing that), then its key at the
-/// token server (`remove_at_server`, which checks the signature of the drive's current code and
-/// refuses the last key). A wrap that cannot be deleted stops the removal where it is and is
-/// said, never ignored; a wrap that is gone already is no failure, so a removal the server
-/// refused or never answered runs again.
+/// code open the drive key - a kit that was lost must not keep doing that; it hands back the bytes
+/// it took out), then its key at the token server (`remove_at_server`, which checks the signature
+/// of the drive's current code and refuses the last key). A wrap that cannot be deleted stops the
+/// removal where it is and is said, never ignored; a wrap that is gone already is no failure, so a
+/// removal the server never answered runs again. A key the server REFUSES to remove stays - and
+/// so does its kit: the wrap goes back (`restore_wrap`), so that the list does not show a kit that
+/// can open nothing (X-DELTA-AZDRIVE-KEYS-28).
 fn remove_key(
-    delete_wrap: impl FnOnce() -> Result<(), String>,
+    delete_wrap: impl FnOnce() -> Result<Option<Vec<u8>>, String>,
     remove_at_server: impl FnOnce() -> Result<(), TokenError>,
+    restore_wrap: impl FnOnce(Vec<u8>) -> Result<(), String>,
 ) -> Result<(), RemoveFailed> {
-    delete_wrap().map_err(RemoveFailed::Wrap)?;
-    remove_at_server().map_err(RemoveFailed::Server)
+    let taken = delete_wrap().map_err(RemoveFailed::Wrap)?;
+    match remove_at_server() {
+        Ok(()) => Ok(()),
+        Err(refused @ TokenError::Refused { .. }) => match taken.map(restore_wrap) {
+            None | Some(Ok(())) => Err(RemoveFailed::Server(refused)),
+            Some(Err(why)) => Err(RemoveFailed::WrapLost { refused, why }),
+        },
+        Err(e) => Err(RemoveFailed::Server(e)),
+    }
 }
 
 /// A grant of the drive (its newest drive token, under its keyring lock).
@@ -1031,11 +1083,14 @@ pub(crate) fn run(job: KeysJob) -> KeysDone {
             let result = (|| -> Result<(Zeroizing<String>, String, String), String> {
                 let server = TokenServer::new(&token_url, &transport).map_err(|e| e.to_string())?;
                 let kdf = RecoveryKdf::fresh().map_err(|e| e.to_string())?;
-                let (file, code) = device::add_recovery_code(
+                // The wrap's file is named by the code's key at the token server, so that a removal of
+                // the key from another computer finds it (X-DELTA-AZDRIVE-KEYS-28).
+                let (file, code) = device::add_recovery_code_for_key(
                     auto.bucket().as_ref(),
                     &azlin_keyring(azul_storage::keyring::Asking::User),
                     auto.drive(),
                     kdf,
+                    |code| findable_key_of(code).public_base64(),
                 )
                 .map_err(|e| e.to_string())?;
                 let findable = findable_key_of(&code);
@@ -1100,13 +1155,17 @@ pub(crate) fn run(job: KeysJob) -> KeysDone {
             let result = remove_key(
                 || match (&extra_file, &auto) {
                     (Some(file), Some(auto)) => {
-                        device::remove_recovery_code(auto.bucket().as_ref(), file)
-                            .map_err(|e| e.to_string())
+                        let bucket = auto.bucket().as_ref();
+                        let taken =
+                            device::read_recovery_code(bucket, file).map_err(|e| e.to_string())?;
+                        device::remove_recovery_code(bucket, file).map_err(|e| e.to_string())?;
+                        Ok(taken)
                     }
                     // The kit's wrap is in the drive's storage, and the drive is not open.
                     (Some(_), None) => Err(t("azdrive-keys-drive-not-open")),
-                    // The drive's first code, or a kit another computer added: no wrap of ours.
-                    (None, _) => Ok(()),
+                    // The drive's first code, or a kit made before wraps were named by their key
+                    // on another computer: no wrap this computer can name.
+                    (None, _) => Ok(None),
                 },
                 || {
                     TokenServer::new(&token_url, &transport).and_then(|server| {
@@ -1117,6 +1176,14 @@ pub(crate) fn run(job: KeysJob) -> KeysDone {
                             })
                         })
                     })
+                },
+                |bytes| match (&extra_file, &auto) {
+                    (Some(file), Some(auto)) => {
+                        device::restore_recovery_code(auto.bucket().as_ref(), file, &bytes)
+                            .map_err(|e| e.to_string())
+                    }
+                    // nothing was taken out of a drive that was not open
+                    _ => Ok(()),
                 },
             );
             KeysDone::Removed {
@@ -1284,6 +1351,22 @@ pub(crate) fn on_done(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState,
                     t_args("azdrive-keys-wrap-not-deleted", &[("why", Arg::from(why))]),
                 );
             }
+            Err(RemoveFailed::WrapLost { refused, why }) => {
+                println!(
+                    "AZDRIVE_RECOVERY_KEY_WRAP_LOST {drive_id} {key_id} {}",
+                    why.replace('\n', " ")
+                );
+                set_error(
+                    s,
+                    t_args(
+                        "azdrive-keys-wrap-lost",
+                        &[
+                            ("refused", Arg::from(t_label(&token_text(&refused)))),
+                            ("why", Arg::from(why)),
+                        ],
+                    ),
+                );
+            }
             Err(RemoveFailed::Server(e)) => {
                 if e.is_last_recovery_key() {
                     println!("AZDRIVE_RECOVERY_KEY_KEPT {drive_id} {key_id}");
@@ -1340,6 +1423,7 @@ mod tests {
                 asked.set(true);
                 Ok(())
             },
+            |_| Ok(()),
         );
         assert!(matches!(result, Err(RemoveFailed::Wrap(why)) if why == "no network"));
         assert!(
@@ -1354,21 +1438,117 @@ mod tests {
         let result = remove_key(
             || {
                 order.borrow_mut().push("wrap");
-                Ok(())
+                Ok(Some(b"the wrap".to_vec()))
             },
             || {
                 order.borrow_mut().push("server");
                 Ok(())
             },
+            |_| {
+                order.borrow_mut().push("restore");
+                Ok(())
+            },
         );
         assert!(result.is_ok());
-        assert_eq!(*order.borrow(), vec!["wrap", "server"]);
-        // The server's refusal is its own answer; the wrap is gone, a second try goes on from there.
-        let refusal = remove_key(|| Ok(()), || Err(refused("last_recovery_key")));
+        assert_eq!(
+            *order.borrow(),
+            vec!["wrap", "server"],
+            "nothing is put back after it worked"
+        );
+        // The server's refusal is its own answer, with no wrap to put back.
+        let refusal = remove_key(
+            || Ok(None),
+            || Err(refused("last_recovery_key")),
+            |_| Ok(()),
+        );
         assert!(matches!(
             refusal,
             Err(RemoveFailed::Server(TokenError::Refused { code, .. })) if code == "last_recovery_key"
         ));
+    }
+
+    /// X-DELTA-AZDRIVE-KEYS-28: the wrap went first and the server then refused (the last key, a
+    /// signature it does not take): the key stayed listed with a kit that could open nothing. A
+    /// refusal puts the wrap back, byte for byte; a network that never answered does not (the key
+    /// may be gone at the server, and the removal runs again from there); a wrap that cannot be
+    /// put back is said.
+    #[test]
+    fn x_delta_azdrive_keys_28_a_refusal_of_the_server_puts_the_kits_wrap_back() {
+        let put_back = std::cell::RefCell::new(Vec::new());
+        let result = remove_key(
+            || Ok(Some(b"the wrap".to_vec())),
+            || Err(refused("last_recovery_key")),
+            |bytes| {
+                put_back.borrow_mut().push(bytes);
+                Ok(())
+            },
+        );
+        assert!(matches!(result, Err(RemoveFailed::Server(_))), "{result:?}");
+        assert_eq!(*put_back.borrow(), vec![b"the wrap".to_vec()]);
+
+        // No answer at all: ambiguous, the wrap stays out and the removal can run again.
+        let silent = std::cell::Cell::new(false);
+        let result = remove_key(
+            || Ok(Some(b"the wrap".to_vec())),
+            || Err(TokenError::Connect(String::from("timed out"))),
+            |_| {
+                silent.set(true);
+                Ok(())
+            },
+        );
+        assert!(matches!(
+            result,
+            Err(RemoveFailed::Server(TokenError::Connect(_)))
+        ));
+        assert!(
+            !silent.get(),
+            "a key the server may have removed keeps its wrap out"
+        );
+
+        // The wrap cannot be put back: a refusal AND a lost kit, both said.
+        let result = remove_key(
+            || Ok(Some(b"the wrap".to_vec())),
+            || Err(refused("last_recovery_key")),
+            |_| Err(String::from("the bucket is read-only")),
+        );
+        assert!(
+            matches!(&result, Err(RemoveFailed::WrapLost { why, .. }) if why == "the bucket is read-only"),
+            "{result:?}"
+        );
+    }
+
+    /// X-DELTA-AZDRIVE-KEYS-28: the wrap that goes with a key is this computer's own record of the
+    /// kit, else the file named by the key's public half as the server listed it - so a kit another
+    /// computer made (and named so) is found from here.
+    #[test]
+    fn x_delta_azdrive_keys_28_the_wrap_of_a_kit_another_computer_made_is_found_by_its_key() {
+        let mut state = RecoveryState::new("d_1");
+        // a kit this computer made: its record
+        state.extra_codes.push(crate::recovery_health::ExtraCode {
+            key_id: String::from("rk_mine"),
+            file: String::from(".azlin/keys/recovery-0123456789abcdef.key"),
+            made: 1,
+        });
+        // a kit another computer made: only the server's list names it
+        state.server_keys = vec![crate::recovery_health::ServerKey {
+            key_id: String::from("rk_theirs"),
+            label: String::from("second kit"),
+            recovery_pubkey: String::from("THEIRS="),
+            created_at: None,
+            verified: true,
+        }];
+        assert_eq!(
+            kit_wrap_of(Some(&state), "rk_mine"),
+            KitWrap::Known(String::from(".azlin/keys/recovery-0123456789abcdef.key"))
+        );
+        assert_eq!(
+            kit_wrap_of(Some(&state), "rk_theirs"),
+            KitWrap::Named(device::recovery_code_file_for("THEIRS=")),
+        );
+        assert_eq!(kit_wrap_of(Some(&state), "rk_unlisted"), KitWrap::Unknown);
+        assert_eq!(kit_wrap_of(None, "rk_theirs"), KitWrap::Unknown);
+        // the name a kit is made with is the one the removal looks for
+        assert!(device::recovery_code_file_for("THEIRS=").starts_with(".azlin/keys/recovery-"));
     }
 
     #[test]

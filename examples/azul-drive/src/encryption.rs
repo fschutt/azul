@@ -491,6 +491,16 @@ fn state_dir(s: &DriveState) -> Result<PathBuf, String> {
 /// or does not parse is an error and not "no state": a pass that started over would redo - and
 /// send again - what it had done, and nobody would know. A damaged file is set aside whole
 /// (`<name>.damaged`) so the next run starts anew, and the error says where it went.
+/// The state of a "re-encrypt everything" pass as the NEXT pass takes it up: the one a pass of the
+/// current keys left, not one of the keys before. A pass that began before the keys were made
+/// (`rotated_at`) has a cut-off and a cursor of other files: loaded after a second rotation it
+/// skipped the files at or before its cursor and the ones newer than its cut-off, which are in
+/// objects of the keys before, and ended - and the reminder to re-encrypt stopped
+/// (X-DELTA-AZDRIVE-KEYS-29). A state of unknown age (`rotated_at` 0) is taken as it is.
+fn current_pass(state: Option<ReencryptState>, rotated_at: u64) -> Option<ReencryptState> {
+    state.filter(|state| state.before >= rotated_at)
+}
+
 fn load_state<T>(file: &Path, parse: impl FnOnce(&str) -> Option<T>) -> Result<Option<T>, String> {
     let bytes = match std::fs::read(file) {
         Ok(bytes) => bytes,
@@ -1984,6 +1994,9 @@ pub(crate) fn rotate_confirmed(info: &mut CallbackInfo, app: &RefAny, s: &mut Dr
         app,
         s,
         Job::Encryption(EncryptionJob::Rotate {
+            reencrypt_state: state_dir(s)
+                .ok()
+                .map(|dir| crate::footprint::reencrypt_state(&dir, &drive_id)),
             drive_id,
             auto,
             azlin,
@@ -2018,6 +2031,9 @@ extern "C" fn on_reencrypt(mut data: RefAny, mut info: CallbackInfo) -> Update {
             app,
             s,
             Job::Encryption(EncryptionJob::Reencrypt {
+                rotated_at: state_of(&s.settings.recovery.drives, &drive_id)
+                    .and_then(|state| state.reencrypt_due)
+                    .unwrap_or(0),
                 drive_id,
                 auto,
                 state_file,
@@ -2315,6 +2331,10 @@ pub(crate) enum EncryptionJob {
         azlin: Arc<azcloud_kit::AzlinDrive>,
         /// The current recovery code as typed (it signs the new code's registration).
         current: Option<Zeroizing<String>>,
+        /// The state of the "re-encrypt everything" pass of the keys before: a pass that stopped
+        /// has its cursor and its cut-off time there, and a new rotation makes both wrong
+        /// (X-DELTA-AZDRIVE-KEYS-29). `None`: no state folder.
+        reencrypt_state: Option<PathBuf>,
     },
     /// A new recovery code for a drive whose setup never passed its sheet.
     NewCode {
@@ -2331,6 +2351,9 @@ pub(crate) enum EncryptionJob {
         drive_id: String,
         auto: Arc<AutoEncrypted>,
         state_file: PathBuf,
+        /// When the keys the pass is for were made (the last rotation's end; 0: not known): a
+        /// state of a pass that began before is of the keys before.
+        rotated_at: u64,
     },
     /// The drive's recovery key (from its recovery code) registered at its token server, as
     /// signed while the code was shown ([`PendingRegistration`]) - a grant: under the drive's
@@ -2426,6 +2449,8 @@ pub(crate) struct RotationDone {
     /// The new drop public key (hex) when incoming mail is on.
     pub drop_key: Option<String>,
     pub members_removed: usize,
+    /// The further recovery codes (kits) whose wraps went: their paper opens nothing now.
+    pub codes_removed: usize,
     pub shares_revoked: usize,
     /// What the rotation's last step could not clear away (the keys ARE changed).
     pub left_over: Vec<String>,
@@ -2646,6 +2671,7 @@ pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
             auto,
             azlin,
             current,
+            reencrypt_state,
         } => {
             let result = (|| -> Result<RotationDone, String> {
                 let provider = index_provider()
@@ -2668,11 +2694,24 @@ pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
                 )
                 .map_err(|e| e.to_string())?;
                 auto.reopen();
+                // The keys changed: a "re-encrypt everything" pass that stopped under the keys
+                // before has its cursor and its cut-off in a file that is wrong now, and a new pass
+                // loaded it, skipped the files at or before the cursor and ended at once
+                // (X-DELTA-AZDRIVE-KEYS-29). The pass asks for its own age as well
+                // ([`current_pass`]), for a file that could not be removed here.
+                if let Some(file) = &reencrypt_state {
+                    if let Err(e) = std::fs::remove_file(file) {
+                        if e.kind() != std::io::ErrorKind::NotFound {
+                            eprintln!("AZDRIVE_REENCRYPT_STATE_KEPT {}: {e}", file.display());
+                        }
+                    }
+                }
                 Ok(RotationDone {
                     code: rotated.recovery_code.to_text(),
                     previous_code: current,
                     drop_key: rotated.drop_key.map(|key| key.to_hex()),
                     members_removed: rotated.members_removed,
+                    codes_removed: rotated.codes_removed,
                     shares_revoked: rotated.shares_revoked,
                     left_over: rotated.left_over,
                 })
@@ -2731,11 +2770,14 @@ pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
             drive_id,
             auto,
             state_file,
+            rotated_at,
         } => {
             let result = (|| -> Result<ReencryptState, String> {
-                let mut state =
-                    load_state(&state_file, |text| ReencryptState::from_json(text).ok())?
-                        .unwrap_or_else(|| ReencryptState::new(now_unix()));
+                let mut state = current_pass(
+                    load_state(&state_file, |text| ReencryptState::from_json(text).ok())?,
+                    rotated_at,
+                )
+                .unwrap_or_else(|| ReencryptState::new(now_unix()));
                 let provider = index_provider()
                     .ok_or_else(|| String::from("azdrive-enc-err-no-index"))?;
                 let drive = open_encrypted(
@@ -3605,6 +3647,9 @@ pub(crate) fn on_outcome(
         EncryptionOutcome::Rotated { drive_id, result } => match result {
             Ok(done) => {
                 crate::recovery::code_made(s, &drive_id, &done.code);
+                // The rotation removed every other computer and invite: what the recovery health
+                // counted of them is gone (X-DELTA-AZDRIVE-KEYS-27).
+                state_mut(&mut s.settings.recovery.drives, &drive_id).keys_changed();
                 // The files keep their old file keys until the pass has been over all of them:
                 // the question comes back until it is done (AZ-K18).
                 state_mut(&mut s.settings.recovery.drives, &drive_id).reencrypt_wanted(now_unix());
@@ -3622,6 +3667,7 @@ pub(crate) fn on_outcome(
                     Phrase::new("azdrive-enc-rotated")
                         .arg("name", name.as_str())
                         .arg("members", done.members_removed)
+                        .arg("codes", done.codes_removed)
                         .arg("links", done.shares_revoked),
                 );
                 if done.drop_key.is_some() {
@@ -5092,6 +5138,32 @@ mod tests {
         queued("slot-1", &first);
         assert!(crate::write_key_records(&mut slots, &queue, None).is_empty());
         assert_eq!(recorded(&slots[0].entry), encrypted_with(&first));
+    }
+
+    // ==== X-DELTA-AZDRIVE-KEYS-29: a pass of the keys before is not the next pass ====
+
+    /// A pass that stopped under the keys before has a cut-off and a cursor of other files. After a
+    /// second rotation the next pass took it up, skipped the files at or before the cursor, and
+    /// ended; the weekly reminder to re-encrypt stopped with it.
+    #[test]
+    fn x_delta_azdrive_keys_29_a_pass_of_the_keys_before_is_not_taken_up_by_the_next_one() {
+        let mut stopped = ReencryptState::new(1_000);
+        stopped.cursor = Some(String::from("photos/m.jpg"));
+        stopped.done = 40;
+        // a second rotation ended at 2_000: the state is of the keys before
+        assert!(current_pass(Some(stopped.clone()), 2_000).is_none());
+        // the same state under the keys it was made for: taken up where it stopped
+        assert_eq!(
+            current_pass(Some(stopped.clone()), 1_000),
+            Some(stopped.clone())
+        );
+        assert_eq!(
+            current_pass(Some(stopped.clone()), 900),
+            Some(stopped.clone())
+        );
+        // a pass of unknown age is taken as it is; no state is no state
+        assert_eq!(current_pass(Some(stopped.clone()), 0), Some(stopped));
+        assert!(current_pass(None, 5).is_none());
     }
 
     // ==== X-DELTA-AZDRIVE-KEYS-2, -8: the proof of a removal is taken back at removal time ====

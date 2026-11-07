@@ -171,7 +171,14 @@ fn tell_removed(s: &mut DriveState, drive_id: &str, name: &str, member: &str) {
 }
 
 /// What the removal of `member` from `drive_id` came to: said, and the device leaves the row.
-pub(crate) fn removed(s: &mut DriveState, drive_id: &str, member: &str, result: Result<(), Text>) {
+pub(crate) fn removed(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    drive_id: &str,
+    member: &str,
+    result: Result<(), Text>,
+) {
     let name = s
         .slot_index(drive_id)
         .map(|index| s.slots[index].entry.name.clone())
@@ -182,6 +189,11 @@ pub(crate) fn removed(s: &mut DriveState, drive_id: &str, member: &str, result: 
             if let Some(devices) = s.devices.get_mut(drive_id) {
                 devices.removed(member);
             }
+            // The device can sign in no more: it is no way back into the drive, and the recovery
+            // health must not count it any longer (X-DELTA-AZDRIVE-KEYS-27).
+            crate::recovery_health::state_mut(&mut s.settings.recovery.drives, drive_id)
+                .device_removed();
+            crate::save_settings(info, app, s);
             tell_removed(s, drive_id, &name, member);
         }
         Err(why) => s.error(Text::key("azdrive-device-remove-failed").then(" ").then(why)),

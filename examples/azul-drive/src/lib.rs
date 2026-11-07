@@ -3614,7 +3614,7 @@ pub(crate) extern "C" fn on_job_done(
             drive_id,
             member,
             result,
-        } => devices::removed(s, &drive_id, &member, result),
+        } => devices::removed(&mut info, &handle, s, &drive_id, &member, result),
         Outcome::Sync(outcome) => {
             refresh = sync_jobs::on_outcome(&mut info, &handle, s, outcome);
         }

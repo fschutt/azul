@@ -327,6 +327,22 @@ impl RecoveryState {
         self.registration = Registration::Unknown;
     }
 
+    /// A key change removed every other computer and invite from the drive: the count of the
+    /// other devices that hold the key (a method of getting back in, until "Count again") is
+    /// none now. It stayed at what it was, and a drive whose only other way in was a computer
+    /// the key change locked out showed green on the strength of that computer
+    /// (X-DELTA-AZDRIVE-KEYS-27).
+    pub fn keys_changed(&mut self) {
+        self.other_devices = 0;
+    }
+
+    /// One other computer was removed from the drive: it no longer counts as a way back in. (The
+    /// count can only be too low, which shows less coverage than there is, and "Count again" sets
+    /// it right.)
+    pub fn device_removed(&mut self) {
+        self.other_devices = self.other_devices.saturating_sub(1);
+    }
+
     /// The encryption of a drive that held files began: they move in once the sheet is done.
     pub fn files_will_move(&mut self) {
         self.moves_files = true;
@@ -962,6 +978,39 @@ mod tests {
         ];
         assert_eq!(contacts.methods(), vec![Method::Code, Method::Contacts]);
         assert_eq!(contacts.health(NOW), Health::Green);
+    }
+
+    /// X-DELTA-AZDRIVE-KEYS-27: the count of the other devices that hold the key was set only by
+    /// "Count again". A key change removes every other computer and invite, and "Remove device" one:
+    /// the stale count kept a drive green on the strength of a computer that can no longer sign in.
+    #[test]
+    fn x_delta_azdrive_keys_27_a_key_change_and_a_removed_device_take_the_other_devices_out_of_the_count(
+    ) {
+        let mut state = checked();
+        state.other_devices = 2;
+        assert_eq!(state.health(NOW), Health::Green, "two methods");
+        // one is removed: one is left, still a method
+        state.device_removed();
+        assert_eq!(state.other_devices, 1);
+        assert_eq!(state.methods(), vec![Method::Code, Method::OtherDevice]);
+        // the key change removes all of them, and makes a new code (checked again after its sheet)
+        state.keys_changed();
+        state.code_made(NOW + DAY, Some(String::from("new key")));
+        state.setup_verified(NOW + DAY);
+        assert_eq!(state.other_devices, 0);
+        assert_eq!(
+            state.methods(),
+            vec![Method::Code],
+            "the paper code is the one way back in"
+        );
+        assert_eq!(
+            state.health(NOW + 2 * DAY),
+            Health::Yellow,
+            "one method: not green on the strength of a computer the key change locked out"
+        );
+        // the count never goes below none
+        state.device_removed();
+        assert_eq!(state.other_devices, 0);
     }
 
     #[test]

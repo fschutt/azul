@@ -5,9 +5,10 @@ use super::mem_bucket::MemBucket;
 use crate::{
     crypto::{
         device::{
-            add_recovery_code, enroll, other_devices, recover, recover_within, remove_recovery_code,
-            setup_new_drive, EXTRA_RECOVERY_PREFIX, MAX_EXTRA_RECOVERY_CODES,
-            RECOVER_WORK_BUDGET,
+            add_recovery_code, add_recovery_code_for_key, enroll, other_devices,
+            read_recovery_code, recover, recover_within, recovery_code_file_for,
+            remove_recovery_code, restore_recovery_code, setup_new_drive, EXTRA_RECOVERY_PREFIX,
+            MAX_EXTRA_RECOVERY_CODES, RECOVER_WORK_BUDGET,
         },
         keys::{RecoveryCode, RecoveryKdf, RecoveryWrap, RECOVERY_KEY_FILE},
     },
@@ -245,4 +246,65 @@ fn az_k10_a_key_file_over_the_limit_is_left_out_not_the_end_of_the_recovery() {
     );
     let opened = recover(&bucket, &MemoryKeyring::new(), "d_1", &second).unwrap();
     assert_eq!(opened.id(), drive_key.id());
+}
+
+/// X-DELTA-AZDRIVE-KEYS-28: a further code's wrap had a random name only the computer that made
+/// the kit knew, so removing the kit's key from another computer left the wrap, which still opened
+/// the drive key. Named by the code's key at the token server, it is found by anyone who sees that
+/// key; the file reads back and goes back byte for byte when a removal is refused.
+#[test]
+fn x_delta_azdrive_keys_28_a_kit_named_by_its_key_is_found_from_another_computer_and_goes_back() {
+    let bucket = MemBucket::new();
+    let owner = MemoryKeyring::new();
+    let (drive_key, _) = setup_new_drive(&bucket, &owner, "d_1", cheap()).unwrap();
+    let (file, kit) =
+        add_recovery_code_for_key(&bucket, &owner, "d_1", cheap(), |_| String::from("KITKEY="))
+            .unwrap();
+    // the name is the key's, the same everywhere; another key is another file
+    assert_eq!(file, recovery_code_file_for("KITKEY="));
+    assert_eq!(
+        file,
+        recovery_code_file_for(" KITKEY=\n"),
+        "spaces around the text are none"
+    );
+    assert_ne!(file, recovery_code_file_for("OTHERKEY="));
+    assert!(
+        file.starts_with(EXTRA_RECOVERY_PREFIX) && file.ends_with(".key"),
+        "{file}"
+    );
+    // a computer that holds nothing of the kit can name the file from the server's key alone and
+    // takes the wrap out; the kit then opens nothing
+    let wrap = read_recovery_code(&bucket, &recovery_code_file_for("KITKEY="))
+        .unwrap()
+        .expect("the wrap is there");
+    remove_recovery_code(&bucket, &recovery_code_file_for("KITKEY=")).unwrap();
+    assert!(recover(&bucket, &MemoryKeyring::new(), "d_1", &kit).is_err());
+    assert_eq!(
+        read_recovery_code(&bucket, &file).unwrap(),
+        None,
+        "a file that is gone reads as none"
+    );
+    // the server refused: it goes back, byte for byte, and the kit opens the drive again
+    restore_recovery_code(&bucket, &file, &wrap).unwrap();
+    assert_eq!(bucket.get(&file).unwrap(), wrap);
+    let opened = recover(&bucket, &MemoryKeyring::new(), "d_1", &kit).unwrap();
+    assert_eq!(opened.id(), drive_key.id());
+    // nothing is put over a file that is there
+    assert!(matches!(
+        restore_recovery_code(&bucket, &file, b"another"),
+        Err(DriveError::Conflict { .. })
+    ));
+    assert_eq!(bucket.get(&file).unwrap(), wrap);
+    // and only a further recovery code's file is read, removed or put back
+    for named in [
+        RECOVERY_KEY_FILE,
+        ".azlin/keys/_chain.key",
+        ".azlin/keys/recovery-xyz.key",
+    ] {
+        assert!(read_recovery_code(&bucket, named).is_err(), "{named}");
+        assert!(
+            restore_recovery_code(&bucket, named, b"x").is_err(),
+            "{named}"
+        );
+    }
 }

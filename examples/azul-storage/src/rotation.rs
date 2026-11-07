@@ -375,6 +375,11 @@ pub struct Rotated {
     pub rewrapped: usize,
     /// Member wraps and invites removed (the other devices).
     pub members_removed: usize,
+    /// Further recovery codes' wraps removed (`recovery-<id>.key`, the kits made with
+    /// `add_recovery_code`): each sealed the old key, and its paper opens nothing now
+    /// (X-DELTA-AZDRIVE-KEYS-27). Counted apart from the members: a user told "3 other computers
+    /// removed" would not look for the kit in a drawer.
+    pub codes_removed: usize,
     /// The new drop public key for the mail Worker, when incoming mail is on.
     pub drop_key: Option<DropPublic>,
     /// Shares revoked.
@@ -391,6 +396,7 @@ impl std::fmt::Debug for Rotated {
             .field("drive_key", &self.drive_key)
             .field("rewrapped", &self.rewrapped)
             .field("members_removed", &self.members_removed)
+            .field("codes_removed", &self.codes_removed)
             .field("drop_key", &self.drop_key)
             .field("shares_revoked", &self.shares_revoked)
             .field("left_over", &self.left_over)
@@ -529,13 +535,15 @@ fn chain_old_key(
 
 /// Step 4: every member but this device leaves. First the index's record (`drive_key` opens
 /// it): every member its policy names, and every wrap it holds. Then every member wrap and
-/// invite in the bucket. Returns how many members and invites were removed, from either.
+/// invite in the bucket, and every further recovery code's wrap (`recovery-<id>`). Returns how many
+/// members and invites were removed, from either, and how many further recovery codes.
 fn remove_other_members(
     bucket: &dyn Drive,
     drive_key: &DriveKey,
     keep: &str,
-) -> Result<usize, DriveError> {
+) -> Result<(usize, usize), DriveError> {
     let mut removed = BTreeSet::new();
+    let mut codes = BTreeSet::new();
     if let Some(mut record) = MemberRecord::open(bucket, drive_key)? {
         let others: Vec<String> = record
             .members()?
@@ -568,12 +576,16 @@ fn remove_other_members(
         }
         match bucket.delete(&object.key) {
             Ok(()) | Err(DriveError::NotFound { .. }) => {
-                removed.insert(name.to_string());
+                if name.starts_with("recovery-") {
+                    codes.insert(name.to_string());
+                } else {
+                    removed.insert(name.to_string());
+                }
             }
             Err(e) => return Err(e),
         }
     }
-    Ok(removed.len())
+    Ok((removed.len(), codes.len()))
 }
 
 /// A key the rotation needs is not on this device.
@@ -661,13 +673,13 @@ pub fn rotate(
         journal.phase = Phase::Rewrapped;
         save(bucket.as_ref(), drive, &new, &mut journal)?;
     }
-    let mut members_removed = 0;
+    let (mut members_removed, mut codes_removed) = (0, 0);
     if journal.phase < Phase::Members {
         // A new member key for this device, its wrap sealed to K2; K2 becomes the keyring's
         // drive key.
         device::delete_key_at(keyring, &device::member_key_entry(drive))?;
         let me = device::enroll(bucket.as_ref(), keyring, drive, &new)?;
-        members_removed = remove_other_members(bucket.as_ref(), &new, &me)?;
+        (members_removed, codes_removed) = remove_other_members(bucket.as_ref(), &new, &me)?;
         journal.phase = Phase::Members;
         save(bucket.as_ref(), drive, &new, &mut journal)?;
     }
@@ -708,6 +720,7 @@ pub fn rotate(
         drive_key: new.id(),
         rewrapped,
         members_removed,
+        codes_removed,
         drop_key,
         shares_revoked,
         left_over,

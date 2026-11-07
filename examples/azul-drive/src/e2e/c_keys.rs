@@ -428,6 +428,7 @@ pub(crate) fn rotate_key(s: &mut DriveState, args: &Args) -> Answer {
     Ok(serde_json::json!({
         "rewrapped": rotated.rewrapped,
         "members_removed": rotated.members_removed,
+        "codes_removed": rotated.codes_removed,
         "shares_revoked": rotated.shares_revoked,
         "drive_key": rotated.drive_key.to_hex(),
     }))
