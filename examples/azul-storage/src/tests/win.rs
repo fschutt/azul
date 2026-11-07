@@ -8,9 +8,9 @@ use crate::{
     beneath::{self, Fingerprint, Kind, Tri},
     win::{
         fat_cap, file_index, filetime_ns, is_held_open, is_held_open_code, is_sid_string,
-        is_transparent_tag, is_under, kind_of, means_no_acls, private_sddl, Info, ATTR_DIRECTORY,
-        ATTR_OFFLINE, ATTR_READONLY, ATTR_RECALL_ON_DATA_ACCESS, ATTR_REPARSE_POINT, FAT_FILE_MAX,
-        HELD_BACKOFF_MS,
+        is_transparent_tag, is_under, kind_of, means_no_acls, private_sddl, verbatim_text, Info,
+        ATTR_DIRECTORY, ATTR_OFFLINE, ATTR_READONLY, ATTR_RECALL_ON_DATA_ACCESS,
+        ATTR_REPARSE_POINT, FAT_FILE_MAX, HELD_BACKOFF_MS,
     },
 };
 
@@ -227,6 +227,31 @@ fn az_w11_a_busy_file_is_told_from_a_broken_one_and_the_wait_for_it_is_bounded()
 }
 
 const USER: &str = "S-1-5-21-1004336348-1177238915-682003330-1001";
+
+/// std converts a long path for its own calls; the wide calls of win.rs (the rename, the free space,
+/// the volume, the access list) do it with this: a path past 260 characters is the extended form.
+#[test]
+fn az_w11_a_long_path_goes_to_the_wide_calls_in_its_extended_length_form() {
+    assert_eq!(
+        verbatim_text(r"C:\Users\me\sync\a.txt").as_deref(),
+        Some(r"\\?\C:\Users\me\sync\a.txt")
+    );
+    assert_eq!(
+        verbatim_text(r"\\server\share\sync\a.txt").as_deref(),
+        Some(r"\\?\UNC\server\share\sync\a.txt")
+    );
+    // Already extended, a device path, a relative path and a drive-relative one need none.
+    for none in [
+        r"\\?\C:\a",
+        r"\\?\UNC\server\share\a",
+        r"\\.\pipe\x",
+        r"a\b",
+        r"C:a",
+        "",
+    ] {
+        assert_eq!(verbatim_text(none), None, "{none:?}");
+    }
+}
 
 /// AZ-W14: the check that a file opened below the root still lies under it compares resolved paths
 /// at a component boundary, without regard to case.
@@ -593,6 +618,26 @@ mod on_windows {
         plain.create_new("y.txt", 0o644).unwrap();
         plain.rename("x.txt", &plain, "z.txt").unwrap();
         plain.unlink("z.txt").unwrap();
+    }
+
+    /// std makes a path past 260 characters usable for its own calls; the rename, the free space and
+    /// the volume of win.rs call the wide functions themselves, and give them the extended form.
+    #[test]
+    fn windows_az_w11_a_rename_and_the_free_space_work_in_a_folder_past_260_characters() {
+        let tmp = TempDir::new("win-long");
+        let mut deep = tmp.path().to_path_buf();
+        for i in 0..6 {
+            deep.push(format!("{i}{}", "d".repeat(50)));
+        }
+        assert!(deep.as_os_str().len() > 300, "{}", deep.display());
+        fs::create_dir_all(&deep).unwrap();
+        fs::write(deep.join("a.txt"), b"a").unwrap();
+        let top = Root::open(&deep).unwrap().top().unwrap();
+        top.rename("a.txt", &top, "b.txt").unwrap();
+        top.rename_noreplace("b.txt", &top, "c.txt").unwrap();
+        assert_eq!(fs::read(deep.join("c.txt")).unwrap(), b"a");
+        assert!(beneath::free_space(&deep).is_known());
+        assert!(crate::win::file_system_name(&deep).is_ok());
     }
 
     /// A virus scanner or an indexer has the new file open for a moment, without sharing delete:

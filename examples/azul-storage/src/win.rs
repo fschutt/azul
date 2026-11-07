@@ -196,6 +196,26 @@ pub(crate) fn is_under(root: &str, path: &str) -> bool {
             .is_some_and(|rest| rest.starts_with('\\'))
 }
 
+/// The extended-length form of the absolute Windows path `full` - `C:\a` as `\\?\C:\a`,
+/// `\\server\share\a` as `\\?\UNC\server\share\a` -, which the system takes past 260 characters.
+/// `None` for a path that is already `\\?\` or `\\.\` (it needs nothing) and for one that is not
+/// absolute. std does this for its own calls; the wide calls of this module do it themselves.
+#[must_use]
+pub(crate) fn verbatim_text(full: &str) -> Option<String> {
+    if full.starts_with(r"\\?\") || full.starts_with(r"\\.\") {
+        return None;
+    }
+    if let Some(share) = full.strip_prefix(r"\\") {
+        return Some(format!(r"\\?\UNC\{share}"));
+    }
+    let bytes = full.as_bytes();
+    (bytes.len() >= 3 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' && bytes[2] == b'\\')
+        .then(|| format!(r"\\?\{full}"))
+}
+
+/// A path of this many bytes or more is given to the wide calls in its extended-length form.
+pub(crate) const LONG_PATH: usize = 240;
+
 /// `ERROR_SHARING_VIOLATION`: another program has the file open and does not share it.
 pub(crate) const ERROR_SHARING_VIOLATION: i32 = 32;
 /// `ERROR_LOCK_VIOLATION`: another program has locked the part of the file asked for.
@@ -324,17 +344,33 @@ mod sys {
     };
 
     use super::{
-        file_index, is_held_open, means_no_acls, private_sddl, Info, Private, ATTR_REPARSE_POINT,
-        HELD_BACKOFF_MS,
+        file_index, is_held_open, means_no_acls, private_sddl, verbatim_text, Info, Private,
+        ATTR_REPARSE_POINT, HELD_BACKOFF_MS, LONG_PATH,
     };
     use crate::beneath::Stat;
 
     /// `ERROR_ACCESS_DENIED`.
     const ERROR_ACCESS_DENIED: i32 = 5;
 
+    /// `path` as the wide calls need it: a long one (std converts for its own calls; these calls
+    /// do not) in its extended-length form, made absolute first; a short one as it is.
+    fn extended(path: &Path) -> std::borrow::Cow<'_, Path> {
+        if path.as_os_str().len() < LONG_PATH {
+            return std::borrow::Cow::Borrowed(path);
+        }
+        match std::path::absolute(path) {
+            Ok(full) => match full.to_str().and_then(verbatim_text) {
+                Some(text) => std::borrow::Cow::Owned(std::path::PathBuf::from(text)),
+                None => std::borrow::Cow::Owned(full),
+            },
+            Err(_) => std::borrow::Cow::Borrowed(path),
+        }
+    }
+
     /// `path` as the NUL-terminated UTF-16 the wide calls take; a NUL inside it would end the path
     /// early (at another file), so such a path is refused.
     fn wide(path: &Path) -> io::Result<Vec<u16>> {
+        let path = extended(path);
         let mut units: Vec<u16> = path.as_os_str().encode_wide().collect();
         if units.contains(&0) {
             return Err(io::Error::new(
