@@ -284,6 +284,11 @@ pub const LOCKDOWN_CANCEL_CONFIRM: AzString =
     AzString::from_const_str("__azdrive_lockdown_cancel_confirm");
 /// "I was hacked: new keys": the current recovery code, which signs the new one.
 pub const ROTATE_CODE: AzString = AzString::from_const_str("__azdrive_rotate_code");
+/// The name check that stands in for a presence check on a computer with no way to make one
+/// (`presence.rs`): the dialog, the field for the drive's name and Confirm.
+pub const PRESENCE: AzString = AzString::from_const_str("__azdrive_presence");
+pub const PRESENCE_NAME: AzString = AzString::from_const_str("__azdrive_presence_name");
+pub const PRESENCE_CONFIRM: AzString = AzString::from_const_str("__azdrive_presence_confirm");
 /// The voucher dialog of a drive (Options > Drives): its code and Redeem.
 pub const VOUCHER: AzString = AzString::from_const_str("__azdrive_voucher");
 pub const VOUCHER_CODE: AzString = AzString::from_const_str("__azdrive_voucher_code");

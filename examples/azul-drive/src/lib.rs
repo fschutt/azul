@@ -1083,6 +1083,10 @@ pub(crate) enum Popup {
         records: Vec<azcloud_kit::pending::PaidRecord>,
         error: azul_appkit::l10n::Text,
     },
+    /// A computer with no way to check the user's presence (no sensor, no password that locks it):
+    /// the name of the drive typed in stands in for Touch ID before an action that reveals or
+    /// changes its keys (`presence.rs`).
+    Presence(presence::NameCheck),
 }
 
 impl Popup {

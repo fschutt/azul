@@ -340,6 +340,7 @@ pub(crate) fn popup_parts(popup: &Popup, s: &DriveState, app: &RefAny) -> (Strin
             (t_args("azdrive-voucher-title", &[("name", Arg::from(name))]), body)
         }
         Popup::Receipts { records, error } => crate::receipt::dialog_parts(s, app, records, error),
+        Popup::Presence(check) => crate::presence::dialog_parts(check, s, app),
         #[cfg(feature = "encryption")]
         Popup::Encryption(dialog) => crate::encryption::dialog_parts(dialog, s, app),
         Popup::Sync(dialog) => crate::sync_view::dialog_parts(dialog, s, app),
