@@ -28,6 +28,7 @@
 //! (`azul-srcgate/tests/scratch_gate.rs` counts the sites that remain and who removes them).
 
 use std::{
+    collections::BTreeMap,
     fmt,
     fs::{self, File, OpenOptions},
     io::{self, Read, Seek, SeekFrom, Write},
@@ -39,13 +40,18 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use crate::beneath::{BeneathError, Dir, Kind};
+use serde::{Deserialize, Serialize};
+
+use crate::beneath::{BeneathError, Dir, Kind, Stat};
 
 /// Where scratch lives, set once by a program that has a cache folder (`<cache>/scratch`).
 static ROOT: OnceLock<Option<PathBuf>> = OnceLock::new();
 
 /// The front of a kept folder's name.
 const KEPT: &str = "k-";
+
+/// The record a kept folder holds of the files its owner made in it ([`Scratch::note_made`]).
+const MADE_RECORD: &str = ".made.json";
 
 /// Entries one sweep looks at: a folder somebody filled with millions is not walked whole at
 /// the start of a program.
@@ -207,6 +213,50 @@ impl Scratch {
         self.dir.join(format!("{KEPT}{}", &hash.as_str()[..16]))
     }
 
+    /// Notes that the file `name` of the kept folder `folder` is exactly what the program wrote:
+    /// its size, time and identity, taken NOW (call it after the last thing done to the file: its
+    /// mark, its mode). From then on [`Scratch::made_state`] tells whether it is still that file,
+    /// and a sweep takes the folder away only while it holds nothing but the files noted here -
+    /// an edit saved over the copy or beside it is the user's work, not scratch.
+    ///
+    /// # Errors
+    ///
+    /// When the file cannot be looked at or the record cannot be written.
+    pub fn note_made(folder: &Path, name: &str) -> io::Result<()> {
+        let dir = Dir::open_following(folder)?;
+        let st = dir.lstat(name)?;
+        let mut record = match read_record(folder)? {
+            Some(record) => record,
+            None => MadeRecord::default(),
+        };
+        record.files.insert(name.to_string(), MadeFile::of(&st));
+        let text = serde_json::to_vec(&record).map_err(io::Error::other)?;
+        crate::durable::replace_cache(&folder.join(MADE_RECORD), &text)
+            .map_err(|e| io::Error::other(e.to_string()))
+    }
+
+    /// Whether the file `name` of the kept folder `folder` is still what [`Scratch::note_made`]
+    /// noted. A record that cannot be read, or none, says [`MadeState::Unknown`]: nothing is
+    /// known, and the caller takes the careful side.
+    #[must_use]
+    pub fn made_state(folder: &Path, name: &str) -> MadeState {
+        let Ok(Some(record)) = read_record(folder) else {
+            return MadeState::Unknown;
+        };
+        let Some(made) = record.files.get(name) else {
+            return MadeState::Unknown;
+        };
+        let Ok(dir) = Dir::open_following(folder) else {
+            return MadeState::Unknown;
+        };
+        match dir.lstat(name) {
+            Ok(st) if made.is(&st) => MadeState::Untouched,
+            Ok(_) => MadeState::Changed,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => MadeState::Changed,
+            Err(_) => MadeState::Unknown,
+        }
+    }
+
     /// Removes what this purpose's folder holds that nobody uses: a file of a process that is
     /// gone (or of an earlier run of this pid), a file of a live process or a kept folder older
     /// than `older_than`. Files of THIS run are never removed (their [`ScratchFile`] does) and
@@ -241,7 +291,13 @@ impl Scratch {
                     }
                 }
                 (None, Kind::Dir) if name.starts_with(KEPT) => {
-                    if old && fs::remove_dir_all(self.dir.join(name)).is_ok() {
+                    // A folder that holds anything its owner did not write (a copy the user
+                    // edited and saved beside or over it) is that person's work, whatever its
+                    // age says (X-DELTA-AZDRIVE-FILES-7).
+                    if old
+                        && !holds_other_work(&self.dir.join(name))
+                        && fs::remove_dir_all(self.dir.join(name)).is_ok()
+                    {
                         removed += 1;
                     }
                 }
@@ -250,6 +306,104 @@ impl Scratch {
         }
         removed
     }
+}
+
+/// What became of a file a program noted in a kept folder ([`Scratch::made_state`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MadeState {
+    /// It is the file that was written: the same size, time and identity.
+    Untouched,
+    /// It is not: saved over by an editor, written to, replaced, or gone.
+    Changed,
+    /// Nothing is known: it was never noted, or its record cannot be read.
+    Unknown,
+}
+
+/// What a program noted of a file it made in a kept folder.
+#[derive(Debug, Serialize, Deserialize)]
+struct MadeFile {
+    size: u64,
+    mtime_ns: u64,
+    dev: u64,
+    ino: u64,
+}
+
+impl MadeFile {
+    fn of(st: &Stat) -> MadeFile {
+        MadeFile {
+            size: st.size,
+            mtime_ns: st.mtime_ns,
+            dev: st.dev,
+            ino: st.ino,
+        }
+    }
+
+    /// Whether `st` is the file that was noted: a regular file of the size and the time, and of
+    /// the identity where the system gives one (a file saved over by an editor is another inode).
+    /// An identity known on one side only is no match: the careful side.
+    fn is(&self, st: &Stat) -> bool {
+        let same_identity = match (self.ino, st.ino) {
+            (0, 0) => true,
+            (0, _) | (_, 0) => false,
+            (was, now) => was == now && self.dev == st.dev,
+        };
+        st.kind == Kind::File
+            && st.size == self.size
+            && st.mtime_ns == self.mtime_ns
+            && same_identity
+    }
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+struct MadeRecord {
+    files: BTreeMap<String, MadeFile>,
+}
+
+/// The record of `folder`; `None` when it has none, an error when it cannot be read (not the same
+/// answer: an unreadable record is no absent one).
+fn read_record(folder: &Path) -> io::Result<Option<MadeRecord>> {
+    match fs::read(folder.join(MADE_RECORD)) {
+        Ok(text) => serde_json::from_slice(&text)
+            .map(Some)
+            .map_err(io::Error::other),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
+/// Whether the kept folder `folder` holds anything its owner did not write: an entry its record
+/// does not name, or a named file that is no longer what was written. A folder with no record is
+/// not tracked and holds nobody's work; one whose record or listing cannot be read is not swept
+/// (the careful side).
+fn holds_other_work(folder: &Path) -> bool {
+    let record = match read_record(folder) {
+        Ok(Some(record)) => record,
+        Ok(None) => return false,
+        Err(_) => return true,
+    };
+    let (Ok(dir), Ok(names)) = (Dir::open_following(folder), fs::read_dir(folder)) else {
+        return true;
+    };
+    for entry in names {
+        let Ok(entry) = entry else {
+            return true;
+        };
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else {
+            return true;
+        };
+        if name == MADE_RECORD {
+            continue;
+        }
+        let ours = record
+            .files
+            .get(name)
+            .is_some_and(|made| dir.lstat(name).is_ok_and(|st| made.is(&st)));
+        if !ours {
+            return true;
+        }
+    }
+    false
 }
 
 /// [`Scratch::sweep`] of every purpose below [`root`].

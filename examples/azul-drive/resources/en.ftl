@@ -237,6 +237,7 @@ azdrive-hid-items = Hid { $count ->
     } (View > Hidden items shows them).
 azdrive-opening = Opening "{ $name }"…
 azdrive-opening-copy = Opening a read-only copy of "{ $name }"…
+azdrive-open-edit-kept = Your changes to the open copy of "{ $name }" were not lost: they are kept as { $path }
 azdrive-clipboard-cut = Cut { $count ->
         [one] one item
        *[other] { $count } items

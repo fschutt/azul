@@ -3279,9 +3279,22 @@ pub(crate) extern "C" fn on_job_done(
             }
             Err(e) => s.error(failed("azdrive-zip-failed", &e)),
         },
-        Outcome::Opened { key, result } => match result {
+        Outcome::Opened {
+            key,
+            result,
+            kept_edit,
+        } => match result {
             Ok(path) => {
                 println!("AZDRIVE_DONE opened {key}");
+                // The user's own work, found where the read-only copy goes, is said, with where it
+                // is: it is not deleted (AZ-U13, X-DELTA-AZDRIVE-FILES-7).
+                if let Some(edit) = kept_edit {
+                    s.info(
+                        Phrase::new("azdrive-open-edit-kept")
+                            .arg("name", key::last_segment(&key))
+                            .arg("path", edit.display().to_string()),
+                    );
+                }
                 if let Err(e) = open_with_os(&path) {
                     s.error(e);
                 }

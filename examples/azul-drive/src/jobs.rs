@@ -41,11 +41,12 @@ use azul_search_index::{
 };
 use azul_storage::{
     azul_transport::AzulTransport,
+    beneath::Dir,
     config::DriveEntry,
     ctl::Quiet,
     durable::Expect,
     ops as storage_ops,
-    scratch::{self, Scratch},
+    scratch::{self, MadeState, Scratch},
     transfer, ByteRange, Drive, DriveError, ListPage, ListRequest, LocalDrive, ObjectInfo,
     Precondition,
 };
@@ -774,6 +775,8 @@ pub(crate) enum Outcome {
     Opened {
         key: String,
         result: Result<PathBuf, DriveError>,
+        /// The user's own work found at the copy's place and put aside there: said to the user.
+        kept_edit: Option<PathBuf>,
     },
     Tested {
         serial: u64,
@@ -1081,6 +1084,30 @@ pub(crate) const OPEN_COPY_KEPT: Duration = Duration::from_secs(24 * 3600);
 /// - put in place only if the name is still free ([`Expect::Absent`]): two windows opening the
 ///   same file make one copy.
 fn opened_copy(drive: &dyn Drive, copies: &Scratch, key: &str) -> Result<PathBuf, DriveError> {
+    opened_copy_keeping_edits(drive, copies, key).map(|opened| opened.path)
+}
+
+/// A copy handed to an app, and the user's work found where the copy goes.
+struct OpenedCopy {
+    path: PathBuf,
+    /// A file that stood at the copy's place and was not the bytes AzDrive wrote - an editor that
+    /// saves by renaming a new file over the read-only copy, "Save As" in its folder, an edit that
+    /// kept the size - put aside under this path, never deleted (X-DELTA-AZDRIVE-FILES-7).
+    kept_edit: Option<PathBuf>,
+}
+
+/// [`opened_copy`] that also says where it put the user's own work aside. The read-only mode stops
+/// an in-place write, not an editor that saves a temp file and renames it over the copy (the
+/// folder is the user's): that edit used to be deleted silently by the next Open of the file (the
+/// length differed, the "changed" copy was removed and fetched again) or by the sweep a day later.
+/// Now the copy's folder remembers what AzDrive wrote ([`Scratch::note_made`]); anything else at
+/// the copy's place is put aside as `name (edited).ext` in that folder, which a sweep never takes
+/// away while it holds it.
+fn opened_copy_keeping_edits(
+    drive: &dyn Drive,
+    copies: &Scratch,
+    key: &str,
+) -> Result<OpenedCopy, DriveError> {
     let name = azul_storage::key::safe_file_name(key).ok_or_else(|| DriveError::InvalidKey {
         key: key.to_string(),
         reason: "it has no usable file name",
@@ -1097,12 +1124,22 @@ fn opened_copy(drive: &dyn Drive, copies: &Scratch, key: &str) -> Result<PathBuf
     let folder = copies
         .keep(&format!("{key}\0{version}\0{}", head.size))
         .map_err(|e| DriveError::Io(format!("{key}: {e}")))?;
-    let dest = folder.join(name);
+    let dest = folder.join(&name);
     let whole = |path: &Path| fs::metadata(path).is_ok_and(|m| m.is_file() && m.len() == head.size);
-    if whole(&dest) {
-        return Ok(dest);
+    let untouched = || Scratch::made_state(&folder, &name) != MadeState::Changed;
+    if whole(&dest) && untouched() {
+        return Ok(OpenedCopy {
+            path: dest,
+            kept_edit: None,
+        });
     }
-    let mut cleared = false;
+    // Something that is not the bytes AzDrive wrote stands under the name (a copy somebody saved
+    // over, shortened or edited): it is put aside, once, and the copy is fetched.
+    let mut kept_edit = None;
+    if fs::symlink_metadata(&dest).is_ok() {
+        kept_edit = Some(keep_edit(&folder, &name)?);
+    }
+    let mut again = false;
     loop {
         match transfer::download_guarded(
             drive,
@@ -1120,12 +1157,16 @@ fn opened_copy(drive: &dyn Drive, copies: &Scratch, key: &str) -> Result<PathBuf
                 break;
             }
             // Another window made the same copy in the same moment.
-            Err(DriveError::Conflict { .. }) if whole(&dest) => return Ok(dest),
-            // Something that is not this version's bytes stands under the name (a copy somebody
-            // changed): it goes, once, and the copy is fetched.
-            Err(DriveError::Conflict { .. }) if !cleared => {
-                cleared = true;
-                fs::remove_file(&dest).map_err(|e| DriveError::Io(format!("{key}: {e}")))?;
+            Err(DriveError::Conflict { .. }) if whole(&dest) && untouched() => {
+                return Ok(OpenedCopy {
+                    path: dest,
+                    kept_edit,
+                })
+            }
+            // A file turned up under the name since the look: it is somebody's, put aside too.
+            Err(DriveError::Conflict { .. }) if !again => {
+                again = true;
+                kept_edit = Some(keep_edit(&folder, &name)?);
             }
             Err(e) => return Err(e),
         }
@@ -1133,7 +1174,35 @@ fn opened_copy(drive: &dyn Drive, copies: &Scratch, key: &str) -> Result<PathBuf
     // collapse-ok: a copy that stays writable is still private to this user; what a refusal
     // loses is only the loud failure of a save in place.
     let _ = scratch::make_read_only(&dest);
-    Ok(dest)
+    // Noted last: the mode and the mark are part of the file as it is now. collapse-ok: with no
+    // note a later look says "unknown" and takes the careful side (an unknown copy is reused only
+    // when it is whole).
+    let _ = Scratch::note_made(&folder, &name);
+    Ok(OpenedCopy {
+        path: dest,
+        kept_edit,
+    })
+}
+
+/// Puts the file `name` of `folder` aside as `<stem> (edited)<ext>` (then `(edited 2)`, ...),
+/// never over a name that is taken: the user's own work, found where a copy goes. Its path.
+fn keep_edit(folder: &Path, name: &str) -> Result<PathBuf, DriveError> {
+    let io = |e: &dyn std::fmt::Display| DriveError::Io(format!("{name}: {e}"));
+    let dir = Dir::open_following(folder).map_err(|e| io(&e))?;
+    let (stem, extension) = fileops::split_extension(name);
+    for n in 1..=999u32 {
+        let aside = if n == 1 {
+            format!("{stem} (edited){extension}")
+        } else {
+            format!("{stem} (edited {n}){extension}")
+        };
+        match dir.rename_noreplace(name, &dir, &aside) {
+            Ok(()) => return Ok(folder.join(aside)),
+            Err(e) if e.is_already_exists() => {}
+            Err(e) => return Err(io(&e)),
+        }
+    }
+    Err(io(&"a thousand edited copies are kept beside it already"))
 }
 
 /// A new empty file `key`, only if the name is free, in the one step the drive offers
@@ -3696,12 +3765,19 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
             zip_key,
         },
         Job::Open { drive, key, copies } => {
-            let result = match drive.local_path(&key) {
+            let (result, kept_edit) = match drive.local_path(&key) {
                 // A local file opens where it is.
-                Some(path) => Ok(path),
-                None => opened_copy(&*drive, &copies, &key),
+                Some(path) => (Ok(path), None),
+                None => match opened_copy_keeping_edits(&*drive, &copies, &key) {
+                    Ok(opened) => (Ok(opened.path), opened.kept_edit),
+                    Err(e) => (Err(e), None),
+                },
             };
-            Outcome::Opened { key, result }
+            Outcome::Opened {
+                key,
+                result,
+                kept_edit,
+            }
         }
         Job::Test {
             serial,
@@ -5823,7 +5899,8 @@ mod tests {
     }
 
     /// AZ-W4: a copy somebody changed (made writable and shortened) is not this version's bytes:
-    /// it is fetched again, in the same place. And a copy older than the horizon goes before the
+    /// it is fetched again, in the same place - and the change is NOT deleted (X-DELTA-AZDRIVE-FILES-7:
+    /// it is put aside as `a (edited).txt`). And a copy older than the horizon goes before the
     /// next one is made (the sweep).
     #[cfg(unix)]
     #[test]
@@ -5839,6 +5916,11 @@ mod tests {
         assert_eq!(again, path);
         assert_eq!(fs::read(&again).unwrap(), b"cloud bytes");
         assert_eq!(mode_of(&again), 0o400);
+        assert_eq!(
+            fs::read(path.with_file_name("a (edited).txt")).unwrap(),
+            b"x",
+            "the change was deleted"
+        );
 
         let old = copies.keep("an old copy").unwrap();
         fs::write(old.join("old.txt"), b"x").unwrap();
@@ -5854,6 +5936,116 @@ mod tests {
             "a copy older than a day is swept before the next is made"
         );
         assert!(again.exists(), "a young copy stays");
+    }
+
+    /// A copy of the cloud file `docs/report.docx` v1, opened.
+    fn opened_report(base: &TempDir) -> (Scratch, Cloud, PathBuf) {
+        let copies = Scratch::under(base.path(), "open");
+        let cloud = Cloud::new(b"cloud bytes", Some("e1"));
+        let path = opened_copy(&cloud, &copies, "docs/report.docx").unwrap();
+        (copies, cloud, path)
+    }
+
+    /// X-DELTA-AZDRIVE-FILES-7 (AZ-U13). The copy is 0400, which stops a write in place; an editor
+    /// that saves a temp file and renames it over the copy needs only the folder (the user's). The
+    /// next Open of the file found a copy of another length, took it for "changed" and DELETED it,
+    /// then fetched the original: an edit lost silently. It is put aside and said so.
+    #[cfg(unix)]
+    #[test]
+    fn x_delta_azdrive_files_7_an_edit_saved_over_the_copy_is_kept_when_the_file_is_opened_again() {
+        let base = TempDir::new("dx7-over");
+        let (copies, cloud, path) = opened_report(&base);
+        // The editor's save: a new file of its own, renamed over the read-only copy.
+        let temp = path.with_file_name("~wrd0001.tmp");
+        fs::write(&temp, b"my important edit, a different length").unwrap();
+        fs::rename(&temp, &path).unwrap();
+        let opened = opened_copy_keeping_edits(&cloud, &copies, "docs/report.docx").unwrap();
+        assert_eq!(opened.path, path);
+        assert_eq!(
+            fs::read(&opened.path).unwrap(),
+            b"cloud bytes",
+            "the original again"
+        );
+        let kept = opened.kept_edit.expect("the edit is said to be kept");
+        assert_eq!(kept, path.with_file_name("report (edited).docx"));
+        assert_eq!(
+            fs::read(&kept).unwrap(),
+            b"my important edit, a different length",
+            "the edit was deleted"
+        );
+        // The same again: the second edit gets a name of its own, the first stays.
+        let temp = path.with_file_name("~wrd0002.tmp");
+        fs::write(&temp, b"another edit").unwrap();
+        fs::rename(&temp, &path).unwrap();
+        let second = opened_copy_keeping_edits(&cloud, &copies, "docs/report.docx").unwrap();
+        assert_eq!(
+            second.kept_edit.unwrap(),
+            path.with_file_name("report (edited 2).docx")
+        );
+        assert_eq!(
+            fs::read(&kept).unwrap(),
+            b"my important edit, a different length"
+        );
+    }
+
+    /// X-DELTA-AZDRIVE-FILES-7: an edit that keeps the length (a replaced file of the same size) is
+    /// not "whole" either: the copy's identity says so.
+    #[cfg(unix)]
+    #[test]
+    fn x_delta_azdrive_files_7_an_edit_of_the_same_length_is_kept_too() {
+        let base = TempDir::new("dx7-same-length");
+        let (copies, cloud, path) = opened_report(&base);
+        let temp = path.with_file_name("~wrd0001.tmp");
+        fs::write(&temp, b"CLOUD BYTES").unwrap();
+        assert_eq!(
+            fs::metadata(&temp).unwrap().len(),
+            b"cloud bytes".len() as u64
+        );
+        fs::rename(&temp, &path).unwrap();
+        let opened = opened_copy_keeping_edits(&cloud, &copies, "docs/report.docx").unwrap();
+        let kept = opened.kept_edit.expect("the edit is kept");
+        assert_eq!(fs::read(kept).unwrap(), b"CLOUD BYTES");
+        assert_eq!(fs::read(opened.path).unwrap(), b"cloud bytes");
+    }
+
+    /// X-DELTA-AZDRIVE-FILES-7: no false alarm - a copy nobody touched opens again as it is and
+    /// nothing is put aside.
+    #[test]
+    fn x_delta_azdrive_files_7_an_untouched_copy_is_reused_and_nothing_is_put_aside() {
+        let base = TempDir::new("dx7-untouched");
+        let (copies, cloud, path) = opened_report(&base);
+        let opened = opened_copy_keeping_edits(&cloud, &copies, "docs/report.docx").unwrap();
+        assert_eq!(opened.path, path);
+        assert!(opened.kept_edit.is_none());
+        assert_eq!(cloud.gets(), 1, "fetched once");
+    }
+
+    /// X-DELTA-AZDRIVE-FILES-7: a folder that holds work of the user's is never swept, however old;
+    /// the same age takes an untouched copy's folder (and one no record names) away.
+    #[cfg(unix)]
+    #[test]
+    fn x_delta_azdrive_files_7_a_folder_that_holds_an_edit_is_never_swept() {
+        let base = TempDir::new("dx7-sweep");
+        let (copies, cloud, path) = opened_report(&base);
+        let folder = path.parent().unwrap().to_path_buf();
+        // A second file's copy, untouched; both folders become three days old.
+        let other = opened_copy(&cloud, &copies, "docs/other.docx").unwrap();
+        let other_folder = other.parent().unwrap().to_path_buf();
+        // The user saves beside the copy ("Save As" in the folder the editor proposes).
+        fs::write(folder.join("report - my version.docx"), b"my version").unwrap();
+        let long_ago = SystemTime::now() - OPEN_COPY_KEPT * 3;
+        for dir in [&folder, &other_folder] {
+            fs::File::open(dir).unwrap().set_modified(long_ago).unwrap();
+        }
+        let swept = copies.sweep(OPEN_COPY_KEPT);
+        assert_eq!(swept, 1, "only the untouched copy's folder went");
+        assert!(!other_folder.exists());
+        assert_eq!(
+            fs::read(folder.join("report - my version.docx")).unwrap(),
+            b"my version",
+            "the user's file was swept with the copy's folder"
+        );
+        assert!(path.exists());
     }
 
     /// AZ-U13: the status line says that a cloud file opens as a read-only copy, and a file on

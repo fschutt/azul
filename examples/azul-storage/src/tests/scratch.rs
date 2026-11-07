@@ -359,3 +359,104 @@ fn a_purpose_cannot_leave_its_folder_or_be_empty() {
         .dir()
         .ends_with("opencopy"));
 }
+
+/// X-DELTA-AZDRIVE-FILES-7. A kept folder remembers the file its owner wrote
+/// ([`Scratch::note_made`]) and says whether it is still that file: an editor that saves by
+/// renaming a new file over the read-only copy changes the identity, a shortened or rewritten file
+/// its size or time, a deleted one is gone; a folder with no record says "unknown".
+#[cfg(unix)]
+#[test]
+fn x_delta_azdrive_files_7_a_kept_file_is_tracked_by_its_size_time_and_identity() {
+    use crate::scratch::MadeState;
+    let tmp = TempDir::new("dx7-made");
+    let scratch = Scratch::under(tmp.path(), "open");
+    let folder = scratch.keep("report.docx v1").unwrap();
+    let path = folder.join("report.docx");
+    assert_eq!(
+        Scratch::made_state(&folder, "report.docx"),
+        MadeState::Unknown,
+        "nothing noted yet"
+    );
+    fs::write(&path, b"cloud bytes").unwrap();
+    Scratch::note_made(&folder, "report.docx").unwrap();
+    assert_eq!(
+        Scratch::made_state(&folder, "report.docx"),
+        MadeState::Untouched
+    );
+    // An editor's save: a new file renamed over the old name (another inode).
+    let temp = folder.join("~tmp0001");
+    fs::write(&temp, b"cloud bytes").unwrap();
+    fs::rename(&temp, &path).unwrap();
+    assert_eq!(
+        Scratch::made_state(&folder, "report.docx"),
+        MadeState::Changed,
+        "a save by rename keeps size and bytes and is another file"
+    );
+    // Noted again after a refetch; then rewritten in place (another size).
+    fs::write(&path, b"cloud bytes").unwrap();
+    Scratch::note_made(&folder, "report.docx").unwrap();
+    fs::write(&path, b"x").unwrap();
+    assert_eq!(
+        Scratch::made_state(&folder, "report.docx"),
+        MadeState::Changed
+    );
+    fs::remove_file(&path).unwrap();
+    assert_eq!(
+        Scratch::made_state(&folder, "report.docx"),
+        MadeState::Changed,
+        "a file that is gone is not the file that was written"
+    );
+    // A record nobody can read is not an absent one.
+    fs::write(folder.join(".made.json"), b"{ not json").unwrap();
+    assert_eq!(
+        Scratch::made_state(&folder, "report.docx"),
+        MadeState::Unknown
+    );
+}
+
+/// X-DELTA-AZDRIVE-FILES-7. The sweep takes a kept folder away when it is old - unless it holds
+/// something its owner did not write: a file the user saved beside the copy, or over it. A folder
+/// with a record that names only what is in it goes as before, and so does a folder with no
+/// record (the picker's, the preview's).
+#[cfg(unix)]
+#[test]
+fn x_delta_azdrive_files_7_the_sweep_leaves_a_kept_folder_that_holds_the_users_work() {
+    let tmp = TempDir::new("dx7-sweep");
+    let scratch = Scratch::under(tmp.path(), "open");
+    let make = |tag: &str, name: &str| {
+        let folder = scratch.keep(tag).unwrap();
+        fs::write(folder.join(name), b"cloud bytes").unwrap();
+        Scratch::note_made(&folder, name).unwrap();
+        folder
+    };
+    let plain = make("plain", "a.txt");
+    let beside = make("beside", "b.txt");
+    fs::write(beside.join("b - my version.txt"), b"my version").unwrap();
+    let over = make("over", "c.txt");
+    let temp = over.join("~tmp");
+    fs::write(&temp, b"saved by an editor").unwrap();
+    fs::rename(&temp, over.join("c.txt")).unwrap();
+    // A folder no record names (made by another purpose's code).
+    let unrecorded = scratch.keep("unrecorded").unwrap();
+    fs::write(unrecorded.join("d.txt"), b"x").unwrap();
+    for folder in [&plain, &beside, &over, &unrecorded] {
+        age(folder, 3);
+    }
+    let removed = scratch.sweep(DAY);
+    assert_eq!(
+        removed, 2,
+        "only the untouched copy and the unrecorded folder went"
+    );
+    assert!(!plain.exists());
+    assert!(!unrecorded.exists());
+    assert_eq!(
+        fs::read(beside.join("b - my version.txt")).unwrap(),
+        b"my version",
+        "a file saved beside the copy was swept with its folder"
+    );
+    assert_eq!(
+        fs::read(over.join("c.txt")).unwrap(),
+        b"saved by an editor",
+        "an edit saved over the copy was swept with its folder"
+    );
+}
