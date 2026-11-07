@@ -8,8 +8,9 @@
 //! 2. reads the index (a conditional GET with the ETag of the last run: a
 //!    304 means the drive did not change, and the cached copy is used);
 //! 3. plans every file with the three-way merge ([`merge::plan`]); a plan
-//!    that would delete most of a folder stops (an emptied or unmounted
-//!    folder, a ransomware-like burst; `--allow-mass-delete`); a burst of
+//!    that would delete most of a folder, or every file of a folder that
+//!    stays, stops (an emptied or unmounted folder, a ransomware-like burst;
+//!    `--allow-mass-delete`); a burst of
 //!    rewrites and deletes, or files rewritten into what looks like
 //!    encrypted data, pauses the folder's uploads until the user answers
 //!    ([`guard`]; `--allow-burst`);
@@ -830,11 +831,12 @@ pub struct MassDelete {
 
 /// The mass delete a plan would make, if it would (D1): more than [`MASS_DELETE_MIN`] deletes
 /// and more than half of the folder's files at its last sync, or every one of them (at least
-/// two) - a folder of four tax files emptied is as suspect as one of four thousand. Deletes here
-/// and on the drive count together. A delete whose content goes up under another name in the
-/// same plan is a move, not counted; nor is a delete here whose tombstone says the user
-/// confirmed it on a device of theirs ([`SyncOptions::trusts`]): the flag is a word anyone who
-/// can write to the drive can put in a tombstone, so one a stranger wrote counts (S7).
+/// two) - a folder of four tax files emptied is as suspect as one of four thousand - or every
+/// file of a folder that stays ([`emptied_folder`], SYNC-F2). Deletes here and on the drive count
+/// together. A delete whose content goes up under another name in the same plan is a move, not
+/// counted; nor is a delete here whose tombstone says the user confirmed it on a device of theirs
+/// ([`SyncOptions::trusts`]): the flag is a word anyone who can write to the drive can put in a
+/// tombstone, so one a stranger wrote counts (S7).
 fn mass_delete(
     actions: &[Action],
     scan: &Scan,
@@ -866,7 +868,7 @@ fn mass_delete(
     let of = base.len();
     let mass = count > MASS_DELETE_MIN && count * 2 > of;
     let all = count >= 2 && count >= of;
-    if count == 0 || !(mass || all) {
+    if count == 0 || !(mass || all || emptied_folder(&there, &here, base, scan, remote)) {
         return None;
     }
     let is_here = here.len() >= there.len();
@@ -878,6 +880,49 @@ fn mass_delete(
         of,
         keys,
     })
+}
+
+/// Whether a plan takes EVERY synced file (two or more) out of a folder that stays (SYNC-F2):
+/// the files `there` were deleted here and the folder is still here, or the files `here` were
+/// deleted on the drive and the drive still has the folder. Files left in a folder one by one
+/// are what a tool, a failing disk or an attack does; a person who deletes a folder removes the
+/// folder with it, and that goes through as before (a question for each would be a nag, and the
+/// bytes are in the trash and on the drive's versions). Files kept in the cloud only are not
+/// here to be taken out and do not count.
+fn emptied_folder(
+    there: &[String],
+    here: &[String],
+    base: &BTreeMap<String, BaseEntry>,
+    scan: &Scan,
+    remote: &RemoteIndex,
+) -> bool {
+    // The folders a key lies in, outermost first: `a/b/c.txt` -> `a`, `a/b`.
+    fn folders_of(key: &str) -> impl Iterator<Item = &str> {
+        key.match_indices('/').map(move |(i, _)| &key[..i])
+    }
+    if there.is_empty() && here.is_empty() {
+        return false;
+    }
+    let mut synced: BTreeMap<&str, usize> = BTreeMap::new();
+    for (key, entry) in base {
+        if !entry.cloud_only {
+            for folder in folders_of(key) {
+                *synced.entry(folder).or_default() += 1;
+            }
+        }
+    }
+    let taken_out = |keys: &[String], stays: &dyn Fn(&str) -> bool| {
+        let mut gone: BTreeMap<&str, usize> = BTreeMap::new();
+        for key in keys {
+            for folder in folders_of(key) {
+                *gone.entry(folder).or_default() += 1;
+            }
+        }
+        gone.into_iter()
+            .any(|(folder, n)| n >= 2 && synced.get(folder) == Some(&n) && stays(folder))
+    };
+    taken_out(there, &|folder| scan.dirs.contains(folder))
+        || taken_out(here, &|folder| remote.folders.contains_key(folder))
 }
 
 /// The deletes on the drive a plan makes whose bytes go up under another name in the same plan:

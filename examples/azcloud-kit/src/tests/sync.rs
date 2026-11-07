@@ -342,6 +342,89 @@ fn an_emptied_folder_does_not_delete_the_drive() {
     assert_eq!(report.deleted_there, 20);
 }
 
+/// SYNC-F2. The breaker compared the deletes with the whole base, so every file taken out of a
+/// folder of a few - while the folder stays, as a tool or a failing disk leaves it - went through.
+/// Now every synced file of a folder that stays (two or more) waits for the user; one file of the
+/// folder, the only file of a folder, and a folder removed as a folder do not. RED not run: the
+/// old code lets the two deletes of `tax/` through, so `unwrap_err` panics.
+#[test]
+fn sync_f2_every_file_taken_out_of_a_folder_that_stays_waits_for_the_user() {
+    let store = S3Bucket::new();
+    let a = Device::new("f2-a");
+    for i in 0..20 {
+        a.write(&format!("keep/f{i}.txt"), format!("{i}").as_bytes());
+    }
+    for name in ["2025.pdf", "2024.pdf", "2023.pdf"] {
+        a.write(&format!("tax/{name}"), name.as_bytes());
+    }
+    a.write("solo/only.txt", b"only");
+    a.write("gone/one.txt", b"one");
+    a.write("gone/two.txt", b"two");
+    a.sync(&store);
+    // One file of three, the only file of a folder, and a folder removed as a folder: through.
+    a.remove("tax/2023.pdf");
+    a.remove("solo/only.txt");
+    a.remove_folder("gone");
+    let report = a.sync(&store);
+    assert_eq!(report.deleted_there, 4, "{}", report.summary());
+    // Every file of the folder, the folder staying: held.
+    a.remove("tax/2025.pdf");
+    a.remove("tax/2024.pdf");
+    assert!(path_of(a.path(), "tax").is_dir());
+    let err = a.sync_with(&store, &a.opts()).unwrap_err().to_string();
+    assert!(err.contains("--allow-mass-delete"), "{err}");
+    assert!(
+        index_of(&store).files.contains_key("tax/2025.pdf"),
+        "nothing was deleted on the drive"
+    );
+    let mut opts = a.opts();
+    opts.allow_mass_delete = true;
+    let report = a.sync_with(&store, &opts).unwrap();
+    assert_eq!(report.deleted_there, 2, "{}", report.summary());
+}
+
+/// SYNC-F2, the other direction: the drive lost every file of a folder it keeps (written by a
+/// device that is not this account's, so no confirmation counts). RED not run: the old code moves
+/// the three files into the trash here.
+#[test]
+fn sync_f2_the_drive_taking_every_file_out_of_a_folder_it_keeps_waits_for_the_user_here() {
+    let store = S3Bucket::new();
+    let a = Device::new("f2-here-a");
+    let b = Device::new("f2-here-b");
+    for i in 0..20 {
+        a.write(&format!("keep/f{i}.txt"), format!("{i}").as_bytes());
+    }
+    for name in ["2025.pdf", "2024.pdf", "2023.pdf"] {
+        a.write(&format!("tax/{name}"), name.as_bytes());
+    }
+    a.sync(&store);
+    b.sync(&store);
+    let key = index_key(PREFIX);
+    let mut index = RemoteIndex::parse(&store.read(&key).unwrap()).unwrap();
+    assert!(
+        index.folders.contains_key("tax"),
+        "the drive keeps the folder"
+    );
+    index.generation += 1;
+    for name in ["2025.pdf", "2024.pdf", "2023.pdf"] {
+        let file = index.files.remove(&format!("tax/{name}")).unwrap();
+        index.deleted.insert(
+            format!("tax/{name}"),
+            crate::sync::Tombstone {
+                hash: file.hash,
+                gen: index.generation,
+                at: crate::now(),
+                device: String::from("a-stranger"),
+                confirmed: true,
+            },
+        );
+    }
+    store.write(&key, index.to_bytes());
+    let err = b.sync_with(&store, &b.opts()).unwrap_err().to_string();
+    assert!(err.contains("--allow-mass-delete"), "{err}");
+    assert_eq!(b.tree().len(), 23, "nothing went into the trash here");
+}
+
 #[test]
 fn a_dry_run_plans_without_writing_anything() {
     let store = S3Bucket::new();
