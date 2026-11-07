@@ -784,6 +784,43 @@ fn the_guards_pauses_say_themselves_and_ask_in_azdrives_words() {
     assert_eq!(text.key, "azdrive-sync-status-newer-format", "{text:?}");
 }
 
+/// AZ-U12: the mass-delete question is asked because a lot of files vanished; its main button -
+/// the one Enter answers - keeps them. "Delete them on the other side too" is there, once, and is
+/// never the main button, on either side.
+#[test]
+fn the_mass_delete_question_is_answered_keep_by_enter_never_delete() {
+    for here in [false, true] {
+        let choices = sync_view::mass_delete_choices(here);
+        assert_eq!(choices.len(), 2);
+        let primary: Vec<_> = choices.iter().filter(|c| c.primary).collect();
+        assert_eq!(primary.len(), 1, "exactly one main button");
+        assert!(!primary[0].deletes, "Enter must not delete {here}");
+        assert_eq!(
+            choices.iter().filter(|c| c.deletes).count(),
+            1,
+            "one answer deletes"
+        );
+        let delete = choices.iter().find(|c| c.deletes).unwrap();
+        assert!(!delete.primary);
+        let words = if here {
+            "azdrive-sync-mass-delete-here-too"
+        } else {
+            "azdrive-sync-mass-delete-there-too"
+        };
+        assert_eq!(delete.text, words);
+        for (lang, ftl) in [("en", crate::l10n::EN), ("de", crate::l10n::DE)] {
+            for choice in &choices {
+                assert!(
+                    ftl.lines()
+                        .any(|l| l.starts_with(&format!("{} =", choice.text))),
+                    "{lang}.ftl lacks {}",
+                    choice.text
+                );
+            }
+        }
+    }
+}
+
 /// A rename in a plain synced drive's own listing goes through the sync: the copy in the synced
 /// folder moves, and the next pass moves it on the drive.
 #[test]

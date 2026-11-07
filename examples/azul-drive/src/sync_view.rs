@@ -1107,6 +1107,39 @@ fn column(children: Vec<Dom>) -> Dom {
         .with_children(DomVec::from(children))
 }
 
+/// One answer of the mass-delete question.
+pub(crate) struct MassChoice {
+    /// Its words (a key of the resources).
+    pub text: &'static str,
+    /// Whether it deletes the files on the other side too.
+    pub deletes: bool,
+    /// Whether it is the dialog's main button (the one Enter answers).
+    pub primary: bool,
+}
+
+/// The answers of the mass-delete question in the order they are shown: keep the files, or delete
+/// them on the other side too (`here`: the files went from the drive's side). The main button is
+/// the one that loses nothing - a question asked because a lot of files vanished must not be
+/// answered "delete them everywhere" by a key press (AZ-U12).
+pub(crate) fn mass_delete_choices(here: bool) -> [MassChoice; 2] {
+    [
+        MassChoice {
+            text: "azdrive-sync-mass-keep",
+            deletes: false,
+            primary: true,
+        },
+        MassChoice {
+            text: if here {
+                "azdrive-sync-mass-delete-here-too"
+            } else {
+                "azdrive-sync-mass-delete-there-too"
+            },
+            deletes: true,
+            primary: false,
+        },
+    ]
+}
+
 /// What a button of a sync dialog does.
 #[derive(Clone, Copy)]
 enum Answer {
@@ -1352,27 +1385,16 @@ pub(crate) fn dialog_parts(dialog: &SyncDialog, s: &DriveState, app: &RefAny) ->
                     body.add_child(line(key).with_css("font-size: 12px; margin-top: 2px;"));
                 }
             }
-            body.add_child(buttons(vec![
-                button("azdrive-sync-decide-later", app, on_cancel_popup),
-                answer_button(
-                    "azdrive-sync-mass-keep",
-                    app,
-                    Answer::KeepFiles,
-                    ids::SYNC_MASS_KEEP,
-                    false,
-                ),
-                answer_button(
-                    if here {
-                        "azdrive-sync-mass-delete-here-too"
-                    } else {
-                        "azdrive-sync-mass-delete-there-too"
-                    },
-                    app,
-                    Answer::DeleteFiles,
-                    ids::SYNC_MASS_DELETE,
-                    true,
-                ),
-            ]));
+            let mut row = vec![button("azdrive-sync-decide-later", app, on_cancel_popup)];
+            for choice in mass_delete_choices(here) {
+                let (answer, id) = if choice.deletes {
+                    (Answer::DeleteFiles, ids::SYNC_MASS_DELETE)
+                } else {
+                    (Answer::KeepFiles, ids::SYNC_MASS_KEEP)
+                };
+                row.push(answer_button(choice.text, app, answer, id, choice.primary));
+            }
+            body.add_child(buttons(row));
             (t("azdrive-sync-mass-title"), body.with_id(ids::SYNC_MASS))
         }
         SyncDialog::Trash {
