@@ -7,8 +7,8 @@ use crate::{
         device::{
             add_recovery_code, add_recovery_code_for_key, enroll, other_devices,
             read_recovery_code, recover, recover_within, recovery_code_file_for,
-            remove_recovery_code, restore_recovery_code, setup_new_drive, EXTRA_RECOVERY_PREFIX,
-            MAX_EXTRA_RECOVERY_CODES, RECOVER_WORK_BUDGET,
+            remove_recovery_code, restore_recovery_code, setup_new_drive, unclaimed_recovery_codes,
+            EXTRA_RECOVERY_PREFIX, MAX_EXTRA_RECOVERY_CODES, RECOVER_WORK_BUDGET,
         },
         keys::{RecoveryCode, RecoveryKdf, RecoveryWrap, RECOVERY_KEY_FILE},
     },
@@ -307,4 +307,62 @@ fn x_delta_azdrive_keys_28_a_kit_named_by_its_key_is_found_from_another_computer
             "{named}"
         );
     }
+}
+
+/// X-DELTA-AZDRIVE-KEYS-28: a kit made before a copy was named by its key has a name no key maps
+/// to, and the copy of a key that was removed earlier stays in the bucket; each still opens the
+/// drive key for its code. The copies that no claimed name covers are found - the first code's
+/// `recovery.key` is not a further code's - and a claim takes its copy out of the answer.
+#[test]
+fn x_delta_azdrive_keys_28_the_copies_no_key_claims_are_found() {
+    let bucket = MemBucket::new();
+    let owner = MemoryKeyring::new();
+    setup_new_drive(&bucket, &owner, "d_1", cheap()).unwrap();
+    let (named, _) =
+        add_recovery_code_for_key(&bucket, &owner, "d_1", cheap(), |_| String::from("KITKEY="))
+            .unwrap();
+    let (before, _) = add_recovery_code(&bucket, &owner, "d_1", cheap()).unwrap();
+    assert_eq!(
+        unclaimed_recovery_codes(&bucket, &[]).unwrap().len(),
+        2,
+        "nothing claimed: both copies are found, and not the first code's"
+    );
+    let left = unclaimed_recovery_codes(&bucket, &[recovery_code_file_for("KITKEY=")]).unwrap();
+    assert_eq!(
+        left,
+        vec![before.clone()],
+        "the named kit is claimed by its key"
+    );
+    assert!(!left.contains(&named));
+    let none = unclaimed_recovery_codes(&bucket, &[named, before]).unwrap();
+    assert!(none.is_empty(), "every copy has its key: {none:?}");
+    // a storage that cannot list is an error, never "none left"
+    struct Unlistable;
+    impl Drive for Unlistable {
+        fn list(&self, _: &ListRequest) -> Result<crate::ListPage, DriveError> {
+            Err(DriveError::Transport(String::from("cut")))
+        }
+        fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
+            Err(DriveError::NotFound {
+                key: key.to_string(),
+            })
+        }
+        fn get_range(&self, key: &str, _: crate::ByteRange) -> Result<Vec<u8>, DriveError> {
+            Err(DriveError::NotFound {
+                key: key.to_string(),
+            })
+        }
+        fn put(&self, _: &str, _: &[u8]) -> Result<(), DriveError> {
+            Ok(())
+        }
+        fn delete(&self, _: &str) -> Result<(), DriveError> {
+            Ok(())
+        }
+        fn head(&self, key: &str) -> Result<crate::ObjectInfo, DriveError> {
+            Err(DriveError::NotFound {
+                key: key.to_string(),
+            })
+        }
+    }
+    assert!(unclaimed_recovery_codes(&Unlistable, &[]).is_err());
 }

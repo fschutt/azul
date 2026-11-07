@@ -1405,6 +1405,25 @@ pub fn restore_recovery_code(
     put_new(bucket, file, bytes)
 }
 
+/// The key files of the drive's further recovery codes that none of `claimed` names: copies of
+/// kits that no key at the token server stands behind any more, or that were made before a kit's
+/// copy was named by its key ([`recovery_code_file_for`]), so that no key can be mapped to them.
+/// Each still opens the drive key for whoever holds its code and reaches the bucket, and only a
+/// key change removes them all (X-DELTA-AZDRIVE-KEYS-28). A drive holds at most
+/// [`MAX_EXTRA_RECOVERY_CODES`] of them (the add refuses more), which is also what is looked at.
+///
+/// # Errors
+///
+/// The bucket's refusal to list.
+pub fn unclaimed_recovery_codes(
+    bucket: &dyn Drive,
+    claimed: &[String],
+) -> Result<Vec<String>, DriveError> {
+    let mut found = extra_recovery_files(bucket)?;
+    found.retain(|file| !claimed.contains(file));
+    Ok(found)
+}
+
 /// The key files of the drive's further recovery codes: the first [`MAX_EXTRA_RECOVERY_CODES`]
 /// by name, found in a bounded number of listing pages (a bucket that lists endless names under
 /// the prefix does not keep this reading for ever).

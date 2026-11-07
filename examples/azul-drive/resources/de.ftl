@@ -2123,6 +2123,13 @@ azdrive-keys-err-no-session = dieser Computer hat keine Sitzung der Wiederherste
 azdrive-keys-wrap-not-deleted = Der Wiederherstellungsschlüssel wurde nicht entfernt: Seine Kopie in deinem Speicher konnte nicht gelöscht werden ({ $why }), sein Code öffnet das Laufwerk also noch. Nichts wurde geändert; versuche es erneut.
 azdrive-keys-drive-not-open = das Laufwerk ist auf diesem Computer nicht geöffnet
 azdrive-keys-wrap-lost = Der Token-Server hat den Wiederherstellungsschlüssel nicht entfernt ({ $refused }), und die zuvor aus deinem Speicher genommene Kopie des Satzes ließ sich nicht zurücklegen ({ $why }). Der Code des Satzes öffnet das Laufwerk nicht mehr: Erstelle einen neuen Satz.
+azdrive-keys-left-title = Kopien von Wiederherstellungscodes bleiben
+azdrive-keys-left-first = Der Schlüssel ist entfernt, aber der erste Wiederherstellungscode des Laufwerks öffnet es noch: Seine Kopie in deinem Speicher bleibt. Ein Schlüsselwechsel ersetzt sie.
+azdrive-keys-left-copies = { $count ->
+        [one] Eine Kopie eines Wiederherstellungscodes in deinem Speicher gehört
+       *[other] { $count } Kopien von Wiederherstellungscodes in deinem Speicher gehören
+    } zu keinem Schlüssel, den der Token-Server auflistet (Kits aus der Zeit, bevor Kopien nach ihrem Schlüssel benannt wurden, oder mit früher entferntem Schlüssel). Jede öffnet das Laufwerk noch für alle, die ihren Code haben und deinen Speicher erreichen. Ein Schlüsselwechsel entfernt sie.
+azdrive-keys-left-unreadable = Der Schlüssel ist entfernt. Ob in deinem Speicher noch Kopien von Wiederherstellungscodes liegen, ließ sich nicht prüfen: { $why }
 azdrive-keys-found-none = Kein Laufwerk hat diesen Code als Suchschlüssel. Ein Kit, das erstellt wurde, bevor AzDrive Suchschlüssel registrierte, findet sein Laufwerk erst, wenn ein Computer mit dem Laufwerk es erlaubt (Optionen > Laufwerke > Über das Kit auffindbar machen).
 azdrive-keys-locked-down-title = Das Laufwerk ist für diesen Computer gesperrt
 azdrive-keys-locked-down-until = Die Sperre mit dem Code des Kits steht bis { $until } aus: Die anderen Geräte des Laufwerks werden benachrichtigt und können sie stoppen. Danach fügt Optionen > Laufwerke > Abschließen das Laufwerk hier hinzu, und „Mit dem Wiederherstellungscode entsperren“ öffnet es.

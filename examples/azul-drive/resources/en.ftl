@@ -2125,6 +2125,13 @@ azdrive-keys-err-no-session = this computer keeps no session of the recovery
 azdrive-keys-wrap-not-deleted = The recovery key was not removed: its copy in your storage could not be deleted ({ $why }), so its code still opens the drive. Nothing was changed; try again.
 azdrive-keys-drive-not-open = the drive is not open on this computer
 azdrive-keys-wrap-lost = The token server did not remove the recovery key ({ $refused }), and the kit's copy in your storage, taken out before, could not be put back ({ $why }). The kit's code no longer opens the drive: make a new kit.
+azdrive-keys-left-title = Copies of recovery codes remain
+azdrive-keys-left-first = The key is removed, but the drive's first recovery code still opens the drive: its copy in your storage stays. A key change replaces it.
+azdrive-keys-left-copies = { $count ->
+        [one] One copy of a recovery code in your storage belongs
+       *[other] { $count } copies of recovery codes in your storage belong
+    } to no key the token server lists (kits made before copies were named by their key, or whose key was removed earlier). Each still opens the drive for whoever has its code and reaches your storage. A key change removes them.
+azdrive-keys-left-unreadable = The key is removed. Whether copies of recovery codes remain in your storage could not be checked: { $why }
 azdrive-keys-found-none = No drive has this code as a key that finds it. A kit made before AzDrive registered findable keys finds its drive only after a computer that has the drive lets it (Options > Drives > Make the kit find it).
 azdrive-keys-locked-down-title = The drive is locked down for this computer
 azdrive-keys-locked-down-until = The lockdown with the kit's code is pending until { $until }: the drive's other devices are told and may stop it. Then Options > Drives > Finish adds the drive here, and "Unlock with the recovery code" opens it.

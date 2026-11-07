@@ -33,7 +33,8 @@
 //! `AZDRIVE_RECOVERY_KEY_KEPT <drive> <key>` (the token server kept it: the last key),
 //! `AZDRIVE_RECOVERY_KEY_REFUSED <drive> <key> <why>` (any other failed removal),
 //! `AZDRIVE_RECOVERY_KEY_WRAP_KEPT <drive> <key> <why>` (the kit's wrap could not be deleted: nothing
-//! was removed).
+//! was removed), `AZDRIVE_RECOVERY_COPIES_LEFT <drive> <count>` (after a removal: copies of
+//! recovery codes in the storage that no key the token server lists claims).
 
 use std::sync::Arc;
 
@@ -772,25 +773,20 @@ extern "C" fn on_sign_ok(mut data: RefAny, mut info: CallbackInfo) -> Update {
                 }
             }
             KeyAction::Remove { key_id, .. } => {
-                let kit = kit_wrap_of(state_of(&s.settings.recovery.drives, &drive_id), &key_id);
-                let (extra_file, auto) = match kit {
-                    // A kit this computer made: its wrap is there, and the drive must be open.
-                    KitWrap::Known(file) => (Some(file), crate::encryption::auto_for(s, &drive_id)),
-                    // A kit named by its key at the token server (a kit another computer made, or
-                    // the first code, whose name is nothing): the wrap is looked for when the drive
-                    // is open, and a drive that is not open has none to look for.
-                    KitWrap::Named(file) => match crate::encryption::auto_for(s, &drive_id) {
-                        Some(auto) => (Some(file), Some(auto)),
-                        None => (None, None),
-                    },
-                    KitWrap::Unknown => (None, None),
-                };
+                let state = state_of(&s.settings.recovery.drives, &drive_id);
+                let kit = kit_wrap_of(state, &key_id);
+                let own = state
+                    .map(|state| state.extra_codes.clone())
+                    .unwrap_or_default();
+                let (extra_file, auto) = removal_wrap(s, &drive_id, &kit);
                 KeysJob::Remove {
                     drive_id,
                     key_id,
                     signer,
                     extra_file,
                     auto,
+                    first_code: kit == KitWrap::FirstCode,
+                    own,
                     token_url,
                     keyring,
                 }
@@ -852,7 +848,12 @@ pub(crate) enum KeysJob {
         key_id: String,
         signer: RecoveryKey,
         extra_file: Option<String>,
+        /// The open drive: its storage holds the wrap, and is looked at after the removal.
         auto: Option<Arc<AutoEncrypted>>,
+        /// The key is one of the first code's (its copy stays).
+        first_code: bool,
+        /// The kits this computer made, to tell their copies from the ones nothing claims.
+        own: Vec<ExtraCode>,
         token_url: String,
         keyring: SharedKeyring,
     },
@@ -890,7 +891,7 @@ pub(crate) enum KeysDone {
     Removed {
         drive_id: String,
         key_id: String,
-        result: Result<(), RemoveFailed>,
+        result: Result<Left, RemoveFailed>,
     },
 }
 
@@ -917,15 +918,30 @@ pub(crate) enum KitWrap {
     Known(String),
     /// The file a kit is named by when its key at the token server is known
     /// (`device::recovery_code_file_for`): kits made since the name was the key's, by any
-    /// computer. No such file is no failure (the first code has none).
+    /// computer. No such file is no failure (a kit made before has a name of its own that no key
+    /// maps to: what is left is looked at after the removal, [`Left`]).
     Named(String),
-    /// The server's key is not listed here: nothing to look for.
+    /// One of the drive's first code's two keys: that code's copy (`recovery.key`) is the
+    /// drive's own - the mark that the drive is encrypted - and stays; only a key change
+    /// replaces it, and the window says so (X-DELTA-AZDRIVE-KEYS-28).
+    FirstCode,
+    /// The server's key is not listed here, or listed without its public half: no wrap to name.
     Unknown,
+}
+
+impl KitWrap {
+    /// The copy in the storage the key's removal takes out with it, if the key has one by name.
+    fn file(&self) -> Option<&str> {
+        match self {
+            KitWrap::Known(file) | KitWrap::Named(file) => Some(file),
+            KitWrap::FirstCode | KitWrap::Unknown => None,
+        }
+    }
 }
 
 /// The wrap that goes with recovery key `key_id` of a drive whose recovery state is `state`: this
 /// computer's own record of the kit, else the file named by the key's public half as the token
-/// server listed it.
+/// server listed it - unless the key is one of the first code's.
 fn kit_wrap_of(state: Option<&RecoveryState>, key_id: &str) -> KitWrap {
     let Some(state) = state else {
         return KitWrap::Unknown;
@@ -933,13 +949,134 @@ fn kit_wrap_of(state: Option<&RecoveryState>, key_id: &str) -> KitWrap {
     if let Some(code) = state.extra_code(key_id) {
         return KitWrap::Known(code.file.clone());
     }
-    state
+    let Some(key) = state
         .server_keys
         .iter()
         .find(|key| key.key_id == key_id && !key.recovery_pubkey.is_empty())
-        .map_or(KitWrap::Unknown, |key| {
-            KitWrap::Named(device::recovery_code_file_for(&key.recovery_pubkey))
-        })
+    else {
+        return KitWrap::Unknown;
+    };
+    let public = key.recovery_pubkey.trim();
+    let first = [&state.recovery_key, &state.findable_key]
+        .into_iter()
+        .flatten()
+        .any(|first| first.trim() == public);
+    if first {
+        KitWrap::FirstCode
+    } else {
+        KitWrap::Named(device::recovery_code_file_for(&key.recovery_pubkey))
+    }
+}
+
+/// The copy a removal takes out of the storage with the key, and the open drive it is taken from.
+/// A key that has a copy by name (this computer's kit, a kit named by its key) needs the drive
+/// open - a removal that went on without would leave the copy that still opens the drive, so the
+/// job stops with "the drive is not open" when `auto_for` found none. The first code's key and
+/// one without a public half have no copy to name; the drive is looked at after the removal only
+/// when it is open already (nothing here opens it).
+fn removal_wrap(
+    s: &mut DriveState,
+    drive_id: &str,
+    kit: &KitWrap,
+) -> (Option<String>, Option<Arc<AutoEncrypted>>) {
+    match kit.file() {
+        Some(file) => (
+            Some(file.to_string()),
+            crate::encryption::auto_for(s, drive_id),
+        ),
+        None => (
+            None,
+            s.slot_index(drive_id)
+                .and_then(|index| s.slots[index].auto.clone()),
+        ),
+    }
+}
+
+/// What a removal that went through leaves in the drive's storage, for the window to say: a
+/// key's removal takes its copy with it when the copy can be named, and what it cannot name stays
+/// - silently, until this (X-DELTA-AZDRIVE-KEYS-28).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Left {
+    /// The removed key was one of the first code's: that code's copy stays and opens the drive.
+    pub first_code: bool,
+    pub copies: Copies,
+}
+
+/// The further recovery codes' copies in the drive's storage after a removal.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Copies {
+    /// Nothing was looked at: the drive is not open here.
+    NotLooked,
+    /// The token server's keys or the storage could not be read (why): not known, not "none".
+    Unreadable(String),
+    /// The copies no key the token server lists now claims (none: every copy has its key).
+    Unclaimed(Vec<String>),
+}
+
+impl Left {
+    /// What to tell the user, `None` when nothing is left that they do not know of.
+    fn say(&self) -> Option<String> {
+        let mut lines = Vec::new();
+        if self.first_code {
+            lines.push(t("azdrive-keys-left-first"));
+        }
+        match &self.copies {
+            Copies::NotLooked => {}
+            Copies::Unreadable(why) => lines.push(t_args(
+                "azdrive-keys-left-unreadable",
+                &[("why", Arg::from(t_label(why)))],
+            )),
+            Copies::Unclaimed(files) if files.is_empty() => {}
+            Copies::Unclaimed(files) => lines.push(t_args(
+                "azdrive-keys-left-copies",
+                &[("count", Arg::from(files.len()))],
+            )),
+        }
+        if lines.is_empty() {
+            None
+        } else {
+            Some(lines.join(" "))
+        }
+    }
+}
+
+/// The copies a key the token server lists claims: the file the key's public half names, and the
+/// file this computer recorded for a kit whose key is listed still (a kit this computer made
+/// before copies were named by their key has a name of its own).
+fn claimed_copies(listed: &[RecoveryKeyInfo], own: &[ExtraCode]) -> Vec<String> {
+    let mut claimed: Vec<String> = listed
+        .iter()
+        .filter(|key| !key.recovery_pubkey.is_empty())
+        .map(|key| device::recovery_code_file_for(&key.recovery_pubkey))
+        .collect();
+    claimed.extend(
+        own.iter()
+            .filter(|code| listed.iter().any(|key| key.key_id == code.key_id))
+            .map(|code| code.file.clone()),
+    );
+    claimed
+}
+
+/// What the drive's storage holds of further recovery codes' copies that no listed key claims,
+/// after a removal went through: `bucket` is the open drive's (none: not looked at), `listed` the
+/// token server's keys as it lists them now.
+fn left_after(
+    first_code: bool,
+    bucket: Option<&dyn azul_storage::Drive>,
+    listed: Result<Vec<RecoveryKeyInfo>, TokenError>,
+    own: &[ExtraCode],
+) -> Left {
+    let copies = match (bucket, listed) {
+        (None, _) => Copies::NotLooked,
+        (Some(_), Err(e)) => Copies::Unreadable(token_text(&e)),
+        (Some(bucket), Ok(listed)) => {
+            match device::unclaimed_recovery_codes(bucket, &claimed_copies(&listed, own)) {
+                Ok(files) => Copies::Unclaimed(files),
+                Err(e) => Copies::Unreadable(e.to_string()),
+            }
+        }
+    };
+    Left { first_code, copies }
 }
 
 /// Removes a recovery key: its wrap in the drive's storage first (`delete_wrap`: what lets its
@@ -1149,6 +1286,8 @@ pub(crate) fn run(job: KeysJob) -> KeysDone {
             signer,
             extra_file,
             auto,
+            first_code,
+            own,
             token_url,
             keyring,
         } => {
@@ -1163,8 +1302,8 @@ pub(crate) fn run(job: KeysJob) -> KeysDone {
                     }
                     // The kit's wrap is in the drive's storage, and the drive is not open.
                     (Some(_), None) => Err(t("azdrive-keys-drive-not-open")),
-                    // The drive's first code, or a kit made before wraps were named by their key
-                    // on another computer: no wrap this computer can name.
+                    // The drive's first code, or a key without a public half: no wrap this
+                    // computer can name (what stays is looked at below).
                     (None, _) => Ok(None),
                 },
                 || {
@@ -1185,7 +1324,24 @@ pub(crate) fn run(job: KeysJob) -> KeysDone {
                     // nothing was taken out of a drive that was not open
                     _ => Ok(()),
                 },
-            );
+            )
+            // The key is gone: what copies of recovery codes the storage still holds that no key
+            // the token server lists now claims (a kit made before copies were named by their
+            // key, one whose key went earlier) is read from the storage and the server's list as
+            // they are NOW, never from a flag.
+            .map(|()| {
+                let listed = TokenServer::new(&token_url, &transport).and_then(|server| {
+                    with_token(&keyring, &drive_id, |token| {
+                        server.recovery_keys(&drive_id, token)
+                    })
+                });
+                left_after(
+                    first_code,
+                    auto.as_ref().map(|auto| auto.bucket().as_ref()),
+                    listed,
+                    &own,
+                )
+            });
             KeysDone::Removed {
                 drive_id,
                 key_id,
@@ -1331,12 +1487,25 @@ pub(crate) fn on_done(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState,
             key_id,
             result,
         } => match result {
-            Ok(()) => {
+            Ok(left) => {
                 println!("AZDRIVE_RECOVERY_KEY_REMOVED {drive_id} {key_id}");
+                if let Copies::Unclaimed(files) = &left.copies {
+                    if !files.is_empty() {
+                        println!("AZDRIVE_RECOVERY_COPIES_LEFT {drive_id} {}", files.len());
+                    }
+                }
                 let state = state_mut(&mut s.settings.recovery.drives, &drive_id);
                 state.extra_codes.retain(|code| code.key_id != key_id);
                 state.server_keys.retain(|key| key.key_id != key_id);
-                s.popup.close();
+                // What the removal could not take with it is said, in a window that stays: a copy
+                // of a code that still opens the drive is not a toast.
+                match left.say() {
+                    Some(text) => s.popup.open(Popup::Encryption(Dialog::Message {
+                        title: t("azdrive-keys-left-title"),
+                        text,
+                    })),
+                    None => s.popup.close(),
+                }
                 save_settings(info, app, s);
                 check_keys(info, app, s, &drive_id);
             }
@@ -1549,6 +1718,271 @@ mod tests {
         assert_eq!(kit_wrap_of(None, "rk_theirs"), KitWrap::Unknown);
         // the name a kit is made with is the one the removal looks for
         assert!(device::recovery_code_file_for("THEIRS=").starts_with(".azlin/keys/recovery-"));
+    }
+
+    fn listed(key_id: &str, public: &str) -> RecoveryKeyInfo {
+        RecoveryKeyInfo {
+            key_id: key_id.to_string(),
+            label: String::from(SECOND_KIT_LABEL),
+            recovery_pubkey: public.to_string(),
+            created_at: None,
+            verified: true,
+        }
+    }
+
+    fn cheap() -> RecoveryKdf {
+        RecoveryKdf::with_cost(64, 1, 1).unwrap()
+    }
+
+    /// X-DELTA-AZDRIVE-KEYS-28: the first code's two keys (the drive's and the findable one) are
+    /// told from a further kit's: the first code's copy is the drive's own (`recovery.key`, the
+    /// mark of an encrypted drive) and has no name to look for, a further kit's copy is named by
+    /// its key and the removal takes it out - and, with the drive closed, would not have been
+    /// looked for at all (the old mapping sent a named kit with `(None, None)` when the drive
+    /// was not open, and the key went with the copy staying).
+    #[test]
+    fn x_delta_azdrive_keys_28_the_first_codes_keys_have_no_copy_to_take_and_a_kits_have_one() {
+        let mut state = RecoveryState::new("d_1");
+        state.recovery_key = Some(String::from("FIRSTDRIVE="));
+        state.findable_key = Some(String::from(" FIRSTFIND= "));
+        let key = |id: &str, public: &str| ServerKey {
+            key_id: id.to_string(),
+            label: String::new(),
+            recovery_pubkey: public.to_string(),
+            created_at: None,
+            verified: true,
+        };
+        state.server_keys = vec![
+            key("rk_drive", "FIRSTDRIVE="),
+            key("rk_find", "FIRSTFIND="),
+            key("rk_kit", "KIT="),
+            key("rk_bare", ""),
+        ];
+        assert_eq!(kit_wrap_of(Some(&state), "rk_drive"), KitWrap::FirstCode);
+        assert_eq!(kit_wrap_of(Some(&state), "rk_find"), KitWrap::FirstCode);
+        assert_eq!(kit_wrap_of(Some(&state), "rk_bare"), KitWrap::Unknown);
+        let kit = kit_wrap_of(Some(&state), "rk_kit");
+        assert_eq!(kit, KitWrap::Named(device::recovery_code_file_for("KIT=")));
+        // the copies a removal looks for: a kit's, never the first code's
+        assert_eq!(
+            kit.file(),
+            Some(device::recovery_code_file_for("KIT=").as_str())
+        );
+        assert_eq!(KitWrap::FirstCode.file(), None);
+        assert_eq!(KitWrap::Unknown.file(), None);
+        // a code from before the drive kept its public keys: its keys read as a kit's, whose
+        // copy is looked for (none by that name) with the drive open
+        state.recovery_key = None;
+        state.findable_key = None;
+        assert!(matches!(
+            kit_wrap_of(Some(&state), "rk_drive"),
+            KitWrap::Named(_)
+        ));
+    }
+
+    /// X-DELTA-AZDRIVE-KEYS-28 through the job: a kit whose copy has a name needs the drive open,
+    /// and with the drive closed the removal stops before the token server is asked (the key
+    /// stays listed with its copy; nothing is half done). The first code's key has no copy to
+    /// look for and is removed with the drive closed.
+    #[test]
+    fn x_delta_azdrive_keys_28_a_named_kit_is_not_removed_while_the_drive_is_closed() {
+        use azul_storage::{
+            keyring::{KeyringNamespace, MemoryKeyring},
+            testing::TempDir,
+        };
+        crate::l10n::in_english();
+        let dir = TempDir::new("keys-28-closed");
+        let keyring = SharedKeyring::with_lock_root(
+            Arc::new(MemoryKeyring::new()),
+            KeyringNamespace::azlin_shared(),
+            dir.path(),
+        );
+        let kit = KitWrap::Named(device::recovery_code_file_for("THEIRS="));
+        let done = run(KeysJob::Remove {
+            drive_id: String::from("d_1"),
+            key_id: String::from("rk_theirs"),
+            signer: findable_key_of(&code()),
+            extra_file: kit.file().map(str::to_string),
+            auto: None,
+            first_code: false,
+            own: Vec::new(),
+            // never reached: the copy is looked for first
+            token_url: String::from("https://token.invalid"),
+            keyring,
+        });
+        let KeysDone::Removed { result, .. } = done else {
+            panic!("a removal answers Removed");
+        };
+        match result {
+            Err(RemoveFailed::Wrap(why)) => assert!(why.contains("not open"), "{why}"),
+            other => panic!("the removal stops at the copy it cannot look for: {other:?}"),
+        }
+    }
+
+    /// X-DELTA-AZDRIVE-KEYS-28: after a removal the storage is read as it is and every further
+    /// recovery code's copy that no listed key claims is counted - the copy of a key that was
+    /// removed before, and a kit another computer made before copies were named by their key
+    /// (nothing maps it) - while the copies a listed key claims stay out: one named by its key,
+    /// one this computer recorded for a kit that is listed still.
+    #[test]
+    fn x_delta_azdrive_keys_28_what_the_storage_holds_that_no_listed_key_claims_is_counted() {
+        use azul_storage::{keyring::MemoryKeyring, meta::MemoryBucket};
+        let bucket = MemoryBucket::new();
+        let keyring = MemoryKeyring::new();
+        device::setup_new_drive(&bucket, &keyring, "d_1", cheap()).unwrap();
+        let (kept, _) =
+            device::add_recovery_code_for_key(&bucket, &keyring, "d_1", cheap(), |_| {
+                String::from("KEPT=")
+            })
+            .unwrap();
+        let (gone, _) =
+            device::add_recovery_code_for_key(&bucket, &keyring, "d_1", cheap(), |_| {
+                String::from("GONE=")
+            })
+            .unwrap();
+        let (mine_before, _) =
+            device::add_recovery_code(&bucket, &keyring, "d_1", cheap()).unwrap();
+        let (theirs_before, _) =
+            device::add_recovery_code(&bucket, &keyring, "d_1", cheap()).unwrap();
+        let own = vec![ExtraCode {
+            key_id: String::from("rk_mine"),
+            file: mine_before.clone(),
+            made: 1,
+        }];
+        let keys = vec![listed("rk_kept", "KEPT="), listed("rk_mine", "MINE=")];
+
+        let left = left_after(
+            false,
+            Some(&bucket as &dyn azul_storage::Drive),
+            Ok(keys),
+            &own,
+        );
+        let Copies::Unclaimed(files) = left.copies else {
+            panic!("the storage was read");
+        };
+        let mut want = vec![gone, theirs_before];
+        want.sort();
+        assert_eq!(files, want, "only what no listed key claims");
+        assert!(!files.contains(&kept) && !files.contains(&mine_before));
+        assert!(
+            !files.iter().any(|f| f.ends_with("recovery.key")),
+            "the first code's copy is not a further code's"
+        );
+        // the kit this computer made before the name was the key's is claimed only while its key
+        // is listed: once the key is gone, its copy is one nothing claims
+        let left = left_after(
+            false,
+            Some(&bucket as &dyn azul_storage::Drive),
+            Ok(vec![listed("rk_kept", "KEPT=")]),
+            &own,
+        );
+        let Copies::Unclaimed(files) = left.copies else {
+            panic!("the storage was read");
+        };
+        assert!(files.contains(&mine_before), "{files:?}");
+    }
+
+    /// X-DELTA-AZDRIVE-KEYS-28: what could not be looked at is not "nothing left". A drive that
+    /// is not open is not looked at; a token server that does not list, or a storage that does not
+    /// list, is `Unreadable` and said.
+    #[test]
+    fn x_delta_azdrive_keys_28_what_could_not_be_looked_at_is_not_nothing_left() {
+        use azul_storage::{meta::MemoryBucket, Drive, DriveError, ListRequest};
+        crate::l10n::in_english();
+
+        // a storage whose listing fails
+        struct Unlistable(MemoryBucket);
+        impl Drive for Unlistable {
+            fn list(&self, _: &ListRequest) -> Result<azul_storage::ListPage, DriveError> {
+                Err(DriveError::Transport(String::from(
+                    "the connection was cut",
+                )))
+            }
+            fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
+                self.0.get(key)
+            }
+            fn get_range(
+                &self,
+                key: &str,
+                range: azul_storage::ByteRange,
+            ) -> Result<Vec<u8>, DriveError> {
+                self.0.get_range(key, range)
+            }
+            fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
+                self.0.put(key, bytes)
+            }
+            fn delete(&self, key: &str) -> Result<(), DriveError> {
+                self.0.delete(key)
+            }
+            fn head(&self, key: &str) -> Result<azul_storage::ObjectInfo, DriveError> {
+                self.0.head(key)
+            }
+        }
+        let bucket = Unlistable(MemoryBucket::new());
+
+        let storage = left_after(
+            false,
+            Some(&bucket as &dyn azul_storage::Drive),
+            Ok(Vec::new()),
+            &[],
+        );
+        assert!(
+            matches!(&storage.copies, Copies::Unreadable(why) if why.contains("cut")),
+            "{storage:?}"
+        );
+        let said = storage.say().expect("an unreadable storage is said");
+        assert!(said.contains("could not be checked"), "{said}");
+
+        let server = left_after(
+            false,
+            Some(&bucket as &dyn azul_storage::Drive),
+            Err(TokenError::Connect(String::from("timed out"))),
+            &[],
+        );
+        assert!(matches!(server.copies, Copies::Unreadable(_)), "{server:?}");
+
+        // not open: not looked at, and nothing is said about it
+        let closed = left_after(false, None, Ok(Vec::new()), &[]);
+        assert_eq!(closed.copies, Copies::NotLooked);
+        assert_eq!(closed.say(), None);
+    }
+
+    /// X-DELTA-AZDRIVE-KEYS-28: the words. Nothing left is no window; the first code's copy and
+    /// the copies nothing claims are each said, with their number.
+    #[test]
+    fn x_delta_azdrive_keys_28_the_window_says_what_is_left_and_only_that() {
+        crate::l10n::in_english();
+        let none = Left {
+            first_code: false,
+            copies: Copies::Unclaimed(Vec::new()),
+        };
+        assert_eq!(none.say(), None, "every copy has its key: nothing to say");
+
+        let first = Left {
+            first_code: true,
+            copies: Copies::Unclaimed(Vec::new()),
+        };
+        let said = first.say().expect("the first code's copy stays");
+        assert!(
+            said.contains("first recovery code still opens the drive"),
+            "{said}"
+        );
+
+        let one = Left {
+            first_code: false,
+            copies: Copies::Unclaimed(vec![String::from("a")]),
+        };
+        let said = one.say().expect("one copy is left");
+        assert!(said.starts_with("One copy of a recovery code"), "{said}");
+        assert!(said.contains("A key change removes them"), "{said}");
+
+        let both = Left {
+            first_code: true,
+            copies: Copies::Unclaimed(vec![String::from("a"), String::from("b")]),
+        };
+        let said = both.say().expect("both are said");
+        assert!(said.contains("first recovery code"), "{said}");
+        assert!(said.contains("2 copies of recovery codes"), "{said}");
     }
 
     #[test]
