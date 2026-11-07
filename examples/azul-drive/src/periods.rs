@@ -158,6 +158,24 @@ impl Schedule {
     }
 }
 
+/// `store` as a job reads it through `keyring`: the vault is sealed under a key of the keyring, and
+/// a background job's keyring never prompts (the daily look finds the key or waits for the next
+/// start; it never asks the user). A store that keeps plain JSON is as it was.
+pub(crate) fn store_through(
+    store: &azcloud_kit::PeriodTokenStore,
+    keyring: &azcloud_kit::SharedKeyring,
+) -> azcloud_kit::PeriodTokenStore {
+    #[cfg(feature = "encryption")]
+    {
+        store.through(keyring.clone())
+    }
+    #[cfg(not(feature = "encryption"))]
+    {
+        let _ = keyring;
+        store.clone()
+    }
+}
+
 /// The Azlin drive of `entry`: its id at the token server and that server - the one a drive
 /// token, a recovery key, a voucher, a period token or a lockdown is SENT to. A shipped build
 /// answers `fallback` (the run's, the live server's), whatever the entry's `account_url` says:
@@ -262,8 +280,8 @@ pub(crate) fn start_redemptions(
         s.keyring.clone()
     };
     let job = Job::RedeemPeriods {
+        store: store_through(&s.period_tokens, &keyring),
         keyring,
-        store: s.period_tokens.clone(),
         drives,
     };
     spawn(info, app, s, job);

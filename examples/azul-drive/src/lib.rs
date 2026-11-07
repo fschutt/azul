@@ -4162,6 +4162,15 @@ pub fn start() {
     // under the cache folder; what a run before left behind and nothing uses any more goes.
     scratch::set_root(cache_dir.as_deref());
     scratch::sweep_all(jobs::OPEN_COPY_KEPT);
+    // The period vault holds the issue keys of paid checkouts (bearers for months) and the
+    // period tokens: sealed under a random key the keyring holds (AZ-K13), plain only in a build
+    // without the encryption (tests of the plain paths, never shipped).
+    #[cfg(feature = "encryption")]
+    let period_tokens = azcloud_kit::PeriodTokenStore::sealed(
+        period_tokens_dir(drives_file.as_deref()),
+        keyring.clone(),
+    );
+    #[cfg(not(feature = "encryption"))]
     let period_tokens =
         azcloud_kit::PeriodTokenStore::new(period_tokens_dir(drives_file.as_deref()));
     // Print's copies of a page (an emergency kit, cash by post's two) live there; a run before's

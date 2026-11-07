@@ -1806,7 +1806,7 @@ pub(crate) fn start_claims(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveS
     // Background work: an entry only a prompt would hand over waits for the next start.
     let keyring = s.quiet_keyring.clone();
     let token_url = s.token.url.clone();
-    let store = s.period_tokens.clone();
+    let store = crate::periods::store_through(&s.period_tokens, &keyring);
     let cash_every = s.cash_looks.every();
     spawn(
         info,

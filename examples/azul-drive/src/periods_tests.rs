@@ -291,3 +291,53 @@ fn azlin_drive_follows_the_anchors_choice_for_its_build() {
         azlin_drive_choice(honoured, &azlin_entry(HOSTILE), Some(LIVE))
     );
 }
+
+// ==== The period vault is sealed (AZ-K13) ====
+
+/// AzDrive keeps its period tokens in a store sealed under a key of the keyring; a background job
+/// (the daily look) reads that store through the quiet keyring over the same entries, and what
+/// the interactive one wrote is what it reads.
+#[cfg(feature = "encryption")]
+#[test]
+fn a_background_job_reads_the_sealed_period_vault_through_its_own_keyring() {
+    use std::sync::Arc;
+
+    use azcloud_kit::{period::PeriodToken, PeriodTokenStore, SharedKeyring};
+    use azul_storage::{
+        crypto::blob,
+        keyring::{KeyringNamespace, KeyringStore, MemoryKeyring},
+        testing::TempDir,
+    };
+
+    use crate::periods::store_through;
+
+    let dir = TempDir::new("azdrive-periods-seal");
+    let memory = Arc::new(MemoryKeyring::new());
+    let shared = || {
+        SharedKeyring::with_lock_root(memory.clone(), KeyringNamespace::azlin_shared(), dir.path())
+    };
+    let store = PeriodTokenStore::sealed(dir.path().join("period-tokens"), shared());
+    let token = PeriodToken {
+        tier: String::from("100GB"),
+        year: 2026,
+        nonce: "ab".repeat(32),
+        signature: String::from("c2lnbmF0dXJl"),
+        randomizer: String::from("cmFuZG9taXplcg=="),
+    };
+    store.add("d_1", &[token.clone()]).unwrap();
+    assert!(
+        blob::is_sealed(&std::fs::read(store.path_of("d_1").unwrap()).unwrap()),
+        "the tokens are in the clear"
+    );
+    assert!(
+        memory
+            .get(&azul_storage::footprint::KeyEntry::VaultKey.name("d_1"))
+            .unwrap()
+            .is_some(),
+        "the key is in the keyring"
+    );
+
+    let job = store_through(&store, &shared());
+    assert!(job.is_sealed(), "a job reads a plain store");
+    assert_eq!(job.tokens("d_1").unwrap(), vec![token]);
+}
