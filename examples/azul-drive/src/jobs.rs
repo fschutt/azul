@@ -1344,31 +1344,103 @@ fn measure(drive: &dyn Drive, prefix: &str) -> Result<FolderSize, DriveError> {
     Ok(size)
 }
 
-/// Share > Zip: every file of `items` (folders recursively) into one zip.
-fn make_zip(drive: &dyn Drive, items: &[SourceItem], zip_key: &str) -> Result<u64, DriveError> {
-    let mut zip = azul::zip::Zip::create();
+/// The most a Share > Zip builds in memory: the archive is made whole before it is put (the zip
+/// writer of the toolkit has no stream), so a bigger folder is refused with a sentence instead of
+/// exhausting the computer's memory (X-DELTA-AZDRIVE-FILES-21).
+pub(crate) const ZIP_IN_MEMORY_MAX: u64 = 512 << 20;
+
+/// Share > Zip: every file of `items` (folders recursively) into one zip, put at `zip_key` or - if
+/// that name was taken since the window chose it (the listing it chose from was loaded before another
+/// device saved `Photos.zip`, or is still loading) - at the next free name. The key it went to, and
+/// the archive's size.
+fn make_zip(
+    drive: &dyn Drive,
+    items: &[SourceItem],
+    zip_key: &str,
+) -> Result<(u64, String), DriveError> {
+    // What goes in: the sizes first, so a folder too big for memory is refused before a byte is read.
+    let mut folders: Vec<String> = Vec::new();
+    let mut files: Vec<(String, String)> = Vec::new();
+    let mut total = 0u64;
     for item in items {
         let base = fileops::parent_of(&item.key);
         if item.is_folder {
-            zip.add_directory(item.key[base.len()..].to_string());
+            folders.push(item.key[base.len()..].to_string());
             for object in storage_ops::list_all(drive, &item.key)? {
                 let name = object.key[base.len()..].to_string();
                 if object.key.ends_with('/') {
-                    zip.add_directory(name);
+                    folders.push(name);
                 } else {
-                    let bytes = drive.get(&object.key)?;
-                    zip.add_file(name, bytes);
+                    total += object.size;
+                    files.push((object.key, name));
                 }
             }
         } else {
-            let bytes = drive.get(&item.key)?;
-            zip.add_file(item.key[base.len()..].to_string(), bytes);
+            total += match item.size {
+                Some(size) => size,
+                None => drive.head(&item.key)?.size,
+            };
+            files.push((item.key.clone(), item.key[base.len()..].to_string()));
         }
+    }
+    if total > ZIP_IN_MEMORY_MAX {
+        return Err(DriveError::Unsupported(format!(
+            "a zip of more than {} MiB (it is built in memory); zip a smaller folder",
+            ZIP_IN_MEMORY_MAX >> 20
+        )));
+    }
+    let mut zip = azul::zip::Zip::create();
+    for folder in folders {
+        zip.add_directory(folder);
+    }
+    for (key, name) in files {
+        zip.add_file(name, drive.get(&key)?);
     }
     let bytes: Vec<u8> = zip.to_bytes().as_slice().to_vec();
     let len = bytes.len() as u64;
-    drive.put(zip_key, &bytes)?;
-    Ok(len)
+    let key = put_new_zip(drive, zip_key, &bytes)?;
+    Ok((len, key))
+}
+
+/// Puts `bytes` at `wanted` only if the name is free in the one step the drive offers
+/// ([`Drive::put_if`] with [`Precondition::Absent`]); a name that is taken - by a file that turned
+/// up since the window looked - gets the next one (`Photos (2).zip`); a drive that cannot ask
+/// looks first. Never over a file that is there (X-DELTA-AZDRIVE-FILES-21, the twin of X-AR5a-9).
+fn put_new_zip(drive: &dyn Drive, wanted: &str, bytes: &[u8]) -> Result<String, DriveError> {
+    let (prefix, name) = match wanted.rfind('/') {
+        Some(slash) => wanted.split_at(slash + 1),
+        None => ("", wanted),
+    };
+    let mut key = wanted.to_string();
+    // The names found taken, so one the drive does not show (a conflict it answered) is not tried again.
+    let mut tried: Vec<String> = Vec::new();
+    for _ in 0..1000 {
+        match drive.put_if(&key, bytes, &Precondition::Absent) {
+            Ok(_) => return Ok(key),
+            // Taken since the window chose it: the next name.
+            Err(DriveError::Conflict { .. }) => {}
+            // A drive that cannot ask: looked at, then written.
+            Err(DriveError::Unsupported(_)) => {
+                if !storage_ops::exists(drive, &key)? {
+                    drive.put(&key, bytes)?;
+                    return Ok(key);
+                }
+            }
+            Err(e) => return Err(e),
+        }
+        tried.push(key.clone());
+        let other = fileops::new_name(name, &|candidate: &str| {
+            // A name found taken, or one the drive has. collapse-ok: a look that fails reads as
+            // "taken" - the careful side; a drive that cannot be looked at ends in the error below.
+            let full = format!("{prefix}{candidate}");
+            tried.contains(&full) || storage_ops::exists(drive, &full).unwrap_or(true)
+        });
+        key = format!("{prefix}{other}");
+    }
+    Err(DriveError::InvalidKey {
+        key: wanted.to_string(),
+        reason: "a thousand files of this name are there already",
+    })
 }
 
 /// The path of `key` (a file, or a folder ending in `/`; `""` the root) under a local drive's
@@ -3772,10 +3844,14 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
             drive,
             items,
             zip_key,
-        } => Outcome::Zipped {
-            result: make_zip(&*drive, &items, &zip_key),
-            zip_key,
-        },
+        } => {
+            // The key it went to: the name the window chose, or the next free one.
+            let made = make_zip(&*drive, &items, &zip_key);
+            Outcome::Zipped {
+                zip_key: made.as_ref().map_or(zip_key, |(_, key)| key.clone()),
+                result: made.map(|(len, _)| len),
+            }
+        }
         Job::Open { drive, key, copies } => {
             let (result, kept_edit) = match drive.local_path(&key) {
                 // A local file opens where it is.
@@ -6167,6 +6243,94 @@ mod tests {
         let again = create_empty_file(&home, "a.txt").unwrap_err();
         assert!(matches!(again, DriveError::InvalidKey { .. }), "{again:?}");
         assert_eq!(home.get("a.txt").unwrap(), b"mine");
+    }
+
+    /// X-DELTA-AZDRIVE-FILES-21 (X-AR5a-9's twin). Share > Zip chose a name from the loaded listing and
+    /// `put` the archive over it: `Photos.zip` that another device synced in (or that the still
+    /// loading listing did not show yet) was replaced; a local drive and a plain bucket keep no
+    /// version of it. The archive is put only if the name is free and takes the next one otherwise.
+    #[test]
+    fn x_delta_azdrive_files_21_a_zip_never_replaces_a_file_that_has_its_name() {
+        let dir = TempDir::new("dx21-zip");
+        let home = LocalDrive::without_manifest(dir.path().to_path_buf());
+        home.put("Photos/a.txt", b"alpha").unwrap();
+        home.put("Photos.zip", b"the user's own Photos.zip")
+            .unwrap();
+        let items = [SourceItem {
+            key: String::from("Photos/"),
+            is_folder: true,
+            size: None,
+        }];
+        let (len, key) = make_zip(&home, &items, "Photos.zip").unwrap();
+        assert_eq!(key, "Photos (2).zip", "the next free name");
+        assert_eq!(
+            home.get("Photos.zip").unwrap(),
+            b"the user's own Photos.zip",
+            "the file that had the name was replaced"
+        );
+        assert_eq!(home.get(&key).unwrap().len() as u64, len);
+        // A free name is used as it is.
+        let (_, key) = make_zip(&home, &items, "Fresh.zip").unwrap();
+        assert_eq!(key, "Fresh.zip");
+        // On a drive that asks (a name made between the look and the write): the same.
+        let racy = Racy {
+            puts: AtomicUsize::new(0),
+        };
+        let refused = put_new_zip(&racy, "Photos.zip", b"zip");
+        assert!(
+            refused.is_err() || racy.puts.load(Ordering::SeqCst) == 0,
+            "{refused:?}"
+        );
+    }
+
+    /// X-DELTA-AZDRIVE-FILES-21: the archive is built in memory, so a folder bigger than
+    /// ZIP_IN_MEMORY_MAX is refused before a byte is read (a 20 GB folder exhausted the memory).
+    #[test]
+    fn x_delta_azdrive_files_21_a_folder_too_big_for_memory_is_refused_unread() {
+        struct Huge {
+            gets: AtomicUsize,
+        }
+        impl Drive for Huge {
+            fn list(&self, request: &ListRequest) -> Result<ListPage, DriveError> {
+                let mut page = ListPage::default();
+                if request.prefix == "big/" {
+                    page.objects.push(ObjectInfo {
+                        key: String::from("big/log.bin"),
+                        size: ZIP_IN_MEMORY_MAX + 1,
+                        modified: Some(1),
+                        etag: None,
+                    });
+                }
+                Ok(page)
+            }
+            fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
+                self.gets.fetch_add(1, Ordering::SeqCst);
+                Err(DriveError::NotFound { key: key.into() })
+            }
+            fn get_range(&self, key: &str, _range: ByteRange) -> Result<Vec<u8>, DriveError> {
+                self.get(key)
+            }
+            fn put(&self, _key: &str, _bytes: &[u8]) -> Result<(), DriveError> {
+                Ok(())
+            }
+            fn delete(&self, _key: &str) -> Result<(), DriveError> {
+                Ok(())
+            }
+            fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
+                Err(DriveError::NotFound { key: key.into() })
+            }
+        }
+        let huge = Huge {
+            gets: AtomicUsize::new(0),
+        };
+        let items = [SourceItem {
+            key: String::from("big/"),
+            is_folder: true,
+            size: None,
+        }];
+        let refused = make_zip(&huge, &items, "big.zip").unwrap_err();
+        assert!(matches!(refused, DriveError::Unsupported(_)), "{refused:?}");
+        assert_eq!(huge.gets.load(Ordering::SeqCst), 0, "a byte was read");
     }
 
     /// X-DELTA-AZDRIVE-FILES-20 (X-AR5a-10's twin). Ctrl+Z of a New folder decided "still empty" by a
