@@ -622,9 +622,11 @@ lists `state-reset`). `drive_restart` reads it. `drive_state_save` / `drive_stat
 copy of the state folder (in `<run>/state-copies/<device>/<name>`) and put it back over what is
 there, as a restored backup or a reinstall that kept an old configuration does.
 `drive_uninstall` is the window's "Remove drive", confirmed: the drive leaves the source list,
-its pairing stops and its state folder goes; every file of the folder stays (a cloud-only one
-on the drive only). `drive_check` `no_registration` (`device`) holds when nothing of it is left:
-no source-list entry, no pairing, no state folder.
+its pairing stops and its state folder goes, with its copies, indexes and the rest of what it
+left on the computer; every file of the folder stays (a cloud-only one on the drive only). The
+removal runs on a worker thread, so the step answers `pending` until the drive is off the list:
+give it a `timeout_ms` that fits. `drive_check` `no_registration` (`device`) holds when nothing
+of it is left: no source-list entry, no pairing, no state folder.
 
 ### The drive
 

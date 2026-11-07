@@ -3222,9 +3222,8 @@ fn drive_tokens(
     let why = match azlin {
         Some(azlin) => {
             let bucket: Arc<dyn Drive> = azlin.clone();
-            let keyring = azul_storage::azul_keyring::AzulKeyring::new(
-                azul_storage::keyring::KeyringNamespace::azlin_shared(),
-            );
+            let keyring =
+                azul_storage::azul_keyring::azlin_keyring(azul_storage::keyring::Asking::User);
             match azcloud_kit::UnlockedDrive::open(drive_id, bucket, &keyring) {
                 Ok(Some(unlocked)) => return store.for_drive(&unlocked).map_err(|e| e.to_string()),
                 // a plain drive, or its key not here yet

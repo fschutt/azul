@@ -38,11 +38,12 @@ use crate::{
     l10n::drive_error_text,
     listing,
     model::{self, GroupBy, ViewLayout},
-    open_current, open_drive, place_up, preview, refresh, save_settings, spawn, ui_view,
-    with_state, ClipboardItems, DriveState, KeyringCall, KeyringOp, Popup, PreviewState,
-    PropertiesState, Renaming, Slot, TransferJob, UndoOp,
-    transfer_actions,
+    open_current, open_drive, place_up, preview, refresh, save_settings, spawn, transfer_actions,
+    ui_view, with_state, ClipboardItems, DriveState, Popup, PreviewState, PropertiesState,
+    Renaming, Slot, TransferJob, UndoOp,
 };
+#[cfg(not(feature = "encryption"))]
+use crate::{KeyringCall, KeyringOp};
 
 // ==== Actions ====
 
@@ -3986,61 +3987,82 @@ extern "C" fn on_destination_picked(
     })
 }
 
-/// "Remove drive" confirmed: out of the drives file, its session and - for an Azlin drive whose
-/// recovery code was checked - its keys out of the keyring.
+/// "Remove drive" confirmed. A build with the encryption takes the drive off this computer in
+/// the background - its session and keys, the copies and indexes with the plain text of its
+/// files, the paid months and the calls that guard them, the states of its jobs and its sync
+/// pairing, and the drives-file entry LAST, only when the rest is clean
+/// ([`crate::encryption::start_forget`]) - and the window finishes when the answer comes
+/// ([`drive_forgotten`]). A build without it forgets the entry and the session here.
 pub(crate) fn forget_drive(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
     let Some(Popup::ConfirmForget { drive_id }) = s.popup.take() else {
         return;
     };
+    #[cfg(feature = "encryption")]
+    crate::encryption::start_forget(info, app, s, &drive_id);
+    #[cfg(not(feature = "encryption"))]
+    forget_drive_here(info, app, s, &drive_id);
+}
+
+/// A removal without the encryption's stores: the drives-file entry, the sync pairing and its
+/// state, the session in the keyring.
+#[cfg(not(feature = "encryption"))]
+fn forget_drive_here(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, drive_id: &str) {
     if let Some(file_path) = s.drives_file.clone() {
         let saved = DrivesFile::update(&file_path, |file| {
-            file.remove(&drive_id);
+            file.remove(drive_id);
         });
         if let Err(e) = saved {
             s.error(Phrase::new("azdrive-drives-file-failed").arg("detail", e.to_string()));
             return;
         }
     }
-    // A synced drive's pairing goes with it: its passes stop and its state folder (the base,
-    // the states and the logs, which name its files) is removed; the files stay where they are.
-    if let Some(setup) = crate::sync_view::setup_of(s, &drive_id).cloned() {
-        crate::sync_jobs::stop(info, app, s, &drive_id);
+    if let Some(setup) = crate::sync_view::setup_of(s, drive_id).cloned() {
+        crate::sync_jobs::stop(info, app, s, drive_id);
         if let Some(root) = crate::sync_jobs::state_root(s) {
             let _ = std::fs::remove_dir_all(setup.state_dir(&root));
         }
     }
-    let mut needs_keyring = false;
-    // An Azlin drive's keys (not only its session) go with it, once its recovery code was checked.
-    let mut azlin_name = None;
-    if let Some(index) = s.slot_index(&drive_id) {
-        let name = s.slots[index].entry.name.clone();
-        needs_keyring = s.slots[index].entry.needs_keyring();
-        if s.slots[index].entry.azlin().is_some() {
-            azlin_name = Some(name.clone());
-        }
-        s.slots.remove(index);
-        s.info(Phrase::new("azdrive-drive-removed").arg("name", name.as_str()));
-    }
-    s.selected_drive = None;
-    s.unlocks.unlocked(&drive_id);
-    s.tree.expanded.retain(|node| node.0 != drive_id);
-    s.tree.loaded.retain(|node, _| node.0 != drive_id);
-    s.root_counts.remove(&drive_id);
-    s.settings.pinned.retain(|p| p.drive != drive_id);
-    if needs_keyring {
+    let Some(index) = s.slot_index(drive_id) else {
+        return;
+    };
+    let name = s.slots[index].entry.name.clone();
+    if s.slots[index].entry.needs_keyring() {
         crate::keyring(
             info,
             s,
             KeyringOp::Forget,
-            KeyringCall::Delete(config::keyring_key(&drive_id)),
+            KeyringCall::Delete(config::keyring_key(drive_id)),
         );
     }
-    #[cfg(feature = "encryption")]
-    if let Some(name) = azlin_name {
-        crate::encryption::forget_keys_with_drive(info, s, &drive_id, &name);
+    drive_forgotten(info, app, s, drive_id, &name, false);
+}
+
+/// The window's part of a removal, once the drive is off the computer: its slot, what the window
+/// remembers of it, the settings' records of it. `keys_kept`: its keys (and the paid months) stay
+/// on this computer because its recovery code was never checked - said, and its recovery state
+/// stays with them (the proof of the next removal is made from it).
+pub(crate) fn drive_forgotten(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    drive_id: &str,
+    name: &str,
+    keys_kept: bool,
+) {
+    if let Some(index) = s.slot_index(drive_id) {
+        s.slots.remove(index);
     }
-    #[cfg(not(feature = "encryption"))]
-    let _ = azlin_name;
+    s.info(Phrase::new("azdrive-drive-removed").arg("name", name));
+    if keys_kept {
+        s.info(Phrase::new("azdrive-forget-keys-kept").arg("name", name));
+    }
+    s.selected_drive = None;
+    s.unlocks.unlocked(drive_id);
+    s.tree.expanded.retain(|node| node.0 != drive_id);
+    s.tree.loaded.retain(|node, _| node.0 != drive_id);
+    s.root_counts.remove(drive_id);
+    s.indexes.remove(drive_id);
+    s.settings.forget_drive(drive_id, !keys_kept);
     s.history.clear();
     save_settings(info, app, s);
     go(info, app, s, Place::ThisPc, false);

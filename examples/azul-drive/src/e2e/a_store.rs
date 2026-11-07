@@ -12,7 +12,7 @@ use azcloud_kit::sync::{
 };
 use azul::prelude::*;
 
-use super::{files::clean, need, str_arg, with_harness, Answer, Args};
+use super::{attempt, files::clean, need, pending, str_arg, with_harness, Answer, Args};
 use crate::{DriveState, Popup};
 
 /// What the previous release's base did not have yet: the fields added since, each with a
@@ -207,16 +207,24 @@ pub(super) fn unpair_cut(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
 
 /// `drive_uninstall`: AzDrive's "Remove drive" for the device's drive, confirmed - the drive
 /// leaves the source list and its keys the keyring; its pairing stops and its state folder
-/// goes. Every file of the folder stays as it is (a cloud-only one stays on the drive).
+/// goes. Every file of the folder stays as it is (a cloud-only one stays on the drive). The
+/// removal runs on a worker thread: the answer is `pending` until the drive is off the list.
 pub(super) fn uninstall(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, args: &Args) -> Answer {
     let drive_id = with_harness(|h| Ok(h.device(args)?.drive_id.clone()))?;
-    if s.slot_index(&drive_id).is_none() {
-        return Err(format!("AzDrive has no drive {drive_id} (removed already?)"));
+    if attempt(args) == 0 {
+        if s.slot_index(&drive_id).is_none() {
+            return Err(format!(
+                "AzDrive has no drive {drive_id} (removed already?)"
+            ));
+        }
+        s.popup.open(Popup::ConfirmForget {
+            drive_id: drive_id.clone(),
+        });
+        crate::actions::forget_drive(info, app, s);
     }
-    s.popup.open(Popup::ConfirmForget {
-        drive_id: drive_id.clone(),
-    });
-    crate::actions::forget_drive(info, app, s);
+    if s.slot_index(&drive_id).is_some() {
+        return Ok(pending());
+    }
     Ok(serde_json::json!({ "removed": drive_id }))
 }
 

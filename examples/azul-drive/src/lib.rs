@@ -268,6 +268,9 @@ mod l10n_tests;
 /// Encrypted drives: AutoEncrypted around Azlin drives, the recovery sheet, the unlock.
 #[cfg(feature = "encryption")]
 mod encryption;
+/// What a removed drive leaves on this computer, and the removal that takes it all off.
+#[cfg(feature = "encryption")]
+mod footprint;
 /// An encrypted drive's recovery methods (C14): the emergency kit, the setup's check, the
 /// drills, trusted contacts, the methods list.
 #[cfg(feature = "encryption")]
@@ -1935,9 +1938,7 @@ pub(crate) fn start_find(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
                     .cache_dir
                     .as_ref()
                     .filter(|_| keeps_listing(&s.slots[index]))
-                    .map(|dir| {
-                        find::listing_file(&dir.join("listings"), &s.slots[index].entry.id)
-                    });
+                    .map(|dir| find::drive_listing_file(dir, &s.slots[index].entry.id));
                 jobs.push(Job::FindRemote {
                     find: jobs::RemoteFind {
                         serial,
@@ -2065,7 +2066,7 @@ fn index_folder(s: &DriveState, drive_id: &str) -> Option<PathBuf> {
             }
         }
     }
-    Some(find::index_dir(&s.cache_dir.as_ref()?.join("index"), drive_id))
+    Some(find::drive_index_dir(s.cache_dir.as_ref()?, drive_id))
 }
 
 /// Brings drive `drive_id`'s index up to its files, on a worker thread: a drive on this
@@ -3740,17 +3741,27 @@ fn set_nodes_root(folder: PathBuf) {
     let _ = NODES_ROOT.set(folder);
 }
 
-/// Where an Azlin drive keeps the node list of its last credential refresh (not secret).
-fn nodes_file(drive_id: &str) -> PathBuf {
-    let root = NODES_ROOT.get().cloned().unwrap_or_else(|| {
+/// The folder the drives' node lists are kept in.
+pub(crate) fn nodes_root() -> PathBuf {
+    NODES_ROOT.get().cloned().unwrap_or_else(|| {
         match path_of(FilePath::get_cache_dir().into_option()) {
             Some(cache) => cache.join("AzDrive").join("nodes"),
             // No cache folder at all: a private folder of this run's scratch, never the shared
             // temp folder (X-AR5a-23).
             None => Scratch::new("nodes").dir().to_path_buf(),
         }
-    });
+    })
+}
+
+/// Where an Azlin drive keeps the node list of its last credential refresh (not secret), in the
+/// folder `root`. The one place the name is spelled; Remove drive asks it (`footprint.rs`).
+pub(crate) fn nodes_file_in(root: &Path, drive_id: &str) -> PathBuf {
     root.join(format!("{}.json", azul_storage::key::safe_file_name(drive_id).unwrap_or_default()))
+}
+
+/// Where an Azlin drive keeps the node list of its last credential refresh.
+fn nodes_file(drive_id: &str) -> PathBuf {
+    nodes_file_in(&nodes_root(), drive_id)
 }
 
 fn path_of(dir: Option<FilePath>) -> Option<PathBuf> {
@@ -4044,15 +4055,15 @@ pub fn start() {
     // The keyring as the worker threads use it (azul's blocking calls); the locks of its
     // entries are the keyring's, shared by every Azlin app and profile of this user.
     let keyring = azcloud_kit::SharedKeyring::new(
-        Arc::new(azul_storage::azul_keyring::AzulKeyring::new(
-            KeyringNamespace::azlin_shared(),
+        Arc::new(azul_storage::azul_keyring::azlin_keyring(
+            azul_storage::keyring::Asking::User,
         )),
         KeyringNamespace::azlin_shared(),
     );
     // The same entries and locks, for background work: never a prompt.
     let quiet_keyring = azcloud_kit::SharedKeyring::new(
-        Arc::new(azul_storage::azul_keyring::AzulKeyring::quiet(
-            KeyringNamespace::azlin_shared(),
+        Arc::new(azul_storage::azul_keyring::azlin_keyring(
+            azul_storage::keyring::Asking::Never,
         )),
         KeyringNamespace::azlin_shared(),
     );

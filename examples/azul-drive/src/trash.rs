@@ -112,6 +112,14 @@ fn old(then: Option<u64>, now: u64) -> bool {
     then.is_some_and(|then| then <= now && now - then >= KEPT_DAYS * DAY)
 }
 
+/// The file that keeps what the trash purge has seen of the drive `drive_id`:
+/// `<cache>/trash/<name>.json`; `None` for an id that names no file. The one place the name is
+/// spelled; Remove drive asks it (`footprint.rs`).
+pub(crate) fn marks_file(cache: &Path, drive_id: &str) -> Option<PathBuf> {
+    let name = azul_storage::key::safe_file_name(drive_id)?;
+    Some(cache.join("trash").join(format!("{name}.json")))
+}
+
 /// The start's look at the trash of every drive on this computer but the data tree's: one job
 /// each for the drives that have a trash. Without a cache folder there is nowhere to write the
 /// marks, and nothing is removed.
@@ -133,10 +141,9 @@ pub(crate) fn start(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
         if !root.join(TRASH_FOLDER.trim_end_matches('/')).is_dir() {
             continue;
         }
-        let Some(name) = azul_storage::key::safe_file_name(&drive_id) else {
+        let Some(marks_file) = marks_file(&cache, &drive_id) else {
             continue;
         };
-        let marks_file = cache.join("trash").join(format!("{name}.json"));
         crate::spawn(
             info,
             app,

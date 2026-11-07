@@ -910,6 +910,21 @@ impl Settings {
             .iter()
             .any(|p| p.drive == drive && p.prefix == prefix)
     }
+
+    /// The records of a removed drive go with it: its pinned folders, its saved searches, its place
+    /// among the indexed drives, its sync pairing - and, when its keys are gone with it
+    /// (`keys_gone`), its recovery state (the code's checks, the drills, the trusted contacts, the
+    /// further codes). A drive whose keys stayed keeps its recovery state: it is what the proof of
+    /// the next removal is made from.
+    pub fn forget_drive(&mut self, drive: &str, keys_gone: bool) {
+        self.pinned.retain(|p| p.drive != drive);
+        self.saved_searches.retain(|search| search.drive != drive);
+        self.indexed_drives.retain(|d| d != drive);
+        self.synced.retain(|p| p.drive_id != drive);
+        if keys_gone {
+            self.recovery.drives.retain(|r| r.drive_id != drive);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -948,6 +963,57 @@ mod tests {
     }
 
     const ORDER: [&str; 5] = ["a", "b", "c", "d", "e"];
+
+    /// LANE-AZ-2: the settings' records of a removed drive go with it - its pinned folders, its
+    /// saved searches, its place among the indexed drives, its pairing - and its recovery state
+    /// only when its keys went too; a drive whose keys stayed keeps what the next removal's proof
+    /// is made from. Another drive's records stay.
+    #[test]
+    fn lane_az_2_the_settings_forget_a_removed_drive_and_keep_the_recovery_state_of_kept_keys() {
+        use crate::{find::SavedSearch, recovery_health::RecoveryState};
+        let (gone, other) = ("d_gone", "d_other");
+        let mut settings = Settings::default();
+        for drive in [gone, other] {
+            settings.pinned.push(Pinned {
+                drive: drive.to_string(),
+                prefix: String::new(),
+                name: String::from("a folder"),
+            });
+            settings.saved_searches.push(SavedSearch {
+                name: format!("searches of {drive}"),
+                drive: drive.to_string(),
+                ..SavedSearch::default()
+            });
+            settings.indexed_drives.push(drive.to_string());
+            settings
+                .synced
+                .push(azcloud_kit::sync::session::SyncSetup::new(
+                    drive,
+                    "",
+                    std::path::Path::new("/tmp/synced"),
+                ));
+            settings.recovery.drives.push(RecoveryState::new(drive));
+        }
+
+        let mut kept = settings.clone();
+        kept.forget_drive(gone, false);
+        assert_eq!(kept.pinned.len(), 1);
+        assert_eq!(kept.saved_searches.len(), 1);
+        assert_eq!(kept.saved_searches[0].drive, other);
+        assert_eq!(kept.indexed_drives, [other]);
+        assert_eq!(kept.synced.len(), 1);
+        assert_eq!(
+            kept.recovery.drives.len(),
+            2,
+            "the keys stayed: so does their state"
+        );
+
+        settings.forget_drive(gone, true);
+        assert_eq!(settings.pinned.len(), 1);
+        assert_eq!(settings.pinned[0].drive, other);
+        assert_eq!(settings.recovery.drives.len(), 1);
+        assert_eq!(settings.recovery.drives[0].drive_id, other);
+    }
 
     #[test]
     fn explorer_has_eight_layouts_and_each_reads_back_from_its_name() {

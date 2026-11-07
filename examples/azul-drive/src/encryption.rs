@@ -159,20 +159,14 @@ pub(crate) fn drive_index_root_in(cache_dir: Option<&Path>) -> Option<PathBuf> {
 /// drive>/search`, gone with it when the drive's key is rotated) - never in the cache the other
 /// drives share; `None` without a cache folder.
 pub(crate) fn search_index_dir(root: Option<PathBuf>, drive: &str) -> Option<PathBuf> {
-    MetaIndexProvider::new("AzDrive")
-        .with_cache_root(root)
-        .drive_cache_dir(drive)
-        .map(|dir| dir.join("search"))
+    crate::footprint::drive_cache_dir(root, drive).map(|dir| dir.join("search"))
 }
 
 /// Where the encrypted drive `drive`'s local copies kept encrypted (its AZL1 objects) are: in
 /// the drive's own cache folder under `root`, beside its drive index and search index
 /// (`<root>/<hash of the drive>/objects`); `None` without a cache folder (none are kept).
 pub(crate) fn objects_dir(root: Option<PathBuf>, drive: &str) -> Option<PathBuf> {
-    MetaIndexProvider::new("AzDrive")
-        .with_cache_root(root)
-        .drive_cache_dir(drive)
-        .map(|dir| dir.join("objects"))
+    crate::footprint::drive_cache_dir(root, drive).map(|dir| dir.join("objects"))
 }
 
 /// An Azlin drive's bucket as the drive the app uses: encrypted, always - opened on its first
@@ -233,30 +227,73 @@ fn recorded(record: &EncryptionRecord) -> Recorded {
     }
 }
 
-/// "Remove drive" for the Azlin drive `drive_id`: its keys leave this computer's keyring with it -
-/// the drive key, this computer's member key, a key made before the setup finished, a rotation's
-/// keys, the recovery request's - but only once the drive's recovery code was typed back right
-/// (once): the keys here may be the only way into the drive, and a removal must not make one
-/// nobody can open. Without a checked code they stay, and that is said. The deletes go through
-/// the UI thread's one-at-a-time keyring queue; a refusal is reported there.
-pub(crate) fn forget_keys_with_drive(
+/// "Remove drive" confirmed: the drive leaves this computer. A worker thread takes it off - its
+/// session and keys, the copies and indexes (with the plain text of its files), the vault of the
+/// paid months, the open calls, the states of its jobs, its sync pairing's state - and the
+/// drives-file entry goes LAST, only when the rest is clean (`footprint::forget`), so a delete the
+/// keyring refused leaves the drive on the list for another try. The keys, the paid months and the
+/// calls that guard them go only once the drive's recovery code was typed back right (once): the
+/// keys here may be the only way into the drive, and a removal must not make one nobody can open.
+/// Without a checked code they stay, and that is said. The window keeps the drive until the
+/// answer ([`EncryptionOutcome::Forgotten`]).
+pub(crate) fn start_forget(
     info: &mut CallbackInfo,
+    app: &RefAny,
     s: &mut DriveState,
     drive_id: &str,
-    name: &str,
 ) {
-    if !crate::recovery_health::keys_may_be_forgotten(&s.settings.recovery.drives, drive_id) {
-        s.info(Phrase::new("azdrive-forget-keys-kept").arg("name", name));
+    let Some(index) = s.slot_index(drive_id) else {
         return;
+    };
+    let name = s.slots[index].entry.name.clone();
+    let uses_keyring =
+        s.slots[index].entry.needs_keyring() || s.slots[index].entry.azlin().is_some();
+    let proof = crate::recovery_health::removal_proof(
+        &s.settings.recovery.drives,
+        drive_id,
+        crate::actions::now_secs(),
+    );
+    // A synced drive's pairing goes with it: its passes stop now; its state folder (the base, the
+    // states and the logs, which name its files) is taken off with the rest; the files stay where
+    // they are.
+    let pairings: Vec<azcloud_kit::sync::session::SyncSetup> = s
+        .settings
+        .synced
+        .iter()
+        .filter(|pairing| pairing.drive_id == drive_id)
+        .cloned()
+        .collect();
+    if !pairings.is_empty() {
+        crate::sync_jobs::stop(info, app, s, drive_id);
     }
-    for entry in device::key_entries(drive_id) {
-        crate::keyring(
-            info,
-            s,
-            crate::KeyringOp::Forget,
-            crate::KeyringCall::Delete(entry),
-        );
-    }
+    let computer = crate::footprint::Computer {
+        drives_file: s.drives_file.clone(),
+        cache_dir: s.cache_dir.clone(),
+        drive_index_root: drive_index_root(),
+        state_dir: state_dir_path(s),
+        sync_root: crate::sync_jobs::state_root(s),
+        nodes_root: crate::nodes_root(),
+        period_tokens: s.period_tokens.clone(),
+        outbox: s.keyring.outbox(),
+        picked_scratch: crate::picker::picked_scratch(),
+    };
+    let places = crate::footprint::Places::of(&computer, drive_id, &pairings);
+    s.popup.open(Popup::Encryption(Dialog::Busy {
+        title: t("azdrive-forget-busy-title"),
+        text: t_args("azdrive-forget-busy", &[("name", Arg::from(name.clone()))]),
+    }));
+    spawn(
+        info,
+        app,
+        s,
+        Job::Encryption(EncryptionJob::Forget {
+            drive_id: drive_id.to_string(),
+            name,
+            places,
+            uses_keyring,
+            proof,
+        }),
+    );
 }
 
 /// Whether the encryption flows are offered (an index provider is in this build).
@@ -266,21 +303,36 @@ pub(crate) fn offered() -> bool {
 
 /// Where a drive's migration keeps its state: beside the drives file.
 fn state_file(s: &DriveState, drive_id: &str) -> Result<PathBuf, String> {
-    Ok(state_dir(s)?.join(format!("{drive_id}.migration.json")))
+    Ok(crate::footprint::migration_state(&state_dir(s)?, drive_id))
 }
 
 /// The folder of the encryption's local state files: beside the drives file, or - when the
 /// system names no configuration folder, so there is no drives file - in scratch, the private
-/// folder of this user's (never the system's shared temporary folder).
-fn state_dir(s: &DriveState) -> Result<PathBuf, String> {
-    if let Some(parent) = s.drives_file.as_ref().and_then(|file| file.parent()) {
-        return Ok(parent.join("encryption"));
+/// folder of this user's (never the system's shared temporary folder). Made by [`state_dir`].
+fn state_dir_path(s: &DriveState) -> PathBuf {
+    match s.drives_file.as_ref().and_then(|file| file.parent()) {
+        Some(parent) => parent.join("encryption"),
+        None => Scratch::new("encryption").dir().to_path_buf(),
     }
-    let scratch = Scratch::new("encryption");
-    scratch
-        .ensure()
-        .map_err(|e| format!("the folder for the encryption's state ({}): {e}", scratch.dir().display()))?;
-    Ok(scratch.dir().to_path_buf())
+}
+
+/// [`state_dir_path`], with a scratch folder made and checked (a folder beside the drives file is
+/// made by the first state saved in it).
+fn state_dir(s: &DriveState) -> Result<PathBuf, String> {
+    if s.drives_file
+        .as_ref()
+        .and_then(|file| file.parent())
+        .is_none()
+    {
+        let scratch = Scratch::new("encryption");
+        scratch.ensure().map_err(|e| {
+            format!(
+                "the folder for the encryption's state ({}): {e}",
+                scratch.dir().display()
+            )
+        })?;
+    }
+    Ok(state_dir_path(s))
 }
 
 /// The state a pass saved and did not finish, if any. A state that is there and cannot be read
@@ -301,9 +353,7 @@ fn load_state<T>(file: &Path, parse: impl FnOnce(&str) -> Option<T>) -> Result<O
     if let Some(state) = std::str::from_utf8(&bytes).ok().and_then(parse) {
         return Ok(Some(state));
     }
-    let mut aside = file.as_os_str().to_owned();
-    aside.push(".damaged");
-    let aside = PathBuf::from(aside);
+    let aside = crate::footprint::damaged_aside(file);
     let set_aside = durable::replace(&aside, &bytes, durable::Mode::Private)
         .and_then(|()| std::fs::remove_file(file));
     Err(match set_aside {
@@ -429,7 +479,7 @@ extern "C" fn on_recompress_timer(mut data: RefAny, info: TimerCallbackInfo) -> 
         return TimerCallbackReturn::continue_unchanged();
     };
     let state_file = match state_dir(&*s) {
-        Ok(dir) => dir.join(format!("{drive_id}.recompress.json")),
+        Ok(dir) => crate::footprint::recompress_state(&dir, &drive_id),
         Err(why) => {
             eprintln!("AZDRIVE_RECOMPRESS_SKIPPED {drive_id}: {why}");
             return TimerCallbackReturn::continue_unchanged();
@@ -1571,7 +1621,7 @@ extern "C" fn on_reencrypt(mut data: RefAny, mut info: CallbackInfo) -> Update {
         };
         let name = drive_name(s, &drive_id);
         let state_file = match state_dir(s) {
-            Ok(dir) => dir.join(format!("{drive_id}.reencrypt.json")),
+            Ok(dir) => crate::footprint::reencrypt_state(&dir, &drive_id),
             Err(why) => {
                 s.error(
                     Phrase::new("azdrive-enc-reencrypt-stopped")
@@ -1926,6 +1976,17 @@ pub(crate) enum EncryptionJob {
         shared: azcloud_kit::SharedKeyring,
         name: String,
     },
+    /// "Remove drive": everything of the drive taken off this computer, the drives-file entry last
+    /// ([`start_forget`]).
+    Forget {
+        drive_id: String,
+        name: String,
+        places: crate::footprint::Places,
+        /// The drive keeps a session or keys in the keyring.
+        uses_keyring: bool,
+        /// The evidence that its recovery code was checked: the keys may go.
+        proof: Option<azul_storage::footprint::RemovalProof>,
+    },
     /// A joined drive's key from its join code's seal: this device enrolled with it.
     AdoptJoinKey {
         drive_id: String,
@@ -2038,6 +2099,12 @@ pub(crate) enum EncryptionOutcome {
     Invited {
         drive_id: String,
         result: Result<Zeroizing<String>, String>,
+    },
+    /// What taking the drive off this computer did, store by store.
+    Forgotten {
+        drive_id: String,
+        name: String,
+        report: azul_storage::footprint::ForgetReport,
     },
 }
 
@@ -2371,6 +2438,26 @@ pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
                 Ok(Zeroizing::new(code.encode()))
             })();
             EncryptionOutcome::Invited { drive_id, result }
+        }
+        EncryptionJob::Forget {
+            drive_id,
+            name,
+            places,
+            uses_keyring,
+            proof,
+        } => {
+            // The user asked for this: the keyring may ask (the unlock prompt, Touch ID).
+            let report = crate::footprint::forget(
+                &drive_id,
+                &places,
+                uses_keyring.then_some(&keyring as &dyn KeyringStore),
+                proof.as_ref(),
+            );
+            EncryptionOutcome::Forgotten {
+                drive_id,
+                name,
+                report,
+            }
         }
         EncryptionJob::AdoptJoinKey {
             drive_id,
@@ -3132,6 +3219,44 @@ pub(crate) fn on_outcome(
                         .arg("name", name.as_str())
                         .arg("why", t_label(&why)),
                 ),
+            }
+        }
+        EncryptionOutcome::Forgotten {
+            drive_id,
+            name,
+            report,
+        } => {
+            if matches!(
+                s.popup.as_ref(),
+                Some(Popup::Encryption(Dialog::Busy { .. }))
+            ) {
+                s.popup.close();
+            }
+            if report.complete() {
+                println!("AZDRIVE_FORGOTTEN {drive_id}");
+                crate::actions::drive_forgotten(
+                    info,
+                    app,
+                    s,
+                    &drive_id,
+                    &name,
+                    !report.kept().is_empty(),
+                );
+            } else {
+                // The drive stays on the list, its entries findable by its id: removing it again
+                // does the rest (what is gone is gone; every store is tried again).
+                let why = report
+                    .failures()
+                    .iter()
+                    .map(|(store, e)| format!("{store}: {e}"))
+                    .collect::<Vec<_>>()
+                    .join("; ");
+                eprintln!("AZDRIVE_FORGET_FAILED {drive_id}: {why}");
+                s.error(
+                    Phrase::new("azdrive-forget-failed")
+                        .arg("name", name.as_str())
+                        .arg("why", why),
+                );
             }
         }
         EncryptionOutcome::Invited { drive_id, result } => match result {

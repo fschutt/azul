@@ -240,14 +240,21 @@ struct NoticeFile {
     shown: Vec<u64>,
 }
 
+/// The file the price notices of the drive `drive_id` are kept in, in the folder `dir` of the
+/// period tokens: `<dir>/<drive id>.notices.json`, the id's letters, digits, `_` and `-`. The one
+/// place the name is spelled; Remove drive asks it (`footprint.rs`).
+pub(crate) fn notices_file(dir: &Path, drive_id: &str) -> PathBuf {
+    let file: String = drive_id
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-')
+        .collect();
+    dir.join(format!("{file}.notices.json"))
+}
+
 impl NoticeLog {
     fn new(dir: &Path, drive_id: &str) -> NoticeLog {
-        let file: String = drive_id
-            .chars()
-            .filter(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-')
-            .collect();
         NoticeLog {
-            path: dir.join(format!("{file}.notices.json")),
+            path: notices_file(dir, drive_id),
         }
     }
 

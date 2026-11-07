@@ -595,6 +595,19 @@ pub(crate) fn answer_keys(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSt
     start_copy(info, app, s, &drive_id, refs);
 }
 
+/// Where the copies a picker fetched from the drive `drive_id` are kept when there is a cache
+/// folder: `<cache>/picked/<drive id>`. The one place the name is spelled; Remove drive asks it
+/// (`footprint.rs`).
+pub(crate) fn picked_dir(cache: &Path, drive_id: &str) -> PathBuf {
+    cache.join("picked").join(drive_id)
+}
+
+/// The scratch the copies wait in when there is no cache folder: a kept folder of it a drive
+/// ([`Scratch::keep`] makes it, [`Scratch::kept`] names it).
+pub(crate) fn picked_scratch() -> Scratch {
+    Scratch::new("picked")
+}
+
 /// Fetches the objects of `refs` into `<cache>/picked/<drive id>/` through the transfer queue;
 /// its end answers ([`copy_finished`]).
 fn start_copy(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, drive_id: &str, refs: Vec<CloudRef>) {
@@ -610,8 +623,8 @@ fn start_copy(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, drive_i
     // In the cache folder; without one, in scratch (a private folder of its own per drive, swept
     // when a day old), never the shared temp folder under a name every user can guess (X-AR5a-23).
     let root = match s.cache_dir.clone() {
-        Some(cache) => cache.join("picked").join(drive_id),
-        None => match Scratch::new("picked").keep(drive_id) {
+        Some(cache) => picked_dir(&cache, drive_id),
+        None => match picked_scratch().keep(drive_id) {
             Ok(folder) => folder,
             Err(e) => {
                 eprintln!("[azdrive] the picker's copies cannot wait in scratch: {e}");

@@ -956,6 +956,14 @@ pub fn listing_file(dir: &Path, drive_id: &str) -> PathBuf {
     dir.join(format!("{}.tsv", cache_name(drive_id)))
 }
 
+/// The file of the drive `drive_id`'s last complete listing in the cache folder `cache`:
+/// `<cache>/listings/<name>.tsv`. The one place the folder is spelled ([`listing_file`] names the
+/// file); Remove drive asks it (`footprint.rs`).
+#[must_use]
+pub fn drive_listing_file(cache: &Path, drive_id: &str) -> PathBuf {
+    listing_file(&cache.join("listings"), drive_id)
+}
+
 /// The name of a drive's file or folder in the cache: the id's letters and digits (the rest
 /// become `_`) and a hash of the whole id (two ids that read alike do not share it).
 fn cache_name(drive_id: &str) -> String {
@@ -1099,6 +1107,14 @@ pub struct IndexAsk {
 #[must_use]
 pub fn index_dir(dir: &Path, drive_id: &str) -> PathBuf {
     dir.join(cache_name(drive_id))
+}
+
+/// The folder of the drive `drive_id`'s index in the cache folder `cache`: `<cache>/index/<name>`
+/// ([`index_dir`]). The one place the shared index's home is spelled; Remove drive asks it
+/// (`footprint.rs`).
+#[must_use]
+pub fn drive_index_dir(cache: &Path, drive_id: &str) -> PathBuf {
+    index_dir(&cache.join("index"), drive_id)
 }
 
 /// The walk a drive's index reads, from the drive's root: the search box's defaults - no hidden

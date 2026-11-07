@@ -5,7 +5,7 @@
 //! a removed drive left the rest behind, readable by every program of the user. `KeyEntry`
 //! (`azul-storage/src/footprint.rs`) is the one place that writes an entry's name, a golden test
 //! pins the names (users' keys are in them), and `forget_drive` takes the drive off the device
-//! through the stores. Three rules keep it so:
+//! through the stores. Four rules keep it so:
 //!
 //! - a string that starts with `azul-storage/` is the first half of an entry name written by hand:
 //!   it belongs to `KeyEntry::name` (or `contact_key_entry`), nowhere else (no allowance);
@@ -15,7 +15,11 @@
 //!   on a disk must not be left with it by a copy of another store's impl (no allowance);
 //! - `AzulKeyring::new(` and `::quiet(` are called in `azlin_keyring` only - the one place the
 //!   Azlin apps' keyring is built, where its locks and its policy are applied. What still builds
-//!   one by hand is listed with its owner; the counts only go down.
+//!   one by hand is listed with its owner; the counts only go down;
+//! - `RemovalProof::from_checked_code(` is called in one place: `RecoveryState::removal_proof`,
+//!   which asks whether the drive's recovery code was typed back right. The proof lets a removed
+//!   drive's keys, paid months and open calls go; whoever made one by hand would make the evidence
+//!   whatever they believed at that line.
 //!
 //! Comments and test items are not read.
 
@@ -61,6 +65,7 @@ const ROOTS: &[Root] = &[
 const BY_HAND: &str = "entry-name-written-by-hand";
 const NO_PROTECTION: &str = "keyring-store-without-protection";
 const BUILT_BY_HAND: &str = "azul-keyring-built-by-hand";
+const PROOF_BY_HAND: &str = "removal-proof-made-by-hand";
 
 /// Where an `AzulKeyring` is still built by hand, and who changes it. TO SHRINK.
 const ALLOWED: &[Allow] = &[
@@ -71,22 +76,17 @@ const ALLOWED: &[Allow] = &[
         "azlin_keyring: the one place (`new` for a keyring that may ask, `quiet` for one that never does)",
     ),
     Allow::exactly(
-        "examples/azul-drive/src/jobs.rs",
-        BUILT_BY_HAND,
-        1,
-        "the checkout job's keyring: jobs.rs is Z30-R2's while this lane works; it becomes azlin_keyring(Asking::User)",
-    ),
-    Allow::exactly(
-        "examples/azul-drive/src/lib.rs",
-        BUILT_BY_HAND,
-        2,
-        "the start's keyring, asking and quiet: lib.rs is Z30-R2's while this lane works; they become azlin_keyring(..)",
-    ),
-    Allow::exactly(
         "examples/azul-mail/src/lib.rs",
         BUILT_BY_HAND,
         5,
         "AzMail's five: azul-mail/** is Z30-C2's (wave 2); they become azlin_keyring(Asking::User)",
+    ),
+    Allow::exactly(
+        "examples/azul-drive/src/recovery_health.rs",
+        PROOF_BY_HAND,
+        1,
+        "RecoveryState::removal_proof: the one place a proof is made, from a recovery code that \
+         was typed back right at a time that is not after now",
     ),
 ];
 
@@ -189,6 +189,19 @@ fn rules() -> Vec<Rule> {
                 "let k = Keyring::new(ns);",
             ],
         ),
+        Rule::new(
+            PROOF_BY_HAND,
+            |t| calls(t, "RemovalProof::from_checked_code"),
+            &[
+                "let proof = RemovalProof::from_checked_code(drive);",
+                "let proof = azul_storage::footprint::RemovalProof::from_checked_code(&id);",
+            ],
+            &[
+                "let proof = state.removal_proof(now);",
+                "pub fn from_checked_code(drive: &str) -> RemovalProof { x }",
+                "let kept = RemovalProof::drive(&proof);",
+            ],
+        ),
     ]
 }
 
@@ -232,7 +245,7 @@ fn check(base: &Path) -> Result<usize, Vec<String>> {
 }
 
 #[test]
-fn lane_az_2_each_of_the_three_plants_is_caught_with_its_line() {
+fn lane_az_2_each_of_the_four_plants_is_caught_with_its_line() {
     let planted = "pub fn session(drive: &str) -> String {\n\
     format!(\"azul-storage/s3/{drive}\")\n\
 }\n\
@@ -243,11 +256,14 @@ impl KeyringStore for Plain {\n\
 }\n\
 pub fn keyring() -> AzulKeyring {\n\
     AzulKeyring::new(KeyringNamespace::azlin_shared())\n\
+}\n\
+pub fn proof() -> RemovalProof {\n\
+    RemovalProof::from_checked_code(\"d_1\")\n\
 }\n";
     let base = base_with("planted", &[("examples/azul-storage/src/lib.rs", planted)]);
-    let wrong = check(&base).expect_err("both plants are findings");
+    let wrong = check(&base).expect_err("all four plants are findings");
     let _ = std::fs::remove_dir_all(&base);
-    assert_eq!(wrong.len(), 3, "{wrong:?}");
+    assert_eq!(wrong.len(), 4, "{wrong:?}");
     assert!(
         wrong
             .iter()
@@ -264,6 +280,12 @@ pub fn keyring() -> AzulKeyring {\n\
         wrong
             .iter()
             .any(|w| w.contains("lib.rs:10") && w.contains(BUILT_BY_HAND)),
+        "{wrong:?}"
+    );
+    assert!(
+        wrong
+            .iter()
+            .any(|w| w.contains("lib.rs:13") && w.contains(PROOF_BY_HAND)),
         "{wrong:?}"
     );
 }

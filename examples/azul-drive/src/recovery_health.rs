@@ -17,6 +17,7 @@
 //! without the encryption feature; the flows are `recovery.rs`'s.
 
 use azul_appkit::l10n::{Phrase, Text};
+use azul_storage::footprint::RemovalProof;
 use serde::{Deserialize, Serialize};
 
 /// A day in seconds.
@@ -254,6 +255,19 @@ pub struct RecoverySettings {
 }
 
 impl RecoveryState {
+    /// The evidence that this drive's keys - and what was paid for it, kept beside them - may
+    /// leave this computer with the drive: its recovery code was typed back right at least once
+    /// (the setup's check, a drill) at a time that is not after `now`. The keys on this computer
+    /// may be the only way into the drive, and removing a drive must not make one nobody can
+    /// open: without a checked code they stay. A stamp from a clock that ran ahead is no check.
+    /// The one place a [`RemovalProof`] is made (`footprint_gate` counts the callers).
+    #[must_use]
+    pub fn removal_proof(&self, now: u64) -> Option<RemovalProof> {
+        self.code_checked
+            .filter(|checked| *checked <= now)
+            .map(|_| RemovalProof::from_checked_code(&self.drive_id))
+    }
+
     #[must_use]
     pub fn new(drive_id: &str) -> RecoveryState {
         RecoveryState {
@@ -477,13 +491,11 @@ pub fn state_of<'a>(states: &'a [RecoveryState], drive_id: &str) -> Option<&'a R
     states.iter().find(|state| state.drive_id == drive_id)
 }
 
-/// Whether the keys of the removed drive `drive_id` may leave this computer with it: its recovery
-/// code was typed back right at least once (the setup's check, a drill). The keys on this
-/// computer may be the only way into the drive, and removing a drive must not make one nobody can
-/// open - without a checked code they stay.
+/// The evidence that the keys of the removed drive `drive_id` may leave this computer with it
+/// ([`RecoveryState::removal_proof`]); `None` for a drive this computer has no recovery state of.
 #[must_use]
-pub fn keys_may_be_forgotten(states: &[RecoveryState], drive_id: &str) -> bool {
-    state_of(states, drive_id).is_some_and(|state| state.code_checked.is_some())
+pub fn removal_proof(states: &[RecoveryState], drive_id: &str, now: u64) -> Option<RemovalProof> {
+    state_of(states, drive_id).and_then(|state| state.removal_proof(now))
 }
 
 /// The recovery of `drive_id`, made when there is none.
@@ -740,26 +752,32 @@ mod tests {
         }
     }
 
-    /// K6: "Remove drive" takes the drive's keys out of the keyring only when its recovery code was
-    /// typed back right once; before that they are the only way into the drive.
+    /// K6, LANE-AZ-2: "Remove drive" takes the drive's keys - and the paid months kept beside them
+    /// - off the computer only with the evidence that its recovery code was typed back right once;
+    /// before that they are the only way into the drive. A check stamped after `now` is none.
     #[test]
-    fn a_removed_drives_keys_go_only_once_its_recovery_code_was_checked() {
+    fn lane_az_2_a_removed_drives_keys_go_only_once_its_recovery_code_was_checked() {
         let never_made: Vec<RecoveryState> = Vec::new();
         assert!(
-            !keys_may_be_forgotten(&never_made, "d_1"),
+            removal_proof(&never_made, "d_1", NOW).is_none(),
             "no record: keep the keys"
         );
         let mut made = RecoveryState::new("d_1");
         made.code_made(NOW, Some(String::from("key")));
         assert!(
-            !keys_may_be_forgotten(&[made], "d_1"),
+            removal_proof(&[made], "d_1", NOW).is_none(),
             "a code never typed back"
         );
         let states = vec![checked(), RecoveryState::new("d_2")];
-        assert!(keys_may_be_forgotten(&states, "d_1"));
+        let proof = removal_proof(&states, "d_1", NOW).expect("typed back at the setup");
+        assert_eq!(proof.drive(), "d_1");
         assert!(
-            !keys_may_be_forgotten(&states, "d_2"),
+            removal_proof(&states, "d_2", NOW).is_none(),
             "another drive's state says nothing"
+        );
+        assert!(
+            removal_proof(&states, "d_1", NOW - 1).is_none(),
+            "a check from the future is stale, not proof"
         );
     }
 
