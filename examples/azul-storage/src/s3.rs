@@ -49,6 +49,10 @@ use crate::{
 /// S3's longest key, in bytes.
 const MAX_KEY_BYTES: usize = 1024;
 
+/// How many versioned deletes ([`BatchDelete::of_version`]) are looked at (one HEAD each) before the
+/// group is deleted in one request: the window between a file's look and its delete is this many
+/// looks, not the whole batch's.
+const VERSIONED_GROUP: usize = 16;
 /// Bytes of one part of a multipart upload, and the most [`Drive::put_from`] sends in one
 /// PUT (S3 takes parts of 5 MiB to 5 GiB, all but the last at least 5 MiB).
 pub const PART_SIZE: usize = 16 * 1024 * 1024;
@@ -1672,42 +1676,52 @@ impl Drive for S3Drive {
         ops::put_from_parallel(self, items)
     }
 
-    /// The versions an item names checked with a HEAD each (an edit made elsewhere beats a
-    /// delete), then [`DELETE_BATCH`] keys a request ([`S3Drive::delete_objects`]).
+    /// [`DELETE_BATCH`] keys a request ([`S3Drive::delete_objects`]). The versions an item names
+    /// are checked with a HEAD each (an edit made elsewhere beats a delete) - in groups of
+    /// [`VERSIONED_GROUP`], each group deleted right after its looks: with ten thousand files the
+    /// first file's look used to be ten thousand looks (minutes) before its delete, and an edit
+    /// another device saved in them was deleted (X-DELTA-AZDRIVE-FILES-24).
     fn delete_many(&self, items: &[BatchDelete<'_>]) -> Vec<Result<(), DriveError>> {
         let mut results: Vec<Option<Result<(), DriveError>>> = vec![None; items.len()];
-        let mut go: Vec<usize> = Vec::new();
+        let mut plain: Vec<usize> = Vec::new();
+        let mut versioned: Vec<usize> = Vec::new();
         for (i, item) in items.iter().enumerate() {
             if let Err(e) = check_s3_key(item.key) {
                 results[i] = Some(Err(e));
-                continue;
+            } else if item.version.is_some() {
+                versioned.push(i);
+            } else {
+                plain.push(i);
             }
-            if let Some(version) = item.version {
-                match self.head(item.key) {
-                    Ok(info) if same_etag(info.etag.as_deref(), version) => {}
-                    Ok(_) => {
-                        results[i] = Some(Err(DriveError::Conflict {
-                            key: item.key.to_string(),
-                        }));
-                        continue;
-                    }
-                    Err(DriveError::NotFound { .. }) => {
-                        results[i] = Some(Ok(()));
-                        continue;
-                    }
-                    Err(e) => {
-                        results[i] = Some(Err(e));
-                        continue;
-                    }
-                }
-            }
-            go.push(i);
         }
-        for chunk in go.chunks(DELETE_BATCH) {
+        let send = |results: &mut Vec<Option<Result<(), DriveError>>>, chunk: &[usize]| {
             let keys: Vec<&str> = chunk.iter().map(|&i| items[i].key).collect();
             for (&i, result) in chunk.iter().zip(self.delete_objects(&keys)) {
                 results[i] = Some(result);
             }
+        };
+        for chunk in plain.chunks(DELETE_BATCH) {
+            send(&mut results, chunk);
+        }
+        for group in versioned.chunks(VERSIONED_GROUP) {
+            let mut go: Vec<usize> = Vec::new();
+            for &i in group {
+                let item = &items[i];
+                let Some(version) = item.version else {
+                    continue;
+                };
+                match self.head(item.key) {
+                    Ok(info) if same_etag(info.etag.as_deref(), version) => go.push(i),
+                    Ok(_) => {
+                        results[i] = Some(Err(DriveError::Conflict {
+                            key: item.key.to_string(),
+                        }));
+                    }
+                    Err(DriveError::NotFound { .. }) => results[i] = Some(Ok(())),
+                    Err(e) => results[i] = Some(Err(e)),
+                }
+            }
+            send(&mut results, &go);
         }
         results
             .into_iter()

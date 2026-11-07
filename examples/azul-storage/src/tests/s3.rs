@@ -1127,3 +1127,67 @@ fn a_delete_objects_body_carries_the_base64_of_its_md5() {
         "x0FQOH+s1UFedrTctTzz5A=="
     );
 }
+
+/// X-DELTA-AZDRIVE-FILES-24. A batch of versioned deletes looked at EVERY file with a HEAD and only
+/// then sent DeleteObjects: with ten thousand files the first file's look was ten thousand looks
+/// (minutes) before its delete, and an edit another device saved in them was deleted. The looks go
+/// in groups of VERSIONED_GROUP (16), each group deleted right after its looks.
+#[test]
+fn x_delta_azdrive_files_24_a_versioned_batch_is_looked_at_and_deleted_in_short_groups() {
+    use crate::BatchDelete;
+    let fake = Fake::default();
+    let keys: Vec<String> = (0..18).map(|n| format!("f{n:02}.txt")).collect();
+    // Eighteen looks, each answering the version that is named, and two DeleteObjects answers.
+    for n in 0..18 {
+        if n == 16 {
+            fake.answer(200, &[], "<DeleteResult></DeleteResult>");
+        }
+        fake.answer(200, &[("ETag", "\"v1\""), ("Content-Length", "3")], "");
+    }
+    fake.answer(200, &[], "<DeleteResult></DeleteResult>");
+    let items: Vec<BatchDelete<'_>> = keys
+        .iter()
+        .map(|key| BatchDelete::new(key).of_version("v1"))
+        .collect();
+    let results = local_drive(&fake).delete_many(&items);
+    assert!(results.iter().all(Result::is_ok), "{results:?}");
+    let methods: Vec<Method> = fake.calls().iter().map(|call| call.method).collect();
+    let mut expected = vec![Method::Head; 16];
+    expected.push(Method::Post);
+    expected.extend([Method::Head; 2]);
+    expected.push(Method::Post);
+    assert_eq!(
+        methods, expected,
+        "the first group was not deleted before the last file was looked at"
+    );
+}
+
+/// The conflict of one file is still its own: the others of its group go.
+#[test]
+fn x_delta_azdrive_files_24_a_file_that_changed_is_kept_and_the_rest_of_its_group_goes() {
+    use crate::BatchDelete;
+    let fake = Fake::default();
+    fake.answer(200, &[("ETag", "\"v1\"")], "");
+    fake.answer(200, &[("ETag", "\"v2-edited\"")], "");
+    fake.answer(200, &[("ETag", "\"v1\"")], "");
+    fake.answer(200, &[], "<DeleteResult></DeleteResult>");
+    let items = [
+        BatchDelete::new("a.txt").of_version("v1"),
+        BatchDelete::new("b.txt").of_version("v1"),
+        BatchDelete::new("c.txt").of_version("v1"),
+    ];
+    let results = local_drive(&fake).delete_many(&items);
+    assert!(results[0].is_ok() && results[2].is_ok(), "{results:?}");
+    assert!(
+        matches!(results[1], Err(DriveError::Conflict { .. })),
+        "{results:?}"
+    );
+    let delete = fake.last();
+    assert_eq!(delete.method, Method::Post);
+    let body = String::from_utf8_lossy(&delete.body).into_owned();
+    assert!(body.contains("a.txt") && body.contains("c.txt"), "{body}");
+    assert!(
+        !body.contains("b.txt"),
+        "the edited file was named in the delete: {body}"
+    );
+}

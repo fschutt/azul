@@ -156,25 +156,48 @@ pub fn rename_by_copy<D: Drive + ?Sized>(
             .iter()
             .map(|object| format!("{to}{}", &object.key[from.len()..]))
             .collect();
+        // The version of each file that is copied: the listing's tag, else (a folder on disk lists
+        // no tag) a look BEFORE its copy - never `.ok()`: a look that fails stops the rename before
+        // anything is copied. The copy then checks it still holds, and the delete names it
+        // (X-DELTA-AZDRIVE-FILES-24). A folder marker has none.
+        let mut versions: Vec<Option<String>> = Vec::with_capacity(objects.len());
+        for object in &objects {
+            versions.push(match &object.etag {
+                Some(tag) => Some(tag.clone()),
+                None if object.key.ends_with('/') => None,
+                None => drive.head(&object.key)?.etag,
+            });
+        }
         let moves: Vec<BatchMove<'_>> = objects
             .iter()
             .zip(&targets)
-            .map(|(object, target)| BatchMove::new(&object.key, target))
+            .zip(&versions)
+            .map(|((object, target), version)| {
+                let one = BatchMove::new(&object.key, target);
+                match version {
+                    Some(tag) => one.of_version(tag),
+                    None => one,
+                }
+            })
             .collect();
         // The target folder is empty (checked above): no target needs a look of its own. A
         // folder moves whole or not at all: the sources go only when every copy landed.
         if let Some(e) = copy_each(drive, &moves, false).into_iter().find_map(Result::err) {
             return Err(e);
         }
-        // Only the versions that were listed go: a file written to since stays where it is, and
+        // Only the versions that were copied go: a file written to since stays where it is, and
         // the move reports it (a duplicate, never a loss).
         // Deepest first: a folder marker goes after what is in it (FTP's RMD refuses a folder that
         // is not empty).
-        let mut by_depth: Vec<&ObjectInfo> = objects.iter().collect();
-        by_depth.sort_by_key(|object| std::cmp::Reverse(object.key.len()));
+        let mut by_depth: Vec<(&ObjectInfo, Option<&str>)> = objects
+            .iter()
+            .zip(&versions)
+            .map(|(object, version)| (object, version.as_deref()))
+            .collect();
+        by_depth.sort_by_key(|(object, _)| std::cmp::Reverse(object.key.len()));
         let deletes: Vec<BatchDelete<'_>> = by_depth
             .iter()
-            .map(|object| delete_of(&object.key, object.etag.as_deref()))
+            .map(|(object, version)| delete_of(&object.key, *version))
             .collect();
         return drive
             .delete_many(&deletes)

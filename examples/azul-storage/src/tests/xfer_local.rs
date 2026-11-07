@@ -455,3 +455,65 @@ fn a_bucket_folder_is_removed_when_only_its_markers_are_under_it() {
     // Not there at all.
     assert!(drive.remove_empty_folder("never/").unwrap());
 }
+
+/// X-DELTA-AZDRIVE-FILES-24. The cross-device folder rename (`rename_by_copy`) deleted by the
+/// listing's tag, and a folder on disk lists none: every delete was unversioned, and a file saved
+/// while the folder was copied was deleted with it. A look before each file's copy gives the version
+/// that is copied and the one that goes.
+#[test]
+fn x_delta_azdrive_files_24_a_folder_renamed_by_copy_deletes_the_versions_it_copied() {
+    use crate::{ops::rename_by_copy, Drive};
+    /// A drive with a folder's lists (no tags) whose heads carry one, that edits `a.txt` while the
+    /// folder is copied.
+    struct Untagged {
+        inner: Versioned,
+        edit_after_copy: std::sync::atomic::AtomicBool,
+    }
+    impl Drive for Untagged {
+        fn list(&self, request: &ListRequest) -> Result<ListPage, DriveError> {
+            let mut page = self.inner.list(request)?;
+            for object in &mut page.objects {
+                object.etag = None;
+            }
+            Ok(page)
+        }
+        fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
+            self.inner.get(key)
+        }
+        fn get_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, DriveError> {
+            self.inner.get_range(key, range)
+        }
+        fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
+            self.inner.put(key, bytes)
+        }
+        fn delete(&self, key: &str) -> Result<(), DriveError> {
+            self.inner.delete(key)
+        }
+        fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
+            self.inner.head(key)
+        }
+        fn copy(&self, from: &str, to: &str) -> Result<(), DriveError> {
+            self.inner.copy(from, to)?;
+            if from == "d/a.txt" && self.edit_after_copy.swap(false, Ordering::SeqCst) {
+                self.inner
+                    .write("d/a.txt", b"edited while the folder was copied");
+            }
+            Ok(())
+        }
+    }
+    let drive = Untagged {
+        inner: Versioned::with(&[("d/a.txt", b"a v1"), ("d/b.txt", b"b v1")]),
+        edit_after_copy: std::sync::atomic::AtomicBool::new(true),
+    };
+    let renamed = rename_by_copy(&drive, "d/", "e/");
+    assert!(
+        matches!(renamed, Err(DriveError::Conflict { .. })),
+        "the edited file was not reported: {renamed:?}"
+    );
+    assert_eq!(
+        drive.get("d/a.txt").unwrap(),
+        b"edited while the folder was copied",
+        "the edit saved while the folder was copied was deleted with the old version"
+    );
+    assert_eq!(drive.get("e/a.txt").unwrap(), b"a v1", "the copy landed");
+}
