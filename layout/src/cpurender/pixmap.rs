@@ -1422,7 +1422,19 @@ pub fn svg_user_space_mapping(
 /// was (`069780aa0`) let a corner's segment reach across it: 10 of 2400 random
 /// frames of `an_incremental_cpu_frame_matches_a_full_redraw` (30 seeds, both
 /// dpi) had one pixel a level off the full redraw; none has with this.
-const GEOMETRY_MARGIN: f64 = 32.0;
+///
+/// The bound holds for the segments the producers of arcs leave, not for any
+/// segment: the corner arcs of a rounded box are stepped so that none is longer
+/// than [`MAX_ARC_SEGMENT_PX`] (`raster::arc_approximation_scale` - without that
+/// a radius of 1000 px at 1x, 2000 at 2x, was back to a segment longer than the
+/// margin, `FIX-d0950e410-1`).
+pub(crate) const GEOMETRY_MARGIN: f64 = 32.0;
+
+/// The longest segment of a corner arc, in device pixels: the margin less the
+/// two pixels a cut's own rounding needs and two of slack for a chord being
+/// shorter than its arc. A radius that AGG's default step would leave longer
+/// than this is stepped finer ([`GEOMETRY_MARGIN`]).
+pub(crate) const MAX_ARC_SEGMENT_PX: f64 = GEOMETRY_MARGIN - 4.0;
 
 /// The box the AA rasterizer clips a path's GEOMETRY to for the pixel clip
 /// `clip`: the clip grown by [`GEOMETRY_MARGIN`], within the pixmap grown by

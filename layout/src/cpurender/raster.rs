@@ -6335,18 +6335,38 @@ fn mask_row_to_rounded_rect(
     }
 }
 
+/// The largest radius, in device px, that arcs are stepped finely for.
+/// AGG steps an arc by angle, finer the larger the radius: a radius of
+/// a trillion pixels takes millions of steps, and past ~1e15 the
+/// step rounds to 0 and the arc never ends. Beyond this the tolerance
+/// grows with the radius: three pixels for a radius of a hundred million.
+const MAX_FINE_ARC_RADIUS: f64 = 4_194_304.0;
+
+/// The approximation scale AGG steps the corner arcs of a rounded box by.
+///
+/// AGG steps an arc so that a segment is about `sqrt(radius / scale)` px long.
+/// The rasterizer cuts a path's geometry [`GEOMETRY_MARGIN`] beyond the visible
+/// pixels, which is exact only while no segment is longer than that: a cut inside
+/// a long segment leaves its pixels a level off between a fill under a clip and
+/// one under none (the incremental frame against the full redraw). So the scale
+/// is the output's own (`dpi`, never coarser than 1) - or, for a radius whose
+/// segment that would leave longer than [`MAX_ARC_SEGMENT_PX`] (a radius of 1000
+/// px at 1x), the finer one that holds the segment to it - bounded by
+/// [`MAX_FINE_ARC_RADIUS`]. Below `MAX_ARC_SEGMENT_PX^2 * dpi` (784 px at 1x)
+/// nothing changed.
+fn arc_approximation_scale(dpi_factor: f32, largest_radius_px: f64) -> f64 {
+    let largest = largest_radius_px.max(1.0);
+    let for_segments = largest / (MAX_ARC_SEGMENT_PX * MAX_ARC_SEGMENT_PX);
+    f64::from(dpi_factor.max(1.0))
+        .max(for_segments)
+        .min(MAX_FINE_ARC_RADIUS / largest)
+}
+
 fn build_rounded_rect_path(
     rect: &AzRect,
     border_radius: &BorderRadius,
     dpi_factor: f32,
 ) -> PathStorage {
-    /// The largest radius, in device px, that arcs are stepped finely for.
-    /// AGG steps an arc by angle, finer the larger the radius: a radius of
-    /// a trillion pixels takes millions of steps, and past ~1e15 the
-    /// step rounds to 0 and the arc never ends. Beyond this the tolerance
-    /// grows with the radius: three pixels for a radius of a hundred million.
-    const MAX_FINE_ARC_RADIUS: f64 = 4_194_304.0;
-
     let mut path = PathStorage::new();
 
     let x = f64::from(rect.x);
@@ -6397,9 +6417,7 @@ fn build_rounded_rect_path(
     rr.radius_all(tl, tl, tr, tr, br, br, bl, bl);
     rr.normalize_radius();
     let largest = tl.max(tr).max(br).max(bl);
-    rr.set_approximation_scale(
-        f64::from(dpi_factor.max(1.0)).min(MAX_FINE_ARC_RADIUS / largest.max(1.0)),
-    );
+    rr.set_approximation_scale(arc_approximation_scale(dpi_factor, largest));
 
     path.concat_path(&mut rr, 0);
     path
@@ -13106,5 +13124,151 @@ mod an_opacity_group_blends_only_its_box {
     fn a_group_without_a_box_touches_nothing() {
         let r = opacity_group_region(&lr(10.0, 10.0, 0.0, 0.0), None, 1.0);
         assert_eq!(r.width * r.height, 0.0);
+    }
+}
+
+/// A rounded box with a radius of a thousand pixels or more keeps the segments of
+/// its corner arcs within the geometry margin of the rasterizer (`FIX-d0950e410-1`).
+///
+/// The rasterizer cuts a path's geometry [`GEOMETRY_MARGIN`] (32 px) beyond the
+/// visible pixels, which lets a fill under a clip give the pixels of a fill under
+/// none only while no segment of the path is longer than the margin. AGG steps an arc
+/// so that a segment is about `sqrt(radius / scale)` px - 31.6 px for a radius of
+/// 1000 px at 1x, 44.7 px for 2000: the cases the margin of d0950e410 (measured on
+/// radii up to 60) did not reach.
+#[cfg(test)]
+mod a_big_rounded_boxs_arcs_stay_within_the_geometry_margin_tests {
+    use super::*;
+
+    /// A box of `2 * radius_px` with corners of `radius_px` device px (a circle),
+    /// its top-left at `(x, y)`, as the display list gives it at `dpi`.
+    fn circle(radius_px: f64, dpi: f32, x: f32, y: f32) -> PathStorage {
+        let side = (2.0 * radius_px) as f32;
+        let rect = AzRect::from_xywh(x, y, side, side).expect("a box");
+        let corner = (radius_px / f64::from(dpi)) as f32;
+        build_rounded_rect_path(
+            &rect,
+            &BorderRadius {
+                top_left: corner,
+                top_right: corner,
+                bottom_left: corner,
+                bottom_right: corner,
+            },
+            dpi,
+        )
+    }
+
+    /// The longest distance between two consecutive vertices of `path`.
+    fn longest_segment(path: &PathStorage) -> f64 {
+        let (mut x, mut y) = (0.0, 0.0);
+        let mut previous: Option<(f64, f64)> = None;
+        let mut longest = 0.0_f64;
+        for i in 0..path.total_vertices() {
+            let cmd = path.vertex_idx(i, &mut x, &mut y);
+            if !agg_rust::basics::is_vertex(cmd) {
+                previous = None;
+                continue;
+            }
+            if !agg_rust::basics::is_move_to(cmd) {
+                if let Some((px, py)) = previous {
+                    longest = longest.max((x - px).hypot(y - py));
+                }
+            }
+            previous = Some((x, y));
+        }
+        longest
+    }
+
+    /// The corner arcs of a rounded box leave no segment longer than the margin
+    /// minus the two pixels a cut's rounding needs - at any radius a box can have,
+    /// and at both dpis. (On the old step a radius of 1000 px at 1x left segments of
+    /// 31.6 px, 2000 px of 44.7 px, 8000 px of 89 px.)
+    #[test]
+    fn no_arc_segment_of_a_rounded_box_is_longer_than_the_margin() {
+        let limit = GEOMETRY_MARGIN - 2.0;
+        for dpi in [1.0_f32, 2.0] {
+            for radius in [500.0, 784.0, 1000.0, 1500.0, 2000.0, 4000.0, 8000.0] {
+                let longest = longest_segment(&circle(radius, dpi, 0.0, 0.0));
+                assert!(
+                    longest > 1.0 && longest <= limit,
+                    "radius {radius} px at {dpi}x: the longest segment is {longest:.2} px, \
+                     the margin allows {limit} px"
+                );
+            }
+        }
+    }
+
+    /// Below the point where a segment would pass the cap, nothing changed: the
+    /// scale is the output's own, never coarser than 1, and the work cap of an
+    /// absurd radius still wins.
+    #[test]
+    fn the_arc_scale_is_the_old_one_wherever_the_segments_were_short_enough() {
+        assert_eq!(arc_approximation_scale(1.0, 100.0), 1.0);
+        assert_eq!(arc_approximation_scale(2.0, 100.0), 2.0);
+        assert_eq!(arc_approximation_scale(0.5, 100.0), 1.0);
+        assert_eq!(arc_approximation_scale(1.0, 0.0), 1.0);
+        // The boundary: (28 px)^2 = 784 px at 1x.
+        assert_eq!(arc_approximation_scale(1.0, 784.0), 1.0);
+        assert_eq!(arc_approximation_scale(2.0, 1568.0), 2.0);
+        // Past it the scale grows with the radius: a segment of 28 px.
+        assert!((arc_approximation_scale(1.0, 1568.0) - 2.0).abs() < 1e-9);
+        assert!((arc_approximation_scale(1.0, 7840.0) - 10.0).abs() < 1e-9);
+        // An absurd radius is stepped as coarsely as it always was.
+        assert_eq!(
+            arc_approximation_scale(1.0, 1.0e9),
+            MAX_FINE_ARC_RADIUS / 1.0e9
+        );
+    }
+
+    /// The pixels: a circle of 1000, 1500 and 2000 px filled under a clip has, inside
+    /// the clip, the coverage it has under none - the pass that repaints a damage rect
+    /// gives what the full repaint gives there. The clip's left edge is walked across
+    /// the top arc, so the cut of the geometry (32 px beyond the clip) lands in every
+    /// position of a segment somewhere in the grid. The circle's top arc runs through
+    /// a 400 x 300 pixmap just below y = 150.
+    #[test]
+    fn a_circle_of_a_thousand_pixels_filled_under_a_clip_has_inside_it_what_it_has_under_none() {
+        fn fill(radius: f64, clip: Option<AzRect>) -> AzulPixmap {
+            let mut path = circle(radius, 1.0, (200.0 - radius) as f32, 150.0);
+            let mut p = AzulPixmap::new(400, 300).expect("a pixmap");
+            p.fill(0, 0, 0, 0);
+            agg_fill_path_clipped(
+                &mut p,
+                &mut path,
+                &Rgba8::new(0, 0, 0, 255),
+                FillingRule::NonZero,
+                clip,
+            );
+            p
+        }
+        let alpha = |p: &AzulPixmap, x: u32, y: u32| p.data()[((y * p.width + x) * 4 + 3) as usize];
+
+        let mut different = Vec::new();
+        for radius in [1000.0, 1500.0, 2000.0] {
+            let unclipped = fill(radius, None);
+            let arc = alpha(&unclipped, 200, 151);
+            assert!(
+                arc > 0,
+                "harness: the circle's top arc runs through the pixmap (radius {radius}): {arc}"
+            );
+            for left in (96..=170).step_by(2) {
+                let clip = AzRect::from_xywh(left as f32, 20.0, 150.0, 200.0).expect("a clip");
+                let clipped = fill(radius, Some(clip));
+                for y in 20..220 {
+                    for x in left..left + 150 {
+                        let (c, u) = (alpha(&clipped, x, y), alpha(&unclipped, x, y));
+                        if c != u {
+                            different.push((radius, left, x, y, c, u));
+                        }
+                    }
+                }
+            }
+        }
+        assert!(
+            different.is_empty(),
+            "(radius, clip left, x, y, coverage under the clip, coverage under none) differ: \
+             {:?}",
+            &different[..different.len().min(20)]
+        );
     }
 }
