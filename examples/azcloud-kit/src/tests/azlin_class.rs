@@ -49,6 +49,21 @@ fn a_shipped_build_reaches_no_token_server_the_service_does_not_run() {
     }
 }
 
+/// An address two parsers read differently (a browser's takes the backslash for a slash and goes
+/// to `evil.example`) is refused in every build, not classified by the parser that likes it.
+#[test]
+fn an_address_that_parsers_read_differently_reaches_no_token_server() {
+    for url in [
+        "https://evil.example\\@token.azlin.io",
+        "https://token.azlin.io\\@evil.example",
+    ] {
+        for test_build in [false, true] {
+            let why = config_text(check_azlin(url, TrustClass::Azlin, test_build));
+            assert!(why.contains("names no host"), "{url}: {why}");
+        }
+    }
+}
+
 /// A test build uses any transport and a stack on this computer.
 #[test]
 fn a_test_build_reaches_a_stack_on_this_computer_through_any_transport() {

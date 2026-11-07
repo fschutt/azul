@@ -40,9 +40,11 @@ pub const AZLIN_HOST_SUFFIXES: &[&str] = &[".azlin.io"];
 /// OWNER / OPS INPUT: EMPTY until the operator says which authorities issue the token server's
 /// edge certificate and the nodes' (ACME), and how they rotate - nothing is guessed here. Empty:
 /// the Azlin class trusts what the app trusts ([`TrustClass::Azlin`]'s pool follows the app's
-/// roots), exactly as before; a release gate refuses to ship while it is empty. Filled in, the
-/// Azlin pool trusts these and nothing else, and a certificate from any other authority fails the
-/// handshake with a sentence that names the pin.
+/// roots), exactly as before. The release procedure is to run the ignored test
+/// `release_the_azlin_authorities_are_pinned` (`cargo test -p azul-storage --lib -- --ignored
+/// release_`), which is red while the list is empty, and not to ship until it is green. Filled in,
+/// the Azlin pool trusts these and nothing else, and a certificate from any other authority fails
+/// the handshake with a sentence that names the pin.
 pub const AZLIN_TLS_ROOTS_PEM: &[&str] = &[];
 
 /// Whose traffic a transport carries.
@@ -57,10 +59,22 @@ pub enum TrustClass {
 
 /// The host of `url`, lower case, without brackets, port and trailing dot; `None` when it names
 /// none. The user info is not part of it (`https://a@evil.example` is `evil.example`).
+///
+/// A URL whose authority parsers read differently names no host, so that the class check and the
+/// client that connects cannot disagree on where a request goes: a backslash (WHATWG reads it as
+/// a slash - `https://evil.example\@token.azlin.io/` goes to `evil.example`, a plain split says
+/// `token.azlin.io`), a control character or a space between the scheme and the path, a percent
+/// sign in the host, and a port that is no number. The path may hold what it likes.
 #[must_use]
 pub fn host_of_url(url: &str) -> Option<String> {
     let rest = url.trim().split_once("://")?.1;
     let authority = rest.split(['/', '?', '#']).next()?;
+    if authority
+        .chars()
+        .any(|c| c == '\\' || c.is_control() || c.is_whitespace())
+    {
+        return None;
+    }
     let authority = authority
         .rsplit_once('@')
         .map_or(authority, |(_, host)| host);
@@ -69,9 +83,13 @@ pub fn host_of_url(url: &str) -> Option<String> {
     } else {
         match authority.rsplit_once(':') {
             Some((host, port)) if port.chars().all(|c| c.is_ascii_digit()) => host,
-            _ => authority,
+            Some(_) => return None,
+            None => authority,
         }
     };
+    if host.contains('%') {
+        return None;
+    }
     let host = host.trim_end_matches('.').to_ascii_lowercase();
     (!host.is_empty()).then_some(host)
 }
@@ -157,6 +175,52 @@ mod class_tests {
         }
     }
 
+    /// A URL that parsers read differently names no host: WHATWG takes a backslash for a slash
+    /// (the first of these goes to `evil.example` in a browser's parser, and a plain split of the
+    /// authority says `token.azlin.io`), a control character or a space splits a name, a percent
+    /// sign is no part of one, and a port is a number.
+    #[test]
+    fn a_url_that_parsers_read_differently_names_no_host() {
+        for url in [
+            "https://evil.example\\@token.azlin.io/",
+            "https://token.azlin.io\\@evil.example/",
+            "https://token.azlin.io\\.evil.example/",
+            "https://token.azlin.io\t.evil.example/",
+            "https://evil.example\n@token.azlin.io/",
+            "https://evil.example\r@token.azlin.io/",
+            "https://evil.example token.azlin.io/",
+            "https://evil.example%40token.azlin.io/",
+            "https://evil.example%2etoken.azlin.io/",
+            "https://token.azlin.io:80x/",
+            "https://token.azlin.io:-1/",
+        ] {
+            assert_eq!(host_of_url(url), None, "{url:?}");
+        }
+        // The password of the user info may hold what the host may not, and a path or a query
+        // what an authority may not: the host is the same in every parser.
+        assert_eq!(
+            host_of_url("https://ann:p%40ss@cloud.example/dav").as_deref(),
+            Some("cloud.example")
+        );
+        assert_eq!(
+            host_of_url("https://cloud.example/dav/My Documents/a\\b?q=a b#x y").as_deref(),
+            Some("cloud.example")
+        );
+        // Spaces around the whole address are not in it (the token server trims its base).
+        assert_eq!(
+            host_of_url("  https://token.azlin.io/ \n").as_deref(),
+            Some("token.azlin.io")
+        );
+        // Not even a test build lets such a request through.
+        for test_build in [false, true] {
+            for class in [TrustClass::Azlin, TrustClass::Foreign] {
+                let why = admits(class, "https://evil.example\\@token.azlin.io/", test_build)
+                    .unwrap_err();
+                assert!(why.contains("names no host"), "{why}");
+            }
+        }
+    }
+
     /// A name is Azlin's when it ends in the suffix on a label boundary - not when it merely
     /// contains it.
     #[test]
@@ -237,17 +301,37 @@ mod class_tests {
         assert!(!why.contains("hunter2") && !why.contains("t0k3n"), "{why}");
     }
 
-    /// The pins are the operator's to name: until then the list is empty, and an empty list
-    /// means "the app's roots", never "no check at all".
+    /// The pins are the operator's to name (empty until then; an empty list means "the app's
+    /// roots", never "no check at all"). Whatever is named is a few certificates - the current
+    /// issuing authorities and the next - and each is PEM text.
     #[test]
-    fn the_pinned_authorities_are_empty_until_the_operator_names_them() {
-        assert!(AZLIN_TLS_ROOTS_PEM.is_empty());
+    fn whatever_the_operator_pins_is_a_few_certificates() {
+        assert!(
+            AZLIN_TLS_ROOTS_PEM.len() <= 8,
+            "the pins of a rotation, not a bundle"
+        );
         for pem in AZLIN_TLS_ROOTS_PEM {
             assert!(
                 pem.contains("BEGIN CERTIFICATE"),
                 "a pin that is no certificate"
             );
         }
+    }
+
+    /// THE RELEASE GATE of the pins (ENT27-M16): ignored in a normal run, because the list is the
+    /// operator's to name and is empty until then. The release procedure runs it (`cargo test -p
+    /// azul-storage --lib -- --ignored release_`) and does not ship while it fails: a build whose
+    /// Azlin pool follows the whole public PKI is not the build the service's trust model asks for.
+    #[test]
+    #[ignore = "release gate: red until the operator has named the issuing authorities (AZLIN_TLS_ROOTS_PEM)"]
+    fn release_the_azlin_authorities_are_pinned() {
+        assert!(
+            AZLIN_TLS_ROOTS_PEM.len() >= 2,
+            "AZLIN_TLS_ROOTS_PEM names {} authorities: the operator names the CURRENT issuing \
+             authorities of the token server's and the nodes' certificates and the NEXT, so that a \
+             rotation locks no client out",
+            AZLIN_TLS_ROOTS_PEM.len()
+        );
     }
 }
 

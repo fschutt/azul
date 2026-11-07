@@ -253,7 +253,7 @@ mod tests {
 
     use azul::http::HttpMethod;
 
-    use super::{http_error_text, method_of, AzulTransport};
+    use super::{http_error_text, method_of, pinned_roots, AzulTransport};
     use crate::{
         transport::{is_dns_failure, DNS_FAILED},
         trust::{self, TrustClass},
@@ -363,6 +363,25 @@ mod tests {
             let why = foreign.send(&get(url)).unwrap_err();
             assert!(why.contains("Azlin host"), "{url}: {why}");
         }
+    }
+
+    /// The authorities the operator names are the roots of the Azlin pool and nothing else; none
+    /// named (the state until the operator says which issue the token server's and the nodes'
+    /// certificates): the pool follows the app's roots, exactly as a pool that pins nothing does.
+    #[test]
+    fn a_pool_pins_the_authorities_that_are_named_and_follows_the_app_when_none_is() {
+        assert!(
+            pinned_roots(&[]).is_none(),
+            "nothing named: the app's roots"
+        );
+        let pem = include_str!("../roots/ISRGRootX1.pem");
+        let roots = pinned_roots(&[pem]).expect("a named authority pins the pool");
+        assert!(roots.is_pinned());
+        assert!(
+            !roots.is_public_roots(),
+            "a pinned pool is not the public one"
+        );
+        assert!(pinned_roots(&[pem, pem]).is_some());
     }
 
     /// An Azlin transport sends nothing to a host the service does not run - not the endpoint a
