@@ -542,3 +542,70 @@ fn a_streamed_write_over_a_link_to_a_folder_is_refused_as_a_put_is() {
         .file_type()
         .is_symlink());
 }
+
+/// A look at the step that syncs a range, failing the asked-for one: the disk that could not sync.
+struct FailSync {
+    /// Syncs asked so far.
+    asked: AtomicU32,
+    /// The one that fails (1 = the first).
+    fails: u32,
+    /// Syncs that went through.
+    synced: AtomicU32,
+}
+
+impl crate::durable::Probe for FailSync {
+    fn before(&self, step: crate::durable::Step) -> std::io::Result<()> {
+        if step != crate::durable::Step::SyncFile {
+            return Ok(());
+        }
+        let n = self.asked.fetch_add(1, Ordering::SeqCst) + 1;
+        if n == self.fails {
+            return Err(std::io::Error::other("the disk could not sync the range"));
+        }
+        self.synced.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    }
+}
+
+/// X-DELTA-AZDRIVE-FILES-5. A resumed ranged download trusted a state file written (a rename, no
+/// sync) before the range's data was on the disk (`flush` of a `File` does nothing): after a power
+/// cut the state could be durable while a range was not, the retry skipped it as done and published
+/// the hole of zeros, and a Move deleted the cloud original. A range is synced to the disk before
+/// the state names it: the state lists exactly the ranges whose sync went through.
+#[test]
+fn x_delta_azdrive_files_5_a_range_is_on_the_disk_before_the_state_says_it_is_done() {
+    use crate::{ctl::Quiet, durable::Expect, transfer::download_ranges_probed};
+    let tmp = TempDir::new("dx5-ranges");
+    let drive = Counting::new(LocalDrive::new(tmp.path().join("drive")));
+    drive.put("big.bin", b"0123456789AB").unwrap();
+    let info = drive.head("big.bin").unwrap();
+    let dest = tmp.path().join("out").join("big.bin");
+    // Four ranges of three bytes; the disk fails the sync of the second one asked.
+    let probe = FailSync {
+        asked: AtomicU32::new(0),
+        fails: 2,
+        synced: AtomicU32::new(0),
+    };
+    let result = download_ranges_probed(&drive, &info, &dest, 3, Expect::Any, &Quiet, &probe);
+    assert!(
+        result.is_err(),
+        "a range that could not be synced is no finished download: {result:?}"
+    );
+    assert!(probe.asked.load(Ordering::SeqCst) >= 2);
+    assert!(!dest.exists(), "nothing was published");
+    let state_file = std::fs::read_dir(dest.parent().unwrap())
+        .unwrap()
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .find(|path| path.to_string_lossy().ends_with("download-state.part"))
+        .expect("the state a failed download keeps for the next one");
+    let state: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(state_file).unwrap()).unwrap();
+    let done = state["done"].as_array().expect("the ranges done").len();
+    assert_eq!(
+        done as u32,
+        probe.synced.load(Ordering::SeqCst),
+        "the state names a range whose data was not synced: {state}"
+    );
+    assert!(done < 4, "{state}");
+}

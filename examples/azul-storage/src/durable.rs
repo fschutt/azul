@@ -273,7 +273,7 @@ pub(crate) trait Probe {
     fn before(&self, step: Step) -> io::Result<()>;
 }
 
-struct Unprobed;
+pub(crate) struct Unprobed;
 
 impl Probe for Unprobed {
     fn before(&self, _step: Step) -> io::Result<()> {

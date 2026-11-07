@@ -304,6 +304,20 @@ fn download_ranges(
     expect: Expect,
     ctl: &dyn Ctl,
 ) -> Result<u64, DriveError> {
+    download_ranges_probed(drive, info, dest, chunk, expect, ctl, &durable::Unprobed)
+}
+
+/// [`download_ranges`] with a look at the step that makes a range durable (a test cuts it by
+/// failing it).
+pub(crate) fn download_ranges_probed(
+    drive: &dyn Drive,
+    info: &ObjectInfo,
+    dest: &Path,
+    chunk: u64,
+    expect: Expect,
+    ctl: &dyn Ctl,
+    probe: &(dyn durable::Probe + Sync),
+) -> Result<u64, DriveError> {
     let key = info.key.as_str();
     let size = info.size;
     let (partial, state_path) = partial_paths(dest);
@@ -381,13 +395,19 @@ fn download_ranges(
         let mut file = OpenOptions::new().write(true).open(&partial)?;
         file.seek(SeekFrom::Start(start))?;
         file.write_all(&bytes)?;
-        file.flush()?;
+        // The range is on the disk BEFORE the state says it is done: the state file's rename can
+        // reach the disk before the delayed writes of this file's pages (nothing orders two
+        // files), and the retry after a power cut would skip the range as done and publish the
+        // hole of zeros as the download - and a Move would then delete the cloud original, the
+        // only intact copy (X-DELTA-AZDRIVE-FILES-5). `flush` of a `File` does nothing.
+        probe.before(durable::Step::SyncFile)?;
+        file.sync_data()?;
         {
             let mut state = state.lock().unwrap_or_else(PoisonError::into_inner);
             state.done.insert(i);
             if let Ok(text) = serde_json::to_vec(&*state) {
-                // A hint for the next try (it checks the version and the file's length): a
-                // lost one costs the ranges, never a wrong file.
+                // A hint for the next try (it checks the version and the file's length): a lost
+                // one costs the ranges, never a wrong file - the data it names is durable.
                 let _ = durable::replace_cache(&state_path, &text);
             }
         }
