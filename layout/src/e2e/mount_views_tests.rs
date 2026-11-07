@@ -312,6 +312,34 @@ fn e2e_m1_scrolling_the_list_builds_the_rows_it_scrolled_to() {
     assert_passes(&result);
 }
 
+/// A theme switch is a DOM recreation, and the runner's DOM source is its mounted document: the
+/// document is parsed AGAIN, and the views go into that parse too. The list is still a view
+/// after the switch - it builds the rows of a scroll made afterwards (row 100 of 2400 px, row 0
+/// gone); a view only the first parse got would be a plain empty box here.
+#[test]
+fn e2e_m1_a_theme_switch_parses_the_mounted_document_again_with_its_views() {
+    let result = run(
+        "e2e_m1_theme_switch",
+        vec![
+            mount_the_list(),
+            serde_json::json!({ "op": "wait_frame" }),
+            serde_json::json!({ "op": "set_theme", "theme": "flora" }),
+            serde_json::json!({ "op": "wait_frame" }),
+            serde_json::json!({ "op": "wait", "ms": 100 }),
+            serde_json::json!({
+                "op": "scroll_node_by", "selector": "#list", "delta_x": 0, "delta_y": 2400,
+            }),
+            serde_json::json!({ "op": "wait_frame" }),
+            serde_json::json!({ "op": "tick_ms", "ms": 250 }),
+            serde_json::json!({ "op": "wait_frame" }),
+            serde_json::json!({ "op": "get_virtual_view_layout", "node_id": 2 }),
+            serde_json::json!({ "op": "assert_response", "contains": "\"id\":\"row-100\"" }),
+            serde_json::json!({ "op": "assert_response", "not_contains": "\"id\":\"row-0\"" }),
+        ],
+    );
+    assert_passes(&result);
+}
+
 /// A view that cannot land fails the `mount` step with the reason - the scenario does not run
 /// on against a list that is not there.
 #[test]
