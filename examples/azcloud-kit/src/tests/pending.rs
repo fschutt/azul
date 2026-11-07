@@ -14,12 +14,11 @@ use azul_storage::{
 use super::{
     bundle, json,
     period::{issuing_server, keys, pem, D1, ISSUE_KEY, N1, NOW},
-    Fake, Shared, TOKEN,
+    tokens_in_drive, DownVault, Fake, Shared, TOKEN,
 };
 use crate::{
     bundle::PeriodTokens,
     claim::seal,
-    error::{CloudError, CloudResult},
     pending::{self, Abandoned, Final, Finished, PendingCheckout, Polled, Settled, Transient},
     period::{Issuer, PeriodTokenStore},
     shared::SharedKeyring,
@@ -86,54 +85,6 @@ fn token_of(text: &str) -> String {
         .drive_token
         .as_str()
         .to_string()
-}
-
-/// A drive's own vault in memory (the real one needs the drive key: feature `encryption`).
-#[derive(Default)]
-struct MemoryVault(std::sync::Mutex<VaultState>);
-
-impl TokenVault for MemoryVault {
-    fn read(&self) -> CloudResult<VaultState> {
-        Ok(self.0.lock().unwrap().clone())
-    }
-
-    fn join(&self, change: &VaultState) -> CloudResult<VaultState> {
-        let mut state = self.0.lock().unwrap();
-        state.join(change);
-        Ok(state.clone())
-    }
-
-    fn place(&self) -> &'static str {
-        "the drive"
-    }
-}
-
-/// A drive's vault that does not answer.
-struct DownVault;
-
-impl TokenVault for DownVault {
-    fn read(&self) -> CloudResult<VaultState> {
-        Err(CloudError::failed("no answer from the drive"))
-    }
-
-    fn join(&self, _: &VaultState) -> CloudResult<VaultState> {
-        Err(CloudError::failed("no answer from the drive"))
-    }
-
-    fn place(&self) -> &'static str {
-        "the drive"
-    }
-}
-
-/// `d_1`'s tokens on this computer and in a vault of the drive.
-fn tokens_in_drive(store: &PeriodTokenStore) -> (DriveTokens, Arc<MemoryVault>) {
-    let vault = Arc::new(MemoryVault::default());
-    let tokens = DriveTokens::new(
-        "d_1",
-        store.local("d_1").unwrap(),
-        Some(vault.clone() as Arc<dyn TokenVault>),
-    );
-    (tokens, vault)
 }
 
 #[test]
@@ -550,6 +501,51 @@ fn an_abandon_that_ended_the_checkout_takes_it_off_the_list() {
     assert!(Settled::abandoned(azlin_contract::AbandonAnswer::StillPending).is_none());
 }
 
+/// X-DELTA-AZDRIVE-MONEY-5: an abandon decides from the token server's answer, not from whether an
+/// entry is left on the list. The dialog was left in flight, the background claims claimed and
+/// finished the paid checkout (its entry is gone), the user presses Buy again: the abandon meets
+/// 409 `checkout_paid` - the checkout is NOT ended, it is paid - and an app that heard `Settled`
+/// ordered again for what was paid. Only an answer that ends the checkout is `Settled` when the
+/// entry is gone.
+#[test]
+fn x_delta_azdrive_money_5_a_paid_checkout_whose_entry_is_gone_is_not_ended_by_its_abandon() {
+    let cases: [(u16, &'static str, Option<bool>); 4] = [
+        (
+            409,
+            r#"{"error": "checkout_paid", "message": "the drive comes"}"#,
+            Some(true),
+        ),
+        (
+            200,
+            r#"{"checkout_id": "ck_1", "status": "pending"}"#,
+            Some(false),
+        ),
+        (
+            502,
+            r#"{"error": "provider_unavailable", "message": "no answer"}"#,
+            Some(false),
+        ),
+        // an answer that ends it: settled, as before
+        (200, r#"{"checkout_id": "ck_1", "status": "expired"}"#, None),
+    ];
+    for (status, body, paid_said) in cases {
+        let dir = TempDir::new("azcloud-pending");
+        let (shared, _) = shared(&dir);
+        let claim = ClaimKey::generate().unwrap();
+        pending::add(&shared, &checkout("ck_1", &claim)).unwrap();
+        // The claims finished it meanwhile: off the list.
+        let finished = Settled::abandoned(azlin_contract::AbandonAnswer::Expired).unwrap();
+        assert!(pending::settle(&shared, "ck_1", finished).unwrap());
+        let transport = Shared(abandoning(&claim, (status, body)));
+        let server = TokenServer::new(TOKEN, &transport).unwrap();
+        match (pending::abandon(&server, &shared, "ck_1"), paid_said) {
+            (Abandoned::Kept { paid, .. }, Some(said)) => assert_eq!(paid, said, "{body}"),
+            (Abandoned::Settled, None) => {}
+            (other, _) => panic!("{body}: {other:?}"),
+        }
+    }
+}
+
 /// What `ck_1`'s sealed sign-up grants: `months` period tokens against the tests' issue key.
 fn grant(months: u32) -> PeriodTokens {
     PeriodTokens {
@@ -843,6 +839,75 @@ fn az_p6_a_sign_up_that_opens_and_does_not_read_is_kept_however_often_it_is_aske
     assert_eq!(listed[0].claim_secret, ck.claim_secret);
 }
 
+/// X-DELTA-AZDRIVE-MONEY-7 (AZ-P6 class): a sealed sign-up whose `period_tokens` is THERE and does
+/// not read - a `months` that is no whole number, a renamed field, a part missing - is not a
+/// sign-up without period tokens: it is kept like one that opens and does not read (asked again,
+/// never counted, "update the app"), with the claim secret that opens it. Read as "no grant" the
+/// poll claimed the drive, the app saved it, and `claimed(.., None)` settled the checkout: the
+/// claim secret and - with it - every month still owed were gone.
+#[test]
+fn x_delta_azdrive_money_7_a_sign_up_whose_period_tokens_do_not_read_is_kept() {
+    for (what, grant) in [
+        (
+            "months a float",
+            r#"{"checkout_id": "ck_1", "months": 3.5, "issue_key": "k"}"#,
+        ),
+        (
+            "months negative",
+            r#"{"checkout_id": "ck_1", "months": -1, "issue_key": "k"}"#,
+        ),
+        (
+            "a renamed key",
+            r#"{"checkout_id": "ck_1", "months": 3, "key_of_issue": "k"}"#,
+        ),
+        (
+            "an id that is a number",
+            r#"{"checkout_id": 1, "months": 3, "issue_key": "k"}"#,
+        ),
+        ("no object at all", r#""three months""#),
+    ] {
+        let dir = TempDir::new("azcloud-pending");
+        let (shared, _) = shared(&dir);
+        let claim = ClaimKey::generate().unwrap();
+        let ck = checkout("ck_1", &claim);
+        pending::add(&shared, &ck).unwrap();
+        let text = bundle("AKID1", "2026-10-08T21:15:00Z", "dt_f.0.aaa").replace(
+            r#""tier": "100GB"}"#,
+            &format!(r#""tier": "100GB", "period_tokens": {grant}}}"#),
+        );
+        let sealed = seal(&claim.public_base64(), "ck_1", text.as_bytes());
+        let fake = Fake::new(move |_, _| {
+            Ok(json(
+                200,
+                &format!(
+                    r#"{{"checkout_id": "ck_1", "status": "approved", "sealed_signup": "{sealed}"}}"#
+                ),
+            ))
+        });
+        let transport = Shared(fake);
+        let server = TokenServer::new(TOKEN, &transport).unwrap();
+        for round in 0..3 {
+            match pending::poll(&server, &shared, &ck) {
+                Polled::Transient(Transient::Unread(why)) => assert!(
+                    why.contains("period tokens") && why.contains("update"),
+                    "{what}, round {round}: {why}"
+                ),
+                other => panic!("{what}, round {round}: not kept: {other:?}"),
+            }
+        }
+        let listed = pending::list(&shared).unwrap();
+        assert_eq!(listed.len(), 1, "{what}: the checkout stays");
+        assert_eq!(
+            listed[0].claim_secret, ck.claim_secret,
+            "{what}: with its claim secret"
+        );
+        assert_eq!(
+            listed[0].open_failures, 0,
+            "{what}: nothing was counted against it"
+        );
+    }
+}
+
 /// AZ-P6: a kept claim secret that does not read is not erased on that: the entry stays and says
 /// so.
 #[test]
@@ -928,6 +993,93 @@ fn az_p5_a_grant_that_only_this_computer_holds_keeps_the_claim_secret_and_the_is
     assert!(in_drive.read().unwrap().grant("ck_1").is_some());
     assert!(pending::list(&shared).unwrap().is_empty());
     assert!(keyring.get(pending::PENDING_KEY).unwrap().is_none());
+}
+
+/// X-DELTA-AZDRIVE-MONEY-4: a first month refused as `bad_request` (a proxy emptied the body of
+/// the POST) does not drop the checkout: the grant is in the drive's vault with its issue key,
+/// not ended, with the kept request, and the checkout leaves the list as a grant kept
+/// (`Granted`, saying to update the app). Before, `finish` answered `Dropped`, marked the grant
+/// ended in every vault and erased the claim secret and the issue key.
+#[test]
+fn x_delta_azdrive_money_4_a_first_month_refused_as_unreadable_does_not_drop_the_checkout() {
+    let dir = TempDir::new("azcloud-pending");
+    let (shared, _) = shared(&dir);
+    let now = i64::try_from(NOW).unwrap();
+    let (ck, owed) = claimed_on_the_list(&shared, now);
+    let listed = keys();
+    let fake = Fake::new(move |call, _| {
+        if call.url.ends_with("/v1/tokens/keys") {
+            return Ok(json(200, &listed));
+        }
+        Ok(json(
+            400,
+            r#"{"error": "bad_request", "message": "the body did not read"}"#,
+        ))
+    });
+    let transport = Shared(fake);
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    let store = PeriodTokenStore::new(dir.path().join("period-tokens"));
+    let (tokens, in_drive) = tokens_in_drive(&store);
+    match pending::finish(&server, &shared, &store, &tokens, &ck, &owed, NOW) {
+        Finished::Granted { drive_id, why } => {
+            assert_eq!(drive_id, "d_1");
+            assert!(why.contains("update the app"), "{why}");
+        }
+        other => panic!("dropped on a refusal about the request: {other:?}"),
+    }
+    let state = in_drive.read().unwrap();
+    let grant = state.grant("ck_1").expect("the grant, with the drive");
+    assert!(grant.ended.is_none(), "{:?}", grant.ended);
+    assert_eq!(
+        grant.issue_key, ISSUE_KEY,
+        "the issue key is with the drive"
+    );
+    assert_eq!(
+        state.open_issues("ck_1").len(),
+        1,
+        "the request is kept for the next look"
+    );
+}
+
+/// X-DELTA-AZDRIVE-MONEY-6: `state_of_all` tells the vaults' state only when every vault the drive
+/// has was read - a decision that rests on something being ABSENT (this drive has no price lock)
+/// needs that. A vault that does not answer, and the drive's own vault that this device could not
+/// open, make it an error that names them, while `state` still answers what could be read. A
+/// drive that has no vault of its own (a plain drive) has this computer's, which is the whole.
+#[test]
+fn x_delta_azdrive_money_6_the_state_of_all_vaults_is_told_only_when_every_vault_was_read() {
+    let dir = TempDir::new("azcloud-pending");
+    let store = PeriodTokenStore::new(dir.path().join("period-tokens"));
+    let plain = store.on_this_device("d_1").unwrap();
+    plain
+        .keep_grant(crate::vault::VaultGrant::new("ck_1", "100GB", 3, ISSUE_KEY))
+        .unwrap();
+    assert!(plain.state_of_all().unwrap().grant("ck_1").is_some());
+    // The drive's own vault could not be opened: what is not in this computer's may be in it.
+    let unopened = store
+        .on_this_device_because(
+            "d_1",
+            NoVault::NotOpened(String::from("the drive is not open")),
+        )
+        .unwrap();
+    assert!(
+        unopened.state().unwrap().grant("ck_1").is_some(),
+        "what can be read is read"
+    );
+    let why = unopened.state_of_all().unwrap_err().to_string();
+    assert!(why.contains("the drive is not open"), "{why}");
+    // The drive's vault does not answer.
+    let down = DriveTokens::new(
+        "d_1",
+        store.local("d_1").unwrap(),
+        Some(Arc::new(DownVault) as Arc<dyn TokenVault>),
+    );
+    assert!(down.state().is_ok());
+    let why = down.state_of_all().unwrap_err().to_string();
+    assert!(why.contains("no answer from the drive"), "{why}");
+    // Both vaults read.
+    let (whole, _) = tokens_in_drive(&store);
+    assert!(whole.state_of_all().unwrap().grant("ck_1").is_some());
 }
 
 /// AZ-P5: a vault of the drive that does not answer is no place either.

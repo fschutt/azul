@@ -894,7 +894,9 @@ fn change(
 pub enum Abandoned {
     /// The token server ended it (nobody can pay it any more): off the list.
     Ended,
-    /// Off the list already: another window dealt with it.
+    /// Off the list already: another window dealt with it - and the token server's answer was
+    /// the one that ends a checkout ([`Settled::abandoned`]); an answer that does not end it is
+    /// [`Abandoned::Kept`] whether or not an entry is left.
     Settled,
     /// It stays on the list, its payment possibly under way ([`PendingCheckout::in_flight_since`]):
     /// it was paid meanwhile (`paid`: its drive comes with the payment's confirmation), or the
@@ -909,13 +911,16 @@ pub enum Abandoned {
 /// the polls that bring its drive. A 404 is a checkout the token server no longer has.
 #[must_use]
 pub fn abandon(server: &TokenServer<'_>, shared: &SharedKeyring, checkout_id: &str) -> Abandoned {
+    // The token server's answer decides, whether or not an entry is left on the list: a checkout
+    // that was paid, or that the server could not end, is not ended - an entry that is gone was
+    // finished by another window (a paid drive claimed), and "off the list" is not "over": the
+    // app would order again for what was paid (X-DELTA-AZDRIVE-MONEY-5).
     let kept = |paid: bool, why: String| {
         let marked = change(shared, checkout_id, |c| {
             c.in_flight_since.get_or_insert_with(crate::now);
         });
         match marked {
-            Ok(Some(_)) => Abandoned::Kept { paid, why },
-            Ok(None) => Abandoned::Settled,
+            Ok(Some(_) | None) => Abandoned::Kept { paid, why },
             Err(e) => Abandoned::Kept {
                 paid,
                 why: format!("{why}; it was not marked as in flight: {e}"),

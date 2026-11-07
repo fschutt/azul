@@ -220,6 +220,62 @@ pub(crate) fn header<'a>(call: &'a HttpCall, name: &str) -> Option<&'a str> {
         .map(|(_, v)| v.as_str())
 }
 
+/// A drive's own vault in memory (the real one needs the drive key: feature `encryption`).
+#[derive(Default)]
+pub(crate) struct MemoryVault(Mutex<crate::vault::VaultState>);
+
+impl crate::vault::TokenVault for MemoryVault {
+    fn read(&self) -> crate::error::CloudResult<crate::vault::VaultState> {
+        Ok(self.0.lock().unwrap().clone())
+    }
+
+    fn join(
+        &self,
+        change: &crate::vault::VaultState,
+    ) -> crate::error::CloudResult<crate::vault::VaultState> {
+        let mut state = self.0.lock().unwrap();
+        state.join(change);
+        Ok(state.clone())
+    }
+
+    fn place(&self) -> &'static str {
+        "the drive"
+    }
+}
+
+/// A drive's vault that does not answer.
+pub(crate) struct DownVault;
+
+impl crate::vault::TokenVault for DownVault {
+    fn read(&self) -> crate::error::CloudResult<crate::vault::VaultState> {
+        Err(crate::error::CloudError::failed("no answer from the drive"))
+    }
+
+    fn join(
+        &self,
+        _: &crate::vault::VaultState,
+    ) -> crate::error::CloudResult<crate::vault::VaultState> {
+        Err(crate::error::CloudError::failed("no answer from the drive"))
+    }
+
+    fn place(&self) -> &'static str {
+        "the drive"
+    }
+}
+
+/// `d_1`'s tokens on this computer and in a vault of the drive.
+pub(crate) fn tokens_in_drive(
+    store: &crate::period::PeriodTokenStore,
+) -> (crate::vault::DriveTokens, Arc<MemoryVault>) {
+    let vault = Arc::new(MemoryVault::default());
+    let tokens = crate::vault::DriveTokens::new(
+        "d_1",
+        store.local("d_1").unwrap(),
+        Some(vault.clone() as Arc<dyn crate::vault::TokenVault>),
+    );
+    (tokens, vault)
+}
+
 /// A keyring (a map) holding drive `d_1`'s session with the drive token `token`, its locks in
 /// `dir`.
 pub(crate) fn keyring_holding(dir: &azul_storage::testing::TempDir, token: &str) -> crate::SharedKeyring {

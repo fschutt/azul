@@ -20,6 +20,7 @@
 
 use std::fmt;
 
+use azlin_contract::GrantWire;
 use azul_storage::{
     config::{DriveAuth, DriveEntry, DriveLocation},
     time::parse_iso8601,
@@ -78,21 +79,30 @@ impl fmt::Debug for PeriodTokens {
 }
 
 impl PeriodTokens {
-    /// The `period_tokens` object of a sign-up; `None` without one (a development sign-up, a
-    /// checkout from before F24) or with a part missing.
-    pub(crate) fn from_value(value: &Value) -> Option<PeriodTokens> {
-        let text = |key: &str| value[key].as_str().unwrap_or_default().trim().to_string();
-        let tokens = PeriodTokens {
-            checkout_id: text("checkout_id"),
-            months: value["months"]
-                .as_u64()
-                .and_then(|m| u32::try_from(m).ok())
-                .unwrap_or(0),
-            issue_key: text("issue_key"),
-            recurring: value["recurring"].as_bool().unwrap_or(false),
-        };
-        (!tokens.checkout_id.is_empty() && tokens.months > 0 && !tokens.issue_key.is_empty())
-            .then_some(tokens)
+    /// The `period_tokens` object of a sign-up: `Ok(None)` without one (a development sign-up, a
+    /// checkout from before F24), the grant as the contract writes it ([`GrantWire`]) when it
+    /// has one. A grant that is there and does not read - a part missing, a `months` that is no
+    /// whole number, a renamed field - is an error, never "no grant": a sign-up read as one
+    /// without period tokens is settled, and its claim secret and issue key go with it
+    /// (X-DELTA-AZDRIVE-MONEY-7). Whether a grant that reads can be issued (no months, no issue
+    /// key) is [`crate::pending::finish`]'s to say, in words the user is told.
+    ///
+    /// # Errors
+    ///
+    /// [`TokenError::Protocol`] for a `period_tokens` that is not a grant.
+    pub(crate) fn from_value(value: &Value) -> Result<Option<PeriodTokens>, TokenError> {
+        if value.is_null() {
+            return Ok(None);
+        }
+        let wire: GrantWire = serde_json::from_value(value.clone()).map_err(|e| {
+            TokenError::Protocol(format!("the sign-up's period tokens do not read: {e}"))
+        })?;
+        Ok(Some(PeriodTokens {
+            checkout_id: wire.checkout_id.trim().to_string(),
+            months: wire.months,
+            issue_key: wire.issue_key.trim().to_string(),
+            recurring: wire.recurring,
+        }))
     }
 }
 
@@ -275,7 +285,7 @@ impl DriveBundle {
                         .collect()
                 })
                 .unwrap_or_default(),
-            period_tokens: PeriodTokens::from_value(&value["period_tokens"]),
+            period_tokens: PeriodTokens::from_value(&value["period_tokens"])?,
             ban: Ban::of(value),
             claim: ClaimTicket::from_value(&value["claim"]),
             family_expires_at: serde_json::from_value(value["family_expires_at"].clone()).ok(),

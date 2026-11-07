@@ -6,7 +6,7 @@ use azlin_contract::{ArchiveRefusal, AzlinError, CheckoutRefusal, ClaimRefusal, 
 
 use super::{json, Fake, Shared, TOKEN};
 use crate::{
-    token::{CheckoutStatus, RecoveryRefusal, Refusal, TokenError, TokenServer},
+    token::{CheckoutStatus, Doubt, RecoveryRefusal, Refusal, TokenError, TokenServer},
     ClaimKey,
 };
 
@@ -115,7 +115,19 @@ fn x_ar5b_5_the_questions_of_the_money_path_are_answered_by_the_typed_value() {
     assert!(!refused(409, "change_not_due").is_useless_token());
     assert!(!refused(400, "wrong_tier").is_useless_token());
     assert!(refused(400, "unknown_issuer").is_doubtful_token());
+    assert!(refused(400, "bad_token").is_doubtful_token());
+    // X-DELTA-AZDRIVE-MONEY-3: the server's own issuer year is as much its fault as a lost key.
+    assert!(refused(400, "token_expired").is_doubtful_token());
     assert!(!refused(409, "token_used").is_doubtful_token());
+    assert_eq!(
+        refused(400, "token_expired").token_doubt(),
+        Some(Doubt::IssuerYear)
+    );
+    assert_eq!(
+        refused(400, "bad_token").token_doubt(),
+        Some(Doubt::IssuerKey)
+    );
+    assert_eq!(refused(409, "token_used").token_doubt(), None);
     assert_eq!(
         refused(409, "claims_used").claim_refusal(),
         Some(ClaimRefusal::ClaimsUsed)

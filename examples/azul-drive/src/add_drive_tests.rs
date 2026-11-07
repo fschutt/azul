@@ -1000,6 +1000,7 @@ fn x_ar5b_20_a_renewal_under_a_price_lock_never_quotes_todays_list_price() {
                 tier: String::from("100GB"),
                 quota_bytes: 100_000_000_000,
                 lock,
+                lock_unread: None,
             },
         );
         dialog.country = String::from("DE");
@@ -1029,6 +1030,44 @@ fn x_ar5b_20_a_renewal_under_a_price_lock_never_quotes_todays_list_price() {
     locked.yearly = true;
     assert_eq!(locked.price_shown(), None);
     assert_eq!(locked.buy_label(), "Renew 100 GB");
+}
+
+/// X-DELTA-AZDRIVE-MONEY-6: a renewal of a drive whose vaults were not all read at its last look
+/// waits - "no price lock" is not what an unreadable vault says - with its own reason; a drive
+/// whose look read every vault, and a move to another tier (which no lock covers), do not wait.
+/// Before, the dialog offered the renewal at today's price and the order was placed at it.
+#[test]
+fn x_delta_azdrive_money_6_a_renewal_waits_while_the_price_lock_could_not_be_looked_for() {
+    use crate::renewals::RenewFor;
+    crate::l10n::in_english();
+    let renewing = |lock_unread: Option<&str>| {
+        let mut dialog = AddDialog::renewing(
+            1,
+            RenewFor {
+                drive_id: String::from("d_1"),
+                name: String::from("Photos"),
+                tier: String::from("100GB"),
+                quota_bytes: 100_000_000_000,
+                lock: None,
+                lock_unread: lock_unread.map(String::from),
+            },
+        );
+        dialog.country = String::from("DE");
+        dialog.tiers_loaded(tiers());
+        dialog.offer = OfferState::Legacy;
+        dialog
+    };
+    assert_eq!(
+        renewing(None).order_waits_for(),
+        None,
+        "every vault was read"
+    );
+    let mut unread = renewing(Some("the drive is not open"));
+    assert_eq!(unread.order_waits_for(), Some("azdrive-renew-lock-unread"));
+    // Another tier is a move, which no price lock covers: it does not wait for the lock.
+    unread.tier = 1;
+    assert!(unread.renew_order().is_some_and(|order| order.change_tier));
+    assert_eq!(unread.order_waits_for(), None);
 }
 
 /// X-AR5b-19: the v1 payment page stands in only for a token server on this computer. A

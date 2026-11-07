@@ -82,7 +82,7 @@ pub use checkout::{
     VoucherRedeemed,
 };
 pub use members::ClaimedFamily;
-pub use money::{page_is, pay_page, Charge, PriceChanged, Quote};
+pub use money::{page_is, pay_page, Charge, OrderFor, PriceChanged, Quote};
 pub use period::{BlindSignatures, IssueAnswer, MAX_BLINDED};
 pub use recovery::{
     lockdown_cancel_message, recovery_add_message, recovery_key_message,
@@ -93,7 +93,7 @@ pub use refresh::{
     ban_fluent_source, ban_reason_arg, banner_phrase, banner_text, closed_phrase, closed_text,
     Ban, DriveStatus, DRIVE_BANNED,
 };
-pub use refusal::{RecoveryRefusal, Refusal};
+pub use refusal::{Doubt, RecoveryRefusal, Refusal};
 
 /// The tier a sign-up without one gets (the token server's default too).
 pub const DEFAULT_TIER: &str = "100GB";

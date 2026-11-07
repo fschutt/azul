@@ -52,7 +52,7 @@ use crate::{
     error::{CloudError, CloudResult, Context},
     shared::SharedKeyring,
     state::{create_private_dir, read_json, write_json},
-    token::{check_id, DriveStatus, IssueAnswer, TokenError, TokenServer, MAX_BLINDED},
+    token::{check_id, Doubt, DriveStatus, IssueAnswer, TokenError, TokenServer, MAX_BLINDED},
     vault::{DriveTokens, LocalVault, NoVault, TokenVault, VaultGrant, VaultState},
 };
 
@@ -685,6 +685,19 @@ fn answered(
             tokens.join(&done(Some(ended))).map_err(not_kept)?;
             Ok(Sent::Ended(why))
         }
+        // About the request, not the checkout (a proxy that empties a POST body, a server that
+        // fails inside its signing): the grant stays as it is, its issue key and the kept request
+        // with it, and the same request goes again at the next look (X-DELTA-AZDRIVE-MONEY-4).
+        IssueAnswer::Refused(refusal) if refusal.is_about_the_request() => {
+            Err(TokenError::answered(
+                refusal.status(),
+                refusal.as_str(),
+                "the token server did not take the request for the month: the months stay kept \
+                 and the request goes again at the next look - update the app if this goes on",
+                None,
+                None,
+            ))
+        }
         IssueAnswer::Refused(refusal) => Err(TokenError::answered(
             refusal.status(),
             refusal.as_str(),
@@ -1086,10 +1099,35 @@ pub fn look_at_drive(
     })
 }
 
+/// How many tokens one look may find refused on a word that may be the server's fault - a lost
+/// issuer key, a year set wrong ([`Doubt`]) - before it stops asking: more than that is the
+/// server's state, not the tokens', and each question costs a request.
+const DOUBTS_PER_LOOK: usize = 3;
+
+/// The tokens of `doubted` - refused on a word that may be the server's fault, and kept - that
+/// the server's taking of `redeemed` shows really bad ([`Doubt::is_settled_by`]) are spent in the
+/// vaults and leave `doubted`; the rest stay, for the next look.
+fn spend_settled(
+    tokens: &DriveTokens,
+    doubted: &mut Vec<(PeriodToken, Doubt)>,
+    redeemed: &PeriodToken,
+) {
+    let (bad, kept): (Vec<_>, Vec<_>) = std::mem::take(doubted)
+        .into_iter()
+        .partition(|(token, doubt)| doubt.is_settled_by(token, redeemed));
+    *doubted = kept;
+    for (token, _) in bad {
+        // A token not marked spent is refused again at the next look and settled then.
+        let _ = tokens.spend(&token.nonce);
+    }
+}
+
 /// [`redeem_due`] with the drive token `token` and the drive in good standing `active`, the
 /// drive's lock held: while the period is due, the oldest unspent token of the drive's tier is
 /// redeemed; with none left, the next month of a grant of the tier whose month is due is issued
-/// first.
+/// first. A token refused on a word that may be the server's fault ([`Doubt`]) is NOT spent: the
+/// next token is tried, and when the server takes one that shows the fault is not its own the
+/// refused ones are given up on (AZ-P16); when it takes none, every one stays for the next look.
 fn redeem_with(
     server: &TokenServer<'_>,
     tokens: &DriveTokens,
@@ -1115,7 +1153,11 @@ fn redeem_with(
         None => until.is_some_and(|at| at <= now.saturating_add(REDEEM_AHEAD_SECS)),
     };
     let mut count = 0;
-    let mut doubted = 0;
+    // Refused on a word that may be the server's fault, kept unspent; the tokens it took in this
+    // look; what the last of the refusals said.
+    let mut doubted: Vec<(PeriodToken, Doubt)> = Vec::new();
+    let mut taken: Vec<PeriodToken> = Vec::new();
+    let mut last_doubt = String::new();
     let mut banned = false;
     let mut failed: Option<String> = None;
     for _ in 0..MAX_ROUNDS {
@@ -1137,14 +1179,17 @@ fn redeem_with(
             .filter(|g| g.changes_tier())
             .map(|g| g.tier.as_str())
             .collect();
+        let not_doubted = |t: &&PeriodToken| !doubted.iter().any(|(d, _)| d.nonce == t.nonce);
         let candidate = state
             .tokens
             .iter()
+            .filter(not_doubted)
             .find(|t| tier.is_empty() || t.tier == tier)
             .or_else(|| {
                 state
                     .tokens
                     .iter()
+                    .filter(not_doubted)
                     .find(|t| !tier.is_empty() && !changing.contains(&t.tier.as_str()))
             })
             .cloned();
@@ -1165,27 +1210,34 @@ fn redeem_with(
                 let _ = tokens.spend(&candidate.nonce);
                 count += 1;
                 period_until = until;
+                // The server takes this issuer's tokens: the ones it refused as bad on a word
+                // that could have been its own fault are bad.
+                spend_settled(tokens, &mut doubted, &candidate);
+                taken.push(candidate);
             }
             // The contract says which refusals mean the token can never buy a month
-            // (`RedeemRefusal::is_useless`); it is spent in the vaults.
-            Err(e) if e.is_useless_token() => {
-                // A token server that lost an issuer key (or verifies with another) refuses
-                // every token alike: one token of a look is given up on that word, the next
-                // such refusal ends the look and keeps its token (AZ-P16). A token that is
-                // really bad costs nothing: the good ones behind it go on in this look.
-                if e.is_doubtful_token() {
-                    doubted += 1;
-                    if doubted > 1 {
-                        failed = Some(format!(
-                            "the token server refused tokens as {}: the rest are kept for the \
-                             next look",
-                            e.said()
-                        ));
-                        break;
+            // (`RedeemRefusal::is_useless`).
+            Err(e) if e.is_useless_token() => match e.token_doubt() {
+                // Used, or refused on a word that is surely the token's: spent in the vaults.
+                None => {
+                    let _ = tokens.spend(&candidate.nonce);
+                }
+                // A token server that lost an issuer key (or verifies with another, or has its
+                // year wrong) refuses every token alike, so the first such refusal gives nothing
+                // up: the token is kept. Another token of the same issuer taken in this look
+                // shows it is really bad (before or after); else all stay (AZ-P16).
+                Some(doubt) => {
+                    last_doubt = e.said();
+                    if taken.iter().any(|t| doubt.is_settled_by(&candidate, t)) {
+                        let _ = tokens.spend(&candidate.nonce);
+                    } else {
+                        doubted.push((candidate, doubt));
+                        if doubted.len() >= DOUBTS_PER_LOOK {
+                            break;
+                        }
                     }
                 }
-                let _ = tokens.spend(&candidate.nonce);
-            }
+            },
             // The drive is banned (the contract's word, 403): no month can be bought for it, and
             // the token is not at fault - it stays (ENT27 n51).
             Err(e) if e.is_drive_banned() => {
@@ -1205,6 +1257,13 @@ fn redeem_with(
                 break;
             }
         }
+    }
+    if count == 0 && failed.is_none() && !doubted.is_empty() {
+        failed = Some(format!(
+            "the token server refused {} of the tokens ({}): all are kept for the next look",
+            doubted.len(),
+            last_doubt
+        ));
     }
     if count > 0 {
         Redeemed::Extended {
@@ -1311,14 +1370,25 @@ fn change_with(
     now: u64,
 ) -> TierChanged {
     let drive_id = tokens.drive_id();
+    // Refused on a word that may be the server's fault, kept unspent (see [`redeem_with`]).
+    let mut doubted: Vec<(PeriodToken, Doubt)> = Vec::new();
     for _ in 0..MAX_ROUNDS {
         let candidate = match tokens.unspent(&change.tier) {
-            Ok(kept) => kept.into_iter().next(),
+            Ok(kept) => kept
+                .into_iter()
+                .find(|t| !doubted.iter().any(|(d, _)| d.nonce == t.nonce)),
             Err(e) => return TierChanged::Kept(e.to_string()),
         };
         let Some(candidate) = candidate else {
             match issue_next(server, tokens, &change.checkout_id, now) {
                 Ok(Issued::Tokens(issued)) if !issued.is_empty() => continue,
+                Ok(Issued::Tokens(_) | Issued::NotDue { .. }) if !doubted.is_empty() => {
+                    return TierChanged::Kept(format!(
+                        "the token server refused the new tier's {} token(s) on a word that may \
+                         be its own fault: they are kept for the next look",
+                        doubted.len()
+                    ))
+                }
                 Ok(Issued::Tokens(_) | Issued::NotDue { .. }) => {
                     return TierChanged::Kept(String::from("the new tier's first month is not issued yet"))
                 }
@@ -1329,6 +1399,7 @@ fn change_with(
         match server.redeem_as(drive_id, token, &candidate, Some(usage.clone())) {
             Ok(Ok(answer)) => {
                 let _ = tokens.spend(&candidate.nonce);
+                spend_settled(tokens, &mut doubted, &candidate);
                 if let Err(why) = mark_changed(tokens, change) {
                     return TierChanged::Kept(why);
                 }
@@ -1350,9 +1421,22 @@ fn change_with(
                     quota: quota.0,
                 }
             }
-            Ok(Err(refused)) if refused.is_useless() => {
-                let _ = tokens.spend(&candidate.nonce);
-            }
+            Ok(Err(refused)) if refused.is_useless() => match Doubt::of(&refused) {
+                None => {
+                    let _ = tokens.spend(&candidate.nonce);
+                }
+                // Kept: the server may have lost the key of every token of the tier (AZ-P16).
+                Some(doubt) => {
+                    doubted.push((candidate, doubt));
+                    if doubted.len() >= DOUBTS_PER_LOOK {
+                        return TierChanged::Kept(format!(
+                            "the token server refused the new tier's tokens as {}: they are \
+                             kept for the next look",
+                            refused.as_str()
+                        ));
+                    }
+                }
+            },
             Ok(Err(RedeemRefusal::StoredBytesRequired)) => {
                 return TierChanged::Kept(String::from(
                     "the node's count of the drive's bytes is not known yet: a smaller tier needs it",

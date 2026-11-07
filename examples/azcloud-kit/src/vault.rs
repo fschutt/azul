@@ -798,6 +798,37 @@ impl DriveTokens {
     ///
     /// No vault can be read.
     pub fn state(&self) -> CloudResult<VaultState> {
+        self.read_all().map(|(state, _)| state)
+    }
+
+    /// [`DriveTokens::state`] for a decision that rests on something being ABSENT - "this drive
+    /// has no price lock": every vault the drive has must have been read. A vault that did not
+    /// answer, or the drive's own vault that this device could not open
+    /// ([`NoVault::NotOpened`]), is an error naming it: what is sought may be in it. A drive that
+    /// has no vault of its own ([`NoVault::NoKey`]) has this computer's alone.
+    ///
+    /// # Errors
+    ///
+    /// No vault can be read, or one of them could not be.
+    pub fn state_of_all(&self) -> CloudResult<VaultState> {
+        let (state, mut unread) = self.read_all()?;
+        if let Some(NoVault::NotOpened(why)) = &self.no_vault {
+            unread.push(format!("the drive: {why}"));
+        }
+        if unread.is_empty() {
+            Ok(state)
+        } else {
+            Err(CloudError::failed(format!(
+                "the period tokens of {} were not read in every place ({}), so what they do not \
+                 hold cannot be told",
+                self.drive_id,
+                unread.join("; ")
+            )))
+        }
+    }
+
+    /// Every vault's state joined, and why each vault that could not be read was left out.
+    fn read_all(&self) -> CloudResult<(VaultState, Vec<String>)> {
         let mut read = Vec::new();
         let mut errors = Vec::new();
         for vault in &self.vaults {
@@ -823,7 +854,7 @@ impl DriveTokens {
                 let _ = vault.join(&joined);
             }
         }
-        Ok(joined)
+        Ok((joined, errors))
     }
 
     /// Joins `change` into every vault; where it landed ([`Kept`]).

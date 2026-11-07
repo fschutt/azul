@@ -2606,12 +2606,19 @@ fn start_checkout(
         .with_outbox(keyring.outbox());
     // A renewal names the drive's price lock; without one (or with one the token server no
     // longer takes) it buys period tokens only, at today's price - the price the dialog shows.
-    let lock = renew
-        .filter(|r| !r.order.change_tier)
-        .and_then(|r| {
-            let tokens = drive_tokens(&r.store, &r.order.drive_id, r.azlin.as_ref()).ok()?;
-            tokens.state().ok()?.renewal_lock(&r.order.tier).cloned()
-        });
+    // A lock that could not be looked for (a vault unreadable, the drive not open) is not "no
+    // lock": nothing is ordered at today's price then (X-DELTA-AZDRIVE-MONEY-6).
+    let lock = match renew.filter(|r| !r.order.change_tier) {
+        None => None,
+        Some(r) => match renewal_lock_of(r) {
+            Ok(lock) => lock,
+            Err(why) => {
+                return Err(StartFailed::from(Text::from(
+                    Phrase::new("azdrive-order-lock-unread").arg("why", why),
+                )))
+            }
+        },
+    };
     let fresh = ClaimKey::generate()
         .map_err(|e| StartFailed::from(token_error_text(&TokenError::Config(e.to_string()))))?;
     let mut draft = PendingCheckout::posting(&fresh, tier, server.base(), name);
@@ -2658,6 +2665,15 @@ fn start_checkout(
         answer,
         kept,
     )
+}
+
+/// The price lock of the drive a Renew order is for, when it has one - looked for in ALL the
+/// drive's vaults ([`DriveTokens::state_of_all`]): a lock in a vault this computer could not read
+/// is not "no lock". Why not, when the vaults were not all read.
+fn renewal_lock_of(renew: &RenewJob) -> Result<Option<azcloud_kit::RenewalLock>, String> {
+    let tokens = drive_tokens(&renew.store, &renew.order.drive_id, renew.azlin.as_ref())?;
+    let kept = tokens.state_of_all().map_err(|e| e.to_string())?;
+    Ok(kept.renewal_lock(&renew.order.tier).cloned())
 }
 
 /// An order that was not placed, in the app's words: the token server's error as its table words
@@ -2793,16 +2809,22 @@ fn finish_start(
         return Err(unshown(add_error_text(&e).into()));
     }
     // The price the buyer was shown is the price charged, before anything is shown or opened.
-    if let Some(changed) = quote.and_then(|quote| quote.check(&checkout.charge).err()) {
+    if let Some(changed) = quote.and_then(|quote| quote.check_checkout(&checkout).err()) {
         eprintln!(
             "[azdrive] the checkout {} is not the order shown: {changed}",
             checkout.checkout_id
         );
-        return Err(unshown(StartFailed {
-            why: Phrase::new("azdrive-order-price-changed")
+        // The same price for another tier or another number of months is another order.
+        let why = match &changed.order {
+            Some((shown, charged)) => Phrase::new("azdrive-order-changed")
+                .arg("shown", shown.to_string())
+                .arg("charged", charged.to_string()),
+            None => Phrase::new("azdrive-order-price-changed")
                 .arg("shown", crate::pay_words::show(&changed.shown))
-                .arg("charged", crate::pay_words::show(&changed.charged))
-                .into(),
+                .arg("charged", crate::pay_words::show(&changed.charged)),
+        };
+        return Err(unshown(StartFailed {
+            why: why.into(),
             prices_moved: true,
         }));
     }
@@ -3336,7 +3358,12 @@ fn renewal_seen(
         }
         TierChanged::Nothing | TierChanged::Banned => None,
     };
-    let kept = tokens.state().unwrap_or_default();
+    // Whether the drive has a price lock is said only when every vault was read; what could be
+    // read still shows the reminder and the plan.
+    let (kept, lock_unread) = match tokens.state_of_all() {
+        Ok(kept) => (kept, None),
+        Err(e) => (tokens.state().unwrap_or_default(), Some(e.to_string())),
+    };
     let status = look.status.as_ref();
     let reminder = status.and_then(|s| reminder_due(s, &kept, now));
     let notify = reminder
@@ -3360,6 +3387,7 @@ fn renewal_seen(
         plan,
         lock,
         lock_paid,
+        lock_unread,
     }
 }
 
@@ -4220,6 +4248,54 @@ mod tests {
             other => panic!("not a reason: {other:?}"),
         }
         assert!(!kept.is_redundant(), "one file is not two places");
+    }
+
+    /// X-DELTA-AZDRIVE-MONEY-6: a Renew order whose drive's vaults cannot all be read is not placed
+    /// at today's price: the price lock it would have named may be in the vault that was not read.
+    /// The order says so, nothing is sent and no order is begun on the list. Before, `state().ok()?`
+    /// made "could not look" the same as "no lock" and the order went out tokens-only, at a price
+    /// the buyer's quote - the same list price - agreed with.
+    #[test]
+    fn x_delta_azdrive_money_6_a_vault_that_cannot_be_read_starts_no_tokens_only_order() {
+        let dir = TempDir::new("azdrive-start");
+        let store = PeriodTokenStore::new(dir.path().join("period-tokens"));
+        // The drive's vault on this computer is cut: whatever lock it held cannot be read.
+        fs::create_dir_all(store.dir()).expect("a folder");
+        fs::write(store.path_of("d_1").expect("a path"), b"{ cut").expect("a file");
+        let keyring = SharedKeyring::with_lock_root(
+            Arc::new(azul_storage::keyring::MemoryKeyring::new()),
+            azul_storage::keyring::KeyringNamespace::azlin_shared(),
+            &dir.path().join("locks"),
+        );
+        let renew = RenewJob {
+            order: crate::renewals::RenewOrder {
+                drive_id: String::from("d_1"),
+                tier: String::from("100GB"),
+                change_tier: false,
+                upgrade: false,
+            },
+            store,
+            azlin: None,
+        };
+        let failed = match start_checkout(
+            "http://127.0.0.1:18081",
+            "100GB",
+            1,
+            "sepa",
+            "Photos",
+            &keyring,
+            None,
+            Some(&renew),
+            None,
+        ) {
+            Err(failed) => failed,
+            Ok(_) => panic!("ordered at today's price without knowing the drive's lock"),
+        };
+        assert_eq!(failed.why.keys(), vec!["azdrive-order-lock-unread"]);
+        assert!(
+            pending::list(&keyring).unwrap().is_empty(),
+            "no order was begun: nothing was sent"
+        );
     }
 
     /// F5 asks the drive again: a refresh's first page is a `refreshed` listing (an encrypted
@@ -5209,6 +5285,63 @@ mod tests {
             pending::list(&keyring).unwrap().is_empty(),
             "it left the list: nobody may pay it"
         );
+    }
+
+    /// X-DELTA-AZDRIVE-MONEY-10: the price shown is the price of the order shown. A checkout that
+    /// charges the amount the buyer saw (PLN 4.49) but is for another tier, or for another number
+    /// of months, is ended at the token server before anything of it is shown, and the buyer is
+    /// told the order was for something else - not that the price changed. Before, only the
+    /// amount and the currency were compared and the checkout was shown.
+    #[test]
+    fn x_delta_azdrive_money_10_a_checkout_for_another_tier_or_period_is_ended_before_it_is_shown()
+    {
+        for (tier, months) in [("1TB", 1_u32), ("100GB", 12)] {
+            let dir = TempDir::new("azdrive-start");
+            let (orders, keyring, checkout, kept, posting_id) =
+                placed(&dir, "http://127.0.0.1:18081/v1/pay/ck_1");
+            let server = TokenServer::new("http://127.0.0.1:18081", &orders).expect("a server");
+            // What the buyer was shown: the amount the checkout charges, for another order.
+            let quote = Quote {
+                price: crate::pay_words_tests::cents(449, "PLN"),
+                tier: String::from(tier),
+                months,
+                at_most: false,
+            };
+            let failed = match finish_start(
+                &server,
+                &keyring,
+                &posting_id,
+                "100GB",
+                1,
+                None,
+                Some(&quote),
+                checkout,
+                None,
+                kept,
+            ) {
+                Err(failed) => failed,
+                Ok(_) => panic!("{tier} / {months}: shown for another order"),
+            };
+            assert_eq!(
+                failed.why.keys(),
+                vec!["azdrive-order-changed"],
+                "{tier} / {months}"
+            );
+            assert!(failed.prices_moved, "the page's prices are stale");
+            assert!(
+                orders
+                    .calls
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .any(|u| u.ends_with("/v1/checkout/ck_1/abandon")),
+                "{tier} / {months}: ended at the token server"
+            );
+            assert!(
+                pending::list(&keyring).unwrap().is_empty(),
+                "{tier} / {months}: it left the list: nobody may pay it"
+            );
+        }
     }
 
     /// AZ-P2: the price shown is the price charged: the order goes on, and its checkout is the

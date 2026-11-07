@@ -68,6 +68,10 @@ pub(crate) struct RenewFor {
     pub tier: String,
     pub quota_bytes: u64,
     pub lock: Option<LockSeen>,
+    /// Why the drive's vaults could not be read at its last look: whether it has a price lock is
+    /// not known then, and the renewal waits (a lock that is not seen is not "no lock", and
+    /// today's price is not what a lock charges).
+    pub lock_unread: Option<String>,
 }
 
 /// What a Renew checkout buys: months for `drive_id`, whose tier is `tier` now - its next
@@ -107,6 +111,9 @@ pub(crate) struct RenewalSeen {
     pub lock: Option<(String, Option<u64>)>,
     /// What this computer paid for that lock, when it paid for it (the paid list).
     pub lock_paid: Option<LockPaid>,
+    /// Why the drive's vaults were not all read, when they were not: `lock` and `plan` are then
+    /// what could be read, not the whole.
+    pub lock_unread: Option<String>,
 }
 
 /// A reminder's words: what ends at its time for the drive `drive`, and Renew.
@@ -425,6 +432,7 @@ pub(crate) fn open_renew(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
         lock: seen.lock.as_ref().map(|_| LockSeen {
             paid: seen.lock_paid.clone(),
         }),
+        lock_unread: seen.lock_unread.clone(),
     };
     println!("AZDRIVE_RENEW_OPEN {drive_id}");
     crate::add_flow::open_renewing(info, app, s, renew);

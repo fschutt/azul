@@ -13,7 +13,7 @@ use std::fmt;
 use azlin_contract::{Cents, Currency};
 use serde_json::Value;
 
-use super::{check_id, TokenError};
+use super::{check_id, Checkout, TokenError};
 
 /// What the token server charges for a checkout: the amount in the smallest unit of its
 /// currency, read from the checkout's answer.
@@ -63,11 +63,29 @@ pub struct Quote {
     pub at_most: bool,
 }
 
-/// The token server charges something other than the buyer was shown.
+/// What an order is for: a tier and how many months.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OrderFor {
+    pub tier: String,
+    pub months: u32,
+}
+
+impl fmt::Display for OrderFor {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} for {} month(s)", self.tier, self.months)
+    }
+}
+
+/// The token server charges something other than the buyer was shown, or made the order for
+/// something else.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PriceChanged {
     pub shown: Cents,
     pub charged: Cents,
+    /// What the buyer was shown and what the answer is for, when the answer names another tier or
+    /// another number of months - at whatever price (a charge that is the same amount in the same
+    /// currency is no promise kept for a different order).
+    pub order: Option<(OrderFor, OrderFor)>,
 }
 
 impl fmt::Display for PriceChanged {
@@ -76,7 +94,11 @@ impl fmt::Display for PriceChanged {
             f,
             "shown {} {}, charged {} {}",
             self.shown.currency, self.shown.amount, self.charged.currency, self.charged.amount
-        )
+        )?;
+        match &self.order {
+            Some((shown, charged)) => write!(f, "; shown {shown}, ordered {charged}"),
+            None => Ok(()),
+        }
     }
 }
 
@@ -104,7 +126,46 @@ impl Quote {
             Err(PriceChanged {
                 shown: self.price.clone(),
                 charged: charged.clone(),
+                order: None,
             })
+        }
+    }
+
+    /// Whether the token server's answer to the order, `checkout`, is what the buyer was shown:
+    /// the price ([`Quote::check`]) AND what it is for - the tier and the months the answer
+    /// names. An answer for another tier or another number of months is refused at any price:
+    /// the amount shown was the price of the order shown. (An answer that names no tier is
+    /// judged by its price alone; one that names no months is for the months asked.)
+    ///
+    /// # Errors
+    ///
+    /// [`PriceChanged`]: what was shown and what the answer is.
+    pub fn check_checkout(&self, checkout: &Checkout) -> Result<(), PriceChanged> {
+        let other_order = (!checkout.tier.trim().is_empty() && checkout.tier.trim() != self.tier)
+            || checkout.months != self.months;
+        let order = other_order.then(|| {
+            (
+                OrderFor {
+                    tier: self.tier.clone(),
+                    months: self.months,
+                },
+                OrderFor {
+                    tier: checkout.tier.trim().to_string(),
+                    months: checkout.months,
+                },
+            )
+        });
+        match (self.check(&checkout.charge), order) {
+            (Ok(()), None) => Ok(()),
+            (Ok(()), order) => Err(PriceChanged {
+                shown: self.price.clone(),
+                charged: checkout.charge.cents().clone(),
+                order,
+            }),
+            (Err(mut changed), order) => {
+                changed.order = order;
+                Err(changed)
+            }
         }
     }
 }

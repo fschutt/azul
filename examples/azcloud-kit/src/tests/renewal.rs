@@ -17,7 +17,7 @@ use azul_storage::{testing::TempDir, time::iso8601 as rfc3339, HttpReply, Method
 use super::{
     header, json,
     period::{blind_sign, keyring_with_session, keys, pem, APPROVED, D1, DAY, ISSUE_KEY, MONTH, N1, NOW},
-    Fake, Shared, TOKEN,
+    tokens_in_drive, Fake, Shared, TOKEN,
 };
 use crate::{
     bundle::PeriodTokens,
@@ -150,7 +150,9 @@ fn a_finished_checkout_is_the_drives_price_lock_and_its_renewal_takes_it_over() 
     let dir = TempDir::new("azcloud-renewal");
     let shared = keyring_with_session(&dir, "dt_f.3.newest");
     let store = store_in(&dir);
-    let tokens = store.on_this_device("d_1").unwrap();
+    // The drive has a vault of its own: a grant leaves the keyring only when it is in two places
+    // (AZ-P5), and "finished" below means it did (X-DELTA-AZDRIVE-MONEY-13).
+    let (tokens, _in_drive) = tokens_in_drive(&store);
     let claim = ClaimKey::generate().unwrap();
     // No answer to the issue: the grants wait with the drive, their locks are kept all the same.
     let quiet = Fake::new(|call, _| {
@@ -193,7 +195,11 @@ fn a_finished_checkout_is_the_drives_price_lock_and_its_renewal_takes_it_over() 
         assert_eq!(body["renews"]["checkout_id"], "ck_1");
         assert_eq!(body["renews"]["issue_key"], format!("{ISSUE_KEY}ck_1"));
         assert!(body.get("grant").is_none(), "a renewal under a lock is no tokens-only order");
-        Ok(json(200, r#"{"checkout_id": "ck_2", "pay_url": "https://pay.example/ck_2"}"#))
+        Ok(json(
+            200,
+            r#"{"checkout_id": "ck_2", "pay_url": "https://pay.example/ck_2",
+                "amount_cents": 89, "currency": "EUR"}"#,
+        ))
     });
     let ordering_transport = Shared(ordering);
     let ordering_server = TokenServer::new(TOKEN, &ordering_transport).unwrap();
@@ -218,7 +224,11 @@ fn a_drive_without_a_lock_is_renewed_by_a_tokens_only_order() {
         assert_eq!(body["grant"], "period_tokens");
         assert_eq!(body["upgrade"], true);
         assert!(body.get("renews").is_none());
-        Ok(json(200, r#"{"checkout_id": "ck_9", "pay_url": "https://pay.example/ck_9"}"#))
+        Ok(json(
+            200,
+            r#"{"checkout_id": "ck_9", "pay_url": "https://pay.example/ck_9",
+                "amount_cents": 499, "currency": "EUR"}"#,
+        ))
     });
     let transport = Shared(fake);
     let server = TokenServer::new(TOKEN, &transport).unwrap();
@@ -462,6 +472,58 @@ fn a_tier_bought_for_a_drive_is_taken_when_the_token_server_allows_it() {
     assert!(matches!(change_due(&server, &shared, &tokens, ask, NOW), TierChanged::Nothing));
     assert!(!asked.get(), "no node asked for a change already made");
     assert_eq!(taken.calls().len(), calls);
+}
+
+/// X-DELTA-AZDRIVE-MONEY-3 (AZ-P16): the move to a bigger tier redeems a token like a month does,
+/// and a token server that lost its issuer key refuses it as `unknown_issuer` all the same: the
+/// token is kept for the next look, not spent (it was, on that word alone). A word that is surely
+/// the token's (`token_used`) still spends it.
+#[test]
+fn x_delta_azdrive_money_3_a_tier_change_keeps_a_token_refused_on_a_doubtful_word() {
+    let dir = TempDir::new("azcloud-renewal");
+    let shared = keyring_with_session(&dir, "dt_f.3.newest");
+    let store = store_in(&dir);
+    let tokens = store.on_this_device("d_1").unwrap();
+    let mut grant = VaultGrant::new("ck_up", "1TB", 1, ISSUE_KEY);
+    grant.change_tier = true;
+    grant.issued = 1; // its one month is issued: the token below is the only one there is
+    tokens.keep_grant(grant).unwrap();
+    tokens.add_tokens(&[token_of_tier("1TB", "cc")]).unwrap();
+    for word in ["unknown_issuer", "bad_token", "token_expired"] {
+        let lost = changing_server(move |_| {
+            json(
+                400,
+                &format!(r#"{{"error": "{word}", "message": "refused"}}"#),
+            )
+        });
+        let transport = Shared(lost);
+        let server = TokenServer::new(TOKEN, &transport).unwrap();
+        match change_due(&server, &shared, &tokens, || Some(proof_of(5)), NOW) {
+            TierChanged::Kept(why) => {
+                assert!(why.contains("kept for the next look"), "{word}: {why}")
+            }
+            other => panic!("{word}: not kept: {other:?}"),
+        }
+        assert_eq!(
+            tokens.unspent("1TB").unwrap().len(),
+            1,
+            "{word}: the token stays"
+        );
+    }
+    // A token the server calls used is spent.
+    let used = changing_server(|_| {
+        json(
+            409,
+            r#"{"error": "token_used", "message": "redeemed before"}"#,
+        )
+    });
+    let transport = Shared(used);
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    let _ = change_due(&server, &shared, &tokens, || Some(proof_of(5)), NOW);
+    assert!(
+        tokens.unspent("1TB").unwrap().is_empty(),
+        "a used token is gone"
+    );
 }
 
 /// AD-02: the reminders come 30, 7 and 1 days before the period ends, before the drive turns

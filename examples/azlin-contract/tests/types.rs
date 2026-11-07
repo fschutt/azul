@@ -383,19 +383,27 @@ mod period {
             "no_such_checkout",
             "already_issued",
             "mandate_stopped",
-            "issue_key_required",
-            "key_id_required",
-            "bad_request",
         ] {
             let refusal = read(&format!(r#"{{"error":"{word}","message":"why"}}"#));
             assert!(refusal.is_final(), "{word} ends the grant");
+            assert!(!refusal.is_about_the_request(), "{word}");
             assert_eq!(refusal.as_str(), word);
+        }
+        // X-DELTA-AZDRIVE-MONEY-4: a refusal about the REQUEST (a body that did not read, no issue
+        // key, no issuer key) says nothing of the grant: asked again with a request that reads, it
+        // may be issued. Before, these three ended the grant.
+        for word in ["issue_key_required", "key_id_required", "bad_request"] {
+            let refusal = read(&format!(r#"{{"error":"{word}","message":"why"}}"#));
+            assert!(!refusal.is_final(), "{word} does not end the grant");
+            assert!(refusal.is_about_the_request(), "{word}");
+            assert_eq!(refusal.as_str(), word);
+            assert_eq!(refusal.status(), 400);
         }
         // later, blinded anew, or a server that is busy or newer: asked again
         let not_due = read(
             r#"{"error":"not_due","message":"m","schedule":{"months":3,"issued":1,"next_issue_at":"2026-11-21T08:00:00Z"}}"#,
         );
-        assert!(!not_due.is_final());
+        assert!(!not_due.is_final() && !not_due.is_about_the_request());
         assert_eq!(not_due.status(), 409);
         let changed = read(r#"{"error":"key_changed","key_id":"100GB/2027","public_key_pem":null}"#);
         assert!(!changed.is_final());
@@ -407,6 +415,41 @@ mod period {
         assert_eq!(IssueRefusal::IssueKeyWrong.status(), 403);
         assert_eq!(IssueRefusal::NoSuchCheckout.status(), 404);
         assert_eq!(IssueRefusal::TryAgain.status(), 503);
+    }
+
+    /// X-DELTA-AZDRIVE-MONEY-4: the five refusals that end a grant are about the CHECKOUT, the
+    /// three that are about the request never end one - no refusal is both, none is neither of
+    /// them and also the server's wait.
+    #[test]
+    fn x_delta_azdrive_money_4_a_refusal_about_the_request_is_never_final() {
+        let all = [
+            IssueRefusal::BadRequest,
+            IssueRefusal::IssueKeyRequired,
+            IssueRefusal::KeyIdRequired,
+            IssueRefusal::IssueKeyWrong,
+            IssueRefusal::NoSuchCheckout,
+            IssueRefusal::NotPaid,
+            IssueRefusal::MandateStopped,
+            IssueRefusal::AlreadyIssued,
+            IssueRefusal::IssuerKeyMissing,
+            IssueRefusal::TryAgain,
+            IssueRefusal::Unavailable,
+            IssueRefusal::Unknown,
+        ];
+        for refusal in &all {
+            assert!(
+                !(refusal.is_final() && refusal.is_about_the_request()),
+                "{}",
+                refusal.as_str()
+            );
+        }
+        assert_eq!(all.iter().filter(|r| r.is_final()).count(), 5);
+        assert_eq!(all.iter().filter(|r| r.is_about_the_request()).count(), 3);
+        // the status the server answers a request it could not read with
+        assert!(all
+            .iter()
+            .filter(|r| r.is_about_the_request())
+            .all(|r| r.status() == 400));
     }
 }
 

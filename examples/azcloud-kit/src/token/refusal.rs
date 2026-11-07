@@ -20,6 +20,7 @@ use azlin_contract::{ArchiveRefusal, AzlinError, CheckoutRefusal, ClaimRefusal, 
 use serde::de::DeserializeOwned;
 
 use super::TokenError;
+use crate::period::PeriodToken;
 
 /// The refusals of the recovery routes (a recovery key set, replaced or added, a lockdown by the
 /// recovery code and its cancel) that the contract crate does not name yet: the token server's
@@ -63,6 +64,55 @@ impl RecoveryRefusal {
             RecoveryRefusal::NoRecoveryKey => "no_recovery_key",
             RecoveryRefusal::NoPendingLockdown => "no_pending_lockdown",
         }
+    }
+}
+
+/// Why a useless-token refusal of a redemption may be the SERVER's fault and not the token's: the
+/// token server that lost an issuer key, verifies with another one or has its issuer year set
+/// wrong refuses every token of that issuer alike, and a client that gives each one up on that
+/// word drains a paid vault (AZ-P16). A token refused on such a word is kept; it is given up on
+/// only when the server takes another token that shows the fault is not its own
+/// ([`Doubt::is_settled_by`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Doubt {
+    /// `unknown_issuer`, `bad_token`: the issuer key of the token's tier and year is lost or
+    /// another.
+    IssuerKey,
+    /// `token_expired`: the token's issuer year is outside what the server accepts - or the
+    /// server's own issuer year is set wrong, then it says so of every token of that year.
+    IssuerYear,
+}
+
+impl Doubt {
+    /// The doubt a redemption's refusal raises; `None` for a refusal of a token that is surely
+    /// used up or not the redemption's at all.
+    #[must_use]
+    pub fn of(refusal: &RedeemRefusal) -> Option<Doubt> {
+        match refusal {
+            RedeemRefusal::UnknownIssuer | RedeemRefusal::BadToken => Some(Doubt::IssuerKey),
+            RedeemRefusal::TokenExpired => Some(Doubt::IssuerYear),
+            RedeemRefusal::BadRequest
+            | RedeemRefusal::WrongTier
+            | RedeemRefusal::TokenUsed
+            | RedeemRefusal::ChangeNotDue { .. }
+            | RedeemRefusal::DoesNotFit { .. }
+            | RedeemRefusal::StoredBytesRequired
+            | RedeemRefusal::TryAgain
+            | RedeemRefusal::ArchiveProofRequired
+            | RedeemRefusal::Unknown => None,
+        }
+    }
+
+    /// Whether the server taking `redeemed` shows that `refused`, which it turned away on this
+    /// doubt, is really bad: its issuer key works (same tier and year), or its window of years
+    /// reaches the year of a token it took and so cannot be what turned an older year away.
+    #[must_use]
+    pub fn is_settled_by(self, refused: &PeriodToken, redeemed: &PeriodToken) -> bool {
+        redeemed.tier == refused.tier
+            && match self {
+                Doubt::IssuerKey => redeemed.year == refused.year,
+                Doubt::IssuerYear => redeemed.year >= refused.year,
+            }
     }
 }
 
@@ -186,14 +236,25 @@ impl Refusal {
     }
 
     /// A useless-token refusal that may be the SERVER's fault, not the token's: it lost an
-    /// issuer key (`unknown_issuer`) or verifies with another one (`bad_token`), and then says
-    /// so of every token it is asked about.
+    /// issuer key (`unknown_issuer`), verifies with another one (`bad_token`) or has its issuer
+    /// year set wrong (`token_expired`), and then says so of every token it is asked about.
     #[must_use]
     pub fn is_doubtful_token(&self) -> bool {
-        matches!(
-            self,
-            Refusal::Redeem(RedeemRefusal::UnknownIssuer | RedeemRefusal::BadToken)
-        )
+        self.doubt().is_some()
+    }
+
+    /// The [`Doubt`] a redemption's refusal raises.
+    #[must_use]
+    pub fn doubt(&self) -> Option<Doubt> {
+        match self {
+            Refusal::Redeem(r) => Doubt::of(r),
+            Refusal::Checkout(_)
+            | Refusal::Archive(_)
+            | Refusal::Service(_)
+            | Refusal::Claim(_)
+            | Refusal::Recovery(_)
+            | Refusal::Unclassified { .. } => None,
+        }
     }
 
     /// The drive is banned, in the contract's word `drive_banned` (403): past the ban's end the
@@ -299,6 +360,12 @@ impl TokenError {
     #[must_use]
     pub fn is_doubtful_token(&self) -> bool {
         self.refusal().is_some_and(|r| r.is_doubtful_token())
+    }
+
+    /// The doubt a refusal of a redemption raises, when it raises one ([`Refusal::doubt`]).
+    #[must_use]
+    pub fn token_doubt(&self) -> Option<Doubt> {
+        self.refusal().and_then(|r| r.doubt())
     }
 
     /// The drive is banned ([`Refusal::is_drive_banned`]).

@@ -170,19 +170,29 @@ impl IssueRefusal {
 
     /// Whether asking again can never help: the grant's months that are not issued are lost to
     /// this checkout (a reversed payment, a wrong key, a checkout gone, every month issued). A
-    /// refusal this build does not know is not final: an update may read it.
+    /// refusal this build does not know is not final: an update may read it. Nor is one about the
+    /// REQUEST ([`IssueRefusal::is_about_the_request`]): it says nothing of the grant.
     #[must_use]
     pub fn is_final(&self) -> bool {
         matches!(
             self,
-            IssueRefusal::BadRequest
-                | IssueRefusal::IssueKeyRequired
-                | IssueRefusal::KeyIdRequired
-                | IssueRefusal::IssueKeyWrong
+            IssueRefusal::IssueKeyWrong
                 | IssueRefusal::NoSuchCheckout
                 | IssueRefusal::NotPaid
                 | IssueRefusal::MandateStopped
                 | IssueRefusal::AlreadyIssued
+        )
+    }
+
+    /// The refusal is about the request that was sent - its body did not read, it named no issue
+    /// key or no issuer key - and not about the checkout. A proxy that empties a POST body says
+    /// it; so does a token server that fails inside its own signing (it answers `bad_request`
+    /// then too). Nothing is known of the grant, which stays as it is: the request is sent again.
+    #[must_use]
+    pub fn is_about_the_request(&self) -> bool {
+        matches!(
+            self,
+            IssueRefusal::BadRequest | IssueRefusal::IssueKeyRequired | IssueRefusal::KeyIdRequired
         )
     }
 }

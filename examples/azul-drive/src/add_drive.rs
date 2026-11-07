@@ -771,6 +771,16 @@ impl AddDialog {
     /// default (X-AR5b-10).
     #[must_use]
     pub(crate) fn order_waits_for(&self) -> Option<&'static str> {
+        // A renewal of a drive whose price lock could not be looked for: the lock may be in the
+        // vault that was not read, and today's price is not what it charges.
+        if self.renew_order().is_some_and(|order| !order.change_tier)
+            && self
+                .renew
+                .as_ref()
+                .is_some_and(|renew| renew.lock_unread.is_some())
+        {
+            return Some("azdrive-renew-lock-unread");
+        }
         match &self.tiers {
             TiersState::Loaded(_) => {}
             TiersState::NotLoaded

@@ -65,6 +65,7 @@ fn renew_orders_the_drives_next_months_and_another_tier_is_a_change() {
             tier: String::from("1TB"),
             quota_bytes: 1_000_000_000_000,
             lock: None,
+            lock_unread: None,
         },
     );
     dialog.country = String::from("DE");

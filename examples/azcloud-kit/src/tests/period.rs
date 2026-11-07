@@ -426,6 +426,72 @@ fn period_tokens_signed_by_another_key_than_the_one_asked_for_are_refused() {
     assert_eq!(fake.calls().len(), 1, "only the keys were asked for");
 }
 
+/// X-DELTA-AZDRIVE-MONEY-4: a refusal about the REQUEST - `bad_request` (a body the token server
+/// could not read: a proxy that empties a POST body; an error inside its signing), no issue key,
+/// no issuer key - says nothing of the checkout, so it never ends the grant: the months not
+/// issued yet stay, the issue key with them, the request is kept and goes again at the next look,
+/// the error says to update the app. Before, the three words were "final": the grant was marked
+/// ended in every vault and the keyring's copy of the issue key was erased.
+#[test]
+fn x_delta_azdrive_money_4_a_refusal_about_the_request_keeps_the_grant_and_its_request() {
+    for word in ["bad_request", "issue_key_required", "key_id_required"] {
+        let dir = TempDir::new("azcloud-period");
+        let tokens = granted(&dir);
+        let listed = keys();
+        let issued = AtomicU64::new(0);
+        let fake = Fake::new(move |call, n| {
+            if call.url.ends_with("/v1/tokens/keys") {
+                return Ok(json(200, &listed));
+            }
+            if n == 1 {
+                let body = format!(r#"{{"error": "{word}", "message": "the body did not read"}}"#);
+                return Ok(json(400, &body));
+            }
+            Ok(signed(call, N1, D1, "100GB/2026", &issued))
+        });
+        let transport = Shared(fake.clone());
+        let server = TokenServer::new(TOKEN, &transport).unwrap();
+        match issue_next(&server, &tokens, "ck_1", NOW) {
+            Err(TokenError::Refused {
+                status,
+                code,
+                message,
+            }) => {
+                assert_eq!((status, code.as_str()), (400, word));
+                assert!(message.contains("update the app"), "{word}: {message}");
+            }
+            other => panic!("{word}: not an error about the request: {other:?}"),
+        }
+        let state = tokens.state().unwrap();
+        assert!(
+            state
+                .grant("ck_1")
+                .is_some_and(|g| g.ended.is_none() && g.is_open()),
+            "{word}: the grant is not ended"
+        );
+        assert_eq!(
+            state.open_issues("ck_1").len(),
+            1,
+            "{word}: the request is kept"
+        );
+        // The next look sends the very same request and gets the month.
+        match issue_next(&server, &tokens, "ck_1", NOW + DAY).unwrap() {
+            Issued::Tokens(issued) => assert_eq!(issued.len(), 1, "{word}"),
+            other => panic!("{word}: the month was lost: {other:?}"),
+        }
+        let calls = fake.calls();
+        let issues: Vec<_> = calls
+            .iter()
+            .filter(|c| c.url.ends_with("/v1/tokens/issue"))
+            .collect();
+        assert_eq!(issues.len(), 2, "{word}");
+        assert_eq!(
+            issues[0].body, issues[1].body,
+            "{word}: the identical request"
+        );
+    }
+}
+
 /// PT4: a payment taken back after the approval (a refund, a chargeback) ends the grant: said
 /// once, never asked again.
 #[test]
@@ -689,51 +755,159 @@ fn ent27_n51_a_redeem_refused_as_banned_or_as_locked_down_is_read_as_that() {
     );
 }
 
-/// AZ-P16: a token server that lost an issuer key (or verifies with another) refuses EVERY token
-/// as `unknown_issuer` / `bad_token`. One look gives up one token on that word and keeps the
-/// rest for the next look, instead of draining the whole vault; a token that is really bad
-/// (the refusals of the test above) costs nothing, the good ones behind it are redeemed.
+/// AZ-P16: a token server that lost an issuer key (or verifies with another, or has its issuer
+/// year wrong) refuses EVERY token as `unknown_issuer` / `bad_token` / `token_expired`. Nothing
+/// is given up on that word: the whole vault stays, the look stops after three questions, and
+/// the next look is the same. (The tokens and the questions are asserted first, the server's own
+/// sentence after - X-DELTA-AZDRIVE-MONEY-14: the text is the server's `message`, not its word.)
+/// Before, the first refusal of every look spent a paid token: a month short per day the fault
+/// lasted (X-DELTA-AZDRIVE-MONEY-3).
 #[test]
-fn az_p16_a_server_that_refuses_every_token_as_unknown_issuer_loses_one_token_per_look() {
-    let dir = TempDir::new("azcloud-period");
-    let shared = keyring_with_session(&dir, "dt_f.0.first");
-    let store = store_in(&dir);
-    store
-        .add(
-            "d_1",
-            &[stored("aa"), stored("bb"), stored("cc"), stored("dd")],
-        )
-        .unwrap();
-    let fake = redeeming_server(shared.locks().clone(), "dt_f.0.first", NOW + DAY, |_| {
-        Some(json(
-            400,
-            r#"{"error": "unknown_issuer", "message": "no issuer key for the token's tier"}"#,
-        ))
-    });
-    let transport = Shared(fake.clone());
-    let server = TokenServer::new(TOKEN, &transport).unwrap();
-    match redeem_due(&server, &shared, &store.on_this_device("d_1").unwrap(), NOW) {
-        Redeemed::Kept(why) => assert!(why.contains("unknown_issuer"), "{why}"),
-        other => panic!("a server that refuses every token redeemed nothing: {other:?}"),
+fn az_p16_a_server_that_refuses_every_token_on_a_doubtful_word_loses_no_token() {
+    for (word, message) in [
+        ("unknown_issuer", "no issuer key for the token's tier"),
+        ("bad_token", "the token signature does not verify"),
+        ("token_expired", "the token's issuer year is not valid"),
+    ] {
+        let dir = TempDir::new("azcloud-period");
+        let shared = keyring_with_session(&dir, "dt_f.0.first");
+        let store = store_in(&dir);
+        let all = [stored("aa"), stored("bb"), stored("cc"), stored("dd")];
+        store.add("d_1", &all).unwrap();
+        let fake = redeeming_server(
+            shared.locks().clone(),
+            "dt_f.0.first",
+            NOW + DAY,
+            move |_| {
+                Some(json(
+                    400,
+                    &format!(r#"{{"error": "{word}", "message": "{message}"}}"#),
+                ))
+            },
+        );
+        let transport = Shared(fake.clone());
+        let server = TokenServer::new(TOKEN, &transport).unwrap();
+        let look = redeem_due(&server, &shared, &store.on_this_device("d_1").unwrap(), NOW);
+        assert_eq!(
+            store.tokens("d_1").unwrap(),
+            all.to_vec(),
+            "{word}: no token is given up on a word the server may have said of every token"
+        );
+        let asked = fake
+            .calls()
+            .iter()
+            .filter(|c| c.url.ends_with("/redeem"))
+            .count();
+        assert_eq!(asked, 3, "{word}: three questions, then the look ends");
+        match look {
+            Redeemed::Kept(why) => assert!(why.contains(message), "{word}: {why}"),
+            other => {
+                panic!("{word}: a server that refuses every token redeemed nothing: {other:?}")
+            }
+        }
+        // The next look is the same: still the whole vault.
+        let _ = redeem_due(&server, &shared, &store.on_this_device("d_1").unwrap(), NOW);
+        assert_eq!(
+            store.tokens("d_1").unwrap(),
+            all.to_vec(),
+            "{word}: the next look"
+        );
     }
-    assert_eq!(
-        store.tokens("d_1").unwrap(),
-        vec![stored("bb"), stored("cc"), stored("dd")],
-        "the first was given up on its word, the second ended the look and stayed"
+}
+
+/// The token server's 400 `word` to a redemption.
+fn refused_as(word: &str) -> HttpReply {
+    json(
+        400,
+        &format!(r#"{{"error": "{word}", "message": "refused"}}"#),
+    )
+}
+
+/// X-DELTA-AZDRIVE-MONEY-3 (AZ-P16): a token refused on a doubtful word is given up on when - and
+/// only when - the token server takes another token that shows the fault is not its own: one of
+/// the same tier and issuer year for `unknown_issuer` / `bad_token`; for `token_expired` one of
+/// the same tier whose year is the same or LATER (an older year taken says nothing of a newer
+/// year's refusal). Without such a token the refused one stays. (The drive is 40 days behind, so
+/// the look goes on after a redemption.)
+#[test]
+fn x_delta_azdrive_money_3_a_refused_token_is_given_up_on_only_when_the_server_takes_another_of_its_issuer(
+) {
+    let in_year = |nonce: &str, year: u32| PeriodToken {
+        year,
+        ..stored(nonce)
+    };
+    let look = |tokens: &[PeriodToken], answer: fn(&str) -> Option<HttpReply>| {
+        let dir = TempDir::new("azcloud-period");
+        let shared = keyring_with_session(&dir, "dt_f.0.first");
+        let store = store_in(&dir);
+        store.add("d_1", tokens).unwrap();
+        let fake = redeeming_server(
+            shared.locks().clone(),
+            "dt_f.0.first",
+            NOW - 40 * DAY,
+            answer,
+        );
+        let transport = Shared(fake);
+        let server = TokenServer::new(TOKEN, &transport).unwrap();
+        let redeemed = redeem_due(&server, &shared, &store.on_this_device("d_1").unwrap(), NOW);
+        (redeemed, store.tokens("d_1").unwrap())
+    };
+    // A bad token ahead of a good one of its year: refused and kept, spent once the good one is taken.
+    let (redeemed, left) = look(&[stored("aa"), stored("bb")], |nonce| {
+        (&nonce[..2] == "aa").then(|| refused_as("bad_token"))
+    });
+    assert!(
+        matches!(redeemed, Redeemed::Extended { count: 1, .. }),
+        "{redeemed:?}"
     );
-    let asked = fake
-        .calls()
-        .iter()
-        .filter(|c| c.url.ends_with("/redeem"))
-        .count();
-    assert_eq!(asked, 2, "no third token was asked about in this look");
-    // The next look is the same: one token more, never the whole vault at once.
-    let transport = Shared(fake);
-    let server = TokenServer::new(TOKEN, &transport).unwrap();
-    let _ = redeem_due(&server, &shared, &store.on_this_device("d_1").unwrap(), NOW);
+    assert!(
+        left.is_empty(),
+        "the bad one was settled by the good one: {left:?}"
+    );
+    // The other way round: the server took one of the year first, so the refusal is the token's.
+    let (_, left) = look(&[stored("bb"), stored("aa")], |nonce| {
+        (&nonce[..2] == "aa").then(|| refused_as("unknown_issuer"))
+    });
+    assert!(left.is_empty(), "{left:?}");
+    // Nothing taken afterwards: the refused one stays, and so does the one that met a busy server.
+    let (redeemed, left) = look(&[stored("aa"), stored("bb")], |nonce| {
+        if &nonce[..2] == "aa" {
+            Some(refused_as("bad_token"))
+        } else {
+            Some(json(503, r#"{"error": "busy", "message": "try later"}"#))
+        }
+    });
+    assert!(matches!(redeemed, Redeemed::Kept(_)), "{redeemed:?}");
     assert_eq!(
-        store.tokens("d_1").unwrap(),
-        vec![stored("cc"), stored("dd")]
+        left,
+        vec![stored("aa"), stored("bb")],
+        "none was given up on"
+    );
+    // The year: a token of 2026 refused as expired is bad once a token of 2027 is taken ...
+    let (redeemed, left) = look(&[in_year("aa", 2026), in_year("bb", 2027)], |nonce| {
+        (&nonce[..2] == "aa").then(|| refused_as("token_expired"))
+    });
+    assert!(
+        matches!(redeemed, Redeemed::Extended { .. }),
+        "{redeemed:?}"
+    );
+    assert!(
+        left.is_empty(),
+        "an older year is expired once a newer one is taken: {left:?}"
+    );
+    // ... but a token of 2027 refused as expired is not bad because one of 2026 was taken: the
+    // server's own year may be behind.
+    let (redeemed, left) = look(&[in_year("aa", 2027), in_year("bb", 2026)], |nonce| {
+        (&nonce[..2] == "aa").then(|| refused_as("token_expired"))
+    });
+    assert!(
+        matches!(redeemed, Redeemed::Extended { .. }),
+        "{redeemed:?}"
+    );
+    assert_eq!(
+        left,
+        vec![in_year("aa", 2027)],
+        "a newer year is not settled by an older one"
     );
 }
 

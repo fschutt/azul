@@ -698,6 +698,7 @@ fn a_checkout_sends_the_payers_details_only_for_a_method_that_asks_the_app() {
         Ok(json(
             201,
             r#"{"checkout_id": "ck_11", "provider": "fake-dlocal", "method": "pix",
+                "amount_cents": 599, "currency": "BRL",
                 "surface": {"kind": "browser", "url": "http://127.0.0.1:8784/dlocal/pay/1"}}"#,
         ))
     });
@@ -738,7 +739,8 @@ fn a_checkout_through_a_provider_needs_an_id_but_no_payment_page() {
     let without_page = Fake::new(|_, _| {
         Ok(json(
             201,
-            r#"{"checkout_id": "ck_10", "surface": {"kind": "browser",
+            r#"{"checkout_id": "ck_10", "amount_cents": 990, "currency": "EUR",
+                "surface": {"kind": "browser",
                 "url": "http://localhost:18081/fake-paypal/checkoutnow?token=ck_10"}}"#,
         ))
     });
@@ -747,13 +749,25 @@ fn a_checkout_through_a_provider_needs_an_id_but_no_payment_page() {
     let (started, _) = server.checkout_via("100GB", 12, &via, &claim, crate::token::CheckoutFor::NewDrive).unwrap();
     assert_eq!(started.checkout_id, "ck_10");
     assert_eq!(started.months, 12, "the months asked for when the answer names none");
-    let without_id = Fake::new(|_, _| Ok(json(201, r#"{"surface": {"kind": "browser"}}"#)));
+    // Its amount and currency are there: it is refused for the id it lacks, not for the price.
+    let without_id = Fake::new(|_, _| {
+        Ok(json(
+            201,
+            r#"{"amount_cents": 990, "currency": "EUR", "surface": {"kind": "browser"}}"#,
+        ))
+    });
     let transport = Shared(without_id);
     let server = TokenServer::new(TOKEN, &transport).unwrap();
-    assert!(matches!(
-        server.checkout_via("100GB", 12, &via, &claim, crate::token::CheckoutFor::NewDrive),
-        Err(TokenError::Protocol(_))
-    ));
+    match server.checkout_via(
+        "100GB",
+        12,
+        &via,
+        &claim,
+        crate::token::CheckoutFor::NewDrive,
+    ) {
+        Err(TokenError::Protocol(why)) => assert!(why.contains("no id"), "{why}"),
+        other => panic!("not refused for its id: {other:?}"),
+    }
 }
 
 #[test]
@@ -1129,6 +1143,83 @@ fn az_p2_a_quote_is_checked_against_the_charge_before_anything_is_shown() {
         quote(99, "EUR", true).check(&charge(79, "PLN")).is_err(),
         "not another currency"
     );
+}
+
+/// X-DELTA-AZDRIVE-MONEY-10: what the buyer was shown is the price of an order for a tier and a
+/// number of months. An answer for another tier or another period at the SAME amount in the same
+/// currency passed `Quote::check`; `check_checkout` refuses it, saying what each is for. An
+/// answer that names no tier is judged by its price alone; one that names no months is for the
+/// months asked.
+#[test]
+fn x_delta_azdrive_money_10_a_charge_for_another_tier_or_period_at_the_same_price_is_refused() {
+    use crate::token::Quote;
+    let cents = |amount: u64| azlin_contract::Cents {
+        amount,
+        currency: azlin_contract::Currency::parse("EUR").unwrap(),
+    };
+    let quote = |at_most: bool| Quote {
+        price: cents(99),
+        tier: String::from("100GB"),
+        months: 1,
+        at_most,
+    };
+    // The checkout as the token server answers the order, read by the kit.
+    let answered = |extra: &str, amount: u64| {
+        let body = format!(
+            r#"{{"checkout_id": "ck_1", "pay_url": "https://pay.example/ck_1", {extra}
+                "amount_cents": {amount}, "currency": "EUR"}}"#
+        );
+        let transport = Shared(Fake::new(move |_, _| Ok(json(200, &body))));
+        let server = TokenServer::new(TOKEN, &transport).unwrap();
+        server
+            .checkout(
+                "100GB",
+                1,
+                "sepa",
+                &ClaimKey::generate().unwrap(),
+                crate::token::CheckoutFor::NewDrive,
+            )
+            .unwrap()
+    };
+    let same = answered(r#""tier": "100GB", "months": 1,"#, 99);
+    assert!(quote(false).check_checkout(&same).is_ok());
+    // Another tier at the same amount.
+    let other_tier = answered(r#""tier": "1TB", "months": 1,"#, 99);
+    assert!(
+        quote(false).check(&other_tier.charge).is_ok(),
+        "the price alone cannot tell"
+    );
+    let changed = quote(false)
+        .check_checkout(&other_tier)
+        .expect_err("another tier");
+    assert_eq!((changed.shown.amount, changed.charged.amount), (99, 99));
+    let (shown, charged) = changed.order.expect("what each is for");
+    assert_eq!((shown.tier.as_str(), shown.months), ("100GB", 1));
+    assert_eq!((charged.tier.as_str(), charged.months), ("1TB", 1));
+    // Another period at the same amount.
+    let other_months = answered(r#""tier": "100GB", "months": 12,"#, 99);
+    let changed = quote(false)
+        .check_checkout(&other_months)
+        .expect_err("another period");
+    assert_eq!(changed.order.map(|(_, charged)| charged.months), Some(12));
+    // Another order at another price: both are said.
+    let both = answered(r#""tier": "1TB", "months": 12,"#, 4990);
+    let changed = quote(false).check_checkout(&both).expect_err("both");
+    assert_eq!(changed.charged.amount, 4990);
+    assert!(changed.order.is_some());
+    assert!(
+        changed.to_string().contains("1TB for 12 month(s)"),
+        "{changed}"
+    );
+    // A lock's ceiling does not make another order fit.
+    let cheaper_other_tier = answered(r#""tier": "1TB", "months": 1,"#, 79);
+    assert!(quote(true).check(&cheaper_other_tier.charge).is_ok());
+    assert!(quote(true).check_checkout(&cheaper_other_tier).is_err());
+    // No tier named: judged by its price alone; no months named: the months asked.
+    let unnamed = answered("", 99);
+    assert!(quote(false).check_checkout(&unnamed).is_ok());
+    let dearer = answered("", 100);
+    assert!(quote(false).check_checkout(&dearer).is_err());
 }
 
 /// AZ-P3: the payment page of a v1 checkout is built (`{token}/v1/pay/{id}`) and an answer's
