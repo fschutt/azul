@@ -253,7 +253,37 @@ fn merge_dir(
                     put(&mut entries, &copy_name, ms);
                     copy = Some(join(prefix, &copy_name));
                 }
-                ConflictKind::ChangedAndDeleted => put(&mut entries, name, ms.or(ts)),
+                ConflictKind::ChangedAndDeleted => match (ms, ts) {
+                    // One side deleted a FOLDER and the other changed something in it: what the
+                    // changing side left alone goes with the delete; what it changed or added stays
+                    // (a conflict per file, kept by the unattended sync). The whole folder used to
+                    // come back, every file the other side had deleted with it (AZ-M8).
+                    (None, Some((Mode::Tree, kept))) | (Some((Mode::Tree, kept)), None) => {
+                        let (mine_side, theirs_side) = if ms.is_some() {
+                            (Some(&kept), None)
+                        } else {
+                            (None, Some(&kept))
+                        };
+                        let base_id = match bs {
+                            Some((Mode::Tree, id)) => Some(id),
+                            _ => None,
+                        };
+                        let merged = merge_dir(
+                            objects,
+                            base_id.as_ref(),
+                            mine_side,
+                            theirs_side,
+                            &conflict.path,
+                            device,
+                            resolve,
+                            out,
+                        )?;
+                        if !shard::read_folder(objects, &merged)?.is_empty() {
+                            put(&mut entries, name, Some((Mode::Tree, merged)));
+                        }
+                    }
+                    _ => put(&mut entries, name, ms.or(ts)),
+                },
                 ConflictKind::FileAndFolder => {
                     let (folder, file) = if matches!(ms, Some((Mode::Tree, _))) {
                         (ms, ts)

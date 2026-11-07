@@ -136,6 +136,116 @@ fn a_file_changed_on_one_side_and_deleted_on_the_other_is_kept_when_keeping_both
         .all(|r| r.conflict.kind == ConflictKind::ChangedAndDeleted && r.copy.is_none()));
 }
 
+/// AZ-M8. One device deletes `photos/` (1000 files in the real case), another edits one file in
+/// it and adds one. The merge used to hand back the whole folder - every file the first device had
+/// deleted with it. Now only what the changing side touched stays.
+#[test]
+fn az_m8_a_folder_deleted_here_and_changed_there_keeps_only_what_the_change_touched() {
+    let mut objects = Objects::new();
+    let base = drive(
+        &mut objects,
+        &[
+            ("photos/a.jpg", "a1"),
+            ("photos/b.jpg", "b1"),
+            ("photos/c.jpg", "c1"),
+            ("keep.txt", "k"),
+        ],
+    );
+    let mine = drive(&mut objects, &[("keep.txt", "k")]);
+    let theirs = drive(
+        &mut objects,
+        &[
+            ("photos/a.jpg", "a1"),
+            ("photos/b.jpg", "b2"),
+            ("photos/c.jpg", "c1"),
+            ("photos/new.jpg", "n1"),
+            ("keep.txt", "k"),
+        ],
+    );
+    let merged = merge_trees(
+        &mut objects,
+        Some(&base),
+        &mine,
+        &theirs,
+        "Laptop",
+        &mut keep_both,
+    )
+    .unwrap();
+    assert_eq!(
+        files(&objects, &merged.tree),
+        expect(&[
+            ("keep.txt", "k"),
+            ("photos/b.jpg", "b2"),
+            ("photos/new.jpg", "n1"),
+        ]),
+        "a.jpg and c.jpg were deleted with the folder and stay deleted"
+    );
+    let asked: Vec<&str> = merged
+        .conflicts
+        .iter()
+        .map(|r| r.conflict.path.as_str())
+        .collect();
+    assert_eq!(asked, ["photos/b.jpg", "photos"]);
+}
+
+#[test]
+fn az_m8_a_folder_changed_here_and_deleted_there_keeps_only_what_the_change_touched() {
+    let mut objects = Objects::new();
+    let base = drive(
+        &mut objects,
+        &[
+            ("photos/a.jpg", "a1"),
+            ("photos/b.jpg", "b1"),
+            ("keep.txt", "k"),
+        ],
+    );
+    let mine = drive(
+        &mut objects,
+        &[
+            ("photos/a.jpg", "a1"),
+            ("photos/b.jpg", "b2"),
+            ("keep.txt", "k"),
+        ],
+    );
+    let theirs = drive(&mut objects, &[("keep.txt", "k")]);
+    let merged = merge_trees(
+        &mut objects,
+        Some(&base),
+        &mine,
+        &theirs,
+        "Laptop",
+        &mut keep_both,
+    )
+    .unwrap();
+    assert_eq!(
+        files(&objects, &merged.tree),
+        expect(&[("keep.txt", "k"), ("photos/b.jpg", "b2")])
+    );
+}
+
+#[test]
+fn az_m8_a_folder_deleted_on_one_side_and_rearranged_on_the_other_keeps_only_the_new_file() {
+    let mut objects = Objects::new();
+    let base = drive(&mut objects, &[("photos/a.jpg", "a1"), ("keep.txt", "k")]);
+    let mine = drive(&mut objects, &[("keep.txt", "k")]);
+    let theirs = drive(&mut objects, &[("photos/other", "x"), ("keep.txt", "k")]);
+    // Theirs replaced the file by another (the old one is gone there too); mine deleted the
+    // folder: the new file stays, the folder holds nothing else.
+    let merged = merge_trees(
+        &mut objects,
+        Some(&base),
+        &mine,
+        &theirs,
+        "Laptop",
+        &mut keep_both,
+    )
+    .unwrap();
+    assert_eq!(
+        files(&objects, &merged.tree),
+        expect(&[("keep.txt", "k"), ("photos/other", "x")])
+    );
+}
+
 #[test]
 fn a_file_and_a_folder_of_one_name_keep_the_folder_and_rename_the_file() {
     let mut objects = Objects::new();
