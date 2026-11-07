@@ -1394,6 +1394,7 @@ azdrive-enc-err-no-lockdown-pending = No lockdown is pending any more. Either it
 azdrive-enc-err-no-recovery-key = The drive has no recovery key at its token server (its recovery sheet was made before AzDrive registered one).
 azdrive-enc-groups-and = { $rest } and { $last }
 azdrive-enc-confirm-title = Encrypt "{ $name }"?
+azdrive-enc-confirm-cannot-tell = This drive holds files and shows no key file, and this computer has no key for it, so it cannot tell a drive from before the encryption from an encrypted one whose storage hides its key files. If it is encrypted, stop here: "Unlock with the recovery code…" opens it. Encrypt it only if it never was; its files then move into a new key.
 azdrive-enc-confirm-1 = Its files are encrypted on this computer before they leave it: Azlin stores ciphertext under random names, without the files' names or folders.
 azdrive-enc-confirm-2 = This computer keeps the drive's key in its keyring. Other computers get it with a join code from one that has it.
 azdrive-enc-confirm-3 = You get a RECOVERY CODE: the only way back in when every computer with the key is lost. Azlin cannot reset it.

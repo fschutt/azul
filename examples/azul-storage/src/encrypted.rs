@@ -371,13 +371,17 @@ pub fn open_encrypted(
 /// recovery code. A device that knows neither a key, nor a record, nor key files in the bucket
 /// meets a drive that was not encrypted yet - a new one, or one made before encryption - and
 /// the bucket's listing cannot tell it from a hostile one that hides its key files: so it
-/// takes no file. It reads as the bucket lists it and refuses every write that would put
-/// plaintext into it, until it is encrypted ("Encrypt this drive", then
-/// [`AutoEncrypted::reopen`]). A new drive (no file in its bucket) is also set up by the app at
-/// once ([`AutoEncrypted::needs_encryption`]); one with files (made before encryption) waits for
-/// the user's word: encrypting it moves its files into the encryption. The same holds for a drive
-/// whose setup this device started and did not finish ([`device::setup_pending`]; the bucket may
-/// already list the key files of that try): it waits for its setup to run again.
+/// takes no file. A new drive (no file in its bucket) reads as the bucket lists it, which is
+/// nothing, and refuses every write that would put plaintext into it, until it is encrypted
+/// ("Encrypt this drive", then [`AutoEncrypted::reopen`]); the app that made it sets it up at
+/// once, and one it did not make waits for the user's word ([`AutoEncrypted::needs_encryption`]).
+/// A drive with files and no key file anywhere ([`Why::HiddenOrAbsent`]) is not read either: a
+/// device that has neither a key nor a record may not list a bucket (ARCH28 Q15,
+/// X-DELTA-AZDRIVE-KEYS-19) - it cannot tell a drive from before the encryption from an encrypted
+/// one whose storage hides its key files, and what such a bucket shows is its word alone.
+/// Encrypting it (the user's word) moves its files into the encryption. The same holds for a
+/// drive whose setup this device started and did not finish ([`device::setup_pending`]; the
+/// bucket may already list the key files of that try): it waits for its setup to run again.
 pub struct AutoEncrypted {
     bucket: Arc<dyn Drive>,
     drive: String,
@@ -398,9 +402,10 @@ pub struct AutoEncrypted {
     /// listing refresh, a sync attempt and a thumbnail do not each ask the user again.
     denied: Mutex<Option<Denial>>,
     denied_for: Duration,
-    /// Whether a drive that is not encrypted reads as its bucket lists (AzDrive: to offer
-    /// "Encrypt this drive"). The bridge and AzMail open an encrypted drive only
-    /// ([`AutoEncrypted::encrypted_only`]).
+    /// Whether a new drive (or a stopped setup) that is not encrypted reads as its bucket lists
+    /// (AzDrive: its folder shows empty while "Encrypt this drive" is offered). A drive with files
+    /// and no key file is not read whatever this says ([`EncState::admits`]). The bridge and
+    /// AzMail open an encrypted drive only ([`AutoEncrypted::encrypted_only`]).
     plain_reads: bool,
     /// Run by a test between the moment a call has its drive and the moment it is judged: where
     /// another thread's reopening used to be able to come in (X-DELTA-AZDRIVE-KEYS-18).
@@ -494,7 +499,8 @@ impl AutoEncrypted {
     /// An app that has no use for a drive that is not encrypted (the bridge, AzMail): it reads
     /// and writes an encrypted drive only. A drive that is not (a new one, an older one, a
     /// bucket that hides its key files) answers every call with the refusal that tells the user
-    /// to encrypt it in AzDrive, reads included - what a bucket lists without a key is its
+    /// what to do - to encrypt it in AzDrive, or for a drive with files and no key file that
+    /// this computer cannot tell - reads included: what a bucket lists without a key is its
     /// word alone.
     #[must_use]
     pub fn encrypted_only(mut self) -> AutoEncrypted {
@@ -613,11 +619,7 @@ impl AutoEncrypted {
                 ),
             }),
             EncState::Unencrypted(Why::HiddenOrAbsent) => Some(DriveError::Denied {
-                message: format!(
-                    "\"{}\" is not encrypted, and an Azlin drive takes files only once it is \
-                     (Encrypt this drive)",
-                    self.drive
-                ),
+                message: cannot_tell(&self.drive),
             }),
             EncState::Undecided | EncState::Encrypted { .. } => None,
         }
@@ -655,7 +657,13 @@ impl AutoEncrypted {
                     self.drive
                 ),
             }),
-            EncState::SetupPending | EncState::Unencrypted(_) if op == Op::Read => {
+            // Files and no key file anywhere: a read is refused with the words of a write, whatever
+            // the app (ARCH28 Q15, X-DELTA-AZDRIVE-KEYS-19) - "encrypt it first" would be the
+            // wrong advice for an encrypted drive whose storage hides its key files.
+            EncState::Unencrypted(Why::HiddenOrAbsent) => Err(DriveError::Denied {
+                message: cannot_tell(&self.drive),
+            }),
+            EncState::SetupPending | EncState::Unencrypted(Why::New) if op == Op::Read => {
                 Err(DriveError::Denied {
                     message: format!(
                         "\"{}\" is not encrypted, and this app opens an encrypted drive only: \
@@ -664,7 +672,7 @@ impl AutoEncrypted {
                     ),
                 })
             }
-            EncState::SetupPending | EncState::Unencrypted(_) => Err(self
+            EncState::SetupPending | EncState::Unencrypted(Why::New) => Err(self
                 .unencrypted_refusal()
                 .unwrap_or_else(|| DriveError::Denied {
                     message: format!("\"{}\" is not encrypted", self.drive),
@@ -919,6 +927,18 @@ fn holds_plaintext_files(bucket: &dyn Drive) -> Result<bool, DriveError> {
     Ok(true)
 }
 
+/// The refusal of a drive that holds files and shows no key file, with no key and no record on
+/// this device ([`Why::HiddenOrAbsent`]): what a read, a write and a delete of it all answer, and
+/// what a sync pass stops with. It says that the device cannot tell, and what each case does.
+fn cannot_tell(drive: &str) -> String {
+    format!(
+        "\"{drive}\" holds files and shows no key file, and this computer has no key that opens it \
+         and no note that it was encrypted, so it cannot tell a drive from before the encryption \
+         from an encrypted one whose storage hides its key files: nothing is read from it or put \
+         into it. If it is encrypted, unlock it with its key; if it never was, Encrypt this drive"
+    )
+}
+
 /// What a decision about a drive rests on: the device's own words first (its keyring, its
 /// record), the bucket's listing last - the least trusted word there is. It can add to what the
 /// device knows (key files it lists make the drive encrypted, and locked without a key) and never
@@ -1115,8 +1135,10 @@ impl fmt::Display for OpenRefusal {
                  AzDrive and press Encrypt this drive, or run the encrypt command)",
             ),
             OpenRefusal::NotEncrypted(Why::HiddenOrAbsent) => f.write_str(
-                "the drive is not encrypted - or its storage hides its key files, which cannot be \
-                 told apart from here: it is read and written by nothing until it is (open it in \
+                "the drive holds files and shows no key file: it is not encrypted - or its storage \
+                 hides its key files, which cannot be told apart from here, so nothing is read from \
+                 it or written to it. If it is encrypted, add its key (a join code from a device \
+                 that has it, or the recovery code); if it never was, encrypt it (open it in \
                  AzDrive and press Encrypt this drive, or run the encrypt command)",
             ),
             OpenRefusal::Keyring(e) | OpenRefusal::Refused(e) => write!(f, "{e}"),

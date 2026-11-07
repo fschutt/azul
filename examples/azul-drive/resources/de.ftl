@@ -1392,6 +1392,7 @@ azdrive-enc-err-no-lockdown-pending = Es wartet keine Sperrung mehr. Entweder wu
 azdrive-enc-err-no-recovery-key = Das Laufwerk hat keinen Wiederherstellungsschlüssel bei seinem Tokenserver (sein Wiederherstellungsblatt wurde erstellt, bevor AzDrive einen registriert hat).
 azdrive-enc-groups-and = { $rest } und { $last }
 azdrive-enc-confirm-title = „{ $name }“ verschlüsseln?
+azdrive-enc-confirm-cannot-tell = Dieses Laufwerk enthält Dateien und zeigt keine Schlüsseldatei, und dieser Computer hat keinen Schlüssel dafür. Er kann ein Laufwerk aus der Zeit vor der Verschlüsselung nicht von einem verschlüsselten unterscheiden, dessen Speicher seine Schlüsseldateien verbirgt. Ist es verschlüsselt, höre hier auf: „Mit dem Wiederherstellungscode entsperren…“ öffnet es. Verschlüssele es nur, wenn es nie verschlüsselt war; seine Dateien wandern dann in einen neuen Schlüssel.
 azdrive-enc-confirm-1 = Seine Dateien werden auf diesem Computer verschlüsselt, bevor sie ihn verlassen: Azlin speichert Chiffretext unter zufälligen Namen, ohne die Namen oder Ordner der Dateien.
 azdrive-enc-confirm-2 = Dieser Computer bewahrt den Schlüssel des Laufwerks in seinem Schlüsselbund auf. Andere Computer bekommen ihn mit einem Beitrittscode von einem, der ihn hat.
 azdrive-enc-confirm-3 = Du bekommst einen WIEDERHERSTELLUNGSCODE: den einzigen Weg zurück, wenn jeder Computer mit dem Schlüssel verloren ist. Azlin kann ihn nicht zurücksetzen.

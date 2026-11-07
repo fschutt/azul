@@ -60,7 +60,14 @@ mod enc_state {
                         EncState::Undecided => {
                             assert!(!admitted, "nothing goes through an undecided drive: {op:?}")
                         }
-                        EncState::SetupPending | EncState::Unencrypted(_) => assert_eq!(
+                        // X-DELTA-AZDRIVE-KEYS-19 (ARCH28 Q15): files and no key file, and
+                        // neither a key nor a record here - not even a read goes through.
+                        EncState::Unencrypted(Why::HiddenOrAbsent) => assert!(
+                            !admitted,
+                            "{state:?} {op:?} plain_reads={plain_reads}: a device with neither a \
+                             key nor a record may not list the bucket"
+                        ),
+                        EncState::SetupPending | EncState::Unencrypted(Why::New) => assert_eq!(
                             admitted,
                             op == Op::Read && plain_reads,
                             "{state:?} {op:?} plain_reads={plain_reads}: a drive that is not \
@@ -69,6 +76,32 @@ mod enc_state {
                         ),
                     }
                 }
+            }
+        }
+    }
+
+    /// X-DELTA-AZDRIVE-KEYS-19: the app finishes a drive's setup by itself only for a setup of
+    /// THIS device that stopped halfway (its key is in the keyring); a drive that merely lists
+    /// empty, or holds files and shows no key file, waits for the user's word. And "Encrypt this
+    /// drive" is warned about for the drive this device cannot tell from an encrypted one.
+    #[test]
+    fn x_delta_azdrive_keys_19_only_an_own_stopped_setup_resumes_and_only_a_drive_with_files_is_warned_about(
+    ) {
+        for state in states() {
+            assert_eq!(
+                state.resumes_setup(),
+                matches!(state, EncState::SetupPending),
+                "{state:?}"
+            );
+            assert_eq!(
+                state.encrypt_needs_warning(),
+                matches!(state, EncState::Unencrypted(Why::HiddenOrAbsent)),
+                "{state:?}"
+            );
+            // A state that cannot be encrypted at all needs no warning, and one that resumes is
+            // offered the encryption (the menu line is how a failed resume is retried).
+            if state.encrypt_needs_warning() || state.resumes_setup() {
+                assert!(state.offers_encrypt(), "{state:?}");
             }
         }
     }

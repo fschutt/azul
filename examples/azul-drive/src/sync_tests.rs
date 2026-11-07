@@ -1338,7 +1338,10 @@ fn x_ar6_26802cb54_1_a_pass_on_a_drive_that_is_not_encrypted_starts_no_plain_ses
     match answer {
         Outcome::Sync(SyncOutcome::Passed {
             result: Err(why), ..
-        }) => assert!(why.contains("not encrypted"), "{why}"),
+        }) => assert!(
+            why.contains("cannot tell"),
+            "the pass says the drive cannot be told from an encrypted one: {why}"
+        ),
         Outcome::Sync(SyncOutcome::Passed {
             result: Ok(done), ..
         }) => {

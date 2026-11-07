@@ -364,7 +364,10 @@ mod enc_state {
         New,
         /// A bucket with files and no key anywhere this device can see: a drive made before the
         /// encryption, or a hostile bucket that hides its key files. The two cannot be told
-        /// apart from here (no authenticated source says "plain"), so it takes no file.
+        /// apart from here (no authenticated source says "plain"), so it takes no file - and,
+        /// as ARCH28 Q15 decided (no Azlin drive was ever plain), it is not listed or read
+        /// either: what such a bucket shows is the bucket's word alone, and the names it shows
+        /// would be its injection (X-DELTA-AZDRIVE-KEYS-19).
         HiddenOrAbsent,
     }
 
@@ -389,7 +392,9 @@ mod enc_state {
         /// A setup of this device that stopped halfway (the key is kept, the device is not
         /// enrolled yet): the same setup call finishes it. Not a locked drive.
         SetupPending,
-        /// The drive is not encrypted. It reads as its bucket lists and takes no write, ever.
+        /// The drive is not encrypted. A new one (or a stopped setup) reads as its bucket lists,
+        /// which is nothing; one that holds files is not read either ([`Why::HiddenOrAbsent`]).
+        /// It takes no write, ever.
         Unencrypted(Why),
     }
 
@@ -464,16 +469,53 @@ mod enc_state {
             }
         }
 
+        /// Whether the app finishes the drive's setup by itself when it meets the drive in this
+        /// state: only a setup THIS device started and did not finish (its keyring holds the key
+        /// it made: the same call finishes it). A drive that arrives with no key and no record is
+        /// set up when the app MAKES it, or by the user's word ("Encrypt this drive") - never
+        /// because a listing came back empty: that is a server's word, and a key made on it
+        /// would be a second key family beside the drive's real one (X-DELTA-AZDRIVE-KEYS-19).
+        #[must_use]
+        pub const fn resumes_setup(self) -> bool {
+            match self {
+                EncState::SetupPending => true,
+                EncState::Undecided
+                | EncState::Encrypted { .. }
+                | EncState::Unencrypted(Why::New | Why::HiddenOrAbsent) => false,
+            }
+        }
+
+        /// Whether "Encrypt this drive" must first say that this device cannot tell the drive
+        /// from an encrypted one: it holds files and shows no key file, and the device has
+        /// neither a key nor a record ([`Why::HiddenOrAbsent`]). Encrypting it moves what the
+        /// bucket shows into a new key (X-DELTA-AZDRIVE-KEYS-19).
+        #[must_use]
+        pub const fn encrypt_needs_warning(self) -> bool {
+            match self {
+                EncState::Unencrypted(Why::HiddenOrAbsent) => true,
+                EncState::Undecided
+                | EncState::Encrypted { .. }
+                | EncState::SetupPending
+                | EncState::Unencrypted(Why::New) => false,
+            }
+        }
+
         /// Whether the drive goes through `op`. `plain_reads` is whether this app reads a drive
-        /// that is not encrypted as its bucket lists (AzDrive does, to offer "Encrypt this
-        /// drive"; the bridge and AzMail do not). Nothing goes through an undecided drive, and
-        /// a drive that is not encrypted takes no write and no delete.
+        /// that is waiting for its encryption as its bucket lists (AzDrive does, to show the
+        /// new drive's folder; the bridge and AzMail do not). Nothing goes through an undecided
+        /// drive, and a drive that is not encrypted takes no write and no delete.
+        ///
+        /// A drive that holds files and shows no key file ([`Why::HiddenOrAbsent`]) goes through
+        /// nothing at all, not even a read, whatever the app: a device that has neither its key
+        /// nor a record of it may not list the bucket (ARCH28 Q15, X-DELTA-AZDRIVE-KEYS-19).
+        /// The names a hostile bucket lists would be shown as the user's files, previewed and
+        /// opened; refusing is reversible, and no Azlin drive was ever plain.
         #[must_use]
         pub const fn admits(self, op: Op, plain_reads: bool) -> bool {
             match self {
                 EncState::Encrypted { .. } => true,
-                EncState::Undecided => false,
-                EncState::SetupPending | EncState::Unencrypted(_) => match op {
+                EncState::Undecided | EncState::Unencrypted(Why::HiddenOrAbsent) => false,
+                EncState::SetupPending | EncState::Unencrypted(Why::New) => match op {
                     Op::Read => plain_reads,
                     Op::Write | Op::Delete => false,
                 },

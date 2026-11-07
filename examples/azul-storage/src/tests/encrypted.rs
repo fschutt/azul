@@ -701,24 +701,55 @@ fn kind(drive: &AutoEncrypted) -> Option<bool> {
     }
 }
 
-/// A bucket without key files that this device knows nothing about is read as it lists (it may be
-/// a drive made before encryption), and takes no plaintext file: an Azlin drive is encrypted.
+/// X-DELTA-AZDRIVE-KEYS-19 (ARCH28 Q15): a bucket with files and without key files, on a device
+/// that knows nothing of it (no key, no record), is NOT read - it cannot be told from an encrypted
+/// drive whose storage hides its key files, and the names it lists are the bucket's word alone
+/// (the old code read it "as it lists, it may be a drive made before encryption": the names of a
+/// hostile bucket were listed, previewed and opened as the user's files). It takes no plaintext
+/// file either, and every refusal says that this device cannot tell.
 #[test]
-fn an_auto_encrypted_drive_reads_a_plain_bucket_and_takes_no_file_into_it() {
+fn x_delta_azdrive_keys_19_a_bucket_with_files_and_no_key_file_is_neither_read_nor_written_by_a_device_with_nothing_of_it(
+) {
     let mem = Arc::new(MemBucket::new());
     mem.set("a.txt", b"plain".to_vec());
     let drive = AutoEncrypted::new(mem.clone(), "d_1", Arc::new(MemoryKeyring::new()), provider());
     assert_eq!(kind(&drive), None, "nothing decided before the first call");
-    assert_eq!(drive.get("a.txt").unwrap(), b"plain");
+    let cannot_tell = |what: &str, answer: Result<(), DriveError>| match answer {
+        Err(DriveError::Denied { message }) => {
+            assert!(message.contains("cannot tell"), "{what}: {message}");
+            assert!(
+                message.contains("unlock") && message.contains("Encrypt this drive"),
+                "{what} says what each case does: {message}"
+            );
+        }
+        other => panic!("{what} went through or failed another way: {other:?}"),
+    };
+    cannot_tell("get", drive.get("a.txt").map(|_| ()));
+    assert_eq!(drive.state(), EncState::Unencrypted(Why::HiddenOrAbsent));
     assert_eq!(kind(&drive), Some(false));
-    assert!(matches!(
-        drive.put("b.txt", b"not plain"),
-        Err(DriveError::Denied { .. })
-    ));
+    cannot_tell("list", drive.list(&ListRequest::folder("")).map(|_| ()));
+    cannot_tell("head", drive.head("a.txt").map(|_| ()));
+    cannot_tell("put", drive.put("b.txt", b"not plain"));
+    cannot_tell("delete", drive.delete("a.txt"));
     assert!(
         mem.object("b.txt").is_none(),
         "no plaintext reached the bucket"
     );
+    assert!(mem.object("a.txt").is_some(), "and nothing was deleted");
+    // The same words from the drive's own refusal (what a sync pass stops with), and an app that
+    // opens an encrypted drive only is told the same, not "encrypt it first".
+    assert!(matches!(
+        drive.unencrypted_refusal(),
+        Some(DriveError::Denied { message }) if message.contains("cannot tell")
+    ));
+    let only = AutoEncrypted::new(
+        mem.clone(),
+        "d_1",
+        Arc::new(MemoryKeyring::new()),
+        provider(),
+    )
+    .encrypted_only();
+    cannot_tell("get (encrypted only)", only.get("a.txt").map(|_| ()));
 }
 
 /// "We always encrypt": a new Azlin drive whose encryption was not set up (it failed, the app
@@ -758,16 +789,27 @@ fn a_new_plain_drive_takes_no_file_until_it_is_encrypted() {
     assert_eq!(drive.get("a.txt").unwrap(), b"sealed now");
 }
 
-/// A drive made before encryption (it holds files) keeps opening and reading, takes no file in the
-/// clear - the bucket's listing cannot tell it from a hostile one that hides its key files -,
-/// and is not set up by itself: its menu offers the encryption, which moves its files in.
+/// A drive made before encryption (it holds files) is not read (X-DELTA-AZDRIVE-KEYS-19: the
+/// bucket's listing cannot tell it from a hostile one that hides its key files), takes no file in
+/// the clear, and is not set up by itself: its menu offers the encryption, which moves its files
+/// in - the encryption is made on the raw bucket, and afterwards the drive opens as an encrypted one.
 #[test]
-fn an_older_plain_drive_with_files_reads_and_takes_no_file_until_it_is_encrypted() {
+fn an_older_plain_drive_with_files_is_not_read_and_takes_no_file_until_it_is_encrypted() {
     let mem = Arc::new(MemBucket::new());
     mem.set("photos/2019/a.jpg", b"jpeg bytes".to_vec());
     let keyring = Arc::new(MemoryKeyring::new());
     let drive = AutoEncrypted::new(mem.clone(), "d_old", keyring.clone(), provider());
-    assert_eq!(drive.get("photos/2019/a.jpg").unwrap(), b"jpeg bytes");
+    assert_eq!(
+        drive.decide().unwrap(),
+        EncState::Unencrypted(Why::HiddenOrAbsent)
+    );
+    assert!(
+        matches!(
+            drive.get("photos/2019/a.jpg"),
+            Err(DriveError::Denied { .. })
+        ),
+        "not read"
+    );
     assert_eq!(kind(&drive), Some(false));
     assert!(
         !drive.needs_encryption(),
@@ -1400,7 +1442,7 @@ fn x_ar6_26802cb54_3_only_a_declined_prompt_is_remembered() {
 
 /// X-AR6-26802cb54-2 (a): a drive that is not encrypted takes no delete either - a record-less
 /// device cannot tell an older plain drive from a bucket that hides its key files, and a delete
-/// is a write. It still reads as its bucket lists.
+/// is a write. (It is not read either: X-DELTA-AZDRIVE-KEYS-19.)
 #[test]
 fn x_ar6_26802cb54_2_a_drive_that_is_not_encrypted_takes_no_delete() {
     let mem = Arc::new(MemBucket::new());
@@ -1412,7 +1454,10 @@ fn x_ar6_26802cb54_2_a_drive_that_is_not_encrypted_takes_no_delete() {
         Arc::new(MemoryKeyring::new()),
         provider(),
     );
-    assert_eq!(drive.get("notes.txt").unwrap(), b"plain", "it reads");
+    assert!(
+        matches!(drive.get("notes.txt"), Err(DriveError::Denied { .. })),
+        "it is not read (Q15)"
+    );
     let denied = |result: Result<(), DriveError>, what: &str| {
         assert!(
             matches!(result, Err(DriveError::Denied { .. })),
@@ -1620,8 +1665,8 @@ fn x_ar5b_3_decide_says_what_it_decided_or_why_it_could_not() {
     );
     assert!(!hidden.needs_encryption());
     assert!(
-        hidden.list(&list).is_ok(),
-        "it still reads, as its bucket lists"
+        matches!(hidden.list(&list), Err(DriveError::Denied { .. })),
+        "it reads nothing: a device with neither a key nor a record may not list the bucket (Q15)"
     );
 }
 

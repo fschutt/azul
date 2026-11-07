@@ -3079,7 +3079,9 @@ pub(crate) extern "C" fn on_job_done(
                 return Update::DoNothing; // another folder or drive by now
             }
             scanned(&mut info, &handle, s, batch, done, error);
-            // A new Azlin drive that opened plain and empty gets its encryption set up now.
+            // A new Azlin drive this run made and could not set up at once, or a setup of this
+            // computer that stopped halfway, goes on now (`encryption::resume_wanted`); a drive that
+            // merely lists empty waits for "Encrypt this drive" (X-DELTA-AZDRIVE-KEYS-19).
             #[cfg(feature = "encryption")]
             if done {
                 encryption::resume_new_drive_setup(&mut info, &handle, s);

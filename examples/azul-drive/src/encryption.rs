@@ -88,7 +88,7 @@ use azul_storage::{
     recompress::{run_pass, RecompressPolicy, RecompressState},
     rotation::{self, reencrypt_pass, ReencryptState},
     time::now_unix,
-    trust::RestoreKind,
+    trust::{EncState, RestoreKind},
     Drive, LocalDrive,
 };
 
@@ -1121,23 +1121,46 @@ fn check_page(sheet: &Sheet, app: &RefAny) -> Dom {
     body
 }
 
+/// The lines of the "Encrypt this drive" confirm, as resource keys: what encrypting does, and -
+/// first - for a drive that holds files and shows no key file, that this computer cannot tell it
+/// from an encrypted drive whose storage hides its key files (X-DELTA-AZDRIVE-KEYS-19: encrypting
+/// moves what the storage shows into a new key).
+fn confirm_lines(state: Option<EncState>) -> Vec<&'static str> {
+    let mut lines = Vec::with_capacity(5);
+    if state.is_some_and(EncState::encrypt_needs_warning) {
+        lines.push("azdrive-enc-confirm-cannot-tell");
+    }
+    lines.extend([
+        "azdrive-enc-confirm-1",
+        "azdrive-enc-confirm-2",
+        "azdrive-enc-confirm-3",
+        "azdrive-enc-confirm-4",
+    ]);
+    lines
+}
+
 /// The dialog's title and content.
 pub(crate) fn dialog_parts(dialog: &Dialog, s: &DriveState, app: &RefAny) -> (String, Dom) {
     let column = dialog_column;
     match dialog {
-        Dialog::Confirm { drive_id } => (
-            t_args("azdrive-enc-confirm-title", &[("name", Arg::from(drive_name(s, drive_id)))]),
-            column(vec![
-                line("azdrive-enc-confirm-1"),
-                line("azdrive-enc-confirm-2"),
-                line("azdrive-enc-confirm-3"),
-                line("azdrive-enc-confirm-4"),
-                buttons(vec![
-                    button("kit-button-cancel", app, on_cancel_popup),
-                    typed_button("azdrive-enc-encrypt", ButtonType::Primary, app, on_encrypt),
-                ]),
-            ]),
-        ),
+        Dialog::Confirm { drive_id } => {
+            let state = s
+                .slot_index(drive_id)
+                .and_then(|index| s.slots[index].auto.as_ref())
+                .map(|auto| auto.state());
+            let mut children: Vec<Dom> = confirm_lines(state).into_iter().map(line).collect();
+            children.push(buttons(vec![
+                button("kit-button-cancel", app, on_cancel_popup),
+                typed_button("azdrive-enc-encrypt", ButtonType::Primary, app, on_encrypt),
+            ]));
+            (
+                t_args(
+                    "azdrive-enc-confirm-title",
+                    &[("name", Arg::from(drive_name(s, drive_id)))],
+                ),
+                column(children),
+            )
+        }
         Dialog::Busy { title, text } => (
             title.clone(),
             column(vec![
@@ -1539,8 +1562,25 @@ pub(crate) fn sets_up_encryption_at_creation(entry: &azul_storage::config::Drive
 /// computer's wrap in the bucket - then the recovery sheet (four groups typed back, the
 /// emergency kit), which finishes the drive's making. Nothing is moved afterwards: the drive is
 /// empty. A build without a drive index cannot open encrypted drives, so it leaves the drive
-/// plain.
+/// plain. Called by the flows that MAKE a drive (bought, claimed): the drive is remembered as
+/// made in this run, the only new drive a scan's end sets up by itself ([`resume_wanted`]).
 pub(crate) fn encrypt_new_drive(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    drive_id: &str,
+) {
+    {
+        let mut made = made_this_run();
+        if !made.iter().any(|d| d == drive_id) {
+            made.push(drive_id.to_string());
+        }
+    }
+    begin_new_drive_setup(info, app, s, drive_id);
+}
+
+/// The setup of a new drive, once per drive and run: the job and its busy dialog.
+fn begin_new_drive_setup(
     info: &mut CallbackInfo,
     app: &RefAny,
     s: &mut DriveState,
@@ -1585,8 +1625,8 @@ pub(crate) fn encrypt_new_drive(
     );
 }
 
-/// The new drives whose setup started in this run (at their making, or when they opened plain
-/// and empty): each is set up once per run.
+/// The new drives whose setup started in this run (at their making, or when a scan ended on
+/// them, [`resume_wanted`]): each is set up once per run.
 static NEW_DRIVE_SET_UP: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
 fn new_drive_set_up() -> std::sync::MutexGuard<'static, Vec<String>> {
@@ -1595,23 +1635,48 @@ fn new_drive_set_up() -> std::sync::MutexGuard<'static, Vec<String>> {
         .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
-/// A new Azlin drive that opened plain and without files (its setup failed in an earlier run,
-/// or AzDrive closed before it ran) takes no file until it is encrypted (azul-storage refuses
-/// the writes): its setup runs now. Not while this run's setup of it is under way or done; a
-/// failure leaves "Encrypt this drive" in its menu.
+/// The drives this run made (bought or claimed, [`encrypt_new_drive`]).
+static MADE_THIS_RUN: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+fn made_this_run() -> std::sync::MutexGuard<'static, Vec<String>> {
+    MADE_THIS_RUN
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// Whether the end of a scan sets the drive up by itself, from the drive's state (`None`: the
+/// drive is not open), whether this run made the drive and whether its setup started in this run.
+/// Only a drive this run made, whose first try could not start (it was not open yet), and a setup
+/// of THIS computer that stopped halfway in an earlier run (its key is in the keyring): a new
+/// drive that comes up from the storage with no key, no note and an empty listing is a server's
+/// word, and a key made on it would be a second key family beside the drive's real one - it waits
+/// for "Encrypt this drive" (X-DELTA-AZDRIVE-KEYS-19).
+fn resume_wanted(state: Option<EncState>, made_this_run: bool, started: bool) -> bool {
+    !started
+        && state.is_some_and(|state| {
+            state.resumes_setup() || (made_this_run && state.needs_encryption())
+        })
+}
+
+/// A new Azlin drive takes no file until it is encrypted (azul-storage refuses the writes): when
+/// a scan ends on one that THIS run made and could not set up at once, or on a setup of this
+/// computer that stopped halfway ([`resume_wanted`]), its setup runs now. Not while this run's
+/// setup of it is under way or done; a failure leaves "Encrypt this drive" in its menu.
 pub(crate) fn resume_new_drive_setup(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
     let Some(drive_id) = s.current_drive_id() else {
         return;
     };
-    let needs = s
+    let state = s
         .slot_index(&drive_id)
         .and_then(|index| s.slots[index].auto.as_ref())
-        .is_some_and(|auto| auto.needs_encryption());
-    if !needs || new_drive_set_up().contains(&drive_id) {
+        .map(|auto| auto.state());
+    let made_here = made_this_run().iter().any(|d| *d == drive_id);
+    let started = new_drive_set_up().contains(&drive_id);
+    if !resume_wanted(state, made_here, started) {
         return;
     }
     println!("AZDRIVE_NEW_DRIVE_NOT_ENCRYPTED {drive_id}");
-    encrypt_new_drive(info, app, s, &drive_id);
+    begin_new_drive_setup(info, app, s, &drive_id);
 }
 
 /// The drive's `AutoEncrypted`, opening the drive first; `None` (with a message) when it cannot
@@ -5560,6 +5625,98 @@ mod tests {
             move_is_due(marked, None),
             "and the resume finds the files due to move"
         );
+    }
+
+    /// X-DELTA-AZDRIVE-KEYS-19: a scan's end sets a drive up by itself only for a drive THIS run
+    /// made whose first try could not start, and for a setup of this computer that stopped halfway
+    /// (its key is in the keyring). A drive that merely lists empty (a server's word, on a computer
+    /// with no key and no note) and a drive with files and no key file wait for the user's word -
+    /// the old rule set up every drive that listed empty, with a new random key: the only thing
+    /// between that and a second key family beside the drive's real one was the node's conditional
+    /// write.
+    #[test]
+    fn x_delta_azdrive_keys_19_a_scan_sets_up_only_a_drive_this_run_made_or_a_setup_of_this_computer(
+    ) {
+        use azul_storage::trust::{Via, Why};
+        let encrypted = EncState::Encrypted {
+            key_id: None,
+            via: Via::KeyInKeyring,
+        };
+        for (state, made_here, started, wanted) in [
+            // A drive this run made, not open at its making, listing empty: set up now.
+            (Some(EncState::Unencrypted(Why::New)), true, false, true),
+            // A drive that lists empty and this run did not make: a server's word, it waits.
+            (Some(EncState::Unencrypted(Why::New)), false, false, false),
+            // This computer's own stopped setup: finished, whoever made the drive.
+            (Some(EncState::SetupPending), false, false, true),
+            (Some(EncState::SetupPending), true, false, true),
+            // Files and no key file: never by itself, made here or not.
+            (
+                Some(EncState::Unencrypted(Why::HiddenOrAbsent)),
+                true,
+                false,
+                false,
+            ),
+            (
+                Some(EncState::Unencrypted(Why::HiddenOrAbsent)),
+                false,
+                false,
+                false,
+            ),
+            // Encrypted, not decided, not open: nothing to set up.
+            (Some(encrypted), true, false, false),
+            (Some(EncState::Undecided), true, false, false),
+            (None, true, false, false),
+            // Once per drive and run.
+            (Some(EncState::Unencrypted(Why::New)), true, true, false),
+            (Some(EncState::SetupPending), false, true, false),
+        ] {
+            assert_eq!(
+                resume_wanted(state, made_here, started),
+                wanted,
+                "{state:?} made_here={made_here} started={started}"
+            );
+        }
+    }
+
+    /// X-DELTA-AZDRIVE-KEYS-19: the "Encrypt this drive" confirm warns - first - for a drive that
+    /// holds files and shows no key file (this computer cannot tell it from an encrypted drive
+    /// whose storage hides its key files, and encrypting moves what the storage shows into a new
+    /// key), and for no other; every drive gets the four lines that say what encrypting does.
+    #[test]
+    fn x_delta_azdrive_keys_19_the_confirm_warns_for_a_drive_this_computer_cannot_tell() {
+        use azul_storage::trust::Why;
+        let plain = [
+            "azdrive-enc-confirm-1",
+            "azdrive-enc-confirm-2",
+            "azdrive-enc-confirm-3",
+            "azdrive-enc-confirm-4",
+        ];
+        for state in [
+            None,
+            Some(EncState::Undecided),
+            Some(EncState::SetupPending),
+            Some(EncState::Unencrypted(Why::New)),
+        ] {
+            assert_eq!(confirm_lines(state), plain, "{state:?}");
+        }
+        let hidden = confirm_lines(Some(EncState::Unencrypted(Why::HiddenOrAbsent)));
+        assert_eq!(hidden.first(), Some(&"azdrive-enc-confirm-cannot-tell"));
+        assert_eq!(&hidden[1..], plain, "and then what encrypting does");
+        // The words are in both languages' resources (the line is a key, not a text).
+        for lang in ["en", "de"] {
+            let ftl = std::fs::read_to_string(format!(
+                "{}/resources/{lang}.ftl",
+                env!("CARGO_MANIFEST_DIR")
+            ))
+            .unwrap();
+            for key in &hidden {
+                assert!(
+                    ftl.lines().any(|l| l.starts_with(&format!("{key} ="))),
+                    "{lang}.ftl has no {key}"
+                );
+            }
+        }
     }
 
     /// X-DELTA-AZDRIVE-KEYS-24: a page or a join code that is saved goes into the file readable by
