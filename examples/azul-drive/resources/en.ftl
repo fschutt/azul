@@ -368,6 +368,7 @@ azdrive-preview-synced = Synced: its copy is in the synced folder - open it, or 
 
 azdrive-sync-why-open-cloud = Open a cloud drive to sync it with a folder.
 azdrive-sync-why-local = This drive is on this computer already: open a cloud drive to sync it.
+azdrive-sync-why-no-conditional-writes = This drive's service cannot sync with a folder: it has no write that says "only if unchanged", so a sync could not tell whether another device changed a file meanwhile.
 azdrive-sync-why-synced = This drive syncs with a folder already (Options > Drives).
 azdrive-sync-why-no-cache = There is no cache folder to keep the sync's state in.
 azdrive-sync-why-open-synced = Open a synced folder or drive first (Share > Sync with a folder).

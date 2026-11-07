@@ -449,3 +449,125 @@ fn a_drives_kind_is_data_too() {
         DriveKind::Database(DatabaseEngine::Sqlite)
     );
 }
+
+// ==== AZ-CN4: what a source can do, asked before a command is offered ====
+
+fn drive_of(location: DriveLocation) -> DriveEntry {
+    DriveEntry {
+        id: "x".to_string(),
+        name: "X".to_string(),
+        location,
+    }
+}
+
+fn opendal_drive(scheme: &str) -> DriveEntry {
+    drive_of(DriveLocation::Opendal {
+        scheme: scheme.to_string(),
+        options: BTreeMap::new(),
+        keyring: false,
+    })
+}
+
+/// "Sync with a folder" commits its index with a conditional write. The review's four examples
+/// (Dropbox, Google Drive, Google Cloud Storage, Redis) were all offered the sync, and the folder
+/// went up as plain files before the commit was refused: none of them can do a conditional write,
+/// and only a bucket and a folder can.
+#[test]
+fn az_cn4_only_a_bucket_and_a_folder_can_commit_a_folder_sync() {
+    for service in catalog::services() {
+        let expected = matches!(service.backend, Backend::S3 | Backend::Local);
+        assert_eq!(
+            service.caps.conditional_writes, expected,
+            "{}: conditional writes are the bucket's and the folder's only",
+            service.id
+        );
+    }
+    for id in [
+        "dropbox", "gdrive", "onedrive", "gcs", "redis", "webdav", "ftp", "postgres",
+    ] {
+        assert!(
+            !spec(id).caps.conditional_writes,
+            "{id} has no conditional write"
+        );
+    }
+    assert!(spec("s3").caps.conditional_writes);
+}
+
+/// The same answer for a drive that is already in the drives file, by the kind of drive it is
+/// (an Azlin drive has no catalog form, so the entry decides, not the catalog).
+#[test]
+fn az_cn4_an_entry_answers_by_its_location() {
+    let s3 = |auth| {
+        drive_of(DriveLocation::S3 {
+            endpoint: "https://e".to_string(),
+            region: "eu-central-1".to_string(),
+            bucket: "b".to_string(),
+            path_style: false,
+            auth,
+        })
+    };
+    assert!(catalog::capabilities_of(&s3(DriveAuth::Keyring)).conditional_writes);
+    assert!(
+        catalog::capabilities_of(&s3(DriveAuth::Azlin {
+            drive_id: "d_k3f9".to_string(),
+            account_url: String::new(),
+            encrypted: true,
+            key_id: None,
+        }))
+        .conditional_writes,
+        "an Azlin drive is a bucket"
+    );
+    assert!(
+        !catalog::capabilities_of(&s3(DriveAuth::AccessLink {
+            link: "l".to_string(),
+            prefix: String::new(),
+            can_write: false,
+        }))
+        .conditional_writes,
+        "an access link opens once the server exists: nothing is known of it"
+    );
+    assert!(
+        catalog::capabilities_of(&drive_of(DriveLocation::Local {
+            root: "/tmp".to_string()
+        }))
+        .conditional_writes
+    );
+    for scheme in ["dropbox", "gdrive", "gcs", "redis", "webdav", "frob"] {
+        assert!(
+            !catalog::capabilities_of(&opendal_drive(scheme)).conditional_writes,
+            "{scheme}: an OpenDAL source cannot commit a sync, a scheme the catalog does not list neither"
+        );
+    }
+    let database = drive_of(DriveLocation::Database {
+        engine: DatabaseEngine::Postgres,
+        options: BTreeMap::new(),
+        keyring: false,
+    });
+    assert!(!catalog::capabilities_of(&database).conditional_writes);
+}
+
+/// WebDAV is the one source that sends WebDAV's verbs; a database is the one with a row cap, the
+/// cap the listing applies.
+#[test]
+fn az_cn5_az_cn6_the_catalog_says_which_source_needs_the_webdav_verbs_and_which_caps_its_rows() {
+    for service in catalog::services() {
+        assert_eq!(
+            service.caps.webdav_verbs,
+            service.id == "webdav",
+            "{}: WebDAV's verbs are WebDAV's",
+            service.id
+        );
+        let capped = matches!(service.backend, Backend::Database(_));
+        assert_eq!(
+            service.caps.rows_cap,
+            capped.then_some(crate::tables::MAX_ROW_FILES),
+            "{}: a database lists at most MAX_ROW_FILES rows of a table",
+            service.id
+        );
+    }
+    assert_eq!(
+        crate::tables::CSV_MAX_ROWS,
+        crate::tables::MAX_ROW_FILES,
+        "one cap for both the rows/ folder and the CSV"
+    );
+}

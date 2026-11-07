@@ -104,6 +104,37 @@ pub struct FieldSpec {
     pub default: &'static str,
 }
 
+/// What a source can do beyond browsing, as an app decides on it BEFORE it offers a command
+/// (AZ-CN4: "Sync with a folder" was offered for every source, and an OpenDAL one failed only at
+/// the commit, after the whole folder had gone up as plain files).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Capabilities {
+    /// A write can say "only if the object is still the one I read" (S3's `If-Match` /
+    /// `If-None-Match`, [`crate::Drive::put_if`]): a sync with a folder commits its index that
+    /// way. A source without it is never offered the sync.
+    pub conditional_writes: bool,
+    /// The source speaks WebDAV, so its requests are PROPFIND, MKCOL, COPY, MOVE, ... and the
+    /// transport must send those verbs.
+    pub webdav_verbs: bool,
+    /// A listing shows at most this many rows of a table (a database); `None`: no cap.
+    pub rows_cap: Option<u64>,
+}
+
+impl Capabilities {
+    /// A source that can do none of it.
+    pub const NONE: Capabilities = Capabilities {
+        conditional_writes: false,
+        webdav_verbs: false,
+        rows_cap: None,
+    };
+
+    /// A bucket or a folder: writes that say "only if unchanged".
+    pub const CONDITIONAL: Capabilities = Capabilities {
+        conditional_writes: true,
+        ..Capabilities::NONE
+    };
+}
+
 /// One source of the dialog.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ServiceSpec {
@@ -119,6 +150,8 @@ pub struct ServiceSpec {
     pub fields: &'static [FieldSpec],
     /// It can be browsed but not written (a web server, a database, an IPFS gateway).
     pub read_only: bool,
+    /// What it can do ([`Capabilities`]).
+    pub caps: Capabilities,
 }
 
 impl ServiceSpec {
@@ -635,6 +668,7 @@ const fn source(
         backend,
         fields,
         read_only: false,
+        caps: Capabilities::NONE,
     }
 }
 
@@ -643,19 +677,39 @@ const fn read_only(mut s: ServiceSpec) -> ServiceSpec {
     s
 }
 
+const fn with_caps(mut s: ServiceSpec, caps: Capabilities) -> ServiceSpec {
+    s.caps = caps;
+    s
+}
+
+/// A database lists at most [`crate::tables::MAX_ROW_FILES`] rows of a table.
+const ROWS_CAPPED: Capabilities = Capabilities {
+    rows_cap: Some(crate::tables::MAX_ROW_FILES),
+    ..Capabilities::NONE
+};
+
+/// WebDAV's verbs.
+const WEBDAV_VERBS: Capabilities = Capabilities {
+    webdav_verbs: true,
+    ..Capabilities::NONE
+};
+
 use Backend::{Database as Db, Opendal as Dal};
 use ServiceGroup::{CloudStorage, ConsumerCloud, Databases, Developer, NetworkNas};
 
 static SERVICES: &[ServiceSpec] = &[
     // ---- Cloud object storage ----
-    source(
-        "s3",
-        "S3-compatible storage",
-        CloudStorage,
-        "cloud",
-        "Any S3-compatible storage",
-        Backend::S3,
-        S3_FIELDS,
+    with_caps(
+        source(
+            "s3",
+            "S3-compatible storage",
+            CloudStorage,
+            "cloud",
+            "Any S3-compatible storage",
+            Backend::S3,
+            S3_FIELDS,
+        ),
+        Capabilities::CONDITIONAL,
     ),
     source(
         "gcs",
@@ -748,23 +802,29 @@ static SERVICES: &[ServiceSpec] = &[
         UPYUN_FIELDS,
     ),
     // ---- Network & NAS ----
-    source(
-        "local",
-        "Folder on this computer",
-        NetworkNas,
-        "folder",
-        "A folder, a mounted NAS share, an external disk",
-        Backend::Local,
-        LOCAL_FIELDS,
+    with_caps(
+        source(
+            "local",
+            "Folder on this computer",
+            NetworkNas,
+            "folder",
+            "A folder, a mounted NAS share, an external disk",
+            Backend::Local,
+            LOCAL_FIELDS,
+        ),
+        Capabilities::CONDITIONAL,
     ),
-    source(
-        "webdav",
-        "WebDAV",
-        NetworkNas,
-        "dns",
-        "Nextcloud, ownCloud, Synology, QNAP, any WebDAV server",
-        Dal("webdav"),
-        WEBDAV_FIELDS,
+    with_caps(
+        source(
+            "webdav",
+            "WebDAV",
+            NetworkNas,
+            "dns",
+            "Nextcloud, ownCloud, Synology, QNAP, any WebDAV server",
+            Dal("webdav"),
+            WEBDAV_FIELDS,
+        ),
+        WEBDAV_VERBS,
     ),
     source(
         "ftp",
@@ -904,33 +964,42 @@ static SERVICES: &[ServiceSpec] = &[
         IPFS_FIELDS,
     )),
     // ---- Databases & key-value ----
-    read_only(source(
-        "postgres",
-        "PostgreSQL",
-        Databases,
-        "table_chart",
-        "Its tables as folders, every row a file",
-        Db(DatabaseEngine::Postgres),
-        POSTGRES_FIELDS,
-    )),
-    read_only(source(
-        "mysql",
-        "MySQL / MariaDB",
-        Databases,
-        "table_chart",
-        "Its tables as folders, every row a file",
-        Db(DatabaseEngine::Mysql),
-        MYSQL_FIELDS,
-    )),
-    read_only(source(
-        "sqlite",
-        "SQLite file",
-        Databases,
-        "table_chart",
-        "Its tables as folders, every row a file",
-        Db(DatabaseEngine::Sqlite),
-        SQLITE_FIELDS,
-    )),
+    with_caps(
+        read_only(source(
+            "postgres",
+            "PostgreSQL",
+            Databases,
+            "table_chart",
+            "Its tables as folders, every row a file",
+            Db(DatabaseEngine::Postgres),
+            POSTGRES_FIELDS,
+        )),
+        ROWS_CAPPED,
+    ),
+    with_caps(
+        read_only(source(
+            "mysql",
+            "MySQL / MariaDB",
+            Databases,
+            "table_chart",
+            "Its tables as folders, every row a file",
+            Db(DatabaseEngine::Mysql),
+            MYSQL_FIELDS,
+        )),
+        ROWS_CAPPED,
+    ),
+    with_caps(
+        read_only(source(
+            "sqlite",
+            "SQLite file",
+            Databases,
+            "table_chart",
+            "Its tables as folders, every row a file",
+            Db(DatabaseEngine::Sqlite),
+            SQLITE_FIELDS,
+        )),
+        ROWS_CAPPED,
+    ),
     source(
         "redis",
         "Redis",
@@ -975,6 +1044,29 @@ pub fn service_of(entry: &DriveEntry) -> Option<&'static ServiceSpec> {
         DriveLocation::Database { engine, .. } => SERVICES
             .iter()
             .find(|s| matches!(s.backend, Backend::Database(e) if e == *engine)),
+    }
+}
+
+/// What the drive `entry` can do ([`Capabilities`]): a bucket (S3-compatible or an Azlin drive)
+/// and a folder on this computer write conditionally; an OpenDAL source or a database has what
+/// its catalog entry says, and one the catalog does not list nothing. An app asks this BEFORE it
+/// offers a command that needs it (AZ-CN4).
+#[must_use]
+pub fn capabilities_of(entry: &DriveEntry) -> Capabilities {
+    match &entry.location {
+        DriveLocation::Local { .. } => Capabilities::CONDITIONAL,
+        DriveLocation::S3 {
+            auth: DriveAuth::Keyring | DriveAuth::Azlin { .. },
+            ..
+        } => Capabilities::CONDITIONAL,
+        // An access link opens as a scoped drive once the server exists: nothing is known of it.
+        DriveLocation::S3 {
+            auth: DriveAuth::AccessLink { .. },
+            ..
+        } => Capabilities::NONE,
+        DriveLocation::Opendal { .. } | DriveLocation::Database { .. } => {
+            service_of(entry).map_or(Capabilities::NONE, |spec| spec.caps)
+        }
     }
 }
 

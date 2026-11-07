@@ -113,7 +113,8 @@ The key lives in a keyring in memory that every device of this remote shares (th
 
 `drive_pair` is AzDrive's own pairing (Share > Sync with a folder): it creates the folder and
 starts the first pass (wait for it with `drive_wait_idle`). A folder inside another pairing's
-folder fails, as in the window. `drive_restart` drops the device's in-memory sync state and
+folder fails, as in the window, and so does a drive whose source cannot write conditionally (an
+OpenDAL source, a database: `azdrive-sync-why-no-conditional-writes`). `drive_restart` drops the device's in-memory sync state and
 reads it again from its state folder, like quitting and starting AzDrive.
 
 ## Passes

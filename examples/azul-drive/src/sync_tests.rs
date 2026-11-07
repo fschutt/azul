@@ -1384,3 +1384,71 @@ fn x_ar5b_24_a_shipped_build_polls_and_settles_at_its_own_pace() {
     assert_eq!(poll, 30);
     assert_eq!(settle, std::time::Duration::from_millis(2_000));
 }
+
+// ==== AZ-CN4: a source that cannot commit a sync is not offered one ====
+
+fn drive_entry(location: azul_storage::config::DriveLocation) -> azul_storage::config::DriveEntry {
+    azul_storage::config::DriveEntry {
+        id: String::from("x-1"),
+        name: String::from("X"),
+        location,
+    }
+}
+
+/// The review's example: a Dropbox, Google Drive, GCS or Redis drive was offered "Sync with a
+/// folder", the folder went up as plain files and the commit then said "writing .. only if it is
+/// unchanged" is unsupported. The pairing's one funnel and the menu and the ribbon ask the same
+/// function; a bucket and an Azlin drive are not refused.
+#[test]
+fn az_cn4_an_opendal_or_database_drive_is_refused_the_folder_sync_and_a_bucket_is_not() {
+    use azul_storage::config::{DatabaseEngine, DriveAuth, DriveLocation};
+
+    let why = Some("azdrive-sync-why-no-conditional-writes");
+    for scheme in [
+        "dropbox", "gdrive", "onedrive", "gcs", "redis", "webdav", "ftp",
+    ] {
+        let entry = drive_entry(DriveLocation::Opendal {
+            scheme: scheme.to_string(),
+            options: BTreeMap::new(),
+            keyring: false,
+        });
+        assert_eq!(sync_view::pair_refusal(&entry), why, "{scheme}");
+    }
+    let database = drive_entry(DriveLocation::Database {
+        engine: DatabaseEngine::Postgres,
+        options: BTreeMap::new(),
+        keyring: false,
+    });
+    assert_eq!(sync_view::pair_refusal(&database), why);
+    let bucket = |auth| {
+        drive_entry(DriveLocation::S3 {
+            endpoint: String::from("https://s3.example"),
+            region: String::from("us-east-1"),
+            bucket: String::from("b"),
+            path_style: true,
+            auth,
+        })
+    };
+    assert_eq!(sync_view::pair_refusal(&bucket(DriveAuth::Keyring)), None);
+    let azlin = bucket(DriveAuth::Azlin {
+        drive_id: String::from("d_k3f9"),
+        account_url: String::new(),
+        encrypted: true,
+        key_id: None,
+    });
+    assert_eq!(sync_view::pair_refusal(&azlin), None);
+}
+
+/// The sentence the ribbon and the menu show exists in both languages and says what is missing.
+#[test]
+fn az_cn4_the_refusal_is_said_in_english_and_german() {
+    crate::l10n::in_english();
+    let said = azul_appkit::l10n::t("azdrive-sync-why-no-conditional-writes");
+    assert!(said.contains("only if unchanged"), "{said}");
+    for (tag, source) in crate::l10n::sources() {
+        assert!(
+            source.contains("azdrive-sync-why-no-conditional-writes = "),
+            "{tag} lacks the refusal"
+        );
+    }
+}

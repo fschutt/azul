@@ -366,6 +366,7 @@ azdrive-preview-synced = Synchronisiert: Die Kopie liegt im synchronisierten Ord
 
 azdrive-sync-why-open-cloud = Öffne ein Cloud-Laufwerk, um es mit einem Ordner zu synchronisieren.
 azdrive-sync-why-local = Dieses Laufwerk ist schon auf diesem Computer: Öffne ein Cloud-Laufwerk, um es zu synchronisieren.
+azdrive-sync-why-no-conditional-writes = Der Dienst dieses Laufwerks kann nicht mit einem Ordner synchronisiert werden: Er kennt keinen Schreibvorgang „nur wenn unverändert“, ein Abgleich könnte also nicht erkennen, ob ein anderes Gerät eine Datei inzwischen geändert hat.
 azdrive-sync-why-synced = Dieses Laufwerk wird schon mit einem Ordner synchronisiert (Optionen > Laufwerke).
 azdrive-sync-why-no-cache = Es gibt keinen Cache-Ordner für den Stand der Synchronisierung.
 azdrive-sync-why-open-synced = Öffne zuerst einen synchronisierten Ordner oder ein synchronisiertes Laufwerk (Freigeben > Mit einem Ordner synchronisieren).

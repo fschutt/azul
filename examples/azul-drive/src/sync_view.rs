@@ -68,6 +68,7 @@ use azul_appkit::{
     client_health::{client_health, Device},
     l10n::{self, t, t_phrase, t_text, Phrase, Text},
 };
+use azul_storage::{catalog, config::DriveEntry};
 
 pub(crate) use crate::sync_store::SyncStore;
 use crate::{
@@ -251,6 +252,7 @@ fn says_read_only(status: &Text) -> bool {
         matches!(
             *key,
             "azdrive-sync-status-payment-due"
+                | "azdrive-sync-why-no-conditional-writes"
                 | "azdrive-sync-status-newer-format"
                 | "azdrive-sync-status-read-only"
                 | "azlin-error-quota-exceeded"
@@ -647,6 +649,11 @@ pub(crate) fn status_for_place(s: &DriveState) -> Option<String> {
 /// The status line of synced drive `drive_id`.
 pub(crate) fn drive_status(s: &DriveState, drive_id: &str) -> Option<Text> {
     let setup = setup_of(s, drive_id)?;
+    // A pairing made before a source that cannot commit a sync was refused rests (AZ-CN4): no
+    // pass runs, and the line says why.
+    if let Some(why) = pair_refusal_of(s, drive_id) {
+        return Some(Text::key(why));
+    }
     // A banned drive's sync pauses (ban contract v1): its uploads would be refused.
     if let Some(said) = crate::ban::sync_status(s, drive_id) {
         return Some(Text::from(said));
@@ -788,6 +795,23 @@ pub(crate) fn say_status(s: &mut DriveState, drive_id: &str) {
     }
 }
 
+/// Why the source of drive `entry` cannot be synced with a folder, as a key of the resources;
+/// `None`: it can. A sync commits its index with a conditional write ("only if unchanged"); a
+/// source that has none (every OpenDAL service, a database) would take the whole folder up as
+/// plain files first and refuse at the commit, leaving a copy nobody asked for in a third party's
+/// account (AZ-CN4). The catalog says what each source can do
+/// ([`azul_storage::catalog::capabilities_of`]).
+pub(crate) fn pair_refusal(entry: &DriveEntry) -> Option<&'static str> {
+    (!catalog::capabilities_of(entry).conditional_writes)
+        .then_some("azdrive-sync-why-no-conditional-writes")
+}
+
+/// [`pair_refusal`] of drive `drive_id` of the window.
+pub(crate) fn pair_refusal_of(s: &DriveState, drive_id: &str) -> Option<&'static str> {
+    s.slot_index(drive_id)
+        .and_then(|index| pair_refusal(&s.slots[index].entry))
+}
+
 /// Why `what` cannot run now (the ribbon greys it and says why).
 pub(crate) fn why_not(s: &DriveState, what: SyncAction) -> Option<String> {
     let target = target_drive(s);
@@ -796,6 +820,9 @@ pub(crate) fn why_not(s: &DriveState, what: SyncAction) -> Option<String> {
         SyncAction::Pair => match target.as_deref() {
             None => Some(String::from("azdrive-sync-why-open-cloud")),
             Some(id) if s.is_local_drive(id) => Some(String::from("azdrive-sync-why-local")),
+            Some(id) if pair_refusal_of(s, id).is_some() => {
+                pair_refusal_of(s, id).map(String::from)
+            }
             Some(_) if synced.is_some() => Some(String::from("azdrive-sync-why-synced")),
             Some(_) if s.cache_dir.is_none() => Some(String::from("azdrive-sync-why-no-cache")),
             Some(_) => None,
@@ -823,7 +850,8 @@ pub(crate) fn why_not(s: &DriveState, what: SyncAction) -> Option<String> {
 /// The sync's entries of a cloud drive's menu in the source list (their keys).
 pub(crate) fn menu_entries(s: &DriveState, drive_id: &str) -> Vec<(String, SyncAction)> {
     match setup_of(s, drive_id) {
-        None if s.cache_dir.is_some() => {
+        // A source that cannot commit a sync is not offered one (AZ-CN4).
+        None if s.cache_dir.is_some() && pair_refusal_of(s, drive_id).is_none() => {
             vec![(String::from("azdrive-sync-menu-pair"), SyncAction::Pair)]
         }
         None => Vec::new(),

@@ -1057,6 +1057,12 @@ pub(crate) fn request_pass(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveS
     // encrypted drive being moved): its sync rests, the status line says why. A move ends by
     // itself: the drive's state is asked again (at most every ten minutes), and the poll after
     // the look that says it is over runs the pass.
+    // A pairing made before a source that cannot commit a sync was refused (AZ-CN4) takes no pass:
+    // it would send the folder up as plain files and fail at the commit, pass after pass.
+    if sync_view::pair_refusal_of(s, drive_id).is_some() {
+        sync_view::say_status(s, drive_id);
+        return;
+    }
     if !crate::access::takes_passes(s, drive_id) {
         if crate::access::waits_for_move(s, drive_id) {
             ask_drive_status(info, app, s, drive_id);
@@ -1124,6 +1130,14 @@ pub(crate) fn pair_with(
     prefix: &str,
     edit: impl FnOnce(&mut SyncSetup),
 ) -> Result<(), Text> {
+    // The one funnel of every pairing (the menu, the ribbon, the backup wizard, an E2E command):
+    // a source that cannot commit a sync is refused here before a single file goes up (AZ-CN4).
+    if let Some(why) = s
+        .slot_index(drive_id)
+        .and_then(|index| sync_view::pair_refusal(&s.slots[index].entry))
+    {
+        return Err(Text::key(why));
+    }
     if folder.is_empty() {
         return Err(Text::key("azdrive-sync-pair-type-folder"));
     }
