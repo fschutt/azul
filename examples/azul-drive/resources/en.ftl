@@ -2474,6 +2474,7 @@ azdrive-meta-cache-control = Cache control
 azdrive-meta-database = Database
 azdrive-meta-engine = Engine
 azdrive-meta-table = Table
+azdrive-meta-row-limit = Row limit
 azdrive-meta-yes = Yes
 azdrive-meta-no = No
 

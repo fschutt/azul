@@ -140,7 +140,14 @@ pub struct DatabaseDrive {
     /// The columns and key of each table asked for, by folder.
     tables: Mutex<HashMap<String, Table>>,
     /// Each table's CSV as its folder's last listing made it, by folder.
-    csv: Mutex<HashMap<String, Arc<Vec<u8>>>>,
+    csv: Mutex<HashMap<String, Csv>>,
+}
+
+/// A table's CSV and whether the table has more rows than it holds (the cap: AZ-CN6).
+#[derive(Clone)]
+struct Csv {
+    bytes: Arc<Vec<u8>>,
+    capped: bool,
 }
 
 impl fmt::Debug for DatabaseDrive {
@@ -664,40 +671,70 @@ impl DatabaseDrive {
     }
 
     /// A table's CSV: the one its folder's last listing made, or (`fresh`, or none yet) a new
-    /// one of its first rows.
+    /// one of its first rows - one row more than it holds is asked for, to know whether the table
+    /// has more than the cap (AZ-CN6).
     async fn csv(
         &self,
         pool: &Pool,
         folder: &str,
         table: &Table,
         fresh: bool,
-    ) -> Result<Arc<Vec<u8>>, DriveError> {
+    ) -> Result<Csv, DriveError> {
         if !fresh {
             let known = lock(&self.csv).get(folder).cloned();
-            if let Some(bytes) = known {
-                return Ok(bytes);
+            if let Some(csv) = known {
+                return Ok(csv);
             }
         }
-        let rows = self
-            .rows(pool, folder, table, tables::CSV_MAX_ROWS, 0)
+        let mut rows = self
+            .rows(pool, folder, table, tables::CSV_MAX_ROWS + 1, 0)
             .await?;
+        let held = usize::try_from(tables::CSV_MAX_ROWS).unwrap_or(usize::MAX);
+        let capped = rows.len() > held;
+        rows.truncate(held);
         let values: Vec<Value> = rows
             .iter()
             .map(|(_, json)| serde_json::from_str(json).unwrap_or(Value::Null))
             .collect();
-        let bytes = Arc::new(tables::csv_text(&table.columns, &values).into_bytes());
-        lock(&self.csv).insert(folder.to_string(), bytes.clone());
-        Ok(bytes)
+        let csv = Csv {
+            bytes: Arc::new(tables::csv_text(&table.columns, &values).into_bytes()),
+            capped,
+        };
+        lock(&self.csv).insert(folder.to_string(), csv.clone());
+        Ok(csv)
     }
 
-    /// A table's `schema.json`.
-    fn schema(&self, table: &Table) -> String {
+    /// Whether the table has more rows than a listing shows: one row past the cap is asked for.
+    async fn beyond_the_cap(
+        &self,
+        pool: &Pool,
+        folder: &str,
+        table: &Table,
+    ) -> Result<bool, DriveError> {
+        Ok(!self
+            .rows(pool, folder, table, 1, tables::MAX_ROW_FILES)
+            .await?
+            .is_empty())
+    }
+
+    /// A table's `schema.json`; `capped`: the table has more rows than a listing shows.
+    fn schema(&self, table: &Table, capped: bool) -> String {
         tables::schema_json(
             self.engine.key(),
             &table.reference,
             &table.columns,
             &table.key,
+            capped,
         )
+    }
+
+    /// The object of the note of a capped table, in its folder or its `rows/` folder.
+    fn note_object(folder: &str, in_rows: bool) -> ObjectInfo {
+        let note = TablePath::Note {
+            folder: folder.to_string(),
+            in_rows,
+        };
+        object(note.key(), tables::note_text(folder).len())
     }
 
     /// One folder level (`request.prefix` a folder, or a folder and the start of a name).
@@ -731,9 +768,15 @@ impl DatabaseDrive {
                 }
                 let table = self.table(pool, &folder, true).await?;
                 let csv = self.csv(pool, &folder, &table, true).await?;
-                let schema = self.schema(&table);
+                let schema = self.schema(&table, csv.capped);
                 let mut objects = vec![
-                    object(TablePath::Csv { folder: folder.clone() }.key(), csv.len()),
+                    object(
+                        TablePath::Csv {
+                            folder: folder.clone(),
+                        }
+                        .key(),
+                        csv.bytes.len(),
+                    ),
                     object(
                         TablePath::Schema {
                             folder: folder.clone(),
@@ -742,6 +785,10 @@ impl DatabaseDrive {
                         schema.len(),
                     ),
                 ];
+                // A table with more rows than the CSV holds says so beside it (AZ-CN6).
+                if csv.capped {
+                    objects.push(DatabaseDrive::note_object(&folder, false));
+                }
                 objects.retain(|o| o.key.starts_with(prefix));
                 let mut folders = vec![TablePath::Rows { folder }.key()];
                 folders.retain(|f| f.starts_with(prefix));
@@ -768,8 +815,11 @@ impl DatabaseDrive {
                 // One row more than the page: is there another page?
                 let mut rows = self.rows(pool, &folder, &table, limit + 1, offset).await?;
                 let more = rows.len() as u64 > limit && offset + limit < tables::MAX_ROW_FILES;
+                // The cap cut the listing while the table has more rows: the last page says so
+                // with a note file (AZ-CN6), so a copy of this folder is never a silent partial.
+                let capped = rows.len() as u64 > limit && offset + limit >= tables::MAX_ROW_FILES;
                 rows.truncate(usize::try_from(limit).unwrap_or(usize::MAX));
-                let objects: Vec<ObjectInfo> = rows
+                let mut objects: Vec<ObjectInfo> = rows
                     .into_iter()
                     .map(|(name, json)| {
                         object(
@@ -781,8 +831,11 @@ impl DatabaseDrive {
                             json.len(),
                         )
                     })
-                    .filter(|o| o.key.starts_with(prefix))
                     .collect();
+                if capped {
+                    objects.push(DatabaseDrive::note_object(&folder, true));
+                }
+                objects.retain(|o| o.key.starts_with(prefix));
                 Ok(ListPage {
                     folders: Vec::new(),
                     objects,
@@ -790,9 +843,10 @@ impl DatabaseDrive {
                 })
             }
             // A file's name is no folder.
-            TablePath::Csv { .. } | TablePath::Schema { .. } | TablePath::Row { .. } => {
-                Ok(ListPage::default())
-            }
+            TablePath::Csv { .. }
+            | TablePath::Schema { .. }
+            | TablePath::Row { .. }
+            | TablePath::Note { .. } => Ok(ListPage::default()),
         }
     }
 
@@ -823,15 +877,20 @@ impl DatabaseDrive {
                     folder: folder.clone(),
                 }
                 .key(),
-                csv.len(),
+                csv.bytes.len(),
             ));
             objects.push(object(
                 TablePath::Schema {
                     folder: folder.clone(),
                 }
                 .key(),
-                self.schema(&table).len(),
+                self.schema(&table, csv.capped).len(),
             ));
+            // A table with more rows than the listing holds: the note, in both places (AZ-CN6).
+            if csv.capped {
+                objects.push(DatabaseDrive::note_object(&folder, false));
+                objects.push(DatabaseDrive::note_object(&folder, true));
+            }
             let mut offset = 0;
             while offset < tables::MAX_ROW_FILES {
                 let limit = tables::ROWS_PAGE.min(tables::MAX_ROW_FILES - offset);
@@ -887,11 +946,26 @@ impl DatabaseDrive {
         match path {
             TablePath::Csv { folder } => {
                 let table = self.table(&pool, &folder, false).await?;
-                Ok(self.csv(&pool, &folder, &table, false).await?.to_vec())
+                Ok(self
+                    .csv(&pool, &folder, &table, false)
+                    .await?
+                    .bytes
+                    .to_vec())
             }
             TablePath::Schema { folder } => {
                 let table = self.table(&pool, &folder, false).await?;
-                Ok(self.schema(&table).into_bytes())
+                let capped = self.beyond_the_cap(&pool, &folder, &table).await?;
+                Ok(self.schema(&table, capped).into_bytes())
+            }
+            TablePath::Note { folder, .. } => {
+                // Only a table that has more rows than a listing shows has the note.
+                let table = self.table(&pool, &folder, false).await?;
+                if !self.beyond_the_cap(&pool, &folder, &table).await? {
+                    return Err(DriveError::NotFound {
+                        key: key.to_string(),
+                    });
+                }
+                Ok(tables::note_text(&folder).into_bytes())
             }
             TablePath::Row { folder, name } => {
                 let table = self.table(&pool, &folder, false).await?;
@@ -917,11 +991,21 @@ impl DatabaseDrive {
         let size = match path {
             TablePath::Csv { folder } => {
                 let table = self.table(&pool, &folder, false).await?;
-                self.csv(&pool, &folder, &table, false).await?.len()
+                self.csv(&pool, &folder, &table, false).await?.bytes.len()
             }
             TablePath::Schema { folder } => {
                 let table = self.table(&pool, &folder, false).await?;
-                self.schema(&table).len()
+                let capped = self.beyond_the_cap(&pool, &folder, &table).await?;
+                self.schema(&table, capped).len()
+            }
+            TablePath::Note { folder, .. } => {
+                let table = self.table(&pool, &folder, false).await?;
+                if !self.beyond_the_cap(&pool, &folder, &table).await? {
+                    return Err(DriveError::NotFound {
+                        key: key.to_string(),
+                    });
+                }
+                tables::note_text(&folder).len()
             }
             TablePath::Row { folder, name } => {
                 let table = self.table(&pool, &folder, false).await?;
@@ -989,6 +1073,8 @@ impl Drive for DatabaseDrive {
         if let Some(folder) = TablePath::parse(key).as_ref().and_then(TablePath::folder) {
             let table = tables::unescape_segment(folder).unwrap_or_else(|| folder.to_string());
             out.push((String::from("Table"), table));
+            // What a listing of a table shows at most: the CSV and the row files stop there.
+            out.push((String::from("Row limit"), tables::MAX_ROW_FILES.to_string()));
         }
         Ok(out)
     }

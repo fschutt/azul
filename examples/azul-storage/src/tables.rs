@@ -142,6 +142,9 @@ pub enum TablePath {
     Rows { folder: String },
     /// One row's file (`customers/rows/1.json`); `name` without `.json`.
     Row { folder: String, name: String },
+    /// The note a table that has more rows than a listing shows carries, in its folder
+    /// (`in_rows` false) and in its `rows/` folder (`in_rows` true): see [`note_name`].
+    Note { folder: String, in_rows: bool },
 }
 
 impl TablePath {
@@ -162,12 +165,24 @@ impl TablePath {
         if rest == SCHEMA_FILE {
             return Some(TablePath::Schema { folder });
         }
+        if rest == note_name() {
+            return Some(TablePath::Note {
+                folder,
+                in_rows: false,
+            });
+        }
         if rest == csv_name(&folder) {
             return Some(TablePath::Csv { folder });
         }
         let in_rows = rest.strip_prefix(ROWS_FOLDER)?.strip_prefix('/')?;
         if in_rows.is_empty() {
             return Some(TablePath::Rows { folder });
+        }
+        if in_rows == note_name() {
+            return Some(TablePath::Note {
+                folder,
+                in_rows: true,
+            });
         }
         let name = in_rows.strip_suffix(ROW_EXTENSION)?;
         if name.is_empty() || name.contains('/') {
@@ -191,6 +206,14 @@ impl TablePath {
             TablePath::Row { folder, name } => {
                 format!("{folder}/{ROWS_FOLDER}/{name}{ROW_EXTENSION}")
             }
+            TablePath::Note {
+                folder,
+                in_rows: false,
+            } => format!("{folder}/{}", note_name()),
+            TablePath::Note {
+                folder,
+                in_rows: true,
+            } => format!("{folder}/{ROWS_FOLDER}/{}", note_name()),
         }
     }
 
@@ -212,9 +235,29 @@ impl TablePath {
             | TablePath::Csv { folder }
             | TablePath::Schema { folder }
             | TablePath::Rows { folder }
-            | TablePath::Row { folder, .. } => Some(folder),
+            | TablePath::Row { folder, .. }
+            | TablePath::Note { folder, .. } => Some(folder),
         }
     }
+}
+
+/// The name of the note a table's folder and its `rows/` folder list when the table has more rows
+/// than they show: a copy or an export of either takes the note with it, so it is never a silent
+/// partial copy (AZ-CN6). Not a name a row can have (rows are `<key>.json`).
+#[must_use]
+pub fn note_name() -> String {
+    format!("_ONLY-THE-FIRST-{MAX_ROW_FILES}-ROWS.txt")
+}
+
+/// The note's text for the table whose folder is `folder`.
+#[must_use]
+pub fn note_text(folder: &str) -> String {
+    let table = unescape_segment(folder).unwrap_or_else(|| folder.to_string());
+    format!(
+        "The table \"{table}\" has more than {MAX_ROW_FILES} rows. {csv} and {ROWS_FOLDER}/ show the \
+         first {MAX_ROW_FILES} only, in key order, so a copy of them is not the whole table.\n",
+        csv = csv_name(folder)
+    )
 }
 
 /// A table's CSV file name: its folder's name and `.csv`.
@@ -772,9 +815,17 @@ pub fn csv_text(columns: &[Column], rows: &[Value]) -> String {
 }
 
 /// A table's `schema.json`: its name, engine, columns (name, type, nullable, in the primary
-/// key) and primary key, and how its row files are named.
+/// key) and primary key, how its row files are named, and how many rows a listing shows at most
+/// (`rows_cap`) and whether the table has more than that (`rows_truncated`, `capped`): the CSV and
+/// the row files are the first `rows_cap` rows, and a copy of them is partial when this is true.
 #[must_use]
-pub fn schema_json(engine: &str, table: &TableRef, columns: &[Column], key: &RowKey) -> String {
+pub fn schema_json(
+    engine: &str,
+    table: &TableRef,
+    columns: &[Column],
+    key: &RowKey,
+    capped: bool,
+) -> String {
     let primary_key: Vec<&str> = match key {
         RowKey::Columns(names) => names.iter().map(String::as_str).collect(),
         RowKey::RowId | RowKey::Position => Vec::new(),
@@ -807,6 +858,8 @@ pub fn schema_json(engine: &str, table: &TableRef, columns: &[Column], key: &Row
         "view": table.view,
         "primary_key": primary_key,
         "rows": rows,
+        "rows_cap": MAX_ROW_FILES,
+        "rows_truncated": capped,
         "columns": column_list,
     });
     let mut text = serde_json::to_string_pretty(&value).unwrap_or_default();

@@ -434,3 +434,140 @@ fn az_cn2_a_failed_check_of_the_servers_certificate_says_what_to_choose() {
     assert_eq!(hint(DatabaseEngine::Postgres, Some("require")), "");
     assert_eq!(hint(DatabaseEngine::Mysql, Some("disabled")), "");
 }
+
+// ==== AZ-CN6: a table with more rows than a listing shows says so ====
+
+/// A database file with a table of `big` rows (a number each), made with a writable connection of
+/// the test's own.
+fn database_with_rows(dir: &TempDir, tables: &[(&str, u32)]) -> PathBuf {
+    let path = dir.path().join("rows.sqlite");
+    let options = SqliteConnectOptions::new()
+        .filename(&path)
+        .create_if_missing(true);
+    runtime::block_on(async {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options)
+            .await
+            .expect("a new database file");
+        for (name, rows) in tables {
+            sqlx::query(&format!(
+                "CREATE TABLE {name} (id INTEGER PRIMARY KEY, label TEXT)"
+            ))
+            .execute(&pool)
+            .await
+            .expect("a table");
+            sqlx::query(&format!(
+                "WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c WHERE x < {rows}) \
+                 INSERT INTO {name} (id, label) SELECT x, 'row ' || x FROM c"
+            ))
+            .execute(&pool)
+            .await
+            .expect("its rows");
+        }
+        pool.close().await;
+    })
+    .expect("the storage runtime");
+    path
+}
+
+/// Every object under `prefix` of the rows folder, page after page.
+fn all_pages(drive: &DatabaseDrive, prefix: &str) -> Vec<ObjectInfo> {
+    let mut found = Vec::new();
+    let mut request = ListRequest::folder(prefix);
+    loop {
+        let page = drive.list(&request).unwrap();
+        found.extend(page.objects);
+        match page.next {
+            Some(next) => request = ListRequest::folder(prefix).with_continuation(next),
+            None => return found,
+        }
+    }
+}
+
+/// The review's case: a copy of `orders/rows/` (50,000 rows) or the CSV in a spreadsheet stopped at
+/// 10,000 without a word. The table folder, the `rows/` folder and a recursive listing each carry
+/// a note file when the table has more rows than they show, `schema.json` says it, and the note
+/// reads. A table with exactly the cap has none of it.
+#[test]
+fn az_cn6_a_table_with_more_rows_than_the_cap_says_so_where_a_copy_looks() {
+    let dir = TempDir::new("db-cap");
+    let file = database_with_rows(&dir, &[("big", 10_001), ("exact", 10_000), ("small", 3)]);
+    let drive = open(&file);
+    let note = "_ONLY-THE-FIRST-10000-ROWS.txt";
+
+    let table = drive.list(&ListRequest::folder("big/")).unwrap();
+    assert_eq!(
+        keys(&table.objects),
+        vec!["big/big.csv", "big/schema.json", &format!("big/{note}")]
+    );
+    let rows = all_pages(&drive, "big/rows/");
+    assert_eq!(rows.len(), 10_000 + 1, "the first 10000 rows and the note");
+    assert_eq!(
+        rows.last().map(|o| o.key.as_str()),
+        Some(format!("big/rows/{note}").as_str()),
+        "the note comes with the last page"
+    );
+    let text = String::from_utf8(drive.get(&format!("big/{note}")).unwrap()).unwrap();
+    assert!(text.contains("has more than 10000 rows"), "{text}");
+    assert_eq!(
+        drive.get(&format!("big/rows/{note}")).unwrap(),
+        text.as_bytes()
+    );
+    assert_eq!(
+        drive.head(&format!("big/{note}")).unwrap().size,
+        text.len() as u64
+    );
+
+    let everything = drive.list(&ListRequest::recursive("big/")).unwrap();
+    let names = keys(&everything.objects);
+    assert!(names.contains(&format!("big/{note}").as_str()), "{names:?}");
+    assert!(
+        names.contains(&format!("big/rows/{note}").as_str()),
+        "{names:?}"
+    );
+
+    let schema: serde_json::Value =
+        serde_json::from_slice(&drive.get("big/schema.json").unwrap()).unwrap();
+    assert_eq!(schema["rows_cap"], 10_000);
+    assert_eq!(schema["rows_truncated"], true);
+    let csv = String::from_utf8(drive.get("big/big.csv").unwrap()).unwrap();
+    assert_eq!(csv.lines().count(), 10_000 + 1, "a header and the cap");
+
+    // The cap itself is no truncation, and a small table has no note anywhere.
+    for table in ["exact", "small"] {
+        let listed = drive
+            .list(&ListRequest::folder(&format!("{table}/")))
+            .unwrap();
+        assert_eq!(
+            listed.objects.len(),
+            2,
+            "{table}: its CSV and its schema: {:?}",
+            keys(&listed.objects)
+        );
+        let rows = all_pages(&drive, &format!("{table}/rows/"));
+        assert!(
+            rows.iter().all(|o| !o.key.contains("_ONLY-THE-FIRST")),
+            "{table}"
+        );
+        let schema: serde_json::Value =
+            serde_json::from_slice(&drive.get(&format!("{table}/schema.json")).unwrap()).unwrap();
+        assert_eq!(schema["rows_truncated"], false, "{table}");
+        assert!(matches!(
+            drive.get(&format!("{table}/{note}")),
+            Err(DriveError::NotFound { .. })
+        ));
+    }
+}
+
+/// The drive's metadata for anything in a table names the limit (Properties shows it).
+#[test]
+fn az_cn6_the_metadata_of_a_table_item_names_the_row_limit() {
+    let dir = TempDir::new("db-cap-meta");
+    let drive = open(&database(&dir));
+    let rows = drive.metadata("customers/schema.json").unwrap();
+    assert!(
+        rows.contains(&("Row limit".to_string(), "10000".to_string())),
+        "{rows:?}"
+    );
+}

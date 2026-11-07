@@ -56,6 +56,20 @@ fn every_kind_of_key_reads_back_as_the_path_it_names() {
                 name: "42".to_string(),
             },
         ),
+        (
+            "customers/_ONLY-THE-FIRST-10000-ROWS.txt",
+            TablePath::Note {
+                folder: folder(),
+                in_rows: false,
+            },
+        ),
+        (
+            "customers/rows/_ONLY-THE-FIRST-10000-ROWS.txt",
+            TablePath::Note {
+                folder: folder(),
+                in_rows: true,
+            },
+        ),
     ];
     for (key, path) in cases {
         assert_eq!(TablePath::parse(key), Some(path.clone()), "{key}");
@@ -339,6 +353,7 @@ fn the_schema_file_names_the_columns_and_the_primary_key() {
         &table("", "customers"),
         &customers(),
         &RowKey::Columns(vec!["id".to_string()]),
+        false,
     );
     let value: serde_json::Value = serde_json::from_str(&text).unwrap();
     assert_eq!(value["table"], "customers");
@@ -348,6 +363,47 @@ fn the_schema_file_names_the_columns_and_the_primary_key() {
     assert_eq!(value["columns"][1]["type"], "TEXT");
     assert_eq!(value["columns"][0]["primary_key"], true);
     assert_eq!(value["columns"][2]["nullable"], true);
+}
+
+/// AZ-CN6: a table with more rows than a listing shows says so in a file - in its folder and in its
+/// `rows/` folder, where a copy of either finds it - and in its `schema.json`.
+#[test]
+fn az_cn6_the_note_of_a_capped_table_is_a_file_with_a_name_no_row_has() {
+    assert_eq!(tables::note_name(), "_ONLY-THE-FIRST-10000-ROWS.txt");
+    assert!(tables::note_name().contains(&tables::MAX_ROW_FILES.to_string()));
+    let text = tables::note_text("customers");
+    assert!(
+        text.contains("\"customers\" has more than 10000 rows"),
+        "{text}"
+    );
+    assert!(
+        text.contains("customers.csv") && text.contains("rows/"),
+        "{text}"
+    );
+    assert!(text.contains("not the whole table"), "{text}");
+    // A table named with a slash is said by its name, not its escape.
+    assert!(tables::note_text("a%2Fb").contains("\"a/b\""));
+    let note = TablePath::parse("customers/rows/_ONLY-THE-FIRST-10000-ROWS.txt").unwrap();
+    assert!(!note.is_folder());
+    assert_eq!(note.folder(), Some("customers"));
+    // Never taken for a row of a table (a row's file is `<key>.json`).
+    assert!(!matches!(note, TablePath::Row { .. }));
+}
+
+#[test]
+fn az_cn6_the_schema_file_says_how_many_rows_a_listing_shows_and_whether_there_are_more() {
+    for capped in [false, true] {
+        let text = schema_json(
+            "postgres",
+            &table("public", "orders"),
+            &customers(),
+            &RowKey::Columns(vec!["id".to_string()]),
+            capped,
+        );
+        let value: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(value["rows_cap"], 10_000, "{text}");
+        assert_eq!(value["rows_truncated"], capped, "{text}");
+    }
 }
 
 // ==== Pages and ranges ====
