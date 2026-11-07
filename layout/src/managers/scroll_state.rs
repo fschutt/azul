@@ -68,10 +68,6 @@ use crate::{
     },
 };
 
-/// Minimum change in scroll offset (in logical pixels) to consider the position
-/// "actually moved" and mark the scroll state dirty.
-const SCROLL_CHANGE_EPSILON: f32 = 0.01;
-
 /// How long a burst of wheel clicks stays latched to its box after the last
 /// click: Chrome's wheel scroll-latching transaction. A wheel has no phases,
 /// so silence is the only end of its gesture.
@@ -605,10 +601,6 @@ pub struct ScrollManager {
     /// cannot reach back into a gesture that is already spent.
     #[cfg(feature = "std")]
     queued_this_pass: Option<ScrollInput>,
-    /// Set when a scroll position changes; cleared after the display list
-    /// is regenerated.  Used by the CPU renderer path to detect when the
-    /// display list must be rebuilt even though the DOM hasn't changed.
-    scroll_dirty: bool,
     /// The scrollbar thumb the user is currently holding, if any: set at the
     /// press that starts a thumb drag, cleared at the release that ends it.
     ///
@@ -834,12 +826,6 @@ impl ScrollManager {
         (self.states.len(), self.scrollbar_states.len())
     }
 
-    /// Returns `true` if any scroll position changed since the last
-    /// `clear_scroll_dirty()` call.
-    pub(crate) const fn has_pending_scroll_changes(&self) -> bool {
-        self.scroll_dirty
-    }
-
     /// A hash of every scroll node's current offset. Two equal fingerprints
     /// mean nothing scrolled in between, however the offsets were written: a
     /// wheel, an animation's [`Self::tick`], a reveal or a direct
@@ -879,11 +865,6 @@ impl ScrollManager {
             .filter(|(_, s)| s.animation.is_some())
             .map(|(k, _)| *k)
             .collect()
-    }
-
-    /// Clear the dirty flag after the display list has been regenerated.
-    pub const fn clear_scroll_dirty(&mut self) {
-        self.scroll_dirty = false;
     }
 
     /// Build a map from `scroll_id` (`LocalScrollId`) to current scroll offset.
@@ -1385,11 +1366,6 @@ impl ScrollManager {
             .entry((dom_id, node_id))
             .or_insert_with(|| AnimatedScrollState::new(now.clone()));
         let clamped = state.clamp(position);
-        if (clamped.x - state.current_offset.x).abs() > SCROLL_CHANGE_EPSILON
-            || (clamped.y - state.current_offset.y).abs() > SCROLL_CHANGE_EPSILON
-        {
-            self.scroll_dirty = true;
-        }
         state.current_offset = clamped;
         state.animation = None;
         state.last_activity = now;
@@ -1410,11 +1386,6 @@ impl ScrollManager {
             .states
             .entry((dom_id, node_id))
             .or_insert_with(|| AnimatedScrollState::new(now.clone()));
-        if (position.x - state.current_offset.x).abs() > SCROLL_CHANGE_EPSILON
-            || (position.y - state.current_offset.y).abs() > SCROLL_CHANGE_EPSILON
-        {
-            self.scroll_dirty = true;
-        }
         state.current_offset = position;
         state.animation = None;
         state.last_activity = now;
@@ -1770,17 +1741,12 @@ impl ScrollManager {
             existing.vertical_bar = vertical_bar;
 
             if !was_overscrolling {
-                let clamped = existing.clamp(off);
                 // A range that shrank under the offset MOVES the view - a
-                // field whose text fits again goes back to its start - and
-                // the CPU path only rebuilds its display list for a move it
-                // is told about.
-                if (clamped.x - off.x).abs() > SCROLL_CHANGE_EPSILON
-                    || (clamped.y - off.y).abs() > SCROLL_CHANGE_EPSILON
-                {
-                    self.scroll_dirty = true;
-                }
-                existing.current_offset = clamped;
+                // field whose text fits again goes back to its start. The
+                // frame paints the offsets the manager holds (the CPU path
+                // compares them with the last frame's), so the move needs no
+                // mark of its own.
+                existing.current_offset = existing.clamp(off);
             }
         } else {
             // +spec:overflow:8c7aa1 - initial scroll position is zero (scroll origin for LTR/TTB)
@@ -1834,13 +1800,7 @@ impl ScrollManager {
             off.x.is_finite() && off.y.is_finite() && state.clamp(off) != off;
         state.content_rect.size = content_size;
         if !was_overscrolling {
-            let clamped = state.clamp(off);
-            if (clamped.x - off.x).abs() > SCROLL_CHANGE_EPSILON
-                || (clamped.y - off.y).abs() > SCROLL_CHANGE_EPSILON
-            {
-                self.scroll_dirty = true;
-            }
-            state.current_offset = clamped;
+            state.current_offset = state.clamp(off);
         }
         true
     }
@@ -1853,9 +1813,9 @@ impl ScrollManager {
         // Its frames go with it: a node that is registered again later gets
         // them republished by `register_scroll_nodes`.
         self.scroll_ancestors.remove(&(dom_id, node_id));
-        let Some(removed) = self.states.remove(&(dom_id, node_id)) else {
+        if self.states.remove(&(dom_id, node_id)).is_none() {
             return;
-        };
+        }
         self.scrollbar_states
             .retain(|(d, n, _), _| (*d, *n) != (dom_id, node_id));
         if self
@@ -1863,10 +1823,6 @@ impl ScrollManager {
             .is_some_and(|(d, n, _)| d == dom_id && n == node_id)
         {
             self.thumb_drag = None;
-        }
-        // Content that was painted scrolled is painted where it lies now.
-        if removed.current_offset.x != 0.0 || removed.current_offset.y != 0.0 {
-            self.scroll_dirty = true;
         }
     }
 
@@ -3473,7 +3429,6 @@ mod autotest_generated {
         let m = ScrollManager::new();
         assert_eq!(m.debug_counts(), (0, 0));
         assert!(!m.has_active_animations());
-        assert!(!m.has_pending_scroll_changes());
         assert!(!m.is_natural_scroll());
         assert_eq!(m.scroll_sign(), -1.0);
         assert!(m.pending_wheel_event.is_none());
@@ -3506,40 +3461,6 @@ mod autotest_generated {
         // Idempotent: setting the same value twice must not toggle.
         m.set_natural_scroll(false);
         assert_eq!(m.scroll_sign(), -1.0);
-    }
-
-    // ================================================= dirty-flag bookkeeping
-    // (predicate: has_pending_scroll_changes / clear_scroll_dirty)
-
-    #[test]
-    fn scroll_dirty_is_set_only_on_a_real_move_and_cleared_on_demand() {
-        let mut m = mgr(size(100.0, 100.0), size(100.0, 500.0));
-        assert!(!m.has_pending_scroll_changes());
-
-        // Sub-epsilon move (< SCROLL_CHANGE_EPSILON = 0.01) must NOT dirty the
-        // display list — otherwise every trackpad jitter forces a rebuild.
-        m.set_scroll_position(DOM, node(0), pos(0.0, 0.005), at(1));
-        assert!(
-            !m.has_pending_scroll_changes(),
-            "0.005px must not be 'moved'"
-        );
-
-        m.set_scroll_position(DOM, node(0), pos(0.0, 50.0), at(2));
-        assert!(m.has_pending_scroll_changes());
-
-        m.clear_scroll_dirty();
-        assert!(!m.has_pending_scroll_changes());
-        // Setting the SAME position again is a no-op move: stays clean.
-        m.set_scroll_position(DOM, node(0), pos(0.0, 50.0), at(3));
-        assert!(!m.has_pending_scroll_changes());
-    }
-
-    #[test]
-    fn clear_scroll_dirty_on_a_clean_manager_is_a_noop() {
-        let mut m = ScrollManager::new();
-        m.clear_scroll_dirty();
-        m.clear_scroll_dirty();
-        assert!(!m.has_pending_scroll_changes());
     }
 
     // ======================================= set_scroll_position (+unclamped)
@@ -3610,24 +3531,18 @@ mod autotest_generated {
         assert_eq!(m.get_current_offset(DOM, node(0)), Some(pos(-50.0, -80.0)));
         m.set_scroll_position_unclamped(DOM, node(0), pos(0.0, 9999.0), at(2));
         assert_eq!(m.get_current_offset(DOM, node(0)), Some(pos(0.0, 9999.0)));
-        assert!(m.has_pending_scroll_changes());
     }
 
     #[test]
     fn set_scroll_position_unclamped_stores_non_finite_values_unfiltered() {
         // Documents a real hazard: the unclamped path performs NO sanitization,
-        // so a NaN delta from a driver would be stored verbatim AND (because
-        // `(NaN - x).abs() > EPS` is false) would not even mark the state dirty.
+        // so a NaN delta from a driver would be stored verbatim.
         let mut m = mgr(size(100.0, 100.0), size(100.0, 500.0));
         m.set_scroll_position_unclamped(DOM, node(0), pos(f32::NAN, f32::NAN), at(1));
         let off = m.get_current_offset(DOM, node(0)).unwrap();
         assert!(
             off.x.is_nan() && off.y.is_nan(),
             "unclamped stores NaN as-is"
-        );
-        assert!(
-            !m.has_pending_scroll_changes(),
-            "a NaN write does not trip the dirty flag (NaN comparisons are false)"
         );
         // But a later re-registration re-clamps it back to a finite value.
         m.register_or_update_scroll_node(
@@ -3999,13 +3914,11 @@ mod autotest_generated {
     }
 
     /// A box whose content FITS again (`register_scroll_nodes` refreshes it
-    /// with no bars) goes back to its start - and the move is reported, or
-    /// the CPU path keeps painting the content scrolled out of its box.
+    /// with no bars) goes back to its start.
     #[test]
-    fn re_registering_content_that_fits_moves_the_view_home_and_says_so() {
+    fn re_registering_content_that_fits_moves_the_view_home() {
         let mut m = mgr(size(100.0, 100.0), size(100.0, 500.0));
         m.set_scroll_position(DOM, node(0), pos(0.0, 300.0), at(1));
-        m.clear_scroll_dirty();
         m.register_or_update_scroll_node(
             DOM,
             node(0),
@@ -4016,12 +3929,10 @@ mod autotest_generated {
             ScrollbarPresence::None,
         );
         assert_eq!(m.get_current_offset(DOM, node(0)), Some(pos(0.0, 0.0)));
-        assert!(m.has_pending_scroll_changes(), "the view moved");
         m.calculate_scrollbar_states();
         assert_eq!(m.debug_counts().1, 0, "and it has no bar left");
 
         // Refreshing it again with nothing changed moves nothing.
-        m.clear_scroll_dirty();
         m.register_or_update_scroll_node(
             DOM,
             node(0),
@@ -4031,7 +3942,7 @@ mod autotest_generated {
             ScrollbarPresence::None,
             ScrollbarPresence::None,
         );
-        assert!(!m.has_pending_scroll_changes());
+        assert_eq!(m.get_current_offset(DOM, node(0)), Some(pos(0.0, 0.0)));
     }
 
     #[test]
@@ -4040,7 +3951,6 @@ mod autotest_generated {
         m.set_scroll_position(DOM, node(0), pos(0.0, 50.0), at(1));
         m.calculate_scrollbar_states();
         m.begin_thumb_drag(DOM, node(0), ScrollbarOrientation::Vertical, at(2));
-        m.clear_scroll_dirty();
 
         m.remove_scroll_node(DOM, node(0));
         assert!(m.get_current_offset(DOM, node(0)).is_none());
@@ -4049,16 +3959,11 @@ mod autotest_generated {
             .is_none());
         assert!(m.hit_test_scrollbars(pos(90.0, 50.0)).is_none());
         assert!(m.thumb_drag().is_none(), "no bar left to hold");
-        assert!(
-            m.has_pending_scroll_changes(),
-            "the content it scrolled is painted where it lies now"
-        );
 
         // An unknown node (or the same one twice) is a no-op.
-        m.clear_scroll_dirty();
         m.remove_scroll_node(DOM, node(0));
         m.remove_scroll_node(DOM1, node(7));
-        assert!(!m.has_pending_scroll_changes());
+        assert_eq!(m.debug_counts(), (0, 0));
     }
 
     #[test]
@@ -4451,7 +4356,6 @@ mod autotest_generated {
         );
 
         m.set_scroll_position(DOM, node(0), pos(0.0, 400.0), at(1));
-        m.clear_scroll_dirty();
 
         // Content shrinks under a bottomed-out scroll: the offset must follow.
         m.update_node_bounds(
@@ -4462,9 +4366,6 @@ mod autotest_generated {
             at(2),
         );
         assert_eq!(m.get_current_offset(DOM, node(0)), Some(pos(0.0, 50.0)));
-        // NOTE: the forced re-clamp moved the offset by 350px but did NOT set the
-        // dirty flag (unlike set_scroll_position) — pinning the real behavior.
-        assert!(!m.has_pending_scroll_changes());
     }
 
     #[test]

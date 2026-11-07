@@ -10658,12 +10658,6 @@ fn collect_state_machine_leaks(
             lw.scroll_manager.animating_keys().len()
         ));
     }
-    if lw.scroll_manager.has_pending_scroll_changes() {
-        leaks.push(
-            "scroll_manager.scroll_dirty is still set — the display list will be rebuilt again"
-                .to_string(),
-        );
-    }
     if lw.gpu_state_manager.scrollbar_fade_active {
         leaks.push(
             "gpu_state_manager.scrollbar_fade_active is still true — this is what kept an idle \
@@ -10747,9 +10741,9 @@ fn collect_state_machine_leaks(
 ///
 /// The interaction is over; assert that every state machine noticed. Checks, in
 /// one sweep: no active drag, no un-ended gesture session, no active scroll
-/// animation, `scroll_dirty` cleared, `scrollbar_fade_active` cleared, no
-/// latched `display_list_dirty`, no orphan caret blink, no unresolved focus
-/// request, and (unless `damage: false`) `FrameDamage::None` on the last frame.
+/// animation, `scrollbar_fade_active` cleared, no latched `display_list_dirty`,
+/// no orphan caret blink, no unresolved focus request, and (unless
+/// `damage: false`) `FrameDamage::None` on the last frame.
 ///
 /// Parameters: `damage` (bool, default `true`) — include the
 /// `FrameDamage::None` requirement.
@@ -10795,8 +10789,7 @@ fn eval_assert_state_machines_idle(
     if leaks.is_empty() {
         return AssertionResult::pass(format!(
             "assert_state_machines_idle: every state machine settled (drag, gesture sessions, \
-             scroll animation, scroll_dirty, scrollbar fade, text-edit dirty/blink, focus \
-             requests{})",
+             scroll animation, scrollbar fade, text-edit dirty/blink, focus requests{})",
             if check_damage { ", frame damage" } else { "" }
         ));
     }
@@ -12153,7 +12146,7 @@ fn not_fingerprintable() -> Vec<(&'static str, &'static str)> {
 ///
 /// A scenario must settle its frames (`wait_frame` + `wait`) before BOTH the
 /// snapshot and the assertion: the transient repaint flags (`display_list_dirty`,
-/// `scroll_dirty`, `pending_wheel_event`) are real state and ARE recorded, so
+/// `pending_wheel_event`) are real state and ARE recorded, so
 /// comparing a settled window against a mid-flight one reports them as moved.
 /// That is the correct answer to the question asked; it is not noise.
 #[cfg(feature = "std")]
@@ -12237,7 +12230,6 @@ fn fp_scroll(m: &azul_layout::managers::scroll_state::ScrollManager) -> ManagerF
             if animating { "+anim" } else { "" }
         ));
     }
-    parts.push(format!("dirty={}", m.has_pending_scroll_changes()));
     parts.push(format!("wheel={}", m.pending_wheel_event.is_some()));
     ManagerFingerprint::new(keys.len(), parts.join(" "))
 }

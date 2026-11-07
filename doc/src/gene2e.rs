@@ -1595,8 +1595,8 @@ invalidation path completely broken. Only the ops listed above exist; use nothin
    - "every state machine settled / nothing is latched"
                                          -> assert_state_machines_idle {{}}
      One sweep over: no active drag, no un-ended gesture session, no running scroll
-     animation, `scroll_dirty` cleared, `scrollbar_fade_active` cleared, no latched
-     `display_list_dirty`, no orphan caret blink, no unresolved focus request.
+     animation, `scrollbar_fade_active` cleared, no latched `display_list_dirty`, no
+     orphan caret blink, no unresolved focus request.
      Strictly stronger than `assert_idle_stable` for "did every manager notice the
      interaction ended?".
 

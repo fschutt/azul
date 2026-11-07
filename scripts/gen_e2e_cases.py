@@ -1257,7 +1257,7 @@ SCROLL_ASSERTS = [
      "behind at the old offset", "b", 41, {"moves"}),
     ("assert has_active_animations() is FIRST true while the animation runs — so an engine that "
      "never started one fails too — and that the animation then terminates: "
-     "has_active_animations() goes false, scroll_dirty clears and the window reaches zero "
+     "has_active_animations() goes false and the window reaches zero "
      "damage", "g3", 42, {"moves", "animates"}),
     ("assert the scrollbar fade completes and gpu_state.scrollbar_fade_active returns to false so "
      "the window stops generating frames", "g3", 42, {"moves"}),
