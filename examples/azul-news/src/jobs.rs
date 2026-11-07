@@ -166,7 +166,7 @@ extern "C" fn refresh_thread(
     }) else {
         return;
     };
-    let transport = AzulTransport::new(fetch::USER_AGENT);
+    let transport = AzulTransport::foreign(fetch::USER_AGENT);
     for job in jobs {
         if stop_asked(&mut receiver) {
             break;
@@ -282,7 +282,7 @@ extern "C" fn picture_thread(
     }) else {
         return;
     };
-    let transport = AzulTransport::new(fetch::USER_AGENT);
+    let transport = AzulTransport::foreign(fetch::USER_AGENT);
     for url in urls {
         if stop_asked(&mut receiver) {
             return;
@@ -353,7 +353,7 @@ extern "C" fn page_thread(mut init: RefAny, mut sender: ThreadSender, _receiver:
     }) else {
         return;
     };
-    let transport = AzulTransport::new(fetch::USER_AGENT);
+    let transport = AzulTransport::foreign(fetch::USER_AGENT);
     let html = page(&transport, &url);
     let _delivered = post(&mut sender, on_event, PageEvent { item, url, html });
 }
@@ -392,7 +392,7 @@ extern "C" fn find_thread(mut init: RefAny, mut sender: ThreadSender, _receiver:
     }) else {
         return;
     };
-    let transport = AzulTransport::new(fetch::USER_AGENT);
+    let transport = AzulTransport::foreign(fetch::USER_AGENT);
     let result = fetch::find_feeds(&transport, &input);
     let _delivered = post(&mut sender, on_event, FindEvent { input, result });
 }

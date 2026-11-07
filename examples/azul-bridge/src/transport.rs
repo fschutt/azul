@@ -211,6 +211,11 @@ impl Transport for UreqTransport {
         self.public_roots
     }
 
+    /// The bridge talks to the Azlin service only: its token server and its drives' nodes.
+    fn trust_class(&self) -> azul_storage::trust::TrustClass {
+        azul_storage::trust::TrustClass::Azlin
+    }
+
     /// The call's limits are the request's: its overall time, the times its body may take to
     /// send and its answer to arrive, and the bytes the answer may have (the bridge's own
     /// [`MAX_BODY`] at most).

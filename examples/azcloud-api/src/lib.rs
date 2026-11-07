@@ -253,6 +253,12 @@ pub mod https {
             self.roots.is_none()
         }
 
+        /// The command line talks to the Azlin service only: its token server and its drives'
+        /// nodes (its TLS roots are its own, `self.roots`).
+        fn trust_class(&self) -> azul_storage::trust::TrustClass {
+            azul_storage::trust::TrustClass::Azlin
+        }
+
         fn send(&self, call: &HttpCall) -> Result<HttpReply, String> {
             reqwest::Method::from_bytes(call.method.as_str().as_bytes())
                 .map_err(|e| e.to_string())?;
@@ -449,6 +455,11 @@ pub mod iroh_lane {
     }
 
     impl Transport for IrohTransport {
+        /// It dials a node of an Azlin drive.
+        fn trust_class(&self) -> azul_storage::trust::TrustClass {
+            azul_storage::trust::TrustClass::Azlin
+        }
+
         fn send(&self, call: &HttpCall) -> Result<HttpReply, String> {
             let mut headers = call.headers.clone();
             if !call.content_type.is_empty() {

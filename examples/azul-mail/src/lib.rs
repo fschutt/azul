@@ -1241,7 +1241,7 @@ fn renew_oauth(job: &SyncInit, sender: &mut ThreadSender) -> Result<SyncInit, St
     if !grant.needs_refresh(now) {
         return Ok(job.clone());
     }
-    let transport = AzulTransport::new(USER_AGENT);
+    let transport = AzulTransport::foreign(USER_AGENT);
     let key = account::secret_keyring_key(&job.account);
     let (fresh, adopted) = oauth::refresh_shared(&transport, &job.keyring, &key, &grant, now)?;
     let secret = Secret::new(fresh.to_secret());
@@ -1268,7 +1268,7 @@ fn renew_oauth(job: &SyncInit, sender: &mut ThreadSender) -> Result<SyncInit, St
 fn azlin_ban(job: &SyncInit) -> Option<azcloud_kit::Ban> {
     let link = job.account.azlin.as_ref()?;
     let url = job.endpoints.token_url_for(&link.token_url)?;
-    let transport = AzulTransport::new(USER_AGENT);
+    let transport = AzulTransport::azlin(USER_AGENT);
     let server = azlin::TokenServer::new(&url, &transport).ok()?;
     let session = azlin::AzlinSession::from_secret(job.secret.expose(), &link.drive_id);
     let key = account::azlin_keyring_key(&job.account.id);
@@ -1404,7 +1404,7 @@ fn run_azlin_sync(
     let Some(link) = job.account.azlin.as_ref() else {
         return Err(SyncError::Protocol(String::from("not an Azlin account")));
     };
-    let transport = AzulTransport::new(USER_AGENT);
+    let transport = AzulTransport::azlin(USER_AGENT);
     let now = now_unix();
     let mut session = azlin::AzlinSession::from_secret(job.secret.expose(), &link.drive_id);
     if job.store_first {
@@ -1810,7 +1810,7 @@ impl AzlinContext {
         mail_drive::open(
             &session,
             self.endpoints.s3_url.as_deref(),
-            Box::new(AzulTransport::new(USER_AGENT)),
+            Box::new(AzulTransport::azlin(USER_AGENT)),
             std::sync::Arc::new(azlin_keyring(Asking::User)),
         )
         .map_err(|e| e.to_string())
@@ -2044,7 +2044,7 @@ extern "C" fn io_thread(mut init: RefAny, mut sender: ThreadSender, _receiver: T
         }
         IoJob::CreateDrive { token_url, name } => {
             use azlin::CloudAccount;
-            let transport = AzulTransport::new(USER_AGENT);
+            let transport = AzulTransport::azlin(USER_AGENT);
             let created = azlin::TokenServer::new(&token_url, &transport)
                 .and_then(|server| server.create_drive(&name))
                 .map_err(|e| e.to_string());
