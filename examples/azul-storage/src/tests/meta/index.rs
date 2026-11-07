@@ -360,6 +360,58 @@ fn az_m4_a_maintenance_round_of_a_drive_refuses_a_manifest_older_than_its_copy_h
     assert_eq!(swept, [older], "the manifest is as the storage served it");
 }
 
+/// A drive that answers everything but a listing: its manifest is missing, and whether anything
+/// else is there cannot be told.
+struct Unlistable(MemoryBucket);
+
+impl Drive for Unlistable {
+    fn list(&self, _: &ListRequest) -> Result<ListPage, DriveError> {
+        Err(DriveError::Transport(
+            "the listing got no answer".to_string(),
+        ))
+    }
+    fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
+        self.0.get(key)
+    }
+    fn get_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, DriveError> {
+        self.0.get_range(key, range)
+    }
+    fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
+        self.0.put(key, bytes)
+    }
+    fn delete(&self, key: &str) -> Result<(), DriveError> {
+        self.0.delete(key)
+    }
+    fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
+        self.0.head(key)
+    }
+    fn put_if(
+        &self,
+        key: &str,
+        bytes: &[u8],
+        condition: &Precondition,
+    ) -> Result<Option<String>, DriveError> {
+        self.0.put_if(key, bytes, condition)
+    }
+}
+
+/// AZ-M11. "No manifest" is not "no repository" and a listing that failed is not "nothing is
+/// there": a drive that cannot be listed is not called empty, and no index is created over it.
+#[test]
+fn az_m11_a_drive_that_cannot_be_listed_is_not_called_empty() {
+    let key = DriveKey::generate().unwrap();
+    let raw = MemoryBucket::new();
+    let shared: Arc<dyn Drive> = Arc::new(Unlistable(raw.clone()));
+    let provider = MetaIndexProvider::new("Phone");
+    let opened = provider.open_index("d_1", shared, &key);
+    assert!(
+        matches!(opened, Err(DriveError::Transport(_))),
+        "the failed listing is the answer: {:?}",
+        opened.err()
+    );
+    assert!(raw.objects().is_empty(), "no index was created");
+}
+
 /// A bucket out of reach: every request fails the way a lost connection does.
 struct OutOfReach;
 

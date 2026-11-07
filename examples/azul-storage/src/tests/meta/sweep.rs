@@ -173,6 +173,52 @@ fn az_m9_a_writer_republishing_a_pack_that_is_being_deleted_is_not_left_with_a_m
     assert_eq!(objects.len(), 1);
 }
 
+/// AZ-M9. A delete the storage does not take (here: the pack, once) leaves its name listed as
+/// retired for the next round, where the collection used to drop every due name from the list
+/// before it deleted - and an object it could not delete was nobody's to find again until a sweep
+/// listed the whole folder.
+#[test]
+fn az_m9_an_object_the_storage_would_not_delete_stays_listed_as_retired_for_the_next_round() {
+    use crate::{meta::MetaError, DriveError};
+
+    let bucket = MemoryBucket::new();
+    let mut laptop = MetaStore::create(bucket.clone(), sealer(), "laptop").unwrap();
+    let sealed = pack_of("c1").seal(&sealer()).unwrap();
+    bucket
+        .create(&keys::pack(&sealed.name), &sealed.pack)
+        .unwrap();
+    bucket
+        .create(&keys::idx(&sealed.name), &sealed.idx)
+        .unwrap();
+    let guard = laptop.acquire_lease(MAINTENANCE, 600).unwrap();
+    assert_eq!(laptop.sweep_orphans(&guard, 0).unwrap(), 2);
+
+    bucket.fail_next_write(
+        &keys::pack(&sealed.name),
+        MetaError::Drive(DriveError::Transport("no answer".to_string())),
+    );
+    assert_eq!(laptop.collect_garbage(&guard, 0).unwrap(), 2);
+    assert!(bucket.read(&keys::pack(&sealed.name)).unwrap().is_some());
+    assert!(bucket.read(&keys::idx(&sealed.name)).unwrap().is_none());
+    let listed: Vec<String> = laptop
+        .manifest()
+        .unwrap()
+        .retired
+        .iter()
+        .map(|retired| retired.key.clone())
+        .collect();
+    assert_eq!(
+        listed,
+        [keys::pack(&sealed.name)],
+        "the pack stays listed for the next round"
+    );
+
+    // The next round deletes it and the list is empty.
+    assert_eq!(laptop.collect_garbage(&guard, 0).unwrap(), 1);
+    assert!(bucket.read(&keys::pack(&sealed.name)).unwrap().is_none());
+    assert!(laptop.manifest().unwrap().retired.is_empty());
+}
+
 #[test]
 fn the_sweep_needs_the_lease() {
     let bucket = MemoryBucket::new();
