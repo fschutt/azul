@@ -18,7 +18,10 @@ use azul_storage::{
     Drive, DriveError,
 };
 
-use crate::fileops::{plan_transfer, run_transfer, ConflictChoice, SourceItem, TransferKind};
+use crate::fileops::{
+    delete_items, delete_way, plan_transfer, run_transfer, trash_stamp, ConflictChoice, DeleteWay,
+    SourceItem, TransferKind,
+};
 
 /// The drive of a slot over the folder `root`, opened as the app opens it ([`crate::Slot::open`]).
 fn opened(id: &str, root: &Path, keys: &TempDir) -> Arc<dyn Drive> {
@@ -195,5 +198,87 @@ fn x_delta_azdrive_files_2_a_file_is_not_its_own_destination_through_a_second_sl
             b"hello",
             "{kind:?}: the only copy is still there"
         );
+    }
+}
+
+/// X-DELTA-AZDRIVE-FILES-6. Ctrl+A in a local drive's root with "Hidden items" on selects
+/// `.azdrive-trash/` with the other rows. The selection was sorted by "ALL of it is in the trash"
+/// (it was not), so the delete was a trashing one whose `_` arm called `delete_folder` on the
+/// trash itself: every earlier delete (kept 30 days, the user's safety net) was removed, and, when
+/// the row ran after the folders the batch had renamed into its own `.azdrive-trash/<stamp>/`, the
+/// batch's folders went too - under the toast "Moved N items to the trash, Ctrl+Z brings them
+/// back".
+#[test]
+fn x_delta_azdrive_files_6_a_trashing_delete_of_a_selection_that_holds_the_trash_keeps_the_old_deletes(
+) {
+    let tmp = TempDir::new("dx6-trash");
+    let (home, root) = seeded(&tmp);
+    let first = trash_stamp(1_759_300_000, 1);
+    let earlier = delete_items(&*home, &[item("readme.txt")], Some(&first));
+    assert!(earlier.failed.is_empty(), "{earlier:?}");
+    home.put("c.txt", b"c").unwrap();
+    // The trash row comes AFTER the folder (a sort that puts the dot-folder last).
+    let second = trash_stamp(1_759_300_100, 2);
+    let mixed = delete_items(
+        &*home,
+        &[item("docs/"), item("c.txt"), item(".azdrive-trash/")],
+        Some(&second),
+    );
+    let trash = root.join(".azdrive-trash");
+    assert!(
+        trash.join(&first).join("readme.txt").is_file(),
+        "an earlier delete went with the trash folder"
+    );
+    assert!(
+        trash.join(&second).join("docs").join("a.txt").is_file(),
+        "the batch's own folder went with the trash folder"
+    );
+    assert!(trash.join(&second).join("c.txt").is_file());
+    assert_eq!(mixed.failed.len(), 1, "{mixed:?}");
+    assert_eq!(mixed.failed[0].0, ".azdrive-trash/");
+    assert!(
+        matches!(mixed.failed[0].1, DriveError::InvalidKey { .. }),
+        "{mixed:?}"
+    );
+    assert_eq!(mixed.gone.len(), 2, "docs/ and c.txt went: {mixed:?}");
+}
+
+/// X-DELTA-AZDRIVE-FILES-6, the decision the Delete key takes (`delete_selected` asks it): a
+/// selection that mixes the trash with other rows is always asked.
+#[test]
+fn x_delta_azdrive_files_6_a_selection_that_mixes_the_trash_with_other_rows_is_always_asked() {
+    let a = item("a.txt");
+    let trash = item(".azdrive-trash/");
+    let old = item(".azdrive-trash/20261001-031500-1/x.txt");
+    // Nothing of it in the trash: a local drive trashes; otherwise it is asked, or for good when
+    // the question is off.
+    assert_eq!(
+        delete_way(&[a.clone()], true, false, true),
+        DeleteWay::ToTrash
+    );
+    assert_eq!(delete_way(&[a.clone()], true, true, true), DeleteWay::Ask);
+    assert_eq!(
+        delete_way(&[a.clone()], true, true, false),
+        DeleteWay::ForGood
+    );
+    assert_eq!(
+        delete_way(&[a.clone()], false, false, false),
+        DeleteWay::Ask
+    );
+    // All of it in the trash: for good, the setting decides.
+    assert_eq!(
+        delete_way(&[trash.clone()], true, false, false),
+        DeleteWay::ForGood
+    );
+    assert_eq!(delete_way(&[old], true, false, true), DeleteWay::Ask);
+    // A mix: asked whatever the setting says (it was a trashing delete).
+    for confirm in [false, true] {
+        for permanent in [false, true] {
+            assert_eq!(
+                delete_way(&[a.clone(), trash.clone()], true, permanent, confirm),
+                DeleteWay::Ask,
+                "permanent {permanent}, confirm {confirm}"
+            );
+        }
     }
 }

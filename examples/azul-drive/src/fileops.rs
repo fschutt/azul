@@ -374,11 +374,49 @@ pub struct Deleted {
     pub failed: Vec<(String, DriveError)>,
 }
 
+/// How a Delete of `items` goes (X-DELTA-AZDRIVE-FILES-6).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DeleteWay {
+    /// Into the trash folder, undoable: a local drive, no Shift, nothing of the selection in the
+    /// trash already.
+    ToTrash,
+    /// After the question "delete for good?".
+    Ask,
+    /// For good, at once (the question is turned off and the selection is all in the trash).
+    ForGood,
+}
+
+/// The way a Delete of `items` goes. What is in the trash goes for good or not at all, and a
+/// selection that holds the trash (Ctrl+A in the root with "Hidden items" on, a search result)
+/// together with other rows used to be sorted by "all of it is in the trash": it was not, so it
+/// was a trashing delete whose `_` arm removed the trash folder with every earlier delete in it. A
+/// selection that mixes the two is always asked, whatever the setting says.
+#[must_use]
+pub fn delete_way(
+    items: &[SourceItem],
+    local: bool,
+    permanent: bool,
+    confirm_delete: bool,
+) -> DeleteWay {
+    let in_trash = items.iter().filter(|i| is_in_trash(&i.key)).count();
+    if local && !permanent && in_trash == 0 {
+        return DeleteWay::ToTrash;
+    }
+    let mixed = in_trash > 0 && in_trash < items.len();
+    if !local || confirm_delete || mixed {
+        DeleteWay::Ask
+    } else {
+        DeleteWay::ForGood
+    }
+}
+
 /// Deletes `items`: into the trash of the delete `stamp` (each moved to
 /// [`trash_key`]), or for good with `None`. A folder goes as a whole; the files go in one
 /// batch each way (an encrypted drive changes its index once, a bucket deletes a thousand
 /// keys a request). Every item is tried: what went is in [`Deleted::gone`], what did not in
-/// [`Deleted::failed`].
+/// [`Deleted::failed`]. A trashing delete (`Some(stamp)`) never deletes what is in the trash: such
+/// an item - the trash folder itself above all - is refused, so the earlier deletes (kept 30 days:
+/// the user's safety net) and the folders this very batch just moved in cannot go with it.
 #[must_use]
 pub fn delete_items(drive: &dyn Drive, items: &[SourceItem], stamp: Option<&str>) -> Deleted {
     let mut out = Deleted::default();
@@ -386,7 +424,14 @@ pub fn delete_items(drive: &dyn Drive, items: &[SourceItem], stamp: Option<&str>
     let mut for_good: Vec<String> = Vec::new();
     for item in items {
         match stamp {
-            Some(stamp) if !is_in_trash(&item.key) => {
+            Some(_) if is_in_trash(&item.key) => out.failed.push((
+                item.key.clone(),
+                DriveError::InvalidKey {
+                    key: item.key.clone(),
+                    reason: "it is in the trash: only the question \"delete for good?\" deletes it",
+                },
+            )),
+            Some(stamp) => {
                 let to = trash_key(&item.key, stamp);
                 if item.is_folder {
                     match drive.rename(&item.key, &to) {
@@ -397,7 +442,7 @@ pub fn delete_items(drive: &dyn Drive, items: &[SourceItem], stamp: Option<&str>
                     into_trash.push((item.key.clone(), to));
                 }
             }
-            _ => {
+            None => {
                 if item.is_folder {
                     // The user's own "delete for good": the one place a folder is removed with
                     // what is in it.

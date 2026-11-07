@@ -2772,9 +2772,9 @@ fn delete_selected(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, pe
     if items.is_empty() {
         return;
     }
-    let in_trash = items.iter().all(|i| fileops::is_in_trash(&i.key));
     let local = s.is_local_drive(&drive_id);
-    if local && !permanent && !in_trash {
+    let way = fileops::delete_way(&items, local, permanent, s.settings.confirm_delete);
+    if way == fileops::DeleteWay::ToTrash {
         s.trash_serial += 1;
         let stamp = fileops::trash_stamp(now_secs(), s.trash_serial);
         let Some(drive) = open_current(s) else {
@@ -2794,7 +2794,7 @@ fn delete_selected(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, pe
         );
         return;
     }
-    if !local || s.settings.confirm_delete {
+    if way == fileops::DeleteWay::Ask {
         s.popups_opened += 1;
         s.popup.open(Popup::ConfirmDelete { drive_id, items });
         return;
@@ -4099,4 +4099,3 @@ pub(crate) fn is_cut(s: &DriveState, item_key: &str) -> bool {
             && c.items.iter().any(|i| i.key == item_key)
     })
 }
-
