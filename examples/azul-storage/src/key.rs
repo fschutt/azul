@@ -439,9 +439,41 @@ pub fn safe_file_name(key: &str) -> Option<String> {
 /// keys loses none of them where two would be one file (AZ-W2).
 #[must_use]
 pub fn without_twins(keys: &[&str], fold: &dyn Fn(&str) -> String) -> Vec<String> {
+    without_twins_keeping(keys, &[], &[], fold)
+}
+
+/// [`without_twins`] for a folder an earlier run wrote into: `kept[i]` is the name an earlier run
+/// gave `keys[i]` (it keeps it, whatever order the keys come in now), and `held` are the names of
+/// earlier files whose keys are not among `keys` any more (their files are still in the folder, so
+/// no other key takes their names). A later twin of an earlier file gets the number, never the
+/// earlier file's name - on a disk that ignores case, "Report.txt" arriving after "report.txt" was
+/// copied would otherwise be written as "report.txt" and the first file copied again beside it.
+/// A kept name that a fold makes one with an earlier kept name loses it, like any twin.
+#[must_use]
+pub fn without_twins_keeping(
+    keys: &[&str],
+    kept: &[Option<&str>],
+    held: &[&str],
+    fold: &dyn Fn(&str) -> String,
+) -> Vec<String> {
     let mut taken: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut keeps: Vec<Option<&str>> = vec![None; keys.len()];
+    for (slot, name) in keeps.iter_mut().zip(kept) {
+        if let Some(name) = name.filter(|name| !name.is_empty()) {
+            if taken.insert(fold(name)) {
+                *slot = Some(name);
+            }
+        }
+    }
+    for name in held {
+        taken.insert(fold(name));
+    }
     let mut out = Vec::with_capacity(keys.len());
-    for key in keys {
+    for (key, keep) in keys.iter().zip(&keeps) {
+        if let Some(name) = keep {
+            out.push((*name).to_string());
+            continue;
+        }
         let mut name = (*key).to_string();
         let mut n = 1u32;
         while !taken.insert(fold(&name)) {

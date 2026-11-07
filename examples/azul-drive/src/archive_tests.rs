@@ -683,3 +683,222 @@ fn x_ar5a_12_an_unreadable_free_space_lets_the_rescue_begin_and_a_small_one_stop
     assert_eq!(small.copied, 0, "{small:?}");
     assert!(small.no_space.is_some());
 }
+
+// ---- the rescue copy against X-DELTA-AZDRIVE-FILES-17 and -18
+
+/// A drive that names the version of every file - an entity tag and a date, as a bucket does -
+/// and whose files can be written again. `reads` counts the reads of file bytes.
+struct Tagged {
+    files: std::sync::Mutex<std::collections::BTreeMap<String, (Vec<u8>, u64)>>,
+    clock: std::sync::atomic::AtomicU64,
+    reads: std::sync::atomic::AtomicUsize,
+}
+
+impl Tagged {
+    fn with(files: &[(&str, &[u8])]) -> Tagged {
+        let drive = Tagged {
+            files: std::sync::Mutex::default(),
+            clock: std::sync::atomic::AtomicU64::new(0),
+            reads: std::sync::atomic::AtomicUsize::new(0),
+        };
+        for (key, bytes) in files {
+            drive.set(key, bytes);
+        }
+        drive
+    }
+
+    /// The file written (again): a new entity tag and a new date.
+    fn set(&self, key: &str, bytes: &[u8]) {
+        let n = self.clock.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+        self.files
+            .lock()
+            .unwrap()
+            .insert(key.to_string(), (bytes.to_vec(), n));
+    }
+
+    fn remove(&self, key: &str) {
+        self.files.lock().unwrap().remove(key);
+    }
+
+    fn reads(&self) -> usize {
+        self.reads.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    fn info(key: &str, bytes: &[u8], n: u64) -> ObjectInfo {
+        ObjectInfo {
+            key: key.to_string(),
+            size: bytes.len() as u64,
+            modified: Some(1_000 + n),
+            etag: Some(format!("v{n}")),
+        }
+    }
+}
+
+impl Drive for Tagged {
+    fn list(&self, request: &ListRequest) -> Result<ListPage, DriveError> {
+        Ok(ListPage {
+            folders: Vec::new(),
+            objects: self
+                .files
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|(key, _)| key.starts_with(&request.prefix))
+                .map(|(key, (bytes, n))| Tagged::info(key, bytes, *n))
+                .collect(),
+            next: None,
+        })
+    }
+    fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
+        self.reads.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        self.files
+            .lock()
+            .unwrap()
+            .get(key)
+            .map(|(bytes, _)| bytes.clone())
+            .ok_or_else(|| Keys::not_found(key))
+    }
+    fn get_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, DriveError> {
+        let bytes = self.get(key)?;
+        let start = usize::try_from(range.start)
+            .unwrap_or(usize::MAX)
+            .min(bytes.len());
+        let end = range
+            .end
+            .map_or(bytes.len(), |e| {
+                usize::try_from(e).unwrap_or(usize::MAX).saturating_add(1)
+            })
+            .min(bytes.len());
+        Ok(bytes[start..end].to_vec())
+    }
+    fn put(&self, _key: &str, _bytes: &[u8]) -> Result<(), DriveError> {
+        Err(DriveError::Denied {
+            message: String::from("a test source is read-only"),
+        })
+    }
+    fn delete(&self, _key: &str) -> Result<(), DriveError> {
+        Err(DriveError::Denied {
+            message: String::from("a test source is read-only"),
+        })
+    }
+    fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
+        let files = self.files.lock().unwrap();
+        let (bytes, n) = files.get(key).ok_or_else(|| Keys::not_found(key))?;
+        Ok(Tagged::info(key, bytes, *n))
+    }
+}
+
+/// A drive file written to again with the length it had - a database, a disk image, a fixed-size
+/// container - was never copied again: "it has the size of the drive's file" made it the file that
+/// was copied, the bar said done, and when the drive locked the newest content was only on the
+/// locked drive. The drive's own version (entity tag, date) is kept with the file and compared.
+#[test]
+fn x_delta_azdrive_files_17_a_drive_file_written_again_to_the_same_length_is_copied_again() {
+    let tmp = TempDir::new("dx17-same-length");
+    let drive = Tagged::with(&[("disk.img", b"AAAA"), ("keep.txt", b"keep")]);
+    let folder = tmp.path().join("copy");
+    let state = tmp.path().join("d_x.rescue.json");
+    run_rescue(&drive, &folder, NO_PROBE, Some(&state), &mut |_, _| {});
+    let reads = drive.reads();
+    // A run with nothing new reads no byte of the drive.
+    run_rescue(&drive, &folder, NO_PROBE, Some(&state), &mut |_, _| {});
+    assert_eq!(drive.reads(), reads, "nothing changed: nothing is read");
+    // The drive's file is written in place, to the same length.
+    drive.set("disk.img", b"BBBB");
+    let again = run_rescue(&drive, &folder, NO_PROBE, Some(&state), &mut |_, _| {});
+    assert!(
+        again.missing.is_empty() && again.kept.is_empty(),
+        "{again:?}"
+    );
+    assert_eq!(
+        std::fs::read(folder.join("disk.img")).unwrap(),
+        b"BBBB",
+        "the newest content is on this computer"
+    );
+    assert_eq!(std::fs::read(folder.join("keep.txt")).unwrap(), b"keep");
+}
+
+/// The ledger of an AzDrive before this one has no versions: its files are taken as they were (the
+/// size decides, once), the version is recorded from the look, and the next change is seen.
+#[test]
+fn x_delta_azdrive_files_17_a_ledger_without_versions_learns_them() {
+    let tmp = TempDir::new("dx17-older-ledger");
+    let drive = Tagged::with(&[("disk.img", b"AAAA")]);
+    let folder = tmp.path().join("copy");
+    let state = tmp.path().join("d_x.rescue.json");
+    run_rescue(&drive, &folder, NO_PROBE, Some(&state), &mut |_, _| {});
+    // Made by an older AzDrive: the length and the time of the file, nothing else.
+    let mut json: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&state).unwrap()).unwrap();
+    for entry in json["written"].as_object_mut().unwrap().values_mut() {
+        let entry = entry.as_object_mut().unwrap();
+        entry.remove("etag");
+        entry.remove("modified");
+        entry.remove("target");
+    }
+    std::fs::write(&state, serde_json::to_string(&json).unwrap()).unwrap();
+    let reads = drive.reads();
+    run_rescue(&drive, &folder, NO_PROBE, Some(&state), &mut |_, _| {});
+    assert_eq!(drive.reads(), reads, "the old rule holds once: no read");
+    let kept: Rescue = serde_json::from_str(&std::fs::read_to_string(&state).unwrap()).unwrap();
+    let entry = &kept.written["disk.img"];
+    assert!(
+        entry.etag.is_some() && entry.modified.is_some(),
+        "the version is recorded now: {kept:?}"
+    );
+    assert_eq!(entry.target, "disk.img");
+    drive.set("disk.img", b"CCCC");
+    run_rescue(&drive, &folder, NO_PROBE, Some(&state), &mut |_, _| {});
+    assert_eq!(std::fs::read(folder.join("disk.img")).unwrap(), b"CCCC");
+}
+
+/// Run 1 copied `report.txt`; later the drive also holds `Report.txt`, which sorts first. The new
+/// file took the earlier file's name on a disk that ignores case: it was never copied but counted,
+/// and `report.txt` was copied again as `report (2).txt`. A file that is there keeps its name.
+#[test]
+fn x_delta_azdrive_files_17_a_later_twin_does_not_take_an_earlier_files_name() {
+    let tmp = TempDir::new("dx17-twin");
+    let drive = Tagged::with(&[("report.txt", b"lower")]);
+    let folder = tmp.path().join("copy");
+    let state = tmp.path().join("d_x.rescue.json");
+    run_rescue(&drive, &folder, NO_PROBE, Some(&state), &mut |_, _| {});
+    drive.set("Report.txt", b"UPPER");
+    for _ in 0..2 {
+        let again = run_rescue(&drive, &folder, NO_PROBE, Some(&state), &mut |_, _| {});
+        assert_eq!((again.copied, again.total), (2, 2), "{again:?}");
+        assert!(again.missing.is_empty() && again.kept.is_empty());
+        assert_eq!(
+            files_below(&folder),
+            vec![
+                (String::from("Report (2).txt"), b"UPPER".to_vec()),
+                (String::from("report.txt"), b"lower".to_vec()),
+            ],
+            "the earlier file keeps its name; its later twin is the numbered one"
+        );
+    }
+}
+
+/// The name of a file that is in the copy and not on the drive any more is not given to another
+/// file: the copy never deletes, and the file is still there.
+#[test]
+fn x_delta_azdrive_files_17_the_name_of_a_file_gone_from_the_drive_is_not_given_away() {
+    let tmp = TempDir::new("dx17-held");
+    let drive = Tagged::with(&[("report.txt", b"lower")]);
+    let folder = tmp.path().join("copy");
+    let state = tmp.path().join("d_x.rescue.json");
+    run_rescue(&drive, &folder, NO_PROBE, Some(&state), &mut |_, _| {});
+    drive.remove("report.txt");
+    drive.set("Report.txt", b"UPPER");
+    let again = run_rescue(&drive, &folder, NO_PROBE, Some(&state), &mut |_, _| {});
+    assert!(
+        again.missing.is_empty() && again.kept.is_empty(),
+        "{again:?}"
+    );
+    assert_eq!(
+        files_below(&folder),
+        vec![
+            (String::from("Report (2).txt"), b"UPPER".to_vec()),
+            (String::from("report.txt"), b"lower".to_vec()),
+        ]
+    );
+}

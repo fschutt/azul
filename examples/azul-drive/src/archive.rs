@@ -795,6 +795,42 @@ pub(crate) struct Written {
     pub len: u64,
     /// Its modification time, nanoseconds since 1970.
     pub mtime_ns: u64,
+    /// The drive's own version of the file the copy was made from, as the listing named it (the
+    /// entity tag, the date): a file of the drive written to again with the length it had is told
+    /// from the one that was copied by this, never by its size (X-DELTA-AZDRIVE-FILES-17). Nothing
+    /// in a ledger an older AzDrive wrote.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub etag: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub modified: Option<u64>,
+    /// The name below the copy's folder the file was written to. Two keys a disk reads as one name
+    /// ("report.txt", "Report.txt") get names of their own; a key that arrives later never takes the
+    /// name of a file that is there (X-DELTA-AZDRIVE-FILES-17). Empty in an older ledger.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub target: String,
+}
+
+impl Written {
+    /// Whether the drive's file `o` is the version this was copied from: `Some(true)` the same,
+    /// `Some(false)` another, `None` when the drive names no version of one of them that the other
+    /// names too (nothing is then known).
+    fn same_version(&self, o: &ObjectInfo) -> Option<bool> {
+        fn bare(tag: &str) -> &str {
+            tag.trim().trim_matches('"')
+        }
+        if let (Some(then), Some(now)) = (&self.etag, &o.etag) {
+            return Some(bare(then) == bare(now));
+        }
+        match (self.modified, o.modified) {
+            (Some(then), Some(now)) => Some(then == now),
+            _ => None,
+        }
+    }
+
+    /// Whether a version of the drive's file is recorded at all.
+    fn has_version(&self) -> bool {
+        self.etag.is_some() || self.modified.is_some()
+    }
 }
 
 /// A drive's name as a folder name (no separators, never empty).
@@ -981,12 +1017,34 @@ pub(crate) fn target_of_on(folder: &Path, key: &str, system: System) -> Option<P
 /// keys a disk would take for one name - case (APFS, NTFS) or Unicode form (APFS, HFS+) - get
 /// names of their own (`Report.txt`, `report (2).txt`), whatever disk the copy is made on: it
 /// may be moved to such a disk, and a copy that loses a file when it is must not be made
-/// (AZ-W2). Keys are taken in the order given; the caller sorts them.
-fn targets_of(folder: &Path, keys: &[&str]) -> Vec<Option<PathBuf>> {
-    azul_storage::key::without_twins(keys, &|name| names::fold(name, &STRONGEST))
-        .iter()
-        .map(|key| target_of(folder, key))
-        .collect()
+/// (AZ-W2). Keys are taken in the order given; the caller sorts them. A key an earlier run wrote
+/// keeps the name it got (`kept`, parallel to `keys`), and the names of earlier files whose keys
+/// are not among `keys` any more (`held`) are taken: a twin that comes later gets the number, not
+/// the earlier file's name (X-DELTA-AZDRIVE-FILES-17).
+fn targets_of(
+    folder: &Path,
+    keys: &[&str],
+    kept: &[Option<&str>],
+    held: &[&str],
+) -> Vec<Option<PathBuf>> {
+    azul_storage::key::without_twins_keeping(keys, kept, held, &|name| {
+        names::fold(name, &STRONGEST)
+    })
+    .iter()
+    .map(|key| target_of(folder, key))
+    .collect()
+}
+
+/// The key of `path` below `folder`, in the form the ledger keeps it (`/` between the parts), or
+/// `None` for a path that is not below it or a name that is not text.
+fn key_under(folder: &Path, path: &Path) -> Option<String> {
+    let parts: Vec<String> = path
+        .strip_prefix(folder)
+        .ok()?
+        .components()
+        .map(|c| c.as_os_str().to_str().map(str::to_string))
+        .collect::<Option<_>>()?;
+    Some(parts.join("/"))
 }
 
 /// The free bytes of the disk `path` is on, or why the system did not say.
@@ -1043,9 +1101,20 @@ fn step(written: Option<&Written>, target: Option<&Path>, o: &ObjectInfo) -> Ste
         return Step::Kept;
     }
     match written {
-        // Ours, and unchanged since: the drive's version decides.
+        // Ours, and unchanged since: the drive's version decides - its own version, where it names
+        // one. A file of the drive written to again with the length it had (a database, a disk
+        // image, a fixed-size container) is another version; a size alone is not one
+        // (X-DELTA-AZDRIVE-FILES-17). A drive that names none, then or now, has only the size.
         Some(w) if w.len == meta.len() && w.mtime_ns == mtime_ns(&meta) => {
-            if o.size == w.len {
+            let same = o.size == w.len
+                && match w.same_version(o) {
+                    Some(same) => same,
+                    // Nothing to compare: the size is all there is only when the ledger recorded
+                    // no version either (an older ledger, or a drive that names none). A version
+                    // that was named and is not any more is not "the same".
+                    None => !w.has_version(),
+                };
+            if same {
                 return Step::Have;
             }
             match beneath::stat_path(path) {
@@ -1097,7 +1166,21 @@ pub(crate) fn run_rescue(
     files.sort_by(|a, b| a.key.cmp(&b.key));
     report.total = files.len();
     let keys: Vec<&str> = files.iter().map(|o| o.key.as_str()).collect();
-    let targets = targets_of(folder, &keys);
+    // The names an earlier run gave stay with their files, and the names of files that are in the
+    // folder but not on the drive any more are not given to another key (X-DELTA-AZDRIVE-FILES-17).
+    let present: std::collections::HashSet<&str> = keys.iter().copied().collect();
+    let kept: Vec<Option<&str>> = keys
+        .iter()
+        .map(|key| report.written.get(*key).map(|w| w.target.as_str()))
+        .collect();
+    let held: Vec<&str> = report
+        .written
+        .iter()
+        .filter(|(key, _)| !present.contains(key.as_str()))
+        .map(|(_, w)| w.target.as_str())
+        .filter(|target| !target.is_empty())
+        .collect();
+    let targets = targets_of(folder, &keys, &kept, &held);
     let steps: Vec<Step> = files
         .iter()
         .zip(&targets)
@@ -1137,21 +1220,31 @@ pub(crate) fn run_rescue(
     let target_drive = LocalDrive::without_manifest(folder);
     for (n, ((o, target), step)) in files.iter().zip(&targets).zip(steps).enumerate() {
         match step {
-            Step::Have => report.copied += 1,
+            Step::Have => {
+                report.copied += 1;
+                // A file of the copy that is as the copy wrote it: what an older ledger did not
+                // record of it (the drive's version, its name here) is recorded now, from the file
+                // that was just looked at.
+                let name = target.as_deref().and_then(|path| key_under(folder, path));
+                if let Some(w) = report.written.get_mut(&o.key) {
+                    if !w.has_version() {
+                        w.etag.clone_from(&o.etag);
+                        w.modified = o.modified;
+                    }
+                    if w.target.is_empty() {
+                        w.target = name.unwrap_or_default();
+                    }
+                }
+            }
             Step::Kept => {
                 report.copied += 1;
                 report.kept.push(o.key.clone());
             }
             Step::Missing => report.missing.push(o.key.clone()),
             Step::Copy(expect) => {
-                let landed = target.as_deref().and_then(|path| {
-                    let key = path.strip_prefix(folder).ok()?;
-                    let key: Vec<String> = key
-                        .components()
-                        .map(|c| c.as_os_str().to_str().map(str::to_string))
-                        .collect::<Option<_>>()?;
-                    Some((path, key.join("/")))
-                });
+                let landed = target
+                    .as_deref()
+                    .and_then(|path| Some((path, key_under(folder, path)?)));
                 let result = landed.as_ref().map(|(_, key)| {
                     transfer::copy_object_guarded(
                         source,
@@ -1164,7 +1257,7 @@ pub(crate) fn run_rescue(
                     )
                 });
                 match (result, landed) {
-                    (Some(Ok(len)), Some((path, _))) => {
+                    (Some(Ok(len)), Some((path, name))) => {
                         report.copied += 1;
                         let mtime = std::fs::metadata(path).map_or(0, |meta| mtime_ns(&meta));
                         report.written.insert(
@@ -1172,6 +1265,11 @@ pub(crate) fn run_rescue(
                             Written {
                                 len,
                                 mtime_ns: mtime,
+                                // The version the listing named: a file that changed on the drive
+                                // since is another version, and is copied again at the next run.
+                                etag: o.etag.clone(),
+                                modified: o.modified,
+                                target: name,
                             },
                         );
                     }

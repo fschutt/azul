@@ -1,7 +1,7 @@
 use crate::{
     key::{
         check_path_key, check_path_key_on, check_path_prefix, folder_trail, last_segment,
-        parent_prefix, safe_file_name, without_twins, System,
+        parent_prefix, safe_file_name, without_twins, without_twins_keeping, System,
     },
     DriveError,
 };
@@ -181,6 +181,36 @@ fn keys_a_disk_would_take_for_one_name_get_names_of_their_own_in_the_order_given
     // The same call gives the same names.
     let again = without_twins(&["Report.txt", "report.txt"], &lower);
     assert_eq!(again, without_twins(&["Report.txt", "report.txt"], &lower));
+}
+
+/// X-DELTA-AZDRIVE-FILES-17: a key an earlier run wrote keeps the name it got, whatever order the
+/// keys come in now, and a later twin takes the number - not the earlier file's name.
+#[test]
+fn x_delta_azdrive_files_17_a_name_an_earlier_run_gave_is_kept_and_a_later_twin_is_numbered() {
+    // "Report.txt" sorts first and is new; "report.txt" was written by a run before.
+    let names = without_twins_keeping(
+        &["Report.txt", "report.txt"],
+        &[None, Some("report.txt")],
+        &[],
+        &lower,
+    );
+    assert_eq!(names, ["Report (2).txt", "report.txt"]);
+    // The name of a file that is not among the keys any more is taken too.
+    let names = without_twins_keeping(&["Report.txt"], &[None], &["report.txt"], &lower);
+    assert_eq!(names, ["Report (2).txt"]);
+    // Two kept names the fold makes one: the first keeps its name, the other is numbered.
+    let names = without_twins_keeping(
+        &["a", "b"],
+        &[Some("same.txt"), Some("SAME.txt")],
+        &[],
+        &lower,
+    );
+    assert_eq!(names, ["same.txt", "b"]);
+    // Nothing kept, nothing held: the plain rule.
+    assert_eq!(
+        without_twins_keeping(&["Report.txt", "report.txt"], &[], &[], &lower),
+        without_twins(&["Report.txt", "report.txt"], &lower)
+    );
 }
 
 /// AZ-C8. `safe_file_name` replaced separators and characters Windows refuses and nothing else:
