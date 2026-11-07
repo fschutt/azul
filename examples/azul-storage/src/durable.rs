@@ -540,6 +540,26 @@ fn check_expect(dir: &Dir, name: &str, expect: Expect) -> Result<(), PublishErro
     }
 }
 
+/// The last step of a publish: the folders the rename changed are synced, so the new entry is on the
+/// disk before the caller is told it landed. A file system that cannot sync a folder at all (FAT on
+/// macOS: [`beneath::folder_sync_refused`]) is no failure - the file is in place and was synced. An
+/// I/O error IS one: `Landed` used to be made whatever the sync found, and a Move deleted its source
+/// on that word, while the target's entry could be lost with the disk's cache (EIO, ENOSPC on a
+/// failing disk; X-DELTA-AZDRIVE-FILES-14). The file is in its place and stays; the publish says it
+/// could not make it durable, and nothing is retired on its word.
+fn sync_folders(probe: &dyn Probe, folders: &[&Dir]) -> Result<(), PublishError> {
+    let synced = probe.before(Step::SyncDir).and_then(|()| {
+        for folder in folders {
+            folder.sync_checked()?;
+        }
+        Ok(())
+    });
+    match synced {
+        Err(e) if !beneath::folder_sync_refused(&e) => Err(PublishError::Io(e)),
+        _ => Ok(()),
+    }
+}
+
 /// Checks the name against `expect` and renames the staged file over it, then syncs the folder:
 /// the last two steps of a publish. A failure leaves the old version as it was (and removes an
 /// owned staged file when `staged` drops).
@@ -586,14 +606,11 @@ pub(crate) fn commit_probed(
         Err(e) => return Err(e.into()),
     }
     if durability == Durability::State {
-        // A folder some file systems refuse to sync is no failure of the write: the file is in
-        // place and was synced.
-        if probe.before(Step::SyncDir).is_ok() {
-            dir.sync();
-            if staged.dir.rel() != dir.rel() {
-                staged.dir.sync();
-            }
+        let mut folders = vec![dir];
+        if staged.dir.rel() != dir.rel() {
+            folders.push(staged.dir);
         }
+        sync_folders(probe, &folders)?;
     }
     let print = dir
         .lstat(name)
@@ -716,15 +733,14 @@ pub(crate) fn replace_keeping_probed(
         };
     }
     staged.placed = true;
-    if probe.before(Step::SyncDir).is_ok() {
-        dir.sync();
-        if staged.dir.rel() != dir.rel() {
-            staged.dir.sync();
-        }
-        if slot.dir.rel() != dir.rel() {
-            slot.dir.sync();
-        }
+    let mut folders = vec![dir];
+    if staged.dir.rel() != dir.rel() {
+        folders.push(staged.dir);
     }
+    if slot.dir.rel() != dir.rel() {
+        folders.push(slot.dir);
+    }
+    sync_folders(probe, &folders)?;
     let print = dir
         .lstat(name)
         .map_or_else(|_| Fingerprint::of(&staged.stat), |st| Fingerprint::of(&st));

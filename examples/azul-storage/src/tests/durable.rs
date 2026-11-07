@@ -29,6 +29,9 @@ use crate::{
 struct Order {
     seen: RefCell<Vec<Step>>,
     cut: Option<Step>,
+    /// What the cut step answers: "cut" (an I/O error) or, for a file system that cannot sync a
+    /// folder, `Unsupported`.
+    cut_kind: io::ErrorKind,
     make_at_rename: Option<PathBuf>,
 }
 
@@ -37,6 +40,7 @@ impl Order {
         Order {
             seen: RefCell::new(Vec::new()),
             cut: None,
+            cut_kind: io::ErrorKind::Other,
             make_at_rename: None,
         }
     }
@@ -44,6 +48,15 @@ impl Order {
     fn cut_at(step: Step) -> Order {
         Order {
             cut: Some(step),
+            ..Order::new()
+        }
+    }
+
+    /// The step is refused as a file system that does not do it refuses (`ENOTSUP`).
+    fn refused_at(step: Step) -> Order {
+        Order {
+            cut: Some(step),
+            cut_kind: io::ErrorKind::Unsupported,
             ..Order::new()
         }
     }
@@ -62,7 +75,7 @@ impl Probe for Order {
             }
         }
         if self.cut == Some(step) {
-            return Err(io::Error::other("cut"));
+            return Err(io::Error::new(self.cut_kind, "cut"));
         }
         Ok(())
     }
@@ -156,11 +169,89 @@ fn a_folder_that_cannot_be_synced_is_no_failure_of_a_write_that_landed() {
     let tmp = TempDir::new("durable-syncdir");
     fs::write(tmp.path().join("doc.json"), b"old").unwrap();
     let dir = Dir::open_following(tmp.path()).unwrap();
-    let probe = Order::cut_at(Step::SyncDir);
+    // A file system that does not sync a folder at all (FAT on macOS) refuses it as unsupported.
+    let probe = Order::refused_at(Step::SyncDir);
     let landed = publish_probed(&dir, "doc.json", &mut &b"new"[..], shared(), &probe);
     assert!(landed.is_ok(), "{landed:?}");
     assert_eq!(fs::read(tmp.path().join("doc.json")).unwrap(), b"new");
     assert_eq!(names(tmp.path()), vec!["doc.json"]);
+}
+
+/// X-DELTA-AZDRIVE-FILES-14. `Landed` was made whatever the folder sync found: a failing USB disk
+/// that answers EIO to the sync after the rename reported the file landed, and a Move deleted its
+/// source on that word while the target's entry could be lost with the disk's cache. Only a file
+/// system that cannot sync a folder at all (`Unsupported`, `EINVAL`, `ENOTSUP`) is no failure; an
+/// I/O error is - the file is in place and stays, the publish says it was not made durable.
+#[test]
+fn x_delta_azdrive_files_14_a_folder_sync_that_answers_an_io_error_is_a_failure_of_the_publish() {
+    let tmp = TempDir::new("durable-syncdir-eio");
+    fs::write(tmp.path().join("doc.json"), b"old").unwrap();
+    let dir = Dir::open_following(tmp.path()).unwrap();
+    let probe = Order::cut_at(Step::SyncDir);
+    let landed = publish_probed(&dir, "doc.json", &mut &b"new"[..], shared(), &probe);
+    assert!(
+        matches!(landed, Err(PublishError::Io(_))),
+        "an I/O error of the folder sync was taken for 'landed': {landed:?}"
+    );
+    assert_eq!(
+        names(tmp.path()),
+        vec!["doc.json"],
+        "no temporary file is left"
+    );
+    // The same for a replace that keeps the old file in a slot.
+    let tmp = TempDir::new("durable-syncdir-eio-slot");
+    fs::write(tmp.path().join("doc.json"), b"old").unwrap();
+    fs::create_dir(tmp.path().join("slots")).unwrap();
+    let dir = Dir::open_following(tmp.path()).unwrap();
+    let slots = Dir::open_following(&tmp.path().join("slots")).unwrap();
+    let staged = stage(&dir, "doc.json", &mut &b"new"[..], &shared()).unwrap();
+    let probe = Order::cut_at(Step::SyncDir);
+    let kept = crate::durable::replace_keeping_probed(
+        &dir,
+        "doc.json",
+        staged,
+        &TrashSlot {
+            dir: &slots,
+            name: "old-doc",
+        },
+        Expect::Any,
+        &probe,
+    );
+    assert!(matches!(kept, Err(PublishError::Io(_))), "{kept:?}");
+    assert_eq!(fs::read(tmp.path().join("doc.json")).unwrap(), b"new");
+    assert_eq!(
+        fs::read(tmp.path().join("slots").join("old-doc")).unwrap(),
+        b"old",
+        "the old file is kept"
+    );
+}
+
+/// The kinds of answer a folder sync gives that are no failure: the volume cannot do it.
+#[cfg(unix)]
+#[test]
+fn x_delta_azdrive_files_14_only_a_refusal_to_sync_a_folder_is_no_failure() {
+    use crate::beneath::folder_sync_refused;
+    for refused in [
+        io::Error::from(io::ErrorKind::Unsupported),
+        io::Error::from_raw_os_error(libc::EINVAL),
+        io::Error::from_raw_os_error(libc::ENOTSUP),
+        io::Error::from_raw_os_error(libc::EOPNOTSUPP),
+        io::Error::from_raw_os_error(libc::ENOSYS),
+    ] {
+        assert!(folder_sync_refused(&refused), "{refused:?}");
+    }
+    for failed in [
+        io::Error::from_raw_os_error(libc::EIO),
+        io::Error::from_raw_os_error(libc::ENOSPC),
+        io::Error::from_raw_os_error(libc::EDQUOT),
+        io::Error::other("cut"),
+    ] {
+        assert!(!folder_sync_refused(&failed), "{failed:?}");
+    }
+    // A real folder syncs: Ok.
+    let tmp = TempDir::new("durable-syncdir-real");
+    let dir = Dir::open_following(tmp.path()).unwrap();
+    assert!(dir.sync_checked().is_ok());
 }
 
 #[test]

@@ -748,6 +748,18 @@ mod sys {
         result
     }
 
+    /// Flushes the file at `to`, just renamed by std's rename (which is not written through and
+    /// leaves NTFS no folder to flush), by its handle: `FlushFileBuffers` makes the journal's
+    /// entries up to the file's rename durable, which is what `MOVEFILE_WRITE_THROUGH` asked of the
+    /// rename that was refused (X-DELTA-AZDRIVE-FILES-14). The rename stands either way.
+    fn flush_renamed(to: &Path) {
+        // collapse-ok: the rename is done; a file that cannot be opened for writing (a sharing
+        // rule) is left with the durability std's rename has, as before.
+        if let Ok(file) = std::fs::OpenOptions::new().write(true).open(to) {
+            let _ = file.sync_all();
+        }
+    }
+
     /// Renames `from` to `to`, written through to the disk before it returns
     /// (`MOVEFILE_WRITE_THROUGH`: NTFS has no folder to flush, so this is the one way a rename
     /// is known durable). With `replace` an existing `to` is replaced; without it the rename
@@ -776,7 +788,9 @@ mod sys {
                     continue;
                 }
             } else if replace && error.raw_os_error() == Some(ERROR_ACCESS_DENIED) {
-                return std::fs::rename(from, to);
+                std::fs::rename(from, to)?;
+                flush_renamed(to);
+                return Ok(());
             }
             return Err(error);
         }

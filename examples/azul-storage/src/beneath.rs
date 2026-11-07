@@ -1003,13 +1003,64 @@ impl Dir {
         }
     }
 
-    /// Makes the folder's entries durable (after a rename into it). Some file systems (FAT on
-    /// macOS) refuse it for a folder: that is no failure of the write.
+    /// Makes the folder's entries durable (after a rename into it), and forgets how it went: for
+    /// the callers that have nothing to decide on it. A write that is about to be called landed -
+    /// and a source deleted on that word - uses [`Dir::sync_checked`].
     pub fn sync(&self) {
         #[cfg(unix)]
         {
+            // collapse-ok: best effort by contract; the one caller that decides on it asks
+            // `sync_checked`.
             let _ = sys::fsync(&self.fd);
         }
+    }
+
+    /// Makes the folder's entries durable and says when that could not be done. A file system that
+    /// cannot sync a folder at all (FAT on macOS, a network or FUSE file system: `EINVAL`,
+    /// `ENOTSUP`, `EOPNOTSUPP`, `ENOSYS`, [`folder_sync_refused`]) is `Ok`: there is nothing to
+    /// make durable there. An I/O error (`EIO`, `ENOSPC`, `EDQUOT`) is an error: the entry that was
+    /// just renamed in may not be on the disk (X-DELTA-AZDRIVE-FILES-14).
+    ///
+    /// # Errors
+    ///
+    /// The system's error, when it is not a refusal to sync a folder.
+    pub fn sync_checked(&self) -> io::Result<()> {
+        #[cfg(unix)]
+        {
+            match sys::fsync(&self.fd) {
+                Err(e) if !folder_sync_refused(&e) => Err(e),
+                _ => Ok(()),
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            // A rename is written through when it is made (`MOVEFILE_WRITE_THROUGH`): there is no
+            // folder to flush.
+            Ok(())
+        }
+    }
+}
+
+/// Whether `e` says the file system cannot sync a folder at all - a fact of the volume, no
+/// failure of a write.
+#[must_use]
+pub fn folder_sync_refused(e: &io::Error) -> bool {
+    if e.kind() == io::ErrorKind::Unsupported {
+        return true;
+    }
+    #[cfg(unix)]
+    {
+        // Compared one by one: ENOTSUP and EOPNOTSUPP are one number on Linux.
+        e.raw_os_error().is_some_and(|code| {
+            code == libc::EINVAL
+                || code == libc::ENOTSUP
+                || code == libc::EOPNOTSUPP
+                || code == libc::ENOSYS
+        })
+    }
+    #[cfg(not(unix))]
+    {
+        false
     }
 }
 
