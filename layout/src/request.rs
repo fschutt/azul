@@ -332,13 +332,13 @@ pub fn pending_count() -> usize {
 /// A picker or a permission prompt cannot run inside an automated test - a
 /// hanging modal is the worst outcome an e2e run can have - so every request
 /// function asks this store FIRST. The store is *armed* under an e2e run
-/// (`AZ_E2E` / `AZ_E2E_TEST` set, or `AZ_BACKEND=headless`; explicitly with
-/// [`arm`]) and disarmed in production, where it costs one relaxed load. A
-/// bare headless launch (no script) still sends unmocked HTTP requests: no
-/// modal can hang on one, and headless apps need the network. A scripted run
-/// sends the unmocked ones `AZ_E2E_ALLOW_HTTP` names (comma-separated URL
-/// patterns, `http://127.0.0.1:*`: the local stack it drives the app against)
-/// and refuses the rest.
+/// (explicitly with [`arm`], which the scenario op `mock` does; or, in a TEST build - the cargo
+/// feature `test-hooks`, `azul_core::run_mode` - by the environment: `AZ_E2E` / `AZ_E2E_TEST`
+/// set, or `AZ_BACKEND=headless`) and disarmed in production, where it costs one relaxed load: a
+/// shipped build does not look at those variables. A bare headless launch (no script) still
+/// sends unmocked HTTP requests: no modal can hang on one, and headless apps need the network. A
+/// scripted run sends the unmocked ones `AZ_E2E_ALLOW_HTTP` names (comma-separated URL patterns,
+/// `http://127.0.0.1:*`: the local stack it drives the app against) and refuses the rest.
 ///
 /// * A **mocked** operation resumes immediately with the canned answer; the resume path is the
 ///   normal one, so a mocked test exercises the whole request / resume machinery except the OS call
@@ -367,6 +367,7 @@ pub mod mock {
     };
     use std::sync::Mutex;
 
+    use azul_core::run_mode::TestHooks;
     use azul_css::{props::basic::color::ColorU, AzString};
 
     /// A canned HTTP answer.
@@ -503,11 +504,11 @@ pub mod mock {
 
     #[derive(Default)]
     struct MockState {
-        /// `None` = decide from the environment on first use.
+        /// `None` = decide from the run's test hooks on first use.
         armed: Option<bool>,
         /// Whether a SCRIPT drives this run (`AZ_E2E` / `AZ_E2E_TEST`, or
         /// [`arm`]) rather than a bare headless launch; `None` = decide from
-        /// the environment on first use.
+        /// the run's test hooks on first use.
         scripted: Option<bool>,
         file_open: VecDeque<Option<AzString>>,
         file_open_multi: VecDeque<Vec<AzString>>,
@@ -560,26 +561,25 @@ pub mod mock {
         f(&mut guard)
     }
 
-    fn env_armed() -> bool {
-        let set = |k: &str| std::env::var(k).map(|v| !v.is_empty()).unwrap_or(false);
-        set("AZ_E2E")
-            || set("AZ_E2E_TEST")
-            || std::env::var("AZ_BACKEND").as_deref() == Ok("headless")
+    /// Whether the store is armed: decided once, from `hooks` (a headless launch or a script,
+    /// [`TestHooks::mocks`] - a build without the cargo feature `test-hooks` has none), unless
+    /// [`arm`] or [`disarm`] decided before.
+    fn armed_with(s: &mut MockState, hooks: &TestHooks) -> bool {
+        *s.armed.get_or_insert(hooks.mocks)
     }
 
     fn armed_in(s: &mut MockState) -> bool {
-        *s.armed.get_or_insert_with(env_armed)
+        armed_with(s, azul_core::run_mode::test_hooks())
     }
 
-    /// A script drives the run (`AZ_E2E` / `AZ_E2E_TEST`), as opposed to a
-    /// bare headless launch.
-    fn env_scripted() -> bool {
-        let set = |k: &str| std::env::var(k).map(|v| !v.is_empty()).unwrap_or(false);
-        set("AZ_E2E") || set("AZ_E2E_TEST")
+    /// Whether a script drives the run (`AZ_E2E` / `AZ_E2E_TEST`, [`TestHooks::scripted`]), as
+    /// opposed to a bare headless launch; decided once from `hooks`, unless [`arm`] decided before.
+    fn scripted_with(s: &mut MockState, hooks: &TestHooks) -> bool {
+        *s.scripted.get_or_insert(hooks.scripted)
     }
 
     fn scripted_in(s: &mut MockState) -> bool {
-        *s.scripted.get_or_insert_with(env_scripted)
+        scripted_with(s, azul_core::run_mode::test_hooks())
     }
 
     /// The devices `AZ_SYNTHETIC_DEVICES` gives a synthetic stand-in.
@@ -916,6 +916,70 @@ pub mod mock {
     #[must_use]
     pub fn unmocked_requests() -> Vec<String> {
         with(|s| s.unmocked.clone())
+    }
+
+    #[cfg(test)]
+    mod hooks_tests {
+        use azul_core::run_mode::TestHooks;
+
+        use super::{armed_with, scripted_with, MockState};
+
+        /// A script: the mocks are armed and the script drives the run.
+        const SCRIPT: TestHooks = TestHooks {
+            mocks: true,
+            scripted: true,
+            ..TestHooks::NONE
+        };
+
+        /// What a fresh store decides under `hooks`: armed, scripted.
+        fn decided(hooks: &TestHooks) -> (bool, bool) {
+            let mut s = MockState::default();
+            (armed_with(&mut s, hooks), scripted_with(&mut s, hooks))
+        }
+
+        /// The store follows the hooks of the run: none (every shipped build) = disarmed, every
+        /// request performs its real OS call; a bare headless launch = armed, no script; a
+        /// script = armed and scripted.
+        #[test]
+        fn a_store_nobody_armed_follows_the_hooks_of_the_run() {
+            assert_eq!(decided(&TestHooks::NONE), (false, false));
+            assert_eq!(decided(&TestHooks::HEADLESS), (true, false));
+            assert_eq!(decided(&SCRIPT), (true, true));
+        }
+
+        /// `arm` and `disarm` (the scenario op `mock`, an e2e host) win over the hooks, and the
+        /// first decision stands.
+        #[test]
+        fn an_explicit_arming_wins_over_the_hooks_and_the_first_decision_stands() {
+            let mut armed = MockState {
+                armed: Some(true),
+                scripted: Some(true),
+                ..MockState::default()
+            };
+            assert!(armed_with(&mut armed, &TestHooks::NONE));
+            assert!(scripted_with(&mut armed, &TestHooks::NONE));
+
+            let mut disarmed = MockState {
+                armed: Some(false),
+                ..MockState::default()
+            };
+            assert!(!armed_with(&mut disarmed, &TestHooks::HEADLESS));
+
+            let mut once = MockState::default();
+            assert!(armed_with(&mut once, &TestHooks::HEADLESS));
+            assert!(armed_with(&mut once, &TestHooks::NONE), "decided once");
+        }
+
+        /// In a build without the cargo feature `test-hooks` the environment arms nothing - the
+        /// run's own hooks are none whatever the variables say (the process-level proof is
+        /// `azul-core`'s `tests/run_mode_release.rs`).
+        #[cfg(not(feature = "test-hooks"))]
+        #[test]
+        fn a_shipped_builds_store_is_not_armed_by_the_environment() {
+            let mut s = MockState::default();
+            assert!(!super::armed_in(&mut s));
+            assert!(!super::scripted_in(&mut s));
+        }
     }
 
     #[cfg(test)]

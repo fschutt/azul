@@ -238,6 +238,12 @@ allocator_jemalloc = ["dep:tikv-jemalloc-sys"]
 # Standard library support
 std = ["azul-core/std", "regex-lite?/std"]
 
+# Test hooks (ARCH28 RF38): the request mock store (`request::mock`) is armed by the environment
+# (`AZ_BACKEND=headless`, `AZ_E2E`, `AZ_E2E_TEST`) only in a build with this feature - azul-core's
+# `run_mode::test_hooks()` is the one place that reads those variables. A shipped build never
+# arms the store by itself: every request performs its real OS call.
+test-hooks = ["std", "azul-core/test-hooks"]
+
 # String formatting utilities (strfmt crate)
 strfmt = ["dep:strfmt", "std"]
 
