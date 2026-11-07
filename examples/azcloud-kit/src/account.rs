@@ -570,8 +570,8 @@ impl Account {
                 "this device has no drive {id} (azcloud signup or join)"
             )),
             None => CloudError::failed(
-                "this device has no drive yet: azcloud signup, or azcloud join <code> with a \
-                 code from `azcloud invite` on a device that has one",
+                "this device has no drive yet: azcloud signup, or azcloud join --code-file <file> \
+                 with a code from `azcloud invite --out <file>` on a device that has one",
             ),
         })?;
         Ok(Account {

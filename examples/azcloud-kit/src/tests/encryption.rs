@@ -755,3 +755,102 @@ fn git_reads_the_drive_index_in_the_accounts_bucket_through_the_remote_helper() 
         )
         .is_err());
 }
+
+// ==== X-DELTA-AZDRIVE-KEYS-25: a keyring that keeps no key is asked before the server is ====
+
+/// A keyring that keeps no drive key: the plain secrets file of a command line whose user did not
+/// say `--allow-plain-secrets` (AZ-K7).
+fn plain_secrets(dir: &TempDir) -> (StateDir, crate::secrets::FileSecrets) {
+    let state = StateDir::open(dir.path()).unwrap();
+    let secrets = state.secrets();
+    (state, secrets)
+}
+
+/// X-DELTA-AZDRIVE-KEYS-25: the sign-up made the drive at the token server first and was refused at
+/// the first key it wrote, which left a drive that takes no file. Refused before any server call.
+#[test]
+fn x_delta_azdrive_keys_25_a_signup_into_a_keyring_that_keeps_no_key_asks_the_server_for_nothing() {
+    let fake = Fake::new(|_, _| Ok(json(500, r#"{"error": "never reached"}"#)));
+    let transports: TransportFactory = {
+        let fake = fake.clone();
+        Arc::new(move || Box::new(Shared(fake.clone())) as Box<dyn Transport>)
+    };
+    let dir = TempDir::new("azcloud-signup-plain");
+    let (state, secrets) = plain_secrets(&dir);
+    let keys = crate::encryption::NewKeys {
+        keyring: &secrets,
+        s3_endpoint: None,
+        kdf: cheap(),
+    };
+    let refused = Account::signup(&state, TOKEN, transports, "100GB", "Ann's drive", keys)
+        .err()
+        .expect("a plain secrets file keeps no key")
+        .to_string();
+    assert!(refused.contains("plain file"), "{refused}");
+    assert!(
+        fake.calls().is_empty(),
+        "the token server was not asked: {} call(s)",
+        fake.calls().len()
+    );
+}
+
+/// X-DELTA-AZDRIVE-KEYS-25: a join spends the code's one-time token; a code that carries a key is
+/// refused by a keyring that keeps none BEFORE that, and one without a key asks nothing of it.
+#[test]
+fn x_delta_azdrive_keys_25_a_join_code_with_a_key_is_refused_before_it_is_spent_by_a_keyring_that_keeps_none(
+) {
+    use azul_storage::footprint::Allow;
+    let dir = TempDir::new("azcloud-join-plain");
+    let (state, secrets) = plain_secrets(&dir);
+    let carries = JoinCode {
+        drive_id: String::from("d_1"),
+        drive_token: String::from("dt_m.0.joins"),
+        member: String::from("m_laptop"),
+        name: String::from("Ann's drive"),
+        token_url: TOKEN.to_string(),
+        key_seal: Some("ab".repeat(32)),
+        key_id: None,
+    };
+    let refused = Account::check_join_key_can_be_kept(&carries, &secrets)
+        .unwrap_err()
+        .to_string();
+    assert!(refused.contains("plain file"), "{refused}");
+    assert!(
+        refused.contains("--allow-plain-secrets"),
+        "it says what the user can do: {refused}"
+    );
+
+    // a code without a key asks nothing of the keyring
+    let without = JoinCode {
+        key_seal: None,
+        ..carries.clone()
+    };
+    Account::check_join_key_can_be_kept(&without, &secrets).unwrap();
+    // and with the user's word the key is kept
+    let allowed = state.allowing_plain_secrets(Allow::PlainSecrets).secrets();
+    Account::check_join_key_can_be_kept(&carries, &allowed).unwrap();
+}
+
+/// X-DELTA-AZDRIVE-KEYS-25: "I was hacked" locked the drive down and was refused at its first new
+/// key, so the other devices were locked out and the key was not replaced. Refused before the
+/// lockdown: the error is the keyring's, not the token server's.
+#[test]
+fn x_delta_azdrive_keys_25_a_rotation_with_a_keyring_that_keeps_no_key_is_refused_before_the_lockdown(
+) {
+    let s3 = FakeS3::new();
+    let transports = cloud(&s3);
+    let dir = TempDir::new("azcloud-enc-rotate-plain");
+    let mut account = signed_up(&transports, &dir);
+    let keys = MemoryKeyring::new();
+    account.setup_encryption(&keys, cheap()).unwrap();
+    let provider = SharedIndex(Arc::new(MemoryIndex::new()));
+
+    let plain_dir = TempDir::new("azcloud-enc-rotate-plain-secrets");
+    let (_, plain) = plain_secrets(&plain_dir);
+    let refused = account
+        .rotate_drive_key(&plain, &provider, cheap())
+        .err()
+        .expect("a plain secrets file keeps no key")
+        .to_string();
+    assert!(refused.contains("plain file"), "{refused}");
+}

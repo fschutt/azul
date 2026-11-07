@@ -395,6 +395,10 @@ pub fn run(options: &Options) -> Result<(), String> {
                 .map_err(|e| format!("{}: {e}", path.display()))?;
             let code = JoinCode::decode(text.trim()).map_err(|e| e.to_string())?;
             let transports = transports(&root_certs(options)?);
+            // Before the code is spent: a secret store that keeps no key refuses the code's key
+            // afterwards (X-DELTA-AZDRIVE-KEYS-25).
+            #[cfg(feature = "encryption")]
+            Account::check_join_key_can_be_kept(&code, &*secrets).map_err(|e| e.to_string())?;
             let account = Account::join(&state_dir, &token_url, transports, &code)
                 .map_err(|e| e.to_string())?;
             say(&format!("AZUL_BRIDGE_DRIVE {}", account.record().id));
@@ -811,7 +815,9 @@ mod tests {
 
     /// AZ-K7: the secrets file is a plain file, and the bridge keeps a drive's key in it only when
     /// the user said so - `init --allow-plain-secrets` writes the word into bridge.json, so a later
-    /// run needs no flag - and a run that was not told refuses the key and says why.
+    /// run needs no flag - and a run that was not told refuses the key and says why. (A drive's key
+    /// exists only in a build with the encryption: without it this test cannot even be compiled.)
+    #[cfg(feature = "encryption")]
     #[test]
     fn az_k7_the_secrets_file_keeps_a_drives_key_only_when_the_user_said_it_may() {
         use azul_storage::{

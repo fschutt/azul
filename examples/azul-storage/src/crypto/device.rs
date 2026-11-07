@@ -304,6 +304,26 @@ fn keyring_error(entry: &str, e: KeyringError) -> DriveError {
     }
 }
 
+/// Whether `keyring` takes a drive's key: the refusal a key written to it would get (AZ-K7: a plain
+/// file takes none unless the user said it may), asked BEFORE anything that cannot be taken back
+/// is done at a server - a join spends the code's one-time token, a lockdown locks the other
+/// devices out, a sign-up makes the drive - so that the refusal at the first key written leaves
+/// nothing half done (X-DELTA-AZDRIVE-KEYS-25). `what` names the key in the sentence.
+///
+/// # Errors
+///
+/// [`DriveError::InvalidConfig`] with the keyring's reason.
+pub fn check_keeps_keys(keyring: &dyn KeyringStore, what: &str) -> Result<(), DriveError> {
+    let protection = keyring.protection();
+    if protection.keeps_key_material() {
+        return Ok(());
+    }
+    Err(DriveError::InvalidConfig(format!(
+        "{what} is not kept: {}",
+        protection.refusal()
+    )))
+}
+
 fn store_key(
     keyring: &dyn KeyringStore,
     entry: &str,
@@ -323,13 +343,7 @@ fn store_entry(
 ) -> Result<(), DriveError> {
     // Key material goes into a keyring that keeps it from the other programs of this user, or
     // into a plain file the user said may hold it (AZ-K7): the one place a key is written.
-    let protection = keyring.protection();
-    if !protection.keeps_key_material() {
-        return Err(DriveError::InvalidConfig(format!(
-            "the key {entry} is not kept: {}",
-            protection.refusal()
-        )));
-    }
+    check_keeps_keys(keyring, &format!("the key {entry}"))?;
     // A key that cannot be written down is an error, never an empty entry in its place; the
     // serializer's message is not passed on (it could quote the key).
     let text = Zeroizing::new(

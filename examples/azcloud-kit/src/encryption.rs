@@ -85,6 +85,9 @@ impl Account {
         name: &str,
         keys: NewKeys<'_>,
     ) -> CloudResult<(Account, RecoveryCode)> {
+        // Before the drive is made: a keyring that keeps no key would refuse the first key written,
+        // after the sign-up, and leave a drive that takes no file (X-DELTA-AZDRIVE-KEYS-25).
+        device::check_keeps_keys(keys.keyring, "the new drive's key")?;
         let account = Account::sign_up_at_token_server(state, token_url, transports, tier, name)?
             .with_s3_endpoint(keys.s3_endpoint);
         let code = account.setup_encryption(keys.keyring, keys.kdf)?;
@@ -161,6 +164,28 @@ impl Account {
             code.key_id = Some(drive_key.id().to_hex());
         }
         Ok(code)
+    }
+
+    /// BEFORE [`Account::join`] with `code`: whether the key the code carries (`key_seal`) can be
+    /// kept in `keyring`. A join spends the code's one-time token; a keyring that keeps no key (a
+    /// plain file the user did not allow, AZ-K7) refuses the key AFTER that, and the retry with the
+    /// word allowed would present a token that was rotated already (X-DELTA-AZDRIVE-KEYS-25). A
+    /// code without a seal asks nothing of the keyring.
+    ///
+    /// # Errors
+    ///
+    /// The keyring's reason, naming the plain file and what the user can say.
+    pub fn check_join_key_can_be_kept(
+        code: &JoinCode,
+        keyring: &dyn KeyringStore,
+    ) -> CloudResult<()> {
+        if code.key_seal.is_none() {
+            return Ok(());
+        }
+        Ok(device::check_keeps_keys(
+            keyring,
+            "the drive key this join code carries",
+        )?)
     }
 
     /// After [`Account::join`] with `code`: the drive key its seal opens, kept in `keyring` with
@@ -336,6 +361,10 @@ impl Account {
         provider: &dyn IndexProvider,
         kdf: RecoveryKdf,
     ) -> CloudResult<Rotated> {
+        // Before the lockdown locks the other devices out: a keyring that keeps no key would refuse
+        // the first key of the rotation, and the drive would be locked with its key not replaced
+        // (X-DELTA-AZDRIVE-KEYS-25).
+        device::check_keeps_keys(keyring, "the new drive key")?;
         // A rotation of THIS device that stopped has had its lockdown. A journal anyone planted
         // in the bucket is no such rotation: it must not skip the lockdown. A rotation that
         // cannot be finished (no key here, an index that opens with neither key this device

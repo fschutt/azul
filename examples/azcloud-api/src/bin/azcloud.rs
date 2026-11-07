@@ -550,6 +550,10 @@ fn cmd_join(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
     let state = open_state(settings, args)?;
     let device = state.device(args.value("--device-name"))?;
     let token_url = settings.token_url()?;
+    // Before the code is spent: a keyring that keeps no key refuses the code's key afterwards, and
+    // a retry presents a token that was rotated already (X-DELTA-AZDRIVE-KEYS-25).
+    #[cfg(feature = "encryption")]
+    Account::check_join_key_can_be_kept(&code, &state.secrets())?;
     let account = Account::join(&state, token_url, net.transports.clone(), &code)?;
     // The drive key, when the code carries it: this device enrols itself (once).
     #[cfg(feature = "encryption")]
@@ -1193,6 +1197,7 @@ fn cmd_rotate(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
                            "rewrapped": rotated.rewrapped,
                            "members_removed": rotated.members_removed,
                            "shares_revoked": rotated.shares_revoked,
+                           "left_over": rotated.left_over,
                            "drop_public_key": drop});
     let mut text = format!(
         "drive {id} is locked down and has a new key ({} files re-wrapped; {} other devices and \
@@ -1200,6 +1205,14 @@ fn cmd_rotate(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
         rotated.rewrapped, rotated.members_removed, rotated.shares_revoked
     );
     text.push_str("The drive has a NEW recovery code; the old one opens nothing.\n");
+    if !rotated.left_over.is_empty() {
+        // The rotation is done; what it could not clean up afterwards is said, not hidden.
+        text.push_str(&format!(
+            "warning: the rotation is done, and {} of its leftovers could not be removed: {}\n",
+            rotated.left_over.len(),
+            rotated.left_over.join("; ")
+        ));
+    }
     give_recovery_code(&rotated.recovery_code, args.path("--out"), &mut value, &mut text)?;
     if let Some(drop) = drop {
         text.push_str(&format!(
