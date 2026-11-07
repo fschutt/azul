@@ -1108,7 +1108,7 @@ fn request_name(drive_id: &str) -> &str {
 
 /// The one drive the code's findable key belongs to (POST /v1/recovery/lookup).
 fn lookup_drive(code: &RecoveryCode, token_url: &str) -> Result<String, String> {
-    let transport = azul_storage::azul_transport::AzulTransport::new(crate::USER_AGENT);
+    let transport = azul_storage::azul_transport::AzulTransport::azlin(crate::USER_AGENT);
     let server = azcloud_kit::TokenServer::new(token_url, &transport).map_err(|e| e.to_string())?;
     let key = crate::recovery_keys::findable_key_of(code);
     let found = server

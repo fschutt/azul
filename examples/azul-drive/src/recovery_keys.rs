@@ -965,7 +965,7 @@ fn finish(
 
 /// Runs on a worker thread.
 pub(crate) fn run(job: KeysJob) -> KeysDone {
-    let transport = AzulTransport::new(crate::USER_AGENT);
+    let transport = AzulTransport::azlin(crate::USER_AGENT);
     match job {
         KeysJob::Lookup { code, token_url } => {
             let key = findable_key_of(&code);

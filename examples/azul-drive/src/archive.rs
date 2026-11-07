@@ -586,7 +586,7 @@ pub(crate) fn register_device_key_now(
     keyring: &SharedKeyring,
     drive_id: &str,
 ) -> Result<String, String> {
-    let transport = AzulTransport::new(crate::USER_AGENT);
+    let transport = AzulTransport::azlin(crate::USER_AGENT);
     let server = TokenServer::new(token_url, &transport).map_err(|e| e.to_string())?;
     azcloud_kit::device_key::ensure_registered(&server, keyring, drive_id)
         .map_err(|e| e.to_string())
@@ -643,7 +643,7 @@ pub(crate) fn prove(
     via: &ProveWith,
     checkout: Option<&str>,
 ) -> Result<ProofAnswer, String> {
-    let transport = AzulTransport::new(crate::USER_AGENT);
+    let transport = AzulTransport::azlin(crate::USER_AGENT);
     let server = TokenServer::new(token_url, &transport).map_err(|e| e.to_string())?;
     let answered = keyring.with_drive_token(drive_id, |token| match via {
         ProveWith::DeviceKey => {

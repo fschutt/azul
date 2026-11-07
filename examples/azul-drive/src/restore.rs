@@ -265,7 +265,7 @@ pub(crate) fn run(
             .map(Restored::Files)
             .map_err(|why| crate::l10n::said(&why));
     }
-    let transport = AzulTransport::new(USER_AGENT);
+    let transport = AzulTransport::azlin(USER_AGENT);
     let server = TokenServer::new(token_url, &transport).map_err(|e| token_error_text(&e))?;
     match restore_bucket_as_of(&server, keyring, drive_id, as_of, POLL, WAIT)
         .map_err(|e| cloud_error_text(&e))?

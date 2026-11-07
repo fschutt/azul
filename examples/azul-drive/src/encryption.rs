@@ -2731,7 +2731,7 @@ pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
             name,
         } => {
             let result = (|| -> Result<Zeroizing<String>, String> {
-                let transport = AzulTransport::new(crate::USER_AGENT);
+                let transport = AzulTransport::azlin(crate::USER_AGENT);
                 let server = TokenServer::new(&token_url, &transport).map_err(|e| e.to_string())?;
                 let mut code = shared
                     .invite(&server, &drive_id, &name, None)
@@ -2761,7 +2761,11 @@ pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
             // The sign-in at a provider is ended first: it needs the refresh token the keyring is
             // about to lose, and a copy of that token must open nothing afterwards (AZ-CN12).
             let grant = grant.map(|grant| {
-                crate::sign_in::end_grant(&grant, &keyring, &AzulTransport::new(crate::USER_AGENT))
+                crate::sign_in::end_grant(
+                    &grant,
+                    &keyring,
+                    &AzulTransport::foreign(crate::USER_AGENT),
+                )
             });
             // The user asked for this: the keyring may ask (the unlock prompt, Touch ID).
             let report = crate::footprint::forget(
@@ -3006,7 +3010,7 @@ fn register(
     keyring: &azcloud_kit::SharedKeyring,
     pending: &PendingRegistration,
 ) -> (RegistrationAnswer, Option<String>) {
-    let transport = AzulTransport::new(crate::USER_AGENT);
+    let transport = AzulTransport::azlin(crate::USER_AGENT);
     let server = match TokenServer::new(token_url, &transport) {
         Ok(server) => server,
         Err(e) => return (RegistrationAnswer::NotSet { last: true }, Some(e.to_string())),
@@ -3184,7 +3188,7 @@ pub(crate) fn retry_registrations(
 /// handed over, so a cancel that lost that race must not be shown as done (T1-N2) - it says what
 /// is known and sends the user to the drive's devices.
 fn cancel_lockdown(drive_id: &str, code: &RecoveryCode, token_url: &str) -> Result<(), String> {
-    let transport = AzulTransport::new(crate::USER_AGENT);
+    let transport = AzulTransport::azlin(crate::USER_AGENT);
     let server = TokenServer::new(token_url, &transport).map_err(|e| e.to_string())?;
     let key = recovery_key_of(code, drive_id);
     let findable = crate::recovery_keys::findable_key_of(code);
@@ -3219,7 +3223,7 @@ pub(crate) fn recovery_lockdown(
     token_url: &str,
     keyring: &azcloud_kit::SharedKeyring,
 ) -> Result<Option<u64>, String> {
-    let transport = AzulTransport::new(crate::USER_AGENT);
+    let transport = AzulTransport::azlin(crate::USER_AGENT);
     let server = TokenServer::new(token_url, &transport).map_err(|e| e.to_string())?;
     let key = recovery_key_of(code, drive_id);
     let findable = crate::recovery_keys::findable_key_of(code);

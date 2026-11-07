@@ -2667,7 +2667,7 @@ fn start_checkout(
     renew: Option<&RenewJob>,
     quote: Option<&Quote>,
 ) -> Result<Started, StartFailed> {
-    let transport = AzulTransport::new(USER_AGENT);
+    let transport = AzulTransport::azlin(USER_AGENT);
     // The checkout's key is kept with the keyring's open calls: an order whose answer was lost
     // is asked again under it and gets its first answer.
     let server = TokenServer::new(token_url, &transport)
@@ -3012,7 +3012,7 @@ fn switch_surface(
     choice: &Choice,
     look: &Look,
 ) -> Result<azul_pay::Surface, Text> {
-    let transport = AzulTransport::new(USER_AGENT);
+    let transport = AzulTransport::azlin(USER_AGENT);
     let server = TokenServer::new(token_url, &transport).map_err(|e| token_error_text(&e))?;
     let answer = server
         .checkout_surface(checkout_id, kind.as_str())
@@ -3026,7 +3026,7 @@ fn switch_surface(
 /// The checkout `checkout_id` abandoned at the token server: off the keyring's list only when
 /// its answer ended it ([`pending::abandon`]).
 fn abandon(token_url: &str, checkout_id: &str, keyring: &SharedKeyring) -> Abandoned {
-    let transport = AzulTransport::new(USER_AGENT);
+    let transport = AzulTransport::azlin(USER_AGENT);
     match TokenServer::new(token_url, &transport) {
         Ok(server) => {
             // The abandon's key is kept with the keyring's open calls, as the checkout's is.
@@ -3052,7 +3052,7 @@ fn await_payment(
     keyring: &SharedKeyring,
     cancel: &AtomicBool,
 ) -> Outcome {
-    let transport = AzulTransport::new(USER_AGENT);
+    let transport = AzulTransport::azlin(USER_AGENT);
     let server = match TokenServer::new(token_url, &transport) {
         Ok(server) => server,
         Err(e) => {
@@ -3175,7 +3175,7 @@ fn claim_pending(
     cash_every: u64,
     sender: &mut ThreadSender,
 ) -> Outcome {
-    let transport = AzulTransport::new(USER_AGENT);
+    let transport = AzulTransport::azlin(USER_AGENT);
     let started = Instant::now();
     let mut reported: Vec<String> = Vec::new();
     // A cash checkout is asked once, then once each daily interval (its letter takes days):
@@ -3384,7 +3384,7 @@ fn redeem_periods(
     store: &PeriodTokenStore,
     drives: &[(String, String, Option<Arc<azcloud_kit::AzlinDrive>>)],
 ) -> Outcome {
-    let transport = AzulTransport::new(USER_AGENT);
+    let transport = AzulTransport::azlin(USER_AGENT);
     let now = crate::actions::now_secs();
     let mut results = Vec::new();
     let mut renewals = Vec::new();
@@ -3509,7 +3509,7 @@ fn cancel_plan(
     drive_id: &str,
     checkout_id: &str,
 ) -> Result<(), String> {
-    let transport = AzulTransport::new(USER_AGENT);
+    let transport = AzulTransport::azlin(USER_AGENT);
     let server = TokenServer::new(token_url, &transport).map_err(|e| e.to_string())?;
     let tokens = drive_tokens(store, drive_id, azlin)?;
     let state = tokens.state().map_err(|e| e.to_string())?;
@@ -3549,7 +3549,7 @@ fn finish_checkout(
     // What the issue needs; the moments of its wait for the drive's vault are the list's
     // ([`pending::claimed`] stamped them, [`pending::finish`] reads them there).
     let owed = PendingTokens::of(grant, drive_id, 0);
-    let transport = AzulTransport::new(USER_AGENT);
+    let transport = AzulTransport::azlin(USER_AGENT);
     let finished = match (TokenServer::new(token_url, &transport), drive_tokens(store, drive_id, azlin)) {
         (Ok(server), Ok(tokens)) => {
             let now = crate::actions::now_secs();
@@ -3786,7 +3786,10 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
         } => {
             // ONE listing call, at most one entry: does the source answer with these settings?
             let result = entry
-                .open_with_secret(secret.as_deref(), Box::new(AzulTransport::new(USER_AGENT)))
+                .open_with_secret(
+                    secret.as_deref(),
+                    Box::new(AzulTransport::foreign(USER_AGENT)),
+                )
                 .and_then(|drive| drive.list(&ListRequest::folder("").with_max_keys(1)))
                 .map(|page| {
                     if page.folders.is_empty() && page.objects.is_empty() {
@@ -3805,7 +3808,7 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
             redirect_uri,
         } => {
             let result = azul_storage::oauth::exchange_code(
-                &AzulTransport::new(USER_AGENT),
+                &AzulTransport::foreign(USER_AGENT),
                 &plan.token_url,
                 &plan.client,
                 &code,
@@ -3820,7 +3823,7 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
             token_url,
             country,
         } => {
-            let transport = AzulTransport::new(USER_AGENT);
+            let transport = AzulTransport::azlin(USER_AGENT);
             let news = TokenServer::new(&token_url, &transport)
                 .and_then(|server| server.tier_news_in(&country))
                 .map_err(|e| match buyer_refused(&e) {
@@ -3842,7 +3845,7 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
             tier,
             keyring,
         } => {
-            let transport = AzulTransport::new(USER_AGENT);
+            let transport = AzulTransport::azlin(USER_AGENT);
             let result = TokenServer::new(&token_url, &transport)
                 .and_then(|server| server.create_dev_drive(&name, &tier))
                 .map_err(|e| {
@@ -3916,7 +3919,7 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
             country,
             currency,
         } => {
-            let transport = AzulTransport::new(USER_AGENT);
+            let transport = AzulTransport::azlin(USER_AGENT);
             let surfaces: Vec<&str> = crate::add_drive::PAY_SURFACES
                 .iter()
                 .map(|s| s.as_str())
@@ -4146,7 +4149,7 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
             member,
             keyring,
         } => {
-            let transport = AzulTransport::new(USER_AGENT);
+            let transport = AzulTransport::azlin(USER_AGENT);
             let result = match TokenServer::new(&token_url, &transport) {
                 Ok(server) => keyring
                     .remove_member(&server, &drive_id, &member)
@@ -4209,7 +4212,7 @@ fn join(
     } else {
         token_url
     };
-    let transport = AzulTransport::new(crate::USER_AGENT);
+    let transport = AzulTransport::azlin(crate::USER_AGENT);
     let server = TokenServer::new(url, &transport).map_err(|e| e.to_string())?;
     keyring.join(&server, code).map_err(|e| e.to_string())
 }
@@ -4225,7 +4228,7 @@ fn redeem_voucher(
     drive: Option<String>,
     keyring: &SharedKeyring,
 ) -> Outcome {
-    let transport = AzulTransport::new(USER_AGENT);
+    let transport = AzulTransport::azlin(USER_AGENT);
     let server = match TokenServer::new(token_url, &transport) {
         Ok(server) => server,
         Err(e) => {

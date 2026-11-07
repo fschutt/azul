@@ -3249,7 +3249,7 @@ fn share_link(info: &mut CallbackInfo, s: &mut DriveState) {
     let drive = match S3Drive::new(
         config,
         credentials,
-        Box::new(AzulTransport::new(crate::USER_AGENT)),
+        Box::new(AzulTransport::foreign(crate::USER_AGENT)),
     ) {
         Ok(drive) => drive,
         Err(e) => {

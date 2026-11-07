@@ -612,7 +612,7 @@ impl Slot {
             let queue = rotated.clone();
             let id = self.entry.id.clone();
             let transports: azcloud_kit::drive::TransportFactory = Arc::new(|| {
-                Box::new(AzulTransport::new(USER_AGENT)) as Box<dyn azul_storage::Transport>
+                Box::new(AzulTransport::azlin(USER_AGENT)) as Box<dyn azul_storage::Transport>
             });
             let concrete = azcloud_kit::AzlinDrive::new(
                 &self.entry,
@@ -718,7 +718,7 @@ impl Slot {
                 });
             connection(Arc::from(self.entry.open_with_secret_rotating(
                 self.secret.as_deref().map(String::as_str),
-                Box::new(AzulTransport::new(USER_AGENT)),
+                Box::new(AzulTransport::foreign(USER_AGENT)),
                 Some(keep),
             )?))
         };
