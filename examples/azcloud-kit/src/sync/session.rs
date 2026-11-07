@@ -1754,7 +1754,10 @@ impl SyncSession {
     }
 
     /// An encrypted copy opened: kept here first (when it is in the cloud only), then decrypted
-    /// into a temporary file of the pairing's state folder (readable by this user only).
+    /// into a private READ-ONLY copy in scratch ([`azul_storage::scratch`]: a folder only this user
+    /// enters, swept when it is old - the plaintext of an encrypted drive does not stay for good),
+    /// under the file's own name. The name is the drive's, so it passes the name policy before it
+    /// is a path (AZ-W1, X-AR5a-1); a name that does not is refused.
     #[cfg(feature = "encryption")]
     fn decrypt(
         &self,
@@ -1763,6 +1766,21 @@ impl SyncSession {
         key: &str,
         states: &mut SyncStates,
     ) -> CloudResult<PathBuf> {
+        use azul_storage::{
+            beneath::{BeneathError, Root},
+            ctl::Quiet,
+            durable::{self, Expect, Mode, Publish},
+            names::{Policy, Purpose, Volume},
+            scratch::{self, Scratch},
+        };
+        let admitted = Policy::here(Volume::default())
+            .admit(key, Purpose::Open)
+            .map_err(|e| {
+                CloudError::failed(format!(
+                    "{key} cannot be opened here ({}); it stays on the drive",
+                    e.why
+                ))
+            })?;
         let full = format!("{}{key}", self.setup.prefix);
         let kept = states.files.get(key).is_some_and(|r| r.encrypted_copy);
         if !kept {
@@ -1777,9 +1795,42 @@ impl SyncSession {
             }
         }
         let bytes = drive.get(&full)?;
-        let path = local::path_of(&self.dir.join("open"), key);
-        crate::state::write_atomic(&path, &bytes, true)
-            .with_context(|| format!("{}", path.display()))?;
+        // What an earlier version left in the state folder: the plaintext of files it opened.
+        let legacy = self.dir.join("open");
+        if legacy.is_dir() {
+            let _ = fs::remove_dir_all(&legacy);
+        }
+        // One folder per version of the file (a version opened twice is one folder), swept when
+        // nobody has used it for the scratch horizon.
+        let copies = Scratch::new("sync-open");
+        let folder = copies
+            .keep(&format!(
+                "{}\n{full}\n{}",
+                self.setup.drive_id,
+                local::hash_bytes(&bytes)
+            ))
+            .with_context(|| format!("{}", copies.dir().display()))?;
+        copies.sweep(scratch::HORIZON);
+        let path = admitted.under(&folder);
+        // The version opened before is here still (read-only), and as it was: it is handed out
+        // again as it is; anything else is written over.
+        if fs::read(&path).is_ok_and(|have| have == bytes) {
+            return Ok(path);
+        }
+        let blame = |e: BeneathError| CloudError::from(e).context(key.to_string());
+        let tree = Root::open(&folder)
+            .map_err(BeneathError::from)
+            .map_err(blame)?;
+        let (dir, name) = tree.parent_of(&admitted, true).map_err(blame)?;
+        durable::publish(
+            &dir,
+            name,
+            &mut &bytes[..],
+            Publish::new(Expect::Any, Mode::Private, &Quiet),
+        )
+        .map_err(|e| blame(BeneathError::from(e)))?;
+        // A copy that stays writable only loses the reminder that it is a copy.
+        let _ = scratch::make_read_only(&path);
         Ok(path)
     }
 }

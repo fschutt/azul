@@ -735,6 +735,70 @@ mod encrypted_copies {
         );
     }
 
+    /// X-AR5a-1. A file of an encrypted drive opened from its encrypted copy was written, whole and
+    /// readable, to a path made of the drive's key under the pairing's state folder, and stayed
+    /// there for good. It is a private read-only copy in scratch now (swept when old), and what an
+    /// earlier version left in the state folder is removed. RED not run: the old path is under
+    /// the state folder.
+    #[test]
+    fn x_ar5a_1_an_opened_copy_is_private_scratch_and_the_old_open_folder_is_gone() {
+        let bucket = FakeS3::new();
+        let plain: Arc<dyn Drive> = s3_drive(&bucket);
+        let cache_dir = TempDir::new("azcloud-objects-x1");
+        let objects = Arc::new(ObjectCache::new(plain, cache_dir.path().to_path_buf()));
+        let below: Arc<dyn Drive> = objects.clone();
+        let drive: Arc<dyn Drive> = Arc::new(EncryptedDrive::new(
+            below,
+            DriveKey::generate().unwrap(),
+            Arc::new(MemoryIndex::new()),
+        ));
+        let secret = b"the diary of a very private person";
+        drive.put("Documents/notes/diary.txt", secret).unwrap();
+        let folder = TempDir::new("azcloud-objects-x1-folder");
+        let state = TempDir::new("azcloud-objects-x1-state");
+        let mut setup = SyncSetup::new("d_test", "Documents/", folder.path());
+        setup.local_copies = LocalCopies::Encrypted;
+        let session = SyncSession::encrypted_copies(
+            setup,
+            state.path().to_path_buf(),
+            "dev-a",
+            drive.clone(),
+            objects.clone(),
+        );
+        session.pass(&AtomicBool::new(false), &mut |_| {}).unwrap();
+        std::fs::create_dir_all(state.path().join("open")).unwrap();
+        std::fs::write(
+            state.path().join("open/left-over.txt"),
+            b"plaintext an earlier version left",
+        )
+        .unwrap();
+        let path = session.open("notes/diary.txt").unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), secret);
+        assert!(
+            !path.starts_with(state.path()) && !path.starts_with(folder.path()),
+            "not in the pairing's state folder nor in the synced folder: {path:?}"
+        );
+        assert!(
+            path.ends_with("notes/diary.txt"),
+            "under the file's own name: {path:?}"
+        );
+        assert!(
+            !state.path().join("open").exists(),
+            "the plaintext an earlier version left is gone"
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+            assert_eq!(mode & 0o177, 0, "read-only, for this user only: {mode:o}");
+        }
+        // The same version again is the same copy.
+        assert_eq!(session.open("notes/diary.txt").unwrap(), path);
+        // A name the policy refuses is no path, whatever the drive says.
+        let refused = session.open("../escape.txt").unwrap_err().to_string();
+        assert!(refused.contains("cannot be"), "{refused}");
+    }
+
     /// Small files an encrypted drive packed together: the copy kept here is their pack, and
     /// each of them opens from it without a download.
     #[test]
