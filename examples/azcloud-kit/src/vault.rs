@@ -26,11 +26,13 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
+#[cfg(feature = "encryption")]
+use crate::state::write_atomic;
 use crate::{
     error::{CloudError, CloudResult, Context},
     lock::LockDir,
     period::{IssueRequest, PeriodToken},
-    state::{create_private_dir, read_json, write_json},
+    state::{create_private_dir, write_json},
 };
 
 /// The format of a vault's JSON.
@@ -355,6 +357,12 @@ pub trait TokenVault: Send + Sync {
 /// two windows lose none of each other's changes. When its file is gone or does not read, the
 /// second copy beside it ([`LocalVault::second_copy`]) is what it holds, and the next change
 /// writes it back.
+///
+/// With a [`VaultSeal`] the file is SEALED: the issue keys (bearers for months a customer paid
+/// for) and the period tokens are ciphertext under a random key that lives in the keyring and
+/// nowhere else (AZ-K13). A file written before the seal is read as it is and sealed by the next
+/// change; a keyring that cannot give the key refuses ([`CloudError::Keyring`]) - the vault is
+/// never written in the clear instead.
 #[derive(Debug, Clone)]
 pub struct LocalVault {
     path: PathBuf,
@@ -362,6 +370,95 @@ pub struct LocalVault {
     drive_id: String,
     /// This is the second copy of a vault, which has no copy of its own.
     is_copy: bool,
+    /// What seals the files; none: they are plain JSON (a build without the encryption, the
+    /// tests of the plain format).
+    #[cfg(feature = "encryption")]
+    seal: Option<VaultSeal>,
+}
+
+/// What seals the vault files of this computer: the keyring that holds the random key of each
+/// drive's vault ([`azul_storage::footprint::KeyEntry::VaultKey`]). `Debug` shows no key.
+#[cfg(feature = "encryption")]
+#[derive(Debug, Clone)]
+pub struct VaultSeal {
+    keyring: crate::shared::SharedKeyring,
+}
+
+#[cfg(feature = "encryption")]
+impl VaultSeal {
+    /// Seals with the keys `keyring` holds.
+    #[must_use]
+    pub fn new(keyring: crate::shared::SharedKeyring) -> VaultSeal {
+        VaultSeal { keyring }
+    }
+
+    /// The same, through another keyring over the same entries (a background job's, which never
+    /// prompts).
+    #[must_use]
+    pub fn through(&self, keyring: crate::shared::SharedKeyring) -> VaultSeal {
+        VaultSeal { keyring }
+    }
+
+    /// The key of `drive_id`'s vault files. `create`: made - random, kept in the keyring under
+    /// the entry's lock, so two windows make one - when there is none; else `None` for none.
+    ///
+    /// # Errors
+    ///
+    /// The keyring cannot be read or does not take the new key (unavailable, refused, locked), or
+    /// the entry holds no key.
+    fn key(
+        &self,
+        drive_id: &str,
+        create: bool,
+    ) -> CloudResult<
+        Option<azul_storage::crypto::Zeroizing<[u8; azul_storage::crypto::blob::KEY_LEN]>>,
+    > {
+        use azul_storage::footprint::KeyEntry;
+
+        let name = KeyEntry::VaultKey.name(drive_id);
+        if let Some(text) = self.keyring.get(&name)? {
+            return decode_key(&text, &name).map(Some);
+        }
+        if !create {
+            return Ok(None);
+        }
+        let _held = self.keyring.lock(&name)?;
+        if let Some(text) = self.keyring.get(&name)? {
+            return decode_key(&text, &name).map(Some);
+        }
+        let key = azul_storage::crypto::blob::new_key()
+            .map_err(|e| CloudError::failed(format!("a vault key could not be made: {e}")))?;
+        let text = azul_storage::crypto::Zeroizing::new(encode_key(&key));
+        self.keyring.set(&name, &text)?;
+        Ok(Some(key))
+    }
+}
+
+/// A vault key as the keyring keeps it: base64url of its 32 bytes.
+#[cfg(feature = "encryption")]
+fn encode_key(key: &[u8; azul_storage::crypto::blob::KEY_LEN]) -> String {
+    use base64::Engine as _;
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(key)
+}
+
+/// The key `text` holds; an entry that is no key is an error, never "no key" (a vault sealed under
+/// a key that was replaced by text must not be started over).
+#[cfg(feature = "encryption")]
+fn decode_key(
+    text: &str,
+    entry: &str,
+) -> CloudResult<azul_storage::crypto::Zeroizing<[u8; azul_storage::crypto::blob::KEY_LEN]>> {
+    use base64::Engine as _;
+    let bytes = azul_storage::crypto::Zeroizing::new(
+        base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode(text.trim())
+            .unwrap_or_default(),
+    );
+    let key: [u8; azul_storage::crypto::blob::KEY_LEN] = bytes
+        .as_slice()
+        .try_into()
+        .map_err(|_| CloudError::failed(format!("the keyring entry {entry} is no vault key")))?;
+    Ok(azul_storage::crypto::Zeroizing::new(key))
 }
 
 /// How long a change waits for another window's change of the same file.
@@ -376,7 +473,17 @@ impl LocalVault {
             dir: dir.to_path_buf(),
             drive_id: drive_id.to_string(),
             is_copy: false,
+            #[cfg(feature = "encryption")]
+            seal: None,
         }
+    }
+
+    /// This vault with its files sealed by `seal`.
+    #[cfg(feature = "encryption")]
+    #[must_use]
+    pub fn sealed(mut self, seal: VaultSeal) -> LocalVault {
+        self.seal = Some(seal);
+        self
     }
 
     /// The file.
@@ -395,6 +502,8 @@ impl LocalVault {
             dir: self.dir.clone(),
             drive_id: self.drive_id.clone(),
             is_copy: true,
+            #[cfg(feature = "encryption")]
+            seal: self.seal.clone(),
         }
     }
 
@@ -425,18 +534,94 @@ impl LocalVault {
     /// holds nothing else). A file that does not read and has no copy that does is an error,
     /// never an empty vault; and a missing file with a copy that does not read is one too.
     fn read_file(&self) -> CloudResult<(VaultState, bool)> {
-        let first = read_json::<VaultState>(&self.path);
+        let first = self.read_vault(&self.path);
         if let Ok(Some(state)) = first {
             return Ok((state, false));
         }
         if self.is_copy {
             return first.map(|state| (state.unwrap_or_default(), false));
         }
-        match read_json::<VaultState>(&self.copy_path()) {
+        match self.read_vault(&self.copy_path()) {
             Ok(Some(copy)) => Ok((copy, true)),
             Ok(None) => first.map(|state| (state.unwrap_or_default(), false)),
             Err(copy_error) => first.and(Err(copy_error)),
         }
+    }
+
+    /// The vault in the file `path`: `None` when there is none. A sealed file needs this vault's
+    /// seal and the key in the keyring; a plain file (written before the seal) reads as it is.
+    fn read_vault(&self, path: &Path) -> CloudResult<Option<VaultState>> {
+        let bytes = match std::fs::read(path) {
+            Ok(bytes) => bytes,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(e) => return Err(e).with_context(|| path.display().to_string()),
+        };
+        let unreadable = |why: &dyn fmt::Display| {
+            CloudError::failed(format!("{} cannot be read: {why}", path.display()))
+        };
+        #[cfg(feature = "encryption")]
+        if azul_storage::crypto::blob::is_sealed(&bytes) {
+            let Some(seal) = &self.seal else {
+                return Err(unreadable(
+                    &"it is sealed, and this build opens no sealed vault",
+                ));
+            };
+            let Some(key) = seal.key(&self.drive_id, false)? else {
+                return Err(unreadable(&"its key is not in the keyring any more"));
+            };
+            let plain = azul_storage::crypto::blob::open(&key, &self.context(path), &bytes)
+                .map_err(|e| unreadable(&e))?;
+            return serde_json::from_slice(&plain)
+                .map(Some)
+                .map_err(|e| unreadable(&e));
+        }
+        serde_json::from_slice(&bytes)
+            .map(Some)
+            .map_err(|e| unreadable(&e))
+    }
+
+    /// What binds a sealed file to its place: this crate, the drive and the file's role.
+    #[cfg(feature = "encryption")]
+    fn context(&self, path: &Path) -> String {
+        let role = if path == self.copy_path() {
+            "copy"
+        } else {
+            "vault"
+        };
+        format!("azcloud-kit/period-{role}|{}", self.drive_id)
+    }
+
+    /// Whether the file at the vault's path is a plain one that a seal is to replace.
+    #[cfg(feature = "encryption")]
+    fn is_plain_while_sealing(&self) -> bool {
+        self.seal.is_some()
+            && std::fs::read(&self.path)
+                .is_ok_and(|bytes| !azul_storage::crypto::blob::is_sealed(&bytes))
+    }
+
+    #[cfg(not(feature = "encryption"))]
+    fn is_plain_while_sealing(&self) -> bool {
+        false
+    }
+
+    /// Writes the vault `state` to this vault's file: sealed with the keyring's key when this
+    /// vault has a seal - the key made first when there is none - else as plain JSON.
+    fn write_vault(&self, state: &VaultState) -> CloudResult<()> {
+        #[cfg(feature = "encryption")]
+        if let Some(seal) = &self.seal {
+            let key = seal
+                .key(&self.drive_id, true)?
+                .ok_or_else(|| CloudError::failed("the vault's key could not be made"))?;
+            let plain = azul_storage::crypto::Zeroizing::new(
+                serde_json::to_vec(state)
+                    .map_err(|e| CloudError::failed(format!("{}: {e}", self.path.display())))?,
+            );
+            let sealed = azul_storage::crypto::blob::seal(&key, &self.context(&self.path), &plain)
+                .map_err(|e| CloudError::failed(format!("{}: {e}", self.path.display())))?;
+            return write_atomic(&self.path, &sealed, true)
+                .with_context(|| self.path.display().to_string());
+        }
+        write_json(&self.path, state, true)
     }
 }
 
@@ -449,14 +634,19 @@ impl TokenVault for LocalVault {
         let _lock = self.locks().lock(&self.drive_id, LOCAL_WAIT)?;
         let (mut state, from_copy) = self.read_file()?;
         // What came from the copy is written to the file whether or not the change adds to it:
-        // the file heals with the next change.
-        if !from_copy && state.holds(change) && state.format == VAULT_FORMAT {
+        // the file heals with the next change - and a plain file a seal is to replace is sealed
+        // by the next change too.
+        if !from_copy
+            && state.holds(change)
+            && state.format == VAULT_FORMAT
+            && !self.is_plain_while_sealing()
+        {
             return Ok(state);
         }
         state.join(change);
         let state = state.stamped();
         create_private_dir(&self.dir).with_context(|| self.dir.display().to_string())?;
-        write_json(&self.path, &state, true)?;
+        self.write_vault(&state)?;
         Ok(state)
     }
 

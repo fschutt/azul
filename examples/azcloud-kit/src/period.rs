@@ -1656,13 +1656,56 @@ pub(crate) fn unhex<const N: usize>(text: &str) -> Option<[u8; N]> {
 #[derive(Debug, Clone)]
 pub struct PeriodTokenStore {
     dir: PathBuf,
+    /// What seals each drive's vault files; none: plain JSON ([`PeriodTokenStore::new`]).
+    #[cfg(feature = "encryption")]
+    seal: Option<crate::vault::VaultSeal>,
 }
 
 impl PeriodTokenStore {
-    /// The tokens in `dir` (made, 0700 on Unix, on the first write).
+    /// The tokens in `dir` (made, 0700 on Unix, on the first write), kept as plain JSON. An app
+    /// that ships keeps them sealed ([`PeriodTokenStore::sealed`]).
     #[must_use]
     pub fn new(dir: impl Into<PathBuf>) -> PeriodTokenStore {
-        PeriodTokenStore { dir: dir.into() }
+        PeriodTokenStore {
+            dir: dir.into(),
+            #[cfg(feature = "encryption")]
+            seal: None,
+        }
+    }
+
+    /// The tokens in `dir`, each drive's vault SEALED under a random key `keyring` holds (AZ-K13):
+    /// the issue keys - bearers for months a customer paid for - and the period tokens are
+    /// ciphertext on disk, and a keyring that cannot give the key refuses
+    /// ([`CloudError::Keyring`]) instead of the vault being written in the clear. A vault
+    /// written before is read as it is and sealed by the next change.
+    #[cfg(feature = "encryption")]
+    #[must_use]
+    pub fn sealed(
+        dir: impl Into<PathBuf>,
+        keyring: crate::shared::SharedKeyring,
+    ) -> PeriodTokenStore {
+        PeriodTokenStore {
+            dir: dir.into(),
+            seal: Some(crate::vault::VaultSeal::new(keyring)),
+        }
+    }
+
+    /// The same folder through another keyring over the same entries - a background job's, which
+    /// never prompts. A store that keeps plain JSON stays as it is.
+    #[cfg(feature = "encryption")]
+    #[must_use]
+    pub fn through(&self, keyring: crate::shared::SharedKeyring) -> PeriodTokenStore {
+        PeriodTokenStore {
+            dir: self.dir.clone(),
+            seal: self.seal.as_ref().map(|seal| seal.through(keyring)),
+        }
+    }
+
+    /// Whether the vaults of this store are sealed.
+    #[cfg(feature = "encryption")]
+    #[must_use]
+    pub fn is_sealed(&self) -> bool {
+        self.seal.is_some()
     }
 
     #[must_use]
@@ -1678,7 +1721,13 @@ impl PeriodTokenStore {
 
     /// `drive_id`'s vault on this computer.
     pub fn local(&self, drive_id: &str) -> CloudResult<LocalVault> {
-        Ok(LocalVault::new(&self.dir, self.path_of(drive_id)?, drive_id))
+        let vault = LocalVault::new(&self.dir, self.path_of(drive_id)?, drive_id);
+        #[cfg(feature = "encryption")]
+        let vault = match &self.seal {
+            Some(seal) => vault.sealed(seal.clone()),
+            None => vault,
+        };
+        Ok(vault)
     }
 
     /// The file of the members `drive_id`'s status named at the last look.

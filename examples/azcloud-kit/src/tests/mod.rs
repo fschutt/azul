@@ -118,6 +118,9 @@ mod user_errors;
 /// A drive's period tokens kept with the drive itself (feature `encryption`).
 #[cfg(feature = "encryption")]
 mod vault;
+/// The period vault on this computer is ciphertext under a key of the keyring (AZ-K13).
+#[cfg(feature = "encryption")]
+mod vault_seal;
 mod voucher;
 
 use std::sync::{Arc, Mutex};
