@@ -99,8 +99,16 @@ const ALLOWED: &[Allow] = &[
     Allow::file(
         "examples/azul-storage/src/beneath.rs",
         "the primitives durable.rs is built on: create_new and rename of a folder handle, and \
-         their path-based fallbacks where the system has no descriptor-relative calls (Windows, \
-         until Z30-PLAT's win.rs)",
+         their path-based fallbacks where the system has no descriptor-relative calls (Windows \
+         goes through win.rs; what is left is a system that is neither Unix nor Windows)",
+    ),
+    Allow::exactly(
+        "examples/azul-storage/src/win.rs",
+        RAW,
+        1,
+        "Windows: the rename beneath.rs asks for is MoveFileExW written through; a replace that \
+         is refused for access (a read-only target) falls back to std's rename, which replaces \
+         it - the same primitive as beneath.rs, one call",
     ),
     // ---- A. a file that IS a token: a lock, an append-only log, a marker ----
     Allow::exactly(
@@ -176,11 +184,12 @@ const ALLOWED: &[Allow] = &[
         "a state file nobody can read is moved aside to `.unreadable`: a quarantine rename",
     ),
     Allow::exactly(
-        "examples/azcloud-kit/src/sync/quarantine.rs",
+        "examples/azul-storage/src/quarantine.rs",
         RAW,
         1,
         "Windows: the Zone.Identifier stream of a downloaded file - a named stream of that file, \
-         not a file put in place",
+         not a file put in place (moved down from azcloud-kit, AzDrive's Open and Download mark \
+         too: AZ-W20)",
     ),
     // ---- B. the test harness plays other actors on the disk on purpose ----
     Allow::file(

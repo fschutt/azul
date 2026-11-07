@@ -42,6 +42,8 @@ mod meta;
 mod names;
 mod oauth;
 mod ops;
+/// The "downloaded from elsewhere" mark on what a transfer brings from a drive to this disk.
+mod quarantine;
 /// The restore protocol: the truth table of `judge`, the baseline of a new pairing, the pure
 /// rebase of a base after a restore.
 mod restore;

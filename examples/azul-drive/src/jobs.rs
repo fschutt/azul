@@ -1111,7 +1111,12 @@ fn opened_copy(drive: &dyn Drive, copies: &Scratch, key: &str) -> Result<PathBuf
             Expect::Absent,
             &Quiet,
         ) {
-            Ok(_) => break,
+            Ok(_) => {
+                // The system looks at a file from a drive before it runs it (AZ-W20); the copy of a
+                // file that is already here was marked when it came.
+                azul_storage::quarantine::mark_downloaded(&dest);
+                break;
+            }
             // Another window made the same copy in the same moment.
             Err(DriveError::Conflict { .. }) if whole(&dest) => return Ok(dest),
             // Something that is not this version's bytes stands under the name (a copy somebody
@@ -5394,6 +5399,21 @@ mod tests {
             assert_eq!(mode_of(copies.dir()), 0o700, "the purpose's folder");
             assert_eq!(mode_of(base.path()), 0o700, "the root of scratch");
         }
+    }
+
+    /// AZ-W20: AzDrive's Open gave a file of a drive no "downloaded from elsewhere" mark, so the system
+    /// looked at nothing before it ran an `.exe`, a script or a shortcut of a shared drive. The copy
+    /// carries the mark where the system has one (macOS, Windows) and nothing on Linux.
+    #[test]
+    fn az_w20_a_cloud_file_opened_from_azdrive_carries_the_downloaded_mark_where_there_is_one() {
+        let base = TempDir::new("azdrive-open-marked");
+        let copies = Scratch::under(base.path(), "open");
+        let cloud = Cloud::new(b"MZ not really a program", Some("e1"));
+        let path = opened_copy(&cloud, &copies, "tools/setup.exe").expect("a copy");
+        assert_eq!(
+            azul_storage::quarantine::is_marked(&path),
+            azul_storage::quarantine::supported()
+        );
     }
 
     /// AZ-U13: opened again, the same version opens the same copy (the old code made `name (1)`

@@ -85,6 +85,10 @@ pub mod names;
 /// the transport that keeps a signed-in drive's access token fresh.
 pub mod oauth;
 pub mod ops;
+/// The system's "downloaded from elsewhere" mark on a file (Gatekeeper's attribute, Windows'
+/// Zone.Identifier stream): the sync marks other people's files, AzDrive's Open and Download the
+/// files they bring from a drive.
+pub mod quarantine;
 /// The restore protocol: is what a drive serves a restore, a rollback or the ordinary course, and
 /// what a device does with its memory of the drive after a restore. Pure.
 pub mod restore;

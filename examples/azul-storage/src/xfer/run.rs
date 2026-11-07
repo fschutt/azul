@@ -15,8 +15,8 @@ use super::{
     site::{overlap, Overlap},
 };
 use crate::{
-    ctl::Ctl, durable::Expect, local, ops, same_etag, transfer, BatchDelete, BatchMove, BatchPut,
-    Drive, DriveError, Precondition,
+    ctl::Ctl, durable::Expect, local, ops, quarantine, same_etag, transfer, BatchDelete, BatchMove,
+    BatchPut, Drive, DriveError, Precondition,
 };
 
 /// Where a running transfer is.
@@ -198,7 +198,7 @@ fn copy_one(
         precheck(target, &file.target_key, guard)?;
         Expect::Any
     };
-    transfer::copy_object_relayed(
+    let len = transfer::copy_object_relayed(
         source,
         &file.source_key,
         file.size,
@@ -207,7 +207,16 @@ fn copy_one(
         expect,
         stop,
         progress,
-    )
+    )?;
+    // A file of a drive that lands on this disk carries the system's "downloaded from elsewhere"
+    // mark, so the system looks at an `.exe`, a script or a shortcut of a shared drive before it runs
+    // it (AZ-W20); a copy from one folder of this disk to another is no download.
+    if source.local_path(&file.source_key).is_none() {
+        if let Some(path) = target.local_path(&file.target_key) {
+            quarantine::mark_downloaded(&path);
+        }
+    }
+    Ok(len)
 }
 
 /// The bytes of `file` when it is a small file on this computer going into a bucket: what a paste
