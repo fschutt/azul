@@ -11,3 +11,6 @@ description = "The payment methods registry: what people pay with in each countr
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 toml = ">=0.8.23, <2"
+# The one table of a currency's decimals (`azlin_contract::minor_digits`): serde only, and the
+# services that build this crate from here have it already.
+azlin-contract = { path = "../azlin-contract" }

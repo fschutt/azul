@@ -527,21 +527,9 @@ impl TryFrom<String> for MaybeAmount {
 }
 
 /// How many decimals a currency's minor unit has (ISO 4217): none for the yen or the won, three
-/// for the Gulf dinars, two for the rest.
-pub fn minor_digits(currency: &str) -> u32 {
-    const NONE: [&str; 17] = [
-        "BIF", "CLP", "DJF", "GNF", "ISK", "JPY", "KMF", "KRW", "MGA", "PYG", "RWF", "UGX", "VND", "VUV", "XAF",
-        "XOF", "XPF",
-    ];
-    const THREE: [&str; 7] = ["BHD", "IQD", "JOD", "KWD", "LYD", "OMR", "TND"];
-    if NONE.contains(&currency) {
-        0
-    } else if THREE.contains(&currency) {
-        3
-    } else {
-        2
-    }
-}
+/// for the Gulf dinars, two for the rest - the contract's table, the one the Azlin apps and
+/// services read ([`azlin_contract::minor_digits`]).
+pub use azlin_contract::minor_digits;
 
 fn currency_ok(code: &str) -> bool {
     code.len() == 3 && code.bytes().all(|b| b.is_ascii_uppercase())

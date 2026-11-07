@@ -1253,6 +1253,7 @@ dependencies = [
 name = "azul-appkit"
 version = "0.1.0"
 dependencies = [
+ "azlin-contract",
  "azul-core",
  "azul-css",
  "azul-dll",
@@ -1612,6 +1613,7 @@ dependencies = [
 name = "azul-pay-methods"
 version = "0.1.0"
 dependencies = [
+ "azlin-contract",
  "serde",
  "toml 0.9.12+spec-1.1.0",
 ]

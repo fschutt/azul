@@ -24,6 +24,9 @@ publish = false
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 azul-storage = { path = "../azul-storage" }
+# The one table of a currency's decimals (`l10n::money` writes an amount in them): serde only,
+# in the tree already (azcloud-kit, azul-pay).
+azlin-contract = { path = "../azlin-contract" }
 # In Cargo.lock (AzSheets, AzPasswordManager, AzERP): the one CSV reader (`csv` module).
 csv = "1.4"
 # No link mode here: the `azul` feature below adds link-dynamic; `look` alone leaves it to the

@@ -296,6 +296,41 @@ impl Currency {
     }
 }
 
+/// Currencies whose smallest unit is the whole unit (ISO 4217 exponent 0): the yen, the won, the
+/// CFA and CFP francs, the Burundi, Djibouti, Guinea, Comoros, Rwanda francs, the guaraní, the
+/// shilling of Uganda, the ariary, the vatu, the dong, the Icelandic króna, the Chilean peso.
+const NO_DECIMALS: [&str; 17] = [
+    "BIF", "CLP", "DJF", "GNF", "ISK", "JPY", "KMF", "KRW", "MGA", "PYG", "RWF", "UGX", "VND",
+    "VUV", "XAF", "XOF", "XPF",
+];
+
+/// Currencies whose smallest unit is a thousandth (exponent 3): the Gulf dinars and the like.
+const THREE_DECIMALS: [&str; 7] = ["BHD", "IQD", "JOD", "KWD", "LYD", "OMR", "TND"];
+
+/// How many decimals an amount in the currency `code` (an ISO 4217 code in capitals) has: none for
+/// the yen, the won and the other currencies of [`NO_DECIMALS`], three for the Gulf dinars, two
+/// for the rest. The ONE table the Azlin apps read: the checkout's amounts ([`Cents`]), the
+/// payment methods' conversions, the slip's amount in words and the formatter that writes money
+/// for a person all ask this (X-DELTA-AZDRIVE-MONEY-9: three tables had two answers).
+#[must_use]
+pub fn minor_digits(code: &str) -> u32 {
+    if NO_DECIMALS.contains(&code) {
+        0
+    } else if THREE_DECIMALS.contains(&code) {
+        3
+    } else {
+        2
+    }
+}
+
+impl Currency {
+    /// How many decimals an amount in this currency has ([`minor_digits`]).
+    #[must_use]
+    pub fn minor_digits(&self) -> u32 {
+        minor_digits(&self.0)
+    }
+}
+
 impl TryFrom<String> for Currency {
     type Error = InvalidValue;
     fn try_from(text: String) -> Result<Currency, InvalidValue> {

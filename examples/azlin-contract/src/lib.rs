@@ -78,8 +78,8 @@ pub use renewal::{
     READ_ONLY_SECS, REMIND_BEFORE_DAYS, USAGE_PROOF_HEADER, WRITABLE_GRACE_SECS,
 };
 pub use ids::{
-    BucketName, Cents, CheckoutId, Currency, DriveId, FamilyId, InvalidValue, LogicalBytes,
-    MemberId, Months, StoredBytes, TierId,
+    minor_digits, BucketName, Cents, CheckoutId, Currency, DriveId, FamilyId, InvalidValue,
+    LogicalBytes, MemberId, Months, StoredBytes, TierId,
 };
 pub use time::{Deadline, DeadlineKind, Rfc3339};
 

@@ -1001,3 +1001,42 @@ mod claim_refusal {
         );
     }
 }
+
+mod currency_decimals {
+    use azlin_contract::{minor_digits, Currency};
+
+    /// X-DELTA-AZDRIVE-MONEY-9: ONE table answers how many decimals a currency has - the
+    /// seventeen whole-unit currencies of ISO 4217 (the yen, the won, the CFA and CFP francs, ..),
+    /// the seven thousandths (the Gulf dinars), two for the rest - and `Currency` asks it. Three
+    /// copies (the formatter's, azul-pay's, the registry's) had two answers: the formatter wrote
+    /// the CFA franc with two decimals, a price a hundred times lower than the charge.
+    #[test]
+    fn x_delta_azdrive_money_9_one_table_says_how_many_decimals_a_currency_has() {
+        let none = [
+            "BIF", "CLP", "DJF", "GNF", "ISK", "JPY", "KMF", "KRW", "MGA", "PYG", "RWF", "UGX",
+            "VND", "VUV", "XAF", "XOF", "XPF",
+        ];
+        let three = ["BHD", "IQD", "JOD", "KWD", "LYD", "OMR", "TND"];
+        for code in none {
+            assert_eq!(minor_digits(code), 0, "{code}");
+            assert_eq!(
+                Currency::parse(code).expect("a code").minor_digits(),
+                0,
+                "{code}"
+            );
+        }
+        for code in three {
+            assert_eq!(minor_digits(code), 3, "{code}");
+            assert_eq!(
+                Currency::parse(code).expect("a code").minor_digits(),
+                3,
+                "{code}"
+            );
+        }
+        for code in ["EUR", "USD", "PLN", "GBP", "CHF", "BRL", "SEK", "XYZ"] {
+            assert_eq!(minor_digits(code), 2, "{code}");
+        }
+        // A code is read in capitals, as `Currency::parse` makes it.
+        assert_eq!(Currency::parse("xof").expect("a code").minor_digits(), 0);
+    }
+}

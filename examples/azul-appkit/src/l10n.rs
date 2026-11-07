@@ -383,7 +383,10 @@ pub fn decimal(text: &str) -> String {
 /// `1.234,50 EUR` in German, `JPY 160`.
 #[must_use]
 pub fn money(cents: u64, currency: &str) -> String {
-    let digits = MoneyCurrency::from_code(currency).minor_digits;
+    // The contract's table (X-DELTA-AZDRIVE-MONEY-9): the widget's `MoneyCurrency::from_code` knew
+    // five zero-decimal currencies where ISO 4217 has seventeen, and wrote a price in the CFA
+    // franc a hundred times lower than the charge.
+    let digits = u8::try_from(azlin_contract::minor_digits(currency)).unwrap_or(u8::MAX);
     let number = MoneyInput::format_amount(
         i64::try_from(cents).unwrap_or(i64::MAX),
         MoneyCurrency::create("", "", digits),

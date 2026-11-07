@@ -320,3 +320,18 @@ fn an_amount_goes_to_a_provider_as_its_exact_decimal_and_comes_back_in_minor_uni
         assert_eq!(parse_decimal(bad, "EUR"), None, "{bad:?}");
     }
 }
+
+/// X-DELTA-AZDRIVE-MONEY-9: the registry's decimals are the contract's one table (it had a copy of
+/// its own): the whole-unit currencies the copy and the formatter once disagreed about.
+#[test]
+fn x_delta_azdrive_money_9_the_registry_reads_the_contracts_table_of_decimals() {
+    for code in ["XOF", "UGX", "PYG", "RWF", "XAF", "JPY"] {
+        assert_eq!(crate::minor_digits(code), 0, "{code}");
+        assert_eq!(
+            crate::minor_digits(code),
+            azlin_contract::minor_digits(code)
+        );
+    }
+    assert_eq!(crate::minor_digits("KWD"), 3);
+    assert_eq!(crate::minor_digits("EUR"), 2);
+}

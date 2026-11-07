@@ -294,6 +294,49 @@ fn prices_in_the_buyers_currency_keep_its_decimals() {
     set_locale("en-US");
 }
 
+/// X-DELTA-AZDRIVE-MONEY-9 (and X-AR5b-18): the formatter writes the decimals of the contract's ONE
+/// table for every currency - the seventeen whole-unit ones (the CFA franc, the Ugandan shilling,
+/// the guaraní among them: the widget's own table knew five), the seven thousandths, two for the
+/// rest. Before, "XOF 50.00" stood for a charge of 5000 whole units.
+#[test]
+fn x_delta_azdrive_money_9_every_currency_is_written_with_its_own_decimals() {
+    crate::l10n::in_english();
+    let none = [
+        "BIF", "CLP", "DJF", "GNF", "ISK", "JPY", "KMF", "KRW", "MGA", "PYG", "RWF", "UGX", "VND",
+        "VUV", "XAF", "XOF", "XPF",
+    ];
+    for code in none {
+        assert_eq!(
+            pay_words::show(&cents(160, code)),
+            format!("{code} 160"),
+            "{code}"
+        );
+        assert_eq!(
+            pay_words::show(&cents(5_000, code)),
+            format!("{code} 5,000"),
+            "{code}: 5000 whole units, not 50.00"
+        );
+    }
+    for code in ["BHD", "IQD", "JOD", "KWD", "LYD", "OMR", "TND"] {
+        assert_eq!(
+            pay_words::show(&cents(1_234, code)),
+            format!("{code} 1.234"),
+            "{code}"
+        );
+    }
+    for code in ["EUR", "USD", "PLN", "GBP", "CHF", "BRL", "SEK"] {
+        assert_eq!(
+            pay_words::show(&cents(99, code)),
+            format!("{code} 0.99"),
+            "{code}"
+        );
+    }
+    // The slip's amount in words reads the same table (azul-pay's `minor_digits` is the contract's).
+    for code in none {
+        assert_eq!(azul_pay::money::minor_digits(code), 0, "{code}");
+    }
+}
+
 /// X-AR5b-18: one formatter writes money, and it writes the currency's own decimals - none for
 /// the yen, three for the Kuwaiti dinar - in the language's marks, not two decimals for all.
 #[test]
