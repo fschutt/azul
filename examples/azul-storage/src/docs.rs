@@ -93,6 +93,18 @@ impl fmt::Display for DocError {
 
 impl std::error::Error for DocError {}
 
+impl DocError {
+    /// A lock that was not taken: busy only when somebody holds it; its folder or file that cannot
+    /// be made is the disk's error, not a writer to wait for.
+    fn of_lock(e: LockError) -> DocError {
+        if e.is_busy() {
+            DocError::Busy(e)
+        } else {
+            DocError::Io(io::Error::other(e.to_string()))
+        }
+    }
+}
+
 impl From<io::Error> for DocError {
     fn from(e: io::Error) -> Self {
         DocError::Io(e)
@@ -192,8 +204,8 @@ impl<T: Document> Doc<T> {
     pub fn update<R>(&self, change: impl FnOnce(&mut T) -> R) -> Result<(T, R), DocError> {
         let _held = self
             .locks
-            .lock(&self.lock_name, WAIT)
-            .map_err(DocError::Busy)?;
+            .lock_best_effort(&self.lock_name, WAIT)
+            .map_err(DocError::of_lock)?;
         let (mut document, disk) = match self.raw()? {
             Raw::Found(document, value) => (document, Some(value)),
             Raw::Absent => (T::default(), None),
@@ -216,7 +228,7 @@ impl<T: Document> Doc<T> {
         let mut text = None;
         if let Some(disk) = &disk {
             let mut carried = after.clone();
-            if carry_unknown(disk, &before, &mut carried) {
+            if carry_unknown(disk, &before, &mut carried, "", no_keys) {
                 text = Some(carried);
             }
         }
@@ -244,8 +256,8 @@ impl<T: Document> Doc<T> {
     pub fn save_merged(&self, start: &T, mine: &T, key_of: KeyOf) -> Result<T, DocError> {
         let _held = self
             .locks
-            .lock(&self.lock_name, WAIT)
-            .map_err(DocError::Busy)?;
+            .lock_best_effort(&self.lock_name, WAIT)
+            .map_err(DocError::of_lock)?;
         let disk = match self.raw()? {
             Raw::Found(document, value) => Some((document, value)),
             Raw::Absent => None,
@@ -269,7 +281,7 @@ impl<T: Document> Doc<T> {
         let merged = merge_values(&start_value, &mine_value, &round, key_of);
         let document: T = serde_json::from_value(merged.clone()).map_err(encode)?;
         let mut final_value = merged.clone();
-        let carried = carry_unknown(&disk_value, &round, &mut final_value);
+        let carried = carry_unknown(&disk_value, &round, &mut final_value, "", key_of);
         if merged == round && !carried {
             // The file already holds it: nothing to write.
             return Ok(document);
@@ -299,9 +311,11 @@ impl<T: Document> Doc<T> {
 }
 
 /// Puts into `out` the fields of `disk` that `round` (the file as this build reads it) does not
-/// have: what a newer build wrote. In a list, entries are matched by their `id`. Whether anything
-/// was put in.
-fn carry_unknown(disk: &Value, round: &Value, out: &mut Value) -> bool {
+/// have: what a newer build wrote. In a list, entries are matched by `key_of` (given the list's
+/// path, like `.pinned`, and an entry), else by their `id` - so the entries of the settings'
+/// typed lists, which have a key and no `id`, keep a newer build's fields too (AZ-CN19). Whether
+/// anything was put in.
+fn carry_unknown(disk: &Value, round: &Value, out: &mut Value, path: &str, key_of: KeyOf) -> bool {
     match (disk, round, out) {
         (Value::Object(disk), Value::Object(round), Value::Object(out)) => {
             let mut added = false;
@@ -313,7 +327,8 @@ fn carry_unknown(disk: &Value, round: &Value, out: &mut Value) -> bool {
                         added = true;
                     }
                     (Some(round_value), Some(out_value)) => {
-                        added |= carry_unknown(disk_value, round_value, out_value);
+                        let child = format!("{path}.{key}");
+                        added |= carry_unknown(disk_value, round_value, out_value, &child, key_of);
                     }
                     // This build's field, changed or removed by the edit: the edit wins.
                     _ => {}
@@ -322,26 +337,31 @@ fn carry_unknown(disk: &Value, round: &Value, out: &mut Value) -> bool {
             added
         }
         (Value::Array(disk), Value::Array(round), Value::Array(out)) => {
+            let entry_key = |item: &Value| {
+                key_of(path, item)
+                    .or_else(|| item.get("id").and_then(Value::as_str).map(str::to_string))
+            };
             let mut added = false;
             for out_item in out.iter_mut() {
-                let Some(id) = out_item
-                    .get("id")
-                    .and_then(Value::as_str)
-                    .map(str::to_string)
-                else {
+                let Some(id) = entry_key(out_item) else {
                     continue;
                 };
-                let same = |item: &&Value| item.get("id").and_then(Value::as_str) == Some(&id);
+                let same = |item: &&Value| entry_key(item).as_deref() == Some(id.as_str());
                 if let (Some(disk_item), Some(round_item)) =
                     (disk.iter().find(same), round.iter().find(same))
                 {
-                    added |= carry_unknown(disk_item, round_item, out_item);
+                    added |= carry_unknown(disk_item, round_item, out_item, path, key_of);
                 }
             }
             added
         }
         _ => false,
     }
+}
+
+/// A `key_of` for a list whose entries are told apart by their `id` alone.
+fn no_keys(_path: &str, _item: &Value) -> Option<String> {
+    None
 }
 
 /// How the entries of a list are told apart: given the list's path (`.pinned`, `.recovery.held`)

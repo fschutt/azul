@@ -228,6 +228,7 @@ fn x_delta_azdrive_files_14_a_folder_sync_that_answers_an_io_error_is_a_failure_
 
 /// A probe that looks at the folder at the moment the old file has its place in the slot and the new
 /// one is about to take its name - where a kill or a power cut would leave the world.
+#[cfg(unix)]
 struct AtReplace {
     folder: PathBuf,
     /// `(the name's bytes, the slot's bytes, the names in the folder)` as they were then.
@@ -236,6 +237,7 @@ struct AtReplace {
     third: Option<&'static [u8]>,
 }
 
+#[cfg(unix)]
 impl Probe for AtReplace {
     fn before(&self, step: Step) -> io::Result<()> {
         if step == Step::Replace {

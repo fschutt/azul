@@ -416,3 +416,174 @@ fn az_u7_a_first_save_writes_the_document_and_an_unchanged_one_writes_nothing() 
         "nothing changed, nothing written"
     );
 }
+
+// ---- X-DELTA-AZDRIVE-FILES-31: documents and locks
+
+/// A lock error is told by its kind, never by its sentence: `is_busy` was
+/// `text.contains(" is held by ")`, so a lock folder whose NAME had those words in it was "busy"
+/// when it could not be made.
+#[test]
+fn x_delta_azdrive_files_31_a_lock_error_is_told_by_its_kind_not_by_its_sentence() {
+    use std::time::Duration;
+
+    use crate::lock::{LockDir, LockFailure};
+
+    let dir = TempDir::new("dx31-kind");
+    let locks = LockDir::new(dir.path().join("locks"));
+    let held = locks.lock("a", Duration::ZERO).unwrap();
+    let busy = locks.lock("a", Duration::ZERO).unwrap_err();
+    assert_eq!(busy.kind(), LockFailure::Busy);
+    assert!(busy.is_busy());
+    drop(held);
+    // A folder that cannot be made, in a place whose name holds the words the old test looked for.
+    let blocker = dir.path().join("it is held by us");
+    std::fs::write(&blocker, b"a file").unwrap();
+    let broken = LockDir::new(blocker.join("locks"))
+        .lock("a", Duration::ZERO)
+        .unwrap_err();
+    assert!(broken.to_string().contains(" is held by "), "{broken}");
+    assert_eq!(broken.kind(), LockFailure::Failed);
+    assert!(!broken.is_busy());
+}
+
+/// A file system with no file locks (a network share, a FUSE mount) made every document write
+/// "busy": the writers of this process take turns, the write goes on, and the lock is noted. The
+/// lock the keyring's session depends on stays closed.
+#[test]
+fn x_delta_azdrive_files_31_a_file_system_without_locks_does_not_make_every_write_busy() {
+    use std::{
+        fs::{File, TryLockError},
+        io,
+        time::Duration,
+    };
+
+    use crate::lock::{lock_unsupported, unlocked_files, LockDir};
+
+    let none = |_: &File| -> Result<(), TryLockError> {
+        Err(TryLockError::Error(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "no locks here",
+        )))
+    };
+    assert!(lock_unsupported(&io::Error::from(
+        io::ErrorKind::Unsupported
+    )));
+    assert!(!lock_unsupported(&io::Error::from(
+        io::ErrorKind::PermissionDenied
+    )));
+    #[cfg(unix)]
+    for code in [libc::ENOLCK, libc::ENOTSUP, libc::EOPNOTSUPP, libc::ENOSYS] {
+        assert!(
+            lock_unsupported(&io::Error::from_raw_os_error(code)),
+            "{code}"
+        );
+    }
+    let dir = TempDir::new("dx31-nolocks");
+    let locks = LockDir::new(dir.path().join("locks"));
+    // A lock that something depends on fails closed, and says what it is.
+    let refused = locks
+        .lock_using("keyring/x", Duration::ZERO, &none)
+        .unwrap_err();
+    assert!(refused.is_unsupported() && !refused.is_busy(), "{refused}");
+    // A document goes on; the threads of this process still take turns.
+    let first = locks
+        .best_effort_using("doc/x", Duration::ZERO, &none)
+        .unwrap();
+    let second = locks
+        .best_effort_using("doc/x", Duration::ZERO, &none)
+        .unwrap_err();
+    assert!(second.is_busy(), "{second}");
+    drop(first);
+    let third = locks
+        .best_effort_using("doc/x", Duration::ZERO, &none)
+        .unwrap();
+    drop(third);
+    assert!(unlocked_files().contains(&locks.file_of("doc/x")));
+    // Any other failure of the lock is not forgiven.
+    let denied = |_: &File| -> Result<(), TryLockError> {
+        Err(TryLockError::Error(io::Error::from(
+            io::ErrorKind::PermissionDenied,
+        )))
+    };
+    let failed = locks
+        .best_effort_using("doc/y", Duration::ZERO, &denied)
+        .unwrap_err();
+    assert!(!failed.is_busy() && !failed.is_unsupported(), "{failed}");
+}
+
+/// A lock folder that cannot be made is the disk's error, not "another writer holds it".
+#[test]
+fn x_delta_azdrive_files_31_a_lock_that_cannot_be_made_is_the_disks_error_not_busy() {
+    let dir = TempDir::new("dx31-doc-io");
+    let blocker = dir.path().join("blocker");
+    std::fs::write(&blocker, b"a file").unwrap();
+    let doc = Doc::<View>::new(blocker.join("view.json"));
+    let err = doc.update(|view| view.width = 5).unwrap_err();
+    assert!(matches!(err, DocError::Io(_)), "{err:?}");
+    let err = doc
+        .save_merged(&View::default(), &View::default(), key_of)
+        .unwrap_err();
+    assert!(matches!(err, DocError::Io(_)), "{err:?}");
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+struct Pins {
+    width: u32,
+    pinned: Vec<Pin>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+struct Pin {
+    drive: String,
+    prefix: String,
+}
+
+impl Document for Pins {}
+
+/// The settings' own way: a pinned folder is told by its drive and folder, and has no `id`.
+fn pin_key(path: &str, item: &Value) -> Option<String> {
+    match path {
+        ".pinned" => Some(format!(
+            "{}\u{0}{}",
+            item["drive"].as_str()?,
+            item["prefix"].as_str()?
+        )),
+        _ => None,
+    }
+}
+
+/// AZ-CN19 for the typed lists of view.json (`pinned`, `synced`, `recovery`): their entries have a
+/// key and no `id`, and a newer build's field in one was dropped by the next save of an older build.
+#[test]
+fn x_delta_azdrive_files_31_a_newer_builds_field_in_a_keyed_entry_survives_a_merged_save() {
+    let dir = TempDir::new("dx31-keyed");
+    let doc = Doc::<Pins>::new(dir.path().join("view.json"));
+    std::fs::write(
+        doc.path(),
+        r#"{ "width": 100, "theme": "dark",
+  "pinned": [ { "drive": "d1", "prefix": "a/", "color": "red" },
+              { "drive": "d2", "prefix": "b/" } ] }"#,
+    )
+    .unwrap();
+    let start = match doc.read() {
+        DocRead::Found(pins) => pins,
+        other => panic!("{other:?}"),
+    };
+    let mut mine = start.clone();
+    mine.width = 120;
+    mine.pinned.push(Pin {
+        drive: String::from("d3"),
+        prefix: String::from("c/"),
+    });
+    doc.save_merged(&start, &mine, pin_key).unwrap();
+    let on_disk: Value =
+        serde_json::from_str(&std::fs::read_to_string(doc.path()).unwrap()).unwrap();
+    assert_eq!(on_disk["width"], 120);
+    assert_eq!(on_disk["theme"], "dark", "a field of the top level");
+    assert_eq!(on_disk["pinned"].as_array().unwrap().len(), 3);
+    assert_eq!(
+        on_disk["pinned"][0]["color"], "red",
+        "a field of a keyed entry"
+    );
+}

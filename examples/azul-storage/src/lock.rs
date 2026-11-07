@@ -26,23 +26,101 @@ use crate::key::System;
 /// Why a lock was not taken: held by someone for longer than the caller waits, or its file could
 /// not be made or locked. The sentence names the lock's file, never a value.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LockError(String);
+pub struct LockError {
+    kind: LockFailure,
+    text: String,
+}
+
+/// What kind of failure a [`LockError`] is: a caller decides on this, never on the sentence.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LockFailure {
+    /// Held by someone else for longer than the caller waits (waiting longer may help).
+    Busy,
+    /// The file system, or the system, has no file locks (a network share, a FUSE mount):
+    /// `flock` answered "not supported" or "no locks available".
+    Unsupported,
+    /// The lock's folder or file could not be made, or the lock failed for another reason.
+    Failed,
+}
 
 impl LockError {
-    fn new(text: impl Into<String>) -> LockError {
-        LockError(text.into())
+    fn new(kind: LockFailure, text: impl Into<String>) -> LockError {
+        LockError {
+            kind,
+            text: text.into(),
+        }
+    }
+
+    /// What kind of failure it is.
+    #[must_use]
+    pub fn kind(&self) -> LockFailure {
+        self.kind
     }
 
     /// Whether the lock was held by someone else (waiting longer may help) and not broken.
     #[must_use]
     pub fn is_busy(&self) -> bool {
-        self.0.contains(" is held by ")
+        self.kind == LockFailure::Busy
+    }
+
+    /// Whether the file system has no file locks at all.
+    #[must_use]
+    pub fn is_unsupported(&self) -> bool {
+        self.kind == LockFailure::Unsupported
     }
 }
 
 impl fmt::Display for LockError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.0)
+        f.write_str(&self.text)
+    }
+}
+
+/// Whether `e`, the answer of a file lock, says that there are no file locks here: the file system
+/// (a network share, a FUSE mount) or the system does not do them. Not a lock somebody holds, and
+/// not a file that cannot be had.
+#[must_use]
+pub(crate) fn lock_unsupported(e: &std::io::Error) -> bool {
+    if e.kind() == std::io::ErrorKind::Unsupported {
+        return true;
+    }
+    #[cfg(unix)]
+    if let Some(code) = e.raw_os_error() {
+        // Compared with `||`: on some systems two of the names are one number.
+        return code == libc::ENOLCK
+            || code == libc::ENOTSUP
+            || code == libc::EOPNOTSUPP
+            || code == libc::ENOSYS;
+    }
+    false
+}
+
+/// The lock files this process went on without, because their file system has no file locks: the
+/// threads of this process took turns, another program was not kept out.
+static UNLOCKED: Mutex<BTreeSet<PathBuf>> = Mutex::new(BTreeSet::new());
+
+/// The lock files that were taken among the threads of this process only, on a file system with no
+/// file locks ([`LockDir::lock_best_effort`]).
+#[must_use]
+pub fn unlocked_files() -> Vec<PathBuf> {
+    UNLOCKED
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .iter()
+        .cloned()
+        .collect()
+}
+
+/// Notes (and says once, on stderr) that `path` could not be locked at the system's level.
+fn note_unlocked(path: &Path, why: &LockError) {
+    let first = UNLOCKED
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .insert(path.to_path_buf());
+    if first {
+        eprintln!(
+            "[azul-storage] {why}: this file system has no file locks, so two programs of this user              changing the same document at once are not kept apart (the threads of this one are)"
+        );
     }
 }
 
@@ -105,26 +183,92 @@ impl LockDir {
     ///
     /// When it is still held after `wait`, or its file cannot be made or locked.
     pub fn lock(&self, name: &str, wait: Duration) -> Result<HeldLock, LockError> {
+        self.lock_using(name, wait, &File::try_lock)
+    }
+
+    /// [`LockDir::lock`] for a document, where a lock that cannot be had at all must not stop the
+    /// write: on a file system with no file locks ([`LockFailure::Unsupported`]) the threads of
+    /// this process still take turns, the lock is noted ([`unlocked_files`]) and said once, and the
+    /// writer goes on - another program changing the same document at once is not kept out there.
+    /// A lock the keyring's session or a token spend depends on is [`LockDir::lock`]: it fails
+    /// closed.
+    ///
+    /// # Errors
+    ///
+    /// As [`LockDir::lock`], except an unsupported lock.
+    pub fn lock_best_effort(&self, name: &str, wait: Duration) -> Result<HeldLock, LockError> {
+        self.best_effort_using(name, wait, &File::try_lock)
+    }
+
+    /// [`LockDir::lock_best_effort`] with the file lock a test replaces.
+    pub(crate) fn best_effort_using(
+        &self,
+        name: &str,
+        wait: Duration,
+        try_lock: &dyn Fn(&File) -> Result<(), TryLockError>,
+    ) -> Result<HeldLock, LockError> {
+        match self.lock_using(name, wait, try_lock) {
+            Err(e) if e.is_unsupported() => {
+                let path = self.file_of(name);
+                note_unlocked(&path, &e);
+                match ProcessSlot::take(&path, Instant::now() + wait) {
+                    Some(slot) => Ok(HeldLock {
+                        _file: None,
+                        _slot: slot,
+                    }),
+                    None => Err(LockError::new(
+                        LockFailure::Busy,
+                        format!(
+                            "the lock {} is held by another task of this app for more than {} s",
+                            path.display(),
+                            wait.as_secs()
+                        ),
+                    )),
+                }
+            }
+            other => other,
+        }
+    }
+
+    /// [`LockDir::lock`] with the file lock a test replaces.
+    pub(crate) fn lock_using(
+        &self,
+        name: &str,
+        wait: Duration,
+        try_lock: &dyn Fn(&File) -> Result<(), TryLockError>,
+    ) -> Result<HeldLock, LockError> {
         let path = self.file_of(name);
         let deadline = Instant::now() + wait;
         let Some(slot) = ProcessSlot::take(&path, deadline) else {
-            return Err(LockError::new(format!(
-                "the lock {} is held by another task of this app for more than {} s",
-                path.display(),
-                wait.as_secs()
-            )));
+            return Err(LockError::new(
+                LockFailure::Busy,
+                format!(
+                    "the lock {} is held by another task of this app for more than {} s",
+                    path.display(),
+                    wait.as_secs()
+                ),
+            ));
         };
-        fs::create_dir_all(&self.dir)
-            .map_err(|e| LockError::new(format!("the lock folder {}: {e}", self.dir.display())))?;
+        fs::create_dir_all(&self.dir).map_err(|e| {
+            LockError::new(
+                LockFailure::Failed,
+                format!("the lock folder {}: {e}", self.dir.display()),
+            )
+        })?;
         let file = fs::OpenOptions::new()
             .read(true)
             .write(true)
             .create(true)
             .truncate(false)
             .open(&path)
-            .map_err(|e| LockError::new(format!("the lock {}: {e}", path.display())))?;
+            .map_err(|e| {
+                LockError::new(
+                    LockFailure::Failed,
+                    format!("the lock {}: {e}", path.display()),
+                )
+            })?;
         loop {
-            match file.try_lock() {
+            match try_lock(&file) {
                 Ok(()) => {
                     return Ok(HeldLock {
                         _file: Some(file),
@@ -133,16 +277,27 @@ impl LockDir {
                 }
                 Err(TryLockError::WouldBlock) => {
                     if Instant::now() >= deadline {
-                        return Err(LockError::new(format!(
-                            "the lock {} is held by another program for more than {} s",
-                            path.display(),
-                            wait.as_secs()
-                        )));
+                        return Err(LockError::new(
+                            LockFailure::Busy,
+                            format!(
+                                "the lock {} is held by another program for more than {} s",
+                                path.display(),
+                                wait.as_secs()
+                            ),
+                        ));
                     }
                     std::thread::sleep(RETRY);
                 }
                 Err(TryLockError::Error(e)) => {
-                    return Err(LockError::new(format!("the lock {}: {e}", path.display())));
+                    let kind = if lock_unsupported(&e) {
+                        LockFailure::Unsupported
+                    } else {
+                        LockFailure::Failed
+                    };
+                    return Err(LockError::new(
+                        kind,
+                        format!("the lock {}: {e}", path.display()),
+                    ));
                 }
             }
         }
@@ -173,10 +328,13 @@ pub fn in_process(name: &str, wait: Duration) -> Result<HeldLock, LockError> {
             _file: None,
             _slot: slot,
         }),
-        None => Err(LockError::new(format!(
-            "the lock {name} is held by another task of this app for more than {} s",
-            wait.as_secs()
-        ))),
+        None => Err(LockError::new(
+            LockFailure::Busy,
+            format!(
+                "the lock {name} is held by another task of this app for more than {} s",
+                wait.as_secs()
+            ),
+        )),
     }
 }
 
