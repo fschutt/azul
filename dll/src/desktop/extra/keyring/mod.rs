@@ -66,8 +66,11 @@
 //! system would have to ask (an item behind Touch ID, another app's item, a
 //! locked keychain) it answers `Denied`, and the app waits for the user's own
 //! action to ask. Only the Apple keychain prompts per item; the Credential
-//! Manager never asks, and libsecret asks only to unlock a locked collection
-//! (the login keyring is unlocked at login), which a quiet op cannot leave out.
+//! Manager never asks, and libsecret asks only to unlock a locked collection (the login keyring
+//! is unlocked at login): a quiet op looks at the default collection first ([`quiet_verdict`]) and
+//! answers `Denied` while it is locked, and for a store where there is no default collection yet
+//! (making one asks for a password). A libsecret too old to say whether a collection is locked
+//! (before 0.18) leaves that look out, and its unlock dialog can still come.
 
 use std::{
     collections::BTreeSet,
@@ -387,6 +390,37 @@ pub(crate) fn blob_refusal(len: usize) -> Option<String> {
     })
 }
 
+/// What a quiet op finds out about the system's default collection (libsecret) before it touches
+/// it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+pub(crate) enum Collection {
+    /// It is there and open.
+    Unlocked,
+    /// It is there and locked: touching it asks the user for the keyring's password.
+    Locked,
+    /// There is none yet: a store would make one, which asks for a password; a read finds nothing.
+    Missing,
+    /// libsecret did not say (an old one, a refused call): the op goes on.
+    Unknown,
+}
+
+/// What a quiet op answers when the default collection's `state` settles it without touching the
+/// collection; `None`: go on and ask libsecret. A locked collection is `Denied` for every op (the
+/// unlock would show a dialog nobody asked for); with no collection a read finds nothing, a delete
+/// has nothing to delete, and only a store - which would make one - is `Denied` (AZ-W16).
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+pub(crate) fn quiet_verdict(state: Collection, req: &KeyringRequest) -> Option<KeyringResult> {
+    match (state, req) {
+        (Collection::Locked, _) | (Collection::Missing, KeyringRequest::Store { .. }) => {
+            Some(KeyringResult::Denied)
+        }
+        (Collection::Missing, KeyringRequest::Get { .. }) => Some(KeyringResult::NotFound),
+        (Collection::Missing, KeyringRequest::Delete { .. }) => Some(KeyringResult::Deleted),
+        (Collection::Unlocked | Collection::Unknown, _) => None,
+    }
+}
+
 fn key_of(req: &KeyringRequest) -> &AzString {
     match req {
         KeyringRequest::Store { key, .. }
@@ -471,10 +505,10 @@ fn platform_blocking(service: &str, req: &KeyringRequest, _prompts: Prompts) -> 
     windows::handle(service, req)
 }
 
-/// libsecret asks only to unlock a locked collection (see the module).
+/// libsecret asks only to unlock a locked collection: a quiet op looks first (see the module).
 #[cfg(target_os = "linux")]
-fn platform_blocking(service: &str, req: &KeyringRequest, _prompts: Prompts) -> KeyringResult {
-    linux::handle(service, req)
+fn platform_blocking(service: &str, req: &KeyringRequest, prompts: Prompts) -> KeyringResult {
+    linux::handle(service, req, prompts == Prompts::Never)
 }
 
 /// Android's KeyStore helper answers through its Java callback only; other

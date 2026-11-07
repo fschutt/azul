@@ -18,8 +18,8 @@ use azul_css::AzString;
 use azul_core::keyring::KeyringNamespace;
 
 use super::{
-    answer_in, answer_with, blob_refusal, has_nul, service_of, Backend, Prompts,
-    CREDENTIAL_BLOB_MAX,
+    answer_in, answer_with, blob_refusal, has_nul, quiet_verdict, service_of, Backend, Collection,
+    Prompts, CREDENTIAL_BLOB_MAX,
 };
 
 /// The namespace the tests' entries live in (an app's own id).
@@ -515,8 +515,50 @@ fn az_w16_a_key_or_secret_with_a_nul_is_an_error_on_every_backend_and_is_never_k
 fn az_w16_a_secret_over_what_one_credential_holds_is_refused_with_both_sizes() {
     assert_eq!(CREDENTIAL_BLOB_MAX, 5 * 512);
     assert_eq!(blob_refusal(0), None);
-    assert_eq!(blob_refusal(CREDENTIAL_BLOB_MAX), None, "exactly the most fits");
+    assert_eq!(
+        blob_refusal(CREDENTIAL_BLOB_MAX),
+        None,
+        "exactly the most fits"
+    );
     let over = blob_refusal(CREDENTIAL_BLOB_MAX + 1).expect("one byte too many");
     assert!(over.contains("2560") && over.contains("2561"), "{over}");
-    assert!(blob_refusal(100_000).expect("far too many").contains("100000"));
+    assert!(blob_refusal(100_000)
+        .expect("far too many")
+        .contains("100000"));
+}
+
+/// AZ-W16: a quiet op (a start, a timer, a poll) must never raise the keyring's unlock dialog. With
+/// the default collection locked libsecret asks for its password even for a quiet read; the op looks
+/// first and answers `Denied`. The truth table of what the collection's state settles, on every host.
+#[test]
+fn az_w16_a_quiet_op_answers_denied_for_a_locked_collection_instead_of_the_unlock_dialog() {
+    let (read, write, remove) = (get("k"), store("k", "s"), delete("k"));
+    // Locked: nothing is touched, whatever the op.
+    for request in [&read, &write, &remove] {
+        assert_eq!(
+            quiet_verdict(Collection::Locked, request),
+            Some(KeyringResult::Denied),
+            "{request:?}"
+        );
+    }
+    // No default collection: a read finds nothing and a delete has nothing to delete (as the
+    // platform backends answer), but a store would make one, which asks for a password.
+    assert_eq!(
+        quiet_verdict(Collection::Missing, &read),
+        Some(KeyringResult::NotFound)
+    );
+    assert_eq!(
+        quiet_verdict(Collection::Missing, &remove),
+        Some(KeyringResult::Deleted)
+    );
+    assert_eq!(
+        quiet_verdict(Collection::Missing, &write),
+        Some(KeyringResult::Denied)
+    );
+    // Open, or not told (an old libsecret, a refused call): the op goes on to libsecret.
+    for state in [Collection::Unlocked, Collection::Unknown] {
+        for request in [&read, &write, &remove] {
+            assert_eq!(quiet_verdict(state, request), None, "{state:?} {request:?}");
+        }
+    }
 }
