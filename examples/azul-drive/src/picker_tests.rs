@@ -253,3 +253,17 @@ fn x_ar5a_6_a_first_start_makes_the_folder_and_the_registration() {
         "{text}"
     );
 }
+
+/// X-DELTA-AZDRIVE-FILES-29: the copies a picker fetches wait in scratch - the drive's kept folder,
+/// swept when unused for a day - with a cache folder too; `<cache>/picked/<drive>` was swept by
+/// nothing and the plaintext of an encrypted drive piled up in it.
+#[test]
+fn x_delta_azdrive_files_29_the_pickers_copies_wait_in_scratch_with_or_without_a_cache_folder() {
+    let root = copy_root("d_pick29").unwrap();
+    assert!(root.starts_with(picked_scratch().dir()), "{root:?}");
+    assert_eq!(root, picked_scratch().kept("d_pick29"));
+    assert!(root.is_dir());
+    // Another drive, another folder.
+    assert_ne!(root, copy_root("d_pick29b").unwrap());
+    std::fs::remove_dir_all(&root).unwrap();
+}

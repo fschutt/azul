@@ -27,6 +27,20 @@ fn age(path: &Path, days: u32) {
     fs::File::open(path).unwrap().set_modified(when).unwrap();
 }
 
+/// `path` and everything below it made `days` old: a kept folder is as old as the newest thing in
+/// it, so a test that wants it old ages what is in it too.
+#[cfg(unix)]
+fn age_tree(path: &Path, days: u32) {
+    if path.is_dir() && !path.is_symlink() {
+        for entry in fs::read_dir(path).unwrap() {
+            age_tree(&entry.unwrap().path(), days);
+        }
+    }
+    if !path.is_symlink() {
+        age(path, days);
+    }
+}
+
 #[cfg(unix)]
 fn mode_of(path: &Path) -> u32 {
     use std::os::unix::fs::PermissionsExt;
@@ -309,7 +323,7 @@ fn az_u13_a_kept_folder_is_one_per_tag_private_and_swept_when_old() {
     // Young: stays. Old: the folder and the read-only file in it go; the other tag stays.
     assert_eq!(open.sweep(DAY), 0);
     assert!(copy.exists());
-    age(&a, 3);
+    age_tree(&a, 3);
     assert_eq!(open.sweep(DAY), 1);
     assert!(!a.exists());
     assert!(other_version.exists());
@@ -440,7 +454,7 @@ fn x_delta_azdrive_files_7_the_sweep_leaves_a_kept_folder_that_holds_the_users_w
     let unrecorded = scratch.keep("unrecorded").unwrap();
     fs::write(unrecorded.join("d.txt"), b"x").unwrap();
     for folder in [&plain, &beside, &over, &unrecorded] {
-        age(folder, 3);
+        age_tree(folder, 3);
     }
     let removed = scratch.sweep(DAY);
     assert_eq!(
@@ -459,4 +473,199 @@ fn x_delta_azdrive_files_7_the_sweep_leaves_a_kept_folder_that_holds_the_users_w
         b"saved by an editor",
         "an edit saved over the copy was swept with its folder"
     );
+}
+
+// ---- X-DELTA-AZDRIVE-FILES-29: scratch residues
+
+/// The name `Scratch::kept` gives a folder is `k-` and 16 hex digits; a folder of another name that
+/// starts with the letters is somebody's own (a `--cache-dir` whose `scratch/<purpose>` is the
+/// user's folder had its `k-means` removed).
+#[cfg(unix)]
+#[test]
+fn x_delta_azdrive_files_29_the_sweep_removes_only_the_folders_keep_makes() {
+    let root = TempDir::new("dx29-names");
+    let open = Scratch::under(root.path(), "open");
+    let ours = open.keep("docs/a.docx\0v1").unwrap();
+    fs::write(ours.join("a.docx"), b"cloud bytes").unwrap();
+    let theirs: Vec<std::path::PathBuf> = [
+        "k-means",
+        "k-",
+        "k-0123456789abcde",
+        "k-0123456789abcdef0",
+        "k-0123456789ABCDEF",
+        "k-0123456789abcdeg",
+        "K-0123456789abcdef",
+    ]
+    .iter()
+    .map(|name| {
+        let folder = open.dir().join(name);
+        fs::create_dir_all(&folder).unwrap();
+        fs::write(folder.join("note.txt"), b"mine").unwrap();
+        folder
+    })
+    .collect();
+    age_tree(&ours, 3);
+    for folder in &theirs {
+        age_tree(folder, 3);
+    }
+    assert_eq!(open.sweep(DAY), 1, "only the folder keep made");
+    assert!(!ours.exists());
+    for folder in &theirs {
+        assert!(
+            folder.join("note.txt").exists(),
+            "{folder:?} is not scratch"
+        );
+    }
+}
+
+/// A sweep walks a place that is this user's own and closed to others: a link planted at the
+/// purpose's name is not followed (it removed what was in the folder it pointed to), nor is a root
+/// that is a link.
+#[cfg(unix)]
+#[test]
+fn x_delta_azdrive_files_29_a_sweep_does_not_walk_a_link_planted_in_its_place() {
+    let tmp = TempDir::new("dx29-link");
+    let root = tmp.path().join("scratch");
+    // The root is made the way a program makes it.
+    Scratch::under(&root, "other").ensure().unwrap();
+    let elsewhere = tmp.path().join("elsewhere");
+    let kept = Scratch::under(&elsewhere, "open").keep("tag").unwrap();
+    fs::write(kept.join("precious.txt"), b"not scratch").unwrap();
+    age_tree(&kept, 3);
+    let orphan = planted(&elsewhere.join("open"), "open", DEAD_PID, 1, 0);
+    // `<root>/open` is a link to the folder a program of the same user keeps something in.
+    std::os::unix::fs::symlink(elsewhere.join("open"), root.join("open")).unwrap();
+    assert_eq!(
+        Scratch::under(&root, "open").sweep(std::time::Duration::ZERO),
+        0
+    );
+    assert_eq!(scratch::sweep_all_in(&root, std::time::Duration::ZERO), 0);
+    assert!(kept.join("precious.txt").exists());
+    assert!(elsewhere.join("open").join(&orphan).exists());
+    // A root that is a link is not walked either.
+    let link = tmp.path().join("scratch-link");
+    std::os::unix::fs::symlink(&elsewhere, &link).unwrap();
+    assert_eq!(scratch::sweep_all_in(&link, std::time::Duration::ZERO), 0);
+    assert!(kept.join("precious.txt").exists());
+}
+
+/// A pick at `docs/a.pdf` changes `k-H/docs`, not `k-H`: the folder is as old as the newest thing
+/// in it, at any depth.
+#[cfg(unix)]
+#[test]
+fn x_delta_azdrive_files_29_a_kept_folder_is_as_old_as_the_newest_thing_in_it() {
+    let root = TempDir::new("dx29-newest");
+    let picked = Scratch::under(root.path(), "picked");
+    let folder = picked.keep("d_1").unwrap();
+    fs::create_dir_all(folder.join("docs")).unwrap();
+    fs::write(folder.join("docs").join("a.pdf"), b"old").unwrap();
+    age_tree(&folder, 3);
+    // A later pick into the same folder of the copy: only `docs` and the new file change.
+    fs::write(folder.join("docs").join("b.pdf"), b"new").unwrap();
+    age(&folder, 3);
+    assert_eq!(picked.sweep(DAY), 0, "a file picked today keeps the folder");
+    assert!(folder.join("docs").join("b.pdf").exists());
+    age_tree(&folder, 3);
+    assert_eq!(picked.sweep(DAY), 1);
+    assert!(!folder.exists());
+}
+
+/// The removal goes through the folders it holds: a link inside a kept folder is removed as a
+/// link, and what it points to is untouched.
+#[cfg(unix)]
+#[test]
+fn x_delta_azdrive_files_29_the_sweep_removes_a_link_in_a_kept_folder_not_its_target() {
+    let root = TempDir::new("dx29-inner-link");
+    let open = Scratch::under(root.path(), "open");
+    let folder = open.keep("tag").unwrap();
+    let outside = root.path().join("outside");
+    fs::create_dir_all(outside.join("below")).unwrap();
+    fs::write(outside.join("below").join("keep.txt"), b"mine").unwrap();
+    std::os::unix::fs::symlink(&outside, folder.join("escape")).unwrap();
+    fs::write(folder.join("copy.txt"), b"cloud bytes").unwrap();
+    // Nothing is young at a horizon of zero (a link's own time cannot be set back).
+    assert_eq!(open.sweep(std::time::Duration::ZERO), 1);
+    assert!(!folder.exists());
+    assert_eq!(
+        fs::read(outside.join("below").join("keep.txt")).unwrap(),
+        b"mine"
+    );
+}
+
+/// The shared folder every user can write to: `azul-scratch-<uid>` made first by another user (or
+/// planted as a link or a file) is not this user's scratch; the next name is tried.
+#[cfg(unix)]
+#[test]
+fn x_delta_azdrive_files_29_the_fallback_root_is_never_a_place_somebody_else_made() {
+    let temp = TempDir::new("dx29-fallback");
+    let base = scratch::fallback_root_in(temp.path());
+    let name = base.file_name().unwrap().to_str().unwrap().to_string();
+    assert!(name.starts_with("azul-scratch-"), "{name}");
+    assert_eq!(scratch::fallback_root_in(temp.path()), base, "stable");
+    // A folder of ours is taken again.
+    fs::create_dir(&base).unwrap();
+    assert_eq!(scratch::fallback_root_in(temp.path()), base);
+    fs::remove_dir(&base).unwrap();
+    // A file, a link: not ours to use.
+    fs::write(&base, b"planted").unwrap();
+    let second = scratch::fallback_root_in(temp.path());
+    assert_eq!(second, temp.path().join(format!("{name}-1")));
+    std::os::unix::fs::symlink(temp.path(), &second).unwrap();
+    assert_eq!(
+        scratch::fallback_root_in(temp.path()),
+        temp.path().join(format!("{name}-2"))
+    );
+    // Every name spoken for: the first, which `ensure` then refuses.
+    for n in 2..8 {
+        fs::write(temp.path().join(format!("{name}-{n}")), b"planted").unwrap();
+    }
+    assert_eq!(scratch::fallback_root_in(temp.path()), base);
+    assert!(Scratch::under(&base, "open").ensure().is_err());
+}
+
+/// A path taken for a caller that writes in the folder itself is made and checked first; one that
+/// cannot be had is a path every system call refuses.
+#[test]
+fn x_delta_azdrive_files_29_a_checked_dir_is_made_and_a_refused_one_takes_no_write() {
+    let root = TempDir::new("dx29-checked");
+    let vault = Scratch::under(root.path(), "period-tokens");
+    assert!(!vault.dir().exists());
+    let dir = vault.checked_dir().unwrap();
+    assert!(dir.is_dir(), "made");
+    #[cfg(unix)]
+    assert_eq!(mode_of(&dir), 0o700);
+    // A file in the purpose's place: no folder.
+    let blocked = Scratch::under(root.path(), "blocked");
+    fs::write(root.path().join("blocked"), b"a file").unwrap();
+    assert!(blocked.checked_dir().is_err());
+    let refused = scratch::refused_dir();
+    assert!(fs::create_dir_all(&refused).is_err());
+    assert!(fs::write(refused.join("x.json"), b"secret").is_err());
+}
+
+/// AZ-W4: the decrypted copies an AzDrive before scratch left in `<temp>/AzDrive-open` (0755/0644,
+/// readable by every user) are removed once; a link in that name, or a folder another user made,
+/// is not touched.
+#[cfg(unix)]
+#[test]
+fn x_delta_azdrive_files_29_the_old_open_folder_in_the_temp_folder_is_removed_once() {
+    let temp = TempDir::new("dx29-legacy");
+    assert!(
+        !scratch::remove_legacy_open_copies_in(temp.path()),
+        "nothing to do"
+    );
+    let old = temp.path().join("AzDrive-open");
+    fs::create_dir_all(old.join("d_1")).unwrap();
+    fs::write(old.join("d_1").join("report.docx"), b"decrypted").unwrap();
+    scratch::make_read_only(&old.join("d_1").join("report.docx")).unwrap();
+    assert!(scratch::remove_legacy_open_copies_in(temp.path()));
+    assert!(!old.exists());
+    assert!(!scratch::remove_legacy_open_copies_in(temp.path()), "once");
+    // A link in that name: not followed, not removed.
+    let elsewhere = temp.path().join("elsewhere");
+    fs::create_dir_all(&elsewhere).unwrap();
+    fs::write(elsewhere.join("mine.txt"), b"mine").unwrap();
+    std::os::unix::fs::symlink(&elsewhere, &old).unwrap();
+    assert!(!scratch::remove_legacy_open_copies_in(temp.path()));
+    assert!(elsewhere.join("mine.txt").exists());
 }

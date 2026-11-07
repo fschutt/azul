@@ -6016,10 +6016,13 @@ mod tests {
         let old = copies.keep("an old copy").unwrap();
         fs::write(old.join("old.txt"), b"x").unwrap();
         let long_ago = SystemTime::now() - OPEN_COPY_KEPT * 3;
-        fs::File::open(&old)
-            .unwrap()
-            .set_modified(long_ago)
-            .unwrap();
+        // A kept folder is as old as the newest thing in it.
+        for path in [old.join("old.txt"), old.clone()] {
+            fs::File::open(&path)
+                .unwrap()
+                .set_modified(long_ago)
+                .unwrap();
+        }
         cloud.change(b"cloud bytes 2", Some("e2"));
         opened_copy(&cloud, &copies, "a.txt").unwrap();
         assert!(
@@ -6125,7 +6128,12 @@ mod tests {
         // The user saves beside the copy ("Save As" in the folder the editor proposes).
         fs::write(folder.join("report - my version.docx"), b"my version").unwrap();
         let long_ago = SystemTime::now() - OPEN_COPY_KEPT * 3;
+        // A kept folder is as old as the newest thing in it: everything in them is old.
         for dir in [&folder, &other_folder] {
+            for entry in fs::read_dir(dir).unwrap() {
+                let file = fs::File::open(entry.unwrap().path()).unwrap();
+                file.set_modified(long_ago).unwrap();
+            }
             fs::File::open(dir).unwrap().set_modified(long_ago).unwrap();
         }
         let swept = copies.sweep(OPEN_COPY_KEPT);
@@ -6173,6 +6181,25 @@ mod tests {
             crate::period_tokens_dir(Some(Path::new("/home/ann/.config/azul/drives.json"))),
             Path::new("/home/ann/.config/azul/period-tokens")
         );
+    }
+
+    /// X-DELTA-AZDRIVE-FILES-29: the path taken for the vault is made and checked, not only named:
+    /// another user's folder made first at the name would have held the paid months' tokens. A
+    /// place that cannot be had is a path every system call refuses.
+    #[test]
+    fn x_delta_azdrive_files_29_the_vault_folder_in_scratch_is_made_and_checked() {
+        let dir = crate::period_tokens_dir(None);
+        assert_eq!(dir, Scratch::new("period-tokens").dir());
+        assert!(dir.is_dir(), "made: {dir:?}");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = |path: &Path| fs::metadata(path).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode(&dir), 0o700);
+            assert_eq!(mode(dir.parent().unwrap()), 0o700);
+        }
+        assert!(crate::scratch_dir("nodes").is_dir());
+        assert!(fs::create_dir_all(azul_storage::scratch::refused_dir()).is_err());
     }
 
     /// A drive whose look is stale: it says nothing is there (`head`), while `put_if` knows the

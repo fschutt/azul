@@ -3831,8 +3831,19 @@ pub(crate) fn nodes_root() -> PathBuf {
             Some(cache) => cache.join("AzDrive").join("nodes"),
             // No cache folder at all: a private folder of this run's scratch, never the shared
             // temp folder (X-AR5a-23).
-            None => Scratch::new("nodes").dir().to_path_buf(),
+            None => scratch_dir("nodes"),
         }
+    })
+}
+
+/// The private folder of scratch for `purpose`, made and checked - the path of a caller that
+/// writes in it itself. When it cannot be had (another user made the place first, a link stands
+/// in its name) the path every system call refuses: nothing is written into a folder that is not
+/// this user's (X-DELTA-AZDRIVE-FILES-29).
+pub(crate) fn scratch_dir(purpose: &str) -> PathBuf {
+    Scratch::new(purpose).checked_dir().unwrap_or_else(|e| {
+        eprintln!("[azdrive] the private folder for {purpose} is not available: {e}");
+        scratch::refused_dir()
     })
 }
 
@@ -3910,7 +3921,7 @@ fn period_tokens_dir(drives_file: Option<&Path>) -> PathBuf {
         .and_then(Path::parent)
         .filter(|dir| !dir.as_os_str().is_empty())
         .map_or_else(
-            || Scratch::new("period-tokens").dir().to_path_buf(),
+            || scratch_dir("period-tokens"),
             |dir| dir.join("period-tokens"),
         )
 }
@@ -4162,6 +4173,9 @@ pub fn start() {
     // under the cache folder; what a run before left behind and nothing uses any more goes.
     scratch::set_root(cache_dir.as_deref());
     scratch::sweep_all(jobs::OPEN_COPY_KEPT);
+    // The decrypted copies an earlier AzDrive left in the shared temp folder, readable by every
+    // user of the computer, go once (AZ-W4).
+    scratch::remove_legacy_open_copies();
     // The period vault holds the issue keys of paid checkouts (bearers for months) and the
     // period tokens: sealed under a random key the keyring holds (AZ-K13), plain only in a build
     // without the encryption (tests of the plain paths, never shipped).

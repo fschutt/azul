@@ -124,7 +124,7 @@ fn print_dir() -> PathBuf {
         Some(root) => root.join("kit-print"),
         // No cache folder (a `--shot` run): the copies wait in scratch, a folder of this user's
         // only - a page may carry a recovery code, and the shared temp folder is no place for it.
-        None => Scratch::new("kit-print").dir().to_path_buf(),
+        None => crate::scratch_dir("kit-print"),
     }
 }
 

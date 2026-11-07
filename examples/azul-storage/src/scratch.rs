@@ -77,10 +77,96 @@ pub fn root() -> PathBuf {
     }
 }
 
+/// The system's shared temp folder. The only place the shipped code of the storage crates asks for
+/// it.
+fn shared_temp() -> PathBuf {
+    std::env::temp_dir()
+}
+
+/// A path every system call refuses (it holds a NUL byte): where a caller that cannot have its
+/// private folder points what it would have written there, so that nothing is written into a
+/// folder another user made first (X-DELTA-AZDRIVE-FILES-29).
+#[must_use]
+pub fn refused_dir() -> PathBuf {
+    PathBuf::from("\0scratch-refused")
+}
+
+/// Removes `AzDrive-open` from the system's shared temp folder: where an AzDrive before scratch
+/// put the decrypted copy of every file it opened (`AzDrive-open/<drive>/<name>`, folders 0755 and
+/// files 0644 - readable by every user of the computer), and where nothing ever removed them
+/// (AZ-W4). Only a folder this user owns and that is no link goes; one another user made is that
+/// user's. Whether something was removed.
+pub fn remove_legacy_open_copies() -> bool {
+    remove_legacy_open_copies_in(&shared_temp())
+}
+
+/// [`remove_legacy_open_copies`] in the shared folder `temp`.
+pub(crate) fn remove_legacy_open_copies_in(temp: &Path) -> bool {
+    let ours = fs::symlink_metadata(temp.join(LEGACY_OPEN))
+        .is_ok_and(|meta| meta.file_type().is_dir() && owned_by_me(&meta));
+    if !ours {
+        return false;
+    }
+    let Ok(parent) = Dir::open_following(temp) else {
+        return false;
+    };
+    remove_tree(&parent, LEGACY_OPEN, 0).is_ok()
+}
+
+/// The folder of the copies an AzDrive before scratch opened.
+const LEGACY_OPEN: &str = "AzDrive-open";
+
+/// How many names the fallback root tries before it gives up on a folder of its own.
+const FALLBACK_NAMES: usize = 8;
+
 /// The folder of a program that has no cache folder: one per user in the system's temp folder.
-/// The only place the shipped code of the storage crates asks for that folder.
 fn fallback_root() -> PathBuf {
-    std::env::temp_dir().join(format!("azul-scratch-{}", user_tag()))
+    fallback_root_in(&shared_temp())
+}
+
+/// [`fallback_root`] in the shared folder `temp`: `azul-scratch-<uid>`, a name every user can
+/// guess. When somebody else made it first - a folder of another user, a link, a file - the next
+/// name (`azul-scratch-<uid>-1`, ...) is tried, so the scratch of this user is never inside a
+/// place another user made (X-DELTA-AZDRIVE-FILES-29). Only a name that is free or a folder of
+/// ours is taken; if every name is spoken for, the first is returned and [`Scratch::ensure`]
+/// refuses it.
+pub(crate) fn fallback_root_in(temp: &Path) -> PathBuf {
+    let base = format!("azul-scratch-{}", user_tag());
+    for n in 0..FALLBACK_NAMES {
+        let candidate = if n == 0 {
+            temp.join(&base)
+        } else {
+            temp.join(format!("{base}-{n}"))
+        };
+        if free_or_ours(&candidate) {
+            return candidate;
+        }
+    }
+    temp.join(base)
+}
+
+/// Nothing is at `path`, or a folder (not a link) of this user's.
+fn free_or_ours(path: &Path) -> bool {
+    match fs::symlink_metadata(path) {
+        Err(e) => e.kind() == io::ErrorKind::NotFound,
+        Ok(meta) => meta.file_type().is_dir() && owned_by_me(&meta),
+    }
+}
+
+/// Whether `meta` is of an entry this user owns (a system with no owners: the temp folder is the
+/// user's own).
+fn owned_by_me(meta: &fs::Metadata) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        // SAFETY: `geteuid` takes no argument and cannot fail.
+        meta.uid() == unsafe { libc::geteuid() }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = meta;
+        true
+    }
 }
 
 /// What tells this user's folder from another user's in a folder everyone shares.
@@ -145,6 +231,18 @@ impl Scratch {
         }
         private_folder(&self.dir)?;
         Dir::open_following(&self.dir)
+    }
+
+    /// The purpose's folder, made and checked ([`Scratch::ensure`]): the path for a caller that
+    /// hands it on and writes in it itself (a vault, a node list, a page for the PDF reader). A
+    /// path taken without this call may be a folder another user made first.
+    ///
+    /// # Errors
+    ///
+    /// As [`Scratch::ensure`].
+    pub fn checked_dir(&self) -> io::Result<PathBuf> {
+        self.ensure()?;
+        Ok(self.dir.clone())
     }
 
     /// A new file of this purpose, `rw-------`, open for reading and writing; it is removed when
@@ -261,7 +359,22 @@ impl Scratch {
     /// gone (or of an earlier run of this pid), a file of a live process or a kept folder older
     /// than `older_than`. Files of THIS run are never removed (their [`ScratchFile`] does) and
     /// names that are not this module's are left alone. How many entries went.
+    ///
+    /// Only a folder that is ours, closed to others and no link is swept: a link planted at the
+    /// purpose's name, or a folder another user made first, is not walked, and nothing in it is
+    /// removed (X-DELTA-AZDRIVE-FILES-29). A kept folder is a name `k-` and 16 hex digits - what
+    /// [`Scratch::kept`] makes, not any folder that starts with the letters - and it is as old as
+    /// the newest thing in it (a file picked into `k-H/docs` changes `docs`, not `k-H`); it is
+    /// removed through the held folder, not through a path resolved again.
     pub fn sweep(&self, older_than: Duration) -> usize {
+        if let Some(root) = self.dir.parent() {
+            if check_private(root).is_err() {
+                return 0;
+            }
+        }
+        if check_private(&self.dir).is_err() {
+            return 0;
+        }
         let Ok(dir) = Dir::open_following(&self.dir) else {
             return 0;
         };
@@ -269,6 +382,10 @@ impl Scratch {
             return 0;
         };
         let now = SystemTime::now();
+        let age_of = |mtime_ns: u64| {
+            now.duration_since(UNIX_EPOCH + Duration::from_nanos(mtime_ns))
+                .unwrap_or_default()
+        };
         let mut removed = 0;
         for name in names.iter().take(SWEEP_LOOKS) {
             let Some(name) = name.to_str() else {
@@ -277,26 +394,29 @@ impl Scratch {
             let Ok(st) = dir.lstat(name) else {
                 continue;
             };
-            let age = now
-                .duration_since(UNIX_EPOCH + Duration::from_nanos(st.mtime_ns))
-                .unwrap_or_default();
-            let old = age >= older_than;
             match (made_by(name, &self.purpose), st.kind) {
                 (Some(made), Kind::File) => {
                     if made.is_this_run() {
                         continue;
                     }
-                    if (made.orphaned() || old) && dir.unlink(name).is_ok() {
+                    if (made.orphaned() || age_of(st.mtime_ns) >= older_than)
+                        && dir.unlink(name).is_ok()
+                    {
                         removed += 1;
                     }
                 }
-                (None, Kind::Dir) if name.starts_with(KEPT) => {
+                (None, Kind::Dir) if is_kept_name(name) => {
                     // A folder that holds anything its owner did not write (a copy the user
                     // edited and saved beside or over it) is that person's work, whatever its
                     // age says (X-DELTA-AZDRIVE-FILES-7).
-                    if old
+                    let Ok(kept) = dir.child(name, false) else {
+                        continue;
+                    };
+                    let mut looks = SWEEP_LOOKS;
+                    let newest = newest_mtime_ns(&kept, &mut looks);
+                    if age_of(newest) >= older_than
                         && !holds_other_work(&self.dir.join(name))
-                        && fs::remove_dir_all(self.dir.join(name)).is_ok()
+                        && remove_tree(&dir, name, 0).is_ok()
                     {
                         removed += 1;
                     }
@@ -306,6 +426,81 @@ impl Scratch {
         }
         removed
     }
+}
+
+/// Whether `name` is what [`Scratch::kept`] names a folder: `k-` and 16 lowercase hex digits. A
+/// folder of another name that starts with the letters (`k-means`) is somebody's own.
+fn is_kept_name(name: &str) -> bool {
+    name.strip_prefix(KEPT).is_some_and(|hash| {
+        hash.len() == 16 && hash.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+    })
+}
+
+/// The time (nanoseconds since 1970) of the newest thing in `dir`, itself and everything below it
+/// included - a file added at any depth is use. `u64::MAX` (the folder is young) when it cannot be
+/// read whole or `looks` entries are not enough: what cannot be told is not swept.
+fn newest_mtime_ns(dir: &Dir, looks: &mut usize) -> u64 {
+    let Ok(own) = dir.stat() else {
+        return u64::MAX;
+    };
+    let mut newest = own.mtime_ns;
+    let Ok(names) = dir.names() else {
+        return u64::MAX;
+    };
+    for name in &names {
+        let Some(name) = name.to_str() else {
+            return u64::MAX;
+        };
+        if *looks == 0 {
+            return u64::MAX;
+        }
+        *looks -= 1;
+        let Ok(st) = dir.lstat(name) else {
+            return u64::MAX;
+        };
+        newest = newest.max(st.mtime_ns);
+        if st.kind == Kind::Dir {
+            match dir.child(name, false) {
+                Ok(below) => newest = newest.max(newest_mtime_ns(&below, looks)),
+                Err(_) => return u64::MAX,
+            }
+        }
+    }
+    newest
+}
+
+/// How deep [`remove_tree`] goes: a kept folder holds a file, a folder or two.
+#[cfg(not(windows))]
+const TREE_DEPTH: usize = 16;
+
+/// Removes the folder `name` of `parent` and everything in it, through folders it holds: a link in
+/// it is removed as a link and never followed, and a name swapped for something else between the
+/// look and the removal is not followed either. A name that is not text, or a tree deeper than
+/// [`TREE_DEPTH`], stays (an error).
+#[cfg(not(windows))]
+fn remove_tree(parent: &Dir, name: &str, depth: usize) -> io::Result<()> {
+    if depth >= TREE_DEPTH {
+        return Err(io::Error::other("the folder is too deep to be scratch"));
+    }
+    let dir = parent.child(name, false).map_err(io_of)?;
+    for entry in dir.names()? {
+        let Some(entry) = entry.to_str() else {
+            return Err(io::Error::other("a name that is not text"));
+        };
+        if dir.lstat(entry)?.kind == Kind::Dir {
+            remove_tree(&dir, entry, depth + 1)?;
+        } else {
+            dir.unlink(entry).map_err(io_of)?;
+        }
+    }
+    parent.rmdir(name).map_err(io_of)
+}
+
+/// Windows: the standard library removes a tree without following a link and clears the read-only
+/// attribute of the copies of cloud files on the way.
+#[cfg(windows)]
+fn remove_tree(parent: &Dir, name: &str, _depth: usize) -> io::Result<()> {
+    fs::remove_dir_all(parent.path().join(name))
 }
 
 /// What became of a file a program noted in a kept folder ([`Scratch::made_state`]).
@@ -413,6 +608,10 @@ pub fn sweep_all(older_than: Duration) -> usize {
 
 /// [`Scratch::sweep`] of every purpose below `root`.
 pub fn sweep_all_in(root: &Path, older_than: Duration) -> usize {
+    // A root that is a link, a file or another user's folder is not walked.
+    if check_private(root).is_err() {
+        return 0;
+    }
     let Ok(dir) = Dir::open_following(root) else {
         return 0;
     };
@@ -646,17 +845,15 @@ fn check_private(path: &Path) -> io::Result<()> {
             ),
         ));
     }
+    if !owned_by_me(&meta) {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!("{} belongs to another user", path.display()),
+        ));
+    }
     #[cfg(unix)]
     {
         use std::os::unix::fs::{MetadataExt, PermissionsExt};
-        // SAFETY: `geteuid` takes no argument and cannot fail.
-        let me = unsafe { libc::geteuid() };
-        if meta.uid() != me {
-            return Err(io::Error::new(
-                io::ErrorKind::PermissionDenied,
-                format!("{} belongs to another user", path.display()),
-            ));
-        }
         if meta.mode() & 0o077 != 0 {
             fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
         }

@@ -6,8 +6,8 @@
 //! Select folder) and Cancel - and answers with exactly one `AZPICK <json>` line on stdout
 //! ([`PickAnswer`]) before its window closes and the process ends. A file of this computer is
 //! answered by its path; an object of a cloud drive by its handle (drive, key, size, ETag),
-//! or with `cloud: copy` fetched first through the transfer queue into the cache's `picked/`
-//! folder and answered with that copy's path as well.
+//! or with `cloud: copy` fetched first through the transfer queue into a private folder of
+//! scratch (swept when it has not been used for a day) and answered with that copy's path as well.
 //!
 //! Every normal start writes the registration other apps find the picker by
 //! ([`registration`], `file-picker.json` beside the drives file).
@@ -603,8 +603,9 @@ pub(crate) fn answer_keys(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSt
     start_copy(info, app, s, &drive_id, refs);
 }
 
-/// Where the copies a picker fetched from the drive `drive_id` are kept when there is a cache
-/// folder: `<cache>/picked/<drive id>`. The one place the name is spelled; Remove drive asks it
+/// Where the copies a picker fetched from the drive `drive_id` were kept by an AzDrive that put
+/// them in the cache folder: `<cache>/picked/<drive id>`, which nothing swept. They are kept in
+/// scratch now, whether or not there is a cache folder; Remove drive still asks this place
 /// (`footprint.rs`).
 pub(crate) fn picked_dir(cache: &Path, drive_id: &str) -> PathBuf {
     cache.join("picked").join(drive_id)
@@ -616,30 +617,41 @@ pub(crate) fn picked_scratch() -> Scratch {
     Scratch::new("picked")
 }
 
-/// Fetches the objects of `refs` into `<cache>/picked/<drive id>/` through the transfer queue;
-/// its end answers ([`copy_finished`]).
-fn start_copy(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, drive_id: &str, refs: Vec<CloudRef>) {
+/// The folder the picker's copies of the drive `drive_id` wait in: its kept folder of scratch.
+pub(crate) fn copy_root(drive_id: &str) -> std::io::Result<PathBuf> {
+    picked_scratch().keep(drive_id)
+}
+
+/// Fetches the objects of `refs` into the drive's kept folder of scratch through the transfer
+/// queue; its end answers ([`copy_finished`]).
+fn start_copy(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    drive_id: &str,
+    refs: Vec<CloudRef>,
+) {
     let Some(first) = refs.first() else {
         return;
     };
-    // The selection is of one folder: its copies land under the same folder of the cache.
+    // The selection is of one folder: its copies land under the same folder of the drive's.
     let prefix = crate::fileops::parent_of(&first.key);
     let Some(source) = crate::open_current(s) else {
         answer(info, s, &PickAnswer::error(t("azdrive-pick-drive-closed")));
         return;
     };
-    // In the cache folder; without one, in scratch (a private folder of its own per drive, swept
-    // when a day old), never the shared temp folder under a name every user can guess (X-AR5a-23).
-    let root = match s.cache_dir.clone() {
-        Some(cache) => picked_dir(&cache, drive_id),
-        None => match picked_scratch().keep(drive_id) {
-            Ok(folder) => folder,
-            Err(e) => {
-                eprintln!("[azdrive] the picker's copies cannot wait in scratch: {e}");
-                answer(info, s, &PickAnswer::error(t("azdrive-pick-fetch-failed")));
-                return;
-            }
-        },
+    // In scratch (under the cache folder when there is one): a private folder of its own per
+    // drive, swept when it has not been used for a day. A folder of the cache itself was swept by
+    // nothing, and the plaintext of an encrypted drive piled up in it (X-DELTA-AZDRIVE-FILES-29);
+    // the shared temp folder, under a name every user can guess, is no place for it either
+    // (X-AR5a-23).
+    let root = match copy_root(drive_id) {
+        Ok(folder) => folder,
+        Err(e) => {
+            eprintln!("[azdrive] the picker's copies cannot wait in scratch: {e}");
+            answer(info, s, &PickAnswer::error(t("azdrive-pick-fetch-failed")));
+            return;
+        }
     };
     let items: Vec<SourceItem> = refs
         .iter()
