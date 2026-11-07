@@ -289,6 +289,44 @@ fn a_conflict_waits_for_a_choice_and_each_choice_does_what_it_says() {
     assert_eq!(names(&a.folder), names(&b.folder));
 }
 
+/// AZ-S23. "Take theirs" replaced this computer's version with the drive's and kept nothing of it:
+/// when that version existed nowhere else - the conflict is exactly that - the answer deleted it.
+/// The version is in the folder's trash now, and Restore brings it back beside the file. RED not
+/// run: the old code leaves the trash empty, so `back` is empty.
+#[test]
+fn az_s23_take_theirs_keeps_this_computers_version_in_the_trash() {
+    let store = Arc::new(S3Bucket::new());
+    let a = paired("dev-a", &store, |_| {});
+    let b = paired("dev-b", &store, |_| {});
+    a.write("note.md", b"base");
+    a.pass();
+    b.pass();
+    a.write("note.md", b"a's edit");
+    b.write("note.md", b"b's edit, nowhere else!");
+    a.pass();
+    let (states, _) = b.pass();
+    assert_eq!(states.state_of("note.md"), Some(FileState::Conflict));
+    b.session
+        .resolve("note.md", Resolution::TakeTheirs)
+        .unwrap();
+    b.pass();
+    assert_eq!(b.read("note.md").as_deref(), Some(&b"a's edit"[..]));
+    let listed = crate::sync::trash::trashed(b.folder.path(), b.state.path());
+    assert_eq!(
+        listed.iter().map(|t| t.key.as_str()).collect::<Vec<_>>(),
+        ["note.md"],
+        "the trash offers it: {listed:?}"
+    );
+    let back = crate::sync::trash::untrash(b.folder.path(), b.state.path(), "note.md").unwrap();
+    assert_eq!(back.len(), 1, "{back:?}");
+    assert_eq!(
+        b.read(&back[0]).as_deref(),
+        Some(&b"b's edit, nowhere else!"[..]),
+        "this computer's version came back, beside the drive's"
+    );
+    assert_eq!(b.read("note.md").as_deref(), Some(&b"a's edit"[..]));
+}
+
 /// A drive that takes reads but refuses writes (unpaid past its grace period).
 struct Refusing(Arc<S3Bucket>);
 

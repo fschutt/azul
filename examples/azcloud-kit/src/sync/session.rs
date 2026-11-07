@@ -1577,6 +1577,10 @@ impl SyncSession {
             )?,
             // The base takes mine as it is now: the drive's is the change, and comes here.
             Resolution::TakeTheirs => {
+                // This computer's version may exist nowhere else, and the next pass puts the
+                // drive's over it: it is kept in the folder's trash first (AZ-S23). A copy that
+                // cannot be kept refuses the answer, and nothing changes.
+                self.keep_in_trash(key)?;
                 let path = local::path_of(&self.setup.folder, key);
                 let meta = fs::metadata(&path).with_context(|| format!("{}", path.display()))?;
                 let hash = local::hash_file(&path).with_context(|| format!("{}", path.display()))?;
@@ -1596,6 +1600,39 @@ impl SyncSession {
             record.conflict = None;
         }
         states.save(&self.dir)
+    }
+
+    /// A copy of this computer's file `key` in the folder's trash (`.azlin/sync/trash/<pass>/<key>`,
+    /// where "Restore" finds it), with its bytes, permission bits and time; the file itself stays.
+    fn keep_in_trash(&self, key: &str) -> CloudResult<()> {
+        use azul_storage::{
+            beneath::{BeneathError, Root},
+            ctl::Quiet,
+            durable::{self, Expect, Mode, Publish},
+        };
+        let blame = |e: BeneathError| CloudError::from(e).context(key.to_string());
+        let tree = Root::open(&self.setup.folder)
+            .map_err(BeneathError::from)
+            .map_err(blame)?;
+        let (dir, name) = super::names::walk_local(&tree, key, false).map_err(blame)?;
+        let (mut file, st) = dir.open_read(&name).map_err(blame)?;
+        let (trash, target, rel) =
+            super::root::trash_target(&tree, key, &super::root::trash_stamp(crate::now()))
+                .map_err(blame)?;
+        let publish = Publish::new(Expect::Absent, Mode::FromSource(st.mode & 0o777), &Quiet)
+            .with_mtime(std::time::UNIX_EPOCH + Duration::from_nanos(st.mtime_ns));
+        durable::publish(&trash, &target, &mut file, publish)
+            .map_err(|e| blame(BeneathError::from(e)))?;
+        // The log only describes what the folders show ([`super::trash`]); a line that cannot be
+        // written costs the description, not the copy.
+        let _ = super::oplog::OpLog::new(&self.dir).record(&super::oplog::Op {
+            t: crate::now() as f64,
+            op: super::oplog::OpKind::Trash,
+            key: key.to_string(),
+            to: Some(rel),
+            hash: None,
+        });
+        Ok(())
     }
 
     fn set_base(&self, key: &str, entry: BaseEntry) -> CloudResult<()> {
