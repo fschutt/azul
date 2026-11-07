@@ -587,10 +587,17 @@ fn menu_entries(s: &DriveState, row: &Row) -> Vec<(String, SideAction)> {
         }
         #[cfg(feature = "encryption")]
         if slot.entry.azlin().is_some() && crate::encryption::offered() {
-            entries.push((
-                String::from("azdrive-side-encrypt"),
-                SideAction::Encrypt(slot.entry.id.clone()),
-            ));
+            // Only for a drive known not to be encrypted: an encrypted one would refuse it.
+            if slot
+                .auto
+                .as_ref()
+                .is_some_and(|auto| auto.state().offers_encrypt())
+            {
+                entries.push((
+                    String::from("azdrive-side-encrypt"),
+                    SideAction::Encrypt(slot.entry.id.clone()),
+                ));
+            }
             entries.push((
                 String::from("azdrive-side-unlock"),
                 SideAction::Unlock(slot.entry.id.clone()),

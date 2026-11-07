@@ -137,6 +137,18 @@ mod enc_state {
             }
         }
 
+        /// Whether "Encrypt this drive" is offered: the drive is known not to be encrypted (a new
+        /// one, a stopped setup, a plain one made before the encryption). Not for an encrypted
+        /// drive - its setup refuses with "encrypted already" - and not before the drive is
+        /// decided: it may be an encrypted one whose keys this device cannot see (AZ-K9).
+        #[must_use]
+        pub const fn offers_encrypt(self) -> bool {
+            match self {
+                EncState::SetupPending | EncState::Unencrypted(_) => true,
+                EncState::Undecided | EncState::Encrypted { .. } => false,
+            }
+        }
+
         /// Whether the drive goes through `op`. `plain_reads` is whether this app reads a drive
         /// that is not encrypted as its bucket lists (AzDrive does, to offer "Encrypt this
         /// drive"; the bridge and AzMail do not). Nothing goes through an undecided drive, and

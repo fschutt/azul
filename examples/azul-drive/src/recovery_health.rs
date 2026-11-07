@@ -130,6 +130,11 @@ pub struct RecoveryState {
     /// Whether the token server knows the code: until it does, the code locks nothing down
     /// and finds nothing, so the health is red and no emergency kit is offered.
     pub registration: Registration,
+    /// The drive held files before it was encrypted (the legacy plain drive that "Encrypt this
+    /// drive" was pressed on): they move into the encryption once the sheet is done, and until
+    /// the move has ended this stays - also across a restart that makes a new code for the sheet,
+    /// and a kill before the move's journal has a line (AZ-K9).
+    pub moves_files: bool,
     /// Since when the files wait for their re-encryption: a rotation made new keys (this time,
     /// seconds since 1970), and every file still holds the file key the old drive key wraps -
     /// whoever has that key and a copy of the data reads them - until the pass has been over all
@@ -302,6 +307,16 @@ impl RecoveryState {
         self.extra_codes.clear();
         self.findable_key = None;
         self.registration = Registration::Unknown;
+    }
+
+    /// The encryption of a drive that held files began: they move in once the sheet is done.
+    pub fn files_will_move(&mut self) {
+        self.moves_files = true;
+    }
+
+    /// Every plaintext file was moved (or skipped, and said so): nothing is left to move.
+    pub fn files_moved(&mut self) {
+        self.moves_files = false;
     }
 
     /// A rotation made new keys `now`: the files wait for their re-encryption. The question that
@@ -1280,5 +1295,37 @@ mod tests {
         // A new rotation starts it again.
         state.reencrypt_wanted(NOW + 5 * DAY);
         assert!(state.reencrypt_due.is_some());
+    }
+
+    /// AZ-K9: a plain drive whose encryption was begun and stopped (a kill during the sheet, or
+    /// during the move) left its plaintext files in the bucket, invisible in the encrypted view:
+    /// the restart's new sheet was built as a new drive's ("nothing to move") and nothing resumed
+    /// the move. The mark says the files still have to move; it survives a new code (a restart
+    /// during the sheet) and the settings file, and only the move's end clears it.
+    #[test]
+    fn az_k9_the_mark_that_files_still_move_survives_a_new_code_and_a_restart() {
+        let mut state = RecoveryState::new("d_1");
+        assert!(
+            !state.moves_files,
+            "a drive made encrypted has nothing to move"
+        );
+        state.code_made(NOW, Some(String::from("key")));
+        assert!(!state.moves_files);
+
+        state.files_will_move();
+        // A restart during the sheet makes a new code: the mark stays.
+        state.code_made(NOW + 60, Some(String::from("key2")));
+        assert!(state.moves_files, "a new code does not forget the files");
+        let kept: RecoveryState =
+            serde_json::from_str(&serde_json::to_string(&state).unwrap()).unwrap();
+        assert!(kept.moves_files, "the settings file keeps it");
+        let old: RecoveryState = serde_json::from_str(r#"{"drive_id": "d_1"}"#).unwrap();
+        assert!(
+            !old.moves_files,
+            "a file from before the field has nothing to move"
+        );
+
+        state.files_moved();
+        assert!(!state.moves_files, "the move's end clears it");
     }
 }

@@ -91,8 +91,8 @@ use crate::{
     browse,
     jobs::Job,
     recovery_health::{
-        registrations_to_retry, state_mut, FindableSigned, PendingRegistration, Registration,
-        RegistrationAnswer, Signed,
+        registrations_to_retry, state_mut, state_of, FindableSigned, PendingRegistration,
+        Registration, RegistrationAnswer, Signed,
     },
     spawn,
     ui_dialogs::{button, buttons, label, line, on_cancel_popup, typed_button},
@@ -441,6 +441,9 @@ extern "C" fn on_recompress_timer(mut data: RefAny, info: TimerCallbackInfo) -> 
         }
         if reencrypt_if_due(&mut s, now) {
             crate::save_settings(&mut callback_info, &app, &mut s);
+            return TimerCallbackReturn::continue_and_refresh_dom();
+        }
+        if resume_migration(&mut callback_info, &app, &mut s) {
             return TimerCallbackReturn::continue_and_refresh_dom();
         }
     }
@@ -1614,6 +1617,87 @@ pub(crate) fn set_up_failure_shows_as_dialog(why: &str, popup: Option<&Popup>) -
     why != ENCRYPTED_ELSEWHERE && sheet_shows_now(popup)
 }
 
+/// The drives whose move of plaintext files into the encryption was looked at in this run.
+static MIGRATION_LOOKED_AT: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+/// The drives whose move runs now: one at a time per drive, however it was started (the sheet's
+/// end, the resume).
+static MIGRATING: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+fn migrating() -> std::sync::MutexGuard<'static, Vec<String>> {
+    MIGRATING
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// Whether the encryption of the drive `drive_id` has plaintext files left to move: its mark in
+/// the settings says so, or the move's journal does (`done` false). A journal that cannot be read
+/// is an error, said by `Err`.
+fn files_left_to_move(s: &DriveState, drive_id: &str) -> Result<bool, String> {
+    let marked =
+        state_of(&s.settings.recovery.drives, drive_id).is_some_and(|state| state.moves_files);
+    let file = state_file(s, drive_id)?;
+    let journal = load_state(&file, |text| MigrationState::from_json(text).ok())?;
+    Ok(move_is_due(marked, journal.as_ref()))
+}
+
+/// Whether a drive's encryption has plaintext files left to move: the settings' mark says so
+/// (until the move's end clears it), or the move's journal was left unfinished.
+fn move_is_due(marked: bool, journal: Option<&MigrationState>) -> bool {
+    marked || journal.is_some_and(|state| !state.done)
+}
+
+/// An encryption that was stopped goes on (AZ-K9): a drive open encrypted on this computer whose
+/// plaintext files were not all moved in - a kill during the sheet or the move - starts its move
+/// again, once per run and drive, when no dialog shows. The move continues from its journal; it
+/// deletes an original only after the encrypted copy is verified. Whether a move started.
+fn resume_migration(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) -> bool {
+    if s.popup.is_some() {
+        return false;
+    }
+    let candidates: Vec<String> = s
+        .slots
+        .iter()
+        .filter(|slot| {
+            slot.auto
+                .as_ref()
+                .is_some_and(|auto| auto.state().has_drive_index())
+        })
+        .map(|slot| slot.entry.id.clone())
+        .collect();
+    for drive_id in candidates {
+        if migrating().contains(&drive_id) {
+            continue;
+        }
+        {
+            let mut looked = MIGRATION_LOOKED_AT
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if looked.contains(&drive_id) {
+                continue;
+            }
+            looked.push(drive_id.clone());
+        }
+        match files_left_to_move(s, &drive_id) {
+            Ok(true) => {
+                println!("AZDRIVE_MIGRATION_RESUMED {drive_id}");
+                start_migration(info, app, s, &drive_id);
+                return true;
+            }
+            Ok(false) => {}
+            Err(why) => {
+                let name = drive_name(s, &drive_id);
+                s.warn(
+                    Phrase::new("azdrive-enc-migrate-stopped")
+                        .arg("name", name.as_str())
+                        .arg("why", t_label(&why)),
+                );
+            }
+        }
+    }
+    false
+}
+
 /// The question of re-encrypting the files a rotation left under their old file keys, asked
 /// again (AZ-K18): a drive whose files wait ([`RecoveryState::reencrypt_due`]) that is open
 /// encrypted on this computer and was not asked about in the last week, when no dialog shows.
@@ -1957,6 +2041,14 @@ pub(crate) fn start_migration(
             return;
         }
     };
+    {
+        // One move at a time per drive: a second start while it runs would move the same files.
+        let mut running = migrating();
+        if running.iter().any(|other| other == drive_id) {
+            return;
+        }
+        running.push(drive_id.to_string());
+    }
     s.popup.open(Popup::Encryption(Dialog::Busy {
         title: t("azdrive-enc-migrating-title"),
         text: t_args(
@@ -3163,18 +3255,23 @@ pub(crate) fn on_outcome(
             result
         } {
             Ok(code) => {
+                // A drive that held files before its encryption: they move in once the sheet is
+                // done - also when a restart makes a new code for the sheet, which is built as a
+                // new drive's otherwise (AZ-K9).
+                let moves = !new_drive
+                    || state_of(&s.settings.recovery.drives, &drive_id)
+                        .is_some_and(|state| state.moves_files);
                 crate::recovery::code_made(s, &drive_id, &code);
+                if moves {
+                    state_mut(&mut s.settings.recovery.drives, &drive_id).files_will_move();
+                }
                 crate::save_settings(info, app, s);
                 // this computer made the drive key: its own key is registered for a restore
                 crate::archive::register_device_key(info, app, s, &drive_id);
                 // registered while the sheet shows: its kit is offered once the server has it
                 begin_registration(info, app, s, &drive_id, &code, None);
                 let sheet = Sheet::new(&drive_id, code);
-                let sheet = if new_drive {
-                    sheet.for_new_drive()
-                } else {
-                    sheet
-                };
+                let sheet = if moves { sheet } else { sheet.for_new_drive() };
                 // In place of the busy setup (its window), else once the dialog showing closed
                 // (a paid drive that arrived while the Add drive dialog was open).
                 s.popup.open_when_free(Popup::Encryption(Dialog::Sheet(sheet)));
@@ -3260,12 +3357,18 @@ pub(crate) fn on_outcome(
             }
         }
         EncryptionOutcome::Migrated { drive_id, result } => {
+            migrating().retain(|other| *other != drive_id);
             if matches!(s.popup.as_ref(), Some(Popup::Encryption(Dialog::Busy { .. }))) {
                 s.popup.close();
             }
             let name = drive_name(s, &drive_id);
             match result {
                 Ok(state) => {
+                    if state.done {
+                        // Nothing is left to move: the mark that resumes the move goes.
+                        state_mut(&mut s.settings.recovery.drives, &drive_id).files_moved();
+                        crate::save_settings(info, app, s);
+                    }
                     let mut said = Text::from(
                         Phrase::new("azdrive-enc-migrated")
                             .arg("count", state.moved)
@@ -4381,6 +4484,34 @@ mod tests {
             _ => panic!("a damaged state is an error"),
         }
         assert!(!file.exists(), "set aside");
+    }
+
+    /// AZ-K9: a drive whose encryption was stopped - a kill during the sheet, or during the move -
+    /// left plaintext files in the bucket and nothing started the move again. It is due when the
+    /// settings' mark says the files still have to move, or the journal of the move is unfinished;
+    /// a drive that was made encrypted (no mark, no journal) and one whose move ended (no mark, a
+    /// finished journal) have nothing to move.
+    #[test]
+    fn az_k9_a_stopped_move_is_due_by_its_mark_or_its_unfinished_journal() {
+        let unfinished = MigrationState::default();
+        let finished = MigrationState {
+            done: true,
+            ..MigrationState::default()
+        };
+        assert!(!move_is_due(false, None), "a drive made encrypted");
+        assert!(
+            move_is_due(true, None),
+            "stopped before the journal had a line"
+        );
+        assert!(
+            move_is_due(false, Some(&unfinished)),
+            "stopped during the move"
+        );
+        assert!(!move_is_due(false, Some(&finished)), "the move ended");
+        assert!(
+            move_is_due(true, Some(&finished)),
+            "ended, but the mark is not cleared yet: the move runs once more and clears it"
+        );
     }
 
     /// An index provider with an index in memory, the stand-in for the drive's repository.

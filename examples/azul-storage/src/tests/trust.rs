@@ -73,6 +73,17 @@ mod enc_state {
         }
     }
 
+    /// AZ-K9: "Encrypt this drive" was offered for every Azlin drive, also for one that is
+    /// encrypted already (its setup then failed with "encrypted already") and for one not decided
+    /// yet. It is offered for a drive known not to be encrypted, and for no other.
+    #[test]
+    fn az_k9_encrypt_this_drive_is_offered_only_for_a_drive_known_to_be_plain() {
+        for state in states() {
+            let plain = matches!(state, EncState::SetupPending | EncState::Unencrypted(_));
+            assert_eq!(state.offers_encrypt(), plain, "{state:?}");
+        }
+    }
+
     #[test]
     fn x_ar5b_2_only_an_encrypted_drive_is_restored_from_its_files_and_never_by_its_bucket() {
         for state in states() {
